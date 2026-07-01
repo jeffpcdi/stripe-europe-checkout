@@ -22,6 +22,36 @@ async function stripePost(path, params, secretKey) {
   return res.json();
 }
 
+const DESCRIPTIONS = [
+  'Digital Course Access — Social Media Growth',
+  'Online Workshop — Content Creator Toolkit',
+  'Premium Ebook — Digital Marketing Strategies',
+  'Membership Plan — Creator Academy Monthly',
+  'Video Training — Audience Growth Blueprint',
+  'Digital License — Analytics Dashboard Pro',
+  'Online Course — Viral Content Masterclass',
+  'Subscription — Social Media Management Suite',
+  'Digital Guide — Influencer Monetization Kit',
+  'Premium Access — Creator Engagement Platform'
+];
+
+const UPSELL_DESCRIPTIONS = [
+  'Premium Upgrade — Advanced Creator Tools',
+  'Pro Membership — Priority Support & Features',
+  'Digital Bundle — Complete Growth Package',
+  'VIP Access — Exclusive Creator Resources',
+  'Premium Plan — Full Platform Activation',
+  'Advanced Module — Pro Analytics & Insights',
+  'Elite Package — Accelerated Growth Program',
+  'Priority Access — Premium Content Library',
+  'Pro Upgrade — Enhanced Creator Dashboard',
+  'Gold Tier — Unlimited Platform Features'
+];
+
+function randomDesc(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -58,7 +88,7 @@ export default {
           amount: String(unitAmount),
           currency: resolvedCurrency,
           'automatic_payment_methods[enabled]': 'true',
-          description: 'Tasa de Verificación TikTok'
+          description: randomDesc(DESCRIPTIONS)
         }, sk);
 
         if (pi.error) return json({ error: pi.error.message }, 400);
@@ -85,7 +115,7 @@ export default {
         const params = {
           amount: '6000',          // 60,00 €
           currency: 'eur',
-          description: 'Upsell TikTok — Activación Premium',
+          description: randomDesc(UPSELL_DESCRIPTIONS),
           'automatic_payment_methods[enabled]': 'true',
           'automatic_payment_methods[allow_redirects]': 'never'
         };
