@@ -101,6 +101,11 @@ app.get('/checkout', (req, res) => {
   res.sendFile(path.join(__dirname, 'proximo', 'premium', 'checkout.html'));
 });
 
+// ── Apple Pay: servir .well-known (verificação de domínio) ──────────
+app.use('/.well-known', express.static(path.join(__dirname, '.well-known'), {
+  dotfiles: 'allow'
+}));
+
 // ── Servir ficheiros estáticos ───────────────────────────────────────
 // Serve index.html automaticamente para pastas (ex: /1/ → /1/index.html)
 app.use(express.static(path.join(__dirname), {
