@@ -1,0 +1,51 @@
+/* Animation Styles */
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-12px); }
+  60% { transform: translateY(-6px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes zoomIn {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.bounce { animation: bounce 0.6s ease; }
+.fade-in { animation: fadeIn 0.4s ease; }
+.zoom-in { animation: zoomIn 0.35s ease; }
+
+/* Reward reveal - spring overshoot */
+@keyframes rewardPop {
+  0% { transform: scale(0.3); opacity: 0; }
+  55% { transform: scale(1.18); opacity: 1; }
+  75% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+.reward-pop { animation: rewardPop 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* TikTok-style logo glitch (chromatic aberration) - subtle, periodic */
+@keyframes tiktokGlitch {
+  0%, 90%, 100% { filter: none; transform: translate(0, 0); }
+  91% { filter: drop-shadow(-2px 0 #25f4ee) drop-shadow(2px 0 #fe2c55); transform: translate(1px, 0); }
+  93% { filter: drop-shadow(2px 0 #25f4ee) drop-shadow(-2px 0 #fe2c55); transform: translate(-1px, 0); }
+  95% { filter: drop-shadow(-1px 0 #25f4ee) drop-shadow(1px 0 #fe2c55); transform: translate(1px, 0); }
+  97% { filter: none; transform: translate(0, 0); }
+}
+.tiktok-logo img { animation: tiktokGlitch 4.5s infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tiktok-logo img { animation: none; }
+}
+
+.confetti {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  opacity: 0;
+}

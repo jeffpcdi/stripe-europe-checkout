@@ -1,0 +1,94 @@
+/* Modal Styles */
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background-color: white;
+  padding: 28px 24px;
+  border-radius: 20px;
+  width: 85%;
+  max-width: 340px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  transform: scale(0.92) translateY(10px);
+  opacity: 0;
+  transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.modal.active {
+  display: flex;
+}
+
+.modal.active .modal-content {
+  transform: scale(1) translateY(0);
+  opacity: 1;
+}
+
+.reward-header {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #22c55e;
+}
+
+.reward-message {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.reward-amount {
+  font-size: 38px;
+  font-weight: 800;
+  color: #16a34a;
+  margin-bottom: 20px;
+}
+
+#reward-modal .reward-amount {
+  font-size: 40px;
+}
+
+.reward-info {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-bottom: 20px;
+  line-height: 1.4;
+}
+
+.continue-reward-btn {
+  background-color: #fe2c55;
+  color: white;
+  border: none;
+  padding: 14px 20px;
+  width: 100%;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.continue-reward-btn:active {
+  background-color: #e0264c;
+}
+
+.final-content {
+  padding: 32px 24px;
+}
+
+.final-content .reward-amount {
+  font-size: 42px;
+  margin: 16px 0 12px;
+}
