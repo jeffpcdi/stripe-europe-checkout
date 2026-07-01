@@ -572,6 +572,105 @@
     .ck-social-txt { font-size: 12px; font-weight: 600; color: #15803d; line-height: 1.4; }
     .ck-social-txt b { font-weight: 800; }
 
+    /* ─── COUNTDOWN URGENCY BANNER ─── */
+    .ck-countdown {
+      background: linear-gradient(90deg, #1a1d26 0%, #2a1525 50%, #1a1d26 100%);
+      border-bottom: 1px solid rgba(254,44,85,.2);
+      padding: 10px 16px;
+      text-align: center;
+    }
+    .ck-countdown-inner {
+      max-width: 860px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      flex-wrap: wrap;
+    }
+    .ck-countdown-ico {
+      width: 22px; height: 22px; border-radius: 6px;
+      background: rgba(254,44,85,.15); color: var(--red);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .ck-countdown-text { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,.8); }
+    .ck-countdown-text b { color: #fff; font-weight: 800; }
+    .ck-countdown-timer {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(254,44,85,.15); border: 1px solid rgba(254,44,85,.3);
+      border-radius: 8px; padding: 4px 10px;
+      font-size: 14px; font-weight: 800; color: var(--red);
+      font-variant-numeric: tabular-nums; letter-spacing: .02em;
+    }
+    .ck-countdown-timer.timer-critical { animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: .5; } }
+    .ck-countdown-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--red);
+      animation: pulseDot 1.5s ease-in-out infinite;
+    }
+
+    /* ─── URGENCY ALERT (in order card) ─── */
+    .ck-urgency {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; margin: 0 20px 16px;
+      background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px;
+      font-size: 12px; font-weight: 600; color: #9a3412; line-height: 1.4;
+    }
+    .ck-urgency svg { flex-shrink: 0; color: #ea580c; }
+
+    /* ─── REVIEWS ─── */
+    .ck-reviews-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r-card); box-shadow: var(--shadow-xs);
+      overflow: hidden; animation: fadeUp .4s ease .16s both;
+    }
+    .ck-reviews-head {
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--border-2);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .ck-reviews-head-left { display: flex; align-items: center; gap: 8px; }
+    .ck-reviews-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+    .ck-reviews-stars { color: #f59e0b; display: flex; gap: 1px; }
+    .ck-reviews-avg { font-size: 12px; font-weight: 700; color: var(--sub); }
+    .ck-reviews-list { padding: 0; }
+    .ck-review {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-2);
+    }
+    .ck-review:last-child { border-bottom: none; }
+    .ck-review-top {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .ck-review-user {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .ck-review-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0;
+    }
+    .ck-review-name { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+    .ck-review-verified {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 700; color: var(--green);
+      background: var(--green-bg); border-radius: 99px; padding: 2px 8px;
+    }
+    .ck-review-stars { color: #f59e0b; display: flex; gap: 1px; margin-bottom: 4px; }
+    .ck-review-text { font-size: 12px; color: var(--sub); line-height: 1.5; font-weight: 500; }
+    .ck-review-date { font-size: 10.5px; color: var(--faint); margin-top: 4px; font-weight: 500; }
+
+    /* ─── LIVE VIEWERS ─── */
+    .ck-live {
+      display: flex; align-items: center; gap: 7px;
+      padding: 10px 14px;
+      background: #faf5ff; border: 1px solid #e9d5ff; border-radius: var(--r-input);
+      margin-top: 8px;
+    }
+    .ck-live-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #a855f7;
+      animation: pulseDot 1.7s ease-in-out infinite; flex-shrink: 0;
+    }
+    .ck-live-txt { font-size: 12px; font-weight: 600; color: #7e22ce; line-height: 1.4; }
+    .ck-live-txt b { font-weight: 800; }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
     }
@@ -654,6 +753,18 @@
     </div>
   </div>
 
+  <!-- ══ Countdown Urgency Banner ═══════════════════════════════════ -->
+  <div class="ck-countdown">
+    <div class="ck-countdown-inner">
+      <span class="ck-countdown-dot"></span>
+      <span class="ck-countdown-text">Tu saldo será <b>devuelto</b> si no verificas en:</span>
+      <span class="ck-countdown-timer" id="ck-timer">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 8v4l2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span id="ck-timer-val">14:59</span>
+      </span>
+    </div>
+  </div>
+
   <!-- ══ Main Layout ═════════════════════════════════════════════════ -->
   <main class="ck-layout">
 
@@ -724,6 +835,11 @@
             <span class="ck-social-txt"><b>+12.400 pagos</b> procesados de forma segura en las últimas 24 horas.</span>
           </div>
 
+          <div class="ck-live">
+            <span class="ck-live-dot"></span>
+            <span class="ck-live-txt"><b id="ck-viewers">23</b> personas están completando la verificación ahora mismo</span>
+          </div>
+
         </div>
       </div>
 
@@ -789,6 +905,11 @@
           </div>
         </div>
 
+        <div class="ck-urgency">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8Z" fill="currentColor"/></svg>
+          <span>Solo <b id="ck-spots">7</b> plazas restantes hoy con tarifa reducida</span>
+        </div>
+
         <div class="ck-order-divider"></div>
 
         <div class="ck-order-total-row">
@@ -842,6 +963,83 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             Datos protegidos · PCI DSS
           </div>
+        </div>
+      </div>
+
+      <!-- ── Reviews ── -->
+      <div class="ck-reviews-card">
+        <div class="ck-reviews-head">
+          <div class="ck-reviews-head-left">
+            <span class="ck-reviews-title">Verificaciones recientes</span>
+            <span class="ck-reviews-stars">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+            </span>
+          </div>
+          <span class="ck-reviews-avg">4.9/5</span>
+        </div>
+        <div class="ck-reviews-list">
+
+          <div class="ck-review">
+            <div class="ck-review-top">
+              <div class="ck-review-user">
+                <div class="ck-review-avatar" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">ML</div>
+                <span class="ck-review-name">María L.</span>
+              </div>
+              <span class="ck-review-verified"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Verificado</span>
+            </div>
+            <div class="ck-review-stars">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+            </div>
+            <p class="ck-review-text">Recibí mi saldo en menos de 5 minutos. Al principio dudé pero todo fue rápido y seguro.</p>
+            <p class="ck-review-date">Hace 2 horas</p>
+          </div>
+
+          <div class="ck-review">
+            <div class="ck-review-top">
+              <div class="ck-review-user">
+                <div class="ck-review-avatar" style="background:linear-gradient(135deg,#f43f5e,#e11d48)">JR</div>
+                <span class="ck-review-name">Juan R.</span>
+              </div>
+              <span class="ck-review-verified"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Verificado</span>
+            </div>
+            <div class="ck-review-stars">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+            </div>
+            <p class="ck-review-text">€2.890 liberados al instante. No me lo creía hasta que vi el dinero en mi cuenta. 100% real.</p>
+            <p class="ck-review-date">Hace 4 horas</p>
+          </div>
+
+          <div class="ck-review">
+            <div class="ck-review-top">
+              <div class="ck-review-user">
+                <div class="ck-review-avatar" style="background:linear-gradient(135deg,#10b981,#059669)">SC</div>
+                <span class="ck-review-name">Sofía C.</span>
+              </div>
+              <span class="ck-review-verified"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Verificado</span>
+            </div>
+            <div class="ck-review-stars">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+            </div>
+            <p class="ck-review-text">Proceso súper fácil. Pagué la verificación y en minutos ya tenía mi saldo disponible. Muy recomendable.</p>
+            <p class="ck-review-date">Hace 6 horas</p>
+          </div>
+
         </div>
       </div>
 
@@ -1079,6 +1277,50 @@
       if (window.Stripe) { boot(); }
       else { var s = document.querySelector('script[src*="js.stripe.com"]'); if (s) s.addEventListener('load', boot); }
 
+    })();
+
+    // ── Countdown timer ──────────────────────────────────────────────
+    (function () {
+      var totalSeconds = 14 * 60 + 59;
+      var timerEl = document.getElementById('ck-timer-val');
+      var timerWrap = document.getElementById('ck-timer');
+      if (!timerEl) return;
+
+      function tick() {
+        if (totalSeconds <= 0) { timerEl.textContent = '00:00'; return; }
+        totalSeconds--;
+        var m = Math.floor(totalSeconds / 60);
+        var s = totalSeconds % 60;
+        timerEl.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+        if (totalSeconds < 300 && timerWrap) timerWrap.classList.add('timer-critical');
+      }
+      setInterval(tick, 1000);
+    })();
+
+    // ── Live viewers counter ─────────────────────────────────────────
+    (function () {
+      var viewersEl = document.getElementById('ck-viewers');
+      if (!viewersEl) return;
+      var base = 23;
+      function update() {
+        var delta = Math.floor(Math.random() * 7) - 3;
+        base = Math.max(18, Math.min(34, base + delta));
+        viewersEl.textContent = base;
+      }
+      setInterval(update, 3000 + Math.random() * 4000);
+    })();
+
+    // ── Spots counter ────────────────────────────────────────────────
+    (function () {
+      var spotsEl = document.getElementById('ck-spots');
+      if (!spotsEl) return;
+      var spots = 7;
+      function decrease() {
+        if (spots <= 2) return;
+        spots--;
+        spotsEl.textContent = spots;
+      }
+      setTimeout(function () { decrease(); setInterval(decrease, 45000 + Math.random() * 30000); }, 20000);
     })();
   </script>
 </body>
