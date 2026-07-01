@@ -217,6 +217,14 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .dl .dv{font-weight:600;text-align:right;word-break:break-all;max-width:240px}
 .dgroup{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted2);margin:18px 0 4px;font-weight:600}
 
+/* ── Btn-icon (copiar ID, etc.) ── */
+.btn-icon{background:var(--card2);border:1px solid var(--border);color:var(--muted);height:30px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:11.5px;font-weight:600;letter-spacing:.02em;display:inline-flex;align-items:center;gap:5px;transition:color .15s,border-color .15s}
+.btn-icon:hover{color:var(--cyan);border-color:var(--cyan)}
+
+/* ── Gráfico A/B ── */
+#ab-chart-card{overflow:hidden}
+#ab-chart svg{display:block;overflow:visible}
+
 /* ── Toast ── */
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--card);border:1px solid var(--border2);color:var(--text);padding:12px 20px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:60;transition:.3s;box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:none}
 .toast.show{transform:translateX(-50%) translateY(0)}
@@ -373,6 +381,10 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
           <div class="verdict" id="ab-verdict"></div>
           <div class="card" id="ab-metrics"></div>
         </div>
+        <div class="section-title"><span>Comparativo visual</span><span class="line"></span></div>
+        <div class="card" id="ab-chart-card">
+          <div id="ab-chart" style="width:100%;overflow:hidden"></div>
+        </div>
         <div class="section-title"><span>Variantes em detalhe</span><span class="line"></span></div>
         <div class="grid" style="grid-template-columns:1fr 1fr" id="ab-variants"></div>
       </section>
@@ -392,7 +404,8 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 
       <!-- ── Atividade ── -->
       <section class="view" id="view-activity">
-        <div class="tbl-tools">
+        <div class="grid kpis" id="act-kpis"></div>
+        <div class="tbl-tools" style="margin-top:6px">
           <select class="select" id="ev-filter">
             <option value="">Todos os eventos</option>
             <option value="sale">Vendas</option>
@@ -852,6 +865,41 @@ function renderAB(){
     metricRow('Receita',revObj(s.revenue),revObj(c.revenue));
   document.getElementById('ab-variants').innerHTML=
     abCard('Stripe',s,'#25f4ee')+abCard(esc(extName),c,'#fe2c55');
+  renderABChart(s,c,rpvS,rpvC,extName);
+}
+function renderABChart(s,c,rpvS,rpvC,extName){
+  var el=document.getElementById('ab-chart'); if(!el) return;
+  var metrics=[
+    {label:'RPV (cents)',stripe:rpvS,cooud:rpvC},
+    {label:'Taxa conv.%',stripe:s.assignments?+(s.conversions/s.assignments*100).toFixed(1):0,cooud:c.assignments?+(c.conversions/c.assignments*100).toFixed(1):0},
+    {label:'Visitantes',stripe:s.assignments||0,cooud:c.assignments||0},
+    {label:'Conversoes',stripe:s.conversions||0,cooud:c.conversions||0}
+  ];
+  var W=el.clientWidth||560, barH=36, gap=14, padL=110, padR=20, padT=14, padB=8;
+  var rows=metrics.length, H=padT+rows*(barH+gap)+padB;
+  var maxV=Math.max.apply(null,metrics.map(function(m){return Math.max(m.stripe,m.cooud,1);}));
+  var avail=W-padL-padR;
+  var bars=metrics.map(function(m,i){
+    var y=padT+i*(barH+gap);
+    var ws=Math.max(3,(m.stripe/maxV)*avail);
+    var wc=Math.max(3,(m.cooud/maxV)*avail);
+    var labelS=m.label==='RPV (cents)'?money(m.stripe,'EUR'):(m.label==='Taxa conv.%'?m.stripe+'%':m.stripe);
+    var labelC=m.label==='RPV (cents)'?money(m.cooud,'EUR'):(m.label==='Taxa conv.%'?m.cooud+'%':m.cooud);
+    return '<g>'+
+      '<text x="'+(padL-8)+'" y="'+(y+12)+'" text-anchor="end" fill="#8888a4" font-size="11" font-family="Space Grotesk,sans-serif">'+esc(m.label)+'</text>'+
+      '<rect x="'+padL+'" y="'+(y)+'" width="'+ws+'" height="16" rx="4" fill="#25f4ee" fill-opacity="0.85"/>'+
+      '<text x="'+(padL+ws+5)+'" y="'+(y+12)+'" fill="#25f4ee" font-size="11" font-family="Space Grotesk,sans-serif">'+labelS+'</text>'+
+      '<rect x="'+padL+'" y="'+(y+18)+'" width="'+wc+'" height="16" rx="4" fill="#fe2c55" fill-opacity="0.85"/>'+
+      '<text x="'+(padL+wc+5)+'" y="'+(y+30)+'" fill="#fe2c55" font-size="11" font-family="Space Grotesk,sans-serif">'+labelC+'</text>'+
+      '</g>';
+  }).join('');
+  var legend='<g>'+
+    '<rect x="'+padL+'" y="'+(H-padB)+'" width="12" height="6" rx="2" fill="#25f4ee"/>'+
+    '<text x="'+(padL+16)+'" y="'+(H-padB+6)+'" fill="#8888a4" font-size="11" font-family="Space Grotesk,sans-serif">Stripe</text>'+
+    '<rect x="'+(padL+70)+'" y="'+(H-padB)+'" width="12" height="6" rx="2" fill="#fe2c55"/>'+
+    '<text x="'+(padL+86)+'" y="'+(H-padB+6)+'" fill="#8888a4" font-size="11" font-family="Space Grotesk,sans-serif">'+esc(extName)+'</text>'+
+    '</g>';
+  el.innerHTML='<svg width="100%" viewBox="0 0 '+W+' '+(H+20)+'" xmlns="http://www.w3.org/2000/svg">'+bars+legend+'</svg>';
 }
 function metricRow(l,a,b){
   return '<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;align-items:center">'+
@@ -911,11 +959,23 @@ function renderCooud(){
 
 /* ── Atividade ── */
 function renderActivity(){
-  var events=(DATA.events||[]).filter(function(e){return !evFilter||e.type===evFilter;});
+  var all=(DATA.events||[]);
+  var events=all.filter(function(e){return !evFilter||e.type===evFilter;});
   var feed=document.getElementById('feed');
   var cnt=document.getElementById('ev-count');
-  if(cnt) cnt.textContent=events.length+' eventos';
+  if(cnt) cnt.textContent=events.length+' evento'+(events.length!==1?'s':'');
   var extName=CFG&&CFG.externalName||'Cooud';
+  // KPIs de sumário
+  var sales=all.filter(function(e){return e.type==='sale';}).length;
+  var fails=all.filter(function(e){return e.type==='failed';}).length;
+  var refs=all.filter(function(e){return e.type==='refund';}).length;
+  var disps=all.filter(function(e){return e.type==='dispute';}).length;
+  var actKpis=document.getElementById('act-kpis');
+  if(actKpis) actKpis.innerHTML=
+    kpi(I.sale,'tint-cyan','Vendas aprovadas','<span class="cyn">'+sales+'</span>','no hist&oacute;rico total')+
+    kpi(I.fail,'tint-pink','Recusadas','<span class="pnk">'+fails+'</span>',(sales+fails)?((fails/(sales+fails)*100).toFixed(0)+'% de tentativas'):'')+
+    kpi(I.refund,'','Reembolsos','<span class="amb">'+refs+'</span>','emitidos')+
+    kpi(I.dispute,'','Disputas','<span class="neg">'+disps+'</span>','abertas');
   var map={
     sale:{i:I.sale,c:'var(--green)'},
     failed:{i:I.fail,c:'var(--red)'},
@@ -928,21 +988,23 @@ function renderActivity(){
   feed.innerHTML=events.length?events.slice(0,150).map(function(e){
     var mp=map[e.type]||map.info;
     var meta=[];
-    if(e.customer) meta.push(esc(e.customer));
+    if(e.customer) meta.push('<b>'+esc(e.customer)+'</b>');
     if(e.email) meta.push(esc(e.email));
-    if(e.gateway) meta.push(e.gateway==='cooud'?esc(extName):'Stripe');
+    if(e.gateway) meta.push('<span style="opacity:.75">'+(e.gateway==='cooud'?esc(extName):'Stripe')+'</span>');
     if(e.country) meta.push(esc(e.country));
-    if(e.landing) meta.push(esc(e.landing));
+    if(e.card) meta.push(esc(e.card));
+    if(e.landing) meta.push('<span style="opacity:.65">'+esc(e.landing)+'</span>');
     if(e.practice) meta.push('<span class="amb">'+esc(e.practice)+'</span>');
     if(e.reason) meta.push('<span class="neg">'+esc(e.reason)+'</span>');
     var amt=e.amount?'<div class="amt">'+money(e.amount,e.currency)+'</div>':'';
-    return '<div class="ev">'+
-      '<div class="ei" style="color:'+mp.c+'">'+mp.i+'</div>'+
+    var ts=e.at?fmtDateLocal(e.at).replace(/.*,\s*/,''):'';
+    return '<div class="ev" style="border-left:2px solid '+mp.c+'20">'+
+      '<div class="ei" style="color:'+mp.c+';background:'+mp.c+'18;border-radius:8px;padding:6px">'+mp.i+'</div>'+
       '<div style="min-width:0;flex:1">'+
         '<div class="et">'+esc(e.title||e.type)+'</div>'+
         '<div class="em">'+meta.join(' &middot; ')+'</div>'+
       '</div>'+
-      '<div class="ea">'+amt+'<div>'+timeAgo(e.at)+'</div></div>'+
+      '<div class="ea">'+amt+'<div class="muted" style="font-size:11px;white-space:nowrap">'+esc(ts)+'</div></div>'+
       '</div>';
   }).join(''):'<div class="empty">Nenhum evento ainda.</div>';
 }
