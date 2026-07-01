@@ -104,12 +104,12 @@ function getResend() {
 app.use('/api/stripe-webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
-// CORS headers para todas as rotas API
+// CORS headers para todas as rotas API (GET + POST + OPTIONS)
 app.use('/api', (req, res, next) => {
   res.set({
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   });
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -442,20 +442,24 @@ app.post('/api/stripe-webhook', async (req, res) => {
     } catch (_) {}
 
     // ── Pushcut — VENDA APROVADA ──────────────────────────────────────
-    const valor = fmtMoney(pi.amount_received || pi.amount, pi.currency);
-    await sendPushcut('Aprovada', {
-      title: `Venda aprovada — ${valor}`,
-      text: [
-        `Cliente: ${customerName || '—'}`,
-        customerEmail ? `Email: ${customerEmail}` : null,
-        cardInfo ? `Cartão: ${cardInfo}` : null,
-        country ? `País: ${country}` : null,
-        `Data: ${fmtDate(pi.created)}`,
-        `Pedido: ${pi.id}`
-      ].filter(Boolean).join('\n'),
-      sound: 'system',
-      isTimeSensitive: true
-    });
+    try {
+      const valor = fmtMoney(pi.amount_received || pi.amount, pi.currency);
+      await sendPushcut('Aprovada', {
+        title: `Venda aprovada — ${valor}`,
+        text: [
+          `Cliente: ${customerName || '—'}`,
+          customerEmail ? `Email: ${customerEmail}` : null,
+          cardInfo ? `Cartão: ${cardInfo}` : null,
+          country ? `País: ${country}` : null,
+          `Data: ${fmtDate(pi.created)}`,
+          `Pedido: ${pi.id}`
+        ].filter(Boolean).join('\n'),
+        sound: 'system',
+        isTimeSensitive: true
+      });
+    } catch (pcErr) {
+      console.error('[stripe-webhook] Erro no Pushcut (venda):', pcErr.message);
+    }
   }
 
   // ── Pushcut — PAGAMENTO RECUSADO ────────────────────────────────────
@@ -475,17 +479,21 @@ app.post('/api/stripe-webhook', async (req, res) => {
         ref: pi.id
       });
     } catch (_) {}
-    await sendPushcut('Recusada', {
-      title: `Pagamento recusado — ${fmtMoney(pi.amount, pi.currency)}`,
-      text: [
-        bd.name ? `Cliente: ${bd.name}` : null,
-        bd.email ? `Email: ${bd.email}` : null,
-        `Motivo: ${err.message || err.decline_code || err.code || 'desconhecido'}`,
-        `Data: ${fmtDate(pi.created)}`,
-        `Pedido: ${pi.id}`
-      ].filter(Boolean).join('\n'),
-      sound: 'system'
-    });
+    try {
+      await sendPushcut('Recusada', {
+        title: `Pagamento recusado — ${fmtMoney(pi.amount, pi.currency)}`,
+        text: [
+          bd.name ? `Cliente: ${bd.name}` : null,
+          bd.email ? `Email: ${bd.email}` : null,
+          `Motivo: ${err.message || err.decline_code || err.code || 'desconhecido'}`,
+          `Data: ${fmtDate(pi.created)}`,
+          `Pedido: ${pi.id}`
+        ].filter(Boolean).join('\n'),
+        sound: 'system'
+      });
+    } catch (pcErr) {
+      console.error('[stripe-webhook] Erro no Pushcut (recusada):', pcErr.message);
+    }
   }
 
   // ── Pushcut — REEMBOLSO ─────────────────────────────────────────────
@@ -501,17 +509,21 @@ app.post('/api/stripe-webhook', async (req, res) => {
         ref: ch.id
       });
     } catch (_) {}
-    await sendPushcut('Reembolso', {
-      title: `Reembolso — ${fmtMoney(ch.amount_refunded, ch.currency)}`,
-      text: [
-        ch.billing_details?.name ? `Cliente: ${ch.billing_details.name}` : null,
-        ch.billing_details?.email ? `Email: ${ch.billing_details.email}` : null,
-        `Valor original: ${fmtMoney(ch.amount, ch.currency)}`,
-        `Data: ${fmtDate(ch.created)}`,
-        `Cobrança: ${ch.id}`
-      ].filter(Boolean).join('\n'),
-      sound: 'system'
-    });
+    try {
+      await sendPushcut('Reembolso', {
+        title: `Reembolso — ${fmtMoney(ch.amount_refunded, ch.currency)}`,
+        text: [
+          ch.billing_details?.name ? `Cliente: ${ch.billing_details.name}` : null,
+          ch.billing_details?.email ? `Email: ${ch.billing_details.email}` : null,
+          `Valor original: ${fmtMoney(ch.amount, ch.currency)}`,
+          `Data: ${fmtDate(ch.created)}`,
+          `Cobrança: ${ch.id}`
+        ].filter(Boolean).join('\n'),
+        sound: 'system'
+      });
+    } catch (pcErr) {
+      console.error('[stripe-webhook] Erro no Pushcut (reembolso):', pcErr.message);
+    }
   }
 
   // ── Pushcut — DISPUTA / CHARGEBACK ──────────────────────────────────
@@ -527,17 +539,21 @@ app.post('/api/stripe-webhook', async (req, res) => {
         ref: d.charge
       });
     } catch (_) {}
-    await sendPushcut('Disputa', {
-      title: `⚠️ Disputa aberta — ${fmtMoney(d.amount, d.currency)}`,
-      text: [
-        `Motivo: ${d.reason || 'desconhecido'}`,
-        `Status: ${d.status || '—'}`,
-        `Data: ${fmtDate(d.created)}`,
-        `Cobrança: ${d.charge}`
-      ].filter(Boolean).join('\n'),
-      sound: 'vibrateOnly',
-      isTimeSensitive: true
-    });
+    try {
+      await sendPushcut('Disputa', {
+        title: `Disputa aberta — ${fmtMoney(d.amount, d.currency)}`,
+        text: [
+          `Motivo: ${d.reason || 'desconhecido'}`,
+          `Status: ${d.status || '—'}`,
+          `Data: ${fmtDate(d.created)}`,
+          `Cobrança: ${d.charge}`
+        ].filter(Boolean).join('\n'),
+        sound: 'vibrateOnly',
+        isTimeSensitive: true
+      });
+    } catch (pcErr) {
+      console.error('[stripe-webhook] Erro no Pushcut (disputa):', pcErr.message);
+    }
   }
 
   res.json({ received: true });
@@ -633,11 +649,28 @@ app.get('/api/stats', dashboardAuth, (req, res) => {
 
 // ── API: configuração do teste A/B (ler/atualizar) ───────────────────
 app.get('/api/config', dashboardAuth, (req, res) => {
-  res.json(config.get());
+  const cfg = config.get();
+  // _rotIndex é estado interno — não expor na API pública
+  const { _rotIndex, ...pub } = cfg;
+  res.json(pub);
 });
 app.post('/api/config', dashboardAuth, (req, res) => {
   const next = config.set(req.body || {});
-  res.json({ ok: true, config: next });
+  const { _rotIndex, ...pub } = next;
+  res.json({ ok: true, config: pub });
+});
+
+// ── API: health-check — estado das variáveis críticas ───────────────
+app.get('/api/health', dashboardAuth, (req, res) => {
+  res.json({
+    stripe:   !!process.env.STRIPE_SECRET_KEY,
+    webhook:  !!process.env.STRIPE_WEBHOOK_SECRET,
+    resend:   !!process.env.RESEND_API_KEY,
+    tiktok:   !!process.env.TIKTOK_ACCESS_TOKEN,
+    pushcut:  !!process.env.PUSHCUT_SECRET,
+    dashboard:!!process.env.DASHBOARD_PASSWORD,
+    ts: new Date().toISOString()
+  });
 });
 
 // ── API: conversão do Cooud (para webhook/integração futura) ─────────
