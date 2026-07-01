@@ -14,11 +14,12 @@ function emptyVariant() {
 }
 
 const MAX_EVENTS = 300; // mantém os últimos N eventos no feed
+const MAX_LEADS = 500;  // mantém os últimos N leads rastreados
 
 function emptyState() {
   const variants = {};
   VARIANTS.forEach((v) => { variants[v] = emptyVariant(); });
-  return { variants, events: [], updatedAt: null };
+  return { variants, events: [], leads: [], updatedAt: null };
 }
 
 function ensureFile() {
@@ -43,6 +44,7 @@ function read() {
       }
     });
     state.events = Array.isArray(raw.events) ? raw.events : [];
+    state.leads = Array.isArray(raw.leads) ? raw.leads : [];
     state.updatedAt = raw.updatedAt || null;
     return state;
   } catch (err) {
@@ -95,6 +97,109 @@ function logEvent(type, data) {
   write(state);
 }
 
+// Registra um LEAD enviado a um gateway externo (ex.: Cooud) no momento do redirect.
+// É a peça central do anti-desvio: sabemos exatamente quantas pessoas mandamos.
+function recordLead(lead) {
+  const state = read();
+  const entry = Object.assign({
+    at: new Date().toISOString(),
+    gateway: 'cooud',
+    status: 'pending'
+  }, lead || {});
+  if (!entry.id) entry.id = 'ld_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  state.leads.unshift(entry);
+  if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
+  write(state);
+  return entry;
+}
+
+// Concilia uma venda reportada pelo gateway externo com o lead que originamos.
+// Se não houver lead correspondente, cria um registro "órfão" (venda que o Cooud
+// reportou sem termos enviado o lead — sinal de possível atribuição indevida).
+function matchCooudConversion(data) {
+  data = data || {};
+  const state = read();
+  const cur = (data.currency || 'eur').toUpperCase();
+  const amount = data.amountCents || 0;
+  const nowIso = new Date().toISOString();
+
+  let lead = null;
+  if (data.leadId) lead = state.leads.find((l) => l.id === data.leadId);
+
+  if (lead) {
+    if (lead.status === 'converted') {
+      lead.duplicateReports = (lead.duplicateReports || 0) + 1; // Cooud reportou 2x o mesmo lead
+    } else {
+      lead.status = 'converted';
+    }
+    lead.convertedAt = nowIso;
+    lead.reportedAmount = amount;
+    lead.reportedCurrency = cur;
+    lead.customer = data.customer || lead.customer || null;
+    lead.email = data.email || lead.email || null;
+    lead.ref = data.ref || lead.ref || null;
+    lead.orphan = false;
+  } else {
+    lead = {
+      id: data.leadId || ('orphan_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+      at: nowIso,
+      gateway: 'cooud',
+      status: 'converted',
+      orphan: true,
+      convertedAt: nowIso,
+      reportedAmount: amount,
+      reportedCurrency: cur,
+      customer: data.customer || null,
+      email: data.email || null,
+      ref: data.ref || null
+    };
+    state.leads.unshift(lead);
+    if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
+  }
+
+  // contabiliza conversão/receita da variante cooud (fonte única — não usar recordConversion junto)
+  const v = state.variants.cooud;
+  v.conversions = (v.conversions || 0) + 1;
+  v.revenue[cur] = (v.revenue[cur] || 0) + amount;
+
+  write(state);
+  return lead;
+}
+
+// Métricas de conciliação do Cooud (anti-desvio)
+function cooudReconciliation(leads) {
+  const list = (leads || []).filter((l) => l.gateway === 'cooud');
+  let sent = 0, matched = 0, orphans = 0, pending = 0, duplicates = 0, valueMismatch = 0;
+  const expectedRev = {}, reportedRev = {};
+
+  list.forEach((l) => {
+    const isOrphan = !!l.orphan;
+    if (!isOrphan) sent++; // leads que NÓS geramos e enviamos
+    if (l.duplicateReports) duplicates += l.duplicateReports;
+
+    if (l.status === 'converted') {
+      const rc = l.reportedCurrency || 'EUR';
+      reportedRev[rc] = (reportedRev[rc] || 0) + (l.reportedAmount || 0);
+      if (l.expectedAmount) {
+        const ec = l.expectedCurrency || 'EUR';
+        expectedRev[ec] = (expectedRev[ec] || 0) + l.expectedAmount;
+        // valor reportado menor que o preço esperado → possível subnotificação
+        if (rc === ec && (l.reportedAmount || 0) < l.expectedAmount) valueMismatch++;
+      }
+      if (isOrphan) orphans++; else matched++;
+    } else {
+      pending++;
+    }
+  });
+
+  const totalReported = matched + orphans;
+  const convRate = sent ? +((matched / sent) * 100).toFixed(2) : 0;
+  return {
+    sent, matched, orphans, pending, duplicates, valueMismatch,
+    totalReported, convRate, expectedRev, reportedRev
+  };
+}
+
 function getStats() {
   const state = read();
   // calcula métricas derivadas por variante
@@ -133,9 +238,17 @@ function getStats() {
     disputes,
     approvalRate: totalAttempts ? +((sales / totalAttempts) * 100).toFixed(1) : 0
   };
+
+  // Conciliação Cooud + lista de leads recentes (para o painel anti-desvio)
+  out.cooud = cooudReconciliation(state.leads || []);
+  out.cooud.stripeConvRate = out.variants.stripe ? out.variants.stripe.conversionRate : 0;
+  out.leads = (state.leads || []).slice(0, 120);
   return out;
 }
 
 function reset() { write(emptyState()); }
 
-module.exports = { VARIANTS, recordAssignment, recordClick, recordConversion, logEvent, getStats, reset };
+module.exports = {
+  VARIANTS, recordAssignment, recordClick, recordConversion,
+  logEvent, recordLead, matchCooudConversion, getStats, reset
+};

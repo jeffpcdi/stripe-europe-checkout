@@ -451,9 +451,40 @@ app.get('/checkout', (req, res) => {
   stats.recordClick(variant);
 
   if (variant === 'cooud') {
-    // Preserva query string (UTMs, ttclid, etc.) no redirect externo
-    const qs = req.originalUrl.includes('?') ? '?' + req.originalUrl.split('?')[1] : '';
-    return res.redirect(302, COOUD_CHECKOUT_URL + qs);
+    // ── Rastreamento anti-desvio: gera um lead único e envia como client_reference_id ──
+    const q = req.query || {};
+    const currency = (q.currency || 'eur').toLowerCase();
+    const expectedAmount = PRICES[currency] || PRICES.eur;
+    const lead = stats.recordLead({
+      gateway: 'cooud',
+      ip: clientIp(req),
+      ua: String(req.headers['user-agent'] || '').slice(0, 300),
+      referer: req.headers['referer'] || null,
+      expectedAmount,
+      expectedCurrency: currency.toUpperCase(),
+      ttclid: q.ttclid || null,
+      utm: {
+        source: q.utm_source || null,
+        medium: q.utm_medium || null,
+        campaign: q.utm_campaign || null,
+        content: q.utm_content || null,
+        term: q.utm_term || null
+      }
+    });
+
+    stats.logEvent('lead', {
+      title: 'Lead enviado ao Cooud',
+      gateway: 'cooud',
+      amount: expectedAmount,
+      currency: currency.toUpperCase(),
+      ref: lead.id
+    });
+
+    // Preserva query string original + injeta o identificador do lead para conciliação
+    const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+    params.set('client_reference_id', lead.id);
+    params.set('lead_id', lead.id);
+    return res.redirect(302, COOUD_CHECKOUT_URL + '?' + params.toString());
   }
 
   // Variante nativa (Stripe)
@@ -480,21 +511,35 @@ app.get('/api/stats', dashboardAuth, (req, res) => {
 // ── API: conversão do Cooud (para webhook/integração futura) ─────────
 // Chame este endpoint a partir do webhook do Cooud quando um pagamento for aprovado.
 app.post('/api/cooud-conversion', (req, res) => {
-  const amount = Math.round((Number(req.body.amount) || 0) * 100); // valor em unidades → cêntimos
-  const currency = req.body.currency || 'eur';
-  stats.recordConversion('cooud', amount, currency);
+  const b = req.body || {};
+  const amount = Math.round((Number(b.amount) || 0) * 100); // valor em unidades → cêntimos
+  const currency = b.currency || 'eur';
+  // aceita várias chaves possíveis vindas do webhook do Cooud
+  const leadId = b.leadId || b.lead_id || b.client_reference_id || b.reference || null;
+
+  const lead = stats.matchCooudConversion({
+    leadId,
+    amountCents: amount,
+    currency,
+    customer: b.customer || b.name || null,
+    email: b.email || null,
+    ref: b.ref || b.order_id || b.id || null
+  });
+
   try {
     stats.logEvent('sale', {
-      title: 'Venda aprovada',
+      title: lead.orphan ? 'Venda Cooud SEM lead (órfã)' : 'Venda aprovada (Cooud)',
       amount: amount,
       currency: currency,
-      customer: req.body.customer || null,
-      email: req.body.email || null,
+      customer: b.customer || b.name || null,
+      email: b.email || null,
       gateway: 'cooud',
-      ref: req.body.ref || null
+      orphan: !!lead.orphan,
+      ref: lead.id
     });
   } catch (_) {}
-  res.json({ ok: true });
+
+  res.json({ ok: true, matched: !lead.orphan, leadId: lead.id });
 });
 
 // ── API: zerar estatísticas ──────────────────────────────────────────
