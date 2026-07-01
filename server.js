@@ -4,6 +4,32 @@ const { Resend } = require('resend');
 const { buildConfirmationEmail } = require('./emails/confirmation');
 const { sendTikTokEvent } = require('./tiktok-events');
 const { sendPushcut } = require('./pushcut');
+const stats = require('./stats');
+const DASHBOARD_HTML = require('./dashboard-view');
+
+// ── Teste A/B de gateway (50/50) ─────────────────────────────────────
+const COOUD_CHECKOUT_URL = process.env.COOUD_CHECKOUT_URL
+  || 'https://checkout.cooud.com/01KVQSV545NN7APJN3RQMGSASV';
+
+// Lê um cookie do request (parse simples, sem dependência extra)
+function readCookie(req, name) {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  const found = raw.split(';').map((c) => c.trim()).find((c) => c.startsWith(name + '='));
+  return found ? decodeURIComponent(found.split('=').slice(1).join('=')) : null;
+}
+
+// Retorna a variante do visitante (sticky via cookie); atribui 50/50 se novo
+function getOrAssignVariant(req, res) {
+  let variant = readCookie(req, 'ab_variant');
+  if (!stats.VARIANTS.includes(variant)) {
+    variant = Math.random() < 0.5 ? 'stripe' : 'cooud';
+    res.setHeader('Set-Cookie',
+      `ab_variant=${variant};Path=/;Max-Age=2592000;SameSite=Lax`); // 30 dias
+    stats.recordAssignment(variant);
+  }
+  return variant;
+}
 
 // Formata valor monetário (ex.: 12,97 €)
 function fmtMoney(amount, currency) {
@@ -111,6 +137,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
     if (t.url) trackingMeta.tt_url = String(t.url).slice(0, 500);
     trackingMeta.tt_ip = clientIp(req);
     trackingMeta.tt_ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    trackingMeta.ab_variant = readCookie(req, 'ab_variant') || 'stripe';
 
     const pi = await stripe.paymentIntents.create({
       amount: unitAmount,
@@ -278,6 +305,14 @@ app.post('/api/stripe-webhook', async (req, res) => {
       console.error('[stripe-webhook] Erro no TikTok CAPI:', ttErr.message);
     }
 
+    // ── Teste A/B — registrar conversão da variante ───────────────────
+    try {
+      const variant = (pi.metadata && pi.metadata.ab_variant) || 'stripe';
+      stats.recordConversion(variant, pi.amount_received || pi.amount, pi.currency);
+    } catch (abErr) {
+      console.error('[stripe-webhook] Erro ao registrar conversão A/B:', abErr.message);
+    }
+
     // ── Pushcut — VENDA APROVADA ──────────────────────────────────────
     const valor = fmtMoney(pi.amount_received || pi.amount, pi.currency);
     await sendPushcut('Aprovada', {
@@ -354,15 +389,77 @@ app.post('/webhook.php', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// ── Rota /checkout → serve o checkout Stripe ─────────────────────────
+// ── Rota /checkout → teste A/B de gateway (50/50) ────────────────────
 app.get('/checkout', (req, res) => {
+  // Permite forçar variante para testes: /checkout?ab=stripe ou ?ab=cooud
+  const forced = req.query.ab;
+  if (forced === 'stripe' || forced === 'cooud') {
+    res.setHeader('Set-Cookie', `ab_variant=${forced};Path=/;Max-Age=2592000;SameSite=Lax`);
+  }
+
+  const variant = (forced === 'stripe' || forced === 'cooud')
+    ? forced
+    : getOrAssignVariant(req, res);
+
+  stats.recordClick(variant);
+
+  if (variant === 'cooud') {
+    // Preserva query string (UTMs, ttclid, etc.) no redirect externo
+    const qs = req.originalUrl.includes('?') ? '?' + req.originalUrl.split('?')[1] : '';
+    return res.redirect(302, COOUD_CHECKOUT_URL + qs);
+  }
+
+  // Variante nativa (Stripe)
   res.sendFile(path.join(__dirname, 'proximo', 'premium', 'checkout.html'));
+});
+
+// ── Auth simples (Basic Auth) para a dashboard ───────────────────────
+function dashboardAuth(req, res, next) {
+  const pass = process.env.DASHBOARD_PASSWORD;
+  if (!pass) return next(); // sem senha definida: acesso livre (defina DASHBOARD_PASSWORD para proteger)
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Basic ') ? Buffer.from(header.slice(6), 'base64').toString() : '';
+  const provided = token.split(':').slice(1).join(':'); // ignora usuário, valida senha
+  if (provided === pass) return next();
+  res.set('WWW-Authenticate', 'Basic realm="Dashboard"');
+  return res.status(401).send('Autenticação necessária.');
+}
+
+// ── API: estatísticas do teste A/B ───────────────────────────────────
+app.get('/api/stats', dashboardAuth, (req, res) => {
+  res.json(stats.getStats());
+});
+
+// ── API: conversão do Cooud (para webhook/integração futura) ─────────
+// Chame este endpoint a partir do webhook do Cooud quando um pagamento for aprovado.
+app.post('/api/cooud-conversion', (req, res) => {
+  const amount = Math.round((Number(req.body.amount) || 0) * 100); // valor em unidades → cêntimos
+  const currency = req.body.currency || 'eur';
+  stats.recordConversion('cooud', amount, currency);
+  res.json({ ok: true });
+});
+
+// ── API: zerar estatísticas ──────────────────────────────────────────
+app.post('/api/reset-stats', dashboardAuth, (req, res) => {
+  stats.reset();
+  res.json({ ok: true });
+});
+
+// ── Dashboard (HTML inline, protegida) ───────────────────────────────
+app.get('/dashboard', dashboardAuth, (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(DASHBOARD_HTML);
 });
 
 // ── Apple Pay: servir .well-known (verificação de domínio) ──────────
 app.use('/.well-known', express.static(path.join(__dirname, '.well-known'), {
   dotfiles: 'allow'
 }));
+
+// ── Proteger dados sensíveis (stats do A/B) de acesso público ────────
+app.use(['/data', '/stats.js', '/dashboard-view.js', '/tiktok-events.js', '/pushcut.js', '/emails'], (req, res) => {
+  res.status(404).send('Not found');
+});
 
 // ── Servir ficheiros estáticos ───────────────────────────────────────
 // Serve index.html automaticamente para pastas (ex: /1/ → /1/index.html)
