@@ -3,6 +3,23 @@ const path = require('path');
 const { Resend } = require('resend');
 const { buildConfirmationEmail } = require('./emails/confirmation');
 const { sendTikTokEvent } = require('./tiktok-events');
+const { sendPushcut } = require('./pushcut');
+
+// Formata valor monetário (ex.: 12,97 €)
+function fmtMoney(amount, currency) {
+  return new Intl.NumberFormat('pt-PT', {
+    style: 'currency',
+    currency: (currency || 'eur').toUpperCase()
+  }).format((amount || 0) / 100);
+}
+
+// Formata data/hora no fuso de Lisboa
+function fmtDate(unixSeconds) {
+  return new Intl.DateTimeFormat('pt-PT', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Lisbon'
+  }).format(new Date((unixSeconds || Date.now() / 1000) * 1000));
+}
 
 // IP real do cliente (respeita proxy/Railway via X-Forwarded-For)
 function clientIp(req) {
@@ -172,15 +189,21 @@ app.post('/api/stripe-webhook', async (req, res) => {
   if (event.type === 'payment_intent.succeeded') {
     const pi = event.data.object;
 
-    // Recupera o charge para obter billing_details (nome + email)
+    // Recupera o charge para obter billing_details (nome + email) e detalhes do cartão
     let customerEmail = null;
     let customerName = null;
+    let cardInfo = null;
+    let country = null;
 
     try {
       const charges = await stripe.charges.list({ payment_intent: pi.id, limit: 1 });
       const charge = charges.data[0];
       customerEmail = charge?.billing_details?.email || null;
       customerName  = charge?.billing_details?.name  || 'Cliente';
+      country       = charge?.billing_details?.address?.country
+                    || charge?.payment_method_details?.card?.country || null;
+      const card    = charge?.payment_method_details?.card;
+      if (card) cardInfo = `${(card.brand || 'card').toUpperCase()} ****${card.last4 || ''}`;
     } catch (err) {
       console.error('Erro ao buscar charge:', err.message);
     }
@@ -254,6 +277,72 @@ app.post('/api/stripe-webhook', async (req, res) => {
     } catch (ttErr) {
       console.error('[stripe-webhook] Erro no TikTok CAPI:', ttErr.message);
     }
+
+    // ── Pushcut — VENDA APROVADA ──────────────────────────────────────
+    const valor = fmtMoney(pi.amount_received || pi.amount, pi.currency);
+    await sendPushcut('Aprovada', {
+      title: `Venda aprovada — ${valor}`,
+      text: [
+        `Cliente: ${customerName || '—'}`,
+        customerEmail ? `Email: ${customerEmail}` : null,
+        cardInfo ? `Cartão: ${cardInfo}` : null,
+        country ? `País: ${country}` : null,
+        `Data: ${fmtDate(pi.created)}`,
+        `Pedido: ${pi.id}`
+      ].filter(Boolean).join('\n'),
+      sound: 'system',
+      isTimeSensitive: true
+    });
+  }
+
+  // ── Pushcut — PAGAMENTO RECUSADO ────────────────────────────────────
+  else if (event.type === 'payment_intent.payment_failed') {
+    const pi = event.data.object;
+    const err = pi.last_payment_error || {};
+    const bd = err.payment_method?.billing_details || {};
+    await sendPushcut('Recusada', {
+      title: `Pagamento recusado — ${fmtMoney(pi.amount, pi.currency)}`,
+      text: [
+        bd.name ? `Cliente: ${bd.name}` : null,
+        bd.email ? `Email: ${bd.email}` : null,
+        `Motivo: ${err.message || err.decline_code || err.code || 'desconhecido'}`,
+        `Data: ${fmtDate(pi.created)}`,
+        `Pedido: ${pi.id}`
+      ].filter(Boolean).join('\n'),
+      sound: 'system'
+    });
+  }
+
+  // ── Pushcut — REEMBOLSO ─────────────────────────────────────────────
+  else if (event.type === 'charge.refunded') {
+    const ch = event.data.object;
+    await sendPushcut('Reembolso', {
+      title: `Reembolso — ${fmtMoney(ch.amount_refunded, ch.currency)}`,
+      text: [
+        ch.billing_details?.name ? `Cliente: ${ch.billing_details.name}` : null,
+        ch.billing_details?.email ? `Email: ${ch.billing_details.email}` : null,
+        `Valor original: ${fmtMoney(ch.amount, ch.currency)}`,
+        `Data: ${fmtDate(ch.created)}`,
+        `Cobrança: ${ch.id}`
+      ].filter(Boolean).join('\n'),
+      sound: 'system'
+    });
+  }
+
+  // ── Pushcut — DISPUTA / CHARGEBACK ──────────────────────────────────
+  else if (event.type === 'charge.dispute.created') {
+    const d = event.data.object;
+    await sendPushcut('Disputa', {
+      title: `⚠️ Disputa aberta — ${fmtMoney(d.amount, d.currency)}`,
+      text: [
+        `Motivo: ${d.reason || 'desconhecido'}`,
+        `Status: ${d.status || '—'}`,
+        `Data: ${fmtDate(d.created)}`,
+        `Cobrança: ${d.charge}`
+      ].filter(Boolean).join('\n'),
+      sound: 'vibrateOnly',
+      isTimeSensitive: true
+    });
   }
 
   res.json({ received: true });
