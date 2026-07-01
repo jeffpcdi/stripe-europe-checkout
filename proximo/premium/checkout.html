@@ -105,6 +105,21 @@
         catch (_) { try { ttq.track(name, data); } catch (__) {} }
       };
 
+      // Captura ttclid (URL ou cookie) e cookie _ttp — usados pelo Events API server-side
+      function getCookie(name) {
+        var m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+        return m ? decodeURIComponent(m[1]) : '';
+      }
+      window.ttkAttribution = function () {
+        var qs = new URLSearchParams(location.search);
+        var ttclid = qs.get('ttclid') || getCookie('ttclid') || getCookie('_ttclid') || '';
+        // persiste o ttclid da URL por 7 dias para sobreviver ao redirect do Stripe
+        if (qs.get('ttclid')) {
+          try { document.cookie = 'ttclid=' + encodeURIComponent(ttclid) + ';path=/;max-age=604800;SameSite=Lax'; } catch (_) {}
+        }
+        return { ttclid: ttclid, ttp: getCookie('_ttp') || '', url: location.href };
+      };
+
       // ViewContent ao carregar a pagina de checkout
       function fireView() { window.ttkTrack('ViewContent', {}); }
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fireView);
@@ -1109,7 +1124,7 @@
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
             </div>
-            <p class="ck-review-text">€2.890 liberados al instante. No me lo creía hasta que vi el dinero en mi cuenta. 100% real.</p>
+            <p class="ck-review-text">��2.890 liberados al instante. No me lo creía hasta que vi el dinero en mi cuenta. 100% real.</p>
             <p class="ck-review-date">Hace 4 horas</p>
           </div>
 
@@ -1240,7 +1255,10 @@
         fetch('/api/create-payment-intent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ currency: currency })
+          body: JSON.stringify({
+            currency: currency,
+            tracking: (window.ttkAttribution ? ttkAttribution() : {})
+          })
         })
           .then(function (res) { return res.json(); })
           .then(function (data) {
