@@ -5,11 +5,9 @@ const { buildConfirmationEmail } = require('./emails/confirmation');
 const { sendTikTokEvent } = require('./tiktok-events');
 const { sendPushcut } = require('./pushcut');
 const stats = require('./stats');
+const config = require('./config');
+const geoip = require('geoip-lite');
 const DASHBOARD_HTML = require('./dashboard-view');
-
-// ── Teste A/B de gateway (50/50) ─────────────────────────────────────
-const COOUD_CHECKOUT_URL = process.env.COOUD_CHECKOUT_URL
-  || 'https://checkout.cooud.com/01KVQSV545NN7APJN3RQMGSASV';
 
 // Lê um cookie do request (parse simples, sem dependência extra)
 function readCookie(req, name) {
@@ -19,16 +17,53 @@ function readCookie(req, name) {
   return found ? decodeURIComponent(found.split('=').slice(1).join('=')) : null;
 }
 
-// Retorna a variante do visitante (sticky via cookie); atribui 50/50 se novo
+// Nomes de países (ISO-2 → PT) para exibição amigável
+const COUNTRY_NAMES = {
+  PT: 'Portugal', BR: 'Brasil', ES: 'Espanha', FR: 'França', DE: 'Alemanha',
+  GB: 'Reino Unido', IE: 'Irlanda', IT: 'Itália', NL: 'Países Baixos', BE: 'Bélgica',
+  CH: 'Suíça', AT: 'Áustria', US: 'Estados Unidos', CA: 'Canadá', MX: 'México',
+  PL: 'Polónia', SE: 'Suécia', NO: 'Noruega', DK: 'Dinamarca', FI: 'Finlândia',
+  LU: 'Luxemburgo', GR: 'Grécia', RO: 'Roménia', CZ: 'Chéquia', HU: 'Hungria',
+  AU: 'Austrália', AE: 'Emirados Árabes', AO: 'Angola', MZ: 'Moçambique', CV: 'Cabo Verde'
+};
+
+// Geo-IP → { country, countryName, city }
+function geoLookup(ip) {
+  try {
+    const clean = String(ip || '').replace('::ffff:', '');
+    if (!clean || clean === '127.0.0.1' || clean === '::1') return {};
+    const g = geoip.lookup(clean);
+    if (!g) return {};
+    return { country: g.country, countryName: COUNTRY_NAMES[g.country] || g.country, city: g.city || null };
+  } catch (_) { return {}; }
+}
+
+// Identificador estável de visitante (cookie v_id). Cria se não existir.
+function getOrAssignVisitor(req, res) {
+  let id = readCookie(req, 'v_id');
+  if (!id) {
+    id = 'ld_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    res.setHeader('Set-Cookie', `v_id=${id};Path=/;Max-Age=7776000;SameSite=Lax`); // 90 dias
+  }
+  return id;
+}
+
+// Retorna a variante do visitante (sticky via cookie); atribui conforme config se novo
 function getOrAssignVariant(req, res) {
   let variant = readCookie(req, 'ab_variant');
   if (!stats.VARIANTS.includes(variant)) {
-    variant = Math.random() < 0.5 ? 'stripe' : 'cooud';
-    res.setHeader('Set-Cookie',
-      `ab_variant=${variant};Path=/;Max-Age=2592000;SameSite=Lax`); // 30 dias
+    variant = config.pickVariant();
+    appendCookie(res, `ab_variant=${variant};Path=/;Max-Age=2592000;SameSite=Lax`);
     stats.recordAssignment(variant);
   }
   return variant;
+}
+
+// Permite múltiplos Set-Cookie sem sobrescrever
+function appendCookie(res, cookie) {
+  const prev = res.getHeader('Set-Cookie');
+  if (!prev) res.setHeader('Set-Cookie', cookie);
+  else res.setHeader('Set-Cookie', [].concat(prev, cookie));
 }
 
 // Formata valor monetário (ex.: 12,97 €)
@@ -77,6 +112,46 @@ app.use('/api', (req, res, next) => {
     'Access-Control-Allow-Headers': 'Content-Type'
   });
   if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
+// ── Rastreio de funil: todo visitante (page view HTML) vira um lead ──
+app.use((req, res, next) => {
+  try {
+    if (req.method !== 'GET') return next();
+    const p = req.path || '';
+    if (p.startsWith('/api') || p.startsWith('/assets') || p.startsWith('/.well-known')
+        || p === '/dashboard' || p === '/checkout') return next();
+    const accept = req.headers.accept || '';
+    if (!accept.includes('text/html')) return next();          // só navegações
+    if (/\.[a-z0-9]{2,5}$/i.test(p) && !p.endsWith('.html')) return next(); // ignora assets
+
+    const hadCookie = !!readCookie(req, 'v_id');
+    const id = getOrAssignVisitor(req, res);
+    if (!hadCookie) {                                          // 1 lead por visitante
+      const geo = geoLookup(clientIp(req));
+      const q = req.query || {};
+      stats.recordVisit({
+        id,
+        ip: clientIp(req),
+        ua: String(req.headers['user-agent'] || '').slice(0, 300),
+        referer: req.headers['referer'] || null,
+        landing: p,
+        country: geo.country, countryName: geo.countryName, city: geo.city,
+        ttclid: q.ttclid || null,
+        utm: {
+          source: q.utm_source || null, medium: q.utm_medium || null,
+          campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
+        }
+      });
+      stats.logEvent('visit', {
+        title: 'Novo lead no funil',
+        landing: p,
+        country: geo.countryName || geo.country || null,
+        ref: id
+      });
+    }
+  } catch (_) { /* nunca bloquear navegação */ }
   next();
 });
 
@@ -138,6 +213,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
     trackingMeta.tt_ip = clientIp(req);
     trackingMeta.tt_ua = String(req.headers['user-agent'] || '').slice(0, 500);
     trackingMeta.ab_variant = readCookie(req, 'ab_variant') || 'stripe';
+    trackingMeta.v_id = readCookie(req, 'v_id') || '';
 
     const pi = await stripe.paymentIntents.create({
       amount: unitAmount,
@@ -313,6 +389,22 @@ app.post('/api/stripe-webhook', async (req, res) => {
       console.error('[stripe-webhook] Erro ao registrar conversão A/B:', abErr.message);
     }
 
+    // ── Funil — marcar o lead do visitante como COMPRADO (Stripe) ──────
+    try {
+      const vId = (pi.metadata && pi.metadata.v_id) || pi.id;
+      stats.markPurchased(vId, {
+        gateway: 'stripe',
+        amountCents: pi.amount_received || pi.amount,
+        currency: pi.currency,
+        customer: customerName || null,
+        email: customerEmail || null,
+        card: cardInfo || null,
+        ref: pi.id
+      });
+    } catch (fErr) {
+      console.error('[stripe-webhook] Erro ao marcar lead comprado:', fErr.message);
+    }
+
     // ── Log de evento — VENDA APROVADA ────────────────────────────────
     try {
       stats.logEvent('sale', {
@@ -436,55 +528,65 @@ app.post('/webhook.php', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// ── Rota /checkout → teste A/B de gateway (50/50) ────────────────────
+// ── Rota /checkout → teste A/B de gateway (configurável) ─────────────
 app.get('/checkout', (req, res) => {
+  const cfg = config.get();
+  const q = req.query || {};
+  const currency = (q.currency || 'eur').toLowerCase();
+  const expectedAmount = PRICES[currency] || PRICES.eur;
+
+  // Identificador de visitante (liga o checkout ao lead do funil)
+  const visitorId = getOrAssignVisitor(req, res);
+
   // Permite forçar variante para testes: /checkout?ab=stripe ou ?ab=cooud
   const forced = req.query.ab;
   if (forced === 'stripe' || forced === 'cooud') {
-    res.setHeader('Set-Cookie', `ab_variant=${forced};Path=/;Max-Age=2592000;SameSite=Lax`);
+    appendCookie(res, `ab_variant=${forced};Path=/;Max-Age=2592000;SameSite=Lax`);
   }
 
-  const variant = (forced === 'stripe' || forced === 'cooud')
+  let variant = (forced === 'stripe' || forced === 'cooud')
     ? forced
     : getOrAssignVariant(req, res);
 
+  // Modo "apenas Stripe" força tudo para o Stripe (respeitando override manual)
+  if (cfg.mode === 'stripe_only' && forced !== 'cooud') variant = 'stripe';
+
   stats.recordClick(variant);
 
-  if (variant === 'cooud') {
-    // ── Rastreamento anti-desvio: gera um lead único e envia como client_reference_id ──
-    const q = req.query || {};
-    const currency = (q.currency || 'eur').toLowerCase();
-    const expectedAmount = PRICES[currency] || PRICES.eur;
-    const lead = stats.recordLead({
-      gateway: 'cooud',
-      ip: clientIp(req),
-      ua: String(req.headers['user-agent'] || '').slice(0, 300),
-      referer: req.headers['referer'] || null,
-      expectedAmount,
-      expectedCurrency: currency.toUpperCase(),
-      ttclid: q.ttclid || null,
-      utm: {
-        source: q.utm_source || null,
-        medium: q.utm_medium || null,
-        campaign: q.utm_campaign || null,
-        content: q.utm_content || null,
-        term: q.utm_term || null
-      }
-    });
+  const geo = geoLookup(clientIp(req));
+  const utm = {
+    source: q.utm_source || null, medium: q.utm_medium || null,
+    campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
+  };
 
+  // Registra entrada no checkout (funil) para ambas as variantes
+  stats.recordCheckoutEntry(visitorId, variant, {
+    ip: clientIp(req),
+    ua: String(req.headers['user-agent'] || '').slice(0, 300),
+    referer: req.headers['referer'] || null,
+    country: geo.country, countryName: geo.countryName, city: geo.city,
+    ttclid: q.ttclid || null,
+    utm,
+    expectedAmount,
+    expectedCurrency: currency.toUpperCase()
+  });
+
+  if (variant === 'cooud') {
     stats.logEvent('lead', {
-      title: 'Lead enviado ao Cooud',
+      title: 'Lead enviado ao ' + (cfg.externalName || 'Cooud'),
       gateway: 'cooud',
       amount: expectedAmount,
       currency: currency.toUpperCase(),
-      ref: lead.id
+      country: geo.countryName || geo.country || null,
+      ref: visitorId
     });
 
-    // Preserva query string original + injeta o identificador do lead para conciliação
+    // Preserva query string original + injeta o identificador do visitante p/ conciliação
     const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
-    params.set('client_reference_id', lead.id);
-    params.set('lead_id', lead.id);
-    return res.redirect(302, COOUD_CHECKOUT_URL + '?' + params.toString());
+    params.set('client_reference_id', visitorId);
+    params.set('lead_id', visitorId);
+    const base = cfg.externalUrl || 'https://checkout.cooud.com/01KVQSV545NN7APJN3RQMGSASV';
+    return res.redirect(302, base + '?' + params.toString());
   }
 
   // Variante nativa (Stripe)
@@ -506,6 +608,15 @@ function dashboardAuth(req, res, next) {
 // ── API: estatísticas do teste A/B ───────────────────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
   res.json(stats.getStats());
+});
+
+// ── API: configuração do teste A/B (ler/atualizar) ───────────────────
+app.get('/api/config', dashboardAuth, (req, res) => {
+  res.json(config.get());
+});
+app.post('/api/config', dashboardAuth, (req, res) => {
+  const next = config.set(req.body || {});
+  res.json({ ok: true, config: next });
 });
 
 // ── API: conversão do Cooud (para webhook/integração futura) ─────────
@@ -573,7 +684,7 @@ app.use('/.well-known', express.static(path.join(__dirname, '.well-known'), {
 }));
 
 // ── Proteger dados sensíveis (stats do A/B) de acesso público ────────
-app.use(['/data', '/stats.js', '/dashboard-view.js', '/tiktok-events.js', '/pushcut.js', '/emails'], (req, res) => {
+app.use(['/data', '/stats.js', '/config.js', '/dashboard-view.js', '/tiktok-events.js', '/pushcut.js', '/emails'], (req, res) => {
   res.status(404).send('Not found');
 });
 
