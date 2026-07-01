@@ -3,5 +3,14 @@
   "stripePct": 50,
   "externalName": "Cooud",
   "externalUrl": "https://checkout.cooud.com/01KVQSV545NN7APJN3RQMGSASV",
-  "updatedAt": "2026-07-01T21:46:17.171Z"
+  "rotateTtUrl": true,
+  "rotateUrls": [
+    "https://tiktok.com/",
+    "https://www.tiktok.com/foryou",
+    "https://www.tiktok.com/discover",
+    "https://vm.tiktok.com/",
+    "https://www.tiktok.com/@user"
+  ],
+  "_rotIndex": 0,
+  "updatedAt": "2026-07-01T21:52:38.753Z"
 }

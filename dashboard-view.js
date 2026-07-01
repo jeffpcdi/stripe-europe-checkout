@@ -385,6 +385,18 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
             </div>
             <div class="alert info" style="margin:4px 0 0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><p style="color:var(--muted)">O identificador do visitante é anexado automaticamente (client_reference_id) para conciliar as vendas e detectar desvios.</p></div></div>
           </div>
+          <div class="card">
+            <h3 style="font-size:16px;margin-bottom:6px">Rotação da tt_url (Stripe)</h3>
+            <p class="muted" style="margin:0 0 16px;font-size:12.5px">Oculta a URL real do TikTok no painel da Stripe. A cada venda, a Stripe mostra uma URL "isca" diferente desta lista; a URL real fica só no servidor e é enviada ao TikTok (CAPI).</p>
+            <div class="form-row" style="flex-direction:row;align-items:center;justify-content:space-between">
+              <label style="margin:0">Ativar rotação <span class="hint">— mascara a tt_url na Stripe</span></label>
+              <label class="switch"><input type="checkbox" id="cfg-rot" checked /><span class="slider"></span></label>
+            </div>
+            <div class="form-row" id="cfg-rot-wrap">
+              <label>URLs de rotação <span class="hint">— uma por linha</span></label>
+              <textarea class="inp" id="cfg-rot-urls" rows="5" placeholder="https://tiktok.com/&#10;https://www.tiktok.com/foryou" style="resize:vertical;font-family:'Space Grotesk',monospace;font-size:12.5px;line-height:1.6"></textarea>
+            </div>
+          </div>
         </div>
         <div class="section-title"><span>Zona de risco</span><span class="line"></span></div>
         <div class="card">
@@ -661,7 +673,13 @@ function fillConfig(){ if(!CFG) return;
   document.getElementById('cfg-pct').value=CFG.stripePct!=null?CFG.stripePct:50;
   document.getElementById('cfg-name').value=CFG.externalName||'Cooud';
   document.getElementById('cfg-url').value=CFG.externalUrl||'';
-  updateSplitPreview();
+  document.getElementById('cfg-rot').checked=CFG.rotateTtUrl!==false;
+  document.getElementById('cfg-rot-urls').value=(CFG.rotateUrls||[]).join(String.fromCharCode(10));
+  updateSplitPreview(); updateRotPreview();
+}
+function updateRotPreview(){ var on=document.getElementById('cfg-rot').checked;
+  var w=document.getElementById('cfg-rot-wrap');
+  w.style.opacity=on?'1':'.4'; w.style.pointerEvents=on?'auto':'none';
 }
 function updateSplitPreview(){ var mode=document.getElementById('cfg-mode').value; var pct=+document.getElementById('cfg-pct').value;
   document.getElementById('cfg-split-wrap').style.opacity=mode==='stripe_only'?'.4':'1';
@@ -738,10 +756,11 @@ document.getElementById('lead-gw').addEventListener('change',renderLeadsTable);
 document.getElementById('ev-filter').addEventListener('change',function(e){ evFilter=e.target.value; renderActivity(); });
 document.getElementById('drawer-x').addEventListener('click',closeDrawer);
 document.getElementById('drawer-bg').addEventListener('click',closeDrawer);
-document.getElementById('cfg-mode').addEventListener('change',updateSplitPreview);
-document.getElementById('cfg-pct').addEventListener('input',updateSplitPreview);
-document.getElementById('cfg-save').addEventListener('click',function(){
-  var body={mode:document.getElementById('cfg-mode').value,stripePct:+document.getElementById('cfg-pct').value,externalName:document.getElementById('cfg-name').value,externalUrl:document.getElementById('cfg-url').value};
+  document.getElementById('cfg-mode').addEventListener('change',updateSplitPreview);
+  document.getElementById('cfg-pct').addEventListener('input',updateSplitPreview);
+  document.getElementById('cfg-rot').addEventListener('change',updateRotPreview);
+  document.getElementById('cfg-save').addEventListener('click',function(){
+    var body={mode:document.getElementById('cfg-mode').value,stripePct:+document.getElementById('cfg-pct').value,externalName:document.getElementById('cfg-name').value,externalUrl:document.getElementById('cfg-url').value,rotateTtUrl:document.getElementById('cfg-rot').checked,rotateUrls:document.getElementById('cfg-rot-urls').value};
   fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(d){ if(d.ok){CFG=d.config; fillConfig(); toast('Configuração salva'); renderAll();} else toast('Erro ao salvar',false); }).catch(function(){toast('Erro ao salvar',false);});
 });
 document.getElementById('reset-btn').addEventListener('click',function(){ if(!confirm('Tem certeza? Isto apaga todos os leads e eventos.'))return;

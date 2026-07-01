@@ -187,6 +187,33 @@ function recordCheckoutEntry(id, gateway, data) {
   return lead;
 }
 
+// Guarda dados de tracking sensíveis (ex.: tt_url REAL) no lead, no servidor.
+// Nunca vão para a metadata da Stripe — só usados no TikTok Events API (CAPI).
+function attachTracking(id, patch) {
+  if (!id || !patch) return null;
+  const state = read();
+  let lead = findLead(state, id);
+  const nowIso = new Date().toISOString();
+  if (!lead) {
+    lead = {
+      id, at: nowIso, stage: 'checkout', status: 'pending', gateway: 'stripe', utm: {}
+    };
+    state.leads.unshift(lead);
+    if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
+  }
+  if (patch.ttUrl) lead.ttUrl = String(patch.ttUrl).slice(0, 500);
+  if (patch.ttclid && !lead.ttclid) lead.ttclid = patch.ttclid;
+  if (patch.ttp) lead.ttp = patch.ttp;
+  write(state);
+  return lead;
+}
+
+// Recupera um lead por id (usado no webhook para obter a tt_url real).
+function getLead(id) {
+  if (!id) return null;
+  return findLead(read(), id);
+}
+
 // ── Conversão do Stripe (nativo) ──
 function markPurchased(id, data) {
   data = data || {};
@@ -415,5 +442,5 @@ function reset() { write(emptyState()); }
 module.exports = {
   VARIANTS, recordAssignment, recordClick, recordConversion,
   logEvent, recordVisit, recordCheckoutEntry, markPurchased,
-  matchCooudConversion, getStats, reset
+  attachTracking, getLead, matchCooudConversion, getStats, reset
 };

@@ -206,14 +206,26 @@ app.post('/api/create-payment-intent', async (req, res) => {
 
     // Dados de atribuição TikTok enviados pelo checkout (para o Events API no webhook)
     const t = req.body.tracking || {};
+    const vId = readCookie(req, 'v_id') || '';
     const trackingMeta = {};
     if (t.ttclid) trackingMeta.ttclid = String(t.ttclid).slice(0, 500);
     if (t.ttp) trackingMeta.ttp = String(t.ttp).slice(0, 500);
-    if (t.url) trackingMeta.tt_url = String(t.url).slice(0, 500);
     trackingMeta.tt_ip = clientIp(req);
     trackingMeta.tt_ua = String(req.headers['user-agent'] || '').slice(0, 500);
     trackingMeta.ab_variant = readCookie(req, 'ab_variant') || 'stripe';
-    trackingMeta.v_id = readCookie(req, 'v_id') || '';
+    trackingMeta.v_id = vId;
+
+    // ── tt_url: a URL REAL fica só no servidor (nunca na Stripe) ──────
+    // Na metadata da Stripe grava-se uma URL "decoy" rotacionada, para que o
+    // painel da Stripe não exponha a landing/parâmetros reais do TikTok.
+    const realUrl = t.url ? String(t.url).slice(0, 500) : null;
+    if (realUrl) {
+      // guarda a URL real (+ ids) no lead, no servidor, para o CAPI no webhook
+      if (vId) stats.attachTracking(vId, { ttUrl: realUrl, ttclid: t.ttclid, ttp: t.ttp });
+      const decoy = config.nextRotationUrl(); // round-robin; null se rotação off
+      trackingMeta.tt_url = decoy || realUrl; // se rotação off, mantém comportamento antigo
+      if (decoy) trackingMeta.tt_url_rot = '1'; // marca que está mascarada
+    }
 
     const pi = await stripe.paymentIntents.create({
       amount: unitAmount,
@@ -354,6 +366,15 @@ app.post('/api/stripe-webhook', async (req, res) => {
       const md = pi.metadata || {};
       const value = (pi.amount_received || pi.amount || 0) / 100;
       const currency = (pi.currency || 'eur').toUpperCase();
+
+      // tt_url REAL: recupera do store por v_id. A metadata pode conter só a
+      // decoy rotacionada (md.tt_url_rot === '1'), que NÃO deve ir ao TikTok.
+      let realUrl = null;
+      try {
+        const lead = stats.getLead(md.v_id);
+        if (lead && lead.ttUrl) realUrl = lead.ttUrl;
+      } catch (_) {}
+      if (!realUrl && md.tt_url && md.tt_url_rot !== '1') realUrl = md.tt_url;
       const contents = [{
         content_id: 'tiktok_verificacao',
         content_name: 'Tasa de Verificacion TikTok',
@@ -372,7 +393,7 @@ app.post('/api/stripe-webhook', async (req, res) => {
         userAgent: md.tt_ua || undefined,
         ttclid: md.ttclid || undefined,
         ttp: md.ttp || undefined,
-        url: md.tt_url || undefined,
+        url: realUrl || undefined,
         value,
         currency,
         contents
