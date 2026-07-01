@@ -16,6 +16,10 @@ function emptyVariant() {
 const MAX_EVENTS = 300; // mantém os últimos N eventos no feed
 const MAX_LEADS = 500;  // mantém os últimos N leads rastreados
 
+// Conversão que chega muito depois do lead = provável "Recuperar Prejuízo" do Cooud
+// (o gateway re-tenta cobranças recusadas/abandonadas para "recuperar" a venda).
+const RECOVERY_LATE_MS = 60 * 60 * 1000; // 1 hora
+
 function emptyState() {
   const variants = {};
   VARIANTS.forEach((v) => { variants[v] = emptyVariant(); });
@@ -157,6 +161,28 @@ function matchCooudConversion(data) {
     if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
   }
 
+  // ── Detecção de práticas do gateway Cooud (Smart Capture / Recuperar Prejuízo) ──
+  // Flags explícitas (se o webhook do Cooud enviar) têm prioridade; senão usa heurística.
+  let capture = data.smartCapture === true;
+  let recovery = data.recovery === true;
+  let captureExtra = 0;
+
+  // Smart Capture: cobrou valor acima do esperado (order bump / captura extra) ou reporte duplicado
+  if (!lead.orphan && lead.expectedAmount && amount > lead.expectedAmount) {
+    capture = true;
+    captureExtra = amount - lead.expectedAmount;
+  }
+  if (lead.duplicateReports) capture = true;
+
+  // Recuperar Prejuízo: conversão que chegou muito depois do envio do lead
+  const ageMs = new Date(lead.convertedAt).getTime() - new Date(lead.at).getTime();
+  lead.conversionAgeMs = lead.orphan ? null : ageMs;
+  if (!lead.orphan && ageMs > RECOVERY_LATE_MS) recovery = true;
+
+  lead.smartCapture = capture;
+  lead.recovery = recovery;
+  lead.captureExtra = captureExtra;
+
   // contabiliza conversão/receita da variante cooud (fonte única — não usar recordConversion junto)
   const v = state.variants.cooud;
   v.conversions = (v.conversions || 0) + 1;
@@ -170,7 +196,8 @@ function matchCooudConversion(data) {
 function cooudReconciliation(leads) {
   const list = (leads || []).filter((l) => l.gateway === 'cooud');
   let sent = 0, matched = 0, orphans = 0, pending = 0, duplicates = 0, valueMismatch = 0;
-  const expectedRev = {}, reportedRev = {};
+  let smartCapture = 0, recovery = 0;
+  const expectedRev = {}, reportedRev = {}, captureExtraRev = {}, recoveryRev = {};
 
   list.forEach((l) => {
     const isOrphan = !!l.orphan;
@@ -186,6 +213,15 @@ function cooudReconciliation(leads) {
         // valor reportado menor que o preço esperado → possível subnotificação
         if (rc === ec && (l.reportedAmount || 0) < l.expectedAmount) valueMismatch++;
       }
+      // práticas do gateway
+      if (l.smartCapture) {
+        smartCapture++;
+        if (l.captureExtra) captureExtraRev[rc] = (captureExtraRev[rc] || 0) + l.captureExtra;
+      }
+      if (l.recovery) {
+        recovery++;
+        recoveryRev[rc] = (recoveryRev[rc] || 0) + (l.reportedAmount || 0);
+      }
       if (isOrphan) orphans++; else matched++;
     } else {
       pending++;
@@ -196,6 +232,7 @@ function cooudReconciliation(leads) {
   const convRate = sent ? +((matched / sent) * 100).toFixed(2) : 0;
   return {
     sent, matched, orphans, pending, duplicates, valueMismatch,
+    smartCapture, recovery, captureExtraRev, recoveryRev,
     totalReported, convRate, expectedRev, reportedRev
   };
 }

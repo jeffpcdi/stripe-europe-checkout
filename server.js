@@ -516,6 +516,11 @@ app.post('/api/cooud-conversion', (req, res) => {
   const currency = b.currency || 'eur';
   // aceita várias chaves possíveis vindas do webhook do Cooud
   const leadId = b.leadId || b.lead_id || b.client_reference_id || b.reference || null;
+  // flags das funções do Cooud, se o painel/webhook deles enviar
+  const smartCapture = b.smartCapture === true || b.smart_capture === true
+    || /smart.?capture/i.test(String(b.type || b.method || b.origin || ''));
+  const recovery = b.recovery === true || b.recuperar_prejuizo === true || b.loss_recovery === true
+    || /recover|recupera|preju/i.test(String(b.type || b.method || b.origin || ''));
 
   const lead = stats.matchCooudConversion({
     leadId,
@@ -523,10 +528,15 @@ app.post('/api/cooud-conversion', (req, res) => {
     currency,
     customer: b.customer || b.name || null,
     email: b.email || null,
-    ref: b.ref || b.order_id || b.id || null
+    ref: b.ref || b.order_id || b.id || null,
+    smartCapture,
+    recovery
   });
 
   try {
+    var extras = [];
+    if (lead.smartCapture) extras.push('Smart Capture');
+    if (lead.recovery) extras.push('Recuperar Prejuízo');
     stats.logEvent('sale', {
       title: lead.orphan ? 'Venda Cooud SEM lead (órfã)' : 'Venda aprovada (Cooud)',
       amount: amount,
@@ -535,11 +545,14 @@ app.post('/api/cooud-conversion', (req, res) => {
       email: b.email || null,
       gateway: 'cooud',
       orphan: !!lead.orphan,
+      smartCapture: !!lead.smartCapture,
+      recovery: !!lead.recovery,
+      practice: extras.length ? extras.join(' + ') : null,
       ref: lead.id
     });
   } catch (_) {}
 
-  res.json({ ok: true, matched: !lead.orphan, leadId: lead.id });
+  res.json({ ok: true, matched: !lead.orphan, leadId: lead.id, smartCapture: !!lead.smartCapture, recovery: !!lead.recovery });
 });
 
 // ── API: zerar estatísticas ──────────────────────────────────────────
