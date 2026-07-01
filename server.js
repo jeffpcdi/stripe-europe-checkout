@@ -1,10 +1,21 @@
 const express = require('express');
 const path = require('path');
+const { Resend } = require('resend');
+const { buildConfirmationEmail } = require('./emails/confirmation');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Resend client ─────────────────────────────────────────────────────
+function getResend() {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) throw new Error('RESEND_API_KEY não configurada nas variáveis de ambiente.');
+  return new Resend(key);
+}
+
 // ── Middleware ────────────────────────────────────────────────────────
+// ATENÇÃO: o webhook Stripe precisa do raw body — definido ANTES do express.json()
+app.use('/api/stripe-webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
 // CORS headers para todas as rotas API
@@ -119,6 +130,82 @@ app.post('/api/create-upsell-intent', async (req, res) => {
     console.error('create-upsell-intent error:', err.message);
     res.status(500).json({ error: err.message || 'Erro interno' });
   }
+});
+
+// ── Webhook Stripe — confirmação de pagamento + e-mail ───────────────
+app.post('/api/stripe-webhook', async (req, res) => {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripe = getStripe();
+  let event;
+
+  try {
+    if (webhookSecret) {
+      const sig = req.headers['stripe-signature'];
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } else {
+      // Sem segredo configurado: parseia o body diretamente (apenas para testes)
+      event = JSON.parse(req.body.toString());
+    }
+  } catch (err) {
+    console.error('Webhook signature error:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'payment_intent.succeeded') {
+    const pi = event.data.object;
+
+    // Recupera o charge para obter billing_details (nome + email)
+    let customerEmail = null;
+    let customerName = null;
+
+    try {
+      const charges = await stripe.charges.list({ payment_intent: pi.id, limit: 1 });
+      const charge = charges.data[0];
+      customerEmail = charge?.billing_details?.email || null;
+      customerName  = charge?.billing_details?.name  || 'Cliente';
+    } catch (err) {
+      console.error('Erro ao buscar charge:', err.message);
+    }
+
+    if (customerEmail) {
+      try {
+        const resend = getResend();
+
+        const amountFormatted = new Intl.NumberFormat('pt-PT', {
+          style: 'currency',
+          currency: (pi.currency || 'eur').toUpperCase()
+        }).format(pi.amount_received / 100);
+
+        const dateFormatted = new Intl.DateTimeFormat('pt-PT', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Lisbon'
+        }).format(new Date(pi.created * 1000));
+
+        const html = buildConfirmationEmail({
+          customerName: customerName,
+          orderId: pi.id,
+          date: dateFormatted,
+          total: amountFormatted,
+          type: pi.metadata?.type || 'Pagamento único'
+        });
+
+        await resend.emails.send({
+          from: 'EventPay <info@suport.com>',
+          to: customerEmail,
+          subject: 'Compra aprovada — acesse agora',
+          html
+        });
+
+        console.log(`[stripe-webhook] E-mail de confirmação enviado para ${customerEmail}`);
+      } catch (emailErr) {
+        console.error('[stripe-webhook] Erro ao enviar e-mail:', emailErr.message);
+      }
+    } else {
+      console.warn('[stripe-webhook] payment_intent.succeeded sem e-mail do cliente:', pi.id);
+    }
+  }
+
+  res.json({ received: true });
 });
 
 // ── Webhook WayMB ────────────────────────────────────────────────────
