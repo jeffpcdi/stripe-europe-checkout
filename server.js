@@ -313,6 +313,21 @@ app.post('/api/stripe-webhook', async (req, res) => {
       console.error('[stripe-webhook] Erro ao registrar conversão A/B:', abErr.message);
     }
 
+    // ── Log de evento — VENDA APROVADA ────────────────────────────────
+    try {
+      stats.logEvent('sale', {
+        title: 'Venda aprovada',
+        amount: pi.amount_received || pi.amount,
+        currency: pi.currency,
+        customer: customerName || null,
+        email: customerEmail || null,
+        card: cardInfo || null,
+        country: country || null,
+        gateway: (pi.metadata && pi.metadata.ab_variant) || 'stripe',
+        ref: pi.id
+      });
+    } catch (_) {}
+
     // ── Pushcut — VENDA APROVADA ──────────────────────────────────────
     const valor = fmtMoney(pi.amount_received || pi.amount, pi.currency);
     await sendPushcut('Aprovada', {
@@ -335,6 +350,18 @@ app.post('/api/stripe-webhook', async (req, res) => {
     const pi = event.data.object;
     const err = pi.last_payment_error || {};
     const bd = err.payment_method?.billing_details || {};
+    try {
+      stats.logEvent('failed', {
+        title: 'Pagamento recusado',
+        amount: pi.amount,
+        currency: pi.currency,
+        customer: bd.name || null,
+        email: bd.email || null,
+        reason: err.message || err.decline_code || err.code || 'desconhecido',
+        gateway: (pi.metadata && pi.metadata.ab_variant) || 'stripe',
+        ref: pi.id
+      });
+    } catch (_) {}
     await sendPushcut('Recusada', {
       title: `Pagamento recusado — ${fmtMoney(pi.amount, pi.currency)}`,
       text: [
@@ -351,6 +378,16 @@ app.post('/api/stripe-webhook', async (req, res) => {
   // ── Pushcut — REEMBOLSO ─────────────────────────────────────────────
   else if (event.type === 'charge.refunded') {
     const ch = event.data.object;
+    try {
+      stats.logEvent('refund', {
+        title: 'Reembolso',
+        amount: ch.amount_refunded,
+        currency: ch.currency,
+        customer: ch.billing_details?.name || null,
+        email: ch.billing_details?.email || null,
+        ref: ch.id
+      });
+    } catch (_) {}
     await sendPushcut('Reembolso', {
       title: `Reembolso — ${fmtMoney(ch.amount_refunded, ch.currency)}`,
       text: [
@@ -367,6 +404,16 @@ app.post('/api/stripe-webhook', async (req, res) => {
   // ── Pushcut — DISPUTA / CHARGEBACK ──────────────────────────────────
   else if (event.type === 'charge.dispute.created') {
     const d = event.data.object;
+    try {
+      stats.logEvent('dispute', {
+        title: 'Disputa / chargeback',
+        amount: d.amount,
+        currency: d.currency,
+        reason: d.reason || 'desconhecido',
+        status: d.status || null,
+        ref: d.charge
+      });
+    } catch (_) {}
     await sendPushcut('Disputa', {
       title: `⚠️ Disputa aberta — ${fmtMoney(d.amount, d.currency)}`,
       text: [
@@ -436,6 +483,17 @@ app.post('/api/cooud-conversion', (req, res) => {
   const amount = Math.round((Number(req.body.amount) || 0) * 100); // valor em unidades → cêntimos
   const currency = req.body.currency || 'eur';
   stats.recordConversion('cooud', amount, currency);
+  try {
+    stats.logEvent('sale', {
+      title: 'Venda aprovada',
+      amount: amount,
+      currency: currency,
+      customer: req.body.customer || null,
+      email: req.body.email || null,
+      gateway: 'cooud',
+      ref: req.body.ref || null
+    });
+  } catch (_) {}
   res.json({ ok: true });
 });
 

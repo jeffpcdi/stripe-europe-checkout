@@ -13,10 +13,12 @@ function emptyVariant() {
   return { assignments: 0, clicks: 0, conversions: 0, revenue: {} };
 }
 
+const MAX_EVENTS = 300; // mantém os últimos N eventos no feed
+
 function emptyState() {
   const variants = {};
   VARIANTS.forEach((v) => { variants[v] = emptyVariant(); });
-  return { variants, updatedAt: null };
+  return { variants, events: [], updatedAt: null };
 }
 
 function ensureFile() {
@@ -40,6 +42,7 @@ function read() {
         if (!state.variants[v].revenue) state.variants[v].revenue = {};
       }
     });
+    state.events = Array.isArray(raw.events) ? raw.events : [];
     state.updatedAt = raw.updatedAt || null;
     return state;
   } catch (err) {
@@ -78,10 +81,24 @@ function recordConversion(variant, amountCents, currency) {
   write(state);
 }
 
+// Registra um evento no feed (venda, recusa, reembolso, disputa, etc.)
+// type: 'sale' | 'failed' | 'refund' | 'dispute' | 'info'
+function logEvent(type, data) {
+  const state = read();
+  const entry = Object.assign({
+    id: 'evt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    type: type || 'info',
+    at: new Date().toISOString()
+  }, data || {});
+  state.events.unshift(entry); // mais recente primeiro
+  if (state.events.length > MAX_EVENTS) state.events.length = MAX_EVENTS;
+  write(state);
+}
+
 function getStats() {
   const state = read();
-  // calcula métricas derivadas
-  const out = { variants: {}, updatedAt: state.updatedAt };
+  // calcula métricas derivadas por variante
+  const out = { variants: {}, events: state.events || [], updatedAt: state.updatedAt };
   VARIANTS.forEach((v) => {
     const d = state.variants[v];
     const base = d.assignments || 0;
@@ -93,9 +110,32 @@ function getStats() {
       revenue: d.revenue || {}
     };
   });
+
+  // totais globais para o painel de visão geral
+  const revenue = {};
+  let sales = 0, failed = 0, refunds = 0, disputes = 0;
+  VARIANTS.forEach((v) => {
+    const rev = out.variants[v].revenue || {};
+    Object.keys(rev).forEach((cur) => { revenue[cur] = (revenue[cur] || 0) + rev[cur]; });
+  });
+  (state.events || []).forEach((e) => {
+    if (e.type === 'sale') sales++;
+    else if (e.type === 'failed') failed++;
+    else if (e.type === 'refund') refunds++;
+    else if (e.type === 'dispute') disputes++;
+  });
+  const totalAttempts = sales + failed;
+  out.totals = {
+    revenue,
+    sales,
+    failed,
+    refunds,
+    disputes,
+    approvalRate: totalAttempts ? +((sales / totalAttempts) * 100).toFixed(1) : 0
+  };
   return out;
 }
 
 function reset() { write(emptyState()); }
 
-module.exports = { VARIANTS, recordAssignment, recordClick, recordConversion, getStats, reset };
+module.exports = { VARIANTS, recordAssignment, recordClick, recordConversion, logEvent, getStats, reset };
