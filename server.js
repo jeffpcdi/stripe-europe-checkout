@@ -96,6 +96,11 @@ app.post('/webhook.php', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// ── Rota /checkout → serve o checkout Stripe ─────────────────────────
+app.get('/checkout', (req, res) => {
+  res.sendFile(path.join(__dirname, 'proximo', 'premium', 'checkout.html'));
+});
+
 // ── Servir ficheiros estáticos ───────────────────────────────────────
 // Serve index.html automaticamente para pastas (ex: /1/ → /1/index.html)
 app.use(express.static(path.join(__dirname), {

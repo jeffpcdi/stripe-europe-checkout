@@ -710,7 +710,7 @@ function setupRegistrationPage() {
     payButton.addEventListener('click', (e) => {
       e.preventDefault();
       if (typeof sendEvent === 'function') sendEvent("payment_click", 1297);
-      var checkoutUrl = 'https://checkout.centerpag.com/pay/PPU38CQ96AS?';
+      var checkoutUrl = '/checkout?';
       var utms = [];
       ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(function(k) {
         var v = localStorage.getItem(k);
