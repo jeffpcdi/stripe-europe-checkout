@@ -719,19 +719,28 @@ app.get('/checkout', (req, res) => {
 });
 
 // ── Auth simples (Basic Auth) para a dashboard ───────────────────────
+// Comparação em tempo constante (crypto.timingSafeEqual) — evita timing
+// attacks que a comparação com === permitia.
+const crypto = require('crypto');
+function safeEqual(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
 function dashboardAuth(req, res, next) {
   const pass = process.env.DASHBOARD_PASSWORD;
   if (!pass) return next(); // sem senha definida: acesso livre (defina DASHBOARD_PASSWORD para proteger)
   const header = req.headers.authorization || '';
   const token = header.startsWith('Basic ') ? Buffer.from(header.slice(6), 'base64').toString() : '';
   const provided = token.split(':').slice(1).join(':'); // ignora usuário, valida senha
-  if (provided === pass) return next();
+  if (provided && safeEqual(provided, pass)) return next();
   res.set('WWW-Authenticate', 'Basic realm="Dashboard"');
   return res.status(401).send('Autenticação necessária.');
 }
 
 // ── API: estatísticas do teste A/B ───────────────────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store'); // dados ao vivo — nunca cachear em proxies
   res.json(stats.getStats());
 });
 
@@ -777,8 +786,10 @@ app.post('/api/config', dashboardAuth, (req, res) => {
   res.json({ ok: true, config: pub });
 });
 
-// ── API: health-check — estado das variáveis críticas ───────────────
-app.get('/api/health', dashboardAuth, (req, res) => {
+// ── API: health-check — variáveis críticas + ping REAL no banco ─────
+app.get('/api/health', dashboardAuth, async (req, res) => {
+  const dbPing = await require('./db').ping();
+  res.set('Cache-Control', 'no-store');
   res.json({
     stripe:   !!process.env.STRIPE_SECRET_KEY,
     webhook:  !!process.env.STRIPE_WEBHOOK_SECRET,
@@ -786,16 +797,33 @@ app.get('/api/health', dashboardAuth, (req, res) => {
     tiktok:   !!process.env.TIKTOK_ACCESS_TOKEN,
     pushcut:  !!process.env.PUSHCUT_SECRET,
     dashboard:!!process.env.DASHBOARD_PASSWORD,
+    db:       dbPing.ok,
+    dbLatencyMs: dbPing.ok ? dbPing.latencyMs : null,
+    uptimeSec: Math.round(process.uptime()),
     ts: new Date().toISOString()
   });
 });
 
 // ── API: conversão do Cooud (para webhook/integração futura) ─────────
 // Chame este endpoint a partir do webhook do Cooud quando um pagamento for aprovado.
+// Se COOUD_WEBHOOK_SECRET estiver definido, exige o segredo no header
+// x-webhook-secret ou em ?secret= — sem ele o endpoint fica aberto (retro-compat).
 app.post('/api/cooud-conversion', (req, res) => {
+  const secret = process.env.COOUD_WEBHOOK_SECRET;
+  if (secret) {
+    const provided = req.headers['x-webhook-secret'] || req.query.secret || '';
+    if (!provided || !safeEqual(String(provided), secret)) {
+      return res.status(401).json({ ok: false, error: 'segredo inválido' });
+    }
+  }
   const b = req.body || {};
-  const amount = Math.round((Number(b.amount) || 0) * 100); // valor em unidades → cêntimos
-  const currency = b.currency || 'eur';
+  // Validação do payload: valor numérico, positivo e com teto de sanidade
+  const rawAmount = Number(b.amount);
+  if (!Number.isFinite(rawAmount) || rawAmount < 0 || rawAmount > 1000000) {
+    return res.status(400).json({ ok: false, error: 'amount inválido' });
+  }
+  const amount = Math.round(rawAmount * 100); // valor em unidades → cêntimos
+  const currency = /^[a-zA-Z]{3}$/.test(String(b.currency || '')) ? b.currency : 'eur';
   // aceita várias chaves possíveis vindas do webhook do Cooud
   const leadId = b.leadId || b.lead_id || b.client_reference_id || b.reference || null;
   // flags das funções do Cooud, se o painel/webhook deles enviar
@@ -909,12 +937,23 @@ app.get('*', (req, res, next) => {
 });
 
 // ── Iniciar servidor ─────────────────────────────────────────────────
-// Hidrata o cache a partir do Neon ANTES de escutar, para que os dados de
-// vários dias já estejam disponíveis logo no primeiro request pós-deploy.
-stats.hydrate().finally(() => {
-  app.listen(PORT, () => {
-    console.log(`✅ Servidor rodando na porta ${PORT}`);
-    console.log(`   STRIPE_SECRET_KEY: ${process.env.STRIPE_SECRET_KEY ? '✅ configurada' : '❌ NÃO CONFIGURADA'}`);
-    console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
+// Hidrata stats E config a partir do Neon ANTES de escutar, para que os
+// dados de vários dias já estejam disponíveis no primeiro request pós-deploy.
+stats.hydrate()
+  .then(() => config.hydrate())
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`✅ Servidor rodando na porta ${PORT}`);
+      console.log(`   STRIPE_SECRET_KEY: ${process.env.STRIPE_SECRET_KEY ? '✅ configurada' : '❌ NÃO CONFIGURADA'}`);
+      console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
+    });
+
+    // ── Manutenção periódica ─────────────────────────────────────────
+    // 1. Prune do mapa de presença em memória (remove sessões expiradas
+    //    mesmo sem ninguém consultar /api/live).
+    setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();
+    // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
+    const db = require('./db');
+    setInterval(() => { db.pruneSessions(30); }, 24 * 60 * 60 * 1000).unref();
+    setTimeout(() => { db.pruneSessions(30); }, 30 * 1000).unref();
   });
-});

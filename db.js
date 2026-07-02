@@ -65,6 +65,13 @@ async function init() {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS sessions_last_idx ON sessions (last_seen DESC)`;
 
+    // Config da dashboard (chave única 'main') — sobrevive a deploys.
+    await sql`CREATE TABLE IF NOT EXISTS config (
+      key text PRIMARY KEY,
+      data jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`;
+
     ready = true;
     console.log('[db] Neon pronto (tabelas verificadas).');
     return true;
@@ -157,8 +164,58 @@ async function upsertSession(s) {
   } catch (err) { console.error('[db] upsertSession:', err.message); }
 }
 
+// ── Config durável (dashboard) ────────────────────────────────────────────
+async function saveConfig(data) {
+  if (!enabled || !data) return;
+  try {
+    await sql`INSERT INTO config (key, data, updated_at)
+      VALUES ('main', ${JSON.stringify(data)}::jsonb, now())
+      ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
+  } catch (err) { console.error('[db] saveConfig:', err.message); }
+}
+
+async function loadConfig() {
+  if (!enabled) return null;
+  try {
+    const rows = await sql`SELECT data FROM config WHERE key = 'main' LIMIT 1`;
+    return rows.length ? rows[0].data : null;
+  } catch (err) {
+    console.error('[db] loadConfig:', err.message);
+    return null;
+  }
+}
+
+// ── Diagnóstico: ping real no banco (para o /api/health) ─────────────────
+async function ping() {
+  if (!enabled) return { ok: false, reason: 'sem DATABASE_URL' };
+  try {
+    const t0 = Date.now();
+    await sql`SELECT 1`;
+    return { ok: true, latencyMs: Date.now() - t0 };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+}
+
+// ── Manutenção: apaga sessões antigas (evita crescimento sem limite) ─────
+async function pruneSessions(olderThanDays) {
+  if (!enabled) return 0;
+  const days = Math.max(1, Number(olderThanDays) || 30);
+  try {
+    const rows = await sql`DELETE FROM sessions
+      WHERE last_seen < now() - make_interval(days => ${days})
+      RETURNING visitor_id`;
+    if (rows.length) console.log('[db] pruneSessions: ' + rows.length + ' sessões antigas removidas.');
+    return rows.length;
+  } catch (err) {
+    console.error('[db] pruneSessions:', err.message);
+    return 0;
+  }
+}
+
 module.exports = {
   enabled,
   isReady: () => ready,
-  init, upsertLead, insertEvent, upsertVariant, loadState, reset, upsertSession
+  init, upsertLead, insertEvent, upsertVariant, loadState, reset, upsertSession,
+  saveConfig, loadConfig, ping, pruneSessions
 };

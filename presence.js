@@ -6,6 +6,7 @@
 const db = require('./db');
 
 const ONLINE_WINDOW = 35 * 1000; // 35s sem heartbeat = offline
+const DB_WRITE_INTERVAL = 60 * 1000; // grava no Neon no máx. 1x/min por sessão
 const live = new Map();          // visitorId -> sessão
 
 // Registra/atualiza um heartbeat de um visitante.
@@ -26,7 +27,8 @@ function touch(data) {
     live.set(id, s);
   }
   // atualiza campos (mantém geo já conhecido se não vier)
-  if (data.page) { if (data.page !== s.page) s.pageviews++; s.page = data.page; }
+  let pageChanged = false;
+  if (data.page) { if (data.page !== s.page) { s.pageviews++; pageChanged = true; } s.page = data.page; }
   if (data.referrer && !s.referrer) s.referrer = data.referrer;
   if (data.country) s.country = data.country;
   if (data.countryName) s.countryName = data.countryName;
@@ -37,8 +39,13 @@ function touch(data) {
   s.lastSeen = now;
   if (!s.pageviews) s.pageviews = 1;
 
-  // write-through durável (não bloqueia)
-  db.upsertSession(s);
+  // write-through durável (não bloqueia) — com throttle: grava no banco
+  // apenas na 1ª vez, quando muda de página ou a cada DB_WRITE_INTERVAL.
+  // Antes, cada heartbeat (~12s) gerava um UPDATE no Neon por visitante.
+  if (!s._lastDbWrite || pageChanged || (now - s._lastDbWrite) >= DB_WRITE_INTERVAL) {
+    s._lastDbWrite = now;
+    db.upsertSession(s);
+  }
   return s;
 }
 
