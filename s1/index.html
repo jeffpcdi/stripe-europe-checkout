@@ -234,8 +234,8 @@ body{font-family:'TikTok Sans','Poppins',-apple-system,BlinkMacSystemFont,sans-s
   <script>
   (function () {
     var STRIPE_PK = 'pk_live_51TZIE8LfsV7mxllBvCosSGGJHOol2Tyc8WJ5sTsvPWXYNX2GWlWrE1gYH8F2o2HwYvZ6RrafTvRlDstJ6V5Tknf10015hyOsqv';
-    var UPSELL_SUCCESS_URL = '/2';   // página seguinte após upsell aceite
-    var UPSELL_SKIP_URL    = '/2';   // página seguinte após skip
+    var UPSELL_SUCCESS_URL = '/s2';   // fluxo Stripe: s1 → s2
+    var UPSELL_SKIP_URL    = '/s2';   // fluxo Stripe: s1 → s2
 
     var stripe = null;
     var upsellElements = null;

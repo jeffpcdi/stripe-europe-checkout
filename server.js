@@ -298,14 +298,19 @@ app.post('/api/create-payment-intent', async (req, res) => {
   }
 });
 
-// ── API: Upsell one-click — criar PaymentIntent (60 €) ──────────────
+// ── API: Upsell one-click — criar PaymentIntent ─────────────────────
+// Valores permitidos (cêntimos): s1 = 60,00 €, s2 = 34,00 €.
+// Whitelist para impedir manipulação do valor pelo cliente.
+const ALLOWED_UPSELL_AMOUNTS = [6000, 3400];
 app.post('/api/create-upsell-intent', async (req, res) => {
   try {
     const stripe = getStripe();
     const paymentMethodId = req.body.paymentMethodId || null;
+    const reqAmount = Number(req.body.amountCents);
+    const amount = ALLOWED_UPSELL_AMOUNTS.includes(reqAmount) ? reqAmount : 6000;
 
     const params = {
-      amount: 6000,          // 60,00 €
+      amount,                // valor validado (60,00 € ou 34,00 €)
       currency: 'eur',
       description: randomDesc(UPSELL_DESCRIPTIONS),
       automatic_payment_methods: {
