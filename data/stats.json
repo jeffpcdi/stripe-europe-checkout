@@ -1,19 +1,138 @@
 {
   "variants": {
     "stripe": {
-      "assignments": 0,
-      "clicks": 0,
-      "conversions": 0,
-      "revenue": {}
+      "assignments": 40,
+      "clicks": 30,
+      "conversions": 10,
+      "revenue": {
+        "EUR": 12970
+      }
     },
     "cooud": {
-      "assignments": 0,
+      "assignments": 60,
       "clicks": 0,
-      "conversions": 0,
-      "revenue": {}
+      "conversions": 6,
+      "revenue": {
+        "EUR": 7782
+      }
     }
   },
   "events": [],
-  "leads": [],
-  "updatedAt": "2026-07-01T22:15:03.574Z"
+  "leads": [
+    {
+      "id": "x5",
+      "at": "2026-07-02T11:44:03.783Z",
+      "gateway": "cooud",
+      "stage": "purchased",
+      "status": "converted",
+      "orphan": true,
+      "convertedAt": "2026-07-02T11:44:03.783Z",
+      "reportedAmount": 1297,
+      "reportedCurrency": "EUR",
+      "customer": null,
+      "email": null,
+      "ref": null,
+      "utm": {},
+      "conversionAgeMs": null,
+      "smartCapture": false,
+      "recovery": false,
+      "captureExtra": 0
+    },
+    {
+      "id": "x4",
+      "at": "2026-07-02T11:44:03.783Z",
+      "gateway": "cooud",
+      "stage": "purchased",
+      "status": "converted",
+      "orphan": true,
+      "convertedAt": "2026-07-02T11:44:03.783Z",
+      "reportedAmount": 1297,
+      "reportedCurrency": "EUR",
+      "customer": null,
+      "email": null,
+      "ref": null,
+      "utm": {},
+      "conversionAgeMs": null,
+      "smartCapture": false,
+      "recovery": false,
+      "captureExtra": 0
+    },
+    {
+      "id": "x3",
+      "at": "2026-07-02T11:44:03.783Z",
+      "gateway": "cooud",
+      "stage": "purchased",
+      "status": "converted",
+      "orphan": true,
+      "convertedAt": "2026-07-02T11:44:03.783Z",
+      "reportedAmount": 1297,
+      "reportedCurrency": "EUR",
+      "customer": null,
+      "email": null,
+      "ref": null,
+      "utm": {},
+      "conversionAgeMs": null,
+      "smartCapture": false,
+      "recovery": false,
+      "captureExtra": 0
+    },
+    {
+      "id": "x2",
+      "at": "2026-07-02T11:44:03.783Z",
+      "gateway": "cooud",
+      "stage": "purchased",
+      "status": "converted",
+      "orphan": true,
+      "convertedAt": "2026-07-02T11:44:03.783Z",
+      "reportedAmount": 1297,
+      "reportedCurrency": "EUR",
+      "customer": null,
+      "email": null,
+      "ref": null,
+      "utm": {},
+      "conversionAgeMs": null,
+      "smartCapture": false,
+      "recovery": false,
+      "captureExtra": 0
+    },
+    {
+      "id": "x1",
+      "at": "2026-07-02T11:44:03.783Z",
+      "gateway": "cooud",
+      "stage": "purchased",
+      "status": "converted",
+      "orphan": true,
+      "convertedAt": "2026-07-02T11:44:03.783Z",
+      "reportedAmount": 1297,
+      "reportedCurrency": "EUR",
+      "customer": null,
+      "email": null,
+      "ref": null,
+      "utm": {},
+      "conversionAgeMs": null,
+      "smartCapture": false,
+      "recovery": false,
+      "captureExtra": 0
+    },
+    {
+      "id": "x0",
+      "at": "2026-07-02T11:44:03.783Z",
+      "gateway": "cooud",
+      "stage": "purchased",
+      "status": "converted",
+      "orphan": true,
+      "convertedAt": "2026-07-02T11:44:03.783Z",
+      "reportedAmount": 1297,
+      "reportedCurrency": "EUR",
+      "customer": null,
+      "email": null,
+      "ref": null,
+      "utm": {},
+      "conversionAgeMs": null,
+      "smartCapture": false,
+      "recovery": false,
+      "captureExtra": 0
+    }
+  ],
+  "updatedAt": "2026-07-02T11:44:03.783Z"
 }

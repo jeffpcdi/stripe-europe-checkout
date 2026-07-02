@@ -848,8 +848,8 @@ function renderAB(){
     '<div class="muted" style="font-size:12.5px">Vencedor por receita/visitante (RPV)</div>'+
     '<div class="win '+(winner==='cooud'?'pnk':'cyn')+'">'+winName+'</div>'+
     '<div class="vgrid">'+
-      '<div class="vcell"><div class="vt">RPV Stripe</div><div class="vv cyn">'+money(rpvS*100,Object.keys(s.revenue||{})[0]||'EUR')+'</div></div>'+
-      '<div class="vcell"><div class="vt">RPV '+esc(extName)+'</div><div class="vv pnk">'+money(rpvC*100,Object.keys(c.revenue||{})[0]||'EUR')+'</div></div>'+
+      '<div class="vcell"><div class="vt">RPV Stripe</div><div class="vv cyn">'+money(rpvS,Object.keys(s.revenue||{})[0]||'EUR')+'</div></div>'+
+      '<div class="vcell"><div class="vt">RPV '+esc(extName)+'</div><div class="vv pnk">'+money(rpvC,Object.keys(c.revenue||{})[0]||'EUR')+'</div></div>'+
     '</div>'+
     '<div style="margin-top:14px">'+
       '<div class="muted" style="font-size:12px">Uplift do vencedor: <b style="color:var(--text)">+'+uplift+'%</b></div>'+
@@ -870,7 +870,7 @@ function renderAB(){
 function renderABChart(s,c,rpvS,rpvC,extName){
   var el=document.getElementById('ab-chart'); if(!el) return;
   var metrics=[
-    {label:'RPV (cents)',stripe:rpvS,cooud:rpvC},
+    {label:'RPV',stripe:rpvS,cooud:rpvC},
     {label:'Taxa conv.%',stripe:s.assignments?+(s.conversions/s.assignments*100).toFixed(1):0,cooud:c.assignments?+(c.conversions/c.assignments*100).toFixed(1):0},
     {label:'Visitantes',stripe:s.assignments||0,cooud:c.assignments||0},
     {label:'Conversoes',stripe:s.conversions||0,cooud:c.conversions||0}
@@ -883,8 +883,8 @@ function renderABChart(s,c,rpvS,rpvC,extName){
     var y=padT+i*(barH+gap);
     var ws=Math.max(3,(m.stripe/maxV)*avail);
     var wc=Math.max(3,(m.cooud/maxV)*avail);
-    var labelS=m.label==='RPV (cents)'?money(m.stripe,'EUR'):(m.label==='Taxa conv.%'?m.stripe+'%':m.stripe);
-    var labelC=m.label==='RPV (cents)'?money(m.cooud,'EUR'):(m.label==='Taxa conv.%'?m.cooud+'%':m.cooud);
+    var labelS=m.label==='RPV'?money(m.stripe,'EUR'):(m.label==='Taxa conv.%'?m.stripe+'%':m.stripe);
+    var labelC=m.label==='RPV'?money(m.cooud,'EUR'):(m.label==='Taxa conv.%'?m.cooud+'%':m.cooud);
     return '<g>'+
       '<text x="'+(padL-8)+'" y="'+(y+12)+'" text-anchor="end" fill="#8888a4" font-size="11" font-family="Space Grotesk,sans-serif">'+esc(m.label)+'</text>'+
       '<rect x="'+padL+'" y="'+(y)+'" width="'+ws+'" height="16" rx="4" fill="#25f4ee" fill-opacity="0.85"/>'+
