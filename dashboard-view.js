@@ -82,6 +82,17 @@ input:checked+.slider:before{transform:translateX(16px)}
 /* Uma seção por vez: só a aba ativa fica visível */
 section.view{display:none}
 section.view.active{display:block;animation:fade .3s ease}
+/* sections empilhadas no mesmo grupo: divisor sutil entre elas */
+section.view.active~section.view.active{margin-top:34px;padding-top:30px;border-top:1px solid var(--border)}
+/* cabeçalho de bloco (aparece só quando a section está empilhada num grupo) */
+.block-head{display:none;align-items:center;gap:11px;margin:0 0 18px}
+section.view.active~section.view.active .block-head{display:flex}
+.block-head .bh-ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--card2);flex-shrink:0;box-shadow:inset 0 0 0 1px var(--border)}
+.block-head .bh-ico svg{width:18px;height:18px;color:var(--cyan)}
+.block-head h2{font-size:18px;font-weight:700;line-height:1.1}
+.block-head p{font-size:12.5px;color:var(--muted2);margin-top:1px}
+/* quando empilhada, o primeiro section-title da section não precisa de margin-top */
+section.view.active~section.view.active .section-title:first-of-type{margin-top:0}
 @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 /* Cabeçalho âncora de cada seção */
 .view-head{display:flex;align-items:center;gap:14px;margin:0 0 18px}
@@ -568,11 +579,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
     <nav class="nav" id="nav">
       <button data-view="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg><span>Visão Geral</span></button>
       <button data-view="live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg><span>Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
-      <button data-view="funnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18l-7 8v7l-4 2v-9z"/></svg><span>Funil & Leads</span></button>
-      <button data-view="geo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z"/></svg><span>Países</span></button>
-      <button data-view="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span>Atividade</span></button>
-      <button data-view="ab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/></svg><span>Teste A/B</span></button>
-      <button data-view="cooud"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg><span>Anti-desvio</span><span class="badge" id="nav-cooud-badge" style="display:none">!</span></button>
+      <button data-view="ab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/></svg><span>Teste A/B</span><span class="badge" id="nav-cooud-badge" style="display:none">!</span></button>
       <div class="nav-div"></div>
       <button data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82V8a1.65 1.65 0 001.51-1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span>Configurações</span></button>
     </nav>
@@ -648,6 +655,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Funil & Leads ── -->
       <section class="view" id="view-funnel">
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18l-7 8v7l-4 2v-9z"/></svg></span><div><h2>Funil &amp; Leads</h2><p>Cada visitante rastreado até o checkout</p></div></div>
         <div class="section-title" style="margin-top:0"><span>Funil de conversão</span><span class="line"></span><span class="muted" style="font-size:11.5px">visita &#8594; checkout &#8594; compra</span></div>
         <div class="card"><div class="funnel" id="funnel-bars"></div></div>
         <div class="section-title"><span>Por gateway</span><span class="line"></span></div>
@@ -677,6 +685,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Países ── -->
       <section class="view" id="view-geo">
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z"/></svg></span><div><h2>Países</h2><p>De onde vêm seus leads</p></div></div>
         <div class="grid kpis" id="geo-kpis"></div>
         <div class="section-title"><span>Ranking por país</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads e compras &middot; o globo 3D fica na aba Ao Vivo</span></div>
         <div class="card"><div class="clist" id="country-list"></div></div>
@@ -1256,13 +1265,62 @@ function updateLiveBadge(){
   var b=document.getElementById('nav-live-badge');
   if(b){ b.textContent=n; b.style.display=n>0?'':'none'; }
 }
+// Pulso de tráfego: entradas de leads por minuto nos últimos 30 min (barras),
+// + destaque de quantos estão no checkout AGORA (próprio + externo).
+function renderTrafficPulse(){
+  var el=document.getElementById('traffic-pulse'); if(!el) return;
+  var now=Date.now(), MIN=60000, WINDOW=30;
+  var buckets=new Array(WINDOW).fill(0);
+  // usa os eventos de "visit" (novo lead no funil) do feed principal
+  var evs=(DATA&&DATA.events)||[];
+  evs.forEach(function(e){
+    if(e.type!=='visit') return;
+    var t=e.at?new Date(e.at).getTime():0; if(!t) return;
+    var idx=Math.floor((now-t)/MIN);
+    if(idx>=0&&idx<WINDOW) buckets[WINDOW-1-idx]++; // mais antigo à esquerda
+  });
+  var total=buckets.reduce(function(a,b){return a+b;},0);
+  var max=Math.max.apply(null,buckets.concat([1]));
+  var half=buckets.length/2;
+  var recent=buckets.slice(half).reduce(function(a,b){return a+b;},0);
+  var older=buckets.slice(0,half).reduce(function(a,b){return a+b;},0);
+  var trend=recent-older;
+  var ck=LIVE.checkout||{stripeNow:0,cooudEst:0};
+  var inCk=(ck.stripeNow||0)+(ck.cooudEst||0);
+  var bars=buckets.map(function(v,i){
+    var h=Math.max(4,Math.round(v/max*100));
+    var cls='tb'+(i===buckets.length-1?' cur':'')+(v>=max&&max>1?' hot':'');
+    return '<div class="'+cls+'" style="height:'+h+'%" title="'+v+' entrada(s)"></div>';
+  }).join('');
+  var tCls=trend>0?'up':(trend<0?'down':'flat');
+  var tIco=trend>0?ARR_UP:(trend<0?ARR_DN:'');
+  var tTxt=trend>0?('+'+trend+' subindo'):(trend<0?(trend+' caindo'):'estável');
+  if(inCk>=3){ tCls='hot'; tTxt=inCk+' no checkout agora'; }
+  el.innerHTML=
+    '<div class="tf-now"><span class="tf-big">'+total+'</span><span class="tf-lbl">leads em 30 min</span></div>'+
+    '<div class="tf-bars">'+bars+'</div>'+
+    '<div class="tf-trend '+tCls+'">'+tIco+tTxt+'</div>'+
+    '<div class="tf-sub">'+
+      '<span>No checkout agora: <b>'+inCk+'</b></span>'+
+      '<span>Stripe (próprio): <b>'+(ck.stripeNow||0)+'</b></span>'+
+      '<span>Externo/Cooud: <b>'+(ck.cooudEst||0)+'</b></span>'+
+      '<span>Online agora: <b>'+((LIVE.summary&&LIVE.summary.online)||0)+'</b></span>'+
+    '</div>';
+}
 function renderLive(){
   var s=LIVE.summary||{online:0,countries:[]}; var vs=LIVE.visitors||[];
-  var onCheckout=vs.filter(function(v){return v.page&&v.page.indexOf('checkout')!==-1;}).length;
-  var topC=s.countries&&s.countries[0];
+  var ck=LIVE.checkout||{stripeNow:0,cooudEst:0};
+  // "no checkout" próprio (Stripe): usa presença real da página; fallback p/ filtro local
+  var stripeNow=ck.stripeNow!=null?ck.stripeNow:vs.filter(function(v){return v.page&&v.page.indexOf('checkout')!==-1;}).length;
+  var cooudEst=ck.cooudEst||0;
+  var totalCheckout=stripeNow+cooudEst;
   document.getElementById('live-kpis').innerHTML=
     kpi(I.users,'tint-green','Online agora','<span class="grn">'+s.online+'</span>','pessoas navegando &middot; '+((s.countries||[]).length)+' pa&iacute;ses')+
-    kpi(I.cart,'tint-pink','No checkout','<span class="pnk">'+onCheckout+'</span>','finalizando compra');
+    kpi(I.cart,'tint-pink','No checkout agora','<span class="pnk">'+totalCheckout+'</span>',
+      '<span class="grn">'+stripeNow+'</span> Stripe &middot; <span style="color:var(--amber)">'+cooudEst+'</span> externo')+
+    kpi(I.zap,'tint-cyan','Checkout externo','<span style="color:var(--amber)">'+cooudEst+'</span>','rastreados no Cooud &middot; ~10&nbsp;min');
+  // Card "Pulso de tráfego"
+  renderTrafficPulse();
   var list=document.getElementById('live-list');
   list.innerHTML=vs.length?vs.map(function(v){
     var idle=v.idleMs>20000;
@@ -1721,14 +1779,14 @@ function setPeriod(p){
 
 /* ── Paleta de comandos ⌘K ── */
 var CMD_ITEMS=[
-  {g:'Telas',t:'Ao Vivo',h:'presença',ic:I.zap,act:function(){setView('live');}},
   {g:'Telas',t:'Visão Geral',h:'resumo',ic:I.money,act:function(){setView('overview');}},
-  {g:'Telas',t:'Funil & Leads',h:'conversão',ic:I.cart,act:function(){setView('funnel');}},
-  {g:'Telas',t:'Países',h:'geografia',ic:I.globe,act:function(){setView('geo');}},
-  {g:'Telas',t:'Teste A/B',h:'gateways',ic:I.pct,act:function(){setView('ab');}},
-  {g:'Telas',t:'Anti-desvio',h:'vigilância',ic:I.shield,act:function(){setView('cooud');}},
-  {g:'Telas',t:'Atividade',h:'eventos',ic:I.zap,act:function(){setView('activity');}},
+  {g:'Telas',t:'Ao Vivo',h:'presença, funil, países',ic:I.zap,act:function(){setView('live');}},
+  {g:'Telas',t:'Teste A/B',h:'gateways + anti-desvio',ic:I.pct,act:function(){setView('ab');}},
   {g:'Telas',t:'Configurações',h:'sistema',ic:I.check,act:function(){setView('config');}},
+  {g:'Ir para',t:'Funil & Leads',h:'dentro de Ao Vivo',ic:I.cart,act:function(){setView('funnel');}},
+  {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
+  {g:'Ir para',t:'Atividade',h:'dentro de Ao Vivo',ic:I.zap,act:function(){setView('activity');}},
+  {g:'Ir para',t:'Anti-desvio',h:'dentro de Teste A/B',ic:I.shield,act:function(){setView('cooud');}},
   {g:'Período',t:'Hoje',ic:I.check,act:function(){setPeriod('today');}},
   {g:'Período',t:'Últimos 7 dias',ic:I.check,act:function(){setPeriod('7d');}},
   {g:'Período',t:'Últimos 30 dias',ic:I.check,act:function(){setPeriod('30d');}},
@@ -1782,35 +1840,51 @@ function refresh(){
     .catch(function(e){ console.warn('[pulse] refresh error',e); });
 }
 
-/* ── Navegação ── */
+/* ── Navegação ──
+   Menu consolidado em 4 grupos. Cada item do menu ativa um GRUPO de
+   sections empilhadas — menos opções, tudo relacionado junto na mesma tela. */
+var VIEW_GROUPS={
+  overview:['overview'],
+  live:['live','funnel','geo','activity'],
+  ab:['ab','cooud'],
+  config:['config']
+};
 var titles={
-  live:['Ao Vivo','Quem está navegando no site agora'],
   overview:['Visão Geral','Resumo dos números que mais importam'],
-  funnel:['Funil & Leads','Cada visitante rastreado até o checkout'],
-  geo:['Países','De onde vêm seus leads'],
-  ab:['Teste A/B','Qual gateway converte melhor'],
-  cooud:['Anti-desvio','Vigilância do gateway externo'],
-  activity:['Atividade','Tudo o que acontece em tempo real'],
+  live:['Ao Vivo','Presença, funil, países e atividade — tudo em tempo real'],
+  ab:['Teste A/B','Gateways, desempenho e anti-desvio'],
   config:['Configurações','Roteamento, chaves e saúde do sistema']
 };
+// Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
+// (ex.: setView('funnel') abre o grupo Ao Vivo e rola até o funil).
+function groupOf(v){
+  if(VIEW_GROUPS[v]) return v;
+  for(var g in VIEW_GROUPS){ if(VIEW_GROUPS[g].indexOf(v)>=0) return g; }
+  return 'overview';
+}
 function setView(v){
-  currentView=v;
-  document.querySelectorAll('.nav button[data-view]').forEach(function(b){ b.classList.toggle('active',b.getAttribute('data-view')===v); });
-  document.querySelectorAll('section.view').forEach(function(s){ s.classList.toggle('active',s.id==='view-'+v); });
-  document.getElementById('page-title').textContent=titles[v][0];
-  document.getElementById('page-sub').textContent=titles[v][1];
+  var g=groupOf(v), sub=(v!==g)?v:null;
+  currentView=g;
+  var views=VIEW_GROUPS[g];
+  document.querySelectorAll('.nav button[data-view]').forEach(function(b){ b.classList.toggle('active',b.getAttribute('data-view')===g); });
+  document.querySelectorAll('section.view').forEach(function(s){ s.classList.toggle('active',views.indexOf(s.id.replace('view-',''))>=0); });
+  document.getElementById('page-title').textContent=titles[g][0];
+  document.getElementById('page-sub').textContent=titles[g][1];
   document.getElementById('sidebar').classList.remove('open');
   var scrim=document.getElementById('side-scrim'); if(scrim) scrim.classList.remove('open');
-  // animação de entrada em cascata (uma vez por troca de aba)
-  var sec=document.getElementById('view-'+v);
+  // animação de entrada em cascata (só na primeira section do grupo)
+  var sec=document.getElementById('view-'+views[0]);
   if(sec){ sec.classList.remove('entering'); void sec.offsetWidth; sec.classList.add('entering'); setTimeout(function(){sec.classList.remove('entering');},700); }
-  if(v==='live'){
+  if(g==='live'){
     renderLive();
     loadLive();
     setTimeout(function(){ if(liveGlobe){ try{liveGlobe.width(document.getElementById('live-globe').clientWidth).height(520);}catch(e){} } },80);
   }
-  setupLivePoll(v==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
-  if(v==='config') loadHealth().then(renderHealth);
+  setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
+  if(g==='config') loadHealth().then(renderHealth);
+  // veio de uma sub-view (paleta de comandos)? rola até a section correspondente
+  if(sub){ setTimeout(function(){ var t=document.getElementById('view-'+sub); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },120); }
+  else { document.querySelector('.main').scrollTop=0; window.scrollTo(0,0); }
 }
 // Polling de presença: 4s na aba Ao Vivo, 10s em segundo plano (para o badge).
 function setupLivePoll(fast){

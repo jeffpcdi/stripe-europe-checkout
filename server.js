@@ -808,7 +808,18 @@ app.post('/api/pulse/leave', (req, res) => {
 
 // ── API: visitantes navegando AGORA (dashboard) ────────────────────────
 app.get('/api/live', dashboardAuth, (req, res) => {
-  res.json({ visitors: presence.list(), summary: presence.summary(), ts: new Date().toISOString() });
+  const visitors = presence.list();
+  // No checkout agora: Stripe conta pela presença real (heartbeat da página);
+  // Cooud é externo (sem script lá) → estimativa via janela de entrada de 10min
+  const stripeNow = visitors.filter((v) => v.page && v.page.indexOf('checkout') !== -1).length;
+  let cooudEst = 0;
+  try { cooudEst = stats.inCheckoutNow().cooud; } catch (_) {}
+  res.json({
+    visitors,
+    summary: presence.summary(),
+    checkout: { stripeNow, cooudEst },
+    ts: new Date().toISOString()
+  });
 });
 
 // ── API: configuração do teste A/B (ler/atualizar) ───────────────────

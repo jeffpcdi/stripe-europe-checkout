@@ -544,6 +544,23 @@ async function hydrate() {
   }
 }
 
+// ── Quem está "no checkout" AGORA, por gateway ────────────────────────────
+// Stripe: o checkout é nosso, então a presença real (heartbeat) é a fonte —
+// esta função serve de complemento. Cooud: o checkout é EXTERNO (sem como
+// injetar script lá), então estimamos: lead que entrou no checkout há menos
+// de `windowMs` (padrão 10 min) e ainda não comprou = provavelmente lá.
+function inCheckoutNow(windowMs) {
+  ensureLoaded();
+  const cut = Date.now() - (windowMs || 10 * 60 * 1000);
+  const out = { stripe: 0, cooud: 0 };
+  (state.leads || []).forEach((l) => {
+    if (l.stage !== 'checkout') return;
+    const t = l.checkoutAt ? new Date(l.checkoutAt).getTime() : 0;
+    if (t >= cut) out[l.gateway === 'cooud' ? 'cooud' : 'stripe']++;
+  });
+  return out;
+}
+
 // Garante snapshot final ao encerrar o processo (deploy/restart).
 process.once('SIGTERM', flushSync);
 process.once('SIGINT', flushSync);
@@ -552,5 +569,6 @@ process.once('beforeExit', flushSync);
 module.exports = {
   VARIANTS, recordAssignment, recordClick, recordConversion,
   logEvent, recordVisit, recordCheckoutEntry, markPurchased,
-  attachTracking, getLead, matchCooudConversion, getStats, reset, hydrate
+  attachTracking, getLead, matchCooudConversion, getStats, reset, hydrate,
+  inCheckoutNow
 };
