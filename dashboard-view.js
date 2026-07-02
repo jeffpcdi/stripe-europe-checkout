@@ -231,15 +231,24 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .lrow.fresh{background:linear-gradient(90deg,rgba(62,207,142,.12),transparent 60%)}
 .lrow .lnew{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#04140d;background:var(--green);padding:2px 6px;border-radius:20px;margin-right:2px}
 /* ── Pulso de tráfego ── */
-.traffic-card{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center}
+.traffic-card{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;position:relative;overflow:hidden;border-radius:14px}
+.traffic-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;pointer-events:none;
+  background:linear-gradient(90deg,#25f4ee,#52a8ff 55%,#ff2d6f);opacity:.5;box-shadow:0 0 10px -2px #25f4ee}
 @media(max-width:760px){.traffic-card{grid-template-columns:1fr;gap:14px}}
 .tf-now{display:flex;flex-direction:column;gap:3px}
-.tf-now .tf-big{font-family:'Geist Mono';font-size:34px;line-height:1;font-weight:700}
+.tf-now .tf-big{font-family:'Geist Mono';font-size:34px;line-height:1;font-weight:700;text-shadow:0 0 18px rgba(37,244,238,.3)}
 .tf-now .tf-lbl{font-size:11.5px;color:var(--muted2)}
+.tf-now .tf-avg{font-size:11px;color:var(--muted2);margin-top:4px;background:var(--card2);border:1px solid var(--border);padding:3px 9px;border-radius:12px;width:max-content}
+.tf-now .tf-avg b{color:var(--cyan);font-family:'Geist Mono'}
+.tf-mid{display:flex;flex-direction:column;gap:5px;min-width:0}
 .tf-bars{display:flex;align-items:flex-end;gap:3px;height:64px;min-width:0}
-.tf-bars .tb{flex:1;min-width:2px;border-radius:3px 3px 0 0;background:var(--cyan);opacity:.55;transition:height .5s cubic-bezier(.2,.8,.2,1),opacity .3s;transform-origin:bottom}
-.tf-bars .tb.hot{background:var(--amber);opacity:1}
-.tf-bars .tb.cur{opacity:1;box-shadow:0 0 10px rgba(82,168,255,.5)}
+.tf-bars .tb{flex:1;min-width:2px;border-radius:3px 3px 0 0;background:linear-gradient(180deg,var(--cyan),rgba(82,168,255,.5));opacity:.55;transition:height .5s cubic-bezier(.2,.8,.2,1),opacity .3s;transform-origin:bottom;cursor:default}
+.tf-bars .tb:hover{opacity:1;box-shadow:0 0 8px rgba(37,244,238,.5)}
+.tf-bars .tb.hot{background:linear-gradient(180deg,var(--amber),rgba(245,181,68,.55));opacity:1;box-shadow:0 0 8px rgba(245,181,68,.4)}
+.tf-bars .tb.cur{opacity:1;background:linear-gradient(180deg,#ff2d6f,rgba(255,86,116,.55));box-shadow:0 0 10px rgba(255,45,111,.55);animation:curBar 1.6s ease-in-out infinite}
+@keyframes curBar{0%,100%{filter:brightness(1)}50%{filter:brightness(1.35)}}
+.tf-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted2);font-family:'Geist Mono';letter-spacing:.03em;padding:0 1px}
+.tf-axis .ax-now{color:var(--pink);font-weight:600}
 .tf-trend{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;padding:8px 14px;border-radius:12px;white-space:nowrap}
 .tf-trend svg{width:15px;height:15px}
 .tf-trend.up{color:var(--green);background:rgba(62,207,142,.13)}
@@ -247,8 +256,11 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .tf-trend.flat{color:var(--muted2);background:var(--card2)}
 .tf-trend.hot{color:var(--amber);background:rgba(245,181,68,.14);animation:hotGlow 1.4s infinite}
 @keyframes hotGlow{0%,100%{box-shadow:0 0 0 0 rgba(245,181,68,.4)}50%{box-shadow:0 0 0 6px rgba(245,181,68,0)}}
-.tf-sub{grid-column:1/-1;font-size:12px;color:var(--muted2);border-top:1px solid var(--border);padding-top:12px;margin-top:2px;display:flex;gap:18px;flex-wrap:wrap}
+.tf-sub{grid-column:1/-1;font-size:12px;color:var(--muted2);border-top:1px solid var(--border);padding-top:12px;margin-top:2px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
 .tf-sub b{color:var(--text);font-family:'Geist Mono'}
+.tf-sub .tfs{display:inline-flex;align-items:center;gap:7px}
+.tf-sub .tfd{width:7px;height:7px;border-radius:50%;flex-shrink:0;box-shadow:0 0 7px currentColor}
+.tf-sub .tfm{color:var(--muted2);font-size:11px}
 /* ── Notificações ── */
 .notif-head{display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-bottom:1px solid var(--border)}
 .notif-head .nh-title{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700}
@@ -1629,15 +1641,25 @@ function updateLiveBadge(){
 }
 // Pulso de tráfego: entradas de leads por minuto nos últimos 30 min (barras),
 // + destaque de quantos estão no checkout AGORA (próprio + externo).
+function fmtHM(t){ var d=new Date(t); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
+function fmtAgo(ms){
+  var s=Math.round(ms/1000);
+  if(s<60) return 'h\u00e1 '+s+'s';
+  var m=Math.floor(s/60);
+  if(m<60) return 'h\u00e1 '+m+' min';
+  return 'h\u00e1 '+Math.floor(m/60)+'h'+(m%60?(m%60)+'m':'');
+}
 function renderTrafficPulse(){
   var el=document.getElementById('traffic-pulse'); if(!el) return;
   var now=Date.now(), MIN=60000, WINDOW=30;
   var buckets=new Array(WINDOW).fill(0);
   // usa os eventos de "visit" (novo lead no funil) do feed principal
   var evs=(DATA&&DATA.events)||[];
+  var lastAt=0;
   evs.forEach(function(e){
     if(e.type!=='visit') return;
     var t=e.at?new Date(e.at).getTime():0; if(!t) return;
+    if(t>lastAt&&t<=now) lastAt=t;
     var idx=Math.floor((now-t)/MIN);
     if(idx>=0&&idx<WINDOW) buckets[WINDOW-1-idx]++; // mais antigo à esquerda
   });
@@ -1649,24 +1671,41 @@ function renderTrafficPulse(){
   var trend=recent-older;
   var ck=LIVE.checkout||{stripeNow:0,cooudEst:0};
   var inCk=(ck.stripeNow||0)+(ck.cooudEst||0);
+  // pico: minuto com mais entradas (horário real)
+  var peakIdx=-1,peakVal=0;
+  buckets.forEach(function(v,i){ if(v>peakVal){peakVal=v;peakIdx=i;} });
+  var peakTime=peakIdx>=0&&peakVal>0?fmtHM(now-(WINDOW-1-peakIdx)*MIN):null;
+  // média por minuto (só janela com atividade)
+  var avg=total>0?(total/WINDOW):0;
+  var avgTxt=avg>=1?avg.toFixed(1):(avg>0?avg.toFixed(2):'0');
+  // barras com tooltip de horário real
   var bars=buckets.map(function(v,i){
     var h=Math.max(4,Math.round(v/max*100));
-    var cls='tb'+(i===buckets.length-1?' cur':'')+(v>=max&&max>1?' hot':'');
-    return '<div class="'+cls+'" style="height:'+h+'%" title="'+v+' entrada(s)"></div>';
+    var t=now-(WINDOW-1-i)*MIN;
+    var cls='tb'+(i===buckets.length-1?' cur':'')+(v>=max&&max>1&&v>0?' hot':'');
+    return '<div class="'+cls+'" style="height:'+h+'%" title="'+fmtHM(t)+' \u2014 '+v+' entrada(s)"></div>';
   }).join('');
+  // eixo de tempo abaixo das barras
+  var axis='<div class="tf-axis">'+
+    '<span>'+fmtHM(now-29*MIN)+'</span><span>'+fmtHM(now-20*MIN)+'</span>'+
+    '<span>'+fmtHM(now-10*MIN)+'</span><span class="ax-now">agora \u00b7 '+fmtHM(now)+'</span></div>';
   var tCls=trend>0?'up':(trend<0?'down':'flat');
   var tIco=trend>0?ARR_UP:(trend<0?ARR_DN:'');
-  var tTxt=trend>0?('+'+trend+' subindo'):(trend<0?(trend+' caindo'):'estável');
+  var tTxt=trend>0?('+'+trend+' subindo'):(trend<0?(trend+' caindo'):'est\u00e1vel');
   if(inCk>=3){ tCls='hot'; tTxt=inCk+' no checkout agora'; }
   el.innerHTML=
-    '<div class="tf-now"><span class="tf-big">'+total+'</span><span class="tf-lbl">leads em 30 min</span></div>'+
-    '<div class="tf-bars">'+bars+'</div>'+
+    '<div class="tf-now">'+
+      '<span class="tf-big">'+total+'</span><span class="tf-lbl">leads em 30 min</span>'+
+      '<span class="tf-avg">m\u00e9dia <b>'+avgTxt+'</b>/min</span>'+
+    '</div>'+
+    '<div class="tf-mid"><div class="tf-bars">'+bars+'</div>'+axis+'</div>'+
     '<div class="tf-trend '+tCls+'">'+tIco+tTxt+'</div>'+
     '<div class="tf-sub">'+
-      '<span>No checkout agora: <b>'+inCk+'</b></span>'+
-      '<span>Stripe (próprio): <b>'+(ck.stripeNow||0)+'</b></span>'+
-      '<span>Externo/Cooud: <b>'+(ck.cooudEst||0)+'</b></span>'+
-      '<span>Online agora: <b>'+((LIVE.summary&&LIVE.summary.online)||0)+'</b></span>'+
+      '<span class="tfs"><i class="tfd" style="background:var(--cyan)"></i>\u00daltima entrada: <b>'+(lastAt?fmtHM(lastAt)+' \u00b7 '+fmtAgo(now-lastAt):'\u2014')+'</b></span>'+
+      '<span class="tfs"><i class="tfd" style="background:var(--amber)"></i>Pico: <b>'+(peakTime?peakTime+' \u00b7 '+peakVal+' lead'+(peakVal>1?'s':''):'\u2014')+'</b></span>'+
+      '<span class="tfs"><i class="tfd" style="background:var(--pink)"></i>No checkout: <b>'+inCk+'</b> <span class="tfm">('+(ck.stripeNow||0)+' Stripe \u00b7 '+(ck.cooudEst||0)+' externo)</span></span>'+
+      '<span class="tfs"><i class="tfd" style="background:var(--green)"></i>Online agora: <b>'+((LIVE.summary&&LIVE.summary.online)||0)+'</b></span>'+
+      '<span class="tfs tfm" style="margin-left:auto">'+(recent)+' entradas nos \u00faltimos 15 min \u00b7 '+(older)+' nos 15 anteriores</span>'+
     '</div>';
 }
 function renderLive(){
