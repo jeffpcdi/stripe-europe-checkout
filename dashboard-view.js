@@ -137,6 +137,54 @@ section.view.active{display:block}
 .lrow .ldot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;box-shadow:0 0 8px var(--green)}
 .lrow.idle .ldot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
 .live-empty{padding:44px 20px;text-align:center;color:var(--muted2);font-size:13px}
+/* Entrada escalonada de cima para baixo */
+@keyframes liveRowIn{0%{opacity:0;transform:translateY(-14px)}60%{opacity:1}100%{opacity:1;transform:translateY(0)}}
+.lrow.enter{animation:liveRowIn .5s cubic-bezier(.2,.8,.2,1) both}
+.lrow.fresh{background:linear-gradient(90deg,rgba(47,230,168,.12),transparent 60%)}
+.lrow .lnew{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#04140d;background:var(--green);padding:2px 6px;border-radius:20px;margin-right:2px}
+/* ── Pulso de tráfego ── */
+.traffic-card{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center}
+@media(max-width:760px){.traffic-card{grid-template-columns:1fr;gap:14px}}
+.tf-now{display:flex;flex-direction:column;gap:3px}
+.tf-now .tf-big{font-family:'Space Grotesk';font-size:34px;line-height:1;font-weight:700}
+.tf-now .tf-lbl{font-size:11.5px;color:var(--muted2)}
+.tf-bars{display:flex;align-items:flex-end;gap:3px;height:64px;min-width:0}
+.tf-bars .tb{flex:1;min-width:2px;border-radius:3px 3px 0 0;background:linear-gradient(180deg,#25f4ee,#5b8cff);opacity:.55;transition:height .5s cubic-bezier(.2,.8,.2,1),opacity .3s;transform-origin:bottom}
+.tf-bars .tb.hot{background:linear-gradient(180deg,#ffcb47,#fe2c55);opacity:1}
+.tf-bars .tb.cur{opacity:1;box-shadow:0 0 10px rgba(37,244,238,.5)}
+.tf-trend{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;padding:8px 14px;border-radius:12px;white-space:nowrap}
+.tf-trend svg{width:15px;height:15px}
+.tf-trend.up{color:var(--green);background:rgba(47,230,168,.13)}
+.tf-trend.down{color:var(--red);background:rgba(255,77,103,.13)}
+.tf-trend.flat{color:var(--muted2);background:var(--card2)}
+.tf-trend.hot{color:var(--amber);background:rgba(255,203,71,.14);animation:hotGlow 1.4s infinite}
+@keyframes hotGlow{0%,100%{box-shadow:0 0 0 0 rgba(255,203,71,.4)}50%{box-shadow:0 0 0 6px rgba(255,203,71,0)}}
+.tf-sub{grid-column:1/-1;font-size:12px;color:var(--muted2);border-top:1px solid var(--border);padding-top:12px;margin-top:2px;display:flex;gap:18px;flex-wrap:wrap}
+.tf-sub b{color:var(--text);font-family:'Space Grotesk'}
+/* ── Notificações ── */
+.notif-head{display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-bottom:1px solid var(--border)}
+.notif-head .nh-title{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700}
+.notif-head .nh-title .live-dot-anim{width:7px;height:7px}
+.notif-tools{display:flex;align-items:center;gap:6px}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:9px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;transition:.15s}
+.icon-btn:hover{color:var(--text);border-color:var(--border2)}
+.icon-btn svg{width:16px;height:16px}
+.icon-btn.on{color:var(--green);border-color:rgba(47,230,168,.4);background:rgba(47,230,168,.1)}
+.notif-list{max-height:300px;overflow-y:auto;padding:6px}
+.nrow{display:flex;align-items:flex-start;gap:11px;padding:10px 11px;border-radius:10px;animation:liveRowIn .45s cubic-bezier(.2,.8,.2,1) both}
+.nrow:hover{background:var(--hover)}
+.nrow .nico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nrow .nico svg{width:15px;height:15px}
+.nrow .nico.visit{background:rgba(91,140,255,.14);color:var(--blue)}
+.nrow .nico.checkout{background:rgba(255,203,71,.14);color:var(--amber)}
+.nrow .nico.sale{background:rgba(47,230,168,.14);color:var(--green)}
+.nrow .nico.spike{background:rgba(254,44,85,.14);color:var(--pink)}
+.nrow .nbody{min-width:0;flex:1}
+.nrow .nbody b{font-size:12.5px;font-weight:600;color:var(--text);display:block}
+.nrow .nbody span{font-size:11px;color:var(--muted2)}
+.nrow .ntime{font-size:10.5px;color:var(--muted2);flex-shrink:0;margin-top:2px}
+.notif-empty{padding:34px 18px;text-align:center;color:var(--muted2);font-size:12.5px}
+.live-right{display:flex;flex-direction:column;gap:16px;min-width:0}
 .pos{color:var(--green)} .neg{color:var(--red)} .cyn{color:var(--cyan)} .pnk{color:var(--pink)} .amb{color:var(--amber)} .grn{color:var(--green)}
 
 .section-title{display:flex;align-items:center;gap:10px;margin:28px 0 14px;font-size:14px;font-weight:600;color:var(--muted)}
@@ -573,12 +621,26 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Ao Vivo ── -->
       <section class="view" id="view-live">
         <div class="grid kpis" id="live-kpis"></div>
+        <div class="section-title"><span>Pulso de tr&aacute;fego</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads que entraram &middot; &uacute;ltimos 30 min</span></div>
+        <div class="card traffic-card" id="traffic-pulse"></div>
         <div class="section-title"><span>Navegando agora</span><span class="line"></span>
           <span class="live-pill" id="live-pill"><span class="live-dot-anim"></span><span id="live-pill-count">0</span> online</span>
         </div>
         <div class="live-grid">
           <div class="card" style="padding:0"><div id="live-globe"></div></div>
-          <div class="card live-list-card"><div class="live-list" id="live-list"></div></div>
+          <div class="live-right">
+            <div class="card" style="padding:0">
+              <div class="notif-head">
+                <div class="nh-title"><span class="live-dot-anim"></span>Notifica&ccedil;&otilde;es</div>
+                <div class="notif-tools">
+                  <button class="icon-btn on" id="notif-sound" title="Ativar/desativar som"></button>
+                  <button class="icon-btn" id="notif-clear" title="Limpar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+                </div>
+              </div>
+              <div class="notif-list" id="notif-list"></div>
+            </div>
+            <div class="card live-list-card"><div class="live-list" id="live-list"></div></div>
+          </div>
         </div>
       </section>
 
