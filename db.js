@@ -72,6 +72,26 @@ async function init() {
       updated_at timestamptz NOT NULL DEFAULT now()
     )`;
 
+    // Pixels TikTok (backup durável dos arquivos pixels/*.json).
+    await sql`CREATE TABLE IF NOT EXISTS pixels (
+      slug text PRIMARY KEY,
+      data jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`;
+
+    // Log de disparos server-side (CAPI) para o painel.
+    await sql`CREATE TABLE IF NOT EXISTS pixel_events (
+      id text PRIMARY KEY,
+      pixel text,
+      event text,
+      event_id text,
+      lead_id text,
+      status text,
+      response jsonb,
+      at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS pixel_events_at_idx ON pixel_events (at DESC)`;
+
     ready = true;
     console.log('[db] Neon pronto (tabelas verificadas).');
     return true;
@@ -185,6 +205,73 @@ async function loadConfig() {
   }
 }
 
+// ── Pixels TikTok (espelho durável dos arquivos pixels/*.json) ───────────
+async function upsertPixel(slug, data) {
+  if (!enabled || !slug) return;
+  try {
+    await sql`INSERT INTO pixels (slug, data, updated_at)
+      VALUES (${slug}, ${JSON.stringify(data)}::jsonb, now())
+      ON CONFLICT (slug) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
+  } catch (err) { console.error('[db] upsertPixel:', err.message); }
+}
+
+async function deletePixel(slug) {
+  if (!enabled || !slug) return;
+  try {
+    await sql`DELETE FROM pixels WHERE slug = ${slug}`;
+  } catch (err) { console.error('[db] deletePixel:', err.message); }
+}
+
+async function loadPixels() {
+  if (!enabled) return null;
+  try {
+    const rows = await sql`SELECT slug, data FROM pixels`;
+    return rows.map((r) => ({ slug: r.slug, ...r.data }));
+  } catch (err) {
+    console.error('[db] loadPixels:', err.message);
+    return null;
+  }
+}
+
+// ── Log de disparos CAPI ──────────────────────────────────────────────────
+async function insertPixelEvent(evt) {
+  if (!enabled || !evt || !evt.id) return;
+  try {
+    await sql`INSERT INTO pixel_events (id, pixel, event, event_id, lead_id, status, response, at)
+      VALUES (${evt.id}, ${evt.pixel || null}, ${evt.event || null}, ${evt.eventId || null},
+              ${evt.leadId || null}, ${evt.status || null},
+              ${JSON.stringify(evt.response || {})}::jsonb, ${evt.at || new Date().toISOString()})
+      ON CONFLICT (id) DO NOTHING`;
+  } catch (err) { console.error('[db] insertPixelEvent:', err.message); }
+}
+
+async function loadPixelEvents(limit) {
+  if (!enabled) return null;
+  try {
+    const rows = await sql`SELECT id, pixel, event, event_id, lead_id, status, response, at
+      FROM pixel_events ORDER BY at DESC LIMIT ${limit || 200}`;
+    return rows;
+  } catch (err) {
+    console.error('[db] loadPixelEvents:', err.message);
+    return null;
+  }
+}
+
+// Mantém o log de disparos enxuto (padrão: 14 dias).
+async function prunePixelEvents(olderThanDays) {
+  if (!enabled) return 0;
+  const days = Math.max(1, Number(olderThanDays) || 14);
+  try {
+    const rows = await sql`DELETE FROM pixel_events
+      WHERE at < now() - make_interval(days => ${days})
+      RETURNING id`;
+    return rows.length;
+  } catch (err) {
+    console.error('[db] prunePixelEvents:', err.message);
+    return 0;
+  }
+}
+
 // ── Diagnóstico: ping real no banco (para o /api/health) ─────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'sem DATABASE_URL' };
@@ -217,5 +304,7 @@ module.exports = {
   enabled,
   isReady: () => ready,
   init, upsertLead, insertEvent, upsertVariant, loadState, reset, upsertSession,
-  saveConfig, loadConfig, ping, pruneSessions
+  saveConfig, loadConfig, ping, pruneSessions,
+  upsertPixel, deletePixel, loadPixels,
+  insertPixelEvent, loadPixelEvents, prunePixelEvents
 };
