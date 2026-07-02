@@ -89,6 +89,31 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 .topbar .sub{font-size:12px;color:var(--muted2)}
 .spacer{flex:1}
 .segment{display:flex;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px}
+/* grupo do topo à direita: busca, atualizar e período */
+.tb-right{display:flex;align-items:center;gap:8px;margin-left:auto;position:relative}
+#period-custom{display:inline-flex;align-items:center;gap:6px}
+#period-custom svg{flex-shrink:0}
+#period-custom-lbl:empty{display:none}
+#period-custom-lbl{font-size:11px;font-family:'Geist Mono';color:var(--cyan)}
+/* popover de segmentação */
+.dr-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:320px;background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:16px;
+  box-shadow:0 18px 48px rgba(0,0,0,.6),0 0 22px -14px var(--cyan);animation:drIn .22s cubic-bezier(.2,.8,.3,1)}
+@keyframes drIn{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
+.dr-head{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px}
+.dr-row{display:flex;gap:10px;margin-bottom:14px}
+.dr-field{flex:1;display:flex;flex-direction:column;gap:5px}
+.dr-field label{font-size:11px;color:var(--muted2);font-weight:600}
+.dr-inp{font-size:12.5px;padding:8px 10px;color-scheme:dark}
+.dr-hours{border-top:1px solid var(--border);padding-top:12px;margin-bottom:14px;transition:opacity .2s}
+.dr-hours.off{opacity:.4;pointer-events:none}
+.dr-hours-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.dr-hours-head label{font-size:11px;color:var(--muted2);font-weight:600}
+.dr-hlbl{font-size:12px;font-family:'Geist Mono';font-weight:700;color:var(--cyan)}
+.dr-sliders{display:flex;flex-direction:column;gap:6px}
+.dr-sliders input[type=range]{width:100%;accent-color:var(--cyan)}
+.dr-hint{margin:8px 0 0;font-size:10.5px;color:var(--muted2)}
+.dr-hours.off .dr-hint{color:var(--amber)}
+.dr-actions{display:flex;justify-content:flex-end;gap:8px}
 .segment button{background:transparent;border:0;color:var(--muted);font-size:12.5px;font-weight:500;font-family:inherit;padding:6px 12px;border-radius:6px;cursor:pointer;transition:.15s}
 .segment button.active{background:var(--hover);color:var(--text);box-shadow:inset 0 0 0 1px var(--border2)}
 .refresh{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
@@ -862,14 +887,37 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="sub" id="page-sub">Resumo dos números que mais importam</div>
       </div>
       <div class="spacer"></div>
-      <div class="segment" id="period">
-        <button data-p="today">Hoje</button>
-        <button data-p="7d" class="active">7 dias</button>
-        <button data-p="30d">30 dias</button>
-        <button data-p="all">Tudo</button>
+      <div class="tb-right">
+        <button class="btn" id="cmdk-open" title="Buscar (Ctrl K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></button>
+        <button class="btn" id="refresh-btn" title="Atualizar agora"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
+        <div class="segment" id="period">
+          <button data-p="today">Hoje</button>
+          <button data-p="7d" class="active">7 dias</button>
+          <button data-p="30d">30 dias</button>
+          <button data-p="all">Tudo</button>
+          <button data-p="custom" id="period-custom" title="Segmentar por dias e horas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span id="period-custom-lbl"></span></button>
+        </div>
+        <!-- popover de segmentação por dias e horas -->
+        <div class="dr-pop" id="dr-pop" hidden>
+          <div class="dr-head">Segmentar per&iacute;odo</div>
+          <div class="dr-row">
+            <div class="dr-field"><label>De</label><input type="date" id="dr-from" class="inp dr-inp" /></div>
+            <div class="dr-field"><label>At&eacute;</label><input type="date" id="dr-to" class="inp dr-inp" /></div>
+          </div>
+          <div class="dr-hours" id="dr-hours">
+            <div class="dr-hours-head"><label>Faixa de hor&aacute;rio</label><span class="dr-hlbl" id="dr-hlbl">00:00 &ndash; 23:59</span></div>
+            <div class="dr-sliders">
+              <input type="range" id="dr-h-from" min="0" max="23" step="1" value="0" />
+              <input type="range" id="dr-h-to" min="0" max="23" step="1" value="23" />
+            </div>
+            <p class="dr-hint" id="dr-hours-hint">dispon&iacute;vel quando De e At&eacute; s&atilde;o o mesmo dia</p>
+          </div>
+          <div class="dr-actions">
+            <button class="btn btn-sm" id="dr-clear">Limpar</button>
+            <button class="btn btn-sm primary" id="dr-apply">Aplicar</button>
+          </div>
+        </div>
       </div>
-      <button class="btn" id="cmdk-open" title="Buscar (Ctrl K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></button>
-      <button class="btn" id="refresh-btn" title="Atualizar agora"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
     </div>
 
     <div class="content">
@@ -1252,14 +1300,23 @@ var DATA=null, CFG=null, HEALTH=null, period='7d', chartMode='revenue', evFilter
 var leadsById={};
 var LIVE={visitors:[],summary:{online:0,countries:[]}}, liveTimer=null, liveGlobe=null;
 
-function cutoff(){
+// Range personalizado: {from,to} em ms, definido pelo popover de segmentação
+var CUSTOM={from:0,to:0};
+// Fonte única de verdade do período atual — TODAS as métricas derivam daqui.
+function periodRange(){
   var n=Date.now();
-  if(period==='today'){var d=new Date();d.setHours(0,0,0,0);return d.getTime();}
-  if(period==='7d') return n-7*864e5;
-  if(period==='30d') return n-30*864e5;
-  return 0;
+  if(period==='custom'&&CUSTOM.from) return {from:CUSTOM.from,to:CUSTOM.to||n};
+  if(period==='today'){var d=new Date();d.setHours(0,0,0,0);return {from:d.getTime(),to:n};}
+  if(period==='7d') return {from:n-7*864e5,to:n};
+  if(period==='30d') return {from:n-30*864e5,to:n};
+  return {from:0,to:n};
 }
-function inPeriod(iso){ if(!iso) return period==='all'; return new Date(iso).getTime()>=cutoff(); }
+function cutoff(){ return periodRange().from; }
+function inPeriod(iso){
+  if(!iso) return period==='all';
+  var t=new Date(iso).getTime(), r=periodRange();
+  return t>=r.from&&t<=r.to;
+}
 
 // Calcula métricas filtradas pelo período atual — chamado uma vez por renderAll()
 function metrics(){
@@ -1326,6 +1383,11 @@ function prevWindow(){
   if(period==='today'){ var d=new Date();d.setHours(0,0,0,0); var s=d.getTime(); return {curFrom:s,curTo:now,prevFrom:s-864e5,prevTo:s}; }
   if(period==='7d') return {curFrom:now-7*864e5,curTo:now,prevFrom:now-14*864e5,prevTo:now-7*864e5};
   if(period==='30d') return {curFrom:now-30*864e5,curTo:now,prevFrom:now-60*864e5,prevTo:now-30*864e5};
+  if(period==='custom'&&CUSTOM.from){
+    // janela anterior = mesma duração imediatamente antes do range
+    var span=(CUSTOM.to||now)-CUSTOM.from;
+    return {curFrom:CUSTOM.from,curTo:CUSTOM.to||now,prevFrom:CUSTOM.from-span,prevTo:CUSTOM.from};
+  }
   return null;
 }
 function aggregate(from,to){
@@ -1347,8 +1409,9 @@ function deltaChip(cur,prev,invert){
 
 /* ── Sparklines ── */
 function seriesFor(kind){
-  var w=prevWindow(); var to=Date.now(), from=w?w.curFrom:0;
+  var w=prevWindow(); var to=w?w.curTo:Date.now(), from=w?w.curFrom:0;
   var n = period==='today'?12 : period==='7d'?7 : period==='30d'?30 : 14;
+  if(period==='custom'&&CUSTOM.from){ var spanH=(to-from)/36e5; n=spanH<=48?Math.max(4,Math.min(24,Math.ceil(spanH))):Math.max(4,Math.min(30,Math.ceil(spanH/24))); }
   if(!w){ var times=(DATA.leads||[]).map(function(l){return l.at?new Date(l.at).getTime():0;}).filter(Boolean); from=times.length?Math.min.apply(null,times):to-14*864e5; }
   var span=(to-from)||n*864e5, step=span/n, arr=[]; for(var i=0;i<n;i++)arr.push(0);
   function put(t,v){ if(t<from||t>to)return; var idx=Math.min(n-1,Math.floor((t-from)/step)); arr[idx]+=v; }
@@ -1477,17 +1540,26 @@ function renderChart(m){
   if(!el) return;
   var events=(DATA.events||[]).filter(function(e){return e.type==='sale'&&inPeriod(e.at);});
   // buckets
-  var n, isHour=false;
-  if(period==='today'){n=12;isHour=true;}
-  else if(period==='7d'){n=7;}
-  else if(period==='30d'){n=30;}
-  else{n=Math.min(30,Math.max(7,Math.ceil((Date.now()-new Date(DATA.updatedAt||Date.now()).getTime())/864e5)+2));}
-  var now=new Date(); var buckets=[];
-  for(var i=n-1;i>=0;i--){
-    var d=new Date(now);
-    if(isHour){ d.setMinutes(0,0,0); d.setHours(now.getHours()-i*2); }
-    else { d.setHours(0,0,0,0); d.setDate(now.getDate()-i); }
-    buckets.push({t:d.getTime(),sc:0,cc:0});
+  var n, isHour=false, buckets=[];
+  if(period==='custom'&&CUSTOM.from){
+    // segmentado: horas quando o range cabe em 48h, senão dias — sempre limitado a from..to
+    var r=periodRange(), spanH=(r.to-r.from)/36e5;
+    isHour=spanH<=48;
+    n=isHour?Math.max(4,Math.min(24,Math.ceil(spanH))):Math.max(4,Math.min(31,Math.ceil(spanH/24)));
+    var step=(r.to-r.from)/n;
+    for(var ci=0;ci<n;ci++) buckets.push({t:r.from+ci*step,sc:0,cc:0});
+  } else {
+    if(period==='today'){n=12;isHour=true;}
+    else if(period==='7d'){n=7;}
+    else if(period==='30d'){n=30;}
+    else{n=Math.min(30,Math.max(7,Math.ceil((Date.now()-new Date(DATA.updatedAt||Date.now()).getTime())/864e5)+2));}
+    var now=new Date();
+    for(var i=n-1;i>=0;i--){
+      var d=new Date(now);
+      if(isHour){ d.setMinutes(0,0,0); d.setHours(now.getHours()-i*2); }
+      else { d.setHours(0,0,0,0); d.setDate(now.getDate()-i); }
+      buckets.push({t:d.getTime(),sc:0,cc:0});
+    }
   }
   function idx(ts){ for(var j=buckets.length-1;j>=0;j--){ if(ts>=buckets[j].t) return j; } return -1; }
   events.forEach(function(e){
@@ -2458,8 +2530,62 @@ function exportEvents(){
 /* ── Período (programático — usado pela paleta e pelo segmento) ── */
 function setPeriod(p){
   period=p;
+  if(p!=='custom'){ CUSTOM={from:0,to:0}; var l=document.getElementById('period-custom-lbl'); if(l)l.textContent=''; }
   document.querySelectorAll('#period button').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-p')===p);});
   renderAll();
+}
+
+/* ── Segmentação por dias e horas (popover) ── */
+function drPad(v){return ('0'+v).slice(-2);}
+function drDateVal(d){return d.getFullYear()+'-'+drPad(d.getMonth()+1)+'-'+drPad(d.getDate());}
+function openDrPop(){
+  var pop=document.getElementById('dr-pop'); if(!pop) return;
+  // pré-preenche: range atual se houver, senão hoje
+  var f=document.getElementById('dr-from'), t=document.getElementById('dr-to');
+  if(CUSTOM.from){ f.value=drDateVal(new Date(CUSTOM.from)); t.value=drDateVal(new Date(CUSTOM.to)); }
+  else { var today=drDateVal(new Date()); f.value=today; t.value=today; }
+  pop.hidden=false;
+  drSyncHours();
+}
+function closeDrPop(){ var pop=document.getElementById('dr-pop'); if(pop)pop.hidden=true; }
+// horas só fazem sentido quando De === Até (um único dia)
+function drSyncHours(){
+  var f=document.getElementById('dr-from').value, t=document.getElementById('dr-to').value;
+  var sameDay=f&&t&&f===t;
+  document.getElementById('dr-hours').classList.toggle('off',!sameDay);
+  document.getElementById('dr-hours-hint').style.display=sameDay?'none':'';
+  drSyncHourLabel();
+}
+function drSyncHourLabel(){
+  var h1=+document.getElementById('dr-h-from').value, h2=+document.getElementById('dr-h-to').value;
+  if(h1>h2){ var tmp=h1;h1=h2;h2=tmp; }
+  document.getElementById('dr-hlbl').textContent=drPad(h1)+':00 \u2013 '+drPad(h2)+':59';
+}
+function applyDr(){
+  var fv=document.getElementById('dr-from').value, tv=document.getElementById('dr-to').value;
+  if(!fv||!tv){ toast('Escolha as duas datas'); return; }
+  if(fv>tv){ var sw=fv;fv=tv;tv=sw; }
+  var from=new Date(fv+'T00:00:00').getTime();
+  var to=new Date(tv+'T23:59:59.999').getTime();
+  var sameDay=fv===tv;
+  if(sameDay){
+    var h1=+document.getElementById('dr-h-from').value, h2=+document.getElementById('dr-h-to').value;
+    if(h1>h2){ var tm=h1;h1=h2;h2=tm; }
+    from=new Date(fv+'T00:00:00').getTime()+h1*36e5;
+    to=new Date(fv+'T00:00:00').getTime()+h2*36e5+36e5-1; // fim da hora h2
+  }
+  CUSTOM={from:from,to:Math.min(to,Date.now())};
+  period='custom';
+  // rótulo compacto no botão: "12/05" ou "12–15/05" ou "12/05 09–18h"
+  var fd=new Date(from), td=new Date(to);
+  var lbl=sameDay
+    ? drPad(fd.getDate())+'/'+drPad(fd.getMonth()+1)+((+document.getElementById('dr-h-from').value!==0||+document.getElementById('dr-h-to').value!==23)?' '+drPad(fd.getHours())+'\u2013'+drPad(td.getHours())+'h':'')
+    : drPad(fd.getDate())+'/'+drPad(fd.getMonth()+1)+'\u2013'+drPad(td.getDate())+'/'+drPad(td.getMonth()+1);
+  document.getElementById('period-custom-lbl').textContent=lbl;
+  document.querySelectorAll('#period button').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-p')==='custom');});
+  closeDrPop();
+  renderAll();
+  toast('Per\u00edodo segmentado aplicado');
 }
 
 /* ── Paleta de comandos ⌘K ── */
@@ -2477,6 +2603,7 @@ var CMD_ITEMS=[
   {g:'Período',t:'Últimos 7 dias',ic:I.check,act:function(){setPeriod('7d');}},
   {g:'Período',t:'Últimos 30 dias',ic:I.check,act:function(){setPeriod('30d');}},
   {g:'Período',t:'Todo o histórico',ic:I.check,act:function(){setPeriod('all');}},
+  {g:'Período',t:'Segmentar dias e horas',h:'range personalizado',ic:I.check,act:function(){openDrPop();}},
   {g:'Ações',t:'Atualizar agora',h:'refresh',ic:I.zap,act:function(){refresh().then(function(){toast('Atualizado');});}},
   {g:'Ações',t:'Exportar leads (CSV)',ic:I.cart,act:function(){setView('funnel');setTimeout(exportLeads,60);}},
   {g:'Ações',t:'Exportar eventos (CSV)',ic:I.zap,act:function(){setView('activity');setTimeout(exportEvents,60);}}
@@ -2593,8 +2720,25 @@ document.getElementById('menuToggle').addEventListener('click',function(){
   setSideMenu(!document.getElementById('sidebar').classList.contains('open'));
 });
 document.getElementById('side-scrim').addEventListener('click',function(){ setSideMenu(false); });
+// popover de segmentação de período
+document.getElementById('dr-from').addEventListener('change',drSyncHours);
+document.getElementById('dr-to').addEventListener('change',drSyncHours);
+document.getElementById('dr-h-from').addEventListener('input',drSyncHourLabel);
+document.getElementById('dr-h-to').addEventListener('input',drSyncHourLabel);
+document.getElementById('dr-apply').addEventListener('click',applyDr);
+document.getElementById('dr-clear').addEventListener('click',function(){ closeDrPop(); setPeriod('7d'); });
+document.addEventListener('click',function(e){
+  var pop=document.getElementById('dr-pop');
+  if(pop&&!pop.hidden&&!pop.contains(e.target)&&!e.target.closest('#period-custom')) closeDrPop();
+});
 document.getElementById('period').addEventListener('click',function(e){
   var b=e.target.closest('button'); if(!b) return;
+  if(b.getAttribute('data-p')==='custom'){
+    var pop=document.getElementById('dr-pop');
+    pop.hidden?openDrPop():closeDrPop();
+    return;
+  }
+  closeDrPop();
   setPeriod(b.getAttribute('data-p'));
 });
 document.getElementById('chart-mode').addEventListener('click',function(e){
