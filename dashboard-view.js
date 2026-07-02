@@ -331,8 +331,12 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .notif-empty{padding:34px 18px;text-align:center;color:var(--muted2);font-size:12.5px}
 .live-right{display:flex;flex-direction:column;gap:16px;min-width:0}
 .pos{color:var(--green)} .neg{color:var(--red)} .cyn{color:var(--cyan)} .pnk{color:var(--pink)} .amb{color:var(--amber)} .grn{color:var(--green)}
-/* Valores de KPI sempre neutros — cor fica nos ícones e deltas */
-.k-val .cyn,.k-val .pnk,.k-val .amb,.k-val .grn,.k-val .blu{color:var(--text)}
+/* Valores de KPI com cor semântica sutil + glow discreto */
+.k-val .pos,.k-val .grn{color:var(--green);text-shadow:0 0 20px rgba(62,207,142,.3)}
+.k-val .cyn,.k-val .blu{color:var(--cyan);text-shadow:0 0 20px rgba(82,168,255,.28)}
+.k-val .pnk{color:var(--pink);text-shadow:0 0 20px rgba(255,86,116,.28)}
+.k-val .amb{color:var(--amber);text-shadow:0 0 20px rgba(245,181,68,.28)}
+.k-val .neg{text-shadow:0 0 20px rgba(255,86,116,.3)}
 
 .section-title{display:flex;align-items:center;gap:10px;margin:30px 0 15px;font-size:16px;font-weight:600;color:var(--text)}
 .section-title .line{flex:1;height:1px;background:var(--border)}
@@ -535,7 +539,6 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
   .nav.dock button{padding:9px 13px;font-size:13px}
   .nav.dock button .d-lbl{display:none}
   .nav.dock button.active .d-lbl{display:inline}
-  .ovh-right{margin-left:0;width:100%;justify-content:flex-start}
 }
 #menuToggle{display:none!important}
 
@@ -591,16 +594,6 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .ovh-title{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.25}
 .ovh-brand{background:linear-gradient(92deg,#ff2d6f,#52a8ff,#25f4ee);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:brandShift 6s ease-in-out infinite alternate;font-weight:800;filter:drop-shadow(0 0 12px rgba(255,45,111,.3))}
 .ovh-sub{font-size:13px;color:var(--muted2);margin-top:5px}
-.ovh-right{position:relative;margin-left:auto;display:flex;align-items:center;z-index:2}
-.ovh-stat{text-align:right;padding:2px 22px;position:relative}
-.ovh-stat+.ovh-stat::before{content:'';position:absolute;left:0;top:15%;bottom:15%;width:1px;background:linear-gradient(180deg,transparent,var(--border2),transparent)}
-.ovh-stat:last-child{padding-right:0}
-.ovh-stat .os-v{font-family:'Geist Mono',monospace;font-size:24px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
-.ovh-stat .os-v.cyn{text-shadow:0 0 18px rgba(82,168,255,.45)}
-.ovh-stat .os-v.pnk{text-shadow:0 0 18px rgba(255,86,116,.45)}
-.ovh-stat .os-v.grn{text-shadow:0 0 18px rgba(62,207,142,.45)}
-.ovh-stat .os-l{font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:.1em;font-weight:600;margin-top:3px}
-
 /* ── KPIs turbinados ── */
 .kpis-xl .kpi{border-radius:14px;padding-top:18px;--kglow:rgba(82,168,255,.12)}
 .kpis-xl .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2.5px;border-radius:2px 2px 0 0;
@@ -615,6 +608,9 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .kpis-xl .kpi.tint-pink{--kg1:#ff2d6f;--kg2:#ff5674;--kglow:rgba(255,45,111,.15)}
 .kpis-xl .kpi.tint-blue{--kg1:#52a8ff;--kg2:#7d8cff;--kglow:rgba(82,168,255,.16)}
 .kpis-xl .kpi.tint-green{--kg1:#3ecf8e;--kg2:#25f4ee;--kglow:rgba(62,207,142,.15)}
+.kpis-xl .kpi.tint-amber{--kg1:#f5b544;--kg2:#ffd47e;--kglow:rgba(245,181,68,.15)}
+/* ícone do KPI colorido pela identidade do card */
+.kpis-xl .kpi .k-ico{background:color-mix(in srgb,var(--kg1) 13%,transparent);color:var(--kg1);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--kg1) 28%,transparent)}
 .kpis-xl .kpi:hover{transform:translateY(-4px);border-color:var(--border2);box-shadow:0 14px 34px rgba(0,0,0,.5),0 0 22px -8px var(--kg1)}
 .kpis-xl .kpi:hover .k-ico{transform:scale(1.12) rotate(-5deg);box-shadow:inset 0 0 0 1px var(--kg1),0 0 14px -3px var(--kg1)}
 .kpis-xl .k-ico{transition:.28s cubic-bezier(.34,1.56,.64,1)}
@@ -969,10 +965,8 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <div class="ovh-title">Central de resultados <span class="ovh-brand">ROI-NADOS</span></div>
             <div class="ovh-sub" id="ov-hero-sub">acompanhando cada lead em tempo real</div>
           </div>
-          <div class="ovh-right" id="ov-hero-stat"></div>
         </div>
         <div class="grid kpis kpis-xl" id="ov-kpis"></div>
-        <div class="section-title"><span>Indicadores de performance</span><span class="line"></span></div>
         <div class="ministats" id="ov-chips"></div>
         <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
         <div class="card goal-card" id="ov-goal"></div>
@@ -1476,36 +1470,34 @@ function renderOverview(m){
   var cur=w?aggregate(w.curFrom,w.curTo):null, prev=w?aggregate(w.prevFrom,w.prevTo):null;
   function dc(k,inv){ return (cur&&prev)?deltaChip(cur[k],prev[k],inv):''; }
 
-  // hero: saudação + resumo instantâneo à direita
+  // hero: saudação + resumo (números detalhados ficam só nos KPIs abaixo)
   var greet=document.getElementById('ov-greet');
   if(greet)greet.textContent=greeting();
   var heroSub=document.getElementById('ov-hero-sub');
   if(heroSub)heroSub.textContent=m.visits+' leads rastreados no per\u00edodo \u00b7 '+m.countries.length+' pa\u00edses ativos';
-  var heroStat=document.getElementById('ov-hero-stat');
-  if(heroStat)heroStat.innerHTML=
-    '<div class="ovh-stat"><div class="os-v cyn">'+revObj(m.rev)+'</div><div class="os-l">Receita</div></div>'+
-    '<div class="ovh-stat"><div class="os-v pnk" id="ovh-sales">0</div><div class="os-l">Vendas</div></div>'+
-    '<div class="ovh-stat"><div class="os-v '+pctColor(m.overall)+'">'+m.overall+'%</div><div class="os-l">Convers\u00e3o</div></div>';
 
+  // cores semânticas: receita/aprovação = verde (dinheiro bom), leads = ciano, conversão = dinâmica
   document.getElementById('ov-kpis').innerHTML=
-    kpi(I.money,'tint-cyan','Receita total','<span class="cyn">'+revObj(m.rev)+'</span>','no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#52a8ff'))+
-    kpi(I.cart,'tint-pink','Vendas aprovadas','<span class="pnk" id="ov-cu-sales">0</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+spark(seriesFor('sales'),'#ff5674'))+
-    kpi(I.users,'tint-blue','Novos leads','<span class="blu" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
-    kpi(I.pct,'tint-green','Conversão','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra &middot; detalhes no Funil', dc('overall'));
+    kpi(I.money,'tint-green','Receita total','<span class="pos">'+revObj(m.rev)+'</span>','no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#3ecf8e'))+
+    kpi(I.check,'tint-green','Vendas aprovadas','<span class="pos" id="ov-cu-sales">0</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+spark(seriesFor('sales'),'#3ecf8e'))+
+    kpi(I.users,'tint-cyan','Novos leads','<span class="cyn" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
+    kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra &middot; detalhes no Funil', dc('overall'));
 
-  // ministats profissionais no lugar dos chips
-  var apColor=m.approval>=70?'#3ecf8e':m.approval>=40?'#f5b544':'#ff5674';
+  // ministats: aprovação verde quando saudável (ou sem tentativas), alertas âmbar/vermelho só quando existem
+  var hasAttempts=(m.sales+m.failed)>0;
+  var apColor=!hasAttempts||m.approval>=70?'#3ecf8e':m.approval>=40?'#f5b544':'#ff5674';
+  var apBg=!hasAttempts||m.approval>=70?'rgba(62,207,142,.12)':m.approval>=40?'rgba(245,181,68,.12)':'rgba(255,86,116,.12)';
+  var refColor=m.refunds?'#f5b544':'#3ecf8e', dispColor=m.disputes?'#ff5674':'#3ecf8e';
   document.getElementById('ov-chips').innerHTML=
-    mstat(apColor,'rgba(62,207,142,.12)',I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor)+
-    mstat('#52a8ff','rgba(82,168,255,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null)+
+    mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor)+
+    mstat('#3ecf8e','rgba(62,207,142,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null)+
     mstat('#25f4ee','rgba(37,244,238,.1)',I.globe,'Países ativos',m.countries.length,(m.countries[0]?'l\u00edder: '+flag(m.countries[0].code)+' '+esc(m.countries[0].code):'aguardando leads'),null)+
-    mstat('#f5b544','rgba(245,181,68,.12)',I.zap,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null)+
-    mstat('#ff5674','rgba(255,86,116,.12)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null);
+    mstat(refColor,m.refunds?'rgba(245,181,68,.12)':'rgba(62,207,142,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null)+
+    mstat(dispColor,m.disputes?'rgba(255,86,116,.12)':'rgba(62,207,142,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null);
 
   // dispara contagens e barras animadas
   countUp(document.getElementById('ov-cu-sales'),m.sales);
   countUp(document.getElementById('ov-cu-visits'),m.visits);
-  countUp(document.getElementById('ovh-sales'),m.sales);
   requestAnimationFrame(function(){
     document.querySelectorAll('#ov-chips .ms-fill').forEach(function(f){ f.style.width=f.getAttribute('data-w')+'%'; });
   });
