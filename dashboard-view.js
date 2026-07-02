@@ -1854,14 +1854,20 @@ function renderHealth(){
     {key:'pushcut',label:'Pushcut'},
     {key:'dashboard',label:'Dashboard senha'}
   ];
-  document.getElementById('health-grid').innerHTML=items.map(function(it){
-    var ok=!!HEALTH[it.key];
-    return '<div class="hitem">'+
-      '<div class="hdot '+(ok?'ok':'warn')+'"></div>'+
-      '<div class="hlbl">'+esc(it.label)+'</div>'+
-      '<div class="hstatus '+(ok?'ok':'warn')+'">'+(ok?'Ativa':'Faltando')+'</div>'+
-      '</div>';
-  }).join('');
+  var dbOk=!!HEALTH.db;
+  var redisOk=HEALTH.redisEnabled?!!HEALTH.redis:null;
+  var dbLatency=HEALTH.dbLatencyMs;
+  document.getElementById('health-grid').innerHTML=
+    '<div class="hitem"><div class="hdot '+(dbOk?'ok':'warn')+'"></div><div class="hlbl">Neon (banco)</div><div class="hstatus '+(dbOk?'ok':'warn')+'">'+(dbOk?('OK'+(dbLatency?'&nbsp;&middot;&nbsp;'+dbLatency+'ms':'')):'Offline')+'</div></div>'+
+    (HEALTH.redisEnabled?'<div class="hitem"><div class="hdot '+(redisOk?'ok':'warn')+'"></div><div class="hlbl">Upstash Redis</div><div class="hstatus '+(redisOk?'ok':'warn')+'">'+(redisOk?'OK &middot; conectado':'Offline')+'</div></div>':'<div class="hitem"><div class="hdot warn"></div><div class="hlbl">Upstash Redis</div><div class="hstatus warn">Sem variáveis</div></div>')+
+    items.map(function(it){
+      var ok=!!HEALTH[it.key];
+      return '<div class="hitem">'+
+        '<div class="hdot '+(ok?'ok':'warn')+'"></div>'+
+        '<div class="hlbl">'+esc(it.label)+'</div>'+
+        '<div class="hstatus '+(ok?'ok':'warn')+'">'+(ok?'Ativa':'Faltando')+'</div>'+
+        '</div>';
+    }).join('');
 }
 
 /* ── Drawer ── */

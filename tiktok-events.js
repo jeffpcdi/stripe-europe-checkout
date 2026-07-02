@@ -3,7 +3,8 @@
 // pixels/*.json). Deduplica com o pixel do navegador via event_id idêntico.
 const crypto = require('crypto');
 const pixelStore = require('./pixel-store');
-const db = require('./db');
+const db  = require('./db');
+const rdb = require('./redis');
 
 const TIKTOK_API_URL = 'https://business-api.tiktok.com/open_api/v1.3/event/track/';
 
@@ -42,10 +43,26 @@ function pushLog(entry) {
   };
   log.unshift(row);
   if (log.length > LOG_MAX) log.length = LOG_MAX;
+  // Upstash Redis: write rápido (~1ms), TTL automático de 14 dias
+  rdb.pushPixelLog(row).catch(() => {});
+  // Neon: backup durável (estruturado para queries analíticas)
   if (db.enabled) db.insertPixelEvent(row);
   return row;
 }
 function recentLog(n) { return log.slice(0, n || 50); }
+
+// Versão async: usa Redis como fallback se memória local estiver vazia
+async function recentLogAsync(n) {
+  if (log.length > 0) return log.slice(0, n || 100);
+  // após restart: busca do Redis
+  const redisRows = await rdb.loadPixelLog(n || 100);
+  if (redisRows && redisRows.length) {
+    // re-popula memória local para próximas chamadas
+    log.push(...redisRows.slice(0, LOG_MAX));
+    return redisRows;
+  }
+  return [];
+}
 
 // Monta o objeto `user` (identidade) a partir do payload comum.
 function buildUser(p) {
@@ -161,5 +178,5 @@ async function sendTikTokEvent(p) {
 module.exports = {
   hash, hashPhone, externalIdFromLead,
   sendToPixel, dispatchToAll, testPixel, sendTikTokEvent,
-  recentLog
+  recentLog, recentLogAsync
 };

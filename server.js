@@ -52,10 +52,16 @@ function hourKey(d) {
 }
 // Dedup em memória: evita re-disparar o mesmo event_id via CAPI (beacon do
 // navegador + middleware podem gerar o mesmo id). TTL de 2h.
+// Dedup de event_id: Redis quando disponível (sobrevive a restarts, multi-instância),
+// Map em memória como fallback ultra-rápido sem dependência externa.
+const rdb = require('./redis');
 const _seenPx = new Map();
-function seenPixelEvent(eventId) {
+async function seenPixelEvent(eventId) {
+  // Redis primeiro: SET NX com TTL de 2h — garante dedup entre instâncias
+  if (rdb.enabled) return rdb.seenEventId(eventId);
+  // fallback memória local
   const now = Date.now();
-  if (_seenPx.size > 5000) { // limpeza ocasional
+  if (_seenPx.size > 5000) {
     for (const [k, ts] of _seenPx) { if (now - ts > 2 * 3600e3) _seenPx.delete(k); }
   }
   if (_seenPx.has(eventId)) return true;
@@ -221,7 +227,7 @@ app.use('/api', (req, res, next) => {
 });
 
 // ── Rastreio de funil: todo visitante (page view HTML) vira um lead ──
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   try {
     if (req.method !== 'GET') return next();
     const p = req.path || '';
@@ -259,7 +265,7 @@ app.use((req, res, next) => {
       // ── TikTok CAPI: ViewContent server-side (cobre até quem bloqueia JS).
       // event_id determinístico = mesmo id que o pixel do navegador → dedup.
       const evId = 'ViewContent.' + id + '.' + hourKey();
-      if (!seenPixelEvent(evId)) {
+      if (!(await seenPixelEvent(evId))) {
         ttEvents.dispatchToAll('ViewContent', {
           eventId: evId,
           leadId: id,
@@ -742,7 +748,7 @@ app.post('/webhook.php', (req, res) => {
 });
 
 // ── Rota /checkout → teste A/B de gateway (configurável) ─────────────
-app.get('/checkout', (req, res) => {
+app.get('/checkout', async (req, res) => {
   const cfg = config.get();
   const q = req.query || {};
   const currency = (q.currency || 'eur').toLowerCase();
@@ -789,7 +795,7 @@ app.get('/checkout', (req, res) => {
   try {
     const lead = stats.getLead(visitorId) || {};
     const evId = 'InitiateCheckout.' + visitorId + '.' + hourKey();
-    if (!seenPixelEvent(evId)) {
+    if (!(await seenPixelEvent(evId))) {
       ttEvents.dispatchToAll('InitiateCheckout', {
         eventId: evId,
         leadId: visitorId,
@@ -884,19 +890,24 @@ app.post('/api/pulse/leave', (req, res) => {
 });
 
 // ── API: visitantes navegando AGORA (dashboard) ────────────────────────
-app.get('/api/live', dashboardAuth, (req, res) => {
-  const visitors = presence.list();
-  // No checkout agora: Stripe conta pela presença real (heartbeat da página);
-  // Cooud é externo (sem script lá) → estimativa via janela de entrada de 10min
-  const stripeNow = visitors.filter((v) => v.page && v.page.indexOf('checkout') !== -1).length;
-  let cooudEst = 0;
-  try { cooudEst = stats.inCheckoutNow().cooud; } catch (_) {}
-  res.json({
-    visitors,
-    summary: presence.summary(),
-    checkout: { stripeNow, cooudEst },
-    ts: new Date().toISOString()
-  });
+app.get('/api/live', dashboardAuth, async (req, res) => {
+  try {
+    // presence.list() e summary() são agora async (mescla memória + Redis)
+    const [visitors, presenceSummary] = await Promise.all([presence.list(), presence.summary()]);
+    // No checkout agora: Stripe conta pela presença real (heartbeat da página);
+    // Cooud é externo (sem script lá) → estimativa via janela de entrada de 10min
+    const stripeNow = visitors.filter((v) => v.page && v.page.indexOf('checkout') !== -1).length;
+    let cooudEst = 0;
+    try { cooudEst = stats.inCheckoutNow().cooud; } catch (_) {}
+    res.json({
+      visitors,
+      summary: presenceSummary,
+      checkout: { stripeNow, cooudEst },
+      ts: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── API: configuração do teste A/B (ler/atualizar) ───────────────────
@@ -914,18 +925,23 @@ app.post('/api/config', dashboardAuth, (req, res) => {
 
 // ── API: health-check — variáveis críticas + ping REAL no banco ─────
 app.get('/api/health', dashboardAuth, async (req, res) => {
-  const dbPing = await require('./db').ping();
+  const [dbPing, redisPing] = await Promise.all([
+    require('./db').ping(),
+    rdb.ping()
+  ]);
   res.set('Cache-Control', 'no-store');
   res.json({
-    stripe:   !!process.env.STRIPE_SECRET_KEY,
-    webhook:  !!process.env.STRIPE_WEBHOOK_SECRET,
-    resend:   !!process.env.RESEND_API_KEY,
-    tiktok:   !!process.env.TIKTOK_ACCESS_TOKEN,
-    pushcut:  !!process.env.PUSHCUT_SECRET,
-    dashboard:!!process.env.DASHBOARD_PASSWORD,
-    db:       dbPing.ok,
+    stripe:      !!process.env.STRIPE_SECRET_KEY,
+    webhook:     !!process.env.STRIPE_WEBHOOK_SECRET,
+    resend:      !!process.env.RESEND_API_KEY,
+    tiktok:      !!process.env.TIKTOK_ACCESS_TOKEN,
+    pushcut:     !!process.env.PUSHCUT_SECRET,
+    dashboard:   !!process.env.DASHBOARD_PASSWORD,
+    db:          dbPing.ok,
     dbLatencyMs: dbPing.ok ? dbPing.latencyMs : null,
-    uptimeSec: Math.round(process.uptime()),
+    redis:       redisPing.ok,
+    redisEnabled:rdb.enabled,
+    uptimeSec:   Math.round(process.uptime()),
     ts: new Date().toISOString()
   });
 });
@@ -1049,19 +1065,19 @@ app.get('/px.js', (req, res) => {
 });
 
 // ── Beacon do navegador → espelho server-side (CAPI) com o mesmo event_id.
-app.post('/api/px/event', (req, res) => {
+app.post('/api/px/event', async (req, res) => {
   try {
     const vId = readCookie(req, 'v_id');
     const b = req.body || {};
     const events = Array.isArray(b.events) ? b.events.slice(0, 5) : [];
     let route = '/';
     try { route = new URL(b.url || 'https://x/').pathname || '/'; } catch (_) {}
-    events.forEach((e) => {
+    for (const e of events) {
       const name = String(e.n || '').slice(0, 40);
       const evId = String(e.id || '').slice(0, 120);
-      if (!name || !evId) return;
-      if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) return; // whitelist
-      if (seenPixelEvent(evId)) return; // já disparado pelo middleware/rota
+      if (!name || !evId) continue;
+      if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) continue; // whitelist
+      if (await seenPixelEvent(evId)) continue; // já disparado pelo middleware/rota
       ttEvents.dispatchToAll(name, {
         eventId: evId,
         leadId: vId || undefined,
@@ -1075,7 +1091,7 @@ app.post('/api/px/event', (req, res) => {
       if (vId && (b.ttclid || b.ttp)) {
         try { stats.attachTracking(vId, { ttclid: b.ttclid || undefined, ttp: b.ttp || undefined }); } catch (_) {}
       }
-    });
+    }
     res.json({ ok: true });
   } catch (_) {
     res.json({ ok: false });
@@ -1138,16 +1154,16 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
 // Log de disparos CAPI (memória rápida + histórico do banco)
 app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const mem = ttEvents.recentLog(100);
-  let dbRows = null;
-  if (mem.length < 20) {
-    const db = require('./db');
-    dbRows = await db.loadPixelEvents(100);
-  }
-  res.json({ log: mem.length ? mem : (dbRows || []).map((r) => ({
+  // 1. tenta memória local + Redis (recentLogAsync faz fallback automático)
+  const rows = await ttEvents.recentLogAsync(100);
+  if (rows.length) return res.json({ log: rows, source: 'redis' });
+  // 2. fallback Neon (backup estruturado para quando Redis não está disponível)
+  const db = require('./db');
+  const dbRows = await db.loadPixelEvents(100);
+  res.json({ log: (dbRows || []).map((r) => ({
     id: r.id, at: r.at, pixel: r.pixel, event: r.event,
     eventId: r.event_id, leadId: r.lead_id, status: r.status, response: r.response
-  })) });
+  })), source: 'neon' });
 });
 
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {
