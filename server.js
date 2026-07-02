@@ -305,13 +305,38 @@ app.post('/api/create-payment-intent', async (req, res) => {
       if (decoy) trackingMeta.tt_url_rot = '1'; // marca que está mascarada
     }
 
-    const pi = await stripe.paymentIntents.create({
+    // ── Customer + setup_future_usage: essenciais para o upsell one-click ──
+    // Sem Customer anexado, a Stripe NÃO permite reutilizar o payment_method
+    // nas páginas /s1 e /s2 (erro "PaymentMethod was previously used...").
+    let customerId = readCookie(req, 'sc_id');
+    if (customerId && !/^cus_[A-Za-z0-9]+$/.test(customerId)) customerId = null;
+    if (!customerId) {
+      const cust = await stripe.customers.create({ metadata: { v_id: vId || '' } });
+      customerId = cust.id;
+    }
+    appendCookie(res, `sc_id=${customerId};Path=/;Max-Age=2592000;SameSite=Lax;HttpOnly`);
+
+    let pi;
+    const piParams = {
       amount: unitAmount,
       currency: resolvedCurrency,
+      customer: customerId,
+      setup_future_usage: 'off_session', // guarda o cartão p/ upsell one-click
       automatic_payment_methods: { enabled: true },
       description: randomDesc(DESCRIPTIONS),
       metadata: trackingMeta
-    });
+    };
+    try {
+      pi = await stripe.paymentIntents.create(piParams);
+    } catch (err) {
+      // Customer do cookie pode ter sido apagado na Stripe — recria e tenta 1x
+      if (/No such customer/i.test(err.message || '')) {
+        const cust = await stripe.customers.create({ metadata: { v_id: vId || '' } });
+        customerId = cust.id;
+        appendCookie(res, `sc_id=${customerId};Path=/;Max-Age=2592000;SameSite=Lax;HttpOnly`);
+        pi = await stripe.paymentIntents.create({ ...piParams, customer: customerId });
+      } else throw err;
+    }
 
     res.json({
       clientSecret: pi.client_secret,
@@ -335,6 +360,11 @@ app.post('/api/create-upsell-intent', async (req, res) => {
     const reqAmount = Number(req.body.amountCents);
     const amount = ALLOWED_UPSELL_AMOUNTS.includes(reqAmount) ? reqAmount : 6000;
 
+    // Customer criado no checkout inicial (cookie sc_id) — obrigatório para
+    // reutilizar o payment_method guardado (one-click)
+    let customerId = readCookie(req, 'sc_id');
+    if (customerId && !/^cus_[A-Za-z0-9]+$/.test(customerId)) customerId = null;
+
     const params = {
       amount,                // valor validado (60,00 € ou 34,00 €)
       currency: 'eur',
@@ -344,9 +374,15 @@ app.post('/api/create-upsell-intent', async (req, res) => {
         allow_redirects: 'never'
       }
     };
+    if (customerId) params.customer = customerId;
 
     // Se vier um paymentMethodId, tenta confirmar imediatamente (one-click)
     if (paymentMethodId) {
+      if (!customerId) {
+        // Sem customer o one-click é impossível na Stripe — instruí o front a
+        // cair no formulário completo em vez de devolver um erro críptico
+        return res.status(409).json({ error: 'Sesión de pago expirada. Introduce los datos de nuevo.' });
+      }
       params.payment_method = paymentMethodId;
       params.confirm = true;
       params.off_session = true;

@@ -798,7 +798,7 @@
       </div>
       <div class="success-title">¡Pago completado!</div>
       <div class="success-sub">Tu verificación de identidad ha sido confirmada.<br>Tu saldo de <strong>���3.247,83</strong> está siendo liberado.</div>
-      <button class="success-btn" onclick="window.location.href='/1'">Acceder ahora →</button>
+      <button class="success-btn" onclick="window.location.href='/s1'">Acceder ahora →</button>
     </div>
   </div>
 
@@ -1165,7 +1165,7 @@
       'use strict';
 
       var STRIPE_PK = 'pk_live_51TZIE8LfsV7mxllBvCosSGGJHOol2Tyc8WJ5sTsvPWXYNX2GWlWrE1gYH8F2o2HwYvZ6RrafTvRlDstJ6V5Tknf10015hyOsqv';
-      var SUCCESS_URL = '/1';
+      var SUCCESS_URL = '/s1'; // fluxo Stripe: checkout → s1 → s2 → entregavel
 
       var stripe = null;
       var elements = null;
