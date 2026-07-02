@@ -250,6 +250,126 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 }
 .menu-toggle{display:none;place-items:center;width:38px;height:38px;border-radius:10px;background:var(--card);border:1px solid var(--border);cursor:pointer}
 .menu-toggle svg{width:20px;height:20px}
+.menu-toggle{transition:background .15s,transform .1s} .menu-toggle:active{transform:scale(.94)}
+
+/* ═══════════════ PERSONALIDADE · EFEITOS · MOVIMENTO ═══════════════ */
+html{scroll-behavior:smooth}
+::selection{background:rgba(37,244,238,.28);color:#fff}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:8px}
+
+/* Aurora de fundo — respiração lenta */
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(680px circle at 10% -6%,rgba(37,244,238,.07),transparent 60%),
+    radial-gradient(640px circle at 94% 2%,rgba(254,44,85,.07),transparent 55%);
+  animation:aurora 16s ease-in-out infinite alternate}
+@keyframes aurora{0%{opacity:.65;transform:translateY(0)}100%{opacity:1;transform:translateY(6px)}}
+.app{position:relative;z-index:1}
+
+/* Fio de luz animado sob a topbar */
+.topbar::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),var(--pink),transparent);
+  background-size:220% 100%;opacity:.55;animation:sheen 7s linear infinite}
+@keyframes sheen{to{background-position:220% 0}}
+
+/* Cards — elevação + brilho no hover */
+.card{transition:transform .26s cubic-bezier(.2,.8,.2,1),border-color .26s,box-shadow .26s,background .26s}
+.card:hover{transform:translateY(-3px);border-color:var(--border2);box-shadow:0 16px 40px -18px rgba(0,0,0,.75)}
+.kpi{transition:transform .26s cubic-bezier(.2,.8,.2,1),border-color .26s,box-shadow .26s}
+.kpi:hover{transform:translateY(-4px);border-color:rgba(37,244,238,.35);box-shadow:0 18px 44px -18px rgba(0,0,0,.75),0 0 0 1px rgba(37,244,238,.14)}
+.kpi .k-ico{transition:transform .26s,background .26s,color .26s}
+.kpi:hover .k-ico{transform:scale(1.1) rotate(-4deg);background:rgba(37,244,238,.16);color:var(--cyan)}
+.kpi .k-val{transition:transform .26s}
+.kpi:hover .k-val{transform:translateX(2px)}
+
+/* Entrada em cascata — só ao trocar de aba (classe .entering) */
+@keyframes rise{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
+.view.entering .grid>*,
+.view.entering>.card,
+.view.entering .funnel,
+.view.entering .tbl-wrap,
+.view.entering .verdict,
+.view.entering .alert,
+.view.entering #ab-chart-card,
+.view.entering .geo-grid>*{animation:rise .52s cubic-bezier(.2,.8,.2,1) both}
+.view.entering .grid>*:nth-child(2){animation-delay:.05s}
+.view.entering .grid>*:nth-child(3){animation-delay:.1s}
+.view.entering .grid>*:nth-child(4){animation-delay:.15s}
+.view.entering .grid>*:nth-child(5){animation-delay:.2s}
+.view.entering .grid>*:nth-child(6){animation-delay:.25s}
+.view.entering .grid>*:nth-child(n+7){animation-delay:.3s}
+
+/* Nav — indicador ativo + deslize no hover */
+.nav button{position:relative;transition:background .15s,color .15s,transform .18s}
+.nav button::before{content:'';position:absolute;left:3px;top:50%;transform:translateY(-50%) scaleY(0);width:3px;height:19px;border-radius:3px;background:linear-gradient(var(--cyan),var(--pink));transition:transform .24s cubic-bezier(.2,.8,.2,1)}
+.nav button.active::before{transform:translateY(-50%) scaleY(1)}
+.nav button:hover{transform:translateX(3px)}
+.nav button svg{transition:transform .2s,color .2s}
+.nav button:hover svg{transform:scale(1.14)}
+.nav button:active{transform:scale(.97)}
+
+/* Ponto ao vivo — anel pulsante */
+.dot{position:relative}
+.dot::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--green);opacity:.6;animation:ping 1.9s cubic-bezier(0,0,.2,1) infinite}
+.dot.off::after{border-color:var(--red)}
+@keyframes ping{0%{transform:scale(.7);opacity:.7}80%,100%{transform:scale(2);opacity:0}}
+
+/* Badge de alerta — pulso */
+.nav .badge{animation:badgePulse 1.6s ease-in-out infinite}
+@keyframes badgePulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(254,44,85,.55)}50%{transform:scale(1.14);box-shadow:0 0 0 6px rgba(254,44,85,0)}}
+
+/* Botões — clique tátil + brilho */
+.btn{transition:background .15s,transform .1s,box-shadow .18s,filter .15s}
+.btn:active,.btn-icon:active,.segment button:active{transform:scale(.95)}
+.btn.primary:hover{box-shadow:0 10px 26px -10px rgba(37,244,238,.6)}
+.btn-icon{transition:color .15s,border-color .15s,background .15s,transform .1s}
+#refresh-btn.spinning svg{animation:spin .8s linear infinite}
+
+/* Segmento de período — hover + destaque no ativo */
+.segment button{transition:background .18s,color .18s,transform .1s,box-shadow .2s}
+.segment button:not(.active):hover{background:var(--hover);color:var(--text)}
+.segment button.active{box-shadow:0 6px 16px -6px rgba(254,44,85,.65)}
+
+/* Switch — brilho ao ligar */
+input:checked+.slider{box-shadow:0 0 0 1px rgba(37,244,238,.4),0 0 12px -2px rgba(37,244,238,.5)}
+.slider:before{box-shadow:0 1px 3px rgba(0,0,0,.4)}
+
+/* Linhas de tabela — acento lateral no hover */
+tbody tr{position:relative;transition:background .12s,box-shadow .12s}
+tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
+
+/* Funil — sweep de luz sutil */
+.fbar{position:relative;overflow:hidden}
+.fbar::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 25%,rgba(255,255,255,.16) 50%,transparent 75%);background-size:220% 100%;animation:sheen 3.6s linear infinite}
+
+/* Listas de país / health — micro-hover */
+.crow{position:relative;transition:background .12s,transform .12s}
+.crow:hover{transform:translateX(3px)}
+.crow .cbar i{transition:width .7s cubic-bezier(.2,.8,.2,1)}
+.hitem{transition:border-color .2s,transform .2s,box-shadow .2s}
+.hitem:hover{transform:translateY(-2px);border-color:var(--border2);box-shadow:0 10px 26px -14px rgba(0,0,0,.7)}
+
+/* Feed de atividade — realce no hover */
+.ev{transition:background .14s;border-radius:10px;padding-left:8px;padding-right:8px}
+.ev:hover{background:var(--card2)}
+.ev .ei{transition:transform .18s}
+.ev:hover .ei{transform:scale(1.08)}
+
+/* Drawer — botão fechar gira */
+.x{transition:background .15s,color .15s,transform .2s}
+.x:hover{background:var(--hover);color:var(--text);transform:rotate(90deg)}
+
+/* Barra de confiança A/B — brilho */
+.conf-bar i{box-shadow:0 0 10px -2px currentColor}
+
+/* Texto de carregamento — pulsa */
+.load-text{animation:loadPulse 1.6s ease-in-out infinite}
+@keyframes loadPulse{0%,100%{opacity:.5}50%{opacity:1}}
+
+/* Acessibilidade — respeita preferência por menos movimento */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+}
 </style>
 </head>
 <body>
@@ -698,7 +818,7 @@ function renderFunnel(m){
     kpi(I.users,'tint-cyan','Leads (topo)','<span class="cyn">'+m.visits+'</span>','entraram no site')+
     kpi(I.cart,'','Chegaram ao checkout','<span>'+m.reached+'</span>',m.v2c+'% dos leads')+
     kpi(I.check,'tint-pink','Compraram','<span class="pnk">'+m.bought+'</span>',m.c2p+'% dos checkouts')+
-    kpi(I.pct,'','Convers&atilde;o total','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra');
+    kpi(I.pct,'','Conversão total','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra');
   var max=Math.max(m.visits,1);
   var steps=[
     {l:'Visitaram',s:'topo do funil',v:m.visits,c:'#25f4ee',r:'100%'},
@@ -776,7 +896,7 @@ function renderLeadsTable(){
 function renderGeo(m){
   var totalLeads=m.countries.reduce(function(a,c){return a+c.count;},0);
   document.getElementById('geo-kpis').innerHTML=
-    kpi(I.globe,'tint-cyan','Pa&iacute;ses ativos','<span class="cyn">'+m.countries.length+'</span>','com pelo menos 1 lead')+
+    kpi(I.globe,'tint-cyan','Países ativos','<span class="cyn">'+m.countries.length+'</span>','com pelo menos 1 lead')+
     kpi(I.users,'','Leads geolocalizados','<span>'+totalLeads+'</span>','com pa&iacute;s identificado')+
     kpi(I.zap,'tint-pink','Principal mercado','<span class="pnk">'+(m.countries[0]?flag(m.countries[0].code)+' '+esc(m.countries[0].code):'—')+'</span>',(m.countries[0]?m.countries[0].count+' leads':'sem dados'));
   var max=m.countries[0]?m.countries[0].count:1;
@@ -931,7 +1051,7 @@ function renderCooud(){
   document.getElementById('cooud-kpis').innerHTML=
     kpi(I.lead,'tint-cyan','Leads enviados','<span class="cyn">'+(co.sent||0)+'</span>','para o gateway '+(esc(extName)))+
     kpi(I.check,'','Vendas conciliadas','<span class="cyn">'+(co.matched||0)+'</span>',(co.convRate||0)+'% dos enviados')+
-    kpi(I.dispute,'tint-pink','Vendas &oacute;rf&atilde;s','<span class="pnk">'+(co.orphans||0)+'</span>','sem lead nosso')+
+    kpi(I.dispute,'tint-pink','Vendas órfãs','<span class="pnk">'+(co.orphans||0)+'</span>','sem lead nosso')+
     kpi(I.zap,'tint-amber','Reportes duplicados','<span class="amb">'+(co.duplicates||0)+'</span>','mesmo lead 2x');
   document.getElementById('cooud-practices').innerHTML=
     '<div class="card"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span class="tag cap">Smart Capture</span></div>'+
@@ -1131,7 +1251,8 @@ function renderAll(){
   renderAB();
   renderCooud();
   renderActivity();
-  document.getElementById('foot-updated').textContent=DATA.updatedAt?timeAgo(DATA.updatedAt)+' atr&aacute;s':'agora';
+  var _ago=DATA.updatedAt?timeAgo(DATA.updatedAt):'agora';
+  document.getElementById('foot-updated').textContent=(_ago==='agora')?'agora':_ago+' atrás';
   // dot ao vivo: verde se dados atualizados < 60s
   var dot=document.getElementById('live-dot');
   if(dot){ var age=DATA.updatedAt?(Date.now()-new Date(DATA.updatedAt).getTime())/1000:9999; dot.className='dot'+(age>60?' off':''); }
@@ -1165,6 +1286,9 @@ function setView(v){
   document.getElementById('page-title').textContent=titles[v][0];
   document.getElementById('page-sub').textContent=titles[v][1];
   document.getElementById('sidebar').classList.remove('open');
+  // animação de entrada em cascata (uma vez por troca de aba)
+  var sec=document.getElementById('view-'+v);
+  if(sec){ sec.classList.remove('entering'); void sec.offsetWidth; sec.classList.add('entering'); setTimeout(function(){sec.classList.remove('entering');},700); }
   if(v==='geo'&&DATA){
     setTimeout(function(){
       if(globe){ try{globe.width(document.getElementById('globe').clientWidth).height(440);}catch(e){} }
@@ -1194,7 +1318,10 @@ document.getElementById('chart-mode').addEventListener('click',function(e){
   document.querySelectorAll('#chart-mode button').forEach(function(x){x.classList.toggle('active',x===b);});
   if(DATA){ var m=metrics(); renderChart(m); }
 });
-document.getElementById('refresh-btn').addEventListener('click',function(){ refresh().then(function(){toast('Atualizado');}); });
+document.getElementById('refresh-btn').addEventListener('click',function(){
+  var b=this; b.classList.add('spinning');
+  refresh().then(function(){toast('Atualizado');}).catch(function(){toast('Falha ao atualizar',false);}).then(function(){ setTimeout(function(){b.classList.remove('spinning');},450); });
+});
 document.getElementById('lead-search').addEventListener('input',renderLeadsTable);
 document.getElementById('lead-stage').addEventListener('change',renderLeadsTable);
 document.getElementById('lead-gw').addEventListener('change',renderLeadsTable);
@@ -1251,6 +1378,9 @@ var lsGuard=setTimeout(hideLS,8000);
 refresh().then(function(){
   setupAuto();
   clearTimeout(lsGuard); hideLS();
+  // anima a aba inicial (Visão Geral) na primeira pintura
+  var a=document.querySelector('section.view.active');
+  if(a){ a.classList.add('entering'); setTimeout(function(){a.classList.remove('entering');},700); }
 }).catch(function(){
   clearTimeout(lsGuard); hideLS();
 });
