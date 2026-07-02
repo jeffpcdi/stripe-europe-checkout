@@ -127,11 +127,27 @@ function set(patch) {
   return Object.assign({}, next);
 }
 
-// Decide a variante para um novo visitante, conforme a config atual.
-function pickVariant() {
+// Hash FNV-1a → número estável em [0,100). Mesmo visitante = mesmo bucket.
+function bucketOf(id) {
+  let h = 0x811c9dc5;
+  const s = String(id);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h % 100;
+}
+
+// Decide a variante para um visitante, conforme a config atual.
+// REFINADO: split determinístico por hash do visitorId — o mesmo visitante
+// SEMPRE cai na mesma variante (mesmo se limpar o cookie ab_variant), e a
+// distribuição real converge para o % configurado sem a variância do
+// Math.random() em amostras pequenas. Sem visitorId, cai no sorteio aleatório.
+function pickVariant(visitorId) {
   const c = ensureLoaded();
   if (c.mode === 'stripe_only') return 'stripe';
-  return (Math.random() * 100 < c.stripePct) ? 'stripe' : 'cooud';
+  const roll = visitorId ? bucketOf(visitorId) : Math.random() * 100;
+  return roll < c.stripePct ? 'stripe' : 'cooud';
 }
 
 // Retorna a próxima URL "decoy" da rotação (round-robin) e persiste o índice.

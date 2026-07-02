@@ -73,11 +73,12 @@ function getOrAssignVisitor(req, res) {
   return id;
 }
 
-// Retorna a variante do visitante (sticky via cookie); atribui conforme config se novo
-function getOrAssignVariant(req, res) {
+// Retorna a variante do visitante (sticky via cookie); atribui conforme config se novo.
+// O visitorId torna a atribuição determinística (hash) — sobrevive à limpeza de cookies.
+function getOrAssignVariant(req, res, visitorId) {
   let variant = readCookie(req, 'ab_variant');
   if (!stats.VARIANTS.includes(variant)) {
-    variant = config.pickVariant();
+    variant = config.pickVariant(visitorId);
     appendCookie(res, `ab_variant=${variant};Path=/;Max-Age=2592000;SameSite=Lax`);
     stats.recordAssignment(variant);
   }
@@ -578,7 +579,7 @@ app.post('/api/stripe-webhook', async (req, res) => {
     }
   }
 
-  // ── Pushcut — REEMBOLSO ─────────────────────────────────────────────
+  // ── Pushcut — REEMBOLSO ─────────────────���───────────────────────────
   else if (event.type === 'charge.refunded') {
     const ch = event.data.object;
     try {
@@ -665,7 +666,7 @@ app.get('/checkout', (req, res) => {
 
   let variant = (forced === 'stripe' || forced === 'cooud')
     ? forced
-    : getOrAssignVariant(req, res);
+    : getOrAssignVariant(req, res, visitorId);
 
   // Modo "apenas Stripe" força tudo para o Stripe (respeitando override manual)
   if (cfg.mode === 'stripe_only' && forced !== 'cooud') variant = 'stripe';
@@ -702,6 +703,7 @@ app.get('/checkout', (req, res) => {
 
     // Preserva query string original + injeta o identificador do visitante p/ conciliação
     const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+    params.delete('ab'); // parâmetro interno de teste — não vazar para o checkout externo
     params.set('client_reference_id', visitorId);
     params.set('lead_id', visitorId);
     const base = cfg.externalUrl || 'https://checkout.cooud.com/01KVQSV545NN7APJN3RQMGSASV';

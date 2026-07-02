@@ -685,6 +685,25 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Teste A/B ── -->
       <section class="view" id="view-ab">
         <div id="ab-alert"></div>
+        <div class="card" id="ab-control" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <h3 style="font-size:15px">Controle do experimento</h3>
+            <div style="display:flex;gap:8px">
+              <a class="btn btn-sm" href="/checkout?ab=stripe" target="_blank" rel="noopener">Testar Stripe</a>
+              <a class="btn btn-sm" href="/checkout?ab=cooud" target="_blank" rel="noopener" id="ab-test-cooud">Testar Cooud</a>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;margin-top:14px;flex-wrap:wrap">
+            <label class="switch" title="Ligar/desligar o teste A/B"><input type="checkbox" id="ab-mode" /><span class="slider"></span></label>
+            <span id="ab-mode-label" class="muted" style="font-size:13px;min-width:150px">—</span>
+            <div id="ab-split-wrap" style="flex:1;min-width:220px;display:flex;align-items:center;gap:12px">
+              <span class="cyn" style="font-size:12.5px;font-family:var(--mono,monospace);min-width:74px" id="ab-split-s">Stripe 50%</span>
+              <input type="range" id="ab-split" min="0" max="100" step="5" value="50" style="flex:1" />
+              <span class="pnk" style="font-size:12.5px;font-family:var(--mono,monospace);min-width:74px;text-align:right" id="ab-split-c">Cooud 50%</span>
+            </div>
+            <button class="btn btn-sm primary" id="ab-save" style="display:none">Salvar</button>
+          </div>
+        </div>
         <div class="ab-grid">
           <div class="verdict" id="ab-verdict"></div>
           <div class="card" id="ab-metrics"></div>
@@ -1294,6 +1313,7 @@ function renderLiveGlobe(){
 function zScore(nA,cA,nB,cB){ if(!nA||!nB) return 0; var pA=cA/nA,pB=cB/nB,p=(cA+cB)/(nA+nB); var se=Math.sqrt(p*(1-p)*(1/nA+1/nB)); if(!se||isNaN(se)) return 0; return (pA-pB)/se; }
 function confFromZ(z){ z=Math.abs(z); var t=1/(1+0.2316419*z); var d=0.3989423*Math.exp(-z*z/2); var p=1-d*(0.3193815*t-0.3565638*t*t+1.781478*t*t*t-1.821256*Math.pow(t,4)+1.330274*Math.pow(t,5)); return +(((2*p-1))*100).toFixed(1); }
 function renderAB(){
+  fillABControl();
   var v=DATA.variants||{};
   var s=v.stripe||{assignments:0,conversions:0,revenue:{}};
   var c=v.cooud||{assignments:0,conversions:0,revenue:{}};
@@ -1333,6 +1353,45 @@ function renderAB(){
     abCard('Stripe',s,'#52a8ff')+abCard(esc(extName),c,'#ff5674');
   renderABChart(s,c,rpvS,rpvC,extName);
 }
+// ── Painel de controle do experimento (aba A/B) ──────────────────────
+var abDirty=false; // evita sobrescrever edições do usuário no auto-refresh
+function fillABControl(){
+  if(!CFG||abDirty) return;
+  var isAB=CFG.mode!=='stripe_only';
+  var extName=CFG.externalName||'Cooud';
+  document.getElementById('ab-mode').checked=isAB;
+  document.getElementById('ab-mode-label').textContent=isAB?'Teste ativo — tráfego dividido':'Pausado — 100% Stripe';
+  document.getElementById('ab-split-wrap').style.opacity=isAB?'1':'.35';
+  document.getElementById('ab-split').disabled=!isAB;
+  document.getElementById('ab-split').value=CFG.stripePct;
+  document.getElementById('ab-split-s').textContent='Stripe '+CFG.stripePct+'%';
+  document.getElementById('ab-split-c').textContent=esc(extName)+' '+(100-CFG.stripePct)+'%';
+  document.getElementById('ab-test-cooud').textContent='Testar '+extName;
+}
+function abControlChanged(){
+  abDirty=true;
+  var pct=+document.getElementById('ab-split').value;
+  var isAB=document.getElementById('ab-mode').checked;
+  var extName=CFG&&CFG.externalName||'Cooud';
+  document.getElementById('ab-mode-label').textContent=isAB?'Teste ativo — tráfego dividido':'Pausado — 100% Stripe';
+  document.getElementById('ab-split-wrap').style.opacity=isAB?'1':'.35';
+  document.getElementById('ab-split').disabled=!isAB;
+  document.getElementById('ab-split-s').textContent='Stripe '+pct+'%';
+  document.getElementById('ab-split-c').textContent=esc(extName)+' '+(100-pct)+'%';
+  document.getElementById('ab-save').style.display='inline-flex';
+}
+document.getElementById('ab-split').addEventListener('input',abControlChanged);
+document.getElementById('ab-mode').addEventListener('change',abControlChanged);
+document.getElementById('ab-save').addEventListener('click',function(){
+  var body={mode:document.getElementById('ab-mode').checked?'ab':'stripe_only',stripePct:+document.getElementById('ab-split').value};
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ CFG=d.config; abDirty=false; document.getElementById('ab-save').style.display='none'; fillABControl(); toast('Experimento atualizado'); }
+      else toast('Erro ao salvar');
+    }).catch(function(){ toast('Erro ao salvar'); });
+});
+
 function renderABChart(s,c,rpvS,rpvC,extName){
   var el=document.getElementById('ab-chart'); if(!el) return;
   var metrics=[
