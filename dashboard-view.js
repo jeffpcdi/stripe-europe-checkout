@@ -803,6 +803,7 @@ function renderGlobe(countries){
   });
   try{
     if(!globe){
+      el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
       globe=Globe()(el)
         .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
         .backgroundColor('rgba(0,0,0,0)')
