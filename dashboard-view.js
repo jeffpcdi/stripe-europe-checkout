@@ -164,7 +164,26 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .hl-card .k-flag .fi{font-size:20px;line-height:1}
 /* ── Ao Vivo ── */
 .nav .live-badge{background:var(--green);color:#04140d}
-#live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;position:relative;background:radial-gradient(circle at 50% 38%,#0d1522,#050608 70%)}
+#live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;position:relative;background:radial-gradient(circle at 50% 38%,#0c1424,#04050a 72%)}
+/* card do globo: controles flutuantes + fullscreen */
+.globe-card{position:relative;overflow:hidden}
+.globe-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;pointer-events:none;
+  background:linear-gradient(90deg,#25f4ee,#52a8ff 45%,#ff2d6f);opacity:.5;box-shadow:0 0 10px -2px #52a8ff}
+.globe-tools{position:absolute;top:14px;right:14px;z-index:5;display:flex;flex-direction:column;gap:6px;
+  background:rgba(13,13,18,.72);border:1px solid var(--border2);border-radius:12px;padding:6px;backdrop-filter:blur(10px);
+  box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.gt-btn{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;border:0;background:transparent;color:var(--muted);cursor:pointer;transition:.18s}
+.gt-btn svg{width:16px;height:16px}
+.gt-btn:hover{background:var(--hover);color:var(--text);transform:scale(1.08)}
+.gt-btn:active{transform:scale(.94)}
+.gt-div{height:1px;background:var(--border);margin:1px 4px}
+.globe-hint{position:absolute;left:14px;bottom:12px;z-index:5;font-size:10.5px;color:var(--muted2);letter-spacing:.06em;
+  background:rgba(13,13,18,.6);border:1px solid var(--border);padding:4px 10px;border-radius:14px;backdrop-filter:blur(8px);pointer-events:none;opacity:.85}
+/* fullscreen: globo ocupa a tela inteira */
+.globe-card:fullscreen{border-radius:0;background:#04050a}
+.globe-card:fullscreen #live-globe{height:100vh!important;border-radius:0}
+.globe-card:fullscreen .globe-tools{top:22px;right:22px}
+.globe-card:fullscreen .globe-hint{left:22px;bottom:20px;font-size:12px}
 #live-globe::before,#globe::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;
   background-image:
     radial-gradient(1px 1px at 10% 15%,rgba(255,255,255,.5),transparent),
@@ -781,7 +800,16 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="section-title"><span>Pulso de tr&aacute;fego</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads que entraram &middot; &uacute;ltimos 30 min</span></div>
         <div class="card traffic-card" id="traffic-pulse"></div>
         <div class="live-grid">
-          <div class="card" style="padding:0"><div id="live-globe"></div></div>
+          <div class="card globe-card" style="padding:0" id="globe-card">
+            <div id="live-globe"></div>
+            <div class="globe-tools">
+              <button class="gt-btn" id="globe-zoom-in" title="Aproximar" aria-label="Aproximar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="gt-btn" id="globe-zoom-out" title="Afastar" aria-label="Afastar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+              <div class="gt-div"></div>
+              <button class="gt-btn" id="globe-fs" title="Tela cheia" aria-label="Alternar tela cheia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="globe-fs-ico"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/></svg></button>
+            </div>
+            <div class="globe-hint">arraste para girar &middot; role para dar zoom</div>
+          </div>
           <div class="live-right">
             <div class="card" style="padding:0">
               <div class="notif-head">
@@ -1521,21 +1549,63 @@ function renderGeo(m){
 function makeGlobe(el,height){
   el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
   var g=Globe()(el)
-    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-night.jpg')
     .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
     .backgroundColor('rgba(0,0,0,0)')
-    .showGraticules(true)
-    .showAtmosphere(true).atmosphereColor('#4aa8ff').atmosphereAltitude(0.24)
+    .showGraticules(false)
+    .showAtmosphere(true).atmosphereColor('#3f9fff').atmosphereAltitude(0.28)
     .pointLat('lat').pointLng('lng')
     .ringLat('lat').ringLng('lng');
   try{
     var scene=g.scene && g.scene();
-    if(scene){ scene.add(new THREE.AmbientLight(0xffffff,0.9)); var dl=new THREE.DirectionalLight(0xffffff,0.7); dl.position.set(1,1,1); scene.add(dl); }
+    if(scene){
+      scene.add(new THREE.AmbientLight(0xdfe8ff,1.15));
+      var dl=new THREE.DirectionalLight(0xbfd4ff,0.55); dl.position.set(1,0.6,0.8); scene.add(dl);
+      // luz de preenchimento rosa sutil vinda de baixo — assinatura da marca
+      var pk=new THREE.DirectionalLight(0xff2d6f,0.18); pk.position.set(-1,-0.8,-0.4); scene.add(pk);
+    }
   }catch(_){}
   g.pointOfView({lat:24,lng:-12,altitude:1.95},0);
-  var ctrl=g.controls(); if(ctrl){ctrl.autoRotate=true;ctrl.autoRotateSpeed=0.42;ctrl.enableZoom=false;}
+  var ctrl=g.controls();
+  if(ctrl){
+    ctrl.autoRotate=true;ctrl.autoRotateSpeed=0.42;
+    ctrl.enableZoom=true;ctrl.zoomSpeed=0.6;
+    ctrl.minDistance=140;ctrl.maxDistance=520; // limites de zoom confortáveis
+  }
   setTimeout(function(){ try{g.width(el.clientWidth).height(height);}catch(e){} },80);
   return g;
+}
+// Cor da marcação conforme intensidade: frio (ciano) → médio (azul) → quente (rosa)
+function heatColor(sz){
+  if(sz>=.75) return '#ff2d6f';
+  if(sz>=.45) return '#52a8ff';
+  return '#25f4ee';
+}
+function heatRGBA(sz,a){
+  if(sz>=.75) return 'rgba(255,45,111,'+a+')';
+  if(sz>=.45) return 'rgba(82,168,255,'+a+')';
+  return 'rgba(37,244,238,'+a+')';
+}
+// ── Zoom programático (botões + e −) ──
+function globeZoom(factor){
+  if(!liveGlobe) return;
+  try{
+    var pov=liveGlobe.pointOfView();
+    var alt=Math.max(0.45,Math.min(3.4,(pov.altitude||1.95)*factor));
+    liveGlobe.pointOfView({lat:pov.lat,lng:pov.lng,altitude:alt},380);
+  }catch(_){}
+}
+// ── Tela cheia do globo ──
+function globeFullscreen(){
+  var card=document.getElementById('globe-card'); if(!card) return;
+  if(document.fullscreenElement){ document.exitFullscreen(); }
+  else if(card.requestFullscreen){ card.requestFullscreen(); }
+}
+function resizeGlobe(){
+  var el=document.getElementById('live-globe'); if(!el||!liveGlobe) return;
+  var fs=!!document.fullscreenElement;
+  var h=fs?window.innerHeight:520;
+  try{ liveGlobe.width(el.clientWidth).height(h); }catch(_){}
 }
 /* ── Ao Vivo ── */
 function pageLabel(p){
@@ -1646,17 +1716,37 @@ function renderLiveGlobe(){
   try{
     if(!liveGlobe){
       liveGlobe=makeGlobe(el,520);
-      liveGlobe.pointAltitude(function(d){return 0.02+d.size*0.28;})
-        .pointRadius(function(d){return 0.35+d.size*0.6;})
-        .pointColor(function(){return '#3ecf8e';})
+      liveGlobe.pointAltitude(function(d){return 0.03+d.size*0.32;})
+        .pointRadius(function(d){return 0.3+d.size*0.55;})
+        .pointColor(function(d){return heatColor(d.size);})
         .pointLabel(function(d){
-          return '<div style="background:#14141e;border:1px solid #26263a;padding:6px 10px;border-radius:8px;font-family:Inter,sans-serif;font-size:12px;color:#fff">'+
-            flag(d.code)+' '+d.name+': <b>'+d.count+'</b> online</div>';
+          var c=heatColor(d.size);
+          return '<div style="background:rgba(13,13,20,.94);border:1px solid '+c+'55;padding:10px 14px;border-radius:12px;'+
+            'font-family:Inter,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.6),0 0 18px -6px '+c+';backdrop-filter:blur(8px)">'+
+            '<div style="font-size:13px;color:#fff;font-weight:600;display:flex;align-items:center;gap:7px">'+
+              '<span style="font-size:17px">'+flag(d.code)+'</span>'+d.name+'</div>'+
+            '<div style="font-size:11px;color:#8b8b98;margin-top:5px;display:flex;align-items:center;gap:6px">'+
+              '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+c+';box-shadow:0 0 7px '+c+'"></span>'+
+              '<b style="color:'+c+';font-size:13px">'+d.count+'</b>&nbsp;online agora</div>'+
+          '</div>';
         })
-        .ringColor(function(){return function(t){return 'rgba(62,207,142,'+(1-t)+')';};})
-        .ringMaxRadius(function(d){return 2.5+d.size*4.5;})
-        .ringPropagationSpeed(2)
-        .ringRepeatPeriod(function(d){return 900-d.size*400;});
+        .ringColor(function(d){return function(t){return heatRGBA(d.size,(1-t)*.9);};})
+        .ringMaxRadius(function(d){return 2.8+d.size*5;})
+        .ringPropagationSpeed(2.2)
+        .ringRepeatPeriod(function(d){return 850-d.size*400;});
+      // liga controles: zoom +/− e tela cheia
+      var zi=document.getElementById('globe-zoom-in'), zo=document.getElementById('globe-zoom-out'), fs=document.getElementById('globe-fs');
+      if(zi)zi.onclick=function(){globeZoom(0.72);};
+      if(zo)zo.onclick=function(){globeZoom(1.38);};
+      if(fs)fs.onclick=globeFullscreen;
+      document.addEventListener('fullscreenchange',function(){
+        resizeGlobe();
+        var ico=document.getElementById('globe-fs-ico');
+        if(ico)ico.innerHTML=document.fullscreenElement
+          ?'<path d="M8 3v3a2 2 0 01-2 2H3M16 3v3a2 2 0 002 2h3M8 21v-3a2 2 0 00-2-2H3M16 21v-3a2 2 0 012-2h3"/>'
+          :'<path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/>';
+      });
+      window.addEventListener('resize',resizeGlobe);
     }
     liveGlobe.pointsData(pts);
     liveGlobe.ringsData(pts);
