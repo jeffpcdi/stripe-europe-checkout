@@ -727,6 +727,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Anti-desvio (Cooud) ── -->
       <section class="view" id="view-cooud">
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg></span><div><h2>Anti-desvio</h2><p>Vigilância do gateway externo (Cooud)</p></div></div>
         <div id="cooud-alert"></div>
         <div class="grid kpis" id="cooud-kpis"></div>
         <div class="section-title"><span>Funções detectadas</span><span class="line"></span></div>
@@ -740,6 +741,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Atividade ── -->
       <section class="view" id="view-activity">
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><div><h2>Atividade</h2><p>Tudo o que acontece em tempo real</p></div></div>
         <div class="section-title" style="margin-top:0"><span>Quando as vendas acontecem</span><span class="line"></span><span class="muted" style="font-size:11.5px">hora &times; dia da semana</span></div>
         <div class="card" id="act-heat"></div>
         <div class="section-title"><span>Linha do tempo</span><span class="line"></span></div>
