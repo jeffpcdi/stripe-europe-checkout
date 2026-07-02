@@ -44,27 +44,32 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
   animation:hhFloat 12s ease-in-out infinite alternate}
 @keyframes hhFloat{0%{transform:translateX(-2%) translateY(0)}100%{transform:translateX(2%) translateY(4%)}}
 .hh-inner{position:relative;display:flex;align-items:center;gap:20px;padding:18px 26px 10px;flex-wrap:wrap}
-.brand-xl{display:flex;align-items:center;gap:16px}
-.logo-orbit{position:relative;width:64px;height:64px;flex-shrink:0}
-.logo-orbit img{position:absolute;inset:4px;width:56px;height:56px;border-radius:50%;object-fit:cover;z-index:2}
-.logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
+/* marca centralizada: status ancorado à direita, marca no centro real do header */
+.brand-xl{display:flex;align-items:center;justify-content:center;gap:16px;flex:1;min-width:0}
+.hh-inner::before{content:'';flex:0 0 0}
+.logo-orbit{position:relative;width:68px;height:68px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:5px;width:58px;height:58px;border-radius:50%;object-fit:cover;z-index:2;
+  box-shadow:0 0 0 2px rgba(255,255,255,.14),0 4px 18px rgba(0,0,0,.6);
+  filter:contrast(1.18) saturate(1.25) brightness(1.08)}
+.logo-orbit::after{content:'';position:absolute;inset:5px;border-radius:50%;z-index:3;pointer-events:none;
+  background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
+.logo-ring{position:absolute;inset:0;border-radius:50%;padding:2.5px;z-index:1;
   background:conic-gradient(from var(--ra,0deg),#ff2d6f,#52a8ff,#25f4ee,#ff2d6f);
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask-composite:exclude;
   animation:ringSpin 5s linear infinite;
-  filter:drop-shadow(0 0 8px rgba(255,45,111,.5)) drop-shadow(0 0 14px rgba(37,244,238,.3))}
+  filter:drop-shadow(0 0 10px rgba(255,45,111,.65)) drop-shadow(0 0 18px rgba(37,244,238,.4))}
 @property --ra{syntax:'<angle>';initial-value:0deg;inherits:false}
 @keyframes ringSpin{to{--ra:360deg}}
 .brand-txt{display:flex;flex-direction:column;gap:2px}
-.bt-name{font-weight:800;font-size:26px;line-height:1;letter-spacing:.04em;
-  background:linear-gradient(92deg,#ff2d6f 0%,#ff5674 28%,#52a8ff 62%,#25f4ee 100%);
+.bt-name{font-weight:800;font-size:28px;line-height:1;letter-spacing:.04em;
+  background:linear-gradient(92deg,#ff3d7a 0%,#ff6b8a 28%,#6cb4ff 62%,#3ffcf6 100%);
   background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
   animation:brandShift 6s ease-in-out infinite alternate;
-  filter:drop-shadow(0 0 14px rgba(255,45,111,.35))}
+  filter:drop-shadow(0 1px 0 rgba(0,0,0,.55)) drop-shadow(0 0 18px rgba(255,45,111,.5)) drop-shadow(0 0 26px rgba(37,244,238,.25))}
 .bt-dash{-webkit-text-fill-color:transparent}
 @keyframes brandShift{0%{background-position:0% 0}100%{background-position:100% 0}}
-.bt-tag{font-size:11.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-weight:600}
-.hh-status{margin-left:auto;display:flex;align-items:center;gap:14px}
+.hh-status{margin-left:auto;display:flex;align-items:center;gap:14px;position:absolute;right:26px;top:50%;transform:translateY(-50%)}
 .hh-live{font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:20px}
 
 /* dock de navegação: grande, central, interativo */
@@ -862,7 +867,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
         <div class="brand-txt">
           <div class="bt-name">ROI<span class="bt-dash">-</span>NADOS</div>
-          <div class="bt-tag">Radar de Vendas &amp; Funil</div>
         </div>
       </div>
       <div class="hh-status">
