@@ -82,11 +82,63 @@ function fmtDate(unixSeconds) {
   }).format(new Date((unixSeconds || Date.now() / 1000) * 1000));
 }
 
-// IP real do cliente (respeita proxy/Railway via X-Forwarded-For)
+// IP privado / reservado / loopback (nunca serve para geo)
+function isPrivateIp(ip) {
+  const c = String(ip || '').replace('::ffff:', '').trim();
+  if (!c) return true;
+  if (c === '::1' || c === '127.0.0.1' || c.startsWith('127.')) return true;
+  if (c.startsWith('10.') || c.startsWith('192.168.')) return true;
+  if (c.startsWith('169.254.')) return true;                 // link-local
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(c)) return true;     // 172.16.0.0/12
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(c)) return true; // 100.64/10 CGNAT
+  if (c.startsWith('fc') || c.startsWith('fd') || c.startsWith('fe80')) return true; // ULA/link-local IPv6
+  return false;
+}
+
+// IP real do cliente. Atrás do Cloudflare usa CF-Connecting-IP; senão pega o
+// primeiro IP PÚBLICO da cadeia X-Forwarded-For; por fim cai no socket.
 function clientIp(req) {
-  const fwd = req.headers['x-forwarded-for'];
-  if (fwd) return String(fwd).split(',')[0].trim();
+  const h = req.headers || {};
+  const cf = h['cf-connecting-ip'];
+  if (cf && !isPrivateIp(cf)) return String(cf).trim();
+  const real = h['x-real-ip'];
+  if (real && !isPrivateIp(real)) return String(real).trim();
+  const fwd = h['x-forwarded-for'];
+  if (fwd) {
+    const chain = String(fwd).split(',').map(s => s.trim()).filter(Boolean);
+    const pub = chain.find(ip => !isPrivateIp(ip));
+    if (pub) return pub;
+    if (chain[0]) return chain[0];
+  }
   return req.socket?.remoteAddress || req.ip || '';
+}
+
+// Geo confiável a partir da requisição: usa o país exato fornecido pela borda
+// (edge) da plataforma de hospedagem — Vercel, Cloudflare ou proxies genéricos —
+// e só recorre ao geoip-lite offline como último fallback. Isto evita a
+// localização errada (ex.: tudo aparecer nos EUA) causada por bancos de
+// geo-IP offline desatualizados.
+function decodeHdr(v) {
+  const s = String(v || '').trim();
+  if (!s) return null;
+  try { return decodeURIComponent(s); } catch (_) { return s; }
+}
+function geoFromReq(req) {
+  const h = req.headers || {};
+  // Ordem de confiança: Vercel → Cloudflare → proxies genéricos
+  const cc = String(
+    h['x-vercel-ip-country'] || h['cf-ipcountry'] ||
+    h['x-country-code'] || h['x-geo-country'] || ''
+  ).toUpperCase().trim();
+  // XX = desconhecido, T1 = rede Tor — nesses casos ignora o header e cai no fallback
+  if (cc && cc !== 'XX' && cc !== 'T1' && cc.length === 2) {
+    const city =
+      decodeHdr(h['x-vercel-ip-city']) ||
+      decodeHdr(h['cf-ipcity']) ||
+      decodeHdr(h['x-geo-city']) || null;
+    return { country: cc, countryName: COUNTRY_NAMES[cc] || cc, city: city };
+  }
+  return geoLookup(clientIp(req));
 }
 
 const app = express();
@@ -129,7 +181,7 @@ app.use((req, res, next) => {
     const hadCookie = !!readCookie(req, 'v_id');
     const id = getOrAssignVisitor(req, res);
     if (!hadCookie) {                                          // 1 lead por visitante
-      const geo = geoLookup(clientIp(req));
+      const geo = geoFromReq(req);
       const q = req.query || {};
       stats.recordVisit({
         id,
@@ -590,7 +642,7 @@ app.get('/checkout', (req, res) => {
 
   stats.recordClick(variant);
 
-  const geo = geoLookup(clientIp(req));
+  const geo = geoFromReq(req);
   const utm = {
     source: q.utm_source || null, medium: q.utm_medium || null,
     campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
