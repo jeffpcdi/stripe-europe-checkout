@@ -798,6 +798,10 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <div class="form-row" id="cfg-rot-wrap">
               <label>URLs de rotação <span class="hint">— uma por linha</span></label>
               <textarea class="inp" id="cfg-rot-urls" rows="5" placeholder="https://tiktok.com/" style="resize:vertical;font-family:monospace;font-size:12.5px;line-height:1.6"></textarea>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;flex-wrap:wrap">
+                <span class="hint" id="cfg-rot-count">—</span>
+                <button class="btn btn-sm primary" id="cfg-rot-save">Salvar URLs</button>
+              </div>
             </div>
           </div>
           <div class="card">
@@ -1557,6 +1561,32 @@ function updateRotPreview(){
   var w=document.getElementById('cfg-rot-wrap');
   w.style.opacity=on?'1':'.45';
   w.style.pointerEvents=on?'auto':'none';
+  updateRotCount();
+}
+function updateRotCount(){
+  var el=document.getElementById('cfg-rot-count'); if(!el) return;
+  var lines=document.getElementById('cfg-rot-urls').value.split(String.fromCharCode(10));
+  var valid=lines.map(function(u){return u.trim();}).filter(function(u){return /^https?:\/\/.+/i.test(u);});
+  var invalid=lines.map(function(u){return u.trim();}).filter(function(u){return u&&!/^https?:\/\/.+/i.test(u);}).length;
+  el.textContent=valid.length+' URL'+(valid.length===1?'':'s')+' válida'+(valid.length===1?'':'s')+(invalid?' · '+invalid+' ignorada'+(invalid===1?'':'s'):'');
+  el.style.color=invalid?'var(--warn,#e0a800)':'var(--muted2)';
+}
+// Salva apenas o bloco de rotação (botão dedicado no card)
+function saveRotation(){
+  var body={
+    rotateTtUrl:document.getElementById('cfg-rot').checked,
+    rotateUrls:document.getElementById('cfg-rot-urls').value
+  };
+  var btn=document.getElementById('cfg-rot-save');
+  btn.disabled=true;
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;
+      if(d.ok){ CFG=d.config; document.getElementById('cfg-rot-urls').value=(CFG.rotateUrls||[]).join(String.fromCharCode(10)); updateRotCount(); toast('URLs de rotação salvas'); }
+      else toast('Erro ao salvar',false);
+    })
+    .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
 }
 function updateSplitPreview(){
   var mode=document.getElementById('cfg-mode').value;
@@ -1840,6 +1870,8 @@ document.addEventListener('keydown',function(e){
 document.getElementById('cfg-mode').addEventListener('change',updateSplitPreview);
 document.getElementById('cfg-pct').addEventListener('input',updateSplitPreview);
 document.getElementById('cfg-rot').addEventListener('change',updateRotPreview);
+document.getElementById('cfg-rot-urls').addEventListener('input',updateRotCount);
+document.getElementById('cfg-rot-save').addEventListener('click',saveRotation);
 document.getElementById('cfg-save').addEventListener('click',function(){
   var body={
     mode:document.getElementById('cfg-mode').value,
