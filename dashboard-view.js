@@ -995,8 +995,8 @@ function renderGlobe(countries){
   try{
     if(!globe){
       globe=makeGlobe(el,520);
-      globe.pointAltitude(function(d){return 0.02+d.size*0.5;})
-        .pointRadius(function(d){return 0.28+d.size*0.5;})
+      globe.pointAltitude(function(d){return 0.02+d.size*0.26;})
+        .pointRadius(function(d){return 0.32+d.size*0.58;})
         .pointColor(function(){return '#fe2c55';})
         .pointLabel(function(d){
           return '<div style="background:#14141e;border:1px solid #26263a;padding:6px 10px;border-radius:8px;font-family:Inter,sans-serif;font-size:12px;color:#fff">'+
@@ -1075,8 +1075,8 @@ function renderLiveGlobe(){
   try{
     if(!liveGlobe){
       liveGlobe=makeGlobe(el,520);
-      liveGlobe.pointAltitude(function(d){return 0.02+d.size*0.55;})
-        .pointRadius(function(d){return 0.3+d.size*0.55;})
+      liveGlobe.pointAltitude(function(d){return 0.02+d.size*0.28;})
+        .pointRadius(function(d){return 0.35+d.size*0.6;})
         .pointColor(function(){return '#2fe6a8';})
         .pointLabel(function(d){
           return '<div style="background:#14141e;border:1px solid #26263a;padding:6px 10px;border-radius:8px;font-family:Inter,sans-serif;font-size:12px;color:#fff">'+
