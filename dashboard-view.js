@@ -762,6 +762,65 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="card"><div class="feed" id="feed"></div></div>
       </section>
 
+      <!-- ── Pixel TikTok ── -->
+      <section class="view" id="view-pixels">
+        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Rastreamento avançado por lead (Events API)</b><p>Cada pixel vive num arquivo próprio em <code>pixels/</code> e funciona sem a dashboard. Todo lead ganha um ID único (hash SHA-256) enviado como external_id em ViewContent, InitiateCheckout e CompletePayment — com IP, user-agent, ttclid, _ttp e e-mail hasheado para o melhor matching no gerenciador de anúncios.</p></div></div>
+        <div class="grid" style="grid-template-columns:1.2fr 1fr">
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <h3 style="font-size:16px">Pixels configurados</h3>
+              <button class="btn btn-sm primary" id="px-new">+ Adicionar pixel</button>
+            </div>
+            <div id="px-list"></div>
+          </div>
+          <div class="card" id="px-form-card" style="display:none">
+            <h3 style="font-size:16px;margin-bottom:4px" id="px-form-title">Novo pixel</h3>
+            <p class="hint" style="margin-bottom:14px">Salvo como arquivo próprio em <code>pixels/&lt;nome&gt;.json</code> + espelho no banco.</p>
+            <div class="form-row">
+              <label>Nome <span class="hint">— vira o nome do arquivo</span></label>
+              <input class="inp" id="px-name" placeholder="Campanha Espanha" style="width:100%">
+            </div>
+            <div class="form-row">
+              <label>Pixel Code <span class="hint">— do TikTok Events Manager</span></label>
+              <input class="inp" id="px-code" placeholder="C0ABC1DE2FGH3IJKLM" style="width:100%;font-family:'Geist Mono',monospace">
+            </div>
+            <div class="form-row">
+              <label>Access Token <span class="hint">— Events API, opcional p/ só-navegador</span></label>
+              <input class="inp" id="px-token" placeholder="token da Events API" style="width:100%;font-family:'Geist Mono',monospace" autocomplete="off">
+            </div>
+            <div class="form-row">
+              <label>Rotas <span class="hint">— uma por linha; vazio = todas as páginas</span></label>
+              <textarea class="inp" id="px-routes" rows="3" placeholder="/&#10;/checkout&#10;/s1" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px"></textarea>
+            </div>
+            <div class="form-row">
+              <label>Eventos server-side</label>
+              <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="px-ev-vc" checked> ViewContent</label>
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="px-ev-ic" checked> InitiateCheckout</label>
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="px-ev-cp" checked> CompletePayment</label>
+              </div>
+            </div>
+            <div class="form-row">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="px-active" checked> Pixel ativo</label>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:6px">
+              <button class="btn primary" id="px-save">Salvar pixel</button>
+              <button class="btn" id="px-cancel">Cancelar</button>
+            </div>
+            <input type="hidden" id="px-slug" value="">
+          </div>
+        </div>
+        <div class="section-title"><span>Disparos server-side recentes</span><span class="line"></span><button class="btn-icon" id="px-log-refresh">Atualizar</button></div>
+        <div class="card" style="padding:0">
+          <div class="tbl-wrap" style="border:0">
+            <table>
+              <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Status</th><th>Resposta</th></tr></thead>
+              <tbody id="px-log"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ── Configurações ── -->
       <section class="view" id="view-config">
         <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Controle do roteamento de checkout</b><p>Defina quanto do tráfego vai para o Stripe (nativo) e quanto vai para o link externo (Cooud). Use "Apenas Stripe" para desligar o gateway externo.</p></div></div>
@@ -1653,6 +1712,124 @@ function saveRotation(){
     })
     .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
 }
+/* ── Pixel TikTok ─────────────────────────────────────────────────── */
+var PX_LIST=[];
+function loadPixels(){
+  fetch('/api/pixels').then(function(r){return r.json();}).then(function(d){
+    PX_LIST=d.pixels||[];
+    renderPixels();
+    var badge=document.getElementById('nav-px-badge');
+    var n=PX_LIST.filter(function(p){return p.active;}).length;
+    if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; badge.className='badge live-badge'; }
+  }).catch(function(){});
+  loadPxLog();
+}
+function renderPixels(){
+  var el=document.getElementById('px-list'); if(!el) return;
+  if(!PX_LIST.length){
+    el.innerHTML='<div class="live-empty">Nenhum pixel ainda.<br>Clique em "+ Adicionar pixel" — cada pixel vira um arquivo próprio em <code>pixels/</code> e passa a disparar em todas as páginas na hora.</div>';
+    return;
+  }
+  el.innerHTML=PX_LIST.map(function(p){
+    var routes=(p.routes&&p.routes.length)?p.routes.join(', '):'todas as páginas';
+    var evs=Object.keys(p.events||{}).filter(function(k){return p.events[k];}).join(' · ')||'nenhum';
+    return '<div class="lrow" style="cursor:default">'+
+      '<span class="ldot" style="background:'+(p.active?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
+      '<div class="lmain">'+
+        '<b>'+esc(p.name)+' <span class="hint" style="font-weight:400">pixels/'+esc(p.slug)+'.json</span></b>'+
+        '<span style="font-family:\\'Geist Mono\\',monospace">'+esc(p.pixelCode)+'</span>'+
+        '<span>Rotas: '+esc(routes)+' &middot; Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
+      '</div>'+
+      '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
+        '<button class="btn-icon" onclick="testPixel(\\''+esc(p.slug)+'\\')">Testar</button>'+
+        '<button class="btn-icon" onclick="editPixel(\\''+esc(p.slug)+'\\')">Editar</button>'+
+        '<button class="btn-icon" style="color:var(--red)" onclick="delPixel(\\''+esc(p.slug)+'\\')">Excluir</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+function showPxForm(px){
+  document.getElementById('px-form-card').style.display='';
+  document.getElementById('px-form-title').textContent=px?('Editar: '+px.name):'Novo pixel';
+  document.getElementById('px-slug').value=px?px.slug:'';
+  document.getElementById('px-name').value=px?px.name:'';
+  document.getElementById('px-code').value=px?px.pixelCode:'';
+  document.getElementById('px-token').value=px?(px.accessToken||''):'';
+  document.getElementById('px-routes').value=px?((px.routes||[]).join(String.fromCharCode(10))):'';
+  var ev=px?(px.events||{}):{ViewContent:true,InitiateCheckout:true,CompletePayment:true};
+  document.getElementById('px-ev-vc').checked=!!ev.ViewContent;
+  document.getElementById('px-ev-ic').checked=!!ev.InitiateCheckout;
+  document.getElementById('px-ev-cp').checked=!!ev.CompletePayment;
+  document.getElementById('px-active').checked=px?!!px.active:true;
+  document.getElementById('px-name').focus();
+}
+function editPixel(slug){
+  var px=PX_LIST.filter(function(p){return p.slug===slug;})[0];
+  if(px) showPxForm(px);
+}
+function delPixel(slug){
+  if(!confirm('Excluir o pixel "'+slug+'"? O arquivo pixels/'+slug+'.json será removido.')) return;
+  fetch('/api/pixels/'+encodeURIComponent(slug),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d.ok){ toast('Pixel removido'); loadPixels(); } else toast(d.error||'Erro',false); })
+    .catch(function(){ toast('Erro ao remover',false); });
+}
+function testPixel(slug){
+  toast('Enviando evento de teste...');
+  fetch('/api/pixels/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:slug})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok) toast('TikTok aceitou o disparo (code 0)');
+      else toast('Falhou: '+(d.message||d.error||'ver log'),false);
+      loadPxLog();
+    })
+    .catch(function(){ toast('Erro no teste',false); });
+}
+function savePixel(){
+  var slug=document.getElementById('px-slug').value;
+  var body={
+    slug:slug||undefined,
+    name:document.getElementById('px-name').value.trim(),
+    pixelCode:document.getElementById('px-code').value.trim(),
+    accessToken:document.getElementById('px-token').value.trim(),
+    routes:document.getElementById('px-routes').value.split(String.fromCharCode(10)).map(function(s){return s.trim();}).filter(Boolean),
+    events:{
+      ViewContent:document.getElementById('px-ev-vc').checked,
+      InitiateCheckout:document.getElementById('px-ev-ic').checked,
+      CompletePayment:document.getElementById('px-ev-cp').checked
+    },
+    active:document.getElementById('px-active').checked
+  };
+  if(!body.pixelCode){ toast('Pixel Code é obrigatório',false); return; }
+  var btn=document.getElementById('px-save'); btn.disabled=true;
+  fetch('/api/pixels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;
+      if(d.ok){ toast('Pixel salvo em pixels/'+d.pixel.slug+'.json'); document.getElementById('px-form-card').style.display='none'; loadPixels(); }
+      else toast(d.error||'Erro ao salvar',false);
+    })
+    .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
+}
+function loadPxLog(){
+  fetch('/api/pixels/log').then(function(r){return r.json();}).then(function(d){
+    var tb=document.getElementById('px-log'); if(!tb) return;
+    var log=d.log||[];
+    if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">Nenhum disparo ainda — os eventos aparecem aqui conforme os leads navegam.</td></tr>'; return; }
+    tb.innerHTML=log.map(function(e){
+      var ok=e.status==='ok';
+      var resp=e.response&&e.response.message?e.response.message:(ok?'aceito':'—');
+      return '<tr style="cursor:default">'+
+        '<td>'+timeAgo(e.at)+'</td>'+
+        '<td>'+esc(e.pixel||'—')+'</td>'+
+        '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'—')+'</span></td>'+
+        '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'—').slice(0,10))+'</td>'+
+        '<td><span class="'+(ok?'grn':'neg')+'">'+(ok?'OK':'erro')+'</span></td>'+
+        '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--muted2)">'+esc(String(resp).slice(0,120))+'</td>'+
+      '</tr>';
+    }).join('');
+  }).catch(function(){});
+}
 function updateSplitPreview(){
   var mode=document.getElementById('cfg-mode').value;
   var pct=+document.getElementById('cfg-pct').value;
@@ -1785,6 +1962,7 @@ var CMD_ITEMS=[
   {g:'Telas',t:'Visão Geral',h:'resumo',ic:I.money,act:function(){setView('overview');}},
   {g:'Telas',t:'Ao Vivo',h:'presença, funil, países',ic:I.zap,act:function(){setView('live');}},
   {g:'Telas',t:'Teste A/B',h:'gateways + anti-desvio',ic:I.pct,act:function(){setView('ab');}},
+  {g:'Telas',t:'Pixel TikTok',h:'rastreamento, events api',ic:I.zap,act:function(){setView('pixels');}},
   {g:'Telas',t:'Configurações',h:'sistema',ic:I.check,act:function(){setView('config');}},
   {g:'Ir para',t:'Funil & Leads',h:'dentro de Ao Vivo',ic:I.cart,act:function(){setView('funnel');}},
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
@@ -1850,12 +2028,14 @@ var VIEW_GROUPS={
   overview:['overview'],
   live:['live','funnel','geo','activity'],
   ab:['ab','cooud'],
+  pixels:['pixels'],
   config:['config']
 };
 var titles={
   overview:['Visão Geral','Resumo dos números que mais importam'],
   live:['Ao Vivo','Presença, funil, países e atividade — tudo em tempo real'],
   ab:['Teste A/B','Gateways, desempenho e anti-desvio'],
+  pixels:['Pixel TikTok','Rastreamento server-side por lead — um pixel por arquivo'],
   config:['Configurações','Roteamento, chaves e saúde do sistema']
 };
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
@@ -1885,6 +2065,7 @@ function setView(v){
   }
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
   if(g==='config') loadHealth().then(renderHealth);
+  if(g==='pixels') loadPixels();
   // veio de uma sub-view (paleta de comandos)? rola até a section correspondente
   if(sub){ setTimeout(function(){ var t=document.getElementById('view-'+sub); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },120); }
   else { document.querySelector('.main').scrollTop=0; window.scrollTo(0,0); }
@@ -1953,6 +2134,10 @@ document.getElementById('cfg-pct').addEventListener('input',updateSplitPreview);
 document.getElementById('cfg-rot').addEventListener('change',updateRotPreview);
 document.getElementById('cfg-rot-urls').addEventListener('input',updateRotCount);
 document.getElementById('cfg-rot-save').addEventListener('click',saveRotation);
+document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });
+document.getElementById('px-save').addEventListener('click',savePixel);
+document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; });
+document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cfg-save').addEventListener('click',function(){
   var body={
     mode:document.getElementById('cfg-mode').value,
