@@ -194,7 +194,14 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .hl-card .k-flag .fi{font-size:20px;line-height:1}
 /* ── Ao Vivo ── */
 .nav .live-badge{background:var(--green);color:#04140d}
-#live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;position:relative;background:radial-gradient(circle at 50% 38%,#0c1424,#04050a 72%)}
+#live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;position:relative;
+  background:radial-gradient(circle at 50% 38%,#16233f,#080d1a 55%,#020308 78%)}
+#live-globe canvas{filter:contrast(1.15) saturate(1.25) brightness(1.1)}
+/* badge de presença sobre o globo */
+.globe-badge{position:absolute;top:14px;left:14px;z-index:5;display:flex;align-items:center;gap:8px;
+  font-size:12px;color:var(--text);background:rgba(10,12,20,.72);border:1px solid var(--border2);
+  padding:7px 13px;border-radius:20px;backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(0,0,0,.4)}
+.globe-badge b{font-family:'Geist Mono';color:var(--green);text-shadow:0 0 10px rgba(62,207,142,.5)}
 /* card do globo: controles flutuantes + fullscreen */
 .globe-card{position:relative;overflow:hidden}
 .globe-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;pointer-events:none;
@@ -928,29 +935,17 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="section-title"><span>Pulso de tr&aacute;fego</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads que entraram &middot; &uacute;ltimos 30 min</span></div>
         <div class="card traffic-card" id="traffic-pulse"></div>
         <div class="live-grid">
-          <div class="card globe-card" style="padding:0" id="globe-card">
-            <div id="live-globe"></div>
-            <div class="globe-tools">
-              <button class="gt-btn" id="globe-zoom-in" title="Aproximar" aria-label="Aproximar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
-              <button class="gt-btn" id="globe-zoom-out" title="Afastar" aria-label="Afastar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
-              <div class="gt-div"></div>
-              <button class="gt-btn" id="globe-fs" title="Tela cheia" aria-label="Alternar tela cheia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="globe-fs-ico"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/></svg></button>
-            </div>
-            <div class="globe-hint">arraste para girar &middot; role para dar zoom</div>
-          </div>
-          <div class="live-right">
-            <div class="card" style="padding:0">
-              <div class="notif-head">
-                <div class="nh-title"><span class="live-dot-anim"></span>Notifica&ccedil;&otilde;es</div>
-                <div class="notif-tools">
-                  <button class="icon-btn on" id="notif-sound" title="Ativar/desativar som"></button>
-                  <button class="icon-btn" id="notif-clear" title="Limpar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
-                </div>
+          <div class="card" style="padding:0">
+            <div class="notif-head">
+              <div class="nh-title"><span class="live-dot-anim"></span>Notifica&ccedil;&otilde;es</div>
+              <div class="notif-tools">
+                <button class="icon-btn on" id="notif-sound" title="Ativar/desativar som"></button>
+                <button class="icon-btn" id="notif-clear" title="Limpar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
               </div>
-              <div class="notif-list" id="notif-list"></div>
             </div>
-            <div class="card live-list-card"><div class="live-list" id="live-list"></div></div>
+            <div class="notif-list" id="notif-list"></div>
           </div>
+          <div class="card live-list-card"><div class="live-list" id="live-list"></div></div>
         </div>
       </section>
 
@@ -968,6 +963,18 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
         <div class="grid kpis kpis-xl" id="ov-kpis"></div>
         <div class="ministats" id="ov-chips"></div>
+        <div class="section-title"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online agora no mapa</span></div>
+        <div class="card globe-card" style="padding:0" id="globe-card">
+          <div id="live-globe"></div>
+          <div class="globe-tools">
+            <button class="gt-btn" id="globe-zoom-in" title="Aproximar" aria-label="Aproximar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="gt-btn" id="globe-zoom-out" title="Afastar" aria-label="Afastar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+            <div class="gt-div"></div>
+            <button class="gt-btn" id="globe-fs" title="Tela cheia" aria-label="Alternar tela cheia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="globe-fs-ico"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/></svg></button>
+          </div>
+          <div class="globe-hint">arraste para girar &middot; role para dar zoom</div>
+          <div class="globe-badge" id="ov-globe-badge"><span class="live-dot-anim"></span><b id="ov-globe-n">0</b>&nbsp;online agora</div>
+        </div>
         <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
         <div class="card goal-card" id="ov-goal"></div>
         <div class="section-title"><span>Tendência</span><span class="line"></span>
@@ -1019,7 +1026,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <section class="view" id="view-geo">
         <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z"/></svg></span><div><h2>Países</h2><p>De onde vêm seus leads</p></div></div>
         <div class="grid kpis" id="geo-kpis"></div>
-        <div class="section-title"><span>Ranking por país</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads e compras &middot; o globo 3D fica na aba Ao Vivo</span></div>
+        <div class="section-title"><span>Ranking por país</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads e compras &middot; o globo 3D fica na Vis&atilde;o Geral</span></div>
         <div class="card"><div class="clist" id="country-list"></div></div>
       </section>
 
@@ -1690,7 +1697,7 @@ function renderGeo(m){
 function makeGlobe(el,height){
   el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
   var g=Globe()(el)
-    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-night.jpg')
+    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
     .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
     .backgroundColor('rgba(0,0,0,0)')
     .showGraticules(false)
@@ -1700,8 +1707,8 @@ function makeGlobe(el,height){
   try{
     var scene=g.scene && g.scene();
     if(scene){
-      scene.add(new THREE.AmbientLight(0xdfe8ff,1.15));
-      var dl=new THREE.DirectionalLight(0xbfd4ff,0.55); dl.position.set(1,0.6,0.8); scene.add(dl);
+      scene.add(new THREE.AmbientLight(0xf0f5ff,1.9));
+      var dl=new THREE.DirectionalLight(0xdde9ff,1.1); dl.position.set(1,0.6,0.8); scene.add(dl);
       // luz de preenchimento rosa sutil vinda de baixo — assinatura da marca
       var pk=new THREE.DirectionalLight(0xff2d6f,0.18); pk.position.set(-1,-0.8,-0.4); scene.add(pk);
     }
@@ -1761,6 +1768,7 @@ function loadLive(){
     LIVE=d||{visitors:[],summary:{online:0,countries:[]}};
     updateLiveBadge();
     if(currentView==='live') renderLive();
+    if(currentView==='overview') renderLiveGlobe(); // globo mora na Visão Geral
   }).catch(function(){});
 }
 function updateLiveBadge(){
@@ -1978,7 +1986,6 @@ function renderLive(){
         '<span class="ldur">'+liveDur(v.durationMs)+'</span></div>'+
     '</div>';
   }).join(''):'<div class="live-empty">Ningu&eacute;m navegando agora.<br>Assim que algu&eacute;m abrir o site, aparece aqui em tempo real.</div>';
-  renderLiveGlobe();
 }
 function liveDur(ms){
   var s=Math.floor((ms||0)/1000);
@@ -2033,6 +2040,11 @@ function renderLiveGlobe(){
     liveGlobe.pointsData(pts);
     liveGlobe.ringsData(pts);
   }catch(e){ el.innerHTML='<div class="empty">N&atilde;o foi poss&iacute;vel carregar o globo.</div>'; }
+  // badge e subtítulo com presença atual
+  var n=(LIVE.summary&&LIVE.summary.online)||0;
+  var bn=document.getElementById('ov-globe-n'); if(bn)bn.textContent=n;
+  var sub=document.getElementById('ov-globe-sub');
+  if(sub)sub.textContent=n>0?(n+' pessoa'+(n>1?'s':'')+' online \u00b7 '+cs.length+' pa\u00eds'+(cs.length>1?'es':'')):'aguardando visitantes';
 }
 
 /* ── Teste A/B ── */
@@ -2689,6 +2701,9 @@ function setView(v){
   if(g==='live'){
     renderLive();
     loadLive();
+  }
+  if(g==='overview'){
+    renderLiveGlobe();
     setTimeout(function(){ if(liveGlobe){ try{liveGlobe.width(document.getElementById('live-globe').clientWidth).height(520);}catch(e){} } },80);
   }
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
