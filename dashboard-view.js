@@ -410,9 +410,29 @@ tbody tr:hover{background:var(--hover)}
 .form-row .hint{font-size:11.5px;color:var(--muted2);font-weight:400}
 .range-wrap{display:flex;align-items:center;gap:14px}
 input[type=range]{flex:1;accent-color:var(--cyan)}
-.split-preview{display:flex;height:34px;border-radius:10px;overflow:hidden;font-size:12px;font-weight:700;color:#04121a}
-.split-preview .sp-stripe{background:var(--cyan);display:grid;place-items:center;transition:width .3s}
-.split-preview .sp-cooud{background:var(--pink);color:#fff;display:grid;place-items:center;flex:1}
+.split-preview{display:flex;height:34px;border-radius:10px;overflow:hidden;font-size:12px;font-weight:700;color:#04121a;border:1px solid var(--border)}
+.split-preview .sp-stripe{background:linear-gradient(180deg,var(--cyan),#3f96e8);display:grid;place-items:center;transition:width .45s cubic-bezier(.2,.7,.3,1)}
+.split-preview .sp-cooud{background:linear-gradient(180deg,var(--pink),#e0295f);color:#fff;display:grid;place-items:center;flex:1}
+/* cards de configuração com identidade */
+.cfg-grid .cfg-card{position:relative;border-radius:14px;overflow:hidden;animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards;transition:border-color .25s,box-shadow .25s}
+.cfg-grid .cfg-card:nth-child(1){animation-delay:.02s}.cfg-grid .cfg-card:nth-child(2){animation-delay:.09s}
+.cfg-grid .cfg-card:nth-child(3){animation-delay:.16s}.cfg-grid .cfg-card:nth-child(4){animation-delay:.23s}
+.cfg-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--cc),transparent 75%);opacity:.6;transition:opacity .25s}
+.cfg-card:hover{border-color:var(--border2);box-shadow:0 10px 30px rgba(0,0,0,.4),0 0 20px -12px var(--cc)}
+.cfg-card:hover::before{opacity:1}
+.cfg-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px}
+.cfg-head h3{font-size:14.5px;line-height:1.3}
+.cfg-head p{margin:3px 0 0;font-size:11.5px;color:var(--muted2);line-height:1.45}
+.cfg-ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;
+  background:color-mix(in srgb,var(--cc) 12%,transparent);color:var(--cc);border:1px solid color-mix(in srgb,var(--cc) 25%,transparent);
+  transition:.28s cubic-bezier(.34,1.56,.64,1)}
+.cfg-ico svg{width:16px;height:16px}
+.cfg-card:hover .cfg-ico{transform:scale(1.12) rotate(-5deg);box-shadow:0 0 14px -4px var(--cc)}
+.cfg-note{margin:2px 0 0;font-size:11.5px;color:var(--muted2);line-height:1.5;padding:9px 12px;background:var(--card2);border-radius:9px;border-left:2px solid var(--pink)}
+/* zona de risco compacta */
+.danger-card{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px;border-color:rgba(255,86,116,.22)!important;
+  background:linear-gradient(90deg,rgba(255,86,116,.05),transparent 55%);animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) .3s backwards}
+.danger-card:hover{border-color:rgba(255,86,116,.4)!important}
 
 /* ── Atividade ── */
 .feed{display:flex;flex-direction:column}
@@ -461,13 +481,15 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .toast.ok{border-color:rgba(62,207,142,.5)} .toast.err{border-color:rgba(255,86,116,.5)}
 
 /* ── Health dots ── */
-.health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:14px}
-.hitem{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--card2);border-radius:10px;border:1px solid var(--border);font-size:13px}
-.hitem .hdot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.hitem .hdot.ok{background:var(--green);box-shadow:0 0 8px rgba(62,207,142,.5)}
+.health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.hitem{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--card2);border-radius:10px;border:1px solid var(--border);font-size:12.5px;transition:.2s}
+.hitem:hover{border-color:var(--border2);transform:translateY(-2px)}
+.hitem .hdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.hitem .hdot.ok{background:var(--green);box-shadow:0 0 8px rgba(62,207,142,.5);animation:hDot 2.4s ease-in-out infinite}
 .hitem .hdot.warn{background:var(--red);box-shadow:0 0 8px rgba(255,86,116,.5)}
+@keyframes hDot{0%,100%{box-shadow:0 0 5px rgba(62,207,142,.4)}50%{box-shadow:0 0 11px rgba(62,207,142,.75)}}
 .hitem .hlbl{flex:1;font-weight:500}
-.hitem .hstatus{font-size:11.5px;font-weight:600}
+.hitem .hstatus{font-size:11px;font-weight:600;font-family:'Geist Mono'}
 .hitem .hstatus.ok{color:var(--green)} .hitem .hstatus.warn{color:var(--red)}
 
 /* ── Responsivo ── */
@@ -1075,10 +1097,12 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Configurações ── -->
       <section class="view" id="view-config">
-        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Controle do roteamento de checkout</b><p>Defina quanto do tráfego vai para o Stripe (nativo) e quanto vai para o link externo (Cooud). Use "Apenas Stripe" para desligar o gateway externo.</p></div></div>
-        <div class="grid" style="grid-template-columns:1fr 1fr">
-          <div class="card">
-            <h3 style="font-size:16px;margin-bottom:16px">Roteamento & Teste A/B</h3>
+        <div class="grid cfg-grid" style="grid-template-columns:1fr 1fr">
+          <div class="card cfg-card" style="--cc:var(--cyan)">
+            <div class="cfg-head">
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M8 3H3v5M3 16v5h5M21 16v5h-5M21 3l-7 7M3 3l7 7M3 21l7-7M21 21l-7-7"/></svg></span>
+              <div><h3>Roteamento &amp; Teste A/B</h3><p>Divide o tr&aacute;fego entre Stripe e o gateway externo</p></div>
+            </div>
             <div class="form-row">
               <label>Modo de operação</label>
               <select class="select" id="cfg-mode">
@@ -1087,7 +1111,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               </select>
             </div>
             <div class="form-row" id="cfg-split-wrap">
-              <label>Divisão do tráfego <span class="hint">— % que vai para o Stripe</span></label>
+              <label>Divisão do tráfego <span class="hint">— % para o Stripe</span></label>
               <div class="range-wrap">
                 <input type="range" id="cfg-pct" min="0" max="100" step="5" value="50" />
                 <span id="cfg-pct-val" style="font-family:'Geist Mono';font-weight:700;width:46px;text-align:right">50%</span>
@@ -1099,26 +1123,28 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
             <button class="btn primary" id="cfg-save" style="margin-top:6px;width:100%">Salvar configuração</button>
           </div>
-          <div class="card">
-            <h3 style="font-size:16px;margin-bottom:16px">Link externo (Cooud)</h3>
+          <div class="card cfg-card" style="--cc:var(--pink)">
+            <div class="cfg-head">
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span>
+              <div><h3>Link externo (Cooud)</h3><p>Para onde o lead vai quando cai no gateway externo</p></div>
+            </div>
             <div class="form-row">
               <label>Nome do gateway externo</label>
               <input class="inp" id="cfg-name" placeholder="Cooud" />
             </div>
             <div class="form-row">
-              <label>URL do checkout externo <span class="hint">— para onde o lead é redirecionado</span></label>
+              <label>URL do checkout externo</label>
               <input class="inp" id="cfg-url" placeholder="https://checkout.cooud.com/..." />
             </div>
-            <div class="alert info" style="margin:4px 0 0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><p style="color:var(--muted)">O identificador do visitante é anexado automaticamente (client_reference_id) para conciliar as vendas e detectar desvios.</p></div></div>
+            <p class="cfg-note">O ID do visitante &eacute; anexado automaticamente para conciliar vendas e detectar desvios.</p>
           </div>
-          <div class="card">
-            <h3 style="font-size:16px;margin-bottom:6px">Rotação da tt_url (Stripe)</h3>
-            <p style="color:var(--muted2);margin:0 0 16px;font-size:12.5px">Oculta a URL real do TikTok no painel da Stripe. A cada venda, a Stripe mostra uma URL isca diferente desta lista; a URL real fica só no servidor e é enviada ao TikTok (CAPI).</p>
-            <div class="form-row" style="flex-direction:row;align-items:center;justify-content:space-between">
-              <label style="margin:0">Ativar rotação <span class="hint">— mascara a tt_url na Stripe</span></label>
-              <label class="switch"><input type="checkbox" id="cfg-rot" /><span class="slider"></span></label>
+          <div class="card cfg-card" style="--cc:var(--amber)">
+            <div class="cfg-head">
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg></span>
+              <div><h3>Rota&ccedil;&atilde;o da tt_url</h3><p>Oculta a URL real do TikTok na Stripe &mdash; cada venda mostra uma isca da lista; a real s&oacute; vai ao CAPI</p></div>
+              <label class="switch" style="margin-left:auto" title="Ativar/desativar rotação"><input type="checkbox" id="cfg-rot" /><span class="slider"></span></label>
             </div>
-            <div class="form-row" id="cfg-rot-wrap">
+            <div class="form-row" id="cfg-rot-wrap" style="margin-bottom:0">
               <label>URLs de rotação <span class="hint">— uma por linha</span></label>
               <textarea class="inp" id="cfg-rot-urls" rows="5" placeholder="https://tiktok.com/" style="resize:vertical;font-family:monospace;font-size:12.5px;line-height:1.6"></textarea>
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;flex-wrap:wrap">
@@ -1127,18 +1153,18 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               </div>
             </div>
           </div>
-          <div class="card">
-            <h3 style="font-size:16px;margin-bottom:6px">Saúde do sistema</h3>
-            <p style="color:var(--muted2);font-size:12.5px;margin:0 0 10px">Variáveis de ambiente configuradas neste servidor.</p>
+          <div class="card cfg-card" style="--cc:var(--green)">
+            <div class="cfg-head">
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+              <div><h3>Sa&uacute;de do sistema</h3><p>Integra&ccedil;&otilde;es e vari&aacute;veis configuradas neste servidor</p></div>
+            </div>
             <div class="health-grid" id="health-grid"><div class="muted" style="font-size:13px;padding:8px 0">Carregando...</div></div>
           </div>
         </div>
-        <div class="section-title"><span>Zona de risco</span><span class="line"></span></div>
-        <div class="card">
-          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-            <div style="flex:1;min-width:200px"><b style="font-size:14px">Zerar todas as estatísticas</b><p style="color:var(--muted2);margin:4px 0 0;font-size:12.5px">Apaga leads, eventos e contadores. Não afeta configurações ou chaves.</p></div>
-            <button class="btn danger" id="reset-btn">Zerar estatísticas</button>
-          </div>
+        <div class="card danger-card">
+          <span class="cfg-ico" style="--cc:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6"/></svg></span>
+          <div style="flex:1;min-width:200px"><b style="font-size:13.5px">Zerar todas as estatísticas</b><p style="color:var(--muted2);margin:3px 0 0;font-size:12px">Apaga leads, eventos e contadores. Não afeta configurações ou chaves.</p></div>
+          <button class="btn danger" id="reset-btn">Zerar estatísticas</button>
         </div>
       </section>
 
