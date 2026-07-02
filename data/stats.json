@@ -15,46 +15,28 @@
   },
   "events": [
     {
-      "at": "2026-07-02T16:21:32.423Z",
-      "id": "evt_mr3pp30n6jrn7",
-      "ref": "ld_mr3pp30mbgc2an",
+      "at": "2026-07-02T19:05:56.784Z",
+      "id": "evt_mr3vkieo02m83",
+      "ref": "ld_mr3vkiemfgxg37",
       "type": "visit",
       "title": "Novo lead no funil",
       "country": "Estados Unidos",
       "landing": "/"
     },
     {
-      "at": "2026-07-02T16:21:32.303Z",
-      "id": "evt_mr3pp2xbvpnru",
-      "ref": "ld_mr3pp2xa0b4v85",
+      "at": "2026-07-02T19:05:54.176Z",
+      "id": "evt_mr3vkge8bsj49",
+      "ref": "ld_mr3vkge62pbk48",
       "type": "visit",
       "title": "Novo lead no funil",
       "country": "Estados Unidos",
-      "landing": "/"
-    },
-    {
-      "at": "2026-07-02T16:10:16.728Z",
-      "id": "evt_mr3palnbzbz17",
-      "ref": "ld_mr3palnbkh60vi",
-      "type": "visit",
-      "title": "Novo lead no funil",
-      "country": null,
-      "landing": "/1/"
-    },
-    {
-      "at": "2026-07-02T16:09:55.639Z",
-      "id": "evt_mr3pa5djz1lx6",
-      "ref": "ld_mr3pa5djs41om8",
-      "type": "visit",
-      "title": "Novo lead no funil",
-      "country": null,
       "landing": "/"
     }
   ],
   "leads": [
     {
-      "at": "2026-07-02T16:21:32.422Z",
-      "id": "ld_mr3pp30mbgc2an",
+      "at": "2026-07-02T19:05:56.783Z",
+      "id": "ld_mr3vkiemfgxg37",
       "ip": "54.183.149.156",
       "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.0 Safari/537.36",
       "utm": {
@@ -75,9 +57,9 @@
       "countryName": "Estados Unidos"
     },
     {
-      "at": "2026-07-02T16:21:32.302Z",
-      "id": "ld_mr3pp2xa0b4v85",
-      "ip": "54.183.149.156",
+      "at": "2026-07-02T19:05:54.175Z",
+      "id": "ld_mr3vkge62pbk48",
+      "ip": "13.57.148.235",
       "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.0 Safari/537.36",
       "utm": {
         "term": null,
@@ -95,81 +77,7 @@
       "landing": "/",
       "referer": null,
       "countryName": "Estados Unidos"
-    },
-    {
-      "at": "2026-07-02T16:10:16.734Z",
-      "id": "ld_mr3palnhlqgkqd",
-      "ip": "::1",
-      "ua": "curl/8.17.0",
-      "utm": {
-        "term": null,
-        "medium": null,
-        "source": null,
-        "content": null,
-        "campaign": null
-      },
-      "city": null,
-      "stage": "checkout",
-      "status": "pending",
-      "ttclid": null,
-      "country": null,
-      "gateway": "stripe",
-      "referer": null,
-      "checkoutAt": "2026-07-02T16:10:16.734Z",
-      "countryName": null,
-      "checkoutHits": [
-        {
-          "at": "2026-07-02T16:10:16.734Z",
-          "gateway": "stripe"
-        }
-      ],
-      "expectedAmount": 1297,
-      "expectedCurrency": "EUR"
-    },
-    {
-      "at": "2026-07-02T16:10:16.727Z",
-      "id": "ld_mr3palnbkh60vi",
-      "ip": "::1",
-      "ua": "curl/8.17.0",
-      "utm": {
-        "term": null,
-        "medium": null,
-        "source": null,
-        "content": null,
-        "campaign": null
-      },
-      "city": null,
-      "stage": "visit",
-      "status": "pending",
-      "ttclid": null,
-      "country": null,
-      "gateway": null,
-      "landing": "/1/",
-      "referer": null,
-      "countryName": null
-    },
-    {
-      "at": "2026-07-02T16:09:55.639Z",
-      "id": "ld_mr3pa5djs41om8",
-      "ip": "::1",
-      "ua": "curl/8.17.0",
-      "utm": {
-        "term": null,
-        "medium": null,
-        "source": null,
-        "content": null,
-        "campaign": null
-      },
-      "city": null,
-      "stage": "visit",
-      "status": "pending",
-      "ttclid": null,
-      "country": null,
-      "gateway": null,
-      "landing": "/",
-      "referer": null,
-      "countryName": null
     }
   ],
-  "updatedAt": "2026-07-02T19:00:06.390Z"
+  "updatedAt": "2026-07-02T19:09:13.302Z"
 }
