@@ -37,7 +37,7 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 .brand{display:flex;align-items:center;gap:12px;padding:20px 18px;border-bottom:1px solid var(--border)}
 .brand img{width:36px;height:36px;border-radius:8px;box-shadow:0 0 0 1px var(--border)}
 .brand .bt{font-weight:600;font-size:16px;line-height:1;letter-spacing:-.02em}
-.brand .bs{font-size:11px;color:var(--muted2);margin-top:3px}
+.nav-div{height:1px;background:var(--border);margin:10px 12px}
 .nav{padding:12px 10px;display:flex;flex-direction:column;gap:1px;flex:1;overflow-y:auto}
 .nav .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted2);padding:16px 12px 6px;font-weight:600}
 .nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;background:transparent;border:0;color:var(--muted);padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:500;font-family:inherit;transition:.15s}
@@ -563,29 +563,24 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <img src="/assets/logo.png" alt="Logo Pulse" />
-      <div>
-        <div class="bt">Pulse</div>
-        <div class="bs">Radar de Vendas & Funil</div>
-      </div>
+      <div class="bt">Pulse</div>
     </div>
     <nav class="nav" id="nav">
-      <div class="lbl">Painel</div>
-      <button data-view="live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg><span>Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
       <button data-view="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg><span>Visão Geral</span></button>
+      <button data-view="live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg><span>Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
       <button data-view="funnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18l-7 8v7l-4 2v-9z"/></svg><span>Funil & Leads</span></button>
       <button data-view="geo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z"/></svg><span>Países</span></button>
-      <div class="lbl">Otimização</div>
+      <button data-view="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span>Atividade</span></button>
       <button data-view="ab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/></svg><span>Teste A/B</span></button>
       <button data-view="cooud"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg><span>Anti-desvio</span><span class="badge" id="nav-cooud-badge" style="display:none">!</span></button>
-      <button data-view="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span>Atividade</span></button>
-      <div class="lbl">Sistema</div>
+      <div class="nav-div"></div>
       <button data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82V8a1.65 1.65 0 001.51-1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span>Configurações</span></button>
     </nav>
     <div class="side-foot">
       <div><span class="dot" id="live-dot"></span>Ao vivo &middot; <span id="foot-updated">—</span></div>
-      <div style="margin-top:5px;opacity:.7">Pulse v3</div>
     </div>
   </aside>
+  <div class="drawer-bg" id="side-scrim"></div>
 
   <div class="main">
     <div class="topbar">
@@ -601,17 +596,8 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <button data-p="30d">30 dias</button>
         <button data-p="all">Tudo</button>
       </div>
-      <button class="btn" id="cmdk-open" title="Paleta de comandos" style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><span class="kbd-hint" style="color:inherit">Buscar <kbd id="cmdk-kbd">Ctrl K</kbd></span></button>
-      <div class="refresh">
-        <label class="switch"><input type="checkbox" id="ar-toggle" checked /><span class="slider"></span></label>
-        <span>Auto</span>
-        <select class="select" id="ar-interval" style="padding:6px 8px">
-          <option value="5000">5s</option>
-          <option value="12000" selected>12s</option>
-          <option value="30000">30s</option>
-        </select>
-        <button class="btn" id="refresh-btn" title="Atualizar agora"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
-      </div>
+      <button class="btn" id="cmdk-open" title="Buscar (Ctrl K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></button>
+      <button class="btn" id="refresh-btn" title="Atualizar agora"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
     </div>
 
     <div class="content">
@@ -980,7 +966,7 @@ function aggregate(from,to){
 }
 function deltaChip(cur,prev,invert){
   if(period==='all') return '';
-  if(prev<=0){ if(cur<=0) return '<span class="k-delta flat">sem base</span>'; return '<span class="k-delta up'+(invert?' inv':'')+'">'+ARR_UP+'novo</span>'; }
+  if(prev<=0){ if(cur<=0) return ''; return '<span class="k-delta up'+(invert?' inv':'')+'">'+ARR_UP+'novo</span>'; }
   var pct=((cur-prev)/prev)*100;
   if(Math.abs(pct)<0.1) return '<span class="k-delta flat">estável</span>';
   var up=pct>0, r=Math.abs(pct)>=100?Math.round(pct):(+pct.toFixed(1));
@@ -1721,6 +1707,7 @@ function setView(v){
   document.getElementById('page-title').textContent=titles[v][0];
   document.getElementById('page-sub').textContent=titles[v][1];
   document.getElementById('sidebar').classList.remove('open');
+  var scrim=document.getElementById('side-scrim'); if(scrim) scrim.classList.remove('open');
   // animação de entrada em cascata (uma vez por troca de aba)
   var sec=document.getElementById('view-'+v);
   if(sec){ sec.classList.remove('entering'); void sec.offsetWidth; sec.classList.add('entering'); setTimeout(function(){sec.classList.remove('entering');},700); }
@@ -1742,9 +1729,14 @@ function setupLivePoll(fast){
 document.getElementById('nav').addEventListener('click',function(e){
   var b=e.target.closest('button[data-view]'); if(b) setView(b.getAttribute('data-view'));
 });
+function setSideMenu(open){
+  document.getElementById('sidebar').classList.toggle('open',open);
+  document.getElementById('side-scrim').classList.toggle('open',open);
+}
 document.getElementById('menuToggle').addEventListener('click',function(){
-  document.getElementById('sidebar').classList.toggle('open');
+  setSideMenu(!document.getElementById('sidebar').classList.contains('open'));
 });
+document.getElementById('side-scrim').addEventListener('click',function(){ setSideMenu(false); });
 document.getElementById('period').addEventListener('click',function(e){
   var b=e.target.closest('button'); if(!b) return;
   setPeriod(b.getAttribute('data-p'));
@@ -1785,7 +1777,7 @@ document.addEventListener('keydown',function(e){
   else if(e.key==='ArrowUp'){ e.preventDefault(); cmdkMove(-1); }
   else if(e.key==='Enter'){ e.preventDefault(); cmdkRun(cmdkSel); }
 });
-if(/Mac|iPhone|iPad|iPod/.test(navigator.platform)){ var _k=document.getElementById('cmdk-kbd'); if(_k)_k.textContent='⌘ K'; }
+
 document.getElementById('cfg-mode').addEventListener('change',updateSplitPreview);
 document.getElementById('cfg-pct').addEventListener('input',updateSplitPreview);
 document.getElementById('cfg-rot').addEventListener('change',updateRotPreview);
@@ -1816,12 +1808,9 @@ document.getElementById('reset-btn').addEventListener('click',function(){
 /* ── Auto-refresh ── */
 function setupAuto(){
   if(autoTimer) clearInterval(autoTimer);
-  if(!document.getElementById('ar-toggle').checked) return;
-  var iv=+document.getElementById('ar-interval').value;
-  autoTimer=setInterval(refresh,iv);
+  autoTimer=setInterval(refresh,12000); // sempre ligado, a cada 12s
 }
-document.getElementById('ar-toggle').addEventListener('change',setupAuto);
-document.getElementById('ar-interval').addEventListener('change',setupAuto);
+
 
 /* ── Boot ── */
 var LS=document.getElementById('loading-screen');
