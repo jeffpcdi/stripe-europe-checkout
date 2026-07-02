@@ -26,9 +26,10 @@ html,body{margin:0;padding:0}
 body{
   background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:15.5px;line-height:1.55;-webkit-font-smoothing:antialiased;
   background-image:
-    radial-gradient(1100px 620px at 12% -8%, rgba(37,244,238,.10), transparent 60%),
-    radial-gradient(1000px 560px at 108% 4%, rgba(254,44,85,.10), transparent 58%),
-    radial-gradient(1200px 800px at 50% 120%, rgba(91,140,255,.10), transparent 60%);
+    radial-gradient(1100px 620px at 12% -8%, rgba(37,244,238,.12), transparent 60%),
+    radial-gradient(1000px 560px at 108% 4%, rgba(254,44,85,.12), transparent 58%),
+    radial-gradient(900px 500px at 60% 50%, rgba(91,140,255,.07), transparent 55%),
+    radial-gradient(1200px 800px at 50% 120%, rgba(139,125,255,.09), transparent 60%);
   background-attachment:fixed;
 }
 h1,h2,h3,h4{font-family:'Space Grotesk','Inter',sans-serif;margin:0;letter-spacing:-.01em}
@@ -128,7 +129,48 @@ section.view+section.view{margin-top:20px;padding-top:26px;border-top:1px solid 
 .hl-card .k-flag .fi{font-size:20px;line-height:1}
 /* ── Ao Vivo ── */
 .nav .live-badge{background:var(--green);color:#04140d}
-#live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;background:radial-gradient(circle at 50% 38%,#0c1730,#04060d 70%)}
+#live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;position:relative;background:radial-gradient(ellipse at 30% 20%,rgba(20,16,56,.95),transparent 50%),radial-gradient(ellipse at 75% 70%,rgba(37,244,238,.06),transparent 40%),radial-gradient(ellipse at 50% 50%,rgba(254,44,85,.04),transparent 50%),radial-gradient(circle at 50% 38%,#0c1730,#04060d 70%)}
+#live-globe::before,#globe::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;
+  background-image:
+    radial-gradient(1px 1px at 10% 15%,rgba(255,255,255,.9),transparent),
+    radial-gradient(1px 1px at 25% 8%,rgba(255,255,255,.7),transparent),
+    radial-gradient(1.2px 1.2px at 40% 22%,rgba(37,244,238,.8),transparent),
+    radial-gradient(1px 1px at 55% 5%,rgba(255,255,255,.6),transparent),
+    radial-gradient(1px 1px at 70% 18%,rgba(255,255,255,.8),transparent),
+    radial-gradient(1.3px 1.3px at 85% 12%,rgba(254,44,85,.6),transparent),
+    radial-gradient(1px 1px at 15% 35%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1px 1px at 30% 42%,rgba(255,255,255,.7),transparent),
+    radial-gradient(1.1px 1.1px at 50% 30%,rgba(91,140,255,.7),transparent),
+    radial-gradient(1px 1px at 65% 38%,rgba(255,255,255,.6),transparent),
+    radial-gradient(1px 1px at 80% 28%,rgba(255,255,255,.8),transparent),
+    radial-gradient(1px 1px at 92% 35%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1px 1px at 5% 55%,rgba(255,255,255,.6),transparent),
+    radial-gradient(1.2px 1.2px at 20% 60%,rgba(139,125,255,.7),transparent),
+    radial-gradient(1px 1px at 35% 52%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1px 1px at 48% 65%,rgba(255,255,255,.7),transparent),
+    radial-gradient(1px 1px at 62% 58%,rgba(255,255,255,.6),transparent),
+    radial-gradient(1.1px 1.1px at 78% 50%,rgba(37,244,238,.5),transparent),
+    radial-gradient(1px 1px at 90% 62%,rgba(255,255,255,.7),transparent),
+    radial-gradient(1px 1px at 8% 75%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1px 1px at 22% 82%,rgba(255,255,255,.6),transparent),
+    radial-gradient(1.3px 1.3px at 38% 78%,rgba(254,44,85,.5),transparent),
+    radial-gradient(1px 1px at 52% 85%,rgba(255,255,255,.7),transparent),
+    radial-gradient(1px 1px at 68% 72%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1px 1px at 82% 80%,rgba(91,140,255,.6),transparent),
+    radial-gradient(1px 1px at 95% 78%,rgba(255,255,255,.6),transparent),
+    radial-gradient(1px 1px at 12% 92%,rgba(255,255,255,.5),transparent),
+    radial-gradient(1px 1px at 45% 95%,rgba(255,255,255,.6),transparent),
+    radial-gradient(1.1px 1.1px at 72% 90%,rgba(37,244,238,.4),transparent),
+    radial-gradient(1px 1px at 88% 95%,rgba(255,255,255,.5),transparent);
+  animation:starTwinkle 4s ease-in-out infinite alternate}
+#live-globe::after,#globe::after{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;
+  background:
+    radial-gradient(ellipse 300px 200px at 15% 25%,rgba(139,125,255,.12),transparent),
+    radial-gradient(ellipse 250px 180px at 80% 70%,rgba(37,244,238,.10),transparent),
+    radial-gradient(ellipse 200px 150px at 50% 85%,rgba(254,44,85,.08),transparent);
+  animation:nebulaFloat 12s ease-in-out infinite alternate}
+@keyframes starTwinkle{0%{opacity:.6}50%{opacity:1}100%{opacity:.7}}
+@keyframes nebulaFloat{0%{transform:translate(0,0) scale(1);opacity:.7}50%{transform:translate(5px,-3px) scale(1.03);opacity:1}100%{transform:translate(-3px,2px) scale(.98);opacity:.8}}
 .live-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}
 .live-grid>.card{min-width:0}
 #live-globe canvas{max-width:100%}
@@ -246,7 +288,7 @@ tbody tr:hover{background:var(--hover)}
 
 /* ── Geo ── */
 .geo-grid{display:grid;grid-template-columns:1.3fr .9fr;gap:16px}
-#globe{width:100%;height:440px;border-radius:var(--radius);overflow:hidden;background:radial-gradient(circle at 50% 40%,#101226,#05050a)}
+#globe{width:100%;height:440px;border-radius:var(--radius);overflow:hidden;position:relative;background:radial-gradient(ellipse at 30% 20%,rgba(20,16,56,.95),transparent 50%),radial-gradient(ellipse at 75% 70%,rgba(37,244,238,.06),transparent 40%),radial-gradient(ellipse at 50% 50%,rgba(254,44,85,.04),transparent 50%),radial-gradient(circle at 50% 40%,#101226,#05050a)}
 .clist{display:flex;flex-direction:column;gap:2px;max-height:440px;overflow-y:auto}
 .crow{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:11px;transition:.12s}
 .crow:hover{background:var(--hover)}
@@ -356,12 +398,28 @@ html{scroll-behavior:smooth}
 ::selection{background:rgba(37,244,238,.28);color:#fff}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:8px}
 
-/* Aurora de fundo — respiração lenta */
+/* Aurora de fundo — respiração lenta + micro-estrelas */
 body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
   background:
-    radial-gradient(680px circle at 10% -6%,rgba(37,244,238,.07),transparent 60%),
-    radial-gradient(640px circle at 94% 2%,rgba(254,44,85,.07),transparent 55%);
+    radial-gradient(680px circle at 10% -6%,rgba(37,244,238,.08),transparent 60%),
+    radial-gradient(640px circle at 94% 2%,rgba(254,44,85,.08),transparent 55%),
+    radial-gradient(500px circle at 50% 50%,rgba(139,125,255,.05),transparent 50%);
   animation:aurora 16s ease-in-out infinite alternate}
+body::after{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    radial-gradient(.6px .6px at 5% 10%,rgba(255,255,255,.15),transparent),
+    radial-gradient(.6px .6px at 15% 30%,rgba(255,255,255,.12),transparent),
+    radial-gradient(.5px .5px at 28% 18%,rgba(255,255,255,.10),transparent),
+    radial-gradient(.6px .6px at 40% 45%,rgba(255,255,255,.13),transparent),
+    radial-gradient(.5px .5px at 55% 12%,rgba(255,255,255,.10),transparent),
+    radial-gradient(.6px .6px at 65% 55%,rgba(255,255,255,.12),transparent),
+    radial-gradient(.5px .5px at 78% 25%,rgba(255,255,255,.10),transparent),
+    radial-gradient(.6px .6px at 88% 65%,rgba(255,255,255,.13),transparent),
+    radial-gradient(.5px .5px at 35% 75%,rgba(255,255,255,.10),transparent),
+    radial-gradient(.6px .6px at 50% 88%,rgba(255,255,255,.12),transparent),
+    radial-gradient(.5px .5px at 72% 80%,rgba(255,255,255,.10),transparent),
+    radial-gradient(.6px .6px at 92% 42%,rgba(255,255,255,.11),transparent);
+  animation:starTwinkle 6s ease-in-out infinite alternate}
 @keyframes aurora{0%{opacity:.65;transform:translateY(0)}100%{opacity:1;transform:translateY(6px)}}
 .app{position:relative;z-index:1}
 
@@ -640,9 +698,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="grid kpis" id="live-kpis"></div>
         <div class="section-title"><span>Pulso de tr&aacute;fego</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads que entraram &middot; &uacute;ltimos 30 min</span></div>
         <div class="card traffic-card" id="traffic-pulse"></div>
-        <div class="section-title"><span>Navegando agora</span><span class="line"></span>
-          <span class="live-pill" id="live-pill"><span class="live-dot-anim"></span><span id="live-pill-count">0</span> online</span>
-        </div>
         <div class="live-grid">
           <div class="card" style="padding:0"><div id="live-globe"></div></div>
           <div class="live-right">
@@ -1334,11 +1389,8 @@ function renderLive(){
   var onCheckout=vs.filter(function(v){return v.page&&v.page.indexOf('checkout')!==-1;}).length;
   var topC=s.countries&&s.countries[0];
   document.getElementById('live-kpis').innerHTML=
-    kpi(I.users,'tint-green','Online agora','<span class="grn">'+s.online+'</span>','pessoas navegando')+
-    kpi(I.cart,'tint-pink','No checkout','<span class="pnk">'+onCheckout+'</span>','finalizando compra')+
-    kpi(I.globe,'tint-cyan','Países ativos','<span class="cyn">'+((s.countries||[]).length)+'</span>','com visitantes agora')+
-    kpi(I.zap,'','Principal origem',(topC?flag(topC.code)+' '+esc(topC.code):'—'),(topC?topC.count+' online':'sem dados'));
-  var pc=document.getElementById('live-pill-count'); if(pc) pc.textContent=s.online;
+    kpi(I.users,'tint-green','Online agora','<span class="grn">'+s.online+'</span>','pessoas navegando &middot; '+((s.countries||[]).length)+' pa&iacute;ses')+
+    kpi(I.cart,'tint-pink','No checkout','<span class="pnk">'+onCheckout+'</span>','finalizando compra');
   var list=document.getElementById('live-list');
   list.innerHTML=vs.length?vs.map(function(v){
     var idle=v.idleMs>20000;
