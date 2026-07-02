@@ -1639,6 +1639,99 @@ function updateLiveBadge(){
   var b=document.getElementById('nav-live-badge');
   if(b){ b.textContent=n; b.style.display=n>0?'':'none'; }
 }
+
+/* ── Notificações (aba Ao Vivo) ─────────────────────────────────────────
+   Alimentada pelo feed de eventos (DATA.events): vendas, leads, checkouts,
+   recusas, reembolsos e disputas. Som opcional + limpar. */
+var NOTIFS=[], NOTIF_SEEN={}, notifSound=(localStorage.getItem('rn_notif_sound')||'on')==='on',
+    notifBooted=false, notifWired=false;
+var NOTIF_META={
+  sale:    {ico:'sale',    t:'Venda aprovada',   svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>'},
+  failed:  {ico:'spike',   t:'Pagamento recusado',svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>'},
+  refund:  {ico:'checkout',t:'Reembolso',        svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>'},
+  dispute: {ico:'spike',   t:'Disputa aberta',   svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>'},
+  visit:   {ico:'visit',   t:'Novo lead no funil',svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>'},
+  lead:    {ico:'checkout',t:'Chegou no checkout',svg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>'}
+};
+function notifBeep(){
+  if(!notifSound) return;
+  try{
+    var ctx=notifBeep._ctx||(notifBeep._ctx=new (window.AudioContext||window.webkitAudioContext)());
+    var o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.value=880;
+    g.gain.setValueAtTime(0.001,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.12,ctx.currentTime+0.02);
+    g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.35);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime+0.4);
+  }catch(_){}
+}
+function notifSub(e){
+  var geo=[e.city,e.countryName||e.country].filter(Boolean).join(', ');
+  if(e.type==='sale')   return (e.amount!=null?money(e.amount,e.currency||'EUR')+' \u00b7 ':'')+(geo||e.email||'');
+  if(e.type==='failed') return (e.amount!=null?money(e.amount,e.currency||'EUR')+' \u00b7 ':'')+(e.reason||geo||'');
+  if(e.type==='refund'||e.type==='dispute') return (e.amount!=null?money(e.amount,e.currency||'EUR'):'')+(geo?' \u00b7 '+geo:'');
+  return geo||(e.page||'')||'';
+}
+function ingestNotifs(){
+  var evs=(DATA&&DATA.events)||[];
+  var fresh=[];
+  for(var i=0;i<evs.length&&i<60;i++){
+    var e=evs[i];
+    if(!e.id||NOTIF_SEEN[e.id]) continue;
+    if(!NOTIF_META[e.type]) continue;
+    NOTIF_SEEN[e.id]=1;
+    fresh.push(e);
+  }
+  if(!fresh.length) return;
+  // na primeira carga, popula sem som (histórico); depois, som só p/ eventos importantes
+  fresh.reverse().forEach(function(e){
+    NOTIFS.unshift(e);
+    if(notifBooted&&(e.type==='sale'||e.type==='dispute')) notifBeep();
+  });
+  if(NOTIFS.length>30) NOTIFS.length=30;
+  notifBooted=true;
+  renderNotifs();
+}
+function renderNotifs(){
+  var el=document.getElementById('notif-list'); if(!el) return;
+  wireNotifTools();
+  if(!NOTIFS.length){
+    el.innerHTML='<div class="notif-empty">Sem notifica\u00e7\u00f5es por enquanto.<br>Vendas, leads e alertas aparecem aqui em tempo real.</div>';
+    return;
+  }
+  el.innerHTML=NOTIFS.map(function(e){
+    var m=NOTIF_META[e.type];
+    var t=e.at?new Date(e.at):null;
+    var ago=t?fmtAgo(Date.now()-t.getTime()):'';
+    return '<div class="nrow">'+
+      '<div class="nico '+m.ico+'">'+m.svg+'</div>'+
+      '<div class="nbody"><b>'+m.t+'</b><span>'+esc(notifSub(e)||'\u2014')+'</span></div>'+
+      '<div class="ntime" title="'+(t?fmtHM(t.getTime()):'')+'">'+ago+'</div>'+
+    '</div>';
+  }).join('');
+}
+var NOTIF_SND_ON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/></svg>';
+var NOTIF_SND_OFF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>';
+function wireNotifTools(){
+  if(notifWired) return;
+  var snd=document.getElementById('notif-sound'), clr=document.getElementById('notif-clear');
+  if(!snd||!clr) return;
+  notifWired=true;
+  function paintSnd(){
+    snd.innerHTML=notifSound?NOTIF_SND_ON:NOTIF_SND_OFF;
+    snd.classList.toggle('on',notifSound);
+    snd.title=notifSound?'Som ligado \u2014 clique para silenciar':'Som desligado \u2014 clique para ativar';
+  }
+  paintSnd();
+  snd.onclick=function(){
+    notifSound=!notifSound;
+    localStorage.setItem('rn_notif_sound',notifSound?'on':'off');
+    paintSnd();
+    if(notifSound) notifBeep(); // feedback imediato
+  };
+  clr.onclick=function(){ NOTIFS=[]; renderNotifs(); };
+}
 // Pulso de tráfego: entradas de leads por minuto nos últimos 30 min (barras),
 // + destaque de quantos estão no checkout AGORA (próprio + externo).
 function fmtHM(t){ var d=new Date(t); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
@@ -2382,7 +2475,7 @@ function loadConfig(){ return fetch('/api/config',{cache:'no-store'}).then(funct
 function loadHealth(){ return fetch('/api/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(h){HEALTH=h;}).catch(function(){}); }
 function refresh(){
   return Promise.all([loadStats(),loadConfig()])
-    .then(function(){ fillConfig(); renderAll(); })
+    .then(function(){ fillConfig(); renderAll(); ingestNotifs(); })
     .catch(function(e){ console.warn('[pulse] refresh error',e); });
 }
 
