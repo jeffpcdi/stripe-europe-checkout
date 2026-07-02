@@ -224,6 +224,21 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .lrow .ldur{font-size:11px;color:var(--muted2)}
 .lrow .ldot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;box-shadow:0 0 8px var(--green)}
 .lrow.idle .ldot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+/* lead quente: passou pelo funil e está no checkout agora */
+.lrow.hot{position:relative;background:linear-gradient(90deg,rgba(255,45,111,.09),rgba(255,45,111,.02) 60%,transparent);border-left:3px solid var(--pink);padding-left:11px}
+.lrow.hot:hover{background:linear-gradient(90deg,rgba(255,45,111,.14),rgba(255,45,111,.04) 60%,transparent)}
+.lrow.hot .ldot{background:var(--pink);box-shadow:0 0 9px var(--pink);animation:hotDot 1.3s ease-in-out infinite}
+@keyframes hotDot{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.45);opacity:.75}}
+.lrow.hot .lmain b{color:var(--pink)}
+.lck{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  padding:3px 9px;border-radius:20px;background:rgba(255,45,111,.16);color:var(--pink);border:1px solid rgba(255,45,111,.35);
+  box-shadow:0 0 10px -4px var(--pink);animation:lckGlow 1.8s ease-in-out infinite}
+.lck svg{width:11px;height:11px}
+@keyframes lckGlow{0%,100%{box-shadow:0 0 6px -4px var(--pink)}50%{box-shadow:0 0 14px -3px var(--pink)}}
+.lfun{font-size:10px;color:var(--muted);background:var(--card2);border:1px solid var(--border);padding:2px 7px;border-radius:12px;font-family:'Geist Mono'}
+.lhot-head{display:flex;align-items:center;gap:9px;font-size:11.5px;font-weight:700;color:var(--pink);text-transform:uppercase;letter-spacing:.09em;
+  padding:10px 14px;border-bottom:1px solid rgba(255,45,111,.25);background:rgba(255,45,111,.06);position:sticky;top:0;z-index:2;backdrop-filter:blur(6px)}
+.lhot-dot{width:8px;height:8px;border-radius:50%;background:var(--pink);box-shadow:0 0 10px var(--pink);animation:hotDot 1.3s ease-in-out infinite}
 .live-empty{padding:44px 20px;text-align:center;color:var(--muted2);font-size:13px}
 /* Entrada escalonada de cima para baixo */
 @keyframes liveRowIn{0%{opacity:0;transform:translateY(-14px)}60%{opacity:1}100%{opacity:1;transform:translateY(0)}}
@@ -1801,11 +1816,19 @@ function renderTrafficPulse(){
       '<span class="tfs tfm" style="margin-left:auto">'+(recent)+' entradas nos \u00faltimos 15 min \u00b7 '+(older)+' nos 15 anteriores</span>'+
     '</div>';
 }
+// Um lead está "no checkout" quando a página atual contém checkout.
+function isCheckoutLead(v){ return !!(v.page&&v.page.indexOf('checkout')!==-1); }
 function renderLive(){
   var s=LIVE.summary||{online:0,countries:[]}; var vs=LIVE.visitors||[];
+  // dedupe defensivo por id: o servidor já garante 1 sessão por visitante,
+  // mas descartamos qualquer duplicata que chegue ao cliente
+  var seen={}; vs=vs.filter(function(v){
+    var id=v.id||JSON.stringify([v.country,v.page,v.durationMs]);
+    if(seen[id]) return false; seen[id]=1; return true;
+  });
   var ck=LIVE.checkout||{stripeNow:0,cooudEst:0};
   // "no checkout" próprio (Stripe): usa presença real da página; fallback p/ filtro local
-  var stripeNow=ck.stripeNow!=null?ck.stripeNow:vs.filter(function(v){return v.page&&v.page.indexOf('checkout')!==-1;}).length;
+  var stripeNow=ck.stripeNow!=null?ck.stripeNow:vs.filter(isCheckoutLead).length;
   var cooudEst=ck.cooudEst||0;
   var totalCheckout=stripeNow+cooudEst;
   document.getElementById('live-kpis').innerHTML=
@@ -1815,16 +1838,29 @@ function renderLive(){
     kpi(I.zap,'tint-cyan','Checkout externo','<span style="color:var(--amber)">'+cooudEst+'</span>','rastreados no Cooud &middot; ~10&nbsp;min');
   // Card "Pulso de tráfego"
   renderTrafficPulse();
+  // checkout primeiro (mais quentes no topo), depois por atividade
+  var sorted=vs.slice().sort(function(a,b){
+    var ac=isCheckoutLead(a)?1:0, bc=isCheckoutLead(b)?1:0;
+    if(ac!==bc) return bc-ac;
+    return (a.idleMs||0)-(b.idleMs||0);
+  });
+  var nCk=vs.filter(isCheckoutLead).length;
   var list=document.getElementById('live-list');
-  list.innerHTML=vs.length?vs.map(function(v){
+  var header=nCk>0?'<div class="lhot-head"><span class="lhot-dot"></span>'+nCk+' lead'+(nCk>1?'s':'')+' no checkout agora</div>':'';
+  list.innerHTML=sorted.length?header+sorted.map(function(v){
     var idle=v.idleMs>20000;
+    var inCk=isCheckoutLead(v);
     var gw=v.variant==='cooud'?'cooud':(v.variant==='stripe'?'stripe':'');
-    return '<div class="lrow'+(idle?' idle':'')+'">'+
+    var funnel=(v.pageviews||1)>1?'<span class="lfun" title="p\u00e1ginas vistas nesta sess\u00e3o">'+v.pageviews+' p\u00e1gs</span>':'';
+    return '<div class="lrow'+(idle?' idle':'')+(inCk?' hot':'')+'">'+
       '<span class="ldot"></span>'+
       '<span class="lflag">'+flag(v.country)+'</span>'+
       '<div class="lmain"><b>'+esc(v.countryName||v.country||'Local desconhecido')+(v.city?' &middot; '+esc(v.city):'')+'</b>'+
         '<span class="lpage">'+esc(pageLabel(v.page))+'</span></div>'+
-      '<div class="lmeta">'+(gw?'<span class="lgw '+gw+'">'+gw+'</span>':'')+
+      '<div class="lmeta">'+
+        (inCk?'<span class="lck">'+I.cart+'no checkout</span>':'')+
+        (gw?'<span class="lgw '+gw+'">'+gw+'</span>':'')+
+        funnel+
         '<span class="ldur">'+liveDur(v.durationMs)+'</span></div>'+
     '</div>';
   }).join(''):'<div class="live-empty">Ningu&eacute;m navegando agora.<br>Assim que algu&eacute;m abrir o site, aparece aqui em tempo real.</div>';
