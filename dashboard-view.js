@@ -103,6 +103,12 @@ section.view.active{display:block}
 .kpi .k-sub{font-size:12px;color:var(--muted2);margin-top:6px}
 .k-val.small{font-size:22px}
 .k-val.xsmall{font-size:17px}
+.k-ico.ic-cyan{background:rgba(37,244,238,.14);color:var(--cyan)}
+.k-ico.ic-pink{background:rgba(254,44,85,.14);color:var(--pink)}
+.k-ico.ic-green{background:rgba(47,230,168,.14);color:var(--green)}
+.k-ico.ic-amber{background:rgba(255,203,71,.14);color:var(--amber)}
+.hl-card .k-flag{display:inline-flex;align-items:center;gap:8px}
+.hl-card .k-flag .fi{font-size:20px;line-height:1}
 .pos{color:var(--green)} .neg{color:var(--red)} .cyn{color:var(--cyan)} .pnk{color:var(--pink)} .amb{color:var(--amber)}
 
 .section-title{display:flex;align-items:center;gap:10px;margin:28px 0 14px;font-size:14px;font-weight:600;color:var(--muted)}
@@ -740,6 +746,9 @@ function metrics(){
 function kpi(ico,cls,label,val,sub){
   return '<div class="card kpi '+(cls||'')+'"><div class="k-top"><span class="k-ico">'+ico+'</span>'+esc(label)+'</div><div class="k-val">'+val+'</div><div class="k-sub">'+(sub||'')+'</div></div>';
 }
+function hl(icoCls,ico,label,val,sub){
+  return '<div class="card kpi hl-card"><div class="k-top"><span class="k-ico '+icoCls+'">'+ico+'</span>'+label+'</div><div class="k-val small">'+val+'</div><div class="k-sub">'+(sub||'')+'</div></div>';
+}
 
 /* ── Visão Geral ── */
 function renderOverview(m){
@@ -752,10 +761,10 @@ function renderOverview(m){
   renderChart(m);
   var topC=m.countries[0];
   document.getElementById('ov-highlights').innerHTML=
-    '<div class="card"><div class="k-top">'+I.globe+' Pa&iacute;s n&ordm;1</div><div class="k-val small">'+(topC?flag(topC.code)+' '+esc(topC.name):'—')+'</div><div class="k-sub">'+(topC?topC.count+' leads':'sem dados')+'</div></div>'+
-    '<div class="card"><div class="k-top">'+I.cart+' Chegaram ao checkout</div><div class="k-val small">'+m.reached+'</div><div class="k-sub">'+m.v2c+'% dos leads</div></div>'+
-    '<div class="card"><div class="k-top">'+I.money+' Ticket m&eacute;dio</div><div class="k-val small">'+money(m.avgTicket,m.mainCur)+'</div><div class="k-sub">por venda aprovada</div></div>'+
-    '<div class="card"><div class="k-top">'+I.dispute+' Reembolsos / disputas</div><div class="k-val small">'+m.refunds+' / '+m.disputes+'</div><div class="k-sub">no per&iacute;odo</div></div>';
+    hl('ic-cyan',I.globe,'Pa&iacute;s n&ordm;1',(topC?'<span class="k-flag"><span class="fi">'+flag(topC.code)+'</span>'+esc(topC.name)+'</span>':'—'),(topC?topC.count+' leads':'sem dados'))+
+    hl('ic-amber',I.cart,'Chegaram ao checkout',m.reached,m.v2c+'% dos leads')+
+    hl('ic-green',I.money,'Ticket m&eacute;dio',money(m.avgTicket,m.mainCur),'por venda aprovada')+
+    hl('ic-pink',I.dispute,'Reembolsos / disputas',m.refunds+' / '+m.disputes,'no per&iacute;odo');
 }
 
 /* ── Gráfico de tendência ── */
