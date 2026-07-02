@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const db = require('./db');
 
 // Store simples baseado em arquivo JSON. Suficiente para o teste A/B + funil.
 // OBS: no Railway o filesystem é efêmero (reseta a cada deploy). Para histórico
@@ -13,8 +14,9 @@ function emptyVariant() {
   return { assignments: 0, clicks: 0, conversions: 0, revenue: {} };
 }
 
-const MAX_EVENTS = 400; // mantém os últimos N eventos no feed
-const MAX_LEADS = 1000;  // mantém os últimos N leads rastreados
+// Cache quente em arquivo (o banco Neon guarda o histórico completo, sem limite).
+const MAX_EVENTS = 3000; // mantém os últimos N eventos no feed local
+const MAX_LEADS = 8000;  // mantém os últimos N leads rastreados no cache local
 
 // Conversão que chega muito depois do lead = provável "Recuperar Prejuízo" do Cooud
 // (o gateway re-tenta cobranças recusadas/abandonadas para "recuperar" a venda).
@@ -71,6 +73,7 @@ function bump(variant, field, by) {
   const state = read();
   state.variants[variant][field] = (state.variants[variant][field] || 0) + (by || 1);
   write(state);
+  db.upsertVariant(variant, state.variants[variant]);
 }
 
 function recordAssignment(variant) { bump(variant, 'assignments', 1); }
@@ -84,6 +87,7 @@ function recordConversion(variant, amountCents, currency) {
   const cur = (currency || 'eur').toUpperCase();
   v.revenue[cur] = (v.revenue[cur] || 0) + (amountCents || 0);
   write(state);
+  db.upsertVariant(variant, v);
 }
 
 // Registra um evento no feed (venda, recusa, reembolso, disputa, lead, etc.)
@@ -97,6 +101,8 @@ function logEvent(type, data) {
   state.events.unshift(entry);
   if (state.events.length > MAX_EVENTS) state.events.length = MAX_EVENTS;
   write(state);
+  db.insertEvent(entry);
+  return entry;
 }
 
 function findLead(state, id) {
@@ -141,6 +147,7 @@ function recordVisit(data) {
     lead.lastSeen = nowIso;
     if (changed) write(state); else write(state);
   }
+  db.upsertLead(lead);
   return lead;
 }
 
@@ -184,6 +191,7 @@ function recordCheckoutEntry(id, gateway, data) {
   lead.checkoutHits.push({ gateway, at: nowIso });
   if (lead.checkoutHits.length > 10) lead.checkoutHits = lead.checkoutHits.slice(-10);
   write(state);
+  db.upsertLead(lead);
   return lead;
 }
 
@@ -205,6 +213,7 @@ function attachTracking(id, patch) {
   if (patch.ttclid && !lead.ttclid) lead.ttclid = patch.ttclid;
   if (patch.ttp) lead.ttp = patch.ttp;
   write(state);
+  db.upsertLead(lead);
   return lead;
 }
 
@@ -246,6 +255,7 @@ function markPurchased(id, data) {
   lead.ref = data.ref || lead.ref || null;
   if (lead.checkoutAt) lead.conversionAgeMs = new Date(nowIso).getTime() - new Date(lead.checkoutAt).getTime();
   write(state);
+  db.upsertLead(lead);
   return lead;
 }
 
@@ -316,6 +326,8 @@ function matchCooudConversion(data) {
   v.revenue[cur] = (v.revenue[cur] || 0) + amount;
 
   write(state);
+  db.upsertLead(lead);
+  db.upsertVariant('cooud', v);
   return lead;
 }
 
@@ -433,14 +445,43 @@ function getStats() {
   // ── Cooud (anti-desvio) + leads recentes ──
   out.cooud = cooudReconciliation(leads);
   out.cooud.stripeConvRate = out.variants.stripe ? out.variants.stripe.conversionRate : 0;
-  out.leads = leads.slice(0, 200);
+  out.leads = leads.slice(0, 3000); // envia histórico amplo p/ filtros de vários dias
   return out;
 }
 
-function reset() { write(emptyState()); }
+function reset() {
+  write(emptyState());
+  db.reset();
+}
+
+// ── Hidratação do cache a partir do Neon (chamado no boot) ────────────────
+// Faz o banco ser a fonte de verdade após um deploy/reinício: o arquivo local
+// é efêmero, então recarregamos leads/eventos/variantes do Postgres.
+async function hydrate() {
+  try {
+    await db.init();
+    if (!db.enabled) return;
+    const persisted = await db.loadState(MAX_LEADS, MAX_EVENTS);
+    if (!persisted) return;
+    const state = read();
+    // Banco vence sobre o arquivo efêmero (que costuma estar vazio no boot).
+    if (persisted.leads && persisted.leads.length) state.leads = persisted.leads.slice(0, MAX_LEADS);
+    if (persisted.events && persisted.events.length) state.events = persisted.events.slice(0, MAX_EVENTS);
+    VARIANTS.forEach((v) => {
+      if (persisted.variants && persisted.variants[v]) {
+        state.variants[v] = Object.assign(emptyVariant(), persisted.variants[v]);
+        if (!state.variants[v].revenue) state.variants[v].revenue = {};
+      }
+    });
+    write(state);
+    console.log('[stats] Hidratado do Neon: ' + (state.leads.length) + ' leads, ' + (state.events.length) + ' eventos.');
+  } catch (err) {
+    console.error('[stats] Erro ao hidratar do Neon:', err.message);
+  }
+}
 
 module.exports = {
   VARIANTS, recordAssignment, recordClick, recordConversion,
   logEvent, recordVisit, recordCheckoutEntry, markPurchased,
-  attachTracking, getLead, matchCooudConversion, getStats, reset
+  attachTracking, getLead, matchCooudConversion, getStats, reset, hydrate
 };

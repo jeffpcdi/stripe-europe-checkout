@@ -2,7 +2,7 @@
   "variants": {
     "stripe": {
       "assignments": 0,
-      "clicks": 0,
+      "clicks": 1,
       "conversions": 0,
       "revenue": {}
     },
@@ -13,7 +13,101 @@
       "revenue": {}
     }
   },
-  "events": [],
-  "leads": [],
-  "updatedAt": "2026-07-02T12:51:03.350Z"
+  "events": [
+    {
+      "id": "evt_mr3palnbzbz17",
+      "type": "visit",
+      "at": "2026-07-02T16:10:16.728Z",
+      "title": "Novo lead no funil",
+      "landing": "/1/",
+      "country": null,
+      "ref": "ld_mr3palnbkh60vi"
+    },
+    {
+      "id": "evt_mr3pa5djz1lx6",
+      "type": "visit",
+      "at": "2026-07-02T16:09:55.639Z",
+      "title": "Novo lead no funil",
+      "landing": "/",
+      "country": null,
+      "ref": "ld_mr3pa5djs41om8"
+    }
+  ],
+  "leads": [
+    {
+      "id": "ld_mr3palnhlqgkqd",
+      "at": "2026-07-02T16:10:16.734Z",
+      "stage": "checkout",
+      "status": "pending",
+      "gateway": "stripe",
+      "ip": "::1",
+      "ua": "curl/8.17.0",
+      "referer": null,
+      "country": null,
+      "countryName": null,
+      "city": null,
+      "ttclid": null,
+      "utm": {
+        "source": null,
+        "medium": null,
+        "campaign": null,
+        "content": null,
+        "term": null
+      },
+      "checkoutAt": "2026-07-02T16:10:16.734Z",
+      "expectedAmount": 1297,
+      "expectedCurrency": "EUR",
+      "checkoutHits": [
+        {
+          "gateway": "stripe",
+          "at": "2026-07-02T16:10:16.734Z"
+        }
+      ]
+    },
+    {
+      "id": "ld_mr3palnbkh60vi",
+      "at": "2026-07-02T16:10:16.727Z",
+      "stage": "visit",
+      "status": "pending",
+      "gateway": null,
+      "ip": "::1",
+      "ua": "curl/8.17.0",
+      "referer": null,
+      "country": null,
+      "countryName": null,
+      "city": null,
+      "landing": "/1/",
+      "ttclid": null,
+      "utm": {
+        "source": null,
+        "medium": null,
+        "campaign": null,
+        "content": null,
+        "term": null
+      }
+    },
+    {
+      "id": "ld_mr3pa5djs41om8",
+      "at": "2026-07-02T16:09:55.639Z",
+      "stage": "visit",
+      "status": "pending",
+      "gateway": null,
+      "ip": "::1",
+      "ua": "curl/8.17.0",
+      "referer": null,
+      "country": null,
+      "countryName": null,
+      "city": null,
+      "landing": "/",
+      "ttclid": null,
+      "utm": {
+        "source": null,
+        "medium": null,
+        "campaign": null,
+        "content": null,
+        "term": null
+      }
+    }
+  ],
+  "updatedAt": "2026-07-02T16:10:16.734Z"
 }

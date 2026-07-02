@@ -109,7 +109,35 @@ section.view.active{display:block}
 .k-ico.ic-amber{background:rgba(255,203,71,.14);color:var(--amber)}
 .hl-card .k-flag{display:inline-flex;align-items:center;gap:8px}
 .hl-card .k-flag .fi{font-size:20px;line-height:1}
-.pos{color:var(--green)} .neg{color:var(--red)} .cyn{color:var(--cyan)} .pnk{color:var(--pink)} .amb{color:var(--amber)}
+/* ── Ao Vivo ── */
+.nav .live-badge{background:var(--green);color:#04140d}
+#live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;background:radial-gradient(circle at 50% 38%,#0c1730,#04060d 70%)}
+.live-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}
+.live-grid>.card{min-width:0}
+#live-globe canvas{max-width:100%}
+@media(max-width:1000px){.live-grid{grid-template-columns:1fr}}
+.live-list-card{padding:0;max-height:560px;overflow-y:auto}
+.live-list{display:flex;flex-direction:column}
+.live-pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--green);background:rgba(47,230,168,.12);border:1px solid rgba(47,230,168,.28);padding:4px 11px;border-radius:20px}
+.live-dot-anim{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(47,230,168,.6);animation:livePulse 1.6s infinite}
+@keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(47,230,168,.55)}70%{box-shadow:0 0 0 7px rgba(47,230,168,0)}100%{box-shadow:0 0 0 0 rgba(47,230,168,0)}}
+.lrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);transition:background .15s}
+.lrow:last-child{border-bottom:0}
+.lrow:hover{background:var(--hover)}
+.lrow .lflag{font-size:22px;line-height:1;flex-shrink:0}
+.lrow .lmain{min-width:0;flex:1}
+.lrow .lmain b{display:block;font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .lmain span{display:block;font-size:11.5px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.lrow .lpage{font-family:var(--mono,monospace);color:var(--muted)}
+.lrow .lmeta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.lrow .lgw{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:20px}
+.lrow .lgw.stripe{background:rgba(37,244,238,.14);color:var(--cyan)}
+.lrow .lgw.cooud{background:rgba(254,44,85,.14);color:var(--pink)}
+.lrow .ldur{font-size:11px;color:var(--muted2)}
+.lrow .ldot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;box-shadow:0 0 8px var(--green)}
+.lrow.idle .ldot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+.live-empty{padding:44px 20px;text-align:center;color:var(--muted2);font-size:13px}
+.pos{color:var(--green)} .neg{color:var(--red)} .cyn{color:var(--cyan)} .pnk{color:var(--pink)} .amb{color:var(--amber)} .grn{color:var(--green)}
 
 .section-title{display:flex;align-items:center;gap:10px;margin:28px 0 14px;font-size:14px;font-weight:600;color:var(--muted)}
 .section-title .line{flex:1;height:1px;background:var(--border)}
@@ -397,6 +425,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
     </div>
     <nav class="nav" id="nav">
       <div class="lbl">Painel</div>
+      <button data-view="live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg><span>Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
       <button data-view="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg><span>Visão Geral</span></button>
       <button data-view="funnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18l-7 8v7l-4 2v-9z"/></svg><span>Funil & Leads</span></button>
       <button data-view="geo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z"/></svg><span>Países</span></button>
@@ -440,6 +469,18 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
     </div>
 
     <div class="content">
+
+      <!-- ── Ao Vivo ── -->
+      <section class="view" id="view-live">
+        <div class="grid kpis" id="live-kpis"></div>
+        <div class="section-title"><span>Navegando agora</span><span class="line"></span>
+          <span class="live-pill" id="live-pill"><span class="live-dot-anim"></span><span id="live-pill-count">0</span> online</span>
+        </div>
+        <div class="live-grid">
+          <div class="card" style="padding:0"><div id="live-globe"></div></div>
+          <div class="card live-list-card"><div class="live-list" id="live-list"></div></div>
+        </div>
+      </section>
 
       <!-- ── Visão Geral ── -->
       <section class="view active" id="view-overview">
@@ -681,6 +722,7 @@ function pctColor(v){ return v>=60?'pos':v>=30?'amb':'neg'; }
 
 var DATA=null, CFG=null, HEALTH=null, period='7d', chartMode='revenue', evFilter='', autoTimer=null, globe=null, currentView='overview', currentLeadId=null;
 var leadsById={};
+var LIVE={visitors:[],summary:{online:0,countries:[]}}, liveTimer=null, liveGlobe=null;
 
 function cutoff(){
   var n=Date.now();
@@ -919,6 +961,26 @@ function renderGeo(m){
   }).join(''):'<div class="empty">Sem dados de pa&iacute;s ainda.</div>';
   renderGlobe(m.countries);
 }
+// Construtor de globo compartilhado (visual refinado) — usado por Países e Ao Vivo.
+function makeGlobe(el,height){
+  el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
+  var g=Globe()(el)
+    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+    .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+    .backgroundColor('rgba(0,0,0,0)')
+    .showGraticules(true)
+    .showAtmosphere(true).atmosphereColor('#4aa8ff').atmosphereAltitude(0.24)
+    .pointLat('lat').pointLng('lng')
+    .ringLat('lat').ringLng('lng');
+  try{
+    var scene=g.scene && g.scene();
+    if(scene){ scene.add(new THREE.AmbientLight(0xffffff,0.9)); var dl=new THREE.DirectionalLight(0xffffff,0.7); dl.position.set(1,1,1); scene.add(dl); }
+  }catch(_){}
+  g.pointOfView({lat:24,lng:-12,altitude:1.95},0);
+  var ctrl=g.controls(); if(ctrl){ctrl.autoRotate=true;ctrl.autoRotateSpeed=0.42;ctrl.enableZoom=false;}
+  setTimeout(function(){ try{g.width(el.clientWidth).height(height);}catch(e){} },80);
+  return g;
+}
 function renderGlobe(countries){
   var el=document.getElementById('globe'); if(!el) return;
   if(typeof Globe==='undefined'){
@@ -928,29 +990,105 @@ function renderGlobe(countries){
   var top=countries[0]?countries[0].count:1;
   var pts=countries.filter(function(c){return GEO[c.code];}).map(function(c){
     var g=GEO[c.code];
-    return {lat:g[0],lng:g[1],size:Math.max(.14,Math.min(.88,c.count/top)),count:c.count,name:c.name,code:c.code};
+    return {lat:g[0],lng:g[1],size:Math.max(.18,Math.min(.95,c.count/top)),count:c.count,name:c.name,code:c.code};
   });
   try{
     if(!globe){
-      el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
-      globe=Globe()(el)
-        .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
-        .backgroundColor('rgba(0,0,0,0)')
-        .showAtmosphere(true).atmosphereColor('#25f4ee').atmosphereAltitude(0.16)
-        .pointLat('lat').pointLng('lng')
-        .pointAltitude(function(d){return d.size*0.45;})
-        .pointRadius(0.55)
+      globe=makeGlobe(el,520);
+      globe.pointAltitude(function(d){return 0.02+d.size*0.5;})
+        .pointRadius(function(d){return 0.28+d.size*0.5;})
         .pointColor(function(){return '#fe2c55';})
         .pointLabel(function(d){
           return '<div style="background:#14141e;border:1px solid #26263a;padding:6px 10px;border-radius:8px;font-family:Inter,sans-serif;font-size:12px;color:#fff">'+
             flag(d.code)+' '+d.name+': <b>'+d.count+'</b> leads</div>';
-        });
-      globe.pointOfView({lat:30,lng:-10,altitude:2.1},0);
-      var ctrl=globe.controls();
-      if(ctrl){ctrl.autoRotate=true;ctrl.autoRotateSpeed=0.5;ctrl.enableZoom=false;}
-      setTimeout(function(){ try{globe.width(el.clientWidth).height(440);}catch(e){} },80);
+        })
+        .ringColor(function(){return function(t){return 'rgba(37,244,238,'+(1-t)+')';};})
+        .ringMaxRadius(function(d){return 2+d.size*4;})
+        .ringPropagationSpeed(1.4)
+        .ringRepeatPeriod(function(d){return 1600-d.size*700;});
     }
     globe.pointsData(pts);
+    globe.ringsData(pts.slice(0,12)); // anéis pulsantes só nos principais mercados
+  }catch(e){ el.innerHTML='<div class="empty">N&atilde;o foi poss&iacute;vel carregar o globo.</div>'; }
+}
+
+/* ── Ao Vivo ── */
+function pageLabel(p){
+  if(!p) return '—';
+  var path=String(p).split('?')[0];
+  if(path==='/'||path==='') return 'Página inicial';
+  if(path.indexOf('checkout')!==-1) return 'Checkout';
+  return path;
+}
+function loadLive(){
+  return fetch('/api/live',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    LIVE=d||{visitors:[],summary:{online:0,countries:[]}};
+    updateLiveBadge();
+    if(currentView==='live') renderLive();
+  }).catch(function(){});
+}
+function updateLiveBadge(){
+  var n=(LIVE.summary&&LIVE.summary.online)||0;
+  var b=document.getElementById('nav-live-badge');
+  if(b){ b.textContent=n; b.style.display=n>0?'':'none'; }
+}
+function renderLive(){
+  var s=LIVE.summary||{online:0,countries:[]}; var vs=LIVE.visitors||[];
+  var onCheckout=vs.filter(function(v){return v.page&&v.page.indexOf('checkout')!==-1;}).length;
+  var topC=s.countries&&s.countries[0];
+  document.getElementById('live-kpis').innerHTML=
+    kpi(I.users,'tint-green','Online agora','<span class="grn">'+s.online+'</span>','pessoas navegando')+
+    kpi(I.cart,'tint-pink','No checkout','<span class="pnk">'+onCheckout+'</span>','finalizando compra')+
+    kpi(I.globe,'tint-cyan','Países ativos','<span class="cyn">'+((s.countries||[]).length)+'</span>','com visitantes agora')+
+    kpi(I.zap,'','Principal origem',(topC?flag(topC.code)+' '+esc(topC.code):'—'),(topC?topC.count+' online':'sem dados'));
+  var pc=document.getElementById('live-pill-count'); if(pc) pc.textContent=s.online;
+  var list=document.getElementById('live-list');
+  list.innerHTML=vs.length?vs.map(function(v){
+    var idle=v.idleMs>20000;
+    var gw=v.variant==='cooud'?'cooud':(v.variant==='stripe'?'stripe':'');
+    return '<div class="lrow'+(idle?' idle':'')+'">'+
+      '<span class="ldot"></span>'+
+      '<span class="lflag">'+flag(v.country)+'</span>'+
+      '<div class="lmain"><b>'+esc(v.countryName||v.country||'Local desconhecido')+(v.city?' &middot; '+esc(v.city):'')+'</b>'+
+        '<span class="lpage">'+esc(pageLabel(v.page))+'</span></div>'+
+      '<div class="lmeta">'+(gw?'<span class="lgw '+gw+'">'+gw+'</span>':'')+
+        '<span class="ldur">'+liveDur(v.durationMs)+'</span></div>'+
+    '</div>';
+  }).join(''):'<div class="live-empty">Ningu&eacute;m navegando agora.<br>Assim que algu&eacute;m abrir o site, aparece aqui em tempo real.</div>';
+  renderLiveGlobe();
+}
+function liveDur(ms){
+  var s=Math.floor((ms||0)/1000);
+  if(s<60) return s+'s';
+  if(s<3600) return Math.floor(s/60)+'min';
+  return Math.floor(s/3600)+'h';
+}
+function renderLiveGlobe(){
+  var el=document.getElementById('live-globe'); if(!el) return;
+  if(typeof Globe==='undefined'){ el.innerHTML='<div class="empty" style="height:100%;display:flex;align-items:center;justify-content:center">Globo indispon&iacute;vel.</div>'; return; }
+  var cs=(LIVE.summary&&LIVE.summary.countries)||[];
+  var top=cs[0]?cs[0].count:1;
+  var pts=cs.filter(function(c){return GEO[c.code];}).map(function(c){
+    var g=GEO[c.code]; var sz=Math.max(.25,Math.min(1,c.count/top));
+    return {lat:g[0],lng:g[1],size:sz,count:c.count,name:c.name,code:c.code};
+  });
+  try{
+    if(!liveGlobe){
+      liveGlobe=makeGlobe(el,520);
+      liveGlobe.pointAltitude(function(d){return 0.02+d.size*0.55;})
+        .pointRadius(function(d){return 0.3+d.size*0.55;})
+        .pointColor(function(){return '#2fe6a8';})
+        .pointLabel(function(d){
+          return '<div style="background:#14141e;border:1px solid #26263a;padding:6px 10px;border-radius:8px;font-family:Inter,sans-serif;font-size:12px;color:#fff">'+
+            flag(d.code)+' '+d.name+': <b>'+d.count+'</b> online</div>';
+        })
+        .ringColor(function(){return function(t){return 'rgba(47,230,168,'+(1-t)+')';};})
+        .ringMaxRadius(function(d){return 2.5+d.size*4.5;})
+        .ringPropagationSpeed(2)
+        .ringRepeatPeriod(function(d){return 900-d.size*400;});
+    }
+    liveGlobe.pointsData(pts);
+    liveGlobe.ringsData(pts);
   }catch(e){ el.innerHTML='<div class="empty">N&atilde;o foi poss&iacute;vel carregar o globo.</div>'; }
 }
 
@@ -1280,6 +1418,7 @@ function refresh(){
 
 /* ── Navegação ── */
 var titles={
+  live:['Ao Vivo','Quem está navegando no site agora'],
   overview:['Visão Geral','Resumo dos números que mais importam'],
   funnel:['Funil & Leads','Cada visitante rastreado até o checkout'],
   geo:['Países','De onde vêm seus leads'],
@@ -1300,11 +1439,22 @@ function setView(v){
   if(sec){ sec.classList.remove('entering'); void sec.offsetWidth; sec.classList.add('entering'); setTimeout(function(){sec.classList.remove('entering');},700); }
   if(v==='geo'&&DATA){
     setTimeout(function(){
-      if(globe){ try{globe.width(document.getElementById('globe').clientWidth).height(440);}catch(e){} }
+      if(globe){ try{globe.width(document.getElementById('globe').clientWidth).height(520);}catch(e){} }
       else if(DATA){ var m=metrics(); renderGlobe(m.countries); }
     },80);
   }
+  if(v==='live'){
+    renderLive();
+    loadLive();
+    setTimeout(function(){ if(liveGlobe){ try{liveGlobe.width(document.getElementById('live-globe').clientWidth).height(520);}catch(e){} } },80);
+  }
+  setupLivePoll(v==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
   if(v==='config') loadHealth().then(renderHealth);
+}
+// Polling de presença: 4s na aba Ao Vivo, 10s em segundo plano (para o badge).
+function setupLivePoll(fast){
+  if(liveTimer) clearInterval(liveTimer);
+  liveTimer=setInterval(loadLive,fast?4000:10000);
 }
 
 /* ── Listeners ── */
@@ -1386,6 +1536,8 @@ function hideLS(){ if(LS){ LS.classList.add('hide'); setTimeout(function(){LS.st
 var lsGuard=setTimeout(hideLS,8000);
 refresh().then(function(){
   setupAuto();
+  loadLive();            // primeira leitura de presença
+  setupLivePoll(false);  // mantém o badge "Ao Vivo" atualizado em segundo plano
   clearTimeout(lsGuard); hideLS();
   // anima a aba inicial (Visão Geral) na primeira pintura
   var a=document.querySelector('section.view.active');

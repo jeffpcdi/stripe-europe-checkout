@@ -5,8 +5,11 @@ const { buildConfirmationEmail } = require('./emails/confirmation');
 const { sendTikTokEvent } = require('./tiktok-events');
 const { sendPushcut } = require('./pushcut');
 const stats = require('./stats');
+const presence = require('./presence');
+const { injectPulse } = require('./pulse-client');
 const config = require('./config');
 const geoip = require('geoip-lite');
+const fs = require('fs');
 const DASHBOARD_HTML = require('./dashboard-view');
 
 // Lê um cookie do request (parse simples, sem dependência extra)
@@ -684,7 +687,13 @@ app.get('/checkout', (req, res) => {
   }
 
   // Variante nativa (Stripe)
-  res.sendFile(path.join(__dirname, 'proximo', 'premium', 'checkout.html'));
+  try {
+    const html = fs.readFileSync(path.join(__dirname, 'proximo', 'premium', 'checkout.html'), 'utf8');
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.send(injectPulse(html));
+  } catch (_) {
+    return res.sendFile(path.join(__dirname, 'proximo', 'premium', 'checkout.html'));
+  }
 });
 
 // ── Auth simples (Basic Auth) para a dashboard ───────────────────────
@@ -702,6 +711,35 @@ function dashboardAuth(req, res, next) {
 // ── API: estatísticas do teste A/B ───────────────────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
   res.json(stats.getStats());
+});
+
+// ── API: heartbeat de presença (chamado por todas as páginas do funil) ─
+app.post('/api/pulse', (req, res) => {
+  try {
+    const id = readCookie(req, 'v_id');
+    if (!id) return res.json({ ok: false });
+    const b = req.body || {};
+    const geo = geoFromReq(req);
+    presence.touch({
+      visitorId: id,
+      page: b.page ? String(b.page).slice(0, 300) : null,
+      referrer: b.referrer ? String(b.referrer).slice(0, 300) : null,
+      country: geo.country, countryName: geo.countryName, city: geo.city,
+      ua: String(req.headers['user-agent'] || '').slice(0, 300),
+      ip: clientIp(req),
+      variant: readCookie(req, 'ab_variant') || null
+    });
+  } catch (_) {}
+  res.json({ ok: true });
+});
+app.post('/api/pulse/leave', (req, res) => {
+  try { presence.leave(readCookie(req, 'v_id')); } catch (_) {}
+  res.json({ ok: true });
+});
+
+// ── API: visitantes navegando AGORA (dashboard) ────────────────────────
+app.get('/api/live', dashboardAuth, (req, res) => {
+  res.json({ visitors: presence.list(), summary: presence.summary(), ts: new Date().toISOString() });
 });
 
 // ── API: configuração do teste A/B (ler/atualizar) ───────────────────
@@ -789,6 +827,39 @@ app.get('/dashboard', dashboardAuth, (req, res) => {
   res.send(DASHBOARD_HTML);
 });
 
+// ── Injeção do heartbeat de presença em todas as páginas HTML do funil ─
+// Resolve o arquivo HTML como o express.static faria (exato, /index.html ou
+// extensão .html), injeta o script de "pulse" e envia. Se não for HTML, segue.
+function resolveHtml(reqPath) {
+  try {
+    const clean = decodeURIComponent(reqPath.split('?')[0]);
+    if (clean.includes('..')) return null;
+    const base = path.join(__dirname, clean);
+    const candidates = [];
+    if (clean.endsWith('.html')) candidates.push(base);
+    else if (clean.endsWith('/')) candidates.push(path.join(base, 'index.html'));
+    else { candidates.push(base + '.html'); candidates.push(path.join(base, 'index.html')); }
+    for (const f of candidates) {
+      if (f.startsWith(__dirname) && fs.existsSync(f) && fs.statSync(f).isFile()) return f;
+    }
+  } catch (_) {}
+  return null;
+}
+function sendHtmlWithPulse(res, filePath) {
+  const html = fs.readFileSync(filePath, 'utf8');
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(injectPulse(html));
+}
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/assets')
+      || req.path === '/dashboard' || req.path === '/checkout') return next();
+  const accept = req.headers.accept || '';
+  if (!accept.includes('text/html')) return next();
+  const file = resolveHtml(req.path);
+  if (!file) return next();
+  try { return sendHtmlWithPulse(res, file); } catch (_) { return next(); }
+});
+
 // ── Apple Pay: servir .well-known (verificação de domínio) ──────────
 app.use('/.well-known', express.static(path.join(__dirname, '.well-known'), {
   dotfiles: 'allow'
@@ -806,18 +877,22 @@ app.use(express.static(path.join(__dirname), {
   index: 'index.html'
 }));
 
-// Fallback: se pedir /1 sem barra, redireciona para /1/ (que serve /1/index.html)
+// Fallback: se pedir /1 sem barra, serve /1/index.html (com pulse injetado)
 app.get('*', (req, res, next) => {
   const filePath = path.join(__dirname, req.path, 'index.html');
-  const fs = require('fs');
   if (fs.existsSync(filePath)) {
-    return res.sendFile(filePath);
+    try { return sendHtmlWithPulse(res, filePath); } catch (_) { return res.sendFile(filePath); }
   }
   next();
 });
 
 // ── Iniciar servidor ─────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`✅ Servidor rodando na porta ${PORT}`);
-  console.log(`   STRIPE_SECRET_KEY: ${process.env.STRIPE_SECRET_KEY ? '✅ configurada' : '❌ NÃO CONFIGURADA'}`);
+// Hidrata o cache a partir do Neon ANTES de escutar, para que os dados de
+// vários dias já estejam disponíveis logo no primeiro request pós-deploy.
+stats.hydrate().finally(() => {
+  app.listen(PORT, () => {
+    console.log(`✅ Servidor rodando na porta ${PORT}`);
+    console.log(`   STRIPE_SECRET_KEY: ${process.env.STRIPE_SECRET_KEY ? '✅ configurada' : '❌ NÃO CONFIGURADA'}`);
+    console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
+  });
 });
