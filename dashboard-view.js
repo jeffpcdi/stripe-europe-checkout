@@ -425,52 +425,122 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .kpi:hover{border-color:var(--border2)}
 
 /* ── Visão Geral: hero ── */
-.ov-hero{position:relative;display:flex;align-items:center;gap:20px;flex-wrap:wrap;border:1px solid var(--border);border-radius:14px;padding:22px 26px;margin-bottom:18px;overflow:hidden;
+.ov-hero{position:relative;display:flex;align-items:center;gap:20px;flex-wrap:wrap;border:1px solid transparent;border-radius:14px;padding:22px 26px;margin-bottom:18px;overflow:hidden;
   background:linear-gradient(120deg,#141419 0%,#101015 55%,#12121a 100%)}
 .ov-hero::before{content:'';position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(500px 200px at 85% 20%,rgba(255,45,111,.12),transparent 60%),radial-gradient(420px 180px at 15% 90%,rgba(82,168,255,.1),transparent 60%)}
+  background:radial-gradient(520px 210px at 85% 15%,rgba(255,45,111,.16),transparent 60%),
+             radial-gradient(440px 190px at 12% 95%,rgba(82,168,255,.14),transparent 60%),
+             radial-gradient(300px 150px at 55% 50%,rgba(37,244,238,.05),transparent 70%)}
+/* borda em gradiente animado percorrendo o card */
+.ovh-border{position:absolute;inset:0;border-radius:14px;padding:1px;pointer-events:none;z-index:3;
+  background:conic-gradient(from var(--hb,0deg),rgba(255,45,111,.65),rgba(82,168,255,.15),rgba(37,244,238,.6),rgba(255,45,111,.12),rgba(255,45,111,.65));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+  animation:heroBorder 8s linear infinite}
+@property --hb{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes heroBorder{to{--hb:360deg}}
 .ovh-shine{position:absolute;top:0;bottom:0;width:120px;pointer-events:none;transform:skewX(-18deg);
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.045),transparent);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);
   animation:ovShine 5.5s ease-in-out infinite}
 @keyframes ovShine{0%,20%{left:-20%}60%,100%{left:115%}}
-.ovh-left{position:relative;min-width:0}
-.ovh-greet{font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:600;margin-bottom:6px}
+/* partículas neon flutuando */
+.ovh-particles{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.ovh-particles i{position:absolute;bottom:-6px;width:4px;height:4px;border-radius:50%;opacity:0;
+  animation:pFloat var(--pd,7s) ease-in infinite var(--pw,0s)}
+.ovh-particles i:nth-child(1){left:8%;--pd:8s;--pw:0s;background:#ff2d6f;box-shadow:0 0 8px #ff2d6f}
+.ovh-particles i:nth-child(2){left:22%;--pd:11s;--pw:2.5s;background:#25f4ee;box-shadow:0 0 8px #25f4ee;width:3px;height:3px}
+.ovh-particles i:nth-child(3){left:37%;--pd:9s;--pw:1.2s;background:#52a8ff;box-shadow:0 0 8px #52a8ff}
+.ovh-particles i:nth-child(4){left:52%;--pd:12s;--pw:4s;background:#ff5674;box-shadow:0 0 7px #ff5674;width:3px;height:3px}
+.ovh-particles i:nth-child(5){left:65%;--pd:8.5s;--pw:.8s;background:#25f4ee;box-shadow:0 0 9px #25f4ee}
+.ovh-particles i:nth-child(6){left:76%;--pd:10s;--pw:3.2s;background:#52a8ff;box-shadow:0 0 8px #52a8ff;width:5px;height:5px}
+.ovh-particles i:nth-child(7){left:88%;--pd:9.5s;--pw:1.8s;background:#ff2d6f;box-shadow:0 0 8px #ff2d6f;width:3px;height:3px}
+.ovh-particles i:nth-child(8){left:95%;--pd:13s;--pw:5s;background:#3ecf8e;box-shadow:0 0 8px #3ecf8e}
+@keyframes pFloat{0%{transform:translateY(0);opacity:0}8%{opacity:.9}88%{opacity:.5}100%{transform:translateY(-130px);opacity:0}}
+.ovh-left{position:relative;min-width:0;z-index:2}
+.ovh-greet{font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.ovh-greet::before{content:'';width:22px;height:2px;border-radius:2px;background:linear-gradient(90deg,#ff2d6f,#25f4ee);box-shadow:0 0 8px rgba(255,45,111,.6)}
 .ovh-title{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.25}
-.ovh-brand{background:linear-gradient(92deg,#ff2d6f,#52a8ff,#25f4ee);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:brandShift 6s ease-in-out infinite alternate;font-weight:800}
+.ovh-brand{background:linear-gradient(92deg,#ff2d6f,#52a8ff,#25f4ee);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:brandShift 6s ease-in-out infinite alternate;font-weight:800;filter:drop-shadow(0 0 12px rgba(255,45,111,.3))}
 .ovh-sub{font-size:13px;color:var(--muted2);margin-top:5px}
-.ovh-right{position:relative;margin-left:auto;display:flex;gap:26px;align-items:center}
-.ovh-stat{text-align:right}
+.ovh-right{position:relative;margin-left:auto;display:flex;align-items:center;z-index:2}
+.ovh-stat{text-align:right;padding:2px 22px;position:relative}
+.ovh-stat+.ovh-stat::before{content:'';position:absolute;left:0;top:15%;bottom:15%;width:1px;background:linear-gradient(180deg,transparent,var(--border2),transparent)}
+.ovh-stat:last-child{padding-right:0}
 .ovh-stat .os-v{font-family:'Geist Mono',monospace;font-size:24px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.ovh-stat .os-v.cyn{text-shadow:0 0 18px rgba(82,168,255,.45)}
+.ovh-stat .os-v.pnk{text-shadow:0 0 18px rgba(255,86,116,.45)}
+.ovh-stat .os-v.grn{text-shadow:0 0 18px rgba(62,207,142,.45)}
 .ovh-stat .os-l{font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:.1em;font-weight:600;margin-top:3px}
 
 /* ── KPIs turbinados ── */
-.kpis-xl .kpi{border-radius:14px;padding-top:18px}
-.kpis-xl .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:2px 2px 0 0;opacity:.85;background:linear-gradient(90deg,var(--kg1,#3a3a44),var(--kg2,#26262c))}
-.kpis-xl .kpi.tint-cyan{--kg1:#52a8ff;--kg2:#25f4ee}
-.kpis-xl .kpi.tint-pink{--kg1:#ff2d6f;--kg2:#ff5674}
-.kpis-xl .kpi.tint-blue{--kg1:#52a8ff;--kg2:#7d8cff}
-.kpis-xl .kpi.tint-green{--kg1:#3ecf8e;--kg2:#25f4ee}
-.kpis-xl .kpi:hover{transform:translateY(-4px);box-shadow:0 14px 34px rgba(0,0,0,.5)}
-.kpis-xl .kpi:hover .k-ico{transform:scale(1.1) rotate(-4deg)}
-.kpis-xl .k-ico{transition:.25s}
-.kpis-xl .kpi{animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards}
-.kpis-xl .kpi:nth-child(1){animation-delay:.02s}.kpis-xl .kpi:nth-child(2){animation-delay:.08s}
-.kpis-xl .kpi:nth-child(3){animation-delay:.14s}.kpis-xl .kpi:nth-child(4){animation-delay:.2s}
-@keyframes kpiIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.kpis-xl .kpi{border-radius:14px;padding-top:18px;--kglow:rgba(82,168,255,.12)}
+.kpis-xl .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2.5px;border-radius:2px 2px 0 0;
+  background:linear-gradient(90deg,var(--kg1,#3a3a44),var(--kg2,#26262c),var(--kg1,#3a3a44));background-size:220% 100%;
+  animation:kpiTop 5s linear infinite;box-shadow:0 0 12px -2px var(--kg1,transparent)}
+@keyframes kpiTop{to{background-position:-220% 0}}
+/* aura radial que acende no hover */
+.kpis-xl .kpi::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .35s;
+  background:radial-gradient(220px 120px at 50% 0%,var(--kglow),transparent 70%)}
+.kpis-xl .kpi:hover::after{opacity:1}
+.kpis-xl .kpi.tint-cyan{--kg1:#52a8ff;--kg2:#25f4ee;--kglow:rgba(82,168,255,.16)}
+.kpis-xl .kpi.tint-pink{--kg1:#ff2d6f;--kg2:#ff5674;--kglow:rgba(255,45,111,.15)}
+.kpis-xl .kpi.tint-blue{--kg1:#52a8ff;--kg2:#7d8cff;--kglow:rgba(82,168,255,.16)}
+.kpis-xl .kpi.tint-green{--kg1:#3ecf8e;--kg2:#25f4ee;--kglow:rgba(62,207,142,.15)}
+.kpis-xl .kpi:hover{transform:translateY(-4px);border-color:var(--border2);box-shadow:0 14px 34px rgba(0,0,0,.5),0 0 22px -8px var(--kg1)}
+.kpis-xl .kpi:hover .k-ico{transform:scale(1.12) rotate(-5deg);box-shadow:inset 0 0 0 1px var(--kg1),0 0 14px -3px var(--kg1)}
+.kpis-xl .k-ico{transition:.28s cubic-bezier(.34,1.56,.64,1)}
+.kpis-xl .k-val{transition:text-shadow .3s}
+.kpis-xl .kpi:hover .k-val{text-shadow:0 0 22px var(--kglow)}
+.kpis-xl .kpi{animation:kpiIn .55s cubic-bezier(.2,.7,.3,1) backwards}
+.kpis-xl .kpi:nth-child(1){animation-delay:.02s}.kpis-xl .kpi:nth-child(2){animation-delay:.09s}
+.kpis-xl .kpi:nth-child(3){animation-delay:.16s}.kpis-xl .kpi:nth-child(4){animation-delay:.23s}
+@keyframes kpiIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
 
 /* ── Ministats (substitui os chips) ── */
 .ministats{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:2px 0 6px}
-.mstat{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;overflow:hidden;transition:.22s;animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards}
-.mstat:nth-child(1){animation-delay:.05s}.mstat:nth-child(2){animation-delay:.1s}.mstat:nth-child(3){animation-delay:.15s}
-.mstat:nth-child(4){animation-delay:.2s}.mstat:nth-child(5){animation-delay:.25s}
-.mstat:hover{transform:translateY(-3px);border-color:var(--border2);box-shadow:0 10px 26px rgba(0,0,0,.45)}
+.mstat{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px 14px 19px;overflow:hidden;transition:.24s;animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards;--mc:#52a8ff}
+.mstat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px;background:linear-gradient(180deg,var(--mc),transparent 130%);opacity:.8;transition:.24s}
+.mstat::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s;
+  background:radial-gradient(180px 100px at 18% 0%,color-mix(in srgb,var(--mc) 14%,transparent),transparent 70%)}
+.mstat:hover::after{opacity:1}
+.mstat:hover::before{width:4px;box-shadow:0 0 12px -2px var(--mc)}
+.mstat:nth-child(1){animation-delay:.05s}.mstat:nth-child(2){animation-delay:.11s}.mstat:nth-child(3){animation-delay:.17s}
+.mstat:nth-child(4){animation-delay:.23s}.mstat:nth-child(5){animation-delay:.29s}
+.mstat:hover{transform:translateY(-3px);border-color:var(--border2);box-shadow:0 10px 26px rgba(0,0,0,.45),0 0 18px -10px var(--mc)}
 .mstat .ms-top{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
-.mstat .ms-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex-shrink:0}
+.mstat .ms-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex-shrink:0;transition:.28s cubic-bezier(.34,1.56,.64,1)}
+.mstat:hover .ms-ico{transform:scale(1.15) rotate(-6deg);box-shadow:0 0 12px -3px var(--mc)}
 .mstat .ms-ico svg{width:13px;height:13px}
-.mstat .ms-val{font-family:'Geist Mono',monospace;font-size:21px;font-weight:600;margin-top:9px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.mstat .ms-val{font-family:'Geist Mono',monospace;font-size:21px;font-weight:600;margin-top:9px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;transition:text-shadow .3s}
+.mstat:hover .ms-val{text-shadow:0 0 16px color-mix(in srgb,var(--mc) 50%,transparent)}
 .mstat .ms-sub{font-size:11.5px;color:var(--muted2);margin-top:3px}
-.mstat .ms-bar{height:4px;border-radius:3px;background:var(--card2);margin-top:10px;overflow:hidden}
-.mstat .ms-fill{height:100%;border-radius:3px;width:0;transition:width 1s cubic-bezier(.2,.7,.3,1) .3s}
+.mstat .ms-bar{height:4px;border-radius:3px;background:var(--card2);margin-top:10px;overflow:hidden;position:relative}
+.mstat .ms-fill{height:100%;border-radius:3px;width:0;transition:width 1.1s cubic-bezier(.2,.7,.3,1) .35s;position:relative;overflow:hidden}
+.mstat .ms-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);transform:translateX(-100%);animation:msSheen 2.6s ease-in-out 1.6s infinite}
+@keyframes msSheen{0%{transform:translateX(-100%)}55%,100%{transform:translateX(100%)}}
+
+/* ── Visão Geral: títulos de seção neon ── */
+#view-overview .section-title span:first-child{position:relative;padding-left:16px}
+#view-overview .section-title span:first-child::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:8px;height:8px;border-radius:2px;
+  background:linear-gradient(135deg,#ff2d6f,#52a8ff);box-shadow:0 0 10px rgba(255,45,111,.65);animation:stPulse 2.4s ease-in-out infinite}
+@keyframes stPulse{0%,100%{box-shadow:0 0 6px rgba(255,45,111,.45)}50%{box-shadow:0 0 14px rgba(82,168,255,.8)}}
+#view-overview .section-title .line{background:linear-gradient(90deg,var(--border2),var(--border) 40%,transparent)}
+
+/* ── Visão Geral: meta de receita com brilho ── */
+#view-overview .goal-card{position:relative;overflow:hidden;border-radius:14px}
+#view-overview .goal-card::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(340px 150px at 8% 50%,rgba(62,207,142,.09),transparent 65%),radial-gradient(280px 130px at 92% 20%,rgba(82,168,255,.07),transparent 65%)}
+#view-overview .goal-ring svg{filter:drop-shadow(0 0 10px rgba(62,207,142,.35))}
+#view-overview .goal-ring .gr-pct{text-shadow:0 0 16px rgba(62,207,142,.4)}
+
+/* ── Visão Geral: card de tendência ── */
+#view-overview .chart-wrap+ .chart-legend .leg-dot{box-shadow:0 0 8px currentColor}
+#view-overview .card:has(.chart-wrap){position:relative;border-radius:14px;overflow:hidden}
+#view-overview .card:has(.chart-wrap)::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,#52a8ff,#25f4ee 45%,#ff2d6f);opacity:.55;box-shadow:0 0 10px -2px #52a8ff}
+#view-overview .chart-legend .leg-dot{box-shadow:0 0 7px currentColor}
+#view-overview .card:has(.chart-wrap){animation:kpiIn .55s cubic-bezier(.2,.7,.3,1) .28s backwards}
+#view-overview .goal-card{animation:kpiIn .55s cubic-bezier(.2,.7,.3,1) .2s backwards}
 
 /* Entrada em cascata — só ao trocar de aba (classe .entering) */
 @keyframes rise{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
@@ -731,7 +801,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Visão Geral ── -->
       <section class="view active" id="view-overview">
         <div class="ov-hero" id="ov-hero">
+          <div class="ovh-border"></div>
           <div class="ovh-shine"></div>
+          <div class="ovh-particles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="ovh-left">
             <div class="ovh-greet" id="ov-greet">Bem-vindo de volta</div>
             <div class="ovh-title">Central de resultados <span class="ovh-brand">ROI-NADOS</span></div>
@@ -1224,7 +1296,7 @@ function greeting(){
   return 'Boa noite';
 }
 function mstat(icoColor,icoBg,ico,label,val,sub,barPct,barColor,valId){
-  return '<div class="mstat">'+
+  return '<div class="mstat" style="--mc:'+icoColor+'">'+
     '<div class="ms-top"><span class="ms-ico" style="background:'+icoBg+';color:'+icoColor+'">'+ico+'</span>'+esc(label)+'</div>'+
     '<div class="ms-val"'+(valId?' id="'+valId+'"':'')+' style="color:'+icoColor+'">'+val+'</div>'+
     '<div class="ms-sub">'+(sub||'')+'</div>'+
