@@ -7,8 +7,8 @@ module.exports = `<!DOCTYPE html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0a0a0f" />
-<title>Pulse — Radar de Vendas & Funil</title>
-<link rel="icon" href="/assets/logo.png" />
+<title>ROI-NADOS — Radar de Vendas & Funil</title>
+<link rel="icon" href="/assets/roi-nados-logo.jpg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -32,21 +32,54 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 ::-webkit-scrollbar-track{background:transparent}
 
 /* ── Layout ── */
-.app{display:flex;min-height:100vh}
-.sidebar{width:248px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
-.brand{display:flex;align-items:center;gap:12px;padding:20px 18px;border-bottom:1px solid var(--border)}
-.brand img{width:36px;height:36px;border-radius:8px;box-shadow:0 0 0 1px var(--border)}
-.brand .bt{font-weight:600;font-size:16px;line-height:1;letter-spacing:-.02em}
-.nav-div{height:1px;background:var(--border);margin:10px 12px}
-.nav{padding:12px 10px;display:flex;flex-direction:column;gap:1px;flex:1;overflow-y:auto}
-.nav .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted2);padding:16px 12px 6px;font-weight:600}
-.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;background:transparent;border:0;color:var(--muted);padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:500;font-family:inherit;transition:.15s}
-.nav button svg{width:17px;height:17px;flex-shrink:0}
-.nav button:hover{background:var(--hover);color:var(--text)}
-.nav button.active{background:var(--card2);color:var(--text);box-shadow:inset 0 0 0 1px var(--border)}
-.nav button.active svg{color:var(--cyan)}
-.nav .badge{margin-left:auto;background:var(--pink);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px}
-.side-foot{padding:14px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--muted2)}
+.app{display:flex;flex-direction:column;min-height:100vh}
+
+/* ── Header hero: marca ROI-NADOS + dock ── */
+.hero-head{position:relative;background:linear-gradient(180deg,#101014 0%,var(--bg) 100%);border-bottom:1px solid var(--border);overflow:hidden}
+.hh-glow{position:absolute;inset:-40% -10% auto;height:180%;pointer-events:none;
+  background:
+    radial-gradient(420px 200px at 12% 30%, rgba(255,86,116,.14), transparent 65%),
+    radial-gradient(460px 220px at 40% 10%, rgba(82,168,255,.12), transparent 65%),
+    radial-gradient(300px 160px at 78% 40%, rgba(62,207,142,.06), transparent 70%);
+  animation:hhFloat 12s ease-in-out infinite alternate}
+@keyframes hhFloat{0%{transform:translateX(-2%) translateY(0)}100%{transform:translateX(2%) translateY(4%)}}
+.hh-inner{position:relative;display:flex;align-items:center;gap:20px;padding:18px 26px 10px;flex-wrap:wrap}
+.brand-xl{display:flex;align-items:center;gap:16px}
+.logo-orbit{position:relative;width:64px;height:64px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:4px;width:56px;height:56px;border-radius:50%;object-fit:cover;z-index:2}
+.logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
+  background:conic-gradient(from var(--ra,0deg),#ff2d6f,#52a8ff,#25f4ee,#ff2d6f);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+  animation:ringSpin 5s linear infinite;
+  filter:drop-shadow(0 0 8px rgba(255,45,111,.5)) drop-shadow(0 0 14px rgba(37,244,238,.3))}
+@property --ra{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes ringSpin{to{--ra:360deg}}
+.brand-txt{display:flex;flex-direction:column;gap:2px}
+.bt-name{font-weight:800;font-size:26px;line-height:1;letter-spacing:.04em;
+  background:linear-gradient(92deg,#ff2d6f 0%,#ff5674 28%,#52a8ff 62%,#25f4ee 100%);
+  background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:brandShift 6s ease-in-out infinite alternate;
+  filter:drop-shadow(0 0 14px rgba(255,45,111,.35))}
+.bt-dash{-webkit-text-fill-color:transparent}
+@keyframes brandShift{0%{background-position:0% 0}100%{background-position:100% 0}}
+.bt-tag{font-size:11.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+.hh-status{margin-left:auto;display:flex;align-items:center;gap:14px}
+.hh-live{font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:20px}
+
+/* dock de navegação: grande, central, interativo */
+.nav.dock{position:relative;display:flex;flex-direction:row;gap:6px;padding:10px 22px 14px;overflow-x:auto;scrollbar-width:none}
+.nav.dock::-webkit-scrollbar{display:none}
+.nav.dock button{position:relative;display:flex;align-items:center;gap:10px;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--muted);padding:11px 18px;border-radius:12px;font-size:14px;font-weight:600;font-family:inherit;transition:.2s;white-space:nowrap}
+.nav.dock button .d-ico{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--card2);box-shadow:inset 0 0 0 1px var(--border);transition:.2s;flex-shrink:0}
+.nav.dock button svg{width:17px;height:17px}
+.nav.dock button:hover{color:var(--text);background:var(--hover);transform:translateY(-2px)}
+.nav.dock button:hover .d-ico{box-shadow:inset 0 0 0 1px var(--border2),0 4px 14px rgba(0,0,0,.4)}
+.nav.dock button.active{color:var(--text);background:var(--card);border-color:var(--border2);box-shadow:0 6px 22px rgba(0,0,0,.45)}
+.nav.dock button.active .d-ico{background:linear-gradient(135deg,rgba(255,45,111,.22),rgba(82,168,255,.22));box-shadow:inset 0 0 0 1px rgba(255,86,116,.4)}
+.nav.dock button.active svg{color:#ff5674}
+.nav.dock button.active::after{content:'';position:absolute;left:16px;right:16px;bottom:-14px;height:2px;border-radius:2px;background:linear-gradient(90deg,#ff2d6f,#52a8ff);box-shadow:0 0 10px rgba(255,45,111,.7)}
+.nav .badge{margin-left:2px;background:var(--pink);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 8px var(--green)}
 .dot.off{background:var(--red);box-shadow:0 0 8px var(--red)}
 
@@ -362,15 +395,20 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 
 /* ── Responsivo ── */
 @media(max-width:960px){
-  .sidebar{position:fixed;left:0;top:0;transform:translateX(-100%);transition:.25s;z-index:70}
-  .sidebar.open{transform:none}
   .geo-grid,.ab-grid{grid-template-columns:1fr}
-  .menu-toggle{display:grid!important}
   .kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+  .hh-inner{padding:14px 16px 8px}
+  .logo-orbit{width:52px;height:52px}
+  .logo-orbit img{inset:4px;width:44px;height:44px}
+  .bt-name{font-size:20px}
+  .hh-status{width:100%;margin-left:0}
+  .nav.dock{padding:8px 12px 12px}
+  .nav.dock button{padding:9px 13px;font-size:13px}
+  .nav.dock button .d-lbl{display:none}
+  .nav.dock button.active .d-lbl{display:inline}
+  .ovh-right{margin-left:0;width:100%;justify-content:flex-start}
 }
-.menu-toggle{display:none;place-items:center;width:38px;height:38px;border-radius:10px;background:var(--card);border:1px solid var(--border);cursor:pointer}
-.menu-toggle svg{width:20px;height:20px}
-.menu-toggle{transition:background .15s,transform .1s} .menu-toggle:active{transform:scale(.94)}
+#menuToggle{display:none!important}
 
 /* ═══════════════ PERSONALIDADE · EFEITOS · MOVIMENTO ═══════════════ */
 html{scroll-behavior:smooth}
@@ -383,8 +421,56 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 /* Cards — elevação sutil no hover */
 .card{transition:border-color .2s,background .2s}
 .card:hover{border-color:var(--border2)}
-.kpi{transition:border-color .2s}
+.kpi{transition:border-color .25s,transform .25s,box-shadow .25s}
 .kpi:hover{border-color:var(--border2)}
+
+/* ── Visão Geral: hero ── */
+.ov-hero{position:relative;display:flex;align-items:center;gap:20px;flex-wrap:wrap;border:1px solid var(--border);border-radius:14px;padding:22px 26px;margin-bottom:18px;overflow:hidden;
+  background:linear-gradient(120deg,#141419 0%,#101015 55%,#12121a 100%)}
+.ov-hero::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(500px 200px at 85% 20%,rgba(255,45,111,.12),transparent 60%),radial-gradient(420px 180px at 15% 90%,rgba(82,168,255,.1),transparent 60%)}
+.ovh-shine{position:absolute;top:0;bottom:0;width:120px;pointer-events:none;transform:skewX(-18deg);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.045),transparent);
+  animation:ovShine 5.5s ease-in-out infinite}
+@keyframes ovShine{0%,20%{left:-20%}60%,100%{left:115%}}
+.ovh-left{position:relative;min-width:0}
+.ovh-greet{font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:600;margin-bottom:6px}
+.ovh-title{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.25}
+.ovh-brand{background:linear-gradient(92deg,#ff2d6f,#52a8ff,#25f4ee);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:brandShift 6s ease-in-out infinite alternate;font-weight:800}
+.ovh-sub{font-size:13px;color:var(--muted2);margin-top:5px}
+.ovh-right{position:relative;margin-left:auto;display:flex;gap:26px;align-items:center}
+.ovh-stat{text-align:right}
+.ovh-stat .os-v{font-family:'Geist Mono',monospace;font-size:24px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.ovh-stat .os-l{font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:.1em;font-weight:600;margin-top:3px}
+
+/* ── KPIs turbinados ── */
+.kpis-xl .kpi{border-radius:14px;padding-top:18px}
+.kpis-xl .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:2px 2px 0 0;opacity:.85;background:linear-gradient(90deg,var(--kg1,#3a3a44),var(--kg2,#26262c))}
+.kpis-xl .kpi.tint-cyan{--kg1:#52a8ff;--kg2:#25f4ee}
+.kpis-xl .kpi.tint-pink{--kg1:#ff2d6f;--kg2:#ff5674}
+.kpis-xl .kpi.tint-blue{--kg1:#52a8ff;--kg2:#7d8cff}
+.kpis-xl .kpi.tint-green{--kg1:#3ecf8e;--kg2:#25f4ee}
+.kpis-xl .kpi:hover{transform:translateY(-4px);box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.kpis-xl .kpi:hover .k-ico{transform:scale(1.1) rotate(-4deg)}
+.kpis-xl .k-ico{transition:.25s}
+.kpis-xl .kpi{animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards}
+.kpis-xl .kpi:nth-child(1){animation-delay:.02s}.kpis-xl .kpi:nth-child(2){animation-delay:.08s}
+.kpis-xl .kpi:nth-child(3){animation-delay:.14s}.kpis-xl .kpi:nth-child(4){animation-delay:.2s}
+@keyframes kpiIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* ── Ministats (substitui os chips) ── */
+.ministats{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:2px 0 6px}
+.mstat{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;overflow:hidden;transition:.22s;animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards}
+.mstat:nth-child(1){animation-delay:.05s}.mstat:nth-child(2){animation-delay:.1s}.mstat:nth-child(3){animation-delay:.15s}
+.mstat:nth-child(4){animation-delay:.2s}.mstat:nth-child(5){animation-delay:.25s}
+.mstat:hover{transform:translateY(-3px);border-color:var(--border2);box-shadow:0 10px 26px rgba(0,0,0,.45)}
+.mstat .ms-top{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+.mstat .ms-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex-shrink:0}
+.mstat .ms-ico svg{width:13px;height:13px}
+.mstat .ms-val{font-family:'Geist Mono',monospace;font-size:21px;font-weight:600;margin-top:9px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.mstat .ms-sub{font-size:11.5px;color:var(--muted2);margin-top:3px}
+.mstat .ms-bar{height:4px;border-radius:3px;background:var(--card2);margin-top:10px;overflow:hidden}
+.mstat .ms-fill{height:100%;border-radius:3px;width:0;transition:width 1s cubic-bezier(.2,.7,.3,1) .3s}
 
 /* Entrada em cascata — só ao trocar de aba (classe .entering) */
 @keyframes rise{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
@@ -567,32 +653,41 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 <!-- Tela de carregamento -->
 <div id="loading-screen">
   <div class="spin"></div>
-  <div class="load-text">Carregando Pulse...</div>
+  <div class="load-text">Carregando ROI-NADOS...</div>
 </div>
 
 <div class="app">
-  <aside class="sidebar" id="sidebar">
-    <div class="brand">
-      <img src="/assets/logo.png" alt="Logo Pulse" />
-      <div class="bt">Pulse</div>
+  <!-- ── Header hero: logo + marca ROI-NADOS + dock de navegação ── -->
+  <header class="hero-head" id="sidebar">
+    <div class="hh-glow"></div>
+    <div class="hh-inner">
+      <div class="brand-xl">
+        <div class="logo-orbit">
+          <div class="logo-ring"></div>
+          <img src="/assets/roi-nados-logo.jpg" alt="Logo ROI-NADOS" />
+        </div>
+        <div class="brand-txt">
+          <div class="bt-name">ROI<span class="bt-dash">-</span>NADOS</div>
+          <div class="bt-tag">Radar de Vendas &amp; Funil</div>
+        </div>
+      </div>
+      <div class="hh-status">
+        <div class="hh-live"><span class="dot" id="live-dot"></span>Ao vivo &middot; <span id="foot-updated">—</span></div>
+      </div>
     </div>
-    <nav class="nav" id="nav">
-      <button data-view="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg><span>Visão Geral</span></button>
-      <button data-view="live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg><span>Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
-      <button data-view="ab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/></svg><span>Teste A/B</span><span class="badge" id="nav-cooud-badge" style="display:none">!</span></button>
-      <button data-view="pixels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Pixel TikTok</span><span class="badge" id="nav-px-badge" style="display:none">0</span></button>
-      <div class="nav-div"></div>
-      <button data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82V8a1.65 1.65 0 001.51-1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span>Configurações</span></button>
+    <nav class="nav dock" id="nav">
+      <button data-view="overview" class="active"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span><span class="d-lbl">Visão Geral</span></button>
+      <button data-view="live"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg></span><span class="d-lbl">Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
+      <button data-view="ab"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/></svg></span><span class="d-lbl">Teste A/B</span><span class="badge" id="nav-cooud-badge" style="display:none">!</span></button>
+      <button data-view="pixels"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span><span class="d-lbl">Pixel TikTok</span><span class="badge" id="nav-px-badge" style="display:none">0</span></button>
+      <button data-view="config"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82V8a1.65 1.65 0 001.51-1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span><span class="d-lbl">Configurações</span></button>
     </nav>
-    <div class="side-foot">
-      <div><span class="dot" id="live-dot"></span>Ao vivo &middot; <span id="foot-updated">—</span></div>
-    </div>
-  </aside>
-  <div class="drawer-bg" id="side-scrim"></div>
+  </header>
+  <div class="drawer-bg" id="side-scrim" style="display:none"></div>
+  <div style="display:none" id="menuToggle"></div>
 
   <div class="main">
     <div class="topbar">
-      <div class="menu-toggle" id="menuToggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></div>
       <div>
         <h2 id="page-title">Visão Geral</h2>
         <div class="sub" id="page-sub">Resumo dos números que mais importam</div>
@@ -635,8 +730,18 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Visão Geral ── -->
       <section class="view active" id="view-overview">
-        <div class="grid kpis" id="ov-kpis"></div>
-        <div class="chips" id="ov-chips"></div>
+        <div class="ov-hero" id="ov-hero">
+          <div class="ovh-shine"></div>
+          <div class="ovh-left">
+            <div class="ovh-greet" id="ov-greet">Bem-vindo de volta</div>
+            <div class="ovh-title">Central de resultados <span class="ovh-brand">ROI-NADOS</span></div>
+            <div class="ovh-sub" id="ov-hero-sub">acompanhando cada lead em tempo real</div>
+          </div>
+          <div class="ovh-right" id="ov-hero-stat"></div>
+        </div>
+        <div class="grid kpis kpis-xl" id="ov-kpis"></div>
+        <div class="section-title"><span>Indicadores de performance</span><span class="line"></span></div>
+        <div class="ministats" id="ov-chips"></div>
         <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
         <div class="card goal-card" id="ov-goal"></div>
         <div class="section-title"><span>Tendência</span><span class="line"></span>
@@ -1097,21 +1202,74 @@ function spark(values,color){
 }
 
 /* ── Visão Geral ── */
+// Contagem animada: anima números inteiros de 0 até o valor final
+function countUp(el,target,suffix,dur){
+  if(!el||isNaN(target)) return;
+  var start=null; dur=dur||900;
+  function frame(ts){
+    if(!start)start=ts;
+    var p=Math.min(1,(ts-start)/dur);
+    var eased=1-Math.pow(1-p,3);
+    el.textContent=Math.round(target*eased)+(suffix||'');
+    if(p<1)requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+// Saudação conforme hora do dia
+function greeting(){
+  var h=new Date().getHours();
+  if(h<6)return 'Boa madrugada';
+  if(h<12)return 'Bom dia';
+  if(h<18)return 'Boa tarde';
+  return 'Boa noite';
+}
+function mstat(icoColor,icoBg,ico,label,val,sub,barPct,barColor,valId){
+  return '<div class="mstat">'+
+    '<div class="ms-top"><span class="ms-ico" style="background:'+icoBg+';color:'+icoColor+'">'+ico+'</span>'+esc(label)+'</div>'+
+    '<div class="ms-val"'+(valId?' id="'+valId+'"':'')+' style="color:'+icoColor+'">'+val+'</div>'+
+    '<div class="ms-sub">'+(sub||'')+'</div>'+
+    (barPct!=null?'<div class="ms-bar"><div class="ms-fill" data-w="'+Math.min(100,Math.max(0,barPct))+'" style="background:'+(barColor||icoColor)+'"></div></div>':'')+
+  '</div>';
+}
 function renderOverview(m){
   var w=prevWindow();
   var cur=w?aggregate(w.curFrom,w.curTo):null, prev=w?aggregate(w.prevFrom,w.prevTo):null;
   function dc(k,inv){ return (cur&&prev)?deltaChip(cur[k],prev[k],inv):''; }
+
+  // hero: saudação + resumo instantâneo à direita
+  var greet=document.getElementById('ov-greet');
+  if(greet)greet.textContent=greeting();
+  var heroSub=document.getElementById('ov-hero-sub');
+  if(heroSub)heroSub.textContent=m.visits+' leads rastreados no per\u00edodo \u00b7 '+m.countries.length+' pa\u00edses ativos';
+  var heroStat=document.getElementById('ov-hero-stat');
+  if(heroStat)heroStat.innerHTML=
+    '<div class="ovh-stat"><div class="os-v cyn">'+revObj(m.rev)+'</div><div class="os-l">Receita</div></div>'+
+    '<div class="ovh-stat"><div class="os-v pnk" id="ovh-sales">0</div><div class="os-l">Vendas</div></div>'+
+    '<div class="ovh-stat"><div class="os-v '+pctColor(m.overall)+'">'+m.overall+'%</div><div class="os-l">Convers\u00e3o</div></div>';
+
   document.getElementById('ov-kpis').innerHTML=
     kpi(I.money,'tint-cyan','Receita total','<span class="cyn">'+revObj(m.rev)+'</span>','no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#52a8ff'))+
-    kpi(I.cart,'tint-pink','Vendas aprovadas','<span class="pnk">'+m.sales+'</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+spark(seriesFor('sales'),'#ff5674'))+
-    kpi(I.users,'tint-blue','Novos leads','<span class="blu">'+m.visits+'</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
-    kpi(I.pct,'','Conversão','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra &middot; detalhes no Funil', dc('overall'));
+    kpi(I.cart,'tint-pink','Vendas aprovadas','<span class="pnk" id="ov-cu-sales">0</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+spark(seriesFor('sales'),'#ff5674'))+
+    kpi(I.users,'tint-blue','Novos leads','<span class="blu" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
+    kpi(I.pct,'tint-green','Conversão','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra &middot; detalhes no Funil', dc('overall'));
+
+  // ministats profissionais no lugar dos chips
+  var apColor=m.approval>=70?'#3ecf8e':m.approval>=40?'#f5b544':'#ff5674';
   document.getElementById('ov-chips').innerHTML=
-    chip('#3ecf8e','Aprovação',m.approval+'%')+
-    chip('#52a8ff','Ticket médio',money(m.avgTicket,m.mainCur))+
-    chip('#52a8ff','Países ativos',m.countries.length)+
-    chip('#f5b544','Reembolsos',m.refunds)+
-    chip('#ff5674','Disputas',m.disputes);
+    mstat(apColor,'rgba(62,207,142,.12)',I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor)+
+    mstat('#52a8ff','rgba(82,168,255,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null)+
+    mstat('#25f4ee','rgba(37,244,238,.1)',I.globe,'Países ativos',m.countries.length,(m.countries[0]?'l\u00edder: '+flag(m.countries[0].code)+' '+esc(m.countries[0].code):'aguardando leads'),null)+
+    mstat('#f5b544','rgba(245,181,68,.12)',I.zap,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null)+
+    mstat('#ff5674','rgba(255,86,116,.12)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null);
+
+  // dispara contagens e barras animadas
+  countUp(document.getElementById('ov-cu-sales'),m.sales);
+  countUp(document.getElementById('ov-cu-visits'),m.visits);
+  countUp(document.getElementById('ovh-sales'),m.sales);
+  requestAnimationFrame(function(){
+    document.querySelectorAll('#ov-chips .ms-fill').forEach(function(f){ f.style.width=f.getAttribute('data-w')+'%'; });
+  });
+
   renderGoal(m,prev);
   renderChart(m);
 }
@@ -1944,7 +2102,7 @@ function exportLeads(){
   var leads=(DATA.leads||[]).filter(function(l){ if(l.orphan)return false; if(!inPeriod(l.at))return false; if(stage&&l.stage!==stage)return false; if(gwf&&l.gateway!==gwf)return false; if(q){var hay=[l.id,l.country,l.countryName,l.customer,l.email].filter(Boolean).join(' ').toLowerCase(); if(hay.indexOf(q)<0)return false;} return true; });
   var rows=[['ID','Etapa','Gateway','Pais','Cidade','Cliente','Email','Origem','Esperado','Reportado','Moeda','Entrou']];
   leads.forEach(function(l){ rows.push([l.id,l.stage,l.gateway||'',l.countryName||l.country||'',l.city||'',l.customer||'',l.email||'',(l.utm&&l.utm.source)||'',((l.expectedAmount||0)/100).toFixed(2),((l.reportedAmount||0)/100).toFixed(2),l.reportedCurrency||l.expectedCurrency||'',l.at||'']); });
-  downloadCSV('pulse-leads-'+period+'.csv',rows);
+  downloadCSV('roi-nados-leads-'+period+'.csv',rows);
   toast(leads.length+' leads exportados');
 }
 function exportEvents(){
