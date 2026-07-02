@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "stripe": {
+      "assignments": 0,
+      "clicks": 0,
+      "conversions": 0,
+      "revenue": {}
+    },
+    "cooud": {
+      "assignments": 0,
+      "clicks": 0,
+      "conversions": 0,
+      "revenue": {}
+    }
+  },
+  "events": [],
+  "leads": [],
+  "updatedAt": "2026-07-02T12:51:03.350Z"
+}

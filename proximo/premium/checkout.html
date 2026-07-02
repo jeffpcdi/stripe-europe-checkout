@@ -20,6 +20,113 @@
     }(window, document, 'ttq');
   </script>
 
+  <!-- TikTok Pixel — camada de tracking profissional -->
+  <script>
+    (function () {
+      'use strict';
+
+      // Produto do funil (Taxa de Verificacao TikTok)
+      var PRODUCT = {
+        content_id: 'tiktok_verificacao',
+        content_name: 'Tasa de Verificacion TikTok',
+        content_category: 'Verificacion',
+        quantity: 1
+      };
+      var DEFAULT_VALUE = 12.97;
+      var DEFAULT_CURRENCY = 'EUR';
+      var _fired = {}; // deduplicacao por event_id
+
+      function uuid() {
+        try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (_) {}
+        return 'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+          var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      }
+      function eventId(name, ref) { return name + '.' + (ref || uuid()); }
+
+      // SHA-256 (para Advanced Matching)
+      function sha256(v) {
+        try {
+          if (!v || !window.crypto || !crypto.subtle) return Promise.resolve(undefined);
+          var data = new TextEncoder().encode(String(v).trim().toLowerCase());
+          return crypto.subtle.digest('SHA-256', data).then(function (buf) {
+            return Array.from(new Uint8Array(buf)).map(function (b) {
+              return b.toString(16).padStart(2, '0');
+            }).join('');
+          }).catch(function () { return undefined; });
+        } catch (_) { return Promise.resolve(undefined); }
+      }
+
+      function contents(value) {
+        return [{
+          content_id: PRODUCT.content_id,
+          content_name: PRODUCT.content_name,
+          content_category: PRODUCT.content_category,
+          price: value,
+          quantity: PRODUCT.quantity
+        }];
+      }
+
+      // Advanced Matching: envia identidade com hash SHA-256 para melhorar atribuicao
+      window.ttkIdentify = function (email, phone) {
+        if (!window.ttq || !ttq.identify) return;
+        var cleanPhone = phone ? String(phone).replace(/[^0-9+]/g, '') : '';
+        Promise.all([sha256(email), sha256(cleanPhone), sha256(email || cleanPhone)])
+          .then(function (h) {
+            var payload = {};
+            if (h[0]) payload.email = h[0];
+            if (h[1]) payload.phone_number = h[1];
+            if (h[2]) payload.external_id = h[2];
+            if (Object.keys(payload).length) { try { ttq.identify(payload); } catch (_) {} }
+          });
+      };
+
+      // Wrapper de track com contents[], value/currency dinamicos e event_id (dedup + pronto p/ CAPI)
+      window.ttkTrack = function (name, opts) {
+        opts = opts || {};
+        if (!window.ttq || !ttq.track) return;
+        var value = typeof opts.value === 'number' ? opts.value : DEFAULT_VALUE;
+        var currency = (opts.currency || DEFAULT_CURRENCY).toUpperCase();
+        var evId = eventId(name, opts.ref);
+        if (opts.dedup) { if (_fired[evId]) return; _fired[evId] = true; }
+        var data = {
+          content_type: 'product',
+          content_id: PRODUCT.content_id,
+          content_name: PRODUCT.content_name,
+          content_category: PRODUCT.content_category,
+          contents: contents(value),
+          quantity: PRODUCT.quantity,
+          value: value,
+          currency: currency
+        };
+        if (opts.description) data.description = opts.description;
+        try { ttq.track(name, data, { event_id: evId }); }
+        catch (_) { try { ttq.track(name, data); } catch (__) {} }
+      };
+
+      // Captura ttclid (URL ou cookie) e cookie _ttp — usados pelo Events API server-side
+      function getCookie(name) {
+        var m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+        return m ? decodeURIComponent(m[1]) : '';
+      }
+      window.ttkAttribution = function () {
+        var qs = new URLSearchParams(location.search);
+        var ttclid = qs.get('ttclid') || getCookie('ttclid') || getCookie('_ttclid') || '';
+        // persiste o ttclid da URL por 7 dias para sobreviver ao redirect do Stripe
+        if (qs.get('ttclid')) {
+          try { document.cookie = 'ttclid=' + encodeURIComponent(ttclid) + ';path=/;max-age=604800;SameSite=Lax'; } catch (_) {}
+        }
+        return { ttclid: ttclid, ttp: getCookie('_ttp') || '', url: location.href };
+      };
+
+      // ViewContent ao carregar a pagina de checkout
+      function fireView() { window.ttkTrack('ViewContent', {}); }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fireView);
+      else fireView();
+    })();
+  </script>
+
   <!-- Utmify -->
   <script src="https://cdn.utmify.com.br/scripts/utms/latest.js" data-utmify-prevent-xcod-sck data-utmify-prevent-subids async defer></script>
   <script>
@@ -1017,7 +1124,7 @@
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
             </div>
-            <p class="ck-review-text">€2.890 liberados al instante. No me lo creía hasta que vi el dinero en mi cuenta. 100% real.</p>
+            <p class="ck-review-text">��2.890 liberados al instante. No me lo creía hasta que vi el dinero en mi cuenta. 100% real.</p>
             <p class="ck-review-date">Hace 4 horas</p>
           </div>
 
@@ -1085,14 +1192,7 @@
       })();
 
       // TikTok Pixel — InitiateCheckout
-      try {
-        if (window.ttq && ttq.track) {
-          ttq.track('InitiateCheckout', {
-            content_type: 'product', content_id: 'tiktok_verificacao',
-            content_name: 'Tasa de Verificacion TikTok', value: 12.97, currency: 'EUR', quantity: 1
-          });
-        }
-      } catch (_) {}
+      if (window.ttkTrack) ttkTrack('InitiateCheckout', {});
 
       function fmtMoney(unit, currency) {
         try { return new Intl.NumberFormat(navigator.language || 'es', { style: 'currency', currency: currency.toUpperCase() }).format(unit); }
@@ -1155,7 +1255,10 @@
         fetch('/api/create-payment-intent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ currency: currency })
+          body: JSON.stringify({
+            currency: currency,
+            tracking: (window.ttkAttribution ? ttkAttribution() : {})
+          })
         })
           .then(function (res) { return res.json(); })
           .then(function (data) {
@@ -1201,11 +1304,9 @@
         hideError();
         setLoading(true);
 
-        try {
-          if (window.ttq && ttq.track) {
-            ttq.track('AddPaymentInfo', { content_type: 'product', content_id: 'tiktok_verificacao', value: 12.97, currency: 'EUR' });
-          }
-        } catch (_) {}
+        // Advanced Matching (email/hash) + AddPaymentInfo com valor real
+        if (window.ttkIdentify) ttkIdentify(email, null);
+        if (window.ttkTrack) ttkTrack('AddPaymentInfo', { value: currentUnit, currency: currentCurrency });
 
         stripe.confirmPayment({
           elements: elements,
@@ -1223,21 +1324,31 @@
                 var pm = result.paymentIntent.payment_method;
                 if (pm) localStorage.setItem('stripe_pm_id', typeof pm === 'string' ? pm : pm.id);
               } catch (_) {}
-              onSuccess();
+              onSuccess(result.paymentIntent);
             }
           })
           .catch(function (err) { showError(err.message || 'Error inesperado. Inténtalo de nuevo.'); setLoading(false); });
       });
 
-      function onSuccess() {
+      function onSuccess(pi) {
+        var value = currentUnit, currency = currentCurrency, orderRef;
         try {
-          if (window.ttq && ttq.track) {
-            ttq.track('CompletePayment', {
-              content_type: 'product', content_id: 'tiktok_verificacao',
-              content_name: 'Tasa de Verificacion TikTok', value: 12.97, currency: 'EUR', quantity: 1
-            });
+          if (pi) {
+            if (typeof pi.amount === 'number') value = pi.amount / 100;
+            if (pi.currency) currency = pi.currency;
+            orderRef = pi.id;
           }
         } catch (_) {}
+        // Reforca Advanced Matching com o email informado
+        try {
+          var em = (document.getElementById('billing-email') || {}).value;
+          if (em && window.ttkIdentify) ttkIdentify(em, null);
+        } catch (_) {}
+        // Conversao final — deduplicada por payment_intent (evita dupla contagem no retorno do redirect)
+        if (window.ttkTrack) {
+          ttkTrack('CompletePayment', { value: value, currency: currency, ref: orderRef, dedup: true });
+          ttkTrack('PlaceAnOrder', { value: value, currency: currency, ref: orderRef, dedup: true });
+        }
         document.getElementById('success-screen').style.display = 'flex';
         setTimeout(function () { window.location.href = SUCCESS_URL; }, 3000);
       }
@@ -1264,7 +1375,7 @@
               var pm = result.paymentIntent.payment_method;
               if (pm) localStorage.setItem('stripe_pm_id', typeof pm === 'string' ? pm : pm.id);
             } catch (_) {}
-            onSuccess();
+            onSuccess(result.paymentIntent);
           }
         });
       }
