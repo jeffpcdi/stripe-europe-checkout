@@ -1,3 +1,25 @@
+// ── Carrega variáveis de ambiente de arquivos .env (Node puro não faz isso) ─
+// Necessário para o DATABASE_URL do Neon e demais chaves em dev/preview.
+(() => {
+  const fsEnv = require('fs');
+  const pathEnv = require('path');
+  ['.env.development.local', '.env.local', '.env'].forEach((file) => {
+    const p = pathEnv.join(__dirname, file);
+    if (!fsEnv.existsSync(p)) return;
+    try {
+      fsEnv.readFileSync(p, 'utf8').split('\n').forEach((line) => {
+        const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+        if (!m) return;
+        let val = m[2];
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (process.env[m[1]] === undefined) process.env[m[1]] = val;
+      });
+    } catch (_) { /* ignora arquivo ilegível */ }
+  });
+})();
+
 const express = require('express');
 const path = require('path');
 const { Resend } = require('resend');
