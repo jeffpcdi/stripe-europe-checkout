@@ -79,9 +79,9 @@ input:checked+.slider:before{transform:translateX(16px)}
 .btn-icon:hover{background:var(--hover);color:var(--text)}
 
 .content{padding:24px 26px 90px}
-/* Página única: todas as seções empilhadas e sempre visíveis */
-section.view{display:block;scroll-margin-top:96px;padding-top:6px}
-section.view+section.view{margin-top:20px;padding-top:26px;border-top:1px solid var(--border)}
+/* Uma seção por vez: só a aba ativa fica visível */
+section.view{display:none}
+section.view.active{display:block;animation:fade .3s ease}
 @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 /* Cabeçalho âncora de cada seção */
 .view-head{display:flex;align-items:center;gap:14px;margin:0 0 18px}
@@ -658,14 +658,11 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <span><span class="leg-dot" style="background:var(--pink)"></span>Externo</span>
           </div>
         </div>
-        <div class="section-title"><span>Destaques</span><span class="line"></span></div>
-        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))" id="ov-highlights"></div>
       </section>
 
       <!-- ── Funil & Leads ── -->
       <section class="view" id="view-funnel">
-        <div class="grid kpis" id="fn-kpis"></div>
-        <div class="section-title"><span>Funil de conversão</span><span class="line"></span></div>
+        <div class="section-title" style="margin-top:0"><span>Funil de conversão</span><span class="line"></span><span class="muted" style="font-size:11.5px">visita &#8594; checkout &#8594; compra</span></div>
         <div class="card"><div class="funnel" id="funnel-bars"></div></div>
         <div class="section-title"><span>Por gateway</span><span class="line"></span></div>
         <div class="grid" style="grid-template-columns:1fr 1fr" id="fn-gateways"></div>
@@ -695,12 +692,8 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Países ── -->
       <section class="view" id="view-geo">
         <div class="grid kpis" id="geo-kpis"></div>
-        <div class="chips" id="geo-chips"></div>
-        <div class="section-title"><span>De onde vêm seus leads</span><span class="line"></span><span class="muted" style="font-size:11.5px">arraste o globo para girar</span></div>
-        <div class="geo-grid">
-          <div class="card" style="padding:0"><div id="globe"></div></div>
-          <div class="card"><div class="clist" id="country-list"></div></div>
-        </div>
+        <div class="section-title"><span>Ranking por país</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads e compras &middot; o globo 3D fica na aba Ao Vivo</span></div>
+        <div class="card"><div class="clist" id="country-list"></div></div>
       </section>
 
       <!-- ── Teste A/B ── -->
@@ -733,8 +726,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Atividade ── -->
       <section class="view" id="view-activity">
-        <div class="grid kpis" id="act-kpis"></div>
-        <div class="section-title"><span>Quando as vendas acontecem</span><span class="line"></span><span class="muted" style="font-size:11.5px">hora &times; dia da semana</span></div>
+        <div class="section-title" style="margin-top:0"><span>Quando as vendas acontecem</span><span class="line"></span><span class="muted" style="font-size:11.5px">hora &times; dia da semana</span></div>
         <div class="card" id="act-heat"></div>
         <div class="section-title"><span>Linha do tempo</span><span class="line"></span></div>
         <div class="tbl-tools" style="margin-top:6px">
@@ -898,7 +890,7 @@ function fmtDateLocal(iso){
 }
 function pctColor(v){ return v>=60?'pos':v>=30?'amb':'neg'; }
 
-var DATA=null, CFG=null, HEALTH=null, period='7d', chartMode='revenue', evFilter='', autoTimer=null, globe=null, currentView='overview', currentLeadId=null;
+var DATA=null, CFG=null, HEALTH=null, period='7d', chartMode='revenue', evFilter='', autoTimer=null, currentView='overview', currentLeadId=null;
 var leadsById={};
 var LIVE={visitors:[],summary:{online:0,countries:[]}}, liveTimer=null, liveGlobe=null;
 
@@ -966,9 +958,6 @@ function metrics(){
 function kpi(ico,cls,label,val,sub,extra){
   return '<div class="card kpi '+(cls||'')+'"><div class="k-top"><span class="k-ico">'+ico+'</span>'+esc(label)+'</div><div class="k-val">'+val+'</div><div class="k-sub">'+(sub||'')+'</div>'+(extra||'')+'</div>';
 }
-function hl(icoCls,ico,label,val,sub){
-  return '<div class="card kpi hl-card"><div class="k-top"><span class="k-ico '+icoCls+'">'+ico+'</span>'+label+'</div><div class="k-val small">'+val+'</div><div class="k-sub">'+(sub||'')+'</div></div>';
-}
 function chip(color,label,val){ return '<div class="chip"><span class="cdot" style="background:'+color+'"></span>'+label+' <b>'+val+'</b></div>'; }
 var ARR_UP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 var ARR_DN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 5v14M5 12l7 7 7-7"/></svg>';
@@ -1035,23 +1024,16 @@ function renderOverview(m){
   document.getElementById('ov-kpis').innerHTML=
     kpi(I.money,'tint-cyan','Receita total','<span class="cyn">'+revObj(m.rev)+'</span>','no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#52a8ff'))+
     kpi(I.cart,'tint-pink','Vendas aprovadas','<span class="pnk">'+m.sales+'</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+spark(seriesFor('sales'),'#ff5674'))+
-    kpi(I.check,'tint-green','Taxa de aprovação','<span class="'+pctColor(m.approval)+'">'+m.approval+'%</span>','aprovadas / tentativas', dc('approval')+spark(seriesFor('approval'),'#3ecf8e'))+
     kpi(I.users,'tint-blue','Novos leads','<span class="blu">'+m.visits+'</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
-    kpi(I.pct,'','Conversão do funil','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra', dc('overall'));
+    kpi(I.pct,'','Conversão','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra &middot; detalhes no Funil', dc('overall'));
   document.getElementById('ov-chips').innerHTML=
+    chip('#3ecf8e','Aprovação',m.approval+'%')+
     chip('#52a8ff','Ticket médio',money(m.avgTicket,m.mainCur))+
-    chip('#3ecf8e','Checkouts',m.reached)+
     chip('#52a8ff','Países ativos',m.countries.length)+
     chip('#f5b544','Reembolsos',m.refunds)+
     chip('#ff5674','Disputas',m.disputes);
   renderGoal(m,prev);
   renderChart(m);
-  var topC=m.countries[0];
-  document.getElementById('ov-highlights').innerHTML=
-    hl('ic-cyan',I.globe,'Pa&iacute;s n&ordm;1',(topC?'<span class="k-flag"><span class="fi">'+flag(topC.code)+'</span>'+esc(topC.name)+'</span>':'—'),(topC?topC.count+' leads':'sem dados'))+
-    hl('ic-amber',I.cart,'Chegaram ao checkout',m.reached,m.v2c+'% dos leads')+
-    hl('ic-green',I.money,'Ticket m&eacute;dio',money(m.avgTicket,m.mainCur),'por venda aprovada')+
-    hl('ic-pink',I.dispute,'Reembolsos / disputas',m.refunds+' / '+m.disputes,'no per&iacute;odo');
 }
 
 /* ── Anel de meta de receita (meta sugerida = 1,2× período anterior) ── */
@@ -1059,6 +1041,10 @@ function renderGoal(m,prev){
   var el=document.getElementById('ov-goal'); if(!el) return;
   var curRev=sumRev(m.rev);
   var base=(prev&&prev.rev>0)?prev.rev:curRev;
+  if(!curRev&&!base){
+    el.innerHTML='<div class="empty" style="width:100%;text-align:center;padding:18px 0">Assim que a primeira venda entrar, a meta &eacute; calculada automaticamente aqui.</div>';
+    return;
+  }
   var goal=Math.max(base*1.2,curRev,1);
   var pct=Math.min(100,Math.round(curRev/goal*100));
   var R=46,C=2*Math.PI*R,off=C*(1-pct/100);
@@ -1130,11 +1116,6 @@ function renderChart(m){
 
 /* ── Funil ── */
 function renderFunnel(m){
-  document.getElementById('fn-kpis').innerHTML=
-    kpi(I.users,'tint-cyan','Leads (topo)','<span class="cyn">'+m.visits+'</span>','entraram no site')+
-    kpi(I.cart,'','Chegaram ao checkout','<span>'+m.reached+'</span>',m.v2c+'% dos leads')+
-    kpi(I.check,'tint-pink','Compraram','<span class="pnk">'+m.bought+'</span>',m.c2p+'% dos checkouts')+
-    kpi(I.pct,'','Conversão total','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra');
   var max=Math.max(m.visits,1);
   var steps=[
     {l:'Visitaram',s:'topo do funil',v:m.visits,c:'#52a8ff',r:'100%'},
@@ -1216,15 +1197,6 @@ function renderGeo(m){
     kpi(I.globe,'tint-cyan','Países ativos','<span class="cyn">'+m.countries.length+'</span>','com pelo menos 1 lead')+
     kpi(I.users,'','Leads geolocalizados','<span>'+totalLeads+'</span>','com pa&iacute;s identificado')+
     kpi(I.zap,'tint-pink','Principal mercado','<span class="pnk">'+(m.countries[0]?flag(m.countries[0].code)+' '+esc(m.countries[0].code):'—')+'</span>',(m.countries[0]?m.countries[0].count+' leads':'sem dados'));
-  var buyers=m.countries.filter(function(c){return c.purchased>0;}).length;
-  var totalBuy=m.countries.reduce(function(a,c){return a+c.purchased;},0);
-  var continents=m.countries.length;
-  var gc=document.getElementById('geo-chips');
-  if(gc) gc.innerHTML=
-    chip('#3ecf8e','Países que compraram',buyers)+
-    chip('#52a8ff','Total de compras',totalBuy)+
-    chip('#52a8ff','Top 3',m.countries.slice(0,3).map(function(c){return flag(c.code);}).join(' ')||'—')+
-    chip('#f5b544','Média por país',m.countries.length?Math.round(m.countries.reduce(function(a,c){return a+c.count;},0)/m.countries.length):0);
   var max=m.countries[0]?m.countries[0].count:1;
   var cl=document.getElementById('country-list');
   cl.innerHTML=m.countries.length?m.countries.map(function(c){
@@ -1234,9 +1206,8 @@ function renderGeo(m){
       '<div class="cbar"><i style="width:'+((c.count/max)*100)+'%"></i></div>'+
       '<div class="cval">'+c.count+'</div></div>';
   }).join(''):'<div class="empty">Sem dados de pa&iacute;s ainda.</div>';
-  renderGlobe(m.countries);
 }
-// Construtor de globo compartilhado (visual refinado) — usado por Países e Ao Vivo.
+// Construtor de globo (visual refinado) — usado pela aba Ao Vivo.
 function makeGlobe(el,height){
   el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
   var g=Globe()(el)
@@ -1256,37 +1227,6 @@ function makeGlobe(el,height){
   setTimeout(function(){ try{g.width(el.clientWidth).height(height);}catch(e){} },80);
   return g;
 }
-function renderGlobe(countries){
-  var el=document.getElementById('globe'); if(!el) return;
-  if(typeof Globe==='undefined'){
-    el.innerHTML='<div class="empty" style="height:100%;display:flex;align-items:center;justify-content:center">Globo indispon&iacute;vel (sem CDN). Veja a lista ao lado.</div>';
-    return;
-  }
-  var top=countries[0]?countries[0].count:1;
-  var pts=countries.filter(function(c){return GEO[c.code];}).map(function(c){
-    var g=GEO[c.code];
-    return {lat:g[0],lng:g[1],size:Math.max(.18,Math.min(.95,c.count/top)),count:c.count,name:c.name,code:c.code};
-  });
-  try{
-    if(!globe){
-      globe=makeGlobe(el,520);
-      globe.pointAltitude(function(d){return 0.02+d.size*0.26;})
-        .pointRadius(function(d){return 0.32+d.size*0.58;})
-        .pointColor(function(){return '#ff5674';})
-        .pointLabel(function(d){
-          return '<div style="background:#14141e;border:1px solid #26263a;padding:6px 10px;border-radius:8px;font-family:Inter,sans-serif;font-size:12px;color:#fff">'+
-            flag(d.code)+' '+d.name+': <b>'+d.count+'</b> leads</div>';
-        })
-        .ringColor(function(){return function(t){return 'rgba(82,168,255,'+(1-t)+')';};})
-        .ringMaxRadius(function(d){return 2+d.size*4;})
-        .ringPropagationSpeed(1.4)
-        .ringRepeatPeriod(function(d){return 1600-d.size*700;});
-    }
-    globe.pointsData(pts);
-    globe.ringsData(pts.slice(0,12)); // anéis pulsantes só nos principais mercados
-  }catch(e){ el.innerHTML='<div class="empty">N&atilde;o foi poss&iacute;vel carregar o globo.</div>'; }
-}
-
 /* ── Ao Vivo ── */
 function pageLabel(p){
   if(!p) return '—';
@@ -1522,17 +1462,6 @@ function renderActivity(){
   var cnt=document.getElementById('ev-count');
   if(cnt) cnt.textContent=events.length+' evento'+(events.length!==1?'s':'');
   var extName=CFG&&CFG.externalName||'Cooud';
-  // KPIs de sumário
-  var sales=all.filter(function(e){return e.type==='sale';}).length;
-  var fails=all.filter(function(e){return e.type==='failed';}).length;
-  var refs=all.filter(function(e){return e.type==='refund';}).length;
-  var disps=all.filter(function(e){return e.type==='dispute';}).length;
-  var actKpis=document.getElementById('act-kpis');
-  if(actKpis) actKpis.innerHTML=
-    kpi(I.sale,'tint-cyan','Vendas aprovadas','<span class="cyn">'+sales+'</span>','no hist&oacute;rico total')+
-    kpi(I.fail,'tint-pink','Recusadas','<span class="pnk">'+fails+'</span>',(sales+fails)?((fails/(sales+fails)*100).toFixed(0)+'% de tentativas'):'')+
-    kpi(I.refund,'','Reembolsos','<span class="amb">'+refs+'</span>','emitidos')+
-    kpi(I.dispute,'','Disputas','<span class="neg">'+disps+'</span>','abertas');
   var map={
     sale:{i:I.sale,c:'var(--green)'},
     failed:{i:I.fail,c:'var(--red)'},
@@ -1708,7 +1637,7 @@ function exportEvents(){
 function setPeriod(p){
   period=p;
   document.querySelectorAll('#period button').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-p')===p);});
-  globe=null; renderAll();
+  renderAll();
 }
 
 /* ── Paleta de comandos ⌘K ── */
@@ -1795,12 +1724,6 @@ function setView(v){
   // animação de entrada em cascata (uma vez por troca de aba)
   var sec=document.getElementById('view-'+v);
   if(sec){ sec.classList.remove('entering'); void sec.offsetWidth; sec.classList.add('entering'); setTimeout(function(){sec.classList.remove('entering');},700); }
-  if(v==='geo'&&DATA){
-    setTimeout(function(){
-      if(globe){ try{globe.width(document.getElementById('globe').clientWidth).height(520);}catch(e){} }
-      else if(DATA){ var m=metrics(); renderGlobe(m.countries); }
-    },80);
-  }
   if(v==='live'){
     renderLive();
     loadLive();
@@ -1886,7 +1809,7 @@ document.getElementById('cfg-save').addEventListener('click',function(){
 document.getElementById('reset-btn').addEventListener('click',function(){
   if(!confirm('Tem certeza? Isto apaga todos os leads e eventos.')) return;
   fetch('/api/reset-stats',{method:'POST'})
-    .then(function(){ toast('Estatísticas zeradas'); globe=null; refresh(); })
+    .then(function(){ toast('Estatísticas zeradas'); refresh(); })
     .catch(function(){toast('Erro',false);});
 });
 
