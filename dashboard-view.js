@@ -1563,12 +1563,16 @@ function updateRotPreview(){
   w.style.pointerEvents=on?'auto':'none';
   updateRotCount();
 }
+function isValidRotUrl(u){
+  u=u.toLowerCase();
+  return (u.indexOf('http://')===0||u.indexOf('https://')===0)&&u.length>8;
+}
 function updateRotCount(){
   var el=document.getElementById('cfg-rot-count'); if(!el) return;
-  var lines=document.getElementById('cfg-rot-urls').value.split(String.fromCharCode(10));
-  var valid=lines.map(function(u){return u.trim();}).filter(function(u){return /^https?:\/\/.+/i.test(u);});
-  var invalid=lines.map(function(u){return u.trim();}).filter(function(u){return u&&!/^https?:\/\/.+/i.test(u);}).length;
-  el.textContent=valid.length+' URL'+(valid.length===1?'':'s')+' válida'+(valid.length===1?'':'s')+(invalid?' · '+invalid+' ignorada'+(invalid===1?'':'s'):'');
+  var lines=document.getElementById('cfg-rot-urls').value.split(String.fromCharCode(10)).map(function(u){return u.trim();});
+  var valid=lines.filter(isValidRotUrl).length;
+  var invalid=lines.filter(function(u){return u&&!isValidRotUrl(u);}).length;
+  el.textContent=valid+' URL'+(valid===1?'':'s')+' válida'+(valid===1?'':'s')+(invalid?' · '+invalid+' ignorada'+(invalid===1?'':'s'):'');
   el.style.color=invalid?'var(--warn,#e0a800)':'var(--muted2)';
 }
 // Salva apenas o bloco de rotação (botão dedicado no card)
