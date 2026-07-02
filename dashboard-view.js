@@ -761,7 +761,7 @@ function renderLeadsTable(){
     var origin=(l.utm&&l.utm.source)?esc(l.utm.source):(l.referer?'ref':'direto');
     var val=l.reportedAmount?money(l.reportedAmount,l.reportedCurrency):(l.expectedAmount?('<span class="muted">'+money(l.expectedAmount,l.expectedCurrency)+'</span>'):'—');
     var shortId=l.id.slice(0,12);
-    return '<tr onclick="openLead(\''+esc(l.id)+'\')">'+
+    return '<tr onclick="openLead(\\''+esc(l.id)+'\\')">'+
       '<td><span style="font-family:monospace;font-size:12px">'+esc(shortId)+'</span></td>'+
       '<td>'+stageTag+'</td>'+
       '<td>'+gwTag+' <span class="muted" style="font-size:11px">'+path+'</span></td>'+
@@ -947,7 +947,7 @@ function renderCooud(){
     if(l.smartCapture) pr.push('<span class="tag cap">Capture</span>');
     if(l.recovery) pr.push('<span class="tag rec">Recup.</span>');
     if(l.duplicateReports) pr.push('<span class="tag amber" style="border-color:var(--amber);color:var(--amber)">x'+(l.duplicateReports+1)+'</span>');
-    return '<tr onclick="openLead(\''+esc(l.id)+'\')">'+
+    return '<tr onclick="openLead(\\''+esc(l.id)+'\\')">'+
       '<td><span style="font-family:monospace;font-size:12px">'+esc(l.id.slice(0,14))+'</span></td>'+
       '<td>'+st+'</td>'+
       '<td>'+(l.expectedAmount?money(l.expectedAmount,l.expectedCurrency):'—')+'</td>'+
@@ -1244,11 +1244,14 @@ document.getElementById('ar-interval').addEventListener('change',setupAuto);
 
 /* ── Boot ── */
 var LS=document.getElementById('loading-screen');
+function hideLS(){ if(LS){ LS.classList.add('hide'); setTimeout(function(){LS.style.display='none';},320); } }
+// rede de segurança: nunca deixa a tela de carregamento presa
+var lsGuard=setTimeout(hideLS,8000);
 refresh().then(function(){
   setupAuto();
-  if(LS){ LS.classList.add('hide'); setTimeout(function(){LS.style.display='none';},320); }
+  clearTimeout(lsGuard); hideLS();
 }).catch(function(){
-  if(LS){ LS.classList.add('hide'); setTimeout(function(){LS.style.display='none';},320); }
+  clearTimeout(lsGuard); hideLS();
 });
 </script>
 </body>
