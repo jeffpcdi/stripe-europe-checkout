@@ -359,15 +359,50 @@ tbody tr:hover{background:var(--hover)}
 .crow .cval{font-family:'Geist Mono';font-weight:700;width:30px;text-align:right;font-size:14px;flex-shrink:0}
 
 /* ── A/B ── */
-.ab-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.verdict{border:1px solid var(--border2);border-radius:var(--radius);padding:20px;background:var(--card)}
-.verdict .win{font-family:'Geist Mono';font-size:26px;font-weight:700;margin-top:6px}
-.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
-.vcell{background:var(--card2);border-radius:12px;padding:14px}
-.vcell .vt{font-size:11.5px;color:var(--muted2)}
-.vcell .vv{font-family:'Geist Mono';font-weight:700;font-size:20px;margin-top:5px}
-.conf-bar{height:8px;background:var(--card2);border-radius:6px;overflow:hidden;margin-top:8px}
-.conf-bar i{display:block;height:100%;transition:width .8s ease,background .4s}
+/* barra de controle compacta (antes era um card grande) */
+.ab-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 16px;margin-bottom:16px;position:relative;overflow:hidden}
+.ab-bar::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--cyan),#52a8ff 50%,var(--pink));opacity:.45}
+.ab-status{font-size:12.5px;color:var(--muted);font-weight:600;white-space:nowrap}
+.ab-status.on{color:var(--green)}
+.ab-split-wrap{flex:1;min-width:200px;display:flex;align-items:center;gap:10px;transition:opacity .25s}
+.ab-split-wrap .abm{font-size:12px;font-family:'Geist Mono';min-width:78px;font-weight:600}
+.ab-split-wrap input[type=range]{flex:1}
+.ab-links{display:flex;gap:4px;margin-left:auto}
+.ab-links a{font-size:11.5px;font-weight:600;color:var(--muted);text-decoration:none;padding:5px 10px;border-radius:8px;border:1px solid var(--border);transition:.15s;white-space:nowrap}
+.ab-links a:hover{color:var(--cyan);border-color:var(--cyan)}
+.ab-grid{display:grid;grid-template-columns:1fr 1.15fr;gap:16px;align-items:stretch}
+@media(max-width:860px){.ab-grid{grid-template-columns:1fr}}
+/* veredito refinado */
+.verdict{position:relative;overflow:hidden;border:1px solid var(--border2);border-radius:14px;padding:22px;background:var(--card);animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards}
+.verdict::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(320px 150px at 85% 0%,rgba(255,45,111,.08),transparent 65%),radial-gradient(280px 140px at 10% 100%,rgba(82,168,255,.07),transparent 65%)}
+.verdict .win{font-family:'Geist Mono';font-size:30px;font-weight:700;margin-top:6px;letter-spacing:-.02em}
+.verdict .win.cyn{text-shadow:0 0 22px rgba(82,168,255,.45)}
+.verdict .win.pnk{text-shadow:0 0 22px rgba(255,86,116,.45)}
+.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.vcell{background:var(--card2);border-radius:12px;padding:13px 15px;border:1px solid var(--border);border-left:3px solid var(--vc,var(--border2))}
+.vcell .vt{font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+.vcell .vv{font-family:'Geist Mono';font-weight:700;font-size:19px;margin-top:5px}
+.vstats{display:flex;gap:18px;margin-top:16px;flex-wrap:wrap}
+.vstat{font-size:12px;color:var(--muted2)}
+.vstat b{color:var(--text);font-family:'Geist Mono';font-size:13px}
+.conf-bar{height:7px;background:var(--card2);border-radius:6px;overflow:hidden;margin-top:8px}
+.conf-bar i{display:block;height:100%;transition:width .8s ease,background .4s;border-radius:6px}
+/* comparativo com barras integradas */
+#ab-metrics{border-radius:14px;animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) .08s backwards}
+.abm-head{display:grid;grid-template-columns:1fr auto auto;gap:10px;font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em;font-weight:700;padding-bottom:8px;border-bottom:1px solid var(--border2)}
+.abm-head span:nth-child(2),.abm-head span:nth-child(3){min-width:92px;text-align:right}
+.abrow{padding:11px 0;border-bottom:1px solid var(--border)}
+.abrow:last-child{border-bottom:0;padding-bottom:2px}
+.abrow .abr-top{display:grid;grid-template-columns:1fr auto auto;gap:10px;font-size:13px;align-items:center}
+.abrow .abr-top .lbl{color:var(--muted)}
+.abrow .abr-top .va,.abrow .abr-top .vb{text-align:right;min-width:92px;font-family:'Geist Mono';font-weight:600;font-size:13px}
+.abrow .abr-top .lead-val{position:relative}
+.abrow .abr-top .lead-val::after{content:'\\25B4';font-size:9px;margin-left:4px;opacity:.9}
+.abrow .abr-bars{display:flex;flex-direction:column;gap:3px;margin-top:7px}
+.abrow .abr-bars .b{height:5px;border-radius:3px;min-width:3px;transition:width .8s cubic-bezier(.2,.7,.3,1)}
+.abrow .abr-bars .b.s{background:linear-gradient(90deg,var(--cyan),rgba(82,168,255,.55))}
+.abrow .abr-bars .b.c{background:linear-gradient(90deg,var(--pink),rgba(255,86,116,.55))}
 
 /* ── Config form ── */
 .form-row{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
@@ -419,10 +454,6 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 /* ── Btn-icon (copiar ID, etc.) ── */
 .btn-icon{background:var(--card2);border:1px solid var(--border);color:var(--muted);height:30px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:11.5px;font-weight:600;letter-spacing:.02em;display:inline-flex;align-items:center;gap:5px;transition:color .15s,border-color .15s}
 .btn-icon:hover{color:var(--cyan);border-color:var(--cyan)}
-
-/* ── Gráfico A/B ── */
-#ab-chart-card{overflow:hidden}
-#ab-chart svg{display:block;overflow:visible}
 
 /* ── Toast ── */
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--card);border:1px solid var(--border2);color:var(--text);padding:12px 20px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:60;transition:.3s;box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:none}
@@ -927,35 +958,24 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Teste A/B ── -->
       <section class="view" id="view-ab">
         <div id="ab-alert"></div>
-        <div class="card" id="ab-control" style="margin-bottom:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-            <h3 style="font-size:15px">Controle do experimento</h3>
-            <div style="display:flex;gap:8px">
-              <a class="btn btn-sm" href="/checkout?ab=stripe" target="_blank" rel="noopener">Testar Stripe</a>
-              <a class="btn btn-sm" href="/checkout?ab=cooud" target="_blank" rel="noopener" id="ab-test-cooud">Testar Cooud</a>
-            </div>
+        <div class="ab-bar" id="ab-control">
+          <label class="switch" title="Ligar/desligar o teste A/B"><input type="checkbox" id="ab-mode" /><span class="slider"></span></label>
+          <span id="ab-mode-label" class="ab-status">&mdash;</span>
+          <div id="ab-split-wrap" class="ab-split-wrap">
+            <span class="cyn abm" id="ab-split-s">Stripe 50%</span>
+            <input type="range" id="ab-split" min="0" max="100" step="5" value="50" />
+            <span class="pnk abm" style="text-align:right" id="ab-split-c">Cooud 50%</span>
           </div>
-          <div style="display:flex;align-items:center;gap:14px;margin-top:14px;flex-wrap:wrap">
-            <label class="switch" title="Ligar/desligar o teste A/B"><input type="checkbox" id="ab-mode" /><span class="slider"></span></label>
-            <span id="ab-mode-label" class="muted" style="font-size:13px;min-width:150px">—</span>
-            <div id="ab-split-wrap" style="flex:1;min-width:220px;display:flex;align-items:center;gap:12px">
-              <span class="cyn" style="font-size:12.5px;font-family:var(--mono,monospace);min-width:74px" id="ab-split-s">Stripe 50%</span>
-              <input type="range" id="ab-split" min="0" max="100" step="5" value="50" style="flex:1" />
-              <span class="pnk" style="font-size:12.5px;font-family:var(--mono,monospace);min-width:74px;text-align:right" id="ab-split-c">Cooud 50%</span>
-            </div>
-            <button class="btn btn-sm primary" id="ab-save" style="display:none">Salvar</button>
+          <button class="btn btn-sm primary" id="ab-save" style="display:none">Salvar</button>
+          <div class="ab-links">
+            <a href="/checkout?ab=stripe" target="_blank" rel="noopener" title="Abrir checkout for&ccedil;ando Stripe">Stripe &nearr;</a>
+            <a href="/checkout?ab=cooud" target="_blank" rel="noopener" id="ab-test-cooud" title="Abrir checkout for&ccedil;ando o gateway externo">Cooud &nearr;</a>
           </div>
         </div>
         <div class="ab-grid">
           <div class="verdict" id="ab-verdict"></div>
           <div class="card" id="ab-metrics"></div>
         </div>
-        <div class="section-title"><span>Comparativo visual</span><span class="line"></span></div>
-        <div class="card" id="ab-chart-card">
-          <div id="ab-chart" style="width:100%;overflow:hidden"></div>
-        </div>
-        <div class="section-title"><span>Variantes em detalhe</span><span class="line"></span></div>
-        <div class="grid" style="grid-template-columns:1fr 1fr" id="ab-variants"></div>
       </section>
 
       <!-- ── Anti-desvio (Cooud) ── -->
@@ -1943,27 +1963,40 @@ function renderAB(){
     '<div class="alert info">'+I.check+'<div><b>Amostra ainda pequena</b><p>Recomendado pelo menos 30 visitantes por variante para um veredito confi&aacute;vel.</p></div></div>':
     (conf>=95?'<div class="alert ok">'+I.check+'<div><b>Resultado estat&iacute;sticamente significativo ('+conf+'%)</b><p>Voc&ecirc; pode confiar neste vencedor e ajustar a divis&atilde;o do tr&aacute;fego em Configura&ccedil;&otilde;es.</p></div></div>':'');
   document.getElementById('ab-verdict').innerHTML=
-    '<div class="muted" style="font-size:12.5px">Vencedor por receita/visitante (RPV)</div>'+
+    '<div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:600">Vencedor por receita/visitante</div>'+
     '<div class="win '+(winner==='cooud'?'pnk':'cyn')+'">'+winName+'</div>'+
     '<div class="vgrid">'+
-      '<div class="vcell"><div class="vt">RPV Stripe</div><div class="vv cyn">'+money(rpvS,Object.keys(s.revenue||{})[0]||'EUR')+'</div></div>'+
-      '<div class="vcell"><div class="vt">RPV '+esc(extName)+'</div><div class="vv pnk">'+money(rpvC,Object.keys(c.revenue||{})[0]||'EUR')+'</div></div>'+
+      '<div class="vcell" style="--vc:var(--cyan)"><div class="vt">RPV Stripe</div><div class="vv cyn">'+money(rpvS,Object.keys(s.revenue||{})[0]||'EUR')+'</div></div>'+
+      '<div class="vcell" style="--vc:var(--pink)"><div class="vt">RPV '+esc(extName)+'</div><div class="vv pnk">'+money(rpvC,Object.keys(c.revenue||{})[0]||'EUR')+'</div></div>'+
     '</div>'+
-    '<div style="margin-top:14px">'+
-      '<div class="muted" style="font-size:12px">Uplift do vencedor: <b style="color:var(--text)">+'+uplift+'%</b></div>'+
-      '<div class="muted" style="font-size:12px;margin-top:6px">Confian&ccedil;a estat&iacute;stica: <b style="color:var(--text)">'+conf+'%</b></div>'+
-      '<div class="conf-bar" style="margin-top:8px"><i style="width:'+Math.min(100,conf)+'%;background:'+(conf>=95?'var(--green)':'var(--amber)')+'"></i></div>'+
-    '</div>';
+    '<div class="vstats">'+
+      '<span class="vstat">Uplift <b>+'+uplift+'%</b></span>'+
+      '<span class="vstat">Confian&ccedil;a <b>'+conf+'%</b></span>'+
+    '</div>'+
+    '<div class="conf-bar"><i style="width:'+Math.min(100,conf)+'%;background:'+(conf>=95?'var(--green)':'var(--amber)')+'"></i></div>';
+  // comparativo único com barras integradas (substitui tabela + gráfico + cards duplicados)
+  var maxRev=Math.max(sumRev(s.revenue),sumRev(c.revenue),1);
   document.getElementById('ab-metrics').innerHTML=
-    '<h3 style="font-size:15px;margin-bottom:14px">Comparativo</h3>'+
-    metricRow('Visitantes',s.assignments,c.assignments)+
-    metricRow('Cliques no checkout',s.clicks||0,c.clicks||0)+
-    metricRow('Convers&otilde;es',s.conversions,c.conversions)+
-    metricRow('Taxa de convers&atilde;o',(s.conversionRate||0)+'%',(c.conversionRate||0)+'%')+
-    metricRow('Receita',revObj(s.revenue),revObj(c.revenue));
-  document.getElementById('ab-variants').innerHTML=
-    abCard('Stripe',s,'#52a8ff')+abCard(esc(extName),c,'#ff5674');
-  renderABChart(s,c,rpvS,rpvC,extName);
+    '<div class="abm-head"><span>Comparativo</span><span class="cyn">Stripe</span><span class="pnk">'+esc(extName)+'</span></div>'+
+    abRow('Visitantes',s.assignments,c.assignments,s.assignments,c.assignments)+
+    abRow('Cliques no checkout',s.clicks||0,c.clicks||0,s.clicks||0,c.clicks||0)+
+    abRow('Convers&otilde;es',s.conversions,c.conversions,s.conversions,c.conversions)+
+    abRow('Taxa de convers&atilde;o',(s.conversionRate||0)+'%',(c.conversionRate||0)+'%',s.conversionRate||0,c.conversionRate||0)+
+    abRow('Receita',revObj(s.revenue),revObj(c.revenue),sumRev(s.revenue)/maxRev*100,sumRev(c.revenue)/maxRev*100);
+}
+// Linha do comparativo: valores + barras proporcionais + seta no líder
+function abRow(label,dispA,dispB,numA,numB){
+  var max=Math.max(numA,numB,0.0001);
+  var wa=Math.max(1.5,numA/max*100), wb=Math.max(1.5,numB/max*100);
+  var leadA=numA>numB, leadB=numB>numA;
+  return '<div class="abrow">'+
+    '<div class="abr-top"><span class="lbl">'+label+'</span>'+
+      '<span class="va cyn'+(leadA?' lead-val':'')+'">'+dispA+'</span>'+
+      '<span class="vb pnk'+(leadB?' lead-val':'')+'">'+dispB+'</span></div>'+
+    '<div class="abr-bars">'+
+      '<div class="b s" style="width:'+wa+'%"></div>'+
+      '<div class="b c" style="width:'+wb+'%"></div>'+
+    '</div></div>';
 }
 // ── Painel de controle do experimento (aba A/B) ──────────────────────
 var abDirty=false; // evita sobrescrever edições do usuário no auto-refresh
@@ -1978,7 +2011,8 @@ function fillABControl(){
   document.getElementById('ab-split').value=CFG.stripePct;
   document.getElementById('ab-split-s').textContent='Stripe '+CFG.stripePct+'%';
   document.getElementById('ab-split-c').textContent=esc(extName)+' '+(100-CFG.stripePct)+'%';
-  document.getElementById('ab-test-cooud').textContent='Testar '+extName;
+  document.getElementById('ab-mode-label').classList.toggle('on',isAB);
+  document.getElementById('ab-test-cooud').innerHTML=esc(extName)+' \u2197';
 }
 function abControlChanged(){
   abDirty=true;
@@ -1986,6 +2020,7 @@ function abControlChanged(){
   var isAB=document.getElementById('ab-mode').checked;
   var extName=CFG&&CFG.externalName||'Cooud';
   document.getElementById('ab-mode-label').textContent=isAB?'Teste ativo — tráfego dividido':'Pausado — 100% Stripe';
+  document.getElementById('ab-mode-label').classList.toggle('on',isAB);
   document.getElementById('ab-split-wrap').style.opacity=isAB?'1':'.35';
   document.getElementById('ab-split').disabled=!isAB;
   document.getElementById('ab-split-s').textContent='Stripe '+pct+'%';
@@ -2003,56 +2038,6 @@ document.getElementById('ab-save').addEventListener('click',function(){
       else toast('Erro ao salvar');
     }).catch(function(){ toast('Erro ao salvar'); });
 });
-
-function renderABChart(s,c,rpvS,rpvC,extName){
-  var el=document.getElementById('ab-chart'); if(!el) return;
-  var metrics=[
-    {label:'RPV',stripe:rpvS,cooud:rpvC},
-    {label:'Taxa conv.%',stripe:s.assignments?+(s.conversions/s.assignments*100).toFixed(1):0,cooud:c.assignments?+(c.conversions/c.assignments*100).toFixed(1):0},
-    {label:'Visitantes',stripe:s.assignments||0,cooud:c.assignments||0},
-    {label:'Conversoes',stripe:s.conversions||0,cooud:c.conversions||0}
-  ];
-  var W=el.clientWidth||560, barH=36, gap=14, padL=110, padR=20, padT=14, padB=8;
-  var rows=metrics.length, H=padT+rows*(barH+gap)+padB;
-  var maxV=Math.max.apply(null,metrics.map(function(m){return Math.max(m.stripe,m.cooud,1);}));
-  var avail=W-padL-padR;
-  var bars=metrics.map(function(m,i){
-    var y=padT+i*(barH+gap);
-    var ws=Math.max(3,(m.stripe/maxV)*avail);
-    var wc=Math.max(3,(m.cooud/maxV)*avail);
-    var labelS=m.label==='RPV'?money(m.stripe,'EUR'):(m.label==='Taxa conv.%'?m.stripe+'%':m.stripe);
-    var labelC=m.label==='RPV'?money(m.cooud,'EUR'):(m.label==='Taxa conv.%'?m.cooud+'%':m.cooud);
-    return '<g>'+
-      '<text x="'+(padL-8)+'" y="'+(y+12)+'" text-anchor="end" fill="#8888a4" font-size="11" font-family="Geist Mono,sans-serif">'+esc(m.label)+'</text>'+
-      '<rect x="'+padL+'" y="'+(y)+'" width="'+ws+'" height="16" rx="4" fill="#52a8ff" fill-opacity="0.85"/>'+
-      '<text x="'+(padL+ws+5)+'" y="'+(y+12)+'" fill="#52a8ff" font-size="11" font-family="Geist Mono,sans-serif">'+labelS+'</text>'+
-      '<rect x="'+padL+'" y="'+(y+18)+'" width="'+wc+'" height="16" rx="4" fill="#ff5674" fill-opacity="0.85"/>'+
-      '<text x="'+(padL+wc+5)+'" y="'+(y+30)+'" fill="#ff5674" font-size="11" font-family="Geist Mono,sans-serif">'+labelC+'</text>'+
-      '</g>';
-  }).join('');
-  var legend='<g>'+
-    '<rect x="'+padL+'" y="'+(H-padB)+'" width="12" height="6" rx="2" fill="#52a8ff"/>'+
-    '<text x="'+(padL+16)+'" y="'+(H-padB+6)+'" fill="#8888a4" font-size="11" font-family="Geist Mono,sans-serif">Stripe</text>'+
-    '<rect x="'+(padL+70)+'" y="'+(H-padB)+'" width="12" height="6" rx="2" fill="#ff5674"/>'+
-    '<text x="'+(padL+86)+'" y="'+(H-padB+6)+'" fill="#8888a4" font-size="11" font-family="Geist Mono,sans-serif">'+esc(extName)+'</text>'+
-    '</g>';
-  el.innerHTML='<svg width="100%" viewBox="0 0 '+W+' '+(H+20)+'" xmlns="http://www.w3.org/2000/svg">'+bars+legend+'</svg>';
-}
-function metricRow(l,a,b){
-  return '<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;align-items:center">'+
-    '<span class="muted">'+l+'</span>'+
-    '<span style="text-align:right;min-width:90px" class="cyn">'+a+'</span>'+
-    '<span style="text-align:right;min-width:90px" class="pnk">'+b+'</span></div>';
-}
-function abCard(name,d,color){
-  return '<div class="card">'+
-    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'+
-      '<span class="tag" style="border-color:'+color+';color:'+color+'">'+name+'</span>'+
-    '</div>'+
-    '<div class="k-val small" style="color:'+color+'">'+revObj(d.revenue)+'</div>'+
-    '<div class="muted" style="font-size:12px;margin-top:4px">'+d.assignments+' visitantes &middot; '+d.conversions+' vendas &middot; '+(d.conversionRate||0)+'% conv.</div>'+
-    '</div>';
-}
 
 /* ── Anti-desvio ── */
 function renderCooud(){
