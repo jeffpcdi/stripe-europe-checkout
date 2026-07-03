@@ -216,11 +216,49 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .gt-div{height:1px;background:var(--border);margin:1px 4px}
 .globe-hint{position:absolute;left:14px;bottom:12px;z-index:5;font-size:10.5px;color:var(--muted2);letter-spacing:.06em;
   background:rgba(13,13,18,.6);border:1px solid var(--border);padding:4px 10px;border-radius:14px;backdrop-filter:blur(8px);pointer-events:none;opacity:.85}
-/* fullscreen: globo ocupa a tela inteira */
-.globe-card:fullscreen{border-radius:0;background:#04050a}
-.globe-card:fullscreen #live-globe{height:100vh!important;border-radius:0}
-.globe-card:fullscreen .globe-tools{top:22px;right:22px}
-.globe-card:fullscreen .globe-hint{left:22px;bottom:20px;font-size:12px}
+/* layout: globo + painel lateral de presença */
+.globe-wrap{display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px}
+@media(max-width:960px){.globe-wrap{grid-template-columns:1fr}}
+.globe-side{display:flex;flex-direction:column;gap:12px;min-width:0}
+.gs-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.gs-stat{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card);border:1px solid var(--border);border-radius:12px;transition:.2s}
+.gs-stat:hover{border-color:var(--border2);transform:translateY(-2px)}
+.gs-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.gs-dot.grn-d{background:var(--green);box-shadow:0 0 9px rgba(62,207,142,.6);animation:hDot 2.4s ease-in-out infinite}
+.gs-dot.pnk-d{background:var(--pink);box-shadow:0 0 9px rgba(255,86,116,.6)}
+.gs-txt{display:flex;flex-direction:column;line-height:1.2}
+.gs-txt b{font-family:'Geist Mono';font-size:19px}
+.gs-txt span{font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.gs-leads{padding:0;flex:1;display:flex;flex-direction:column;overflow:hidden}
+.gs-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);font-size:12.5px;font-weight:700}
+.gs-all{margin-left:auto;background:none;border:1px solid var(--border);color:var(--muted);font-size:11px;font-weight:600;padding:4px 10px;border-radius:7px;cursor:pointer;transition:.2s}
+.gs-all:hover{color:var(--text);border-color:var(--cyan);box-shadow:0 0 10px -4px var(--cyan)}
+.gs-list{flex:1;overflow-y:auto}
+.gs-row{display:flex;align-items:center;gap:9px;padding:9px 14px;border-bottom:1px solid var(--border);font-size:12px;animation:kpiIn .35s ease backwards}
+.gs-row:last-child{border-bottom:none}
+.gs-row .gr-flag{font-size:15px;flex-shrink:0}
+.gs-row .gr-main{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.gs-row .gr-main b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gs-row .gr-main span{font-size:10.5px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gs-row .gr-dur{font-family:'Geist Mono';font-size:10.5px;color:var(--muted2);flex-shrink:0}
+.gs-row.hot .gr-main b{color:var(--pink)}
+.gs-row .gr-ck{flex-shrink:0;color:var(--pink);display:inline-flex}
+.gs-row .gr-ck svg{width:12px;height:12px}
+.gs-more{padding:8px 14px;font-size:11px;color:var(--muted2);text-align:center}
+/* popup do globo expandido */
+.globe-modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center}
+.gm-scrim{position:absolute;inset:0;background:rgba(2,3,8,.72);backdrop-filter:blur(7px);opacity:0;transition:opacity .4s ease}
+.gm-panel{position:relative;width:min(1240px,95vw);height:min(88vh,920px);opacity:0;transform:scale(.9) translateY(22px);
+  transition:opacity .45s cubic-bezier(.2,.8,.3,1),transform .45s cubic-bezier(.2,.8,.3,1)}
+.globe-modal.open .gm-scrim{opacity:1}
+.globe-modal.open .gm-panel{opacity:1;transform:none}
+.gm-body{width:100%;height:100%}
+.gm-body .globe-card{height:100%;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 40px -18px var(--cyan)}
+.gm-body #live-globe{height:100%!important;border-radius:18px}
+.gm-close{position:absolute;top:-14px;right:-14px;z-index:6;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;cursor:pointer;
+  background:var(--card);border:1px solid var(--border2);color:var(--muted);transition:.25s cubic-bezier(.34,1.56,.64,1)}
+.gm-close svg{width:16px;height:16px}
+.gm-close:hover{color:var(--text);transform:scale(1.15) rotate(90deg);border-color:var(--pink);box-shadow:0 0 14px -4px var(--pink)}
 #live-globe::before,#globe::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;
   background-image:
     radial-gradient(1px 1px at 10% 15%,rgba(255,255,255,.5),transparent),
@@ -873,6 +911,15 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 <!-- Estrelas neon subindo no fundo da página inteira -->
 <div class="bg-particles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
 
+<!-- Popup do globo expandido -->
+<div class="globe-modal" id="globe-modal" hidden>
+  <div class="gm-scrim" id="gm-scrim"></div>
+  <div class="gm-panel" role="dialog" aria-label="Globo expandido">
+    <button class="gm-close" id="gm-close" title="Fechar" aria-label="Fechar globo expandido"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <div class="gm-body" id="gm-body"></div>
+  </div>
+</div>
+
 <!-- Tela de carregamento -->
 <div id="loading-screen">
   <div class="spin"></div>
@@ -953,8 +1000,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Ao Vivo ── -->
       <section class="view" id="view-live">
         <div class="grid kpis" id="live-kpis"></div>
-        <div class="section-title"><span>Pulso de tr&aacute;fego</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads que entraram &middot; &uacute;ltimos 30 min</span></div>
-        <div class="card traffic-card" id="traffic-pulse"></div>
         <div class="live-grid">
           <div class="card" style="padding:0">
             <div class="notif-head">
@@ -985,17 +1030,29 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="grid kpis kpis-xl" id="ov-kpis"></div>
         <div class="ministats" id="ov-chips"></div>
         <div class="section-title"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online agora no mapa</span></div>
-        <div class="card globe-card" style="padding:0" id="globe-card">
-          <div id="live-globe"></div>
-          <div class="globe-tools">
-            <button class="gt-btn" id="globe-zoom-in" title="Aproximar" aria-label="Aproximar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
-            <button class="gt-btn" id="globe-zoom-out" title="Afastar" aria-label="Afastar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
-            <div class="gt-div"></div>
-            <button class="gt-btn" id="globe-fs" title="Tela cheia" aria-label="Alternar tela cheia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="globe-fs-ico"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/></svg></button>
+        <div class="globe-wrap">
+          <div class="card globe-card" style="padding:0" id="globe-card">
+            <div id="live-globe"></div>
+            <div class="globe-tools">
+              <button class="gt-btn" id="globe-zoom-in" title="Aproximar" aria-label="Aproximar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button class="gt-btn" id="globe-zoom-out" title="Afastar" aria-label="Afastar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+              <div class="gt-div"></div>
+              <button class="gt-btn" id="globe-fs" title="Expandir" aria-label="Expandir globo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="globe-fs-ico"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/></svg></button>
+            </div>
+            <div class="globe-hint">arraste para girar &middot; role para dar zoom</div>
           </div>
-          <div class="globe-hint">arraste para girar &middot; role para dar zoom</div>
-          <div class="globe-badge" id="ov-globe-badge"><span class="live-dot-anim"></span><b id="ov-globe-n">0</b>&nbsp;online agora</div>
+          <aside class="globe-side">
+            <div class="gs-stats">
+              <div class="gs-stat"><span class="gs-dot grn-d"></span><div class="gs-txt"><b id="gs-online">0</b><span>online agora</span></div></div>
+              <div class="gs-stat"><span class="gs-dot pnk-d"></span><div class="gs-txt"><b id="gs-ck">0</b><span>no checkout</span></div></div>
+            </div>
+            <div class="card gs-leads">
+              <div class="gs-head"><span class="live-dot-anim"></span>Leads rastreados<button class="gs-all" id="gs-all">Ver todos</button></div>
+              <div class="gs-list" id="ov-live-list"><div class="live-empty" style="padding:20px">Aguardando visitantes...</div></div>
+            </div>
+          </aside>
         </div>
+        <div class="card traffic-card" id="traffic-pulse"></div>
         <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
         <div class="card goal-card" id="ov-goal"></div>
         <div class="section-title"><span>Tendência</span><span class="line"></span>
@@ -1770,16 +1827,47 @@ function globeZoom(factor){
     liveGlobe.pointOfView({lat:pov.lat,lng:pov.lng,altitude:alt},380);
   }catch(_){}
 }
-// ── Tela cheia do globo ──
+// ── Popup do globo (substitui o fullscreen nativo) ──
+// O card do globo é movido para dentro do painel do modal e devolvido
+// à posição original ao fechar — o Globe.gl continua vivo, só redimensiona.
+var globePlaceholder=null;
+function globeModalOpen(){
+  var modal=document.getElementById('globe-modal'), card=document.getElementById('globe-card');
+  if(!modal||!card||!modal.hidden) return;
+  globePlaceholder=document.createElement('div');
+  globePlaceholder.id='globe-ph';
+  card.parentNode.insertBefore(globePlaceholder,card);
+  document.getElementById('gm-body').appendChild(card);
+  modal.hidden=false;
+  document.body.style.overflow='hidden';
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    modal.classList.add('open');
+    setTimeout(resizeGlobe,120); // redimensiona após o layout do painel assentar
+    setTimeout(resizeGlobe,500); // e de novo ao fim da transição
+  });});
+}
+function globeModalClose(){
+  var modal=document.getElementById('globe-modal'), card=document.getElementById('globe-card');
+  if(!modal||modal.hidden) return;
+  modal.classList.remove('open');
+  document.body.style.overflow='';
+  setTimeout(function(){
+    modal.hidden=true;
+    if(globePlaceholder&&globePlaceholder.parentNode){
+      globePlaceholder.parentNode.replaceChild(card,globePlaceholder);
+      globePlaceholder=null;
+    }
+    resizeGlobe();
+  },460); // espera a animação de saída
+}
 function globeFullscreen(){
-  var card=document.getElementById('globe-card'); if(!card) return;
-  if(document.fullscreenElement){ document.exitFullscreen(); }
-  else if(card.requestFullscreen){ card.requestFullscreen(); }
+  var modal=document.getElementById('globe-modal');
+  (modal&&!modal.hidden)?globeModalClose():globeModalOpen();
 }
 function resizeGlobe(){
   var el=document.getElementById('live-globe'); if(!el||!liveGlobe) return;
-  var fs=!!document.fullscreenElement;
-  var h=fs?window.innerHeight:520;
+  var inModal=!!document.getElementById('gm-body').contains(el);
+  var h=inModal?el.parentElement.clientHeight||el.clientHeight:520;
   try{ liveGlobe.width(el.clientWidth).height(h); }catch(_){}
 }
 /* ── Ao Vivo ── */
@@ -2059,23 +2147,46 @@ function renderLiveGlobe(){
       if(zi)zi.onclick=function(){globeZoom(0.72);};
       if(zo)zo.onclick=function(){globeZoom(1.38);};
       if(fs)fs.onclick=globeFullscreen;
-      document.addEventListener('fullscreenchange',function(){
-        resizeGlobe();
-        var ico=document.getElementById('globe-fs-ico');
-        if(ico)ico.innerHTML=document.fullscreenElement
-          ?'<path d="M8 3v3a2 2 0 01-2 2H3M16 3v3a2 2 0 002 2h3M8 21v-3a2 2 0 00-2-2H3M16 21v-3a2 2 0 012-2h3"/>'
-          :'<path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/>';
-      });
       window.addEventListener('resize',resizeGlobe);
     }
     liveGlobe.pointsData(pts);
     liveGlobe.ringsData(pts);
   }catch(e){ el.innerHTML='<div class="empty">N&atilde;o foi poss&iacute;vel carregar o globo.</div>'; }
-  // badge e subtítulo com presença atual
+  // subtítulo com presença atual
   var n=(LIVE.summary&&LIVE.summary.online)||0;
-  var bn=document.getElementById('ov-globe-n'); if(bn)bn.textContent=n;
   var sub=document.getElementById('ov-globe-sub');
   if(sub)sub.textContent=n>0?(n+' pessoa'+(n>1?'s':'')+' online \u00b7 '+cs.length+' pa\u00eds'+(cs.length>1?'es':'')):'aguardando visitantes';
+  renderGlobeSide();
+  renderTrafficPulse(); // pulso de tráfego vive junto do globo
+}
+// Painel lateral do globo: stats compactos + até 5 leads rastreados
+function renderGlobeSide(){
+  var vs=(LIVE.visitors||[]);
+  var seen={}; vs=vs.filter(function(v){ var id=v.id||JSON.stringify([v.country,v.page,v.durationMs]); if(seen[id])return false; seen[id]=1; return true; });
+  var ck=LIVE.checkout||{};
+  var stripeNow=ck.stripeNow!=null?ck.stripeNow:vs.filter(isCheckoutLead).length;
+  var totalCk=stripeNow+(ck.cooudEst||0);
+  var on=document.getElementById('gs-online'); if(on)on.textContent=(LIVE.summary&&LIVE.summary.online)||0;
+  var ce=document.getElementById('gs-ck'); if(ce)ce.textContent=totalCk;
+  var list=document.getElementById('ov-live-list'); if(!list) return;
+  // mais quentes primeiro (checkout > ativos), limitado a 5
+  var sorted=vs.slice().sort(function(a,b){
+    var ac=isCheckoutLead(a)?1:0, bc=isCheckoutLead(b)?1:0;
+    if(ac!==bc) return bc-ac;
+    return (a.idleMs||0)-(b.idleMs||0);
+  });
+  var top=sorted.slice(0,5), extra=sorted.length-top.length;
+  list.innerHTML=top.length?top.map(function(v,i){
+    var inCk=isCheckoutLead(v);
+    return '<div class="gs-row'+(inCk?' hot':'')+'" style="animation-delay:'+(i*.05)+'s">'+
+      '<span class="gr-flag">'+flag(v.country)+'</span>'+
+      '<div class="gr-main"><b>'+esc(v.countryName||v.country||'Desconhecido')+(v.city?' \u00b7 '+esc(v.city):'')+'</b>'+
+        '<span>'+esc(pageLabel(v.page))+'</span></div>'+
+      (inCk?'<span class="gr-ck" title="no checkout">'+I.cart+'</span>':'')+
+      '<span class="gr-dur">'+liveDur(v.durationMs)+'</span>'+
+    '</div>';
+  }).join('')+(extra>0?'<div class="gs-more">+'+extra+' lead'+(extra>1?'s':'')+' navegando \u2014 veja todos na aba Ao Vivo</div>':'')
+  :'<div class="live-empty" style="padding:20px">Ningu\u00e9m navegando agora.</div>';
 }
 
 /* ── Teste A/B ── */
@@ -2791,6 +2902,11 @@ document.getElementById('menuToggle').addEventListener('click',function(){
   setSideMenu(!document.getElementById('sidebar').classList.contains('open'));
 });
 document.getElementById('side-scrim').addEventListener('click',function(){ setSideMenu(false); });
+// popup do globo + "ver todos" os leads
+document.getElementById('gm-close').addEventListener('click',globeModalClose);
+document.getElementById('gm-scrim').addEventListener('click',globeModalClose);
+document.getElementById('gs-all').addEventListener('click',function(){ setView('live'); });
+document.addEventListener('keydown',function(e){ if(e.key==='Escape') globeModalClose(); });
 // popover de segmentação de período
 document.getElementById('dr-from').addEventListener('change',drSyncHours);
 document.getElementById('dr-to').addEventListener('change',drSyncHours);
