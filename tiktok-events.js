@@ -14,11 +14,16 @@ function hash(value) {
   return crypto.createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex');
 }
 
-// Telefone: normaliza para E.164 (só dígitos com +) antes do hash
+// Telefone: normaliza para E.164 (+DDDN…) antes do hash, como o TikTok exige.
+// "00" internacional vira "+", e o "+" só é mantido no início.
 function hashPhone(phone) {
   if (!phone) return undefined;
-  const clean = String(phone).replace(/[^0-9+]/g, '');
-  return clean ? hash(clean) : undefined;
+  let clean = String(phone).replace(/[^0-9+]/g, '');
+  if (clean.startsWith('00')) clean = '+' + clean.slice(2);
+  clean = clean[0] === '+' ? '+' + clean.slice(1).replace(/\+/g, '') : clean.replace(/\+/g, '');
+  const digits = clean.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return undefined; // fora do E.164 → não envia lixo
+  return hash(clean);
 }
 
 // external_id do lead: hash do v_id (id único salvo no banco). Amarra o funil
@@ -64,26 +69,89 @@ async function recentLogAsync(n) {
   return [];
 }
 
+// Guards de qualidade: cada campo só entra no payload se for PERFEITO —
+// campo ruim derruba o Event Match Quality inteiro do evento no TikTok.
+const SHA256_RE = /^[a-f0-9]{64}$/;
+const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
+const IPV6_RE = /^[0-9a-fA-F:]+$/;
+const CUR_RE = /^[A-Z]{3}$/;
+
+// Descarta lixo comum vindo de query/localStorage: "null", "undefined", "", "0"
+function cleanStr(v, max) {
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  if (!s || s === 'null' || s === 'undefined' || s === 'NaN') return undefined;
+  return s.slice(0, max || 500);
+}
+
+function validIp(v) {
+  const s = cleanStr(v, 45);
+  if (!s) return undefined;
+  if (IPV4_RE.test(s)) {
+    return s.split('.').every((o) => Number(o) <= 255) ? s : undefined;
+  }
+  return s.includes(':') && IPV6_RE.test(s) ? s : undefined; // IPv6
+}
+
+// URL precisa ser absoluta e válida — truncar no meio de um param quebraria
+function validUrl(v) {
+  const s = cleanStr(v, 2000);
+  if (!s) return undefined;
+  try { const u = new URL(s); return (u.protocol === 'http:' || u.protocol === 'https:') ? s : undefined; }
+  catch (_) { return undefined; }
+}
+
 // Monta o objeto `user` (identidade) a partir do payload comum.
 function buildUser(p) {
   const user = {};
-  const e = hash(p.email);                          if (e) user.email = e;
-  const ph = hashPhone(p.phone);                    if (ph) user.phone = ph;
-  const ex = p.externalId || externalIdFromLead(p.leadId);
-  if (ex) user.external_id = ex.length === 64 ? ex : hash(ex); // já-hasheado ou puro
-  if (p.ip) user.ip = p.ip;
-  if (p.userAgent) user.user_agent = p.userAgent;
-  if (p.ttclid) user.ttclid = p.ttclid;
-  if (p.ttp) user.ttp = p.ttp;
+  const e = hash(cleanStr(p.email, 320));            if (e) user.email = e;
+  const ph = hashPhone(cleanStr(p.phone, 30));       if (ph) user.phone = ph;
+  const exRaw = cleanStr(p.externalId, 200) || externalIdFromLead(cleanStr(p.leadId, 200));
+  // aceita apenas hex SHA-256 como "já-hasheado"; qualquer outra coisa é hasheada
+  if (exRaw) user.external_id = SHA256_RE.test(exRaw) ? exRaw : hash(exRaw);
+  const ip = validIp(p.ip);                          if (ip) user.ip = ip;
+  const ua = cleanStr(p.userAgent, 500);             if (ua) user.user_agent = ua;
+  const tc = cleanStr(p.ttclid, 500);                if (tc) user.ttclid = tc;
+  const tp = cleanStr(p.ttp, 500);                   if (tp) user.ttp = tp;
   return user;
 }
 
 function buildProperties(p) {
   const properties = {};
-  if (typeof p.value === 'number') properties.value = p.value;
-  if (p.currency) properties.currency = String(p.currency).toUpperCase();
-  if (p.contents) { properties.contents = p.contents; properties.content_type = 'product'; }
+  // NaN e Infinity passam em `typeof === 'number'` — Number.isFinite não
+  const v = Number(p.value);
+  if (p.value != null && Number.isFinite(v) && v >= 0) {
+    properties.value = Math.round(v * 100) / 100; // 2 casas: TikTok espera moeda
+    const cur = String(p.currency || '').toUpperCase();
+    properties.currency = CUR_RE.test(cur) ? cur : 'EUR'; // value sem currency é rejeitado
+  }
+  if (Array.isArray(p.contents) && p.contents.length) {
+    // sanitiza cada item: só campos válidos, com tipos certos
+    const items = p.contents.map((c) => {
+      const it = {};
+      const cid = cleanStr(c.content_id, 100);       if (cid) it.content_id = cid;
+      const cname = cleanStr(c.content_name, 100);   if (cname) it.content_name = cname;
+      const ccat = cleanStr(c.content_category, 100); if (ccat) it.content_category = ccat;
+      const price = Number(c.price);
+      if (c.price != null && Number.isFinite(price) && price >= 0) it.price = Math.round(price * 100) / 100;
+      const qty = Number(c.quantity);
+      it.quantity = Number.isFinite(qty) && qty >= 1 ? Math.round(qty) : 1;
+      return it;
+    }).filter((it) => it.content_id || it.content_name);
+    if (items.length) { properties.contents = items; properties.content_type = 'product'; }
+  }
   return properties;
+}
+
+// event_time: TikTok rejeita timestamps no futuro ou com mais de 7 dias.
+// Clamp para "agora" em vez de perder o evento inteiro por um relógio torto.
+function validEventTime(t) {
+  const now = Math.floor(Date.now() / 1000);
+  const n = Number(t);
+  if (!Number.isFinite(n) || n <= 0) return now;
+  const sec = n > 1e12 ? Math.floor(n / 1000) : Math.floor(n); // aceita ms por engano
+  if (sec > now + 60 || sec < now - 7 * 86400) return now;
+  return sec;
 }
 
 // fetch com timeout: a API do TikTok nunca pode pendurar um webhook/checkout.
@@ -108,16 +176,17 @@ async function sendToPixel(pixel, p) {
   // event_id é obrigatório para dedup — gera fallback se faltar
   const eventId = p.eventId || (p.event + '.' + crypto.randomBytes(8).toString('hex'));
 
+  const pageUrl = validUrl(p.url);
   const payload = {
     event_source: 'web',
     event_source_id: pixel.pixelCode,
     data: [{
       event: p.event,
-      event_time: p.eventTime || Math.floor(Date.now() / 1000),
+      event_time: validEventTime(p.eventTime),
       event_id: eventId,
       user: buildUser(p),
       properties: buildProperties(p),
-      page: p.url ? { url: p.url } : undefined
+      page: pageUrl ? { url: pageUrl } : undefined
     }]
   };
   if (pixel.testEventCode) payload.test_event_code = pixel.testEventCode;

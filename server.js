@@ -266,12 +266,18 @@ app.use(async (req, res, next) => {
       // event_id determinístico = mesmo id que o pixel do navegador → dedup.
       const evId = 'ViewContent.' + id + '.' + hourKey();
       if (!(await seenPixelEvent(evId))) {
+        // enriquece com ttclid/_ttp/email já salvos no lead (visitas anteriores)
+        // — quanto mais sinal de identidade, maior o Event Match Quality
+        let leadVc = null;
+        try { leadVc = stats.getLead(id); } catch (_) {}
         ttEvents.dispatchToAll('ViewContent', {
           eventId: evId,
           leadId: id,
           ip: clientIp(req),
           userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
-          ttclid: q.ttclid || null,
+          ttclid: q.ttclid || (leadVc && leadVc.ttclid) || null,
+          ttp: (leadVc && leadVc.ttp) || null,
+          email: (leadVc && leadVc.email) || undefined,
           url: fullUrl(req)
         }, p).catch(() => {});
       }
@@ -486,9 +492,10 @@ app.post('/api/stripe-webhook', async (req, res) => {
   if (event.type === 'payment_intent.succeeded') {
     const pi = event.data.object;
 
-    // Recupera o charge para obter billing_details (nome + email) e detalhes do cartão
+    // Recupera o charge para obter billing_details (nome + email + telefone) e cartão
     let customerEmail = null;
     let customerName = null;
+    let customerPhone = null;
     let cardInfo = null;
     let country = null;
 
@@ -496,6 +503,7 @@ app.post('/api/stripe-webhook', async (req, res) => {
       const charges = await stripe.charges.list({ payment_intent: pi.id, limit: 1 });
       const charge = charges.data[0];
       customerEmail = charge?.billing_details?.email || null;
+      customerPhone = charge?.billing_details?.phone || null;
       customerName  = charge?.billing_details?.name  || 'Cliente';
       country       = charge?.billing_details?.address?.country
                     || charge?.payment_method_details?.card?.country || null;
@@ -573,6 +581,7 @@ app.post('/api/stripe-webhook', async (req, res) => {
           eventId: cpEvId,
           eventTime: pi.created,
           email: customerEmail || undefined,
+          phone: customerPhone || undefined, // +1 sinal de identidade (hasheado E.164)
           leadId: md.v_id || undefined,           // external_id = hash do id único do lead
           externalId: md.v_id ? undefined : (customerEmail || pi.id),
           ip: md.tt_ip || undefined,
@@ -804,6 +813,7 @@ app.get('/checkout', async (req, res) => {
       ttEvents.dispatchToAll('InitiateCheckout', {
         eventId: evId,
         leadId: visitorId,
+        email: lead.email || undefined,   // e-mail do lead se já conhecido
         ip: clientIp(req),
         userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
         ttclid: q.ttclid || lead.ttclid || null,
@@ -1117,7 +1127,13 @@ async function processConversion(n) {
       url: (lead && lead.ttUrl) || undefined,
       value: n.amountCents ? n.amountCents / 100 : undefined,
       currency: n.currency,
-      contents: n.product ? [{ content_name: String(n.product).slice(0, 100), quantity: 1 }] : undefined
+      contents: n.product ? [{
+        // content_id derivado do nome (slug estável) — TikTok usa para catálogo/otimização
+        content_id: String(n.product).toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 100),
+        content_name: String(n.product).slice(0, 100),
+        price: n.amountCents ? n.amountCents / 100 : undefined,
+        quantity: 1
+      }] : undefined
     }, '*');
     const errs = (r.results || []).filter((x) => x && (x.error || (x.code != null && x.code !== 0))).length;
     receipt.status = r.dispatched === 0 ? 'sem pixel' : (errs ? ('erro em ' + errs + '/' + r.dispatched) : 'ok');
