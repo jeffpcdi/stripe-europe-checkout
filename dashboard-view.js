@@ -247,6 +247,9 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .gs-more{padding:8px 14px;font-size:11px;color:var(--muted2);text-align:center}
 /* popup do globo expandido */
 .globe-modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center}
+/* CRÍTICO: display:grid acima vence o display:none do atributo [hidden] —
+   sem esta regra o modal invisível cobre a tela e engole TODOS os cliques */
+.globe-modal[hidden]{display:none}
 .gm-scrim{position:absolute;inset:0;background:rgba(2,3,8,.72);backdrop-filter:blur(7px);opacity:0;transition:opacity .4s ease}
 .gm-panel{position:relative;width:min(1240px,95vw);height:min(88vh,920px);opacity:0;transform:scale(.9) translateY(22px);
   transition:opacity .45s cubic-bezier(.2,.8,.3,1),transform .45s cubic-bezier(.2,.8,.3,1)}
