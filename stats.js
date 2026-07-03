@@ -12,26 +12,14 @@ const db = require('./db');
 const DATA_DIR = path.join(__dirname, 'data');
 const FILE = path.join(DATA_DIR, 'stats.json');
 
-const VARIANTS = ['stripe', 'cooud'];
-
 // Cache quente (o banco Neon guarda o histórico completo, sem limite).
 const MAX_EVENTS = 3000; // mantém os últimos N eventos no feed local
 const MAX_LEADS = 8000;  // mantém os últimos N leads rastreados no cache local
 
-// Conversão que chega muito depois do lead = provável "Recuperar Prejuízo" do Cooud
-// (o gateway re-tenta cobranças recusadas/abandonadas para "recuperar" a venda).
-const RECOVERY_LATE_MS = 60 * 60 * 1000; // 1 hora
-
 const FLUSH_MS = 1000; // debounce do snapshot em disco
 
-function emptyVariant() {
-  return { assignments: 0, clicks: 0, conversions: 0, revenue: {} };
-}
-
 function emptyState() {
-  const variants = {};
-  VARIANTS.forEach((v) => { variants[v] = emptyVariant(); });
-  return { variants, events: [], leads: [], updatedAt: null };
+  return { events: [], leads: [], updatedAt: null };
 }
 
 function newId(prefix) {
@@ -52,12 +40,6 @@ function loadFromDisk() {
   try {
     if (fs.existsSync(FILE)) {
       const raw = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-      VARIANTS.forEach((v) => {
-        if (raw.variants && raw.variants[v]) {
-          s.variants[v] = Object.assign(emptyVariant(), raw.variants[v]);
-          if (!s.variants[v].revenue) s.variants[v].revenue = {};
-        }
-      });
       s.events = Array.isArray(raw.events) ? raw.events : [];
       s.leads = Array.isArray(raw.leads) ? raw.leads : [];
       s.updatedAt = raw.updatedAt || null;
@@ -115,29 +97,6 @@ function flushSync() {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(FILE, JSON.stringify(state));
   } catch (_) {}
-}
-
-// ── Contadores de variante (A/B) ──────────────────────────────────────────
-function bump(variant, field, by) {
-  if (!VARIANTS.includes(variant)) return;
-  ensureLoaded();
-  state.variants[variant][field] = (state.variants[variant][field] || 0) + (by || 1);
-  markDirty();
-  db.upsertVariant(variant, state.variants[variant]);
-}
-
-function recordAssignment(variant) { bump(variant, 'assignments', 1); }
-function recordClick(variant) { bump(variant, 'clicks', 1); }
-
-function recordConversion(variant, amountCents, currency) {
-  if (!VARIANTS.includes(variant)) return;
-  ensureLoaded();
-  const v = state.variants[variant];
-  v.conversions = (v.conversions || 0) + 1;
-  const cur = (currency || 'eur').toUpperCase();
-  v.revenue[cur] = (v.revenue[cur] || 0) + (amountCents || 0);
-  markDirty();
-  db.upsertVariant(variant, v);
 }
 
 // ── Feed de eventos (venda, recusa, reembolso, disputa, lead, etc.) ───────
@@ -326,17 +285,16 @@ function markPurchased(id, data) {
   return lead;
 }
 
-// ── Conversão de gateway externo (Cooud, Kiwify, Hotmart, …) ──────────────
-// Aceita data.gateway (default 'cooud' — retro-compat). Todas as conversões
-// externas creditam a variante 'cooud' (a variante representa "checkout
-// externo" no A/B stripe × externo); o nome real do gateway fica no lead.
-function matchCooudConversion(data) {
+// ── Conversão de gateway externo (Kiwify, Hotmart, PerfectPay, …) ─────────
+// Chamada pelo webhook universal. Resolve o lead (leadId → e-mail → órfão),
+// marca como comprado e guarda o nome real do gateway no lead.
+function matchExternalConversion(data) {
   data = data || {};
   ensureLoaded();
   const cur = (data.currency || 'eur').toUpperCase();
   const amount = data.amountCents || 0;
   const nowIso = new Date().toISOString();
-  const gw = String(data.gateway || 'cooud').toLowerCase().slice(0, 30);
+  const gw = String(data.gateway || 'externo').toLowerCase().slice(0, 30);
 
   // match: leadId direto → fallback por e-mail (webhook universal)
   let lead = findLead(data.leadId) || (data.email ? findLeadByEmail(data.email) : null);
@@ -374,74 +332,15 @@ function matchCooudConversion(data) {
     });
   }
 
-  // ── Detecção de práticas do Cooud (Smart Capture / Recuperar Prejuízo) ──
-  let capture = data.smartCapture === true;
-  let recovery = data.recovery === true;
-  let captureExtra = 0;
-  if (!lead.orphan && lead.expectedAmount && amount > lead.expectedAmount) {
-    capture = true;
-    captureExtra = amount - lead.expectedAmount;
-  }
-  if (lead.duplicateReports) capture = true;
+  // tempo entre o checkout e a conversão (diagnóstico de atribuição)
   const baseTime = lead.checkoutAt || lead.at;
-  const ageMs = new Date(lead.convertedAt).getTime() - new Date(baseTime).getTime();
-  lead.conversionAgeMs = lead.orphan ? null : ageMs;
-  if (!lead.orphan && ageMs > RECOVERY_LATE_MS) recovery = true;
-  lead.smartCapture = capture;
-  lead.recovery = recovery;
-  lead.captureExtra = captureExtra;
-
-  const v = state.variants.cooud;
-  v.conversions = (v.conversions || 0) + 1;
-  v.revenue[cur] = (v.revenue[cur] || 0) + amount;
+  lead.conversionAgeMs = lead.orphan
+    ? null
+    : new Date(lead.convertedAt).getTime() - new Date(baseTime).getTime();
 
   markDirty();
   db.upsertLead(lead);
-  db.upsertVariant('cooud', v);
   return lead;
-}
-
-// Métricas de conciliação do Cooud (anti-desvio)
-function cooudReconciliation(leads) {
-  const list = (leads || []).filter((l) => l.gateway === 'cooud');
-  let sent = 0, matched = 0, orphans = 0, pending = 0, duplicates = 0, valueMismatch = 0;
-  let smartCapture = 0, recovery = 0;
-  const expectedRev = {}, reportedRev = {}, captureExtraRev = {}, recoveryRev = {};
-
-  list.forEach((l) => {
-    const isOrphan = !!l.orphan;
-    if (!isOrphan) sent++;
-    if (l.duplicateReports) duplicates += l.duplicateReports;
-
-    if (l.status === 'converted') {
-      const rc = l.reportedCurrency || 'EUR';
-      reportedRev[rc] = (reportedRev[rc] || 0) + (l.reportedAmount || 0);
-      if (l.expectedAmount) {
-        const ec = l.expectedCurrency || 'EUR';
-        expectedRev[ec] = (expectedRev[ec] || 0) + l.expectedAmount;
-        if (rc === ec && (l.reportedAmount || 0) < l.expectedAmount) valueMismatch++;
-      }
-      if (l.smartCapture) {
-        smartCapture++;
-        if (l.captureExtra) captureExtraRev[rc] = (captureExtraRev[rc] || 0) + l.captureExtra;
-      }
-      if (l.recovery) {
-        recovery++;
-        recoveryRev[rc] = (recoveryRev[rc] || 0) + (l.reportedAmount || 0);
-      }
-      if (isOrphan) orphans++; else matched++;
-    } else {
-      pending++;
-    }
-  });
-
-  const totalReported = matched + orphans;
-  const convRate = sent ? +((matched / sent) * 100).toFixed(2) : 0;
-  return {
-    sent, matched, orphans, pending, duplicates, valueMismatch,
-    smartCapture, recovery, captureExtraRev, recoveryRev,
-    totalReported, convRate, expectedRev, reportedRev
-  };
 }
 
 // ── Snapshot agregado para a dashboard ─────────────────────────────────────
@@ -454,29 +353,17 @@ function getStats() {
   const now = Date.now();
   if (statsCache && (now - statsCacheAt) < STATS_CACHE_MS) return statsCache;
   ensureLoaded();
-  const out = { variants: {}, events: state.events || [], updatedAt: state.updatedAt };
+  const out = { events: state.events || [], updatedAt: state.updatedAt };
 
-  VARIANTS.forEach((v) => {
-    const d = state.variants[v];
-    const base = d.assignments || 0;
-    out.variants[v] = {
-      assignments: base,
-      clicks: d.clicks || 0,
-      conversions: d.conversions || 0,
-      conversionRate: base ? +((d.conversions / base) * 100).toFixed(2) : 0,
-      revenue: d.revenue || {}
-    };
-  });
-
-  // ── Totais globais ──
+  // ── Totais globais (derivados do feed de eventos) ──
   const revenue = {};
-  VARIANTS.forEach((v) => {
-    const rev = out.variants[v].revenue || {};
-    Object.keys(rev).forEach((cur) => { revenue[cur] = (revenue[cur] || 0) + rev[cur]; });
-  });
   let sales = 0, failed = 0, refunds = 0, disputes = 0;
   (state.events || []).forEach((e) => {
-    if (e.type === 'sale') sales++;
+    if (e.type === 'sale') {
+      sales++;
+      const cur = (e.currency || 'EUR').toUpperCase();
+      revenue[cur] = (revenue[cur] || 0) + (e.amount || 0);
+    }
     else if (e.type === 'failed') failed++;
     else if (e.type === 'refund') refunds++;
     else if (e.type === 'dispute') disputes++;
@@ -493,12 +380,13 @@ function getStats() {
   const visits = realLeads.length;
   const reachedCheckout = realLeads.filter((l) => l.stage === 'checkout' || l.stage === 'purchased').length;
   const purchased = realLeads.filter((l) => l.stage === 'purchased').length;
-  const byGateway = { stripe: { checkout: 0, purchased: 0 }, cooud: { checkout: 0, purchased: 0 } };
+  // Gateways dinâmicos: qualquer origem vista nos leads vira uma entrada
+  const byGateway = {};
   realLeads.forEach((l) => {
-    if (l.gateway && byGateway[l.gateway]) {
-      if (l.stage === 'checkout' || l.stage === 'purchased') byGateway[l.gateway].checkout++;
-      if (l.stage === 'purchased') byGateway[l.gateway].purchased++;
-    }
+    if (!l.gateway) return;
+    if (!byGateway[l.gateway]) byGateway[l.gateway] = { checkout: 0, purchased: 0 };
+    if (l.stage === 'checkout' || l.stage === 'purchased') byGateway[l.gateway].checkout++;
+    if (l.stage === 'purchased') byGateway[l.gateway].purchased++;
   });
   out.funnel = {
     visits,
@@ -520,9 +408,7 @@ function getStats() {
   });
   out.countries = Object.values(countryMap).sort((a, b) => b.count - a.count);
 
-  // ── Cooud (anti-desvio) + leads recentes ──
-  out.cooud = cooudReconciliation(leads);
-  out.cooud.stripeConvRate = out.variants.stripe ? out.variants.stripe.conversionRate : 0;
+  // ── Leads recentes ──
   out.leads = leads.slice(0, 3000); // envia histórico amplo p/ filtros de vários dias
 
   statsCache = out;
@@ -543,7 +429,7 @@ function reset() {
 
 // ── Hidratação do cache a partir do Neon (chamado no boot) ────────────────
 // Faz o banco ser a fonte de verdade após um deploy/reinício: o arquivo local
-// é efêmero, então recarregamos leads/eventos/variantes do Postgres.
+// é efêmero, então recarregamos leads/eventos do Postgres.
 async function hydrate() {
   try {
     await db.init();
@@ -554,12 +440,6 @@ async function hydrate() {
     // Banco vence sobre o arquivo efêmero (que costuma estar vazio no boot).
     if (persisted.leads && persisted.leads.length) state.leads = persisted.leads.slice(0, MAX_LEADS);
     if (persisted.events && persisted.events.length) state.events = persisted.events.slice(0, MAX_EVENTS);
-    VARIANTS.forEach((v) => {
-      if (persisted.variants && persisted.variants[v]) {
-        state.variants[v] = Object.assign(emptyVariant(), persisted.variants[v]);
-        if (!state.variants[v].revenue) state.variants[v].revenue = {};
-      }
-    });
     rebuildIndex();
     invalidateStatsCache();
     markDirty();
@@ -570,18 +450,20 @@ async function hydrate() {
 }
 
 // ── Quem está "no checkout" AGORA, por gateway ────────────────────────────
-// Stripe: o checkout é nosso, então a presença real (heartbeat) é a fonte —
-// esta função serve de complemento. Cooud: o checkout é EXTERNO (sem como
-// injetar script lá), então estimamos: lead que entrou no checkout há menos
-// de `windowMs` (padrão 10 min) e ainda não comprou = provavelmente lá.
+// Os checkouts são EXTERNOS (sem como injetar script lá), então estimamos:
+// lead que entrou num checkout há menos de `windowMs` (padrão 10 min) e
+// ainda não comprou = provavelmente ainda está lá. Chaves dinâmicas por gateway.
 function inCheckoutNow(windowMs) {
   ensureLoaded();
   const cut = Date.now() - (windowMs || 10 * 60 * 1000);
-  const out = { stripe: 0, cooud: 0 };
+  const out = {};
   (state.leads || []).forEach((l) => {
     if (l.stage !== 'checkout') return;
     const t = l.checkoutAt ? new Date(l.checkoutAt).getTime() : 0;
-    if (t >= cut) out[l.gateway === 'cooud' ? 'cooud' : 'stripe']++;
+    if (t >= cut) {
+      const gw = l.gateway || 'externo';
+      out[gw] = (out[gw] || 0) + 1;
+    }
   });
   return out;
 }
@@ -592,8 +474,7 @@ process.once('SIGINT', flushSync);
 process.once('beforeExit', flushSync);
 
 module.exports = {
-  VARIANTS, recordAssignment, recordClick, recordConversion,
   logEvent, recordVisit, recordCheckoutEntry, markPurchased,
-  attachTracking, getLead, findLeadByEmail, matchCooudConversion, getStats, reset, hydrate,
+  attachTracking, getLead, findLeadByEmail, matchExternalConversion, getStats, reset, hydrate,
   inCheckoutNow
 };

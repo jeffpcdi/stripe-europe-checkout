@@ -631,7 +631,7 @@ async function processConversion(n) {
     // 3. registra a venda no dashboard (só CompletePayment)
     if (n.event === 'CompletePayment' && n.registerSale) {
       try {
-        const matched = stats.matchCooudConversion({
+        const matched = stats.matchExternalConversion({
           leadId: lead ? lead.id : null, gateway: n.gateway,
           amountCents: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email, ref: n.orderId
