@@ -167,7 +167,7 @@ function recordVisit(data) {
   return lead;
 }
 
-// ── FUNIL: lead chegou a um checkout (stripe|cooud) ───────────────────────
+// ── FUNIL: lead chegou a um checkout (via /go/:slug ou gateway externo) ────
 function recordCheckoutEntry(id, gateway, data) {
   data = data || {};
   ensureLoaded();
@@ -209,14 +209,14 @@ function recordCheckoutEntry(id, gateway, data) {
 }
 
 // Guarda dados de tracking sensíveis (ex.: tt_url REAL) no lead, no servidor.
-// Nunca vão para a metadata da Stripe — só usados no TikTok Events API (CAPI).
+// Só usados no TikTok Events API (CAPI) — nunca expostos ao cliente.
 function attachTracking(id, patch) {
   if (!id || !patch) return null;
   ensureLoaded();
   let lead = findLead(id);
   const nowIso = new Date().toISOString();
   if (!lead) {
-    lead = addLead({ id, at: nowIso, stage: 'checkout', status: 'pending', gateway: 'stripe', utm: {} });
+    lead = addLead({ id, at: nowIso, stage: 'checkout', status: 'pending', gateway: null, utm: {} });
   }
   if (patch.ttUrl) lead.ttUrl = String(patch.ttUrl).slice(0, 500);
   if (patch.ttclid && !lead.ttclid) lead.ttclid = patch.ttclid;
@@ -249,40 +249,6 @@ function findLeadByEmail(email) {
     if (l && l.email && String(l.email).trim().toLowerCase() === needle) return l;
   }
   return null;
-}
-
-// ── Conversão do Stripe (nativo) ──────────────────────────────────────────
-function markPurchased(id, data) {
-  data = data || {};
-  ensureLoaded();
-  let lead = findLead(id);
-  const nowIso = new Date().toISOString();
-  const cur = (data.currency || 'eur').toUpperCase();
-  const amount = data.amountCents || 0;
-  if (!lead) {
-    lead = addLead({
-      id: id || newId('pi'),
-      at: nowIso,
-      stage: 'purchased',
-      status: 'converted',
-      gateway: 'stripe',
-      utm: {}
-    });
-  }
-  lead.stage = 'purchased';
-  lead.status = 'converted';
-  lead.gateway = 'stripe';
-  lead.convertedAt = nowIso;
-  lead.reportedAmount = amount;
-  lead.reportedCurrency = cur;
-  lead.customer = data.customer || lead.customer || null;
-  lead.email = data.email || lead.email || null;
-  lead.card = data.card || lead.card || null;
-  lead.ref = data.ref || lead.ref || null;
-  if (lead.checkoutAt) lead.conversionAgeMs = new Date(nowIso).getTime() - new Date(lead.checkoutAt).getTime();
-  markDirty();
-  db.upsertLead(lead);
-  return lead;
 }
 
 // ── Conversão de gateway externo (Kiwify, Hotmart, PerfectPay, …) ─────────
@@ -474,7 +440,7 @@ process.once('SIGINT', flushSync);
 process.once('beforeExit', flushSync);
 
 module.exports = {
-  logEvent, recordVisit, recordCheckoutEntry, markPurchased,
+  logEvent, recordVisit, recordCheckoutEntry,
   attachTracking, getLead, findLeadByEmail, matchExternalConversion, getStats, reset, hydrate,
   inCheckoutNow
 };
