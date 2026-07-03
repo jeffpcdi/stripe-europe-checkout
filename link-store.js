@@ -9,6 +9,9 @@ const dns = require('dns').promises;
 const db = require('./db');
 
 let cache = []; // lista de links em memória
+// Domínios já validados nesta sessão (host → ISO). Permite validar ANTES de
+// salvar o link: o save() consulta aqui e já grava dominioValidado=true.
+const validatedDomains = new Map();
 
 function slugify(s) {
   return String(s || '')
@@ -91,6 +94,11 @@ async function save(input) {
     // se o domínio mudou, a validação anterior deixa de valer
     if (existing.dominio !== merged.dominio) { merged.dominioValidado = false; merged.dominioValidadoEm = null; }
     else { merged.dominioValidado = existing.dominioValidado; merged.dominioValidadoEm = existing.dominioValidadoEm; }
+  }
+  // domínio validado antes do save (fluxo normal do formulário)
+  if (!merged.dominioValidado && merged.dominio && validatedDomains.has(merged.dominio)) {
+    merged.dominioValidado = true;
+    merged.dominioValidadoEm = validatedDomains.get(merged.dominio);
   }
   const idx = cache.findIndex((l) => l.slug === slug);
   if (idx >= 0) cache[idx] = merged; else cache.push(merged);
@@ -192,6 +200,7 @@ async function validateDomain(input) {
   if (!httpOk) return { ok: false, host, dns: true, http: false, status, error: 'domínio resolve mas não responde HTTPS' };
   // 3. marca como validado em todos os links com este domínio
   const now = new Date().toISOString();
+  validatedDomains.set(host, now); // vale também para links salvos depois
   cache.forEach((l) => {
     if (l.dominio === host) {
       l.dominioValidado = true;

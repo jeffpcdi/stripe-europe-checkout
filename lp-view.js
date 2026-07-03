@@ -133,9 +133,10 @@ footer{border-top:1px solid var(--border);padding:30px 0 40px}
 .ft .spacer{flex:1}
 .ft p{font-size:12.5px;color:var(--muted2)}
 
-/* revelação ao rolar */
-.reveal{opacity:0;transform:translateY(22px);transition:opacity .6s cubic-bezier(.2,.8,.2,1),transform .6s cubic-bezier(.2,.8,.2,1)}
-.reveal.in{opacity:1;transform:none}
+/* revelação ao rolar — o estado oculto só vale com JS ativo (html.js);
+   sem JS (crawlers, revisores) todo o conteúdo fica visível */
+html.js .reveal{opacity:0;transform:translateY(22px);transition:opacity .6s cubic-bezier(.2,.8,.2,1),transform .6s cubic-bezier(.2,.8,.2,1)}
+html.js .reveal.in{opacity:1;transform:none}
 
 @media (max-width:640px){
   .hero-inner{padding:60px 20px 66px}
@@ -272,6 +273,7 @@ footer{border-top:1px solid var(--border);padding:30px 0 40px}
 <script>
 // revelação ao rolar (mesma convenção da dashboard)
 (function () {
+  document.documentElement.classList.add('js');
   var io = new IntersectionObserver(function (entries) {
     entries.forEach(function (e) {
       if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
