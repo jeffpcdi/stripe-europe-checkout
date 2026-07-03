@@ -222,7 +222,7 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .globe-side{display:flex;flex-direction:column;gap:12px;min-width:0}
 .gs-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .gs-stat{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card);border:1px solid var(--border);border-radius:12px;transition:.2s}
-.gs-stat:hover{border-color:var(--border2);transform:translateY(-2px)}
+
 .gs-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .gs-dot.grn-d{background:var(--green);box-shadow:0 0 9px rgba(62,207,142,.6);animation:hDot 2.4s ease-in-out infinite}
 .gs-dot.pnk-d{background:var(--pink);box-shadow:0 0 9px rgba(255,86,116,.6)}
@@ -410,6 +410,12 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
 tr:last-child td{border-bottom:0}
 tbody tr{cursor:pointer;transition:.12s}
 tbody tr:hover{background:var(--hover)}
+/* dados novos entram animados (tabelas só repintam quando os dados mudam) */
+tbody tr{animation:rowIn .38s cubic-bezier(.2,.8,.3,1) backwards}
+tbody tr:nth-child(1){animation-delay:.03s}tbody tr:nth-child(2){animation-delay:.07s}
+tbody tr:nth-child(3){animation-delay:.11s}tbody tr:nth-child(4){animation-delay:.15s}
+tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay:.23s}
+@keyframes rowIn{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
 .tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;border:1px solid var(--border2)}
 .tag.visit{color:var(--muted);background:var(--card2)}
 .tag.checkout{color:var(--amber);background:rgba(245,181,68,.12);border-color:rgba(245,181,68,.3)}
@@ -497,7 +503,6 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .cfg-grid .cfg-card:nth-child(1){animation-delay:.02s}.cfg-grid .cfg-card:nth-child(2){animation-delay:.09s}
 .cfg-grid .cfg-card:nth-child(3){animation-delay:.16s}.cfg-grid .cfg-card:nth-child(4){animation-delay:.23s}
 .cfg-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--cc),transparent 75%);opacity:.6;transition:opacity .25s}
-.cfg-card:hover{border-color:var(--border2);box-shadow:0 10px 30px rgba(0,0,0,.4),0 0 20px -12px var(--cc)}
 .cfg-card:hover::before{opacity:1}
 .cfg-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px}
 .cfg-head h3{font-size:14.5px;line-height:1.3}
@@ -506,7 +511,7 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
   background:color-mix(in srgb,var(--cc) 12%,transparent);color:var(--cc);border:1px solid color-mix(in srgb,var(--cc) 25%,transparent);
   transition:.28s cubic-bezier(.34,1.56,.64,1)}
 .cfg-ico svg{width:16px;height:16px}
-.cfg-card:hover .cfg-ico{transform:scale(1.12) rotate(-5deg);box-shadow:0 0 14px -4px var(--cc)}
+.cfg-card:hover .cfg-ico{box-shadow:0 0 14px -4px var(--cc)}
 .cfg-note{margin:2px 0 0;font-size:11.5px;color:var(--muted2);line-height:1.5;padding:9px 12px;background:var(--card2);border-radius:9px;border-left:2px solid var(--pink)}
 /* zona de risco compacta */
 .danger-card{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px;border-color:rgba(255,86,116,.22)!important;
@@ -562,7 +567,7 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 /* ── Health dots ── */
 .health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
 .hitem{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--card2);border-radius:10px;border:1px solid var(--border);font-size:12.5px;transition:.2s}
-.hitem:hover{border-color:var(--border2);transform:translateY(-2px)}
+
 .hitem .hdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .hitem .hdot.ok{background:var(--green);box-shadow:0 0 8px rgba(62,207,142,.5);animation:hDot 2.4s ease-in-out infinite}
 .hitem .hdot.warn{background:var(--red);box-shadow:0 0 8px rgba(255,86,116,.5)}
@@ -595,11 +600,21 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .app{position:relative;z-index:1}
 @keyframes sheen{to{background-position:220% 0}}
 
-/* Cards — elevação sutil no hover */
-.card{transition:border-color .2s,background .2s}
+/* ── Efeito ÚNICO de card ──
+   Todos os cards interativos compartilham o mesmo hover: lift de 3px,
+   borda acesa e glow na cor de identidade (--glow). Nada de efeitos
+   diferentes por família — uma linguagem só em toda a dash. */
+.card{transition:border-color .25s,transform .25s,box-shadow .25s}
 .card:hover{border-color:var(--border2)}
-.kpi{transition:border-color .25s,transform .25s,box-shadow .25s}
-.kpi:hover{border-color:var(--border2)}
+.kpi,.mstat,.cfg-card,.gs-stat,.hitem{--glow:#52a8ff;transition:border-color .25s,transform .25s,box-shadow .25s}
+.kpi:hover,.mstat:hover,.cfg-card:hover,.gs-stat:hover,.hitem:hover{
+  transform:translateY(-3px);border-color:var(--border2);
+  box-shadow:0 12px 30px rgba(0,0,0,.45),0 0 18px -10px var(--glow)}
+.kpis-xl .kpi{--glow:var(--kg1,#52a8ff)}
+.mstat{--glow:var(--mc,#52a8ff)}
+.cfg-grid .cfg-card{--glow:var(--cc,#52a8ff)}
+/* micro-interação única do ícone (mesma em todos) */
+.kpi:hover .k-ico,.mstat:hover .ms-ico,.cfg-card:hover .cfg-ico{transform:scale(1.12) rotate(-5deg)}
 
 /* ── Visão Geral: hero ── */
 .ov-hero{position:relative;display:flex;align-items:center;gap:20px;flex-wrap:wrap;border:1px solid transparent;border-radius:14px;padding:22px 26px;margin-bottom:18px;overflow:hidden;
@@ -638,19 +653,6 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .bg-particles i:nth-child(12){left:97%;--pd:19.5s;--pw:7s;background:#3ecf8e;box-shadow:0 0 9px #3ecf8e;width:3px;height:3px}
 @keyframes bgFloat{0%{transform:translateY(0);opacity:0}4%{opacity:.75}80%{opacity:.4}100%{transform:translateY(-105vh);opacity:0}}
 @media(prefers-reduced-motion:reduce){.bg-particles{display:none}}
-/* partículas neon flutuando */
-.ovh-particles{position:absolute;inset:0;pointer-events:none;overflow:hidden}
-.ovh-particles i{position:absolute;bottom:-6px;width:4px;height:4px;border-radius:50%;opacity:0;
-  animation:pFloat var(--pd,7s) ease-in infinite var(--pw,0s)}
-.ovh-particles i:nth-child(1){left:8%;--pd:8s;--pw:0s;background:#ff2d6f;box-shadow:0 0 8px #ff2d6f}
-.ovh-particles i:nth-child(2){left:22%;--pd:11s;--pw:2.5s;background:#25f4ee;box-shadow:0 0 8px #25f4ee;width:3px;height:3px}
-.ovh-particles i:nth-child(3){left:37%;--pd:9s;--pw:1.2s;background:#52a8ff;box-shadow:0 0 8px #52a8ff}
-.ovh-particles i:nth-child(4){left:52%;--pd:12s;--pw:4s;background:#ff5674;box-shadow:0 0 7px #ff5674;width:3px;height:3px}
-.ovh-particles i:nth-child(5){left:65%;--pd:8.5s;--pw:.8s;background:#25f4ee;box-shadow:0 0 9px #25f4ee}
-.ovh-particles i:nth-child(6){left:76%;--pd:10s;--pw:3.2s;background:#52a8ff;box-shadow:0 0 8px #52a8ff;width:5px;height:5px}
-.ovh-particles i:nth-child(7){left:88%;--pd:9.5s;--pw:1.8s;background:#ff2d6f;box-shadow:0 0 8px #ff2d6f;width:3px;height:3px}
-.ovh-particles i:nth-child(8){left:95%;--pd:13s;--pw:5s;background:#3ecf8e;box-shadow:0 0 8px #3ecf8e}
-@keyframes pFloat{0%{transform:translateY(0);opacity:0}8%{opacity:.9}88%{opacity:.5}100%{transform:translateY(-130px);opacity:0}}
 .ovh-left{position:relative;min-width:0;z-index:2}
 .ovh-greet{font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px}
 .ovh-greet::before{content:'';width:22px;height:2px;border-radius:2px;background:linear-gradient(90deg,#ff2d6f,#25f4ee);box-shadow:0 0 8px rgba(255,45,111,.6)}
@@ -674,8 +676,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .kpis-xl .kpi.tint-amber{--kg1:#f5b544;--kg2:#ffd47e;--kglow:rgba(245,181,68,.15)}
 /* ícone do KPI colorido pela identidade do card */
 .kpis-xl .kpi .k-ico{background:color-mix(in srgb,var(--kg1) 13%,transparent);color:var(--kg1);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--kg1) 28%,transparent)}
-.kpis-xl .kpi:hover{transform:translateY(-4px);border-color:var(--border2);box-shadow:0 14px 34px rgba(0,0,0,.5),0 0 22px -8px var(--kg1)}
-.kpis-xl .kpi:hover .k-ico{transform:scale(1.12) rotate(-5deg);box-shadow:inset 0 0 0 1px var(--kg1),0 0 14px -3px var(--kg1)}
+.kpis-xl .kpi:hover .k-ico{box-shadow:inset 0 0 0 1px var(--kg1),0 0 14px -3px var(--kg1)}
 .kpis-xl .k-ico{transition:.28s cubic-bezier(.34,1.56,.64,1)}
 .kpis-xl .k-val{transition:text-shadow .3s}
 .kpis-xl .kpi:hover .k-val{text-shadow:0 0 22px var(--kglow)}
@@ -694,10 +695,10 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .mstat:hover::before{width:4px;box-shadow:0 0 12px -2px var(--mc)}
 .mstat:nth-child(1){animation-delay:.05s}.mstat:nth-child(2){animation-delay:.11s}.mstat:nth-child(3){animation-delay:.17s}
 .mstat:nth-child(4){animation-delay:.23s}.mstat:nth-child(5){animation-delay:.29s}
-.mstat:hover{transform:translateY(-3px);border-color:var(--border2);box-shadow:0 10px 26px rgba(0,0,0,.45),0 0 18px -10px var(--mc)}
+
 .mstat .ms-top{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
 .mstat .ms-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex-shrink:0;transition:.28s cubic-bezier(.34,1.56,.64,1)}
-.mstat:hover .ms-ico{transform:scale(1.15) rotate(-6deg);box-shadow:0 0 12px -3px var(--mc)}
+.mstat:hover .ms-ico{box-shadow:0 0 12px -3px var(--mc)}
 .mstat .ms-ico svg{width:13px;height:13px}
 .mstat .ms-val{font-family:'Geist Mono',monospace;font-size:21px;font-weight:600;margin-top:9px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;transition:text-shadow .3s}
 .mstat:hover .ms-val{text-shadow:0 0 16px color-mix(in srgb,var(--mc) 50%,transparent)}
@@ -1020,7 +1021,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="ov-hero" id="ov-hero">
           <div class="ovh-border"></div>
           <div class="ovh-shine"></div>
-          <div class="ovh-particles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="ovh-left">
             <div class="ovh-greet" id="ov-greet">Bem-vindo de volta</div>
             <div class="ovh-title">Central de resultados <span class="ovh-brand">ROI-NADOS</span></div>
@@ -1542,19 +1542,22 @@ function spark(values,color){
 /* ── Visão Geral ── */
 // Contagem animada: anima do valor anterior até o novo (não pisca 0→N
 // em cada atualização); se o valor não mudou, apenas fixa o texto.
+// suffix pode ser string ('%') OU função formatadora (v => texto).
+// dec = casas decimais (para percentuais tipo 3.4%).
 var CU_LAST={};
-function countUp(el,target,suffix,dur){
+function countUp(el,target,suffix,dur,dec){
   if(!el||isNaN(target)) return;
   var key=el.id||'anon';
+  var fmt=typeof suffix==='function'?suffix:function(v){ return (dec?v.toFixed(dec):Math.round(v))+(suffix||''); };
   var from=CU_LAST[key]!=null?CU_LAST[key]:0;
   CU_LAST[key]=target;
-  if(from===target){ el.textContent=target+(suffix||''); return; }
+  if(from===target){ el.textContent=fmt(target); return; }
   var start=null; dur=dur||900;
   function frame(ts){
     if(!start)start=ts;
     var p=Math.min(1,(ts-start)/dur);
     var eased=1-Math.pow(1-p,3);
-    el.textContent=Math.round(from+(target-from)*eased)+(suffix||'');
+    el.textContent=fmt(from+(target-from)*eased);
     if(p<1)requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -1591,7 +1594,7 @@ function renderOverview(m){
     kpi(I.money,'tint-green','Receita total','<span class="pos">'+revObj(m.rev)+'</span>','no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#3ecf8e'))+
     kpi(I.check,'tint-green','Vendas aprovadas','<span class="pos" id="ov-cu-sales">0</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+spark(seriesFor('sales'),'#3ecf8e'))+
     kpi(I.users,'tint-cyan','Novos leads','<span class="cyn" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
-    kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'">'+m.overall+'%</span>','visita &#8594; compra &middot; detalhes no Funil', dc('overall'));
+    kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'" id="ov-cu-conv">0%</span>','visita &#8594; compra &middot; detalhes no Funil', dc('overall'));
 
   // ministats: aprovação verde quando saudável (ou sem tentativas), alertas âmbar/vermelho só quando existem
   var hasAttempts=(m.sales+m.failed)>0;
@@ -1599,15 +1602,20 @@ function renderOverview(m){
   var apBg=!hasAttempts||m.approval>=70?'rgba(62,207,142,.12)':m.approval>=40?'rgba(245,181,68,.12)':'rgba(255,86,116,.12)';
   var refColor=m.refunds?'#f5b544':'#3ecf8e', dispColor=m.disputes?'#ff5674':'#3ecf8e';
   document.getElementById('ov-chips').innerHTML=
-    mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor)+
+    mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor,'ov-cu-appr')+
     mstat('#3ecf8e','rgba(62,207,142,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null)+
-    mstat('#25f4ee','rgba(37,244,238,.1)',I.globe,'Países ativos',m.countries.length,(m.countries[0]?'l\u00edder: '+flag(m.countries[0].code)+' '+esc(m.countries[0].code):'aguardando leads'),null)+
-    mstat(refColor,m.refunds?'rgba(245,181,68,.12)':'rgba(62,207,142,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null)+
-    mstat(dispColor,m.disputes?'rgba(255,86,116,.12)':'rgba(62,207,142,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null);
+    mstat('#25f4ee','rgba(37,244,238,.1)',I.globe,'Países ativos',m.countries.length,(m.countries[0]?'l\u00edder: '+flag(m.countries[0].code)+' '+esc(m.countries[0].code):'aguardando leads'),null,null,'ov-cu-geo')+
+    mstat(refColor,m.refunds?'rgba(245,181,68,.12)':'rgba(62,207,142,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null,null,'ov-cu-ref')+
+    mstat(dispColor,m.disputes?'rgba(255,86,116,.12)':'rgba(62,207,142,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null,null,'ov-cu-disp');
 
-  // dispara contagens e barras animadas
+  // dispara contagens e barras animadas (todos os números sobem animados)
   countUp(document.getElementById('ov-cu-sales'),m.sales);
   countUp(document.getElementById('ov-cu-visits'),m.visits);
+  countUp(document.getElementById('ov-cu-conv'),parseFloat(m.overall)||0,'%',900,(''+m.overall).indexOf('.')>=0?1:0);
+  countUp(document.getElementById('ov-cu-appr'),parseFloat(m.approval)||0,'%',900,(''+m.approval).indexOf('.')>=0?1:0);
+  countUp(document.getElementById('ov-cu-geo'),m.countries.length);
+  countUp(document.getElementById('ov-cu-ref'),m.refunds);
+  countUp(document.getElementById('ov-cu-disp'),m.disputes);
   requestAnimationFrame(function(){
     document.querySelectorAll('#ov-chips .ms-fill').forEach(function(f){ f.style.width=f.getAttribute('data-w')+'%'; });
   });
@@ -2091,11 +2099,23 @@ function renderLive(){
   var stripeNow=ck.stripeNow!=null?ck.stripeNow:vs.filter(isCheckoutLead).length;
   var cooudEst=ck.cooudEst||0;
   var totalCheckout=stripeNow+cooudEst;
-  document.getElementById('live-kpis').innerHTML=
-    kpi(I.users,'tint-green','Online agora','<span class="grn">'+s.online+'</span>','pessoas navegando &middot; '+((s.countries||[]).length)+' pa&iacute;ses')+
-    kpi(I.cart,'tint-pink','No checkout agora','<span class="pnk">'+totalCheckout+'</span>',
-      '<span class="grn">'+stripeNow+'</span> Stripe &middot; <span style="color:var(--amber)">'+cooudEst+'</span> externo')+
-    kpi(I.zap,'tint-cyan','Checkout externo','<span style="color:var(--amber)">'+cooudEst+'</span>','rastreados no Cooud &middot; ~10&nbsp;min');
+  // estrutura montada UMA vez; depois só os números animam (sem repinte seco a cada 4s)
+  var lkEl=document.getElementById('live-kpis');
+  if(!document.getElementById('lk-online')){
+    lkEl.innerHTML=
+      kpi(I.users,'tint-green','Online agora','<span class="grn" id="lk-online">0</span>','<span id="lk-online-sub">pessoas navegando</span>')+
+      kpi(I.cart,'tint-pink','No checkout agora','<span class="pnk" id="lk-ck">0</span>',
+        '<span class="grn" id="lk-ck-stripe">0</span> Stripe &middot; <span style="color:var(--amber)" id="lk-ck-ext">0</span> externo')+
+      kpi(I.zap,'tint-cyan','Checkout externo','<span style="color:var(--amber)" id="lk-ext">0</span>','rastreados no Cooud &middot; ~10&nbsp;min');
+  }
+  countUp(document.getElementById('lk-online'),s.online||0,'',600);
+  countUp(document.getElementById('lk-ck'),totalCheckout,'',600);
+  countUp(document.getElementById('lk-ext'),cooudEst,'',600);
+  var lkSub=document.getElementById('lk-online-sub');
+  var nc=(s.countries||[]).length;
+  if(lkSub)lkSub.textContent='pessoas navegando \u00b7 '+nc+(nc===1?' pa\u00eds':' pa\u00edses');
+  var lkStripe=document.getElementById('lk-ck-stripe'); if(lkStripe)lkStripe.textContent=stripeNow;
+  var lkExt2=document.getElementById('lk-ck-ext'); if(lkExt2)lkExt2.textContent=cooudEst;
   // Card "Pulso de tráfego"
   renderTrafficPulse();
   // checkout primeiro (mais quentes no topo), depois por atividade
@@ -2185,8 +2205,8 @@ function renderGlobeSide(){
   var ck=LIVE.checkout||{};
   var stripeNow=ck.stripeNow!=null?ck.stripeNow:vs.filter(isCheckoutLead).length;
   var totalCk=stripeNow+(ck.cooudEst||0);
-  var on=document.getElementById('gs-online'); if(on)on.textContent=(LIVE.summary&&LIVE.summary.online)||0;
-  var ce=document.getElementById('gs-ck'); if(ce)ce.textContent=totalCk;
+  countUp(document.getElementById('gs-online'),(LIVE.summary&&LIVE.summary.online)||0,'',600);
+  countUp(document.getElementById('gs-ck'),totalCk,'',600);
   var list=document.getElementById('ov-live-list'); if(!list) return;
   // mais quentes primeiro (checkout > ativos), limitado a 5
   var sorted=vs.slice().sort(function(a,b){
