@@ -7,8 +7,8 @@ module.exports = `<!DOCTYPE html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0a0a0b" />
-<title>ROI-NADOS — Automação e rastreamento para TikTok Ads</title>
-<meta name="description" content="Pixel server-side (Events API 2.0), webhook universal de conversões, links de checkout com teste A/B e radar de vendas ao vivo. Automação 100% focada em TikTok Ads." />
+<title>ROI-NADOS — Automação e monitoramento para TikTok Ads | PC Digital Ltda</title>
+<meta name="description" content="Plataforma da PC Digital Ltda para monitorar contas de anúncio do TikTok via Marketing API oficial: saldos, status de contas, pixel server-side (Events API 2.0), webhook de conversões e relatórios em tempo real." />
 <link rel="icon" href="/assets/roi-nados-logo.jpg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -170,6 +170,7 @@ html.js .reveal.in{opacity:1;transform:none}
         <a class="btn" href="#recursos">Ver recursos</a>
       </div>
       <div class="hero-stats">
+        <div class="hs"><b>Marketing API</b><span>Integra&ccedil;&atilde;o oficial TikTok</span></div>
         <div class="hs"><b>Events API 2.0</b><span>Pixel server-side</span></div>
         <div class="hs"><b>Qualquer gateway</b><span>Webhook universal</span></div>
         <div class="hs"><b>Tempo real</b><span>Radar de vendas</span></div>
@@ -248,6 +249,48 @@ html.js .reveal.in{opacity:1;transform:none}
     </div>
   </section>
 
+  <section id="api-tiktok">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker">Integração oficial</span>
+        <h2>Conectado à TikTok Marketing API</h2>
+        <p>O ROI-NADOS é a ferramenta interna da PC Digital Ltda para monitorar as contas de anúncio conectadas ao nosso Business Center — com transparência e gestão simplificada.</p>
+      </div>
+      <div class="features" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+        <div class="fcard reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 20h10M12 18v2"/></svg></div>
+          <h3>Monitoramento de contas de anúncio</h3>
+          <p>Consultamos saldos, status das contas e informações básicas do negócio pela TikTok Marketing API, usando os escopos oficiais de Ad Account Management e Ads Management.</p>
+        </div>
+        <div class="fcard green reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h3>Autorização segura via OAuth 2.0</h3>
+          <p>O acesso às contas é concedido pelo fluxo oficial de OAuth do TikTok for Business. Nenhuma senha é armazenada e a autorização pode ser revogada a qualquer momento.</p>
+          <p><code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--cyan);background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:2px 7px;word-break:break-all">roi-nados.top/api/tiktok/oauth/callback</code></p>
+        </div>
+        <div class="fcard amber reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg></div>
+          <h3>Uso interno e transparente</h3>
+          <p>A plataforma é de uso exclusivo da equipe da PC Digital Ltda. Os dados obtidos pela API servem apenas para acompanhar as nossas próprias contas — nada é vendido ou compartilhado com terceiros.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="contato" style="background:var(--panel);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:54px 0">
+    <div class="wrap">
+      <div class="sec-head reveal" style="margin-bottom:0">
+        <span class="kicker">Contato</span>
+        <h2>Fale com a nossa equipe</h2>
+        <p>Dúvidas sobre a plataforma, a integração com o TikTok for Business ou o tratamento de dados? Escreva para a gente.</p>
+        <a class="btn" href="mailto:contact@roi-nados.top" style="margin-top:8px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+          contact@roi-nados.top
+        </a>
+      </div>
+    </div>
+  </section>
+
   <section>
     <div class="cta-band reveal">
       <div class="cta-inner">
@@ -262,11 +305,22 @@ html.js .reveal.in{opacity:1;transform:none}
 </main>
 
 <footer>
-  <div class="ft">
-    <div class="logo-orbit" style="width:34px;height:34px"><span class="logo-ring"></span><img src="/assets/roi-nados-logo.jpg" alt="" style="inset:3px;width:28px;height:28px" /></div>
-    <span class="brand">ROI-NADOS</span>
+  <div class="ft" style="align-items:flex-start">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="logo-orbit" style="width:34px;height:34px"><span class="logo-ring"></span><img src="/assets/roi-nados-logo.jpg" alt="" style="inset:3px;width:28px;height:28px" /></div>
+        <span class="brand">ROI-NADOS</span>
+      </div>
+      <p>Operado por <strong style="color:var(--muted)">PC Digital Ltda</strong> &middot; <a href="mailto:contact@roi-nados.top" style="color:var(--cyan)">contact@roi-nados.top</a></p>
+      <p>&copy; 2026 ROI-NADOS — Automação e monitoramento para TikTok Ads. Todos os direitos reservados.</p>
+    </div>
     <span class="spacer"></span>
-    <p>&copy; 2026 ROI-NADOS — Automação para TikTok Ads. Todos os direitos reservados.</p>
+    <nav aria-label="Links legais" style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+      <a href="/privacidade" style="color:var(--muted)">Política de Privacidade</a>
+      <a href="/termos" style="color:var(--muted)">Termos de Serviço</a>
+      <a href="#api-tiktok" style="color:var(--muted)">Integração TikTok Marketing API</a>
+      <a href="#contato" style="color:var(--muted)">Contato</a>
+    </nav>
   </div>
 </footer>
 

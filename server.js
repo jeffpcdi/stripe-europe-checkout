@@ -897,6 +897,17 @@ app.get('/', (req, res) => {
   res.send(injectPulse(LP_HTML));
 });
 
+// ── Páginas legais (públicas — exigidas na revisão do TikTok for Business) ──
+const { privacyPage, termsPage } = require('./legal-view');
+app.get('/privacidade', (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(privacyPage);
+});
+app.get('/termos', (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(termsPage);
+});
+
 // ── Só a pasta /assets é servida estaticamente (logo da marca) ───────
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d' }));
 
