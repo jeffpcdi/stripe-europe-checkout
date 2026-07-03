@@ -2276,7 +2276,7 @@ function renderLinkPerf(){
         var w=Math.max(2,Math.round((v.clicks||0)/maxC*100));
         return '<div class="abrow"><div class="abr-top"><span class="lbl">'+esc(v.nome)+' <span class="hint">peso '+(v.peso||0)+'%</span></span>'+
           '<span class="va cyn">'+(v.clicks||0)+' cliques</span>'+
-          '<span class="vb pnk">'+(v.conversions||0)+' conv &middot; '+rate+'% &middot; '+money(v.revenueCents||0,v.currency||'EUR')+'</span></div>'+
+          '<span class="vb pnk">'+(v.conversions||0)+' conv &middot; '+rate+'% &middot; '+revObj(v.revenue)+'</span></div>'+
           '<div class="abr-bars"><div class="b s" style="width:'+w+'%"></div>'+
           '<div class="b c" style="width:'+Math.max(2,Math.round((v.conversions||0)/maxC*100))+'%"></div></div></div>';
       }).join('')+
@@ -2599,7 +2599,7 @@ function loadConvLog(){
 function renderHealth(){
   if(!HEALTH){ document.getElementById('health-grid').innerHTML='<div class="muted" style="padding:8px 0;font-size:13px">Indispon&iacute;vel</div>'; return; }
   var items=[
-    {key:'conversionWebhook',label:'Webhook de convers&otilde;es'},
+    {key:'conversionWebhook',label:'Webhook de conversões'},
     {key:'tiktok',label:'TikTok CAPI'},
     {key:'pushcut',label:'Pushcut'},
     {key:'dashboard',label:'Dashboard senha'}
