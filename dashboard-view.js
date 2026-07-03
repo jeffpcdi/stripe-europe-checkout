@@ -2463,6 +2463,7 @@ function loadPixels(){
     if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; badge.className='badge live-badge'; }
   }).catch(function(){});
   loadPxLog();
+  loadConvLog();
 }
 function renderPixels(){
   var el=document.getElementById('px-list'); if(!el) return;
@@ -2521,8 +2522,7 @@ function testPixel(slug){
     .then(function(d){
       if(d.ok) toast('TikTok aceitou o disparo (code 0)');
       else toast('Falhou: '+(d.message||d.error||'ver log'),false);
-  loadPxLog();
-  loadConvLog();
+      loadPxLog();
     })
     .catch(function(){ toast('Erro no teste',false); });
 }
@@ -2573,7 +2573,8 @@ function loadPxLog(){
 }
 // ── Webhook universal de conversões ──
 var CW_SECRET='', CW_REVEALED=false;
-function cwUrl(){ return location.origin+'/api/conversion?secret='+(CW_REVEALED?CW_SECRET:'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'); }
+// encodeURIComponent: segredos com @, &, + etc. precisam ser escapados na URL
+function cwUrl(){ return location.origin+'/api/conversion?secret='+(CW_REVEALED?encodeURIComponent(CW_SECRET):'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'); }
 function loadConvLog(){
   fetch('/api/conversion/log').then(function(r){return r.json();}).then(function(d){
     CW_SECRET=d.secret||'';
@@ -2786,7 +2787,7 @@ function applyDr(){
   toast('Per\u00edodo segmentado aplicado');
 }
 
-/* ── Paleta de comandos ⌘K ── */
+/* ─�� Paleta de comandos ⌘K ── */
 var CMD_ITEMS=[
   {g:'Telas',t:'Visão Geral',h:'resumo',ic:I.money,act:function(){setView('overview');}},
   {g:'Telas',t:'Ao Vivo',h:'presença, funil, países',ic:I.zap,act:function(){setView('live');}},
@@ -3028,8 +3029,8 @@ document.getElementById('cw-reveal').addEventListener('click',function(){
 });
 document.getElementById('cw-copy').addEventListener('click',function(){
   if(!CW_SECRET){ toast('Configure o segredo primeiro',false); return; }
-  // copia sempre a URL REAL (com segredo), mesmo com o campo mascarado
-  navigator.clipboard.writeText(location.origin+'/api/conversion?secret='+CW_SECRET)
+  // copia sempre a URL REAL (com segredo URL-encoded), mesmo com o campo mascarado
+  navigator.clipboard.writeText(location.origin+'/api/conversion?secret='+encodeURIComponent(CW_SECRET))
     .then(function(){ toast('URL copiada com o segredo',true); })
     .catch(function(){ toast('Erro ao copiar',false); });
 });
