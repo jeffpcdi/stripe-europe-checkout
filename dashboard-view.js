@@ -1208,6 +1208,15 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <input type="hidden" id="px-slug" value="">
           </div>
         </div>
+        <div class="section-title"><span>Rastreamento em p&aacute;ginas externas</span><span class="line"></span></div>
+        <div class="card">
+          <p class="hint" style="margin-bottom:12px">Cole esta linha no <b>&lt;head&gt;</b> ou antes do <b>&lt;/body&gt;</b> de <b>qualquer p&aacute;gina externa</b> (presell, VSL, landing em outro dom&iacute;nio). O lead passa a ser rastreado desde a primeira visita: dispara <b>ViewContent</b> na CAPI, captura ttclid/_ttp/UTMs, aparece no &quot;Ao Vivo&quot; e os links de checkout <b>/go/</b> s&atilde;o decorados automaticamente com o ID do lead &mdash; costurando todo o trajeto at&eacute; a compra.</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
+            <button class="btn btn-sm primary" id="tk-copy">Copiar snippet</button>
+          </div>
+          <p class="hint" style="margin-top:10px">Funciona em qualquer HTML &mdash; n&atilde;o precisa do pixel do TikTok instalado na p&aacute;gina (mas se houver, o _ttp &eacute; aproveitado para subir a Qualidade).</p>
+        </div>
         <div class="section-title"><span>Webhook universal de conversões</span><span class="line"></span></div>
         <div class="card">
           <p class="hint" style="margin-bottom:12px">Cole esta URL no painel do seu gateway (Kiwify, Hotmart, PerfectPay, Cakto…) nos eventos de <b>venda aprovada</b>, <b>checkout/PIX gerado</b> e <b>pagamento em processamento</b>. O servidor identifica o lead, enriquece com ttclid/_ttp/IP e dispara InitiateCheckout, AddPaymentInfo e CompletePayment para todos os pixels ativos — com dedup por order_id.</p>
@@ -3030,6 +3039,17 @@ document.getElementById('cw-copy').addEventListener('click',function(){
   navigator.clipboard.writeText(location.origin+'/api/conversion?secret='+encodeURIComponent(CW_SECRET))
     .then(function(){ toast('URL copiada com o segredo',true); })
     .catch(function(){ toast('Erro ao copiar',false); });
+});
+/* ── Snippet de rastreamento para páginas externas ── */
+function trackerSnippet(){ return '<script src="'+location.origin+'/t.js" defer><\\/script>'; }
+(function(){
+  var inp=document.getElementById('tk-snippet');
+  if(inp) inp.value=trackerSnippet();
+})();
+document.getElementById('tk-copy').addEventListener('click',function(){
+  navigator.clipboard.writeText(trackerSnippet())
+    .then(function(){ toast('Snippet copiado \u2014 cole na p\u00e1gina externa'); })
+    .catch(function(){ toast('Clipboard indispon\u00edvel',false); });
 });
 document.getElementById('reset-btn').addEventListener('click',function(){
   if(!confirm('Tem certeza? Isto apaga todos os leads e eventos.')) return;

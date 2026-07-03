@@ -35,6 +35,7 @@ const DASHBOARD_HTML = require('./dashboard-view');
 const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
 const uaTools = require('./ua');
+const TRACKER_JS = require('./tracker-view');
 
 // Lê um cookie do request (parse simples, sem dependência extra)
 function readCookie(req, name) {
@@ -194,6 +195,15 @@ const PORT = process.env.PORT || 3000;
 
 // ── Middleware ────────────────────────────────────────────────────────
 app.use(express.json());
+// sendBeacon cross-origin manda JSON como text/plain (evita preflight CORS)
+// — parseia de volta para objeto nas rotas de rastreamento
+app.use(express.text({ type: 'text/plain', limit: '50kb' }));
+app.use((req, _res, next) => {
+  if (typeof req.body === 'string' && req.body.length) {
+    try { req.body = JSON.parse(req.body); } catch (_) { req.body = {}; }
+  }
+  next();
+});
 
 // CORS headers para todas as rotas API (GET + POST + OPTIONS)
 app.use('/api', (req, res, next) => {
@@ -273,6 +283,92 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ── Rastreamento universal para páginas EXTERNAS ─────────────────────
+// Qualquer arquivo/página fora deste servidor (presell, VSL, landing em
+// outro domínio) inclui <script src="https://DOMINIO/t.js" defer></script>
+// e passa a: registrar o lead no funil, disparar ViewContent na CAPI e
+// decorar os links /go/ com o vid — rastreando TODO o trajeto do lead
+// até a entrada do checkout, sem depender de cookie cross-site.
+const VID_RE = /^ld_[a-z0-9]{6,30}$/i;
+
+app.get('/t.js', (_req, res) => {
+  res.set({
+    'Content-Type': 'application/javascript; charset=utf-8',
+    'Cache-Control': 'public, max-age=300',        // 5min: atualizações chegam rápido
+    'Access-Control-Allow-Origin': '*'
+  });
+  res.send(TRACKER_JS);
+});
+
+// Endpoint público chamado pelo snippet (sendBeacon/fetch, sem cookies).
+// A identidade vem do vid explícito — validado com regex estrita.
+app.post('/api/track', async (req, res) => {
+  res.json({ ok: true });                          // responde já; processa depois
+  try {
+    const b = req.body || {};
+    const vid = VID_RE.test(String(b.vid || '')) ? String(b.vid) : null;
+    if (!vid) return;
+    const uaRaw = String(req.headers['user-agent'] || '');
+    if (uaTools.isBot(uaRaw)) return;              // bots não viram lead nem CAPI
+
+    const geo = geoFromReq(req);
+    const dev = uaTools.parse(uaRaw);
+    const utm = (b.utm && typeof b.utm === 'object') ? b.utm : {};
+    const pageUrl = typeof b.url === 'string' ? b.url.slice(0, 500) : null;
+    let landing = pageUrl;
+    try { landing = new URL(pageUrl).pathname.slice(0, 200); } catch (_) {}
+
+    // lead já existia? (evita "novo lead" duplicado a cada page view)
+    let existed = false;
+    try { existed = !!stats.getLead(vid); } catch (_) {}
+
+    // registra/enriquece o lead no funil (mesma trilha do middleware interno)
+    stats.recordVisit({
+      id: vid,
+      ip: clientIp(req),
+      ua: uaRaw.slice(0, 300),
+      device: dev.device, os: dev.os, browser: dev.browser,
+      referer: typeof b.referrer === 'string' ? b.referrer.slice(0, 300) : null,
+      landing: landing || 'externa',
+      country: geo.country, countryName: geo.countryName, city: geo.city,
+      ttclid: typeof b.ttclid === 'string' ? b.ttclid.slice(0, 500) : null,
+      utm: {
+        source: utm.source || null, medium: utm.medium || null,
+        campaign: utm.campaign || null, content: utm.content || null, term: utm.term || null
+      }
+    });
+    // _ttp do pixel TikTok da página externa — sobe o Event Match Quality
+    if (typeof b.ttp === 'string' && b.ttp) {
+      try { stats.attachTracking(vid, { ttp: b.ttp.slice(0, 500) }); } catch (_) {}
+    }
+    if (!existed) {
+      stats.logEvent('visit', {
+        title: 'Novo lead em página externa',
+        landing: landing || 'externa',
+        country: geo.countryName || geo.country || null,
+        ref: vid
+      });
+    }
+
+    // ViewContent server-side com dedup por hora (mesmo esquema do interno)
+    const evId = 'ViewContent.' + vid + '.' + hourKey();
+    if (!(await seenPixelEvent(evId))) {
+      let lead = null;
+      try { lead = stats.getLead(vid); } catch (_) {}
+      ttEvents.dispatchToAll('ViewContent', {
+        eventId: evId,
+        leadId: vid,
+        ip: clientIp(req),
+        userAgent: uaRaw.slice(0, 500),
+        ttclid: (typeof b.ttclid === 'string' && b.ttclid) || (lead && lead.ttclid) || null,
+        ttp: (typeof b.ttp === 'string' && b.ttp) || (lead && lead.ttp) || null,
+        email: (lead && lead.email) || undefined,
+        url: pageUrl
+      }, landing || 'externa').catch(() => {});
+    }
+  } catch (_) { /* rastreamento nunca derruba o servidor */ }
+});
+
 // ── Links de Checkout externos (/go/:slug) ───────────────────────────
 // O checkout NÃO vive neste projeto: cada link aponta para URLs externas
 // do usuário (qualquer gateway). Este redirect é o ponto de rastreamento:
@@ -293,7 +389,18 @@ app.get('/go/:slug', async (req, res) => {
     return res.redirect(302, v0.url);
   }
 
-  const visitorId = getOrAssignVisitor(req, res);
+  // Costura de identidade: se veio de página externa com snippet /t.js,
+  // o link chega decorado com ?vid=ld_… — usa ESSE id (o mesmo lead que
+  // viu a página) e grava no cookie para unificar dali em diante.
+  let visitorId;
+  if (q.vid && VID_RE.test(String(q.vid))) {
+    visitorId = String(q.vid);
+    if (readCookie(req, 'v_id') !== visitorId) {
+      appendCookie(res, `v_id=${visitorId};Path=/;Max-Age=7776000;SameSite=Lax`);
+    }
+  } else {
+    visitorId = getOrAssignVisitor(req, res);
+  }
 
   // Variante sticky por cookie (respeita pesos na primeira atribuição)
   const cookieName = 'ab_' + link.slug;
@@ -386,9 +493,11 @@ app.get('/api/stats', dashboardAuth, (req, res) => {
 // ── API: heartbeat de presença (chamado por todas as páginas do funil) ─
 app.post('/api/pulse', (req, res) => {
   try {
-    const id = readCookie(req, 'v_id');
-    if (!id) return res.json({ ok: false });
     const b = req.body || {};
+    // páginas externas (snippet /t.js) não têm cookie → mandam vid no body
+    const id = readCookie(req, 'v_id') ||
+      (VID_RE.test(String(b.vid || '')) ? String(b.vid) : null);
+    if (!id) return res.json({ ok: false });
     const geo = geoFromReq(req);
     presence.touch({
       visitorId: id,
@@ -403,7 +512,12 @@ app.post('/api/pulse', (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/pulse/leave', (req, res) => {
-  try { presence.leave(readCookie(req, 'v_id')); } catch (_) {}
+  try {
+    const b = req.body || {};
+    const id = readCookie(req, 'v_id') ||
+      (VID_RE.test(String(b.vid || '')) ? String(b.vid) : null);
+    if (id) presence.leave(id);
+  } catch (_) {}
   res.json({ ok: true });
 });
 
