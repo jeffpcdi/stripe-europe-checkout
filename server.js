@@ -303,6 +303,50 @@ app.get('/t.js', (_req, res) => {
   res.send(TRACKER_JS);
 });
 
+// Fallback SEM JavaScript: <noscript><img src="https://DOMINIO/px.gif"></noscript>
+// Leads com JS bloqueado/quebrado deixam de ser invisíveis: o pixel de imagem
+// registra a visita com um id derivado de IP+UA+dia (estável no dia, sem cookie).
+const PX_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+app.get('/px.gif', (req, res) => {
+  res.set({
+    'Content-Type': 'image/gif',
+    'Cache-Control': 'no-store, no-cache, must-revalidate', // cada view conta
+    'Access-Control-Allow-Origin': '*'
+  });
+  res.end(PX_GIF);                                 // responde já; processa depois
+  try {
+    const uaRaw = String(req.headers['user-agent'] || '');
+    if (uaTools.isBot(uaRaw)) return;
+    // vid explícito (?vid=) ou fingerprint diário de IP+UA (prefixo nojs)
+    let vid = VID_RE.test(String(req.query.vid || '')) ? String(req.query.vid) : null;
+    if (!vid) {
+      const day = new Date().toISOString().slice(0, 10);
+      vid = 'ld_nojs' + crypto.createHash('sha256')
+        .update(clientIp(req) + '|' + uaRaw + '|' + day).digest('hex').slice(0, 16);
+    }
+    const geo = geoFromReq(req);
+    const dev = uaTools.parse(uaRaw);
+    const ref = typeof req.headers.referer === 'string' ? req.headers.referer.slice(0, 300) : null;
+    let landing = 'externa (sem JS)';
+    try { if (ref) landing = new URL(ref).pathname.slice(0, 200); } catch (_) {}
+    stats.recordVisit({
+      id: vid, ip: clientIp(req), ua: uaRaw.slice(0, 300),
+      device: dev.device, os: dev.os, browser: dev.browser,
+      referer: ref, landing,
+      country: geo.country, countryName: geo.countryName, city: geo.city
+    });
+    // ViewContent com o mesmo esquema de dedup por hora
+    const evId = 'ViewContent.' + vid + '.' + hourKey();
+    seenPixelEvent(evId).then((seen) => {
+      if (seen) return;
+      ttEvents.dispatchToAll('ViewContent', {
+        eventId: evId, leadId: vid, ip: clientIp(req),
+        userAgent: uaRaw.slice(0, 500), url: ref || undefined
+      }, landing).catch(() => {});
+    }).catch(() => {});
+  } catch (_) { /* pixel de imagem nunca derruba nada */ }
+});
+
 // Endpoint público chamado pelo snippet (sendBeacon/fetch, sem cookies).
 // A identidade vem do vid explícito — validado com regex estrita.
 app.post('/api/track', async (req, res) => {
@@ -1096,6 +1140,42 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
     id: r.id, at: r.at, pixel: r.pixel, event: r.event,
     eventId: r.event_id, leadId: r.lead_id, status: r.status, response: r.response
   })), source: 'neon' });
+});
+
+// Saúde da CAPI: taxa de sucesso, EMQ médio por evento, últimos erros e o
+// tamanho da fila de retry — visão imediata de "está tudo disparando?"
+app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const rows = await ttEvents.recentLogAsync(200);
+  const total = rows.length;
+  const ok = rows.filter((r) => r.status === 'ok').length;
+  const byEvent = {};
+  let emqSum = 0, emqN = 0;
+  rows.forEach((r) => {
+    const e = byEvent[r.event] = byEvent[r.event] || { total: 0, ok: 0, emqSum: 0, emqN: 0 };
+    e.total++;
+    if (r.status === 'ok') e.ok++;
+    if (r.emq != null) { e.emqSum += r.emq; e.emqN++; emqSum += r.emq; emqN++; }
+  });
+  const events = Object.keys(byEvent).map((name) => {
+    const e = byEvent[name];
+    return {
+      event: name, total: e.total, ok: e.ok,
+      rate: e.total ? Math.round((e.ok / e.total) * 100) : 0,
+      emq: e.emqN ? Math.round((e.emqSum / e.emqN) * 10) / 10 : null
+    };
+  }).sort((a, b) => b.total - a.total);
+  const errors = rows.filter((r) => r.status !== 'ok').slice(0, 5).map((r) => ({
+    at: r.at, pixel: r.pixel, event: r.event,
+    message: (r.response && (r.response.message || ('code ' + r.response.code))) || 'erro'
+  }));
+  res.json({
+    ok: true, total, success: ok,
+    rate: total ? Math.round((ok / total) * 100) : null,
+    emq: emqN ? Math.round((emqSum / emqN) * 10) / 10 : null,
+    events, errors,
+    retryQueue: ttEvents.retryQueueSize()
+  });
 });
 
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {

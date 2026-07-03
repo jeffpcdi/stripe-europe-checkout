@@ -411,6 +411,16 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
   .jp{font-size:12.5px;color:var(--text);font-family:'Geist Mono',monospace;word-break:break-all}
   .jstep.buy .jp{color:var(--green,#2fbf71);font-weight:600}
   .jt{font-size:11px;color:var(--muted2);margin-left:auto;flex:none}
+  /* KPIs de saúde da CAPI (aba Pixel) */
+  .ph-kpis{display:flex;gap:28px;flex-wrap:wrap}
+  .ph-k{display:flex;flex-direction:column;gap:3px}
+  .ph-v{font-family:'Geist Mono',monospace;font-size:23px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+  .ph-v.pos{color:var(--green)}
+  .ph-v.amb{color:var(--amber)}
+  .ph-v.neg{color:var(--red)}
+  .ph-l{font-size:11px;color:var(--muted2)}
+  .ph-err{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--red);padding:4px 0}
+  .ph-err .pe-t{color:var(--muted2);font-size:11px;margin-left:auto;flex:none}
 .section-title .line{flex:1;height:1px;background:var(--border)}
 
 /* ── Gráfico ── */
@@ -1235,6 +1245,17 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
             <input type="hidden" id="px-slug" value="">
           </div>
+        </div>
+        <div class="section-title"><span>Sa&uacute;de dos disparos</span><span class="line"></span><button class="btn-icon" id="ph-refresh">Atualizar</button></div>
+        <div class="card">
+          <div class="ph-kpis">
+            <div class="ph-k"><span class="ph-v" id="ph-rate">--</span><span class="ph-l">Taxa de sucesso</span></div>
+            <div class="ph-k"><span class="ph-v" id="ph-emq">--</span><span class="ph-l">Qualidade de match</span></div>
+            <div class="ph-k"><span class="ph-v" id="ph-queue">--</span><span class="ph-l">Na fila de retry</span></div>
+            <div class="ph-k"><span class="ph-v" id="ph-total">--</span><span class="ph-l">Disparos analisados</span></div>
+          </div>
+          <div id="ph-events" class="hint" style="margin-top:12px"></div>
+          <div id="ph-errors" style="margin-top:6px"></div>
         </div>
         <div class="section-title"><span>Rastreamento em p&aacute;ginas externas</span><span class="line"></span></div>
         <div class="card">
@@ -2560,6 +2581,34 @@ function loadPixels(){
   }).catch(function(){});
   loadPxLog();
   loadConvLog();
+  loadCapiHealth();
+}
+// Saúde da CAPI: taxa de sucesso, EMQ médio, fila de retry e últimos erros
+function loadCapiHealth(){
+  fetch('/api/pixels/health').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok) return;
+    function set(id,val,cls){
+      var el=document.getElementById(id); if(!el) return;
+      el.textContent=val; el.className='ph-v'+(cls?' '+cls:'');
+    }
+    if(d.total===0){
+      set('ph-rate','--'); set('ph-emq','--'); set('ph-queue',d.retryQueue||0); set('ph-total','0');
+      document.getElementById('ph-events').textContent='Nenhum disparo ainda \u2014 os n\u00fameros aparecem aqui assim que o pixel come\u00e7ar a disparar.';
+      document.getElementById('ph-errors').innerHTML='';
+      return;
+    }
+    set('ph-rate',d.rate+'%',d.rate>=90?'pos':(d.rate>=70?'amb':'neg'));
+    set('ph-emq',d.emq!=null?d.emq+'/10':'--',d.emq>=6?'pos':(d.emq>=3?'amb':'neg'));
+    set('ph-queue',String(d.retryQueue||0),d.retryQueue>0?'amb':'pos');
+    set('ph-total',String(d.total));
+    document.getElementById('ph-events').textContent=(d.events||[]).map(function(e){
+      return e.event+' '+e.rate+'%'+(e.emq!=null?' (match '+e.emq+')':'');
+    }).join(' \u00b7 ');
+    var errs=d.errors||[];
+    document.getElementById('ph-errors').innerHTML=errs.length?errs.map(function(e){
+      return '<div class="ph-err"><span>'+esc(e.pixel||'?')+' \u00b7 '+esc(e.event||'?')+' \u2014 '+esc(String(e.message||'erro').slice(0,80))+'</span><span class="pe-t">'+timeAgo(e.at)+'</span></div>';
+    }).join(''):'';
+  }).catch(function(){});
 }
 function renderPixels(){
   var el=document.getElementById('px-list'); if(!el) return;
@@ -2947,7 +2996,7 @@ function buildLeadIndex(){ leadsById={}; (DATA.leads||[]).forEach(function(l){le
 /* ── API ── */
 function loadStats(){ return fetch('/api/stats',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){DATA=d;}); }
 function loadHealth(){ return fetch('/api/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(h){HEALTH=h;}).catch(function(){}); }
-/* Atualização inteligente: só re-renderiza quando os dados realmente
+/* Atualiza��ão inteligente: só re-renderiza quando os dados realmente
    mudaram (fingerprint) — elimina o repinte periódico que reiniciava
    animações e piscava a tela a cada 12s. */
 var lastFp='', refreshing=false;
@@ -3130,6 +3179,7 @@ document.getElementById('px-save').addEventListener('click',savePixel);
 document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; });
 document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
+document.getElementById('ph-refresh').addEventListener('click',loadCapiHealth);
 document.getElementById('cw-reveal').addEventListener('click',function(){
   CW_REVEALED=!CW_REVEALED;
   document.getElementById('cw-url').value=cwUrl();
@@ -3154,7 +3204,7 @@ document.getElementById('cw-test').addEventListener('click',function(){
     .finally(function(){ btn.disabled=false; btn.textContent='Testar'; });
 });
 /* ── Snippet de rastreamento para páginas externas ── */
-function trackerSnippet(){ return '<script src="'+location.origin+'/t.js" defer><\\/script>'; }
+function trackerSnippet(){ return '<script src="'+location.origin+'/t.js" defer><\\/script><noscript><img src="'+location.origin+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>'; }
 (function(){
   var inp=document.getElementById('tk-snippet');
   if(inp) inp.value=trackerSnippet();

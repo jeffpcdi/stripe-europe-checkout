@@ -69,6 +69,28 @@ module.exports = `(function(){
   }
   send('/api/track', payload);
 
+  // ── 1a. dedup com o pixel do navegador: se a página TAMBÉM tiver o pixel
+  // JS do TikTok (ttq), dispara o ViewContent com o MESMO event_id que o
+  // servidor usa ('ViewContent.vid.horaUTC') — o TikTok deduplica sozinho
+  // e o evento não conta dobrado (browser + CAPI).
+  function utcHourKey(){ return new Date().toISOString().slice(0,13).replace(/[-T]/g,''); }
+  function fireBrowserPixel(){
+    try {
+      if (window.ttq && typeof window.ttq.track === 'function') {
+        window.ttq.track('ViewContent', {}, { event_id: 'ViewContent.' + vid + '.' + utcHourKey() });
+        return true;
+      }
+    } catch(_){}
+    return false;
+  }
+  // ttq pode carregar depois de nós: tenta já + re-tenta por até 6s
+  if (!fireBrowserPixel()) {
+    var ttqTries = 0;
+    var ttqIv = setInterval(function(){
+      if (fireBrowserPixel() || ++ttqTries >= 12) clearInterval(ttqIv);
+    }, 500);
+  }
+
   // ── 1b. SPA: cada troca de "página" (pushState/replaceState/popstate)
   // re-registra a visita → a jornada do lead fica completa mesmo em
   // sites de página única. Dedup no servidor protege a CAPI.
@@ -79,6 +101,7 @@ module.exports = `(function(){
     lastPath = now;
     payload = buildPayload();
     send('/api/track', payload);
+    fireBrowserPixel(); // mesmo event_id → TikTok deduplica com a CAPI
   }
   try {
     var _push = history.pushState, _repl = history.replaceState;
