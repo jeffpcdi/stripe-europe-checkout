@@ -582,6 +582,24 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);
   animation:ovShine 5.5s ease-in-out infinite}
 @keyframes ovShine{0%,20%{left:-20%}60%,100%{left:115%}}
+/* estrelas neon subindo no fundo da página inteira (mesma identidade do hero) */
+.bg-particles{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.bg-particles i{position:absolute;bottom:-8px;width:4px;height:4px;border-radius:50%;opacity:0;
+  animation:bgFloat var(--pd,16s) linear infinite var(--pw,0s)}
+.bg-particles i:nth-child(1){left:4%;--pd:17s;--pw:0s;background:#ff2d6f;box-shadow:0 0 9px #ff2d6f;width:3px;height:3px}
+.bg-particles i:nth-child(2){left:12%;--pd:22s;--pw:5s;background:#25f4ee;box-shadow:0 0 8px #25f4ee;width:2px;height:2px}
+.bg-particles i:nth-child(3){left:21%;--pd:19s;--pw:2s;background:#52a8ff;box-shadow:0 0 9px #52a8ff}
+.bg-particles i:nth-child(4){left:30%;--pd:24s;--pw:9s;background:#ff5674;box-shadow:0 0 7px #ff5674;width:2px;height:2px}
+.bg-particles i:nth-child(5){left:39%;--pd:18s;--pw:4s;background:#25f4ee;box-shadow:0 0 10px #25f4ee;width:3px;height:3px}
+.bg-particles i:nth-child(6){left:48%;--pd:26s;--pw:12s;background:#3ecf8e;box-shadow:0 0 8px #3ecf8e;width:2px;height:2px}
+.bg-particles i:nth-child(7){left:57%;--pd:20s;--pw:6s;background:#52a8ff;box-shadow:0 0 9px #52a8ff;width:3px;height:3px}
+.bg-particles i:nth-child(8){left:66%;--pd:23s;--pw:1s;background:#ff2d6f;box-shadow:0 0 8px #ff2d6f;width:2px;height:2px}
+.bg-particles i:nth-child(9){left:75%;--pd:18.5s;--pw:8s;background:#25f4ee;box-shadow:0 0 9px #25f4ee}
+.bg-particles i:nth-child(10){left:84%;--pd:25s;--pw:3s;background:#ff5674;box-shadow:0 0 8px #ff5674;width:3px;height:3px}
+.bg-particles i:nth-child(11){left:91%;--pd:21s;--pw:10s;background:#52a8ff;box-shadow:0 0 8px #52a8ff;width:2px;height:2px}
+.bg-particles i:nth-child(12){left:97%;--pd:19.5s;--pw:7s;background:#3ecf8e;box-shadow:0 0 9px #3ecf8e;width:3px;height:3px}
+@keyframes bgFloat{0%{transform:translateY(0);opacity:0}4%{opacity:.75}80%{opacity:.4}100%{transform:translateY(-105vh);opacity:0}}
+@media(prefers-reduced-motion:reduce){.bg-particles{display:none}}
 /* partículas neon flutuando */
 .ovh-particles{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .ovh-particles i{position:absolute;bottom:-6px;width:4px;height:4px;border-radius:50%;opacity:0;
@@ -851,6 +869,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 </style>
 </head>
 <body>
+
+<!-- Estrelas neon subindo no fundo da página inteira -->
+<div class="bg-particles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
 
 <!-- Tela de carregamento -->
 <div id="loading-screen">
