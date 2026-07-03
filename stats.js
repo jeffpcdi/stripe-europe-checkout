@@ -131,6 +131,19 @@ function addLead(lead) {
   return lead;
 }
 
+// ── Jornada do lead: páginas/passos percorridos até a compra ───────────────
+// Passos: pathname da página (interna ou externa) ou marcos "go:slug"/"compra".
+// Sem passos consecutivos repetidos; cap de 30 (mantém os mais recentes).
+function pushJourney(lead, step) {
+  if (!lead || !step) return;
+  const p = String(step).slice(0, 200);
+  lead.journey = lead.journey || [];
+  const last = lead.journey[lead.journey.length - 1];
+  if (last && last.p === p) { last.at = new Date().toISOString(); return; }
+  lead.journey.push({ p, at: new Date().toISOString() });
+  if (lead.journey.length > 30) lead.journey = lead.journey.slice(-30);
+}
+
 // ── FUNIL: entrada de um visitante no site (topo do funil) ────────────────
 function recordVisit(data) {
   data = data || {};
@@ -163,6 +176,7 @@ function recordVisit(data) {
     if (data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) lead.utm = data.utm;
     lead.lastSeen = nowIso;
   }
+  pushJourney(lead, data.landing);
   markDirty();
   db.upsertLead(lead);
   return lead;
@@ -194,7 +208,9 @@ function recordCheckoutEntry(id, gateway, data) {
   } else {
     if (lead.stage !== 'purchased') lead.stage = 'checkout';
     lead.gateway = gateway || lead.gateway;
-    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid'].forEach((k) => {
+    // email/phone: o gateway manda no PIX gerado — essenciais para o match
+    // da conversão futura (fallback por e-mail/telefone) e para a CAPI
+    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid', 'email', 'phone', 'customer'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
     if (data.utm && data.utm.source && (!lead.utm || !lead.utm.source)) lead.utm = data.utm;
@@ -205,6 +221,7 @@ function recordCheckoutEntry(id, gateway, data) {
   lead.checkoutHits = (lead.checkoutHits || []);
   lead.checkoutHits.push({ gateway, at: nowIso });
   if (lead.checkoutHits.length > 10) lead.checkoutHits = lead.checkoutHits.slice(-10);
+  pushJourney(lead, 'go:' + (gateway || 'checkout'));
   markDirty();
   db.upsertLead(lead);
   return lead;
@@ -253,9 +270,27 @@ function findLeadByEmail(email) {
   return null;
 }
 
+// Busca por telefone — 3º fallback do webhook (leadId → email → phone).
+// Compara só os dígitos (últimos 9+), ignorando formatação/prefixo 00/+.
+function findLeadByPhone(phone) {
+  if (!phone) return null;
+  ensureLoaded();
+  const digits = String(phone).replace(/\D/g, '').replace(/^00/, '');
+  if (digits.length < 8) return null;             // curto demais = match falso fácil
+  const tail = digits.slice(-9);
+  const leads = state.leads || [];
+  for (let i = 0; i < leads.length; i++) {
+    const l = leads[i];
+    if (!l || !l.phone) continue;
+    const d = String(l.phone).replace(/\D/g, '').replace(/^00/, '');
+    if (d.length >= 8 && d.slice(-9) === tail) return l;
+  }
+  return null;
+}
+
 // ── Conversão de gateway externo (Kiwify, Hotmart, PerfectPay, …) ─────────
-// Chamada pelo webhook universal. Resolve o lead (leadId → e-mail → órfão),
-// marca como comprado e guarda o nome real do gateway no lead.
+// Chamada pelo webhook universal. Resolve o lead (leadId → e-mail → telefone
+// → órfão), marca como comprado e guarda o nome real do gateway no lead.
 function matchExternalConversion(data) {
   data = data || {};
   ensureLoaded();
@@ -264,8 +299,10 @@ function matchExternalConversion(data) {
   const nowIso = new Date().toISOString();
   const gw = String(data.gateway || 'externo').toLowerCase().slice(0, 30);
 
-  // match: leadId direto → fallback por e-mail (webhook universal)
-  let lead = findLead(data.leadId) || (data.email ? findLeadByEmail(data.email) : null);
+  // match: leadId direto → e-mail → telefone (webhook universal)
+  let lead = findLead(data.leadId) ||
+    (data.email ? findLeadByEmail(data.email) : null) ||
+    (data.phone ? findLeadByPhone(data.phone) : null);
 
   if (lead) {
     if (lead.status === 'converted') {
@@ -301,6 +338,8 @@ function matchExternalConversion(data) {
       utm: {}
     });
   }
+
+  pushJourney(lead, 'compra');
 
   // tempo entre o checkout e a conversão (diagnóstico de atribuição)
   const baseTime = lead.checkoutAt || lead.at;
@@ -459,6 +498,6 @@ process.once('beforeExit', flushSync);
 
 module.exports = {
   logEvent, recordVisit, recordCheckoutEntry,
-  attachTracking, getLead, findLeadByEmail, matchExternalConversion, getStats, reset, hydrate,
+  attachTracking, getLead, findLeadByEmail, findLeadByPhone, matchExternalConversion, getStats, reset, hydrate,
   inCheckoutNow
 };

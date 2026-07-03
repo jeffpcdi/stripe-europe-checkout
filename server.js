@@ -278,6 +278,9 @@ app.use(async (req, res, next) => {
           url: fullUrl(req)
         }, p).catch(() => {});
       }
+    } else {
+      // visitante recorrente: só registra o passo na jornada (páginas internas)
+      stats.recordVisit({ id, landing: p });
     }
   } catch (_) { /* nunca bloquear navegação */ }
   next();
@@ -770,11 +773,22 @@ async function processConversion(n) {
       rdb.pushConversionLog(receipt).catch(() => {});
       return receipt;
     }
-    // 2. resolve o lead no backend: leadId direto → e-mail → órfão
+    // 2. resolve o lead no backend: leadId → e-mail → telefone → órfão
     let lead = n.leadId ? stats.getLead(n.leadId) : null;
-    if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email); } catch (_) {} }
-    receipt.match = lead ? (n.leadId && lead.id === n.leadId ? 'leadId' : 'email') : 'órfã';
+    let matchVia = lead ? 'leadId' : null;
+    if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email); if (lead) matchVia = 'email'; } catch (_) {} }
+    if (!lead && n.phone) { try { lead = stats.findLeadByPhone(n.phone); if (lead) matchVia = 'phone'; } catch (_) {} }
+    receipt.match = matchVia || 'órfã';
     receipt.leadId = lead ? lead.id : null;
+
+    // Teste da dashboard: valida normalização/dedup/match e loga o recibo,
+    // mas NÃO mexe nas estatísticas nem dispara a CAPI de verdade.
+    if (n.dryRun) {
+      receipt.status = 'teste ok';
+      receipt.teste = true;
+      rdb.pushConversionLog(receipt).catch(() => {});
+      return receipt;
+    }
 
     // Eventos sem CAPI (Refund/Dispute/Failed): dashboard + Pushcut e encerra.
     if (n.event === 'Refund' || n.event === 'Dispute' || n.event === 'Failed') {
@@ -818,6 +832,11 @@ async function processConversion(n) {
       } catch (_) {}
       notifyPushcut('CompletePayment', n);
     } else if (n.event === 'InitiateCheckout' || n.event === 'AddPaymentInfo') {
+      // PIX gerado / checkout iniciado no gateway: avança o estágio do lead
+      // no funil (antes ficava parado em "visit" até a compra — bug de funil)
+      if (lead) {
+        try { stats.recordCheckoutEntry(lead.id, n.gateway, {}); } catch (_) {}
+      }
       notifyPushcut(n.event, n);
     }
     // 4. dispara a CAPI com o MÁXIMO de sinal: identidade do lead do backend
@@ -869,6 +888,31 @@ app.post('/api/conversion', (req, res) => {
   // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
   res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
   processConversion(n).catch(() => {});
+});
+
+// Teste do webhook direto da dashboard (protegido): injeta um payload de
+// exemplo no MESMO fluxo real (normaliza → processa) e devolve o recibo na
+// hora — confere status/match sem sair da tela e sem depender do gateway.
+app.post('/api/conversion/test', dashboardAuth, async (req, res) => {
+  try {
+    const n = normalizeConversion({
+      event: 'paid',
+      order_id: 'teste_' + Date.now().toString(36),
+      amount: '1.00',
+      currency: 'eur',
+      email: 'teste@webhook.local',
+      name: 'Teste da Dashboard',
+      product: 'Disparo de teste'
+    }, { gateway: 'teste' });
+    if (n.error) return res.status(400).json({ ok: false, error: n.error });
+    // dry-run: percorre o fluxo real (dedup, match, log) mas NÃO registra
+    // venda nas estatísticas nem dispara a CAPI de verdade
+    n.dryRun = true;
+    const receipt = await processConversion(n);   // aguarda para devolver o recibo
+    res.json({ ok: true, receipt });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err.message || err).slice(0, 200) });
+  }
 });
 
 // Log dos webhooks recebidos (painel, aba Pixels). Protegido por dashboardAuth;
@@ -1038,7 +1082,7 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
   // 1. tenta memória local + Redis (recentLogAsync faz fallback automático)
   const rows = await ttEvents.recentLogAsync(100);
   if (rows.length) return res.json({ log: rows, source: 'redis' });
-  // 2. fallback Neon (backup estruturado para quando Redis não está disponível)
+  // 2. fallback Neon (backup estruturado para quando Redis não est�� disponível)
   const db = require('./db');
   const dbRows = await db.loadPixelEvents(100);
   res.json({ log: (dbRows || []).map((r) => ({
@@ -1052,7 +1096,7 @@ app.post('/api/reset-stats', dashboardAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Dashboard (HTML inline, protegida) ───────────────────────────────
+// ── Dashboard (HTML inline, protegida) ─────���─────────────────────────
 app.get('/dashboard', dashboardAuth, (req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(DASHBOARD_HTML);
