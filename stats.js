@@ -272,6 +272,23 @@ function getLead(id) {
   return findLead(id);
 }
 
+// Busca o lead mais recente com um e-mail — fallback de match do webhook
+// universal quando o gateway não devolve o leadId. state.leads usa unshift,
+// então o índice 0 é o mais novo: o primeiro match é o mais recente.
+// O(n), mas n ≤ MAX_LEADS e só roda em conversões (raras vs. page views).
+function findLeadByEmail(email) {
+  if (!email) return null;
+  ensureLoaded();
+  const needle = String(email).trim().toLowerCase();
+  if (!needle) return null;
+  const leads = state.leads || [];
+  for (let i = 0; i < leads.length; i++) {
+    const l = leads[i];
+    if (l && l.email && String(l.email).trim().toLowerCase() === needle) return l;
+  }
+  return null;
+}
+
 // ── Conversão do Stripe (nativo) ──────────────────────────────────────────
 function markPurchased(id, data) {
   data = data || {};
@@ -306,15 +323,20 @@ function markPurchased(id, data) {
   return lead;
 }
 
-// ── Conversão do gateway externo (Cooud) + conciliação anti-desvio ────────
+// ── Conversão de gateway externo (Cooud, Kiwify, Hotmart, …) ──────────────
+// Aceita data.gateway (default 'cooud' — retro-compat). Todas as conversões
+// externas creditam a variante 'cooud' (a variante representa "checkout
+// externo" no A/B stripe × externo); o nome real do gateway fica no lead.
 function matchCooudConversion(data) {
   data = data || {};
   ensureLoaded();
   const cur = (data.currency || 'eur').toUpperCase();
   const amount = data.amountCents || 0;
   const nowIso = new Date().toISOString();
+  const gw = String(data.gateway || 'cooud').toLowerCase().slice(0, 30);
 
-  let lead = findLead(data.leadId);
+  // match: leadId direto → fallback por e-mail (webhook universal)
+  let lead = findLead(data.leadId) || (data.email ? findLeadByEmail(data.email) : null);
 
   if (lead) {
     if (lead.status === 'converted') {
@@ -323,7 +345,7 @@ function matchCooudConversion(data) {
       lead.status = 'converted';
     }
     lead.stage = 'purchased';
-    lead.gateway = 'cooud';
+    lead.gateway = gw;
     lead.convertedAt = nowIso;
     lead.reportedAmount = amount;
     lead.reportedCurrency = cur;
@@ -335,7 +357,7 @@ function matchCooudConversion(data) {
     lead = addLead({
       id: data.leadId || newId('orphan'),
       at: nowIso,
-      gateway: 'cooud',
+      gateway: gw,
       stage: 'purchased',
       status: 'converted',
       orphan: true,
@@ -569,6 +591,6 @@ process.once('beforeExit', flushSync);
 module.exports = {
   VARIANTS, recordAssignment, recordClick, recordConversion,
   logEvent, recordVisit, recordCheckoutEntry, markPurchased,
-  attachTracking, getLead, matchCooudConversion, getStats, reset, hydrate,
+  attachTracking, getLead, findLeadByEmail, matchCooudConversion, getStats, reset, hydrate,
   inCheckoutNow
 };

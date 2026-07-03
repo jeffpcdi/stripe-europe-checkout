@@ -43,6 +43,8 @@ function normalize(slug, raw) {
     events: {
       ViewContent: ev.ViewContent !== false,
       InitiateCheckout: ev.InitiateCheckout !== false,
+      // meio do funil (webhook universal: pagamento em processamento)
+      AddPaymentInfo: ev.AddPaymentInfo !== false,
       CompletePayment: ev.CompletePayment !== false,
       // eventos opcionais (upsell mapeia p/ CompletePayment)
       AddToCart: ev.AddToCart === true

@@ -1010,6 +1010,153 @@ app.post('/api/cooud-conversion', (req, res) => {
   } catch (_) {}
 
   res.json({ ok: true, matched: !lead.orphan, leadId: lead.id, smartCapture: !!lead.smartCapture, recovery: !!lead.recovery });
+
+  // Também dispara CompletePayment na CAPI (gap antigo: o Cooud registrava a
+  // venda no painel mas NÃO avisava o TikTok). Usa o mesmo motor universal.
+  processConversion({
+    event: 'CompletePayment',
+    gateway: 'cooud',
+    orderId: String(b.ref || b.order_id || b.id || lead.id),
+    amountCents: amount,
+    currency,
+    leadId: lead.orphan ? null : lead.id,
+    email: b.email || null,
+    customer: b.customer || b.name || null,
+    product: null,
+    registerSale: false // a venda já foi registrada acima
+  }).catch(() => {});
+});
+
+// ═══ Webhook UNIVERSAL de conversões (qualquer gateway) ═══════════════
+// Kiwify, Hotmart, PerfectPay, Cakto, etc.: configure a URL
+//   https://<host>/api/conversion?secret=SEU_SEGREDO[&gateway=kiwify]
+// no painel do gateway. O corpo é normalizado por aliases — não importa o
+// formato exato que o gateway envia, desde que tenha evento + order_id.
+
+// Mapeia o "status/evento" que cada gateway envia → evento TikTok CAPI.
+function mapConversionEvent(raw) {
+  const s = String(raw || '').toLowerCase();
+  if (/paid|approved|aprovad|completed|complete|purchase|sale|compra|venda/.test(s)) return 'CompletePayment';
+  if (/payment_info|processing|processando|waiting_payment|pending|analys|analis/.test(s)) return 'AddPaymentInfo';
+  if (/checkout|cart|carrinho|pix|billet|boleto|initiate|created|criad/.test(s)) return 'InitiateCheckout';
+  return null;
+}
+
+// Normaliza QUALQUER payload de gateway para o formato interno.
+function normalizeConversion(b, query) {
+  b = b || {};
+  const event = mapConversionEvent(b.event || b.type || b.status || (query && query.event));
+  if (!event) return { error: 'evento não reconhecido (use event/type/status: paid, checkout, processing…)' };
+  const orderId = b.order_id || b.transaction_id || b.orderId || b.id || b.ref || null;
+  if (!orderId) return { error: 'order_id obrigatório (aliases: transaction_id, id, ref)' };
+  // valor: obrigatório apenas na compra aprovada
+  const rawAmount = Number(b.amount != null ? b.amount : (b.value != null ? b.value : (b.total != null ? b.total : b.price)));
+  const hasAmount = Number.isFinite(rawAmount) && rawAmount >= 0 && rawAmount <= 1000000;
+  if (event === 'CompletePayment' && !hasAmount) return { error: 'amount inválido (aliases: value, total, price; unidades 0–1M)' };
+  return {
+    event,
+    gateway: String((query && query.gateway) || b.gateway || b.platform || b.source || 'generic').toLowerCase().slice(0, 30),
+    orderId: String(orderId).slice(0, 120),
+    amountCents: hasAmount ? Math.round(rawAmount * 100) : 0,
+    currency: /^[a-zA-Z]{3}$/.test(String(b.currency || '')) ? String(b.currency).toLowerCase() : 'eur',
+    leadId: b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id || null,
+    email: b.email || b.customer_email || b.buyer_email || null,
+    customer: b.customer || b.name || b.buyer_name || null,
+    product: b.product || b.product_name || b.content_name || null,
+    registerSale: true
+  };
+}
+
+// Motor: resolve o lead no backend, enriquece, dedupa e dispara a CAPI.
+// Roda SEMPRE em background (a resposta HTTP já foi enviada ao gateway).
+async function processConversion(n) {
+  const evId = n.event + '.' + n.gateway + '.' + n.orderId;
+  const receipt = {
+    at: new Date().toISOString(),
+    gateway: n.gateway, event: n.event, orderId: n.orderId,
+    amount: n.amountCents, currency: n.currency
+  };
+  try {
+    // 1. dedup — retries do gateway nunca duplicam o disparo
+    if (await seenPixelEvent(evId)) {
+      receipt.status = 'dedup';
+      rdb.pushConversionLog(receipt).catch(() => {});
+      return receipt;
+    }
+    // 2. resolve o lead no backend: leadId direto → e-mail → órfão
+    let lead = n.leadId ? stats.getLead(n.leadId) : null;
+    if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email); } catch (_) {} }
+    receipt.match = lead ? (n.leadId && lead.id === n.leadId ? 'leadId' : 'email') : 'órfã';
+    receipt.leadId = lead ? lead.id : null;
+    // 3. registra a venda no dashboard (só CompletePayment; cooud já registrou)
+    if (n.event === 'CompletePayment' && n.registerSale) {
+      try {
+        const matched = stats.matchCooudConversion({
+          leadId: lead ? lead.id : null, gateway: n.gateway,
+          amountCents: n.amountCents, currency: n.currency,
+          customer: n.customer, email: n.email, ref: n.orderId
+        });
+        stats.logEvent('sale', {
+          title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
+          amount: n.amountCents, currency: n.currency,
+          customer: n.customer, email: n.email,
+          gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id
+        });
+      } catch (_) {}
+    }
+    // 4. dispara a CAPI com o MÁXIMO de sinal: identidade do lead do backend
+    const r = await ttEvents.dispatchToAll(n.event, {
+      eventId: evId,
+      email: n.email || (lead && lead.email) || undefined,
+      leadId: lead ? lead.id : undefined,            // external_id = hash do v_id
+      externalId: lead ? undefined : (n.email || n.orderId),
+      ip: (lead && lead.ip) || undefined,
+      userAgent: (lead && lead.ua) || undefined,
+      ttclid: (lead && lead.ttclid) || undefined,
+      ttp: (lead && lead.ttp) || undefined,
+      url: (lead && lead.ttUrl) || undefined,
+      value: n.amountCents ? n.amountCents / 100 : undefined,
+      currency: n.currency,
+      contents: n.product ? [{ content_name: String(n.product).slice(0, 100), quantity: 1 }] : undefined
+    }, '*');
+    const errs = (r.results || []).filter((x) => x && (x.error || (x.code != null && x.code !== 0))).length;
+    receipt.status = r.dispatched === 0 ? 'sem pixel' : (errs ? ('erro em ' + errs + '/' + r.dispatched) : 'ok');
+    receipt.dispatched = r.dispatched;
+  } catch (err) {
+    receipt.status = 'erro';
+    receipt.error = String(err.message || err).slice(0, 200);
+  }
+  rdb.pushConversionLog(receipt).catch(() => {});
+  return receipt;
+}
+
+// Endpoint público que os gateways chamam.
+app.post('/api/conversion', (req, res) => {
+  const secret = process.env.CONVERSION_WEBHOOK_SECRET;
+  if (!secret) {
+    // nunca fica aberto sem segredo — instrui em vez de aceitar
+    return res.status(503).json({ ok: false, error: 'defina CONVERSION_WEBHOOK_SECRET no servidor' });
+  }
+  const provided = req.headers['x-webhook-secret'] || req.query.secret || '';
+  if (!provided || !safeEqual(String(provided), secret)) {
+    return res.status(401).json({ ok: false, error: 'segredo inválido' });
+  }
+  const n = normalizeConversion(req.body, req.query);
+  if (n.error) return res.status(400).json({ ok: false, error: n.error });
+  // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
+  res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
+  processConversion(n).catch(() => {});
+});
+
+// Log dos webhooks recebidos (painel, aba Pixels). Protegido por dashboardAuth;
+// devolve o segredo para o painel montar a URL de configuração do gateway.
+app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
+  const log = await rdb.loadConversionLog(50);
+  res.json({
+    configured: !!process.env.CONVERSION_WEBHOOK_SECRET,
+    secret: process.env.CONVERSION_WEBHOOK_SECRET || '',
+    log: log || []
+  });
 });
 
 // ── API: zerar estatísticas ──────────────────────────────────────────

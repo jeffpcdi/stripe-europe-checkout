@@ -113,6 +113,43 @@ async function loadPixelLog(limit) {
   }
 }
 
+// ── Log de webhooks de conversão recebidos (gateways externos) ────────────
+// Registra CADA recebimento no /api/conversion (independente do disparo CAPI),
+// para o painel mostrar exatamente o que cada gateway enviou. Ring de 200.
+// SEMPRE guarda em memória (funciona sem Redis); Redis adiciona persistência
+// entre restarts quando disponível.
+const CONV_LOG_KEY = 'conversionWebhookLog';
+const convLogMem = []; // ring local — fallback e cache quente
+
+async function pushConversionLog(entry) {
+  convLogMem.unshift(entry);
+  if (convLogMem.length > 200) convLogMem.length = 200;
+  if (!enabled) return false;
+  try {
+    const pipe = redis.pipeline();
+    pipe.lpush(CONV_LOG_KEY, JSON.stringify(entry));
+    pipe.ltrim(CONV_LOG_KEY, 0, 199);
+    await pipe.exec();
+    return true;
+  } catch (err) {
+    console.error('[redis] pushConversionLog:', err.message);
+    return false;
+  }
+}
+
+async function loadConversionLog(limit) {
+  const n = limit || 50;
+  if (!enabled) return convLogMem.slice(0, n);
+  try {
+    const raw = await redis.lrange(CONV_LOG_KEY, 0, n - 1);
+    const out = raw.map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } }).filter(Boolean);
+    return out.length ? out : convLogMem.slice(0, n); // Redis vazio pós-flush → memória
+  } catch (err) {
+    console.error('[redis] loadConversionLog:', err.message);
+    return convLogMem.slice(0, n);
+  }
+}
+
 // ── Dedup de event_id (evita redisparo CAPI quando beacon + middleware ==) ─
 async function seenEventId(eventId) {
   if (!enabled || !eventId) return false;
@@ -141,6 +178,7 @@ module.exports = {
   enabled, redis,
   touchPresence, leavePresence, listPresence,
   pushPixelLog, loadPixelLog,
+  pushConversionLog, loadConversionLog,
   seenEventId,
   ping, TTL
 };

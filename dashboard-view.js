@@ -1215,6 +1215,25 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <input type="hidden" id="px-slug" value="">
           </div>
         </div>
+        <div class="section-title"><span>Webhook universal de conversões</span><span class="line"></span></div>
+        <div class="card">
+          <p class="hint" style="margin-bottom:12px">Cole esta URL no painel do seu gateway (Kiwify, Hotmart, PerfectPay, Cakto…) nos eventos de <b>venda aprovada</b>, <b>checkout/PIX gerado</b> e <b>pagamento em processamento</b>. O servidor identifica o lead, enriquece com ttclid/_ttp/IP e dispara InitiateCheckout, AddPaymentInfo e CompletePayment para todos os pixels ativos — com dedup por order_id.</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input class="inp" id="cw-url" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
+            <button class="btn btn-sm" id="cw-reveal" title="Mostrar/ocultar segredo">Revelar</button>
+            <button class="btn btn-sm primary" id="cw-copy">Copiar URL</button>
+          </div>
+          <p class="hint" id="cw-status" style="margin-top:10px"></p>
+        </div>
+        <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
+        <div class="card" style="padding:0">
+          <div class="tbl-wrap" style="border:0">
+            <table>
+              <thead><tr><th>Quando</th><th>Gateway</th><th>Evento</th><th>Valor</th><th>Match</th><th>Status CAPI</th></tr></thead>
+              <tbody id="cw-log"></tbody>
+            </table>
+          </div>
+        </div>
         <div class="section-title"><span>Disparos server-side recentes</span><span class="line"></span><button class="btn-icon" id="px-log-refresh">Atualizar</button></div>
         <div class="card" style="padding:0">
           <div class="tbl-wrap" style="border:0">
@@ -2502,7 +2521,8 @@ function testPixel(slug){
     .then(function(d){
       if(d.ok) toast('TikTok aceitou o disparo (code 0)');
       else toast('Falhou: '+(d.message||d.error||'ver log'),false);
-      loadPxLog();
+  loadPxLog();
+  loadConvLog();
     })
     .catch(function(){ toast('Erro no teste',false); });
 }
@@ -2547,6 +2567,32 @@ function loadPxLog(){
         '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'—').slice(0,10))+'</td>'+
         '<td><span class="'+(ok?'grn':'neg')+'">'+(ok?'OK':'erro')+'</span></td>'+
         '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--muted2)">'+esc(String(resp).slice(0,120))+'</td>'+
+      '</tr>';
+    }).join('');
+  }).catch(function(){});
+}
+// ── Webhook universal de conversões ──
+var CW_SECRET='', CW_REVEALED=false;
+function cwUrl(){ return location.origin+'/api/conversion?secret='+(CW_REVEALED?CW_SECRET:'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'); }
+function loadConvLog(){
+  fetch('/api/conversion/log').then(function(r){return r.json();}).then(function(d){
+    CW_SECRET=d.secret||'';
+    var inp=document.getElementById('cw-url');
+    if(inp) inp.value=d.configured?cwUrl():'configure CONVERSION_WEBHOOK_SECRET no servidor';
+    var st=document.getElementById('cw-status');
+    if(st) st.innerHTML=d.configured?'Segredo configurado. Envie um POST de teste e ele aparece abaixo.':'<span class="neg">Sem segredo configurado — o endpoint responde 503 at\u00e9 voc\u00ea definir CONVERSION_WEBHOOK_SECRET.</span>';
+    var tb=document.getElementById('cw-log'); if(!tb) return;
+    var log=d.log||[];
+    if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">Nenhum webhook recebido ainda \u2014 configure a URL acima no seu gateway.</td></tr>'; return; }
+    tb.innerHTML=log.map(function(e){
+      var ok=e.status==='ok', dd=e.status==='dedup';
+      return '<tr style="cursor:default">'+
+        '<td>'+timeAgo(e.at)+'</td>'+
+        '<td>'+esc(e.gateway||'\u2014')+'</td>'+
+        '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'\u2014')+'</span></td>'+
+        '<td>'+(e.amount?money(e.amount,e.currency):'\u2014')+'</td>'+
+        '<td>'+(e.match==='\u00f3rf\u00e3'?'<span class="neg">\u00f3rf\u00e3</span>':'<span class="grn">'+esc(e.match||'\u2014')+'</span>')+'</td>'+
+        '<td><span class="'+(ok?'grn':(dd?'':'neg'))+'">'+esc(e.status||'\u2014')+'</span></td>'+
       '</tr>';
     }).join('');
   }).catch(function(){});
@@ -2974,6 +3020,19 @@ document.getElementById('px-new').addEventListener('click',function(){ showPxFor
 document.getElementById('px-save').addEventListener('click',savePixel);
 document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; });
 document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
+document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
+document.getElementById('cw-reveal').addEventListener('click',function(){
+  CW_REVEALED=!CW_REVEALED;
+  document.getElementById('cw-url').value=cwUrl();
+  this.textContent=CW_REVEALED?'Ocultar':'Revelar';
+});
+document.getElementById('cw-copy').addEventListener('click',function(){
+  if(!CW_SECRET){ toast('Configure o segredo primeiro',false); return; }
+  // copia sempre a URL REAL (com segredo), mesmo com o campo mascarado
+  navigator.clipboard.writeText(location.origin+'/api/conversion?secret='+CW_SECRET)
+    .then(function(){ toast('URL copiada com o segredo',true); })
+    .catch(function(){ toast('Erro ao copiar',false); });
+});
 document.getElementById('cfg-save').addEventListener('click',function(){
   var body={
     mode:document.getElementById('cfg-mode').value,
