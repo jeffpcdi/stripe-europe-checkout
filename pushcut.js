@@ -1,13 +1,18 @@
 'use strict';
 
-// ── Pushcut — notificações de vendas ──────────────────────────────────
-// Base do webhook. Pode ser sobrescrita via env PUSHCUT_WEBHOOK_URL.
+// ── Pushcut — notificações de eventos do gateway ─────────────────────
+// A URL do webhook é configurada pela dashboard (aba Configurações) e fica
+// persistida no config store (Neon); a env PUSHCUT_WEBHOOK_URL é fallback.
 // O nome final da notificação (/notifications/<Nome>) é trocado por evento,
 // permitindo criar notificações separadas no app Pushcut (Aprovada, Recusada, etc.).
-const DEFAULT_URL = 'https://api.pushcut.io/RHm0FW4CoPcGO6IUEjZyL/notifications/Aprovada';
-
 function baseEndpoint() {
-  const url = process.env.PUSHCUT_WEBHOOK_URL || DEFAULT_URL;
+  let url = null;
+  try {
+    const pc = require('./config').get().pushcut || {};
+    if (pc.url) url = pc.url;
+  } catch (_) {}
+  if (!url) url = process.env.PUSHCUT_WEBHOOK_URL || null;
+  if (!url) return null; // sem URL configurada = notificações desligadas
   // remove o nome da notificação no fim para poder trocá-lo por evento
   return url.replace(/\/notifications\/[^/?#]*.*$/, '/notifications/');
 }
@@ -19,7 +24,9 @@ function baseEndpoint() {
  */
 async function sendPushcut(notificationName, payload) {
   try {
-    const url = baseEndpoint() + encodeURIComponent(notificationName || 'Aprovada');
+    const base = baseEndpoint();
+    if (!base) return false; // sem webhook configurado — silenciosamente off
+    const url = base + encodeURIComponent(notificationName || 'Aprovada');
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -95,7 +95,15 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 .spacer{flex:1}
 .segment{display:flex;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px}
 /* grupo do topo à direita: busca, atualizar e período */
-.tb-right{display:flex;align-items:center;gap:8px;margin-left:auto;position:relative}
+.tb-right{display:flex;align-items:center;gap:8px;margin-left:auto;position:relative;min-width:0;max-width:100%}
+/* mobile: o grupo ocupa a linha inteira e o seletor de período rola horizontal
+   (sem estourar a viewport — causava overflow de ~17px em telas de 375px) */
+@media(max-width:560px){
+  .tb-right{width:100%;margin-left:0}
+  .tb-right .segment{flex:1;overflow-x:auto;scrollbar-width:none}
+  .tb-right .segment::-webkit-scrollbar{display:none}
+  .dr-pop{right:auto;left:0;width:min(320px,calc(100vw - 40px))}
+}
 #period-custom{display:inline-flex;align-items:center;gap:6px}
 #period-custom svg{flex-shrink:0}
 #period-custom-lbl:empty{display:none}
@@ -296,9 +304,6 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .lrow .lmain span{display:block;font-size:11.5px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .lrow .lpage{font-family:var(--mono,monospace);color:var(--muted)}
 .lrow .lmeta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
-.lrow .lgw{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:20px}
-.lrow .lgw.stripe{background:rgba(82,168,255,.14);color:var(--cyan)}
-.lrow .lgw.cooud{background:rgba(255,86,116,.14);color:var(--pink)}
 .lrow .ldur{font-size:11px;color:var(--muted2)}
 .lrow .ldot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;box-shadow:0 0 8px var(--green)}
 .lrow.idle .ldot{background:var(--amber);box-shadow:0 0 8px var(--amber)}
@@ -423,10 +428,6 @@ tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay
 .tag.visit{color:var(--muted);background:var(--card2)}
 .tag.checkout{color:var(--amber);background:rgba(245,181,68,.12);border-color:rgba(245,181,68,.3)}
 .tag.purchased{color:var(--green);background:rgba(62,207,142,.12);border-color:rgba(62,207,142,.3)}
-.tag.stripe{color:#8ab4ff;background:rgba(120,150,255,.12);border-color:rgba(120,150,255,.3)}
-.tag.cooud{color:var(--pink);background:rgba(255,86,116,.12);border-color:rgba(255,86,116,.3)}
-.tag.cap{color:var(--amber);background:rgba(245,181,68,.12);border-color:rgba(245,181,68,.3)}
-.tag.rec{color:var(--cyan);background:rgba(82,168,255,.12);border-color:rgba(82,168,255,.3)}
 .tag.orphan{color:var(--red);background:rgba(255,86,116,.12);border-color:rgba(255,86,116,.3)}
 .muted{color:var(--muted2)}
 .empty{padding:48px;text-align:center;color:var(--muted2);font-size:13px}
@@ -498,9 +499,6 @@ tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay
 .form-row .hint{font-size:11.5px;color:var(--muted2);font-weight:400}
 .range-wrap{display:flex;align-items:center;gap:14px}
 input[type=range]{flex:1;accent-color:var(--cyan)}
-.split-preview{display:flex;height:34px;border-radius:10px;overflow:hidden;font-size:12px;font-weight:700;color:#04121a;border:1px solid var(--border)}
-.split-preview .sp-stripe{background:linear-gradient(180deg,var(--cyan),#3f96e8);display:grid;place-items:center;transition:width .45s cubic-bezier(.2,.7,.3,1)}
-.split-preview .sp-cooud{background:linear-gradient(180deg,var(--pink),#e0295f);color:#fff;display:grid;place-items:center;flex:1}
 /* cards de configuração com identidade */
 .cfg-grid .cfg-card{position:relative;border-radius:14px;overflow:hidden;animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards;transition:border-color .25s,box-shadow .25s}
 .cfg-grid .cfg-card:nth-child(1){animation-delay:.02s}.cfg-grid .cfg-card:nth-child(2){animation-delay:.09s}
@@ -948,7 +946,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
     <nav class="nav dock" id="nav">
       <button data-view="overview" class="active"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span><span class="d-lbl">Visão Geral</span></button>
       <button data-view="live"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg></span><span class="d-lbl">Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
-      <button data-view="ab"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/></svg></span><span class="d-lbl">Teste A/B</span><span class="badge" id="nav-cooud-badge" style="display:none">!</span></button>
+      <button data-view="links"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span><span class="d-lbl">Links de Checkout</span></button>
       <button data-view="pixels"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span><span class="d-lbl">Pixel TikTok</span><span class="badge" id="nav-px-badge" style="display:none">0</span></button>
       <button data-view="config"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82V8a1.65 1.65 0 001.51-1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span><span class="d-lbl">Configurações</span></button>
     </nav>
@@ -1055,8 +1053,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="card">
           <div class="chart-wrap" id="chart"></div>
           <div class="chart-legend">
-            <span><span class="leg-dot" style="background:var(--cyan)"></span>Stripe</span>
-            <span><span class="leg-dot" style="background:var(--pink)"></span>Externo</span>
+            <span><span class="leg-dot" style="background:var(--cyan)"></span>Convers&otilde;es via gateway</span>
           </div>
         </div>
       </section>
@@ -1079,8 +1076,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </select>
           <select class="select" id="lead-gw">
             <option value="">Todos gateways</option>
-            <option value="stripe">Stripe</option>
-            <option value="cooud">Cooud</option>
           </select>
           <button class="btn btn-sm btn-export" id="export-leads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>CSV</button>
           <span class="tbl-count" id="leads-count"></span>
@@ -1099,41 +1094,48 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="card"><div class="clist" id="country-list"></div></div>
       </section>
 
-      <!-- ── Teste A/B ── -->
-      <section class="view" id="view-ab">
-        <div id="ab-alert"></div>
-        <div class="ab-bar" id="ab-control">
-          <label class="switch" title="Ligar/desligar o teste A/B"><input type="checkbox" id="ab-mode" /><span class="slider"></span></label>
-          <span id="ab-mode-label" class="ab-status">&mdash;</span>
-          <div id="ab-split-wrap" class="ab-split-wrap">
-            <span class="cyn abm" id="ab-split-s">Stripe 50%</span>
-            <input type="range" id="ab-split" min="0" max="100" step="5" value="50" />
-            <span class="pnk abm" style="text-align:right" id="ab-split-c">Cooud 50%</span>
+      <!-- ── Links de Checkout ── -->
+      <section class="view" id="view-links">
+        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Checkout externo com rastreamento completo</b><p>Cada link gera uma URL <code>/go/&lt;slug&gt;</code> para usar nos seus an&uacute;ncios. Quando o lead clica, registramos o clique, disparamos InitiateCheckout na CAPI e redirecionamos para o seu checkout (qualquer gateway) com o <code>lead_id</code> anexado. A convers&atilde;o volta pelo webhook universal e fecha o ciclo &mdash; incluindo o teste A/B entre variantes.</p></div></div>
+        <div class="grid" style="grid-template-columns:1.2fr 1fr">
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <h3 style="font-size:16px">Links configurados</h3>
+              <button class="btn btn-sm primary" id="lk-new">+ Criar link</button>
+            </div>
+            <div id="lk-list"></div>
           </div>
-          <button class="btn btn-sm primary" id="ab-save" style="display:none">Salvar</button>
-          <div class="ab-links">
-            <a href="/checkout?ab=stripe" target="_blank" rel="noopener" title="Abrir checkout for&ccedil;ando Stripe">Stripe &nearr;</a>
-            <a href="/checkout?ab=cooud" target="_blank" rel="noopener" id="ab-test-cooud" title="Abrir checkout for&ccedil;ando o gateway externo">Cooud &nearr;</a>
+          <div class="card" id="lk-form-card" style="display:none">
+            <h3 style="font-size:16px;margin-bottom:4px" id="lk-form-title">Novo link</h3>
+            <p class="hint" style="margin-bottom:14px">O slug vira a URL p&uacute;blica <code>/go/&lt;slug&gt;</code>.</p>
+            <div class="form-row">
+              <label>Nome <span class="hint">— vira o slug do link</span></label>
+              <input class="inp" id="lk-name" placeholder="Oferta Espanha" style="width:100%">
+            </div>
+            <div class="form-row">
+              <label>Variantes <span class="hint">— nome | URL do checkout | peso %. Uma por linha; 2+ ativa o teste A/B</span></label>
+              <textarea class="inp" id="lk-variants" rows="4" placeholder="Checkout A | https://pay.gateway.com/oferta-a | 50&#10;Checkout B | https://pay.gateway.com/oferta-b | 50" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
+            </div>
+            <div class="form-row">
+              <label>Validar dom&iacute;nio <span class="hint">— DNS + resposta HTTP do checkout</span></label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input class="inp" id="lk-domain" placeholder="pay.gateway.com" style="flex:1;font-family:'Geist Mono',monospace">
+                <button class="btn btn-sm" id="lk-validate">Validar</button>
+              </div>
+              <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
+            </div>
+            <div class="form-row">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="lk-active" checked> Link ativo</label>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:6px">
+              <button class="btn primary" id="lk-save">Salvar link</button>
+              <button class="btn" id="lk-cancel">Cancelar</button>
+            </div>
+            <input type="hidden" id="lk-slug" value="">
           </div>
         </div>
-        <div class="ab-grid">
-          <div class="verdict" id="ab-verdict"></div>
-          <div class="card" id="ab-metrics"></div>
-        </div>
-      </section>
-
-      <!-- ── Anti-desvio (Cooud) ── -->
-      <section class="view" id="view-cooud">
-        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg></span><div><h2>Anti-desvio</h2><p>Vigilância do gateway externo (Cooud)</p></div></div>
-        <div id="cooud-alert"></div>
-        <div class="grid kpis" id="cooud-kpis"></div>
-        <div class="section-title"><span>Funções detectadas</span><span class="line"></span></div>
-        <div class="grid" style="grid-template-columns:1fr 1fr" id="cooud-practices"></div>
-        <div class="section-title"><span>Conciliação (leads enviados x vendas reportadas)</span><span class="line"></span></div>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>Lead</th><th>Status</th><th>Enviado</th><th>Reportado</th><th>Prática</th><th>Cliente</th></tr></thead>
-          <tbody id="cooud-body"></tbody>
-        </table></div>
+        <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
+        <div id="lk-perf"></div>
       </section>
 
       <!-- ── Atividade ── -->
@@ -1147,7 +1149,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <option value="">Todos os eventos</option>
             <option value="sale">Vendas</option>
             <option value="failed">Recusas</option>
-            <option value="lead">Leads Cooud</option>
+            <option value="lead">Cliques em links</option>
             <option value="visit">Novos leads</option>
             <option value="refund">Reembolsos</option>
             <option value="dispute">Disputas</option>
@@ -1206,6 +1208,15 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <input type="hidden" id="px-slug" value="">
           </div>
         </div>
+        <div class="section-title"><span>Rastreamento em p&aacute;ginas externas</span><span class="line"></span></div>
+        <div class="card">
+          <p class="hint" style="margin-bottom:12px">Cole esta linha no <b>&lt;head&gt;</b> ou antes do <b>&lt;/body&gt;</b> de <b>qualquer p&aacute;gina externa</b> (presell, VSL, landing em outro dom&iacute;nio). O lead passa a ser rastreado desde a primeira visita: dispara <b>ViewContent</b> na CAPI, captura ttclid/_ttp/UTMs, aparece no &quot;Ao Vivo&quot; e os links de checkout <b>/go/</b> s&atilde;o decorados automaticamente com o ID do lead &mdash; costurando todo o trajeto at&eacute; a compra.</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
+            <button class="btn btn-sm primary" id="tk-copy">Copiar snippet</button>
+          </div>
+          <p class="hint" style="margin-top:10px">Funciona em qualquer HTML &mdash; n&atilde;o precisa do pixel do TikTok instalado na p&aacute;gina (mas se houver, o _ttp &eacute; aproveitado para subir a Qualidade).</p>
+        </div>
         <div class="section-title"><span>Webhook universal de conversões</span><span class="line"></span></div>
         <div class="card">
           <p class="hint" style="margin-bottom:12px">Cole esta URL no painel do seu gateway (Kiwify, Hotmart, PerfectPay, Cakto…) nos eventos de <b>venda aprovada</b>, <b>checkout/PIX gerado</b> e <b>pagamento em processamento</b>. O servidor identifica o lead, enriquece com ttclid/_ttp/IP e dispara InitiateCheckout, AddPaymentInfo e CompletePayment para todos os pixels ativos — com dedup por order_id.</p>
@@ -1229,7 +1240,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="card" style="padding:0">
           <div class="tbl-wrap" style="border:0">
             <table>
-              <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Status</th><th>Resposta</th></tr></thead>
+              <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Qualidade</th><th>Status</th><th>Resposta</th></tr></thead>
               <tbody id="px-log"></tbody>
             </table>
           </div>
@@ -1239,59 +1250,29 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Configurações ── -->
       <section class="view" id="view-config">
         <div class="grid cfg-grid" style="grid-template-columns:1fr 1fr">
-          <div class="card cfg-card" style="--cc:var(--cyan)">
-            <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M8 3H3v5M3 16v5h5M21 16v5h-5M21 3l-7 7M3 3l7 7M3 21l7-7M21 21l-7-7"/></svg></span>
-              <div><h3>Roteamento &amp; Teste A/B</h3><p>Divide o tr&aacute;fego entre Stripe e o gateway externo</p></div>
-            </div>
-            <div class="form-row">
-              <label>Modo de operação</label>
-              <select class="select" id="cfg-mode">
-                <option value="ab">Teste A/B (dividir tráfego)</option>
-                <option value="stripe_only">Apenas Stripe (100% nativo)</option>
-              </select>
-            </div>
-            <div class="form-row" id="cfg-split-wrap">
-              <label>Divisão do tráfego <span class="hint">— % para o Stripe</span></label>
-              <div class="range-wrap">
-                <input type="range" id="cfg-pct" min="0" max="100" step="5" value="50" />
-                <span id="cfg-pct-val" style="font-family:'Geist Mono';font-weight:700;width:46px;text-align:right">50%</span>
-              </div>
-              <div class="split-preview" style="margin-top:10px">
-                <div class="sp-stripe" id="sp-stripe" style="width:50%">Stripe 50%</div>
-                <div class="sp-cooud" id="sp-cooud">Cooud 50%</div>
-              </div>
-            </div>
-            <button class="btn primary" id="cfg-save" style="margin-top:6px;width:100%">Salvar configuração</button>
-          </div>
           <div class="card cfg-card" style="--cc:var(--pink)">
             <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span>
-              <div><h3>Link externo (Cooud)</h3><p>Para onde o lead vai quando cai no gateway externo</p></div>
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
+              <div><h3>Notifica&ccedil;&otilde;es Pushcut</h3><p>Receba um push no celular a cada evento do gateway &mdash; venda, recusa, reembolso e disputa</p></div>
             </div>
             <div class="form-row">
-              <label>Nome do gateway externo</label>
-              <input class="inp" id="cfg-name" placeholder="Cooud" />
+              <label>Webhook do Pushcut <span class="hint">— copie do app: Notifica&ccedil;&atilde;o &#8594; Webhook</span></label>
+              <input class="inp" id="pc-url" placeholder="https://api.pushcut.io/.../notifications/Aprovada" style="font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
             </div>
-            <div class="form-row">
-              <label>URL do checkout externo</label>
-              <input class="inp" id="cfg-url" placeholder="https://checkout.cooud.com/..." />
-            </div>
-            <p class="cfg-note">O ID do visitante &eacute; anexado automaticamente para conciliar vendas e detectar desvios.</p>
-          </div>
-          <div class="card cfg-card" style="--cc:var(--amber)">
-            <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg></span>
-              <div><h3>Rota&ccedil;&atilde;o da tt_url</h3><p>Oculta a URL real do TikTok na Stripe &mdash; cada venda mostra uma isca da lista; a real s&oacute; vai ao CAPI</p></div>
-              <label class="switch" style="margin-left:auto" title="Ativar/desativar rotação"><input type="checkbox" id="cfg-rot" /><span class="slider"></span></label>
-            </div>
-            <div class="form-row" id="cfg-rot-wrap" style="margin-bottom:0">
-              <label>URLs de rotação <span class="hint">— uma por linha</span></label>
-              <textarea class="inp" id="cfg-rot-urls" rows="5" placeholder="https://tiktok.com/" style="resize:vertical;font-family:monospace;font-size:12.5px;line-height:1.6"></textarea>
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;flex-wrap:wrap">
-                <span class="hint" id="cfg-rot-count">—</span>
-                <button class="btn btn-sm primary" id="cfg-rot-save">Salvar URLs</button>
+            <div class="form-row" style="margin-bottom:0">
+              <label>Notificar quando</label>
+              <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px">
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-sale" checked> Venda aprovada</label>
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-failed" checked> Recusada</label>
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-refund" checked> Reembolso</label>
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-dispute" checked> Disputa</label>
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-checkout"> Checkout iniciado</label>
               </div>
+              <div style="display:flex;gap:10px;margin-top:14px">
+                <button class="btn primary" id="pc-save">Salvar notifica&ccedil;&otilde;es</button>
+                <button class="btn" id="pc-test">Enviar teste</button>
+              </div>
+              <p class="hint" id="pc-status" style="margin-top:8px"></p>
             </div>
           </div>
           <div class="card cfg-card" style="--cc:var(--green)">
@@ -1389,7 +1370,7 @@ function fmtDateLocal(iso){
 }
 function pctColor(v){ return v>=60?'pos':v>=30?'amb':'neg'; }
 
-var DATA=null, CFG=null, HEALTH=null, period='7d', chartMode='revenue', evFilter='', autoTimer=null, currentView='overview', currentLeadId=null;
+var DATA=null, HEALTH=null, period='7d', chartMode='revenue', evFilter='', autoTimer=null, currentView='overview', currentLeadId=null;
 var leadsById={};
 var LIVE={visitors:[],summary:{online:0,countries:[]}}, liveTimer=null, liveGlobe=null;
 
@@ -1419,22 +1400,22 @@ function metrics(){
   var visits=lp.length;
   var reached=lp.filter(function(l){return l.stage==='checkout'||l.stage==='purchased';}).length;
   var bought=lp.filter(function(l){return l.stage==='purchased';}).length;
-  var gw={stripe:{checkout:0,purchased:0},cooud:{checkout:0,purchased:0}};
+  // Gateways são dinâmicos: qualquer nome que chegue pelo webhook universal
+  // ou pelos links /go/ ("link:slug") vira uma entrada própria.
+  var gw={};
   lp.forEach(function(l){
-    if(l.gateway&&gw[l.gateway]){
-      if(l.stage==='checkout'||l.stage==='purchased') gw[l.gateway].checkout++;
-      if(l.stage==='purchased') gw[l.gateway].purchased++;
-    }
+    if(!l.gateway) return;
+    if(!gw[l.gateway]) gw[l.gateway]={checkout:0,purchased:0};
+    if(l.stage==='checkout'||l.stage==='purchased') gw[l.gateway].checkout++;
+    if(l.stage==='purchased') gw[l.gateway].purchased++;
   });
-  var rev={}, revByGw={stripe:{},cooud:{}}, sales=0, failed=0, refunds=0, disputes=0;
+  var rev={}, sales=0, failed=0, refunds=0, disputes=0;
   events.forEach(function(e){
     if(!inPeriod(e.at)) return;
     if(e.type==='sale'){
       sales++;
       var c=(e.currency||'EUR').toUpperCase();
       rev[c]=(rev[c]||0)+(e.amount||0);
-      var gwe=e.gateway==='cooud'?'cooud':'stripe';
-      revByGw[gwe][c]=(revByGw[gwe][c]||0)+(e.amount||0);
     } else if(e.type==='failed') failed++;
     else if(e.type==='refund') refunds++;
     else if(e.type==='dispute') disputes++;
@@ -1454,7 +1435,7 @@ function metrics(){
   var avgTicket=bought?(rev[mainCur]||0)/bought:0;
   return {
     visits:visits, reached:reached, bought:bought, gw:gw,
-    rev:rev, revByGw:revByGw, sales:sales, failed:failed, refunds:refunds, disputes:disputes,
+    rev:rev, sales:sales, failed:failed, refunds:refunds, disputes:disputes,
     approval:attempts?+((sales/attempts)*100).toFixed(1):0,
     v2c:visits?+((reached/visits)*100).toFixed(1):0,
     c2p:reached?+((bought/reached)*100).toFixed(1):0,
@@ -1565,7 +1546,7 @@ function geoMini(countries){
 }
 
 /* ── Visão Geral ── */
-// Contagem animada: anima do valor anterior até o novo (não pisca 0→N
+// Contagem animada: anima do valor anterior at�� o novo (não pisca 0→N
 // em cada atualização); se o valor não mudou, apenas fixa o texto.
 // suffix pode ser string ('%') OU função formatadora (v => texto).
 // dec = casas decimais (para percentuais tipo 3.4%).
@@ -1696,7 +1677,7 @@ function renderChart(m){
     var j=idx(new Date(e.at).getTime());
     if(j<0) return;
     var val=chartMode==='revenue'?(e.amount||0):100; // 100 cents = 1 unidade para escala
-    if(e.gateway==='cooud'){buckets[j].cc+=val;} else {buckets[j].sc+=val;}
+    buckets[j].sc+=val; // série única — gateways são todos externos agora
   });
   var maxV=0;
   buckets.forEach(function(b){ maxV=Math.max(maxV,b.sc+b.cc); });
@@ -1742,12 +1723,19 @@ function renderFunnel(m){
       '<div class="fbar-track"><div class="fbar" style="width:'+w+'%;background:'+st.c+'">'+st.v+'</div></div>'+
       '<div class="frate">'+st.r+'</div></div>';
   }).join('');
-  var gw=m.gw;
-  var extName=CFG&&CFG.externalName||'Cooud';
-  document.getElementById('fn-gateways').innerHTML=
-    gwCard('Stripe','stripe',gw.stripe,'#52a8ff')+
-    gwCard(esc(extName),'cooud',gw.cooud,'#ff5674');
+  // Cards por gateway — dinâmico, um card para cada origem de checkout vista
+  var gwNames=Object.keys(m.gw);
+  var palette=['#52a8ff','#ff5674','#3ecf8e','#f5b544','#25f4ee','#b98aff'];
+  document.getElementById('fn-gateways').innerHTML=gwNames.length
+    ? gwNames.map(function(name,i){ return gwCard(esc(gwLabel(name)),'checkout',m.gw[name],palette[i%palette.length]); }).join('')
+    : '<div class="card"><div class="empty">Nenhum checkout registrado neste per&iacute;odo.</div></div>';
   renderLeadsTable();
+}
+// Rótulo amigável do gateway: "link:oferta-es" → "Link oferta-es"
+function gwLabel(g){
+  if(!g) return '—';
+  if(g.indexOf('link:')===0) return 'Link '+g.slice(5);
+  return g.charAt(0).toUpperCase()+g.slice(1);
 }
 function gwCard(title,cls,d,color){
   var conv=d.checkout?((d.purchased/d.checkout)*100).toFixed(1):0;
@@ -1764,7 +1752,15 @@ function gwCard(title,cls,d,color){
 function renderLeadsTable(){
   var q=(document.getElementById('lead-search').value||'').toLowerCase();
   var stage=document.getElementById('lead-stage').value;
-  var gwf=document.getElementById('lead-gw').value;
+  // popula o filtro de gateway dinamicamente com os gateways vistos nos leads
+  var gwSel=document.getElementById('lead-gw');
+  var gwf=gwSel.value;
+  var seen={};
+  (DATA.leads||[]).forEach(function(l){ if(l.gateway) seen[l.gateway]=true; });
+  var opts='<option value="">Todos gateways</option>'+Object.keys(seen).sort().map(function(g){
+    return '<option value="'+esc(g)+'"'+(g===gwf?' selected':'')+'>'+esc(gwLabel(g))+'</option>';
+  }).join('');
+  if(gwSel.dataset.opts!==opts){ gwSel.innerHTML=opts; gwSel.dataset.opts=opts; }
   var leads=(DATA.leads||[]).filter(function(l){
     if(l.orphan) return false;
     if(!inPeriod(l.at)) return false;
@@ -1783,12 +1779,11 @@ function renderLeadsTable(){
     body.innerHTML='<tr><td colspan="7"><div class="empty">Nenhum lead encontrado neste per&iacute;odo/filtro.</div></td></tr>';
     return;
   }
-  var extName=CFG&&CFG.externalName||'Cooud';
   body.innerHTML=leads.slice(0,200).map(function(l){
     var names={visit:'Visita',checkout:'Checkout',purchased:'Comprou'};
     var stageTag='<span class="tag '+l.stage+'">'+(names[l.stage]||l.stage)+'</span>';
-    var gwTag=l.gateway?'<span class="tag '+l.gateway+'">'+(l.gateway==='cooud'?esc(extName):'Stripe')+'</span>':'<span class="muted">—</span>';
-    var path=(l.checkoutHits&&l.checkoutHits.length)?l.checkoutHits.map(function(h){return h.gateway==='cooud'?'C':'S';}).join('&#8594;'):'—';
+    var gwTag=l.gateway?'<span class="tag checkout">'+esc(gwLabel(l.gateway))+'</span>':'<span class="muted">—</span>';
+    var path=(l.checkoutHits&&l.checkoutHits.length)?l.checkoutHits.length+'x':'—';
     var origin=(l.utm&&l.utm.source)?esc(l.utm.source):(l.referer?'ref':'direto');
     var val=l.reportedAmount?money(l.reportedAmount,l.reportedCurrency):(l.expectedAmount?('<span class="muted">'+money(l.expectedAmount,l.expectedCurrency)+'</span>'):'—');
     var shortId=l.id.slice(0,12);
@@ -2061,8 +2056,8 @@ function renderTrafficPulse(){
   var recent=buckets.slice(half).reduce(function(a,b){return a+b;},0);
   var older=buckets.slice(0,half).reduce(function(a,b){return a+b;},0);
   var trend=recent-older;
-  var ck=LIVE.checkout||{stripeNow:0,cooudEst:0};
-  var inCk=(ck.stripeNow||0)+(ck.cooudEst||0);
+  var ck=LIVE.checkout||{externalEst:0};
+  var inCk=ck.externalEst||0;
   // pico: minuto com mais entradas (horário real)
   var peakIdx=-1,peakVal=0;
   buckets.forEach(function(v,i){ if(v>peakVal){peakVal=v;peakIdx=i;} });
@@ -2095,7 +2090,7 @@ function renderTrafficPulse(){
     '<div class="tf-sub">'+
       '<span class="tfs"><i class="tfd" style="background:var(--cyan)"></i>\u00daltima entrada: <b>'+(lastAt?fmtHM(lastAt)+' \u00b7 '+fmtAgo(now-lastAt):'\u2014')+'</b></span>'+
       '<span class="tfs"><i class="tfd" style="background:var(--amber)"></i>Pico: <b>'+(peakTime?peakTime+' \u00b7 '+peakVal+' lead'+(peakVal>1?'s':''):'\u2014')+'</b></span>'+
-      '<span class="tfs"><i class="tfd" style="background:var(--pink)"></i>No checkout: <b>'+inCk+'</b> <span class="tfm">('+(ck.stripeNow||0)+' Stripe \u00b7 '+(ck.cooudEst||0)+' externo)</span></span>'+
+      '<span class="tfs"><i class="tfd" style="background:var(--pink)"></i>No checkout: <b>'+inCk+'</b> <span class="tfm">(estimativa &middot; checkouts externos)</span></span>'+
       '<span class="tfs"><i class="tfd" style="background:var(--green)"></i>Online agora: <b>'+((LIVE.summary&&LIVE.summary.online)||0)+'</b></span>'+
       '<span class="tfs tfm" style="margin-left:auto">'+(recent)+' entradas nos \u00faltimos 15 min \u00b7 '+(older)+' nos 15 anteriores</span>'+
     '</div>';
@@ -2110,28 +2105,20 @@ function renderLive(){
     var id=v.id||JSON.stringify([v.country,v.page,v.durationMs]);
     if(seen[id]) return false; seen[id]=1; return true;
   });
-  var ck=LIVE.checkout||{stripeNow:0,cooudEst:0};
-  // "no checkout" próprio (Stripe): usa presença real da página; fallback p/ filtro local
-  var stripeNow=ck.stripeNow!=null?ck.stripeNow:vs.filter(isCheckoutLead).length;
-  var cooudEst=ck.cooudEst||0;
-  var totalCheckout=stripeNow+cooudEst;
+  var ck=LIVE.checkout||{externalEst:0};
+  var totalCheckout=ck.externalEst||0;
   // estrutura montada UMA vez; depois só os números animam (sem repinte seco a cada 4s)
   var lkEl=document.getElementById('live-kpis');
-  if(!document.getElementById('lk-online')){
+  if(!document.getElementById('lv-online')){
     lkEl.innerHTML=
-      kpi(I.users,'tint-green','Online agora','<span class="grn" id="lk-online">0</span>','<span id="lk-online-sub">pessoas navegando</span>')+
-      kpi(I.cart,'tint-pink','No checkout agora','<span class="pnk" id="lk-ck">0</span>',
-        '<span class="grn" id="lk-ck-stripe">0</span> Stripe &middot; <span style="color:var(--amber)" id="lk-ck-ext">0</span> externo')+
-      kpi(I.zap,'tint-cyan','Checkout externo','<span style="color:var(--amber)" id="lk-ext">0</span>','rastreados no Cooud &middot; ~10&nbsp;min');
+      kpi(I.users,'tint-green','Online agora','<span class="grn" id="lv-online">0</span>','<span id="lv-online-sub">pessoas navegando</span>')+
+      kpi(I.cart,'tint-pink','No checkout agora','<span class="pnk" id="lv-ck">0</span>','estimativa &middot; leads que clicaram num link nos &uacute;ltimos ~10&nbsp;min');
   }
-  countUp(document.getElementById('lk-online'),s.online||0,'',600);
-  countUp(document.getElementById('lk-ck'),totalCheckout,'',600);
-  countUp(document.getElementById('lk-ext'),cooudEst,'',600);
-  var lkSub=document.getElementById('lk-online-sub');
+  countUp(document.getElementById('lv-online'),s.online||0,'',600);
+  countUp(document.getElementById('lv-ck'),totalCheckout,'',600);
+  var lkSub=document.getElementById('lv-online-sub');
   var nc=(s.countries||[]).length;
   if(lkSub)lkSub.textContent='pessoas navegando \u00b7 '+nc+(nc===1?' pa\u00eds':' pa\u00edses');
-  var lkStripe=document.getElementById('lk-ck-stripe'); if(lkStripe)lkStripe.textContent=stripeNow;
-  var lkExt2=document.getElementById('lk-ck-ext'); if(lkExt2)lkExt2.textContent=cooudEst;
   // Card "Pulso de tráfego"
   renderTrafficPulse();
   // checkout primeiro (mais quentes no topo), depois por atividade
@@ -2146,7 +2133,6 @@ function renderLive(){
   list.innerHTML=sorted.length?header+sorted.map(function(v){
     var idle=v.idleMs>20000;
     var inCk=isCheckoutLead(v);
-    var gw=v.variant==='cooud'?'cooud':(v.variant==='stripe'?'stripe':'');
     var funnel=(v.pageviews||1)>1?'<span class="lfun" title="p\u00e1ginas vistas nesta sess\u00e3o">'+v.pageviews+' p\u00e1gs</span>':'';
     return '<div class="lrow'+(idle?' idle':'')+(inCk?' hot':'')+'">'+
       '<span class="ldot"></span>'+
@@ -2155,7 +2141,6 @@ function renderLive(){
         '<span class="lpage">'+esc(pageLabel(v.page))+'</span></div>'+
       '<div class="lmeta">'+
         (inCk?'<span class="lck">'+I.cart+'no checkout</span>':'')+
-        (gw?'<span class="lgw '+gw+'">'+gw+'</span>':'')+
         funnel+
         '<span class="ldur">'+liveDur(v.durationMs)+'</span></div>'+
     '</div>';
@@ -2219,8 +2204,7 @@ function renderGlobeSide(){
   var vs=(LIVE.visitors||[]);
   var seen={}; vs=vs.filter(function(v){ var id=v.id||JSON.stringify([v.country,v.page,v.durationMs]); if(seen[id])return false; seen[id]=1; return true; });
   var ck=LIVE.checkout||{};
-  var stripeNow=ck.stripeNow!=null?ck.stripeNow:vs.filter(isCheckoutLead).length;
-  var totalCk=stripeNow+(ck.cooudEst||0);
+  var totalCk=ck.externalEst!=null?ck.externalEst:vs.filter(isCheckoutLead).length;
   countUp(document.getElementById('gs-online'),(LIVE.summary&&LIVE.summary.online)||0,'',600);
   countUp(document.getElementById('gs-ck'),totalCk,'',600);
   var list=document.getElementById('ov-live-list'); if(!list) return;
@@ -2244,142 +2228,135 @@ function renderGlobeSide(){
   :'<div class="live-empty" style="padding:20px">Ningu\u00e9m navegando agora.</div>';
 }
 
-/* ── Teste A/B ── */
-function zScore(nA,cA,nB,cB){ if(!nA||!nB) return 0; var pA=cA/nA,pB=cB/nB,p=(cA+cB)/(nA+nB); var se=Math.sqrt(p*(1-p)*(1/nA+1/nB)); if(!se||isNaN(se)) return 0; return (pA-pB)/se; }
-function confFromZ(z){ z=Math.abs(z); var t=1/(1+0.2316419*z); var d=0.3989423*Math.exp(-z*z/2); var p=1-d*(0.3193815*t-0.3565638*t*t+1.781478*t*t*t-1.821256*Math.pow(t,4)+1.330274*Math.pow(t,5)); return +(((2*p-1))*100).toFixed(1); }
-function renderAB(){
-  fillABControl();
-  var v=DATA.variants||{};
-  var s=v.stripe||{assignments:0,conversions:0,revenue:{}};
-  var c=v.cooud||{assignments:0,conversions:0,revenue:{}};
-  var extName=CFG&&CFG.externalName||'Cooud';
-  var rpvS=s.assignments?sumRev(s.revenue)/s.assignments:0;
-  var rpvC=c.assignments?sumRev(c.revenue)/c.assignments:0;
-  var winner=rpvS===rpvC?null:(rpvS>rpvC?'stripe':'cooud');
-  var winName=winner==='stripe'?'Stripe':(winner==='cooud'?esc(extName):'Empate');
-  var winRpv=Math.max(rpvS,rpvC), loseRpv=Math.min(rpvS,rpvC);
-  var uplift=loseRpv>0?(((winRpv-loseRpv)/loseRpv)*100).toFixed(1):(winRpv>0?'100':'0');
-  var z=zScore(s.assignments,s.conversions,c.assignments,c.conversions);
-  var conf=confFromZ(z);
-  var enough=s.assignments>=30&&c.assignments>=30;
-  document.getElementById('ab-alert').innerHTML=!enough?
-    '<div class="alert info">'+I.check+'<div><b>Amostra ainda pequena</b><p>Recomendado pelo menos 30 visitantes por variante para um veredito confi&aacute;vel.</p></div></div>':
-    (conf>=95?'<div class="alert ok">'+I.check+'<div><b>Resultado estat&iacute;sticamente significativo ('+conf+'%)</b><p>Voc&ecirc; pode confiar neste vencedor e ajustar a divis&atilde;o do tr&aacute;fego em Configura&ccedil;&otilde;es.</p></div></div>':'');
-  document.getElementById('ab-verdict').innerHTML=
-    '<div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:600">Vencedor por receita/visitante</div>'+
-    '<div class="win '+(winner==='cooud'?'pnk':'cyn')+'">'+winName+'</div>'+
-    '<div class="vgrid">'+
-      '<div class="vcell" style="--vc:var(--cyan)"><div class="vt">RPV Stripe</div><div class="vv cyn">'+money(rpvS,Object.keys(s.revenue||{})[0]||'EUR')+'</div></div>'+
-      '<div class="vcell" style="--vc:var(--pink)"><div class="vt">RPV '+esc(extName)+'</div><div class="vv pnk">'+money(rpvC,Object.keys(c.revenue||{})[0]||'EUR')+'</div></div>'+
-    '</div>'+
-    '<div class="vstats">'+
-      '<span class="vstat">Uplift <b>+'+uplift+'%</b></span>'+
-      '<span class="vstat">Confian&ccedil;a <b>'+conf+'%</b></span>'+
-    '</div>'+
-    '<div class="conf-bar"><i style="width:'+Math.min(100,conf)+'%;background:'+(conf>=95?'var(--green)':'var(--amber)')+'"></i></div>';
-  // comparativo único com barras integradas (substitui tabela + gráfico + cards duplicados)
-  var maxRev=Math.max(sumRev(s.revenue),sumRev(c.revenue),1);
-  document.getElementById('ab-metrics').innerHTML=
-    '<div class="abm-head"><span>Comparativo</span><span class="cyn">Stripe</span><span class="pnk">'+esc(extName)+'</span></div>'+
-    abRow('Visitantes',s.assignments,c.assignments,s.assignments,c.assignments)+
-    abRow('Cliques no checkout',s.clicks||0,c.clicks||0,s.clicks||0,c.clicks||0)+
-    abRow('Convers&otilde;es',s.conversions,c.conversions,s.conversions,c.conversions)+
-    abRow('Taxa de convers&atilde;o',(s.conversionRate||0)+'%',(c.conversionRate||0)+'%',s.conversionRate||0,c.conversionRate||0)+
-    abRow('Receita',revObj(s.revenue),revObj(c.revenue),sumRev(s.revenue)/maxRev*100,sumRev(c.revenue)/maxRev*100);
+/* ── Links de Checkout ────────────────────────────────────────────── */
+var LK_LIST=[];
+function loadLinks(){
+  fetch('/api/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    LK_LIST=d.links||[];
+    renderLinks();
+  }).catch(function(){});
 }
-// Linha do comparativo: valores + barras proporcionais + seta no líder
-function abRow(label,dispA,dispB,numA,numB){
-  var max=Math.max(numA,numB,0.0001);
-  var wa=Math.max(1.5,numA/max*100), wb=Math.max(1.5,numB/max*100);
-  var leadA=numA>numB, leadB=numB>numA;
-  return '<div class="abrow">'+
-    '<div class="abr-top"><span class="lbl">'+label+'</span>'+
-      '<span class="va cyn'+(leadA?' lead-val':'')+'">'+dispA+'</span>'+
-      '<span class="vb pnk'+(leadB?' lead-val':'')+'">'+dispB+'</span></div>'+
-    '<div class="abr-bars">'+
-      '<div class="b s" style="width:'+wa+'%"></div>'+
-      '<div class="b c" style="width:'+wb+'%"></div>'+
-    '</div></div>';
+function renderLinks(){
+  var el=document.getElementById('lk-list'); if(!el) return;
+  if(!LK_LIST.length){
+    el.innerHTML='<div class="live-empty">Nenhum link ainda.<br>Clique em "+ Criar link" — cada link vira uma URL <code>/go/&lt;slug&gt;</code> para usar nos an&uacute;ncios, com rastreamento e teste A/B integrados.</div>';
+  } else {
+    el.innerHTML=LK_LIST.map(function(l){
+      var nv=(l.variantes||[]).length;
+      var clicks=(l.variantes||[]).reduce(function(a,v){return a+(v.clicks||0);},0);
+      var convs=(l.variantes||[]).reduce(function(a,v){return a+(v.conversions||0);},0);
+      return '<div class="lrow" style="cursor:default">'+
+        '<span class="ldot" style="background:'+(l.ativo?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
+        '<div class="lmain">'+
+          '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span></b>'+
+          '<span>'+nv+' variante'+(nv!==1?'s':'')+(nv>1?' &middot; <span class="cyn">teste A/B ativo</span>':'')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
+          '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
+        '</div>'+
+        '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
+          '<button class="btn-icon" onclick="copyLink(\\''+esc(l.slug)+'\\')">Copiar URL</button>'+
+          '<button class="btn-icon" onclick="editLink(\\''+esc(l.slug)+'\\')">Editar</button>'+
+          '<button class="btn-icon" style="color:var(--red)" onclick="delLink(\\''+esc(l.slug)+'\\')">Excluir</button>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  }
+  renderLinkPerf();
 }
-// ── Painel de controle do experimento (aba A/B) ──────────────────────
-var abDirty=false; // evita sobrescrever edições do usuário no auto-refresh
-function fillABControl(){
-  if(!CFG||abDirty) return;
-  var isAB=CFG.mode!=='stripe_only';
-  var extName=CFG.externalName||'Cooud';
-  document.getElementById('ab-mode').checked=isAB;
-  document.getElementById('ab-mode-label').textContent=isAB?'Teste ativo — tráfego dividido':'Pausado — 100% Stripe';
-  document.getElementById('ab-split-wrap').style.opacity=isAB?'1':'.35';
-  document.getElementById('ab-split').disabled=!isAB;
-  document.getElementById('ab-split').value=CFG.stripePct;
-  document.getElementById('ab-split-s').textContent='Stripe '+CFG.stripePct+'%';
-  document.getElementById('ab-split-c').textContent=esc(extName)+' '+(100-CFG.stripePct)+'%';
-  document.getElementById('ab-mode-label').classList.toggle('on',isAB);
-  document.getElementById('ab-test-cooud').innerHTML=esc(extName)+' \u2197';
+// Desempenho A/B: barras de cliques/conversões por variante de cada link
+function renderLinkPerf(){
+  var el=document.getElementById('lk-perf'); if(!el) return;
+  var withData=LK_LIST.filter(function(l){return (l.variantes||[]).length;});
+  if(!withData.length){ el.innerHTML='<div class="card"><div class="empty">Crie um link para acompanhar o desempenho A/B aqui.</div></div>'; return; }
+  el.innerHTML=withData.map(function(l){
+    var maxC=Math.max.apply(null,l.variantes.map(function(v){return v.clicks||0;}).concat([1]));
+    var best=null;
+    l.variantes.forEach(function(v){
+      var rate=(v.clicks||0)?(v.conversions||0)/(v.clicks||1):0;
+      if(!best||rate>best.rate) best={id:v.id,rate:rate};
+    });
+    return '<div class="card" style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'+
+      '<h3 style="font-size:14.5px">'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span></h3>'+
+      ((l.variantes.length>1&&best&&best.rate>0)?'<span class="tag purchased">L&iacute;der: '+esc((l.variantes.filter(function(v){return v.id===best.id;})[0]||{}).nome||'')+'</span>':'')+
+      '</div>'+
+      l.variantes.map(function(v,i){
+        var rate=(v.clicks||0)?((v.conversions||0)/(v.clicks||1)*100).toFixed(1):'0.0';
+        var w=Math.max(2,Math.round((v.clicks||0)/maxC*100));
+        return '<div class="abrow"><div class="abr-top"><span class="lbl">'+esc(v.nome)+' <span class="hint">peso '+(v.peso||0)+'%</span></span>'+
+          '<span class="va cyn">'+(v.clicks||0)+' cliques</span>'+
+          '<span class="vb pnk">'+(v.conversions||0)+' conv &middot; '+rate+'% &middot; '+revObj(v.revenue)+'</span></div>'+
+          '<div class="abr-bars"><div class="b s" style="width:'+w+'%"></div>'+
+          '<div class="b c" style="width:'+Math.max(2,Math.round((v.conversions||0)/maxC*100))+'%"></div></div></div>';
+      }).join('')+
+    '</div>';
+  }).join('');
 }
-function abControlChanged(){
-  abDirty=true;
-  var pct=+document.getElementById('ab-split').value;
-  var isAB=document.getElementById('ab-mode').checked;
-  var extName=CFG&&CFG.externalName||'Cooud';
-  document.getElementById('ab-mode-label').textContent=isAB?'Teste ativo — tráfego dividido':'Pausado — 100% Stripe';
-  document.getElementById('ab-mode-label').classList.toggle('on',isAB);
-  document.getElementById('ab-split-wrap').style.opacity=isAB?'1':'.35';
-  document.getElementById('ab-split').disabled=!isAB;
-  document.getElementById('ab-split-s').textContent='Stripe '+pct+'%';
-  document.getElementById('ab-split-c').textContent=esc(extName)+' '+(100-pct)+'%';
-  document.getElementById('ab-save').style.display='inline-flex';
+function showLinkForm(l){
+  document.getElementById('lk-form-card').style.display='';
+  document.getElementById('lk-form-title').textContent=l?('Editar: '+l.nome):'Novo link';
+  document.getElementById('lk-slug').value=l?l.slug:'';
+  document.getElementById('lk-name').value=l?l.nome:'';
+  document.getElementById('lk-variants').value=l?(l.variantes||[]).map(function(v){return v.nome+' | '+v.url+' | '+(v.peso||0);}).join(String.fromCharCode(10)):'';
+  document.getElementById('lk-domain').value=l?(l.dominio||''):'';
+  document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
+  document.getElementById('lk-active').checked=l?!!l.ativo:true;
+  document.getElementById('lk-name').focus();
 }
-document.getElementById('ab-split').addEventListener('input',abControlChanged);
-document.getElementById('ab-mode').addEventListener('change',abControlChanged);
-document.getElementById('ab-save').addEventListener('click',function(){
-  var body={mode:document.getElementById('ab-mode').checked?'ab':'stripe_only',stripePct:+document.getElementById('ab-split').value};
-  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+function editLink(slug){
+  var l=LK_LIST.filter(function(x){return x.slug===slug;})[0];
+  if(l) showLinkForm(l);
+}
+function delLink(slug){
+  if(!confirm('Excluir o link "'+slug+'"? A URL /go/'+slug+' deixa de funcionar.')) return;
+  fetch('/api/links/'+encodeURIComponent(slug),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d.ok){ toast('Link removido'); loadLinks(); } else toast(d.error||'Erro',false); })
+    .catch(function(){ toast('Erro ao remover',false); });
+}
+function copyLink(slug){
+  navigator.clipboard.writeText(location.origin+'/go/'+slug)
+    .then(function(){ toast('URL copiada'); })
+    .catch(function(){ toast('Erro ao copiar',false); });
+}
+function parseVariantLines(){
+  var lines=document.getElementById('lk-variants').value.split(String.fromCharCode(10));
+  var out=[];
+  lines.forEach(function(ln){
+    ln=ln.trim(); if(!ln) return;
+    var parts=ln.split('|').map(function(p){return p.trim();});
+    if(parts.length<2) return;
+    out.push({nome:parts[0],url:parts[1],peso:parts[2]!=null?+parts[2]:0});
+  });
+  return out;
+}
+function saveLink(){
+  var body={
+    slug:document.getElementById('lk-slug').value||undefined,
+    nome:document.getElementById('lk-name').value,
+    variantes:parseVariantLines(),
+    dominio:document.getElementById('lk-domain').value.trim(),
+    ativo:document.getElementById('lk-active').checked
+  };
+  if(!body.nome){ toast('D\u00ea um nome ao link',false); return; }
+  if(!body.variantes.length){ toast('Adicione pelo menos 1 variante (nome | url | peso)',false); return; }
+  fetch('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ CFG=d.config; abDirty=false; document.getElementById('ab-save').style.display='none'; fillABControl(); toast('Experimento atualizado'); }
-      else toast('Erro ao salvar');
-    }).catch(function(){ toast('Erro ao salvar'); });
-});
-
-/* ── Anti-desvio ── */
-function renderCooud(){
-  var co=DATA.cooud||{};
-  var badge=document.getElementById('nav-cooud-badge');
-  var flagged=(co.smartCapture||0)+(co.recovery||0)+(co.orphans||0);
-  badge.style.display=flagged>0?'inline-block':'none';
-  document.getElementById('cooud-alert').innerHTML=flagged>0?
-    '<div class="alert">'+I.dispute+'<div><b>Fun&ccedil;&otilde;es do gateway ativas nas suas contas</b><p>Detectamos '+(co.smartCapture||0)+' Smart Capture, '+(co.recovery||0)+' Recuperar Preju&iacute;zo e '+(co.orphans||0)+' venda(s) &oacute;rf&atilde;(s).</p></div></div>':
-    '<div class="alert ok">'+I.check+'<div><b>Tudo limpo</b><p>Nenhum desvio ou fun&ccedil;&atilde;o agressiva detectada at&eacute; agora.</p></div></div>';
-  var extName=CFG&&CFG.externalName||'Cooud';
-  document.getElementById('cooud-kpis').innerHTML=
-    kpi(I.lead,'tint-cyan','Leads enviados','<span class="cyn">'+(co.sent||0)+'</span>','para o gateway '+(esc(extName)))+
-    kpi(I.check,'','Vendas conciliadas','<span class="cyn">'+(co.matched||0)+'</span>',(co.convRate||0)+'% dos enviados')+
-    kpi(I.dispute,'tint-pink','Vendas órfãs','<span class="pnk">'+(co.orphans||0)+'</span>','sem lead nosso')+
-    kpi(I.zap,'tint-amber','Reportes duplicados','<span class="amb">'+(co.duplicates||0)+'</span>','mesmo lead 2x');
-  document.getElementById('cooud-practices').innerHTML=
-    '<div class="card"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span class="tag cap">Smart Capture</span></div>'+
-      '<div class="k-val small amb">'+(co.smartCapture||0)+' vendas</div>'+
-      '<div class="muted" style="font-size:12.5px;margin-top:6px">Cobran&ccedil;a acima do esperado. Valor extra: <b style="color:var(--text)">'+revObj(co.captureExtraRev)+'</b></div></div>'+
-    '<div class="card"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span class="tag rec">Recuperar Preju&iacute;zo</span></div>'+
-      '<div class="k-val small cyn">'+(co.recovery||0)+' vendas</div>'+
-      '<div class="muted" style="font-size:12.5px;margin-top:6px">Cobran&ccedil;as recuperadas tardiamente. Receita: <b style="color:var(--text)">'+revObj(co.recoveryRev)+'</b></div></div>';
-  var leads=(DATA.leads||[]).filter(function(l){return l.gateway==='cooud';});
-  var body=document.getElementById('cooud-body');
-  body.innerHTML=leads.length?leads.slice(0,100).map(function(l){
-    var st=l.orphan?'<span class="tag orphan">&Oacute;rf&atilde;</span>':(l.status==='converted'?'<span class="tag purchased">Conciliada</span>':'<span class="tag checkout">Pendente</span>');
-    var pr=[];
-    if(l.smartCapture) pr.push('<span class="tag cap">Capture</span>');
-    if(l.recovery) pr.push('<span class="tag rec">Recup.</span>');
-    if(l.duplicateReports) pr.push('<span class="tag amber" style="border-color:var(--amber);color:var(--amber)">x'+(l.duplicateReports+1)+'</span>');
-    return '<tr onclick="openLead(\\''+esc(l.id)+'\\')">'+
-      '<td><span style="font-family:monospace;font-size:12px">'+esc(l.id.slice(0,14))+'</span></td>'+
-      '<td>'+st+'</td>'+
-      '<td>'+(l.expectedAmount?money(l.expectedAmount,l.expectedCurrency):'—')+'</td>'+
-      '<td>'+(l.reportedAmount?money(l.reportedAmount,l.reportedCurrency):'—')+'</td>'+
-      '<td>'+(pr.join(' ')||'<span class="muted">—</span>')+'</td>'+
-      '<td>'+esc(l.customer||'—')+'</td></tr>';
-  }).join(''):'<tr><td colspan="6"><div class="empty">Nenhum lead Cooud ainda.</div></td></tr>';
+      if(d.ok){ toast('Link salvo'); document.getElementById('lk-form-card').style.display='none'; loadLinks(); }
+      else toast(d.error||'Erro ao salvar',false);
+    }).catch(function(){ toast('Erro ao salvar',false); });
+}
+function validateDomain(){
+  var dom=document.getElementById('lk-domain').value.trim();
+  var st=document.getElementById('lk-domain-status');
+  if(!dom){ st.innerHTML='<span class="amb">Informe o dom&iacute;nio (ex.: pay.gateway.com)</span>'; return; }
+  st.textContent='Validando DNS e HTTP...';
+  fetch('/api/links/validate-domain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dominio:dom})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      st.innerHTML=d.ok
+        ? '<span class="pos">Dom&iacute;nio v&aacute;lido &middot; DNS '+esc(d.ip||'ok')+(d.httpStatus?' &middot; HTTP '+d.httpStatus:'')+'</span>'
+        : '<span class="neg">Falhou: '+esc(d.error||'sem resposta')+'</span>';
+    }).catch(function(){ st.innerHTML='<span class="neg">Erro na valida&ccedil;&atilde;o</span>'; });
 }
 
 /* ── Heatmap de vendas (hora × dia da semana) ── */
@@ -2406,7 +2383,6 @@ function renderActivity(){
   var feed=document.getElementById('feed');
   var cnt=document.getElementById('ev-count');
   if(cnt) cnt.textContent=events.length+' evento'+(events.length!==1?'s':'');
-  var extName=CFG&&CFG.externalName||'Cooud';
   var map={
     sale:{i:I.sale,c:'var(--green)'},
     failed:{i:I.fail,c:'var(--red)'},
@@ -2421,7 +2397,7 @@ function renderActivity(){
     var meta=[];
     if(e.customer) meta.push('<b>'+esc(e.customer)+'</b>');
     if(e.email) meta.push(esc(e.email));
-    if(e.gateway) meta.push('<span style="opacity:.75">'+(e.gateway==='cooud'?esc(extName):'Stripe')+'</span>');
+    if(e.gateway) meta.push('<span style="opacity:.75">'+esc(gwLabel(e.gateway))+'</span>');
     if(e.country) meta.push(esc(e.country));
     if(e.card) meta.push(esc(e.card));
     if(e.landing) meta.push('<span style="opacity:.65">'+esc(e.landing)+'</span>');
@@ -2440,53 +2416,46 @@ function renderActivity(){
   }).join(''):'<div class="empty">Nenhum evento ainda.</div>';
 }
 
-/* ── Config ── */
-function fillConfig(){
-  if(!CFG) return;
-  document.getElementById('cfg-mode').value=CFG.mode||'ab';
-  document.getElementById('cfg-pct').value=CFG.stripePct!=null?CFG.stripePct:50;
-  document.getElementById('cfg-name').value=CFG.externalName||'Cooud';
-  document.getElementById('cfg-url').value=CFG.externalUrl||'';
-  document.getElementById('cfg-rot').checked=CFG.rotateTtUrl!==false;
-  document.getElementById('cfg-rot-urls').value=(CFG.rotateUrls||[]).join(String.fromCharCode(10));
-  updateSplitPreview();
-  updateRotPreview();
+/* ── Config: notificações Pushcut ── */
+var PC_LOADED=false;
+function loadPushcutConfig(){
+  fetch('/api/pushcut-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    PC_LOADED=true;
+    document.getElementById('pc-url').value=d.url||'';
+    document.getElementById('pc-url').placeholder=d.hasUrl?'(configurado — cole outra URL para trocar)':'https://api.pushcut.io/.../notifications/Aprovada';
+    var ev=d.events||{};
+    document.getElementById('pc-ev-sale').checked=ev.sale!==false;
+    document.getElementById('pc-ev-failed').checked=ev.failed!==false;
+    document.getElementById('pc-ev-refund').checked=ev.refund!==false;
+    document.getElementById('pc-ev-dispute').checked=ev.dispute!==false;
+    document.getElementById('pc-ev-checkout').checked=ev.checkout===true;
+    document.getElementById('pc-status').innerHTML=d.hasUrl?'<span class="pos">Webhook configurado</span>':'<span class="amb">Sem webhook — notifica&ccedil;&otilde;es desligadas</span>';
+  }).catch(function(){});
 }
-function updateRotPreview(){
-  var on=document.getElementById('cfg-rot').checked;
-  var w=document.getElementById('cfg-rot-wrap');
-  w.style.opacity=on?'1':'.45';
-  w.style.pointerEvents=on?'auto':'none';
-  updateRotCount();
-}
-function isValidRotUrl(u){
-  u=u.toLowerCase();
-  return (u.indexOf('http://')===0||u.indexOf('https://')===0)&&u.length>8;
-}
-function updateRotCount(){
-  var el=document.getElementById('cfg-rot-count'); if(!el) return;
-  var lines=document.getElementById('cfg-rot-urls').value.split(String.fromCharCode(10)).map(function(u){return u.trim();});
-  var valid=lines.filter(isValidRotUrl).length;
-  var invalid=lines.filter(function(u){return u&&!isValidRotUrl(u);}).length;
-  el.textContent=valid+' URL'+(valid===1?'':'s')+' válida'+(valid===1?'':'s')+(invalid?' · '+invalid+' ignorada'+(invalid===1?'':'s'):'');
-  el.style.color=invalid?'var(--warn,#e0a800)':'var(--muted2)';
-}
-// Salva apenas o bloco de rotação (botão dedicado no card)
-function saveRotation(){
+function savePushcutConfig(){
   var body={
-    rotateTtUrl:document.getElementById('cfg-rot').checked,
-    rotateUrls:document.getElementById('cfg-rot-urls').value
+    url:document.getElementById('pc-url').value.trim(),
+    events:{
+      sale:document.getElementById('pc-ev-sale').checked,
+      failed:document.getElementById('pc-ev-failed').checked,
+      refund:document.getElementById('pc-ev-refund').checked,
+      dispute:document.getElementById('pc-ev-dispute').checked,
+      checkout:document.getElementById('pc-ev-checkout').checked
+    }
   };
-  var btn=document.getElementById('cfg-rot-save');
-  btn.disabled=true;
-  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  fetch('/api/pushcut-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
-      btn.disabled=false;
-      if(d.ok){ CFG=d.config; document.getElementById('cfg-rot-urls').value=(CFG.rotateUrls||[]).join(String.fromCharCode(10)); updateRotCount(); toast('URLs de rotação salvas'); }
-      else toast('Erro ao salvar',false);
-    })
-    .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
+      if(d.ok){ toast('Notifica\u00e7\u00f5es salvas'); loadPushcutConfig(); }
+      else toast(d.error||'Erro ao salvar',false);
+    }).catch(function(){ toast('Erro ao salvar',false); });
+}
+function testPushcut(){
+  toast('Enviando teste...');
+  fetch('/api/pushcut/test',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){ toast(d.ok?'Push enviado — confira o celular':'Falhou — confira a URL do webhook',d.ok); })
+    .catch(function(){ toast('Erro no teste',false); });
 }
 /* ── Pixel TikTok ─────────────────────────────────────────────────── */
 var PX_LIST=[];
@@ -2592,15 +2561,23 @@ function loadPxLog(){
   fetch('/api/pixels/log').then(function(r){return r.json();}).then(function(d){
     var tb=document.getElementById('px-log'); if(!tb) return;
     var log=d.log||[];
-    if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">Nenhum disparo ainda — os eventos aparecem aqui conforme os leads navegam.</td></tr>'; return; }
+    if(!log.length){ tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted2);padding:26px">Nenhum disparo ainda — os eventos aparecem aqui conforme os leads navegam.</td></tr>'; return; }
     tb.innerHTML=log.map(function(e){
       var ok=e.status==='ok';
       var resp=e.response&&e.response.message?e.response.message:(ok?'aceito':'—');
+      // EMQ 0-10: verde >=6, âmbar 3-5, vermelho <3 — sinais no title (hover)
+      var emqCell='<span style="color:var(--muted2)">—</span>';
+      if(e.emq!=null){
+        var cls=e.emq>=6?'grn':(e.emq>=3?'amb':'neg');
+        var flds=(e.emqFields||[]).join(', ')||'nenhum sinal';
+        emqCell='<span class="'+cls+'" title="Sinais: '+esc(flds)+'" style="font-family:\\'Geist Mono\\',monospace;font-weight:700">'+e.emq+'/10</span>';
+      }
       return '<tr style="cursor:default">'+
         '<td>'+timeAgo(e.at)+'</td>'+
         '<td>'+esc(e.pixel||'—')+'</td>'+
         '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'—')+'</span></td>'+
         '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'—').slice(0,10))+'</td>'+
+        '<td>'+emqCell+'</td>'+
         '<td><span class="'+(ok?'grn':'neg')+'">'+(ok?'OK':'erro')+'</span></td>'+
         '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--muted2)">'+esc(String(resp).slice(0,120))+'</td>'+
       '</tr>';
@@ -2634,26 +2611,10 @@ function loadConvLog(){
     }).join('');
   }).catch(function(){});
 }
-function updateSplitPreview(){
-  var mode=document.getElementById('cfg-mode').value;
-  var pct=+document.getElementById('cfg-pct').value;
-  var wrap=document.getElementById('cfg-split-wrap');
-  wrap.style.opacity=mode==='stripe_only'?'.4':'1';
-  wrap.style.pointerEvents=mode==='stripe_only'?'none':'auto';
-  if(mode==='stripe_only') pct=100;
-  document.getElementById('cfg-pct-val').textContent=pct+'%';
-  var extName=CFG&&CFG.externalName||'Cooud';
-  document.getElementById('sp-stripe').style.width=pct+'%';
-  document.getElementById('sp-stripe').textContent='Stripe '+pct+'%';
-  document.getElementById('sp-cooud').textContent=esc(extName)+' '+(100-pct)+'%';
-}
-
 function renderHealth(){
   if(!HEALTH){ document.getElementById('health-grid').innerHTML='<div class="muted" style="padding:8px 0;font-size:13px">Indispon&iacute;vel</div>'; return; }
   var items=[
-    {key:'stripe',label:'Stripe API'},
-    {key:'webhook',label:'Webhook Secret'},
-    {key:'resend',label:'Resend (e-mail)'},
+    {key:'conversionWebhook',label:'Webhook de conversões'},
     {key:'tiktok',label:'TikTok CAPI'},
     {key:'pushcut',label:'Pushcut'},
     {key:'dashboard',label:'Dashboard senha'}
@@ -2680,7 +2641,6 @@ function openLead(id){
   if(!l) return;
   currentLeadId=id;
   document.getElementById('drawer-title').textContent='Lead '+id.slice(0,18);
-  var extName=CFG&&CFG.externalName||'Cooud';
   var names={visit:'Visita',checkout:'Checkout',purchased:'Comprou'};
   function grp(t){ return '<div class="dgroup">'+t+'</div>'; }
   function r(k,v){ return '<div class="dl"><span class="dk">'+k+'</span><span class="dv">'+(v==null||v===''?'—':v)+'</span></div>'; }
@@ -2688,8 +2648,8 @@ function openLead(id){
   rows+=grp('Funil');
   rows+=r('ID completo','<span style="font-family:monospace;font-size:12px;word-break:break-all">'+esc(l.id)+'</span>');
   rows+=r('Etapa','<span class="tag '+l.stage+'">'+(names[l.stage]||l.stage)+'</span>');
-  rows+=r('Gateway',l.gateway?'<span class="tag '+l.gateway+'">'+(l.gateway==='cooud'?esc(extName):'Stripe')+'</span>':'—');
-  if(l.checkoutHits&&l.checkoutHits.length) rows+=r('Checkouts',l.checkoutHits.map(function(h){return (h.gateway==='cooud'?esc(extName):'Stripe');}).join(' &#8594; '));
+  rows+=r('Gateway',l.gateway?'<span class="tag checkout">'+esc(gwLabel(l.gateway))+'</span>':'—');
+  if(l.checkoutHits&&l.checkoutHits.length) rows+=r('Checkouts',l.checkoutHits.map(function(h){return esc(gwLabel(h.gateway));}).join(' &#8594; '));
   if(l.conversionAgeMs!=null){ var secs=Math.round(l.conversionAgeMs/1000); rows+=r('Tempo at&eacute; convers&atilde;o',secs>60?Math.round(secs/60)+'min':secs+'s'); }
   rows+=grp('Valores');
   rows+=r('Esperado',l.expectedAmount?money(l.expectedAmount,l.expectedCurrency):'—');
@@ -2827,13 +2787,12 @@ function applyDr(){
 var CMD_ITEMS=[
   {g:'Telas',t:'Visão Geral',h:'resumo',ic:I.money,act:function(){setView('overview');}},
   {g:'Telas',t:'Ao Vivo',h:'presença, funil, países',ic:I.zap,act:function(){setView('live');}},
-  {g:'Telas',t:'Teste A/B',h:'gateways + anti-desvio',ic:I.pct,act:function(){setView('ab');}},
+  {g:'Telas',t:'Links de Checkout',h:'domínios, redirect e teste A/B',ic:I.pct,act:function(){setView('links');}},
   {g:'Telas',t:'Pixel TikTok',h:'rastreamento, events api',ic:I.zap,act:function(){setView('pixels');}},
   {g:'Telas',t:'Configurações',h:'sistema',ic:I.check,act:function(){setView('config');}},
   {g:'Ir para',t:'Funil & Leads',h:'dentro de Ao Vivo',ic:I.cart,act:function(){setView('funnel');}},
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
   {g:'Ir para',t:'Atividade',h:'dentro de Ao Vivo',ic:I.zap,act:function(){setView('activity');}},
-  {g:'Ir para',t:'Anti-desvio',h:'dentro de Teste A/B',ic:I.shield,act:function(){setView('cooud');}},
   {g:'Período',t:'Hoje',ic:I.check,act:function(){setPeriod('today');}},
   {g:'Período',t:'Últimos 7 dias',ic:I.check,act:function(){setPeriod('7d');}},
   {g:'Período',t:'Últimos 30 dias',ic:I.check,act:function(){setPeriod('30d');}},
@@ -2871,7 +2830,6 @@ function renderAll(){
   var g=currentView||'overview';
   if(g==='overview'){ renderOverview(m); }
   else if(g==='live'){ renderFunnel(m); renderGeo(m); renderActivity(); }
-  else if(g==='ab'){ renderAB(); renderCooud(); }
   RENDERED_GROUPS[g]=true;
   renderFooter();
 }
@@ -2886,7 +2844,6 @@ function buildLeadIndex(){ leadsById={}; (DATA.leads||[]).forEach(function(l){le
 
 /* ── API ── */
 function loadStats(){ return fetch('/api/stats',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){DATA=d;}); }
-function loadConfig(){ return fetch('/api/config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(c){CFG=c;}); }
 function loadHealth(){ return fetch('/api/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(h){HEALTH=h;}).catch(function(){}); }
 /* Atualização inteligente: só re-renderiza quando os dados realmente
    mudaram (fingerprint) — elimina o repinte periódico que reiniciava
@@ -2894,19 +2851,19 @@ function loadHealth(){ return fetch('/api/health',{cache:'no-store'}).then(funct
 var lastFp='', refreshing=false;
 function dataFp(){
   if(!DATA) return '';
-  return (DATA.updatedAt||'')+':'+((DATA.events||[]).length)+':'+((DATA.leads||[]).length)+':'+JSON.stringify(CFG||{});
+  return (DATA.updatedAt||'')+':'+((DATA.events||[]).length)+':'+((DATA.leads||[]).length);
 }
 function refresh(force){
   if(refreshing) return Promise.resolve(); // evita requisições sobrepostas
   refreshing=true;
-  return Promise.all([loadStats(),loadConfig()])
+  return loadStats()
     .then(function(){
       refreshing=false;
       var fp=dataFp();
       if(force||fp!==lastFp){
         lastFp=fp;
         RENDERED_GROUPS={}; // dados novos: os outros grupos repintam ao serem abertos
-        fillConfig(); renderAll(); ingestNotifs();
+        renderAll(); ingestNotifs();
       } else {
         renderFooter(); // nada mudou: só o relógio do rodapé
       }
@@ -2920,16 +2877,16 @@ function refresh(force){
 var VIEW_GROUPS={
   overview:['overview'],
   live:['live','funnel','geo','activity'],
-  ab:['ab','cooud'],
+  links:['links'],
   pixels:['pixels'],
   config:['config']
 };
 var titles={
   overview:['Visão Geral','Resumo dos números que mais importam'],
   live:['Ao Vivo','Presença, funil, países e atividade — tudo em tempo real'],
-  ab:['Teste A/B','Gateways, desempenho e anti-desvio'],
+  links:['Links de Checkout','Domínios validados, redirect rastreado e teste A/B'],
   pixels:['Pixel TikTok','Rastreamento server-side por lead — um pixel por arquivo'],
-  config:['Configurações','Roteamento, chaves e saúde do sistema']
+  config:['Configurações','Notificações, chaves e saúde do sistema']
 };
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
 // (ex.: setView('funnel') abre o grupo Ao Vivo e rola até o funil).
@@ -2961,8 +2918,9 @@ function setView(v){
     setTimeout(function(){ if(liveGlobe){ try{liveGlobe.width(document.getElementById('live-globe').clientWidth).height(520);}catch(e){} } },80);
   }
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
-  if(g==='config') loadHealth().then(renderHealth);
+  if(g==='config'){ loadHealth().then(renderHealth); loadPushcutConfig(); }
   if(g==='pixels') loadPixels();
+  if(g==='links') loadLinks();
   // veio de uma sub-view (paleta de comandos)? rola até a section correspondente
   if(sub){ setTimeout(function(){ var t=document.getElementById('view-'+sub); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },120); }
   else { document.querySelector('.main').scrollTop=0; window.scrollTo(0,0); }
@@ -2989,7 +2947,18 @@ document.getElementById('side-scrim').addEventListener('click',function(){ setSi
 document.getElementById('gm-close').addEventListener('click',globeModalClose);
 document.getElementById('gm-scrim').addEventListener('click',globeModalClose);
 document.getElementById('gs-all').addEventListener('click',function(){ setView('live'); });
-document.addEventListener('keydown',function(e){ if(e.key==='Escape') globeModalClose(); });
+// ESC fecha camadas na ordem: modal do globo > drawer de lead > popover de calendário.
+// (o cmdk tem handler próprio mais abaixo e consome o ESC quando aberto)
+document.addEventListener('keydown',function(e){
+  if(e.key!=='Escape') return;
+  if(document.getElementById('cmdk-bg').classList.contains('open')) return; // cmdk cuida
+  var gm=document.getElementById('globe-modal');
+  if(gm&&!gm.hidden){ globeModalClose(); return; }
+  var dw=document.getElementById('drawer');
+  if(dw&&dw.classList.contains('open')){ closeDrawer(); return; }
+  var pop=document.getElementById('dr-pop');
+  if(pop&&!pop.hidden) closeDrPop();
+});
 // popover de segmentação de período
 document.getElementById('dr-from').addEventListener('change',drSyncHours);
 document.getElementById('dr-to').addEventListener('change',drSyncHours);
@@ -3030,7 +2999,7 @@ document.getElementById('drawer-bg').addEventListener('click',closeDrawer);
 document.getElementById('drawer-copy').addEventListener('click',function(){
   if(!currentLeadId) return;
   if(navigator.clipboard){ navigator.clipboard.writeText(currentLeadId).then(function(){toast('ID copiado');}).catch(function(){toast('Erro ao copiar',false);}); }
-  else{ toast('Clipboard indispon&iacute;vel',false); }
+  else{ toast('Clipboard indispon\u00edvel',false); }
 });
 document.getElementById('export-leads').addEventListener('click',exportLeads);
 document.getElementById('export-events').addEventListener('click',exportEvents);
@@ -3048,11 +3017,12 @@ document.addEventListener('keydown',function(e){
   else if(e.key==='Enter'){ e.preventDefault(); cmdkRun(cmdkSel); }
 });
 
-document.getElementById('cfg-mode').addEventListener('change',updateSplitPreview);
-document.getElementById('cfg-pct').addEventListener('input',updateSplitPreview);
-document.getElementById('cfg-rot').addEventListener('change',updateRotPreview);
-document.getElementById('cfg-rot-urls').addEventListener('input',updateRotCount);
-document.getElementById('cfg-rot-save').addEventListener('click',saveRotation);
+document.getElementById('lk-new').addEventListener('click',function(){ showLinkForm(null); });
+document.getElementById('lk-save').addEventListener('click',saveLink);
+document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; });
+document.getElementById('lk-validate').addEventListener('click',validateDomain);
+document.getElementById('pc-save').addEventListener('click',savePushcutConfig);
+document.getElementById('pc-test').addEventListener('click',testPushcut);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });
 document.getElementById('px-save').addEventListener('click',savePixel);
 document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; });
@@ -3070,22 +3040,16 @@ document.getElementById('cw-copy').addEventListener('click',function(){
     .then(function(){ toast('URL copiada com o segredo',true); })
     .catch(function(){ toast('Erro ao copiar',false); });
 });
-document.getElementById('cfg-save').addEventListener('click',function(){
-  var body={
-    mode:document.getElementById('cfg-mode').value,
-    stripePct:+document.getElementById('cfg-pct').value,
-    externalName:document.getElementById('cfg-name').value,
-    externalUrl:document.getElementById('cfg-url').value,
-    rotateTtUrl:document.getElementById('cfg-rot').checked,
-    rotateUrls:document.getElementById('cfg-rot-urls').value
-  };
-  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok){ CFG=d.config; fillConfig(); toast('Configuração salva'); RENDERED_GROUPS={}; renderAll(); }
-      else toast('Erro ao salvar',false);
-    })
-    .catch(function(){toast('Erro ao salvar',false);});
+/* ── Snippet de rastreamento para páginas externas ── */
+function trackerSnippet(){ return '<script src="'+location.origin+'/t.js" defer><\\/script>'; }
+(function(){
+  var inp=document.getElementById('tk-snippet');
+  if(inp) inp.value=trackerSnippet();
+})();
+document.getElementById('tk-copy').addEventListener('click',function(){
+  navigator.clipboard.writeText(trackerSnippet())
+    .then(function(){ toast('Snippet copiado \u2014 cole na p\u00e1gina externa'); })
+    .catch(function(){ toast('Clipboard indispon\u00edvel',false); });
 });
 document.getElementById('reset-btn').addEventListener('click',function(){
   if(!confirm('Tem certeza? Isto apaga todos os leads e eventos.')) return;

@@ -1,5 +1,5 @@
 {
-  "name": "stripe-europe-checkout",
+  "name": "roi-nados",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -10,8 +10,6 @@
     "@upstash/redis": "^1.38.0",
     "express": "^4.21.0",
     "geoip-lite": "^2.0.3",
-    "resend": "^6.16.0",
-    "stripe": "^14.0.0",
     "ws": "^8.21.0"
   },
   "engines": {

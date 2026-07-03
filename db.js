@@ -79,6 +79,13 @@ async function init() {
       updated_at timestamptz NOT NULL DEFAULT now()
     )`;
 
+    // Links de checkout externos (/go/:slug) — config + contadores A/B.
+    await sql`CREATE TABLE IF NOT EXISTS links (
+      slug text PRIMARY KEY,
+      data jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`;
+
     // Log de disparos server-side (CAPI) para o painel.
     await sql`CREATE TABLE IF NOT EXISTS pixel_events (
       id text PRIMARY KEY,
@@ -233,6 +240,34 @@ async function loadPixels() {
   }
 }
 
+// ── Links de checkout externos (espelho durável) ─────────────────────────
+async function upsertLink(slug, data) {
+  if (!enabled || !slug) return;
+  try {
+    await sql`INSERT INTO links (slug, data, updated_at)
+      VALUES (${slug}, ${JSON.stringify(data)}::jsonb, now())
+      ON CONFLICT (slug) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
+  } catch (err) { console.error('[db] upsertLink:', err.message); }
+}
+
+async function deleteLink(slug) {
+  if (!enabled || !slug) return;
+  try {
+    await sql`DELETE FROM links WHERE slug = ${slug}`;
+  } catch (err) { console.error('[db] deleteLink:', err.message); }
+}
+
+async function loadLinks() {
+  if (!enabled) return null;
+  try {
+    const rows = await sql`SELECT slug, data FROM links`;
+    return rows.map((r) => ({ slug: r.slug, ...r.data }));
+  } catch (err) {
+    console.error('[db] loadLinks:', err.message);
+    return null;
+  }
+}
+
 // ── Log de disparos CAPI ──────────────────────────────────────────────────
 async function insertPixelEvent(evt) {
   if (!enabled || !evt || !evt.id) return;
@@ -306,5 +341,6 @@ module.exports = {
   init, upsertLead, insertEvent, upsertVariant, loadState, reset, upsertSession,
   saveConfig, loadConfig, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels,
+  upsertLink, deleteLink, loadLinks,
   insertPixelEvent, loadPixelEvents, prunePixelEvents
 };
