@@ -705,6 +705,28 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .mstat .ms-sub{font-size:11.5px;color:var(--muted2);margin-top:3px}
 .mstat .ms-bar{height:4px;border-radius:3px;background:var(--card2);margin-top:10px;overflow:hidden;position:relative}
 .mstat .ms-fill{height:100%;border-radius:3px;width:0;transition:width 1.1s cubic-bezier(.2,.7,.3,1) .35s;position:relative;overflow:hidden}
+/* micro-barras (distribuição por bucket) — usado em KPIs e ministats */
+.k-bars{display:flex;align-items:flex-end;gap:2px;height:34px}
+.k-bars i{flex:1;min-width:2px;border-radius:2px 2px 0 0;height:var(--bh,8%);animation:barUp .6s cubic-bezier(.2,.8,.3,1) backwards}
+@keyframes barUp{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.k-bars i{transform-origin:bottom}
+.mstat .k-bars{height:26px;margin-top:10px}
+.mstat .k-spark{margin-top:10px}
+/* funil compacto no card Conversão */
+.k-funnel{display:flex;flex-direction:column;gap:6px;margin-top:11px}
+.kf-row{display:flex;align-items:center;gap:8px;font-size:10.5px}
+.kf-lbl{width:56px;color:var(--muted2);letter-spacing:.02em;flex-shrink:0}
+.kf-track{flex:1;height:8px;border-radius:4px;background:var(--card2);overflow:hidden}
+.kf-track i{display:block;height:100%;border-radius:4px;width:0;transition:width 1s cubic-bezier(.2,.7,.3,1)}
+.kf-pct{width:42px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;flex-shrink:0}
+/* mini-tabela de países (bandeira + volume) */
+.ms-geo{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.msg-row{display:flex;align-items:center;gap:6px;font-size:10.5px}
+.msg-flag{font-size:12px;line-height:1;flex-shrink:0}
+.msg-code{width:22px;color:var(--muted);font-weight:600;flex-shrink:0}
+.msg-track{flex:1;height:5px;border-radius:3px;background:var(--card2);overflow:hidden}
+.msg-track i{display:block;height:100%;border-radius:3px;background:var(--mc,#25f4ee);width:0;transition:width .9s cubic-bezier(.2,.7,.3,1)}
+.msg-n{min-width:20px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0}
 .mstat .ms-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);transform:translateX(-100%);animation:msSheen 2.6s ease-in-out 1.6s infinite}
 @keyframes msSheen{0%{transform:translateX(-100%)}55%,100%{transform:translateX(100%)}}
 
@@ -1520,6 +1542,8 @@ function seriesFor(kind){
   if(kind==='revenue'||kind==='sales'){ (DATA.events||[]).forEach(function(e){ if(e.type!=='sale')return; put(new Date(e.at).getTime(), kind==='revenue'?(e.amount||0):1); }); }
   else if(kind==='visits'){ (DATA.leads||[]).forEach(function(l){ if(l.orphan)return; put(new Date(l.at).getTime(),1); }); }
   else if(kind==='approval'){ var s=[],f=[]; for(var j=0;j<n;j++){s.push(0);f.push(0);} (DATA.events||[]).forEach(function(e){ var t=new Date(e.at).getTime(); if(t<from||t>to)return; var idx=Math.min(n-1,Math.floor((t-from)/step)); if(e.type==='sale')s[idx]++; else if(e.type==='failed')f[idx]++; }); for(var k=0;k<n;k++){ var a=s[k]+f[k]; arr[k]=a?(s[k]/a*100):0; } }
+  else if(kind==='refunds'||kind==='disputes'){ var tp=kind==='refunds'?'refund':'dispute'; (DATA.events||[]).forEach(function(e){ if(e.type!==tp)return; put(new Date(e.at).getTime(),1); }); }
+  else if(kind==='ticket'){ var rv=[],ct=[]; for(var j2=0;j2<n;j2++){rv.push(0);ct.push(0);} (DATA.events||[]).forEach(function(e){ if(e.type!=='sale')return; var t2=new Date(e.at).getTime(); if(t2<from||t2>to)return; var i2=Math.min(n-1,Math.floor((t2-from)/step)); rv[i2]+=e.amount||0; ct[i2]++; }); for(var k2=0;k2<n;k2++){ arr[k2]=ct[k2]?rv[k2]/ct[k2]:0; } }
   return arr;
 }
 function spark(values,color){
@@ -1537,6 +1561,38 @@ function spark(values,color){
     '<path class="area" d="'+area+'" fill="url(#'+gid+')"/>'+
     '<path class="line" d="'+line+'" stroke="'+color+'" vector-effect="non-scaling-stroke" style="--dash:'+len.toFixed(0)+'"/>'+
     '</svg></div>';
+}
+// Micro-gráfico de barras (distribuição por bucket) — mesmo footprint do spark
+function sparkBars(values,color){
+  if(!values||!values.length) return '';
+  var max=Math.max.apply(null,values); if(max<=0) return '';
+  return '<div class="k-spark k-bars">'+values.map(function(v,i){
+    var h=Math.max(6,Math.round(v/max*100));
+    return '<i style="--bh:'+h+'%;background:'+color+';animation-delay:'+(i*45)+'ms;opacity:'+(v>0?1:.25)+'"></i>';
+  }).join('')+'</div>';
+}
+// Funil compacto (Visita → Checkout → Compra) para o card Conversão
+function funnelMini(m){
+  var rows=[
+    ['Visita',100,'#52a8ff'],
+    ['Checkout',m.v2c,'#25f4ee'],
+    ['Compra',m.overall,'#3ecf8e']
+  ];
+  return '<div class="k-funnel">'+rows.map(function(r,i){
+    return '<div class="kf-row"><span class="kf-lbl">'+r[0]+'</span>'+
+      '<span class="kf-track"><i data-w="'+Math.max(2,Math.min(100,r[1]))+'" style="background:'+r[2]+';transition-delay:'+(0.15+i*0.12)+'s"></i></span>'+
+      '<span class="kf-pct" style="color:'+r[2]+'">'+r[1]+'%</span></div>';
+  }).join('')+'</div>';
+}
+// Mini-tabela top-5 países (bandeira + barra de volume + contagem)
+function geoMini(countries){
+  var top=(countries||[]).slice(0,5); if(!top.length) return '';
+  var max=top[0].count||1;
+  return '<div class="ms-geo">'+top.map(function(c,i){
+    return '<div class="msg-row"><span class="msg-flag">'+flag(c.code)+'</span><span class="msg-code">'+esc(c.code)+'</span>'+
+      '<span class="msg-track"><i data-w="'+Math.max(4,Math.round(c.count/max*100))+'" style="transition-delay:'+(0.2+i*0.09)+'s"></i></span>'+
+      '<span class="msg-n">'+c.count+'</span></div>';
+  }).join('')+'</div>';
 }
 
 /* ── Visão Geral ── */
@@ -1570,12 +1626,13 @@ function greeting(){
   if(h<18)return 'Boa tarde';
   return 'Boa noite';
 }
-function mstat(icoColor,icoBg,ico,label,val,sub,barPct,barColor,valId){
+function mstat(icoColor,icoBg,ico,label,val,sub,barPct,barColor,valId,extra){
   return '<div class="mstat" style="--mc:'+icoColor+'">'+
     '<div class="ms-top"><span class="ms-ico" style="background:'+icoBg+';color:'+icoColor+'">'+ico+'</span>'+esc(label)+'</div>'+
     '<div class="ms-val"'+(valId?' id="'+valId+'"':'')+' style="color:'+icoColor+'">'+val+'</div>'+
     '<div class="ms-sub">'+(sub||'')+'</div>'+
     (barPct!=null?'<div class="ms-bar"><div class="ms-fill" data-w="'+Math.min(100,Math.max(0,barPct))+'" style="background:'+(barColor||icoColor)+'"></div></div>':'')+
+    (extra||'')+
   '</div>';
 }
 function renderOverview(m){
@@ -1592,21 +1649,24 @@ function renderOverview(m){
   // cores semânticas: receita/aprovação = verde (dinheiro bom), leads = ciano, conversão = dinâmica
   document.getElementById('ov-kpis').innerHTML=
     kpi(I.money,'tint-green','Receita total','<span class="pos">'+revObj(m.rev)+'</span>','no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#3ecf8e'))+
-    kpi(I.check,'tint-green','Vendas aprovadas','<span class="pos" id="ov-cu-sales">0</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+spark(seriesFor('sales'),'#3ecf8e'))+
+    kpi(I.check,'tint-green','Vendas aprovadas','<span class="pos" id="ov-cu-sales">0</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+sparkBars(seriesFor('sales'),'#3ecf8e'))+
     kpi(I.users,'tint-cyan','Novos leads','<span class="cyn" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
-    kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'" id="ov-cu-conv">0%</span>','visita &#8594; compra &middot; detalhes no Funil', dc('overall'));
+    kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'" id="ov-cu-conv">0%</span>','visita &#8594; compra', dc('overall')+funnelMini(m));
 
   // ministats: aprovação verde quando saudável (ou sem tentativas), alertas âmbar/vermelho só quando existem
   var hasAttempts=(m.sales+m.failed)>0;
   var apColor=!hasAttempts||m.approval>=70?'#3ecf8e':m.approval>=40?'#f5b544':'#ff5674';
   var apBg=!hasAttempts||m.approval>=70?'rgba(62,207,142,.12)':m.approval>=40?'rgba(245,181,68,.12)':'rgba(255,86,116,.12)';
   var refColor=m.refunds?'#f5b544':'#3ecf8e', dispColor=m.disputes?'#ff5674':'#3ecf8e';
+  // micro-gráficos: aprovação em barras, ticket/reembolsos/disputas em trendline,
+  // países com mini-tabela de bandeiras + volume (só quando há dados no período)
+  var hasSales=m.sales>0, hasGeo=m.countries.length>0;
   document.getElementById('ov-chips').innerHTML=
-    mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor,'ov-cu-appr')+
-    mstat('#3ecf8e','rgba(62,207,142,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null)+
-    mstat('#25f4ee','rgba(37,244,238,.1)',I.globe,'Países ativos',m.countries.length,(m.countries[0]?'l\u00edder: '+flag(m.countries[0].code)+' '+esc(m.countries[0].code):'aguardando leads'),null,null,'ov-cu-geo')+
-    mstat(refColor,m.refunds?'rgba(245,181,68,.12)':'rgba(62,207,142,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null,null,'ov-cu-ref')+
-    mstat(dispColor,m.disputes?'rgba(255,86,116,.12)':'rgba(62,207,142,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null,null,'ov-cu-disp');
+    mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor,'ov-cu-appr',hasAttempts?sparkBars(seriesFor('approval'),apColor):'')+
+    mstat('#3ecf8e','rgba(62,207,142,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null,null,null,hasSales?spark(seriesFor('ticket'),'#3ecf8e'):'')+
+    mstat('#25f4ee','rgba(37,244,238,.1)',I.globe,'Países ativos',m.countries.length,(hasGeo?'':'aguardando leads'),null,null,'ov-cu-geo',geoMini(m.countries))+
+    mstat(refColor,m.refunds?'rgba(245,181,68,.12)':'rgba(62,207,142,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null,null,'ov-cu-ref',m.refunds?spark(seriesFor('refunds'),refColor):'')+
+    mstat(dispColor,m.disputes?'rgba(255,86,116,.12)':'rgba(62,207,142,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null,null,'ov-cu-disp',m.disputes?spark(seriesFor('disputes'),dispColor):'');
 
   // dispara contagens e barras animadas (todos os números sobem animados)
   countUp(document.getElementById('ov-cu-sales'),m.sales);
@@ -1617,7 +1677,8 @@ function renderOverview(m){
   countUp(document.getElementById('ov-cu-ref'),m.refunds);
   countUp(document.getElementById('ov-cu-disp'),m.disputes);
   requestAnimationFrame(function(){
-    document.querySelectorAll('#ov-chips .ms-fill').forEach(function(f){ f.style.width=f.getAttribute('data-w')+'%'; });
+    // todas as barras (progresso, funil e geo) crescem animadas de 0 → valor
+    document.querySelectorAll('#ov-chips .ms-fill, #ov-kpis .kf-track i, #ov-chips .msg-track i').forEach(function(f){ f.style.width=f.getAttribute('data-w')+'%'; });
   });
 
   renderGoal(m,prev);
