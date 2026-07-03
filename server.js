@@ -565,21 +565,26 @@ app.post('/api/stripe-webhook', async (req, res) => {
         quantity: 1
       }];
 
-      await ttEvents.dispatchToAll('CompletePayment', {
-        eventId: 'CompletePayment.' + pi.id,
-        eventTime: pi.created,
-        email: customerEmail || undefined,
-        leadId: md.v_id || undefined,           // external_id = hash do id único do lead
-        externalId: md.v_id ? undefined : (customerEmail || pi.id),
-        ip: md.tt_ip || undefined,
-        userAgent: md.tt_ua || undefined,
-        ttclid: md.ttclid || undefined,
-        ttp: md.ttp || undefined,
-        url: realUrl || undefined,
-        value,
-        currency,
-        contents
-      }, '*');
+      // Dedup local: retries do webhook Stripe não devem re-disparar a CAPI
+      // (o TikTok já dedupa por event_id, mas isso poupa chamadas e log duplicado)
+      const cpEvId = 'CompletePayment.' + pi.id;
+      if (!(await seenPixelEvent(cpEvId))) {
+        await ttEvents.dispatchToAll('CompletePayment', {
+          eventId: cpEvId,
+          eventTime: pi.created,
+          email: customerEmail || undefined,
+          leadId: md.v_id || undefined,           // external_id = hash do id único do lead
+          externalId: md.v_id ? undefined : (customerEmail || pi.id),
+          ip: md.tt_ip || undefined,
+          userAgent: md.tt_ua || undefined,
+          ttclid: md.ttclid || undefined,
+          ttp: md.ttp || undefined,
+          url: realUrl || undefined,
+          value,
+          currency,
+          contents
+        }, '*');
+      }
     } catch (ttErr) {
       console.error('[stripe-webhook] Erro no TikTok CAPI:', ttErr.message);
     }
@@ -1065,40 +1070,46 @@ app.get('/px.js', (req, res) => {
 });
 
 // ── Beacon do navegador → espelho server-side (CAPI) com o mesmo event_id.
-app.post('/api/px/event', async (req, res) => {
+app.post('/api/px/event', (req, res) => {
+  // Responde IMEDIATAMENTE: sendBeacon não lê a resposta, e o disparo CAPI
+  // (com dedup) segue em background — latência zero para o navegador.
+  res.json({ ok: true });
   try {
     const vId = readCookie(req, 'v_id');
     const b = req.body || {};
     const events = Array.isArray(b.events) ? b.events.slice(0, 5) : [];
+    if (!events.length) return;
     let route = '/';
     try { route = new URL(b.url || 'https://x/').pathname || '/'; } catch (_) {}
-    for (const e of events) {
+    const ip = clientIp(req);
+    const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    // guarda ttclid/_ttp no lead UMA vez (não por evento) — enriquece conversões futuras
+    if (vId && (b.ttclid || b.ttp)) {
+      try { stats.attachTracking(vId, { ttclid: b.ttclid || undefined, ttp: b.ttp || undefined }); } catch (_) {}
+    }
+    // dedup + disparo em PARALELO (antes era serial: 1 roundtrip Redis por evento)
+    events.forEach((e) => {
       const name = String(e.n || '').slice(0, 40);
       const evId = String(e.id || '').slice(0, 120);
-      if (!name || !evId) continue;
-      if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) continue; // whitelist
-      if (await seenPixelEvent(evId)) continue; // já disparado pelo middleware/rota
-      ttEvents.dispatchToAll(name, {
-        eventId: evId,
-        leadId: vId || undefined,
-        ip: clientIp(req),
-        userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
-        ttclid: b.ttclid ? String(b.ttclid).slice(0, 500) : undefined,
-        ttp: b.ttp ? String(b.ttp).slice(0, 500) : undefined,
-        url: b.url ? String(b.url).slice(0, 500) : undefined
-      }, route).catch(() => {});
-      // guarda ttclid/_ttp no lead — enriquece conversões futuras
-      if (vId && (b.ttclid || b.ttp)) {
-        try { stats.attachTracking(vId, { ttclid: b.ttclid || undefined, ttp: b.ttp || undefined }); } catch (_) {}
-      }
-    }
-    res.json({ ok: true });
-  } catch (_) {
-    res.json({ ok: false });
-  }
+      if (!name || !evId) return;
+      if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) return; // whitelist
+      seenPixelEvent(evId).then((seen) => {
+        if (seen) return; // já disparado pelo middleware/rota
+        return ttEvents.dispatchToAll(name, {
+          eventId: evId,
+          leadId: vId || undefined,
+          ip,
+          userAgent: ua,
+          ttclid: b.ttclid ? String(b.ttclid).slice(0, 500) : undefined,
+          ttp: b.ttp ? String(b.ttp).slice(0, 500) : undefined,
+          url: b.url ? String(b.url).slice(0, 500) : undefined
+        }, route);
+      }).catch(() => {});
+    });
+  } catch (_) { /* beacon nunca propaga erro */ }
 });
 
-// ── APIs de gestão de pixels (dashboard) ────────────────────────────────
+// ── APIs de gestão de pixels (dashboard) ────��───────────────────────────
 app.get('/api/pixels', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   // mascara o token na listagem (só mostra últimos 4 chars)

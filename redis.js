@@ -87,13 +87,14 @@ async function pushPixelLog(entry) {
   try {
     const payload = JSON.stringify(entry);
     const score   = entry.at ? new Date(entry.at).getTime() : Date.now();
-    // lista rápida para o painel (máx 500)
-    await redis.lpush(PIXEL_LOG_KEY, payload);
-    await redis.ltrim(PIXEL_LOG_KEY, 0, 499);
-    // sorted set com expiração por timestamp (TTL de 14 dias)
-    await redis.zadd(PIXEL_LOG_ZSET, { score, member: payload });
-    const cut = Date.now() - TTL.pixelLog * 1000;
-    await redis.zremrangebyscore(PIXEL_LOG_ZSET, '-inf', cut);
+    const cut     = Date.now() - TTL.pixelLog * 1000;
+    // pipeline: 4 comandos em UM roundtrip HTTP (antes eram 4 sequenciais)
+    const pipe = redis.pipeline();
+    pipe.lpush(PIXEL_LOG_KEY, payload);          // lista rápida para o painel
+    pipe.ltrim(PIXEL_LOG_KEY, 0, 499);           // máx 500
+    pipe.zadd(PIXEL_LOG_ZSET, { score, member: payload }); // índice por data
+    pipe.zremrangebyscore(PIXEL_LOG_ZSET, '-inf', cut);    // TTL de 14 dias
+    await pipe.exec();
     return true;
   } catch (err) {
     console.error('[redis] pushPixelLog:', err.message);

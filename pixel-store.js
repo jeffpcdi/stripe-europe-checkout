@@ -134,13 +134,19 @@ async function init() {
 function list() { return cache.slice(); }
 
 // Pixels ativos que se aplicam a uma rota (path).
+// Memoizado por rota — é chamado em TODO page view (/px.js) e em cada disparo
+// de evento; o memo é invalidado automaticamente quando loadFromDisk roda.
 function forRoute(routePath) {
   const p = (routePath || '/').split('?')[0];
-  return cache.filter((px) => {
+  if (!byRoute) byRoute = new Map();
+  if (byRoute.has(p)) return byRoute.get(p);
+  const out = cache.filter((px) => {
     if (!px.active || !px.pixelCode) return false;
     if (px.routes.indexOf('*') >= 0) return true;
     return px.routes.some((r) => r === p || (r !== '/' && p.indexOf(r) === 0));
   });
+  if (byRoute.size < 200) byRoute.set(p, out); // limite defensivo contra rotas dinâmicas
+  return out;
 }
 
 // Pixels ativos que aceitam um evento específico numa rota.
