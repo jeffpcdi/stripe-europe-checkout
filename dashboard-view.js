@@ -619,26 +619,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 /* micro-interação única do ícone (mesma em todos) */
 .kpi:hover .k-ico,.mstat:hover .ms-ico,.cfg-card:hover .cfg-ico{transform:scale(1.12) rotate(-5deg)}
 
-/* ── Visão Geral: hero ── */
-.ov-hero{position:relative;display:flex;align-items:center;gap:20px;flex-wrap:wrap;border:1px solid transparent;border-radius:14px;padding:22px 26px;margin-bottom:18px;overflow:hidden;
-  background:linear-gradient(120deg,#141419 0%,#101015 55%,#12121a 100%)}
-.ov-hero::before{content:'';position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(520px 210px at 85% 15%,rgba(255,45,111,.16),transparent 60%),
-             radial-gradient(440px 190px at 12% 95%,rgba(82,168,255,.14),transparent 60%),
-             radial-gradient(300px 150px at 55% 50%,rgba(37,244,238,.05),transparent 70%)}
-/* borda em gradiente animado percorrendo o card */
-.ovh-border{position:absolute;inset:0;border-radius:14px;padding:1px;pointer-events:none;z-index:3;
-  background:conic-gradient(from var(--hb,0deg),rgba(255,45,111,.65),rgba(82,168,255,.15),rgba(37,244,238,.6),rgba(255,45,111,.12),rgba(255,45,111,.65));
-  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-  -webkit-mask-composite:xor;mask-composite:exclude;
-  animation:heroBorder 8s linear infinite}
-@property --hb{syntax:'<angle>';initial-value:0deg;inherits:false}
-@keyframes heroBorder{to{--hb:360deg}}
-.ovh-shine{position:absolute;top:0;bottom:0;width:120px;pointer-events:none;transform:skewX(-18deg);
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);
-  animation:ovShine 5.5s ease-in-out infinite}
-@keyframes ovShine{0%,20%{left:-20%}60%,100%{left:115%}}
-/* estrelas neon subindo no fundo da página inteira (mesma identidade do hero) */
+/* estrelas neon subindo no fundo da página inteira */
 .bg-particles{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .bg-particles i{position:absolute;bottom:-8px;width:4px;height:4px;border-radius:50%;opacity:0;
   animation:bgFloat var(--pd,16s) linear infinite var(--pw,0s)}
@@ -656,12 +637,6 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .bg-particles i:nth-child(12){left:97%;--pd:19.5s;--pw:7s;background:#3ecf8e;box-shadow:0 0 9px #3ecf8e;width:3px;height:3px}
 @keyframes bgFloat{0%{transform:translateY(0);opacity:0}4%{opacity:.75}80%{opacity:.4}100%{transform:translateY(-105vh);opacity:0}}
 @media(prefers-reduced-motion:reduce){.bg-particles{display:none}}
-.ovh-left{position:relative;min-width:0;z-index:2}
-.ovh-greet{font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px}
-.ovh-greet::before{content:'';width:22px;height:2px;border-radius:2px;background:linear-gradient(90deg,#ff2d6f,#25f4ee);box-shadow:0 0 8px rgba(255,45,111,.6)}
-.ovh-title{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.25}
-.ovh-brand{background:linear-gradient(92deg,#ff2d6f,#52a8ff,#25f4ee);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:brandShift 6s ease-in-out infinite alternate;font-weight:800;filter:drop-shadow(0 0 12px rgba(255,45,111,.3))}
-.ovh-sub{font-size:13px;color:var(--muted2);margin-top:5px}
 /* ── KPIs turbinados ── */
 .kpis-xl .kpi{border-radius:14px;padding-top:18px;--kglow:rgba(82,168,255,.12)}
 .kpis-xl .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2.5px;border-radius:2px 2px 0 0;
@@ -1043,15 +1018,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Visão Geral ── -->
       <section class="view active" id="view-overview">
-        <div class="ov-hero" id="ov-hero">
-          <div class="ovh-border"></div>
-          <div class="ovh-shine"></div>
-          <div class="ovh-left">
-            <div class="ovh-greet" id="ov-greet">Bem-vindo de volta</div>
-            <div class="ovh-title">Central de resultados <span class="ovh-brand">ROI-NADOS</span></div>
-            <div class="ovh-sub" id="ov-hero-sub">acompanhando cada lead em tempo real</div>
-          </div>
-        </div>
         <div class="grid kpis kpis-xl" id="ov-kpis"></div>
         <div class="ministats" id="ov-chips"></div>
         <div class="section-title"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online agora no mapa</span></div>
@@ -1621,14 +1587,6 @@ function countUp(el,target,suffix,dur,dec){
   }
   requestAnimationFrame(frame);
 }
-// Saudação conforme hora do dia
-function greeting(){
-  var h=new Date().getHours();
-  if(h<6)return 'Boa madrugada';
-  if(h<12)return 'Bom dia';
-  if(h<18)return 'Boa tarde';
-  return 'Boa noite';
-}
 function mstat(icoColor,icoBg,ico,label,val,sub,barPct,barColor,valId,extra){
   return '<div class="mstat" style="--mc:'+icoColor+'">'+
     '<div class="ms-top"><span class="ms-ico" style="background:'+icoBg+';color:'+icoColor+'">'+ico+'</span>'+esc(label)+'</div>'+
@@ -1642,12 +1600,6 @@ function renderOverview(m){
   var w=prevWindow();
   var cur=w?aggregate(w.curFrom,w.curTo):null, prev=w?aggregate(w.prevFrom,w.prevTo):null;
   function dc(k,inv){ return (cur&&prev)?deltaChip(cur[k],prev[k],inv):''; }
-
-  // hero: saudação + resumo (números detalhados ficam só nos KPIs abaixo)
-  var greet=document.getElementById('ov-greet');
-  if(greet)greet.textContent=greeting();
-  var heroSub=document.getElementById('ov-hero-sub');
-  if(heroSub)heroSub.textContent=m.visits+' leads rastreados no per\u00edodo \u00b7 '+m.countries.length+' pa\u00edses ativos';
 
   // cores semânticas: receita/aprovação = verde (dinheiro bom), leads = ciano, conversão = dinâmica
   document.getElementById('ov-kpis').innerHTML=
