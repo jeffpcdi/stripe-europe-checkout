@@ -95,7 +95,15 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 .spacer{flex:1}
 .segment{display:flex;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px}
 /* grupo do topo à direita: busca, atualizar e período */
-.tb-right{display:flex;align-items:center;gap:8px;margin-left:auto;position:relative}
+.tb-right{display:flex;align-items:center;gap:8px;margin-left:auto;position:relative;min-width:0;max-width:100%}
+/* mobile: o grupo ocupa a linha inteira e o seletor de período rola horizontal
+   (sem estourar a viewport — causava overflow de ~17px em telas de 375px) */
+@media(max-width:560px){
+  .tb-right{width:100%;margin-left:0}
+  .tb-right .segment{flex:1;overflow-x:auto;scrollbar-width:none}
+  .tb-right .segment::-webkit-scrollbar{display:none}
+  .dr-pop{right:auto;left:0;width:min(320px,calc(100vw - 40px))}
+}
 #period-custom{display:inline-flex;align-items:center;gap:6px}
 #period-custom svg{flex-shrink:0}
 #period-custom-lbl:empty{display:none}
@@ -1529,7 +1537,7 @@ function geoMini(countries){
 }
 
 /* ── Visão Geral ── */
-// Contagem animada: anima do valor anterior até o novo (não pisca 0→N
+// Contagem animada: anima do valor anterior at�� o novo (não pisca 0→N
 // em cada atualização); se o valor não mudou, apenas fixa o texto.
 // suffix pode ser string ('%') OU função formatadora (v => texto).
 // dec = casas decimais (para percentuais tipo 3.4%).
@@ -2319,7 +2327,7 @@ function saveLink(){
     dominio:document.getElementById('lk-domain').value.trim(),
     ativo:document.getElementById('lk-active').checked
   };
-  if(!body.nome){ toast('D&ecirc; um nome ao link',false); return; }
+  if(!body.nome){ toast('D\u00ea um nome ao link',false); return; }
   if(!body.variantes.length){ toast('Adicione pelo menos 1 variante (nome | url | peso)',false); return; }
   fetch('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
@@ -2429,7 +2437,7 @@ function savePushcutConfig(){
   fetch('/api/pushcut-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ toast('Notifica&ccedil;&otilde;es salvas'); loadPushcutConfig(); }
+      if(d.ok){ toast('Notifica\u00e7\u00f5es salvas'); loadPushcutConfig(); }
       else toast(d.error||'Erro ao salvar',false);
     }).catch(function(){ toast('Erro ao salvar',false); });
 }
@@ -2930,7 +2938,18 @@ document.getElementById('side-scrim').addEventListener('click',function(){ setSi
 document.getElementById('gm-close').addEventListener('click',globeModalClose);
 document.getElementById('gm-scrim').addEventListener('click',globeModalClose);
 document.getElementById('gs-all').addEventListener('click',function(){ setView('live'); });
-document.addEventListener('keydown',function(e){ if(e.key==='Escape') globeModalClose(); });
+// ESC fecha camadas na ordem: modal do globo > drawer de lead > popover de calendário.
+// (o cmdk tem handler próprio mais abaixo e consome o ESC quando aberto)
+document.addEventListener('keydown',function(e){
+  if(e.key!=='Escape') return;
+  if(document.getElementById('cmdk-bg').classList.contains('open')) return; // cmdk cuida
+  var gm=document.getElementById('globe-modal');
+  if(gm&&!gm.hidden){ globeModalClose(); return; }
+  var dw=document.getElementById('drawer');
+  if(dw&&dw.classList.contains('open')){ closeDrawer(); return; }
+  var pop=document.getElementById('dr-pop');
+  if(pop&&!pop.hidden) closeDrPop();
+});
 // popover de segmentação de período
 document.getElementById('dr-from').addEventListener('change',drSyncHours);
 document.getElementById('dr-to').addEventListener('change',drSyncHours);
@@ -2971,7 +2990,7 @@ document.getElementById('drawer-bg').addEventListener('click',closeDrawer);
 document.getElementById('drawer-copy').addEventListener('click',function(){
   if(!currentLeadId) return;
   if(navigator.clipboard){ navigator.clipboard.writeText(currentLeadId).then(function(){toast('ID copiado');}).catch(function(){toast('Erro ao copiar',false);}); }
-  else{ toast('Clipboard indispon&iacute;vel',false); }
+  else{ toast('Clipboard indispon\u00edvel',false); }
 });
 document.getElementById('export-leads').addEventListener('click',exportLeads);
 document.getElementById('export-events').addEventListener('click',exportEvents);
