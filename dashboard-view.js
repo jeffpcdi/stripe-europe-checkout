@@ -1464,15 +1464,21 @@ function spark(values,color){
 }
 
 /* ── Visão Geral ── */
-// Contagem animada: anima números inteiros de 0 até o valor final
+// Contagem animada: anima do valor anterior até o novo (não pisca 0→N
+// em cada atualização); se o valor não mudou, apenas fixa o texto.
+var CU_LAST={};
 function countUp(el,target,suffix,dur){
   if(!el||isNaN(target)) return;
+  var key=el.id||'anon';
+  var from=CU_LAST[key]!=null?CU_LAST[key]:0;
+  CU_LAST[key]=target;
+  if(from===target){ el.textContent=target+(suffix||''); return; }
   var start=null; dur=dur||900;
   function frame(ts){
     if(!start)start=ts;
     var p=Math.min(1,(ts-start)/dur);
     var eased=1-Math.pow(1-p,3);
-    el.textContent=Math.round(target*eased)+(suffix||'');
+    el.textContent=Math.round(from+(target-from)*eased)+(suffix||'');
     if(p<1)requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -1784,13 +1790,17 @@ function pageLabel(p){
   if(path.indexOf('checkout')!==-1) return 'Checkout';
   return path;
 }
+var liveLoading=false;
 function loadLive(){
+  if(liveLoading) return Promise.resolve(); // evita requisições sobrepostas
+  liveLoading=true;
   return fetch('/api/live',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    liveLoading=false;
     LIVE=d||{visitors:[],summary:{online:0,countries:[]}};
     updateLiveBadge();
     if(currentView==='live') renderLive();
     if(currentView==='overview') renderLiveGlobe(); // globo mora na Visão Geral
-  }).catch(function(){});
+  }).catch(function(){liveLoading=false;});
 }
 function updateLiveBadge(){
   var n=(LIVE.summary&&LIVE.summary.online)||0;
@@ -2561,6 +2571,7 @@ function setPeriod(p){
   period=p;
   if(p!=='custom'){ CUSTOM={from:0,to:0}; var l=document.getElementById('period-custom-lbl'); if(l)l.textContent=''; }
   document.querySelectorAll('#period button').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-p')===p);});
+  RENDERED_GROUPS={}; // período mudou: todos os grupos precisam repintar
   renderAll();
 }
 
@@ -2613,6 +2624,7 @@ function applyDr(){
   document.getElementById('period-custom-lbl').textContent=lbl;
   document.querySelectorAll('#period button').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-p')==='custom');});
   closeDrPop();
+  RENDERED_GROUPS={}; // range mudou: repintar tudo
   renderAll();
   toast('Per\u00edodo segmentado aplicado');
 }
@@ -2653,17 +2665,23 @@ function renderCmdk(q){
 function cmdkMove(dir){ var items=document.querySelectorAll('.cmdk-item'); if(!items.length)return; cmdkSel=(cmdkSel+dir+items.length)%items.length; items.forEach(function(el,i){el.classList.toggle('sel',i===cmdkSel);}); var s=items[cmdkSel]; if(s)s.scrollIntoView({block:'nearest'}); }
 function cmdkRun(i){ var it=cmdkFiltered[i]; if(!it)return; closeCmdk(); it.act(); }
 
-/* ── Render geral ── */
+/* ── Render geral ──
+   Renderiza apenas as sections do grupo ativo — as demais são pintadas
+   ao trocar de aba (setView chama renderAll). Corta ~70% do trabalho
+   de DOM em cada ciclo de atualização. */
+var RENDERED_GROUPS={}; // grupos já pintados com o DATA atual
 function renderAll(){
   if(!DATA) return;
   buildLeadIndex();
   var m=metrics(); // calculado UMA vez e passado para cada render
-  renderOverview(m);
-  renderFunnel(m);
-  renderGeo(m);
-  renderAB();
-  renderCooud();
-  renderActivity();
+  var g=currentView||'overview';
+  if(g==='overview'){ renderOverview(m); }
+  else if(g==='live'){ renderFunnel(m); renderGeo(m); renderActivity(); }
+  else if(g==='ab'){ renderAB(); renderCooud(); }
+  RENDERED_GROUPS[g]=true;
+  renderFooter();
+}
+function renderFooter(){
   var _ago=DATA.updatedAt?timeAgo(DATA.updatedAt):'agora';
   document.getElementById('foot-updated').textContent=(_ago==='agora')?'agora':_ago+' atrás';
   // dot ao vivo: verde se dados atualizados < 60s
@@ -2676,10 +2694,30 @@ function buildLeadIndex(){ leadsById={}; (DATA.leads||[]).forEach(function(l){le
 function loadStats(){ return fetch('/api/stats',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){DATA=d;}); }
 function loadConfig(){ return fetch('/api/config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(c){CFG=c;}); }
 function loadHealth(){ return fetch('/api/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(h){HEALTH=h;}).catch(function(){}); }
-function refresh(){
+/* Atualização inteligente: só re-renderiza quando os dados realmente
+   mudaram (fingerprint) — elimina o repinte periódico que reiniciava
+   animações e piscava a tela a cada 12s. */
+var lastFp='', refreshing=false;
+function dataFp(){
+  if(!DATA) return '';
+  return (DATA.updatedAt||'')+':'+((DATA.events||[]).length)+':'+((DATA.leads||[]).length)+':'+JSON.stringify(CFG||{});
+}
+function refresh(force){
+  if(refreshing) return Promise.resolve(); // evita requisições sobrepostas
+  refreshing=true;
   return Promise.all([loadStats(),loadConfig()])
-    .then(function(){ fillConfig(); renderAll(); ingestNotifs(); })
-    .catch(function(e){ console.warn('[pulse] refresh error',e); });
+    .then(function(){
+      refreshing=false;
+      var fp=dataFp();
+      if(force||fp!==lastFp){
+        lastFp=fp;
+        RENDERED_GROUPS={}; // dados novos: os outros grupos repintam ao serem abertos
+        fillConfig(); renderAll(); ingestNotifs();
+      } else {
+        renderFooter(); // nada mudou: só o relógio do rodapé
+      }
+    })
+    .catch(function(e){ refreshing=false; console.warn('[pulse] refresh error',e); });
 }
 
 /* ── Navegação ──
@@ -2719,6 +2757,7 @@ function setView(v){
   // animação de entrada em cascata (só na primeira section do grupo)
   var sec=document.getElementById('view-'+views[0]);
   if(sec){ sec.classList.remove('entering'); void sec.offsetWidth; sec.classList.add('entering'); setTimeout(function(){sec.classList.remove('entering');},700); }
+  if(!RENDERED_GROUPS[g]) renderAll(); // pinta o grupo na primeira abertura com os dados atuais
   if(g==='live'){
     renderLive();
     loadLive();
@@ -2781,7 +2820,7 @@ document.getElementById('chart-mode').addEventListener('click',function(e){
 });
 document.getElementById('refresh-btn').addEventListener('click',function(){
   var b=this; b.classList.add('spinning');
-  refresh().then(function(){toast('Atualizado');}).catch(function(){toast('Falha ao atualizar',false);}).then(function(){ setTimeout(function(){b.classList.remove('spinning');},450); });
+  refresh(true).then(function(){toast('Atualizado');}).catch(function(){toast('Falha ao atualizar',false);}).then(function(){ setTimeout(function(){b.classList.remove('spinning');},450); });
 });
 document.getElementById('lead-search').addEventListener('input',renderLeadsTable);
 document.getElementById('lead-stage').addEventListener('change',renderLeadsTable);
@@ -2831,7 +2870,7 @@ document.getElementById('cfg-save').addEventListener('click',function(){
   fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ CFG=d.config; fillConfig(); toast('Configuração salva'); renderAll(); }
+      if(d.ok){ CFG=d.config; fillConfig(); toast('Configuração salva'); RENDERED_GROUPS={}; renderAll(); }
       else toast('Erro ao salvar',false);
     })
     .catch(function(){toast('Erro ao salvar',false);});
@@ -2848,6 +2887,17 @@ function setupAuto(){
   if(autoTimer) clearInterval(autoTimer);
   autoTimer=setInterval(refresh,12000); // sempre ligado, a cada 12s
 }
+// Aba oculta? Pausa todo o polling; ao voltar, atualiza na hora.
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){
+    if(autoTimer){clearInterval(autoTimer);autoTimer=null;}
+    if(liveTimer){clearInterval(liveTimer);liveTimer=null;}
+  } else {
+    refresh(); loadLive();
+    setupAuto();
+    setupLivePoll(currentView==='live');
+  }
+});
 
 
 /* ── Boot ── */
