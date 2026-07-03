@@ -833,9 +833,16 @@ async function processConversion(n) {
       notifyPushcut('CompletePayment', n);
     } else if (n.event === 'InitiateCheckout' || n.event === 'AddPaymentInfo') {
       // PIX gerado / checkout iniciado no gateway: avança o estágio do lead
-      // no funil (antes ficava parado em "visit" até a compra — bug de funil)
+      // no funil e salva email/telefone/nome — essenciais para casar a
+      // conversão paga que chega depois (match por e-mail/telefone)
       if (lead) {
-        try { stats.recordCheckoutEntry(lead.id, n.gateway, {}); } catch (_) {}
+        try {
+          stats.recordCheckoutEntry(lead.id, n.gateway, {
+            email: n.email || undefined,
+            phone: n.phone || undefined,
+            customer: n.name || undefined
+          });
+        } catch (_) {}
       }
       notifyPushcut(n.event, n);
     }
