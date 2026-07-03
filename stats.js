@@ -262,6 +262,9 @@ function attachTracking(id, patch) {
   if (patch.ttUrl) lead.ttUrl = String(patch.ttUrl).slice(0, 500);
   if (patch.ttclid && !lead.ttclid) lead.ttclid = patch.ttclid;
   if (patch.ttp) lead.ttp = patch.ttp;
+  // atribuição de link de checkout (/go/:slug) — usada no webhook universal
+  if (patch.linkSlug) lead.linkSlug = String(patch.linkSlug).slice(0, 80);
+  if (patch.linkVariant) lead.linkVariant = String(patch.linkVariant).slice(0, 80);
   markDirty();
   db.upsertLead(lead);
   return lead;
