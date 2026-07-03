@@ -391,7 +391,26 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .k-val .amb{color:var(--amber);text-shadow:0 0 20px rgba(245,181,68,.28)}
 .k-val .neg{text-shadow:0 0 20px rgba(255,86,116,.3)}
 
-.section-title{display:flex;align-items:center;gap:10px;margin:30px 0 15px;font-size:16px;font-weight:600;color:var(--text)}
+  .section-title{display:flex;align-items:center;gap:10px;margin:30px 0 15px;font-size:16px;font-weight:600;color:var(--text)}
+  /* passos numerados dos cards de instrução (snippet, webhook) */
+  .steps{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px}
+  .step{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
+  .step b{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--kg1,var(--pink));color:#fff;font-size:11.5px;flex:none}
+  .mini-feats{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px}
+  .mini-feats span{font-size:12px;color:var(--muted2);display:flex;align-items:center;gap:6px}
+  .mini-feats span::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--kg1,var(--pink));flex:none}
+  /* linha do tempo do trajeto do lead (drawer) */
+  .jrny{display:flex;flex-direction:column;gap:0;margin:4px 0 10px;padding-left:5px}
+  .jstep{display:flex;align-items:center;gap:10px;position:relative;padding:5px 0 5px 14px}
+  .jstep::before{content:'';position:absolute;left:2px;top:0;bottom:0;width:2px;background:var(--line,rgba(255,255,255,.08))}
+  .jstep:first-child::before{top:50%}
+  .jstep:last-child::before{bottom:50%}
+  .jdot{position:absolute;left:-1px;width:8px;height:8px;border-radius:50%;background:var(--muted2);flex:none}
+  .jstep.go .jdot{background:var(--amber,#f5a524)}
+  .jstep.buy .jdot{background:var(--green,#2fbf71)}
+  .jp{font-size:12.5px;color:var(--text);font-family:'Geist Mono',monospace;word-break:break-all}
+  .jstep.buy .jp{color:var(--green,#2fbf71);font-weight:600}
+  .jt{font-size:11px;color:var(--muted2);margin-left:auto;flex:none}
 .section-title .line{flex:1;height:1px;background:var(--border)}
 
 /* ── Gráfico ── */
@@ -1136,6 +1155,15 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
         <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
         <div id="lk-perf"></div>
+        <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
+        <div class="card" style="padding:0">
+          <div class="tbl-wrap" style="border:0">
+            <table>
+              <thead><tr><th>P&aacute;gina</th><th>Leads</th><th>Foram ao checkout</th><th>Compras</th><th>Convers&atilde;o</th></tr></thead>
+              <tbody id="pg-conv"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- ── Atividade ── -->
@@ -1210,20 +1238,38 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
         <div class="section-title"><span>Rastreamento em p&aacute;ginas externas</span><span class="line"></span></div>
         <div class="card">
-          <p class="hint" style="margin-bottom:12px">Cole esta linha no <b>&lt;head&gt;</b> ou antes do <b>&lt;/body&gt;</b> de <b>qualquer p&aacute;gina externa</b> (presell, VSL, landing em outro dom&iacute;nio). O lead passa a ser rastreado desde a primeira visita: dispara <b>ViewContent</b> na CAPI, captura ttclid/_ttp/UTMs, aparece no &quot;Ao Vivo&quot; e os links de checkout <b>/go/</b> s&atilde;o decorados automaticamente com o ID do lead &mdash; costurando todo o trajeto at&eacute; a compra.</p>
+          <div class="steps">
+            <span class="step"><b>1</b> Copie o snippet</span>
+            <span class="step"><b>2</b> Cole em qualquer p&aacute;gina sua (presell, VSL, landing)</span>
+            <span class="step"><b>3</b> Pronto</span>
+          </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
             <button class="btn btn-sm primary" id="tk-copy">Copiar snippet</button>
           </div>
-          <p class="hint" style="margin-top:10px">Funciona em qualquer HTML &mdash; n&atilde;o precisa do pixel do TikTok instalado na p&aacute;gina (mas se houver, o _ttp &eacute; aproveitado para subir a Qualidade).</p>
+          <div class="mini-feats">
+            <span>Dispara ViewContent no pixel</span>
+            <span>Lead aparece no Ao Vivo</span>
+            <span>Liga a visita &agrave; compra</span>
+          </div>
         </div>
         <div class="section-title"><span>Webhook universal de conversões</span><span class="line"></span></div>
         <div class="card">
-          <p class="hint" style="margin-bottom:12px">Cole esta URL no painel do seu gateway (Kiwify, Hotmart, PerfectPay, Cakto…) nos eventos de <b>venda aprovada</b>, <b>checkout/PIX gerado</b> e <b>pagamento em processamento</b>. O servidor identifica o lead, enriquece com ttclid/_ttp/IP e dispara InitiateCheckout, AddPaymentInfo e CompletePayment para todos os pixels ativos — com dedup por order_id.</p>
+          <div class="steps">
+            <span class="step"><b>1</b> Copie a URL</span>
+            <span class="step"><b>2</b> Cole no painel do gateway (Kiwify, Hotmart&hellip;)</span>
+            <span class="step"><b>3</b> Pronto</span>
+          </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input class="inp" id="cw-url" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
             <button class="btn btn-sm" id="cw-reveal" title="Mostrar/ocultar segredo">Revelar</button>
             <button class="btn btn-sm primary" id="cw-copy">Copiar URL</button>
+            <button class="btn btn-sm" id="cw-test" title="Envia um disparo de teste e mostra o resultado">Testar</button>
+          </div>
+          <div class="mini-feats">
+            <span>Toda venda vira evento no pixel</span>
+            <span>PIX gerado marca o lead como checkout</span>
+            <span>Sem duplicar (dedup por pedido)</span>
           </div>
           <p class="hint" id="cw-status" style="margin-top:10px"></p>
         </div>
@@ -2261,6 +2307,51 @@ function renderLinks(){
     }).join('');
   }
   renderLinkPerf();
+  renderPageConv();
+}
+// Conversão por página: agrega a jornada dos leads — onde entram, quantos
+// chegam ao checkout e quantos compram. Mostra onde o funil vaza.
+function renderPageConv(){
+  var el=document.getElementById('pg-conv'); if(!el||!DATA) return;
+  var agg={};
+  (DATA.leads||[]).forEach(function(l){
+    if(l.orphan) return;
+    // páginas únicas que o lead visitou (journey; fallback: landing)
+    var pages={};
+    (l.journey||[]).forEach(function(s){
+      var p=String(s.p||'');
+      if(p==='compra'||p.indexOf('go:')===0) return;   // marcos não são páginas
+      pages[p]=1;
+    });
+    if(!Object.keys(pages).length&&l.landing) pages[l.landing]=1;
+    var went=l.stage==='checkout'||l.stage==='purchased';
+    var bought=l.stage==='purchased';
+    Object.keys(pages).forEach(function(p){
+      if(!agg[p]) agg[p]={leads:0,ck:0,buy:0};
+      agg[p].leads++;
+      if(went) agg[p].ck++;
+      if(bought) agg[p].buy++;
+    });
+  });
+  var rows=Object.keys(agg).map(function(p){
+    var a=agg[p];
+    return {p:p,leads:a.leads,ck:a.ck,buy:a.buy,rate:a.leads?a.buy/a.leads*100:0};
+  }).sort(function(a,b){return b.leads-a.leads;}).slice(0,20);
+  if(!rows.length){
+    el.innerHTML='<tr><td colspan="5"><div class="empty">Sem dados ainda. Instale o snippet (aba Pixel) nas suas p&aacute;ginas para ver a convers&atilde;o de cada uma.</div></td></tr>';
+    return;
+  }
+  el.innerHTML=rows.map(function(r){
+    var rt=r.rate.toFixed(1);
+    var cls=r.rate>=3?'pos':(r.rate>=1?'amb':'');
+    return '<tr>'+
+      '<td><span style="font-family:\\'Geist Mono\\',monospace;font-size:12px">'+esc(r.p)+'</span></td>'+
+      '<td>'+r.leads+'</td>'+
+      '<td>'+r.ck+' <span class="hint">('+(r.leads?Math.round(r.ck/r.leads*100):0)+'%)</span></td>'+
+      '<td>'+r.buy+'</td>'+
+      '<td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;max-width:90px;height:5px;border-radius:3px;background:var(--line,rgba(255,255,255,.08));overflow:hidden"><div style="height:100%;border-radius:3px;background:var(--green,#2fbf71);width:'+Math.min(100,Math.round(r.rate*10))+'%"></div></div><span class="'+cls+'">'+rt+'%</span></div></td>'+
+    '</tr>';
+  }).join('');
 }
 // Desempenho A/B: barras de cliques/conversões por variante de cada link
 function renderLinkPerf(){
@@ -2670,6 +2761,16 @@ function openLead(id){
   rows+=r('Landing',esc(l.landing)); rows+=r('Referer',esc(l.referer));
   if(l.utm){ rows+=r('UTM source',esc(l.utm.source)); rows+=r('UTM campanha',esc(l.utm.campaign)); rows+=r('UTM m&eacute;dia',esc(l.utm.medium)); }
   rows+=r('ttclid',l.ttclid?'<span style="font-family:monospace;font-size:11px;word-break:break-all">'+esc(l.ttclid)+'</span>':'—');
+  if(l.journey&&l.journey.length){
+    rows+=grp('Trajeto ('+l.journey.length+(l.journey.length===1?' passo':' passos')+')');
+    rows+='<div class="jrny">'+l.journey.map(function(s){
+      var p=String(s.p||'');
+      var cls='', label=p;
+      if(p==='compra'){ cls=' buy'; label='Compra'; }
+      else if(p.indexOf('go:')===0){ cls=' go'; label='Checkout: '+p.slice(3).replace(/^link:/,''); }
+      return '<div class="jstep'+cls+'"><span class="jdot"></span><span class="jp">'+esc(label)+'</span><span class="jt">'+timeAgo(s.at)+'</span></div>';
+    }).join('')+'</div>';
+  }
   rows+=grp('Tempo');
   rows+=r('Entrou',fmtDateLocal(l.at));
   rows+=r('Viu o checkout',fmtDateLocal(l.checkoutAt));
@@ -2830,6 +2931,7 @@ function renderAll(){
   var g=currentView||'overview';
   if(g==='overview'){ renderOverview(m); }
   else if(g==='live'){ renderFunnel(m); renderGeo(m); renderActivity(); }
+  else if(g==='links'){ renderPageConv(); }
   RENDERED_GROUPS[g]=true;
   renderFooter();
 }
@@ -3039,6 +3141,17 @@ document.getElementById('cw-copy').addEventListener('click',function(){
   navigator.clipboard.writeText(location.origin+'/api/conversion?secret='+encodeURIComponent(CW_SECRET))
     .then(function(){ toast('URL copiada com o segredo',true); })
     .catch(function(){ toast('Erro ao copiar',false); });
+});
+document.getElementById('cw-test').addEventListener('click',function(){
+  var btn=this; btn.disabled=true; btn.textContent='Testando\u2026';
+  fetch('/api/conversion/test',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok&&d.receipt){ toast('Webhook OK \u2014 status: '+(d.receipt.status||'?')); loadConvLog(); }
+      else toast('Falhou: '+(d.error||'erro desconhecido'),false);
+    })
+    .catch(function(){ toast('Erro de rede no teste',false); })
+    .finally(function(){ btn.disabled=false; btn.textContent='Testar'; });
 });
 /* ── Snippet de rastreamento para páginas externas ── */
 function trackerSnippet(){ return '<script src="'+location.origin+'/t.js" defer><\\/script>'; }
