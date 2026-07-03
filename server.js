@@ -1,12 +1,38 @@
+// ── Carrega variáveis de ambiente de arquivos .env (Node puro não faz isso) ─
+// Necessário para o DATABASE_URL do Neon e demais chaves em dev/preview.
+(() => {
+  const fsEnv = require('fs');
+  const pathEnv = require('path');
+  ['.env.development.local', '.env.local', '.env'].forEach((file) => {
+    const p = pathEnv.join(__dirname, file);
+    if (!fsEnv.existsSync(p)) return;
+    try {
+      fsEnv.readFileSync(p, 'utf8').split('\n').forEach((line) => {
+        const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+        if (!m) return;
+        let val = m[2];
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (process.env[m[1]] === undefined) process.env[m[1]] = val;
+      });
+    } catch (_) { /* ignora arquivo ilegível */ }
+  });
+})();
+
 const express = require('express');
 const path = require('path');
 const { Resend } = require('resend');
 const { buildConfirmationEmail } = require('./emails/confirmation');
-const { sendTikTokEvent } = require('./tiktok-events');
+const ttEvents = require('./tiktok-events');
+const pixelStore = require('./pixel-store');
 const { sendPushcut } = require('./pushcut');
 const stats = require('./stats');
+const presence = require('./presence');
+const { injectPulse } = require('./pulse-client');
 const config = require('./config');
 const geoip = require('geoip-lite');
+const fs = require('fs');
 const DASHBOARD_HTML = require('./dashboard-view');
 
 // Lê um cookie do request (parse simples, sem dependência extra)
@@ -15,6 +41,38 @@ function readCookie(req, name) {
   if (!raw) return null;
   const found = raw.split(';').map((c) => c.trim()).find((c) => c.startsWith(name + '='));
   return found ? decodeURIComponent(found.split('=').slice(1).join('=')) : null;
+}
+
+// ── Helpers do rastreamento TikTok (event_id determinístico + dedup) ─────
+// Chave por hora (UTC): o mesmo lead na mesma hora gera o MESMO event_id no
+// navegador e no servidor → o TikTok deduplica automaticamente.
+function hourKey(d) {
+  const t = d || new Date();
+  return t.toISOString().slice(0, 13).replace(/[-T]/g, ''); // yyyymmddhh
+}
+// Dedup em memória: evita re-disparar o mesmo event_id via CAPI (beacon do
+// navegador + middleware podem gerar o mesmo id). TTL de 2h.
+// Dedup de event_id: Redis quando disponível (sobrevive a restarts, multi-instância),
+// Map em memória como fallback ultra-rápido sem dependência externa.
+const rdb = require('./redis');
+const _seenPx = new Map();
+async function seenPixelEvent(eventId) {
+  // Redis primeiro: SET NX com TTL de 2h — garante dedup entre instâncias
+  if (rdb.enabled) return rdb.seenEventId(eventId);
+  // fallback memória local
+  const now = Date.now();
+  if (_seenPx.size > 5000) {
+    for (const [k, ts] of _seenPx) { if (now - ts > 2 * 3600e3) _seenPx.delete(k); }
+  }
+  if (_seenPx.has(eventId)) return true;
+  _seenPx.set(eventId, now);
+  return false;
+}
+// URL completa do request (para o campo page.url do TikTok)
+function fullUrl(req) {
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+  return host ? proto + '://' + host + req.originalUrl : null;
 }
 
 // Nomes de países (ISO-2 → PT) para exibição amigável
@@ -48,11 +106,12 @@ function getOrAssignVisitor(req, res) {
   return id;
 }
 
-// Retorna a variante do visitante (sticky via cookie); atribui conforme config se novo
-function getOrAssignVariant(req, res) {
+// Retorna a variante do visitante (sticky via cookie); atribui conforme config se novo.
+// O visitorId torna a atribuição determinística (hash) — sobrevive à limpeza de cookies.
+function getOrAssignVariant(req, res, visitorId) {
   let variant = readCookie(req, 'ab_variant');
   if (!stats.VARIANTS.includes(variant)) {
-    variant = config.pickVariant();
+    variant = config.pickVariant(visitorId);
     appendCookie(res, `ab_variant=${variant};Path=/;Max-Age=2592000;SameSite=Lax`);
     stats.recordAssignment(variant);
   }
@@ -168,7 +227,7 @@ app.use('/api', (req, res, next) => {
 });
 
 // ── Rastreio de funil: todo visitante (page view HTML) vira um lead ──
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   try {
     if (req.method !== 'GET') return next();
     const p = req.path || '';
@@ -202,6 +261,20 @@ app.use((req, res, next) => {
         country: geo.countryName || geo.country || null,
         ref: id
       });
+
+      // ── TikTok CAPI: ViewContent server-side (cobre até quem bloqueia JS).
+      // event_id determinístico = mesmo id que o pixel do navegador → dedup.
+      const evId = 'ViewContent.' + id + '.' + hourKey();
+      if (!(await seenPixelEvent(evId))) {
+        ttEvents.dispatchToAll('ViewContent', {
+          eventId: evId,
+          leadId: id,
+          ip: clientIp(req),
+          userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
+          ttclid: q.ttclid || null,
+          url: fullUrl(req)
+        }, p).catch(() => {});
+      }
     }
   } catch (_) { /* nunca bloquear navegação */ }
   next();
@@ -279,13 +352,38 @@ app.post('/api/create-payment-intent', async (req, res) => {
       if (decoy) trackingMeta.tt_url_rot = '1'; // marca que está mascarada
     }
 
-    const pi = await stripe.paymentIntents.create({
+    // ── Customer + setup_future_usage: essenciais para o upsell one-click ──
+    // Sem Customer anexado, a Stripe NÃO permite reutilizar o payment_method
+    // nas páginas /s1 e /s2 (erro "PaymentMethod was previously used...").
+    let customerId = readCookie(req, 'sc_id');
+    if (customerId && !/^cus_[A-Za-z0-9]+$/.test(customerId)) customerId = null;
+    if (!customerId) {
+      const cust = await stripe.customers.create({ metadata: { v_id: vId || '' } });
+      customerId = cust.id;
+    }
+    appendCookie(res, `sc_id=${customerId};Path=/;Max-Age=2592000;SameSite=Lax;HttpOnly`);
+
+    let pi;
+    const piParams = {
       amount: unitAmount,
       currency: resolvedCurrency,
+      customer: customerId,
+      setup_future_usage: 'off_session', // guarda o cartão p/ upsell one-click
       automatic_payment_methods: { enabled: true },
       description: randomDesc(DESCRIPTIONS),
       metadata: trackingMeta
-    });
+    };
+    try {
+      pi = await stripe.paymentIntents.create(piParams);
+    } catch (err) {
+      // Customer do cookie pode ter sido apagado na Stripe — recria e tenta 1x
+      if (/No such customer/i.test(err.message || '')) {
+        const cust = await stripe.customers.create({ metadata: { v_id: vId || '' } });
+        customerId = cust.id;
+        appendCookie(res, `sc_id=${customerId};Path=/;Max-Age=2592000;SameSite=Lax;HttpOnly`);
+        pi = await stripe.paymentIntents.create({ ...piParams, customer: customerId });
+      } else throw err;
+    }
 
     res.json({
       clientSecret: pi.client_secret,
@@ -309,18 +407,45 @@ app.post('/api/create-upsell-intent', async (req, res) => {
     const reqAmount = Number(req.body.amountCents);
     const amount = ALLOWED_UPSELL_AMOUNTS.includes(reqAmount) ? reqAmount : 6000;
 
+    // Customer criado no checkout inicial (cookie sc_id) — obrigatório para
+    // reutilizar o payment_method guardado (one-click)
+    let customerId = readCookie(req, 'sc_id');
+    if (customerId && !/^cus_[A-Za-z0-9]+$/.test(customerId)) customerId = null;
+
+    // Metadata de rastreamento: o webhook usa isto para o TikTok CAPI do
+    // upsell carregar a MESMA identidade do lead (external_id, ttclid, ttp).
+    const vIdUp = readCookie(req, 'v_id') || '';
+    const upsellMeta = { type: 'upsell', v_id: vIdUp };
+    upsellMeta.ab_variant = readCookie(req, 'ab_variant') || 'stripe';
+    upsellMeta.tt_ip = clientIp(req);
+    upsellMeta.tt_ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    try {
+      const leadUp = stats.getLead(vIdUp);
+      if (leadUp) {
+        if (leadUp.ttclid) upsellMeta.ttclid = String(leadUp.ttclid).slice(0, 500);
+        if (leadUp.ttp) upsellMeta.ttp = String(leadUp.ttp).slice(0, 500);
+      }
+    } catch (_) {}
+
     const params = {
       amount,                // valor validado (60,00 € ou 34,00 €)
       currency: 'eur',
       description: randomDesc(UPSELL_DESCRIPTIONS),
+      metadata: upsellMeta,
       automatic_payment_methods: {
         enabled: true,
         allow_redirects: 'never'
       }
     };
+    if (customerId) params.customer = customerId;
 
     // Se vier um paymentMethodId, tenta confirmar imediatamente (one-click)
     if (paymentMethodId) {
+      if (!customerId) {
+        // Sem customer o one-click é impossível na Stripe — instruí o front a
+        // cair no formulário completo em vez de devolver um erro críptico
+        return res.status(409).json({ error: 'Sesión de pago expirada. Introduce los datos de nuevo.' });
+      }
       params.payment_method = paymentMethodId;
       params.confirm = true;
       params.off_session = true;
@@ -440,21 +565,26 @@ app.post('/api/stripe-webhook', async (req, res) => {
         quantity: 1
       }];
 
-      await sendTikTokEvent({
-        event: 'CompletePayment',
-        eventId: 'CompletePayment.' + pi.id,
-        eventTime: pi.created,
-        email: customerEmail || undefined,
-        externalId: customerEmail || pi.id,
-        ip: md.tt_ip || undefined,
-        userAgent: md.tt_ua || undefined,
-        ttclid: md.ttclid || undefined,
-        ttp: md.ttp || undefined,
-        url: realUrl || undefined,
-        value,
-        currency,
-        contents
-      });
+      // Dedup local: retries do webhook Stripe não devem re-disparar a CAPI
+      // (o TikTok já dedupa por event_id, mas isso poupa chamadas e log duplicado)
+      const cpEvId = 'CompletePayment.' + pi.id;
+      if (!(await seenPixelEvent(cpEvId))) {
+        await ttEvents.dispatchToAll('CompletePayment', {
+          eventId: cpEvId,
+          eventTime: pi.created,
+          email: customerEmail || undefined,
+          leadId: md.v_id || undefined,           // external_id = hash do id único do lead
+          externalId: md.v_id ? undefined : (customerEmail || pi.id),
+          ip: md.tt_ip || undefined,
+          userAgent: md.tt_ua || undefined,
+          ttclid: md.ttclid || undefined,
+          ttp: md.ttp || undefined,
+          url: realUrl || undefined,
+          value,
+          currency,
+          contents
+        }, '*');
+      }
     } catch (ttErr) {
       console.error('[stripe-webhook] Erro no TikTok CAPI:', ttErr.message);
     }
@@ -553,7 +683,7 @@ app.post('/api/stripe-webhook', async (req, res) => {
     }
   }
 
-  // ── Pushcut — REEMBOLSO ─────────────────────────────────────────────
+  // ── Pushcut — REEMBOLSO ─────────────────���───────────────────────────
   else if (event.type === 'charge.refunded') {
     const ch = event.data.object;
     try {
@@ -623,7 +753,7 @@ app.post('/webhook.php', (req, res) => {
 });
 
 // ── Rota /checkout → teste A/B de gateway (configurável) ─────────────
-app.get('/checkout', (req, res) => {
+app.get('/checkout', async (req, res) => {
   const cfg = config.get();
   const q = req.query || {};
   const currency = (q.currency || 'eur').toLowerCase();
@@ -640,7 +770,7 @@ app.get('/checkout', (req, res) => {
 
   let variant = (forced === 'stripe' || forced === 'cooud')
     ? forced
-    : getOrAssignVariant(req, res);
+    : getOrAssignVariant(req, res, visitorId);
 
   // Modo "apenas Stripe" força tudo para o Stripe (respeitando override manual)
   if (cfg.mode === 'stripe_only' && forced !== 'cooud') variant = 'stripe';
@@ -665,6 +795,26 @@ app.get('/checkout', (req, res) => {
     expectedCurrency: currency.toUpperCase()
   });
 
+  // ── TikTok CAPI: InitiateCheckout server-side — cobre AMBAS as variantes,
+  // inclusive o checkout externo (Cooud), onde não dá para injetar pixel.
+  try {
+    const lead = stats.getLead(visitorId) || {};
+    const evId = 'InitiateCheckout.' + visitorId + '.' + hourKey();
+    if (!(await seenPixelEvent(evId))) {
+      ttEvents.dispatchToAll('InitiateCheckout', {
+        eventId: evId,
+        leadId: visitorId,
+        ip: clientIp(req),
+        userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
+        ttclid: q.ttclid || lead.ttclid || null,
+        ttp: lead.ttp || null,
+        url: fullUrl(req),
+        value: expectedAmount / 100,
+        currency: currency.toUpperCase()
+      }, '/checkout').catch(() => {});
+    }
+  } catch (_) { /* rastreamento nunca bloqueia o checkout */ }
+
   if (variant === 'cooud') {
     stats.logEvent('lead', {
       title: 'Lead enviado ao ' + (cfg.externalName || 'Cooud'),
@@ -677,6 +827,7 @@ app.get('/checkout', (req, res) => {
 
     // Preserva query string original + injeta o identificador do visitante p/ conciliação
     const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+    params.delete('ab'); // parâmetro interno de teste — não vazar para o checkout externo
     params.set('client_reference_id', visitorId);
     params.set('lead_id', visitorId);
     const base = cfg.externalUrl || 'https://checkout.cooud.com/01KVQSV545NN7APJN3RQMGSASV';
@@ -684,24 +835,84 @@ app.get('/checkout', (req, res) => {
   }
 
   // Variante nativa (Stripe)
-  res.sendFile(path.join(__dirname, 'proximo', 'premium', 'checkout.html'));
+  try {
+    const html = fs.readFileSync(path.join(__dirname, 'proximo', 'premium', 'checkout.html'), 'utf8');
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.send(injectPulse(html));
+  } catch (_) {
+    return res.sendFile(path.join(__dirname, 'proximo', 'premium', 'checkout.html'));
+  }
 });
 
 // ── Auth simples (Basic Auth) para a dashboard ───────────────────────
+// Comparação em tempo constante (crypto.timingSafeEqual) — evita timing
+// attacks que a comparação com === permitia.
+const crypto = require('crypto');
+function safeEqual(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
 function dashboardAuth(req, res, next) {
   const pass = process.env.DASHBOARD_PASSWORD;
   if (!pass) return next(); // sem senha definida: acesso livre (defina DASHBOARD_PASSWORD para proteger)
   const header = req.headers.authorization || '';
   const token = header.startsWith('Basic ') ? Buffer.from(header.slice(6), 'base64').toString() : '';
   const provided = token.split(':').slice(1).join(':'); // ignora usuário, valida senha
-  if (provided === pass) return next();
+  if (provided && safeEqual(provided, pass)) return next();
   res.set('WWW-Authenticate', 'Basic realm="Dashboard"');
   return res.status(401).send('Autenticação necessária.');
 }
 
 // ── API: estatísticas do teste A/B ───────────────────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store'); // dados ao vivo — nunca cachear em proxies
   res.json(stats.getStats());
+});
+
+// ── API: heartbeat de presença (chamado por todas as páginas do funil) ─
+app.post('/api/pulse', (req, res) => {
+  try {
+    const id = readCookie(req, 'v_id');
+    if (!id) return res.json({ ok: false });
+    const b = req.body || {};
+    const geo = geoFromReq(req);
+    presence.touch({
+      visitorId: id,
+      page: b.page ? String(b.page).slice(0, 300) : null,
+      referrer: b.referrer ? String(b.referrer).slice(0, 300) : null,
+      country: geo.country, countryName: geo.countryName, city: geo.city,
+      ua: String(req.headers['user-agent'] || '').slice(0, 300),
+      ip: clientIp(req),
+      variant: readCookie(req, 'ab_variant') || null
+    });
+  } catch (_) {}
+  res.json({ ok: true });
+});
+app.post('/api/pulse/leave', (req, res) => {
+  try { presence.leave(readCookie(req, 'v_id')); } catch (_) {}
+  res.json({ ok: true });
+});
+
+// ── API: visitantes navegando AGORA (dashboard) ────────────────────────
+app.get('/api/live', dashboardAuth, async (req, res) => {
+  try {
+    // presence.list() e summary() são agora async (mescla memória + Redis)
+    const [visitors, presenceSummary] = await Promise.all([presence.list(), presence.summary()]);
+    // No checkout agora: Stripe conta pela presença real (heartbeat da página);
+    // Cooud é externo (sem script lá) → estimativa via janela de entrada de 10min
+    const stripeNow = visitors.filter((v) => v.page && v.page.indexOf('checkout') !== -1).length;
+    let cooudEst = 0;
+    try { cooudEst = stats.inCheckoutNow().cooud; } catch (_) {}
+    res.json({
+      visitors,
+      summary: presenceSummary,
+      checkout: { stripeNow, cooudEst },
+      ts: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── API: configuração do teste A/B (ler/atualizar) ───────────────────
@@ -717,25 +928,49 @@ app.post('/api/config', dashboardAuth, (req, res) => {
   res.json({ ok: true, config: pub });
 });
 
-// ── API: health-check — estado das variáveis críticas ───────────────
-app.get('/api/health', dashboardAuth, (req, res) => {
+// ── API: health-check — variáveis críticas + ping REAL no banco ─────
+app.get('/api/health', dashboardAuth, async (req, res) => {
+  const [dbPing, redisPing] = await Promise.all([
+    require('./db').ping(),
+    rdb.ping()
+  ]);
+  res.set('Cache-Control', 'no-store');
   res.json({
-    stripe:   !!process.env.STRIPE_SECRET_KEY,
-    webhook:  !!process.env.STRIPE_WEBHOOK_SECRET,
-    resend:   !!process.env.RESEND_API_KEY,
-    tiktok:   !!process.env.TIKTOK_ACCESS_TOKEN,
-    pushcut:  !!process.env.PUSHCUT_SECRET,
-    dashboard:!!process.env.DASHBOARD_PASSWORD,
+    stripe:      !!process.env.STRIPE_SECRET_KEY,
+    webhook:     !!process.env.STRIPE_WEBHOOK_SECRET,
+    resend:      !!process.env.RESEND_API_KEY,
+    tiktok:      !!process.env.TIKTOK_ACCESS_TOKEN,
+    pushcut:     !!process.env.PUSHCUT_SECRET,
+    dashboard:   !!process.env.DASHBOARD_PASSWORD,
+    db:          dbPing.ok,
+    dbLatencyMs: dbPing.ok ? dbPing.latencyMs : null,
+    redis:       redisPing.ok,
+    redisEnabled:rdb.enabled,
+    uptimeSec:   Math.round(process.uptime()),
     ts: new Date().toISOString()
   });
 });
 
 // ── API: conversão do Cooud (para webhook/integração futura) ─────────
 // Chame este endpoint a partir do webhook do Cooud quando um pagamento for aprovado.
+// Se COOUD_WEBHOOK_SECRET estiver definido, exige o segredo no header
+// x-webhook-secret ou em ?secret= — sem ele o endpoint fica aberto (retro-compat).
 app.post('/api/cooud-conversion', (req, res) => {
+  const secret = process.env.COOUD_WEBHOOK_SECRET;
+  if (secret) {
+    const provided = req.headers['x-webhook-secret'] || req.query.secret || '';
+    if (!provided || !safeEqual(String(provided), secret)) {
+      return res.status(401).json({ ok: false, error: 'segredo inválido' });
+    }
+  }
   const b = req.body || {};
-  const amount = Math.round((Number(b.amount) || 0) * 100); // valor em unidades → cêntimos
-  const currency = b.currency || 'eur';
+  // Validação do payload: valor numérico, positivo e com teto de sanidade
+  const rawAmount = Number(b.amount);
+  if (!Number.isFinite(rawAmount) || rawAmount < 0 || rawAmount > 1000000) {
+    return res.status(400).json({ ok: false, error: 'amount inválido' });
+  }
+  const amount = Math.round(rawAmount * 100); // valor em unidades → cêntimos
+  const currency = /^[a-zA-Z]{3}$/.test(String(b.currency || '')) ? b.currency : 'eur';
   // aceita várias chaves possíveis vindas do webhook do Cooud
   const leadId = b.leadId || b.lead_id || b.client_reference_id || b.reference || null;
   // flags das funções do Cooud, se o painel/webhook deles enviar
@@ -775,9 +1010,320 @@ app.post('/api/cooud-conversion', (req, res) => {
   } catch (_) {}
 
   res.json({ ok: true, matched: !lead.orphan, leadId: lead.id, smartCapture: !!lead.smartCapture, recovery: !!lead.recovery });
+
+  // Também dispara CompletePayment na CAPI (gap antigo: o Cooud registrava a
+  // venda no painel mas NÃO avisava o TikTok). Usa o mesmo motor universal.
+  processConversion({
+    event: 'CompletePayment',
+    gateway: 'cooud',
+    orderId: String(b.ref || b.order_id || b.id || lead.id),
+    amountCents: amount,
+    currency,
+    leadId: lead.orphan ? null : lead.id,
+    email: b.email || null,
+    customer: b.customer || b.name || null,
+    product: null,
+    registerSale: false // a venda já foi registrada acima
+  }).catch(() => {});
+});
+
+// ═══ Webhook UNIVERSAL de conversões (qualquer gateway) ═══════════════
+// Kiwify, Hotmart, PerfectPay, Cakto, etc.: configure a URL
+//   https://<host>/api/conversion?secret=SEU_SEGREDO[&gateway=kiwify]
+// no painel do gateway. O corpo é normalizado por aliases — não importa o
+// formato exato que o gateway envia, desde que tenha evento + order_id.
+
+// Mapeia o "status/evento" que cada gateway envia → evento TikTok CAPI.
+function mapConversionEvent(raw) {
+  const s = String(raw || '').toLowerCase();
+  if (/paid|approved|aprovad|completed|complete|purchase|sale|compra|venda/.test(s)) return 'CompletePayment';
+  if (/payment_info|processing|processando|waiting_payment|pending|analys|analis/.test(s)) return 'AddPaymentInfo';
+  if (/checkout|cart|carrinho|pix|billet|boleto|initiate|created|criad/.test(s)) return 'InitiateCheckout';
+  return null;
+}
+
+// Normaliza QUALQUER payload de gateway para o formato interno.
+function normalizeConversion(b, query) {
+  b = b || {};
+  const event = mapConversionEvent(b.event || b.type || b.status || (query && query.event));
+  if (!event) return { error: 'evento não reconhecido (use event/type/status: paid, checkout, processing…)' };
+  const orderId = b.order_id || b.transaction_id || b.orderId || b.id || b.ref || null;
+  if (!orderId) return { error: 'order_id obrigatório (aliases: transaction_id, id, ref)' };
+  // valor: obrigatório apenas na compra aprovada
+  const rawAmount = Number(b.amount != null ? b.amount : (b.value != null ? b.value : (b.total != null ? b.total : b.price)));
+  const hasAmount = Number.isFinite(rawAmount) && rawAmount >= 0 && rawAmount <= 1000000;
+  if (event === 'CompletePayment' && !hasAmount) return { error: 'amount inválido (aliases: value, total, price; unidades 0–1M)' };
+  return {
+    event,
+    gateway: String((query && query.gateway) || b.gateway || b.platform || b.source || 'generic').toLowerCase().slice(0, 30),
+    orderId: String(orderId).slice(0, 120),
+    amountCents: hasAmount ? Math.round(rawAmount * 100) : 0,
+    currency: /^[a-zA-Z]{3}$/.test(String(b.currency || '')) ? String(b.currency).toLowerCase() : 'eur',
+    leadId: b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id || null,
+    email: b.email || b.customer_email || b.buyer_email || null,
+    customer: b.customer || b.name || b.buyer_name || null,
+    product: b.product || b.product_name || b.content_name || null,
+    registerSale: true
+  };
+}
+
+// Motor: resolve o lead no backend, enriquece, dedupa e dispara a CAPI.
+// Roda SEMPRE em background (a resposta HTTP já foi enviada ao gateway).
+async function processConversion(n) {
+  const evId = n.event + '.' + n.gateway + '.' + n.orderId;
+  const receipt = {
+    at: new Date().toISOString(),
+    gateway: n.gateway, event: n.event, orderId: n.orderId,
+    amount: n.amountCents, currency: n.currency
+  };
+  try {
+    // 1. dedup — retries do gateway nunca duplicam o disparo
+    if (await seenPixelEvent(evId)) {
+      receipt.status = 'dedup';
+      rdb.pushConversionLog(receipt).catch(() => {});
+      return receipt;
+    }
+    // 2. resolve o lead no backend: leadId direto → e-mail → órfão
+    let lead = n.leadId ? stats.getLead(n.leadId) : null;
+    if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email); } catch (_) {} }
+    receipt.match = lead ? (n.leadId && lead.id === n.leadId ? 'leadId' : 'email') : 'órfã';
+    receipt.leadId = lead ? lead.id : null;
+    // 3. registra a venda no dashboard (só CompletePayment; cooud já registrou)
+    if (n.event === 'CompletePayment' && n.registerSale) {
+      try {
+        const matched = stats.matchCooudConversion({
+          leadId: lead ? lead.id : null, gateway: n.gateway,
+          amountCents: n.amountCents, currency: n.currency,
+          customer: n.customer, email: n.email, ref: n.orderId
+        });
+        stats.logEvent('sale', {
+          title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
+          amount: n.amountCents, currency: n.currency,
+          customer: n.customer, email: n.email,
+          gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id
+        });
+      } catch (_) {}
+    }
+    // 4. dispara a CAPI com o MÁXIMO de sinal: identidade do lead do backend
+    const r = await ttEvents.dispatchToAll(n.event, {
+      eventId: evId,
+      email: n.email || (lead && lead.email) || undefined,
+      leadId: lead ? lead.id : undefined,            // external_id = hash do v_id
+      externalId: lead ? undefined : (n.email || n.orderId),
+      ip: (lead && lead.ip) || undefined,
+      userAgent: (lead && lead.ua) || undefined,
+      ttclid: (lead && lead.ttclid) || undefined,
+      ttp: (lead && lead.ttp) || undefined,
+      url: (lead && lead.ttUrl) || undefined,
+      value: n.amountCents ? n.amountCents / 100 : undefined,
+      currency: n.currency,
+      contents: n.product ? [{ content_name: String(n.product).slice(0, 100), quantity: 1 }] : undefined
+    }, '*');
+    const errs = (r.results || []).filter((x) => x && (x.error || (x.code != null && x.code !== 0))).length;
+    receipt.status = r.dispatched === 0 ? 'sem pixel' : (errs ? ('erro em ' + errs + '/' + r.dispatched) : 'ok');
+    receipt.dispatched = r.dispatched;
+  } catch (err) {
+    receipt.status = 'erro';
+    receipt.error = String(err.message || err).slice(0, 200);
+  }
+  rdb.pushConversionLog(receipt).catch(() => {});
+  return receipt;
+}
+
+// Endpoint público que os gateways chamam.
+app.post('/api/conversion', (req, res) => {
+  const secret = process.env.CONVERSION_WEBHOOK_SECRET;
+  if (!secret) {
+    // nunca fica aberto sem segredo — instrui em vez de aceitar
+    return res.status(503).json({ ok: false, error: 'defina CONVERSION_WEBHOOK_SECRET no servidor' });
+  }
+  const provided = req.headers['x-webhook-secret'] || req.query.secret || '';
+  if (!provided || !safeEqual(String(provided), secret)) {
+    return res.status(401).json({ ok: false, error: 'segredo inválido' });
+  }
+  const n = normalizeConversion(req.body, req.query);
+  if (n.error) return res.status(400).json({ ok: false, error: n.error });
+  // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
+  res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
+  processConversion(n).catch(() => {});
+});
+
+// Log dos webhooks recebidos (painel, aba Pixels). Protegido por dashboardAuth;
+// devolve o segredo para o painel montar a URL de configuração do gateway.
+app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
+  const log = await rdb.loadConversionLog(50);
+  res.json({
+    configured: !!process.env.CONVERSION_WEBHOOK_SECRET,
+    secret: process.env.CONVERSION_WEBHOOK_SECRET || '',
+    log: log || []
+  });
 });
 
 // ── API: zerar estatísticas ──────────────────────────────────────────
+// ═══ TikTok multi-pixel ═══════════════════════════════════════════════
+// ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
+// script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
+// editar um pixel (arquivo em pixels/ ou painel) atualiza todas as páginas.
+app.get('/px.js', (req, res) => {
+  res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+  // rota da página que pediu o script (Referer) — decide QUAIS pixels carregar
+  let route = '/';
+  try { route = new URL(req.headers.referer || 'https://x/').pathname || '/'; } catch (_) {}
+  if (req.query.p) route = String(req.query.p);
+
+  const pixels = pixelStore.forRoute(route);
+  if (!pixels.length) return res.send('/* nenhum pixel ativo para esta rota */');
+
+  const vId = readCookie(req, 'v_id') || '';
+  const extId = vId ? ttEvents.externalIdFromLead(vId) : '';
+  const hk = hourKey();
+  const isCheckout = route.indexOf('/checkout') === 0;
+
+  // eventos do navegador com event_id DETERMINÍSTICO (= mesmo id do servidor → dedup)
+  const evs = [];
+  if (vId && pixels.some((px) => px.events.ViewContent)) {
+    evs.push({ n: 'ViewContent', id: 'ViewContent.' + vId + '.' + hk });
+  }
+  if (vId && isCheckout && pixels.some((px) => px.events.InitiateCheckout)) {
+    evs.push({ n: 'InitiateCheckout', id: 'InitiateCheckout.' + vId + '.' + hk });
+  }
+
+  const js = [
+    // lib oficial ttq (stub assíncrono)
+    '!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)}}(window,document,"ttq");',
+    // carrega TODOS os pixels ativos desta rota
+    pixels.map((px) => 'ttq.load(' + JSON.stringify(px.pixelCode) + ');').join('\n'),
+    // identidade: external_id = hash do id único do lead (igual ao servidor)
+    extId ? 'ttq.identify({external_id:' + JSON.stringify(extId) + '});' : '',
+    'ttq.page();',
+    // eventos com event_id determinístico + espelho server-side via beacon
+    evs.map((e) =>
+      'ttq.track(' + JSON.stringify(e.n) + ',{},{event_id:' + JSON.stringify(e.id) + '});'
+    ).join('\n'),
+    // beacon: o servidor re-dispara via CAPI com o MESMO event_id (dedup),
+    // acrescentando ip/ua/ttclid/_ttp — o sinal mais completo possível
+    'try{',
+    '  var _c=function(n){var m=document.cookie.match(new RegExp("(?:^|; )"+n+"=([^;]*)"));return m?decodeURIComponent(m[1]):null};',
+    '  var _q=new URLSearchParams(location.search);',
+    '  var _p={events:' + JSON.stringify(evs.map((e) => ({ n: e.n, id: e.id }))) + ',url:location.href,ttclid:_q.get("ttclid")||_c("ttclid")||null,ttp:_c("_ttp")||null};',
+    '  if(_p.events.length){var _b=JSON.stringify(_p);',
+    '    if(navigator.sendBeacon){navigator.sendBeacon("/api/px/event",new Blob([_b],{type:"application/json"}))}',
+    '    else{fetch("/api/px/event",{method:"POST",headers:{"Content-Type":"application/json"},body:_b,keepalive:true})}',
+    '  }',
+    '}catch(_){}'
+  ].filter(Boolean).join('\n');
+
+  res.send(js);
+});
+
+// ── Beacon do navegador → espelho server-side (CAPI) com o mesmo event_id.
+app.post('/api/px/event', (req, res) => {
+  // Responde IMEDIATAMENTE: sendBeacon não lê a resposta, e o disparo CAPI
+  // (com dedup) segue em background — latência zero para o navegador.
+  res.json({ ok: true });
+  try {
+    const vId = readCookie(req, 'v_id');
+    const b = req.body || {};
+    const events = Array.isArray(b.events) ? b.events.slice(0, 5) : [];
+    if (!events.length) return;
+    let route = '/';
+    try { route = new URL(b.url || 'https://x/').pathname || '/'; } catch (_) {}
+    const ip = clientIp(req);
+    const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    // guarda ttclid/_ttp no lead UMA vez (não por evento) — enriquece conversões futuras
+    if (vId && (b.ttclid || b.ttp)) {
+      try { stats.attachTracking(vId, { ttclid: b.ttclid || undefined, ttp: b.ttp || undefined }); } catch (_) {}
+    }
+    // dedup + disparo em PARALELO (antes era serial: 1 roundtrip Redis por evento)
+    events.forEach((e) => {
+      const name = String(e.n || '').slice(0, 40);
+      const evId = String(e.id || '').slice(0, 120);
+      if (!name || !evId) return;
+      if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) return; // whitelist
+      seenPixelEvent(evId).then((seen) => {
+        if (seen) return; // já disparado pelo middleware/rota
+        return ttEvents.dispatchToAll(name, {
+          eventId: evId,
+          leadId: vId || undefined,
+          ip,
+          userAgent: ua,
+          ttclid: b.ttclid ? String(b.ttclid).slice(0, 500) : undefined,
+          ttp: b.ttp ? String(b.ttp).slice(0, 500) : undefined,
+          url: b.url ? String(b.url).slice(0, 500) : undefined
+        }, route);
+      }).catch(() => {});
+    });
+  } catch (_) { /* beacon nunca propaga erro */ }
+});
+
+// ── APIs de gestão de pixels (dashboard) ────��───────────────────────────
+app.get('/api/pixels', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  // mascara o token na listagem (só mostra últimos 4 chars)
+  const list = pixelStore.list().map((p) => ({
+    ...p,
+    accessToken: p.accessToken ? '••••' + p.accessToken.slice(-4) : '',
+    hasToken: !!p.accessToken
+  }));
+  res.json({ pixels: list, dir: 'pixels/' });
+});
+
+app.post('/api/pixels', dashboardAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
+    // Se editar sem reenviar token, mantém o existente (o form manda mascarado)
+    if (b.slug && b.accessToken && b.accessToken.indexOf('••••') === 0) {
+      const existing = pixelStore.get(pixelStore.slugify(b.slug));
+      if (existing) b.accessToken = existing.accessToken;
+    }
+    const saved = await pixelStore.save(b);
+    stats.logEvent('info', { title: 'Pixel TikTok salvo: ' + saved.name, ref: saved.slug });
+    res.json({ ok: true, pixel: { ...saved, accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '' } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
+  try {
+    await pixelStore.remove(req.params.slug);
+    stats.logEvent('info', { title: 'Pixel TikTok removido', ref: req.params.slug });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Teste de disparo: envia um ViewContent de teste e devolve a resposta CRUA
+// do TikTok — valida pixel code + access token na hora.
+app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
+  try {
+    const slug = pixelStore.slugify(req.body.slug || '');
+    const pixel = pixelStore.get(slug);
+    if (!pixel) return res.status(404).json({ error: 'pixel não encontrado' });
+    const result = await ttEvents.testPixel(pixel);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Log de disparos CAPI (memória rápida + histórico do banco)
+app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  // 1. tenta memória local + Redis (recentLogAsync faz fallback automático)
+  const rows = await ttEvents.recentLogAsync(100);
+  if (rows.length) return res.json({ log: rows, source: 'redis' });
+  // 2. fallback Neon (backup estruturado para quando Redis não está disponível)
+  const db = require('./db');
+  const dbRows = await db.loadPixelEvents(100);
+  res.json({ log: (dbRows || []).map((r) => ({
+    id: r.id, at: r.at, pixel: r.pixel, event: r.event,
+    eventId: r.event_id, leadId: r.lead_id, status: r.status, response: r.response
+  })), source: 'neon' });
+});
+
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {
   stats.reset();
   res.json({ ok: true });
@@ -789,13 +1335,46 @@ app.get('/dashboard', dashboardAuth, (req, res) => {
   res.send(DASHBOARD_HTML);
 });
 
+// ── Injeção do heartbeat de presença em todas as páginas HTML do funil ─
+// Resolve o arquivo HTML como o express.static faria (exato, /index.html ou
+// extensão .html), injeta o script de "pulse" e envia. Se não for HTML, segue.
+function resolveHtml(reqPath) {
+  try {
+    const clean = decodeURIComponent(reqPath.split('?')[0]);
+    if (clean.includes('..')) return null;
+    const base = path.join(__dirname, clean);
+    const candidates = [];
+    if (clean.endsWith('.html')) candidates.push(base);
+    else if (clean.endsWith('/')) candidates.push(path.join(base, 'index.html'));
+    else { candidates.push(base + '.html'); candidates.push(path.join(base, 'index.html')); }
+    for (const f of candidates) {
+      if (f.startsWith(__dirname) && fs.existsSync(f) && fs.statSync(f).isFile()) return f;
+    }
+  } catch (_) {}
+  return null;
+}
+function sendHtmlWithPulse(res, filePath) {
+  const html = fs.readFileSync(filePath, 'utf8');
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(injectPulse(html));
+}
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/assets')
+      || req.path === '/dashboard' || req.path === '/checkout') return next();
+  const accept = req.headers.accept || '';
+  if (!accept.includes('text/html')) return next();
+  const file = resolveHtml(req.path);
+  if (!file) return next();
+  try { return sendHtmlWithPulse(res, file); } catch (_) { return next(); }
+});
+
 // ── Apple Pay: servir .well-known (verificação de domínio) ──────────
 app.use('/.well-known', express.static(path.join(__dirname, '.well-known'), {
   dotfiles: 'allow'
 }));
 
 // ── Proteger dados sensíveis (stats do A/B) de acesso público ────────
-app.use(['/data', '/stats.js', '/config.js', '/dashboard-view.js', '/tiktok-events.js', '/pushcut.js', '/emails'], (req, res) => {
+app.use(['/data', '/stats.js', '/config.js', '/dashboard-view.js', '/tiktok-events.js', '/pushcut.js', '/emails', '/pixels', '/pixel-store.js', '/db.js', '/presence.js'], (req, res) => {
   res.status(404).send('Not found');
 });
 
@@ -806,18 +1385,34 @@ app.use(express.static(path.join(__dirname), {
   index: 'index.html'
 }));
 
-// Fallback: se pedir /1 sem barra, redireciona para /1/ (que serve /1/index.html)
+// Fallback: se pedir /1 sem barra, serve /1/index.html (com pulse injetado)
 app.get('*', (req, res, next) => {
   const filePath = path.join(__dirname, req.path, 'index.html');
-  const fs = require('fs');
   if (fs.existsSync(filePath)) {
-    return res.sendFile(filePath);
+    try { return sendHtmlWithPulse(res, filePath); } catch (_) { return res.sendFile(filePath); }
   }
   next();
 });
 
 // ── Iniciar servidor ─────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`✅ Servidor rodando na porta ${PORT}`);
-  console.log(`   STRIPE_SECRET_KEY: ${process.env.STRIPE_SECRET_KEY ? '✅ configurada' : '❌ NÃO CONFIGURADA'}`);
-});
+// Hidrata stats E config a partir do Neon ANTES de escutar, para que os
+// dados de vários dias já estejam disponíveis no primeiro request pós-deploy.
+stats.hydrate()
+  .then(() => config.hydrate())
+  .then(() => pixelStore.init())
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`✅ Servidor rodando na porta ${PORT}`);
+      console.log(`   STRIPE_SECRET_KEY: ${process.env.STRIPE_SECRET_KEY ? '✅ configurada' : '❌ NÃO CONFIGURADA'}`);
+      console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
+    });
+
+    // ── Manutenção periódica ─────────────────────────────────────────
+    // 1. Prune do mapa de presença em memória (remove sessões expiradas
+    //    mesmo sem ninguém consultar /api/live).
+    setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();
+    // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
+    const db = require('./db');
+    setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 24 * 60 * 60 * 1000).unref();
+    setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 30 * 1000).unref();
+  });

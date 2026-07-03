@@ -3,15 +3,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TikTok Cuestionario</title>
   <!-- TikTok Pixel Code Start -->
-  <script>
-  !function (w, d, t) {
-    w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(
-    var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script")
-    ;n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)};
-    ttq.load('D8JGKIRC77UDLID6B2O0');
-    ttq.page();
-  }(window, document, 'ttq');
-  </script>
+  <script src="/px.js"></script> <!-- pixel TikTok dinâmico: gerenciado em pixels/ e na dashboard -->
   <script>
     if (window.ttq && ttq.track) ttq.track('ViewContent', { content_type: 'product', content_id: 'cuestionario-1', content_name: 'Cuestionario 1', value: 15.90, currency: 'EUR' });
   </script>
@@ -283,7 +275,12 @@ body{font-family:'TikTok Sans','Poppins',-apple-system,BlinkMacSystemFont,sans-s
       })
       .then(function(r){ return r.json(); })
       .then(function(data) {
-        if (data.error) { setProcessing(false); show('upsell-oneclick'); showErr(data.error); return; }
+        if (data.error) {
+          // One-click falhou (sessão expirada, cartão recusado…) →
+          // cai direto no formulário completo em vez de deixar o utilizador preso
+          setProcessing(false); hide('upsell-oneclick'); showErr(data.error);
+          loadFallbackElement(); return;
+        }
         if (data.status === 'succeeded') {
           onUpsellSuccess(); return;
         }
@@ -342,21 +339,24 @@ body{font-family:'TikTok Sans','Poppins',-apple-system,BlinkMacSystemFont,sans-s
         // Sem PM → carrega PaymentElement
         hide('upsell-oneclick');
         loadFallbackElement();
-        document.getElementById('upsell-element-btn').addEventListener('click', function() {
-          if (!upsellElements) return;
-          var btn = document.getElementById('upsell-element-btn');
-          btn.disabled = true; btn.firstElementChild.textContent = 'Procesando...';
-          setProcessing(true);
-          stripe.confirmPayment({
-            elements: upsellElements,
-            confirmParams: { return_url: window.location.origin + UPSELL_SUCCESS_URL }
-          }).then(function(result) {
-            setProcessing(false);
-            btn.disabled = false; btn.firstElementChild.textContent = 'Pagar 60,00 €';
-            if (result.error) { show('upsell-element-wrap'); showErr(result.error.message); }
-          });
-        });
       }
+
+      // Botão do formulário completo — bind sempre (o fallback também é
+      // usado quando o one-click falha, não só quando não há PM guardado)
+      document.getElementById('upsell-element-btn').addEventListener('click', function() {
+        if (!upsellElements) return;
+        var btn = document.getElementById('upsell-element-btn');
+        btn.disabled = true; btn.firstElementChild.textContent = 'Procesando...';
+        setProcessing(true);
+        stripe.confirmPayment({
+          elements: upsellElements,
+          confirmParams: { return_url: window.location.origin + UPSELL_SUCCESS_URL }
+        }).then(function(result) {
+          setProcessing(false);
+          btn.disabled = false; btn.firstElementChild.textContent = 'Pagar 60,00 €';
+          if (result.error) { show('upsell-element-wrap'); showErr(result.error.message); }
+        });
+      });
 
       // Dismiss
       document.getElementById('upsell-dismiss').addEventListener('click', function() {

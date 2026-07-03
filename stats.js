@@ -1,24 +1,32 @@
 const fs = require('fs');
 const path = require('path');
+const db = require('./db');
 
-// Store simples baseado em arquivo JSON. Suficiente para o teste A/B + funil.
-// OBS: no Railway o filesystem é efêmero (reseta a cada deploy). Para histórico
-// permanente, migrar depois para um banco (ex.: Neon).
+// ── Store de estatísticas ──────────────────────────────────────────────────
+// REMODELADO: o estado agora vive EM MEMÓRIA (fonte quente) e é persistido:
+//   1. no Neon (write-through assíncrono, fonte de verdade durável);
+//   2. em arquivo JSON local (snapshot debounced, apenas fallback/diagnóstico).
+// Antes, cada evento lia e regravava o arquivo inteiro de forma síncrona —
+// O(n) por hit e propenso a corrupção sob concorrência. Agora cada operação
+// é O(1) em memória e o disco é tocado no máximo 1x por segundo.
 const DATA_DIR = path.join(__dirname, 'data');
 const FILE = path.join(DATA_DIR, 'stats.json');
 
 const VARIANTS = ['stripe', 'cooud'];
 
-function emptyVariant() {
-  return { assignments: 0, clicks: 0, conversions: 0, revenue: {} };
-}
-
-const MAX_EVENTS = 400; // mantém os últimos N eventos no feed
-const MAX_LEADS = 1000;  // mantém os últimos N leads rastreados
+// Cache quente (o banco Neon guarda o histórico completo, sem limite).
+const MAX_EVENTS = 3000; // mantém os últimos N eventos no feed local
+const MAX_LEADS = 8000;  // mantém os últimos N leads rastreados no cache local
 
 // Conversão que chega muito depois do lead = provável "Recuperar Prejuízo" do Cooud
 // (o gateway re-tenta cobranças recusadas/abandonadas para "recuperar" a venda).
 const RECOVERY_LATE_MS = 60 * 60 * 1000; // 1 hora
+
+const FLUSH_MS = 1000; // debounce do snapshot em disco
+
+function emptyVariant() {
+  return { assignments: 0, clicks: 0, conversions: 0, revenue: {} };
+}
 
 function emptyState() {
   const variants = {};
@@ -26,51 +34,96 @@ function emptyState() {
   return { variants, events: [], leads: [], updatedAt: null };
 }
 
-function ensureFile() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, JSON.stringify(emptyState(), null, 2));
-  } catch (err) {
-    console.error('[stats] Erro ao criar arquivo:', err.message);
-  }
+function newId(prefix) {
+  return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-function read() {
-  ensureFile();
+// ── Estado em memória + índice de leads por id (busca O(1)) ───────────────
+let state = null;
+let leadIndex = new Map(); // id -> lead (referência ao objeto em state.leads)
+
+function rebuildIndex() {
+  leadIndex = new Map();
+  (state.leads || []).forEach((l) => { if (l && l.id) leadIndex.set(l.id, l); });
+}
+
+function loadFromDisk() {
+  const s = emptyState();
   try {
-    const raw = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-    const state = emptyState();
-    VARIANTS.forEach((v) => {
-      if (raw.variants && raw.variants[v]) {
-        state.variants[v] = Object.assign(emptyVariant(), raw.variants[v]);
-        if (!state.variants[v].revenue) state.variants[v].revenue = {};
-      }
+    if (fs.existsSync(FILE)) {
+      const raw = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+      VARIANTS.forEach((v) => {
+        if (raw.variants && raw.variants[v]) {
+          s.variants[v] = Object.assign(emptyVariant(), raw.variants[v]);
+          if (!s.variants[v].revenue) s.variants[v].revenue = {};
+        }
+      });
+      s.events = Array.isArray(raw.events) ? raw.events : [];
+      s.leads = Array.isArray(raw.leads) ? raw.leads : [];
+      s.updatedAt = raw.updatedAt || null;
+    }
+  } catch (err) {
+    console.error('[stats] Erro ao ler snapshot, iniciando vazio:', err.message);
+  }
+  return s;
+}
+
+function ensureLoaded() {
+  if (state) return;
+  state = loadFromDisk();
+  rebuildIndex();
+}
+
+// ── Snapshot em disco (assíncrono + debounced; nunca bloqueia requests) ────
+let flushTimer = null;
+let flushing = false;
+let dirtyAgain = false;
+
+function flushToDisk() {
+  if (flushing) { dirtyAgain = true; return; }
+  flushing = true;
+  const payload = JSON.stringify(state);
+  const tmp = FILE + '.tmp';
+  fs.mkdir(DATA_DIR, { recursive: true }, () => {
+    // grava em arquivo temporário + rename atômico (evita snapshot corrompido)
+    fs.writeFile(tmp, payload, (err) => {
+      if (err) { console.error('[stats] Erro ao gravar snapshot:', err.message); flushing = false; return; }
+      fs.rename(tmp, FILE, (err2) => {
+        flushing = false;
+        if (err2) console.error('[stats] Erro no rename do snapshot:', err2.message);
+        if (dirtyAgain) { dirtyAgain = false; scheduleFlush(); }
+      });
     });
-    state.events = Array.isArray(raw.events) ? raw.events : [];
-    state.leads = Array.isArray(raw.leads) ? raw.leads : [];
-    state.updatedAt = raw.updatedAt || null;
-    return state;
-  } catch (err) {
-    console.error('[stats] Erro ao ler stats, retornando vazio:', err.message);
-    return emptyState();
-  }
+  });
 }
 
-function write(state) {
-  ensureFile();
+function scheduleFlush() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => { flushTimer = null; flushToDisk(); }, FLUSH_MS);
+}
+
+function markDirty() {
+  ensureLoaded();
+  state.updatedAt = new Date().toISOString();
+  scheduleFlush();
+}
+
+// Flush final no shutdown para não perder o último segundo de dados.
+function flushSync() {
   try {
-    state.updatedAt = new Date().toISOString();
-    fs.writeFileSync(FILE, JSON.stringify(state, null, 2));
-  } catch (err) {
-    console.error('[stats] Erro ao gravar stats:', err.message);
-  }
+    if (!state) return;
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(FILE, JSON.stringify(state));
+  } catch (_) {}
 }
 
+// ── Contadores de variante (A/B) ──────────────────────────────────────────
 function bump(variant, field, by) {
   if (!VARIANTS.includes(variant)) return;
-  const state = read();
+  ensureLoaded();
   state.variants[variant][field] = (state.variants[variant][field] || 0) + (by || 1);
-  write(state);
+  markDirty();
+  db.upsertVariant(variant, state.variants[variant]);
 }
 
 function recordAssignment(variant) { bump(variant, 'assignments', 1); }
@@ -78,42 +131,56 @@ function recordClick(variant) { bump(variant, 'clicks', 1); }
 
 function recordConversion(variant, amountCents, currency) {
   if (!VARIANTS.includes(variant)) return;
-  const state = read();
+  ensureLoaded();
   const v = state.variants[variant];
   v.conversions = (v.conversions || 0) + 1;
   const cur = (currency || 'eur').toUpperCase();
   v.revenue[cur] = (v.revenue[cur] || 0) + (amountCents || 0);
-  write(state);
+  markDirty();
+  db.upsertVariant(variant, v);
 }
 
-// Registra um evento no feed (venda, recusa, reembolso, disputa, lead, etc.)
+// ── Feed de eventos (venda, recusa, reembolso, disputa, lead, etc.) ───────
 function logEvent(type, data) {
-  const state = read();
+  ensureLoaded();
   const entry = Object.assign({
-    id: 'evt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: newId('evt'),
     type: type || 'info',
     at: new Date().toISOString()
   }, data || {});
   state.events.unshift(entry);
   if (state.events.length > MAX_EVENTS) state.events.length = MAX_EVENTS;
-  write(state);
+  markDirty();
+  db.insertEvent(entry);
+  return entry;
 }
 
-function findLead(state, id) {
+// ── Leads ──────────────────────────────────────────────────────────────────
+function findLead(id) {
   if (!id) return null;
-  return state.leads.find((l) => l.id === id) || null;
+  ensureLoaded();
+  return leadIndex.get(id) || null;
 }
 
-// ── FUNIL: registra a entrada de um visitante no site (topo do funil) ──
-// Todo visitante é um lead. Upsert por visitor id.
+function addLead(lead) {
+  state.leads.unshift(lead);
+  leadIndex.set(lead.id, lead);
+  if (state.leads.length > MAX_LEADS) {
+    const removed = state.leads.splice(MAX_LEADS);
+    removed.forEach((l) => { if (l && l.id) leadIndex.delete(l.id); });
+  }
+  return lead;
+}
+
+// ── FUNIL: entrada de um visitante no site (topo do funil) ────────────────
 function recordVisit(data) {
   data = data || {};
-  const state = read();
-  let lead = findLead(state, data.id);
+  ensureLoaded();
+  let lead = findLead(data.id);
   const nowIso = new Date().toISOString();
   if (!lead) {
-    lead = {
-      id: data.id || ('ld_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
+    lead = addLead({
+      id: data.id || newId('ld'),
       at: nowIso,
       stage: 'visit',
       status: 'pending',
@@ -127,32 +194,29 @@ function recordVisit(data) {
       landing: data.landing || null,
       ttclid: data.ttclid || null,
       utm: data.utm || {}
-    };
-    state.leads.unshift(lead);
-    if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
-    write(state);
+    });
   } else {
     // enriquece dados que faltavam
-    let changed = false;
     ['ip', 'ua', 'referer', 'country', 'countryName', 'city', 'ttclid'].forEach((k) => {
-      if (!lead[k] && data[k]) { lead[k] = data[k]; changed = true; }
+      if (!lead[k] && data[k]) lead[k] = data[k];
     });
-    if (data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) { lead.utm = data.utm; changed = true; }
+    if (data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) lead.utm = data.utm;
     lead.lastSeen = nowIso;
-    if (changed) write(state); else write(state);
   }
+  markDirty();
+  db.upsertLead(lead);
   return lead;
 }
 
-// ── FUNIL: registra que o lead chegou a um checkout (stripe|cooud) ──
+// ── FUNIL: lead chegou a um checkout (stripe|cooud) ───────────────────────
 function recordCheckoutEntry(id, gateway, data) {
   data = data || {};
-  const state = read();
-  let lead = findLead(state, id);
+  ensureLoaded();
+  let lead = findLead(id);
   const nowIso = new Date().toISOString();
   if (!lead) {
-    lead = {
-      id: id || ('ld_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
+    lead = addLead({
+      id: id || newId('ld'),
       at: nowIso,
       stage: 'checkout',
       status: 'pending',
@@ -165,13 +229,10 @@ function recordCheckoutEntry(id, gateway, data) {
       city: data.city || null,
       ttclid: data.ttclid || null,
       utm: data.utm || {}
-    };
-    state.leads.unshift(lead);
-    if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
+    });
   } else {
     if (lead.stage !== 'purchased') lead.stage = 'checkout';
     lead.gateway = gateway || lead.gateway;
-    // enriquece geo/tracking se veio agora
     ['ip', 'ua', 'referer', 'country', 'countryName', 'city', 'ttclid'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
@@ -183,7 +244,8 @@ function recordCheckoutEntry(id, gateway, data) {
   lead.checkoutHits = (lead.checkoutHits || []);
   lead.checkoutHits.push({ gateway, at: nowIso });
   if (lead.checkoutHits.length > 10) lead.checkoutHits = lead.checkoutHits.slice(-10);
-  write(state);
+  markDirty();
+  db.upsertLead(lead);
   return lead;
 }
 
@@ -191,48 +253,59 @@ function recordCheckoutEntry(id, gateway, data) {
 // Nunca vão para a metadata da Stripe — só usados no TikTok Events API (CAPI).
 function attachTracking(id, patch) {
   if (!id || !patch) return null;
-  const state = read();
-  let lead = findLead(state, id);
+  ensureLoaded();
+  let lead = findLead(id);
   const nowIso = new Date().toISOString();
   if (!lead) {
-    lead = {
-      id, at: nowIso, stage: 'checkout', status: 'pending', gateway: 'stripe', utm: {}
-    };
-    state.leads.unshift(lead);
-    if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
+    lead = addLead({ id, at: nowIso, stage: 'checkout', status: 'pending', gateway: 'stripe', utm: {} });
   }
   if (patch.ttUrl) lead.ttUrl = String(patch.ttUrl).slice(0, 500);
   if (patch.ttclid && !lead.ttclid) lead.ttclid = patch.ttclid;
   if (patch.ttp) lead.ttp = patch.ttp;
-  write(state);
+  markDirty();
+  db.upsertLead(lead);
   return lead;
 }
 
 // Recupera um lead por id (usado no webhook para obter a tt_url real).
 function getLead(id) {
-  if (!id) return null;
-  return findLead(read(), id);
+  return findLead(id);
 }
 
-// ── Conversão do Stripe (nativo) ──
+// Busca o lead mais recente com um e-mail — fallback de match do webhook
+// universal quando o gateway não devolve o leadId. state.leads usa unshift,
+// então o índice 0 é o mais novo: o primeiro match é o mais recente.
+// O(n), mas n ≤ MAX_LEADS e só roda em conversões (raras vs. page views).
+function findLeadByEmail(email) {
+  if (!email) return null;
+  ensureLoaded();
+  const needle = String(email).trim().toLowerCase();
+  if (!needle) return null;
+  const leads = state.leads || [];
+  for (let i = 0; i < leads.length; i++) {
+    const l = leads[i];
+    if (l && l.email && String(l.email).trim().toLowerCase() === needle) return l;
+  }
+  return null;
+}
+
+// ── Conversão do Stripe (nativo) ──────────────────────────────────────────
 function markPurchased(id, data) {
   data = data || {};
-  const state = read();
-  let lead = findLead(state, id);
+  ensureLoaded();
+  let lead = findLead(id);
   const nowIso = new Date().toISOString();
   const cur = (data.currency || 'eur').toUpperCase();
   const amount = data.amountCents || 0;
   if (!lead) {
-    lead = {
-      id: id || ('pi_' + Date.now().toString(36)),
+    lead = addLead({
+      id: id || newId('pi'),
       at: nowIso,
       stage: 'purchased',
       status: 'converted',
       gateway: 'stripe',
       utm: {}
-    };
-    state.leads.unshift(lead);
-    if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
+    });
   }
   lead.stage = 'purchased';
   lead.status = 'converted';
@@ -245,19 +318,25 @@ function markPurchased(id, data) {
   lead.card = data.card || lead.card || null;
   lead.ref = data.ref || lead.ref || null;
   if (lead.checkoutAt) lead.conversionAgeMs = new Date(nowIso).getTime() - new Date(lead.checkoutAt).getTime();
-  write(state);
+  markDirty();
+  db.upsertLead(lead);
   return lead;
 }
 
-// ── Conversão do gateway externo (Cooud) + conciliação anti-desvio ──
+// ── Conversão de gateway externo (Cooud, Kiwify, Hotmart, …) ──────────────
+// Aceita data.gateway (default 'cooud' — retro-compat). Todas as conversões
+// externas creditam a variante 'cooud' (a variante representa "checkout
+// externo" no A/B stripe × externo); o nome real do gateway fica no lead.
 function matchCooudConversion(data) {
   data = data || {};
-  const state = read();
+  ensureLoaded();
   const cur = (data.currency || 'eur').toUpperCase();
   const amount = data.amountCents || 0;
   const nowIso = new Date().toISOString();
+  const gw = String(data.gateway || 'cooud').toLowerCase().slice(0, 30);
 
-  let lead = findLead(state, data.leadId);
+  // match: leadId direto → fallback por e-mail (webhook universal)
+  let lead = findLead(data.leadId) || (data.email ? findLeadByEmail(data.email) : null);
 
   if (lead) {
     if (lead.status === 'converted') {
@@ -266,7 +345,7 @@ function matchCooudConversion(data) {
       lead.status = 'converted';
     }
     lead.stage = 'purchased';
-    lead.gateway = 'cooud';
+    lead.gateway = gw;
     lead.convertedAt = nowIso;
     lead.reportedAmount = amount;
     lead.reportedCurrency = cur;
@@ -275,10 +354,10 @@ function matchCooudConversion(data) {
     lead.ref = data.ref || lead.ref || null;
     lead.orphan = false;
   } else {
-    lead = {
-      id: data.leadId || ('orphan_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+    lead = addLead({
+      id: data.leadId || newId('orphan'),
       at: nowIso,
-      gateway: 'cooud',
+      gateway: gw,
       stage: 'purchased',
       status: 'converted',
       orphan: true,
@@ -289,9 +368,7 @@ function matchCooudConversion(data) {
       email: data.email || null,
       ref: data.ref || null,
       utm: {}
-    };
-    state.leads.unshift(lead);
-    if (state.leads.length > MAX_LEADS) state.leads.length = MAX_LEADS;
+    });
   }
 
   // ── Detecção de práticas do Cooud (Smart Capture / Recuperar Prejuízo) ──
@@ -315,7 +392,9 @@ function matchCooudConversion(data) {
   v.conversions = (v.conversions || 0) + 1;
   v.revenue[cur] = (v.revenue[cur] || 0) + amount;
 
-  write(state);
+  markDirty();
+  db.upsertLead(lead);
+  db.upsertVariant('cooud', v);
   return lead;
 }
 
@@ -362,8 +441,16 @@ function cooudReconciliation(leads) {
   };
 }
 
+// ── Snapshot agregado para a dashboard ─────────────────────────────────────
+// Cache curto: /api/stats é chamado em polling; evita reagregar a cada hit.
+let statsCache = null;
+let statsCacheAt = 0;
+const STATS_CACHE_MS = 2000;
+
 function getStats() {
-  const state = read();
+  const now = Date.now();
+  if (statsCache && (now - statsCacheAt) < STATS_CACHE_MS) return statsCache;
+  ensureLoaded();
   const out = { variants: {}, events: state.events || [], updatedAt: state.updatedAt };
 
   VARIANTS.forEach((v) => {
@@ -433,14 +520,77 @@ function getStats() {
   // ── Cooud (anti-desvio) + leads recentes ──
   out.cooud = cooudReconciliation(leads);
   out.cooud.stripeConvRate = out.variants.stripe ? out.variants.stripe.conversionRate : 0;
-  out.leads = leads.slice(0, 200);
+  out.leads = leads.slice(0, 3000); // envia histórico amplo p/ filtros de vários dias
+
+  statsCache = out;
+  statsCacheAt = now;
   return out;
 }
 
-function reset() { write(emptyState()); }
+function invalidateStatsCache() { statsCache = null; }
+
+function reset() {
+  state = emptyState();
+  rebuildIndex();
+  invalidateStatsCache();
+  markDirty();
+  flushToDisk();
+  db.reset();
+}
+
+// ── Hidratação do cache a partir do Neon (chamado no boot) ────────────────
+// Faz o banco ser a fonte de verdade após um deploy/reinício: o arquivo local
+// é efêmero, então recarregamos leads/eventos/variantes do Postgres.
+async function hydrate() {
+  try {
+    await db.init();
+    if (!db.enabled) return;
+    const persisted = await db.loadState(MAX_LEADS, MAX_EVENTS);
+    if (!persisted) return;
+    ensureLoaded();
+    // Banco vence sobre o arquivo efêmero (que costuma estar vazio no boot).
+    if (persisted.leads && persisted.leads.length) state.leads = persisted.leads.slice(0, MAX_LEADS);
+    if (persisted.events && persisted.events.length) state.events = persisted.events.slice(0, MAX_EVENTS);
+    VARIANTS.forEach((v) => {
+      if (persisted.variants && persisted.variants[v]) {
+        state.variants[v] = Object.assign(emptyVariant(), persisted.variants[v]);
+        if (!state.variants[v].revenue) state.variants[v].revenue = {};
+      }
+    });
+    rebuildIndex();
+    invalidateStatsCache();
+    markDirty();
+    console.log('[stats] Hidratado do Neon: ' + state.leads.length + ' leads, ' + state.events.length + ' eventos.');
+  } catch (err) {
+    console.error('[stats] Erro ao hidratar do Neon:', err.message);
+  }
+}
+
+// ── Quem está "no checkout" AGORA, por gateway ────────────────────────────
+// Stripe: o checkout é nosso, então a presença real (heartbeat) é a fonte —
+// esta função serve de complemento. Cooud: o checkout é EXTERNO (sem como
+// injetar script lá), então estimamos: lead que entrou no checkout há menos
+// de `windowMs` (padrão 10 min) e ainda não comprou = provavelmente lá.
+function inCheckoutNow(windowMs) {
+  ensureLoaded();
+  const cut = Date.now() - (windowMs || 10 * 60 * 1000);
+  const out = { stripe: 0, cooud: 0 };
+  (state.leads || []).forEach((l) => {
+    if (l.stage !== 'checkout') return;
+    const t = l.checkoutAt ? new Date(l.checkoutAt).getTime() : 0;
+    if (t >= cut) out[l.gateway === 'cooud' ? 'cooud' : 'stripe']++;
+  });
+  return out;
+}
+
+// Garante snapshot final ao encerrar o processo (deploy/restart).
+process.once('SIGTERM', flushSync);
+process.once('SIGINT', flushSync);
+process.once('beforeExit', flushSync);
 
 module.exports = {
   VARIANTS, recordAssignment, recordClick, recordConversion,
   logEvent, recordVisit, recordCheckoutEntry, markPurchased,
-  attachTracking, getLead, matchCooudConversion, getStats, reset
+  attachTracking, getLead, findLeadByEmail, matchCooudConversion, getStats, reset, hydrate,
+  inCheckoutNow
 };

@@ -1,8 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const db = require('./db');
 
-// Configuração editável pela dashboard (persistida em arquivo).
-// OBS: no Railway o filesystem é efêmero; para persistência real migrar p/ DB.
+// ── Configuração editável pela dashboard ──────────────────────────────────
+// REMODELADO: a config agora vive em memória (leitura O(1), sem I/O por
+// request) e é persistida em dois níveis:
+//   1. Neon (durável — sobrevive a deploys/reinícios);
+//   2. arquivo local (snapshot de fallback).
+// Antes, cada get()/pickVariant()/nextRotationUrl() relia o arquivo do disco.
 const DATA_DIR = path.join(__dirname, 'data');
 const FILE = path.join(DATA_DIR, 'config.json');
 
@@ -33,28 +38,61 @@ function defaults() {
   };
 }
 
-function ensureFile() {
+// ── Cache em memória ───────────────────────────────────────────────────────
+let cfg = null;
+
+function loadFromDisk() {
   try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, JSON.stringify(defaults(), null, 2));
+    if (fs.existsSync(FILE)) {
+      return Object.assign(defaults(), JSON.parse(fs.readFileSync(FILE, 'utf8')));
+    }
   } catch (err) {
-    console.error('[config] Erro ao criar arquivo:', err.message);
+    console.error('[config] Erro ao ler config do disco:', err.message);
+  }
+  return defaults();
+}
+
+function ensureLoaded() {
+  if (!cfg) cfg = loadFromDisk();
+  return cfg;
+}
+
+// Persiste (assíncrono, não bloqueia a request): arquivo local + Neon.
+function persist() {
+  const snapshot = JSON.stringify(cfg, null, 2);
+  fs.mkdir(DATA_DIR, { recursive: true }, () => {
+    fs.writeFile(FILE, snapshot, (err) => {
+      if (err) console.error('[config] Erro ao gravar config:', err.message);
+    });
+  });
+  db.saveConfig(cfg);
+}
+
+// Hidrata do Neon no boot (banco vence sobre o arquivo efêmero).
+async function hydrate() {
+  try {
+    const persisted = await db.loadConfig();
+    if (persisted && typeof persisted === 'object') {
+      cfg = Object.assign(defaults(), persisted);
+      console.log('[config] Config hidratada do Neon.');
+    } else {
+      ensureLoaded();
+      // primeira execução com banco: semeia o Neon com o estado atual
+      if (db.enabled) db.saveConfig(cfg);
+    }
+  } catch (err) {
+    console.error('[config] Erro ao hidratar config:', err.message);
+    ensureLoaded();
   }
 }
 
 function get() {
-  ensureFile();
-  try {
-    const raw = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-    return Object.assign(defaults(), raw);
-  } catch (err) {
-    console.error('[config] Erro ao ler config:', err.message);
-    return defaults();
-  }
+  // cópia rasa defensiva — chamadores não devem mutar o cache por referência
+  return Object.assign({}, ensureLoaded());
 }
 
 function set(patch) {
-  const cur = get();
+  const cur = ensureLoaded();
   const next = Object.assign({}, cur, patch || {});
 
   // Sanitização
@@ -84,39 +122,46 @@ function set(patch) {
   next._rotIndex = Number.isFinite(Number(cur._rotIndex)) ? Number(cur._rotIndex) : 0;
 
   next.updatedAt = new Date().toISOString();
-  ensureFile();
-  try {
-    fs.writeFileSync(FILE, JSON.stringify(next, null, 2));
-  } catch (err) {
-    console.error('[config] Erro ao gravar config:', err.message);
-  }
-  return next;
+  cfg = next;
+  persist();
+  return Object.assign({}, next);
 }
 
-// Decide a variante para um novo visitante, conforme a config atual.
-function pickVariant() {
-  const c = get();
+// Hash FNV-1a → número estável em [0,100). Mesmo visitante = mesmo bucket.
+function bucketOf(id) {
+  let h = 0x811c9dc5;
+  const s = String(id);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h % 100;
+}
+
+// Decide a variante para um visitante, conforme a config atual.
+// REFINADO: split determinístico por hash do visitorId — o mesmo visitante
+// SEMPRE cai na mesma variante (mesmo se limpar o cookie ab_variant), e a
+// distribuição real converge para o % configurado sem a variância do
+// Math.random() em amostras pequenas. Sem visitorId, cai no sorteio aleatório.
+function pickVariant(visitorId) {
+  const c = ensureLoaded();
   if (c.mode === 'stripe_only') return 'stripe';
-  return (Math.random() * 100 < c.stripePct) ? 'stripe' : 'cooud';
+  const roll = visitorId ? bucketOf(visitorId) : Math.random() * 100;
+  return roll < c.stripePct ? 'stripe' : 'cooud';
 }
 
 // Retorna a próxima URL "decoy" da rotação (round-robin) e persiste o índice.
 // É o que aparece na Stripe no lugar da tt_url real. Se a rotação estiver
 // desligada ou o pool vazio, retorna null (o chamador decide o fallback).
 function nextRotationUrl() {
-  ensureFile();
-  let c;
-  try { c = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch (_) { c = defaults(); }
-  c = Object.assign(defaults(), c);
+  const c = ensureLoaded();
   if (c.rotateTtUrl === false) return null;
   const pool = Array.isArray(c.rotateUrls) && c.rotateUrls.length ? c.rotateUrls : DEFAULT_ROTATE_URLS;
   const idx = Number.isFinite(Number(c._rotIndex)) ? Number(c._rotIndex) : 0;
   const url = pool[((idx % pool.length) + pool.length) % pool.length];
   c._rotIndex = (idx + 1) % pool.length;
-  try { fs.writeFileSync(FILE, JSON.stringify(c, null, 2)); } catch (err) {
-    console.error('[config] Erro ao persistir índice de rotação:', err.message);
-  }
+  persist();
   return url;
 }
 
-module.exports = { get, set, pickVariant, nextRotationUrl, defaults };
+module.exports = { get, set, pickVariant, nextRotationUrl, defaults, hydrate };
