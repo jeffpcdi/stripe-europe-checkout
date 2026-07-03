@@ -34,6 +34,7 @@ const fs = require('fs');
 const DASHBOARD_HTML = require('./dashboard-view');
 const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
+const uaTools = require('./ua');
 
 // Lê um cookie do request (parse simples, sem dependência extra)
 function readCookie(req, name) {
@@ -216,15 +217,22 @@ app.use(async (req, res, next) => {
     if (!accept.includes('text/html')) return next();          // só navegações
     if (/\.[a-z0-9]{2,5}$/i.test(p) && !p.endsWith('.html')) return next(); // ignora assets
 
+    // Bots (crawlers do TikTok/Google, monitoramento, curl) nunca viram lead
+    // nem disparam CAPI — poluiriam o funil e o Event Match Quality do pixel.
+    const uaRaw = String(req.headers['user-agent'] || '');
+    if (uaTools.isBot(uaRaw)) return next();
+
     const hadCookie = !!readCookie(req, 'v_id');
     const id = getOrAssignVisitor(req, res);
     if (!hadCookie) {                                          // 1 lead por visitante
       const geo = geoFromReq(req);
       const q = req.query || {};
+      const dev = uaTools.parse(uaRaw);
       stats.recordVisit({
         id,
         ip: clientIp(req),
-        ua: String(req.headers['user-agent'] || '').slice(0, 300),
+        ua: uaRaw.slice(0, 300),
+        device: dev.device, os: dev.os, browser: dev.browser,
         referer: req.headers['referer'] || null,
         landing: p,
         country: geo.country, countryName: geo.countryName, city: geo.city,
@@ -253,7 +261,7 @@ app.use(async (req, res, next) => {
           eventId: evId,
           leadId: id,
           ip: clientIp(req),
-          userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
+          userAgent: uaRaw.slice(0, 500),
           ttclid: q.ttclid || (leadVc && leadVc.ttclid) || null,
           ttp: (leadVc && leadVc.ttp) || null,
           email: (leadVc && leadVc.email) || undefined,
@@ -276,6 +284,15 @@ app.get('/go/:slug', async (req, res) => {
     return res.status(404).send('Link não encontrado');
   }
   const q = req.query || {};
+
+  // Bots (preview do WhatsApp/Telegram, crawler do TikTok, monitoramento):
+  // redireciona SEM rastrear — não conta clique, não vira lead, não dispara CAPI.
+  const uaRaw = String(req.headers['user-agent'] || '');
+  if (uaTools.isBot(uaRaw)) {
+    const v0 = link.variantes[0];
+    return res.redirect(302, v0.url);
+  }
+
   const visitorId = getOrAssignVisitor(req, res);
 
   // Variante sticky por cookie (respeita pesos na primeira atribuição)
@@ -289,10 +306,12 @@ app.get('/go/:slug', async (req, res) => {
   linkStore.recordClick(link.slug, variant.id);
 
   const geo = geoFromReq(req);
+  const dev = uaTools.parse(uaRaw);
   // Funil: lead entrou num checkout (gateway = slug do link)
   stats.recordCheckoutEntry(visitorId, 'link:' + link.slug, {
     ip: clientIp(req),
-    ua: String(req.headers['user-agent'] || '').slice(0, 300),
+    ua: uaRaw.slice(0, 300),
+    device: dev.device, os: dev.os, browser: dev.browser,
     referer: req.headers['referer'] || null,
     country: geo.country, countryName: geo.countryName, city: geo.city,
     ttclid: q.ttclid || null,
@@ -314,7 +333,7 @@ app.get('/go/:slug', async (req, res) => {
         leadId: visitorId,
         email: lead.email || undefined,
         ip: clientIp(req),
-        userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
+        userAgent: uaRaw.slice(0, 500),
         ttclid: q.ttclid || lead.ttclid || null,
         ttp: lead.ttp || null,
         url: fullUrl(req)
@@ -358,7 +377,7 @@ function dashboardAuth(req, res, next) {
   return res.status(401).send('Autenticação necessária.');
 }
 
-// ── API: estatísticas do teste A/B ───────────────────────────────────
+// ── API: estatísticas do teste A/B ──────���────────────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store'); // dados ao vivo — nunca cachear em proxies
   res.json(stats.getStats());
@@ -563,15 +582,43 @@ function notifyPushcut(event, n) {
   }).catch(() => {});
 }
 
+// Achata payloads aninhados: Kiwify manda {order:{…}}, Hotmart {data:{purchase:{…}}},
+// outros {payment:{…}} — mescla containers conhecidos no nível raiz (raiz vence).
+function flattenGatewayPayload(b) {
+  if (!b || typeof b !== 'object') return {};
+  const CONTAINERS = ['data', 'order', 'purchase', 'payment', 'transaction', 'sale', 'charge', 'customer', 'buyer', 'client'];
+  let flat = {};
+  const merge = (obj, depth) => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj) || depth > 2) return;
+    CONTAINERS.forEach((k) => { if (obj[k] && typeof obj[k] === 'object') merge(obj[k], depth + 1); });
+    // nível mais raso vence: campos do topo sobrescrevem os aninhados
+    flat = Object.assign({}, flat, obj);
+  };
+  merge(b, 0);
+  return flat;
+}
+
+// Valor monetário robusto: aceita número, "49.90", "49,90", "R$ 49,90", "1.234,56".
+function parseAmount(v) {
+  if (v == null) return NaN;
+  if (typeof v === 'number') return v;
+  let s = String(v).replace(/[^\d.,-]/g, '');
+  if (!s) return NaN;
+  const lastComma = s.lastIndexOf(','), lastDot = s.lastIndexOf('.');
+  if (lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');   // 1.234,56 → 1234.56
+  else s = s.replace(/,/g, '');                                          // 1,234.56 → 1234.56
+  return Number(s);
+}
+
 // Normaliza QUALQUER payload de gateway para o formato interno.
-function normalizeConversion(b, query) {
-  b = b || {};
-  const event = mapConversionEvent(b.event || b.type || b.status || (query && query.event));
+function normalizeConversion(body, query) {
+  const b = flattenGatewayPayload(body);
+  const event = mapConversionEvent(b.event || b.type || b.status || b.order_status || (query && query.event));
   if (!event) return { error: 'evento não reconhecido (use event/type/status: paid, checkout, processing…)' };
   const orderId = b.order_id || b.transaction_id || b.orderId || b.id || b.ref || null;
   if (!orderId) return { error: 'order_id obrigatório (aliases: transaction_id, id, ref)' };
   // valor: obrigatório apenas na compra aprovada
-  const rawAmount = Number(b.amount != null ? b.amount : (b.value != null ? b.value : (b.total != null ? b.total : b.price)));
+  const rawAmount = parseAmount(b.amount != null ? b.amount : (b.value != null ? b.value : (b.total != null ? b.total : b.price)));
   const hasAmount = Number.isFinite(rawAmount) && rawAmount >= 0 && rawAmount <= 1000000;
   if (event === 'CompletePayment' && !hasAmount) return { error: 'amount inválido (aliases: value, total, price; unidades 0–1M)' };
   return {
@@ -580,12 +627,17 @@ function normalizeConversion(b, query) {
     orderId: String(orderId).slice(0, 120),
     amountCents: hasAmount ? Math.round(rawAmount * 100) : 0,
     currency: /^[a-zA-Z]{3}$/.test(String(b.currency || '')) ? String(b.currency).toLowerCase() : 'eur',
-    leadId: b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id || null,
-    email: b.email || b.customer_email || b.buyer_email || null,
-    customer: b.customer || b.name || b.buyer_name || null,
-    product: b.product || b.product_name || b.content_name || null,
+    leadId: str(b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id),
+    email: str(b.email || b.customer_email || b.buyer_email),
+    phone: str(b.phone || b.customer_phone || b.buyer_phone || b.phone_number || b.mobile),
+    customer: str(b.customer || b.name || b.full_name || b.buyer_name || b.customer_name),
+    product: str(b.product || b.product_name || b.content_name),
     registerSale: true
   };
+}
+// Só aceita string/número primitivo — objetos aninhados (ex.: customer:{…}) viram null.
+function str(v) {
+  return (typeof v === 'string' || typeof v === 'number') ? String(v).slice(0, 320) : null;
 }
 
 // Motor: resolve o lead no backend, enriquece, dedupa e dispara a CAPI.
@@ -634,7 +686,7 @@ async function processConversion(n) {
         const matched = stats.matchExternalConversion({
           leadId: lead ? lead.id : null, gateway: n.gateway,
           amountCents: n.amountCents, currency: n.currency,
-          customer: n.customer, email: n.email, ref: n.orderId
+          customer: n.customer, email: n.email, phone: n.phone, ref: n.orderId
         });
         stats.logEvent('sale', {
           title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
@@ -658,6 +710,7 @@ async function processConversion(n) {
     const r = await ttEvents.dispatchToAll(n.event, {
       eventId: evId,
       email: n.email || (lead && lead.email) || undefined,
+      phone: n.phone || (lead && lead.phone) || undefined,
       leadId: lead ? lead.id : undefined,            // external_id = hash do v_id
       externalId: lead ? undefined : (n.email || n.orderId),
       ip: (lead && lead.ip) || undefined,

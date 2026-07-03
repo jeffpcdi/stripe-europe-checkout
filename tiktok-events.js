@@ -44,6 +44,8 @@ function pushLog(entry) {
     eventId: entry.eventId,
     leadId: entry.leadId,
     status: entry.status,
+    emq: entry.emq != null ? entry.emq : null,          // score 0–10 de identidade
+    emqFields: entry.emqFields || [],                    // sinais enviados (email, ttclid…)
     response: entry.response
   };
   log.unshift(row);
@@ -116,6 +118,20 @@ function buildUser(p) {
   return user;
 }
 
+// Score de correspondência (proxy do Event Match Quality do TikTok):
+// pesa os sinais de identidade que REALMENTE entraram no payload.
+// ttclid é o sinal mais forte (clique atribuível), depois email/phone (PII).
+const MATCH_WEIGHTS = { ttclid: 3, email: 2, phone: 2, external_id: 1, ttp: 1, ip: 0.5, user_agent: 0.5 };
+const MATCH_MAX = Object.values(MATCH_WEIGHTS).reduce((a, b) => a + b, 0); // 10
+function matchScore(user) {
+  let score = 0;
+  const fields = [];
+  Object.keys(MATCH_WEIGHTS).forEach((k) => {
+    if (user[k]) { score += MATCH_WEIGHTS[k]; fields.push(k); }
+  });
+  return { score: Math.round((score / MATCH_MAX) * 10), fields }; // 0–10
+}
+
 function buildProperties(p) {
   const properties = {};
   // NaN e Infinity passam em `typeof === 'number'` — Number.isFinite não
@@ -177,6 +193,8 @@ async function sendToPixel(pixel, p) {
   const eventId = p.eventId || (p.event + '.' + crypto.randomBytes(8).toString('hex'));
 
   const pageUrl = validUrl(p.url);
+  const user = buildUser(p);
+  const emq = matchScore(user);
   const payload = {
     event_source: 'web',
     event_source_id: pixel.pixelCode,
@@ -184,7 +202,7 @@ async function sendToPixel(pixel, p) {
       event: p.event,
       event_time: validEventTime(p.eventTime),
       event_id: eventId,
-      user: buildUser(p),
+      user,
       properties: buildProperties(p),
       page: pageUrl ? { url: pageUrl } : undefined
     }]
@@ -211,6 +229,8 @@ async function sendToPixel(pixel, p) {
         eventId,
         leadId: p.leadId,
         status: ok ? 'ok' : 'erro',
+        emq: emq.score,
+        emqFields: emq.fields,
         response: { code: json.code, message: json.message || json.msg, retry: attempt || undefined }
       });
       return json;
@@ -224,6 +244,8 @@ async function sendToPixel(pixel, p) {
     eventId,
     leadId: p.leadId,
     status: 'erro',
+    emq: emq.score,
+    emqFields: emq.fields,
     response: { message: (lastErr && lastErr.message) || 'falha desconhecida', retried: true }
   });
   return { error: (lastErr && lastErr.message) || 'falha desconhecida' };

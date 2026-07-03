@@ -1223,7 +1223,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="card" style="padding:0">
           <div class="tbl-wrap" style="border:0">
             <table>
-              <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Status</th><th>Resposta</th></tr></thead>
+              <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Qualidade</th><th>Status</th><th>Resposta</th></tr></thead>
               <tbody id="px-log"></tbody>
             </table>
           </div>
@@ -2544,15 +2544,23 @@ function loadPxLog(){
   fetch('/api/pixels/log').then(function(r){return r.json();}).then(function(d){
     var tb=document.getElementById('px-log'); if(!tb) return;
     var log=d.log||[];
-    if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">Nenhum disparo ainda — os eventos aparecem aqui conforme os leads navegam.</td></tr>'; return; }
+    if(!log.length){ tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted2);padding:26px">Nenhum disparo ainda — os eventos aparecem aqui conforme os leads navegam.</td></tr>'; return; }
     tb.innerHTML=log.map(function(e){
       var ok=e.status==='ok';
       var resp=e.response&&e.response.message?e.response.message:(ok?'aceito':'—');
+      // EMQ 0-10: verde >=6, âmbar 3-5, vermelho <3 — sinais no title (hover)
+      var emqCell='<span style="color:var(--muted2)">—</span>';
+      if(e.emq!=null){
+        var cls=e.emq>=6?'grn':(e.emq>=3?'amb':'neg');
+        var flds=(e.emqFields||[]).join(', ')||'nenhum sinal';
+        emqCell='<span class="'+cls+'" title="Sinais: '+esc(flds)+'" style="font-family:\\'Geist Mono\\',monospace;font-weight:700">'+e.emq+'/10</span>';
+      }
       return '<tr style="cursor:default">'+
         '<td>'+timeAgo(e.at)+'</td>'+
         '<td>'+esc(e.pixel||'—')+'</td>'+
         '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'—')+'</span></td>'+
         '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'—').slice(0,10))+'</td>'+
+        '<td>'+emqCell+'</td>'+
         '<td><span class="'+(ok?'grn':'neg')+'">'+(ok?'OK':'erro')+'</span></td>'+
         '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--muted2)">'+esc(String(resp).slice(0,120))+'</td>'+
       '</tr>';

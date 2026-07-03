@@ -1,0 +1,19 @@
+{
+  "slug": "px-teste",
+  "name": "px-teste",
+  "pixelCode": "TESTPIXEL123",
+  "accessToken": "token_fake_para_teste",
+  "testEventCode": "",
+  "active": true,
+  "routes": [
+    "*"
+  ],
+  "events": {
+    "ViewContent": true,
+    "InitiateCheckout": true,
+    "AddPaymentInfo": true,
+    "CompletePayment": true,
+    "AddToCart": false
+  },
+  "updatedAt": "2026-07-03T18:23:04.059Z"
+}

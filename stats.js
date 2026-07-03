@@ -146,6 +146,7 @@ function recordVisit(data) {
       gateway: null,
       ip: data.ip || null,
       ua: data.ua || null,
+      device: data.device || null, os: data.os || null, browser: data.browser || null,
       referer: data.referer || null,
       country: data.country || null,
       countryName: data.countryName || null,
@@ -156,7 +157,7 @@ function recordVisit(data) {
     });
   } else {
     // enriquece dados que faltavam
-    ['ip', 'ua', 'referer', 'country', 'countryName', 'city', 'ttclid'].forEach((k) => {
+    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
     if (data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) lead.utm = data.utm;
@@ -182,6 +183,7 @@ function recordCheckoutEntry(id, gateway, data) {
       gateway: gateway || null,
       ip: data.ip || null,
       ua: data.ua || null,
+      device: data.device || null, os: data.os || null, browser: data.browser || null,
       referer: data.referer || null,
       country: data.country || null,
       countryName: data.countryName || null,
@@ -192,7 +194,7 @@ function recordCheckoutEntry(id, gateway, data) {
   } else {
     if (lead.stage !== 'purchased') lead.stage = 'checkout';
     lead.gateway = gateway || lead.gateway;
-    ['ip', 'ua', 'referer', 'country', 'countryName', 'city', 'ttclid'].forEach((k) => {
+    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
     if (data.utm && data.utm.source && (!lead.utm || !lead.utm.source)) lead.utm = data.utm;
@@ -278,6 +280,7 @@ function matchExternalConversion(data) {
     lead.reportedCurrency = cur;
     lead.customer = data.customer || lead.customer || null;
     lead.email = data.email || lead.email || null;
+    lead.phone = data.phone || lead.phone || null;
     lead.ref = data.ref || lead.ref || null;
     lead.orphan = false;
   } else {
@@ -293,6 +296,7 @@ function matchExternalConversion(data) {
       reportedCurrency: cur,
       customer: data.customer || null,
       email: data.email || null,
+      phone: data.phone || null,
       ref: data.ref || null,
       utm: {}
     });
@@ -354,6 +358,18 @@ function getStats() {
     if (l.stage === 'checkout' || l.stage === 'purchased') byGateway[l.gateway].checkout++;
     if (l.stage === 'purchased') byGateway[l.gateway].purchased++;
   });
+
+  // Dispositivos/navegadores (parse do user-agent feito na entrada do lead)
+  const byDevice = {};
+  const byBrowser = {};
+  realLeads.forEach((l) => {
+    if (l.device) {
+      if (!byDevice[l.device]) byDevice[l.device] = { visits: 0, purchased: 0 };
+      byDevice[l.device].visits++;
+      if (l.stage === 'purchased') byDevice[l.device].purchased++;
+    }
+    if (l.browser) byBrowser[l.browser] = (byBrowser[l.browser] || 0) + 1;
+  });
   out.funnel = {
     visits,
     reachedCheckout,
@@ -361,7 +377,9 @@ function getStats() {
     visitToCheckout: visits ? +((reachedCheckout / visits) * 100).toFixed(1) : 0,
     checkoutToPurchase: reachedCheckout ? +((purchased / reachedCheckout) * 100).toFixed(1) : 0,
     overall: visits ? +((purchased / visits) * 100).toFixed(1) : 0,
-    byGateway
+    byGateway,
+    byDevice,
+    byBrowser
   };
 
   // ── Países (geo dos leads) ──
