@@ -294,6 +294,26 @@ app.use(async (req, res, next) => {
 // até a entrada do checkout, sem depender de cookie cross-site.
 const VID_RE = /^ld_[a-z0-9]{6,30}$/i;
 
+// ── Anti-abuso: rate limit por IP nos endpoints públicos ─────────────
+// Janela deslizante em memória (60s). Protege os números do funil e o
+// sinal do pixel contra bots agressivos, spy tools e cliques inflados.
+// Limites folgados para humanos (SPA que troca de rota muito fica longe).
+const RL_BUCKETS = new Map(); // 'ip|chave' -> { n, resetAt }
+function rateLimited(ip, key, max) {
+  const now = Date.now();
+  const k = ip + '|' + key;
+  let b = RL_BUCKETS.get(k);
+  if (!b || now > b.resetAt) { b = { n: 0, resetAt: now + 60e3 }; RL_BUCKETS.set(k, b); }
+  b.n++;
+  return b.n > max;
+}
+// varredura periódica para o Map não crescer sem limite
+const rlSweep = setInterval(() => {
+  const now = Date.now();
+  RL_BUCKETS.forEach((b, k) => { if (now > b.resetAt) RL_BUCKETS.delete(k); });
+}, 120e3);
+if (rlSweep.unref) rlSweep.unref();
+
 app.get('/t.js', (_req, res) => {
   res.set({
     'Content-Type': 'application/javascript; charset=utf-8',
@@ -301,6 +321,51 @@ app.get('/t.js', (_req, res) => {
     'Access-Control-Allow-Origin': '*'
   });
   res.send(TRACKER_JS);
+});
+
+// Fallback SEM JavaScript: <noscript><img src="https://DOMINIO/px.gif"></noscript>
+// Leads com JS bloqueado/quebrado deixam de ser invisíveis: o pixel de imagem
+// registra a visita com um id derivado de IP+UA+dia (estável no dia, sem cookie).
+const PX_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+app.get('/px.gif', (req, res) => {
+  res.set({
+    'Content-Type': 'image/gif',
+    'Cache-Control': 'no-store, no-cache, must-revalidate', // cada view conta
+    'Access-Control-Allow-Origin': '*'
+  });
+  res.end(PX_GIF);                                 // responde já; processa depois
+  try {
+    if (rateLimited(clientIp(req), 'pxgif', 30)) return;
+    const uaRaw = String(req.headers['user-agent'] || '');
+    if (uaTools.isBot(uaRaw)) return;
+    // vid explícito (?vid=) ou fingerprint diário de IP+UA (prefixo nojs)
+    let vid = VID_RE.test(String(req.query.vid || '')) ? String(req.query.vid) : null;
+    if (!vid) {
+      const day = new Date().toISOString().slice(0, 10);
+      vid = 'ld_nojs' + crypto.createHash('sha256')
+        .update(clientIp(req) + '|' + uaRaw + '|' + day).digest('hex').slice(0, 16);
+    }
+    const geo = geoFromReq(req);
+    const dev = uaTools.parse(uaRaw);
+    const ref = typeof req.headers.referer === 'string' ? req.headers.referer.slice(0, 300) : null;
+    let landing = 'externa (sem JS)';
+    try { if (ref) landing = new URL(ref).pathname.slice(0, 200); } catch (_) {}
+    stats.recordVisit({
+      id: vid, ip: clientIp(req), ua: uaRaw.slice(0, 300),
+      device: dev.device, os: dev.os, browser: dev.browser,
+      referer: ref, landing,
+      country: geo.country, countryName: geo.countryName, city: geo.city
+    });
+    // ViewContent com o mesmo esquema de dedup por hora
+    const evId = 'ViewContent.' + vid + '.' + hourKey();
+    seenPixelEvent(evId).then((seen) => {
+      if (seen) return;
+      ttEvents.dispatchToAll('ViewContent', {
+        eventId: evId, leadId: vid, ip: clientIp(req),
+        userAgent: uaRaw.slice(0, 500), url: ref || undefined
+      }, landing).catch(() => {});
+    }).catch(() => {});
+  } catch (_) { /* pixel de imagem nunca derruba nada */ }
 });
 
 // Endpoint público chamado pelo snippet (sendBeacon/fetch, sem cookies).
@@ -311,15 +376,27 @@ app.post('/api/track', async (req, res) => {
     const b = req.body || {};
     const vid = VID_RE.test(String(b.vid || '')) ? String(b.vid) : null;
     if (!vid) return;
+    if (rateLimited(clientIp(req), 'track', 120)) return; // bot martelando: ignora
+    checkDailyReport();                            // carona no tráfego (sem cron)
     const uaRaw = String(req.headers['user-agent'] || '');
     if (uaTools.isBot(uaRaw)) return;              // bots não viram lead nem CAPI
+
+    // Clique em elemento marcado (data-track="nome"): só um passo na jornada
+    if (typeof b.click === 'string' && b.click) {
+      stats.recordClickStep(vid, b.click);
+      return;
+    }
 
     const geo = geoFromReq(req);
     const dev = uaTools.parse(uaRaw);
     const utm = (b.utm && typeof b.utm === 'object') ? b.utm : {};
     const pageUrl = typeof b.url === 'string' ? b.url.slice(0, 500) : null;
-    let landing = pageUrl;
-    try { landing = new URL(pageUrl).pathname.slice(0, 200); } catch (_) {}
+    let landing = pageUrl, site = null;
+    try {
+      const u = new URL(pageUrl);
+      landing = u.pathname.slice(0, 200);
+      site = u.hostname.slice(0, 100);             // separa funis/produtos por domínio
+    } catch (_) {}
 
     // lead já existia? (evita "novo lead" duplicado a cada page view)
     let existed = false;
@@ -333,6 +410,7 @@ app.post('/api/track', async (req, res) => {
       device: dev.device, os: dev.os, browser: dev.browser,
       referer: typeof b.referrer === 'string' ? b.referrer.slice(0, 300) : null,
       landing: landing || 'externa',
+      site,
       country: geo.country, countryName: geo.countryName, city: geo.city,
       ttclid: typeof b.ttclid === 'string' ? b.ttclid.slice(0, 500) : null,
       utm: {
@@ -390,6 +468,10 @@ app.get('/go/:slug', async (req, res) => {
   if (uaTools.isBot(uaRaw)) {
     const v0 = link.variantes[0];
     return res.redirect(302, v0.url);
+  }
+  // Rajada do mesmo IP (spy tool/clique inflado): redireciona sem contar
+  if (rateLimited(clientIp(req), 'go', 20)) {
+    return res.redirect(302, link.variantes[0].url);
   }
 
   // Costura de identidade: se veio de página externa com snippet /t.js,
@@ -467,6 +549,175 @@ app.get('/go/:slug', async (req, res) => {
   return res.redirect(302, dest);
 });
 
+// ── Encurtador rastreável (/l/:slug) ─────────────────────────────────
+// Substitui bit.ly nos criativos: o clique vira lead no funil (landing
+// "l:slug"), o vid viaja para o destino e o funil começa no clique do
+// anúncio — não na primeira página com snippet.
+function bumpShortlinkClick(slug) {
+  // rate limit de 20/min por IP mantém o volume de escrita sob controle
+  const cfg = config.get();
+  const sl = (cfg.shortlinks || []).map((s) => s.slug === slug ? { ...s, clicks: (s.clicks || 0) + 1 } : s);
+  config.set({ shortlinks: sl });
+}
+app.get('/l/:slug', (req, res) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const item = (config.get().shortlinks || []).find((s) => s.slug === slug);
+  if (!item) return res.status(404).send('Link não encontrado');
+  const uaRaw = String(req.headers['user-agent'] || '');
+  if (uaTools.isBot(uaRaw)) return res.redirect(302, item.url); // preview de app: só redireciona
+  if (rateLimited(clientIp(req), 'shortlink', 20)) return res.redirect(302, item.url);
+
+  // identidade: cookie existente ou novo vid — viaja na URL para o destino
+  let vid;
+  const q = req.query || {};
+  if (q.vid && VID_RE.test(String(q.vid))) vid = String(q.vid);
+  else vid = getOrAssignVisitor(req, res);
+
+  try {
+    const geo = geoFromReq(req);
+    const dev = uaTools.parse(uaRaw);
+    stats.recordVisit({
+      id: vid,
+      ip: clientIp(req), ua: uaRaw.slice(0, 300),
+      device: dev.device, os: dev.os, browser: dev.browser,
+      referer: req.headers['referer'] || null,
+      landing: 'l:' + slug,
+      country: geo.country, countryName: geo.countryName, city: geo.city,
+      ttclid: typeof q.ttclid === 'string' ? q.ttclid.slice(0, 500) : null,
+      utm: {
+        source: q.utm_source || null, medium: q.utm_medium || null,
+        campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
+      }
+    });
+    bumpShortlinkClick(slug);
+  } catch (_) { /* rastreamento nunca bloqueia o redirect */ }
+
+  // repassa a query original + injeta o vid (o t.js do destino adota)
+  const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+  params.set('vid', vid);
+  const dest = item.url + (item.url.includes('?') ? '&' : '?') + params.toString();
+  return res.redirect(302, dest);
+});
+
+// CRUD do encurtador (dashboard)
+app.get('/api/shortlinks', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ shortlinks: config.get().shortlinks || [] });
+});
+app.post('/api/shortlinks', dashboardAuth, (req, res) => {
+  const b = req.body || {};
+  const slug = String(b.slug || b.nome || '').toLowerCase().trim()
+    .replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 60);
+  const url = String(b.url || '').trim();
+  if (!slug) return res.status(400).json({ error: 'slug inválido' });
+  if (!/^https?:\/\/.+/i.test(url)) return res.status(400).json({ error: 'URL inválida — use http(s)://' });
+  const list = (config.get().shortlinks || []).filter((s) => s.slug !== slug);
+  list.unshift({ slug, nome: String(b.nome || slug).slice(0, 80), url: url.slice(0, 500), clicks: 0, createdAt: new Date().toISOString() });
+  config.set({ shortlinks: list });
+  res.json({ ok: true, shortlink: list[0] });
+});
+app.delete('/api/shortlinks/:slug', dashboardAuth, (req, res) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  config.set({ shortlinks: (config.get().shortlinks || []).filter((s) => s.slug !== slug) });
+  res.json({ ok: true });
+});
+
+// ── Anotações do gráfico de tendência ────────────────────────────────
+app.get('/api/notes', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ notes: config.get().notes || [] });
+});
+app.post('/api/notes', dashboardAuth, (req, res) => {
+  const b = req.body || {};
+  const d = String(b.d || '').slice(0, 10);
+  const text = String(b.text || '').trim().slice(0, 200);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return res.status(400).json({ error: 'data inválida (YYYY-MM-DD)' });
+  if (!text) return res.status(400).json({ error: 'texto vazio' });
+  const notes = (config.get().notes || []).filter((n) => n.d !== d); // 1 nota por dia
+  notes.push({ d, text });
+  notes.sort((a, b2) => a.d < b2.d ? -1 : 1);
+  config.set({ notes });
+  res.json({ ok: true });
+});
+app.delete('/api/notes/:d', dashboardAuth, (req, res) => {
+  config.set({ notes: (config.get().notes || []).filter((n) => n.d !== String(req.params.d)) });
+  res.json({ ok: true });
+});
+
+// ── API pública read-only (token) ────────────────────────────────────
+// Para planilhas (IMPORTDATA), widgets e BI externo — sem expor a dash.
+app.get('/api/public-token', dashboardAuth, (req, res) => {
+  let cfg = config.get();
+  let token = (cfg.api || {}).token;
+  if (!token) {
+    token = crypto.randomBytes(24).toString('hex');
+    config.set({ api: { token } });
+  }
+  res.set('Cache-Control', 'no-store');
+  res.json({ token });
+});
+app.get('/api/v1/summary', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const token = (config.get().api || {}).token;
+  if (!token || String(req.query.token || '') !== token) {
+    return res.status(401).json({ error: 'token inválido' });
+  }
+  if (rateLimited(clientIp(req), 'pubapi', 30)) return res.status(429).json({ error: 'rate limit' });
+  const s = stats.getStats();
+  const now = Date.now();
+  function within(iso, ms) { const t = new Date(iso).getTime(); return isFinite(t) && (now - t) <= ms; }
+  function agg(ms) {
+    const leads = (s.leads || []).filter((l) => !l.orphan && (ms == null || within(l.at, ms)));
+    const bought = leads.filter((l) => l.stage === 'purchased');
+    const rev = bought.reduce((a, l) => a + (l.reportedAmount || l.expectedAmount || 0), 0);
+    return {
+      leads: leads.length,
+      sales: bought.length,
+      revenueCents: rev,
+      conversion: leads.length ? Math.round(bought.length / leads.length * 1000) / 10 : 0
+    };
+  }
+  res.json({ today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() });
+});
+
+// ── Relatório diário via Pushcut ─────────────────────────────────────
+// Sem cron confiável em serverless: verificação barata "pegando carona"
+// no tráfego (track/conversão). Na primeira request após a virada do dia
+// (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
+let dailyCheckBusy = false;
+function checkDailyReport() {
+  if (dailyCheckBusy) return;
+  const cfg = config.get();
+  const pc = cfg.pushcut || {};
+  if (!pc.url || !(pc.events || {}).daily) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (cfg.lastDailyReport === today) return;
+  dailyCheckBusy = true;
+  try {
+    const y = new Date(Date.now() - 86400e3);
+    const yKey = y.toISOString().slice(0, 10);
+    const s = stats.getStats();
+    const dayLeads = (s.leads || []).filter((l) => !l.orphan && String(l.at || '').slice(0, 10) === yKey);
+    const sales = (s.events || []).filter((e) => e.type === 'sale' && String(e.at || '').slice(0, 10) === yKey);
+    const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
+    const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
+    // anteontem, para comparação
+    const y2Key = new Date(Date.now() - 2 * 86400e3).toISOString().slice(0, 10);
+    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && String(e.at || '').slice(0, 10) === y2Key);
+    const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
+    const cur = (sales[0] && sales[0].currency) || 'EUR';
+    const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
+    config.set({ lastDailyReport: today }); // marca ANTES do envio: nunca duplica
+    sendPushcut('Aprovada', {
+      title: 'Resumo de ' + yKey.split('-').reverse().join('/'),
+      text: 'Receita: ' + (rev / 100).toFixed(2) + ' ' + cur +
+        (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta + '% vs anterior)' : '') +
+        '\nVendas: ' + sales.length + ' · Leads: ' + dayLeads.length + ' · Conversão: ' + conv + '%',
+      sound: 'system'
+    }).catch(() => {});
+  } catch (_) {} finally { dailyCheckBusy = false; }
+}
+
 // ── Auth simples (Basic Auth) para a dashboard ───────────────────────
 // Comparação em tempo constante (crypto.timingSafeEqual) — evita timing
 // attacks que a comparação com === permitia.
@@ -491,7 +742,8 @@ function dashboardAuth(req, res, next) {
 app.get('/api/stats', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store'); // dados ao vivo — nunca cachear em proxies
   res.json(stats.getStats());
-});
+  checkDailyReport(); // dashboard aberta também dispara o resumo pendente
+  });
 
 // ── API: heartbeat de presença (chamado por todas as páginas do funil) ─
 app.post('/api/pulse', (req, res) => {
@@ -588,7 +840,7 @@ app.get('/api/pushcut-config', dashboardAuth, (req, res) => {
     // mascara a URL (contém o segredo do Pushcut)
     url: pc.url ? pc.url.replace(/(https:\/\/api\.pushcut\.io\/)([^/]+)/, (m, a, b) => a + '••••' + b.slice(-4)) : '',
     hasUrl: !!pc.url,
-    events: Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false }, pc.events || {})
+    events: Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false }, pc.events || {})
   });
 });
 
@@ -606,6 +858,7 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
     pc.events = {};
     ['sale', 'failed', 'refund', 'dispute', 'checkout'].forEach((k) => { pc.events[k] = b.events[k] !== false; });
     ['sale', 'failed', 'refund', 'dispute', 'checkout'].forEach((k) => { if (b.events[k] === false) pc.events[k] = false; });
+    pc.events.daily = b.events.daily === true; // opt-in explícito (relatório diário)
   }
   config.set({ pushcut: pc });
   res.json({ ok: true });
@@ -833,9 +1086,16 @@ async function processConversion(n) {
       notifyPushcut('CompletePayment', n);
     } else if (n.event === 'InitiateCheckout' || n.event === 'AddPaymentInfo') {
       // PIX gerado / checkout iniciado no gateway: avança o estágio do lead
-      // no funil (antes ficava parado em "visit" até a compra — bug de funil)
+      // no funil e salva email/telefone/nome — essenciais para casar a
+      // conversão paga que chega depois (match por e-mail/telefone)
       if (lead) {
-        try { stats.recordCheckoutEntry(lead.id, n.gateway, {}); } catch (_) {}
+        try {
+          stats.recordCheckoutEntry(lead.id, n.gateway, {
+            email: n.email || undefined,
+            phone: n.phone || undefined,
+            customer: n.name || undefined
+          });
+        } catch (_) {}
       }
       notifyPushcut(n.event, n);
     }
@@ -1069,7 +1329,11 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
     const slug = pixelStore.slugify(req.body.slug || '');
     const pixel = pixelStore.get(slug);
     if (!pixel) return res.status(404).json({ error: 'pixel não encontrado' });
-    const result = await ttEvents.testPixel(pixel);
+    // ip/ua de quem clicou: a Events API exige identidade de usuário no evento
+    const result = await ttEvents.testPixel(pixel, {
+      ip: clientIp(req),
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 500)
+    });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1089,6 +1353,42 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
     id: r.id, at: r.at, pixel: r.pixel, event: r.event,
     eventId: r.event_id, leadId: r.lead_id, status: r.status, response: r.response
   })), source: 'neon' });
+});
+
+// Saúde da CAPI: taxa de sucesso, EMQ médio por evento, últimos erros e o
+// tamanho da fila de retry — visão imediata de "está tudo disparando?"
+app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const rows = await ttEvents.recentLogAsync(200);
+  const total = rows.length;
+  const ok = rows.filter((r) => r.status === 'ok').length;
+  const byEvent = {};
+  let emqSum = 0, emqN = 0;
+  rows.forEach((r) => {
+    const e = byEvent[r.event] = byEvent[r.event] || { total: 0, ok: 0, emqSum: 0, emqN: 0 };
+    e.total++;
+    if (r.status === 'ok') e.ok++;
+    if (r.emq != null) { e.emqSum += r.emq; e.emqN++; emqSum += r.emq; emqN++; }
+  });
+  const events = Object.keys(byEvent).map((name) => {
+    const e = byEvent[name];
+    return {
+      event: name, total: e.total, ok: e.ok,
+      rate: e.total ? Math.round((e.ok / e.total) * 100) : 0,
+      emq: e.emqN ? Math.round((e.emqSum / e.emqN) * 10) / 10 : null
+    };
+  }).sort((a, b) => b.total - a.total);
+  const errors = rows.filter((r) => r.status !== 'ok').slice(0, 5).map((r) => ({
+    at: r.at, pixel: r.pixel, event: r.event,
+    message: (r.response && (r.response.message || ('code ' + r.response.code))) || 'erro'
+  }));
+  res.json({
+    ok: true, total, success: ok,
+    rate: total ? Math.round((ok / total) * 100) : null,
+    emq: emqN ? Math.round((emqSum / emqN) * 10) / 10 : null,
+    events, errors,
+    retryQueue: ttEvents.retryQueueSize()
+  });
 });
 
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {
@@ -1135,7 +1435,7 @@ stats.hydrate()
       console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
     });
 
-    // ── Manutenção periódica ─────────────────────────────────────────
+    // ── Manutenção periódica ────────��────────────────────────────────
     // 1. Prune do mapa de presença em memória (remove sessões expiradas
     //    mesmo sem ninguém consultar /api/live).
     setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();

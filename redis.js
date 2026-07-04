@@ -150,6 +150,36 @@ async function loadConversionLog(limit) {
   }
 }
 
+// ── Fila de retry da CAPI (eventos que falharam após os retries imediatos) ─
+// Snapshot único em JSON: a fila é pequena (cap 300) e o snapshot evita
+// divergência entre memória e Redis. Sobrevive a restarts do servidor.
+const CAPI_RETRY_KEY = 'capiRetryQueue';
+
+async function saveCapiRetryQueue(items) {
+  if (!enabled) return false;
+  try {
+    if (!items || !items.length) { await redis.del(CAPI_RETRY_KEY); return true; }
+    await redis.set(CAPI_RETRY_KEY, JSON.stringify(items.slice(0, 300)), { ex: 2 * 86400 });
+    return true;
+  } catch (err) {
+    console.error('[redis] saveCapiRetryQueue:', err.message);
+    return false;
+  }
+}
+
+async function loadCapiRetryQueue() {
+  if (!enabled) return null;
+  try {
+    const raw = await redis.get(CAPI_RETRY_KEY);
+    if (!raw) return [];
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) ? arr : [];
+  } catch (err) {
+    console.error('[redis] loadCapiRetryQueue:', err.message);
+    return null;
+  }
+}
+
 // ── Dedup de event_id (evita redisparo CAPI quando beacon + middleware ==) ─
 async function seenEventId(eventId) {
   if (!enabled || !eventId) return false;
@@ -179,6 +209,7 @@ module.exports = {
   touchPresence, leavePresence, listPresence,
   pushPixelLog, loadPixelLog,
   pushConversionLog, loadConversionLog,
+  saveCapiRetryQueue, loadCapiRetryQueue,
   seenEventId,
   ping, TTL
 };

@@ -75,10 +75,18 @@ function loadFromDisk() {
   return out;
 }
 
-// Escreve o arquivo do pixel no disco (sem tocar no banco).
+// Escreve o arquivo do pixel no disco — BEST-EFFORT. Em produção (Vercel)
+// o filesystem é somente leitura: a escrita falha e tudo bem, porque a
+// fonte de verdade durável é o Neon e a fonte quente é o cache em memória.
+// Antes esta função lançava EROFS e derrubava o save ANTES do espelho no
+// banco — era isso que fazia o pixel "sumir" a cada deploy.
 function writeFile(slug, cfg) {
-  ensureDir();
-  fs.writeFileSync(fileFor(slug), JSON.stringify(cfg, null, 2));
+  try {
+    ensureDir();
+    fs.writeFileSync(fileFor(slug), JSON.stringify(cfg, null, 2));
+  } catch (e) {
+    console.warn('[pixels] disco indisponível (ok em produção):', e.code || e.message);
+  }
 }
 
 // ── Boot: carrega do disco; se vazio, tenta re-hidratar do banco; e migra
@@ -86,16 +94,17 @@ function writeFile(slug, cfg) {
 async function init() {
   loadFromDisk();
 
-  // Re-hidrata do banco se o FS estiver vazio (deploy efêmero).
+  // Re-hidrata do banco se o FS estiver vazio (deploy efêmero / read-only).
+  // Direto para a MEMÓRIA — não depende de conseguir escrever no disco
+  // (em Vercel o writeFile falhava e o cache ficava vazio mesmo com
+  // pixels salvos no banco).
   if (!cache.length && db.enabled) {
     try {
       const rows = await db.loadPixels();
       if (rows && rows.length) {
-        rows.forEach((r) => {
-          const n = normalize(r.slug, r);
-          writeFile(n.slug, n);
-        });
-        loadFromDisk();
+        cache = rows.map((r) => normalize(r.slug, r));
+        byRoute = null;
+        rows.forEach((r) => writeFile(r.slug, normalize(r.slug, r))); // best-effort
         console.log('[pixels] ' + cache.length + ' pixel(s) re-hidratado(s) do banco.');
       }
     } catch (e) { console.error('[pixels] rehydrate:', e.message); }
@@ -113,10 +122,11 @@ async function init() {
         active: true,
         routes: ['*']
       });
-      writeFile('default', n);
+      cache = [n];
+      byRoute = null;
       if (db.enabled) db.upsertPixel('default', n);
-      loadFromDisk();
-      console.log('[pixels] pixel legado migrado para pixels/default.json');
+      writeFile('default', n); // best-effort
+      console.log('[pixels] pixel legado migrado (env → memória/banco).');
     }
   }
 
@@ -158,24 +168,30 @@ function forEvent(eventName, routePath) {
 
 function get(slug) { return cache.find((p) => p.slug === slug) || null; }
 
-// Cria/atualiza um pixel: escreve arquivo + espelha no banco.
+// Cria/atualiza um pixel: BANCO PRIMEIRO (fonte durável), depois memória,
+// e por fim o arquivo local como conveniência (best-effort). Antes a ordem
+// era disco → banco, e em produção (FS read-only) o save morria no disco
+// sem nunca espelhar no Neon — o pixel sumia a cada deploy.
 async function save(input) {
   const slug = input.slug ? slugify(input.slug) : slugify(input.name);
   const existing = get(slug);
   const cfg = normalize(slug, { ...(existing || {}), ...input, slug });
   cfg.updatedAt = new Date().toISOString();
-  writeFile(slug, cfg);
-  loadFromDisk();
-  if (db.enabled) await db.upsertPixel(slug, cfg);
+  if (db.enabled) await db.upsertPixel(slug, cfg);   // durável primeiro
+  const idx = cache.findIndex((p) => p.slug === slug);
+  if (idx >= 0) cache[idx] = cfg; else cache.push(cfg);
+  byRoute = null;
+  writeFile(slug, cfg);                              // local, pode falhar
   return get(slug);
 }
 
 async function remove(slug) {
   slug = slugify(slug);
+  if (db.enabled) await db.deletePixel(slug);        // durável primeiro
+  cache = cache.filter((p) => p.slug !== slug);
+  byRoute = null;
   try { if (fs.existsSync(fileFor(slug))) fs.unlinkSync(fileFor(slug)); }
-  catch (e) { console.error('[pixels] remove:', e.message); }
-  loadFromDisk();
-  if (db.enabled) await db.deletePixel(slug);
+  catch (e) { console.warn('[pixels] remove (disco):', e.message); }
   return true;
 }
 

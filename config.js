@@ -16,10 +16,19 @@ function defaults() {
   return {
     // Notificações Pushcut — configuradas pela aba Configurações da dash.
     // url: webhook completo do app Pushcut; events: quais eventos notificam.
+    // daily: relatório-resumo do dia anterior (enviado na virada do dia).
     pushcut: {
       url: '',
-      events: { sale: true, failed: true, refund: true, dispute: true, checkout: false }
+      events: { sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false }
     },
+    // Encurtador rastreável (/l/:slug): [{slug, nome, url, clicks, createdAt}]
+    shortlinks: [],
+    // Anotações do gráfico de tendência: [{d:'YYYY-MM-DD', text}]
+    notes: [],
+    // API pública read-only (/api/v1/summary?token=...) — token gerado sob demanda
+    api: { token: '' },
+    // Controle do relatório diário (último dia já reportado, 'YYYY-MM-DD')
+    lastDailyReport: '',
     updatedAt: null
   };
 }
@@ -86,7 +95,7 @@ function set(patch) {
   const url = String(pc.url || '').trim();
   pc.url = /^https:\/\/api\.pushcut\.io\/.+/i.test(url) ? url.slice(0, 300) : '';
   const ev = Object.assign(
-    { sale: true, failed: true, refund: true, dispute: true, checkout: false },
+    { sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false },
     pc.events || {}
   );
   pc.events = {
@@ -94,9 +103,27 @@ function set(patch) {
     failed: ev.failed !== false,
     refund: ev.refund !== false,
     dispute: ev.dispute !== false,
-    checkout: ev.checkout === true
+    checkout: ev.checkout === true,
+    daily: ev.daily === true
   };
   next.pushcut = pc;
+
+  // Sanitização dos novos blocos (garante formatos previsíveis)
+  if (!Array.isArray(next.shortlinks)) next.shortlinks = [];
+  next.shortlinks = next.shortlinks.slice(0, 100).map((s) => ({
+    slug: String(s.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60),
+    nome: String(s.nome || '').slice(0, 80),
+    url: String(s.url || '').slice(0, 500),
+    clicks: Math.max(0, parseInt(s.clicks, 10) || 0),
+    createdAt: s.createdAt || new Date().toISOString()
+  })).filter((s) => s.slug && /^https?:\/\//i.test(s.url));
+  if (!Array.isArray(next.notes)) next.notes = [];
+  next.notes = next.notes.slice(0, 200).map((n) => ({
+    d: String(n.d || '').slice(0, 10),
+    text: String(n.text || '').slice(0, 200)
+  })).filter((n) => /^\d{4}-\d{2}-\d{2}$/.test(n.d) && n.text);
+  next.api = { token: String((next.api || {}).token || '').slice(0, 64) };
+  next.lastDailyReport = String(next.lastDailyReport || '').slice(0, 10);
 
   next.updatedAt = new Date().toISOString();
   cfg = next;

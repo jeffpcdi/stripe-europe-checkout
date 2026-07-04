@@ -177,6 +177,79 @@ function fetchWithTimeout(url, opts, ms) {
   return fetch(url, { ...opts, signal: ctl.signal }).finally(() => clearTimeout(t));
 }
 
+// ── Fila de retry persistente ──────────────────────────────────────────────
+// Se o TikTok falhar mesmo após os retries imediatos (instabilidade longa,
+// restart no meio do disparo), o evento entra aqui e é re-tentado com
+// backoff crescente por até 24h. Nenhuma venda fica sem CompletePayment.
+const RETRY_BACKOFF_MS = [2 * 60e3, 10 * 60e3, 30 * 60e3, 2 * 3600e3, 6 * 3600e3]; // 2m→6h
+const RETRY_MAX_AGE_MS = 24 * 3600e3;
+const RETRY_QUEUE_CAP = 300;
+let retryQueue = [];
+let retryLoaded = false;
+
+function persistRetryQueue() { rdb.saveCapiRetryQueue(retryQueue).catch(() => {}); }
+
+async function ensureRetryLoaded() {
+  if (retryLoaded) return;
+  retryLoaded = true;
+  const saved = await rdb.loadCapiRetryQueue();
+  if (saved && saved.length) retryQueue = saved.concat(retryQueue).slice(0, RETRY_QUEUE_CAP);
+}
+
+function queueRetry(pixel, p, eventId) {
+  // payload mínimo e serializável (sem funções, sem objetos circulares)
+  const item = {
+    slug: pixel.slug || pixel.pixelCode,
+    eventId,
+    p: {
+      event: p.event, eventId, leadId: p.leadId, email: p.email, phone: p.phone,
+      externalId: p.externalId, ip: p.ip, userAgent: p.userAgent, ttclid: p.ttclid,
+      ttp: p.ttp, url: p.url, value: p.value, currency: p.currency,
+      contents: p.contents, eventTime: p.eventTime || Math.floor(Date.now() / 1000)
+    },
+    attempt: 0,
+    firstAt: Date.now(),
+    nextAt: Date.now() + RETRY_BACKOFF_MS[0]
+  };
+  retryQueue.push(item);
+  if (retryQueue.length > RETRY_QUEUE_CAP) retryQueue = retryQueue.slice(-RETRY_QUEUE_CAP);
+  persistRetryQueue();
+}
+
+async function drainRetryQueue() {
+  await ensureRetryLoaded();
+  if (!retryQueue.length) return;
+  const now = Date.now();
+  const due = retryQueue.filter((it) => it.nextAt <= now);
+  if (!due.length) return;
+  for (const item of due) {
+    // expirou (24h) ou esgotou o backoff → descarta de vez
+    if (now - item.firstAt > RETRY_MAX_AGE_MS || item.attempt >= RETRY_BACKOFF_MS.length) {
+      retryQueue = retryQueue.filter((x) => x !== item);
+      continue;
+    }
+    // re-resolve o pixel: token pode ter sido atualizado no painel
+    const pixel = pixelStore.get(item.slug);
+    if (!pixel || !pixel.active) { retryQueue = retryQueue.filter((x) => x !== item); continue; }
+    const json = await sendToPixel(pixel, { ...item.p, _fromRetryQueue: true });
+    if (json && json.code === 0) {
+      retryQueue = retryQueue.filter((x) => x !== item);          // sucesso
+    } else if (json && json.code != null && json.code !== 0) {
+      retryQueue = retryQueue.filter((x) => x !== item);          // 4xx: rejeição definitiva
+    } else {
+      item.attempt += 1;                                          // rede/5xx: reagenda
+      item.nextAt = now + (RETRY_BACKOFF_MS[item.attempt] || RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]);
+    }
+  }
+  persistRetryQueue();
+}
+
+// varre a cada 60s; unref() para não segurar o processo vivo no shutdown
+const retryTimer = setInterval(() => { drainRetryQueue().catch(() => {}); }, 60e3);
+if (retryTimer.unref) retryTimer.unref();
+
+function retryQueueSize() { return retryQueue.length; }
+
 /**
  * Envia UM evento para UM pixel específico.
  * Timeout de 6s por tentativa + 1 retry automático em falha transitória
@@ -248,6 +321,9 @@ async function sendToPixel(pixel, p) {
     emqFields: emq.fields,
     response: { message: (lastErr && lastErr.message) || 'falha desconhecida', retried: true }
   });
+  // falha de rede/5xx persistente → entra na fila de retry de longo prazo
+  // (_fromRetryQueue evita re-enfileirar o que a própria fila disparou)
+  if (!p._fromRetryQueue) queueRetry(pixel, p, eventId);
   return { error: (lastErr && lastErr.message) || 'falha desconhecida' };
 }
 
@@ -271,12 +347,20 @@ async function dispatchToAll(eventName, p, routeHint) {
 /**
  * Envio de teste (painel): valida token/pixel na hora e retorna a resposta crua.
  */
-async function testPixel(pixel) {
+async function testPixel(pixel, ctx) {
+  ctx = ctx || {};
   const eventId = 'test.' + crypto.randomBytes(6).toString('hex');
+  // A Events API exige AO MENOS UM identificador de usuário (ip+ua, email,
+  // phone, ttclid ou external_id). Sem isso o teste falhava SEMPRE com erro
+  // de parâmetro, mesmo com código/token corretos. Usa o ip/ua reais de quem
+  // clicou em "Testar" + um external_id sintético como sinal extra.
   const json = await sendToPixel(pixel, {
     event: 'ViewContent',
     eventId,
     url: 'https://example.com/teste-pixel',
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+    externalId: hash('teste-painel.' + eventId),
     value: 0,
     currency: 'EUR'
   });
@@ -291,5 +375,6 @@ async function sendTikTokEvent(p) {
 module.exports = {
   hash, hashPhone, externalIdFromLead,
   sendToPixel, dispatchToAll, testPixel, sendTikTokEvent,
-  recentLog, recentLogAsync
+  recentLog, recentLogAsync,
+  retryQueueSize, drainRetryQueue
 };

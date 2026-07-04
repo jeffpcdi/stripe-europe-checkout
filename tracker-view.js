@@ -22,14 +22,16 @@ module.exports = `(function(){
   })();
   if (!API) return;
 
-  // ── vid estável (localStorage > cookie 1st-party > novo) ──
+  // ── vid estável (URL ?vid= > localStorage > novo) ──
+  // O ?vid= da URL vence: é como o encurtador /l/ e páginas de outros
+  // domínios "passam o bastão" da identidade — o lead não vira dois ids.
   function newVid(){ return 'ld_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+  var VID_OK = /^ld_[a-z0-9]{6,30}$/i;
   var vid = null;
-  try { vid = localStorage.getItem('roinados_vid'); } catch(_){}
-  if (!vid || !/^ld_[a-z0-9]{6,30}$/i.test(vid)) {
-    vid = newVid();
-    try { localStorage.setItem('roinados_vid', vid); } catch(_){}
-  }
+  try { var uvid = new URLSearchParams(location.search).get('vid'); if (uvid && VID_OK.test(uvid)) vid = uvid; } catch(_){}
+  if (!vid) { try { vid = localStorage.getItem('roinados_vid'); } catch(_){} }
+  if (!vid || !VID_OK.test(vid)) vid = newVid();
+  try { localStorage.setItem('roinados_vid', vid); } catch(_){}
 
   // ── sinais de identidade ──
   function qs(name){ try { return new URLSearchParams(location.search).get(name); } catch(_){ return null; } }
@@ -69,6 +71,28 @@ module.exports = `(function(){
   }
   send('/api/track', payload);
 
+  // ── 1a. dedup com o pixel do navegador: se a página TAMBÉM tiver o pixel
+  // JS do TikTok (ttq), dispara o ViewContent com o MESMO event_id que o
+  // servidor usa ('ViewContent.vid.horaUTC') — o TikTok deduplica sozinho
+  // e o evento não conta dobrado (browser + CAPI).
+  function utcHourKey(){ return new Date().toISOString().slice(0,13).replace(/[-T]/g,''); }
+  function fireBrowserPixel(){
+    try {
+      if (window.ttq && typeof window.ttq.track === 'function') {
+        window.ttq.track('ViewContent', {}, { event_id: 'ViewContent.' + vid + '.' + utcHourKey() });
+        return true;
+      }
+    } catch(_){}
+    return false;
+  }
+  // ttq pode carregar depois de nós: tenta já + re-tenta por até 6s
+  if (!fireBrowserPixel()) {
+    var ttqTries = 0;
+    var ttqIv = setInterval(function(){
+      if (fireBrowserPixel() || ++ttqTries >= 12) clearInterval(ttqIv);
+    }, 500);
+  }
+
   // ── 1b. SPA: cada troca de "página" (pushState/replaceState/popstate)
   // re-registra a visita → a jornada do lead fica completa mesmo em
   // sites de página única. Dedup no servidor protege a CAPI.
@@ -79,6 +103,7 @@ module.exports = `(function(){
     lastPath = now;
     payload = buildPayload();
     send('/api/track', payload);
+    fireBrowserPixel(); // mesmo event_id → TikTok deduplica com a CAPI
   }
   try {
     var _push = history.pushState, _repl = history.replaceState;
@@ -128,6 +153,23 @@ module.exports = `(function(){
   }
   document.addEventListener('click', clickGuard, true);
   document.addEventListener('auxclick', clickGuard, true);
+
+  // ── 2b. cliques em elementos marcados: <button data-track="btn-comprar">
+  // Vira passo "click:nome" na jornada do lead — revela se o problema é a
+  // página (ninguém clica) ou a oferta (clicam e não compram).
+  var lastClickSent = {};
+  document.addEventListener('click', function(e){
+    try {
+      var el = e.target && e.target.closest ? e.target.closest('[data-track]') : null;
+      if (!el) return;
+      var name = (el.getAttribute('data-track')||'').slice(0,60);
+      if (!name) return;
+      var now = Date.now();
+      if (lastClickSent[name] && now - lastClickSent[name] < 2000) return; // anti clique duplo
+      lastClickSent[name] = now;
+      send('/api/track', { vid: vid, click: name });
+    } catch(_){}
+  }, true);
 
   // ── 3. presença ao vivo (heartbeat 20s + saída) ──
   function pulse(){ send('/api/pulse', { vid: vid, page: location.pathname, referrer: payload.referrer }); }
