@@ -408,8 +408,11 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
   .jdot{position:absolute;left:-1px;width:8px;height:8px;border-radius:50%;background:var(--muted2);flex:none}
   .jstep.go .jdot{background:var(--amber,#f5a524)}
   .jstep.buy .jdot{background:var(--green,#2fbf71)}
+  .jstep.clk .jdot{background:var(--kg1,#3b82f6)}
   .jp{font-size:12.5px;color:var(--text);font-family:'Geist Mono',monospace;word-break:break-all}
   .jstep.buy .jp{color:var(--green,#2fbf71);font-weight:600}
+  .jstep.clk .jp{color:var(--kg1,#3b82f6)}
+  .jdelta{font-size:10.5px;color:var(--muted2);font-family:'Geist Mono',monospace;background:var(--line,rgba(255,255,255,.07));border-radius:4px;padding:1px 5px;margin-left:4px}
   .jt{font-size:11px;color:var(--muted2);margin-left:auto;flex:none}
   /* KPIs de saúde da CAPI (aba Pixel) */
   .ph-kpis{display:flex;gap:28px;flex-wrap:wrap}
@@ -2159,6 +2162,11 @@ function ingestNotifs(){
   fresh.reverse().forEach(function(e){
     NOTIFS.unshift(e);
     if(notifBooted&&(e.type==='sale'||e.type==='dispute')) notifBeep();
+    // toast global: venda aparece em QUALQUER aba, sem precisar estar no Ao Vivo
+    if(notifBooted&&e.type==='sale'){
+      var geo=[e.city,e.countryName||e.country].filter(Boolean).join(', ');
+      toast('Venda aprovada'+(e.amount!=null?' \u00b7 '+money(e.amount,e.currency||'EUR'):'')+(geo?' \u00b7 '+geo:''));
+    }
   });
   if(NOTIFS.length>30) NOTIFS.length=30;
   notifBooted=true;
@@ -2405,7 +2413,7 @@ function renderGlobeSide(){
   :'<div class="live-empty" style="padding:20px">Ningu\u00e9m navegando agora.</div>';
 }
 
-/* ── Links de Checkout ────────────────────────────────────────────── */
+/* ── Links de Checkout ────��───────────────────────────────────────── */
 var LK_LIST=[];
 function loadLinks(){
   fetch('/api/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
@@ -2679,7 +2687,7 @@ function testPushcut(){
     .then(function(d){ toast(d.ok?'Push enviado — confira o celular':'Falhou — confira a URL do webhook',d.ok); })
     .catch(function(){ toast('Erro no teste',false); });
 }
-/* ── Pixel TikTok ─────────────────────────────────────────────────── */
+/* ── Pixel TikTok ───────────────────────────────────��─────────────── */
 var PX_LIST=[];
 function loadPixels(){
   fetch('/api/pixels').then(function(r){return r.json();}).then(function(d){
@@ -2917,17 +2925,33 @@ function openLead(id){
   rows+=grp('Origem / Geo');
   rows+=r('Pa&iacute;s',l.country?flag(l.country)+' '+esc(l.countryName||l.country):'—');
   rows+=r('Cidade',esc(l.city)); rows+=r('IP',esc(l.ip));
-  rows+=r('Landing',esc(l.landing)); rows+=r('Referer',esc(l.referer));
+  rows+=r('Landing',esc(l.landing)); rows+=r('Site / funil',esc(l.site)); rows+=r('Referer',esc(l.referer));
   if(l.utm){ rows+=r('UTM source',esc(l.utm.source)); rows+=r('UTM campanha',esc(l.utm.campaign)); rows+=r('UTM m&eacute;dia',esc(l.utm.medium)); }
   rows+=r('ttclid',l.ttclid?'<span style="font-family:monospace;font-size:11px;word-break:break-all">'+esc(l.ttclid)+'</span>':'—');
   if(l.journey&&l.journey.length){
     rows+=grp('Trajeto ('+l.journey.length+(l.journey.length===1?' passo':' passos')+')');
-    rows+='<div class="jrny">'+l.journey.map(function(s){
+    // tempo entre etapas: revela onde o lead hesita (ex.: 4min parado na VSL)
+    function stepDelta(ms){
+      if(ms<1000) return '';
+      var s=Math.round(ms/1000);
+      if(s<60) return '+'+s+'s';
+      var mn=Math.round(s/60);
+      if(mn<60) return '+'+mn+'min';
+      return '+'+Math.round(mn/60)+'h';
+    }
+    rows+='<div class="jrny">'+l.journey.map(function(s,i){
       var p=String(s.p||'');
       var cls='', label=p;
       if(p==='compra'){ cls=' buy'; label='Compra'; }
       else if(p.indexOf('go:')===0){ cls=' go'; label='Checkout: '+p.slice(3).replace(/^link:/,''); }
-      return '<div class="jstep'+cls+'"><span class="jdot"></span><span class="jp">'+esc(label)+'</span><span class="jt">'+timeAgo(s.at)+'</span></div>';
+      else if(p.indexOf('click:')===0){ cls=' clk'; label='Clique: '+p.slice(6); }
+      else if(p.indexOf('l:')===0){ cls=' go'; label='Link curto: /l/'+p.slice(2); }
+      var delta='';
+      if(i>0){
+        var dm=new Date(s.at).getTime()-new Date(l.journey[i-1].at).getTime();
+        if(isFinite(dm)&&dm>0) delta=stepDelta(dm);
+      }
+      return '<div class="jstep'+cls+'"><span class="jdot"></span><span class="jp">'+esc(label)+(delta?' <span class="jdelta">'+delta+'</span>':'')+'</span><span class="jt">'+timeAgo(s.at)+'</span></div>';
     }).join('')+'</div>';
   }
   rows+=grp('Tempo');

@@ -144,6 +144,19 @@ function pushJourney(lead, step) {
   if (lead.journey.length > 30) lead.journey = lead.journey.slice(-30);
 }
 
+// ── Clique em elemento marcado (data-track="nome") — vira passo da jornada
+// "80 viram a VSL mas só 12 clicaram no botão" = problema na página ou na oferta.
+function recordClickStep(id, name) {
+  ensureLoaded();
+  const lead = findLead(id);
+  if (!lead) return null;
+  pushJourney(lead, 'click:' + String(name).slice(0, 60));
+  lead.lastSeen = new Date().toISOString();
+  markDirty();
+  db.upsertLead(lead);
+  return lead;
+}
+
 // ── FUNIL: entrada de um visitante no site (topo do funil) ────────────────
 function recordVisit(data) {
   data = data || {};
@@ -165,12 +178,13 @@ function recordVisit(data) {
       countryName: data.countryName || null,
       city: data.city || null,
       landing: data.landing || null,
+      site: data.site || null, // domínio da página externa — separa funis/produtos
       ttclid: data.ttclid || null,
       utm: data.utm || {}
     });
   } else {
     // enriquece dados que faltavam
-    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid'].forEach((k) => {
+    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid', 'site'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
     if (data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) lead.utm = data.utm;
@@ -497,7 +511,7 @@ process.once('SIGINT', flushSync);
 process.once('beforeExit', flushSync);
 
 module.exports = {
-  logEvent, recordVisit, recordCheckoutEntry,
+  logEvent, recordVisit, recordCheckoutEntry, recordClickStep,
   attachTracking, getLead, findLeadByEmail, findLeadByPhone, matchExternalConversion, getStats, reset, hydrate,
   inCheckoutNow
-};
+  };
