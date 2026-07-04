@@ -15,6 +15,10 @@
 
 const dns  = require('dns').promises;
 const crypto = require('crypto');
+// Redis é opcional: cache de ASN entre processos/restarts. Degrada para o Map
+// em memória se o módulo/serviço não estiver disponível.
+let _redis = null;
+try { _redis = require('./redis'); } catch (_) { _redis = null; }
 
 // ─── 1. ASNs de datacenters / ad-review / device-farms (2025-2026) ─────────
 const DATACENTER_ASNS = new Set([
@@ -107,8 +111,19 @@ async function lookupASN(ip) {
   if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|^$)/.test(ip)) {
     return { asn: 0, org: 'private' };
   }
+  // Camada 1: cache em memória (mais rápido, por processo)
   const cached = _asnCache.get(ip);
   if (cached && Date.now() - cached.ts < ASN_TTL_MS) return cached;
+
+  // Camada 2: cache no Redis (compartilhado, sobrevive a restart)
+  if (_redis && _redis.enabled) {
+    const hit = await _redis.getAsnCache(ip).catch(() => null);
+    if (hit && typeof hit.asn === 'number') {
+      const entry = { asn: hit.asn, org: hit.org || 'unknown', ts: Date.now() };
+      _asnCache.set(ip, entry);
+      return entry;
+    }
+  }
 
   let entry = { asn: 0, org: 'unknown', ts: Date.now() };
   try {
@@ -127,6 +142,10 @@ async function lookupASN(ip) {
   } catch (_) { /* offline — mantém fallback */ }
 
   _asnCache.set(ip, entry);
+  // grava no Redis em background (não bloqueia o caminho quente)
+  if (_redis && _redis.enabled) {
+    _redis.setAsnCache(ip, { asn: entry.asn, org: entry.org }).catch(() => {});
+  }
   return entry;
 }
 
@@ -176,6 +195,7 @@ function verifyChallengeToken(visitorId, token) {
 const DEFAULT_CONFIG = {
   enabled:          true,  // interruptor mestre do cloaking
   threshold:        40,    // score >= threshold ⇒ bot
+  deadlineMs:       120,   // teto de latência do lookup de ASN (Camada C)
   blockDatacenter:  true,  // Camada C: ASN datacenter / ByteDance
   blockHeadless:    true,  // Camada A: UA headless + Client Hints mismatch
   checkHeaders:     true,  // Camada B: headers obrigatórios / Sec-Fetch
@@ -196,7 +216,18 @@ function resolveConfig(cfg) {
     c.threshold = SENSITIVITY_THRESHOLDS[c.sensitivity];
   }
   c.threshold = Math.max(10, Math.min(90, Number(c.threshold) || 40));
+  c.deadlineMs = Math.max(40, Math.min(500, Number(c.deadlineMs) || 120));
   return c;
+}
+
+// Executa o lookup de ASN com teto de latência. No estouro, resolve com um
+// resultado neutro (asn 0) e o cache em memória segue populando em background,
+// então a PRÓXIMA visita do mesmo IP já resolve instantânea.
+function lookupASNDeadline(ip, deadlineMs) {
+  return Promise.race([
+    lookupASN(ip),
+    new Promise((resolve) => setTimeout(() => resolve({ asn: 0, org: 'timeout', _timedOut: true }), deadlineMs))
+  ]);
 }
 
 // ─── 6. Motor principal de julgamento ───────────────────────────────────────
@@ -306,10 +337,14 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
       signals.push('ip:bytedance-cidr'); score += 50;
     }
 
-    // C2. ASN via DNS Cymru
+    // C2. ASN via DNS Cymru — com teto de latência (deadlineMs). Se o DNS
+    // demorar, seguimos sem esse sinal; o cache popula p/ a próxima visita.
     if (ip && !signals.includes('ip:bytedance-cidr')) {
-      const { asn } = await lookupASN(ip).catch(() => ({ asn: 0, org: '' }));
-      if (asn > 0) {
+      const r = await lookupASNDeadline(ip, cfg.deadlineMs).catch(() => ({ asn: 0, org: '' }));
+      const asn = r.asn;
+      if (r._timedOut) {
+        signals.push('asn:deadline');
+      } else if (asn > 0) {
         if (DATACENTER_ASNS.has(asn)) {
           signals.push('asn:datacenter=' + asn);
           // ByteDance ASNs têm peso maior

@@ -543,6 +543,22 @@ app.get('/go/:slug', async (req, res) => {
     return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
   }
 
+  // ── Gate geográfico (allowlist por país) — INSTANTÂNEO, sem DNS ────────
+  // País vem dos headers da edge (Vercel/Cloudflare), então essa checagem é
+  // ~0ms e roda ANTES do motor de score. Se o link tem allowlist e o visitante
+  // está fora dela, vai direto para a white page — sem custo de análise.
+  if (cloakOn && Array.isArray(link.paises) && link.paises.length) {
+    const cc = String(geoFromReq(req).country || '').toUpperCase();
+    if (!cc || link.paises.indexOf(cc) < 0) {
+      stats.logEvent('info', {
+        title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white',
+        gateway: 'link:' + link.slug,
+        ref: clientIp(req)
+      });
+      return res.redirect(302, whitePage);
+    }
+  }
+
   // Motor de score só roda com cloaking ativo — economiza o DNS lookup de ASN
   let judgment = { verdict: 'real', score: 0, signals: [] };
   if (cloakOn) {
@@ -626,12 +642,14 @@ app.get('/go/:slug', async (req, res) => {
   // guarda o link/variante no lead — atribuição da conversão no webhook universal
   try { stats.attachTracking(visitorId, { linkSlug: link.slug, linkVariant: variant.id }); } catch (_) {}
 
-  // TikTok CAPI: InitiateCheckout server-side (checkout externo não tem pixel nosso)
+  // TikTok CAPI: InitiateCheckout server-side (checkout externo não tem pixel nosso).
+  // Este disparo acontece DEPOIS dos gates de bot/país, então só pessoas reais
+  // que seguem para a offer geram evento — o pixel fica sincronizado com o filtro.
   try {
     const lead = stats.getLead(visitorId) || {};
     const evId = 'InitiateCheckout.' + visitorId + '.' + hourKey();
     if (!(await seenPixelEvent(evId))) {
-      ttEvents.dispatchToAll('InitiateCheckout', {
+      const payload = {
         eventId: evId,
         leadId: visitorId,
         email: lead.email || undefined,
@@ -641,7 +659,16 @@ app.get('/go/:slug', async (req, res) => {
         ttclid: q.ttclid || lead.ttclid || null,
         ttp: lead.ttp || null,
         url: fullUrl(req)
-      }, '/go/' + link.slug).catch(() => {});
+      };
+      // "Pixel do link vence": se o link tem um pixel escolhido e ele está
+      // ativo, dispara só nele; senão cai no comportamento por rota (todos os
+      // pixels que casam /go/<slug>).
+      const linkPixel = link.pixelSlug ? pixelStore.get(link.pixelSlug) : null;
+      if (linkPixel && linkPixel.active && linkPixel.pixelCode && linkPixel.events && linkPixel.events.InitiateCheckout !== false) {
+        ttEvents.sendToPixel(linkPixel, Object.assign({ event: 'InitiateCheckout' }, payload)).catch(() => {});
+      } else {
+        ttEvents.dispatchToAll('InitiateCheckout', payload, '/go/' + link.slug).catch(() => {});
+      }
     }
   } catch (_) { /* rastreamento nunca bloqueia o redirect */ }
 
@@ -1111,8 +1138,74 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   boolKeys.forEach((k) => { if (typeof b[k] === 'boolean') next[k] = b[k]; });
   if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
   if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
+  if (b.deadlineMs != null && !isNaN(Number(b.deadlineMs))) next.deadlineMs = Number(b.deadlineMs);
   config.set({ cloak: next });
   res.json({ ok: true, cloak: config.get().cloak });
+});
+
+// ── Regras de cloaking POR LINK (offer/white/países/pixel) ─────────────────
+// Lista os links com suas regras + os pixels disponíveis para o dropdown.
+app.get('/api/cloak/links', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const links = linkStore.list().map((l) => ({
+    slug: l.slug,
+    nome: l.nome,
+    dominio: l.dominio || null,
+    ativo: l.ativo !== false,
+    offerUrl: (l.variantes && l.variantes[0]) ? l.variantes[0].url : null,
+    offerCount: (l.variantes || []).length,
+    urlWhitePage: l.urlWhitePage || '',
+    paises: Array.isArray(l.paises) ? l.paises : [],
+    pixelSlug: l.pixelSlug || ''
+  }));
+  const pixels = pixelStore.list().map((p) => ({
+    slug: p.slug, name: p.name, active: p.active !== false, pixelCode: !!p.pixelCode
+  }));
+  res.json({ links, pixels });
+});
+
+// Atualiza white page, países liberados e pixel de um link. Opcional
+// syncPixel:true adiciona a rota /go/<slug> às rotas do pixel escolhido,
+// sincronizando o pixel com o domínio+slug deste link.
+app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
+  const b = req.body || {};
+  const link = linkStore.get(req.params.slug);
+  if (!link) return res.status(404).json({ error: 'Link não encontrado' });
+
+  const patch = { slug: link.slug };
+  if (typeof b.urlWhitePage === 'string') patch.urlWhitePage = b.urlWhitePage.trim();
+  if (Array.isArray(b.paises)) patch.paises = b.paises;
+  if (typeof b.pixelSlug === 'string') patch.pixelSlug = b.pixelSlug;
+
+  let saved;
+  try {
+    saved = await linkStore.save(Object.assign({}, link, patch));
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+
+  // Sincroniza o pixel escolhido com este link (adiciona /go/<slug> às rotas)
+  let pixelSynced = false;
+  if (b.syncPixel === true && saved.pixelSlug) {
+    const px = pixelStore.get(saved.pixelSlug);
+    if (px) {
+      const route = '/go/' + saved.slug;
+      const routes = Array.isArray(px.routes) ? px.routes.slice() : [];
+      // se já cobre tudo ('*') ou já tem a rota, não duplica
+      if (routes.indexOf('*') < 0 && routes.indexOf(route) < 0) {
+        routes.push(route);
+        try { await pixelStore.save({ slug: px.slug, routes }); pixelSynced = true; } catch (_) {}
+      } else { pixelSynced = true; }
+    }
+  }
+
+  res.json({
+    ok: true, pixelSynced,
+    link: {
+      slug: saved.slug, urlWhitePage: saved.urlWhitePage || '',
+      paises: saved.paises || [], pixelSlug: saved.pixelSlug || ''
+    }
+  });
 });
 
 // Testa o motor de julgamento com o request ATUAL do navegador do usuário —

@@ -603,6 +603,28 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .ck-verdict{display:inline-flex;align-items:center;gap:7px;padding:10px 14px;border-radius:10px;font-weight:600;font-size:13px}
 .ck-verdict.real{background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 30%,transparent)}
 .ck-verdict.bot{background:color-mix(in srgb,var(--pink,#f31260) 14%,transparent);color:var(--pink,#f31260);border:1px solid color-mix(in srgb,var(--pink,#f31260) 30%,transparent)}
+/* Regras por link (cloak) */
+.ck-rule{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;animation:kpiIn .35s cubic-bezier(.2,.7,.3,1) backwards}
+.ck-rule .ck-field{display:flex;flex-direction:column;gap:7px}
+.ck-rule .ck-field.full{grid-column:1/-1}
+.ck-rule label{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.01em}
+.ck-rule label .hint{font-weight:500}
+.ck-offer{display:flex;align-items:center;gap:9px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--muted2);word-break:break-all}
+.ck-offer svg{width:15px;height:15px;flex-shrink:0;color:var(--green)}
+.pais-box{display:flex;flex-wrap:wrap;gap:7px;align-items:center;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:8px 9px;min-height:42px}
+.pais-chip{display:inline-flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--cyan) 14%,transparent);color:var(--cyan);border:1px solid color-mix(in srgb,var(--cyan) 32%,transparent);border-radius:7px;padding:4px 6px 4px 9px;font-size:12px;font-weight:700;letter-spacing:.03em}
+.pais-chip button{border:none;background:transparent;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0;opacity:.7}
+.pais-chip button:hover{opacity:1}
+.pais-box input{flex:1;min-width:70px;border:none;background:transparent;color:var(--text);font-size:12.5px;text-transform:uppercase;outline:none;padding:4px}
+.pais-box.all input{text-transform:none}
+.ck-sync{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted2);cursor:pointer;user-select:none}
+.ck-adv{margin-top:16px;border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden}
+.ck-adv>summary{list-style:none;cursor:pointer;padding:14px 16px;font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:9px}
+.ck-adv>summary::-webkit-details-marker{display:none}
+.ck-adv>summary .chev{margin-left:auto;transition:transform .2s;color:var(--muted2)}
+.ck-adv[open]>summary .chev{transform:rotate(180deg)}
+.ck-adv>summary:hover{background:var(--card2)}
+.ck-adv .ck-adv-body{padding:0 16px 16px}
 /* zona de risco compacta */
 .danger-card{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px;border-color:rgba(255,86,116,.22)!important;
   background:linear-gradient(90deg,rgba(255,86,116,.05),transparent 55%);animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) .3s backwards}
@@ -1288,54 +1310,66 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <section class="view" id="view-cloak">
         <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Roteia revisores do TikTok Ads para a white page &mdash; pessoas reais v&atilde;o para a offer</p></div></div>
 
-        <div class="card cfg-card" style="--cc:var(--cyan);margin-bottom:18px">
+        <!-- Hero: interruptor mestre + sensibilidade -->
+        <div class="card cfg-card" style="--cc:var(--cyan);margin-bottom:16px">
           <div class="cfg-head">
             <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
-            <div><h3>Prote&ccedil;&atilde;o de cloaking</h3><p>Quando ligado, cada clique em <span style="font-family:'Geist Mono',monospace">/go/</span> passa por um motor de score. Configure a white page por link na aba Links.</p></div>
+            <div><h3>Prote&ccedil;&atilde;o de cloaking</h3><p id="ck-status-line">Bots e revisores v&atilde;o para a white page; pessoas reais seguem para a offer.</p></div>
             <label class="switch" style="margin-left:auto"><input type="checkbox" id="ck-enabled"><span class="slider"></span></label>
           </div>
-          <div class="form-row" style="margin-bottom:0">
-            <label>Sensibilidade <span class="hint">&mdash; menor threshold pega mais revisores, com risco maior de falso positivo</span></label>
-            <div class="seg" id="ck-sens">
-              <button data-s="strict" type="button">Agressivo<span class="seg-sub">score 30</span></button>
-              <button data-s="balanced" type="button">Equilibrado<span class="seg-sub">score 40</span></button>
-              <button data-s="loose" type="button">Conservador<span class="seg-sub">score 55</span></button>
-              <button data-s="custom" type="button">Manual<span class="seg-sub">personalizado</span></button>
-            </div>
-            <div id="ck-threshold-wrap" style="margin-top:14px;display:none">
-              <label>Threshold manual: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> <span class="hint">&mdash; score &ge; este valor = bot</span></label>
-              <input type="range" id="ck-threshold" min="10" max="90" step="5" value="40" style="width:100%;accent-color:var(--cyan);margin-top:6px">
-            </div>
+          <div class="seg" id="ck-sens" style="margin-top:4px">
+            <button data-s="strict" type="button">Agressivo<span class="seg-sub">pega mais bots</span></button>
+            <button data-s="balanced" type="button">Equilibrado<span class="seg-sub">recomendado</span></button>
+            <button data-s="loose" type="button">Conservador<span class="seg-sub">menos falso+</span></button>
+            <button data-s="custom" type="button">Manual<span class="seg-sub">ajuste fino</span></button>
+          </div>
+          <div id="ck-threshold-wrap" style="margin-top:14px;display:none">
+            <label class="hint">Threshold manual: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> &mdash; score &ge; este valor = bot</label>
+            <input type="range" id="ck-threshold" min="10" max="90" step="5" value="40" style="width:100%;accent-color:var(--cyan);margin-top:6px">
           </div>
         </div>
 
-        <div class="section-title" style="margin-top:0"><span>Camadas de detec&ccedil;&atilde;o</span><span class="line"></span><span class="muted" style="font-size:11.5px">ligue/desligue cada sinal</span></div>
-        <div class="grid" id="ck-layers" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
-
-        <div class="grid cfg-grid" style="grid-template-columns:1fr 1fr;margin-top:18px">
-          <div class="card cfg-card" style="--cc:var(--green)">
-            <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
-              <div><h3>Testar com meu navegador</h3><p>Simula como o SEU acesso atual seria classificado. Deve dar <b>real</b>.</p></div>
+        <!-- Regras por link: offer, white page, países e pixel -->
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:180px">
+              <h3 style="font-size:15px;margin:0">Regras por link</h3>
+              <p class="hint" style="margin:3px 0 0">Escolha para onde cada p&uacute;blico vai &mdash; por link de checkout.</p>
             </div>
-            <button class="btn" id="ck-test">Rodar teste agora</button>
-            <div id="ck-test-out" style="margin-top:12px"></div>
+            <select class="select" id="ck-link-select" style="min-width:220px"><option value="">Selecione um link...</option></select>
           </div>
-          <div class="card cfg-card" style="--cc:var(--amber,#f5a524)">
-            <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9z"/></svg></span>
-              <div><h3>Como funciona</h3><p>O roteamento em duas p&aacute;ginas</p></div>
-            </div>
-            <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.9;color:var(--muted2)">
-              <li><b style="color:var(--text)">Offer page</b> &mdash; a URL das variantes do link. Recebe pessoas reais interessadas.</li>
-              <li><b style="color:var(--text)">White page</b> &mdash; p&aacute;gina neutra configurada por link. Recebe revisores e bots.</li>
-              <li>Sem white page configurada, o filtro s&oacute; registra (n&atilde;o redireciona).</li>
-            </ul>
-          </div>
+          <div id="ck-link-rule"></div>
         </div>
 
-        <div style="display:flex;gap:10px;margin-top:18px;align-items:center">
-          <button class="btn primary" id="ck-save">Salvar configura&ccedil;&otilde;es</button>
+        <!-- Testar (compacto) -->
+        <div class="card cfg-card" style="--cc:var(--green);margin-bottom:0">
+          <div class="cfg-head">
+            <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
+            <div><h3>Testar com meu navegador</h3><p>Veja como o SEU acesso seria classificado. Deve dar <b>real</b>.</p></div>
+            <button class="btn btn-sm" id="ck-test" style="margin-left:auto">Rodar teste</button>
+          </div>
+          <div id="ck-test-out" style="margin-top:4px"></div>
+        </div>
+
+        <!-- Avançado: latência + camadas de detecção -->
+        <details class="ck-adv">
+          <summary>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            Ajustes avan&ccedil;ados
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          <div class="ck-adv-body">
+            <div style="margin:6px 0 16px">
+              <label class="hint" style="font-weight:600;color:var(--muted)">Velocidade do redirect: <b id="ck-deadline-val" style="color:var(--cyan)">120</b> ms <span class="hint" style="font-weight:500">&mdash; teto de espera da an&aacute;lise de rede. Menor = redirect mais r&aacute;pido</span></label>
+              <input type="range" id="ck-deadline" min="40" max="500" step="20" value="120" style="width:100%;accent-color:var(--cyan);margin-top:8px">
+            </div>
+            <div class="section-title" style="margin-top:0"><span>Camadas de detec&ccedil;&atilde;o</span><span class="line"></span><span class="muted" style="font-size:11.5px">ligue/desligue cada sinal</span></div>
+            <div class="grid" id="ck-layers" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
+          </div>
+        </details>
+
+        <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
+          <button class="btn primary" id="ck-save">Salvar prote&ccedil;&atilde;o</button>
           <p class="hint" id="ck-status" style="margin:0"></p>
         </div>
       </section>

@@ -63,6 +63,15 @@ function normalize(slug, raw) {
     // Roteamento cloak: revisores/bots vão para a white page;
     // usuários reais vão para a offer page (url normal das variantes).
     urlWhitePage: validUrl(raw.urlWhitePage) ? String(raw.urlWhitePage).trim().slice(0, 500) : null,
+    // Allowlist de países (ISO-2 maiúsculo). Vazio = todos os países liberados.
+    // Visitante fora da lista vai para a white page (sem passar pelo motor de score).
+    paises: (Array.isArray(raw.paises) ? raw.paises : [])
+      .map((c) => String(c || '').trim().toUpperCase())
+      .filter((c) => /^[A-Z]{2}$/.test(c))
+      .filter((c, i, a) => a.indexOf(c) === i)
+      .slice(0, 30),
+    // Pixel que dispara nesse link (slug do pixel-store). Vazio = dispatchToAll por rota.
+    pixelSlug: String(raw.pixelSlug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40),
     ativo: raw.ativo !== false,
     criadoEm: raw.criadoEm || new Date().toISOString(),
     updatedAt: new Date().toISOString()

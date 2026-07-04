@@ -36,6 +36,7 @@ function defaults() {
       enabled: true,
       sensitivity: 'balanced',      // 'strict' | 'balanced' | 'loose'
       threshold: 40,                // usado quando sensitivity = 'custom'
+      deadlineMs: 120,              // teto de latência do lookup de ASN (ms) no caminho quente
       blockDatacenter: true,
       blockHeadless: true,
       checkHeaders: true,
@@ -162,6 +163,7 @@ function set(patch) {
       enabled:            boolOr(c.enabled, true),
       sensitivity:        sens,
       threshold:          Math.max(10, Math.min(90, Math.round(Number(c.threshold) || 40))),
+      deadlineMs:         Math.max(40, Math.min(500, Math.round(Number(c.deadlineMs) || 120))),
       blockDatacenter:    boolOr(c.blockDatacenter, true),
       blockHeadless:      boolOr(c.blockHeadless, true),
       checkHeaders:       boolOr(c.checkHeaders, true),

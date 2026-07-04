@@ -193,6 +193,29 @@ async function seenEventId(eventId) {
   }
 }
 
+// ── Cache de ASN (lookup Cymru) ────────────────────────────────────────────
+// Chave "asn:<ip>" com o resultado do lookup BGP. TTL de 24h. Compartilha a
+// resolução entre processos/instâncias e sobrevive a restarts, deixando o
+// caminho quente do /go/ quase instantâneo para IPs recorrentes.
+const ASN_TTL = 24 * 3600; // 24h
+
+async function getAsnCache(ip) {
+  if (!enabled || !ip) return null;
+  try {
+    const raw = await redis.get('asn:' + ip);
+    if (!raw) return null;
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch (_) { return null; }
+}
+
+async function setAsnCache(ip, entry) {
+  if (!enabled || !ip || !entry) return false;
+  try {
+    await redis.set('asn:' + ip, JSON.stringify(entry), { ex: ASN_TTL });
+    return true;
+  } catch (_) { return false; }
+}
+
 // ── Ping de saúde ─────────────────────────────────────────────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
@@ -211,5 +234,6 @@ module.exports = {
   pushConversionLog, loadConversionLog,
   saveCapiRetryQueue, loadCapiRetryQueue,
   seenEventId,
+  getAsnCache, setAsnCache,
   ping, TTL
 };
