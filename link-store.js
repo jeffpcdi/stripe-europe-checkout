@@ -44,6 +44,9 @@ function normalize(slug, raw) {
       id: String(v.id || 'v' + (i + 1)).slice(0, 40),
       nome: String(v.nome || 'Variante ' + (i + 1)).slice(0, 60),
       url: String(v.url).trim().slice(0, 500),
+      // destino alternativo para celular/tablet (opcional): computador vai
+      // para `url`, mobile vai para `urlMobile` quando preenchida
+      urlMobile: validUrl(v.urlMobile) ? String(v.urlMobile).trim().slice(0, 500) : null,
       peso: Math.max(0, Math.min(100, Math.round(Number(v.peso) || 0))) || Math.round(100 / (raw.variantes.length || 1)),
       clicks: Math.max(0, Number(v.clicks) || 0),
       conversions: Math.max(0, Number(v.conversions) || 0),

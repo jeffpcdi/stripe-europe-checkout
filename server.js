@@ -560,7 +560,10 @@ app.get('/go/:slug', async (req, res) => {
   const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
   params.set('lead_id', visitorId);
   params.set('client_reference_id', visitorId);
-  const dest = variant.url + (variant.url.includes('?') ? '&' : '?') + params.toString();
+  // Filtro por dispositivo: celular/tablet vai para urlMobile (se definida),
+  // computador vai para a URL principal da variante
+  const baseUrl = (dev.device !== 'desktop' && variant.urlMobile) ? variant.urlMobile : variant.url;
+  const dest = baseUrl + (baseUrl.includes('?') ? '&' : '?') + params.toString();
   return res.redirect(302, dest);
 });
 
@@ -844,6 +847,120 @@ app.delete('/api/links/:slug', dashboardAuth, async (req, res) => {
 app.post('/api/links/validate-domain', dashboardAuth, async (req, res) => {
   const result = await linkStore.validateDomain(String((req.body || {}).dominio || ''));
   res.json(result);
+});
+
+// ═══ Domínios personalizados — plugue qualquer domínio via DNS ════════
+// O usuário aponta um CNAME do domínio dele para este app; como todas as
+// rotas públicas (/go, /l, /t.js, /px.gif) são agnósticas de Host, o mesmo
+// servidor atende o domínio personalizado automaticamente. Aqui fica o
+// registro + verificação (DNS aponta pra cá? HTTPS chega neste app?).
+const dnsp = require('dns').promises;
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const APP_CHECK_ID = 'roi-nados-tracker';
+
+function normHost(input) {
+  const s = String(input || '').trim().toLowerCase();
+  if (!s) return null;
+  try {
+    const h = new URL(s.includes('://') ? s : 'https://' + s).hostname;
+    return DOMAIN_RE.test(h) ? h : null;
+  } catch (_) { return null; }
+}
+
+// Marcador público que prova que o tráfego do domínio chega NESTE app
+// (usado pela verificação; sem auth de propósito — não expõe nada).
+app.get('/__domain-check', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ app: APP_CHECK_ID, ok: true });
+});
+
+app.get('/api/domains', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    domains: config.get().customDomains || [],
+    // host principal do app — alvo do CNAME nas instruções de DNS
+    appHost: String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim()
+  });
+});
+
+app.post('/api/domains', dashboardAuth, (req, res) => {
+  const host = normHost((req.body || {}).host);
+  if (!host) return res.status(400).json({ error: 'domínio inválido (ex.: link.seudominio.com)' });
+  const cur = config.get().customDomains || [];
+  if (cur.some((d) => d.host === host)) return res.status(400).json({ error: 'domínio já cadastrado' });
+  if (cur.length >= 20) return res.status(400).json({ error: 'limite de 20 domínios' });
+  config.set({ customDomains: cur.concat([{ host, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() }]) });
+  stats.logEvent('info', { title: 'Domínio personalizado adicionado: ' + host });
+  res.json({ ok: true, host });
+});
+
+app.delete('/api/domains/:host', dashboardAuth, (req, res) => {
+  const host = normHost(req.params.host);
+  const cur = config.get().customDomains || [];
+  config.set({ customDomains: cur.filter((d) => d.host !== host) });
+  res.json({ ok: true });
+});
+
+// Verificação em 2 passos: (1) DNS do domínio aponta para este app
+// (CNAME → appHost ou A/AAAA com IPs iguais); (2) HTTPS no domínio
+// responde o marcador /__domain-check deste app (prova final).
+app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
+  const host = normHost((req.body || {}).host);
+  if (!host) return res.status(400).json({ error: 'domínio inválido' });
+  const appHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '');
+  const out = { host, appHost, dnsOk: false, dnsDetail: '', httpOk: false, httpDetail: '' };
+
+  // 1. DNS: CNAME direto ou IPs coincidentes
+  try {
+    const cnames = await dnsp.resolveCname(host).catch(() => []);
+    if (cnames.some((c) => c.toLowerCase().replace(/\.$/, '') === appHost.toLowerCase())) {
+      out.dnsOk = true;
+      out.dnsDetail = 'CNAME → ' + appHost;
+    } else {
+      const [hostIps, appIps] = await Promise.all([
+        dnsp.resolve4(host).catch(() => []),
+        dnsp.resolve4(appHost).catch(() => [])
+      ]);
+      if (hostIps.length && appIps.length && hostIps.some((ip) => appIps.includes(ip))) {
+        out.dnsOk = true;
+        out.dnsDetail = 'A → ' + hostIps.join(', ');
+      } else if (!hostIps.length && !cnames.length) {
+        out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
+      } else {
+        out.dnsDetail = 'DNS aponta para outro destino (' + (cnames[0] || hostIps.join(', ')) + ')';
+      }
+    }
+  } catch (e) { out.dnsDetail = 'erro na consulta DNS: ' + e.message; }
+
+  // 2. HTTPS: o marcador deste app responde no domínio?
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch('https://' + host + '/__domain-check', { redirect: 'manual', signal: ctrl.signal });
+    clearTimeout(t);
+    if (r.status === 200) {
+      const j = await r.json().catch(() => null);
+      if (j && j.app === APP_CHECK_ID) { out.httpOk = true; out.httpDetail = 'HTTPS ativo e servido por este app'; }
+      else out.httpDetail = 'HTTPS responde, mas é outro servidor — confira o DNS';
+    } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
+  } catch (_) {
+    out.httpDetail = out.dnsOk
+      ? 'HTTPS ainda não responde — o certificado SSL pode estar sendo emitido (adicione o domínio também no painel da hospedagem, ex.: Vercel → Domains)'
+      : 'sem resposta HTTPS';
+  }
+
+  // verificado = prova HTTPS (forte) ou DNS correto (SSL ainda propagando)
+  out.ok = out.httpOk || out.dnsOk;
+  if (out.ok) {
+    const now = new Date().toISOString();
+    const cur = config.get().customDomains || [];
+    const has = cur.some((d) => d.host === host);
+    const next = has
+      ? cur.map((d) => d.host === host ? Object.assign({}, d, { verificado: true, verificadoEm: now }) : d)
+      : cur.concat([{ host, verificado: true, verificadoEm: now, criadoEm: now }]);
+    config.set({ customDomains: next });
+  }
+  res.json(out);
 });
 
 // ═══ Pushcut — notificações configuráveis pela dashboard ═════════════

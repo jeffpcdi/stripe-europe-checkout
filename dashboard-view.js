@@ -1201,8 +1201,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <input class="inp" id="lk-name" placeholder="Oferta Espanha" style="width:100%">
             </div>
             <div class="form-row">
-              <label>Variantes <span class="hint">— nome | URL do checkout | peso %. Uma por linha; 2+ ativa o teste A/B</span></label>
-              <textarea class="inp" id="lk-variants" rows="4" placeholder="Checkout A | https://pay.gateway.com/oferta-a | 50&#10;Checkout B | https://pay.gateway.com/oferta-b | 50" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
+              <label>Variantes <span class="hint">— nome | URL computador | peso % | URL celular (opcional). Uma por linha; 2+ ativa o teste A/B</span></label>
+              <textarea class="inp" id="lk-variants" rows="4" placeholder="Checkout A | https://pay.gateway.com/oferta-a | 50&#10;Checkout B | https://pay.gateway.com/oferta-b | 50 | https://pay.gateway.com/oferta-b-mobile" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
+              <p class="hint" style="margin-top:6px">Com a URL celular preenchida, computador vai para a URL principal e celular/tablet vai para a alternativa.</p>
             </div>
             <div class="form-row">
               <label>Validar dom&iacute;nio <span class="hint">— DNS + resposta HTTP do checkout</span></label>
@@ -1220,6 +1221,32 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <button class="btn" id="lk-cancel">Cancelar</button>
             </div>
             <input type="hidden" id="lk-slug" value="">
+          </div>
+        </div>
+        <div class="section-title"><span>Dom&iacute;nios personalizados</span><span class="line"></span><span class="muted" style="font-size:11.5px">use o SEU dom&iacute;nio nos an&uacute;ncios</span></div>
+        <div class="grid" style="grid-template-columns:1.2fr 1fr">
+          <div class="card">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+              <input class="inp" id="dm-host" placeholder="link.seudominio.com" style="flex:1;font-family:'Geist Mono',monospace">
+              <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
+            </div>
+            <div id="dm-list"></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:15px;margin-bottom:10px">Como plugar o dom&iacute;nio (DNS)</h3>
+            <ol class="hint" style="margin:0 0 12px 18px;line-height:1.8;font-size:12.5px">
+              <li>No painel DNS do seu dom&iacute;nio, crie um registro <b>CNAME</b>:<br><code>link.seudominio.com &#8594; <span class="dm-apphost">este-app</span></code></li>
+              <li>Se o app estiver na Vercel, adicione o dom&iacute;nio tamb&eacute;m em <b>Project &#8594; Domains</b> (emite o certificado SSL).</li>
+              <li>Aguarde propagar (minutos at&eacute; algumas horas) e clique em <b>Verificar</b>.</li>
+            </ol>
+            <p class="hint" style="font-size:12.5px;line-height:1.7">Depois de verificado, as URLs <code>/go/&lt;slug&gt;</code>, <code>/l/&lt;slug&gt;</code> e o <b>pixel de rastreamento</b> <code>/t.js</code> funcionam direto no seu dom&iacute;nio &mdash; o rastreamento come&ccedil;a nele, sem depender do dom&iacute;nio do app.</p>
+            <div class="form-row" style="margin-top:10px">
+              <label>Pixel no seu dom&iacute;nio <span class="hint">— cole no &lt;head&gt; das suas p&aacute;ginas</span></label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <select class="select" id="dm-snip-host" style="flex:1"></select>
+                <button class="btn btn-sm" id="dm-snip-copy">Copiar snippet</button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
@@ -2714,7 +2741,7 @@ function showLinkForm(l){
   document.getElementById('lk-form-title').textContent=l?('Editar: '+l.nome):'Novo link';
   document.getElementById('lk-slug').value=l?l.slug:'';
   document.getElementById('lk-name').value=l?l.nome:'';
-  document.getElementById('lk-variants').value=l?(l.variantes||[]).map(function(v){return v.nome+' | '+v.url+' | '+(v.peso||0);}).join(String.fromCharCode(10)):'';
+  document.getElementById('lk-variants').value=l?(l.variantes||[]).map(function(v){return v.nome+' | '+v.url+' | '+(v.peso||0)+(v.urlMobile?' | '+v.urlMobile:'');}).join(String.fromCharCode(10)):'';
   document.getElementById('lk-domain').value=l?(l.dominio||''):'';
   document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
   document.getElementById('lk-active').checked=l?!!l.ativo:true;
@@ -2731,9 +2758,14 @@ function delLink(slug){
     .then(function(d){ if(d.ok){ toast('Link removido'); loadLinks(); } else toast(d.error||'Erro',false); })
     .catch(function(){ toast('Erro ao remover',false); });
 }
+function linkOrigin(){
+  var sel=document.getElementById('dm-snip-host');
+  var v=sel&&sel.value?sel.value:'';
+  return v?('https://'+v):location.origin;
+}
 function copyLink(slug){
-  navigator.clipboard.writeText(location.origin+'/go/'+slug)
-    .then(function(){ toast('URL copiada'); })
+  navigator.clipboard.writeText(linkOrigin()+'/go/'+slug)
+    .then(function(){ toast('URL copiada ('+linkOrigin().replace('https://','')+')'); })
     .catch(function(){ toast('Erro ao copiar',false); });
 }
 function parseVariantLines(){
@@ -2743,9 +2775,89 @@ function parseVariantLines(){
     ln=ln.trim(); if(!ln) return;
     var parts=ln.split('|').map(function(p){return p.trim();});
     if(parts.length<2) return;
-    out.push({nome:parts[0],url:parts[1],peso:parts[2]!=null?+parts[2]:0});
+    out.push({nome:parts[0],url:parts[1],peso:parts[2]!=null?+parts[2]:0,urlMobile:parts[3]||undefined});
   });
   return out;
+}
+
+/* ── Domínios personalizados ─────────────────────────────────────────── */
+var DM_LIST=[],DM_APPHOST='';
+function loadDomains(){
+  fetch('/api/domains',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    DM_LIST=d.domains||[]; DM_APPHOST=d.appHost||location.host;
+    renderDomains();
+  }).catch(function(){});
+}
+function renderDomains(){
+  var el=document.getElementById('dm-list'); if(!el) return;
+  // alvo do CNAME nas instruções
+  Array.prototype.forEach.call(document.querySelectorAll('.dm-apphost'),function(n){ n.textContent=DM_APPHOST; });
+  if(!DM_LIST.length){
+    el.innerHTML='<div class="live-empty">Nenhum dom&iacute;nio ainda.<br>Adicione o seu (ex.: <code>link.seudominio.com</code>) e siga as instru&ccedil;&otilde;es de DNS ao lado.</div>';
+  } else {
+    el.innerHTML=DM_LIST.map(function(d){
+      return '<div class="lrow" style="cursor:default">'+
+        '<span class="ldot" style="background:'+(d.verificado?'var(--green)':'var(--amber,#e8a33d)')+';box-shadow:none"></span>'+
+        '<div class="lmain">'+
+          '<b style="font-family:\\'Geist Mono\\',monospace;font-size:13px">'+esc(d.host)+'</b>'+
+          '<span>'+(d.verificado
+            ?'<span class="pos">Verificado'+(d.verificadoEm?' &middot; '+new Date(d.verificadoEm).toLocaleDateString('pt-BR'):'')+'</span>'
+            :'<span class="amb">Aguardando DNS &mdash; aponte o CNAME e clique em Verificar</span>')+'</span>'+
+        '</div>'+
+        '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
+          '<button class="btn-icon" onclick="verifyCustomDomain(\\''+esc(d.host)+'\\',this)">Verificar</button>'+
+          '<button class="btn-icon" style="color:var(--red)" onclick="delDomain(\\''+esc(d.host)+'\\')">Remover</button>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  }
+  // seletor de domínio (snippet do pixel + cópia das URLs /go/)
+  var sel=document.getElementById('dm-snip-host');
+  if(sel){
+    var prev=sel.value;
+    var opts='<option value="">'+esc(location.host)+' (padr&atilde;o)</option>'+
+      DM_LIST.filter(function(d){return d.verificado;}).map(function(d){
+        return '<option value="'+esc(d.host)+'">'+esc(d.host)+'</option>';
+      }).join('');
+    sel.innerHTML=opts;
+    if(prev&&DM_LIST.some(function(d){return d.host===prev&&d.verificado;})) sel.value=prev;
+  }
+}
+function addDomain(){
+  var inp=document.getElementById('dm-host');
+  var host=(inp.value||'').trim();
+  if(!host){ toast('Informe o dom\u00ednio (ex.: link.seudominio.com)',false); return; }
+  fetch('/api/domains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ inp.value=''; toast('Dom\u00ednio adicionado \u2014 configure o DNS e clique em Verificar'); loadDomains(); }
+      else toast(d.error||'Erro',false);
+    }).catch(function(){ toast('Erro ao adicionar',false); });
+}
+function verifyCustomDomain(host,btn){
+  if(btn){ btn.textContent='Verificando...'; btn.disabled=true; }
+  fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok) toast('Dom\u00ednio verificado: '+host+(d.httpOk?'':' (DNS ok \u2014 aguardando SSL)'));
+      else toast('Falhou \u2014 DNS: '+(d.dnsDetail||'?')+' / HTTPS: '+(d.httpDetail||'?'),false);
+      loadDomains();
+    }).catch(function(){ toast('Erro na verifica\u00e7\u00e3o',false); })
+    .finally(function(){ if(btn){ btn.textContent='Verificar'; btn.disabled=false; } });
+}
+function delDomain(host){
+  if(!confirm('Remover o dom\u00ednio "'+host+'"? As URLs nele param de ser recomendadas (o DNS continua seu).')) return;
+  fetch('/api/domains/'+encodeURIComponent(host),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d.ok){ toast('Dom\u00ednio removido'); loadDomains(); } else toast(d.error||'Erro',false); })
+    .catch(function(){ toast('Erro ao remover',false); });
+}
+function copyDomainSnippet(){
+  var origin=linkOrigin();
+  var snip='<script src="'+origin+'/t.js" defer><\\/script><noscript><img src="'+origin+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>';
+  navigator.clipboard.writeText(snip)
+    .then(function(){ toast('Snippet copiado para '+origin.replace('https://','')); })
+    .catch(function(){ toast('Erro ao copiar',false); });
 }
 function saveLink(){
   var body={
@@ -3455,7 +3567,7 @@ function setView(v){
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
   if(g==='config'){ loadHealth().then(renderHealth); loadPushcutConfig(); loadShortlinks(); }
   if(g==='pixels') loadPixels();
-  if(g==='links') loadLinks();
+  if(g==='links'){ loadLinks(); loadDomains(); }
   // veio de uma sub-view (paleta de comandos)? rola até a section correspondente
   if(sub){ setTimeout(function(){ var t=document.getElementById('view-'+sub); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },120); }
   else { document.querySelector('.main').scrollTop=0; window.scrollTo(0,0); }
@@ -3568,6 +3680,9 @@ document.addEventListener('keydown',function(e){
 
 document.getElementById('lk-new').addEventListener('click',function(){ showLinkForm(null); });
 document.getElementById('lk-save').addEventListener('click',saveLink);
+document.getElementById('dm-add').addEventListener('click',addDomain);
+document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
+document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnippet);
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; });
 document.getElementById('lk-validate').addEventListener('click',validateDomain);
 document.getElementById('pc-save').addEventListener('click',savePushcutConfig);
