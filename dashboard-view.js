@@ -434,6 +434,32 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
   .pf-drop{display:flex;align-items:center;gap:6px;padding:0 0 0 192px;font-size:11px;color:var(--red)}
   .pf-drop svg{width:11px;height:11px}
   @media(max-width:720px){.pf-lbl{width:110px}.pf-drop{padding-left:122px}}
+  /* Comparador de páginas de entrada */
+  .en-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .en-tbl th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted2);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line,rgba(255,255,255,.07))}
+  .en-tbl td{padding:9px 10px;border-bottom:1px solid var(--line,rgba(255,255,255,.05));font-variant-numeric:tabular-nums}
+  .en-tbl tr:last-child td{border-bottom:none}
+  .en-tbl .en-p{font-family:'Geist Mono',monospace;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .en-tbl .num{text-align:right}
+  .en-best td{background:rgba(62,207,142,.05)}
+  .en-badge{display:inline-block;font-size:9.5px;font-weight:700;color:#3ecf8e;border:1px solid rgba(62,207,142,.4);border-radius:5px;padding:1px 6px;margin-left:6px;vertical-align:1px}
+  /* Heatmap de horários */
+  .hm-grid{display:grid;grid-template-columns:34px repeat(24,1fr);gap:2px;font-size:9.5px}
+  .hm-lbl{color:var(--muted2);display:flex;align-items:center;justify-content:flex-end;padding-right:6px}
+  .hm-cell{aspect-ratio:1.5/1;border-radius:3px;background:var(--card2);min-width:0;cursor:default}
+  .hm-top{display:flex;align-items:center;justify-content:center;color:var(--muted2);padding-bottom:2px}
+  .hm-foot{display:flex;justify-content:flex-end;align-items:center;gap:5px;margin-top:8px;font-size:10.5px;color:var(--muted2)}
+  .hm-foot i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .sl-slug{font-family:'Geist Mono',monospace;color:var(--cyan);flex:none}
+  /* Notas do gráfico */
+  .note-add{background:none;border:1px dashed var(--line,rgba(255,255,255,.15));border-radius:7px;color:var(--muted2);font-size:11px;padding:3px 9px;cursor:pointer;margin-right:8px;flex:none;transition:color .15s,border-color .15s}
+  .note-add:hover{color:var(--text);border-color:var(--muted2)}
+  .note-dot{cursor:pointer}
+  .chart-notes{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .cn-item{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);background:var(--card2);border-radius:7px;padding:3px 8px}
+  .cn-item b{color:var(--amber,#f5a524);font-weight:600;font-family:'Geist Mono',monospace}
+  .cn-x{cursor:pointer;color:var(--muted2);border:none;background:none;padding:0 0 0 2px;font-size:13px;line-height:1}
+  .cn-x:hover{color:var(--red)}
   /* Tooltip do gráfico de tendência */
   .chart-wrap{position:relative}
   .chart-tip{position:absolute;pointer-events:none;background:var(--card2);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:7px 10px;font-size:12px;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.45);white-space:nowrap}
@@ -1092,6 +1118,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
         <div class="card goal-card" id="ov-goal"></div>
         <div class="section-title"><span>Tendência</span><span class="line"></span>
+          <button class="note-add" id="note-add" title="Anotar um dia (ex.: subi criativo novo)">+ Nota</button>
           <div class="segment" id="chart-mode" style="padding:2px">
             <button data-m="revenue" class="active">Receita</button>
             <button data-m="sales">Vendas</button>
@@ -1104,9 +1131,19 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div class="chart-legend" id="chart-legend">
             <span><span class="leg-dot" style="background:var(--cyan)"></span>Convers&otilde;es via gateway</span>
           </div>
+          <div class="chart-notes" id="chart-notes" hidden></div>
         </div>
         <div class="section-title"><span>Funil por página</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o funil vaza, página a página</span></div>
         <div class="card" id="ov-pagefunnel"></div>
+        <div class="section-title"><span>Páginas de entrada</span><span class="line"></span><span class="muted" style="font-size:11.5px">qual porta de entrada converte melhor</span></div>
+        <div class="card" id="ov-entries" style="padding:10px 14px"></div>
+        <div class="section-title"><span>Horários</span><span class="line"></span>
+          <div class="segment" id="heat-mode" style="padding:2px">
+            <button data-h="sales" class="active">Vendas</button>
+            <button data-h="leads">Leads</button>
+          </div>
+        </div>
+        <div class="card" id="ov-heatmap"></div>
       </section>
 
       <!-- ── Funil & Leads ── -->
@@ -1356,6 +1393,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
                 <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-refund" checked> Reembolso</label>
                 <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-dispute" checked> Disputa</label>
                 <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-checkout"> Checkout iniciado</label>
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-daily"> Resumo di&aacute;rio <span class="hint" style="margin-left:2px">(na virada do dia)</span></label>
               </div>
               <div style="display:flex;gap:10px;margin-top:14px">
                 <button class="btn primary" id="pc-save">Salvar notifica&ccedil;&otilde;es</button>
@@ -1370,6 +1408,32 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <div><h3>Sa&uacute;de do sistema</h3><p>Integra&ccedil;&otilde;es e vari&aacute;veis configuradas neste servidor</p></div>
             </div>
             <div class="health-grid" id="health-grid"><div class="muted" style="font-size:13px;padding:8px 0">Carregando...</div></div>
+          </div>
+        </div>
+        <div class="grid cfg-grid" style="grid-template-columns:1fr 1fr">
+          <div class="card cfg-card" style="--cc:var(--cyan)">
+            <div class="cfg-head">
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span>
+              <div><h3>Links curtos rastre&aacute;veis</h3><p>Use nos criativos no lugar do bit.ly &mdash; o clique vira lead e o funil come&ccedil;a no an&uacute;ncio</p></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input class="inp" id="sl-slug" placeholder="slug (ex: promo-eua)" style="flex:1;min-width:120px;font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
+              <input class="inp" id="sl-url" placeholder="https://destino.com/pagina" style="flex:2;min-width:180px;font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
+              <button class="btn primary" id="sl-add">Criar</button>
+            </div>
+            <div id="sl-list" style="margin-top:12px"></div>
+          </div>
+          <div class="card cfg-card" style="--cc:var(--amber,#f5a524)">
+            <div class="cfg-head">
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></span>
+              <div><h3>API p&uacute;blica (somente leitura)</h3><p>Resumo de m&eacute;tricas por token &mdash; para planilhas, widgets ou BI externo</p></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <input class="inp" id="api-url" readonly placeholder="Clique em Gerar para criar o endpoint" style="flex:1;min-width:220px;font-family:'Geist Mono',monospace;font-size:11.5px" />
+              <button class="btn" id="api-gen">Gerar</button>
+              <button class="btn" id="api-copy" hidden>Copiar</button>
+            </div>
+            <p class="hint" style="margin-top:10px">Retorna JSON com leads, vendas, receita e convers&atilde;o (hoje, 7 dias e total). No Google Sheets: <span style="font-family:'Geist Mono',monospace">=IMPORTDATA(url)</span></p>
           </div>
         </div>
         <div class="card danger-card">
@@ -1460,6 +1524,7 @@ function fmtDateLocal(iso){
 function pctColor(v){ return v>=60?'pos':v>=30?'amb':'neg'; }
 
 var DATA=null, HEALTH=null, period='7d', chartMode='revenue', evFilter='', autoTimer=null, currentView='overview', currentLeadId=null;
+var NOTES=[]; // anotações do gráfico (carregadas de /api/notes)
 var leadsById={};
 var LIVE={visitors:[],summary:{online:0,countries:[]}}, liveTimer=null, liveGlobe=null;
 
@@ -1709,6 +1774,77 @@ function renderOverview(m){
   renderGoal(m,prev);
   renderChart(m);
   renderPageFunnel();
+  renderEntries(m);
+  renderHeatmap();
+  renderNotesList();
+}
+
+/* ── Comparador de páginas de entrada: qual porta converte melhor ── */
+function renderEntries(m){
+  var el=document.getElementById('ov-entries'); if(!el) return;
+  var lp=(DATA.leads||[]).filter(function(l){ return !l.orphan&&inPeriod(l.at); });
+  var map={};
+  lp.forEach(function(l){
+    var p=l.landing||'—';
+    if(!map[p]) map[p]={p:p,leads:0,ck:0,buy:0,rev:0};
+    map[p].leads++;
+    if(l.stage==='checkout'||l.stage==='purchased') map[p].ck++;
+    if(l.stage==='purchased'){ map[p].buy++; map[p].rev+=(l.reportedAmount||l.expectedAmount||0); }
+  });
+  var rows=Object.keys(map).map(function(k){ return map[k]; });
+  if(!rows.length){ el.innerHTML='<div class="empty">Sem leads no per&iacute;odo.</div>'; return; }
+  rows.sort(function(a,b){ return b.rev-a.rev||b.buy-a.buy||b.leads-a.leads; });
+  rows=rows.slice(0,8);
+  // melhor conversão entre entradas com volume mínimo (evita coroar 1/1=100%)
+  var best=null;
+  rows.forEach(function(r){ if(r.leads>=5&&r.buy>0){ var c=r.buy/r.leads; if(!best||c>best.c) best={p:r.p,c:c}; } });
+  var html='<table class="en-tbl"><thead><tr><th>Entrada</th><th class="num">Leads</th><th class="num">Checkout</th><th class="num">Compra</th><th class="num">Receita</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var ckPct=r.leads?Math.round(r.ck/r.leads*100):0;
+    var buyPct=r.leads?Math.round(r.buy/r.leads*1000)/10:0;
+    var isBest=best&&best.p===r.p;
+    html+='<tr'+(isBest?' class="en-best"':'')+'><td class="en-p" title="'+esc(r.p)+'">'+esc(r.p)+(isBest?'<span class="en-badge">melhor</span>':'')+'</td>'+
+      '<td class="num">'+r.leads+'</td>'+
+      '<td class="num">'+r.ck+' <span class="muted" style="font-size:10.5px">('+ckPct+'%)</span></td>'+
+      '<td class="num">'+r.buy+' <span class="muted" style="font-size:10.5px">('+buyPct+'%)</span></td>'+
+      '<td class="num">'+(r.rev?money(r.rev,m.mainCur):'—')+'</td></tr>';
+  });
+  el.innerHTML=html+'</tbody></table>';
+}
+
+/* ── Heatmap dia-da-semana × hora: quando o público age ── */
+var heatMode='sales';
+function renderHeatmap(){
+  var el=document.getElementById('ov-heatmap'); if(!el) return;
+  var grid=[]; for(var d=0;d<7;d++){ grid.push(new Array(24).fill(0)); }
+  var total=0;
+  if(heatMode==='sales'){
+    (DATA.events||[]).forEach(function(e){
+      if(e.type!=='sale'||!inPeriod(e.at)) return;
+      var dt=new Date(e.at); grid[dt.getDay()][dt.getHours()]++; total++;
+    });
+  } else {
+    (DATA.leads||[]).forEach(function(l){
+      if(l.orphan||!inPeriod(l.at)) return;
+      var dt=new Date(l.at); grid[dt.getDay()][dt.getHours()]++; total++;
+    });
+  }
+  if(!total){ el.innerHTML='<div class="empty">Sem '+(heatMode==='sales'?'vendas':'leads')+' no per&iacute;odo.</div>'; return; }
+  var max=0; grid.forEach(function(row){ row.forEach(function(v){ if(v>max)max=v; }); });
+  var DIAS=['Dom','Seg','Ter','Qua','Qui','Sex','S&aacute;b'];
+  var col=heatMode==='sales'?'62,207,142':'37,244,238';
+  var html='<div class="hm-grid"><span></span>';
+  for(var h=0;h<24;h++){ html+='<span class="hm-top">'+(h%3===0?h:'')+'</span>'; }
+  for(var dd=0;dd<7;dd++){
+    html+='<span class="hm-lbl">'+DIAS[dd]+'</span>';
+    for(var hh=0;hh<24;hh++){
+      var v=grid[dd][hh];
+      var op=v?0.15+0.85*(v/max):0;
+      html+='<span class="hm-cell" title="'+DIAS[dd].replace('&aacute;','á')+' '+hh+'h: '+v+'"'+(v?' style="background:rgba('+col+','+op.toFixed(2)+')"':'')+'></span>';
+    }
+  }
+  html+='</div><div class="hm-foot">menos <i style="background:rgba('+col+',.15)"></i><i style="background:rgba('+col+',.45)"></i><i style="background:rgba('+col+',.8)"></i> mais</div>';
+  el.innerHTML=html;
 }
 
 /* ── Funil por página: etapas reais da jornada dos leads ──
@@ -1860,9 +1996,17 @@ function renderChart(m){
     var scH=(chartH)*b.sc/maxV, ccH=(chartH)*b.cc/maxV;
     if(scH>0){ svg+='<rect x="'+x.toFixed(1)+'" y="'+(baseY-scH).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+scH.toFixed(1)+'" rx="3" fill="'+barColor+'" opacity=".9"/>'; }
     if(ccH>0){ svg+='<rect x="'+x.toFixed(1)+'" y="'+(baseY-scH-ccH).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+ccH.toFixed(1)+'" rx="3" fill="#ff5674" opacity=".9"/>'; }
-    var dt=new Date(b.t);
-    var lbl=isHour?(dt.getHours()+'h'):(dt.getDate()+'/'+(dt.getMonth()+1));
-    svg+='<text x="'+(x+w/2).toFixed(1)+'" y="'+(padT+chartH+16)+'" fill="#6c6c80" font-size="9.5" text-anchor="middle" font-family="Inter,sans-serif">'+lbl+'</text>';
+  var dt=new Date(b.t);
+  var lbl=isHour?(dt.getHours()+'h'):(dt.getDate()+'/'+(dt.getMonth()+1));
+  svg+='<text x="'+(x+w/2).toFixed(1)+'" y="'+(padT+chartH+16)+'" fill="#6c6c80" font-size="9.5" text-anchor="middle" font-family="Inter,sans-serif">'+lbl+'</text>';
+  // marcador de anotação: losango âmbar acima do dia anotado
+  if(!isHour){
+    var dayKey=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+    var note=NOTES.find(function(nn){ return nn.d===dayKey; });
+    if(note){
+      svg+='<rect class="note-dot" x="'+(x+w/2-3.5).toFixed(1)+'" y="'+(padT-6)+'" width="7" height="7" rx="1.5" fill="#f5a524" transform="rotate(45 '+(x+w/2).toFixed(1)+' '+(padT-2.5)+')"><title>'+note.d.split('-').reverse().join('/')+': '+note.text.replace(/</g,'&lt;')+'</title></rect>';
+    }
+  }
     // valor legível para o tooltip
     var tipVal=chartMode==='revenue'?money(b.sc,(m&&m.mainCur)||'EUR'):(chartMode==='sales'?Math.round(b.sc/100)+(Math.round(b.sc/100)===1?' venda':' vendas'):b.sc+(b.sc===1?' lead':' leads'));
     svg+='<rect class="ch-hz" data-lbl="'+lbl+'" data-val="'+tipVal.replace(/"/g,'&quot;')+'" data-cx="'+((k+0.5)/buckets.length*100).toFixed(2)+'" x="'+(padL+k*bw).toFixed(1)+'" y="0" width="'+bw.toFixed(1)+'" height="'+H+'" fill="transparent"/>';
@@ -1870,6 +2014,47 @@ function renderChart(m){
   svg+='</svg>';
   el.innerHTML=svg;
 }
+/* ── Anotações do gráfico: carregar, listar, criar e apagar ── */
+function loadNotes(){
+  fetch('/api/notes',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
+    NOTES=j.notes||[];
+    renderNotesList();
+    if(DATA) renderChart(metrics()); // redesenha para os marcadores aparecerem
+  }).catch(function(){});
+}
+function renderNotesList(){
+  var box=document.getElementById('chart-notes'); if(!box) return;
+  // só notas dentro do período visível
+  var r=periodRange();
+  var vis=NOTES.filter(function(n){ var t=new Date(n.d+'T12:00:00').getTime(); return t>=r.from&&t<=r.to; });
+  if(!vis.length){ box.hidden=true; box.innerHTML=''; return; }
+  box.hidden=false;
+  box.innerHTML=vis.map(function(n){
+    return '<span class="cn-item"><b>'+n.d.split('-').reverse().slice(0,2).join('/')+'</b>'+esc(n.text)+
+      '<button class="cn-x" data-d="'+n.d+'" title="Apagar nota" aria-label="Apagar nota">&times;</button></span>';
+  }).join('');
+}
+function bindNotes(){
+  var btn=document.getElementById('note-add');
+  if(btn) btn.addEventListener('click',function(){
+    var today=new Date(); var def=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+    var d=prompt('Dia da nota (AAAA-MM-DD):',def); if(!d) return;
+    d=d.trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){ toast('Data inv\u00e1lida \u2014 use AAAA-MM-DD'); return; }
+    var text=prompt('Nota (ex.: subi criativo novo, aumentei budget):',''); if(!text||!text.trim()) return;
+    fetch('/api/notes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({d:d,text:text.trim()})})
+      .then(function(r){return r.json();})
+      .then(function(j){ if(j.ok){ toast('Nota salva'); loadNotes(); } else toast(j.error||'Erro ao salvar'); })
+      .catch(function(){ toast('Erro ao salvar nota'); });
+  });
+  var box=document.getElementById('chart-notes');
+  if(box) box.addEventListener('click',function(e){
+    var x=e.target.closest?e.target.closest('.cn-x'):null; if(!x) return;
+    fetch('/api/notes/'+x.getAttribute('data-d'),{method:'DELETE'})
+      .then(function(){ toast('Nota apagada'); loadNotes(); }).catch(function(){});
+  });
+}
+
 // Tooltip do gráfico: delegação única — sobrevive a re-renders do innerHTML
 function bindChartTip(){
   var wrap=document.getElementById('chart'), tip=document.getElementById('chart-tip');
@@ -2659,6 +2844,7 @@ function loadPushcutConfig(){
     document.getElementById('pc-ev-refund').checked=ev.refund!==false;
     document.getElementById('pc-ev-dispute').checked=ev.dispute!==false;
     document.getElementById('pc-ev-checkout').checked=ev.checkout===true;
+    document.getElementById('pc-ev-daily').checked=ev.daily===true;
     document.getElementById('pc-status').innerHTML=d.hasUrl?'<span class="pos">Webhook configurado</span>':'<span class="amb">Sem webhook — notifica&ccedil;&otilde;es desligadas</span>';
   }).catch(function(){});
 }
@@ -2670,7 +2856,8 @@ function savePushcutConfig(){
       failed:document.getElementById('pc-ev-failed').checked,
       refund:document.getElementById('pc-ev-refund').checked,
       dispute:document.getElementById('pc-ev-dispute').checked,
-      checkout:document.getElementById('pc-ev-checkout').checked
+      checkout:document.getElementById('pc-ev-checkout').checked,
+      daily:document.getElementById('pc-ev-daily').checked
     }
   };
   fetch('/api/pushcut-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
@@ -2686,6 +2873,65 @@ function testPushcut(){
     .then(function(r){return r.json();})
     .then(function(d){ toast(d.ok?'Push enviado — confira o celular':'Falhou — confira a URL do webhook',d.ok); })
     .catch(function(){ toast('Erro no teste',false); });
+}
+
+/* ── Links curtos rastreáveis (/l/:slug) ── */
+function loadShortlinks(){
+  fetch('/api/shortlinks',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var el=document.getElementById('sl-list'); if(!el) return;
+    var list=d.shortlinks||[];
+    if(!list.length){ el.innerHTML='<p class="hint" style="margin:0">Nenhum link ainda. Crie o primeiro acima.</p>'; return; }
+    el.innerHTML=list.map(function(s){
+      var short=location.origin+'/l/'+s.slug;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line,rgba(255,255,255,.05));font-size:12.5px">'+
+        '<span class="sl-slug">/l/'+esc(s.slug)+'</span>'+
+        '<span class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" title="'+esc(s.url)+'">'+esc(s.url)+'</span>'+
+        '<span class="muted" style="flex:none;font-variant-numeric:tabular-nums">'+(s.clicks||0)+(s.clicks===1?' clique':' cliques')+'</span>'+
+        '<button class="btn-icon" data-copy="'+esc(short)+'" title="Copiar link">Copiar</button>'+
+        '<button class="cn-x" data-del="'+esc(s.slug)+'" title="Apagar" aria-label="Apagar link">&times;</button></div>';
+    }).join('');
+  }).catch(function(){});
+}
+function bindShortlinks(){
+  var add=document.getElementById('sl-add');
+  if(add) add.addEventListener('click',function(){
+    var slug=document.getElementById('sl-slug').value.trim();
+    var url=document.getElementById('sl-url').value.trim();
+    if(!slug||!url){ toast('Preencha slug e URL'); return; }
+    fetch('/api/shortlinks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({slug:slug,nome:slug,url:url})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d.ok){ toast('Link criado'); document.getElementById('sl-slug').value=''; document.getElementById('sl-url').value=''; loadShortlinks(); }
+        else toast(d.error||'Erro ao criar',false);
+      }).catch(function(){ toast('Erro ao criar',false); });
+  });
+  var list=document.getElementById('sl-list');
+  if(list) list.addEventListener('click',function(e){
+    var cp=e.target.closest?e.target.closest('[data-copy]'):null;
+    if(cp){ navigator.clipboard.writeText(cp.getAttribute('data-copy')).then(function(){ toast('Link copiado'); }); return; }
+    var del=e.target.closest?e.target.closest('[data-del]'):null;
+    if(del&&confirm('Apagar o link /l/'+del.getAttribute('data-del')+'?')){
+      fetch('/api/shortlinks/'+del.getAttribute('data-del'),{method:'DELETE'})
+        .then(function(){ toast('Link apagado'); loadShortlinks(); }).catch(function(){});
+    }
+  });
+}
+
+/* ── API pública read-only ── */
+function bindPublicApi(){
+  var gen=document.getElementById('api-gen'), copy=document.getElementById('api-copy'), inp=document.getElementById('api-url');
+  if(!gen) return;
+  gen.addEventListener('click',function(){
+    fetch('/api/public-token').then(function(r){return r.json();}).then(function(d){
+      if(!d.token) return toast('Erro ao gerar token',false);
+      inp.value=location.origin+'/api/v1/summary?token='+d.token;
+      copy.hidden=false;
+      toast('Endpoint pronto — copie e use');
+    }).catch(function(){ toast('Erro ao gerar token',false); });
+  });
+  copy.addEventListener('click',function(){
+    navigator.clipboard.writeText(inp.value).then(function(){ toast('URL copiada'); });
+  });
 }
 /* ── Pixel TikTok ───────────────────────────────────��─────────────── */
 var PX_LIST=[];
@@ -3203,7 +3449,7 @@ function setView(v){
     setTimeout(function(){ if(liveGlobe){ try{liveGlobe.width(document.getElementById('live-globe').clientWidth).height(520);}catch(e){} } },80);
   }
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
-  if(g==='config'){ loadHealth().then(renderHealth); loadPushcutConfig(); }
+  if(g==='config'){ loadHealth().then(renderHealth); loadPushcutConfig(); loadShortlinks(); }
   if(g==='pixels') loadPixels();
   if(g==='links') loadLinks();
   // veio de uma sub-view (paleta de comandos)? rola até a section correspondente
@@ -3272,6 +3518,19 @@ document.getElementById('chart-mode').addEventListener('click',function(e){
   if(DATA){ var m=metrics(); renderChart(m); }
 });
 bindChartTip();
+bindNotes();
+loadNotes();
+// toggle Vendas/Leads do heatmap de horários
+(function(){
+  var seg=document.getElementById('heat-mode');
+  if(seg) seg.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b) return;
+    seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('active'); });
+    b.classList.add('active');
+    heatMode=b.getAttribute('data-h');
+    if(DATA) renderHeatmap();
+  });
+})();
 document.getElementById('refresh-btn').addEventListener('click',function(){
   var b=this; b.classList.add('spinning');
   refresh(true).then(function(){toast('Atualizado');}).catch(function(){toast('Falha ao atualizar',false);}).then(function(){ setTimeout(function(){b.classList.remove('spinning');},450); });
@@ -3308,6 +3567,8 @@ document.getElementById('lk-save').addEventListener('click',saveLink);
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; });
 document.getElementById('lk-validate').addEventListener('click',validateDomain);
 document.getElementById('pc-save').addEventListener('click',savePushcutConfig);
+bindShortlinks();
+bindPublicApi();
 document.getElementById('pc-test').addEventListener('click',testPushcut);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });
 document.getElementById('px-save').addEventListener('click',savePixel);
