@@ -421,6 +421,21 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
   .ph-l{font-size:11px;color:var(--muted2)}
   .ph-err{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--red);padding:4px 0}
   .ph-err .pe-t{color:var(--muted2);font-size:11px;margin-left:auto;flex:none}
+  /* Funil por página (Visão Geral) */
+  .pf-row{display:flex;align-items:center;gap:12px;padding:7px 0}
+  .pf-lbl{width:180px;flex:none;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'Geist Mono',monospace}
+  .pf-track{flex:1;height:26px;background:var(--card2);border-radius:7px;overflow:hidden;position:relative}
+  .pf-track i{display:block;height:100%;border-radius:7px;width:0;transition:width .7s cubic-bezier(.22,1,.36,1)}
+  .pf-n{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:11.5px;font-weight:600;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);font-variant-numeric:tabular-nums}
+  .pf-pct{width:52px;flex:none;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;font-weight:600}
+  .pf-drop{display:flex;align-items:center;gap:6px;padding:0 0 0 192px;font-size:11px;color:var(--red)}
+  .pf-drop svg{width:11px;height:11px}
+  @media(max-width:720px){.pf-lbl{width:110px}.pf-drop{padding-left:122px}}
+  /* Tooltip do gráfico de tendência */
+  .chart-wrap{position:relative}
+  .chart-tip{position:absolute;pointer-events:none;background:var(--card2);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:7px 10px;font-size:12px;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.45);white-space:nowrap}
+  .chart-tip b{display:block;font-family:'Geist Mono',monospace;font-size:14px}
+  .chart-tip span{color:var(--muted2);font-size:10.5px}
 .section-title .line{flex:1;height:1px;background:var(--border)}
 
 /* ── Gráfico ── */
@@ -1077,14 +1092,18 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div class="segment" id="chart-mode" style="padding:2px">
             <button data-m="revenue" class="active">Receita</button>
             <button data-m="sales">Vendas</button>
+            <button data-m="leads">Leads</button>
           </div>
         </div>
-        <div class="card">
+        <div class="card" style="position:relative">
           <div class="chart-wrap" id="chart"></div>
-          <div class="chart-legend">
+          <div class="chart-tip" id="chart-tip" hidden></div>
+          <div class="chart-legend" id="chart-legend">
             <span><span class="leg-dot" style="background:var(--cyan)"></span>Convers&otilde;es via gateway</span>
           </div>
         </div>
+        <div class="section-title"><span>Funil por página</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o funil vaza, página a página</span></div>
+        <div class="card" id="ov-pagefunnel"></div>
       </section>
 
       <!-- ── Funil & Leads ── -->
@@ -1665,8 +1684,8 @@ function renderOverview(m){
   // países com mini-tabela de bandeiras + volume (só quando há dados no período)
   var hasSales=m.sales>0, hasGeo=m.countries.length>0;
   document.getElementById('ov-chips').innerHTML=
-    mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor,'ov-cu-appr',hasAttempts?sparkBars(seriesFor('approval'),apColor):'')+
-    mstat('#3ecf8e','rgba(62,207,142,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null,null,null,hasSales?spark(seriesFor('ticket'),'#3ecf8e'):'')+
+    mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor,'ov-cu-appr',((cur&&prev)?deltaChip(cur.approval,prev.approval):'')+(hasAttempts?sparkBars(seriesFor('approval'),apColor):''))+
+    mstat('#3ecf8e','rgba(62,207,142,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null,null,null,((cur&&prev&&prev.bought>0)?deltaChip(cur.bought?cur.rev/cur.bought:0,prev.rev/prev.bought):'')+(hasSales?spark(seriesFor('ticket'),'#3ecf8e'):''))+
     mstat('#25f4ee','rgba(37,244,238,.1)',I.globe,'Países ativos',m.countries.length,(hasGeo?'':'aguardando leads'),null,null,'ov-cu-geo',geoMini(m.countries))+
     mstat(refColor,m.refunds?'rgba(245,181,68,.12)':'rgba(62,207,142,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null,null,'ov-cu-ref',m.refunds?spark(seriesFor('refunds'),refColor):'')+
     mstat(dispColor,m.disputes?'rgba(255,86,116,.12)':'rgba(62,207,142,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null,null,'ov-cu-disp',m.disputes?spark(seriesFor('disputes'),dispColor):'');
@@ -1686,6 +1705,61 @@ function renderOverview(m){
 
   renderGoal(m,prev);
   renderChart(m);
+  renderPageFunnel();
+}
+
+/* ── Funil por página: etapas reais da jornada dos leads ──
+   Ordena as páginas pela posição média em que aparecem no trajeto
+   (1ª página do funil primeiro) e mostra a perda entre cada etapa. */
+function renderPageFunnel(){
+  var el=document.getElementById('ov-pagefunnel'); if(!el) return;
+  var lp=(DATA.leads||[]).filter(function(l){ return !l.orphan&&inPeriod(l.at); });
+  var pages={}; // p -> {count, idxSum}
+  var withJourney=0;
+  lp.forEach(function(l){
+    if(!l.journey||!l.journey.length) return;
+    withJourney++;
+    var seen={};
+    l.journey.forEach(function(s,i){
+      var p=s.p||'';
+      if(!p||p.indexOf('go:')===0||p==='compra') return; // marcos não são páginas
+      if(seen[p]) return; // 1ª passagem do lead conta a posição
+      seen[p]=true;
+      if(!pages[p]) pages[p]={p:p,count:0,idxSum:0};
+      pages[p].count++; pages[p].idxSum+=i;
+    });
+  });
+  var list=Object.keys(pages).map(function(k){ return pages[k]; });
+  if(!withJourney||!list.length){
+    el.innerHTML='<div class="empty">Assim que os leads navegarem pelas suas p&aacute;ginas (snippet instalado), o funil aparece aqui etapa por etapa.</div>';
+    return;
+  }
+  // ordena pela posição média no trajeto; empate = maior volume primeiro
+  list.sort(function(a,b){ var pa=a.idxSum/a.count, pb=b.idxSum/b.count; return pa===pb?(b.count-a.count):(pa-pb); });
+  list=list.slice(0,5);
+  var reached=lp.filter(function(l){ return l.stage==='checkout'||l.stage==='purchased'; }).length;
+  var bought=lp.filter(function(l){ return l.stage==='purchased'; }).length;
+  var steps=list.map(function(pg){ return {l:pg.p,v:pg.count,c:'#52a8ff'}; });
+  steps.push({l:'Checkout',v:reached,c:'#25f4ee'});
+  steps.push({l:'Compra',v:bought,c:'#3ecf8e'});
+  var max=Math.max(steps[0].v,1);
+  var html='';
+  var DROP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>';
+  steps.forEach(function(st,i){
+    var pct=Math.round(st.v/max*100);
+    html+='<div class="pf-row"><span class="pf-lbl" title="'+esc(st.l)+'">'+esc(st.l)+'</span>'+
+      '<span class="pf-track"><i data-w="'+Math.max(3,pct)+'" style="background:'+st.c+';transition-delay:'+(i*0.09)+'s"><span class="pf-n">'+st.v+'</span></i></span>'+
+      '<span class="pf-pct" style="color:'+st.c+'">'+pct+'%</span></div>';
+    // perda entre esta etapa e a próxima (só quando há queda real)
+    if(i<steps.length-1&&st.v>0&&steps[i+1].v<st.v){
+      var loss=Math.round((1-steps[i+1].v/st.v)*100);
+      if(loss>=1) html+='<div class="pf-drop">'+DROP+loss+'% saem aqui</div>';
+    }
+  });
+  el.innerHTML=html;
+  requestAnimationFrame(function(){
+    el.querySelectorAll('.pf-track i').forEach(function(f){ f.style.width=f.getAttribute('data-w')+'%'; });
+  });
 }
 
 /* ── Anel de meta de receita (meta sugerida = 1,2× período anterior) ── */
@@ -1740,39 +1814,75 @@ function renderChart(m){
     }
   }
   function idx(ts){ for(var j=buckets.length-1;j>=0;j--){ if(ts>=buckets[j].t) return j; } return -1; }
-  events.forEach(function(e){
-    var j=idx(new Date(e.at).getTime());
-    if(j<0) return;
-    var val=chartMode==='revenue'?(e.amount||0):100; // 100 cents = 1 unidade para escala
-    buckets[j].sc+=val; // série única — gateways são todos externos agora
-  });
+  if(chartMode==='leads'){
+    // série de leads: cada lead novo (não-órfão) do período conta 1 no bucket
+    (DATA.leads||[]).forEach(function(l){
+      if(l.orphan||!inPeriod(l.at)) return;
+      var j=idx(new Date(l.at).getTime());
+      if(j>=0) buckets[j].sc+=1;
+    });
+  } else {
+    events.forEach(function(e){
+      var j=idx(new Date(e.at).getTime());
+      if(j<0) return;
+      var val=chartMode==='revenue'?(e.amount||0):100; // 100 cents = 1 unidade para escala
+      buckets[j].sc+=val; // série única — gateways são todos externos agora
+    });
+  }
   var maxV=0;
   buckets.forEach(function(b){ maxV=Math.max(maxV,b.sc+b.cc); });
   if(!maxV) maxV=1;
   var hasData=buckets.some(function(b){return b.sc+b.cc>0;});
-  if(!hasData){ el.innerHTML='<div class="empty" style="min-height:180px;display:flex;align-items:center;justify-content:center">Sem vendas no per&iacute;odo.</div>'; return; }
+  var legend=document.getElementById('chart-legend');
+  if(legend){
+    legend.innerHTML=chartMode==='leads'
+      ? '<span><span class="leg-dot" style="background:#25f4ee"></span>Novos leads no per&iacute;odo</span>'
+      : '<span><span class="leg-dot" style="background:var(--cyan)"></span>Convers&otilde;es via gateway</span>';
+  }
+  if(!hasData){ el.innerHTML='<div class="empty" style="min-height:180px;display:flex;align-items:center;justify-content:center">'+(chartMode==='leads'?'Sem leads no per&iacute;odo.':'Sem vendas no per&iacute;odo.')+'</div>'; return; }
   var W=Math.max(520,el.clientWidth||520), H=200, padL=8, padR=8, padT=12, padB=24;
   var chartH=H-padT-padB;
   var bw=(W-padL-padR)/buckets.length;
+  var barColor=chartMode==='leads'?'#25f4ee':'#52a8ff';
   var svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="100%" preserveAspectRatio="none">';
   // gridlines
   for(var g=0;g<=4;g++){
     var gy=padT+chartH*(1-g/4);
     svg+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="rgba(255,255,255,.05)" stroke-dasharray="3,3"/>';
   }
-  // barras
+  // barras + zonas de hover (uma coluna invisível por bucket alimenta o tooltip)
   buckets.forEach(function(b,k){
     var x=padL+k*bw+bw*0.18; var w=bw*0.64;
     var baseY=padT+chartH;
     var scH=(chartH)*b.sc/maxV, ccH=(chartH)*b.cc/maxV;
-    if(scH>0){ svg+='<rect x="'+x.toFixed(1)+'" y="'+(baseY-scH).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+scH.toFixed(1)+'" rx="3" fill="#52a8ff" opacity=".9"/>'; }
+    if(scH>0){ svg+='<rect x="'+x.toFixed(1)+'" y="'+(baseY-scH).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+scH.toFixed(1)+'" rx="3" fill="'+barColor+'" opacity=".9"/>'; }
     if(ccH>0){ svg+='<rect x="'+x.toFixed(1)+'" y="'+(baseY-scH-ccH).toFixed(1)+'" width="'+w.toFixed(1)+'" height="'+ccH.toFixed(1)+'" rx="3" fill="#ff5674" opacity=".9"/>'; }
     var dt=new Date(b.t);
     var lbl=isHour?(dt.getHours()+'h'):(dt.getDate()+'/'+(dt.getMonth()+1));
     svg+='<text x="'+(x+w/2).toFixed(1)+'" y="'+(padT+chartH+16)+'" fill="#6c6c80" font-size="9.5" text-anchor="middle" font-family="Inter,sans-serif">'+lbl+'</text>';
+    // valor legível para o tooltip
+    var tipVal=chartMode==='revenue'?money(b.sc,(m&&m.mainCur)||'EUR'):(chartMode==='sales'?Math.round(b.sc/100)+(Math.round(b.sc/100)===1?' venda':' vendas'):b.sc+(b.sc===1?' lead':' leads'));
+    svg+='<rect class="ch-hz" data-lbl="'+lbl+'" data-val="'+tipVal.replace(/"/g,'&quot;')+'" data-cx="'+((k+0.5)/buckets.length*100).toFixed(2)+'" x="'+(padL+k*bw).toFixed(1)+'" y="0" width="'+bw.toFixed(1)+'" height="'+H+'" fill="transparent"/>';
   });
   svg+='</svg>';
   el.innerHTML=svg;
+}
+// Tooltip do gráfico: delegação única — sobrevive a re-renders do innerHTML
+function bindChartTip(){
+  var wrap=document.getElementById('chart'), tip=document.getElementById('chart-tip');
+  if(!wrap||!tip) return;
+  wrap.addEventListener('mousemove',function(e){
+    var hz=e.target.closest?e.target.closest('.ch-hz'):null;
+    if(!hz){ tip.hidden=true; return; }
+    tip.innerHTML='<b>'+hz.getAttribute('data-val')+'</b><span>'+hz.getAttribute('data-lbl')+'</span>';
+    tip.hidden=false;
+    var card=wrap.parentElement, cr=card.getBoundingClientRect();
+    var cx=parseFloat(hz.getAttribute('data-cx'))/100*wrap.clientWidth+wrap.offsetLeft;
+    var left=Math.max(6,Math.min(cr.width-tip.offsetWidth-6,cx-tip.offsetWidth/2));
+    tip.style.left=left+'px';
+    tip.style.top=(wrap.offsetTop+6)+'px';
+  });
+  wrap.addEventListener('mouseleave',function(){ tip.hidden=true; });
 }
 
 /* ── Funil ── */
@@ -3137,6 +3247,7 @@ document.getElementById('chart-mode').addEventListener('click',function(e){
   document.querySelectorAll('#chart-mode button').forEach(function(x){x.classList.toggle('active',x===b);});
   if(DATA){ var m=metrics(); renderChart(m); }
 });
+bindChartTip();
 document.getElementById('refresh-btn').addEventListener('click',function(){
   var b=this; b.classList.add('spinning');
   refresh(true).then(function(){toast('Atualizado');}).catch(function(){toast('Falha ao atualizar',false);}).then(function(){ setTimeout(function(){b.classList.remove('spinning');},450); });
