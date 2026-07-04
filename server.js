@@ -275,6 +275,7 @@ app.use(async (req, res, next) => {
           ttclid: q.ttclid || (leadVc && leadVc.ttclid) || null,
           ttp: (leadVc && leadVc.ttp) || null,
           email: (leadVc && leadVc.email) || undefined,
+          phone: (leadVc && leadVc.phone) || undefined,
           url: fullUrl(req)
         }, p).catch(() => {});
       }
@@ -387,6 +388,18 @@ app.post('/api/track', async (req, res) => {
       return;
     }
 
+    // Advanced Matching do snippet: email/telefone digitados em formulários
+    // da página externa. Valida no servidor e amarra ao lead — email+phone
+    // são os sinais de identidade que mais sobem a saúde dos disparos.
+    if ((typeof b.email === 'string' && b.email) || (typeof b.phone === 'string' && b.phone)) {
+      const em = typeof b.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(b.email.trim())
+        ? b.email.trim().toLowerCase().slice(0, 320) : undefined;
+      const phDigits = typeof b.phone === 'string' ? b.phone.replace(/\D/g, '') : '';
+      const ph = phDigits.length >= 8 && phDigits.length <= 15 ? String(b.phone).trim().slice(0, 30) : undefined;
+      if (em || ph) { try { stats.attachTracking(vid, { email: em, phone: ph }); } catch (_) {} }
+      return;                                      // payload só de identidade: não conta page view
+    }
+
     const geo = geoFromReq(req);
     const dev = uaTools.parse(uaRaw);
     const utm = (b.utm && typeof b.utm === 'object') ? b.utm : {};
@@ -444,6 +457,7 @@ app.post('/api/track', async (req, res) => {
         ttclid: (typeof b.ttclid === 'string' && b.ttclid) || (lead && lead.ttclid) || null,
         ttp: (typeof b.ttp === 'string' && b.ttp) || (lead && lead.ttp) || null,
         email: (lead && lead.email) || undefined,
+        phone: (lead && lead.phone) || undefined,
         url: pageUrl
       }, landing || 'externa').catch(() => {});
     }
@@ -524,6 +538,7 @@ app.get('/go/:slug', async (req, res) => {
         eventId: evId,
         leadId: visitorId,
         email: lead.email || undefined,
+        phone: lead.phone || undefined,
         ip: clientIp(req),
         userAgent: uaRaw.slice(0, 500),
         ttclid: q.ttclid || lead.ttclid || null,
@@ -1317,6 +1332,10 @@ app.post('/api/px/event', (req, res) => {
     if (vId && (b.ttclid || b.ttp)) {
       try { stats.attachTracking(vId, { ttclid: b.ttclid || undefined, ttp: b.ttp || undefined }); } catch (_) {}
     }
+    // identidade já salva no lead (email/phone do Advanced Matching, ttclid/_ttp
+    // de visitas anteriores) — todo disparo sai com o sinal máximo disponível
+    let leadPx = null;
+    if (vId) { try { leadPx = stats.getLead(vId); } catch (_) {} }
     // dedup + disparo em PARALELO (antes era serial: 1 roundtrip Redis por evento)
     events.forEach((e) => {
       const name = String(e.n || '').slice(0, 40);
@@ -1328,10 +1347,12 @@ app.post('/api/px/event', (req, res) => {
         return ttEvents.dispatchToAll(name, {
           eventId: evId,
           leadId: vId || undefined,
+          email: (leadPx && leadPx.email) || undefined,
+          phone: (leadPx && leadPx.phone) || undefined,
           ip,
           userAgent: ua,
-          ttclid: b.ttclid ? String(b.ttclid).slice(0, 500) : undefined,
-          ttp: b.ttp ? String(b.ttp).slice(0, 500) : undefined,
+          ttclid: (b.ttclid ? String(b.ttclid).slice(0, 500) : undefined) || (leadPx && leadPx.ttclid) || undefined,
+          ttp: (b.ttp ? String(b.ttp).slice(0, 500) : undefined) || (leadPx && leadPx.ttp) || undefined,
           url: b.url ? String(b.url).slice(0, 500) : undefined
         }, route);
       }).catch(() => {});
