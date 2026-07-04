@@ -35,6 +35,7 @@ const DASHBOARD_HTML = require('./dashboard-view');
 const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
 const uaTools = require('./ua');
+const botFilter = require('./bot-filter');
 const TRACKER_JS = require('./tracker-view');
 
 // Lê um cookie do request (parse simples, sem dependência extra)
@@ -315,13 +316,37 @@ const rlSweep = setInterval(() => {
 }, 120e3);
 if (rlSweep.unref) rlSweep.unref();
 
-app.get('/t.js', (_req, res) => {
+app.get('/t.js', (req, res) => {
   res.set({
     'Content-Type': 'application/javascript; charset=utf-8',
-    'Cache-Control': 'public, max-age=300',        // 5min: atualizações chegam rápido
+    'Cache-Control': 'no-store',   // sem cache: cada request tem o token único do visitante
     'Access-Control-Allow-Origin': '*'
   });
-  res.send(TRACKER_JS);
+  // Emite um challenge token personalizado por visitante e injeta o snippet
+  // de verificação no tracker — quando o browser executa e devolve o token
+  // ao /api/cloakcheck, confirma que há JS real rodando (não headless).
+  const vid = readCookie(req, 'v_id') || '';
+  const challengeToken = vid ? botFilter.issueChallengeToken(vid) : '';
+  const snippet = vid ? botFilter.challengeSnippet(vid, challengeToken) : '';
+  res.send(TRACKER_JS + (snippet ? '\n' + snippet : ''));
+});
+
+// Recebe a resposta do JS challenge enviada pelo snippet do /t.js.
+// Grava o resultado no lead para que o /go/:slug use na próxima decisão.
+app.post('/api/cloakcheck', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const b = req.body || {};
+  const vid = typeof b.vid === 'string' ? b.vid.slice(0, 60) : '';
+  const tok = typeof b.tok === 'string' ? b.tok.slice(0, 80) : '';
+  if (!vid || !tok) return res.status(204).end();
+  const cv = botFilter.verifyChallengeToken(vid, tok);
+  try {
+    stats.attachTracking(vid, {
+      cloakChallenge: cv.ok ? 'ok' : 'fail',
+      cloakChallengeAt: new Date().toISOString()
+    });
+  } catch (_) {}
+  res.status(204).end();
 });
 
 // Fallback SEM JavaScript: <noscript><img src="https://DOMINIO/px.gif"></noscript>
@@ -476,16 +501,50 @@ app.get('/go/:slug', async (req, res) => {
   }
   const q = req.query || {};
 
-  // Bots (preview do WhatsApp/Telegram, crawler do TikTok, monitoramento):
-  // redireciona SEM rastrear — não conta clique, não vira lead, não dispara CAPI.
   const uaRaw = String(req.headers['user-agent'] || '');
+
+  // ── Filtro multicamadas: bot / revisor de anúncio TikTok ──────────────
+  // Primeiro: UAs de crawlers conhecidos — resposta imediata sem custo.
+  // Segundo: motor de score assíncrono (ASN + headers + JS challenge).
+  // Se urlWhitePage estiver configurada, revisores vão pra ela.
+  // Se não houver white page, revisores são redirecionados para a variante
+  // normal (comportamento anterior — não bloqueia o anúncio de ser aprovado).
+  const whitePage = link.urlWhitePage || null;
+
   if (uaTools.isBot(uaRaw)) {
-    const v0 = link.variantes[0];
-    return res.redirect(302, v0.url);
+    // Crawlers / preview de apps: vai para white page ou variante 1
+    stats.logEvent('info', {
+      title: '[cloak] bot UA → white',
+      gateway: 'link:' + link.slug,
+      ref: String(uaRaw).slice(0, 80)
+    });
+    return res.redirect(302, whitePage || link.variantes[0].url);
   }
-  // Rajada do mesmo IP (spy tool/clique inflado): redireciona sem contar
+
+  // Rajada do mesmo IP (spy tool / clique inflado)
   if (rateLimited(clientIp(req), 'go', 20)) {
-    return res.redirect(302, link.variantes[0].url);
+    return res.redirect(302, whitePage || link.variantes[0].url);
+  }
+
+  // Score assíncrono: correr em paralelo com o resto do processamento
+  // para não adicionar latência visível ao usuário real.
+  const lead0 = (() => { try { return stats.getLead(readCookie(req, 'v_id') || '') || {}; } catch (_) { return {}; } })();
+  const challengeToken = lead0.cloakChallenge === 'ok'
+    ? botFilter.issueChallengeToken(readCookie(req, 'v_id') || '', 0) // token já confirmado
+    : (lead0.cloakChallenge === 'fail' ? '' : null); // null = ainda não avaliado
+
+  const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
+  const judgment = await botFilter.judge(filterReq, readCookie(req, 'v_id') || '', challengeToken).catch(() => ({ verdict: 'real', score: 0, signals: [] }));
+
+  // Loga o julgamento para análise na dashboard (atividade)
+  if (judgment.verdict === 'bot') {
+    stats.logEvent('info', {
+      title: '[cloak] score=' + judgment.score + ' → white | ' + judgment.signals.slice(0, 3).join(', '),
+      gateway: 'link:' + link.slug,
+      ref: clientIp(req)
+    });
+    if (whitePage) return res.redirect(302, whitePage);
+    // sem white page configurada: deixa passar (não penaliza aprovação do anúncio)
   }
 
   // Costura de identidade: se veio de página externa com snippet /t.js,

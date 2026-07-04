@@ -1206,6 +1206,11 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <p class="hint" style="margin-top:6px">Com a URL celular preenchida, computador vai para a URL principal e celular/tablet vai para a alternativa.</p>
             </div>
             <div class="form-row">
+              <label>White Page <span class="hint">— p&aacute;gina enviada para revisores &amp; bots do TikTok Ads</span></label>
+              <input class="inp" id="lk-whitepage" placeholder="https://seudominio.com/pagina-neutra" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
+              <p class="hint" style="margin-top:6px;line-height:1.6">Visitantes identificados como revisores de an&uacute;ncio (score alto: datacenter, headless, sem JS, idioma inconsistente) s&atilde;o redirecionados aqui. Usu&aacute;rios reais v&atilde;o para a <b>Offer Page</b> acima. Deixe vazio para desativar o cloaking neste link.</p>
+            </div>
+            <div class="form-row">
               <label>Validar dom&iacute;nio <span class="hint">— DNS + resposta HTTP do checkout</span></label>
               <div style="display:flex;gap:8px;align-items:center">
                 <input class="inp" id="lk-domain" placeholder="pay.gateway.com" style="flex:1;font-family:'Geist Mono',monospace">
@@ -2649,9 +2654,9 @@ function renderLinks(){
       return '<div class="lrow" style="cursor:default">'+
         '<span class="ldot" style="background:'+(l.ativo?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
         '<div class="lmain">'+
-          '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span></b>'+
-          '<span>'+nv+' variante'+(nv!==1?'s':'')+(nv>1?' &middot; <span class="cyn">teste A/B ativo</span>':'')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
-          '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
+  '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span>'+(l.urlWhitePage?'&nbsp;<span class="tag" style="font-size:10px;background:rgba(0,200,255,.12);color:var(--cyn,#00c2ff);border:1px solid rgba(0,200,255,.25);padding:1px 6px;border-radius:4px;font-weight:600">CLOAK</span>':'')+'</b>'+
+  '<span>'+nv+' variante'+(nv!==1?'s':'')+(nv>1?' &middot; <span class="cyn">teste A/B ativo</span>':'')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
+  '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
           '<button class="btn-icon" onclick="copyLink(\\''+esc(l.slug)+'\\')">Copiar URL</button>'+
@@ -2742,6 +2747,7 @@ function showLinkForm(l){
   document.getElementById('lk-slug').value=l?l.slug:'';
   document.getElementById('lk-name').value=l?l.nome:'';
   document.getElementById('lk-variants').value=l?(l.variantes||[]).map(function(v){return v.nome+' | '+v.url+' | '+(v.peso||0)+(v.urlMobile?' | '+v.urlMobile:'');}).join(String.fromCharCode(10)):'';
+  document.getElementById('lk-whitepage').value=l?(l.urlWhitePage||''):'';
   document.getElementById('lk-domain').value=l?(l.dominio||''):'';
   document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
   document.getElementById('lk-active').checked=l?!!l.ativo:true;
@@ -2861,11 +2867,12 @@ function copyDomainSnippet(){
 }
 function saveLink(){
   var body={
-    slug:document.getElementById('lk-slug').value||undefined,
-    nome:document.getElementById('lk-name').value,
-    variantes:parseVariantLines(),
-    dominio:document.getElementById('lk-domain').value.trim(),
-    ativo:document.getElementById('lk-active').checked
+  slug:document.getElementById('lk-slug').value||undefined,
+  nome:document.getElementById('lk-name').value,
+  variantes:parseVariantLines(),
+  urlWhitePage:document.getElementById('lk-whitepage').value.trim()||undefined,
+  dominio:document.getElementById('lk-domain').value.trim(),
+  ativo:document.getElementById('lk-active').checked
   };
   if(!body.nome){ toast('D\u00ea um nome ao link',false); return; }
   if(!body.variantes.length){ toast('Adicione pelo menos 1 variante (nome | url | peso)',false); return; }

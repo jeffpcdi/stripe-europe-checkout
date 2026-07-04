@@ -47,6 +47,7 @@ function normalize(slug, raw) {
       // destino alternativo para celular/tablet (opcional): computador vai
       // para `url`, mobile vai para `urlMobile` quando preenchida
       urlMobile: validUrl(v.urlMobile) ? String(v.urlMobile).trim().slice(0, 500) : null,
+      urlWhitePage: validUrl(v.urlWhitePage) ? String(v.urlWhitePage).trim().slice(0, 500) : null,
       peso: Math.max(0, Math.min(100, Math.round(Number(v.peso) || 0))) || Math.round(100 / (raw.variantes.length || 1)),
       clicks: Math.max(0, Number(v.clicks) || 0),
       conversions: Math.max(0, Number(v.conversions) || 0),
@@ -59,6 +60,9 @@ function normalize(slug, raw) {
     dominioValidado: raw.dominioValidado === true,
     dominioValidadoEm: raw.dominioValidadoEm || null,
     variantes,
+    // Roteamento cloak: revisores/bots vão para a white page;
+    // usuários reais vão para a offer page (url normal das variantes).
+    urlWhitePage: validUrl(raw.urlWhitePage) ? String(raw.urlWhitePage).trim().slice(0, 500) : null,
     ativo: raw.ativo !== false,
     criadoEm: raw.criadoEm || new Date().toISOString(),
     updatedAt: new Date().toISOString()
