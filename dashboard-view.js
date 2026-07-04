@@ -2024,9 +2024,13 @@ function loadNotes(){
 }
 function renderNotesList(){
   var box=document.getElementById('chart-notes'); if(!box) return;
-  // só notas dentro do período visível
+  // só notas dentro do período visível — compara o DIA inteiro da nota
+  // (meio-dia fixo falhava de manhã: a nota de hoje ficava "no futuro")
   var r=periodRange();
-  var vis=NOTES.filter(function(n){ var t=new Date(n.d+'T12:00:00').getTime(); return t>=r.from&&t<=r.to; });
+  var vis=NOTES.filter(function(n){
+    var d0=new Date(n.d+'T00:00:00').getTime(), d1=d0+864e5-1;
+    return d1>=r.from&&d0<=r.to;
+  });
   if(!vis.length){ box.hidden=true; box.innerHTML=''; return; }
   box.hidden=false;
   box.innerHTML=vis.map(function(n){
@@ -3324,7 +3328,7 @@ var CMD_ITEMS=[
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
   {g:'Ir para',t:'Atividade',h:'dentro de Ao Vivo',ic:I.zap,act:function(){setView('activity');}},
   {g:'Período',t:'Hoje',ic:I.check,act:function(){setPeriod('today');}},
-  {g:'Período',t:'Últimos 7 dias',ic:I.check,act:function(){setPeriod('7d');}},
+  {g:'Período',t:'��ltimos 7 dias',ic:I.check,act:function(){setPeriod('7d');}},
   {g:'Período',t:'Últimos 30 dias',ic:I.check,act:function(){setPeriod('30d');}},
   {g:'Período',t:'Todo o histórico',ic:I.check,act:function(){setPeriod('all');}},
   {g:'Período',t:'Segmentar dias e horas',h:'range personalizado',ic:I.check,act:function(){openDrPop();}},
