@@ -587,6 +587,22 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .cfg-ico svg{width:16px;height:16px}
 .cfg-card:hover .cfg-ico{box-shadow:0 0 14px -4px var(--cc)}
 .cfg-note{margin:2px 0 0;font-size:11.5px;color:var(--muted2);line-height:1.5;padding:9px 12px;background:var(--card2);border-radius:9px;border-left:2px solid var(--pink)}
+/* segmented control (sensibilidade do filtro de bots) */
+.seg{display:flex;gap:6px;background:var(--card2);padding:5px;border-radius:11px;border:1px solid var(--border);margin-top:8px}
+.seg button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 6px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted2);font-size:12.5px;font-weight:600;cursor:pointer;transition:.18s}
+.seg button:hover{color:var(--text);background:var(--card)}
+.seg button.on{background:color-mix(in srgb,var(--cyan) 16%,transparent);color:var(--cyan);border-color:color-mix(in srgb,var(--cyan) 35%,transparent)}
+.seg-sub{font-size:10px;font-weight:500;opacity:.75}
+/* linha de camada de detecção */
+.ck-layer{display:flex;align-items:center;gap:11px;padding:13px 14px;background:var(--card);border:1px solid var(--border);border-radius:12px;transition:.2s}
+.ck-layer:hover{border-color:var(--border2)}
+.ck-layer.on{border-color:color-mix(in srgb,var(--cyan) 30%,transparent)}
+.ck-layer .ck-l-body{flex:1;min-width:0}
+.ck-layer .ck-l-body b{display:block;font-size:12.5px;color:var(--text)}
+.ck-layer .ck-l-body span{display:block;font-size:11px;color:var(--muted2);line-height:1.4;margin-top:2px}
+.ck-verdict{display:inline-flex;align-items:center;gap:7px;padding:10px 14px;border-radius:10px;font-weight:600;font-size:13px}
+.ck-verdict.real{background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 30%,transparent)}
+.ck-verdict.bot{background:color-mix(in srgb,var(--pink,#f31260) 14%,transparent);color:var(--pink,#f31260);border:1px solid color-mix(in srgb,var(--pink,#f31260) 30%,transparent)}
 /* zona de risco compacta */
 .danger-card{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px;border-color:rgba(255,86,116,.22)!important;
   background:linear-gradient(90deg,rgba(255,86,116,.05),transparent 55%);animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) .3s backwards}
@@ -3055,6 +3071,101 @@ function testPushcut(){
     .catch(function(){ toast('Erro no teste',false); });
 }
 
+/* ── Filtro de Bots / Revisores TikTok (cloaking) ── */
+var CK_STATE={};
+var CK_LAYERS=[
+  ['blockDatacenter','Datacenter & ByteDance','Bloqueia IPs de datacenter e ASNs do TikTok/ByteDance (revisores automáticos rodam aqui)'],
+  ['blockHeadless','Navegador headless','Detecta HeadlessChrome, automação e Client Hints falsificados'],
+  ['checkHeaders','Headers HTTP','Exige cabeçalhos de navegador real (Accept, Sec-Fetch, Client Hints)'],
+  ['requireJsChallenge','Desafio JavaScript','Token HMAC que só um navegador real executando JS consegue devolver'],
+  ['checkWebgl','WebGL & Canvas','Identifica renderizadores de software (SwiftShader) usados em sandboxes'],
+  ['checkTimezone','Fuso vs. localização','Compara o fuso do navegador com o país do IP'],
+  ['checkBehavior','Comportamento','Mede interação real: mouse, scroll, toque e tempo na página'],
+  ['blockZhLang','Idioma chinês fora de rota','Sinaliza accept-language chinês vindo de IP fora do bloco CN']
+];
+function loadCloakConfig(){
+  fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    CK_STATE=d||{};
+    renderCloak();
+  }).catch(function(){});
+}
+function renderCloak(){
+  var c=CK_STATE;
+  var en=document.getElementById('ck-enabled'); if(en) en.checked=c.enabled!==false;
+  // segmented de sensibilidade
+  document.querySelectorAll('#ck-sens button').forEach(function(b){ b.classList.toggle('on',b.getAttribute('data-s')===(c.sensitivity||'balanced')); });
+  var custom=(c.sensitivity==='custom');
+  var wrap=document.getElementById('ck-threshold-wrap'); if(wrap) wrap.style.display=custom?'block':'none';
+  var rng=document.getElementById('ck-threshold'); if(rng) rng.value=c.threshold||40;
+  var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=c.threshold||40;
+  // camadas de detecção
+  var host=document.getElementById('ck-layers'); if(!host) return;
+  host.innerHTML=CK_LAYERS.map(function(l){
+    var on=c[l[0]]!==false;
+    return '<div class="ck-layer'+(on?' on':'')+'" data-layer="'+l[0]+'">'+
+      '<div class="ck-l-body"><b>'+esc(l[1])+'</b><span>'+esc(l[2])+'</span></div>'+
+      '<label class="switch"><input type="checkbox" data-ck="'+l[0]+'"'+(on?' checked':'')+'><span class="slider"></span></label>'+
+    '</div>';
+  }).join('');
+  // estado desabilitado (interruptor mestre off) esmaece as camadas
+  var dim=(c.enabled===false);
+  host.style.opacity=dim?'.45':'1'; host.style.pointerEvents=dim?'none':'auto';
+}
+function collectCloak(){
+  var body={
+    enabled:document.getElementById('ck-enabled').checked,
+    sensitivity:(document.querySelector('#ck-sens button.on')||{}).getAttribute?document.querySelector('#ck-sens button.on').getAttribute('data-s'):'balanced',
+    threshold:+document.getElementById('ck-threshold').value||40
+  };
+  document.querySelectorAll('#ck-layers input[data-ck]').forEach(function(i){ body[i.getAttribute('data-ck')]=i.checked; });
+  return body;
+}
+function saveCloakConfig(){
+  var st=document.getElementById('ck-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
+  fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectCloak())})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ CK_STATE=d.cloak; renderCloak(); toast('Filtro de bots salvo'); if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; } }
+      else { toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
+    }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
+}
+function testCloak(){
+  var out=document.getElementById('ck-test-out');
+  if(out) out.innerHTML='<p class="hint" style="margin:0">Analisando seu acesso atual...</p>';
+  fetch('/api/cloak/test',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!out) return;
+      var isBot=(d.verdict==='bot');
+      var sigs=(d.signals||[]).map(function(s){ return '<code style="font-size:10.5px;background:var(--card2);padding:2px 6px;border-radius:5px;color:var(--muted2)">'+esc(s)+'</code>'; }).join(' ');
+      out.innerHTML='<div class="ck-verdict '+(isBot?'bot':'real')+'">'+
+          (isBot?'✕ Classificado como BOT':'✓ Classificado como PESSOA REAL')+
+          ' &middot; score '+d.score+'/'+(d.threshold||40)+'</div>'+
+        '<p class="hint" style="margin:10px 0 6px">Sinais detectados:</p>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:5px">'+(sigs||'<span class="hint">nenhum</span>')+'</div>';
+    })
+    .catch(function(){ if(out) out.innerHTML='<p class="hint" style="margin:0;color:var(--pink,#f31260)">Erro ao rodar o teste</p>'; });
+}
+function bindCloak(){
+  var sens=document.getElementById('ck-sens');
+  if(sens) sens.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-s]'); if(!b) return;
+    document.querySelectorAll('#ck-sens button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    var wrap=document.getElementById('ck-threshold-wrap');
+    if(wrap) wrap.style.display=(b.getAttribute('data-s')==='custom')?'block':'none';
+  });
+  var rng=document.getElementById('ck-threshold');
+  if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=this.value; });
+  var en=document.getElementById('ck-enabled');
+  if(en) en.addEventListener('change',function(){
+    var host=document.getElementById('ck-layers');
+    if(host){ host.style.opacity=this.checked?'1':'.45'; host.style.pointerEvents=this.checked?'auto':'none'; }
+  });
+  var save=document.getElementById('ck-save'); if(save) save.addEventListener('click',saveCloakConfig);
+  var test=document.getElementById('ck-test'); if(test) test.addEventListener('click',testCloak);
+}
+
 /* ── Links curtos rastreáveis (/l/:slug) ── */
 function loadShortlinks(){
   fetch('/api/shortlinks',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
@@ -3589,16 +3700,18 @@ var VIEW_GROUPS={
   overview:['overview'],
   live:['live','funnel','geo','activity'],
   links:['links'],
+  cloak:['cloak'],
   pixels:['pixels'],
   config:['config']
-};
-var titles={
+  };
+  var titles={
   overview:['Visão Geral','Resumo dos números que mais importam'],
   live:['Ao Vivo','Presença, funil, países e atividade — tudo em tempo real'],
   links:['Links de Checkout','Domínios validados, redirect rastreado e teste A/B'],
+  cloak:['Filtro de Bots','Roteia revisores do TikTok Ads para a white page'],
   pixels:['Pixel TikTok','Rastreamento server-side por lead — um pixel por arquivo'],
   config:['Configurações','Notificações, chaves e saúde do sistema']
-};
+  };
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
 // (ex.: setView('funnel') abre o grupo Ao Vivo e rola até o funil).
 function groupOf(v){
@@ -3631,6 +3744,7 @@ function setView(v){
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
   if(g==='config'){ loadHealth().then(renderHealth); loadPushcutConfig(); loadShortlinks(); }
   if(g==='pixels') loadPixels();
+  if(g==='cloak') loadCloakConfig();
   if(g==='links'){ loadLinks(); loadDomains(); }
   // veio de uma sub-view (paleta de comandos)? rola até a section correspondente
   if(sub){ setTimeout(function(){ var t=document.getElementById('view-'+sub); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },120); }
@@ -3750,9 +3864,10 @@ document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnipp
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; });
 document.getElementById('lk-validate').addEventListener('click',validateDomain);
 document.getElementById('pc-save').addEventListener('click',savePushcutConfig);
-bindShortlinks();
-bindPublicApi();
-document.getElementById('pc-test').addEventListener('click',testPushcut);
+  bindShortlinks();
+  bindPublicApi();
+  bindCloak();
+  document.getElementById('pc-test').addEventListener('click',testPushcut);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });
 document.getElementById('px-save').addEventListener('click',savePixel);
 document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; });
