@@ -515,54 +515,64 @@ app.get('/go/:slug', async (req, res) => {
   const uaRaw = String(req.headers['user-agent'] || '');
 
   // ── Filtro multicamadas: bot / revisor de anúncio TikTok ──────────────
+  // Config vem da aba "Filtro de Bots" da dashboard (config.get().cloak).
   // Primeiro: UAs de crawlers conhecidos — resposta imediata sem custo.
   // Segundo: motor de score assíncrono (ASN + headers + JS challenge).
   // Se urlWhitePage estiver configurada, revisores vão pra ela.
   // Se não houver white page, revisores são redirecionados para a variante
   // normal (comportamento anterior — não bloqueia o anúncio de ser aprovado).
+  const cloakCfg  = config.get().cloak || {};
   const whitePage = link.urlWhitePage || null;
 
+  // Interruptor mestre desligado OU sem white page configurada → sem cloaking.
+  // (crawlers ainda não são rastreados, mas seguem para o destino normal)
+  const cloakOn = cloakCfg.enabled !== false && !!whitePage;
+
   if (uaTools.isBot(uaRaw)) {
-    // Crawlers / preview de apps: vai para white page ou variante 1
+    // Crawlers / preview de apps: vai para white page (se cloak on) ou variante 1
     stats.logEvent('info', {
-      title: '[cloak] bot UA → white',
+      title: '[cloak] bot UA → ' + (cloakOn ? 'white' : 'offer'),
       gateway: 'link:' + link.slug,
       ref: String(uaRaw).slice(0, 80)
     });
-    return res.redirect(302, whitePage || link.variantes[0].url);
+    return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
   }
 
   // Rajada do mesmo IP (spy tool / clique inflado)
   if (rateLimited(clientIp(req), 'go', 20)) {
-    return res.redirect(302, whitePage || link.variantes[0].url);
+    return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
   }
 
-  // Recupera sinais do browser já coletados pelo /api/cloakcheck (challenge JS).
-  // Esses sinais — WebGL renderer, timezone, biometria, timing — enriquecem
-  // o judge() e aumentam a precisão sem adicionar latência no /go/.
-  const filterVid  = readCookie(req, 'v_id') || '';
-  const lead0      = (() => { try { return stats.getLead(filterVid) || {}; } catch (_) { return {}; } })();
+  // Motor de score só roda com cloaking ativo — economiza o DNS lookup de ASN
+  let judgment = { verdict: 'real', score: 0, signals: [] };
+  if (cloakOn) {
+    // Recupera sinais do browser já coletados pelo /api/cloakcheck (challenge JS).
+    // Esses sinais — WebGL renderer, timezone, biometria, timing — enriquecem
+    // o judge() e aumentam a precisão sem adicionar latência no /go/.
+    const filterVid = readCookie(req, 'v_id') || '';
+    const lead0     = (() => { try { return stats.getLead(filterVid) || {}; } catch (_) { return {}; } })();
 
-  // Reconstrói o token de challenge a partir do estado persistido do lead:
-  // 'ok' → reemite token válido (confirma ao judge que browser passou); 'fail' → string
-  // vazia (penaliza); null/undefined → primeiro acesso, sem token ainda.
-  const challengeToken = lead0.cloakChallenge === 'ok'
-    ? botFilter.issueChallengeToken(filterVid)
-    : (lead0.cloakChallenge === 'fail' ? '' : null);
+    // Reconstrói o token de challenge a partir do estado persistido do lead:
+    // 'ok' → reemite token válido (confirma ao judge que browser passou); 'fail' → string
+    // vazia (penaliza); null/undefined → primeiro acesso, sem token ainda.
+    const challengeToken = lead0.cloakChallenge === 'ok'
+      ? botFilter.issueChallengeToken(filterVid)
+      : (lead0.cloakChallenge === 'fail' ? '' : null);
 
-  // Monta o objeto challengeData com todos os sinais do browser persistidos
-  const challengeData = {
-    webgl: lead0.cloakWebgl || '',
-    tz:    lead0.cloakTz    || '',
-    fp:    lead0.cloakFp    || '',
-    dt:    typeof lead0.cloakDt  === 'number' ? lead0.cloakDt  : NaN,
-    beh:   typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
-  };
+    // Monta o objeto challengeData com todos os sinais do browser persistidos
+    const challengeData = {
+      webgl: lead0.cloakWebgl || '',
+      tz:    lead0.cloakTz    || '',
+      fp:    lead0.cloakFp    || '',
+      dt:    typeof lead0.cloakDt  === 'number' ? lead0.cloakDt  : NaN,
+      beh:   typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
+    };
 
-  const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
-  const judgment = await botFilter
-    .judge(filterReq, filterVid, challengeToken, challengeData)
-    .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
+    const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
+    judgment = await botFilter
+      .judge(filterReq, filterVid, challengeToken, challengeData, cloakCfg)
+      .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
+  }
 
   // Loga o julgamento para análise na dashboard (aba Atividade)
   if (judgment.verdict === 'bot') {
@@ -1081,6 +1091,43 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
   }
   config.set({ pushcut: pc });
   res.json({ ok: true });
+});
+
+// ── Filtro de Bots / Revisores TikTok (cloaking) ───────────────────────────
+app.get('/api/cloak-config', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const c = config.get().cloak || {};
+  res.json(Object.assign({}, botFilter.DEFAULT_CONFIG, c, {
+    sensitivityThresholds: botFilter.SENSITIVITY_THRESHOLDS
+  }));
+});
+
+app.post('/api/cloak-config', dashboardAuth, (req, res) => {
+  const b = req.body || {};
+  const cur = config.get().cloak || {};
+  const next = Object.assign({}, cur);
+  const boolKeys = ['enabled', 'blockDatacenter', 'blockHeadless', 'checkHeaders',
+    'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang'];
+  boolKeys.forEach((k) => { if (typeof b[k] === 'boolean') next[k] = b[k]; });
+  if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
+  if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
+  config.set({ cloak: next });
+  res.json({ ok: true, cloak: config.get().cloak });
+});
+
+// Testa o motor de julgamento com o request ATUAL do navegador do usuário —
+// mostra na dashboard como o próprio admin seria classificado (deve dar 'real').
+app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const cloakCfg = config.get().cloak || {};
+  const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
+  const j = await botFilter.judge(filterReq, 'admin-test', null, {}, cloakCfg)
+    .catch((e) => ({ verdict: 'erro', score: 0, signals: ['erro:' + e.message] }));
+  res.json({
+    verdict: j.verdict, score: j.score, threshold: j.threshold,
+    signals: j.signals, ip: clientIp(req),
+    ua: String(req.headers['user-agent'] || '').slice(0, 120)
+  });
 });
 
 app.post('/api/pushcut/test', dashboardAuth, async (req, res) => {

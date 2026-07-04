@@ -29,6 +29,22 @@ function defaults() {
     customDomains: [],
     // Anotações do gráfico de tendência: [{d:'YYYY-MM-DD', text}]
     notes: [],
+    // Filtro de revisores TikTok Ads (cloaking) — ajustável pela aba dedicada.
+    // enabled: interruptor mestre; threshold: score p/ bot; sensitivity: preset
+    // que sobrepõe o threshold; flags: liga/desliga cada camada de detecção.
+    cloak: {
+      enabled: true,
+      sensitivity: 'balanced',      // 'strict' | 'balanced' | 'loose'
+      threshold: 40,                // usado quando sensitivity = 'custom'
+      blockDatacenter: true,
+      blockHeadless: true,
+      checkHeaders: true,
+      requireJsChallenge: true,
+      checkWebgl: true,
+      checkTimezone: true,
+      checkBehavior: true,
+      blockZhLang: true
+    },
     // API pública read-only (/api/v1/summary?token=...) — token gerado sob demanda
     api: { token: '' },
     // Controle do relatório diário (último dia já reportado, 'YYYY-MM-DD')
@@ -135,6 +151,27 @@ function set(patch) {
   })).filter((n) => /^\d{4}-\d{2}-\d{2}$/.test(n.d) && n.text);
   next.api = { token: String((next.api || {}).token || '').slice(0, 64) };
   next.lastDailyReport = String(next.lastDailyReport || '').slice(0, 10);
+
+  // Sanitização do bloco Cloak (filtro de revisores TikTok)
+  {
+    const d = defaults().cloak;
+    const c = Object.assign({}, d, next.cloak || {});
+    const sens = ['strict', 'balanced', 'loose', 'custom'].includes(c.sensitivity) ? c.sensitivity : 'balanced';
+    const boolOr = (v, def) => (typeof v === 'boolean' ? v : def);
+    next.cloak = {
+      enabled:            boolOr(c.enabled, true),
+      sensitivity:        sens,
+      threshold:          Math.max(10, Math.min(90, Math.round(Number(c.threshold) || 40))),
+      blockDatacenter:    boolOr(c.blockDatacenter, true),
+      blockHeadless:      boolOr(c.blockHeadless, true),
+      checkHeaders:       boolOr(c.checkHeaders, true),
+      requireJsChallenge: boolOr(c.requireJsChallenge, true),
+      checkWebgl:         boolOr(c.checkWebgl, true),
+      checkTimezone:      boolOr(c.checkTimezone, true),
+      checkBehavior:      boolOr(c.checkBehavior, true),
+      blockZhLang:        boolOr(c.blockZhLang, true)
+    };
+  }
 
   next.updatedAt = new Date().toISOString();
   cfg = next;

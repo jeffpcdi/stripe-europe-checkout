@@ -1020,6 +1020,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <button data-view="overview" class="active"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span><span class="d-lbl">Visão Geral</span></button>
       <button data-view="live"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg></span><span class="d-lbl">Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
       <button data-view="links"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span><span class="d-lbl">Links de Checkout</span></button>
+      <button data-view="cloak"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="d-lbl">Filtro de Bots</span></button>
       <button data-view="pixels"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span><span class="d-lbl">Pixel TikTok</span><span class="badge" id="nav-px-badge" style="display:none">0</span></button>
       <button data-view="config"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82V8a1.65 1.65 0 001.51-1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span><span class="d-lbl">Configurações</span></button>
     </nav>
@@ -1264,6 +1265,62 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <tbody id="pg-conv"></tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <!-- ── Filtro de Bots / Revisores TikTok (cloaking) ── -->
+      <section class="view" id="view-cloak">
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Roteia revisores do TikTok Ads para a white page &mdash; pessoas reais v&atilde;o para a offer</p></div></div>
+
+        <div class="card cfg-card" style="--cc:var(--cyan);margin-bottom:18px">
+          <div class="cfg-head">
+            <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+            <div><h3>Prote&ccedil;&atilde;o de cloaking</h3><p>Quando ligado, cada clique em <span style="font-family:'Geist Mono',monospace">/go/</span> passa por um motor de score. Configure a white page por link na aba Links.</p></div>
+            <label class="switch" style="margin-left:auto"><input type="checkbox" id="ck-enabled"><span class="slider"></span></label>
+          </div>
+          <div class="form-row" style="margin-bottom:0">
+            <label>Sensibilidade <span class="hint">&mdash; menor threshold pega mais revisores, com risco maior de falso positivo</span></label>
+            <div class="seg" id="ck-sens">
+              <button data-s="strict" type="button">Agressivo<span class="seg-sub">score 30</span></button>
+              <button data-s="balanced" type="button">Equilibrado<span class="seg-sub">score 40</span></button>
+              <button data-s="loose" type="button">Conservador<span class="seg-sub">score 55</span></button>
+              <button data-s="custom" type="button">Manual<span class="seg-sub">personalizado</span></button>
+            </div>
+            <div id="ck-threshold-wrap" style="margin-top:14px;display:none">
+              <label>Threshold manual: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> <span class="hint">&mdash; score &ge; este valor = bot</span></label>
+              <input type="range" id="ck-threshold" min="10" max="90" step="5" value="40" style="width:100%;accent-color:var(--cyan);margin-top:6px">
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title" style="margin-top:0"><span>Camadas de detec&ccedil;&atilde;o</span><span class="line"></span><span class="muted" style="font-size:11.5px">ligue/desligue cada sinal</span></div>
+        <div class="grid" id="ck-layers" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
+
+        <div class="grid cfg-grid" style="grid-template-columns:1fr 1fr;margin-top:18px">
+          <div class="card cfg-card" style="--cc:var(--green)">
+            <div class="cfg-head">
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
+              <div><h3>Testar com meu navegador</h3><p>Simula como o SEU acesso atual seria classificado. Deve dar <b>real</b>.</p></div>
+            </div>
+            <button class="btn" id="ck-test">Rodar teste agora</button>
+            <div id="ck-test-out" style="margin-top:12px"></div>
+          </div>
+          <div class="card cfg-card" style="--cc:var(--amber,#f5a524)">
+            <div class="cfg-head">
+              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9z"/></svg></span>
+              <div><h3>Como funciona</h3><p>O roteamento em duas p&aacute;ginas</p></div>
+            </div>
+            <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.9;color:var(--muted2)">
+              <li><b style="color:var(--text)">Offer page</b> &mdash; a URL das variantes do link. Recebe pessoas reais interessadas.</li>
+              <li><b style="color:var(--text)">White page</b> &mdash; p&aacute;gina neutra configurada por link. Recebe revisores e bots.</li>
+              <li>Sem white page configurada, o filtro s&oacute; registra (n&atilde;o redireciona).</li>
+            </ul>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:18px;align-items:center">
+          <button class="btn primary" id="ck-save">Salvar configura&ccedil;&otilde;es</button>
+          <p class="hint" id="ck-status" style="margin:0"></p>
         </div>
       </section>
 
@@ -1775,7 +1832,7 @@ function renderOverview(m){
     kpi(I.users,'tint-cyan','Novos leads','<span class="cyn" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
     kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'" id="ov-cu-conv">0%</span>','visita &#8594; compra', dc('overall')+funnelMini(m));
 
-  // ministats: aprovação verde quando saudável (ou sem tentativas), alertas âmbar/vermelho só quando existem
+  // ministats: aprovação verde quando saud��vel (ou sem tentativas), alertas âmbar/vermelho só quando existem
   var hasAttempts=(m.sales+m.failed)>0;
   var apColor=!hasAttempts||m.approval>=70?'#3ecf8e':m.approval>=40?'#f5b544':'#ff5674';
   var apBg=!hasAttempts||m.approval>=70?'rgba(62,207,142,.12)':m.approval>=40?'rgba(245,181,68,.12)':'rgba(255,86,116,.12)';

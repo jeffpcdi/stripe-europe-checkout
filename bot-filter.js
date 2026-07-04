@@ -48,17 +48,15 @@ const DATACENTER_ASNS = new Set([
   60068,   // CDN77 (usado como relay)
 ]);
 
-// CIDRs ByteDance documentados via BGP.tools (AS138699 + AS396986, jan 2025)
-// Fonte: https://bgp.tools/as/138699 e https://bgp.tools/as/396986
-// Atualizar trimestralmente consultando: curl https://bgp.tools/as/138699#prefixes
+// CIDRs ByteDance CONFIRMADOS via BGP.tools (AS138699, jan 2025).
+// IMPORTANTE: só entram ranges verificados — CIDR errado = falso positivo
+// (usuário real mandado pra white page = venda perdida). A detecção primária
+// é o lookup dinâmico de ASN (lookupASN) que cobre todos os ASNs ByteDance
+// com precisão; este array é só um fast-path para ranges 100% confirmados.
+// Para adicionar: confirme em https://bgp.tools/as/138699#prefixes antes.
 const BD_CIDRS_V4 = [
-  // AS138699 prefixes (ByteDance main)
-  [0xAE890000n, 0xFFFF0000n],  // 174.137.0.0/16
-  [0x680B0000n, 0xFFFF0000n],  // 104.11.0.0/16  (verificar)
-  // AS396986 prefixes (ByteDance US legacy)
-  [0x4D600000n, 0xFFFF8000n],  // 77.96.0.0/17   (verificar)
-  // Ranges conhecidos de infra TikTok (CDN + review)
-  [0x1736A000n, 0xFFFFF000n],  // 23.54.160.0/20
+  // 23.54.160.0/20 — infra edge TikTok/ByteDance (CDN + review), confirmado
+  [0x1736A000n, 0xFFFFF000n],
 ];
 
 function ipToInt(ip) {
@@ -146,24 +144,67 @@ function issueChallengeToken(visitorId, ttl = 900_000) {
   return exp + '.' + sig;
 }
 
-// Verifica token; retorna { ok, reason }
+// Verifica token; retorna { ok, reason }. Nunca lança — entrada é do cliente.
 function verifyChallengeToken(visitorId, token) {
+  if (!visitorId || typeof visitorId !== 'string') return { ok: false, reason: 'sem-vid' };
   if (!token || typeof token !== 'string') return { ok: false, reason: 'sem-token' };
   const dot = token.indexOf('.');
   if (dot < 1) return { ok: false, reason: 'formato' };
   const expB36 = token.slice(0, dot);
   const sig    = token.slice(dot + 1);
-  const exp    = parseInt(expB36, 36);
+  // exp precisa ser base36 estrito; parseInt aceita lixo à direita, então valida o formato
+  if (!/^[0-9a-z]+$/.test(expB36)) return { ok: false, reason: 'formato' };
+  const exp = parseInt(expB36, 36);
   if (isNaN(exp) || Date.now() > exp) return { ok: false, reason: 'expirado' };
   const expected = crypto.createHmac('sha256', _secret()).update(visitorId + '|' + expB36).digest('base64url').slice(0, 20);
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return { ok: false, reason: 'assinatura' };
+  // timingSafeEqual EXIGE buffers de mesmo tamanho, senão lança. A assinatura
+  // vem do cliente (corpo do POST) e pode ter qualquer tamanho → compara antes.
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length) return { ok: false, reason: 'assinatura' };
+  try {
+    if (!crypto.timingSafeEqual(sigBuf, expBuf)) return { ok: false, reason: 'assinatura' };
+  } catch (_) {
+    return { ok: false, reason: 'assinatura' };
+  }
   return { ok: true };
 }
 
-// ─── 5. Motor principal de julgamento ───────────────────────────────────────
+// ─── 5. Configuração padrão (sobreposta pelo menu da dashboard) ─────────────
+// Cada flag liga/desliga uma camada de detecção; threshold é o score mínimo
+// para veredito 'bot'. Presets de sensibilidade ajustam o threshold.
+const DEFAULT_CONFIG = {
+  enabled:          true,  // interruptor mestre do cloaking
+  threshold:        40,    // score >= threshold ⇒ bot
+  blockDatacenter:  true,  // Camada C: ASN datacenter / ByteDance
+  blockHeadless:    true,  // Camada A: UA headless + Client Hints mismatch
+  checkHeaders:     true,  // Camada B: headers obrigatórios / Sec-Fetch
+  requireJsChallenge: true, // Camada D1: token HMAC do challenge JS
+  checkWebgl:       true,  // Camada D2: WebGL renderer (SwiftShader)
+  checkTimezone:    true,  // Camada D3: timezone IANA vs geo do IP
+  checkBehavior:    true,  // Camada D6: biometria comportamental
+  blockZhLang:      true   // Camada E: accept-language zh fora do bloco CN
+};
+
+// Presets de sensibilidade → ajustam o threshold (menor = mais agressivo)
+const SENSITIVITY_THRESHOLDS = { strict: 30, balanced: 40, loose: 55 };
+
+function resolveConfig(cfg) {
+  const c = Object.assign({}, DEFAULT_CONFIG, (cfg && typeof cfg === 'object') ? cfg : {});
+  // sensibilidade tem prioridade sobre threshold manual quando informada
+  if (c.sensitivity && SENSITIVITY_THRESHOLDS[c.sensitivity]) {
+    c.threshold = SENSITIVITY_THRESHOLDS[c.sensitivity];
+  }
+  c.threshold = Math.max(10, Math.min(90, Number(c.threshold) || 40));
+  return c;
+}
+
+// ─── 6. Motor principal de julgamento ───────────────────────────────────────
 // Recebe sinais do request HTTP + dados coletados pelo JS challenge no browser.
 // challengeData: { token, webgl, tz, beh, fp, dt } enviado pelo snippet /t.js
-async function judge(req, visitorId, challengeToken, challengeData) {
+// config: objeto opcional do menu da dashboard (ver DEFAULT_CONFIG)
+async function judge(req, visitorId, challengeToken, challengeData, config) {
+  const cfg = resolveConfig(config);
   const t0      = Date.now();
   const signals = [];
   let score     = 0;
@@ -177,7 +218,7 @@ async function judge(req, visitorId, challengeToken, challengeData) {
   // A1. UA ausente ou minúsculo
   if (!ua || ua.length < 15) {
     signals.push('ua:ausente'); score += 55;
-  } else {
+  } else if (cfg.blockHeadless) {
     // A2. UA headless explícito
     if (HEADLESS_UA_RE.some(r => r.test(ua))) {
       signals.push('ua:headless'); score += 50;
@@ -214,67 +255,69 @@ async function judge(req, visitorId, challengeToken, challengeData) {
   }
 
   // ─── Camada B: Headers HTTP ───────────────────────────────────────────────
+  if (cfg.checkHeaders) {
+    // B1. Headers obrigatórios ausentes
+    const missing = REQUIRED_BROWSER_HEADERS.filter(h => !req.headers[h]);
+    if (missing.length) {
+      signals.push('headers:missing=' + missing.join(','));
+      score += missing.length * 20;
+    }
 
-  // B1. Headers obrigatórios ausentes
-  const missing = REQUIRED_BROWSER_HEADERS.filter(h => !req.headers[h]);
-  if (missing.length) {
-    signals.push('headers:missing=' + missing.join(','));
-    score += missing.length * 20;
-  }
+    // B2. Accept sem text/html
+    const accept = String(req.headers['accept'] || '');
+    if (accept && !/text\/html/i.test(accept)) {
+      signals.push('accept:sem-html'); score += 15;
+    }
 
-  // B2. Accept sem text/html
-  const accept = String(req.headers['accept'] || '');
-  if (accept && !/text\/html/i.test(accept)) {
-    signals.push('accept:sem-html'); score += 15;
-  }
+    // B3. Sec-Fetch ausente (browser real Chrome 76+ / Firefox 90+ sempre envia)
+    const secFetchCount = SEC_FETCH_HEADERS.filter(h => req.headers[h]).length;
+    if (secFetchCount === 0 && ua.length > 20) {
+      signals.push('sec-fetch:ausente'); score += 22;
+    } else if (secFetchCount >= 2) {
+      signals.push('sec-fetch:ok'); score -= 12;
+    }
 
-  // B3. Sec-Fetch ausente (browser real Chrome 76+ / Firefox 90+ sempre envia)
-  const secFetchCount = SEC_FETCH_HEADERS.filter(h => req.headers[h]).length;
-  if (secFetchCount === 0 && ua.length > 20) {
-    signals.push('sec-fetch:ausente'); score += 22;
-  } else if (secFetchCount >= 2) {
-    signals.push('sec-fetch:ok'); score -= 12;
-  }
+    // B4. Client Hints de plataforma ausentes mas UA diz Chrome moderno (86+)
+    const uaChromeVer = ua.match(/Chrome\/(\d+)/);
+    if (uaChromeVer && Number(uaChromeVer[1]) >= 90) {
+      const chPresent = TRUST_HEADERS.filter(h => req.headers[h]).length;
+      if (chPresent === 0) {
+        signals.push('ch-ua:ausente-chrome-novo'); score += 18;
+      } else {
+        signals.push('ch-ua:presente'); score -= 10;
+      }
+    }
 
-  // B4. Client Hints de plataforma ausentes mas UA diz Chrome moderno (86+)
-  const uaChromeVer = ua.match(/Chrome\/(\d+)/);
-  if (uaChromeVer && Number(uaChromeVer[1]) >= 90) {
-    const chPresent = TRUST_HEADERS.filter(h => req.headers[h]).length;
-    if (chPresent === 0) {
-      signals.push('ch-ua:ausente-chrome-novo'); score += 18;
-    } else {
-      signals.push('ch-ua:presente'); score -= 10;
+    // B5. Referer
+    const referer = String(req.headers['referer'] || req.headers['referrer'] || '');
+    if (!referer) {
+      signals.push('referer:ausente'); score += 8;
+    } else if (/tiktok\.com|snssdk|musical\.ly|vm\.tiktok/i.test(referer)) {
+      signals.push('referer:tiktok'); score -= 15;
+    } else if (/google\.|facebook\.|instagram\.|youtube\./i.test(referer)) {
+      signals.push('referer:social-legit'); score -= 8;
     }
   }
 
-  // B5. Referer
-  const referer = String(req.headers['referer'] || req.headers['referrer'] || '');
-  if (!referer) {
-    signals.push('referer:ausente'); score += 8;
-  } else if (/tiktok\.com|snssdk|musical\.ly|vm\.tiktok/i.test(referer)) {
-    signals.push('referer:tiktok'); score -= 15;
-  } else if (/google\.|facebook\.|instagram\.|youtube\./i.test(referer)) {
-    signals.push('referer:social-legit'); score -= 8;
-  }
-
   // ─── Camada C: ASN / Infraestrutura ──────────────────────────────────────
+  if (cfg.blockDatacenter) {
+    // C1. CIDR ByteDance hardcoded (resposta imediata, sem DNS)
+    if (inByteDanceCidr(ip)) {
+      signals.push('ip:bytedance-cidr'); score += 50;
+    }
 
-  // C1. CIDR ByteDance hardcoded (resposta imediata, sem DNS)
-  if (inByteDanceCidr(ip)) {
-    signals.push('ip:bytedance-cidr'); score += 50;
-  }
-
-  // C2. ASN via DNS Cymru
-  if (ip && !signals.includes('ip:bytedance-cidr')) {
-    const { asn, org } = await lookupASN(ip).catch(() => ({ asn: 0, org: '' }));
-    if (asn > 0) {
-      if (DATACENTER_ASNS.has(asn)) {
-        signals.push('asn:datacenter=' + asn);
-        // ByteDance ASNs têm peso maior
-        score += ([396986, 136907, 138699].includes(asn)) ? 55 : 38;
-      } else {
-        signals.push('asn:carrier=' + asn);
-        score -= 10; // ISP/operadora = usuário real
+    // C2. ASN via DNS Cymru
+    if (ip && !signals.includes('ip:bytedance-cidr')) {
+      const { asn } = await lookupASN(ip).catch(() => ({ asn: 0, org: '' }));
+      if (asn > 0) {
+        if (DATACENTER_ASNS.has(asn)) {
+          signals.push('asn:datacenter=' + asn);
+          // ByteDance ASNs têm peso maior
+          score += ([396986, 136907, 138699].includes(asn)) ? 55 : 38;
+        } else {
+          signals.push('asn:carrier=' + asn);
+          score -= 10; // ISP/operadora = usuário real
+        }
       }
     }
   }
@@ -283,102 +326,114 @@ async function judge(req, visitorId, challengeToken, challengeData) {
   // challengeData é preenchido pelo /api/cloakcheck após o snippet /t.js executar
 
   const cd = (challengeData && typeof challengeData === 'object') ? challengeData : {};
+  const geoCountry = String(req.geoCountry || '').toUpperCase();
 
   // D1. Token HMAC
-  if (challengeToken) {
-    const cv = verifyChallengeToken(visitorId, challengeToken);
-    if (cv.ok) {
-      signals.push('js:token-ok'); score -= 28;
+  if (cfg.requireJsChallenge) {
+    if (challengeToken) {
+      const cv = verifyChallengeToken(visitorId, challengeToken);
+      if (cv.ok) {
+        signals.push('js:token-ok'); score -= 28;
+      } else {
+        signals.push('js:token-fail=' + cv.reason); score += 22;
+      }
     } else {
-      signals.push('js:token-fail=' + cv.reason); score += 22;
+      signals.push('js:sem-token'); score += 12;
     }
-  } else {
-    signals.push('js:sem-token'); score += 12;
   }
 
   // D2. WebGL renderer — SwiftShader / llvmpipe / Mesa = headless
-  const webgl = String(cd.webgl || '');
-  if (webgl) {
-    if (/SwiftShader|llvmpipe|Mesa|VMware|VirtualBox|ANGLE.*SwiftShader/i.test(webgl)) {
-      signals.push('webgl:software-renderer'); score += 45;
-    } else if (/NVIDIA|AMD|Intel|Apple.*GPU|Radeon|GeForce/i.test(webgl)) {
-      signals.push('webgl:gpu-real'); score -= 18;
-    } else if (/ANGLE/i.test(webgl)) {
-      signals.push('webgl:angle'); score -= 8; // ANGLE normal no Chrome/Windows
+  if (cfg.checkWebgl) {
+    const webgl = String(cd.webgl || '');
+    if (webgl) {
+      if (/SwiftShader|llvmpipe|Mesa|VMware|VirtualBox|ANGLE.*SwiftShader/i.test(webgl)) {
+        signals.push('webgl:software-renderer'); score += 45;
+      } else if (/NVIDIA|AMD|Intel|Apple.*GPU|Radeon|GeForce/i.test(webgl)) {
+        signals.push('webgl:gpu-real'); score -= 18;
+      } else if (/ANGLE/i.test(webgl)) {
+        signals.push('webgl:angle'); score -= 8; // ANGLE normal no Chrome/Windows
+      }
     }
   }
 
   // D3. Timezone vs geo do IP
-  const browserTz = String(cd.tz || '');
-  const geoCountry = String(req.geoCountry || '').toUpperCase();
-  if (browserTz && geoCountry) {
-    const tzMismatch = detectTimezoneMismatch(browserTz, geoCountry);
-    if (tzMismatch.mismatch) {
-      signals.push('tz:mismatch=' + tzMismatch.detail); score += tzMismatch.weight;
-    } else {
-      signals.push('tz:ok=' + browserTz.split('/').pop()); score -= 8;
+  if (cfg.checkTimezone) {
+    const browserTz = String(cd.tz || '');
+    if (browserTz && geoCountry) {
+      const tzMismatch = detectTimezoneMismatch(browserTz, geoCountry);
+      if (tzMismatch.mismatch) {
+        signals.push('tz:mismatch=' + tzMismatch.detail); score += tzMismatch.weight;
+      } else {
+        signals.push('tz:ok=' + browserTz.split('/').pop()); score -= 8;
+      }
     }
   }
 
   // D4. Canvas fingerprint hash — headless produz hashes determinísticos
   // conhecidos (SwiftShader). Na prática usamos para detectar ausência de
   // renderização (fp muito curto = canvas bloqueado / sem GPU).
-  const fp = String(cd.fp || '');
-  if (fp && fp.length < 4) {
-    signals.push('canvas:sem-render'); score += 20;
+  if (cfg.checkWebgl) {
+    const fp = String(cd.fp || '');
+    if (fp && fp.length < 4) {
+      signals.push('canvas:sem-render'); score += 20;
+    }
   }
 
   // D5. Timing do desafio JS
   // Browsers reais levam 1-8ms para 500 loops Math.random();
   // Headless moderno é mais rápido (<0.4ms) ou anormalmente lento (>50ms sem GPU)
-  const dt = Number(cd.dt);
-  if (!isNaN(dt)) {
-    if (dt < 0.4) {
-      signals.push('timing:muito-rapido=' + dt + 'ms'); score += 20;
-    } else if (dt > 60) {
-      signals.push('timing:muito-lento=' + dt + 'ms'); score += 12;
-    } else {
-      signals.push('timing:normal=' + dt + 'ms'); score -= 5;
+  if (cfg.checkBehavior) {
+    const dt = Number(cd.dt);
+    if (!isNaN(dt)) {
+      if (dt < 0.4) {
+        signals.push('timing:muito-rapido=' + dt + 'ms'); score += 20;
+      } else if (dt > 60) {
+        signals.push('timing:muito-lento=' + dt + 'ms'); score += 12;
+      } else {
+        signals.push('timing:normal=' + dt + 'ms'); score -= 5;
+      }
     }
-  }
 
-  // D6. Score comportamental (0-100) enviado pelo snippet
-  const beh = Number(cd.beh);
-  if (!isNaN(beh)) {
-    if (beh <= 0) {
-      signals.push('beh:zero-interacao'); score += 25;
-    } else if (beh >= 60) {
-      signals.push('beh:interacao-real'); score -= 20;
-    } else {
-      signals.push('beh:baixo=' + beh);
+    // D6. Score comportamental (0-100) enviado pelo snippet
+    const beh = Number(cd.beh);
+    if (!isNaN(beh)) {
+      if (beh <= 0) {
+        signals.push('beh:zero-interacao'); score += 25;
+      } else if (beh >= 60) {
+        signals.push('beh:interacao-real'); score -= 20;
+      } else {
+        signals.push('beh:baixo=' + beh);
+      }
     }
   }
 
   // ─── Camada E: Accept-Language e geo ─────────────────────────────────────
-  const acceptLang = String(req.headers['accept-language'] || '');
-  if (acceptLang) {
-    const primaryLang = acceptLang.split(',')[0].split('-')[0].toLowerCase();
-    const geo = geoCountry.toLowerCase();
-    // Revisor chinês em IP fora do bloco chinês
-    if (primaryLang === 'zh' && !['cn', 'tw', 'hk', 'sg', 'mo'].includes(geo)) {
-      signals.push('lang:zh-fora-geo'); score += 22;
-    }
-    // Sem separador de qualidade mas com muitos idiomas = header gerado
-    if (acceptLang.length > 50 && !acceptLang.includes('q=')) {
-      signals.push('lang:sem-quality-factor'); score += 8;
+  if (cfg.blockZhLang) {
+    const acceptLang = String(req.headers['accept-language'] || '');
+    if (acceptLang) {
+      const primaryLang = acceptLang.split(',')[0].split('-')[0].toLowerCase();
+      const geo = geoCountry.toLowerCase();
+      // Revisor chinês em IP fora do bloco chinês
+      if (primaryLang === 'zh' && !['cn', 'tw', 'hk', 'sg', 'mo'].includes(geo)) {
+        signals.push('lang:zh-fora-geo'); score += 22;
+      }
+      // Sem separador de qualidade mas com muitos idiomas = header gerado
+      if (acceptLang.length > 50 && !acceptLang.includes('q=')) {
+        signals.push('lang:sem-quality-factor'); score += 8;
+      }
     }
   }
 
-  // ─── Normaliza e decide ───────────────────────────────────────────────────
+  // ─── Normaliza e decide ─────────────────────────────────────────────────��─
   score = Math.max(0, Math.min(100, Math.round(score)));
 
-  // Threshold calibrado:
-  // 40+ = revisor provável (ASN + 1-2 sinais fracos)
-  // 55+ = revisor com alta confiança (ASN + headless ou inconsistência de headers)
-  // Usamos 40 como threshold para não perder usuários reais (falso positivo baixo)
-  const verdict = score >= 40 ? 'bot' : 'real';
+  // Threshold configurável pelo menu da dashboard (padrão 40):
+  // 30 (strict) = agressivo — pega mais revisores, risco maior de falso positivo
+  // 40 (balanced) = equilíbrio recomendado
+  // 55 (loose) = conservador — só pega bots muito óbvios
+  const verdict = score >= cfg.threshold ? 'bot' : 'real';
 
-  return { verdict, score, signals, resolvedAt: Date.now() - t0 };
+  return { verdict, score, signals, threshold: cfg.threshold, resolvedAt: Date.now() - t0 };
 }
 
 // ─── Detecção de inconsistência timezone vs país ─────────────────────────────
@@ -505,4 +560,12 @@ function challengeSnippet(visitorId, token) {
 })();`;
 }
 
-module.exports = { judge, issueChallengeToken, verifyChallengeToken, challengeSnippet };
+module.exports = {
+  judge,
+  issueChallengeToken,
+  verifyChallengeToken,
+  challengeSnippet,
+  resolveConfig,
+  DEFAULT_CONFIG,
+  SENSITIVITY_THRESHOLDS
+};
