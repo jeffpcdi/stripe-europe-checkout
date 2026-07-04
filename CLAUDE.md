@@ -40,12 +40,12 @@ Responsabilidades:
 - **server.js** — Express, todas as rotas, middleware que transforma page views em leads, webhook de conversão, auth Basic, boot/hidratação.
 - **stats.js** — cache em memória de leads/eventos/variantes + write-through assíncrono para o Neon.
 - **db.js** — camada Neon. Tabelas: `leads`, `events`, `variants`, `sessions`, `config`, `pixels`, `links`, `pixel_events`. Desativa se faltar `DATABASE_URL`.
-- **redis.js** — Upstash: dedup de `event_id` (SET NX TTL 2h), presença, log. Fallback: Map em memória.
+- **redis.js** — Upstash: dedup de `event_id` (SET NX TTL 2h), presença, log, e cache de ASN (`asn:<ip>`, TTL 24h) usado pelo bot-filter. Fallback: Map em memória.
 - **config.js** — config editável na dash (Pushcut, shortlinks, notas, token da API pública, domínios, cloak). Persistida em memória + `data/config.json` + Neon.
 - **tiktok-events.js** — CAPI TikTok, multi-pixel via `dispatchToAll`.
-- **pixel-store.js / link-store.js** — pixels e links de checkout (`/go/:slug` com A/B de variantes).
+- **pixel-store.js / link-store.js** — pixels e links de checkout (`/go/:slug` com A/B de variantes). Cada link tem regras de cloaking próprias: `urlWhitePage`, `paises` (allowlist ISO-2 → offer) e `pixelSlug` (pixel que dispara nesse slug).
 - **presence.js + pulse-client.js** — visitantes online (heartbeat `/api/pulse`), globo 3D.
-- **bot-filter.js** — cloaking multicamadas (score 0–100), roteia revisores do TikTok Ads.
+- **bot-filter.js** — cloaking multicamadas (score 0–100), roteia revisores do TikTok Ads. Lookup de ASN com teto de latência (`deadlineMs`, padrão 120ms via `Promise.race`) e cache em 2 camadas (memória + Redis) para redirect quase instantâneo.
 - **tracker-view.js** — snippet `/t.js` para páginas externas. **lp-view.js / legal-view.js** — LP em `/` e páginas legais. **ua.js** — parse de UA + detecção de bots. **pushcut.js** — notificações push. **dashboard-view.js** — HTML/CSS/JS da dashboard.
 
 ## 4. Comandos essenciais
@@ -82,6 +82,9 @@ Carregadas manualmente pelo `server.js` a partir de `.env.development.local`, `.
 - **Ordem do boot:** `server.js` hidrata `stats` → `config` → `pixelStore` → `linkStore` **antes** do `app.listen`. Novos stores duráveis precisam entrar nessa cadeia, senão sobem sem dados.
 - **Config compartilhada:** `config.js` guarda vários blocos (pushcut, links, cloak, domínios, api). Ao editar, sempre passar pela sanitização existente — escrever direto no objeto pula validação e persistência.
 - **Cloak x white page:** o filtro só redireciona se houver white page configurada por link **e** `cloak.enabled`; caso contrário apenas registra. Mudar o threshold afeta falso positivo (usuário real → white page = venda perdida).
+- **Ordem dos gates no `/go/:slug`:** rate-limit → **gate de país** (allowlist `link.paises`, instantâneo via headers da edge, sem DNS) → motor de score (`judge`) → disparo do pixel. O gate de país roda ANTES do score de propósito (é ~0ms); não reordenar. Só roda com `cloak.enabled`.
+- **`deadlineMs` e sinal ASN:** o lookup de ASN tem teto de latência; no estouro o `judge` segue SEM esse sinal (adiciona `asn:deadline`) e o cache popula em background p/ a próxima visita do mesmo IP. Baixar demais o `deadlineMs` reduz a precisão da camada datacenter/ByteDance.
+- **Pixel do link vence:** se `link.pixelSlug` aponta um pixel ativo, o `InitiateCheckout` dispara SÓ nele (via `sendToPixel`), ignorando o casamento por rota. O disparo acontece após os gates, então só pessoas reais que vão à offer geram evento.
 - **Dedup determinístico:** `event_id` é `Evento.<vid>.<yyyymmddhh>`. Alterar o formato quebra a dedup navegador↔servidor no TikTok (eventos duplicados ou perdidos).
 - **CIDRs do bot-filter:** só adicionar ranges 100% confirmados; CIDR errado manda gente real pra white page. A detecção primária é o lookup dinâmico de ASN.
 - **`data/` não é fonte de verdade:** é cache local ignorado no git; o Neon é a fonte durável. Não confiar em editar `data/*.json` à mão.
