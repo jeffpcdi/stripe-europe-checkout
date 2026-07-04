@@ -1120,7 +1120,11 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
     const slug = pixelStore.slugify(req.body.slug || '');
     const pixel = pixelStore.get(slug);
     if (!pixel) return res.status(404).json({ error: 'pixel não encontrado' });
-    const result = await ttEvents.testPixel(pixel);
+    // ip/ua de quem clicou: a Events API exige identidade de usuário no evento
+    const result = await ttEvents.testPixel(pixel, {
+      ip: clientIp(req),
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 500)
+    });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1222,7 +1226,7 @@ stats.hydrate()
       console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
     });
 
-    // ── Manutenção periódica ─────────────────────────────────────────
+    // ── Manutenção periódica ────────��────────────────────────────────
     // 1. Prune do mapa de presença em memória (remove sessões expiradas
     //    mesmo sem ninguém consultar /api/live).
     setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();

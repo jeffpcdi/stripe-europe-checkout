@@ -347,12 +347,20 @@ async function dispatchToAll(eventName, p, routeHint) {
 /**
  * Envio de teste (painel): valida token/pixel na hora e retorna a resposta crua.
  */
-async function testPixel(pixel) {
+async function testPixel(pixel, ctx) {
+  ctx = ctx || {};
   const eventId = 'test.' + crypto.randomBytes(6).toString('hex');
+  // A Events API exige AO MENOS UM identificador de usuário (ip+ua, email,
+  // phone, ttclid ou external_id). Sem isso o teste falhava SEMPRE com erro
+  // de parâmetro, mesmo com código/token corretos. Usa o ip/ua reais de quem
+  // clicou em "Testar" + um external_id sintético como sinal extra.
   const json = await sendToPixel(pixel, {
     event: 'ViewContent',
     eventId,
     url: 'https://example.com/teste-pixel',
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+    externalId: hash('teste-painel.' + eventId),
     value: 0,
     currency: 'EUR'
   });
