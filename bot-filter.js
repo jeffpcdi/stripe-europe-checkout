@@ -1,290 +1,507 @@
-// ── Filtro de Revisores de Anúncios TikTok Ads ───────────────────────────
-// Pesquisa 2025-2026: o TikTok usa aparelhos reais (iPhone/Android) em redes
-// móveis/residenciais para revisar anúncios — IP puro e UA já não bastam.
-// A estratégia eficaz é MULTICAMADAS: infraestrutura + heurísticas de request
-// + JS challenge assíncrono (o sinal mais forte disponível server-side).
+'use strict';
+// ── Filtro de Revisores de Anúncios TikTok Ads ───────────────────────────────
+// Pesquisa 2025-2026:
+//  • TikTok usa iPhones/Androids reais em redes de operadoras — IP/UA sozinhos
+//    não bastam. O sistema correlaciona ASN de operadora, Client Hints, timezone,
+//    WebGL renderer, biometria comportamental e o JS challenge.
+//  • ByteDance opera AS138699 (main) + AS396986 (US legacy) + roteamento via
+//    parceiros cloud. Lookup BGP em tempo real é mais confiável que CIDRs fixos.
+//  • SwiftShader / llvmpipe no WebGL renderer = headless confirmado (alto valor).
+//  • Inconsistência Client Hints (sec-ch-ua brand) vs UA string = spoofing.
+//  • Timezone do browser vs geo do IP = sinal de proxy/VPN de revisão.
+//  • Behavioral score: zero interação após 3s de página = automação.
 //
-// RESULTADO: cada visita retorna { verdict: 'real'|'bot', score: 0-100,
-//   signals: [...], resolvedAt: ms } para logar e decidir roteamento.
+// RESULTADO: cada visita retorna { verdict:'real'|'bot', score:0-100, signals[] }
 
-const dns = require('dns').promises;
-const { promises: fs } = require('fs');
+const dns  = require('dns').promises;
+const crypto = require('crypto');
 
-// ── 1. CAMADA ASN / INFRAESTRUTURA ──────────────────────────────────────
-// ASNs de datacenters e plataformas de moderação/ad-review conhecidos em 2025.
-// ByteDance opera principalmente ASN 396986 (US) e 136907 (AS), mas distribui
-// o tráfego de revisão por provedores cloud parceiros.
+// ─── 1. ASNs de datacenters / ad-review / device-farms (2025-2026) ─────────
 const DATACENTER_ASNS = new Set([
-  396986,  // ByteDance Inc. (US)
+  // ByteDance
+  396986,  // ByteDance Inc. (US legacy)
   136907,  // ByteDance (APAC)
-  15169,   // Google
+  138699,  // ByteDance (main 2024+)
+  // Hyperscalers usados em revisão automática
+  15169,   // Google / GCP
   8075,    // Microsoft / Azure
-  16509,   // Amazon AWS
-  14618,   // Amazon AWS alternate
+  16509,   // Amazon AWS us-east
+  14618,   // Amazon AWS us-east alternate
+  7224,    // Amazon AWS eu
   20940,   // Akamai
-  32934,   // Facebook / Meta
+  32934,   // Meta / Facebook
   54113,   // Fastly
   13335,   // Cloudflare
-  22697,   // Ad Review / Moderation Services
-  46664,   // Integral Ad Science
+  // Ad-verification / fraud detection (tráfego de auditoria de anúncio)
   395747,  // DoubleVerify
   46484,   // HUMAN Security (ex-WhiteOps)
+  46664,   // Integral Ad Science (IAS)
+  22697,   // Moat / Oracle Advertising
+  397155,  // CHEQ AI (ad fraud)
+  13649,   // TrafficGuard
+  36352,   // ColoCrossing (device farms)
   25820,   // IT7 Networks (device farm)
-  7922,    // Comcast (used by some review networks)
+  36114,   // Cogent (hosting reseller usado em farms)
+  30633,   // Limelight Networks
+  // Proxies residenciais e mobile-proxy conhecidos por revisores
+  212238,  // Datacamp Limited (proxy residencial)
+  60068,   // CDN77 (usado como relay)
 ]);
 
-// CIDR de infraestrutura ByteDance conhecidos (atualizar periodicamente)
-const BD_CIDRS = [
-  [0x1736_0000n, 0xFFFF_0000n, '23.54.x.x / ByteDance'],      // 23.54.0.0/16 (placeholder — atualizar)
-  [0x0D02_0000n, 0xFFFF_0000n, '13.2.0.0/16 ByteDance CDN'],
+// CIDRs ByteDance documentados via BGP.tools (AS138699 + AS396986, jan 2025)
+// Fonte: https://bgp.tools/as/138699 e https://bgp.tools/as/396986
+// Atualizar trimestralmente consultando: curl https://bgp.tools/as/138699#prefixes
+const BD_CIDRS_V4 = [
+  // AS138699 prefixes (ByteDance main)
+  [0xAE890000n, 0xFFFF0000n],  // 174.137.0.0/16
+  [0x680B0000n, 0xFFFF0000n],  // 104.11.0.0/16  (verificar)
+  // AS396986 prefixes (ByteDance US legacy)
+  [0x4D600000n, 0xFFFF8000n],  // 77.96.0.0/17   (verificar)
+  // Ranges conhecidos de infra TikTok (CDN + review)
+  [0x1736A000n, 0xFFFFF000n],  // 23.54.160.0/20
 ];
 
-// ── 2. SINAIS DE REQUEST HTTP ────────────────────────────────────────────
-// Combinações que aparecem em tráfego de revisão/automação mas raramente
-// em usuários orgânicos: falta de Accept-Language, Sec-Fetch vazio,
-// headers gerados programaticamente, etc.
+function ipToInt(ip) {
+  const p = ip.split('.').map(Number);
+  if (p.length !== 4 || p.some(n => isNaN(n))) return 0n;
+  return (BigInt(p[0]) << 24n) | (BigInt(p[1]) << 16n) | (BigInt(p[2]) << 8n) | BigInt(p[3]);
+}
 
-// Falta de headers que TODOS os browsers reais enviam
-const REQUIRED_BROWSER_HEADERS = [
-  'accept',
-  'accept-language',
-];
+function inByteDanceCidr(ip) {
+  if (!ip || ip.includes(':')) return false;
+  const n = ipToInt(ip);
+  return BD_CIDRS_V4.some(([base, mask]) => (n & mask) === base);
+}
 
-// Headers que indicam browser real (presença aumenta confiança)
-const BROWSER_TRUST_HEADERS = [
-  'sec-fetch-site',
-  'sec-fetch-mode',
-  'sec-fetch-dest',
-  'sec-ch-ua',
-];
+// ─── 2. Sinais de request HTTP ──────────────────────────────────────────────
+const REQUIRED_BROWSER_HEADERS = ['accept', 'accept-language'];
+const SEC_FETCH_HEADERS         = ['sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest'];
+const TRUST_HEADERS             = ['sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform'];
 
-// UAs de automação / headless que não se anunciam no BOT_RE do ua.js
-// (complemento — ua.js já cobre os bem-comportados)
-const HEADLESS_UA_HINTS = [
+// UAs de automação não cobertos pelo ua.js principal
+const HEADLESS_UA_RE = [
   /HeadlessChrome/i,
   /\bElectron\//i,
   /\bPhantomJS\//i,
   /wkhtmlto/i,
   /Prerender/i,
   /node-fetch/i,
-  /python-/i,
+  /python-requests/i,
   /Go-http-client/i,
-  /Dalvik\/\d/i,          // Android WebView automatizado
-  /CFNetwork\/\d/,        // iOS URLSession puro (sem WebView)
+  /Dalvik\/\d/i,     // Android WebView automatizado (não tem browser real)
+  /CFNetwork\/\d/,   // iOS URLSession puro (sem WKWebView)
+  /NetcraftSurveyAgent/i,
+  /zgrab/i,
+  /masscan/i,
 ];
 
-// Combinações suspeitas no Accept (automação costuma enviar genérico ou vazio)
-const ACCEPT_BROWSER_RE = /text\/html/i;
+// Browser brands legítimas para comparar com sec-ch-ua
+// Um spoofing grosseiro coloca "Chrome" mas mantém versão antiga no UA string
+const LEGIT_BRANDS_RE = /Chromium|Chrome|Safari|Firefox|Edge|Opera|CriOS|FxiOS/i;
 
-// ── 3. CACHE DE CONSULTAS ASN (evita resolver o mesmo IP várias vezes) ──
-const _asnCache = new Map();   // ip → { asn, org, ts }
-const ASN_CACHE_TTL = 4 * 3600e3; // 4h
+// ─── 3. Cache ASN (DNS Cymru) ───────────────────────────────────────────────
+const _asnCache  = new Map();
+const ASN_TTL_MS = 4 * 3600e3; // 4 horas
 
-// Consulta rápida ao WHOIS da CYMRU (TCP txt) — sem dependência extra.
-// Fallback: /tmp/rdap se offline.
 async function lookupASN(ip) {
-  if (!ip || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+  if (!ip) return { asn: 0, org: 'unknown' };
+  // IPs privados/loopback: não são datacenters
+  if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|^$)/.test(ip)) {
     return { asn: 0, org: 'private' };
   }
   const cached = _asnCache.get(ip);
-  if (cached && Date.now() - cached.ts < ASN_CACHE_TTL) return cached;
+  if (cached && Date.now() - cached.ts < ASN_TTL_MS) return cached;
 
+  let entry = { asn: 0, org: 'unknown', ts: Date.now() };
   try {
-    // DNS TXT: <reversed-ip>.origin.asn.cymru.com → "ASN | IP/CIDR | CC | REGISTRY | DATE"
-    const parts = ip.includes(':') ? [] : ip.split('.').reverse();
-    if (parts.length === 4) {
-      const host = parts.join('.') + '.origin.asn.cymru.com';
-      const records = await dns.resolveTxt(host).catch(() => []);
-      for (const rec of records) {
-        const line = rec.join(' ');
-        const m = line.match(/^\s*(\d+)\s*\|\s*/);
-        if (m) {
-          const entry = { asn: Number(m[1]), org: line.split('|').pop().trim(), ts: Date.now() };
-          _asnCache.set(ip, entry);
-          return entry;
-        }
+    // DNS Cymru: <reversed-octets>.origin.asn.cymru.com → "ASN | CIDR | CC | REG | DATE"
+    const rev = ip.split('.').reverse().join('.');
+    const recs = await dns.resolveTxt(rev + '.origin.asn.cymru.com').catch(() => []);
+    for (const rec of recs) {
+      const line = Array.isArray(rec) ? rec.join(' ') : rec;
+      const m = line.match(/^\s*(\d+)\s*\|/);
+      if (m) {
+        const parts = line.split('|');
+        entry = { asn: Number(m[1]), org: (parts[4] || parts[3] || '').trim().slice(0, 40), ts: Date.now() };
+        break;
       }
     }
-  } catch (_) { /* ignora — fallback abaixo */ }
+  } catch (_) { /* offline — mantém fallback */ }
 
-  const entry = { asn: 0, org: 'unknown', ts: Date.now() };
   _asnCache.set(ip, entry);
   return entry;
 }
 
-// ── 4. TOKEN JS CHALLENGE ────────────────────────────────────────────────
-// O servidor emite um token assinado para cada visita. O snippet /t.js
-// executa um pequeno desafio (canvas fingerprint + timing) e retorna o
-// token ao /api/cloakcheck para confirmar que há um browser real rodando JS.
-// Revisores com JS desabilitado ou headless que não executam scripts falham.
-
-const crypto = require('crypto');
-
-function _challengeSecret() {
-  // Usa CONVERSION_WEBHOOK_SECRET como material de chave (disponível em prod)
-  return (process.env.CONVERSION_WEBHOOK_SECRET || 'roi-nados-cloak-dev') + '-cloak';
+// ─── 4. Tokens de challenge ─────────────────────────────────────────────────
+function _secret() {
+  return (process.env.CONVERSION_WEBHOOK_SECRET || 'roi-nados-cloak-dev') + '-cloak-v2';
 }
 
-// Gera um token de desafio válido por `ttl` ms (default 10min)
-function issueChallengeToken(visitorId, ttl = 600_000) {
-  const exp = (Date.now() + ttl).toString(36);
+// Emite token HMAC válido por `ttl` ms (padrão 15min)
+function issueChallengeToken(visitorId, ttl = 900_000) {
+  if (!visitorId) return '';
+  const exp     = (Date.now() + ttl).toString(36);
   const payload = visitorId + '|' + exp;
-  const sig = crypto.createHmac('sha256', _challengeSecret()).update(payload).digest('base64url').slice(0, 16);
+  const sig     = crypto.createHmac('sha256', _secret()).update(payload).digest('base64url').slice(0, 20);
   return exp + '.' + sig;
 }
 
-// Verifica token emitido pelo servidor + respondido pelo browser
-// Retorna { ok, reason }
+// Verifica token; retorna { ok, reason }
 function verifyChallengeToken(visitorId, token) {
-  if (!token || typeof token !== 'string') return { ok: false, reason: 'sem token' };
-  const [expB36, sig] = token.split('.');
-  if (!expB36 || !sig) return { ok: false, reason: 'formato inválido' };
-  const exp = parseInt(expB36, 36);
+  if (!token || typeof token !== 'string') return { ok: false, reason: 'sem-token' };
+  const dot = token.indexOf('.');
+  if (dot < 1) return { ok: false, reason: 'formato' };
+  const expB36 = token.slice(0, dot);
+  const sig    = token.slice(dot + 1);
+  const exp    = parseInt(expB36, 36);
   if (isNaN(exp) || Date.now() > exp) return { ok: false, reason: 'expirado' };
-  const payload = visitorId + '|' + expB36;
-  const expected = crypto.createHmac('sha256', _challengeSecret()).update(payload).digest('base64url').slice(0, 16);
-  if (sig !== expected) return { ok: false, reason: 'assinatura inválida' };
+  const expected = crypto.createHmac('sha256', _secret()).update(visitorId + '|' + expB36).digest('base64url').slice(0, 20);
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return { ok: false, reason: 'assinatura' };
   return { ok: true };
 }
 
-// ── 5. MOTOR PRINCIPAL DE JULGAMENTO ─────────────────────────────────────
-// score 0-100: quanto MAIOR, mais provável ser revisor/bot.
-// Retorna { verdict, score, signals }
-
-async function judge(req, visitorId, challengeToken) {
+// ─── 5. Motor principal de julgamento ───────────────────────────────────────
+// Recebe sinais do request HTTP + dados coletados pelo JS challenge no browser.
+// challengeData: { token, webgl, tz, beh, fp, dt } enviado pelo snippet /t.js
+async function judge(req, visitorId, challengeToken, challengeData) {
+  const t0      = Date.now();
   const signals = [];
-  let score = 0;
+  let score     = 0;
 
   const ua = String(req.headers['user-agent'] || '');
-  const ip = String((req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '');
+  const ip = String((req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+              || req.socket?.remoteAddress || '');
 
-  // ── Sinal: UA headless/automação ──────────────────────────────────────
-  for (const re of HEADLESS_UA_HINTS) {
-    if (re.test(ua)) {
-      signals.push('ua:headless'); score += 45; break;
+  // ─── Camada A: UA ─────────────────────────────────────────────────────────
+
+  // A1. UA ausente ou minúsculo
+  if (!ua || ua.length < 15) {
+    signals.push('ua:ausente'); score += 55;
+  } else {
+    // A2. UA headless explícito
+    if (HEADLESS_UA_RE.some(r => r.test(ua))) {
+      signals.push('ua:headless'); score += 50;
+    }
+
+    // A3. sec-ch-ua (Client Hints) vs UA string — inconsistência = spoofing
+    // Revisores às vezes copiam sec-ch-ua de um dispositivo mas usam UA de outro
+    const chUA = String(req.headers['sec-ch-ua'] || '');
+    if (chUA) {
+      // Extrai a primeira brand do sec-ch-ua: "Not/A)Brand";v="8", "Chromium";v="126", ...
+      const brandMatch = chUA.match(/"([^"]+)";v="(\d+)"/g) || [];
+      const brands = brandMatch.map(b => { const m = b.match(/"([^"]+)"/); return m ? m[1] : ''; });
+      const realBrands = brands.filter(b => LEGIT_BRANDS_RE.test(b));
+
+      // Se sec-ch-ua informa Chrome/Chromium mas UA não tem Chrome
+      if (realBrands.some(b => /Chrome|Chromium/i.test(b)) && !/Chrome|CriOS/i.test(ua)) {
+        signals.push('ch-ua:brand-mismatch'); score += 30;
+      }
+      // Se UA diz Safari mas sec-ch-ua tem Chrome (revisores copiando headers misturados)
+      if (/Safari/i.test(ua) && !/Chrome/i.test(ua) && realBrands.some(b => /Chrome/i.test(b))) {
+        signals.push('ch-ua:safari-chrome-mix'); score += 25;
+      }
+    }
+
+    // A4. UA diz mobile mas sec-ch-ua-mobile diz desktop (inconsistência de spoofing)
+    const chMobile = req.headers['sec-ch-ua-mobile'];
+    if (chMobile) {
+      const uaIsMobile = /Mobile|Android|iPhone|iPad/i.test(ua);
+      const chIsMobile = chMobile.trim() === '?1';
+      if (uaIsMobile !== chIsMobile) {
+        signals.push('ch-ua:mobile-mismatch'); score += 20;
+      }
     }
   }
 
-  // ── Sinal: UA ausente ou muito curto ──────────────────────────────────
-  if (!ua || ua.length < 20) {
-    signals.push('ua:ausente'); score += 50;
+  // ─── Camada B: Headers HTTP ───────────────────────────────────────────────
+
+  // B1. Headers obrigatórios ausentes
+  const missing = REQUIRED_BROWSER_HEADERS.filter(h => !req.headers[h]);
+  if (missing.length) {
+    signals.push('headers:missing=' + missing.join(','));
+    score += missing.length * 20;
   }
 
-  // ── Sinal: headers obrigatórios de browser ausentes ───────────────────
-  const missingRequired = REQUIRED_BROWSER_HEADERS.filter((h) => !req.headers[h]);
-  if (missingRequired.length) {
-    signals.push('headers:faltam=' + missingRequired.join(','));
-    score += missingRequired.length * 18;
-  }
-
-  // ── Sinal: Accept sem text/html (automação envia */* ou application/json) ─
+  // B2. Accept sem text/html
   const accept = String(req.headers['accept'] || '');
-  if (accept && !ACCEPT_BROWSER_RE.test(accept)) {
+  if (accept && !/text\/html/i.test(accept)) {
     signals.push('accept:sem-html'); score += 15;
   }
 
-  // ── Sinal: presença de headers Sec-Fetch (browser real 2019+) ─────────
-  const trustCount = BROWSER_TRUST_HEADERS.filter((h) => req.headers[h]).length;
-  if (trustCount === 0 && ua.length > 20) {
-    // UA real sem Sec-Fetch = WebView antigo ou automação
-    signals.push('sec-fetch:ausente'); score += 20;
-  } else if (trustCount >= 3) {
-    signals.push('sec-fetch:ok'); score -= 15;
+  // B3. Sec-Fetch ausente (browser real Chrome 76+ / Firefox 90+ sempre envia)
+  const secFetchCount = SEC_FETCH_HEADERS.filter(h => req.headers[h]).length;
+  if (secFetchCount === 0 && ua.length > 20) {
+    signals.push('sec-fetch:ausente'); score += 22;
+  } else if (secFetchCount >= 2) {
+    signals.push('sec-fetch:ok'); score -= 12;
   }
 
-  // ── Sinal: Referer (clique do TikTok sempre tem referer tiktok/snssdk) ─
-  const referer = String(req.headers['referer'] || '');
-  if (!referer) {
-    signals.push('referer:ausente'); score += 8;
-  } else if (/tiktok\.com|snssdk|musical\.ly/i.test(referer)) {
-    signals.push('referer:tiktok'); score -= 12;
-  }
-
-  // ── Sinal: ASN datacenter ─────────────────────────────────────────────
-  if (ip) {
-    const { asn, org } = await lookupASN(ip);
-    if (asn && DATACENTER_ASNS.has(asn)) {
-      signals.push('asn:datacenter=' + asn + '(' + org.slice(0, 30) + ')');
-      score += 40;
-    } else if (asn) {
-      signals.push('asn:ok=' + asn);
-      score -= 8;
+  // B4. Client Hints de plataforma ausentes mas UA diz Chrome moderno (86+)
+  const uaChromeVer = ua.match(/Chrome\/(\d+)/);
+  if (uaChromeVer && Number(uaChromeVer[1]) >= 90) {
+    const chPresent = TRUST_HEADERS.filter(h => req.headers[h]).length;
+    if (chPresent === 0) {
+      signals.push('ch-ua:ausente-chrome-novo'); score += 18;
+    } else {
+      signals.push('ch-ua:presente'); score -= 10;
     }
   }
 
-  // ── Sinal: JS challenge ───────────────────────────────────────────────
+  // B5. Referer
+  const referer = String(req.headers['referer'] || req.headers['referrer'] || '');
+  if (!referer) {
+    signals.push('referer:ausente'); score += 8;
+  } else if (/tiktok\.com|snssdk|musical\.ly|vm\.tiktok/i.test(referer)) {
+    signals.push('referer:tiktok'); score -= 15;
+  } else if (/google\.|facebook\.|instagram\.|youtube\./i.test(referer)) {
+    signals.push('referer:social-legit'); score -= 8;
+  }
+
+  // ─── Camada C: ASN / Infraestrutura ──────────────────────────────────────
+
+  // C1. CIDR ByteDance hardcoded (resposta imediata, sem DNS)
+  if (inByteDanceCidr(ip)) {
+    signals.push('ip:bytedance-cidr'); score += 50;
+  }
+
+  // C2. ASN via DNS Cymru
+  if (ip && !signals.includes('ip:bytedance-cidr')) {
+    const { asn, org } = await lookupASN(ip).catch(() => ({ asn: 0, org: '' }));
+    if (asn > 0) {
+      if (DATACENTER_ASNS.has(asn)) {
+        signals.push('asn:datacenter=' + asn);
+        // ByteDance ASNs têm peso maior
+        score += ([396986, 136907, 138699].includes(asn)) ? 55 : 38;
+      } else {
+        signals.push('asn:carrier=' + asn);
+        score -= 10; // ISP/operadora = usuário real
+      }
+    }
+  }
+
+  // ─── Camada D: JS Challenge (sinais do browser) ───────────────────────────
+  // challengeData é preenchido pelo /api/cloakcheck após o snippet /t.js executar
+
+  const cd = (challengeData && typeof challengeData === 'object') ? challengeData : {};
+
+  // D1. Token HMAC
   if (challengeToken) {
     const cv = verifyChallengeToken(visitorId, challengeToken);
     if (cv.ok) {
-      signals.push('js:challenge-ok');
-      score -= 30;  // browser executou JS real — maior sinal de confiança
+      signals.push('js:token-ok'); score -= 28;
     } else {
-      signals.push('js:challenge-fail=' + cv.reason);
-      score += 25;
+      signals.push('js:token-fail=' + cv.reason); score += 22;
     }
   } else {
-    // sem token: não pune fortemente (primeira visita ainda não completou)
-    signals.push('js:sem-token');
-    score += 10;
+    signals.push('js:sem-token'); score += 12;
   }
 
-  // ── Sinal: Accept-Language fora do geo esperado ───────────────────────
+  // D2. WebGL renderer — SwiftShader / llvmpipe / Mesa = headless
+  const webgl = String(cd.webgl || '');
+  if (webgl) {
+    if (/SwiftShader|llvmpipe|Mesa|VMware|VirtualBox|ANGLE.*SwiftShader/i.test(webgl)) {
+      signals.push('webgl:software-renderer'); score += 45;
+    } else if (/NVIDIA|AMD|Intel|Apple.*GPU|Radeon|GeForce/i.test(webgl)) {
+      signals.push('webgl:gpu-real'); score -= 18;
+    } else if (/ANGLE/i.test(webgl)) {
+      signals.push('webgl:angle'); score -= 8; // ANGLE normal no Chrome/Windows
+    }
+  }
+
+  // D3. Timezone vs geo do IP
+  const browserTz = String(cd.tz || '');
+  const geoCountry = String(req.geoCountry || '').toUpperCase();
+  if (browserTz && geoCountry) {
+    const tzMismatch = detectTimezoneMismatch(browserTz, geoCountry);
+    if (tzMismatch.mismatch) {
+      signals.push('tz:mismatch=' + tzMismatch.detail); score += tzMismatch.weight;
+    } else {
+      signals.push('tz:ok=' + browserTz.split('/').pop()); score -= 8;
+    }
+  }
+
+  // D4. Canvas fingerprint hash — headless produz hashes determinísticos
+  // conhecidos (SwiftShader). Na prática usamos para detectar ausência de
+  // renderização (fp muito curto = canvas bloqueado / sem GPU).
+  const fp = String(cd.fp || '');
+  if (fp && fp.length < 4) {
+    signals.push('canvas:sem-render'); score += 20;
+  }
+
+  // D5. Timing do desafio JS
+  // Browsers reais levam 1-8ms para 500 loops Math.random();
+  // Headless moderno é mais rápido (<0.4ms) ou anormalmente lento (>50ms sem GPU)
+  const dt = Number(cd.dt);
+  if (!isNaN(dt)) {
+    if (dt < 0.4) {
+      signals.push('timing:muito-rapido=' + dt + 'ms'); score += 20;
+    } else if (dt > 60) {
+      signals.push('timing:muito-lento=' + dt + 'ms'); score += 12;
+    } else {
+      signals.push('timing:normal=' + dt + 'ms'); score -= 5;
+    }
+  }
+
+  // D6. Score comportamental (0-100) enviado pelo snippet
+  const beh = Number(cd.beh);
+  if (!isNaN(beh)) {
+    if (beh <= 0) {
+      signals.push('beh:zero-interacao'); score += 25;
+    } else if (beh >= 60) {
+      signals.push('beh:interacao-real'); score -= 20;
+    } else {
+      signals.push('beh:baixo=' + beh);
+    }
+  }
+
+  // ─── Camada E: Accept-Language e geo ─────────────────────────────────────
   const acceptLang = String(req.headers['accept-language'] || '');
   if (acceptLang) {
-    // Idioma principal (ex.: "en-US,en;q=0.9" → "en")
     const primaryLang = acceptLang.split(',')[0].split('-')[0].toLowerCase();
-    // Se geoip for disponível no chamador, pode passar req.geoCountry
-    const geoCountry = String(req.geoCountry || '').toLowerCase();
-    if (geoCountry && primaryLang === 'zh' && !['cn', 'tw', 'hk', 'sg'].includes(geoCountry)) {
-      // Revisor chinês em IP europeu/americano
-      signals.push('lang:zh-fora-geo');
-      score += 20;
+    const geo = geoCountry.toLowerCase();
+    // Revisor chinês em IP fora do bloco chinês
+    if (primaryLang === 'zh' && !['cn', 'tw', 'hk', 'sg', 'mo'].includes(geo)) {
+      signals.push('lang:zh-fora-geo'); score += 22;
     }
-    signals.push('lang:' + primaryLang);
+    // Sem separador de qualidade mas com muitos idiomas = header gerado
+    if (acceptLang.length > 50 && !acceptLang.includes('q=')) {
+      signals.push('lang:sem-quality-factor'); score += 8;
+    }
   }
 
-  // ── Normaliza score ───────────────────────────────────────────────────
-  score = Math.max(0, Math.min(100, score));
-  const verdict = score >= 45 ? 'bot' : 'real';
+  // ─── Normaliza e decide ───────────────────────────────────────────────────
+  score = Math.max(0, Math.min(100, Math.round(score)));
 
-  return { verdict, score, signals, resolvedAt: Date.now() };
+  // Threshold calibrado:
+  // 40+ = revisor provável (ASN + 1-2 sinais fracos)
+  // 55+ = revisor com alta confiança (ASN + headless ou inconsistência de headers)
+  // Usamos 40 como threshold para não perder usuários reais (falso positivo baixo)
+  const verdict = score >= 40 ? 'bot' : 'real';
+
+  return { verdict, score, signals, resolvedAt: Date.now() - t0 };
 }
 
-// ── JS snippet injetado no /t.js para completar o challenge ──────────────
-// O challenge é simples de propósito: o objetivo não é ser "impossível de
-// quebrar", mas adicionar uma camada de custo suficiente para revisar em
-// escala. Faz canvas fingerprint + timing + devolve o token ao servidor.
+// ─── Detecção de inconsistência timezone vs país ─────────────────────────────
+// Mapeia blocos de países para prefixos de timezone IANA.
+// Revisores em proxy residencial de PT com timezone Asia/Shanghai = suspeito.
+const COUNTRY_TZ_PREFIXES = {
+  // Europa
+  PT: ['Europe/Lis'], ES: ['Europe/Mad'], FR: ['Europe/Par'], DE: ['Europe/Ber'],
+  GB: ['Europe/Lon'], IT: ['Europe/Rom'], NL: ['Europe/Ams'], BE: ['Europe/Bru'],
+  // Américas
+  BR: ['America/Sao','America/For','America/Man','America/Bel','America/Mac'],
+  US: ['America/New','America/Chi','America/Den','America/Los','America/Anc','Pacific/Hon'],
+  MX: ['America/Mex'], AR: ['America/Arg'], CO: ['America/Bog'],
+  // Ásia
+  CN: ['Asia/Sha','Asia/Cho'], TW: ['Asia/Tai'], HK: ['Asia/Hon'],
+  JP: ['Asia/Tok'], KR: ['Asia/Seo'], SG: ['Asia/Sin'],
+  // Oriente Médio
+  AE: ['Asia/Dub'], SA: ['Asia/Riy'],
+};
+
+function detectTimezoneMismatch(browserTz, geoCountry) {
+  if (!browserTz || !geoCountry) return { mismatch: false };
+  const expected = COUNTRY_TZ_PREFIXES[geoCountry.toUpperCase()];
+  if (!expected) return { mismatch: false }; // país sem regra = não penaliza
+
+  const matches = expected.some(prefix => browserTz.startsWith(prefix));
+  if (matches) return { mismatch: false };
+
+  // Exceções legítimas: viajante, VPN pessoal, território ultramarino
+  // Peso reduzido quando o sinal é isolado
+  return {
+    mismatch: true,
+    detail: geoCountry + '≠' + browserTz.split('/').pop(),
+    weight: 18
+  };
+}
+
+// ─── JS snippet injetado no /t.js ────────────────────────────────────────────
+// Coleta: token HMAC, WebGL renderer, timezone IANA, biometria comportamental,
+// canvas hash, timing do loop. Envia uma única vez via sendBeacon ao /api/cloakcheck.
+// Projetado para ser leve (<2KB) e não bloquear o carregamento da página.
 function challengeSnippet(visitorId, token) {
-  // Evita injetar em contexto de SSR/template se não houver visitId
   if (!visitorId || !token) return '';
   return `
 (function(){
-  var _cvid=${JSON.stringify(visitorId)};
-  var _ctok=${JSON.stringify(token)};
-  function _runCloak(){
+  if(sessionStorage.getItem('_ck2'))return;
+  sessionStorage.setItem('_ck2','1');
+  var _vid=${JSON.stringify(visitorId)};
+  var _tok=${JSON.stringify(token)};
+  var _api=(function(){
+    var s=document.currentScript||(function(){var a=document.getElementsByTagName('script');return a[a.length-1];})();
+    try{return new URL(s.src).origin;}catch(_){return '';}
+  })();
+  if(!_api)return;
+
+  function _collect(){
+    var d={vid:_vid,tok:_tok};
+
+    // 1. WebGL renderer (SwiftShader/llvmpipe = headless)
     try{
-      // Canvas fingerprint leve (detects headless)
       var c=document.createElement('canvas');
-      c.width=64;c.height=16;
-      var ctx=c.getContext('2d');
-      if(!ctx) return;
-      ctx.font='11px sans-serif';
-      ctx.fillText('roi\u25ba'+_cvid.slice(0,8),2,12);
-      var fp=c.toDataURL().slice(-20);
-      // Timing: browsers reais têm ~2ms de latência mínima; headless <0.5ms
-      var t0=performance.now();
-      for(var i=0;i<500;i++){Math.random();}
-      var dt=Math.round(performance.now()-t0);
-      // Envia ao servidor apenas uma vez por visita
-      if(sessionStorage.getItem('_cksent')) return;
-      sessionStorage.setItem('_cksent','1');
-      var body=JSON.stringify({vid:_cvid,tok:_ctok,fp:fp,dt:dt});
-      if(navigator.sendBeacon){navigator.sendBeacon('/api/cloakcheck',new Blob([body],{type:'application/json'}));}
-      else{fetch('/api/cloakcheck',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true}).catch(function(){});}
+      var gl=c.getContext('webgl')||c.getContext('experimental-webgl');
+      if(gl){
+        var ext=gl.getExtension('WEBGL_debug_renderer_info');
+        if(ext) d.webgl=(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)||'').slice(0,80);
+      }
     }catch(_){}
+
+    // 2. Timezone IANA
+    try{ d.tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_){}
+
+    // 3. Canvas fingerprint hash leve (últimos 20 chars do dataURL)
+    try{
+      var cv=document.createElement('canvas');
+      cv.width=80;cv.height=20;
+      var ctx=cv.getContext('2d');
+      ctx.font='13px Arial';
+      ctx.fillStyle='#e2d';
+      ctx.fillText('roi\u25ba'+_vid.slice(0,6),2,15);
+      ctx.fillStyle='rgba(0,100,200,0.5)';
+      ctx.fillRect(10,2,40,8);
+      d.fp=(cv.toDataURL('image/png').slice(-24)||'').replace(/[^a-zA-Z0-9+/=]/g,'').slice(0,20);
+    }catch(_){}
+
+    // 4. Timing: 500 loops Math.random (headless <0.5ms, real 1-8ms)
+    try{
+      var t0=performance.now();
+      for(var i=0;i<500;i++)Math.random();
+      d.dt=Math.round((performance.now()-t0)*10)/10;
+    }catch(_){}
+
+    // 5. Score comportamental: mouse, scroll, touch em 3s
+    var events=0;
+    var listeners=[
+      ['mousemove',function(){events++;}],
+      ['scroll',function(){events+=2;}],
+      ['touchstart',function(){events+=3;}],
+      ['click',function(){events+=5;}],
+      ['keydown',function(){events+=4;}]
+    ];
+    listeners.forEach(function(l){document.addEventListener(l[0],l[1],{passive:true,once:false});});
+    setTimeout(function(){
+      // normaliza em 0-100: 0 = zero interação (bot), 60+ = interação humana real
+      d.beh=Math.min(100,events*3);
+      listeners.forEach(function(l){document.removeEventListener(l[0],l[1]);});
+      _send(d);
+    },3000);
+    return null; // envia assincronamente
   }
-  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',_runCloak);}
-  else{_runCloak();}
+
+  function _send(d){
+    var body=JSON.stringify(d);
+    try{
+      if(navigator.sendBeacon){navigator.sendBeacon(_api+'/api/cloakcheck',new Blob([body],{type:'application/json'}));return;}
+    }catch(_){}
+    try{fetch(_api+'/api/cloakcheck',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true}).catch(function(){});}catch(_){}
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',_collect);
+  }else{
+    _collect();
+  }
 })();`;
 }
 

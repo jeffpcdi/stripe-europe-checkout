@@ -332,20 +332,31 @@ app.get('/t.js', (req, res) => {
 });
 
 // Recebe a resposta do JS challenge enviada pelo snippet do /t.js.
-// Grava o resultado no lead para que o /go/:slug use na próxima decisão.
+// Valida o token HMAC e persiste todos os sinais do browser (WebGL renderer,
+// timezone IANA, biometria comportamental, canvas hash, timing) no lead,
+// para que o judge() na próxima visita ao /go/:slug use os dados enriquecidos.
 app.post('/api/cloakcheck', async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const b = req.body || {};
+  const b   = req.body || {};
   const vid = typeof b.vid === 'string' ? b.vid.slice(0, 60) : '';
   const tok = typeof b.tok === 'string' ? b.tok.slice(0, 80) : '';
   if (!vid || !tok) return res.status(204).end();
+
   const cv = botFilter.verifyChallengeToken(vid, tok);
-  try {
-    stats.attachTracking(vid, {
-      cloakChallenge: cv.ok ? 'ok' : 'fail',
-      cloakChallengeAt: new Date().toISOString()
-    });
-  } catch (_) {}
+
+  // Persiste sinais do browser — mesmo em falha guarda o que veio
+  // (ex.: webgl SwiftShader com token expirado ainda é útil no /go/)
+  const patch = {
+    cloakChallenge:   cv.ok ? 'ok' : 'fail',
+    cloakChallengeAt: new Date().toISOString()
+  };
+  if (typeof b.webgl === 'string' && b.webgl) patch.cloakWebgl = b.webgl.slice(0, 80);
+  if (typeof b.tz    === 'string' && b.tz)    patch.cloakTz    = b.tz.slice(0, 60);
+  if (typeof b.fp    === 'string' && b.fp)    patch.cloakFp    = b.fp.slice(0, 24);
+  if (typeof b.dt    === 'number')             patch.cloakDt    = b.dt;
+  if (typeof b.beh   === 'number')             patch.cloakBeh   = b.beh;
+
+  try { stats.attachTracking(vid, patch); } catch (_) {}
   res.status(204).end();
 });
 
@@ -526,25 +537,42 @@ app.get('/go/:slug', async (req, res) => {
     return res.redirect(302, whitePage || link.variantes[0].url);
   }
 
-  // Score assíncrono: correr em paralelo com o resto do processamento
-  // para não adicionar latência visível ao usuário real.
-  const lead0 = (() => { try { return stats.getLead(readCookie(req, 'v_id') || '') || {}; } catch (_) { return {}; } })();
+  // Recupera sinais do browser já coletados pelo /api/cloakcheck (challenge JS).
+  // Esses sinais — WebGL renderer, timezone, biometria, timing — enriquecem
+  // o judge() e aumentam a precisão sem adicionar latência no /go/.
+  const filterVid  = readCookie(req, 'v_id') || '';
+  const lead0      = (() => { try { return stats.getLead(filterVid) || {}; } catch (_) { return {}; } })();
+
+  // Reconstrói o token de challenge a partir do estado persistido do lead:
+  // 'ok' → reemite token válido (confirma ao judge que browser passou); 'fail' → string
+  // vazia (penaliza); null/undefined → primeiro acesso, sem token ainda.
   const challengeToken = lead0.cloakChallenge === 'ok'
-    ? botFilter.issueChallengeToken(readCookie(req, 'v_id') || '', 0) // token já confirmado
-    : (lead0.cloakChallenge === 'fail' ? '' : null); // null = ainda não avaliado
+    ? botFilter.issueChallengeToken(filterVid)
+    : (lead0.cloakChallenge === 'fail' ? '' : null);
+
+  // Monta o objeto challengeData com todos os sinais do browser persistidos
+  const challengeData = {
+    webgl: lead0.cloakWebgl || '',
+    tz:    lead0.cloakTz    || '',
+    fp:    lead0.cloakFp    || '',
+    dt:    typeof lead0.cloakDt  === 'number' ? lead0.cloakDt  : NaN,
+    beh:   typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
+  };
 
   const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
-  const judgment = await botFilter.judge(filterReq, readCookie(req, 'v_id') || '', challengeToken).catch(() => ({ verdict: 'real', score: 0, signals: [] }));
+  const judgment = await botFilter
+    .judge(filterReq, filterVid, challengeToken, challengeData)
+    .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
 
-  // Loga o julgamento para análise na dashboard (atividade)
+  // Loga o julgamento para análise na dashboard (aba Atividade)
   if (judgment.verdict === 'bot') {
     stats.logEvent('info', {
-      title: '[cloak] score=' + judgment.score + ' → white | ' + judgment.signals.slice(0, 3).join(', '),
+      title: '[cloak] score=' + judgment.score + ' → white | ' + judgment.signals.slice(0, 4).join(', '),
       gateway: 'link:' + link.slug,
       ref: clientIp(req)
     });
     if (whitePage) return res.redirect(302, whitePage);
-    // sem white page configurada: deixa passar (não penaliza aprovação do anúncio)
+    // sem white page configurada: deixa passar (não bloqueia aprovação do anúncio)
   }
 
   // Costura de identidade: se veio de página externa com snippet /t.js,
