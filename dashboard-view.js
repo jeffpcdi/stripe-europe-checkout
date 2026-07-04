@@ -3107,32 +3107,42 @@ function testPushcut(){
 
 /* ── Filtro de Bots / Revisores TikTok (cloaking) ── */
 var CK_STATE={};
+var CK_LINKS=[];       // links com regras (offer/white/paises/pixel)
+var CK_PIXELS=[];      // pixels disponíveis para o dropdown
+var CK_CUR=null;       // slug do link selecionado
 var CK_LAYERS=[
-  ['blockDatacenter','Datacenter & ByteDance','Bloqueia IPs de datacenter e ASNs do TikTok/ByteDance (revisores automáticos rodam aqui)'],
-  ['blockHeadless','Navegador headless','Detecta HeadlessChrome, automação e Client Hints falsificados'],
-  ['checkHeaders','Headers HTTP','Exige cabeçalhos de navegador real (Accept, Sec-Fetch, Client Hints)'],
-  ['requireJsChallenge','Desafio JavaScript','Token HMAC que só um navegador real executando JS consegue devolver'],
-  ['checkWebgl','WebGL & Canvas','Identifica renderizadores de software (SwiftShader) usados em sandboxes'],
+  ['blockDatacenter','Datacenter & ByteDance','Bloqueia IPs de datacenter e ASNs do TikTok/ByteDance'],
+  ['blockHeadless','Navegador headless','Detecta HeadlessChrome, automação e Client Hints falsos'],
+  ['checkHeaders','Headers HTTP','Exige cabeçalhos de navegador real (Accept, Sec-Fetch)'],
+  ['requireJsChallenge','Desafio JavaScript','Token HMAC que só um navegador real devolve'],
+  ['checkWebgl','WebGL & Canvas','Detecta renderizadores de software (SwiftShader) de sandbox'],
   ['checkTimezone','Fuso vs. localização','Compara o fuso do navegador com o país do IP'],
-  ['checkBehavior','Comportamento','Mede interação real: mouse, scroll, toque e tempo na página'],
-  ['blockZhLang','Idioma chinês fora de rota','Sinaliza accept-language chinês vindo de IP fora do bloco CN']
+  ['checkBehavior','Comportamento','Mede interação real: mouse, scroll, toque e tempo'],
+  ['blockZhLang','Idioma chinês fora de rota','Sinaliza accept-language chinês fora do bloco CN']
 ];
 function loadCloakConfig(){
   fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_STATE=d||{};
-    renderCloak();
+    CK_STATE=d||{}; renderCloak();
+  }).catch(function(){});
+  fetch('/api/cloak/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    CK_LINKS=(d&&d.links)||[]; CK_PIXELS=(d&&d.pixels)||[]; renderCloakLinks();
   }).catch(function(){});
 }
 function renderCloak(){
   var c=CK_STATE;
   var en=document.getElementById('ck-enabled'); if(en) en.checked=c.enabled!==false;
-  // segmented de sensibilidade
   document.querySelectorAll('#ck-sens button').forEach(function(b){ b.classList.toggle('on',b.getAttribute('data-s')===(c.sensitivity||'balanced')); });
-  var custom=(c.sensitivity==='custom');
-  var wrap=document.getElementById('ck-threshold-wrap'); if(wrap) wrap.style.display=custom?'block':'none';
+  var wrap=document.getElementById('ck-threshold-wrap'); if(wrap) wrap.style.display=(c.sensitivity==='custom')?'block':'none';
   var rng=document.getElementById('ck-threshold'); if(rng) rng.value=c.threshold||40;
   var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=c.threshold||40;
-  // camadas de detecção
+  var dl=document.getElementById('ck-deadline'); if(dl) dl.value=c.deadlineMs||120;
+  var dv=document.getElementById('ck-deadline-val'); if(dv) dv.textContent=c.deadlineMs||120;
+  // linha de status contextual no hero
+  var sl=document.getElementById('ck-status-line');
+  if(sl) sl.textContent=(c.enabled===false)
+    ? 'Desligado — todos os cliques vão direto para a offer, sem análise.'
+    : 'Bots e revisores vão para a white page; pessoas reais seguem para a offer.';
+  // camadas (dentro do avançado)
   var host=document.getElementById('ck-layers'); if(!host) return;
   host.innerHTML=CK_LAYERS.map(function(l){
     var on=c[l[0]]!==false;
@@ -3141,15 +3151,16 @@ function renderCloak(){
       '<label class="switch"><input type="checkbox" data-ck="'+l[0]+'"'+(on?' checked':'')+'><span class="slider"></span></label>'+
     '</div>';
   }).join('');
-  // estado desabilitado (interruptor mestre off) esmaece as camadas
   var dim=(c.enabled===false);
   host.style.opacity=dim?'.45':'1'; host.style.pointerEvents=dim?'none':'auto';
 }
 function collectCloak(){
+  var sb=document.querySelector('#ck-sens button.on');
   var body={
     enabled:document.getElementById('ck-enabled').checked,
-    sensitivity:(document.querySelector('#ck-sens button.on')||{}).getAttribute?document.querySelector('#ck-sens button.on').getAttribute('data-s'):'balanced',
-    threshold:+document.getElementById('ck-threshold').value||40
+    sensitivity:sb?sb.getAttribute('data-s'):'balanced',
+    threshold:+document.getElementById('ck-threshold').value||40,
+    deadlineMs:+document.getElementById('ck-deadline').value||120
   };
   document.querySelectorAll('#ck-layers input[data-ck]').forEach(function(i){ body[i.getAttribute('data-ck')]=i.checked; });
   return body;
@@ -3159,7 +3170,7 @@ function saveCloakConfig(){
   fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectCloak())})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ CK_STATE=d.cloak; renderCloak(); toast('Filtro de bots salvo'); if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; } }
+      if(d.ok){ CK_STATE=d.cloak; renderCloak(); toast('Proteção salva'); if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; } }
       else { toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
     }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
 }
@@ -3180,6 +3191,97 @@ function testCloak(){
     })
     .catch(function(){ if(out) out.innerHTML='<p class="hint" style="margin:0;color:var(--pink,#f31260)">Erro ao rodar o teste</p>'; });
 }
+/* ── Regras por link ── */
+function renderCloakLinks(){
+  var sel=document.getElementById('ck-link-select'); if(!sel) return;
+  var prev=CK_CUR||sel.value;
+  sel.innerHTML='<option value="">Selecione um link...</option>'+CK_LINKS.map(function(l){
+    return '<option value="'+esc(l.slug)+'">'+esc(l.nome||l.slug)+' — /go/'+esc(l.slug)+'</option>';
+  }).join('');
+  if(prev && CK_LINKS.some(function(l){return l.slug===prev;})){ sel.value=prev; renderCloakRule(prev); }
+  else { CK_CUR=null; document.getElementById('ck-link-rule').innerHTML=CK_LINKS.length?'<p class="hint" style="margin:14px 0 0">Escolha um link acima para configurar offer, white page, países e pixel.</p>':'<p class="hint" style="margin:14px 0 0">Nenhum link de checkout ainda. Crie um na aba <b>Links de Checkout</b>.</p>'; }
+}
+function renderCloakRule(slug){
+  CK_CUR=slug;
+  var host=document.getElementById('ck-link-rule'); if(!host) return;
+  var l=CK_LINKS.filter(function(x){return x.slug===slug;})[0];
+  if(!l){ host.innerHTML=''; return; }
+  var pixOpts='<option value="">Automático (por rota /go/'+esc(l.slug)+')</option>'+CK_PIXELS.map(function(p){
+    return '<option value="'+esc(p.slug)+'"'+(l.pixelSlug===p.slug?' selected':'')+'>'+esc(p.name||p.slug)+(p.active?'':' (inativo)')+'</option>';
+  }).join('');
+  var offer=l.offerUrl?('<div class="ck-offer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg><span>'+esc(l.offerUrl)+(l.offerCount>1?(' &middot; +'+(l.offerCount-1)+' variante(s) A/B'):'')+'</span></div>')
+    :'<div class="ck-offer" style="color:var(--pink,#f31260)"><span>Sem offer definida — adicione uma variante na aba Links.</span></div>';
+  host.innerHTML=''+
+    '<div class="ck-rule">'+
+      '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+offer+'</div>'+
+      '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
+        '<input class="inp" id="ck-r-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.urlWhitePage||'')+'" style="width:100%"></div>'+
+      '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— vazio = todos. Fora da lista vai para a white page</span></label>'+
+        '<div class="pais-box'+((l.paises&&l.paises.length)?'':' all')+'" id="ck-r-paisbox">'+
+          (l.paises||[]).map(paisChip).join('')+
+          '<input id="ck-r-paisinput" maxlength="2" placeholder="'+((l.paises&&l.paises.length)?'+ código':'todos os países — digite BR, PT, US...')+'"></div></div>'+
+      '<div class="ck-field"><label>Pixel do TikTok <span class="hint">— dispara só p/ quem vai à offer</span></label>'+
+        '<select class="select" id="ck-r-pixel">'+pixOpts+'</select></div>'+
+      '<div class="ck-field"><label>Sincronização</label>'+
+        '<label class="ck-sync"><input type="checkbox" id="ck-r-sync"><span>Vincular a rota <code>/go/'+esc(l.slug)+'</code> ao pixel escolhido</span></label></div>'+
+    '</div>'+
+    '<div style="display:flex;gap:10px;margin-top:14px;align-items:center">'+
+      '<button class="btn primary" id="ck-r-save">Salvar regra do link</button>'+
+      '<p class="hint" id="ck-r-status" style="margin:0"></p></div>';
+  bindCloakRule();
+}
+function paisChip(cc){
+  return '<span class="pais-chip" data-cc="'+esc(cc)+'">'+esc(cc)+'<button type="button" data-rm="'+esc(cc)+'" aria-label="Remover '+esc(cc)+'">&times;</button></span>';
+}
+function currentPaises(){
+  return Array.prototype.map.call(document.querySelectorAll('#ck-r-paisbox .pais-chip'),function(c){return c.getAttribute('data-cc');});
+}
+function addPais(cc){
+  cc=String(cc||'').trim().toUpperCase();
+  if(!/^[A-Z]{2}$/.test(cc)) return;
+  if(currentPaises().indexOf(cc)>=0) return;
+  var box=document.getElementById('ck-r-paisbox'); var input=document.getElementById('ck-r-paisinput');
+  input.insertAdjacentHTML('beforebegin',paisChip(cc));
+  box.classList.remove('all'); input.placeholder='+ código';
+}
+function bindCloakRule(){
+  var input=document.getElementById('ck-r-paisinput');
+  if(input){
+    input.addEventListener('keydown',function(e){
+      if(e.key==='Enter'||e.key===','||e.key===' '){ e.preventDefault(); addPais(this.value); this.value=''; }
+      else if(e.key==='Backspace'&&!this.value){ var chips=document.querySelectorAll('#ck-r-paisbox .pais-chip'); if(chips.length) chips[chips.length-1].remove(); if(!document.querySelectorAll('#ck-r-paisbox .pais-chip').length){ document.getElementById('ck-r-paisbox').classList.add('all'); this.placeholder='todos os países — digite BR, PT, US...'; } }
+    });
+    input.addEventListener('blur',function(){ if(this.value){ addPais(this.value); this.value=''; } });
+  }
+  var box=document.getElementById('ck-r-paisbox');
+  if(box) box.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-rm]'); if(!b) return;
+    b.closest('.pais-chip').remove();
+    if(!document.querySelectorAll('#ck-r-paisbox .pais-chip').length){ box.classList.add('all'); var i=document.getElementById('ck-r-paisinput'); if(i) i.placeholder='todos os países — digite BR, PT, US...'; }
+  });
+  var save=document.getElementById('ck-r-save'); if(save) save.addEventListener('click',saveCloakRule);
+}
+function saveCloakRule(){
+  if(!CK_CUR) return;
+  var st=document.getElementById('ck-r-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
+  var body={
+    urlWhitePage:document.getElementById('ck-r-white').value.trim(),
+    paises:currentPaises(),
+    pixelSlug:document.getElementById('ck-r-pixel').value,
+    syncPixel:document.getElementById('ck-r-sync').checked
+  };
+  fetch('/api/cloak/link/'+encodeURIComponent(CK_CUR),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){
+        // atualiza cache local
+        var l=CK_LINKS.filter(function(x){return x.slug===CK_CUR;})[0];
+        if(l){ l.urlWhitePage=d.link.urlWhitePage; l.paises=d.link.paises; l.pixelSlug=d.link.pixelSlug; }
+        toast(d.pixelSynced?'Regra salva e pixel sincronizado':'Regra do link salva');
+        if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; }
+      } else { toast(d.error||'Erro ao salvar',false); if(st){ st.textContent=d.error||'Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
+    }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
+}
 function bindCloak(){
   var sens=document.getElementById('ck-sens');
   if(sens) sens.addEventListener('click',function(e){
@@ -3191,11 +3293,17 @@ function bindCloak(){
   });
   var rng=document.getElementById('ck-threshold');
   if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=this.value; });
+  var dl=document.getElementById('ck-deadline');
+  if(dl) dl.addEventListener('input',function(){ var dv=document.getElementById('ck-deadline-val'); if(dv) dv.textContent=this.value; });
   var en=document.getElementById('ck-enabled');
   if(en) en.addEventListener('change',function(){
     var host=document.getElementById('ck-layers');
     if(host){ host.style.opacity=this.checked?'1':'.45'; host.style.pointerEvents=this.checked?'auto':'none'; }
+    var sl=document.getElementById('ck-status-line');
+    if(sl) sl.textContent=this.checked?'Bots e revisores vão para a white page; pessoas reais seguem para a offer.':'Desligado — todos os cliques vão direto para a offer, sem análise.';
   });
+  var lsel=document.getElementById('ck-link-select');
+  if(lsel) lsel.addEventListener('change',function(){ if(this.value) renderCloakRule(this.value); else { CK_CUR=null; document.getElementById('ck-link-rule').innerHTML='<p class="hint" style="margin:14px 0 0">Escolha um link acima para configurar offer, white page, países e pixel.</p>'; } });
   var save=document.getElementById('ck-save'); if(save) save.addEventListener('click',saveCloakConfig);
   var test=document.getElementById('ck-test'); if(test) test.addEventListener('click',testCloak);
 }

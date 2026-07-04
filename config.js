@@ -57,10 +57,22 @@ function defaults() {
 // ── Cache em memória ───────────────────────────────────────────────────────
 let cfg = null;
 
+// Mescla o estado persistido sobre os defaults. Top-level é shallow, mas os
+// blocos aninhados (cloak, pushcut) recebem merge profundo para que configs
+// salvas antes de um campo novo existir (ex.: deadlineMs) herdem o default em
+// vez de ficarem com o campo undefined.
+function mergeDefaults(stored) {
+  const base = defaults();
+  const out = Object.assign({}, base, stored || {});
+  out.cloak = Object.assign({}, base.cloak, (stored && stored.cloak) || {});
+  out.pushcut = Object.assign({}, base.pushcut, (stored && stored.pushcut) || {});
+  return out;
+}
+
 function loadFromDisk() {
   try {
     if (fs.existsSync(FILE)) {
-      return Object.assign(defaults(), JSON.parse(fs.readFileSync(FILE, 'utf8')));
+      return mergeDefaults(JSON.parse(fs.readFileSync(FILE, 'utf8')));
     }
   } catch (err) {
     console.error('[config] Erro ao ler config do disco:', err.message);
@@ -89,7 +101,7 @@ async function hydrate() {
   try {
     const persisted = await db.loadConfig();
     if (persisted && typeof persisted === 'object') {
-      cfg = Object.assign(defaults(), persisted);
+      cfg = mergeDefaults(persisted);
       console.log('[config] Config hidratada do Neon.');
     } else {
       ensureLoaded();
