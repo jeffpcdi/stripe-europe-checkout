@@ -44,6 +44,10 @@ function normalize(slug, raw) {
       id: String(v.id || 'v' + (i + 1)).slice(0, 40),
       nome: String(v.nome || 'Variante ' + (i + 1)).slice(0, 60),
       url: String(v.url).trim().slice(0, 500),
+      // destino alternativo para celular/tablet (opcional): computador vai
+      // para `url`, mobile vai para `urlMobile` quando preenchida
+      urlMobile: validUrl(v.urlMobile) ? String(v.urlMobile).trim().slice(0, 500) : null,
+      urlWhitePage: validUrl(v.urlWhitePage) ? String(v.urlWhitePage).trim().slice(0, 500) : null,
       peso: Math.max(0, Math.min(100, Math.round(Number(v.peso) || 0))) || Math.round(100 / (raw.variantes.length || 1)),
       clicks: Math.max(0, Number(v.clicks) || 0),
       conversions: Math.max(0, Number(v.conversions) || 0),
@@ -56,6 +60,18 @@ function normalize(slug, raw) {
     dominioValidado: raw.dominioValidado === true,
     dominioValidadoEm: raw.dominioValidadoEm || null,
     variantes,
+    // Roteamento cloak: revisores/bots vão para a white page;
+    // usuários reais vão para a offer page (url normal das variantes).
+    urlWhitePage: validUrl(raw.urlWhitePage) ? String(raw.urlWhitePage).trim().slice(0, 500) : null,
+    // Allowlist de países (ISO-2 maiúsculo). Vazio = todos os países liberados.
+    // Visitante fora da lista vai para a white page (sem passar pelo motor de score).
+    paises: (Array.isArray(raw.paises) ? raw.paises : [])
+      .map((c) => String(c || '').trim().toUpperCase())
+      .filter((c) => /^[A-Z]{2}$/.test(c))
+      .filter((c, i, a) => a.indexOf(c) === i)
+      .slice(0, 30),
+    // Pixel que dispara nesse link (slug do pixel-store). Vazio = dispatchToAll por rota.
+    pixelSlug: String(raw.pixelSlug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40),
     ativo: raw.ativo !== false,
     criadoEm: raw.criadoEm || new Date().toISOString(),
     updatedAt: new Date().toISOString()

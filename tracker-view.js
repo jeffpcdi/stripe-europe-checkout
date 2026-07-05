@@ -171,6 +171,42 @@ module.exports = `(function(){
     } catch(_){}
   }, true);
 
+  // ── 2c. Advanced Matching: email/telefone digitados em QUALQUER formulário
+  // da página (opt-in, checkout embutido, captura de lead) são enviados ao
+  // servidor e amarrados ao lead — todos os disparos CAPI seguintes carregam
+  // email+phone hasheados, os sinais que mais sobem a nota de correspondência.
+  var amSent = { email: null, phone: null };
+  function captureField(el){
+    try {
+      if (!el || el.tagName !== 'INPUT' || !el.value) return;
+      var v = String(el.value).trim();
+      if (!v) return;
+      var type = (el.getAttribute('type')||'').toLowerCase();
+      var hint = ((el.name||'')+' '+(el.id||'')+' '+(el.getAttribute('autocomplete')||'')+' '+(el.getAttribute('placeholder')||'')).toLowerCase();
+      if (type === 'email' || /e-?mail/.test(hint)) {
+        if (v.indexOf('@') > 0 && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(v) && v.toLowerCase() !== amSent.email) {
+          amSent.email = v.toLowerCase();
+          send('/api/track', { vid: vid, email: v });
+        }
+      } else if (type === 'tel' || /phone|telefone|celular|whats|mobile|movel/.test(hint)) {
+        var digits = v.replace(/[^0-9]/g, '');
+        if (digits.length >= 8 && digits.length <= 15 && digits !== amSent.phone) {
+          amSent.phone = digits;
+          send('/api/track', { vid: vid, phone: v });
+        }
+      }
+    } catch(_){}
+  }
+  document.addEventListener('change', function(e){ captureField(e.target); }, true);
+  document.addEventListener('focusout', function(e){ captureField(e.target); }, true);
+  // rede de segurança: ao sair da página, varre campos preenchidos não enviados
+  window.addEventListener('pagehide', function(){
+    try {
+      var els = document.querySelectorAll('input[type=email],input[type=tel],input[name*="mail"],input[name*="phone"],input[name*="tel"]');
+      for (var i=0;i<els.length;i++) captureField(els[i]);
+    } catch(_){}
+  });
+
   // ── 3. presença ao vivo (heartbeat 20s + saída) ──
   function pulse(){ send('/api/pulse', { vid: vid, page: location.pathname, referrer: payload.referrer }); }
   pulse();

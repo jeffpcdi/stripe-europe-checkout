@@ -35,6 +35,7 @@ const DASHBOARD_HTML = require('./dashboard-view');
 const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
 const uaTools = require('./ua');
+const botFilter = require('./bot-filter');
 const TRACKER_JS = require('./tracker-view');
 
 // Lê um cookie do request (parse simples, sem dependência extra)
@@ -275,6 +276,7 @@ app.use(async (req, res, next) => {
           ttclid: q.ttclid || (leadVc && leadVc.ttclid) || null,
           ttp: (leadVc && leadVc.ttp) || null,
           email: (leadVc && leadVc.email) || undefined,
+          phone: (leadVc && leadVc.phone) || undefined,
           url: fullUrl(req)
         }, p).catch(() => {});
       }
@@ -314,13 +316,48 @@ const rlSweep = setInterval(() => {
 }, 120e3);
 if (rlSweep.unref) rlSweep.unref();
 
-app.get('/t.js', (_req, res) => {
+app.get('/t.js', (req, res) => {
   res.set({
     'Content-Type': 'application/javascript; charset=utf-8',
-    'Cache-Control': 'public, max-age=300',        // 5min: atualizações chegam rápido
+    'Cache-Control': 'no-store',   // sem cache: cada request tem o token único do visitante
     'Access-Control-Allow-Origin': '*'
   });
-  res.send(TRACKER_JS);
+  // Emite um challenge token personalizado por visitante e injeta o snippet
+  // de verificação no tracker — quando o browser executa e devolve o token
+  // ao /api/cloakcheck, confirma que há JS real rodando (não headless).
+  const vid = readCookie(req, 'v_id') || '';
+  const challengeToken = vid ? botFilter.issueChallengeToken(vid) : '';
+  const snippet = vid ? botFilter.challengeSnippet(vid, challengeToken) : '';
+  res.send(TRACKER_JS + (snippet ? '\n' + snippet : ''));
+});
+
+// Recebe a resposta do JS challenge enviada pelo snippet do /t.js.
+// Valida o token HMAC e persiste todos os sinais do browser (WebGL renderer,
+// timezone IANA, biometria comportamental, canvas hash, timing) no lead,
+// para que o judge() na próxima visita ao /go/:slug use os dados enriquecidos.
+app.post('/api/cloakcheck', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const b   = req.body || {};
+  const vid = typeof b.vid === 'string' ? b.vid.slice(0, 60) : '';
+  const tok = typeof b.tok === 'string' ? b.tok.slice(0, 80) : '';
+  if (!vid || !tok) return res.status(204).end();
+
+  const cv = botFilter.verifyChallengeToken(vid, tok);
+
+  // Persiste sinais do browser — mesmo em falha guarda o que veio
+  // (ex.: webgl SwiftShader com token expirado ainda é útil no /go/)
+  const patch = {
+    cloakChallenge:   cv.ok ? 'ok' : 'fail',
+    cloakChallengeAt: new Date().toISOString()
+  };
+  if (typeof b.webgl === 'string' && b.webgl) patch.cloakWebgl = b.webgl.slice(0, 80);
+  if (typeof b.tz    === 'string' && b.tz)    patch.cloakTz    = b.tz.slice(0, 60);
+  if (typeof b.fp    === 'string' && b.fp)    patch.cloakFp    = b.fp.slice(0, 24);
+  if (typeof b.dt    === 'number')             patch.cloakDt    = b.dt;
+  if (typeof b.beh   === 'number')             patch.cloakBeh   = b.beh;
+
+  try { stats.attachTracking(vid, patch); } catch (_) {}
+  res.status(204).end();
 });
 
 // Fallback SEM JavaScript: <noscript><img src="https://DOMINIO/px.gif"></noscript>
@@ -387,6 +424,18 @@ app.post('/api/track', async (req, res) => {
       return;
     }
 
+    // Advanced Matching do snippet: email/telefone digitados em formulários
+    // da página externa. Valida no servidor e amarra ao lead — email+phone
+    // são os sinais de identidade que mais sobem a saúde dos disparos.
+    if ((typeof b.email === 'string' && b.email) || (typeof b.phone === 'string' && b.phone)) {
+      const em = typeof b.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(b.email.trim())
+        ? b.email.trim().toLowerCase().slice(0, 320) : undefined;
+      const phDigits = typeof b.phone === 'string' ? b.phone.replace(/\D/g, '') : '';
+      const ph = phDigits.length >= 8 && phDigits.length <= 15 ? String(b.phone).trim().slice(0, 30) : undefined;
+      if (em || ph) { try { stats.attachTracking(vid, { email: em, phone: ph }); } catch (_) {} }
+      return;                                      // payload só de identidade: não conta page view
+    }
+
     const geo = geoFromReq(req);
     const dev = uaTools.parse(uaRaw);
     const utm = (b.utm && typeof b.utm === 'object') ? b.utm : {};
@@ -444,6 +493,7 @@ app.post('/api/track', async (req, res) => {
         ttclid: (typeof b.ttclid === 'string' && b.ttclid) || (lead && lead.ttclid) || null,
         ttp: (typeof b.ttp === 'string' && b.ttp) || (lead && lead.ttp) || null,
         email: (lead && lead.email) || undefined,
+        phone: (lead && lead.phone) || undefined,
         url: pageUrl
       }, landing || 'externa').catch(() => {});
     }
@@ -462,16 +512,93 @@ app.get('/go/:slug', async (req, res) => {
   }
   const q = req.query || {};
 
-  // Bots (preview do WhatsApp/Telegram, crawler do TikTok, monitoramento):
-  // redireciona SEM rastrear — não conta clique, não vira lead, não dispara CAPI.
   const uaRaw = String(req.headers['user-agent'] || '');
+
+  // ── Filtro multicamadas: bot / revisor de anúncio TikTok ──────────────
+  // Config vem da aba "Filtro de Bots" da dashboard (config.get().cloak).
+  // Primeiro: UAs de crawlers conhecidos — resposta imediata sem custo.
+  // Segundo: motor de score assíncrono (ASN + headers + JS challenge).
+  // Se urlWhitePage estiver configurada, revisores vão pra ela.
+  // Se não houver white page, revisores são redirecionados para a variante
+  // normal (comportamento anterior — não bloqueia o anúncio de ser aprovado).
+  const cloakCfg  = config.get().cloak || {};
+  const whitePage = link.urlWhitePage || null;
+
+  // Interruptor mestre desligado OU sem white page configurada → sem cloaking.
+  // (crawlers ainda não são rastreados, mas seguem para o destino normal)
+  const cloakOn = cloakCfg.enabled !== false && !!whitePage;
+
   if (uaTools.isBot(uaRaw)) {
-    const v0 = link.variantes[0];
-    return res.redirect(302, v0.url);
+    // Crawlers / preview de apps: vai para white page (se cloak on) ou variante 1
+    stats.logEvent('info', {
+      title: '[cloak] bot UA → ' + (cloakOn ? 'white' : 'offer'),
+      gateway: 'link:' + link.slug,
+      ref: String(uaRaw).slice(0, 80)
+    });
+    return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
   }
-  // Rajada do mesmo IP (spy tool/clique inflado): redireciona sem contar
+
+  // Rajada do mesmo IP (spy tool / clique inflado)
   if (rateLimited(clientIp(req), 'go', 20)) {
-    return res.redirect(302, link.variantes[0].url);
+    return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
+  }
+
+  // ── Gate geográfico (allowlist por país) — INSTANTÂNEO, sem DNS ────────
+  // País vem dos headers da edge (Vercel/Cloudflare), então essa checagem é
+  // ~0ms e roda ANTES do motor de score. Se o link tem allowlist e o visitante
+  // está fora dela, vai direto para a white page — sem custo de análise.
+  if (cloakOn && Array.isArray(link.paises) && link.paises.length) {
+    const cc = String(geoFromReq(req).country || '').toUpperCase();
+    if (!cc || link.paises.indexOf(cc) < 0) {
+      stats.logEvent('info', {
+        title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white',
+        gateway: 'link:' + link.slug,
+        ref: clientIp(req)
+      });
+      return res.redirect(302, whitePage);
+    }
+  }
+
+  // Motor de score só roda com cloaking ativo — economiza o DNS lookup de ASN
+  let judgment = { verdict: 'real', score: 0, signals: [] };
+  if (cloakOn) {
+    // Recupera sinais do browser já coletados pelo /api/cloakcheck (challenge JS).
+    // Esses sinais — WebGL renderer, timezone, biometria, timing — enriquecem
+    // o judge() e aumentam a precisão sem adicionar latência no /go/.
+    const filterVid = readCookie(req, 'v_id') || '';
+    const lead0     = (() => { try { return stats.getLead(filterVid) || {}; } catch (_) { return {}; } })();
+
+    // Reconstrói o token de challenge a partir do estado persistido do lead:
+    // 'ok' → reemite token válido (confirma ao judge que browser passou); 'fail' → string
+    // vazia (penaliza); null/undefined → primeiro acesso, sem token ainda.
+    const challengeToken = lead0.cloakChallenge === 'ok'
+      ? botFilter.issueChallengeToken(filterVid)
+      : (lead0.cloakChallenge === 'fail' ? '' : null);
+
+    // Monta o objeto challengeData com todos os sinais do browser persistidos
+    const challengeData = {
+      webgl: lead0.cloakWebgl || '',
+      tz:    lead0.cloakTz    || '',
+      fp:    lead0.cloakFp    || '',
+      dt:    typeof lead0.cloakDt  === 'number' ? lead0.cloakDt  : NaN,
+      beh:   typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
+    };
+
+    const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
+    judgment = await botFilter
+      .judge(filterReq, filterVid, challengeToken, challengeData, cloakCfg)
+      .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
+  }
+
+  // Loga o julgamento para análise na dashboard (aba Atividade)
+  if (judgment.verdict === 'bot') {
+    stats.logEvent('info', {
+      title: '[cloak] score=' + judgment.score + ' → white | ' + judgment.signals.slice(0, 4).join(', '),
+      gateway: 'link:' + link.slug,
+      ref: clientIp(req)
+    });
+    if (whitePage) return res.redirect(302, whitePage);
+    // sem white page configurada: deixa passar (não bloqueia aprovação do anúncio)
   }
 
   // Costura de identidade: se veio de página externa com snippet /t.js,
@@ -515,21 +642,33 @@ app.get('/go/:slug', async (req, res) => {
   // guarda o link/variante no lead — atribuição da conversão no webhook universal
   try { stats.attachTracking(visitorId, { linkSlug: link.slug, linkVariant: variant.id }); } catch (_) {}
 
-  // TikTok CAPI: InitiateCheckout server-side (checkout externo não tem pixel nosso)
+  // TikTok CAPI: InitiateCheckout server-side (checkout externo não tem pixel nosso).
+  // Este disparo acontece DEPOIS dos gates de bot/país, então só pessoas reais
+  // que seguem para a offer geram evento — o pixel fica sincronizado com o filtro.
   try {
     const lead = stats.getLead(visitorId) || {};
     const evId = 'InitiateCheckout.' + visitorId + '.' + hourKey();
     if (!(await seenPixelEvent(evId))) {
-      ttEvents.dispatchToAll('InitiateCheckout', {
+      const payload = {
         eventId: evId,
         leadId: visitorId,
         email: lead.email || undefined,
+        phone: lead.phone || undefined,
         ip: clientIp(req),
         userAgent: uaRaw.slice(0, 500),
         ttclid: q.ttclid || lead.ttclid || null,
         ttp: lead.ttp || null,
         url: fullUrl(req)
-      }, '/go/' + link.slug).catch(() => {});
+      };
+      // "Pixel do link vence": se o link tem um pixel escolhido e ele está
+      // ativo, dispara só nele; senão cai no comportamento por rota (todos os
+      // pixels que casam /go/<slug>).
+      const linkPixel = link.pixelSlug ? pixelStore.get(link.pixelSlug) : null;
+      if (linkPixel && linkPixel.active && linkPixel.pixelCode && linkPixel.events && linkPixel.events.InitiateCheckout !== false) {
+        ttEvents.sendToPixel(linkPixel, Object.assign({ event: 'InitiateCheckout' }, payload)).catch(() => {});
+      } else {
+        ttEvents.dispatchToAll('InitiateCheckout', payload, '/go/' + link.slug).catch(() => {});
+      }
     }
   } catch (_) { /* rastreamento nunca bloqueia o redirect */ }
 
@@ -545,7 +684,10 @@ app.get('/go/:slug', async (req, res) => {
   const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
   params.set('lead_id', visitorId);
   params.set('client_reference_id', visitorId);
-  const dest = variant.url + (variant.url.includes('?') ? '&' : '?') + params.toString();
+  // Filtro por dispositivo: celular/tablet vai para urlMobile (se definida),
+  // computador vai para a URL principal da variante
+  const baseUrl = (dev.device !== 'desktop' && variant.urlMobile) ? variant.urlMobile : variant.url;
+  const dest = baseUrl + (baseUrl.includes('?') ? '&' : '?') + params.toString();
   return res.redirect(302, dest);
 });
 
@@ -831,6 +973,120 @@ app.post('/api/links/validate-domain', dashboardAuth, async (req, res) => {
   res.json(result);
 });
 
+// ═══ Domínios personalizados — plugue qualquer domínio via DNS ════════
+// O usuário aponta um CNAME do domínio dele para este app; como todas as
+// rotas públicas (/go, /l, /t.js, /px.gif) são agnósticas de Host, o mesmo
+// servidor atende o domínio personalizado automaticamente. Aqui fica o
+// registro + verificação (DNS aponta pra cá? HTTPS chega neste app?).
+const dnsp = require('dns').promises;
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const APP_CHECK_ID = 'roi-nados-tracker';
+
+function normHost(input) {
+  const s = String(input || '').trim().toLowerCase();
+  if (!s) return null;
+  try {
+    const h = new URL(s.includes('://') ? s : 'https://' + s).hostname;
+    return DOMAIN_RE.test(h) ? h : null;
+  } catch (_) { return null; }
+}
+
+// Marcador público que prova que o tráfego do domínio chega NESTE app
+// (usado pela verificação; sem auth de propósito — não expõe nada).
+app.get('/__domain-check', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ app: APP_CHECK_ID, ok: true });
+});
+
+app.get('/api/domains', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    domains: config.get().customDomains || [],
+    // host principal do app — alvo do CNAME nas instruções de DNS
+    appHost: String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim()
+  });
+});
+
+app.post('/api/domains', dashboardAuth, (req, res) => {
+  const host = normHost((req.body || {}).host);
+  if (!host) return res.status(400).json({ error: 'domínio inválido (ex.: link.seudominio.com)' });
+  const cur = config.get().customDomains || [];
+  if (cur.some((d) => d.host === host)) return res.status(400).json({ error: 'domínio já cadastrado' });
+  if (cur.length >= 20) return res.status(400).json({ error: 'limite de 20 domínios' });
+  config.set({ customDomains: cur.concat([{ host, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() }]) });
+  stats.logEvent('info', { title: 'Domínio personalizado adicionado: ' + host });
+  res.json({ ok: true, host });
+});
+
+app.delete('/api/domains/:host', dashboardAuth, (req, res) => {
+  const host = normHost(req.params.host);
+  const cur = config.get().customDomains || [];
+  config.set({ customDomains: cur.filter((d) => d.host !== host) });
+  res.json({ ok: true });
+});
+
+// Verificação em 2 passos: (1) DNS do domínio aponta para este app
+// (CNAME → appHost ou A/AAAA com IPs iguais); (2) HTTPS no domínio
+// responde o marcador /__domain-check deste app (prova final).
+app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
+  const host = normHost((req.body || {}).host);
+  if (!host) return res.status(400).json({ error: 'domínio inválido' });
+  const appHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '');
+  const out = { host, appHost, dnsOk: false, dnsDetail: '', httpOk: false, httpDetail: '' };
+
+  // 1. DNS: CNAME direto ou IPs coincidentes
+  try {
+    const cnames = await dnsp.resolveCname(host).catch(() => []);
+    if (cnames.some((c) => c.toLowerCase().replace(/\.$/, '') === appHost.toLowerCase())) {
+      out.dnsOk = true;
+      out.dnsDetail = 'CNAME → ' + appHost;
+    } else {
+      const [hostIps, appIps] = await Promise.all([
+        dnsp.resolve4(host).catch(() => []),
+        dnsp.resolve4(appHost).catch(() => [])
+      ]);
+      if (hostIps.length && appIps.length && hostIps.some((ip) => appIps.includes(ip))) {
+        out.dnsOk = true;
+        out.dnsDetail = 'A → ' + hostIps.join(', ');
+      } else if (!hostIps.length && !cnames.length) {
+        out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
+      } else {
+        out.dnsDetail = 'DNS aponta para outro destino (' + (cnames[0] || hostIps.join(', ')) + ')';
+      }
+    }
+  } catch (e) { out.dnsDetail = 'erro na consulta DNS: ' + e.message; }
+
+  // 2. HTTPS: o marcador deste app responde no domínio?
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch('https://' + host + '/__domain-check', { redirect: 'manual', signal: ctrl.signal });
+    clearTimeout(t);
+    if (r.status === 200) {
+      const j = await r.json().catch(() => null);
+      if (j && j.app === APP_CHECK_ID) { out.httpOk = true; out.httpDetail = 'HTTPS ativo e servido por este app'; }
+      else out.httpDetail = 'HTTPS responde, mas é outro servidor — confira o DNS';
+    } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
+  } catch (_) {
+    out.httpDetail = out.dnsOk
+      ? 'HTTPS ainda não responde — o certificado SSL pode estar sendo emitido (adicione o domínio também no painel da hospedagem, ex.: Vercel → Domains)'
+      : 'sem resposta HTTPS';
+  }
+
+  // verificado = prova HTTPS (forte) ou DNS correto (SSL ainda propagando)
+  out.ok = out.httpOk || out.dnsOk;
+  if (out.ok) {
+    const now = new Date().toISOString();
+    const cur = config.get().customDomains || [];
+    const has = cur.some((d) => d.host === host);
+    const next = has
+      ? cur.map((d) => d.host === host ? Object.assign({}, d, { verificado: true, verificadoEm: now }) : d)
+      : cur.concat([{ host, verificado: true, verificadoEm: now, criadoEm: now }]);
+    config.set({ customDomains: next });
+  }
+  res.json(out);
+});
+
 // ═══ Pushcut — notificações configuráveis pela dashboard ═════════════
 app.get('/api/pushcut-config', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -862,6 +1118,109 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
   }
   config.set({ pushcut: pc });
   res.json({ ok: true });
+});
+
+// ── Filtro de Bots / Revisores TikTok (cloaking) ───────────────────────────
+app.get('/api/cloak-config', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const c = config.get().cloak || {};
+  res.json(Object.assign({}, botFilter.DEFAULT_CONFIG, c, {
+    sensitivityThresholds: botFilter.SENSITIVITY_THRESHOLDS
+  }));
+});
+
+app.post('/api/cloak-config', dashboardAuth, (req, res) => {
+  const b = req.body || {};
+  const cur = config.get().cloak || {};
+  const next = Object.assign({}, cur);
+  const boolKeys = ['enabled', 'blockDatacenter', 'blockHeadless', 'checkHeaders',
+    'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang'];
+  boolKeys.forEach((k) => { if (typeof b[k] === 'boolean') next[k] = b[k]; });
+  if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
+  if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
+  if (b.deadlineMs != null && !isNaN(Number(b.deadlineMs))) next.deadlineMs = Number(b.deadlineMs);
+  config.set({ cloak: next });
+  res.json({ ok: true, cloak: config.get().cloak });
+});
+
+// ── Regras de cloaking POR LINK (offer/white/países/pixel) ─────────────────
+// Lista os links com suas regras + os pixels disponíveis para o dropdown.
+app.get('/api/cloak/links', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const links = linkStore.list().map((l) => ({
+    slug: l.slug,
+    nome: l.nome,
+    dominio: l.dominio || null,
+    ativo: l.ativo !== false,
+    offerUrl: (l.variantes && l.variantes[0]) ? l.variantes[0].url : null,
+    offerCount: (l.variantes || []).length,
+    urlWhitePage: l.urlWhitePage || '',
+    paises: Array.isArray(l.paises) ? l.paises : [],
+    pixelSlug: l.pixelSlug || ''
+  }));
+  const pixels = pixelStore.list().map((p) => ({
+    slug: p.slug, name: p.name, active: p.active !== false, pixelCode: !!p.pixelCode
+  }));
+  res.json({ links, pixels });
+});
+
+// Atualiza white page, países liberados e pixel de um link. Opcional
+// syncPixel:true adiciona a rota /go/<slug> às rotas do pixel escolhido,
+// sincronizando o pixel com o domínio+slug deste link.
+app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
+  const b = req.body || {};
+  const link = linkStore.get(req.params.slug);
+  if (!link) return res.status(404).json({ error: 'Link não encontrado' });
+
+  const patch = { slug: link.slug };
+  if (typeof b.urlWhitePage === 'string') patch.urlWhitePage = b.urlWhitePage.trim();
+  if (Array.isArray(b.paises)) patch.paises = b.paises;
+  if (typeof b.pixelSlug === 'string') patch.pixelSlug = b.pixelSlug;
+
+  let saved;
+  try {
+    saved = await linkStore.save(Object.assign({}, link, patch));
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+
+  // Sincroniza o pixel escolhido com este link (adiciona /go/<slug> às rotas)
+  let pixelSynced = false;
+  if (b.syncPixel === true && saved.pixelSlug) {
+    const px = pixelStore.get(saved.pixelSlug);
+    if (px) {
+      const route = '/go/' + saved.slug;
+      const routes = Array.isArray(px.routes) ? px.routes.slice() : [];
+      // se já cobre tudo ('*') ou já tem a rota, não duplica
+      if (routes.indexOf('*') < 0 && routes.indexOf(route) < 0) {
+        routes.push(route);
+        try { await pixelStore.save({ slug: px.slug, routes }); pixelSynced = true; } catch (_) {}
+      } else { pixelSynced = true; }
+    }
+  }
+
+  res.json({
+    ok: true, pixelSynced,
+    link: {
+      slug: saved.slug, urlWhitePage: saved.urlWhitePage || '',
+      paises: saved.paises || [], pixelSlug: saved.pixelSlug || ''
+    }
+  });
+});
+
+// Testa o motor de julgamento com o request ATUAL do navegador do usuário —
+// mostra na dashboard como o próprio admin seria classificado (deve dar 'real').
+app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const cloakCfg = config.get().cloak || {};
+  const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
+  const j = await botFilter.judge(filterReq, 'admin-test', null, {}, cloakCfg)
+    .catch((e) => ({ verdict: 'erro', score: 0, signals: ['erro:' + e.message] }));
+  res.json({
+    verdict: j.verdict, score: j.score, threshold: j.threshold,
+    signals: j.signals, ip: clientIp(req),
+    ua: String(req.headers['user-agent'] || '').slice(0, 120)
+  });
 });
 
 app.post('/api/pushcut/test', dashboardAuth, async (req, res) => {
@@ -905,10 +1264,10 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
 // Refund/Dispute/Failed só alimentam a dashboard + Pushcut (sem CAPI).
 function mapConversionEvent(raw) {
   const s = String(raw || '').toLowerCase();
-  if (/refund|reembols|estorn/.test(s)) return 'Refund';
-  if (/chargeback|dispute|disputa/.test(s)) return 'Dispute';
-  if (/fail|refus|recus|declin|denied|negad/.test(s)) return 'Failed';
-  if (/paid|approved|aprovad|completed|complete|purchase|sale|compra|venda/.test(s)) return 'CompletePayment';
+  if (/refund|reembols|estorn|devolvid/.test(s)) return 'Refund';
+  if (/charged?_?back|dispute|disputa|protest|contesta/.test(s)) return 'Dispute';
+  if (/fail|refus|recus|declin|denied|negad|cancel|expirad|expired/.test(s)) return 'Failed';
+  if (/paid|approved|aprovad|completed|complete|purchase|sale|compra|venda|succeed|success/.test(s)) return 'CompletePayment';
   if (/payment_info|processing|processando|waiting_payment|pending|analys|analis/.test(s)) return 'AddPaymentInfo';
   if (/checkout|cart|carrinho|pix|billet|boleto|initiate|created|criad/.test(s)) return 'InitiateCheckout';
   return null;
@@ -952,15 +1311,30 @@ function notifyPushcut(event, n) {
   }).catch(() => {});
 }
 
-// Achata payloads aninhados: Kiwify manda {order:{…}}, Hotmart {data:{purchase:{…}}},
-// outros {payment:{…}} — mescla containers conhecidos no nível raiz (raiz vence).
+// Achata payloads aninhados: Kiwify manda {order:{…}, Customer:{…}, Commissions:{…}},
+// Hotmart {data:{purchase:{price:{…}}, buyer:{…}}}, outros {payment:{…}} — mescla
+// containers conhecidos no nível raiz (raiz vence). Case-insensitive: "Customer"
+// e "customer" são o mesmo container (Kiwify capitaliza os dela).
 function flattenGatewayPayload(b) {
   if (!b || typeof b !== 'object') return {};
-  const CONTAINERS = ['data', 'order', 'purchase', 'payment', 'transaction', 'sale', 'charge', 'customer', 'buyer', 'client'];
+  const CONTAINERS = ['data', 'order', 'purchase', 'payment', 'transaction', 'sale', 'charge',
+    'customer', 'buyer', 'client', 'commissions', 'product', 'subscription', 'price', 'offer'];
   let flat = {};
   const merge = (obj, depth) => {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj) || depth > 2) return;
-    CONTAINERS.forEach((k) => { if (obj[k] && typeof obj[k] === 'object') merge(obj[k], depth + 1); });
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj) || depth > 4) return;
+    Object.keys(obj).forEach((k) => {
+      const kl = String(k).toLowerCase();
+      if (CONTAINERS.indexOf(kl) !== -1 && obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k])) {
+        let child = obj[k];
+        // "name" dentro de product/offer é o NOME DO PRODUTO — renomeia para
+        // product_name para não sobrescrever o nome do comprador (buyer.name)
+        if ((kl === 'product' || kl === 'offer') && child.name != null && child.product_name == null) {
+          child = Object.assign({}, child, { product_name: child.name });
+          delete child.name;
+        }
+        merge(child, depth + 1);
+      }
+    });
     // nível mais raso vence: campos do topo sobrescrevem os aninhados
     flat = Object.assign({}, flat, obj);
   };
@@ -968,8 +1342,11 @@ function flattenGatewayPayload(b) {
   return flat;
 }
 
-// Valor monetário robusto: aceita número, "49.90", "49,90", "R$ 49,90", "1.234,56".
+// Valor monetário robusto: aceita número, "49.90", "49,90", "R$ 49,90", "1.234,56"
+// e objetos { value: 49.9 } (Hotmart manda price: { value, currency_value }).
 function parseAmount(v) {
+  if (v == null) return NaN;
+  if (typeof v === 'object' && !Array.isArray(v)) v = v.value != null ? v.value : v.amount;
   if (v == null) return NaN;
   if (typeof v === 'number') return v;
   let s = String(v).replace(/[^\d.,-]/g, '');
@@ -980,28 +1357,54 @@ function parseAmount(v) {
   return Number(s);
 }
 
+// Extrai o valor da venda em CENTAVOS testando aliases de todos os gateways.
+// Campos que já vêm em centavos (Kiwify: charge_amount, product_base_price)
+// têm prioridade e NÃO são multiplicados por 100.
+function pickAmountCents(b) {
+  const CENTS_FIELDS = ['amount_cents', 'value_cents', 'total_cents', 'price_cents', 'charge_amount', 'product_base_price'];
+  for (let i = 0; i < CENTS_FIELDS.length; i++) {
+    const n = parseAmount(b[CENTS_FIELDS[i]]);
+    if (Number.isFinite(n) && n >= 0 && n <= 100000000) return Math.round(n);
+  }
+  const UNIT_FIELDS = ['amount', 'value', 'total', 'price', 'total_price', 'total_value',
+    'amount_paid', 'paid_amount', 'sale_amount', 'purchase_amount', 'full_price'];
+  for (let j = 0; j < UNIT_FIELDS.length; j++) {
+    const n = parseAmount(b[UNIT_FIELDS[j]]);
+    if (Number.isFinite(n) && n >= 0 && n <= 1000000) return Math.round(n * 100);
+  }
+  return null;
+}
+
 // Normaliza QUALQUER payload de gateway para o formato interno.
 function normalizeConversion(body, query) {
   const b = flattenGatewayPayload(body);
-  const event = mapConversionEvent(b.event || b.type || b.status || b.order_status || (query && query.event));
+  // evento: Kiwify usa webhook_event_type + order_status, Hotmart usa event,
+  // PerfectPay usa sale_status_detail, outros usam type/status
+  const event = mapConversionEvent(
+    b.webhook_event_type || b.event || b.event_type || b.type || b.trigger ||
+    b.status || b.order_status || b.sale_status_detail || (query && query.event)
+  );
   if (!event) return { error: 'evento não reconhecido (use event/type/status: paid, checkout, processing…)' };
-  const orderId = b.order_id || b.transaction_id || b.orderId || b.id || b.ref || null;
-  if (!orderId) return { error: 'order_id obrigatório (aliases: transaction_id, id, ref)' };
-  // valor: obrigatório apenas na compra aprovada
-  const rawAmount = parseAmount(b.amount != null ? b.amount : (b.value != null ? b.value : (b.total != null ? b.total : b.price)));
-  const hasAmount = Number.isFinite(rawAmount) && rawAmount >= 0 && rawAmount <= 1000000;
-  if (event === 'CompletePayment' && !hasAmount) return { error: 'amount inválido (aliases: value, total, price; unidades 0–1M)' };
+  const orderId = b.order_id || b.transaction_id || b.orderId ||
+    str(b.transaction) || b.sale_id || b.purchase_id || b.order_ref || b.code || b.id || b.ref || null;
+  if (!orderId) return { error: 'order_id obrigatório (aliases: transaction_id, transaction, sale_id, id, ref)' };
+  // valor: obrigatório apenas na compra aprovada (aliases + campos em centavos)
+  const amountCents = pickAmountCents(b);
+  const hasAmount = amountCents != null;
+  if (event === 'CompletePayment' && !hasAmount) return { error: 'amount inválido (aliases: value, total, price, charge_amount…)' };
+  // moeda: Hotmart manda currency_value, outros currency/currency_code
+  const curRaw = String(b.currency || b.currency_value || b.currency_code || '');
   return {
     event,
     gateway: String((query && query.gateway) || b.gateway || b.platform || b.source || 'generic').toLowerCase().slice(0, 30),
     orderId: String(orderId).slice(0, 120),
-    amountCents: hasAmount ? Math.round(rawAmount * 100) : 0,
-    currency: /^[a-zA-Z]{3}$/.test(String(b.currency || '')) ? String(b.currency).toLowerCase() : 'eur',
-    leadId: str(b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id),
+    amountCents: hasAmount ? amountCents : 0,
+    currency: /^[a-zA-Z]{3}$/.test(curRaw) ? curRaw.toLowerCase() : 'eur',
+    leadId: str(b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id || b.s1 || b.sck || b.src),
     email: str(b.email || b.customer_email || b.buyer_email),
-    phone: str(b.phone || b.customer_phone || b.buyer_phone || b.phone_number || b.mobile),
+    phone: str(b.phone || b.customer_phone || b.buyer_phone || b.phone_number || b.mobile || b.checkout_phone),
     customer: str(b.customer || b.name || b.full_name || b.buyer_name || b.customer_name),
-    product: str(b.product || b.product_name || b.content_name),
+    product: str(b.product_name || b.content_name || b.product),
     registerSale: true
   };
 }
@@ -1144,7 +1547,19 @@ app.post('/api/conversion', (req, res) => {
     return res.status(401).json({ ok: false, error: 'segredo inválido' });
   }
   const n = normalizeConversion(req.body, req.query);
-  if (n.error) return res.status(400).json({ ok: false, error: n.error });
+  if (n.error) {
+    // registra a falha no log de conversões — sem isso o gateway recebe 400
+    // em silêncio e a dashboard parece "não puxar" os valores
+    rdb.pushConversionLog({
+      at: new Date().toISOString(),
+      gateway: String(req.query.gateway || 'desconhecido').toLowerCase().slice(0, 30),
+      event: 'formato inválido',
+      status: 'erro',
+      error: n.error,
+      keys: Object.keys(req.body || {}).slice(0, 20).join(',').slice(0, 300)
+    }).catch(() => {});
+    return res.status(400).json({ ok: false, error: n.error });
+  }
   // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
   res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
   processConversion(n).catch(() => {});
@@ -1261,6 +1676,10 @@ app.post('/api/px/event', (req, res) => {
     if (vId && (b.ttclid || b.ttp)) {
       try { stats.attachTracking(vId, { ttclid: b.ttclid || undefined, ttp: b.ttp || undefined }); } catch (_) {}
     }
+    // identidade já salva no lead (email/phone do Advanced Matching, ttclid/_ttp
+    // de visitas anteriores) — todo disparo sai com o sinal máximo disponível
+    let leadPx = null;
+    if (vId) { try { leadPx = stats.getLead(vId); } catch (_) {} }
     // dedup + disparo em PARALELO (antes era serial: 1 roundtrip Redis por evento)
     events.forEach((e) => {
       const name = String(e.n || '').slice(0, 40);
@@ -1272,10 +1691,12 @@ app.post('/api/px/event', (req, res) => {
         return ttEvents.dispatchToAll(name, {
           eventId: evId,
           leadId: vId || undefined,
+          email: (leadPx && leadPx.email) || undefined,
+          phone: (leadPx && leadPx.phone) || undefined,
           ip,
           userAgent: ua,
-          ttclid: b.ttclid ? String(b.ttclid).slice(0, 500) : undefined,
-          ttp: b.ttp ? String(b.ttp).slice(0, 500) : undefined,
+          ttclid: (b.ttclid ? String(b.ttclid).slice(0, 500) : undefined) || (leadPx && leadPx.ttclid) || undefined,
+          ttp: (b.ttp ? String(b.ttp).slice(0, 500) : undefined) || (leadPx && leadPx.ttp) || undefined,
           url: b.url ? String(b.url).slice(0, 500) : undefined
         }, route);
       }).catch(() => {});

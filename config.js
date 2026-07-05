@@ -23,8 +23,29 @@ function defaults() {
     },
     // Encurtador rastreável (/l/:slug): [{slug, nome, url, clicks, createdAt}]
     shortlinks: [],
+    // Domínios personalizados plugados via DNS (CNAME → app). Servem os links
+    // /go/, /l/ e o tracker /t.js no domínio do usuário para uso nos anúncios.
+    // [{host, verificado, verificadoEm, criadoEm}]
+    customDomains: [],
     // Anotações do gráfico de tendência: [{d:'YYYY-MM-DD', text}]
     notes: [],
+    // Filtro de revisores TikTok Ads (cloaking) — ajustável pela aba dedicada.
+    // enabled: interruptor mestre; threshold: score p/ bot; sensitivity: preset
+    // que sobrepõe o threshold; flags: liga/desliga cada camada de detecção.
+    cloak: {
+      enabled: true,
+      sensitivity: 'balanced',      // 'strict' | 'balanced' | 'loose'
+      threshold: 40,                // usado quando sensitivity = 'custom'
+      deadlineMs: 120,              // teto de latência do lookup de ASN (ms) no caminho quente
+      blockDatacenter: true,
+      blockHeadless: true,
+      checkHeaders: true,
+      requireJsChallenge: true,
+      checkWebgl: true,
+      checkTimezone: true,
+      checkBehavior: true,
+      blockZhLang: true
+    },
     // API pública read-only (/api/v1/summary?token=...) — token gerado sob demanda
     api: { token: '' },
     // Controle do relatório diário (último dia já reportado, 'YYYY-MM-DD')
@@ -36,10 +57,22 @@ function defaults() {
 // ── Cache em memória ───────────────────────────────────────────────────────
 let cfg = null;
 
+// Mescla o estado persistido sobre os defaults. Top-level é shallow, mas os
+// blocos aninhados (cloak, pushcut) recebem merge profundo para que configs
+// salvas antes de um campo novo existir (ex.: deadlineMs) herdem o default em
+// vez de ficarem com o campo undefined.
+function mergeDefaults(stored) {
+  const base = defaults();
+  const out = Object.assign({}, base, stored || {});
+  out.cloak = Object.assign({}, base.cloak, (stored && stored.cloak) || {});
+  out.pushcut = Object.assign({}, base.pushcut, (stored && stored.pushcut) || {});
+  return out;
+}
+
 function loadFromDisk() {
   try {
     if (fs.existsSync(FILE)) {
-      return Object.assign(defaults(), JSON.parse(fs.readFileSync(FILE, 'utf8')));
+      return mergeDefaults(JSON.parse(fs.readFileSync(FILE, 'utf8')));
     }
   } catch (err) {
     console.error('[config] Erro ao ler config do disco:', err.message);
@@ -68,7 +101,7 @@ async function hydrate() {
   try {
     const persisted = await db.loadConfig();
     if (persisted && typeof persisted === 'object') {
-      cfg = Object.assign(defaults(), persisted);
+      cfg = mergeDefaults(persisted);
       console.log('[config] Config hidratada do Neon.');
     } else {
       ensureLoaded();
@@ -117,6 +150,13 @@ function set(patch) {
     clicks: Math.max(0, parseInt(s.clicks, 10) || 0),
     createdAt: s.createdAt || new Date().toISOString()
   })).filter((s) => s.slug && /^https?:\/\//i.test(s.url));
+  if (!Array.isArray(next.customDomains)) next.customDomains = [];
+  next.customDomains = next.customDomains.slice(0, 20).map((d) => ({
+    host: String(d.host || '').toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 253),
+    verificado: d.verificado === true,
+    verificadoEm: d.verificadoEm || null,
+    criadoEm: d.criadoEm || new Date().toISOString()
+  })).filter((d) => d.host && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d.host));
   if (!Array.isArray(next.notes)) next.notes = [];
   next.notes = next.notes.slice(0, 200).map((n) => ({
     d: String(n.d || '').slice(0, 10),
@@ -124,6 +164,28 @@ function set(patch) {
   })).filter((n) => /^\d{4}-\d{2}-\d{2}$/.test(n.d) && n.text);
   next.api = { token: String((next.api || {}).token || '').slice(0, 64) };
   next.lastDailyReport = String(next.lastDailyReport || '').slice(0, 10);
+
+  // Sanitização do bloco Cloak (filtro de revisores TikTok)
+  {
+    const d = defaults().cloak;
+    const c = Object.assign({}, d, next.cloak || {});
+    const sens = ['strict', 'balanced', 'loose', 'custom'].includes(c.sensitivity) ? c.sensitivity : 'balanced';
+    const boolOr = (v, def) => (typeof v === 'boolean' ? v : def);
+    next.cloak = {
+      enabled:            boolOr(c.enabled, true),
+      sensitivity:        sens,
+      threshold:          Math.max(10, Math.min(90, Math.round(Number(c.threshold) || 40))),
+      deadlineMs:         Math.max(40, Math.min(500, Math.round(Number(c.deadlineMs) || 120))),
+      blockDatacenter:    boolOr(c.blockDatacenter, true),
+      blockHeadless:      boolOr(c.blockHeadless, true),
+      checkHeaders:       boolOr(c.checkHeaders, true),
+      requireJsChallenge: boolOr(c.requireJsChallenge, true),
+      checkWebgl:         boolOr(c.checkWebgl, true),
+      checkTimezone:      boolOr(c.checkTimezone, true),
+      checkBehavior:      boolOr(c.checkBehavior, true),
+      blockZhLang:        boolOr(c.blockZhLang, true)
+    };
+  }
 
   next.updatedAt = new Date().toISOString();
   cfg = next;

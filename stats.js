@@ -254,6 +254,10 @@ function attachTracking(id, patch) {
   if (patch.ttUrl) lead.ttUrl = String(patch.ttUrl).slice(0, 500);
   if (patch.ttclid && !lead.ttclid) lead.ttclid = patch.ttclid;
   if (patch.ttp) lead.ttp = patch.ttp;
+  // Advanced Matching: email/telefone capturados em formulários da página
+  // (snippet /t.js) — sobem o Event Match Quality de TODOS os disparos futuros
+  if (patch.email && !lead.email) lead.email = String(patch.email).slice(0, 320);
+  if (patch.phone && !lead.phone) lead.phone = String(patch.phone).slice(0, 30);
   // atribuição de link de checkout (/go/:slug) — usada no webhook universal
   if (patch.linkSlug) lead.linkSlug = String(patch.linkSlug).slice(0, 80);
   if (patch.linkVariant) lead.linkVariant = String(patch.linkVariant).slice(0, 80);
@@ -302,7 +306,7 @@ function findLeadByPhone(phone) {
   return null;
 }
 
-// ── Conversão de gateway externo (Kiwify, Hotmart, PerfectPay, …) ─────────
+// ── Convers��o de gateway externo (Kiwify, Hotmart, PerfectPay, …) ─────────
 // Chamada pelo webhook universal. Resolve o lead (leadId → e-mail → telefone
 // → órfão), marca como comprado e guarda o nome real do gateway no lead.
 function matchExternalConversion(data) {

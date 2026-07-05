@@ -587,6 +587,44 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .cfg-ico svg{width:16px;height:16px}
 .cfg-card:hover .cfg-ico{box-shadow:0 0 14px -4px var(--cc)}
 .cfg-note{margin:2px 0 0;font-size:11.5px;color:var(--muted2);line-height:1.5;padding:9px 12px;background:var(--card2);border-radius:9px;border-left:2px solid var(--pink)}
+/* segmented control (sensibilidade do filtro de bots) */
+.seg{display:flex;gap:6px;background:var(--card2);padding:5px;border-radius:11px;border:1px solid var(--border);margin-top:8px}
+.seg button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 6px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted2);font-size:12.5px;font-weight:600;cursor:pointer;transition:.18s}
+.seg button:hover{color:var(--text);background:var(--card)}
+.seg button.on{background:color-mix(in srgb,var(--cyan) 16%,transparent);color:var(--cyan);border-color:color-mix(in srgb,var(--cyan) 35%,transparent)}
+.seg-sub{font-size:10px;font-weight:500;opacity:.75}
+/* linha de camada de detecção */
+.ck-layer{display:flex;align-items:center;gap:11px;padding:13px 14px;background:var(--card);border:1px solid var(--border);border-radius:12px;transition:.2s}
+.ck-layer:hover{border-color:var(--border2)}
+.ck-layer.on{border-color:color-mix(in srgb,var(--cyan) 30%,transparent)}
+.ck-layer .ck-l-body{flex:1;min-width:0}
+.ck-layer .ck-l-body b{display:block;font-size:12.5px;color:var(--text)}
+.ck-layer .ck-l-body span{display:block;font-size:11px;color:var(--muted2);line-height:1.4;margin-top:2px}
+.ck-verdict{display:inline-flex;align-items:center;gap:7px;padding:10px 14px;border-radius:10px;font-weight:600;font-size:13px}
+.ck-verdict.real{background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 30%,transparent)}
+.ck-verdict.bot{background:color-mix(in srgb,var(--pink,#f31260) 14%,transparent);color:var(--pink,#f31260);border:1px solid color-mix(in srgb,var(--pink,#f31260) 30%,transparent)}
+/* Regras por link (cloak) */
+.ck-rule{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;animation:kpiIn .35s cubic-bezier(.2,.7,.3,1) backwards}
+.ck-rule .ck-field{display:flex;flex-direction:column;gap:7px}
+.ck-rule .ck-field.full{grid-column:1/-1}
+.ck-rule label{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.01em}
+.ck-rule label .hint{font-weight:500}
+.ck-offer{display:flex;align-items:center;gap:9px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--muted2);word-break:break-all}
+.ck-offer svg{width:15px;height:15px;flex-shrink:0;color:var(--green)}
+.pais-box{display:flex;flex-wrap:wrap;gap:7px;align-items:center;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:8px 9px;min-height:42px}
+.pais-chip{display:inline-flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--cyan) 14%,transparent);color:var(--cyan);border:1px solid color-mix(in srgb,var(--cyan) 32%,transparent);border-radius:7px;padding:4px 6px 4px 9px;font-size:12px;font-weight:700;letter-spacing:.03em}
+.pais-chip button{border:none;background:transparent;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0;opacity:.7}
+.pais-chip button:hover{opacity:1}
+.pais-box input{flex:1;min-width:70px;border:none;background:transparent;color:var(--text);font-size:12.5px;text-transform:uppercase;outline:none;padding:4px}
+.pais-box.all input{text-transform:none}
+.ck-sync{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted2);cursor:pointer;user-select:none}
+.ck-adv{margin-top:16px;border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden}
+.ck-adv>summary{list-style:none;cursor:pointer;padding:14px 16px;font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:9px}
+.ck-adv>summary::-webkit-details-marker{display:none}
+.ck-adv>summary .chev{margin-left:auto;transition:transform .2s;color:var(--muted2)}
+.ck-adv[open]>summary .chev{transform:rotate(180deg)}
+.ck-adv>summary:hover{background:var(--card2)}
+.ck-adv .ck-adv-body{padding:0 16px 16px}
 /* zona de risco compacta */
 .danger-card{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px;border-color:rgba(255,86,116,.22)!important;
   background:linear-gradient(90deg,rgba(255,86,116,.05),transparent 55%);animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) .3s backwards}
@@ -1020,6 +1058,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <button data-view="overview" class="active"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span><span class="d-lbl">Visão Geral</span></button>
       <button data-view="live"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg></span><span class="d-lbl">Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
       <button data-view="links"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span><span class="d-lbl">Links de Checkout</span></button>
+      <button data-view="cloak"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="d-lbl">Filtro de Bots</span></button>
       <button data-view="pixels"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span><span class="d-lbl">Pixel TikTok</span><span class="badge" id="nav-px-badge" style="display:none">0</span></button>
       <button data-view="config"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82V8a1.65 1.65 0 001.51-1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span><span class="d-lbl">Configurações</span></button>
     </nav>
@@ -1201,8 +1240,14 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <input class="inp" id="lk-name" placeholder="Oferta Espanha" style="width:100%">
             </div>
             <div class="form-row">
-              <label>Variantes <span class="hint">— nome | URL do checkout | peso %. Uma por linha; 2+ ativa o teste A/B</span></label>
-              <textarea class="inp" id="lk-variants" rows="4" placeholder="Checkout A | https://pay.gateway.com/oferta-a | 50&#10;Checkout B | https://pay.gateway.com/oferta-b | 50" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
+              <label>Variantes <span class="hint">— nome | URL computador | peso % | URL celular (opcional). Uma por linha; 2+ ativa o teste A/B</span></label>
+              <textarea class="inp" id="lk-variants" rows="4" placeholder="Checkout A | https://pay.gateway.com/oferta-a | 50&#10;Checkout B | https://pay.gateway.com/oferta-b | 50 | https://pay.gateway.com/oferta-b-mobile" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
+              <p class="hint" style="margin-top:6px">Com a URL celular preenchida, computador vai para a URL principal e celular/tablet vai para a alternativa.</p>
+            </div>
+            <div class="form-row">
+              <label>White Page <span class="hint">— p&aacute;gina enviada para revisores &amp; bots do TikTok Ads</span></label>
+              <input class="inp" id="lk-whitepage" placeholder="https://seudominio.com/pagina-neutra" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
+              <p class="hint" style="margin-top:6px;line-height:1.6">Visitantes identificados como revisores de an&uacute;ncio (score alto: datacenter, headless, sem JS, idioma inconsistente) s&atilde;o redirecionados aqui. Usu&aacute;rios reais v&atilde;o para a <b>Offer Page</b> acima. Deixe vazio para desativar o cloaking neste link.</p>
             </div>
             <div class="form-row">
               <label>Validar dom&iacute;nio <span class="hint">— DNS + resposta HTTP do checkout</span></label>
@@ -1222,6 +1267,32 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <input type="hidden" id="lk-slug" value="">
           </div>
         </div>
+        <div class="section-title"><span>Dom&iacute;nios personalizados</span><span class="line"></span><span class="muted" style="font-size:11.5px">use o SEU dom&iacute;nio nos an&uacute;ncios</span></div>
+        <div class="grid" style="grid-template-columns:1.2fr 1fr">
+          <div class="card">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+              <input class="inp" id="dm-host" placeholder="link.seudominio.com" style="flex:1;font-family:'Geist Mono',monospace">
+              <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
+            </div>
+            <div id="dm-list"></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:15px;margin-bottom:10px">Como plugar o dom&iacute;nio (DNS)</h3>
+            <ol class="hint" style="margin:0 0 12px 18px;line-height:1.8;font-size:12.5px">
+              <li>No painel DNS do seu dom&iacute;nio, crie um registro <b>CNAME</b>:<br><code>link.seudominio.com &#8594; <span class="dm-apphost">este-app</span></code></li>
+              <li>Se o app estiver na Vercel, adicione o dom&iacute;nio tamb&eacute;m em <b>Project &#8594; Domains</b> (emite o certificado SSL).</li>
+              <li>Aguarde propagar (minutos at&eacute; algumas horas) e clique em <b>Verificar</b>.</li>
+            </ol>
+            <p class="hint" style="font-size:12.5px;line-height:1.7">Depois de verificado, as URLs <code>/go/&lt;slug&gt;</code>, <code>/l/&lt;slug&gt;</code> e o <b>pixel de rastreamento</b> <code>/t.js</code> funcionam direto no seu dom&iacute;nio &mdash; o rastreamento come&ccedil;a nele, sem depender do dom&iacute;nio do app.</p>
+            <div class="form-row" style="margin-top:10px">
+              <label>Pixel no seu dom&iacute;nio <span class="hint">— cole no &lt;head&gt; das suas p&aacute;ginas</span></label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <select class="select" id="dm-snip-host" style="flex:1"></select>
+                <button class="btn btn-sm" id="dm-snip-copy">Copiar snippet</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
         <div id="lk-perf"></div>
         <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
@@ -1232,6 +1303,74 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <tbody id="pg-conv"></tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <!-- ── Filtro de Bots / Revisores TikTok (cloaking) ── -->
+      <section class="view" id="view-cloak">
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Roteia revisores do TikTok Ads para a white page &mdash; pessoas reais v&atilde;o para a offer</p></div></div>
+
+        <!-- Hero: interruptor mestre + sensibilidade -->
+        <div class="card cfg-card" style="--cc:var(--cyan);margin-bottom:16px">
+          <div class="cfg-head">
+            <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+            <div><h3>Prote&ccedil;&atilde;o de cloaking</h3><p id="ck-status-line">Bots e revisores v&atilde;o para a white page; pessoas reais seguem para a offer.</p></div>
+            <label class="switch" style="margin-left:auto"><input type="checkbox" id="ck-enabled"><span class="slider"></span></label>
+          </div>
+          <div class="seg" id="ck-sens" style="margin-top:4px">
+            <button data-s="strict" type="button">Agressivo<span class="seg-sub">pega mais bots</span></button>
+            <button data-s="balanced" type="button">Equilibrado<span class="seg-sub">recomendado</span></button>
+            <button data-s="loose" type="button">Conservador<span class="seg-sub">menos falso+</span></button>
+            <button data-s="custom" type="button">Manual<span class="seg-sub">ajuste fino</span></button>
+          </div>
+          <div id="ck-threshold-wrap" style="margin-top:14px;display:none">
+            <label class="hint">Threshold manual: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> &mdash; score &ge; este valor = bot</label>
+            <input type="range" id="ck-threshold" min="10" max="90" step="5" value="40" style="width:100%;accent-color:var(--cyan);margin-top:6px">
+          </div>
+        </div>
+
+        <!-- Regras por link: offer, white page, países e pixel -->
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:180px">
+              <h3 style="font-size:15px;margin:0">Regras por link</h3>
+              <p class="hint" style="margin:3px 0 0">Escolha para onde cada p&uacute;blico vai &mdash; por link de checkout.</p>
+            </div>
+            <select class="select" id="ck-link-select" style="min-width:220px"><option value="">Selecione um link...</option></select>
+          </div>
+          <div id="ck-link-rule"></div>
+        </div>
+
+        <!-- Testar (compacto) -->
+        <div class="card cfg-card" style="--cc:var(--green);margin-bottom:0">
+          <div class="cfg-head">
+            <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
+            <div><h3>Testar com meu navegador</h3><p>Veja como o SEU acesso seria classificado. Deve dar <b>real</b>.</p></div>
+            <button class="btn btn-sm" id="ck-test" style="margin-left:auto">Rodar teste</button>
+          </div>
+          <div id="ck-test-out" style="margin-top:4px"></div>
+        </div>
+
+        <!-- Avançado: latência + camadas de detecção -->
+        <details class="ck-adv">
+          <summary>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            Ajustes avan&ccedil;ados
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          <div class="ck-adv-body">
+            <div style="margin:6px 0 16px">
+              <label class="hint" style="font-weight:600;color:var(--muted)">Velocidade do redirect: <b id="ck-deadline-val" style="color:var(--cyan)">120</b> ms <span class="hint" style="font-weight:500">&mdash; teto de espera da an&aacute;lise de rede. Menor = redirect mais r&aacute;pido</span></label>
+              <input type="range" id="ck-deadline" min="40" max="500" step="20" value="120" style="width:100%;accent-color:var(--cyan);margin-top:8px">
+            </div>
+            <div class="section-title" style="margin-top:0"><span>Camadas de detec&ccedil;&atilde;o</span><span class="line"></span><span class="muted" style="font-size:11.5px">ligue/desligue cada sinal</span></div>
+            <div class="grid" id="ck-layers" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
+          </div>
+        </details>
+
+        <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
+          <button class="btn primary" id="ck-save">Salvar prote&ccedil;&atilde;o</button>
+          <p class="hint" id="ck-status" style="margin:0"></p>
         </div>
       </section>
 
@@ -1743,7 +1882,7 @@ function renderOverview(m){
     kpi(I.users,'tint-cyan','Novos leads','<span class="cyn" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
     kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'" id="ov-cu-conv">0%</span>','visita &#8594; compra', dc('overall')+funnelMini(m));
 
-  // ministats: aprovação verde quando saudável (ou sem tentativas), alertas âmbar/vermelho só quando existem
+  // ministats: aprovação verde quando saud��vel (ou sem tentativas), alertas âmbar/vermelho só quando existem
   var hasAttempts=(m.sales+m.failed)>0;
   var apColor=!hasAttempts||m.approval>=70?'#3ecf8e':m.approval>=40?'#f5b544':'#ff5674';
   var apBg=!hasAttempts||m.approval>=70?'rgba(62,207,142,.12)':m.approval>=40?'rgba(245,181,68,.12)':'rgba(255,86,116,.12)';
@@ -2622,9 +2761,9 @@ function renderLinks(){
       return '<div class="lrow" style="cursor:default">'+
         '<span class="ldot" style="background:'+(l.ativo?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
         '<div class="lmain">'+
-          '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span></b>'+
-          '<span>'+nv+' variante'+(nv!==1?'s':'')+(nv>1?' &middot; <span class="cyn">teste A/B ativo</span>':'')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
-          '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
+  '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span>'+(l.urlWhitePage?'&nbsp;<span class="tag" style="font-size:10px;background:rgba(0,200,255,.12);color:var(--cyn,#00c2ff);border:1px solid rgba(0,200,255,.25);padding:1px 6px;border-radius:4px;font-weight:600">CLOAK</span>':'')+'</b>'+
+  '<span>'+nv+' variante'+(nv!==1?'s':'')+(nv>1?' &middot; <span class="cyn">teste A/B ativo</span>':'')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
+  '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
           '<button class="btn-icon" onclick="copyLink(\\''+esc(l.slug)+'\\')">Copiar URL</button>'+
@@ -2714,7 +2853,8 @@ function showLinkForm(l){
   document.getElementById('lk-form-title').textContent=l?('Editar: '+l.nome):'Novo link';
   document.getElementById('lk-slug').value=l?l.slug:'';
   document.getElementById('lk-name').value=l?l.nome:'';
-  document.getElementById('lk-variants').value=l?(l.variantes||[]).map(function(v){return v.nome+' | '+v.url+' | '+(v.peso||0);}).join(String.fromCharCode(10)):'';
+  document.getElementById('lk-variants').value=l?(l.variantes||[]).map(function(v){return v.nome+' | '+v.url+' | '+(v.peso||0)+(v.urlMobile?' | '+v.urlMobile:'');}).join(String.fromCharCode(10)):'';
+  document.getElementById('lk-whitepage').value=l?(l.urlWhitePage||''):'';
   document.getElementById('lk-domain').value=l?(l.dominio||''):'';
   document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
   document.getElementById('lk-active').checked=l?!!l.ativo:true;
@@ -2731,9 +2871,14 @@ function delLink(slug){
     .then(function(d){ if(d.ok){ toast('Link removido'); loadLinks(); } else toast(d.error||'Erro',false); })
     .catch(function(){ toast('Erro ao remover',false); });
 }
+function linkOrigin(){
+  var sel=document.getElementById('dm-snip-host');
+  var v=sel&&sel.value?sel.value:'';
+  return v?('https://'+v):location.origin;
+}
 function copyLink(slug){
-  navigator.clipboard.writeText(location.origin+'/go/'+slug)
-    .then(function(){ toast('URL copiada'); })
+  navigator.clipboard.writeText(linkOrigin()+'/go/'+slug)
+    .then(function(){ toast('URL copiada ('+linkOrigin().replace('https://','')+')'); })
     .catch(function(){ toast('Erro ao copiar',false); });
 }
 function parseVariantLines(){
@@ -2743,17 +2888,98 @@ function parseVariantLines(){
     ln=ln.trim(); if(!ln) return;
     var parts=ln.split('|').map(function(p){return p.trim();});
     if(parts.length<2) return;
-    out.push({nome:parts[0],url:parts[1],peso:parts[2]!=null?+parts[2]:0});
+    out.push({nome:parts[0],url:parts[1],peso:parts[2]!=null?+parts[2]:0,urlMobile:parts[3]||undefined});
   });
   return out;
 }
+
+/* ── Domínios personalizados ─────────────────────────────────────────── */
+var DM_LIST=[],DM_APPHOST='';
+function loadDomains(){
+  fetch('/api/domains',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    DM_LIST=d.domains||[]; DM_APPHOST=d.appHost||location.host;
+    renderDomains();
+  }).catch(function(){});
+}
+function renderDomains(){
+  var el=document.getElementById('dm-list'); if(!el) return;
+  // alvo do CNAME nas instruções
+  Array.prototype.forEach.call(document.querySelectorAll('.dm-apphost'),function(n){ n.textContent=DM_APPHOST; });
+  if(!DM_LIST.length){
+    el.innerHTML='<div class="live-empty">Nenhum dom&iacute;nio ainda.<br>Adicione o seu (ex.: <code>link.seudominio.com</code>) e siga as instru&ccedil;&otilde;es de DNS ao lado.</div>';
+  } else {
+    el.innerHTML=DM_LIST.map(function(d){
+      return '<div class="lrow" style="cursor:default">'+
+        '<span class="ldot" style="background:'+(d.verificado?'var(--green)':'var(--amber,#e8a33d)')+';box-shadow:none"></span>'+
+        '<div class="lmain">'+
+          '<b style="font-family:\\'Geist Mono\\',monospace;font-size:13px">'+esc(d.host)+'</b>'+
+          '<span>'+(d.verificado
+            ?'<span class="pos">Verificado'+(d.verificadoEm?' &middot; '+new Date(d.verificadoEm).toLocaleDateString('pt-BR'):'')+'</span>'
+            :'<span class="amb">Aguardando DNS &mdash; aponte o CNAME e clique em Verificar</span>')+'</span>'+
+        '</div>'+
+        '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
+          '<button class="btn-icon" onclick="verifyCustomDomain(\\''+esc(d.host)+'\\',this)">Verificar</button>'+
+          '<button class="btn-icon" style="color:var(--red)" onclick="delDomain(\\''+esc(d.host)+'\\')">Remover</button>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  }
+  // seletor de domínio (snippet do pixel + cópia das URLs /go/)
+  var sel=document.getElementById('dm-snip-host');
+  if(sel){
+    var prev=sel.value;
+    var opts='<option value="">'+esc(location.host)+' (padr&atilde;o)</option>'+
+      DM_LIST.filter(function(d){return d.verificado;}).map(function(d){
+        return '<option value="'+esc(d.host)+'">'+esc(d.host)+'</option>';
+      }).join('');
+    sel.innerHTML=opts;
+    if(prev&&DM_LIST.some(function(d){return d.host===prev&&d.verificado;})) sel.value=prev;
+  }
+}
+function addDomain(){
+  var inp=document.getElementById('dm-host');
+  var host=(inp.value||'').trim();
+  if(!host){ toast('Informe o dom\u00ednio (ex.: link.seudominio.com)',false); return; }
+  fetch('/api/domains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ inp.value=''; toast('Dom\u00ednio adicionado \u2014 configure o DNS e clique em Verificar'); loadDomains(); }
+      else toast(d.error||'Erro',false);
+    }).catch(function(){ toast('Erro ao adicionar',false); });
+}
+function verifyCustomDomain(host,btn){
+  if(btn){ btn.textContent='Verificando...'; btn.disabled=true; }
+  fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok) toast('Dom\u00ednio verificado: '+host+(d.httpOk?'':' (DNS ok \u2014 aguardando SSL)'));
+      else toast('Falhou \u2014 DNS: '+(d.dnsDetail||'?')+' / HTTPS: '+(d.httpDetail||'?'),false);
+      loadDomains();
+    }).catch(function(){ toast('Erro na verifica\u00e7\u00e3o',false); })
+    .finally(function(){ if(btn){ btn.textContent='Verificar'; btn.disabled=false; } });
+}
+function delDomain(host){
+  if(!confirm('Remover o dom\u00ednio "'+host+'"? As URLs nele param de ser recomendadas (o DNS continua seu).')) return;
+  fetch('/api/domains/'+encodeURIComponent(host),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d.ok){ toast('Dom\u00ednio removido'); loadDomains(); } else toast(d.error||'Erro',false); })
+    .catch(function(){ toast('Erro ao remover',false); });
+}
+function copyDomainSnippet(){
+  var origin=linkOrigin();
+  var snip='<script src="'+origin+'/t.js" defer><\\/script><noscript><img src="'+origin+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>';
+  navigator.clipboard.writeText(snip)
+    .then(function(){ toast('Snippet copiado para '+origin.replace('https://','')); })
+    .catch(function(){ toast('Erro ao copiar',false); });
+}
 function saveLink(){
   var body={
-    slug:document.getElementById('lk-slug').value||undefined,
-    nome:document.getElementById('lk-name').value,
-    variantes:parseVariantLines(),
-    dominio:document.getElementById('lk-domain').value.trim(),
-    ativo:document.getElementById('lk-active').checked
+  slug:document.getElementById('lk-slug').value||undefined,
+  nome:document.getElementById('lk-name').value,
+  variantes:parseVariantLines(),
+  urlWhitePage:document.getElementById('lk-whitepage').value.trim()||undefined,
+  dominio:document.getElementById('lk-domain').value.trim(),
+  ativo:document.getElementById('lk-active').checked
   };
   if(!body.nome){ toast('D\u00ea um nome ao link',false); return; }
   if(!body.variantes.length){ toast('Adicione pelo menos 1 variante (nome | url | peso)',false); return; }
@@ -2877,6 +3103,209 @@ function testPushcut(){
     .then(function(r){return r.json();})
     .then(function(d){ toast(d.ok?'Push enviado — confira o celular':'Falhou — confira a URL do webhook',d.ok); })
     .catch(function(){ toast('Erro no teste',false); });
+}
+
+/* ── Filtro de Bots / Revisores TikTok (cloaking) ── */
+var CK_STATE={};
+var CK_LINKS=[];       // links com regras (offer/white/paises/pixel)
+var CK_PIXELS=[];      // pixels disponíveis para o dropdown
+var CK_CUR=null;       // slug do link selecionado
+var CK_LAYERS=[
+  ['blockDatacenter','Datacenter & ByteDance','Bloqueia IPs de datacenter e ASNs do TikTok/ByteDance'],
+  ['blockHeadless','Navegador headless','Detecta HeadlessChrome, automação e Client Hints falsos'],
+  ['checkHeaders','Headers HTTP','Exige cabeçalhos de navegador real (Accept, Sec-Fetch)'],
+  ['requireJsChallenge','Desafio JavaScript','Token HMAC que só um navegador real devolve'],
+  ['checkWebgl','WebGL & Canvas','Detecta renderizadores de software (SwiftShader) de sandbox'],
+  ['checkTimezone','Fuso vs. localização','Compara o fuso do navegador com o país do IP'],
+  ['checkBehavior','Comportamento','Mede interação real: mouse, scroll, toque e tempo'],
+  ['blockZhLang','Idioma chinês fora de rota','Sinaliza accept-language chinês fora do bloco CN']
+];
+function loadCloakConfig(){
+  fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    CK_STATE=d||{}; renderCloak();
+  }).catch(function(){});
+  fetch('/api/cloak/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    CK_LINKS=(d&&d.links)||[]; CK_PIXELS=(d&&d.pixels)||[]; renderCloakLinks();
+  }).catch(function(){});
+}
+function renderCloak(){
+  var c=CK_STATE;
+  var en=document.getElementById('ck-enabled'); if(en) en.checked=c.enabled!==false;
+  document.querySelectorAll('#ck-sens button').forEach(function(b){ b.classList.toggle('on',b.getAttribute('data-s')===(c.sensitivity||'balanced')); });
+  var wrap=document.getElementById('ck-threshold-wrap'); if(wrap) wrap.style.display=(c.sensitivity==='custom')?'block':'none';
+  var rng=document.getElementById('ck-threshold'); if(rng) rng.value=c.threshold||40;
+  var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=c.threshold||40;
+  var dl=document.getElementById('ck-deadline'); if(dl) dl.value=c.deadlineMs||120;
+  var dv=document.getElementById('ck-deadline-val'); if(dv) dv.textContent=c.deadlineMs||120;
+  // linha de status contextual no hero
+  var sl=document.getElementById('ck-status-line');
+  if(sl) sl.textContent=(c.enabled===false)
+    ? 'Desligado — todos os cliques vão direto para a offer, sem análise.'
+    : 'Bots e revisores vão para a white page; pessoas reais seguem para a offer.';
+  // camadas (dentro do avançado)
+  var host=document.getElementById('ck-layers'); if(!host) return;
+  host.innerHTML=CK_LAYERS.map(function(l){
+    var on=c[l[0]]!==false;
+    return '<div class="ck-layer'+(on?' on':'')+'" data-layer="'+l[0]+'">'+
+      '<div class="ck-l-body"><b>'+esc(l[1])+'</b><span>'+esc(l[2])+'</span></div>'+
+      '<label class="switch"><input type="checkbox" data-ck="'+l[0]+'"'+(on?' checked':'')+'><span class="slider"></span></label>'+
+    '</div>';
+  }).join('');
+  var dim=(c.enabled===false);
+  host.style.opacity=dim?'.45':'1'; host.style.pointerEvents=dim?'none':'auto';
+}
+function collectCloak(){
+  var sb=document.querySelector('#ck-sens button.on');
+  var body={
+    enabled:document.getElementById('ck-enabled').checked,
+    sensitivity:sb?sb.getAttribute('data-s'):'balanced',
+    threshold:+document.getElementById('ck-threshold').value||40,
+    deadlineMs:+document.getElementById('ck-deadline').value||120
+  };
+  document.querySelectorAll('#ck-layers input[data-ck]').forEach(function(i){ body[i.getAttribute('data-ck')]=i.checked; });
+  return body;
+}
+function saveCloakConfig(){
+  var st=document.getElementById('ck-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
+  fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectCloak())})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ CK_STATE=d.cloak; renderCloak(); toast('Proteção salva'); if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; } }
+      else { toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
+    }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
+}
+function testCloak(){
+  var out=document.getElementById('ck-test-out');
+  if(out) out.innerHTML='<p class="hint" style="margin:0">Analisando seu acesso atual...</p>';
+  fetch('/api/cloak/test',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!out) return;
+      var isBot=(d.verdict==='bot');
+      var sigs=(d.signals||[]).map(function(s){ return '<code style="font-size:10.5px;background:var(--card2);padding:2px 6px;border-radius:5px;color:var(--muted2)">'+esc(s)+'</code>'; }).join(' ');
+      out.innerHTML='<div class="ck-verdict '+(isBot?'bot':'real')+'">'+
+          (isBot?'✕ Classificado como BOT':'✓ Classificado como PESSOA REAL')+
+          ' &middot; score '+d.score+'/'+(d.threshold||40)+'</div>'+
+        '<p class="hint" style="margin:10px 0 6px">Sinais detectados:</p>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:5px">'+(sigs||'<span class="hint">nenhum</span>')+'</div>';
+    })
+    .catch(function(){ if(out) out.innerHTML='<p class="hint" style="margin:0;color:var(--pink,#f31260)">Erro ao rodar o teste</p>'; });
+}
+/* ── Regras por link ── */
+function renderCloakLinks(){
+  var sel=document.getElementById('ck-link-select'); if(!sel) return;
+  var prev=CK_CUR||sel.value;
+  sel.innerHTML='<option value="">Selecione um link...</option>'+CK_LINKS.map(function(l){
+    return '<option value="'+esc(l.slug)+'">'+esc(l.nome||l.slug)+' — /go/'+esc(l.slug)+'</option>';
+  }).join('');
+  if(prev && CK_LINKS.some(function(l){return l.slug===prev;})){ sel.value=prev; renderCloakRule(prev); }
+  else { CK_CUR=null; document.getElementById('ck-link-rule').innerHTML=CK_LINKS.length?'<p class="hint" style="margin:14px 0 0">Escolha um link acima para configurar offer, white page, países e pixel.</p>':'<p class="hint" style="margin:14px 0 0">Nenhum link de checkout ainda. Crie um na aba <b>Links de Checkout</b>.</p>'; }
+}
+function renderCloakRule(slug){
+  CK_CUR=slug;
+  var host=document.getElementById('ck-link-rule'); if(!host) return;
+  var l=CK_LINKS.filter(function(x){return x.slug===slug;})[0];
+  if(!l){ host.innerHTML=''; return; }
+  var pixOpts='<option value="">Automático (por rota /go/'+esc(l.slug)+')</option>'+CK_PIXELS.map(function(p){
+    return '<option value="'+esc(p.slug)+'"'+(l.pixelSlug===p.slug?' selected':'')+'>'+esc(p.name||p.slug)+(p.active?'':' (inativo)')+'</option>';
+  }).join('');
+  var offer=l.offerUrl?('<div class="ck-offer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg><span>'+esc(l.offerUrl)+(l.offerCount>1?(' &middot; +'+(l.offerCount-1)+' variante(s) A/B'):'')+'</span></div>')
+    :'<div class="ck-offer" style="color:var(--pink,#f31260)"><span>Sem offer definida — adicione uma variante na aba Links.</span></div>';
+  host.innerHTML=''+
+    '<div class="ck-rule">'+
+      '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+offer+'</div>'+
+      '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
+        '<input class="inp" id="ck-r-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.urlWhitePage||'')+'" style="width:100%"></div>'+
+      '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— vazio = todos. Fora da lista vai para a white page</span></label>'+
+        '<div class="pais-box'+((l.paises&&l.paises.length)?'':' all')+'" id="ck-r-paisbox">'+
+          (l.paises||[]).map(paisChip).join('')+
+          '<input id="ck-r-paisinput" maxlength="2" placeholder="'+((l.paises&&l.paises.length)?'+ código':'todos os países — digite BR, PT, US...')+'"></div></div>'+
+      '<div class="ck-field"><label>Pixel do TikTok <span class="hint">— dispara só p/ quem vai à offer</span></label>'+
+        '<select class="select" id="ck-r-pixel">'+pixOpts+'</select></div>'+
+      '<div class="ck-field"><label>Sincronização</label>'+
+        '<label class="ck-sync"><input type="checkbox" id="ck-r-sync"><span>Vincular a rota <code>/go/'+esc(l.slug)+'</code> ao pixel escolhido</span></label></div>'+
+    '</div>'+
+    '<div style="display:flex;gap:10px;margin-top:14px;align-items:center">'+
+      '<button class="btn primary" id="ck-r-save">Salvar regra do link</button>'+
+      '<p class="hint" id="ck-r-status" style="margin:0"></p></div>';
+  bindCloakRule();
+}
+function paisChip(cc){
+  return '<span class="pais-chip" data-cc="'+esc(cc)+'">'+esc(cc)+'<button type="button" data-rm="'+esc(cc)+'" aria-label="Remover '+esc(cc)+'">&times;</button></span>';
+}
+function currentPaises(){
+  return Array.prototype.map.call(document.querySelectorAll('#ck-r-paisbox .pais-chip'),function(c){return c.getAttribute('data-cc');});
+}
+function addPais(cc){
+  cc=String(cc||'').trim().toUpperCase();
+  if(!/^[A-Z]{2}$/.test(cc)) return;
+  if(currentPaises().indexOf(cc)>=0) return;
+  var box=document.getElementById('ck-r-paisbox'); var input=document.getElementById('ck-r-paisinput');
+  input.insertAdjacentHTML('beforebegin',paisChip(cc));
+  box.classList.remove('all'); input.placeholder='+ código';
+}
+function bindCloakRule(){
+  var input=document.getElementById('ck-r-paisinput');
+  if(input){
+    input.addEventListener('keydown',function(e){
+      if(e.key==='Enter'||e.key===','||e.key===' '){ e.preventDefault(); addPais(this.value); this.value=''; }
+      else if(e.key==='Backspace'&&!this.value){ var chips=document.querySelectorAll('#ck-r-paisbox .pais-chip'); if(chips.length) chips[chips.length-1].remove(); if(!document.querySelectorAll('#ck-r-paisbox .pais-chip').length){ document.getElementById('ck-r-paisbox').classList.add('all'); this.placeholder='todos os países — digite BR, PT, US...'; } }
+    });
+    input.addEventListener('blur',function(){ if(this.value){ addPais(this.value); this.value=''; } });
+  }
+  var box=document.getElementById('ck-r-paisbox');
+  if(box) box.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-rm]'); if(!b) return;
+    b.closest('.pais-chip').remove();
+    if(!document.querySelectorAll('#ck-r-paisbox .pais-chip').length){ box.classList.add('all'); var i=document.getElementById('ck-r-paisinput'); if(i) i.placeholder='todos os países — digite BR, PT, US...'; }
+  });
+  var save=document.getElementById('ck-r-save'); if(save) save.addEventListener('click',saveCloakRule);
+}
+function saveCloakRule(){
+  if(!CK_CUR) return;
+  var st=document.getElementById('ck-r-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
+  var body={
+    urlWhitePage:document.getElementById('ck-r-white').value.trim(),
+    paises:currentPaises(),
+    pixelSlug:document.getElementById('ck-r-pixel').value,
+    syncPixel:document.getElementById('ck-r-sync').checked
+  };
+  fetch('/api/cloak/link/'+encodeURIComponent(CK_CUR),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){
+        // atualiza cache local
+        var l=CK_LINKS.filter(function(x){return x.slug===CK_CUR;})[0];
+        if(l){ l.urlWhitePage=d.link.urlWhitePage; l.paises=d.link.paises; l.pixelSlug=d.link.pixelSlug; }
+        toast(d.pixelSynced?'Regra salva e pixel sincronizado':'Regra do link salva');
+        if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; }
+      } else { toast(d.error||'Erro ao salvar',false); if(st){ st.textContent=d.error||'Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
+    }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
+}
+function bindCloak(){
+  var sens=document.getElementById('ck-sens');
+  if(sens) sens.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-s]'); if(!b) return;
+    document.querySelectorAll('#ck-sens button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    var wrap=document.getElementById('ck-threshold-wrap');
+    if(wrap) wrap.style.display=(b.getAttribute('data-s')==='custom')?'block':'none';
+  });
+  var rng=document.getElementById('ck-threshold');
+  if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=this.value; });
+  var dl=document.getElementById('ck-deadline');
+  if(dl) dl.addEventListener('input',function(){ var dv=document.getElementById('ck-deadline-val'); if(dv) dv.textContent=this.value; });
+  var en=document.getElementById('ck-enabled');
+  if(en) en.addEventListener('change',function(){
+    var host=document.getElementById('ck-layers');
+    if(host){ host.style.opacity=this.checked?'1':'.45'; host.style.pointerEvents=this.checked?'auto':'none'; }
+    var sl=document.getElementById('ck-status-line');
+    if(sl) sl.textContent=this.checked?'Bots e revisores vão para a white page; pessoas reais seguem para a offer.':'Desligado — todos os cliques vão direto para a offer, sem análise.';
+  });
+  var lsel=document.getElementById('ck-link-select');
+  if(lsel) lsel.addEventListener('change',function(){ if(this.value) renderCloakRule(this.value); else { CK_CUR=null; document.getElementById('ck-link-rule').innerHTML='<p class="hint" style="margin:14px 0 0">Escolha um link acima para configurar offer, white page, países e pixel.</p>'; } });
+  var save=document.getElementById('ck-save'); if(save) save.addEventListener('click',saveCloakConfig);
+  var test=document.getElementById('ck-test'); if(test) test.addEventListener('click',testCloak);
 }
 
 /* ── Links curtos rastreáveis (/l/:slug) ── */
@@ -3413,16 +3842,18 @@ var VIEW_GROUPS={
   overview:['overview'],
   live:['live','funnel','geo','activity'],
   links:['links'],
+  cloak:['cloak'],
   pixels:['pixels'],
   config:['config']
-};
-var titles={
+  };
+  var titles={
   overview:['Visão Geral','Resumo dos números que mais importam'],
   live:['Ao Vivo','Presença, funil, países e atividade — tudo em tempo real'],
   links:['Links de Checkout','Domínios validados, redirect rastreado e teste A/B'],
+  cloak:['Filtro de Bots','Roteia revisores do TikTok Ads para a white page'],
   pixels:['Pixel TikTok','Rastreamento server-side por lead — um pixel por arquivo'],
   config:['Configurações','Notificações, chaves e saúde do sistema']
-};
+  };
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
 // (ex.: setView('funnel') abre o grupo Ao Vivo e rola até o funil).
 function groupOf(v){
@@ -3455,7 +3886,8 @@ function setView(v){
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
   if(g==='config'){ loadHealth().then(renderHealth); loadPushcutConfig(); loadShortlinks(); }
   if(g==='pixels') loadPixels();
-  if(g==='links') loadLinks();
+  if(g==='cloak') loadCloakConfig();
+  if(g==='links'){ loadLinks(); loadDomains(); }
   // veio de uma sub-view (paleta de comandos)? rola até a section correspondente
   if(sub){ setTimeout(function(){ var t=document.getElementById('view-'+sub); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },120); }
   else { document.querySelector('.main').scrollTop=0; window.scrollTo(0,0); }
@@ -3568,12 +4000,16 @@ document.addEventListener('keydown',function(e){
 
 document.getElementById('lk-new').addEventListener('click',function(){ showLinkForm(null); });
 document.getElementById('lk-save').addEventListener('click',saveLink);
+document.getElementById('dm-add').addEventListener('click',addDomain);
+document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
+document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnippet);
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; });
 document.getElementById('lk-validate').addEventListener('click',validateDomain);
 document.getElementById('pc-save').addEventListener('click',savePushcutConfig);
-bindShortlinks();
-bindPublicApi();
-document.getElementById('pc-test').addEventListener('click',testPushcut);
+  bindShortlinks();
+  bindPublicApi();
+  bindCloak();
+  document.getElementById('pc-test').addEventListener('click',testPushcut);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });
 document.getElementById('px-save').addEventListener('click',savePixel);
 document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; });
