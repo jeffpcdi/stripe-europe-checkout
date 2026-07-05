@@ -15,11 +15,21 @@ module.exports = `<!DOCTYPE html>
 <script src="https://unpkg.com/globe.gl"></script>
 <style>
 :root{
-  --bg:#0a0a0b; --panel:#0e0e10; --card:#101013; --card2:#161619; --hover:#1b1b1f;
-  --border:rgba(255,255,255,.07); --border2:rgba(255,255,255,.13);
-  --text:#ededf0; --muted:#9d9da8; --muted2:#68686f;
-  --cyan:#52a8ff; --pink:#ff5674; --green:#3ecf8e; --amber:#f5b544; --red:#ff5674;
+  /* superfícies em 3 camadas: diferenciar por luminosidade, não por sombra colorida */
+  --bg:#0b0c10; --panel:#0e1015; --card:#12141a; --card2:#181b22; --hover:#1d2129;
+  --surface-1:var(--card); --surface-2:var(--card2);
+  --border:rgba(255,255,255,.08); --border2:rgba(255,255,255,.13);
+  --text:#e9eaef; --muted:#9ca1ad; --muted2:#6b7078;
+  /* 1 acento primário (ação/destaque); demais são SEMÂNTICAS: erro, alerta, sucesso */
+  --cyan:#52a8ff; --accent:var(--cyan);
+  --green:#3ecf8e; --amber:#f5b544; --red:#ff5674; --pink:#ff5674;
+  --ring:var(--cyan);
   --radius:10px; --radius-sm:8px;
+  /* motion tokens */
+  --dur-fast:120ms; --dur:200ms; --dur-slow:360ms;
+  --ease:cubic-bezier(.2,.7,.3,1); --ease-spring:cubic-bezier(.34,1.56,.64,1);
+  /* sombra neutra padrão (substitui box-shadows coloridos) */
+  --shadow:0 8px 24px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -37,12 +47,7 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 /* ── Header hero: marca ROI-NADOS + dock ── */
 .hero-head{position:relative;background:linear-gradient(180deg,#101014 0%,var(--bg) 100%);border-bottom:1px solid var(--border);overflow:hidden}
 .hh-glow{position:absolute;inset:-40% -10% auto;height:180%;pointer-events:none;
-  background:
-    radial-gradient(420px 200px at 12% 30%, rgba(255,86,116,.14), transparent 65%),
-    radial-gradient(460px 220px at 40% 10%, rgba(82,168,255,.12), transparent 65%),
-    radial-gradient(300px 160px at 78% 40%, rgba(62,207,142,.06), transparent 70%);
-  animation:hhFloat 12s ease-in-out infinite alternate}
-@keyframes hhFloat{0%{transform:translateX(-2%) translateY(0)}100%{transform:translateX(2%) translateY(4%)}}
+  background:radial-gradient(520px 220px at 50% 0%, rgba(82,168,255,.07), transparent 65%)}
 .hh-inner{position:relative;display:flex;align-items:center;gap:20px;padding:18px 26px 10px;flex-wrap:wrap}
 /* marca centralizada: status ancorado à direita, marca no centro real do header */
 .brand-xl{display:flex;align-items:center;justify-content:center;gap:16px;flex:1;min-width:0}
@@ -57,18 +62,17 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
   background:conic-gradient(from var(--ra,0deg),#ff2d6f,#52a8ff,#25f4ee,#ff2d6f);
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask-composite:exclude;
-  animation:ringSpin 5s linear infinite;
-  filter:drop-shadow(0 0 10px rgba(255,45,111,.65)) drop-shadow(0 0 18px rgba(37,244,238,.4))}
+  transition:filter var(--dur-slow) var(--ease)}
 @property --ra{syntax:'<angle>';initial-value:0deg;inherits:false}
 @keyframes ringSpin{to{--ra:360deg}}
+/* marca estática — o brilho/giro só acontece no hover (momento premium pontual) */
+.brand-xl:hover .logo-ring{animation:ringSpin 4s linear infinite;filter:drop-shadow(0 0 10px rgba(255,45,111,.5))}
 .brand-txt{display:flex;flex-direction:column;gap:2px}
 .bt-name{font-weight:800;font-size:28px;line-height:1;letter-spacing:.04em;
   background:linear-gradient(92deg,#ff3d7a 0%,#ff6b8a 28%,#6cb4ff 62%,#3ffcf6 100%);
   background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
-  animation:brandShift 6s ease-in-out infinite alternate;
-  filter:drop-shadow(0 1px 0 rgba(0,0,0,.55)) drop-shadow(0 0 18px rgba(255,45,111,.5)) drop-shadow(0 0 26px rgba(37,244,238,.25))}
+  filter:drop-shadow(0 1px 0 rgba(0,0,0,.55))}
 .bt-dash{-webkit-text-fill-color:transparent}
-@keyframes brandShift{0%{background-position:0% 0}100%{background-position:100% 0}}
 .hh-status{margin-left:auto;display:flex;align-items:center;gap:14px;position:absolute;right:26px;top:50%;transform:translateY(-50%)}
 .hh-live{font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:20px}
 
@@ -81,9 +85,9 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 .nav.dock button:hover{color:var(--text);background:var(--hover);transform:translateY(-2px)}
 .nav.dock button:hover .d-ico{box-shadow:inset 0 0 0 1px var(--border2),0 4px 14px rgba(0,0,0,.4)}
 .nav.dock button.active{color:var(--text);background:var(--card);border-color:var(--border2);box-shadow:0 6px 22px rgba(0,0,0,.45)}
-.nav.dock button.active .d-ico{background:linear-gradient(135deg,rgba(255,45,111,.22),rgba(82,168,255,.22));box-shadow:inset 0 0 0 1px rgba(255,86,116,.4)}
-.nav.dock button.active svg{color:#ff5674}
-.nav.dock button.active::after{content:'';position:absolute;left:16px;right:16px;bottom:-14px;height:2px;border-radius:2px;background:linear-gradient(90deg,#ff2d6f,#52a8ff);box-shadow:0 0 10px rgba(255,45,111,.7)}
+.nav.dock button.active .d-ico{background:color-mix(in srgb,var(--accent) 15%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 35%,transparent)}
+.nav.dock button.active svg{color:var(--accent)}
+.nav.dock button.active::after{content:'';position:absolute;left:16px;right:16px;bottom:-14px;height:2px;border-radius:2px;background:var(--accent);opacity:.9}
 .nav .badge{margin-left:2px;background:var(--pink);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 8px var(--green)}
 .dot.off{background:var(--red);box-shadow:0 0 8px var(--red)}
@@ -149,7 +153,7 @@ input:checked+.slider:before{transform:translateX(16px)}
 .btn-icon{background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 8px;cursor:pointer;font-size:11px;font-family:inherit;font-weight:600;transition:.15s;white-space:nowrap}
 .btn-icon:hover{background:var(--hover);color:var(--text)}
 
-.content{padding:24px 26px 90px}
+.content{padding:28px 30px 90px;max-width:1440px;margin:0 auto;width:100%}
 /* Uma seção por vez: só a aba ativa fica visível */
 section.view{display:none}
 section.view.active{display:block;animation:fade .3s ease}
@@ -185,7 +189,7 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 /* ── Cards & KPIs ── */
 .grid{display:grid;gap:16px}
 .kpis{grid-template-columns:repeat(auto-fit,minmax(186px,1fr))}
-.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
 .card.tint-cyan,.card.tint-pink,.card.tint-green,.card.tint-amber{background:var(--card)}
 .kpi .k-top{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12.5px;font-weight:500}
 .kpi .k-ico{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;background:var(--card2);flex-shrink:0;box-shadow:inset 0 0 0 1px var(--border)}
@@ -212,8 +216,6 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .globe-badge b{font-family:'Geist Mono';color:var(--green);text-shadow:0 0 10px rgba(62,207,142,.5)}
 /* card do globo: controles flutuantes + fullscreen */
 .globe-card{position:relative;overflow:hidden}
-.globe-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;pointer-events:none;
-  background:linear-gradient(90deg,#25f4ee,#52a8ff 45%,#ff2d6f);opacity:.5;box-shadow:0 0 10px -2px #52a8ff}
 .globe-tools{position:absolute;top:14px;right:14px;z-index:5;display:flex;flex-direction:column;gap:6px;
   background:rgba(13,13,18,.72);border:1px solid var(--border2);border-radius:12px;padding:6px;backdrop-filter:blur(10px);
   box-shadow:0 8px 24px rgba(0,0,0,.5)}
@@ -232,8 +234,8 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .gs-stat{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card);border:1px solid var(--border);border-radius:12px;transition:.2s}
 
 .gs-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.gs-dot.grn-d{background:var(--green);box-shadow:0 0 9px rgba(62,207,142,.6);animation:hDot 2.4s ease-in-out infinite}
-.gs-dot.pnk-d{background:var(--pink);box-shadow:0 0 9px rgba(255,86,116,.6)}
+.gs-dot.grn-d{background:var(--green)}
+.gs-dot.pnk-d{background:var(--pink)}
 .gs-txt{display:flex;flex-direction:column;line-height:1.2}
 .gs-txt b{font-family:'Geist Mono';font-size:19px}
 .gs-txt span{font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
@@ -284,8 +286,7 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
     radial-gradient(1px 1px at 52% 85%,rgba(255,255,255,.35),transparent),
     radial-gradient(1px 1px at 95% 78%,rgba(255,255,255,.3),transparent),
     radial-gradient(1px 1px at 45% 95%,rgba(255,255,255,.3),transparent);
-  animation:starTwinkle 5s ease-in-out infinite alternate}
-@keyframes starTwinkle{0%{opacity:.5}50%{opacity:.9}100%{opacity:.6}}
+  opacity:.65}
 .live-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}
 .live-grid>.card{min-width:0}
 #live-globe canvas{max-width:100%}
@@ -314,10 +315,8 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 @keyframes hotDot{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.45);opacity:.75}}
 .lrow.hot .lmain b{color:var(--pink)}
 .lck{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-  padding:3px 9px;border-radius:20px;background:rgba(255,45,111,.16);color:var(--pink);border:1px solid rgba(255,45,111,.35);
-  box-shadow:0 0 10px -4px var(--pink);animation:lckGlow 1.8s ease-in-out infinite}
+  padding:3px 9px;border-radius:20px;background:rgba(255,45,111,.16);color:var(--pink);border:1px solid rgba(255,45,111,.35)}
 .lck svg{width:11px;height:11px}
-@keyframes lckGlow{0%,100%{box-shadow:0 0 6px -4px var(--pink)}50%{box-shadow:0 0 14px -3px var(--pink)}}
 .lfun{font-size:10px;color:var(--muted);background:var(--card2);border:1px solid var(--border);padding:2px 7px;border-radius:12px;font-family:'Geist Mono'}
 .lhot-head{display:flex;align-items:center;gap:9px;font-size:11.5px;font-weight:700;color:var(--pink);text-transform:uppercase;letter-spacing:.09em;
   padding:10px 14px;border-bottom:1px solid rgba(255,45,111,.25);background:rgba(255,45,111,.06);position:sticky;top:0;z-index:2;backdrop-filter:blur(6px)}
@@ -329,12 +328,10 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .lrow.fresh{background:linear-gradient(90deg,rgba(62,207,142,.12),transparent 60%)}
 .lrow .lnew{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#04140d;background:var(--green);padding:2px 6px;border-radius:20px;margin-right:2px}
 /* ── Pulso de tráfego ── */
-.traffic-card{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;position:relative;overflow:hidden;border-radius:14px}
-.traffic-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;pointer-events:none;
-  background:linear-gradient(90deg,#25f4ee,#52a8ff 55%,#ff2d6f);opacity:.5;box-shadow:0 0 10px -2px #25f4ee}
+.traffic-card{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;position:relative;overflow:hidden;border-radius:14px;margin-top:16px}
 @media(max-width:760px){.traffic-card{grid-template-columns:1fr;gap:14px}}
 .tf-now{display:flex;flex-direction:column;gap:3px}
-.tf-now .tf-big{font-family:'Geist Mono';font-size:34px;line-height:1;font-weight:700;text-shadow:0 0 18px rgba(37,244,238,.3)}
+.tf-now .tf-big{font-family:'Geist Mono';font-size:34px;line-height:1;font-weight:700}
 .tf-now .tf-lbl{font-size:11.5px;color:var(--muted2)}
 .tf-now .tf-avg{font-size:11px;color:var(--muted2);margin-top:4px;background:var(--card2);border:1px solid var(--border);padding:3px 9px;border-radius:12px;width:max-content}
 .tf-now .tf-avg b{color:var(--cyan);font-family:'Geist Mono'}
@@ -343,8 +340,7 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .tf-bars .tb{flex:1;min-width:2px;border-radius:3px 3px 0 0;background:linear-gradient(180deg,var(--cyan),rgba(82,168,255,.5));opacity:.55;transition:height .5s cubic-bezier(.2,.8,.2,1),opacity .3s;transform-origin:bottom;cursor:default}
 .tf-bars .tb:hover{opacity:1;box-shadow:0 0 8px rgba(37,244,238,.5)}
 .tf-bars .tb.hot{background:linear-gradient(180deg,var(--amber),rgba(245,181,68,.55));opacity:1;box-shadow:0 0 8px rgba(245,181,68,.4)}
-.tf-bars .tb.cur{opacity:1;background:linear-gradient(180deg,#ff2d6f,rgba(255,86,116,.55));box-shadow:0 0 10px rgba(255,45,111,.55);animation:curBar 1.6s ease-in-out infinite}
-@keyframes curBar{0%,100%{filter:brightness(1)}50%{filter:brightness(1.35)}}
+.tf-bars .tb.cur{opacity:1;background:var(--accent)}
 .tf-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted2);font-family:'Geist Mono';letter-spacing:.03em;padding:0 1px}
 .tf-axis .ax-now{color:var(--pink);font-weight:600}
 .tf-trend{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;padding:8px 14px;border-radius:12px;white-space:nowrap}
@@ -352,8 +348,7 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .tf-trend.up{color:var(--green);background:rgba(62,207,142,.13)}
 .tf-trend.down{color:var(--red);background:rgba(255,86,116,.13)}
 .tf-trend.flat{color:var(--muted2);background:var(--card2)}
-.tf-trend.hot{color:var(--amber);background:rgba(245,181,68,.14);animation:hotGlow 1.4s infinite}
-@keyframes hotGlow{0%,100%{box-shadow:0 0 0 0 rgba(245,181,68,.4)}50%{box-shadow:0 0 0 6px rgba(245,181,68,0)}}
+.tf-trend.hot{color:var(--amber);background:rgba(245,181,68,.14)}
 .tf-sub{grid-column:1/-1;font-size:12px;color:var(--muted2);border-top:1px solid var(--border);padding-top:12px;margin-top:2px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
 .tf-sub b{color:var(--text);font-family:'Geist Mono'}
 .tf-sub .tfs{display:inline-flex;align-items:center;gap:7px}
@@ -384,14 +379,13 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .notif-empty{padding:34px 18px;text-align:center;color:var(--muted2);font-size:12.5px}
 .live-right{display:flex;flex-direction:column;gap:16px;min-width:0}
 .pos{color:var(--green)} .neg{color:var(--red)} .cyn{color:var(--cyan)} .pnk{color:var(--pink)} .amb{color:var(--amber)} .grn{color:var(--green)}
-/* Valores de KPI com cor semântica sutil + glow discreto */
-.k-val .pos,.k-val .grn{color:var(--green);text-shadow:0 0 20px rgba(62,207,142,.3)}
-.k-val .cyn,.k-val .blu{color:var(--cyan);text-shadow:0 0 20px rgba(82,168,255,.28)}
-.k-val .pnk{color:var(--pink);text-shadow:0 0 20px rgba(255,86,116,.28)}
-.k-val .amb{color:var(--amber);text-shadow:0 0 20px rgba(245,181,68,.28)}
-.k-val .neg{text-shadow:0 0 20px rgba(255,86,116,.3)}
+/* Valores de KPI com cor semântica — sem glow */
+.k-val .pos,.k-val .grn{color:var(--green)}
+.k-val .cyn,.k-val .blu{color:var(--cyan)}
+.k-val .pnk{color:var(--pink)}
+.k-val .amb{color:var(--amber)}
 
-  .section-title{display:flex;align-items:center;gap:10px;margin:30px 0 15px;font-size:16px;font-weight:600;color:var(--text)}
+  .section-title{display:flex;align-items:center;gap:10px;margin:36px 0 16px;font-size:15px;font-weight:600;color:var(--text)}
   /* passos numerados dos cards de instrução (snippet, webhook) */
   .steps{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px}
   .step{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
@@ -573,19 +567,16 @@ tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay
 .range-wrap{display:flex;align-items:center;gap:14px}
 input[type=range]{flex:1;accent-color:var(--cyan)}
 /* cards de configuração com identidade */
-.cfg-grid .cfg-card{position:relative;border-radius:14px;overflow:hidden;animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards;transition:border-color .25s,box-shadow .25s}
+.cfg-grid .cfg-card{position:relative;border-radius:14px;overflow:hidden;animation:kpiIn .5s var(--ease) backwards;transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
 .cfg-grid .cfg-card:nth-child(1){animation-delay:.02s}.cfg-grid .cfg-card:nth-child(2){animation-delay:.09s}
 .cfg-grid .cfg-card:nth-child(3){animation-delay:.16s}.cfg-grid .cfg-card:nth-child(4){animation-delay:.23s}
-.cfg-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--cc),transparent 75%);opacity:.6;transition:opacity .25s}
-.cfg-card:hover::before{opacity:1}
 .cfg-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px}
 .cfg-head h3{font-size:14.5px;line-height:1.3}
 .cfg-head p{margin:3px 0 0;font-size:11.5px;color:var(--muted2);line-height:1.45}
 .cfg-ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;
-  background:color-mix(in srgb,var(--cc) 12%,transparent);color:var(--cc);border:1px solid color-mix(in srgb,var(--cc) 25%,transparent);
-  transition:.28s cubic-bezier(.34,1.56,.64,1)}
+  background:color-mix(in srgb,var(--cc) 12%,transparent);color:var(--cc);border:1px solid color-mix(in srgb,var(--cc) 22%,transparent);
+  transition:transform var(--dur) var(--ease)}
 .cfg-ico svg{width:16px;height:16px}
-.cfg-card:hover .cfg-ico{box-shadow:0 0 14px -4px var(--cc)}
 .cfg-note{margin:2px 0 0;font-size:11.5px;color:var(--muted2);line-height:1.5;padding:9px 12px;background:var(--card2);border-radius:9px;border-left:2px solid var(--pink)}
 /* segmented control (sensibilidade do filtro de bots) */
 .seg{display:flex;gap:6px;background:var(--card2);padding:5px;border-radius:11px;border:1px solid var(--border);margin-top:8px}
@@ -681,9 +672,8 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .hitem{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--card2);border-radius:10px;border:1px solid var(--border);font-size:12.5px;transition:.2s}
 
 .hitem .hdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.hitem .hdot.ok{background:var(--green);box-shadow:0 0 8px rgba(62,207,142,.5);animation:hDot 2.4s ease-in-out infinite}
-.hitem .hdot.warn{background:var(--red);box-shadow:0 0 8px rgba(255,86,116,.5)}
-@keyframes hDot{0%,100%{box-shadow:0 0 5px rgba(62,207,142,.4)}50%{box-shadow:0 0 11px rgba(62,207,142,.75)}}
+.hitem .hdot.ok{background:var(--green)}
+.hitem .hdot.warn{background:var(--red)}
 .hitem .hlbl{flex:1;font-weight:500}
 .hitem .hstatus{font-size:11px;font-weight:600;font-family:'Geist Mono'}
 .hitem .hstatus.ok{color:var(--green)} .hitem .hstatus.warn{color:var(--red)}
@@ -710,85 +700,48 @@ html{scroll-behavior:smooth}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:8px}
 
 .app{position:relative;z-index:1}
-@keyframes sheen{to{background-position:220% 0}}
 
 /* ── Efeito ÚNICO de card ──
    Todos os cards interativos compartilham o mesmo hover: lift de 3px,
    borda acesa e glow na cor de identidade (--glow). Nada de efeitos
    diferentes por família — uma linguagem só em toda a dash. */
-.card{transition:border-color .25s,transform .25s,box-shadow .25s}
+.card{transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
 .card:hover{border-color:var(--border2)}
-.kpi,.mstat,.cfg-card,.gs-stat,.hitem{--glow:#52a8ff;transition:border-color .25s,transform .25s,box-shadow .25s}
+.kpi,.mstat,.cfg-card,.gs-stat,.hitem{transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
 .kpi:hover,.mstat:hover,.cfg-card:hover,.gs-stat:hover,.hitem:hover{
-  transform:translateY(-3px);border-color:var(--border2);
-  box-shadow:0 12px 30px rgba(0,0,0,.45),0 0 18px -10px var(--glow)}
-.kpis-xl .kpi{--glow:var(--kg1,#52a8ff)}
-.mstat{--glow:var(--mc,#52a8ff)}
-.cfg-grid .cfg-card{--glow:var(--cc,#52a8ff)}
+  transform:translateY(-2px);border-color:var(--border2);box-shadow:var(--shadow)}
 /* micro-interação única do ícone (mesma em todos) */
-.kpi:hover .k-ico,.mstat:hover .ms-ico,.cfg-card:hover .cfg-ico{transform:scale(1.12) rotate(-5deg)}
+.kpi:hover .k-ico,.mstat:hover .ms-ico,.cfg-card:hover .cfg-ico{transform:scale(1.08)}
 
-/* estrelas neon subindo no fundo da página inteira */
-.bg-particles{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
-.bg-particles i{position:absolute;bottom:-8px;width:4px;height:4px;border-radius:50%;opacity:0;
-  animation:bgFloat var(--pd,16s) linear infinite var(--pw,0s)}
-.bg-particles i:nth-child(1){left:4%;--pd:17s;--pw:0s;background:#ff2d6f;box-shadow:0 0 9px #ff2d6f;width:3px;height:3px}
-.bg-particles i:nth-child(2){left:12%;--pd:22s;--pw:5s;background:#25f4ee;box-shadow:0 0 8px #25f4ee;width:2px;height:2px}
-.bg-particles i:nth-child(3){left:21%;--pd:19s;--pw:2s;background:#52a8ff;box-shadow:0 0 9px #52a8ff}
-.bg-particles i:nth-child(4){left:30%;--pd:24s;--pw:9s;background:#ff5674;box-shadow:0 0 7px #ff5674;width:2px;height:2px}
-.bg-particles i:nth-child(5){left:39%;--pd:18s;--pw:4s;background:#25f4ee;box-shadow:0 0 10px #25f4ee;width:3px;height:3px}
-.bg-particles i:nth-child(6){left:48%;--pd:26s;--pw:12s;background:#3ecf8e;box-shadow:0 0 8px #3ecf8e;width:2px;height:2px}
-.bg-particles i:nth-child(7){left:57%;--pd:20s;--pw:6s;background:#52a8ff;box-shadow:0 0 9px #52a8ff;width:3px;height:3px}
-.bg-particles i:nth-child(8){left:66%;--pd:23s;--pw:1s;background:#ff2d6f;box-shadow:0 0 8px #ff2d6f;width:2px;height:2px}
-.bg-particles i:nth-child(9){left:75%;--pd:18.5s;--pw:8s;background:#25f4ee;box-shadow:0 0 9px #25f4ee}
-.bg-particles i:nth-child(10){left:84%;--pd:25s;--pw:3s;background:#ff5674;box-shadow:0 0 8px #ff5674;width:3px;height:3px}
-.bg-particles i:nth-child(11){left:91%;--pd:21s;--pw:10s;background:#52a8ff;box-shadow:0 0 8px #52a8ff;width:2px;height:2px}
-.bg-particles i:nth-child(12){left:97%;--pd:19.5s;--pw:7s;background:#3ecf8e;box-shadow:0 0 9px #3ecf8e;width:3px;height:3px}
-@keyframes bgFloat{0%{transform:translateY(0);opacity:0}4%{opacity:.75}80%{opacity:.4}100%{transform:translateY(-105vh);opacity:0}}
-@media(prefers-reduced-motion:reduce){.bg-particles{display:none}}
-/* ── KPIs turbinados ── */
-.kpis-xl .kpi{border-radius:14px;padding-top:18px;--kglow:rgba(82,168,255,.12)}
-.kpis-xl .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2.5px;border-radius:2px 2px 0 0;
-  background:linear-gradient(90deg,var(--kg1,#3a3a44),var(--kg2,#26262c),var(--kg1,#3a3a44));background-size:220% 100%;
-  animation:kpiTop 5s linear infinite;box-shadow:0 0 12px -2px var(--kg1,transparent)}
-@keyframes kpiTop{to{background-position:-220% 0}}
-/* aura radial que acende no hover */
-.kpis-xl .kpi::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .35s;
-  background:radial-gradient(220px 120px at 50% 0%,var(--kglow),transparent 70%)}
-.kpis-xl .kpi:hover::after{opacity:1}
-.kpis-xl .kpi.tint-cyan{--kg1:#52a8ff;--kg2:#25f4ee;--kglow:rgba(82,168,255,.16)}
-.kpis-xl .kpi.tint-pink{--kg1:#ff2d6f;--kg2:#ff5674;--kglow:rgba(255,45,111,.15)}
-.kpis-xl .kpi.tint-blue{--kg1:#52a8ff;--kg2:#7d8cff;--kglow:rgba(82,168,255,.16)}
-.kpis-xl .kpi.tint-green{--kg1:#3ecf8e;--kg2:#25f4ee;--kglow:rgba(62,207,142,.15)}
-.kpis-xl .kpi.tint-amber{--kg1:#f5b544;--kg2:#ffd47e;--kglow:rgba(245,181,68,.15)}
-/* ícone do KPI colorido pela identidade do card */
-.kpis-xl .kpi .k-ico{background:color-mix(in srgb,var(--kg1) 13%,transparent);color:var(--kg1);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--kg1) 28%,transparent)}
-.kpis-xl .kpi:hover .k-ico{box-shadow:inset 0 0 0 1px var(--kg1),0 0 14px -3px var(--kg1)}
-.kpis-xl .k-ico{transition:.28s cubic-bezier(.34,1.56,.64,1)}
-.kpis-xl .k-val{transition:text-shadow .3s}
-.kpis-xl .kpi:hover .k-val{text-shadow:0 0 22px var(--kglow)}
-.kpis-xl .kpi{animation:kpiIn .55s cubic-bezier(.2,.7,.3,1) backwards}
+/* ── KPI card canônico: plano, número grande é o herói ── */
+.kpis-xl .kpi{border-radius:14px;padding:20px}
+.kpis-xl .kpi.tint-cyan{--kg1:var(--cyan)}
+.kpis-xl .kpi.tint-pink{--kg1:var(--red)}
+.kpis-xl .kpi.tint-blue{--kg1:var(--cyan)}
+.kpis-xl .kpi.tint-green{--kg1:var(--green)}
+.kpis-xl .kpi.tint-amber{--kg1:var(--amber)}
+/* ícone discreto na identidade semântica do card */
+.kpis-xl .kpi .k-ico{background:color-mix(in srgb,var(--kg1,var(--accent)) 12%,transparent);color:var(--kg1,var(--accent));box-shadow:none}
+.kpis-xl .k-ico{transition:transform var(--dur) var(--ease)}
+/* label pequeno, uppercase discreto; número grande e pesado */
+.kpis-xl .kpi .k-top{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:600;color:var(--muted)}
+.kpis-xl .kpi .k-val{font-size:32px;font-weight:700}
+.kpis-xl .kpi{animation:kpiIn .55s var(--ease) backwards}
 .kpis-xl .kpi:nth-child(1){animation-delay:.02s}.kpis-xl .kpi:nth-child(2){animation-delay:.09s}
 .kpis-xl .kpi:nth-child(3){animation-delay:.16s}.kpis-xl .kpi:nth-child(4){animation-delay:.23s}
 @keyframes kpiIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
 
 /* ── Ministats (substitui os chips) ── */
 .ministats{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:2px 0 6px}
-.mstat{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px 14px 19px;overflow:hidden;transition:.24s;animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) backwards;--mc:#52a8ff}
-.mstat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px;background:linear-gradient(180deg,var(--mc),transparent 130%);opacity:.8;transition:.24s}
-.mstat::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s;
-  background:radial-gradient(180px 100px at 18% 0%,color-mix(in srgb,var(--mc) 14%,transparent),transparent 70%)}
-.mstat:hover::after{opacity:1}
-.mstat:hover::before{width:4px;box-shadow:0 0 12px -2px var(--mc)}
+.mstat{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px 14px 19px;overflow:hidden;transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease);animation:kpiIn .5s var(--ease) backwards;--mc:var(--accent)}
+.mstat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px;background:var(--mc);opacity:.6}
 .mstat:nth-child(1){animation-delay:.05s}.mstat:nth-child(2){animation-delay:.11s}.mstat:nth-child(3){animation-delay:.17s}
 .mstat:nth-child(4){animation-delay:.23s}.mstat:nth-child(5){animation-delay:.29s}
 
 .mstat .ms-top{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
-.mstat .ms-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex-shrink:0;transition:.28s cubic-bezier(.34,1.56,.64,1)}
-.mstat:hover .ms-ico{box-shadow:0 0 12px -3px var(--mc)}
+.mstat .ms-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex-shrink:0;transition:transform var(--dur) var(--ease)}
 .mstat .ms-ico svg{width:13px;height:13px}
-.mstat .ms-val{font-family:'Geist Mono',monospace;font-size:21px;font-weight:600;margin-top:9px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;transition:text-shadow .3s}
-.mstat:hover .ms-val{text-shadow:0 0 16px color-mix(in srgb,var(--mc) 50%,transparent)}
+.mstat .ms-val{font-family:'Geist Mono',monospace;font-size:21px;font-weight:600;margin-top:9px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .mstat .ms-sub{font-size:11.5px;color:var(--muted2);margin-top:3px}
 .mstat .ms-bar{height:4px;border-radius:3px;background:var(--card2);margin-top:10px;overflow:hidden;position:relative}
 .mstat .ms-fill{height:100%;border-radius:3px;width:0;transition:width 1.1s cubic-bezier(.2,.7,.3,1) .35s;position:relative;overflow:hidden}
@@ -814,31 +767,16 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .msg-track{flex:1;height:5px;border-radius:3px;background:var(--card2);overflow:hidden}
 .msg-track i{display:block;height:100%;border-radius:3px;background:var(--mc,#25f4ee);width:0;transition:width .9s cubic-bezier(.2,.7,.3,1)}
 .msg-n{min-width:20px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0}
-.mstat .ms-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);transform:translateX(-100%);animation:msSheen 2.6s ease-in-out 1.6s infinite}
-@keyframes msSheen{0%{transform:translateX(-100%)}55%,100%{transform:translateX(100%)}}
-
-/* ── Visão Geral: títulos de seção neon ── */
+/* ── Visão Geral: cabeçalho de bloco leve (título + contexto, divisor sutil) ── */
 #view-overview .section-title span:first-child{position:relative;padding-left:16px}
-#view-overview .section-title span:first-child::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:8px;height:8px;border-radius:2px;
-  background:linear-gradient(135deg,#ff2d6f,#52a8ff);box-shadow:0 0 10px rgba(255,45,111,.65);animation:stPulse 2.4s ease-in-out infinite}
-@keyframes stPulse{0%,100%{box-shadow:0 0 6px rgba(255,45,111,.45)}50%{box-shadow:0 0 14px rgba(82,168,255,.8)}}
+#view-overview .section-title span:first-child::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:7px;height:7px;border-radius:2px;background:var(--accent);opacity:.85}
 #view-overview .section-title .line{background:linear-gradient(90deg,var(--border2),var(--border) 40%,transparent)}
 
-/* ── Visão Geral: meta de receita com brilho ── */
+/* ── Visão Geral: meta de receita — plana, sem brilho ambiente ── */
 #view-overview .goal-card{position:relative;overflow:hidden;border-radius:14px}
-#view-overview .goal-card::before{content:'';position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(340px 150px at 8% 50%,rgba(62,207,142,.09),transparent 65%),radial-gradient(280px 130px at 92% 20%,rgba(82,168,255,.07),transparent 65%)}
-#view-overview .goal-ring svg{filter:drop-shadow(0 0 10px rgba(62,207,142,.35))}
-#view-overview .goal-ring .gr-pct{text-shadow:0 0 16px rgba(62,207,142,.4)}
 
-/* ── Visão Geral: card de tendência ── */
-#view-overview .chart-wrap+ .chart-legend .leg-dot{box-shadow:0 0 8px currentColor}
+/* ── Visão Geral: card de tendência — plano ── */
 #view-overview .card:has(.chart-wrap){position:relative;border-radius:14px;overflow:hidden}
-#view-overview .card:has(.chart-wrap)::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,#52a8ff,#25f4ee 45%,#ff2d6f);opacity:.55;box-shadow:0 0 10px -2px #52a8ff}
-#view-overview .chart-legend .leg-dot{box-shadow:0 0 7px currentColor}
-#view-overview .card:has(.chart-wrap){animation:kpiIn .55s cubic-bezier(.2,.7,.3,1) .28s backwards}
-#view-overview .goal-card{animation:kpiIn .55s cubic-bezier(.2,.7,.3,1) .2s backwards}
 
 /* Entrada em cascata — só ao trocar de aba (classe .entering) */
 @keyframes rise{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
@@ -856,11 +794,11 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .view.entering .grid>*:nth-child(5){animation-delay:.2s}
 .view.entering .grid>*:nth-child(6){animation-delay:.25s}
 .view.entering .grid>*:nth-child(n+7){animation-delay:.3s}
+/* cards com scroll-in não entram na cascata (evita animação dupla) */
+.view.entering .reveal{animation:none}
 
-/* Nav — indicador ativo discreto */
+/* Nav — indicador ativo é o sublinhado do dock */
 .nav button{position:relative;transition:background .15s,color .15s}
-.nav button::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%) scaleY(0);width:2px;height:16px;border-radius:2px;background:var(--cyan);transition:transform .2s cubic-bezier(.2,.8,.2,1)}
-.nav button.active::before{transform:translateY(-50%) scaleY(1)}
 .nav button svg{transition:color .2s}
 .nav button:active{transform:scale(.99)}
 
@@ -870,9 +808,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .dot.off::after{border-color:var(--red)}
 @keyframes ping{0%{transform:scale(.7);opacity:.7}80%,100%{transform:scale(2);opacity:0}}
 
-/* Badge de alerta — pulso */
-.nav .badge{animation:badgePulse 1.6s ease-in-out infinite}
-@keyframes badgePulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(255,86,116,.55)}50%{transform:scale(1.14);box-shadow:0 0 0 6px rgba(255,86,116,0)}}
+/* Badge de alerta — estático (sem loop; o número já comunica) */
 
 /* Botões — clique tátil + brilho */
 .btn{transition:background .15s,transform .1s,box-shadow .18s,filter .15s}
@@ -1004,8 +940,8 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 .btn-export svg{width:14px;height:14px}
 
 /* Valor KPI com brilho ao mudar */
-.k-val.flash{animation:valFlash .9s ease}
-@keyframes valFlash{0%{color:var(--cyan);text-shadow:0 0 16px rgba(82,168,255,.6)}100%{}}
+.k-val.flash{animation:valFlash .6s var(--ease)}
+@keyframes valFlash{0%{color:var(--accent)}100%{}}
 
 /* Título de seção com ponto animado */
 .section-title>span:first-child{position:relative;padding-left:2px}
@@ -1017,9 +953,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 </style>
 </head>
 <body>
-
-<!-- Estrelas neon subindo no fundo da página inteira -->
-<div class="bg-particles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
 
 <!-- Popup do globo expandido -->
 <div class="globe-modal" id="globe-modal" hidden>
@@ -1153,9 +1086,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
           </aside>
         </div>
-        <div class="card traffic-card" id="traffic-pulse"></div>
+        <div class="card traffic-card reveal" id="traffic-pulse"></div>
         <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
-        <div class="card goal-card" id="ov-goal"></div>
+        <div class="card goal-card reveal" id="ov-goal"></div>
         <div class="section-title"><span>Tendência</span><span class="line"></span>
           <button class="note-add" id="note-add" title="Anotar um dia (ex.: subi criativo novo)">+ Nota</button>
           <div class="segment" id="chart-mode" style="padding:2px">
@@ -1164,7 +1097,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <button data-m="leads">Leads</button>
           </div>
         </div>
-        <div class="card" style="position:relative">
+        <div class="card reveal" style="position:relative">
           <div class="chart-wrap" id="chart"></div>
           <div class="chart-tip" id="chart-tip" hidden></div>
           <div class="chart-legend" id="chart-legend">
@@ -1173,16 +1106,16 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div class="chart-notes" id="chart-notes" hidden></div>
         </div>
         <div class="section-title"><span>Funil por página</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o funil vaza, página a página</span></div>
-        <div class="card" id="ov-pagefunnel"></div>
+        <div class="card reveal" id="ov-pagefunnel"></div>
         <div class="section-title"><span>Páginas de entrada</span><span class="line"></span><span class="muted" style="font-size:11.5px">qual porta de entrada converte melhor</span></div>
-        <div class="card" id="ov-entries" style="padding:10px 14px"></div>
+        <div class="card reveal" id="ov-entries" style="padding:10px 14px"></div>
         <div class="section-title"><span>Horários</span><span class="line"></span>
           <div class="segment" id="heat-mode" style="padding:2px">
             <button data-h="sales" class="active">Vendas</button>
             <button data-h="leads">Leads</button>
           </div>
         </div>
-        <div class="card" id="ov-heatmap"></div>
+        <div class="card reveal" id="ov-heatmap"></div>
       </section>
 
       <!-- ── Funil & Leads ── -->
@@ -1549,32 +1482,42 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <div class="health-grid" id="health-grid"><div class="muted" style="font-size:13px;padding:8px 0">Carregando...</div></div>
           </div>
         </div>
-        <div class="grid cfg-grid" style="grid-template-columns:1fr 1fr">
-          <div class="card cfg-card" style="--cc:var(--cyan)">
-            <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span>
-              <div><h3>Links curtos rastre&aacute;veis</h3><p>Use nos criativos no lugar do bit.ly &mdash; o clique vira lead e o funil come&ccedil;a no an&uacute;ncio</p></div>
+        <!-- Avançado recolhido: ferramentas usadas raramente ficam fora do caminho -->
+        <details class="ck-adv" style="margin-top:16px">
+          <summary>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:var(--muted)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 010-4h.09A1.65 1.65 0 003.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            Avan&ccedil;ado &mdash; links curtos e API p&uacute;blica
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          <div class="ck-adv-body">
+            <div class="grid cfg-grid" style="grid-template-columns:1fr 1fr">
+              <div class="card cfg-card" style="--cc:var(--cyan)">
+                <div class="cfg-head">
+                  <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span>
+                  <div><h3>Links curtos rastre&aacute;veis</h3><p>O clique vira lead e o funil come&ccedil;a no an&uacute;ncio</p></div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <input class="inp" id="sl-slug" placeholder="slug (ex: promo-eua)" style="flex:1;min-width:120px;font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
+                  <input class="inp" id="sl-url" placeholder="https://destino.com/pagina" style="flex:2;min-width:180px;font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
+                  <button class="btn primary" id="sl-add">Criar</button>
+                </div>
+                <div id="sl-list" style="margin-top:12px"></div>
+              </div>
+              <div class="card cfg-card" style="--cc:var(--amber,#f5a524)">
+                <div class="cfg-head">
+                  <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></span>
+                  <div><h3>API p&uacute;blica (somente leitura)</h3><p>M&eacute;tricas por token &mdash; planilhas, widgets ou BI</p></div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                  <input class="inp" id="api-url" readonly placeholder="Clique em Gerar para criar o endpoint" style="flex:1;min-width:220px;font-family:'Geist Mono',monospace;font-size:11.5px" />
+                  <button class="btn" id="api-gen">Gerar</button>
+                  <button class="btn" id="api-copy" hidden>Copiar</button>
+                </div>
+                <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Como funciona</summary><p class="hint" style="margin-top:6px">Retorna JSON com leads, vendas, receita e convers&atilde;o (hoje, 7 dias e total). No Google Sheets: <span style="font-family:'Geist Mono',monospace">=IMPORTDATA(url)</span></p></details>
+              </div>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <input class="inp" id="sl-slug" placeholder="slug (ex: promo-eua)" style="flex:1;min-width:120px;font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
-              <input class="inp" id="sl-url" placeholder="https://destino.com/pagina" style="flex:2;min-width:180px;font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
-              <button class="btn primary" id="sl-add">Criar</button>
-            </div>
-            <div id="sl-list" style="margin-top:12px"></div>
           </div>
-          <div class="card cfg-card" style="--cc:var(--amber,#f5a524)">
-            <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></span>
-              <div><h3>API p&uacute;blica (somente leitura)</h3><p>Resumo de m&eacute;tricas por token &mdash; para planilhas, widgets ou BI externo</p></div>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <input class="inp" id="api-url" readonly placeholder="Clique em Gerar para criar o endpoint" style="flex:1;min-width:220px;font-family:'Geist Mono',monospace;font-size:11.5px" />
-              <button class="btn" id="api-gen">Gerar</button>
-              <button class="btn" id="api-copy" hidden>Copiar</button>
-            </div>
-            <p class="hint" style="margin-top:10px">Retorna JSON com leads, vendas, receita e convers&atilde;o (hoje, 7 dias e total). No Google Sheets: <span style="font-family:'Geist Mono',monospace">=IMPORTDATA(url)</span></p>
-          </div>
-        </div>
+        </details>
         <div class="card danger-card">
           <span class="cfg-ico" style="--cc:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6"/></svg></span>
           <div style="flex:1;min-width:200px"><b style="font-size:13.5px">Zerar todas as estatísticas</b><p style="color:var(--muted2);margin:3px 0 0;font-size:12px">Apaga leads, eventos e contadores. Não afeta configurações ou chaves.</p></div>
@@ -1663,6 +1606,8 @@ function fmtDateLocal(iso){
 function pctColor(v){ return v>=60?'pos':v>=30?'amb':'neg'; }
 
 var DATA=null, HEALTH=null, period='7d', chartMode='revenue', evFilter='', autoTimer=null, currentView='overview', currentLeadId=null;
+// preferência do usuário por menos movimento — desliga animações não essenciais no JS
+var REDUCED=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 var NOTES=[]; // anotações do gráfico (carregadas de /api/notes)
 var leadsById={};
 var LIVE={visitors:[],summary:{online:0,countries:[]}}, liveTimer=null, liveGlobe=null;
@@ -3861,7 +3806,16 @@ function groupOf(v){
   for(var g in VIEW_GROUPS){ if(VIEW_GROUPS[g].indexOf(v)>=0) return g; }
   return 'overview';
 }
+/* Transição de aba com View Transitions API (crossfade nativo);
+   fallback direto em navegadores sem suporte ou com reduced-motion */
 function setView(v){
+  if(document.startViewTransition&&!REDUCED&&groupOf(v)!==currentView){
+    document.startViewTransition(function(){ applySetView(v); });
+  } else {
+    applySetView(v);
+  }
+}
+function applySetView(v){
   var g=groupOf(v), sub=(v!==g)?v:null;
   currentView=g;
   var views=VIEW_GROUPS[g];
@@ -4074,6 +4028,16 @@ document.addEventListener('visibilitychange',function(){
   }
 });
 
+
+/* ── Scroll-in: revela cards UMA vez ao entrarem na viewport (mata loop ambiente) ── */
+(function(){
+  var els=document.querySelectorAll('.reveal');
+  if(REDUCED||!('IntersectionObserver' in window)){ els.forEach(function(e){e.classList.add('in');}); return; }
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){ if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); } });
+  },{threshold:.12});
+  els.forEach(function(e){ io.observe(e); });
+})();
 
 /* ── Boot ── */
 var LS=document.getElementById('loading-screen');
