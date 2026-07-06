@@ -265,19 +265,25 @@ html[data-liquid-glass] .lg-lens{
 .segment button{background:transparent;border:0;color:var(--muted);font-size:12.5px;font-weight:500;font-family:inherit;padding:6px 12px;border-radius:6px;cursor:pointer;transition:.15s}
 .segment button.active{background:var(--hover);color:var(--text);box-shadow:inset 0 0 0 1px var(--border2)}
 .refresh{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
-.switch{position:relative;width:38px;height:22px;flex-shrink:0}
+/* Switch estilo iOS: trilho cinza → verde, knob branco com sombra e spring */
+.switch{position:relative;width:44px;height:26px;flex-shrink:0}
 .switch input{opacity:0;width:0;height:0}
-.slider{position:absolute;inset:0;background:#2a2a3a;border-radius:20px;cursor:pointer;transition:.2s}
-.slider:before{content:'';position:absolute;height:16px;width:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
-input:checked+.slider{background:var(--cyan)}
-input:checked+.slider:before{transform:translateX(16px)}
+.slider{position:absolute;inset:0;background:rgba(120,130,155,.35);border-radius:26px;cursor:pointer;
+  transition:background .25s var(--ease);box-shadow:inset 0 1px 2px rgba(30,40,80,.15)}
+.slider:before{content:'';position:absolute;height:22px;width:22px;left:2px;top:2px;background:#fff;border-radius:50%;
+  transition:transform var(--dur) var(--spring),width .15s;
+  box-shadow:0 2px 6px rgba(30,40,80,.3),0 0 1px rgba(30,40,80,.2)}
+input:checked+.slider{background:var(--success)}
+input:checked+.slider:before{transform:translateX(18px)}
+/* knob estica ao pressionar (feedback tátil iOS) */
+.switch:active .slider:before{width:26px}
+.switch:active input:checked+.slider:before{transform:translateX(14px)}
 .select,.inp{background:rgba(255,255,255,.6);backdrop-filter:blur(8px);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-family:inherit;font-size:13.5px;outline:none;transition:.2s}
 .select::placeholder,.inp::placeholder{color:var(--text-lighter)}
 .select:focus,.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,125,255,.1);background:rgba(255,255,255,.9)}
 .btn{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:10px;padding:9px 15px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:.2s;box-shadow:0 4px 14px rgba(47,125,255,.35)}
 .btn:hover{background:var(--accent-dark);box-shadow:0 4px 14px rgba(47,125,255,.45);transform:translateY(-2px)}
 .btn:active{box-shadow:inset 0 1px 2px rgba(30,40,80,.1);transform:scale(.98)}
-.btn:hover{background:var(--hover)}
 .btn svg{width:16px;height:16px;display:block}
 .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
 .btn.primary:hover{filter:brightness(1.08)}
@@ -3290,7 +3296,7 @@ function parseVariantLines(){
   return out;
 }
 
-/* ── Domínios personalizados ─────────────────────────────────────────── */
+/* ── Domínios personalizados ─────────────────────────────────���───────── */
 var DM_LIST=[],DM_APPHOST='';
 function loadDomains(){
   fetch('/api/domains',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
