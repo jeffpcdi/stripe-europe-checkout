@@ -733,6 +733,22 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .hitem .hstatus{font-size:11px;font-weight:600;font-family:'Geist Mono'}
 .hitem .hstatus.ok{color:var(--green)} .hitem .hstatus.warn{color:var(--red)}
 
+/* ── Skeletons: placeholders com shimmer enquanto os dados chegam ── */
+.skel{position:relative;overflow:hidden;background:var(--card2);border-radius:8px}
+.skel::after{content:'';position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);
+  animation:skelShimmer 1.4s ease-in-out infinite}
+@keyframes skelShimmer{to{transform:translateX(100%)}}
+.skel-kpi{height:118px;border:1px solid var(--border);border-radius:14px;background:var(--card)}
+.skel-row{height:44px;margin-bottom:8px}
+.skel-line{height:12px;width:60%}
+@media(prefers-reduced-motion:reduce){.skel::after{animation:none}}
+
+/* ── Foco visível para navegação por teclado ── */
+button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--ring);outline-offset:2px;border-radius:6px}
+.inp:focus-visible{outline-offset:0}
+
 /* ── Responsivo ── */
 @media(max-width:960px){
   .geo-grid,.ab-grid{grid-template-columns:1fr}
@@ -746,6 +762,21 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
   .nav.dock button{padding:9px 13px;font-size:13px}
   .nav.dock button .d-lbl{display:none}
   .nav.dock button.active .d-lbl{display:inline}
+}
+/* telefones: 2 colunas de KPIs (evita pilha alta), conteúdo e gráfico compactos */
+@media(max-width:560px){
+  .content{padding:16px 14px 90px}
+  .kpis{grid-template-columns:1fr 1fr;gap:10px}
+  .kpis-xl .kpi{padding:14px}
+  .kpis-xl .kpi .k-val{font-size:24px}
+  .ministats{grid-template-columns:1fr 1fr;gap:10px}
+  .chart-wrap{height:200px}
+  #live-globe{height:340px}
+  .settings-col{gap:28px}
+  .tracking-tabs{overflow-x:auto;scrollbar-width:none}
+  .tracking-tabs::-webkit-scrollbar{display:none}
+  .tracking-tabs button{white-space:nowrap}
+  .live-strip{flex-wrap:wrap;row-gap:4px}
 }
 #menuToggle{display:none!important}
 
@@ -1042,7 +1073,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="hh-live"><span class="dot" id="live-dot"></span>Ao vivo &middot; <span id="foot-updated">—</span></div>
       </div>
     </div>
-    <nav class="nav dock" id="nav">
+    <nav class="nav dock" id="nav" aria-label="Navega&ccedil;&atilde;o principal">
       <button data-view="overview" class="active"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span><span class="d-lbl">Visão Geral</span></button>
       <button data-view="live"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg></span><span class="d-lbl">Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
       <button data-view="tracking"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="7"/></svg></span><span class="d-lbl">Rastreamento</span><span class="badge" id="nav-px-badge" style="display:none">0</span></button>
@@ -1116,7 +1147,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
             <div class="card gs-leads">
               <div class="gs-head"><span class="live-dot-anim"></span>Leads rastreados<button class="gs-all" id="gs-all">Ver todos</button></div>
-              <div class="gs-list" id="ov-live-list"><div class="live-empty" style="padding:20px">Aguardando visitantes...</div></div>
+              <div class="gs-list" id="ov-live-list" aria-busy="true"><div style="padding:12px"><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div></div></div>
             </div>
           </aside>
         </div>
@@ -1139,8 +1170,8 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <section class="view active" id="view-overview">
         <!-- Setup guiado: só aparece com pendências; some quando 100% -->
         <div id="ov-setup" hidden></div>
-        <div class="grid kpis kpis-xl" id="ov-kpis"></div>
-        <div class="ministats" id="ov-chips"></div>
+        <div class="grid kpis kpis-xl" id="ov-kpis" aria-busy="true"><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div></div>
+        <div class="ministats" id="ov-chips" aria-busy="true"><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div></div>
         <!-- strip compacto de presença: o globo mora no Ao Vivo -->
         <button class="live-strip" id="ov-live-strip" type="button">
           <span class="live-dot-anim"></span>
@@ -1529,7 +1560,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <!-- 1. Setup guiado -->
         <div class="set-sec">
           <div class="set-sec-head"><h3>Configura&ccedil;&atilde;o do sistema</h3><p>Integra&ccedil;&otilde;es e vari&aacute;veis deste servidor &mdash; complete as pendentes</p></div>
-          <div class="card"><div class="health-grid" id="health-grid"><div class="muted" style="font-size:13px;padding:8px 0">Carregando...</div></div></div>
+          <div class="card"><div class="health-grid" id="health-grid" aria-busy="true"><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div></div></div>
         </div>
 
         <!-- 2. Notificações: toggles com auto-save -->
@@ -1874,7 +1905,8 @@ function countUp(el,target,suffix,dur,dec){
   var fmt=typeof suffix==='function'?suffix:function(v){ return (dec?v.toFixed(dec):Math.round(v))+(suffix||''); };
   var from=CU_LAST[key]!=null?CU_LAST[key]:0;
   CU_LAST[key]=target;
-  if(from===target){ el.textContent=fmt(target); return; }
+  // reduced-motion: fixa direto, sem tween
+  if(REDUCED||from===target){ el.textContent=fmt(target); return; }
   var start=null; dur=dur||900;
   function frame(ts){
     if(!start)start=ts;
@@ -1900,8 +1932,15 @@ function renderOverview(m){
   function dc(k,inv){ return (cur&&prev)?deltaChip(cur[k],prev[k],inv):''; }
 
   // cores semânticas: receita/aprovação = verde (dinheiro bom), leads = ciano, conversão = dinâmica
+  // receita: tween com formatador de moeda quando há UMA moeda (caso comum);
+  // multi-moeda cai no texto estático "X € + Y £"
+  var revCurs=Object.keys(m.rev||{}).filter(function(c){return (m.rev[c]||0)>0;});
+  var singleCur=revCurs.length<=1;
+  var revHtml=singleCur?'<span class="pos" id="ov-cu-rev">'+money(0,revCurs[0]||'EUR')+'</span>':'<span class="pos">'+revObj(m.rev)+'</span>';
+  document.getElementById('ov-kpis').removeAttribute('aria-busy');
+  document.getElementById('ov-chips').removeAttribute('aria-busy');
   document.getElementById('ov-kpis').innerHTML=
-    kpi(I.money,'tint-green','Receita total','<span class="pos">'+revObj(m.rev)+'</span>','no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#3ecf8e'))+
+    kpi(I.money,'tint-green','Receita total',revHtml,'no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#3ecf8e'))+
     kpi(I.check,'tint-green','Vendas aprovadas','<span class="pos" id="ov-cu-sales">0</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+sparkBars(seriesFor('sales'),'#3ecf8e'))+
     kpi(I.users,'tint-cyan','Novos leads','<span class="cyn" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
     kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'" id="ov-cu-conv">0%</span>','visita &#8594; compra', dc('overall')+funnelMini(m));
@@ -1922,6 +1961,7 @@ function renderOverview(m){
     mstat(dispColor,m.disputes?'rgba(255,86,116,.12)':'rgba(62,207,142,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null,null,'ov-cu-disp',m.disputes?spark(seriesFor('disputes'),dispColor):'');
 
   // dispara contagens e barras animadas (todos os números sobem animados)
+  if(singleCur) countUp(document.getElementById('ov-cu-rev'),m.rev[revCurs[0]]||0,function(v){return money(Math.round(v),revCurs[0]||'EUR');},900);
   countUp(document.getElementById('ov-cu-sales'),m.sales);
   countUp(document.getElementById('ov-cu-visits'),m.visits);
   countUp(document.getElementById('ov-cu-conv'),parseFloat(m.overall)||0,'%',900,(''+m.overall).indexOf('.')>=0?1:0);
@@ -2477,8 +2517,8 @@ function updateLiveStrip(){
   var vs=(LIVE.visitors||[]);
   var c=LIVE.checkout||{};
   var totalCk=c.externalEst!=null?c.externalEst:vs.filter(isCheckoutLead).length;
-  on.textContent=(LIVE.summary&&LIVE.summary.online)||0;
-  if(ck) ck.textContent=totalCk;
+  countUp(on,(LIVE.summary&&LIVE.summary.online)||0,'',450);
+  if(ck) countUp(ck,totalCk,'',450);
   if(currentView==='overview') renderTrafficPulse(); // o pulso de tráfego vive na Visão Geral
 }
 
@@ -2761,6 +2801,7 @@ function renderGlobeSide(){
   countUp(document.getElementById('gs-online'),(LIVE.summary&&LIVE.summary.online)||0,'',600);
   countUp(document.getElementById('gs-ck'),totalCk,'',600);
   var list=document.getElementById('ov-live-list'); if(!list) return;
+  list.removeAttribute('aria-busy');
   // mais quentes primeiro (checkout > ativos), limitado a 5
   var sorted=vs.slice().sort(function(a,b){
     var ac=isCheckoutLead(a)?1:0, bc=isCheckoutLead(b)?1:0;
@@ -3636,6 +3677,7 @@ function renderSetupCard(){
 // Versão completa em Configurações
 function renderHealth(){
   var grid=document.getElementById('health-grid'); if(!grid) return;
+  grid.removeAttribute('aria-busy');
   if(!HEALTH){ grid.innerHTML='<div class="muted" style="padding:8px 0;font-size:13px">Indispon&iacute;vel</div>'; return; }
   grid.innerHTML=setupChecklistHTML(false);
 }
