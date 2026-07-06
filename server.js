@@ -538,9 +538,22 @@ app.get('/go/:slug', async (req, res) => {
     return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
   }
 
-  // Rajada do mesmo IP (spy tool / clique inflado)
-  if (rateLimited(clientIp(req), 'go', 20)) {
-    return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
+  // Rajada do mesmo IP+UA (spy tool / clique inflado). A chave inclui o UA
+  // para não punir usuários reais atrás de CGNAT (operadoras móveis põem
+  // milhares de pessoas no mesmo IP — tráfego TikTok é quase todo mobile).
+  if (rateLimited(clientIp(req) + '|' + uaRaw.slice(0, 60), 'go', 30)) {
+    if (cloakOn) return res.redirect(302, whitePage);
+    // Fallback SEM contar clique, mas preservando atribuição e dispositivo:
+    // respeita urlMobile, repassa a query original (UTMs/ttclid) e, se o
+    // visitante já tem cookie v_id, anexa o lead_id para o checkout conciliar.
+    const v0 = link.variantes[0];
+    const rlDev = uaTools.parse(uaRaw);
+    const rlBase = (rlDev.device !== 'desktop' && v0.urlMobile) ? v0.urlMobile : v0.url;
+    const rlParams = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+    const rlVid = (q.vid && VID_RE.test(String(q.vid))) ? String(q.vid) : readCookie(req, 'v_id');
+    if (rlVid) { rlParams.set('lead_id', rlVid); rlParams.set('client_reference_id', rlVid); }
+    const rlQs = rlParams.toString();
+    return res.redirect(302, rlBase + (rlQs ? (rlBase.includes('?') ? '&' : '?') + rlQs : ''));
   }
 
   // ── Gate geográfico (allowlist por país) — INSTANTÂNEO, sem DNS ────────
@@ -1028,6 +1041,18 @@ app.delete('/api/domains/:host', dashboardAuth, (req, res) => {
 // Verificação em 2 passos: (1) DNS do domínio aponta para este app
 // (CNAME → appHost ou A/AAAA com IPs iguais); (2) HTTPS no domínio
 // responde o marcador /__domain-check deste app (prova final).
+// detecta IPs do proxy da Cloudflare (nuvem laranja) — mascaram o CNAME real
+function isCloudflareIp(ip) {
+  const cidrs = ['173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'];
+  const toInt = (s) => s.split('.').reduce((a, o) => ((a << 8) + (parseInt(o, 10) & 255)) >>> 0, 0);
+  const ipn = toInt(ip);
+  return cidrs.some((c) => {
+    const [net, bits] = c.split('/');
+    const mask = bits === '0' ? 0 : (~((1 << (32 - parseInt(bits, 10))) - 1)) >>> 0;
+    return (ipn & mask) === (toInt(net) & mask);
+  });
+}
+
 app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   const host = normHost((req.body || {}).host);
   if (!host) return res.status(400).json({ error: 'domínio inválido' });
@@ -1050,6 +1075,9 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
         out.dnsDetail = 'A → ' + hostIps.join(', ');
       } else if (!hostIps.length && !cnames.length) {
         out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
+      } else if (hostIps.length && hostIps.some(isCloudflareIp)) {
+        out.cloudflareProxy = true;
+        out.dnsDetail = 'proxy da Cloudflare ativo (nuvem laranja) — mude o CNAME para "Somente DNS" (nuvem cinza) e adicione o domínio na Vercel → Domains';
       } else {
         out.dnsDetail = 'DNS aponta para outro destino (' + (cnames[0] || hostIps.join(', ')) + ')';
       }
@@ -1066,6 +1094,10 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       const j = await r.json().catch(() => null);
       if (j && j.app === APP_CHECK_ID) { out.httpOk = true; out.httpDetail = 'HTTPS ativo e servido por este app'; }
       else out.httpDetail = 'HTTPS responde, mas é outro servidor — confira o DNS';
+    } else if (r.status === 404) {
+      out.httpDetail = out.cloudflareProxy
+        ? 'HTTPS 404 — a Cloudflare está no meio; desative o proxy (nuvem cinza) e adicione o domínio na Vercel → Domains'
+        : 'HTTPS respondeu 404 — adicione este domínio no painel da hospedagem (ex.: Vercel → Domains) para ele ser servido por este app';
     } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
   } catch (_) {
     out.httpDetail = out.dnsOk
