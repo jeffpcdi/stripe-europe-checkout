@@ -219,7 +219,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Middleware ────────────────────────────────────────────────────────
-app.use(express.json());
+// rawBody: necessário para verificar assinaturas HMAC de webhooks (Stripe,
+// Kiwify) — o HMAC é calculado sobre os bytes originais, não o JSON re-serializado
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf ? buf.toString('utf8') : ''; }
+}));
 // sendBeacon cross-origin manda JSON como text/plain (evita preflight CORS)
 // — parseia de volta para objeto nas rotas de rastreamento
 app.use(express.text({ type: 'text/plain', limit: '50kb' }));
@@ -411,11 +415,12 @@ app.get('/px.gif', (req, res) => {
     }
     const geo = geoFromReq(req);
     const dev = uaTools.parse(uaRaw);
+    const acc = publicAccountId(req);
     const ref = typeof req.headers.referer === 'string' ? req.headers.referer.slice(0, 300) : null;
     let landing = 'externa (sem JS)';
     try { if (ref) landing = new URL(ref).pathname.slice(0, 200); } catch (_) {}
     stats.recordVisit({
-      id: vid, ip: clientIp(req), ua: uaRaw.slice(0, 300),
+      id: vid, acc, ip: clientIp(req), ua: uaRaw.slice(0, 300),
       device: dev.device, os: dev.os, browser: dev.browser,
       referer: ref, landing,
       country: geo.country, countryName: geo.countryName, city: geo.city
@@ -427,7 +432,7 @@ app.get('/px.gif', (req, res) => {
       ttEvents.dispatchToAll('ViewContent', {
         eventId: evId, leadId: vid, ip: clientIp(req),
         userAgent: uaRaw.slice(0, 500), url: ref || undefined
-      }, landing).catch(() => {});
+      }, landing, acc).catch(() => {});
     }).catch(() => {});
   } catch (_) { /* pixel de imagem nunca derruba nada */ }
 });
@@ -465,6 +470,7 @@ app.post('/api/track', async (req, res) => {
 
     const geo = geoFromReq(req);
     const dev = uaTools.parse(uaRaw);
+    const acc = publicAccountId(req);
     const utm = (b.utm && typeof b.utm === 'object') ? b.utm : {};
     const pageUrl = typeof b.url === 'string' ? b.url.slice(0, 500) : null;
     let landing = pageUrl, site = null;
@@ -481,6 +487,7 @@ app.post('/api/track', async (req, res) => {
     // registra/enriquece o lead no funil (mesma trilha do middleware interno)
     stats.recordVisit({
       id: vid,
+      acc,
       ip: clientIp(req),
       ua: uaRaw.slice(0, 300),
       device: dev.device, os: dev.os, browser: dev.browser,
@@ -500,6 +507,7 @@ app.post('/api/track', async (req, res) => {
     }
     if (!existed) {
       stats.logEvent('visit', {
+        acc,
         title: 'Novo lead em página externa',
         landing: landing || 'externa',
         country: geo.countryName || geo.country || null,
@@ -522,7 +530,7 @@ app.post('/api/track', async (req, res) => {
         email: (lead && lead.email) || undefined,
         phone: (lead && lead.phone) || undefined,
         url: pageUrl
-      }, landing || 'externa').catch(() => {});
+      }, landing || 'externa', acc).catch(() => {});
     }
   } catch (_) { /* rastreamento nunca derruba o servidor */ }
 });
@@ -533,10 +541,12 @@ app.post('/api/track', async (req, res) => {
 // registra o clique, dispara InitiateCheckout na CAPI e repassa o leadId
 // para o checkout externo — a conversão volta pelo webhook universal.
 app.get('/go/:slug', async (req, res) => {
-  const link = linkStore.get(req.params.slug);
+  // resolve por conta: domínio personalizado → conta dona; senão 1º match
+  const link = linkStore.resolve(req.params.slug, publicAccountId(req));
   if (!link || !link.ativo || !link.variantes.length) {
     return res.status(404).send('Link não encontrado');
   }
+  const acc = link.acc || publicAccountId(req); // conta dona do link
   const q = req.query || {};
 
   const uaRaw = String(req.headers['user-agent'] || '');
@@ -548,7 +558,7 @@ app.get('/go/:slug', async (req, res) => {
   // Se urlWhitePage estiver configurada, revisores vão pra ela.
   // Se não houver white page, revisores são redirecionados para a variante
   // normal (comportamento anterior — não bloqueia o anúncio de ser aprovado).
-  const cloakCfg  = config.get().cloak || {};
+  const cloakCfg  = config.get(acc).cloak || {};
   const whitePage = link.urlWhitePage || null;
 
   // Interruptor mestre desligado OU sem white page configurada → sem cloaking.
@@ -558,6 +568,7 @@ app.get('/go/:slug', async (req, res) => {
   if (uaTools.isBot(uaRaw)) {
     // Crawlers / preview de apps: vai para white page (se cloak on) ou variante 1
     stats.logEvent('info', {
+      acc,
       title: '[cloak] bot UA → ' + (cloakOn ? 'white' : 'offer'),
       gateway: 'link:' + link.slug,
       ref: String(uaRaw).slice(0, 80)
@@ -591,6 +602,7 @@ app.get('/go/:slug', async (req, res) => {
     const cc = String(geoFromReq(req).country || '').toUpperCase();
     if (!cc || link.paises.indexOf(cc) < 0) {
       stats.logEvent('info', {
+        acc,
         title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white',
         gateway: 'link:' + link.slug,
         ref: clientIp(req)
@@ -633,6 +645,7 @@ app.get('/go/:slug', async (req, res) => {
   // Loga o julgamento para análise na dashboard (aba Atividade)
   if (judgment.verdict === 'bot') {
     stats.logEvent('info', {
+      acc,
       title: '[cloak] score=' + judgment.score + ' → white | ' + judgment.signals.slice(0, 4).join(', '),
       gateway: 'link:' + link.slug,
       ref: clientIp(req)
@@ -662,12 +675,13 @@ app.get('/go/:slug', async (req, res) => {
     appendCookie(res, `${cookieName}=${variant.id};Path=/;Max-Age=2592000;SameSite=Lax`);
   }
 
-  linkStore.recordClick(link.slug, variant.id);
+  linkStore.recordClick(acc, link.slug, variant.id);
 
   const geo = geoFromReq(req);
   const dev = uaTools.parse(uaRaw);
   // Funil: lead entrou num checkout (gateway = slug do link)
   stats.recordCheckoutEntry(visitorId, 'link:' + link.slug, {
+    acc,
     ip: clientIp(req),
     ua: uaRaw.slice(0, 300),
     device: dev.device, os: dev.os, browser: dev.browser,
@@ -680,7 +694,7 @@ app.get('/go/:slug', async (req, res) => {
     }
   });
   // guarda o link/variante no lead — atribuição da conversão no webhook universal
-  try { stats.attachTracking(visitorId, { linkSlug: link.slug, linkVariant: variant.id }); } catch (_) {}
+  try { stats.attachTracking(visitorId, { acc, linkSlug: link.slug, linkVariant: variant.id }); } catch (_) {}
 
   // TikTok CAPI: InitiateCheckout server-side (checkout externo não tem pixel nosso).
   // Este disparo acontece DEPOIS dos gates de bot/país, então só pessoas reais
@@ -703,16 +717,17 @@ app.get('/go/:slug', async (req, res) => {
       // "Pixel do link vence": se o link tem um pixel escolhido e ele está
       // ativo, dispara só nele; senão cai no comportamento por rota (todos os
       // pixels que casam /go/<slug>).
-      const linkPixel = link.pixelSlug ? pixelStore.get(link.pixelSlug) : null;
+      const linkPixel = link.pixelSlug ? pixelStore.get(acc, link.pixelSlug) : null;
       if (linkPixel && linkPixel.active && linkPixel.pixelCode && linkPixel.events && linkPixel.events.InitiateCheckout !== false) {
         ttEvents.sendToPixel(linkPixel, Object.assign({ event: 'InitiateCheckout' }, payload)).catch(() => {});
       } else {
-        ttEvents.dispatchToAll('InitiateCheckout', payload, '/go/' + link.slug).catch(() => {});
+        ttEvents.dispatchToAll('InitiateCheckout', payload, '/go/' + link.slug, acc).catch(() => {});
       }
     }
   } catch (_) { /* rastreamento nunca bloqueia o redirect */ }
 
   stats.logEvent('lead', {
+    acc,
     title: 'Clique no link de checkout "' + link.nome + '"',
     gateway: 'link:' + link.slug,
     variant: variant.nome,
@@ -735,15 +750,16 @@ app.get('/go/:slug', async (req, res) => {
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
-function bumpShortlinkClick(slug) {
+function bumpShortlinkClick(acc, slug) {
   // rate limit de 20/min por IP mantém o volume de escrita sob controle
-  const cfg = config.get();
+  const cfg = config.get(acc);
   const sl = (cfg.shortlinks || []).map((s) => s.slug === slug ? { ...s, clicks: (s.clicks || 0) + 1 } : s);
-  config.set({ shortlinks: sl });
+  config.set(acc, { shortlinks: sl });
 }
 app.get('/l/:slug', (req, res) => {
   const slug = String(req.params.slug || '').toLowerCase();
-  const item = (config.get().shortlinks || []).find((s) => s.slug === slug);
+  const acc = publicAccountId(req);
+  const item = (config.get(acc).shortlinks || []).find((s) => s.slug === slug);
   if (!item) return res.status(404).send('Link não encontrado');
   const uaRaw = String(req.headers['user-agent'] || '');
   if (uaTools.isBot(uaRaw)) return res.redirect(302, item.url); // preview de app: só redireciona
@@ -760,6 +776,7 @@ app.get('/l/:slug', (req, res) => {
     const dev = uaTools.parse(uaRaw);
     stats.recordVisit({
       id: vid,
+      acc,
       ip: clientIp(req), ua: uaRaw.slice(0, 300),
       device: dev.device, os: dev.os, browser: dev.browser,
       referer: req.headers['referer'] || null,
@@ -771,7 +788,7 @@ app.get('/l/:slug', (req, res) => {
         campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
       }
     });
-    bumpShortlinkClick(slug);
+    bumpShortlinkClick(acc, slug);
   } catch (_) { /* rastreamento nunca bloqueia o redirect */ }
 
   // repassa a query original + injeta o vid (o t.js do destino adota)
@@ -781,10 +798,10 @@ app.get('/l/:slug', (req, res) => {
   return res.redirect(302, dest);
 });
 
-// CRUD do encurtador (dashboard)
+// CRUD do encurtador (dashboard) — escopado à conta logada
 app.get('/api/shortlinks', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ shortlinks: config.get().shortlinks || [] });
+  res.json({ shortlinks: config.get(req.account.id).shortlinks || [] });
 });
 app.post('/api/shortlinks', dashboardAuth, (req, res) => {
   const b = req.body || {};
@@ -793,21 +810,21 @@ app.post('/api/shortlinks', dashboardAuth, (req, res) => {
   const url = String(b.url || '').trim();
   if (!slug) return res.status(400).json({ error: 'slug inválido' });
   if (!/^https?:\/\/.+/i.test(url)) return res.status(400).json({ error: 'URL inválida — use http(s)://' });
-  const list = (config.get().shortlinks || []).filter((s) => s.slug !== slug);
+  const list = (config.get(req.account.id).shortlinks || []).filter((s) => s.slug !== slug);
   list.unshift({ slug, nome: String(b.nome || slug).slice(0, 80), url: url.slice(0, 500), clicks: 0, createdAt: new Date().toISOString() });
-  config.set({ shortlinks: list });
+  config.set(req.account.id, { shortlinks: list });
   res.json({ ok: true, shortlink: list[0] });
 });
 app.delete('/api/shortlinks/:slug', dashboardAuth, (req, res) => {
   const slug = String(req.params.slug || '').toLowerCase();
-  config.set({ shortlinks: (config.get().shortlinks || []).filter((s) => s.slug !== slug) });
+  config.set(req.account.id, { shortlinks: (config.get(req.account.id).shortlinks || []).filter((s) => s.slug !== slug) });
   res.json({ ok: true });
 });
 
-// ── Anotações do gráfico de tendência ────────────────────────────────
+// ── Anotações do gráfico de tendência (por conta) ────────────────────
 app.get('/api/notes', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ notes: config.get().notes || [] });
+  res.json({ notes: config.get(req.account.id).notes || [] });
 });
 app.post('/api/notes', dashboardAuth, (req, res) => {
   const b = req.body || {};
@@ -815,37 +832,43 @@ app.post('/api/notes', dashboardAuth, (req, res) => {
   const text = String(b.text || '').trim().slice(0, 200);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return res.status(400).json({ error: 'data inválida (YYYY-MM-DD)' });
   if (!text) return res.status(400).json({ error: 'texto vazio' });
-  const notes = (config.get().notes || []).filter((n) => n.d !== d); // 1 nota por dia
+  const notes = (config.get(req.account.id).notes || []).filter((n) => n.d !== d); // 1 nota por dia
   notes.push({ d, text });
   notes.sort((a, b2) => a.d < b2.d ? -1 : 1);
-  config.set({ notes });
+  config.set(req.account.id, { notes });
   res.json({ ok: true });
 });
 app.delete('/api/notes/:d', dashboardAuth, (req, res) => {
-  config.set({ notes: (config.get().notes || []).filter((n) => n.d !== String(req.params.d)) });
+  config.set(req.account.id, { notes: (config.get(req.account.id).notes || []).filter((n) => n.d !== String(req.params.d)) });
   res.json({ ok: true });
 });
 
-// ── API pública read-only (token) ────────────────────────────────────
+// ── API pública read-only (token, por conta) ─────────────────────────
 // Para planilhas (IMPORTDATA), widgets e BI externo — sem expor a dash.
 app.get('/api/public-token', dashboardAuth, (req, res) => {
-  let cfg = config.get();
+  let cfg = config.get(req.account.id);
   let token = (cfg.api || {}).token;
   if (!token) {
     token = crypto.randomBytes(24).toString('hex');
-    config.set({ api: { token } });
+    config.set(req.account.id, { api: { token } });
   }
   res.set('Cache-Control', 'no-store');
   res.json({ token });
 });
 app.get('/api/v1/summary', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const token = (config.get().api || {}).token;
-  if (!token || String(req.query.token || '') !== token) {
-    return res.status(401).json({ error: 'token inválido' });
+  // token → conta dona: procura em todas as contas (token é único por conta)
+  const provided = String(req.query.token || '');
+  let tokenAcc = null;
+  if (provided) {
+    for (const accId of config.accountIds()) {
+      const t = (config.get(accId).api || {}).token;
+      if (t && safeEqual(provided, t)) { tokenAcc = accId; break; }
+    }
   }
+  if (!tokenAcc) return res.status(401).json({ error: 'token inválido' });
   if (rateLimited(clientIp(req), 'pubapi', 30)) return res.status(429).json({ error: 'rate limit' });
-  const s = stats.getStats();
+  const s = stats.getStats(tokenAcc);
   const now = Date.now();
   function within(iso, ms) { const t = new Date(iso).getTime(); return isFinite(t) && (now - t) <= ms; }
   function agg(ms) {
@@ -869,16 +892,22 @@ app.get('/api/v1/summary', (req, res) => {
 let dailyCheckBusy = false;
 function checkDailyReport() {
   if (dailyCheckBusy) return;
-  const cfg = config.get();
+  dailyCheckBusy = true;
+  try {
+    // Uma verificação por conta: cada usuário tem seu Pushcut e seu resumo.
+    for (const accId of config.accountIds()) checkDailyReportFor(accId);
+  } finally { dailyCheckBusy = false; }
+}
+function checkDailyReportFor(accId) {
+  const cfg = config.get(accId);
   const pc = cfg.pushcut || {};
   if (!pc.url || !(pc.events || {}).daily) return;
   const today = new Date().toISOString().slice(0, 10);
   if (cfg.lastDailyReport === today) return;
-  dailyCheckBusy = true;
   try {
     const y = new Date(Date.now() - 86400e3);
     const yKey = y.toISOString().slice(0, 10);
-    const s = stats.getStats();
+    const s = stats.getStats(accId);
     const dayLeads = (s.leads || []).filter((l) => !l.orphan && String(l.at || '').slice(0, 10) === yKey);
     const sales = (s.events || []).filter((e) => e.type === 'sale' && String(e.at || '').slice(0, 10) === yKey);
     const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
@@ -889,15 +918,15 @@ function checkDailyReport() {
     const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
     const cur = (sales[0] && sales[0].currency) || 'EUR';
     const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
-    config.set({ lastDailyReport: today }); // marca ANTES do envio: nunca duplica
+    config.set(accId, { lastDailyReport: today }); // marca ANTES do envio: nunca duplica
     sendPushcut('Aprovada', {
       title: 'Resumo de ' + yKey.split('-').reverse().join('/'),
       text: 'Receita: ' + (rev / 100).toFixed(2) + ' ' + cur +
         (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta + '% vs anterior)' : '') +
         '\nVendas: ' + sales.length + ' · Leads: ' + dayLeads.length + ' · Conversão: ' + conv + '%',
       sound: 'system'
-    }).catch(() => {});
-  } catch (_) {} finally { dailyCheckBusy = false; }
+    }, accId).catch(() => {});
+  } catch (_) {}
 }
 
 // ── Auth simples (Basic Auth) para a dashboard ───────────────────────
@@ -911,8 +940,12 @@ function safeEqual(a, b) {
 }
 // Guards de sessão (multi-usuário). dashboardAuth protege as APIs (401 JSON)
 // e popula req.account; pageAuth protege páginas HTML (redireciona a /login).
-const dashboardAuth = auth.requireAuth({ api: true });
-const pageAuth = auth.requireAuth();
+// Declarados como function (hoisted) — são usados por rotas definidas ANTES
+// deste ponto do arquivo.
+const _apiGuard = auth.requireAuth({ api: true });
+const _pageGuard = auth.requireAuth();
+function dashboardAuth(req, res, next) { return _apiGuard(req, res, next); }
+function pageAuth(req, res, next) { return _pageGuard(req, res, next); }
 
 // ── Rotas de autenticação (registro / login / logout) ─────────────────────
 app.get('/login', auth.optionalAuth(), (req, res) => {
@@ -968,10 +1001,10 @@ app.get('/api/me', dashboardAuth, (req, res) => {
   res.json({ email: req.account.email, name: req.account.name, role: req.account.role });
 });
 
-// ── API: estatísticas do teste A/B ──────���────────────────────────────
+// ── API: estatísticas (escopadas à conta logada) ─────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store'); // dados ao vivo — nunca cachear em proxies
-  res.json(stats.getStats());
+  res.json(stats.getStats(req.account.id));
   checkDailyReport(); // dashboard aberta também dispara o resumo pendente
   });
 
@@ -986,6 +1019,7 @@ app.post('/api/pulse', (req, res) => {
     const geo = geoFromReq(req);
     presence.touch({
       visitorId: id,
+      acc: publicAccountId(req),
       page: b.page ? String(b.page).slice(0, 300) : null,
       referrer: b.referrer ? String(b.referrer).slice(0, 300) : null,
       country: geo.country, countryName: geo.countryName, city: geo.city,
@@ -1010,12 +1044,13 @@ app.post('/api/pulse/leave', (req, res) => {
 app.get('/api/live', dashboardAuth, async (req, res) => {
   try {
     // presence.list() e summary() são agora async (mescla memória + Redis)
-    const [visitors, presenceSummary] = await Promise.all([presence.list(), presence.summary()]);
+    const accId = req.account.id;
+    const [visitors, presenceSummary] = await Promise.all([presence.list(accId), presence.summary(accId)]);
     // Checkouts são EXTERNOS (sem script nosso lá) → estimativa via janela
     // de entrada de 10min (leads que clicaram num /go/ recentemente).
     let checkoutEst = 0;
     try {
-      const now = stats.inCheckoutNow();
+      const now = stats.inCheckoutNow(undefined, accId);
       checkoutEst = Object.values(now).reduce((a, b) => a + (b || 0), 0);
     } catch (_) {}
     res.json({
@@ -1029,16 +1064,16 @@ app.get('/api/live', dashboardAuth, async (req, res) => {
   }
 });
 
-// ═══ Links de Checkout — CRUD + validação de domínio (dashboard) ══════
+// ═══ Links de Checkout — CRUD + validação de domínio (por conta) ══════
 app.get('/api/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ links: linkStore.list() });
+  res.json({ links: linkStore.list(req.account.id) });
 });
 
 app.post('/api/links', dashboardAuth, async (req, res) => {
   try {
-    const saved = await linkStore.save(req.body || {});
-    stats.logEvent('info', { title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
+    const saved = await linkStore.save(req.account.id, req.body || {});
+    stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
     res.json({ ok: true, link: saved });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1047,8 +1082,8 @@ app.post('/api/links', dashboardAuth, async (req, res) => {
 
 app.delete('/api/links/:slug', dashboardAuth, async (req, res) => {
   try {
-    await linkStore.remove(req.params.slug);
-    stats.logEvent('info', { title: 'Link de checkout removido', ref: req.params.slug });
+    await linkStore.remove(req.account.id, req.params.slug);
+    stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout removido', ref: req.params.slug });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1089,7 +1124,7 @@ app.get('/__domain-check', (_req, res) => {
 app.get('/api/domains', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({
-    domains: config.get().customDomains || [],
+    domains: config.get(req.account.id).customDomains || [],
     // host principal do app — alvo do CNAME nas instruções de DNS
     appHost: String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim()
   });
@@ -1098,18 +1133,22 @@ app.get('/api/domains', dashboardAuth, (req, res) => {
 app.post('/api/domains', dashboardAuth, (req, res) => {
   const host = normHost((req.body || {}).host);
   if (!host) return res.status(400).json({ error: 'domínio inválido (ex.: link.seudominio.com)' });
-  const cur = config.get().customDomains || [];
+  // domínio precisa ser único ENTRE TODAS as contas: ele identifica a conta
+  // dona do tráfego público (publicAccountId) — duas contas não podem tê-lo
+  const owner = config.accountForDomain(host);
+  if (owner && owner !== req.account.id) return res.status(400).json({ error: 'domínio já cadastrado em outra conta' });
+  const cur = config.get(req.account.id).customDomains || [];
   if (cur.some((d) => d.host === host)) return res.status(400).json({ error: 'domínio já cadastrado' });
   if (cur.length >= 20) return res.status(400).json({ error: 'limite de 20 domínios' });
-  config.set({ customDomains: cur.concat([{ host, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() }]) });
-  stats.logEvent('info', { title: 'Domínio personalizado adicionado: ' + host });
+  config.set(req.account.id, { customDomains: cur.concat([{ host, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() }]) });
+  stats.logEvent('info', { acc: req.account.id, title: 'Domínio personalizado adicionado: ' + host });
   res.json({ ok: true, host });
 });
 
 app.delete('/api/domains/:host', dashboardAuth, (req, res) => {
   const host = normHost(req.params.host);
-  const cur = config.get().customDomains || [];
-  config.set({ customDomains: cur.filter((d) => d.host !== host) });
+  const cur = config.get(req.account.id).customDomains || [];
+  config.set(req.account.id, { customDomains: cur.filter((d) => d.host !== host) });
   res.json({ ok: true });
 });
 
@@ -1184,20 +1223,20 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   out.ok = out.httpOk || out.dnsOk;
   if (out.ok) {
     const now = new Date().toISOString();
-    const cur = config.get().customDomains || [];
+    const cur = config.get(req.account.id).customDomains || [];
     const has = cur.some((d) => d.host === host);
     const next = has
       ? cur.map((d) => d.host === host ? Object.assign({}, d, { verificado: true, verificadoEm: now }) : d)
       : cur.concat([{ host, verificado: true, verificadoEm: now, criadoEm: now }]);
-    config.set({ customDomains: next });
+    config.set(req.account.id, { customDomains: next });
   }
   res.json(out);
 });
 
-// ═══ Pushcut — notificações configuráveis pela dashboard ═════════════
+// ═══ Pushcut — notificações configuráveis pela dashboard (por conta) ══
 app.get('/api/pushcut-config', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const cfg = config.get();
+  const cfg = config.get(req.account.id);
   const pc = cfg.pushcut || {};
   res.json({
     // mascara a URL (contém o segredo do Pushcut)
@@ -1209,7 +1248,7 @@ app.get('/api/pushcut-config', dashboardAuth, (req, res) => {
 
 app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
   const b = req.body || {};
-  const cur = config.get();
+  const cur = config.get(req.account.id);
   const pc = Object.assign({}, cur.pushcut || {});
   // URL só é substituída se vier completa (não mascarada)
   if (typeof b.url === 'string' && b.url.indexOf('••••') === -1) {
@@ -1223,14 +1262,14 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
     ['sale', 'failed', 'refund', 'dispute', 'checkout'].forEach((k) => { if (b.events[k] === false) pc.events[k] = false; });
     pc.events.daily = b.events.daily === true; // opt-in explícito (relatório diário)
   }
-  config.set({ pushcut: pc });
+  config.set(req.account.id, { pushcut: pc });
   res.json({ ok: true });
 });
 
-// ── Filtro de Bots / Revisores TikTok (cloaking) ───────────────────────────
+// ── Filtro de Bots / Revisores TikTok (cloaking, por conta) ────────────────
 app.get('/api/cloak-config', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const c = config.get().cloak || {};
+  const c = config.get(req.account.id).cloak || {};
   res.json(Object.assign({}, botFilter.DEFAULT_CONFIG, c, {
     sensitivityThresholds: botFilter.SENSITIVITY_THRESHOLDS
   }));
@@ -1238,7 +1277,7 @@ app.get('/api/cloak-config', dashboardAuth, (req, res) => {
 
 app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   const b = req.body || {};
-  const cur = config.get().cloak || {};
+  const cur = config.get(req.account.id).cloak || {};
   const next = Object.assign({}, cur);
   const boolKeys = ['enabled', 'blockDatacenter', 'blockHeadless', 'checkHeaders',
     'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang'];
@@ -1246,15 +1285,15 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
   if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
   if (b.deadlineMs != null && !isNaN(Number(b.deadlineMs))) next.deadlineMs = Number(b.deadlineMs);
-  config.set({ cloak: next });
-  res.json({ ok: true, cloak: config.get().cloak });
+  config.set(req.account.id, { cloak: next });
+  res.json({ ok: true, cloak: config.get(req.account.id).cloak });
 });
 
 // ── Regras de cloaking POR LINK (offer/white/países/pixel) ─────────────────
 // Lista os links com suas regras + os pixels disponíveis para o dropdown.
 app.get('/api/cloak/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const links = linkStore.list().map((l) => ({
+  const links = linkStore.list(req.account.id).map((l) => ({
     slug: l.slug,
     nome: l.nome,
     dominio: l.dominio || null,
@@ -1265,7 +1304,7 @@ app.get('/api/cloak/links', dashboardAuth, (req, res) => {
     paises: Array.isArray(l.paises) ? l.paises : [],
     pixelSlug: l.pixelSlug || ''
   }));
-  const pixels = pixelStore.list().map((p) => ({
+  const pixels = pixelStore.list(req.account.id).map((p) => ({
     slug: p.slug, name: p.name, active: p.active !== false, pixelCode: !!p.pixelCode
   }));
   res.json({ links, pixels });
@@ -1276,7 +1315,7 @@ app.get('/api/cloak/links', dashboardAuth, (req, res) => {
 // sincronizando o pixel com o domínio+slug deste link.
 app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
   const b = req.body || {};
-  const link = linkStore.get(req.params.slug);
+  const link = linkStore.get(req.account.id, req.params.slug);
   if (!link) return res.status(404).json({ error: 'Link não encontrado' });
 
   const patch = { slug: link.slug };
@@ -1286,7 +1325,7 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
 
   let saved;
   try {
-    saved = await linkStore.save(Object.assign({}, link, patch));
+    saved = await linkStore.save(req.account.id, Object.assign({}, link, patch));
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
@@ -1294,14 +1333,14 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
   // Sincroniza o pixel escolhido com este link (adiciona /go/<slug> às rotas)
   let pixelSynced = false;
   if (b.syncPixel === true && saved.pixelSlug) {
-    const px = pixelStore.get(saved.pixelSlug);
+    const px = pixelStore.get(req.account.id, saved.pixelSlug);
     if (px) {
       const route = '/go/' + saved.slug;
       const routes = Array.isArray(px.routes) ? px.routes.slice() : [];
       // se já cobre tudo ('*') ou já tem a rota, não duplica
       if (routes.indexOf('*') < 0 && routes.indexOf(route) < 0) {
         routes.push(route);
-        try { await pixelStore.save({ slug: px.slug, routes }); pixelSynced = true; } catch (_) {}
+        try { await pixelStore.save(req.account.id, { slug: px.slug, routes }); pixelSynced = true; } catch (_) {}
       } else { pixelSynced = true; }
     }
   }
@@ -1319,7 +1358,7 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
 // mostra na dashboard como o próprio admin seria classificado (deve dar 'real').
 app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const cloakCfg = config.get().cloak || {};
+  const cloakCfg = config.get(req.account.id).cloak || {};
   const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
   const j = await botFilter.judge(filterReq, 'admin-test', null, {}, cloakCfg)
     .catch((e) => ({ verdict: 'erro', score: 0, signals: ['erro:' + e.message] }));
@@ -1335,7 +1374,7 @@ app.post('/api/pushcut/test', dashboardAuth, async (req, res) => {
     title: 'Teste de notificação — ROI-NADOS',
     text: 'Se você recebeu isto, o Pushcut está configurado corretamente.\nData: ' + fmtDate(),
     sound: 'system'
-  });
+  }, req.account.id);
   res.json({ ok });
 });
 
@@ -1348,9 +1387,9 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({
     conversionWebhook: !!process.env.CONVERSION_WEBHOOK_SECRET,
-    tiktok:      !!process.env.TIKTOK_ACCESS_TOKEN,
-    pushcut:     !!((config.get().pushcut || {}).url || process.env.PUSHCUT_WEBHOOK_URL),
-    dashboard:   !!process.env.DASHBOARD_PASSWORD,
+    tiktok:      pixelStore.list(req.account.id).some((p) => p.active && p.accessToken),
+    pushcut:     !!((config.get(req.account.id).pushcut || {}).url || process.env.PUSHCUT_WEBHOOK_URL),
+    dashboard:   true, // sessão obrigatória — sempre protegida
     db:          dbPing.ok,
     dbLatencyMs: dbPing.ok ? dbPing.latencyMs : null,
     redis:       redisPing.ok,
@@ -1392,7 +1431,7 @@ const PUSHCUT_EVENT_MAP = {
 function notifyPushcut(event, n) {
   const map = PUSHCUT_EVENT_MAP[event];
   if (!map) return;
-  const cfg = config.get().pushcut || {};
+  const cfg = config.get(n.acc).pushcut || {};
   const events = Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false }, cfg.events || {});
   if (!events[map.key]) return;
   const valor = fmtMoney(n.amountCents, n.currency);
@@ -1415,7 +1454,7 @@ function notifyPushcut(event, n) {
     ].filter(Boolean).join('\n'),
     sound: 'system',
     isTimeSensitive: map.key === 'sale' || map.key === 'dispute'
-  }).catch(() => {});
+  }, n.acc).catch(() => {});
 }
 
 // Achata payloads aninhados: Kiwify manda {order:{…}, Customer:{…}, Commissions:{…}},
@@ -1526,6 +1565,7 @@ async function processConversion(n) {
   const evId = n.event + '.' + n.gateway + '.' + n.orderId;
   const receipt = {
     at: new Date().toISOString(),
+    acc: n.acc || null,
     gateway: n.gateway, event: n.event, orderId: n.orderId,
     amount: n.amountCents, currency: n.currency
   };
@@ -1537,10 +1577,12 @@ async function processConversion(n) {
       return receipt;
     }
     // 2. resolve o lead no backend: leadId → e-mail → telefone → órfão
+    // (com n.acc definido, o match respeita a fronteira da conta)
     let lead = n.leadId ? stats.getLead(n.leadId) : null;
+    if (lead && n.acc && lead.acc && lead.acc !== n.acc) lead = null;
     let matchVia = lead ? 'leadId' : null;
-    if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email); if (lead) matchVia = 'email'; } catch (_) {} }
-    if (!lead && n.phone) { try { lead = stats.findLeadByPhone(n.phone); if (lead) matchVia = 'phone'; } catch (_) {} }
+    if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email, n.acc); if (lead) matchVia = 'email'; } catch (_) {} }
+    if (!lead && n.phone) { try { lead = stats.findLeadByPhone(n.phone, n.acc); if (lead) matchVia = 'phone'; } catch (_) {} }
     receipt.match = matchVia || 'órfã';
     receipt.leadId = lead ? lead.id : null;
 
@@ -1559,6 +1601,7 @@ async function processConversion(n) {
       const titleMap = { Refund: 'Reembolso', Dispute: 'Disputa / chargeback', Failed: 'Pagamento recusado' };
       try {
         stats.logEvent(typeMap[n.event], {
+          acc: n.acc || (lead && lead.acc) || null,
           title: titleMap[n.event] + ' (' + n.gateway + ')',
           amount: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email,
@@ -1573,13 +1616,16 @@ async function processConversion(n) {
 
     // 3. registra a venda no dashboard (só CompletePayment)
     if (n.event === 'CompletePayment' && n.registerSale) {
+      const saleAcc = n.acc || (lead && lead.acc) || null;
       try {
         const matched = stats.matchExternalConversion({
+          acc: saleAcc,
           leadId: lead ? lead.id : null, gateway: n.gateway,
           amountCents: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email, phone: n.phone, ref: n.orderId
         });
         stats.logEvent('sale', {
+          acc: saleAcc,
           title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
           amount: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email,
@@ -1589,7 +1635,7 @@ async function processConversion(n) {
       // Atribuição ao link/variante que originou o clique (teste A/B)
       try {
         if (lead && lead.linkSlug) {
-          linkStore.recordConversion(lead.linkSlug, lead.linkVariant, n.amountCents, n.currency);
+          linkStore.recordConversion(saleAcc, lead.linkSlug, lead.linkVariant, n.amountCents, n.currency);
           receipt.link = lead.linkSlug;
         }
       } catch (_) {}
@@ -1601,6 +1647,7 @@ async function processConversion(n) {
       if (lead) {
         try {
           stats.recordCheckoutEntry(lead.id, n.gateway, {
+            acc: n.acc || lead.acc || undefined,
             email: n.email || undefined,
             phone: n.phone || undefined,
             customer: n.name || undefined
@@ -1630,7 +1677,7 @@ async function processConversion(n) {
         price: n.amountCents ? n.amountCents / 100 : undefined,
         quantity: 1
       }] : undefined
-    }, '*');
+    }, '*', n.acc || (lead && lead.acc) || null);
     const errs = (r.results || []).filter((x) => x && (x.error || (x.code != null && x.code !== 0))).length;
     receipt.status = r.dispatched === 0 ? 'sem pixel' : (errs ? ('erro em ' + errs + '/' + r.dispatched) : 'ok');
     receipt.dispatched = r.dispatched;
@@ -1669,7 +1716,99 @@ app.post('/api/conversion', (req, res) => {
   }
   // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
   res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
+  // legado (sem conta no token): atribui à conta padrão
+  n.acc = _defaultAccountId;
   processConversion(n).catch(() => {});
+});
+
+// ═══ Webhook DEDICADO por gateway (multi-tenant): POST /hook/:token ═══
+// Cada gateway cadastrado na dashboard tem um token único que identifica
+// a CONTA e o PROVIDER — cole a URL no painel do gateway e pronto.
+// Suporta assinatura por provider (Stripe whsec, Hotmart hottok, Kiwify
+// signature) e adapta payloads específicos antes do normalizador genérico.
+app.post('/hook/:token', (req, res) => {
+  const token = String(req.params.token || '').slice(0, 64);
+  const gw = gatewayStore.findByToken(token);
+  if (!gw) return res.status(404).json({ ok: false, error: 'webhook não encontrado' });
+
+  // 1. autentica conforme o provider (token da URL já é um segredo forte)
+  const sig = gatewayStore.verifySignature(gw, req);
+  if (!sig.ok) {
+    gatewayStore.touch(gw.id, 'assinatura inválida');
+    rdb.pushConversionLog({
+      at: new Date().toISOString(), acc: gw.accountId,
+      gateway: gw.provider, event: 'rejeitado', status: 'erro', error: sig.reason
+    }).catch(() => {});
+    return res.status(401).json({ ok: false, error: sig.reason });
+  }
+
+  // 2. adapta payload específico do provider → normalizador genérico
+  const adapted = gatewayStore.adaptPayload(gw.provider, req.body);
+  const n = normalizeConversion(adapted, { gateway: gw.provider });
+  if (n.error) {
+    gatewayStore.touch(gw.id, 'formato inválido');
+    rdb.pushConversionLog({
+      at: new Date().toISOString(), acc: gw.accountId,
+      gateway: gw.provider, event: 'formato inválido', status: 'erro',
+      error: n.error, keys: Object.keys(req.body || {}).slice(0, 20).join(',').slice(0, 300)
+    }).catch(() => {});
+    return res.status(400).json({ ok: false, error: n.error });
+  }
+
+  // 3. resposta imediata + processamento em background NA CONTA DO GATEWAY
+  res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId });
+  n.acc = gw.accountId;
+  n.gatewayId = gw.id;
+  gatewayStore.touch(gw.id, 'ok: ' + n.event);
+  processConversion(n).catch(() => {});
+});
+
+// ═══ CRUD de gateways (dashboard, por conta) ══════════════════════════
+app.get('/api/gateways', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+  res.json({
+    providers: Object.keys(gatewayStore.PROVIDERS).map((k) => ({
+      id: k,
+      label: gatewayStore.PROVIDERS[k].label,
+      secretLabel: gatewayStore.PROVIDERS[k].secretLabel,
+      docs: gatewayStore.PROVIDERS[k].docs
+    })),
+    gateways: gatewayStore.list(req.account.id).map((g) => ({
+      id: g.id, provider: g.provider, name: g.name,
+      webhookUrl: proto + '://' + host + '/hook/' + g.webhookToken,
+      hasSecret: !!g.secret,
+      lastEventAt: g.lastEventAt, lastEventStatus: g.lastEventStatus,
+      createdAt: g.createdAt
+    }))
+  });
+});
+
+app.post('/api/gateways', dashboardAuth, async (req, res) => {
+  try {
+    const saved = await gatewayStore.save(req.account.id, req.body || {});
+    stats.logEvent('info', { acc: req.account.id, title: 'Gateway salvo: ' + saved.name + ' (' + saved.provider + ')' });
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+    res.json({
+      ok: true,
+      gateway: {
+        id: saved.id, provider: saved.provider, name: saved.name,
+        webhookUrl: proto + '://' + host + '/hook/' + saved.webhookToken,
+        hasSecret: !!saved.secret
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/gateways/:id', dashboardAuth, async (req, res) => {
+  const ok = await gatewayStore.remove(req.account.id, String(req.params.id || ''));
+  if (!ok) return res.status(404).json({ error: 'gateway não encontrado' });
+  stats.logEvent('info', { acc: req.account.id, title: 'Gateway removido', ref: req.params.id });
+  res.json({ ok: true });
 });
 
 // Teste do webhook direto da dashboard (protegido): injeta um payload de
@@ -1690,6 +1829,7 @@ app.post('/api/conversion/test', dashboardAuth, async (req, res) => {
     // dry-run: percorre o fluxo real (dedup, match, log) mas NÃO registra
     // venda nas estatísticas nem dispara a CAPI de verdade
     n.dryRun = true;
+    n.acc = req.account.id;
     const receipt = await processConversion(n);   // aguarda para devolver o recibo
     res.json({ ok: true, receipt });
   } catch (err) {
@@ -1699,12 +1839,14 @@ app.post('/api/conversion/test', dashboardAuth, async (req, res) => {
 
 // Log dos webhooks recebidos (painel, aba Pixels). Protegido por dashboardAuth;
 // devolve o segredo para o painel montar a URL de configuração do gateway.
+// Filtra por conta: cada usuário só vê os webhooks dos SEUS gateways.
 app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
-  const log = await rdb.loadConversionLog(50);
+  const log = await rdb.loadConversionLog(200);
+  const own = (log || []).filter((r) => !r.acc || r.acc === req.account.id).slice(0, 50);
   res.json({
     configured: !!process.env.CONVERSION_WEBHOOK_SECRET,
-    secret: process.env.CONVERSION_WEBHOOK_SECRET || '',
-    log: log || []
+    secret: req.account.role === 'admin' ? (process.env.CONVERSION_WEBHOOK_SECRET || '') : '',
+    log: own
   });
 });
 
@@ -1720,7 +1862,7 @@ app.get('/px.js', (req, res) => {
   try { route = new URL(req.headers.referer || 'https://x/').pathname || '/'; } catch (_) {}
   if (req.query.p) route = String(req.query.p);
 
-  const pixels = pixelStore.forRoute(route);
+  const pixels = pixelStore.forRoute(publicAccountId(req), route);
   if (!pixels.length) return res.send('/* nenhum pixel ativo para esta rota */');
 
   const vId = readCookie(req, 'v_id') || '';
@@ -1765,6 +1907,53 @@ app.get('/px.js', (req, res) => {
   res.send(js);
 });
 
+// ── /px/:token.js — SCRIPT INDIVIDUAL POR PIXEL (estilo Xtracky) ─────────
+// Cada pixel tem um token único; cole em QUALQUER página (deste app ou
+// externa): <script src="https://SEU-DOMINIO/px/px_xxxx.js" defer></script>
+// O script carrega SÓ aquele pixel, identifica o visitante e espelha os
+// eventos no servidor (CAPI) com dedup — independe de rotas configuradas.
+app.get('/px/:token.js', (req, res) => {
+  res.set({
+    'Content-Type': 'application/javascript; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Access-Control-Allow-Origin': '*'   // páginas externas podem carregar
+  });
+  const token = String(req.params.token || '').slice(0, 64);
+  const px = pixelStore.getByToken(token);
+  if (!px || px.active === false || !px.pixelCode) {
+    return res.send('/* pixel não encontrado ou inativo */');
+  }
+  const vId = readCookie(req, 'v_id') || '';
+  const extId = vId ? ttEvents.externalIdFromLead(vId) : '';
+  const hk = hourKey();
+  const evs = [];
+  if (vId && px.events && px.events.ViewContent) {
+    evs.push({ n: 'ViewContent', id: 'ViewContent.' + vId + '.' + hk });
+  }
+
+  const js = [
+    '!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)}}(window,document,"ttq");',
+    'ttq.load(' + JSON.stringify(px.pixelCode) + ');',
+    extId ? 'ttq.identify({external_id:' + JSON.stringify(extId) + '});' : '',
+    'ttq.page();',
+    evs.map((e) =>
+      'ttq.track(' + JSON.stringify(e.n) + ',{},{event_id:' + JSON.stringify(e.id) + '});'
+    ).join('\n'),
+    // beacon → espelho server-side (CAPI) apontando para ESTE pixel (token)
+    'try{',
+    '  var _c=function(n){var m=document.cookie.match(new RegExp("(?:^|; )"+n+"=([^;]*)"));return m?decodeURIComponent(m[1]):null};',
+    '  var _q=new URLSearchParams(location.search);',
+    '  var _p={px:' + JSON.stringify(token) + ',events:' + JSON.stringify(evs.map((e) => ({ n: e.n, id: e.id }))) + ',url:location.href,ttclid:_q.get("ttclid")||_c("ttclid")||null,ttp:_c("_ttp")||null};',
+    '  if(_p.events.length){var _b=JSON.stringify(_p);',
+    '    if(navigator.sendBeacon){navigator.sendBeacon("/api/px/event",new Blob([_b],{type:"application/json"}))}',
+    '    else{fetch("/api/px/event",{method:"POST",headers:{"Content-Type":"application/json"},body:_b,keepalive:true})}',
+    '  }',
+    '}catch(_){}'
+  ].filter(Boolean).join('\n');
+
+  res.send(js);
+});
+
 // ── Beacon do navegador → espelho server-side (CAPI) com o mesmo event_id.
 app.post('/api/px/event', (req, res) => {
   // Responde IMEDIATAMENTE: sendBeacon não lê a resposta, e o disparo CAPI
@@ -1787,6 +1976,10 @@ app.post('/api/px/event', (req, res) => {
     // de visitas anteriores) — todo disparo sai com o sinal máximo disponível
     let leadPx = null;
     if (vId) { try { leadPx = stats.getLead(vId); } catch (_) {} }
+    // b.px = token do script individual (/px/:token.js): espelha SÓ naquele
+    // pixel. Sem token (loader /px.js por rota): dispatchToAll da conta.
+    const tokenPixel = b.px ? pixelStore.getByToken(String(b.px).slice(0, 64)) : null;
+    const acc = tokenPixel ? (tokenPixel.acc || null) : publicAccountId(req);
     // dedup + disparo em PARALELO (antes era serial: 1 roundtrip Redis por evento)
     events.forEach((e) => {
       const name = String(e.n || '').slice(0, 40);
@@ -1795,7 +1988,8 @@ app.post('/api/px/event', (req, res) => {
       if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) return; // whitelist
       seenPixelEvent(evId).then((seen) => {
         if (seen) return; // já disparado pelo middleware/rota
-        return ttEvents.dispatchToAll(name, {
+        const payload = {
+          event: name,
           eventId: evId,
           leadId: vId || undefined,
           email: (leadPx && leadPx.email) || undefined,
@@ -1805,20 +1999,27 @@ app.post('/api/px/event', (req, res) => {
           ttclid: (b.ttclid ? String(b.ttclid).slice(0, 500) : undefined) || (leadPx && leadPx.ttclid) || undefined,
           ttp: (b.ttp ? String(b.ttp).slice(0, 500) : undefined) || (leadPx && leadPx.ttp) || undefined,
           url: b.url ? String(b.url).slice(0, 500) : undefined
-        }, route);
+        };
+        if (tokenPixel) return ttEvents.sendToPixel(tokenPixel, payload);
+        return ttEvents.dispatchToAll(name, payload, route, acc);
       }).catch(() => {});
     });
   } catch (_) { /* beacon nunca propaga erro */ }
 });
 
-// ── APIs de gestão de pixels (dashboard) ────��───────────────────────────
+// ── APIs de gestão de pixels (dashboard, por conta) ─────────────────────
 app.get('/api/pixels', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
   // mascara o token na listagem (só mostra últimos 4 chars)
-  const list = pixelStore.list().map((p) => ({
+  const list = pixelStore.list(req.account.id).map((p) => ({
     ...p,
     accessToken: p.accessToken ? '••••' + p.accessToken.slice(-4) : '',
-    hasToken: !!p.accessToken
+    hasToken: !!p.accessToken,
+    // script individual deste pixel (estilo Xtracky): cole em qualquer página
+    scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,
+    scriptTag: p.token ? '<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null
   }));
   res.json({ pixels: list, dir: 'pixels/' });
 });
@@ -1829,12 +2030,19 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
     if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
     // Se editar sem reenviar token, mantém o existente (o form manda mascarado)
     if (b.slug && b.accessToken && b.accessToken.indexOf('••••') === 0) {
-      const existing = pixelStore.get(pixelStore.slugify(b.slug));
+      const existing = pixelStore.get(req.account.id, pixelStore.slugify(b.slug));
       if (existing) b.accessToken = existing.accessToken;
     }
-    const saved = await pixelStore.save(b);
-    stats.logEvent('info', { title: 'Pixel TikTok salvo: ' + saved.name, ref: saved.slug });
-    res.json({ ok: true, pixel: { ...saved, accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '' } });
+    const saved = await pixelStore.save(req.account.id, b);
+    stats.logEvent('info', { acc: req.account.id, title: 'Pixel TikTok salvo: ' + saved.name, ref: saved.slug });
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+    res.json({ ok: true, pixel: {
+      ...saved,
+      accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '',
+      scriptUrl: saved.token ? proto + '://' + host + '/px/' + saved.token + '.js' : null,
+      scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>' : null
+    } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1842,8 +2050,8 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
 
 app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
   try {
-    await pixelStore.remove(req.params.slug);
-    stats.logEvent('info', { title: 'Pixel TikTok removido', ref: req.params.slug });
+    await pixelStore.remove(req.account.id, req.params.slug);
+    stats.logEvent('info', { acc: req.account.id, title: 'Pixel TikTok removido', ref: req.params.slug });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1855,7 +2063,7 @@ app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
 app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
   try {
     const slug = pixelStore.slugify(req.body.slug || '');
-    const pixel = pixelStore.get(slug);
+    const pixel = pixelStore.get(req.account.id, slug);
     if (!pixel) return res.status(404).json({ error: 'pixel não encontrado' });
     // ip/ua de quem clicou: a Events API exige identidade de usuário no evento
     const result = await ttEvents.testPixel(pixel, {
@@ -1868,15 +2076,14 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
   }
 });
 
-// Log de disparos CAPI (memória rápida + histórico do banco)
+// Log de disparos CAPI (memória rápida + histórico do banco, por conta)
 app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   // 1. tenta memória local + Redis (recentLogAsync faz fallback automático)
-  const rows = await ttEvents.recentLogAsync(100);
+  const rows = await ttEvents.recentLogAsync(100, req.account.id);
   if (rows.length) return res.json({ log: rows, source: 'redis' });
-  // 2. fallback Neon (backup estruturado para quando Redis não est�� disponível)
-  const db = require('./db');
-  const dbRows = await db.loadPixelEvents(100);
+  // 2. fallback Neon (backup estruturado para quando Redis não está disponível)
+  const dbRows = await db.loadPixelEvents(req.account.id, 100);
   res.json({ log: (dbRows || []).map((r) => ({
     id: r.id, at: r.at, pixel: r.pixel, event: r.event,
     eventId: r.event_id, leadId: r.lead_id, status: r.status, response: r.response
@@ -1887,7 +2094,7 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
 // tamanho da fila de retry — visão imediata de "está tudo disparando?"
 app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const rows = await ttEvents.recentLogAsync(200);
+  const rows = await ttEvents.recentLogAsync(200, req.account.id);
   const total = rows.length;
   const ok = rows.filter((r) => r.status === 'ok').length;
   const byEvent = {};
@@ -1920,12 +2127,12 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
 });
 
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {
-  stats.reset();
+  stats.reset(req.account.id); // zera SÓ os dados da conta logada
   res.json({ ok: true });
 });
 
-// ── Dashboard (HTML inline, protegida) ─────���─────────────────────────
-app.get('/dashboard', dashboardAuth, (req, res) => {
+// ── Dashboard (HTML inline, protegida por sessão) ────────────────────
+app.get('/dashboard', pageAuth, (req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(DASHBOARD_HTML);
 });
@@ -1951,24 +2158,27 @@ app.get('/termos', (req, res) => {
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d' }));
 
 // ── Iniciar servidor ─────────────────────────────────────────────────
-// Hidrata stats E config a partir do Neon ANTES de escutar, para que os
-// dados de vários dias já estejam disponíveis no primeiro request pós-deploy.
+// Hidrata stats, config, pixels, links e gateways a partir do Neon ANTES
+// de escutar, para que os dados de todas as contas já estejam disponíveis
+// no primeiro request pós-deploy.
 stats.hydrate()
   .then(() => config.hydrate())
   .then(() => pixelStore.init())
   .then(() => linkStore.init())
+  .then(() => gatewayStore.init())
+  .then(() => refreshDefaultAccount())
   .finally(() => {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Servidor rodando na porta ${PORT}`);
-      console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
+      console.log(`   Neon (persistência): ${db.enabled ? '✅ ativa' : '❌ desativada'}`);
     });
 
-    // ── Manutenção periódica ────────��────────────────────────────────
+    // ── Manutenção periódica ─────────────────────────────────────────
     // 1. Prune do mapa de presença em memória (remove sessões expiradas
     //    mesmo sem ninguém consultar /api/live).
     setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();
     // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
-    const db = require('./db');
     setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 24 * 60 * 60 * 1000).unref();
     setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 30 * 1000).unref();
+    // 3. Sessões de login expiradas: o próprio auth.js agenda o prune (1x/h).
   });

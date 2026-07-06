@@ -1629,6 +1629,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <div class="segment tracking-tabs" id="tracking-tabs" hidden>
         <button data-t="links" class="active">Links de Checkout</button>
         <button data-t="pixels">Pixel TikTok</button>
+        <button data-t="gateways">Gateways</button>
         <button data-t="cloak">Filtro de Bots</button>
       </div>
 
@@ -2083,6 +2084,43 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Qualidade</th><th>Status</th><th>Resposta</th></tr></thead>
               <tbody id="px-log"></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Gateways de pagamento (webhook dedicado por gateway) ── -->
+      <section class="view" id="view-gateways">
+        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Um webhook exclusivo para cada gateway</b><p>Cadastre seu gateway (Kiwify, Hotmart, Stripe&hellip;) e receba uma URL &uacute;nica e secreta. Cole a URL no painel do gateway e as vendas caem aqui automaticamente &mdash; cada conta enxerga s&oacute; os pr&oacute;prios webhooks.</p></div></div>
+        <div class="grid dynamic-grid" id="gw-grid">
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <h3 style="font-size:16px">Meus gateways</h3>
+              <button class="btn btn-sm primary" id="gw-new">+ Adicionar gateway</button>
+            </div>
+            <div id="gw-list"></div>
+          </div>
+          <div class="card" id="gw-form-card" style="display:none">
+            <h3 style="font-size:16px;margin-bottom:6px" id="gw-form-title">Novo gateway</h3>
+            <p class="hint" style="margin:0 0 14px;line-height:1.7">Escolha a plataforma e d&ecirc; um nome. Ao salvar, voc&ecirc; recebe a URL do webhook para colar no painel do gateway.</p>
+            <input type="hidden" id="gw-id" value="">
+            <div class="form-row">
+              <label>Plataforma</label>
+              <select class="inp" id="gw-provider" style="width:100%"></select>
+              <p class="hint" id="gw-provider-docs" style="margin-top:6px;line-height:1.7"></p>
+            </div>
+            <div class="form-row">
+              <label>Nome <span class="hint">&mdash; s&oacute; para voc&ecirc; identificar</span></label>
+              <input class="inp" id="gw-name" placeholder="Loja Espanha" style="width:100%">
+            </div>
+            <div class="form-row" id="gw-secret-row">
+              <label id="gw-secret-label">Segredo (opcional)</label>
+              <input class="inp" id="gw-secret" placeholder="cole aqui o segredo do gateway" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
+              <p class="hint" style="margin-top:6px;line-height:1.7">Sem segredo, o token secreto da URL j&aacute; autentica os webhooks.</p>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:14px">
+              <button class="btn btn-sm primary" id="gw-save">Salvar gateway</button>
+              <button class="btn btn-sm" id="gw-cancel">Cancelar</button>
+            </div>
           </div>
         </div>
       </section>
@@ -4133,6 +4171,7 @@ function loadPixels(){
   loadPxLog();
   loadConvLog();
   loadCapiHealth();
+  loadGateways();
 }
 // Saúde da CAPI: taxa de sucesso, EMQ médio, fila de retry e últimos erros
 function loadCapiHealth(){
@@ -4181,6 +4220,7 @@ function renderPixels(){
         '<span>Rotas: '+esc(routes)+' &middot; Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
       '</div>'+
       '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
+        (p.scriptTag?'<button class="btn-icon" onclick="copyPxScript(\\''+esc(p.slug)+'\\')" title="Script exclusivo deste pixel — cole em qualquer página">Copiar script</button>':'')+
         '<button class="btn-icon" onclick="testPixel(\\''+esc(p.slug)+'\\')">Testar</button>'+
         '<button class="btn-icon" onclick="editPixel(\\''+esc(p.slug)+'\\')">Editar</button>'+
         '<button class="btn-icon" style="color:var(--red)" onclick="delPixel(\\''+esc(p.slug)+'\\')">Excluir</button>'+
@@ -4207,6 +4247,12 @@ function showPxForm(px){
 function editPixel(slug){
   var px=PX_LIST.filter(function(p){return p.slug===slug;})[0];
   if(px) showPxForm(px);
+}
+// Copia o <script> exclusivo do pixel (estilo Xtracky): dispara SÓ este pixel
+function copyPxScript(slug){
+  var px=PX_LIST.filter(function(p){return p.slug===slug;})[0];
+  if(!px||!px.scriptTag) return;
+  navigator.clipboard.writeText(px.scriptTag).then(function(){ toast('Script do pixel copiado \u2014 cole no head das suas p\u00e1ginas'); });
 }
 function delPixel(slug){
   if(!confirm('Excluir o pixel "'+slug+'"? O arquivo pixels/'+slug+'.json será removido.')) return;
@@ -4248,6 +4294,111 @@ function savePixel(){
     .then(function(d){
       btn.disabled=false;
       if(d.ok){ toast('Pixel salvo em pixels/'+d.pixel.slug+'.json'); document.getElementById('px-form-card').style.display='none'; var g=document.getElementById('px-grid'); if(g) g.classList.remove('form-open'); loadPixels(); }
+      else toast(d.error||'Erro ao salvar',false);
+    })
+    .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
+}
+/* ── Gateways de pagamento (webhook dedicado por gateway) ─────────── */
+var GW_LIST=[], GW_PROVIDERS=[];
+function loadGateways(){
+  fetch('/api/gateways').then(function(r){return r.json();}).then(function(d){
+    GW_LIST=d.gateways||[];
+    GW_PROVIDERS=d.providers||[];
+    renderGateways();
+    var sel=document.getElementById('gw-provider');
+    if(sel&&!sel.options.length){
+      sel.innerHTML=GW_PROVIDERS.map(function(p){return '<option value="'+esc(p.id)+'">'+esc(p.label)+'</option>';}).join('');
+      sel.addEventListener('change',gwProviderHint);
+      gwProviderHint();
+    }
+  }).catch(function(){});
+}
+function gwProviderHint(){
+  var sel=document.getElementById('gw-provider'); if(!sel) return;
+  var p=GW_PROVIDERS.filter(function(x){return x.id===sel.value;})[0]||{};
+  var lbl=document.getElementById('gw-secret-label');
+  if(lbl) lbl.textContent=p.secretLabel||'Segredo (opcional)';
+  var docs=document.getElementById('gw-provider-docs');
+  if(docs) docs.textContent=p.docs||'';
+}
+function renderGateways(){
+  var el=document.getElementById('gw-list'); if(!el) return;
+  if(!GW_LIST.length){
+    el.innerHTML='<div class="live-empty">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:40px;height:40px"><path d="M4 7h16M4 12h16M4 17h10"/></svg>' +
+      '<div><b>Nenhum gateway cadastrado</b><p style="margin:6px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6">Clique em <b>+ Adicionar gateway</b>, escolha a plataforma e cole a URL gerada no painel dela.</p></div>' +
+    '</div>';
+    return;
+  }
+  el.innerHTML=GW_LIST.map(function(g){
+    var st=g.lastEventAt?(timeAgo(g.lastEventAt)+' \u00b7 '+(g.lastEventStatus||'')):'nenhum webhook recebido ainda';
+    var stOk=g.lastEventStatus&&g.lastEventStatus.indexOf('ok')===0;
+    var prov=GW_PROVIDERS.filter(function(x){return x.id===g.provider;})[0];
+    return '<div class="lrow" style="cursor:default">'+
+      '<span class="ldot" style="background:'+(g.lastEventAt?(stOk?'var(--green)':'var(--red)'):'var(--muted2)')+';box-shadow:none"></span>'+
+      '<div class="lmain">'+
+        '<b>'+esc(g.name)+' <span class="hint" style="font-weight:400">'+esc(prov?prov.label:g.provider)+'</span></b>'+
+        '<span style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px;word-break:break-all">'+esc(g.webhookUrl||'')+'</span>'+
+        '<span>'+esc(st)+(g.hasSecret?' &middot; assinatura verificada':'')+'</span>'+
+      '</div>'+
+      '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
+        '<button class="btn-icon" onclick="copyGwUrl(\\''+esc(g.id)+'\\')">Copiar URL</button>'+
+        '<button class="btn-icon" onclick="editGateway(\\''+esc(g.id)+'\\')">Editar</button>'+
+        '<button class="btn-icon" style="color:var(--red)" onclick="delGateway(\\''+esc(g.id)+'\\')">Excluir</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+function copyGwUrl(id){
+  var g=GW_LIST.filter(function(x){return x.id===id;})[0];
+  if(!g||!g.webhookUrl) return;
+  navigator.clipboard.writeText(g.webhookUrl).then(function(){ toast('URL do webhook copiada \u2014 cole no painel do gateway'); });
+}
+function showGwForm(g){
+  var grid=document.getElementById('gw-grid'); if(grid) grid.classList.add('form-open');
+  document.getElementById('gw-form-card').style.display='';
+  document.getElementById('gw-form-title').textContent=g?('Editar: '+g.name):'Novo gateway';
+  document.getElementById('gw-id').value=g?g.id:'';
+  document.getElementById('gw-name').value=g?g.name:'';
+  document.getElementById('gw-secret').value='';
+  var sel=document.getElementById('gw-provider');
+  if(sel&&g) sel.value=g.provider;
+  gwProviderHint();
+  document.getElementById('gw-name').focus();
+}
+function editGateway(id){
+  var g=GW_LIST.filter(function(x){return x.id===id;})[0];
+  if(g) showGwForm(g);
+}
+function delGateway(id){
+  var g=GW_LIST.filter(function(x){return x.id===id;})[0];
+  if(!confirm('Excluir o gateway "'+(g?g.name:id)+'"? A URL do webhook para de funcionar na hora.')) return;
+  fetch('/api/gateways/'+encodeURIComponent(id),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d.ok){ toast('Gateway removido'); loadGateways(); } else toast(d.error||'Erro',false); })
+    .catch(function(){ toast('Erro ao remover',false); });
+}
+function saveGateway(){
+  var body={
+    id:document.getElementById('gw-id').value||undefined,
+    provider:document.getElementById('gw-provider').value,
+    name:document.getElementById('gw-name').value.trim()
+  };
+  var secret=document.getElementById('gw-secret').value.trim();
+  if(secret) body.secret=secret;
+  var btn=document.getElementById('gw-save'); btn.disabled=true;
+  fetch('/api/gateways',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;
+      if(d.ok){
+        document.getElementById('gw-form-card').style.display='none';
+        var grid=document.getElementById('gw-grid'); if(grid) grid.classList.remove('form-open');
+        loadGateways();
+        if(d.gateway&&d.gateway.webhookUrl&&navigator.clipboard){
+          navigator.clipboard.writeText(d.gateway.webhookUrl).then(function(){ toast('Gateway salvo \u2014 URL do webhook j\u00e1 copiada'); }).catch(function(){ toast('Gateway salvo \u2014 copie a URL na lista'); });
+        } else toast('Gateway salvo');
+      }
       else toast(d.error||'Erro ao salvar',false);
     })
     .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
@@ -4535,6 +4686,7 @@ var CMD_ITEMS=[
   {g:'Telas',t:'Configurações',h:'sistema',ic:I.check,act:function(){setView('config');}},
   {g:'Ir para',t:'Links de Checkout',h:'dentro de Rastreamento',ic:I.pct,act:function(){setView('links');}},
   {g:'Ir para',t:'Pixel TikTok',h:'dentro de Rastreamento',ic:I.zap,act:function(){setView('pixels');}},
+  {g:'Ir para',t:'Gateways',h:'dentro de Rastreamento',ic:I.pct,act:function(){setView('gateways');}},
   {g:'Ir para',t:'Filtro de Bots',h:'dentro de Rastreamento',ic:I.shield,act:function(){setView('cloak');}},
   {g:'Ir para',t:'Funil & Leads',h:'dentro de Ao Vivo',ic:I.cart,act:function(){setView('funnel');}},
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
@@ -4624,7 +4776,7 @@ function refresh(force){
 var VIEW_GROUPS={
   overview:['overview'],
   live:['live','funnel','geo','activity'],
-  tracking:['links','pixels','cloak'],
+  tracking:['links','pixels','gateways','cloak'],
   config:['config']
   };
   var titles={
@@ -4634,7 +4786,7 @@ var VIEW_GROUPS={
   config:['Configurações','Notificações, chaves e saúde do sistema']
   };
   // rótulos das sub-abas do Rastreamento (aparecem no page-sub)
-  var TRACK_LABELS={links:'Links de Checkout',pixels:'Pixel TikTok',cloak:'Filtro de Bots'};
+  var TRACK_LABELS={links:'Links de Checkout',pixels:'Pixel TikTok',gateways:'Gateways',cloak:'Filtro de Bots'};
   var trackingTab=localStorage.getItem('trackingTab')||'links';
   if(!TRACK_LABELS[trackingTab]) trackingTab='links';
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
@@ -4880,6 +5032,9 @@ if(pcUrl) pcUrl.addEventListener('change',savePushcutConfig);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });
 document.getElementById('px-save').addEventListener('click',savePixel);
 document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; var g=document.getElementById('px-grid'); if(g) g.classList.remove('form-open'); });
+document.getElementById('gw-new').addEventListener('click',function(){ showGwForm(null); });
+document.getElementById('gw-save').addEventListener('click',saveGateway);
+document.getElementById('gw-cancel').addEventListener('click',function(){ document.getElementById('gw-form-card').style.display='none'; var g=document.getElementById('gw-grid'); if(g) g.classList.remove('form-open'); });
 document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
 document.getElementById('ph-refresh').addEventListener('click',loadCapiHealth);
