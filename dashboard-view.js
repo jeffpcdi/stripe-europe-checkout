@@ -94,8 +94,9 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
 .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 26px;background:rgba(10,10,11,.85);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
-.topbar h2{font-size:17px;font-weight:600}
-.topbar .sub{font-size:12px;color:var(--muted2)}
+/* Escala tipográfica (4 níveis): page 22/700 · section 15/600 · label 11/600 caps · body 13/400 */
+.topbar h2{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.topbar .sub{font-size:12.5px;color:var(--muted);margin-top:1px}
 .spacer{flex:1}
 .segment{display:flex;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px}
 /* grupo do topo à direita: busca, atualizar e período */
@@ -497,7 +498,9 @@ tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay
 .tag.purchased{color:var(--green);background:rgba(62,207,142,.12);border-color:rgba(62,207,142,.3)}
 .tag.orphan{color:var(--red);background:rgba(255,86,116,.12);border-color:rgba(255,86,116,.3)}
 .muted{color:var(--muted2)}
-.empty{padding:48px;text-align:center;color:var(--muted2);font-size:13px}
+/* Empty state padronizado: compacto, 1 frase, sem ocupar meia tela */
+.empty{display:flex;align-items:center;justify-content:center;gap:8px;padding:26px 16px;text-align:center;color:var(--muted2);font-size:13px}
+.empty svg{width:18px;height:18px;opacity:.7}
 .tbl-count{font-size:12px;color:var(--muted2);margin-left:auto}
 
 /* ── Geo ── */
@@ -668,7 +671,58 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .toast.ok{border-color:rgba(62,207,142,.5)} .toast.err{border-color:rgba(255,86,116,.5)}
 
 /* ── Health dots ── */
-.health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.health-grid{display:block}
+
+/* ── Sub-abas do Rastreamento ── */
+.tracking-tabs{margin-bottom:20px}
+.tracking-tabs button{padding:8px 16px;font-size:13px}
+
+/* ── Strip de presença (Visão Geral → Ao Vivo) ── */
+.live-strip{display:flex;align-items:center;gap:10px;width:100%;margin-top:14px;padding:12px 16px;
+  background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--muted);
+  font:inherit;font-size:13px;cursor:pointer;text-align:left;
+  transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
+.live-strip:hover{border-color:var(--border2);background:var(--card2)}
+.live-strip b{color:var(--text);font-variant-numeric:tabular-nums}
+.live-strip .ls-sep{width:1px;height:14px;background:var(--border2)}
+.live-strip .ls-cta{margin-left:auto;color:var(--accent);font-weight:600;font-size:12.5px}
+
+/* ── Setup guiado (checklist com progresso) ── */
+.setup-card{border-color:color-mix(in srgb,var(--accent) 22%,transparent)}
+.setup-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.setup-title{font-size:14px;font-weight:600;display:block}
+.setup-sub{font-size:12px;color:var(--muted);display:block;margin-top:2px}
+.setup-bar{flex:1;min-width:140px;height:6px;border-radius:6px;background:var(--card2);overflow:hidden}
+.setup-bar i{display:block;height:100%;border-radius:6px;background:var(--accent);transition:width var(--dur-slow) var(--ease)}
+.setup-list{display:flex;flex-direction:column;gap:8px}
+.setup-item{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--card2);border:1px solid var(--border);border-radius:10px}
+.setup-item.done{opacity:.55}
+.si-dot{width:20px;height:20px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;border:1.5px solid var(--border2);color:var(--green)}
+.setup-item.done .si-dot{border-color:var(--green);background:color-mix(in srgb,var(--green) 12%,transparent)}
+.si-dot svg{width:11px;height:11px}
+.si-txt{flex:1;min-width:0}
+.si-txt b{font-size:13px;font-weight:600;display:block}
+.si-txt span{font-size:12px;color:var(--muted);display:block;margin-top:1px}
+.si-go{flex-shrink:0}
+
+/* ── Funil + entradas lado a lado na Visão Geral ── */
+@media(max-width:900px){.ov-pages{grid-template-columns:1fr!important}}
+
+/* ── Configurações: coluna única estilo Vercel ── */
+.settings-col{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:36px}
+.set-sec-head{margin-bottom:12px}
+.set-sec-head h3{font-size:15px;font-weight:600;margin:0}
+.set-sec-head p{font-size:12.5px;color:var(--muted);margin:3px 0 0}
+.settings-col .ck-adv{margin-top:0}
+.settings-col .cfg-grid{grid-template-columns:1fr!important}
+
+/* linhas de toggle com descrição */
+.tgl-list{display:flex;flex-direction:column;margin-top:4px}
+.tgl-row{display:flex;align-items:center;gap:14px;padding:11px 2px;cursor:pointer;border-bottom:1px solid var(--border)}
+.tgl-row:last-child{border-bottom:0}
+.tgl-txt{flex:1;min-width:0}
+.tgl-txt b{font-size:13px;font-weight:600;display:block}
+.tgl-txt span{font-size:12px;color:var(--muted);display:block;margin-top:1px}
 .hitem{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--card2);border-radius:10px;border:1px solid var(--border);font-size:12.5px;transition:.2s}
 
 .hitem .hdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
@@ -990,9 +1044,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
     <nav class="nav dock" id="nav">
       <button data-view="overview" class="active"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span><span class="d-lbl">Visão Geral</span></button>
       <button data-view="live"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg></span><span class="d-lbl">Ao Vivo</span><span class="badge live-badge" id="nav-live-badge" style="display:none">0</span></button>
-      <button data-view="links"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span><span class="d-lbl">Links de Checkout</span></button>
-      <button data-view="cloak"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="d-lbl">Filtro de Bots</span></button>
-      <button data-view="pixels"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span><span class="d-lbl">Pixel TikTok</span><span class="badge" id="nav-px-badge" style="display:none">0</span></button>
+      <button data-view="tracking"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="7"/></svg></span><span class="d-lbl">Rastreamento</span><span class="badge" id="nav-px-badge" style="display:none">0</span></button>
       <button data-view="config"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82V8a1.65 1.65 0 001.51-1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span><span class="d-lbl">Configurações</span></button>
     </nav>
   </header>
@@ -1044,26 +1096,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Ao Vivo ── -->
       <section class="view" id="view-live">
         <div class="grid kpis" id="live-kpis"></div>
-        <div class="live-grid">
-          <div class="card" style="padding:0">
-            <div class="notif-head">
-              <div class="nh-title"><span class="live-dot-anim"></span>Notifica&ccedil;&otilde;es</div>
-              <div class="notif-tools">
-                <button class="icon-btn on" id="notif-sound" title="Ativar/desativar som"></button>
-                <button class="icon-btn" id="notif-clear" title="Limpar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
-              </div>
-            </div>
-            <div class="notif-list" id="notif-list"></div>
-          </div>
-          <div class="card live-list-card"><div class="live-list" id="live-list"></div></div>
-        </div>
-      </section>
-
-      <!-- ── Visão Geral ── -->
-      <section class="view active" id="view-overview">
-        <div class="grid kpis kpis-xl" id="ov-kpis"></div>
-        <div class="ministats" id="ov-chips"></div>
-        <div class="section-title"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online agora no mapa</span></div>
+        <div class="section-title" style="margin-top:0"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online agora no mapa</span></div>
         <div class="globe-wrap">
           <div class="card globe-card" style="padding:0" id="globe-card">
             <div id="live-globe"></div>
@@ -1086,9 +1119,40 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
           </aside>
         </div>
+        <div class="live-grid">
+          <div class="card" style="padding:0">
+            <div class="notif-head">
+              <div class="nh-title"><span class="live-dot-anim"></span>Notifica&ccedil;&otilde;es</div>
+              <div class="notif-tools">
+                <button class="icon-btn on" id="notif-sound" title="Ativar/desativar som"></button>
+                <button class="icon-btn" id="notif-clear" title="Limpar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+              </div>
+            </div>
+            <div class="notif-list" id="notif-list"></div>
+          </div>
+          <div class="card live-list-card"><div class="live-list" id="live-list"></div></div>
+        </div>
+      </section>
+
+      <!-- ── Visão Geral ── -->
+      <section class="view active" id="view-overview">
+        <!-- Setup guiado: só aparece com pendências; some quando 100% -->
+        <div id="ov-setup" hidden></div>
+        <div class="grid kpis kpis-xl" id="ov-kpis"></div>
+        <div class="ministats" id="ov-chips"></div>
+        <!-- strip compacto de presença: o globo mora no Ao Vivo -->
+        <button class="live-strip" id="ov-live-strip" type="button">
+          <span class="live-dot-anim"></span>
+          <span><b id="ovs-online">0</b> online agora</span>
+          <span class="ls-sep"></span>
+          <span><b id="ovs-ck">0</b> no checkout</span>
+          <span class="ls-cta">Ver ao vivo &#8594;</span>
+        </button>
         <div class="card traffic-card reveal" id="traffic-pulse"></div>
-        <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
-        <div class="card goal-card reveal" id="ov-goal"></div>
+        <div id="ov-goal-sec" hidden>
+          <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
+          <div class="card goal-card reveal" id="ov-goal"></div>
+        </div>
         <div class="section-title"><span>Tendência</span><span class="line"></span>
           <button class="note-add" id="note-add" title="Anotar um dia (ex.: subi criativo novo)">+ Nota</button>
           <div class="segment" id="chart-mode" style="padding:2px">
@@ -1105,17 +1169,22 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <div class="chart-notes" id="chart-notes" hidden></div>
         </div>
-        <div class="section-title"><span>Funil por página</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o funil vaza, página a página</span></div>
-        <div class="card reveal" id="ov-pagefunnel"></div>
-        <div class="section-title"><span>Páginas de entrada</span><span class="line"></span><span class="muted" style="font-size:11.5px">qual porta de entrada converte melhor</span></div>
-        <div class="card reveal" id="ov-entries" style="padding:10px 14px"></div>
-        <div class="section-title"><span>Horários</span><span class="line"></span>
-          <div class="segment" id="heat-mode" style="padding:2px">
-            <button data-h="sales" class="active">Vendas</button>
-            <button data-h="leads">Leads</button>
+        <div id="ov-pages-sec" hidden>
+          <div class="section-title"><span>Como o funil converte</span><span class="line"></span><span class="muted" style="font-size:11.5px">jornada p&aacute;gina a p&aacute;gina &middot; portas de entrada</span></div>
+          <div class="grid ov-pages" style="grid-template-columns:1fr 1fr">
+            <div class="card reveal" id="ov-pagefunnel"></div>
+            <div class="card reveal" id="ov-entries" style="padding:10px 14px"></div>
           </div>
         </div>
-        <div class="card reveal" id="ov-heatmap"></div>
+        <div id="ov-heat-sec" hidden>
+          <div class="section-title"><span>Horários</span><span class="line"></span>
+            <div class="segment" id="heat-mode" style="padding:2px">
+              <button data-h="sales" class="active">Vendas</button>
+              <button data-h="leads">Leads</button>
+            </div>
+          </div>
+          <div class="card reveal" id="ov-heatmap"></div>
+        </div>
       </section>
 
       <!-- ── Funil & Leads ── -->
@@ -1153,6 +1222,13 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="section-title"><span>Ranking por país</span><span class="line"></span><span class="muted" style="font-size:11.5px">leads e compras &middot; o globo 3D fica na Vis&atilde;o Geral</span></div>
         <div class="card"><div class="clist" id="country-list"></div></div>
       </section>
+
+      <!-- ── Rastreamento: sub-abas (Links / Pixel / Bots) ── -->
+      <div class="segment tracking-tabs" id="tracking-tabs" hidden>
+        <button data-t="links" class="active">Links de Checkout</button>
+        <button data-t="pixels">Pixel TikTok</button>
+        <button data-t="cloak">Filtro de Bots</button>
+      </div>
 
       <!-- ── Links de Checkout ── -->
       <section class="view" id="view-links">
@@ -1445,45 +1521,41 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
       </section>
 
-      <!-- ── Configurações ── -->
+      <!-- ── Configurações: coluna única, leitura de cima para baixo ── -->
       <section class="view" id="view-config">
-        <div class="grid cfg-grid" style="grid-template-columns:1fr 1fr">
-          <div class="card cfg-card" style="--cc:var(--pink)">
-            <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
-              <div><h3>Notifica&ccedil;&otilde;es Pushcut</h3><p>Receba um push no celular a cada evento do gateway &mdash; venda, recusa, reembolso e disputa</p></div>
-            </div>
+        <div class="settings-col">
+
+        <!-- 1. Setup guiado -->
+        <div class="set-sec">
+          <div class="set-sec-head"><h3>Configura&ccedil;&atilde;o do sistema</h3><p>Integra&ccedil;&otilde;es e vari&aacute;veis deste servidor &mdash; complete as pendentes</p></div>
+          <div class="card"><div class="health-grid" id="health-grid"><div class="muted" style="font-size:13px;padding:8px 0">Carregando...</div></div></div>
+        </div>
+
+        <!-- 2. Notificações: toggles com auto-save -->
+        <div class="set-sec">
+          <div class="set-sec-head"><h3>Notifica&ccedil;&otilde;es Pushcut</h3><p>Push no celular a cada evento do gateway &mdash; salva automaticamente ao alternar</p></div>
+          <div class="card">
             <div class="form-row">
               <label>Webhook do Pushcut <span class="hint">— copie do app: Notifica&ccedil;&atilde;o &#8594; Webhook</span></label>
-              <input class="inp" id="pc-url" placeholder="https://api.pushcut.io/.../notifications/Aprovada" style="font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
-            </div>
-            <div class="form-row" style="margin-bottom:0">
-              <label>Notificar quando</label>
-              <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px">
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-sale" checked> Venda aprovada</label>
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-failed" checked> Recusada</label>
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-refund" checked> Reembolso</label>
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-dispute" checked> Disputa</label>
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-checkout"> Checkout iniciado</label>
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pc-ev-daily"> Resumo di&aacute;rio <span class="hint" style="margin-left:2px">(na virada do dia)</span></label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input class="inp" id="pc-url" placeholder="https://api.pushcut.io/.../notifications/Aprovada" style="flex:1;font-family:'Geist Mono',monospace;font-size:12.5px" autocomplete="off" />
+                <button class="btn btn-sm" id="pc-test">Enviar teste</button>
               </div>
-              <div style="display:flex;gap:10px;margin-top:14px">
-                <button class="btn primary" id="pc-save">Salvar notifica&ccedil;&otilde;es</button>
-                <button class="btn" id="pc-test">Enviar teste</button>
-              </div>
-              <p class="hint" id="pc-status" style="margin-top:8px"></p>
             </div>
-          </div>
-          <div class="card cfg-card" style="--cc:var(--green)">
-            <div class="cfg-head">
-              <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-              <div><h3>Sa&uacute;de do sistema</h3><p>Integra&ccedil;&otilde;es e vari&aacute;veis configuradas neste servidor</p></div>
+            <div class="tgl-list">
+              <label class="tgl-row"><div class="tgl-txt"><b>Venda aprovada</b><span>toda compra confirmada pelo gateway</span></div><span class="switch"><input type="checkbox" id="pc-ev-sale" checked><span class="slider"></span></span></label>
+              <label class="tgl-row"><div class="tgl-txt"><b>Recusada</b><span>tentativa de pagamento que falhou</span></div><span class="switch"><input type="checkbox" id="pc-ev-failed" checked><span class="slider"></span></span></label>
+              <label class="tgl-row"><div class="tgl-txt"><b>Reembolso</b><span>cliente pediu o dinheiro de volta</span></div><span class="switch"><input type="checkbox" id="pc-ev-refund" checked><span class="slider"></span></span></label>
+              <label class="tgl-row"><div class="tgl-txt"><b>Disputa</b><span>chargeback aberto &mdash; exige resposta</span></div><span class="switch"><input type="checkbox" id="pc-ev-dispute" checked><span class="slider"></span></span></label>
+              <label class="tgl-row"><div class="tgl-txt"><b>Checkout iniciado</b><span>lead chegou &agrave; p&aacute;gina de pagamento</span></div><span class="switch"><input type="checkbox" id="pc-ev-checkout"><span class="slider"></span></span></label>
+              <label class="tgl-row"><div class="tgl-txt"><b>Resumo di&aacute;rio</b><span>vendas e receita na virada do dia</span></div><span class="switch"><input type="checkbox" id="pc-ev-daily"><span class="slider"></span></span></label>
             </div>
-            <div class="health-grid" id="health-grid"><div class="muted" style="font-size:13px;padding:8px 0">Carregando...</div></div>
+            <p class="hint" id="pc-status" style="margin-top:10px"></p>
           </div>
         </div>
-        <!-- Avançado recolhido: ferramentas usadas raramente ficam fora do caminho -->
-        <details class="ck-adv" style="margin-top:16px">
+
+        <!-- 3. Avançado recolhido: ferramentas usadas raramente ficam fora do caminho -->
+        <details class="ck-adv" style="margin-top:0">
           <summary>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:var(--muted)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 010-4h.09A1.65 1.65 0 003.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
             Avan&ccedil;ado &mdash; links curtos e API p&uacute;blica
@@ -1518,10 +1590,16 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
           </div>
         </details>
-        <div class="card danger-card">
-          <span class="cfg-ico" style="--cc:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6"/></svg></span>
-          <div style="flex:1;min-width:200px"><b style="font-size:13.5px">Zerar todas as estatísticas</b><p style="color:var(--muted2);margin:3px 0 0;font-size:12px">Apaga leads, eventos e contadores. Não afeta configurações ou chaves.</p></div>
-          <button class="btn danger" id="reset-btn">Zerar estatísticas</button>
+        <!-- 4. Zona de perigo -->
+        <div class="set-sec">
+          <div class="set-sec-head"><h3 style="color:var(--red)">Zona de perigo</h3><p>A&ccedil;&otilde;es irrevers&iacute;veis &mdash; use com cuidado</p></div>
+          <div class="card danger-card">
+            <span class="cfg-ico" style="--cc:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6"/></svg></span>
+            <div style="flex:1;min-width:200px"><b style="font-size:13.5px">Zerar todas as estatísticas</b><p style="color:var(--muted2);margin:3px 0 0;font-size:12px">Apaga leads, eventos e contadores. Não afeta configurações ou chaves.</p></div>
+            <button class="btn danger" id="reset-btn">Zerar estatísticas</button>
+          </div>
+        </div>
+
         </div>
       </section>
 
@@ -1855,12 +1933,17 @@ function renderOverview(m){
     document.querySelectorAll('#ov-chips .ms-fill, #ov-kpis .kf-track i, #ov-chips .msg-track i').forEach(function(f){ f.style.width=f.getAttribute('data-w')+'%'; });
   });
 
-  renderGoal(m,prev);
+  // render condicional: blocos sem dados não ocupam espaço (nem o título)
+  var hasLeadsPeriod=m.visits>0, hasSalesPeriod=m.sales>0;
+  var goalSec=document.getElementById('ov-goal-sec'); if(goalSec) goalSec.hidden=!hasSalesPeriod;
+  var pagesSec=document.getElementById('ov-pages-sec'); if(pagesSec) pagesSec.hidden=!hasLeadsPeriod;
+  var heatSec=document.getElementById('ov-heat-sec'); if(heatSec) heatSec.hidden=!(hasSalesPeriod||hasLeadsPeriod);
+  if(hasSalesPeriod) renderGoal(m,prev);
   renderChart(m);
-  renderPageFunnel();
-  renderEntries(m);
-  renderHeatmap();
+  if(hasLeadsPeriod){ renderPageFunnel(); renderEntries(m); }
+  if(hasSalesPeriod||hasLeadsPeriod) renderHeatmap();
   renderNotesList();
+  renderSetupCard();
 }
 
 /* ── Comparador de páginas de entrada: qual porta converte melhor ── */
@@ -2377,14 +2460,25 @@ function loadLive(){
     liveLoading=false;
     LIVE=d||{visitors:[],summary:{online:0,countries:[]}};
     updateLiveBadge();
-    if(currentView==='live') renderLive();
-    if(currentView==='overview') renderLiveGlobe(); // globo mora na Visão Geral
+    updateLiveStrip(); // strip compacto da Visão Geral
+    if(currentView==='live'){ renderLive(); renderLiveGlobe(); } // globo mora no Ao Vivo
   }).catch(function(){liveLoading=false;});
 }
 function updateLiveBadge(){
   var n=(LIVE.summary&&LIVE.summary.online)||0;
   var b=document.getElementById('nav-live-badge');
   if(b){ b.textContent=n; b.style.display=n>0?'':'none'; }
+}
+// strip de presença na Visão Geral: só números + atalho para o Ao Vivo
+function updateLiveStrip(){
+  var on=document.getElementById('ovs-online'), ck=document.getElementById('ovs-ck');
+  if(!on) return;
+  var vs=(LIVE.visitors||[]);
+  var c=LIVE.checkout||{};
+  var totalCk=c.externalEst!=null?c.externalEst:vs.filter(isCheckoutLead).length;
+  on.textContent=(LIVE.summary&&LIVE.summary.online)||0;
+  if(ck) ck.textContent=totalCk;
+  if(currentView==='overview') renderTrafficPulse(); // o pulso de tráfego vive na Visão Geral
 }
 
 /* ── Notificações (aba Ao Vivo) ─────────────────────────────────────────
@@ -3493,28 +3587,55 @@ function loadConvLog(){
     }).join('');
   }).catch(function(){});
 }
-function renderHealth(){
-  if(!HEALTH){ document.getElementById('health-grid').innerHTML='<div class="muted" style="padding:8px 0;font-size:13px">Indispon&iacute;vel</div>'; return; }
+/* ── Setup guiado ──
+   Transforma o antigo grid de "Saúde" num checklist acionável:
+   cada item pendente diz O QUE fazer e leva direto à tela certa. */
+function setupItems(){
+  if(!HEALTH) return null;
   var items=[
-    {key:'conversionWebhook',label:'Webhook de conversões'},
-    {key:'tiktok',label:'TikTok CAPI'},
-    {key:'pushcut',label:'Pushcut'},
-    {key:'dashboard',label:'Dashboard senha'}
+    {ok:!!HEALTH.db,label:'Banco de dados (Neon)',todo:'Defina DATABASE_URL nas vari\u00e1veis do servidor',act:null},
+    {ok:!!HEALTH.conversionWebhook,label:'Webhook de convers\u00f5es',todo:'Cole a URL do webhook no seu gateway',act:{t:'Configurar',go:'pixels'}},
+    {ok:!!HEALTH.tiktok,label:'Pixel TikTok (CAPI)',todo:'Adicione um pixel com Access Token',act:{t:'Adicionar pixel',go:'pixels'}},
+    {ok:!!HEALTH.pushcut,label:'Notifica\u00e7\u00f5es Pushcut',todo:'Cole o webhook do app Pushcut',act:{t:'Configurar',go:'config'}},
+    {ok:!!HEALTH.dashboard,label:'Senha da dashboard',todo:'Defina DASHBOARD_PASSWORD no servidor',act:null}
   ];
-  var dbOk=!!HEALTH.db;
-  var redisOk=HEALTH.redisEnabled?!!HEALTH.redis:null;
-  var dbLatency=HEALTH.dbLatencyMs;
-  document.getElementById('health-grid').innerHTML=
-    '<div class="hitem"><div class="hdot '+(dbOk?'ok':'warn')+'"></div><div class="hlbl">Neon (banco)</div><div class="hstatus '+(dbOk?'ok':'warn')+'">'+(dbOk?('OK'+(dbLatency?'&nbsp;&middot;&nbsp;'+dbLatency+'ms':'')):'Offline')+'</div></div>'+
-    (HEALTH.redisEnabled?'<div class="hitem"><div class="hdot '+(redisOk?'ok':'warn')+'"></div><div class="hlbl">Upstash Redis</div><div class="hstatus '+(redisOk?'ok':'warn')+'">'+(redisOk?'OK &middot; conectado':'Offline')+'</div></div>':'<div class="hitem"><div class="hdot warn"></div><div class="hlbl">Upstash Redis</div><div class="hstatus warn">Sem variáveis</div></div>')+
-    items.map(function(it){
-      var ok=!!HEALTH[it.key];
-      return '<div class="hitem">'+
-        '<div class="hdot '+(ok?'ok':'warn')+'"></div>'+
-        '<div class="hlbl">'+esc(it.label)+'</div>'+
-        '<div class="hstatus '+(ok?'ok':'warn')+'">'+(ok?'Ativa':'Faltando')+'</div>'+
-        '</div>';
-    }).join('');
+  if(HEALTH.redisEnabled!==undefined) items.splice(1,0,{ok:HEALTH.redisEnabled?!!HEALTH.redis:false,label:'Upstash Redis',todo:'Defina as vari\u00e1veis do Upstash (presen\u00e7a ao vivo)',act:null});
+  return items;
+}
+function setupChecklistHTML(compact){
+  var items=setupItems(); if(!items) return '';
+  var done=items.filter(function(i){return i.ok;}).length, total=items.length;
+  var pct=Math.round(done/total*100);
+  var pend=items.filter(function(i){return !i.ok;});
+  var html='<div class="setup-head">'+
+    '<div><b class="setup-title">Configura&ccedil;&atilde;o do sistema</b>'+
+    '<span class="setup-sub">'+done+' de '+total+' conclu\u00eddos</span></div>'+
+    '<div class="setup-bar"><i style="width:'+pct+'%"></i></div></div>';
+  var list=compact?pend:items;
+  html+='<div class="setup-list">'+list.map(function(it){
+    return '<div class="setup-item'+(it.ok?' done':'')+'">'+
+      '<span class="si-dot">'+(it.ok?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>':'')+'</span>'+
+      '<div class="si-txt"><b>'+esc(it.label)+'</b>'+(it.ok?'':'<span>'+it.todo+'</span>')+'</div>'+
+      (!it.ok&&it.act?'<button class="btn btn-sm si-go" data-go="'+it.act.go+'">'+it.act.t+'</button>':'')+
+    '</div>';
+  }).join('')+'</div>';
+  return html;
+}
+// Card na Visão Geral: só aparece enquanto há pendências
+function renderSetupCard(){
+  var el=document.getElementById('ov-setup'); if(!el) return;
+  var items=setupItems();
+  if(!items){ el.hidden=true; return; }
+  var pending=items.filter(function(i){return !i.ok;}).length;
+  if(!pending){ el.hidden=true; el.innerHTML=''; return; }
+  el.hidden=false;
+  el.innerHTML='<div class="card setup-card">'+setupChecklistHTML(true)+'</div>';
+}
+// Versão completa em Configurações
+function renderHealth(){
+  var grid=document.getElementById('health-grid'); if(!grid) return;
+  if(!HEALTH){ grid.innerHTML='<div class="muted" style="padding:8px 0;font-size:13px">Indispon&iacute;vel</div>'; return; }
+  grid.innerHTML=setupChecklistHTML(false);
 }
 
 /* ── Drawer ── */
@@ -3695,9 +3816,11 @@ function applyDr(){
 var CMD_ITEMS=[
   {g:'Telas',t:'Visão Geral',h:'resumo',ic:I.money,act:function(){setView('overview');}},
   {g:'Telas',t:'Ao Vivo',h:'presença, funil, países',ic:I.zap,act:function(){setView('live');}},
-  {g:'Telas',t:'Links de Checkout',h:'domínios, redirect e teste A/B',ic:I.pct,act:function(){setView('links');}},
-  {g:'Telas',t:'Pixel TikTok',h:'rastreamento, events api',ic:I.zap,act:function(){setView('pixels');}},
+  {g:'Telas',t:'Rastreamento',h:'links, pixel e filtro de bots',ic:I.pct,act:function(){setView('tracking');}},
   {g:'Telas',t:'Configurações',h:'sistema',ic:I.check,act:function(){setView('config');}},
+  {g:'Ir para',t:'Links de Checkout',h:'dentro de Rastreamento',ic:I.pct,act:function(){setView('links');}},
+  {g:'Ir para',t:'Pixel TikTok',h:'dentro de Rastreamento',ic:I.zap,act:function(){setView('pixels');}},
+  {g:'Ir para',t:'Filtro de Bots',h:'dentro de Rastreamento',ic:I.shield,act:function(){setView('cloak');}},
   {g:'Ir para',t:'Funil & Leads',h:'dentro de Ao Vivo',ic:I.cart,act:function(){setView('funnel');}},
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
   {g:'Ir para',t:'Atividade',h:'dentro de Ao Vivo',ic:I.zap,act:function(){setView('activity');}},
@@ -3738,7 +3861,7 @@ function renderAll(){
   var g=currentView||'overview';
   if(g==='overview'){ renderOverview(m); }
   else if(g==='live'){ renderFunnel(m); renderGeo(m); renderActivity(); }
-  else if(g==='links'){ renderPageConv(); }
+  else if(g==='tracking'&&trackingTab==='links'){ renderPageConv(); }
   RENDERED_GROUPS[g]=true;
   renderFooter();
 }
@@ -3786,19 +3909,19 @@ function refresh(force){
 var VIEW_GROUPS={
   overview:['overview'],
   live:['live','funnel','geo','activity'],
-  links:['links'],
-  cloak:['cloak'],
-  pixels:['pixels'],
+  tracking:['links','pixels','cloak'],
   config:['config']
   };
   var titles={
   overview:['Visão Geral','Resumo dos números que mais importam'],
   live:['Ao Vivo','Presença, funil, países e atividade — tudo em tempo real'],
-  links:['Links de Checkout','Domínios validados, redirect rastreado e teste A/B'],
-  cloak:['Filtro de Bots','Roteia revisores do TikTok Ads para a white page'],
-  pixels:['Pixel TikTok','Rastreamento server-side por lead — um pixel por arquivo'],
+  tracking:['Rastreamento','Links de checkout, pixel TikTok e filtro de bots'],
   config:['Configurações','Notificações, chaves e saúde do sistema']
   };
+  // rótulos das sub-abas do Rastreamento (aparecem no page-sub)
+  var TRACK_LABELS={links:'Links de Checkout',pixels:'Pixel TikTok',cloak:'Filtro de Bots'};
+  var trackingTab=localStorage.getItem('trackingTab')||'links';
+  if(!TRACK_LABELS[trackingTab]) trackingTab='links';
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
 // (ex.: setView('funnel') abre o grupo Ao Vivo e rola até o funil).
 function groupOf(v){
@@ -3819,10 +3942,21 @@ function applySetView(v){
   var g=groupOf(v), sub=(v!==g)?v:null;
   currentView=g;
   var views=VIEW_GROUPS[g];
+  // Rastreamento mostra UMA sub-aba por vez (memorizada); grupos normais empilham as sections
+  if(g==='tracking'){
+    if(sub){ trackingTab=sub; localStorage.setItem('trackingTab',sub); }
+    views=[trackingTab];
+  }
   document.querySelectorAll('.nav button[data-view]').forEach(function(b){ b.classList.toggle('active',b.getAttribute('data-view')===g); });
   document.querySelectorAll('section.view').forEach(function(s){ s.classList.toggle('active',views.indexOf(s.id.replace('view-',''))>=0); });
+  // barra de sub-abas só visível no Rastreamento
+  var tt=document.getElementById('tracking-tabs');
+  if(tt){
+    tt.hidden=(g!=='tracking');
+    tt.querySelectorAll('button').forEach(function(b){ b.classList.toggle('active',b.getAttribute('data-t')===trackingTab); });
+  }
   document.getElementById('page-title').textContent=titles[g][0];
-  document.getElementById('page-sub').textContent=titles[g][1];
+  document.getElementById('page-sub').textContent=(g==='tracking')?('Rastreamento \u00b7 '+TRACK_LABELS[trackingTab]):titles[g][1];
   document.getElementById('sidebar').classList.remove('open');
   var scrim=document.getElementById('side-scrim'); if(scrim) scrim.classList.remove('open');
   // animação de entrada em cascata (só na primeira section do grupo)
@@ -3832,19 +3966,27 @@ function applySetView(v){
   if(g==='live'){
     renderLive();
     loadLive();
-  }
-  if(g==='overview'){
     renderLiveGlobe();
     setTimeout(function(){ if(liveGlobe){ try{liveGlobe.width(document.getElementById('live-globe').clientWidth).height(520);}catch(e){} } },80);
   }
+  if(g==='overview'){ loadHealth().then(renderSetupCard); }
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
-  if(g==='config'){ loadHealth().then(renderHealth); loadPushcutConfig(); loadShortlinks(); }
-  if(g==='pixels') loadPixels();
-  if(g==='cloak') loadCloakConfig();
-  if(g==='links'){ loadLinks(); loadDomains(); }
-  // veio de uma sub-view (paleta de comandos)? rola até a section correspondente
-  if(sub){ setTimeout(function(){ var t=document.getElementById('view-'+sub); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },120); }
+  if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); }
+  if(g==='tracking'){
+    if(trackingTab==='pixels') loadPixels();
+    else if(trackingTab==='cloak') loadCloakConfig();
+    else { loadLinks(); loadDomains(); }
+  }
+  // sub-view dentro do Ao Vivo (paleta de comandos)? rola até a section
+  if(g==='live'&&sub){ setTimeout(function(){ var t=document.getElementById('view-'+sub); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },120); }
   else { document.querySelector('.main').scrollTop=0; window.scrollTo(0,0); }
+}
+// troca de sub-aba dentro do Rastreamento
+function setTrackingTab(t){
+  if(!TRACK_LABELS[t]) return;
+  trackingTab=t; localStorage.setItem('trackingTab',t);
+  delete RENDERED_GROUPS.tracking; // repinta a sub-aba nova
+  applySetView(t);
 }
 // Polling de presença: 4s na aba Ao Vivo, 10s em segundo plano (para o badge).
 function setupLivePoll(fast){
@@ -3855,6 +3997,16 @@ function setupLivePoll(fast){
 /* ── Listeners ── */
 document.getElementById('nav').addEventListener('click',function(e){
   var b=e.target.closest('button[data-view]'); if(b) setView(b.getAttribute('data-view'));
+});
+document.getElementById('tracking-tabs').addEventListener('click',function(e){
+  var b=e.target.closest('button[data-t]'); if(b) setTrackingTab(b.getAttribute('data-t'));
+});
+// setup guiado: botões "Configurar" levam à tela certa
+document.addEventListener('click',function(e){
+  var b=e.target.closest('.si-go'); if(b) setView(b.getAttribute('data-go'));
+});
+// strip de presença → Ao Vivo
+document.getElementById('ov-live-strip').addEventListener('click',function(){ setView('live');
 });
 function setSideMenu(open){
   document.getElementById('sidebar').classList.toggle('open',open);
@@ -3959,7 +4111,12 @@ document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.
 document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnippet);
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; });
 document.getElementById('lk-validate').addEventListener('click',validateDomain);
-document.getElementById('pc-save').addEventListener('click',savePushcutConfig);
+// auto-save: qualquer toggle de notificação salva na hora (sem botão Salvar)
+['pc-ev-sale','pc-ev-failed','pc-ev-refund','pc-ev-dispute','pc-ev-checkout','pc-ev-daily'].forEach(function(id){
+  var el=document.getElementById(id); if(el) el.addEventListener('change',savePushcutConfig);
+});
+var pcUrl=document.getElementById('pc-url');
+if(pcUrl) pcUrl.addEventListener('change',savePushcutConfig);
   bindShortlinks();
   bindPublicApi();
   bindCloak();
@@ -4047,6 +4204,7 @@ var lsGuard=setTimeout(hideLS,8000);
 refresh().then(function(){
   setupAuto();
   loadLive();            // primeira leitura de presença
+  loadHealth().then(renderSetupCard); // setup guiado na Visão Geral desde o boot
   setupLivePoll(false);  // mantém o badge "Ao Vivo" atualizado em segundo plano
   clearTimeout(lsGuard); hideLS();
   // anima a aba inicial (Visão Geral) na primeira pintura
