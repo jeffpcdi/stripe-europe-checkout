@@ -198,22 +198,21 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:0}
 /* marca centralizada: status ancorado à direita, marca no centro real do header */
 .brand-xl{display:flex;align-items:center;justify-content:center;gap:12px;flex:1;min-width:0}
 .hh-inner::before{content:'';flex:0 0 0}
-.logo-orbit{position:relative;width:89px;height:89px;flex-shrink:0}
-.logo-orbit img{position:absolute;inset:6px;width:77px;height:77px;border-radius:50%;object-fit:cover;z-index:2;
+.logo-orbit{position:relative;width:116px;height:116px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:8px;width:100px;height:100px;border-radius:50%;object-fit:cover;z-index:2;
   box-shadow:0 0 0 2px rgba(255,255,255,.14),0 4px 18px rgba(0,0,0,.6);
   filter:contrast(1.18) saturate(1.25) brightness(1.08)}
-.logo-orbit::after{content:'';position:absolute;inset:6px;border-radius:50%;z-index:3;pointer-events:none;
+.logo-orbit::after{content:'';position:absolute;inset:8px;border-radius:50%;z-index:3;pointer-events:none;
   background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
+/* animação premium sempre ativa: giro rápido + brilho intenso (antes só no hover) */
 .logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
   background:conic-gradient(from var(--ra,0deg),#ff2d6f,#52a8ff,#25f4ee,#ff2d6f);
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask-composite:exclude;
-  animation:ringSpin 6s linear infinite;
-  filter:drop-shadow(0 0 6px rgba(255,45,111,.45))}
+  animation:ringSpin 3s linear infinite;
+  filter:drop-shadow(0 0 12px rgba(255,45,111,.7))}
 @property --ra{syntax:'<angle>';initial-value:0deg;inherits:false}
 @keyframes ringSpin{to{--ra:360deg}}
-/* marca estática — o brilho/giro só acontece no hover (momento premium pontual) */
-.brand-xl:hover .logo-ring{animation:ringSpin 3s linear infinite;filter:drop-shadow(0 0 12px rgba(255,45,111,.7))}
 .brand-txt{display:flex;flex-direction:column;gap:2px}
 .bt-name{font-weight:800;font-size:20px;line-height:1;letter-spacing:.04em;
   background:linear-gradient(92deg,#ff3d7a 0%,#ff6b8a 28%,#6cb4ff 62%,#3ffcf6 100%);
