@@ -666,8 +666,8 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .btn-icon:hover{color:var(--cyan);border-color:var(--cyan)}
 
 /* ── Toast ── */
-.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--card);border:1px solid var(--border2);color:var(--text);padding:12px 20px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:60;transition:.3s;box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:none}
-.toast.show{transform:translateX(-50%) translateY(0)}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);opacity:0;visibility:hidden;background:var(--card);border:1px solid var(--border2);color:var(--text);padding:12px 20px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:60;transition:.3s;box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:none}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1;visibility:visible}
 .toast.ok{border-color:rgba(62,207,142,.5)} .toast.err{border-color:rgba(255,86,116,.5)}
 
 /* ── Health dots ── */
@@ -675,6 +675,7 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 
 /* ── Sub-abas do Rastreamento ── */
 .tracking-tabs{margin-bottom:20px}
+.tracking-tabs[hidden]{display:none!important} /* .segment é flex; garante que hidden vença */
 .tracking-tabs button{padding:8px 16px;font-size:13px}
 
 /* ── Strip de presença (Visão Geral → Ao Vivo) ── */
@@ -821,7 +822,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .msg-track{flex:1;height:5px;border-radius:3px;background:var(--card2);overflow:hidden}
 .msg-track i{display:block;height:100%;border-radius:3px;background:var(--mc,#25f4ee);width:0;transition:width .9s cubic-bezier(.2,.7,.3,1)}
 .msg-n{min-width:20px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0}
-/* ── Visão Geral: cabeçalho de bloco leve (título + contexto, divisor sutil) ── */
+/* ��─ Visão Geral: cabeçalho de bloco leve (título + contexto, divisor sutil) ── */
 #view-overview .section-title span:first-child{position:relative;padding-left:16px}
 #view-overview .section-title span:first-child::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:7px;height:7px;border-radius:2px;background:var(--accent);opacity:.85}
 #view-overview .section-title .line{background:linear-gradient(90deg,var(--border2),var(--border) 40%,transparent)}
@@ -3607,8 +3608,9 @@ function setupChecklistHTML(compact){
   var done=items.filter(function(i){return i.ok;}).length, total=items.length;
   var pct=Math.round(done/total*100);
   var pend=items.filter(function(i){return !i.ok;});
+  // no modo compacto (Visão Geral) o card carrega o título; em Configurações o título vem da seção
   var html='<div class="setup-head">'+
-    '<div><b class="setup-title">Configura&ccedil;&atilde;o do sistema</b>'+
+    '<div>'+(compact?'<b class="setup-title">Configura&ccedil;&atilde;o do sistema</b>':'')+
     '<span class="setup-sub">'+done+' de '+total+' conclu\u00eddos</span></div>'+
     '<div class="setup-bar"><i style="width:'+pct+'%"></i></div></div>';
   var list=compact?pend:items;
