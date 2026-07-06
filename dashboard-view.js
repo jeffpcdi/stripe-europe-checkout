@@ -163,6 +163,22 @@ html[data-liquid-glass] .lg-lens{
 /* interatividade do vidro: press morph (rim inverte + afunda) */
 .lg-press:active{transform:scale(.97);box-shadow:var(--shadow-1),inset 0 1px 2px rgba(30,40,80,.12),inset 0 -1px 1px rgba(255,255,255,.5)}
 
+/* ═══ MESCLA "LIQUID GLASS" (projeto de referência) ═══
+   1) Especular que segue o mouse: ponto de luz radial posicionado por
+      --mx/--my (atualizados via JS com rAF), com blend screen = reflexo real.
+   2) Elasticidade: o vidro estica sutilmente na direção do cursor no hover. */
+html[data-liquid-glass] .card::before,
+html[data-liquid-glass] .lg::before,
+html[data-liquid-glass] .lg-thick::before{
+  content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
+  opacity:0;transition:opacity .35s var(--ease);
+  background:radial-gradient(240px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.5),rgba(255,255,255,.12) 42%,transparent 65%);
+  mix-blend-mode:screen;
+}
+html[data-liquid-glass] .card:hover::before,
+html[data-liquid-glass] .lg:hover::before,
+html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
+
 /* ── Layout ── */
 .app{display:flex;flex-direction:column;min-height:100vh}
 
@@ -1091,17 +1107,16 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .nav button:active{transform:scale(.97)}
 /* gota líquida deslizante: elemento posicionado por JS, estica no meio do caminho */
 #nav-gota{position:absolute;top:0;left:0;height:100%;border-radius:11px;pointer-events:none;z-index:0;
-  background:rgba(255,255,255,.9);
+  background:rgba(255,255,255,.72);
   box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top),inset 0 -1px 1px rgba(255,255,255,.3);
   border:1px solid var(--accent);
   transition:transform var(--dur-slow) var(--spring),width var(--dur-slow) var(--spring);
   will-change:transform}
+/* a gota vira lente de verdade: refrata os botões que passam por baixo dela */
+html[data-liquid-glass] #nav-gota{
+  -webkit-backdrop-filter:blur(2px) saturate(160%) url(#lg-lens);
+  backdrop-filter:blur(2px) saturate(160%) url(#lg-lens)}
 @media(prefers-reduced-motion:reduce){#nav-gota{transition:none}}
-/* specular tracking: luz radial que segue o ponteiro (vars --mx/--my via JS) */
-.card.spec::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:0;
-  background:radial-gradient(300px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.35),transparent 65%);
-  opacity:0;transition:opacity .4s}
-.card.spec:hover::before{opacity:1}
 
 /* Ponto ao vivo — anel pulsante */
 .dot{position:relative}
@@ -1277,9 +1292,59 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
     var noReduce=!matchMedia('(prefers-reduced-motion:reduce)').matches;
     var gpuOk=(navigator.deviceMemory===undefined||navigator.deviceMemory>=4)&&(navigator.hardwareConcurrency===undefined||navigator.hardwareConcurrency>=4);
     if(isChromium&&finePointer&&noReduce&&gpuOk&&document.getElementById('lg-wobble')){
-      document.documentElement.setAttribute('data-liquid-glass','');
+      enableLG();
     }
+    /* exposto para debug/forçar manualmente (ex.: testes automatizados) */
+    window.__lgEnable=enableLG;
   }catch(e){}
+
+  function enableLG(){
+    document.documentElement.setAttribute('data-liquid-glass','');
+    buildLensMap();
+    trackSpecular();
+  }
+
+  /* ── Lente de refração REAL (mescla do projeto liquid glass) ──
+     Gera um mapa de deslocamento radial via canvas: R codifica o desvio em X,
+     G o desvio em Y. Nulo no centro, forte nas bordas = lente convexa que
+     curva o fundo como vidro de verdade (substitui o ruído fractal). */
+  function buildLensMap(){
+    try{
+      var S=128, c=document.createElement('canvas'); c.width=c.height=S;
+      var x=c.getContext('2d'), im=x.createImageData(S,S);
+      for(var j=0;j<S;j++)for(var i=0;i<S;i++){
+        var nx=(i/(S-1))*2-1, ny=(j/(S-1))*2-1;
+        var r=Math.min(1,Math.sqrt(nx*nx+ny*ny));
+        var k=Math.pow(r,3.2); /* curvatura: plana no centro, dobra na borda */
+        var p=(j*S+i)*4;
+        im.data[p]  =Math.round(128+nx*k*127);
+        im.data[p+1]=Math.round(128+ny*k*127);
+        im.data[p+2]=128; im.data[p+3]=255;
+      }
+      x.putImageData(im,0,0);
+      var f=document.getElementById('lg-lens');
+      if(f) f.innerHTML='<feImage href="'+c.toDataURL()+'" x="0" y="0" width="100%" height="100%" preserveAspectRatio="none" result="lensmap"/>'+
+        '<feDisplacementMap in="SourceGraphic" in2="lensmap" scale="52" xChannelSelector="R" yChannelSelector="G"/>';
+    }catch(_){}
+  }
+
+  /* ── Especular que segue o mouse (rAF-throttled, delegação única) ──
+     Atualiza --mx/--my no vidro sob o cursor; o ::before desenha o reflexo. */
+  function trackSpecular(){
+    var pend=null;
+    document.addEventListener('pointermove',function(e){
+      if(pend) return;
+      pend=requestAnimationFrame(function(){
+        pend=null;
+        var t=e.target&&e.target.closest&&e.target.closest('.card,.lg,.lg-thick');
+        if(!t) return;
+        var r=t.getBoundingClientRect();
+        if(!r.width||!r.height) return; /* elemento oculto: sem cálculo */
+        t.style.setProperty('--mx',Math.round((e.clientX-r.left)/r.width*100)+'%');
+        t.style.setProperty('--my',Math.round((e.clientY-r.top)/r.height*100)+'%');
+      });
+    },{passive:true});
+  }
 })();
 </script>
 
