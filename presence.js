@@ -22,6 +22,7 @@ function touch(data) {
   if (!s) {
     s = {
       visitorId: id,
+      acc: data.acc || null, // conta dona (multi-tenant)
       firstSeen: now,
       pageviews: 0,
       country: null, countryName: null, city: null,
@@ -29,6 +30,7 @@ function touch(data) {
     };
     live.set(id, s);
   }
+  if (data.acc && !s.acc) s.acc = data.acc;
   // atualiza campos (mantém geo já conhecido se não vier)
   let pageChanged = false;
   if (data.page) { if (data.page !== s.page) { s.pageviews++; pageChanged = true; } s.page = data.page; }
@@ -45,7 +47,7 @@ function touch(data) {
   // Upstash Redis: renova TTL de 60s a cada heartbeat (~12s) — sobrevive
   // a restarts do servidor sem perder quem está online agora.
   const redisPayload = {
-    id: s.visitorId, page: s.page, referrer: s.referrer,
+    id: s.visitorId, acc: s.acc || null, page: s.page, referrer: s.referrer,
     country: s.country, countryName: s.countryName, city: s.city,
     variant: s.variant, ua: s.ua, pageviews: s.pageviews,
     durationMs: now - s.firstSeen, idleMs: 0
@@ -55,7 +57,7 @@ function touch(data) {
   // Neon: grava apenas na 1ª vez, mudança de página ou a cada DB_WRITE_INTERVAL
   if (!s._lastDbWrite || pageChanged || (now - s._lastDbWrite) >= DB_WRITE_INTERVAL) {
     s._lastDbWrite = now;
-    db.upsertSession(s);
+    db.upsertSession(s.acc || null, s);
   }
   return s;
 }
@@ -78,15 +80,17 @@ function prune() {
 // Lista de visitantes online agora (ordenada por mais recente).
 // Retorna Promise quando Redis está ativo (dados mesclados), array síncrono
 // quando só há memória local. O caller (server.js /api/live) usa await.
-async function list() {
+async function list(accountId) {
   prune();
   const now = Date.now();
 
   // mapa local (sempre disponível, mais fresco)
   const localMap = new Map();
   for (const s of live.values()) {
+    if (accountId && s.acc !== accountId) continue; // isola contas
     localMap.set(s.visitorId, {
       id: s.visitorId,
+      acc: s.acc || null,
       page: s.page,
       referrer: s.referrer,
       country: s.country,
@@ -106,6 +110,7 @@ async function list() {
       const redisRows = await rdb.listPresence();
       if (redisRows) {
         for (const r of redisRows) {
+          if (accountId && r.acc !== accountId) continue; // isola contas
           if (r.id && !localMap.has(r.id)) localMap.set(r.id, r);
         }
       }
@@ -116,8 +121,8 @@ async function list() {
 }
 
 // Resumo por país (para o globo) + contagem total.
-async function summary() {
-  const rows = await list();
+async function summary(accountId) {
+  const rows = await list(accountId);
   const byCountry = {};
   rows.forEach((r) => {
     if (!r.country) return;

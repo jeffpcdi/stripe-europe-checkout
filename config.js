@@ -2,41 +2,37 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 
-// ── Configuração editável pela dashboard ──────────────────────────────────
-// A config vive em memória (leitura O(1), sem I/O por request) e é
-// persistida em dois níveis:
-//   1. Neon (durável — sobrevive a deploys/reinícios);
-//   2. arquivo local (snapshot de fallback).
-// Hoje guarda as notificações Pushcut; novos blocos de config do SaaS
-// entram aqui no mesmo padrão.
+// ── Configuração editável pela dashboard — POR CONTA (multi-tenant) ────────
+// Cada conta tem sua própria config (pushcut, shortlinks, domínios, cloak,
+// api token…). O cache vive em memória (Map accountId → cfg) e é persistido:
+//   1. no Neon (tabela config, key = accountId — durável);
+//   2. em arquivo local (snapshot de fallback, um mapa com todas as contas).
+// A chave 'main' é o legado pré-multi-tenant; claimLegacyData() a converte
+// para a conta do primeiro admin no registro.
 const DATA_DIR = path.join(__dirname, 'data');
 const FILE = path.join(DATA_DIR, 'config.json');
+const LEGACY_KEY = 'main';
 
 function defaults() {
   return {
     // Notificações Pushcut — configuradas pela aba Configurações da dash.
-    // url: webhook completo do app Pushcut; events: quais eventos notificam.
-    // daily: relatório-resumo do dia anterior (enviado na virada do dia).
     pushcut: {
       url: '',
       events: { sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false }
     },
     // Encurtador rastreável (/l/:slug): [{slug, nome, url, clicks, createdAt}]
     shortlinks: [],
-    // Domínios personalizados plugados via DNS (CNAME → app). Servem os links
-    // /go/, /l/ e o tracker /t.js no domínio do usuário para uso nos anúncios.
+    // Domínios personalizados plugados via DNS (CNAME → app).
     // [{host, verificado, verificadoEm, criadoEm}]
     customDomains: [],
     // Anotações do gráfico de tendência: [{d:'YYYY-MM-DD', text}]
     notes: [],
-    // Filtro de revisores TikTok Ads (cloaking) — ajustável pela aba dedicada.
-    // enabled: interruptor mestre; threshold: score p/ bot; sensitivity: preset
-    // que sobrepõe o threshold; flags: liga/desliga cada camada de detecção.
+    // Filtro de revisores TikTok Ads (cloaking)
     cloak: {
       enabled: true,
       sensitivity: 'balanced',      // 'strict' | 'balanced' | 'loose'
-      threshold: 40,                // usado quando sensitivity = 'custom'
-      deadlineMs: 120,              // teto de latência do lookup de ASN (ms) no caminho quente
+      threshold: 40,
+      deadlineMs: 120,
       blockDatacenter: true,
       blockHeadless: true,
       checkHeaders: true,
@@ -46,21 +42,17 @@ function defaults() {
       checkBehavior: true,
       blockZhLang: true
     },
-    // API pública read-only (/api/v1/summary?token=...) — token gerado sob demanda
+    // API pública read-only (/api/v1/summary?token=...)
     api: { token: '' },
-    // Controle do relatório diário (último dia já reportado, 'YYYY-MM-DD')
     lastDailyReport: '',
     updatedAt: null
   };
 }
 
-// ── Cache em memória ───────────────────────────────────────────────────────
-let cfg = null;
+// ── Cache em memória: accountId → cfg ──────────────────────────────────────
+const cache = new Map();
+let hydrated = false;
 
-// Mescla o estado persistido sobre os defaults. Top-level é shallow, mas os
-// blocos aninhados (cloak, pushcut) recebem merge profundo para que configs
-// salvas antes de um campo novo existir (ex.: deadlineMs) herdem o default em
-// vez de ficarem com o campo undefined.
 function mergeDefaults(stored) {
   const base = defaults();
   const out = Object.assign({}, base, stored || {});
@@ -69,58 +61,74 @@ function mergeDefaults(stored) {
   return out;
 }
 
-function loadFromDisk() {
+// Snapshot local: { accountId: cfg, ... } (fallback quando o Neon falha)
+function loadDiskMap() {
   try {
     if (fs.existsSync(FILE)) {
-      return mergeDefaults(JSON.parse(fs.readFileSync(FILE, 'utf8')));
+      const raw = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+      // formato antigo (config única, sem mapa): trata como legado 'main'
+      if (raw && typeof raw === 'object' && !raw.__isMap) {
+        if (raw.pushcut || raw.cloak || raw.customDomains) return { [LEGACY_KEY]: raw };
+      }
+      if (raw && raw.__isMap && raw.data && typeof raw.data === 'object') return raw.data;
     }
   } catch (err) {
     console.error('[config] Erro ao ler config do disco:', err.message);
   }
-  return defaults();
+  return {};
 }
 
-function ensureLoaded() {
-  if (!cfg) cfg = loadFromDisk();
-  return cfg;
-}
-
-// Persiste (assíncrono, não bloqueia a request): arquivo local + Neon.
-function persist() {
-  const snapshot = JSON.stringify(cfg, null, 2);
-  fs.mkdir(DATA_DIR, { recursive: true }, () => {
-    fs.writeFile(FILE, snapshot, (err) => {
-      if (err) console.error('[config] Erro ao gravar config:', err.message);
+let persistTimer = null;
+function persistDisk() {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    const data = {};
+    cache.forEach((v, k) => { data[k] = v; });
+    fs.mkdir(DATA_DIR, { recursive: true }, () => {
+      fs.writeFile(FILE, JSON.stringify({ __isMap: true, data }, null, 2), (err) => {
+        if (err) console.error('[config] Erro ao gravar config:', err.message);
+      });
     });
-  });
-  db.saveConfig(cfg);
+  }, 500);
+  if (persistTimer.unref) persistTimer.unref();
 }
 
-// Hidrata do Neon no boot (banco vence sobre o arquivo efêmero).
+// Hidrata TODAS as configs do Neon no boot (banco vence sobre o arquivo).
+// Regra de ouro (correção de persistência): erro de leitura NUNCA semeia
+// o banco — só usamos o snapshot local sem tocar no Neon.
 async function hydrate() {
   try {
-    const persisted = await db.loadConfig();
-    if (persisted && typeof persisted === 'object') {
-      cfg = mergeDefaults(persisted);
-      console.log('[config] Config hidratada do Neon.');
+    const res = await db.loadAllConfigs();
+    if (res && res.ok) {
+      (res.data || []).forEach((row) => {
+        if (row && row.key && row.data && typeof row.data === 'object') {
+          cache.set(row.key, mergeDefaults(row.data));
+        }
+      });
+      hydrated = true;
+      console.log('[config] ' + cache.size + ' config(s) de conta hidratada(s) do Neon.');
     } else {
-      ensureLoaded();
-      // primeira execução com banco: semeia o Neon com o estado atual
-      if (db.enabled) db.saveConfig(cfg);
+      const disk = loadDiskMap();
+      Object.keys(disk).forEach((k) => cache.set(k, mergeDefaults(disk[k])));
+      console.warn('[config] Falha ao ler configs do Neon — usando snapshot local, banco intocado.');
     }
   } catch (err) {
     console.error('[config] Erro ao hidratar config:', err.message);
-    ensureLoaded();
   }
 }
 
-function get() {
+// Config de uma conta (sempre retorna algo; cria default em memória se nova).
+function get(accountId) {
+  const key = accountId || LEGACY_KEY;
+  if (!cache.has(key)) cache.set(key, defaults());
   // cópia rasa defensiva — chamadores não devem mutar o cache por referência
-  return Object.assign({}, ensureLoaded());
+  return Object.assign({}, cache.get(key));
 }
 
-function set(patch) {
-  const cur = ensureLoaded();
+function set(accountId, patch) {
+  const key = accountId || LEGACY_KEY;
+  const cur = cache.has(key) ? cache.get(key) : defaults();
   const next = Object.assign({}, cur, patch || {});
 
   // Sanitização do bloco Pushcut
@@ -141,7 +149,7 @@ function set(patch) {
   };
   next.pushcut = pc;
 
-  // Sanitização dos novos blocos (garante formatos previsíveis)
+  // Sanitização dos demais blocos (garante formatos previsíveis)
   if (!Array.isArray(next.shortlinks)) next.shortlinks = [];
   next.shortlinks = next.shortlinks.slice(0, 100).map((s) => ({
     slug: String(s.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60),
@@ -188,9 +196,39 @@ function set(patch) {
   }
 
   next.updatedAt = new Date().toISOString();
-  cfg = next;
-  persist();
+  cache.set(key, next);
+  db.saveConfig(key, next);
+  persistDisk();
   return Object.assign({}, next);
 }
 
-module.exports = { get, set, defaults, hydrate };
+// Resolve a conta dona de um domínio personalizado (Host → accountId).
+// Usado pelas rotas públicas (/go, /t.js, /l) para atribuir o tráfego à
+// conta certa quando servido por um domínio do usuário.
+function accountForDomain(host) {
+  const h = String(host || '').toLowerCase().replace(/:\d+$/, '');
+  if (!h) return null;
+  for (const [key, cfg] of cache) {
+    if (key === LEGACY_KEY) continue;
+    if ((cfg.customDomains || []).some((d) => d.host === h)) return key;
+  }
+  return null;
+}
+
+// Lista os accountIds com config carregada (diagnóstico/varreduras).
+function accountIds() {
+  return Array.from(cache.keys()).filter((k) => k !== LEGACY_KEY);
+}
+
+// Migração: move a config legada 'main' (memória) para a conta do admin.
+function migrateLegacyTo(accountId) {
+  if (!accountId || !cache.has(LEGACY_KEY)) return;
+  if (!cache.has(accountId)) {
+    cache.set(accountId, cache.get(LEGACY_KEY));
+    db.saveConfig(accountId, cache.get(accountId));
+  }
+  cache.delete(LEGACY_KEY);
+  persistDisk();
+}
+
+module.exports = { get, set, defaults, hydrate, accountForDomain, accountIds, migrateLegacyTo };

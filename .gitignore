@@ -6,3 +6,4 @@ node_modules/
 # Estado de runtime — nunca versionar (cache local do stats.js; a fonte
 # de verdade durável é o Neon e o app recria estes arquivos sozinho)
 data/
+pixels/

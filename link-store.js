@@ -55,6 +55,7 @@ function normalize(slug, raw) {
     }));
   return {
     slug,
+    acc: raw.acc || raw.accountId || null, // conta dona (multi-tenant)
     nome: String(raw.nome || slug).slice(0, 80),
     dominio: hostnameOf(raw.dominio) || (variantes[0] ? hostnameOf(variantes[0].url) : null),
     dominioValidado: raw.dominioValidado === true,
@@ -78,27 +79,46 @@ function normalize(slug, raw) {
   };
 }
 
-// ── Boot: hidrata do Neon ──────────────────────────────────────────────────
+// ── Boot: hidrata TODAS as contas do Neon ──────────────────────────────────
 async function init() {
   if (!db.enabled) { console.log('[links] Neon desativado — links só em memória.'); return 0; }
   try {
-    const rows = await db.loadLinks();
-    cache = (rows || []).map((r) => normalize(r.slug, r));
-    console.log('[links] ' + cache.length + ' link(s) de checkout carregado(s).');
+    const res = await db.loadLinks(null); // todas as contas
+    if (res && res.ok) {
+      cache = (res.data || []).map((r) => normalize(r.slug, r));
+      console.log('[links] ' + cache.length + ' link(s) de checkout carregado(s).');
+    } else {
+      console.warn('[links] falha ao ler links do Neon — cache vazio nesta sessão, banco intocado.');
+    }
   } catch (e) { console.error('[links] init:', e.message); }
   return cache.length;
 }
 
-// ── API pública ────────────────────────────────────────────────────────────
-function list() { return cache.slice(); }
-function get(slug) { return cache.find((l) => l.slug === slugify(slug)) || null; }
+// ── API pública (escopada por conta) ───────────────────────────────────────
+function list(accountId) {
+  return cache.filter((l) => !accountId || l.acc === accountId).map((l) => ({ ...l }));
+}
+function get(accountId, slug) {
+  const s = slugify(slug);
+  return cache.find((l) => l.slug === s && (!accountId ? !l.acc : l.acc === accountId)) || null;
+}
+// Resolve um /go/:slug público: tenta a conta do domínio primeiro (se
+// houver), senão procura em qualquer conta (primeiro match).
+function resolve(slug, preferredAccountId) {
+  const s = slugify(slug);
+  if (preferredAccountId) {
+    const own = cache.find((l) => l.slug === s && l.acc === preferredAccountId);
+    if (own) return own;
+  }
+  return cache.find((l) => l.slug === s) || null;
+}
 
-async function save(input) {
+async function save(accountId, input) {
   input = input || {};
   const slug = slugify(input.slug || input.nome);
   if (!slug) throw new Error('nome é obrigatório');
-  const existing = get(slug);
-  const merged = normalize(slug, Object.assign({}, existing || {}, input, { slug }));
+  const existing = get(accountId, slug);
+  const merged = normalize(slug, Object.assign({}, existing || {}, input, { slug, acc: accountId }));
   if (!merged.variantes.length) throw new Error('pelo menos 1 variante com URL https:// válida é obrigatória');
   // preserva contadores existentes por id de variante (edição não zera stats)
   if (existing) {
@@ -116,16 +136,16 @@ async function save(input) {
     merged.dominioValidado = true;
     merged.dominioValidadoEm = validatedDomains.get(merged.dominio);
   }
-  const idx = cache.findIndex((l) => l.slug === slug);
+  const idx = cache.findIndex((l) => l.slug === slug && l.acc === accountId);
   if (idx >= 0) cache[idx] = merged; else cache.push(merged);
-  if (db.enabled) await db.upsertLink(slug, merged);
+  if (db.enabled) await db.upsertLink(accountId, slug, merged);
   return merged;
 }
 
-async function remove(slug) {
+async function remove(accountId, slug) {
   slug = slugify(slug);
-  cache = cache.filter((l) => l.slug !== slug);
-  if (db.enabled) await db.deleteLink(slug);
+  cache = cache.filter((l) => !(l.slug === slug && l.acc === accountId));
+  if (db.enabled) await db.deleteLink(accountId, slug);
   return true;
 }
 
@@ -155,40 +175,41 @@ function pickVariant(link, visitorId) {
 }
 
 // ── Contadores (persistidos no Neon em write-through, debounced) ──────────
-const _dirty = new Set();
+const _dirty = new Set(); // 'acc|slug'
 let _flushTimer = null;
-function persistSoon(slug) {
-  _dirty.add(slug);
+function persistSoon(link) {
+  _dirty.add((link.acc || '') + '|' + link.slug);
   if (_flushTimer) return;
   _flushTimer = setTimeout(() => {
     _flushTimer = null;
-    const slugs = Array.from(_dirty); _dirty.clear();
-    slugs.forEach((s) => {
-      const link = get(s);
-      if (link && db.enabled) db.upsertLink(s, link);
+    const keys = Array.from(_dirty); _dirty.clear();
+    keys.forEach((k) => {
+      const [acc, s] = k.split('|');
+      const link = cache.find((l) => l.slug === s && (l.acc || '') === acc);
+      if (link && db.enabled) db.upsertLink(link.acc || null, s, link);
     });
   }, 1000);
   if (_flushTimer.unref) _flushTimer.unref();
 }
 
-function recordClick(slug, variantId) {
-  const link = get(slug);
+function recordClick(accountId, slug, variantId) {
+  const link = get(accountId, slug);
   if (!link) return;
   const v = link.variantes.find((x) => x.id === variantId);
   if (!v) return;
   v.clicks = (v.clicks || 0) + 1;
-  persistSoon(link.slug);
+  persistSoon(link);
 }
 
-function recordConversion(slug, variantId, amountCents, currency) {
-  const link = get(slug);
+function recordConversion(accountId, slug, variantId, amountCents, currency) {
+  const link = get(accountId, slug);
   if (!link) return;
   const v = link.variantes.find((x) => x.id === variantId) || link.variantes[0];
   if (!v) return;
   v.conversions = (v.conversions || 0) + 1;
   const cur = String(currency || 'eur').toUpperCase();
   v.revenue[cur] = (v.revenue[cur] || 0) + (amountCents || 0);
-  persistSoon(link.slug);
+  persistSoon(link);
 }
 
 // ── Validação de domínio: DNS resolve + resposta HTTP real ────────────────
@@ -221,13 +242,13 @@ async function validateDomain(input) {
     if (l.dominio === host) {
       l.dominioValidado = true;
       l.dominioValidadoEm = now;
-      persistSoon(l.slug);
+      persistSoon(l);
     }
   });
   return { ok: true, host, dns: true, http: true, status, validadoEm: now };
 }
 
 module.exports = {
-  init, list, get, save, remove, pickVariant,
+  init, list, get, resolve, save, remove, pickVariant,
   recordClick, recordConversion, validateDomain, slugify
 };

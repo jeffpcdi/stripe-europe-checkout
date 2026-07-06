@@ -37,6 +37,30 @@ const linkStore = require('./link-store');
 const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
 const TRACKER_JS = require('./tracker-view');
+const auth = require('./auth');
+const gatewayStore = require('./gateway-store');
+const db = require('./db');
+const { loginPage, registerPage } = require('./auth-view');
+
+// ── Resolução da conta para tráfego PÚBLICO (multi-tenant) ────────────────
+// Rotas públicas (/go, /t.js, /px.js, /l, /px.gif, /api/track) não têm sessão.
+// Descobrimos a conta dona do tráfego por: (1) domínio personalizado do Host;
+// (2) conta padrão (o admin / única conta) como fallback. Assim, quem tem uma
+// só conta funciona sem configurar domínio, e quem tem várias isola pelo
+// domínio que serve cada funil.
+let _defaultAccountId = null;
+async function refreshDefaultAccount() {
+  try { _defaultAccountId = await db.getFirstAccountId(); }
+  catch (_) { _defaultAccountId = null; }
+}
+function publicAccountId(req) {
+  try {
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    const byDomain = config.accountForDomain(host);
+    if (byDomain) return byDomain;
+  } catch (_) {}
+  return _defaultAccountId;
+}
 
 // Lê um cookie do request (parse simples, sem dependência extra)
 function readCookie(req, name) {
@@ -235,12 +259,14 @@ app.use(async (req, res, next) => {
 
     const hadCookie = !!readCookie(req, 'v_id');
     const id = getOrAssignVisitor(req, res);
+    const acc = publicAccountId(req);
     if (!hadCookie) {                                          // 1 lead por visitante
       const geo = geoFromReq(req);
       const q = req.query || {};
       const dev = uaTools.parse(uaRaw);
       stats.recordVisit({
         id,
+        acc,
         ip: clientIp(req),
         ua: uaRaw.slice(0, 300),
         device: dev.device, os: dev.os, browser: dev.browser,
@@ -254,6 +280,7 @@ app.use(async (req, res, next) => {
         }
       });
       stats.logEvent('visit', {
+        acc,
         title: 'Novo lead no funil',
         landing: p,
         country: geo.countryName || geo.country || null,
@@ -882,16 +909,64 @@ function safeEqual(a, b) {
   const hb = crypto.createHash('sha256').update(String(b)).digest();
   return crypto.timingSafeEqual(ha, hb);
 }
-function dashboardAuth(req, res, next) {
-  const pass = process.env.DASHBOARD_PASSWORD;
-  if (!pass) return next(); // sem senha definida: acesso livre (defina DASHBOARD_PASSWORD para proteger)
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Basic ') ? Buffer.from(header.slice(6), 'base64').toString() : '';
-  const provided = token.split(':').slice(1).join(':'); // ignora usuário, valida senha
-  if (provided && safeEqual(provided, pass)) return next();
-  res.set('WWW-Authenticate', 'Basic realm="Dashboard"');
-  return res.status(401).send('Autenticação necessária.');
-}
+// Guards de sessão (multi-usuário). dashboardAuth protege as APIs (401 JSON)
+// e popula req.account; pageAuth protege páginas HTML (redireciona a /login).
+const dashboardAuth = auth.requireAuth({ api: true });
+const pageAuth = auth.requireAuth();
+
+// ── Rotas de autenticação (registro / login / logout) ─────────────────────
+app.get('/login', auth.optionalAuth(), (req, res) => {
+  if (req.account) return res.redirect('/dashboard');
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(loginPage());
+});
+app.get('/register', auth.optionalAuth(), (req, res) => {
+  if (req.account) return res.redirect('/dashboard');
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(registerPage());
+});
+
+app.post('/register', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = await auth.register({ email: b.email, password: b.password, name: b.name });
+    if (result.error) return res.status(400).json({ ok: false, error: result.error });
+    // primeiro usuário virou admin e herdou dados legados → migra config em memória
+    try { config.migrateLegacyTo(result.account.id); } catch (_) {}
+    await refreshDefaultAccount();
+    appendCookie(res, auth.sessionCookie(result.token));
+    res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Erro ao criar conta.' });
+  }
+});
+
+app.post('/login', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = await auth.login({ email: b.email, password: b.password });
+    if (result.error) return res.status(401).json({ ok: false, error: result.error });
+    appendCookie(res, auth.sessionCookie(result.token));
+    res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Erro ao entrar.' });
+  }
+});
+
+app.post('/logout', async (req, res) => {
+  try {
+    const token = auth.parseCookies(req)[auth.COOKIE_NAME];
+    await auth.logout(token);
+  } catch (_) {}
+  appendCookie(res, auth.clearCookie());
+  res.json({ ok: true });
+});
+
+// Dados da conta logada (nome/e-mail para o cabeçalho da dashboard).
+app.get('/api/me', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ email: req.account.email, name: req.account.name, role: req.account.role });
+});
 
 // ── API: estatísticas do teste A/B ──────���────────────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {

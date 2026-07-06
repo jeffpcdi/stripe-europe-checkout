@@ -100,6 +100,7 @@ function flushSync() {
 }
 
 // ── Feed de eventos (venda, recusa, reembolso, disputa, lead, etc.) ───────
+// Multi-tenant: o campo `acc` (accountId) em data escopa o evento à conta.
 function logEvent(type, data) {
   ensureLoaded();
   const entry = Object.assign({
@@ -110,7 +111,8 @@ function logEvent(type, data) {
   state.events.unshift(entry);
   if (state.events.length > MAX_EVENTS) state.events.length = MAX_EVENTS;
   markDirty();
-  db.insertEvent(entry);
+  invalidateStatsCache();
+  db.insertEvent(entry.acc || null, entry);
   return entry;
 }
 
@@ -153,7 +155,7 @@ function recordClickStep(id, name) {
   pushJourney(lead, 'click:' + String(name).slice(0, 60));
   lead.lastSeen = new Date().toISOString();
   markDirty();
-  db.upsertLead(lead);
+  db.upsertLead(lead.acc || null, lead);
   return lead;
 }
 
@@ -166,6 +168,7 @@ function recordVisit(data) {
   if (!lead) {
     lead = addLead({
       id: data.id || newId('ld'),
+      acc: data.acc || null, // conta dona do lead (multi-tenant)
       at: nowIso,
       stage: 'visit',
       status: 'pending',
@@ -184,7 +187,7 @@ function recordVisit(data) {
     });
   } else {
     // enriquece dados que faltavam
-    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid', 'site'].forEach((k) => {
+    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid', 'site', 'acc'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
     if (data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) lead.utm = data.utm;
@@ -192,7 +195,7 @@ function recordVisit(data) {
   }
   pushJourney(lead, data.landing);
   markDirty();
-  db.upsertLead(lead);
+  db.upsertLead(lead.acc || null, lead);
   return lead;
 }
 
@@ -205,6 +208,7 @@ function recordCheckoutEntry(id, gateway, data) {
   if (!lead) {
     lead = addLead({
       id: id || newId('ld'),
+      acc: data.acc || null,
       at: nowIso,
       stage: 'checkout',
       status: 'pending',
@@ -224,7 +228,7 @@ function recordCheckoutEntry(id, gateway, data) {
     lead.gateway = gateway || lead.gateway;
     // email/phone: o gateway manda no PIX gerado — essenciais para o match
     // da conversão futura (fallback por e-mail/telefone) e para a CAPI
-    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid', 'email', 'phone', 'customer'].forEach((k) => {
+    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid', 'email', 'phone', 'customer', 'acc'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
     if (data.utm && data.utm.source && (!lead.utm || !lead.utm.source)) lead.utm = data.utm;
@@ -237,7 +241,7 @@ function recordCheckoutEntry(id, gateway, data) {
   if (lead.checkoutHits.length > 10) lead.checkoutHits = lead.checkoutHits.slice(-10);
   pushJourney(lead, 'go:' + (gateway || 'checkout'));
   markDirty();
-  db.upsertLead(lead);
+  db.upsertLead(lead.acc || null, lead);
   return lead;
 }
 
@@ -249,11 +253,20 @@ function attachTracking(id, patch) {
   let lead = findLead(id);
   const nowIso = new Date().toISOString();
   if (!lead) {
-    lead = addLead({ id, at: nowIso, stage: 'checkout', status: 'pending', gateway: null, utm: {} });
+    lead = addLead({ id, acc: patch.acc || null, at: nowIso, stage: 'checkout', status: 'pending', gateway: null, utm: {} });
   }
+  if (patch.acc && !lead.acc) lead.acc = patch.acc;
   if (patch.ttUrl) lead.ttUrl = String(patch.ttUrl).slice(0, 500);
   if (patch.ttclid && !lead.ttclid) lead.ttclid = patch.ttclid;
   if (patch.ttp) lead.ttp = patch.ttp;
+  // Sinais do challenge de cloaking (persistidos pelo /api/cloakcheck)
+  if (patch.cloakChallenge) lead.cloakChallenge = patch.cloakChallenge;
+  if (patch.cloakChallengeAt) lead.cloakChallengeAt = patch.cloakChallengeAt;
+  if (patch.cloakWebgl) lead.cloakWebgl = patch.cloakWebgl;
+  if (patch.cloakTz) lead.cloakTz = patch.cloakTz;
+  if (patch.cloakFp) lead.cloakFp = patch.cloakFp;
+  if (typeof patch.cloakDt === 'number') lead.cloakDt = patch.cloakDt;
+  if (typeof patch.cloakBeh === 'number') lead.cloakBeh = patch.cloakBeh;
   // Advanced Matching: email/telefone capturados em formulários da página
   // (snippet /t.js) — sobem o Event Match Quality de TODOS os disparos futuros
   if (patch.email && !lead.email) lead.email = String(patch.email).slice(0, 320);
@@ -262,7 +275,7 @@ function attachTracking(id, patch) {
   if (patch.linkSlug) lead.linkSlug = String(patch.linkSlug).slice(0, 80);
   if (patch.linkVariant) lead.linkVariant = String(patch.linkVariant).slice(0, 80);
   markDirty();
-  db.upsertLead(lead);
+  db.upsertLead(lead.acc || null, lead);
   return lead;
 }
 
@@ -275,7 +288,7 @@ function getLead(id) {
 // universal quando o gateway não devolve o leadId. state.leads usa unshift,
 // então o índice 0 é o mais novo: o primeiro match é o mais recente.
 // O(n), mas n ≤ MAX_LEADS e só roda em conversões (raras vs. page views).
-function findLeadByEmail(email) {
+function findLeadByEmail(email, accountId) {
   if (!email) return null;
   ensureLoaded();
   const needle = String(email).trim().toLowerCase();
@@ -283,14 +296,15 @@ function findLeadByEmail(email) {
   const leads = state.leads || [];
   for (let i = 0; i < leads.length; i++) {
     const l = leads[i];
-    if (l && l.email && String(l.email).trim().toLowerCase() === needle) return l;
+    if (!l || (accountId && l.acc !== accountId)) continue; // isola contas
+    if (l.email && String(l.email).trim().toLowerCase() === needle) return l;
   }
   return null;
 }
 
 // Busca por telefone — 3º fallback do webhook (leadId → email → phone).
 // Compara só os dígitos (últimos 9+), ignorando formatação/prefixo 00/+.
-function findLeadByPhone(phone) {
+function findLeadByPhone(phone, accountId) {
   if (!phone) return null;
   ensureLoaded();
   const digits = String(phone).replace(/\D/g, '').replace(/^00/, '');
@@ -300,6 +314,7 @@ function findLeadByPhone(phone) {
   for (let i = 0; i < leads.length; i++) {
     const l = leads[i];
     if (!l || !l.phone) continue;
+    if (accountId && l.acc !== accountId) continue; // isola contas
     const d = String(l.phone).replace(/\D/g, '').replace(/^00/, '');
     if (d.length >= 8 && d.slice(-9) === tail) return l;
   }
@@ -316,11 +331,14 @@ function matchExternalConversion(data) {
   const amount = data.amountCents || 0;
   const nowIso = new Date().toISOString();
   const gw = String(data.gateway || 'externo').toLowerCase().slice(0, 30);
+  const acc = data.acc || null;
 
-  // match: leadId direto → e-mail → telefone (webhook universal)
-  let lead = findLead(data.leadId) ||
-    (data.email ? findLeadByEmail(data.email) : null) ||
-    (data.phone ? findLeadByPhone(data.phone) : null);
+  // match: leadId direto → e-mail → telefone (webhook universal).
+  // Com conta definida, o lead por id só vale se pertencer à MESMA conta.
+  let lead = findLead(data.leadId);
+  if (lead && acc && lead.acc && lead.acc !== acc) lead = null;
+  if (!lead) lead = (data.email ? findLeadByEmail(data.email, acc) : null) ||
+    (data.phone ? findLeadByPhone(data.phone, acc) : null);
 
   if (lead) {
     if (lead.status === 'converted') {
@@ -330,6 +348,7 @@ function matchExternalConversion(data) {
     }
     lead.stage = 'purchased';
     lead.gateway = gw;
+    if (acc && !lead.acc) lead.acc = acc;
     lead.convertedAt = nowIso;
     lead.reportedAmount = amount;
     lead.reportedCurrency = cur;
@@ -341,6 +360,7 @@ function matchExternalConversion(data) {
   } else {
     lead = addLead({
       id: data.leadId || newId('orphan'),
+      acc,
       at: nowIso,
       gateway: gw,
       stage: 'purchased',
@@ -366,26 +386,32 @@ function matchExternalConversion(data) {
     : new Date(lead.convertedAt).getTime() - new Date(baseTime).getTime();
 
   markDirty();
-  db.upsertLead(lead);
+  invalidateStatsCache();
+  db.upsertLead(lead.acc || null, lead);
   return lead;
 }
 
-// ── Snapshot agregado para a dashboard ─────────────────────────────────────
-// Cache curto: /api/stats é chamado em polling; evita reagregar a cada hit.
-let statsCache = null;
-let statsCacheAt = 0;
+// ── Snapshot agregado para a dashboard (POR CONTA) ─────────────────────────
+// Cache curto por conta: /api/stats é chamado em polling; evita reagregar.
+const statsCacheMap = new Map(); // accountId -> { out, at }
 const STATS_CACHE_MS = 2000;
 
-function getStats() {
+function getStats(accountId) {
+  const cacheKey = accountId || '__all__';
   const now = Date.now();
-  if (statsCache && (now - statsCacheAt) < STATS_CACHE_MS) return statsCache;
+  const hit = statsCacheMap.get(cacheKey);
+  if (hit && (now - hit.at) < STATS_CACHE_MS) return hit.out;
   ensureLoaded();
-  const out = { events: state.events || [], updatedAt: state.updatedAt };
 
-  // ── Totais globais (derivados do feed de eventos) ──
+  // Filtra eventos e leads pela conta (accountId null = visão global/legado)
+  const allEvents = (state.events || []).filter((e) => !accountId || e.acc === accountId);
+  const allLeads = (state.leads || []).filter((l) => !accountId || l.acc === accountId);
+  const out = { events: allEvents, updatedAt: state.updatedAt };
+
+  // ── Totais (derivados do feed de eventos da conta) ──
   const revenue = {};
   let sales = 0, failed = 0, refunds = 0, disputes = 0;
-  (state.events || []).forEach((e) => {
+  allEvents.forEach((e) => {
     if (e.type === 'sale') {
       sales++;
       const cur = (e.currency || 'EUR').toUpperCase();
@@ -401,8 +427,8 @@ function getStats() {
     approvalRate: totalAttempts ? +((sales / totalAttempts) * 100).toFixed(1) : 0
   };
 
-  // ── Funil (todos os leads) ──
-  const leads = state.leads || [];
+  // ── Funil (leads da conta) ──
+  const leads = allLeads;
   const realLeads = leads.filter((l) => !l.orphan); // leads que originamos
   const visits = realLeads.length;
   const reachedCheckout = realLeads.filter((l) => l.stage === 'checkout' || l.stage === 'purchased').length;
@@ -452,20 +478,27 @@ function getStats() {
   // ── Leads recentes ──
   out.leads = leads.slice(0, 3000); // envia histórico amplo p/ filtros de vários dias
 
-  statsCache = out;
-  statsCacheAt = now;
+  statsCacheMap.set(cacheKey, { out, at: now });
   return out;
 }
 
-function invalidateStatsCache() { statsCache = null; }
+function invalidateStatsCache() { statsCacheMap.clear(); }
 
-function reset() {
-  state = emptyState();
-  rebuildIndex();
+// Zera SOMENTE os dados da conta informada (ou tudo, se accountId omitido).
+function reset(accountId) {
+  ensureLoaded();
+  if (accountId) {
+    state.leads = (state.leads || []).filter((l) => l.acc !== accountId);
+    state.events = (state.events || []).filter((e) => e.acc !== accountId);
+    rebuildIndex();
+  } else {
+    state = emptyState();
+    rebuildIndex();
+  }
   invalidateStatsCache();
   markDirty();
   flushToDisk();
-  db.reset();
+  db.reset(accountId);
 }
 
 // ── Hidratação do cache a partir do Neon (chamado no boot) ────────────────
@@ -473,9 +506,10 @@ function reset() {
 // é efêmero, então recarregamos leads/eventos do Postgres.
 async function hydrate() {
   try {
-    await db.init();
+    await db.initWithRetry(3);
     if (!db.enabled) return;
-    const persisted = await db.loadState(MAX_LEADS, MAX_EVENTS);
+    // Carrega TODAS as contas (cache global; getStats filtra por conta).
+    const persisted = await db.loadState(null, MAX_LEADS, MAX_EVENTS);
     if (!persisted) return;
     ensureLoaded();
     // Banco vence sobre o arquivo efêmero (que costuma estar vazio no boot).
@@ -494,12 +528,13 @@ async function hydrate() {
 // Os checkouts são EXTERNOS (sem como injetar script lá), então estimamos:
 // lead que entrou num checkout há menos de `windowMs` (padrão 10 min) e
 // ainda não comprou = provavelmente ainda está lá. Chaves dinâmicas por gateway.
-function inCheckoutNow(windowMs) {
+function inCheckoutNow(windowMs, accountId) {
   ensureLoaded();
   const cut = Date.now() - (windowMs || 10 * 60 * 1000);
   const out = {};
   (state.leads || []).forEach((l) => {
     if (l.stage !== 'checkout') return;
+    if (accountId && l.acc !== accountId) return;
     const t = l.checkoutAt ? new Date(l.checkoutAt).getTime() : 0;
     if (t >= cut) {
       const gw = l.gateway || 'externo';
