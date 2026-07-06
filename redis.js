@@ -8,8 +8,9 @@ let redis = null;
 
 try {
   const { Redis } = require('@upstash/redis');
-  const url   = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Aceita os nomes padrão da Upstash e os aliases KV_* (Vercel KV / Railway)
+  const url   = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   if (url && token) {
     redis = new Redis({ url, token });
     console.log('[redis] Upstash conectado:', url.slice(0, 40) + '...');
