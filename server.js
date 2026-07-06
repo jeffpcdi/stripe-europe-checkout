@@ -223,7 +223,7 @@ app.use(async (req, res, next) => {
     if (req.method !== 'GET') return next();
     const p = req.path || '';
     if (p.startsWith('/api') || p.startsWith('/assets') || p.startsWith('/go/')
-        || p === '/dashboard' || p === '/vision') return next();
+        || p === '/dashboard') return next();
     const accept = req.headers.accept || '';
     if (!accept.includes('text/html')) return next();          // só navegações
     if (/\.[a-z0-9]{2,5}$/i.test(p) && !p.endsWith('.html')) return next(); // ignora assets
@@ -1823,13 +1823,6 @@ app.get('/dashboard', dashboardAuth, (req, res) => {
   res.send(DASHBOARD_HTML);
 });
 
-// ── Vision UI — dashboard dark (HTML inline, pública) ───────────────
-const VISION_HTML = require('./vision-view');
-app.get('/vision', (req, res) => {
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(VISION_HTML);
-});
-
 // ── Landing Page do SaaS (raiz, pública, com pulse de presença) ──────
 app.get('/', (req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
@@ -1858,7 +1851,7 @@ stats.hydrate()
   .then(() => pixelStore.init())
   .then(() => linkStore.init())
   .finally(() => {
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Servidor rodando na porta ${PORT}`);
       console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
     });

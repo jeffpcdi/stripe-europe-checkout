@@ -2,12 +2,12 @@
 // Todos os dados são carregados via /api/stats, /api/config e /api/health (client-side).
 // IMPORTANTE: este arquivo é uma template string — não usar crase nem ${ } no conteúdo.
 module.exports = `<!DOCTYPE html>
-<html lang="pt" class="light">
+<html lang="pt" class="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#2f7dff" />
-<meta name="color-scheme" content="light" />
+<meta name="theme-color" content="#0a0a0b" />
+<meta name="color-scheme" content="dark" />
 <title>ROI-NADOS — Radar de Vendas & Funil</title>
 <link rel="icon" href="/assets/roi-nados-logo.jpg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -16,33 +16,33 @@ module.exports = `<!DOCTYPE html>
 <script src="https://unpkg.com/globe.gl"></script>
 <style>
 :root{
-  /* ═══ LIQUID GLASS LIGHT THEME ═══ */
+  /* ═══ LIQUID GLASS COSMIC DARK THEME ═══ */
   /* Neutros (9) */
-  --bg:#f4f6fb; --bg2:#fafbfc; --card:#ffffff; --card2:#f9fafb;
-  --border:rgba(120,140,165,.15); --border2:rgba(120,140,165,.08);
-  --text:#1a1d27; --text-sub:#3d4254; --text-muted:#6b7183;
+  --bg:#04050a; --bg2:#070912; --card:rgba(9,12,23,0.65); --card2:rgba(14,18,34,0.82);
+  --border:rgba(82,168,255,0.12); --border2:rgba(82,168,255,0.22);
+  --text:#f8fafc; --text-sub:#cbd5e1; --text-muted:#64748b;
   
   /* Semânticos (8) */
-  --accent:#2f7dff; --accent-light:#dbe7ff; --accent-dark:#1849c7;
-  --success:#16a34a; --success-light:#dcfce7;
-  --warning:#d97706; --warning-light:#fef3c7;
-  --error:#dc2626; --error-light:#fee2e2;
-  --info:#06b6d4;
+  --accent:#3b82f6; --accent-light:rgba(59,130,246,0.15); --accent-dark:#1d4ed8;
+  --success:#10b981; --success-light:rgba(16,185,129,0.15);
+  --warning:#f59e0b; --warning-light:rgba(245,158,11,0.15);
+  --error:#ef4444; --error-light:rgba(239,68,68,0.15);
+  --info:#52a8ff;
   
   /* Estados (4) */
-  --hover:rgba(47,125,255,.08); --active:rgba(47,125,255,.16);
-  --focus-ring:#2f7dff; --disabled:rgba(120,140,165,.4);
+  --hover:rgba(255,255,255,.05); --active:rgba(255,255,255,.08);
+  --focus-ring:#52a8ff; --disabled:rgba(255,255,255,.3);
   
   /* Globo-específicas (7) */
-  --globe-point-nav:#2f7dff; --globe-point-chk:#d97706; --globe-point-buy:#16a34a;
-  --globe-poly-base:rgba(150,165,200,.18); --globe-poly-hot:rgba(47,125,255,.32);
-  --globe-arc-const:rgba(47,125,255,.12); --globe-graticule:rgba(120,140,180,.06);
+  --globe-point-nav:#52a8ff; --globe-point-chk:#f5b544; --globe-point-buy:#3ecf8e;
+  --globe-poly-base:rgba(255,255,255,.08); --globe-poly-hot:rgba(82,168,255,.18);
+  --globe-arc-const:rgba(82,168,255,.08); --globe-graticule:rgba(255,255,255,.02);
   
   /* Vidro Liquid Glass (1.3) */
-  --lg-tint:rgba(255,255,255,.10); --lg-tint-thick:rgba(255,255,255,.55);
-  --lg-tint-clear:rgba(255,255,255,.04); --lg-tint-brand:rgba(47,125,255,.08);
-  --lg-blur:12px; --lg-sat:180%; --lg-bright:1.06;
-  --lg-rim-top:rgba(255,255,255,.55); --lg-rim-side:rgba(255,255,255,.20);
+  --lg-tint:rgba(16,16,19,.4); --lg-tint-thick:rgba(13,13,15,.75);
+  --lg-tint-clear:rgba(10,10,11,.2); --lg-tint-brand:rgba(82,168,255,.05);
+  --lg-blur:16px; --lg-sat:180%; --lg-bright:1.0;
+  --lg-rim-top:rgba(255,255,255,.08); --lg-rim-side:rgba(255,255,255,.04);
   
   /* Motion tokens */
   --dur-fast:150ms; --dur:300ms; --dur-slow:450ms;
@@ -51,10 +51,10 @@ module.exports = `<!DOCTYPE html>
   
   /* Sombras em 5 níveis (compostas: ambiente + contato) */
   --shadow-0:none; /* hairline só */
-  --shadow-1:0 1px 2px rgba(30,40,80,.05),0 1px 1px rgba(30,40,80,.03);
-  --shadow-2:0 4px 12px rgba(30,40,80,.08),0 1px 3px rgba(30,40,80,.05);
-  --shadow-3:0 12px 32px rgba(30,40,80,.12),0 2px 8px rgba(30,40,80,.06);
-  --shadow-4:0 24px 64px rgba(30,40,80,.18),0 4px 16px rgba(30,40,80,.08);
+  --shadow-1:0 1px 2px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.1);
+  --shadow-2:0 4px 12px rgba(0,0,0,.25),0 1px 3px rgba(0,0,0,.15);
+  --shadow-3:0 12px 32px rgba(0,0,0,.4),0 2px 8px rgba(0,0,0,.2);
+  --shadow-4:0 24px 64px rgba(0,0,0,.5),0 4px 16px rgba(0,0,0,.3);
   
   /* Tipografia */
   --radius:16px; --radius-sm:12px; --radius-md:14px;
@@ -64,12 +64,12 @@ module.exports = `<!DOCTYPE html>
   /* Aliases legados → semânticos (compat com os ~230 usos existentes) */
   --green:var(--success); --red:var(--error); --amber:var(--warning);
   --cyan:var(--accent); /* no tema antigo --cyan ERA o acento (botões, ícones) */
-  --pink:#ff2d6f;
-  --muted:var(--text-muted); --muted2:#8a90a3; --text-lighter:#8a91a5;
-  --line:var(--border); --ring:var(--focus-ring); --shadow:var(--shadow-2);
+  --pink:#ff5674;
+  --muted:var(--text-muted); --muted2:#63636b; --text-lighter:#9d9da8;
+  --line:var(--border); --ring:var(--focus-ring); --shadow:var(--shadow-3);
 }
 *{box-sizing:border-box}
-html{background:var(--bg);color-scheme:light;overflow-x:clip}
+html{background:var(--bg);color-scheme:dark;overflow-x:clip}
 body{overflow-x:clip}
 html,body{margin:0;padding:0}
 body{
@@ -82,20 +82,20 @@ h2{font-size:16px;font-weight:650;letter-spacing:-.015em}
 h3{font-size:14px;font-weight:600}
 h4{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted)}
 ::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:rgba(47,125,255,.25);border-radius:8px;transition:.3s}
-::-webkit-scrollbar-thumb:hover{background:rgba(47,125,255,.4)}
+::-webkit-scrollbar-thumb{background:rgba(82,168,255,.25);border-radius:8px;transition:.3s}
+::-webkit-scrollbar-thumb:hover{background:rgba(82,168,255,.4)}
 ::-webkit-scrollbar-track{background:transparent}
-::selection{background:var(--accent-light);color:var(--text)}
+::-selection{background:var(--accent-light);color:var(--text)}
 
 /* ═══ Fundo em 5 camadas (mesh gradient animado) ═══ */
 body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:-1;
   background:
     /* camada 1: base sólida */
-    linear-gradient(180deg, #f4f6fb 0%, #f4f6fb 100%),
+    linear-gradient(180deg, #060813 0%, #030409 100%),
     /* camada 2: mesh gradient de 3 blobs */
-    radial-gradient(650px at 20% 0%, rgba(219,231,255,.7) 0%, transparent 50%),
-    radial-gradient(550px at 80% 45%, rgba(236,230,255,.5) 0%, transparent 55%),
-    radial-gradient(480px at 15% 100%, rgba(255,233,242,.6) 0%, transparent 60%);
+    radial-gradient(800px at 15% 10%, rgba(82,168,255,.14) 0%, transparent 60%),
+    radial-gradient(700px at 85% 40%, rgba(255,45,111,.13) 0%, transparent 60%),
+    radial-gradient(600px at 20% 90%, rgba(37,244,238,.10) 0%, transparent 65%);
   background-attachment:fixed;
   /* camada 3: véu de profundidade nos 30% inferiores */
   -webkit-mask:
@@ -104,13 +104,13 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:-1;
 body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:-1;
   background:
     /* camada 4: vinheta de luz (radial do topo) */
-    radial-gradient(circle at 50% -20%, rgba(255,255,255,.5) 0%, transparent 65%);
+    radial-gradient(circle at 50% -20%, rgba(82,168,255,.05) 0%, transparent 70%);
   -webkit-mask:
     radial-gradient(circle at 50% 0%, rgba(0,0,0,1) 0%, transparent 80%);
 }
 
-/* grain SVG inline (camada 5, sutil a 2.5%) */
-html{background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="4" result="noise"/></filter><rect width="100" height="100" fill="rgba(0,0,0,.025)" filter="url(%23n)"/></svg>');}
+/* grain SVG inline (camada 5, sutil a 1.2% para dark theme) */
+html{background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="4" result="noise"/></filter><rect width="100" height="100" fill="rgba(255,255,255,.01)" filter="url(%23n)"/></svg>');}
 
 /* animação dos blobs: dessincronizados (28s, 34s, 41s) */
 @keyframes meshFloat1{0%{background-position:0% 0%}50%{background-position:3% -3%}100%{background-position:0% 0%}}
@@ -164,20 +164,17 @@ html[data-liquid-glass] .lg-lens{
 .lg-press:active{transform:scale(.97);box-shadow:var(--shadow-1),inset 0 1px 2px rgba(30,40,80,.12),inset 0 -1px 1px rgba(255,255,255,.5)}
 
 /* ═══ MESCLA "LIQUID GLASS" (projeto de referência) ═══
-   1) Especular que segue o mouse: ponto de luz radial posicionado por
-      --mx/--my (atualizados via JS com rAF), com blend screen = reflexo real.
+   1) Especular que segue o mouse: Desativado a pedido para visual mais limpo e profissional sem a mancha branca.
    2) Elasticidade: o vidro estica sutilmente na direção do cursor no hover. */
 html[data-liquid-glass] .card::before,
 html[data-liquid-glass] .lg::before,
 html[data-liquid-glass] .lg-thick::before{
   content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
-  opacity:0;transition:opacity .35s var(--ease);
-  background:radial-gradient(240px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.5),rgba(255,255,255,.12) 42%,transparent 65%);
-  mix-blend-mode:screen;
+  opacity:0;
 }
 html[data-liquid-glass] .card:hover::before,
 html[data-liquid-glass] .lg:hover::before,
-html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
+html[data-liquid-glass] .lg-thick:hover::before{opacity:0}
 
 /* 3) Ripple no clique: círculo branco que expande e some em 600ms */
 @keyframes liquidRipple{from{transform:translate(-50%,-50%) scale(0);opacity:.5}to{transform:translate(-50%,-50%) scale(1);opacity:0}}
@@ -193,9 +190,9 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
 .app{display:flex;flex-direction:column;min-height:100vh}
 
 /* ── Header hero: marca ROI-NADOS + dock ── */
-.hero-head{position:relative;background:linear-gradient(180deg,rgba(255,255,255,.5) 0%,rgba(255,255,255,0) 100%);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);overflow:hidden}
+.hero-head{position:relative;background:linear-gradient(180deg,rgba(4,5,10,.95) 0%,rgba(7,9,18,.82) 100%);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--border);overflow:hidden}
 .hh-glow{position:absolute;inset:-40% -10% auto;height:180%;pointer-events:none;
-  background:radial-gradient(520px 220px at 50% 0%, rgba(47,125,255,.06), transparent 65%)}
+  background:radial-gradient(520px 220px at 50% 0%, rgba(82,168,255,.06), transparent 65%)}
 /* cabeçalho compacto: a marca é assinatura, não protagonista — o conteúdo é */
 .hh-inner{position:relative;display:flex;align-items:center;gap:20px;padding:10px 26px 4px;flex-wrap:wrap}
 /* marca centralizada: status ancorado à direita, marca no centro real do header */
@@ -203,40 +200,41 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
 .hh-inner::before{content:'';flex:0 0 0}
 .logo-orbit{position:relative;width:89px;height:89px;flex-shrink:0}
 .logo-orbit img{position:absolute;inset:6px;width:77px;height:77px;border-radius:50%;object-fit:cover;z-index:2;
-  box-shadow:0 0 0 2px rgba(255,255,255,.75),0 4px 16px rgba(30,40,80,.18);
-  filter:contrast(1.12) saturate(1.2) brightness(1.05)}
+  box-shadow:0 0 0 2px rgba(255,255,255,.14),0 4px 18px rgba(0,0,0,.6);
+  filter:contrast(1.18) saturate(1.25) brightness(1.08)}
 .logo-orbit::after{content:'';position:absolute;inset:6px;border-radius:50%;z-index:3;pointer-events:none;
   background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
 .logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
-  background:conic-gradient(from var(--ra,0deg),#ff2d6f,#2f7dff,#06b6d4,#ff2d6f);
+  background:conic-gradient(from var(--ra,0deg),#ff2d6f,#52a8ff,#25f4ee,#ff2d6f);
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask-composite:exclude;
-  transition:filter var(--dur-slow) var(--ease)}
+  animation:ringSpin 6s linear infinite;
+  filter:drop-shadow(0 0 6px rgba(255,45,111,.45))}
 @property --ra{syntax:'<angle>';initial-value:0deg;inherits:false}
 @keyframes ringSpin{to{--ra:360deg}}
 /* marca estática — o brilho/giro só acontece no hover (momento premium pontual) */
-.brand-xl:hover .logo-ring{animation:ringSpin 4s linear infinite;filter:drop-shadow(0 0 10px rgba(255,45,111,.5))}
+.brand-xl:hover .logo-ring{animation:ringSpin 3s linear infinite;filter:drop-shadow(0 0 12px rgba(255,45,111,.7))}
 .brand-txt{display:flex;flex-direction:column;gap:2px}
 .bt-name{font-weight:800;font-size:20px;line-height:1;letter-spacing:.04em;
-  background:linear-gradient(92deg,#e6255f 0%,#f04e77 28%,#2f7dff 62%,#0aa4c2 100%);
+  background:linear-gradient(92deg,#ff3d7a 0%,#ff6b8a 28%,#6cb4ff 62%,#3ffcf6 100%);
   background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
-  filter:drop-shadow(0 1px 1px rgba(255,255,255,.6))}
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
 .bt-dash{-webkit-text-fill-color:transparent}
 .hh-status{margin-left:auto;display:flex;align-items:center;gap:14px;position:absolute;right:26px;top:50%;transform:translateY(-50%)}
-.hh-live{font-size:12px;color:var(--text-muted);background:rgba(255,255,255,.9);border:1px solid var(--border);padding:7px 14px;border-radius:20px;box-shadow:var(--shadow-1)}
+.hh-live{font-size:12px;color:var(--text-sub);background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:20px;box-shadow:var(--shadow-1)}
 
 /* dock de navegação: grande, central, interativo */
 .nav.dock{position:relative;display:flex;flex-direction:row;gap:6px;padding:6px 22px 10px;overflow-x:auto;scrollbar-width:none}
 .nav.dock::-webkit-scrollbar{display:none}
-.nav.dock button{position:relative;display:flex;align-items:center;gap:9px;cursor:pointer;border:1px solid var(--border2);background:rgba(255,255,255,.72);color:var(--text-muted);padding:8px 15px;border-radius:11px;font-size:13.5px;font-weight:600;font-family:inherit;transition:.2s;white-space:nowrap}
-.nav.dock button .d-ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:rgba(255,255,255,.6);box-shadow:inset 0 0 0 1px rgba(255,255,255,.4);transition:.2s;flex-shrink:0}
+.nav.dock button{position:relative;display:flex;align-items:center;gap:9px;cursor:pointer;border:1px solid var(--border2);background:var(--card);color:var(--text-sub);padding:8px 15px;border-radius:11px;font-size:13.5px;font-weight:600;font-family:inherit;transition:.2s;white-space:nowrap}
+.nav.dock button .d-ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--bg);box-shadow:inset 0 0 0 1px var(--border);transition:.2s;flex-shrink:0}
 .nav.dock button svg{width:15px;height:15px}
-.nav.dock button:hover{color:var(--text);background:rgba(255,255,255,.8);transform:translateY(-2px)}
-.nav.dock button:hover .d-ico{background:rgba(255,255,255,1);box-shadow:inset 0 0 0 1px var(--border),var(--shadow-2)}
+.nav.dock button:hover{color:var(--text);background:var(--hover);transform:translateY(-2px)}
+.nav.dock button:hover .d-ico{background:var(--card2);box-shadow:inset 0 0 0 1px var(--border),var(--shadow-2)}
 .nav.dock button.active{color:var(--text);background:transparent;border-color:transparent;box-shadow:none}
 .nav.dock.no-gota button.active{background:var(--card);border-color:var(--accent);box-shadow:var(--shadow-2)}
-.nav.dock button.active .d-ico{background:var(--accent-light);box-shadow:inset 0 0 0 1px var(--accent-light)}
-.nav.dock button.active svg{color:var(--accent-dark)}
+.nav.dock button.active .d-ico{background:rgba(82,168,255,.2);box-shadow:inset 0 0 0 1px rgba(82,168,255,.4), 0 0 8px rgba(82,168,255,.3)}
+.nav.dock button.active svg{color:var(--accent)}
 /* sublinhado removido — a gota deslizante (#nav-gota) substitui o indicador */
 .nav .badge{margin-left:2px;background:var(--error);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px}
 /* dots de presença com respiração (pulsam) */
@@ -271,14 +269,14 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
 #period-custom-lbl:empty{display:none}
 #period-custom-lbl{font-size:11px;font-family:'Geist Mono';color:var(--cyan)}
 /* popover de segmentação */
-.dr-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:320px;background:rgba(255,255,255,.9);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);border:1px solid rgba(255,255,255,.5);border-radius:16px;padding:16px;
+.dr-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:320px;background:var(--card);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);border:1px solid var(--border);border-radius:16px;padding:16px;
   box-shadow:var(--shadow-4),inset 0 1px 1px var(--lg-rim-top);animation:drIn .25s var(--spring)}
 @keyframes drIn{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
 .dr-head{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px}
 .dr-row{display:flex;gap:10px;margin-bottom:14px}
 .dr-field{flex:1;display:flex;flex-direction:column;gap:5px}
 .dr-field label{font-size:11px;color:var(--muted2);font-weight:600}
-.dr-inp{font-size:12.5px;padding:8px 10px;color-scheme:light}
+.dr-inp{font-size:12.5px;padding:8px 10px;color-scheme:dark}
 .dr-hours{border-top:1px solid var(--border);padding-top:12px;margin-bottom:14px;transition:opacity .2s}
 .dr-hours.off{opacity:.4;pointer-events:none}
 .dr-hours-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -305,20 +303,20 @@ input:checked+.slider:before{transform:translateX(18px)}
 /* knob estica ao pressionar (feedback tátil iOS) */
 .switch:active .slider:before{width:26px}
 .switch:active input:checked+.slider:before{transform:translateX(14px)}
-.select,.inp{background:rgba(255,255,255,.85);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-family:inherit;font-size:13.5px;outline:none;transition:.2s}
-.select::placeholder,.inp::placeholder{color:var(--text-lighter)}
-.select:focus,.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,125,255,.1);background:rgba(255,255,255,.9)}
-.btn{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:10px;padding:9px 15px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:.2s;box-shadow:0 4px 14px rgba(47,125,255,.35)}
-.btn:hover{background:var(--accent-dark);box-shadow:0 4px 14px rgba(47,125,255,.45);transform:translateY(-2px)}
-.btn:active{box-shadow:inset 0 1px 2px rgba(30,40,80,.1);transform:scale(.98)}
+.select,.inp{background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px;font-family:inherit;font-size:13.5px;outline:none;transition:all .2s cubic-bezier(.2,.8,.2,1)}
+.select::placeholder,.inp::placeholder{color:var(--text-muted)}
+.select:focus,.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light), inset 0 1px 1px rgba(0,0,0,0.2);background:var(--card)}
+.btn{position:relative;background:var(--accent);color:#fff;border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:9px 16px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:all .2s cubic-bezier(.2,.8,.2,1);box-shadow:0 4px 16px rgba(59,130,246,0.25), inset 0 1px 0 rgba(255,255,255,0.18)}
+.btn:hover{background:var(--accent-dark);box-shadow:0 6px 20px rgba(59,130,246,0.35), inset 0 1px 0 rgba(255,255,255,0.25);transform:translateY(-1.5px)}
+.btn:active{transform:translateY(0) scale(.98);box-shadow:0 2px 8px rgba(59,130,246,0.2)}
 .btn svg{width:16px;height:16px;display:block}
 .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
 .btn.primary:hover{filter:brightness(1.08)}
-.btn.danger{border-color:rgba(220,38,38,.5);color:var(--red)}
-.btn.danger:hover{background:rgba(220,38,38,.12)}
-.btn-sm{padding:5px 10px;font-size:12px;border-radius:8px}
-.btn-icon{background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 8px;cursor:pointer;font-size:11px;font-family:inherit;font-weight:600;transition:.15s;white-space:nowrap}
-.btn-icon:hover{background:var(--hover);color:var(--text)}
+.btn.danger{border-color:rgba(239,68,68,.3);color:var(--error);background:transparent}
+.btn.danger:hover{background:var(--error-light);border-color:rgba(239,68,68,.5);transform:translateY(-1.5px)}
+.btn-sm{padding:5px 11px;font-size:12px;border-radius:8px}
+.btn-icon{background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 9px;cursor:pointer;font-size:11px;font-family:inherit;font-weight:600;transition:all .18s ease;white-space:nowrap}
+.btn-icon:hover{background:var(--hover);color:var(--text);border-color:var(--border2);transform:translateY(-1px)}
 
 .content{padding:28px 30px 90px;max-width:1440px;margin:0 auto;width:100%}
 /* Uma seção por vez: só a aba ativa fica visível */
@@ -365,18 +363,22 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 
 /* ── Cards & KPIs ── */
 .grid{display:grid;gap:16px}
+.dynamic-grid{display:grid;grid-template-columns:1fr;gap:16px;transition:all .3s cubic-bezier(.25,.8,.25,1)}
+.dynamic-grid.form-open{grid-template-columns:1.2fr 1fr}
+@media(max-width:860px){.dynamic-grid.form-open{grid-template-columns:1fr}}
+@media(max-width:768px){.step-line{display:none!important}}
 .kpis{grid-template-columns:repeat(auto-fit,minmax(186px,1fr))}
 .card{
   position:relative;isolation:isolate;
-  /* fundo sólido: cards ficam sobre um fundo quase opaco, então o backdrop-filter
-     custava uma camada de composição por card (39×) sem ganho visual. Removido. */
-  background:rgba(255,255,255,.9);
-  border:1px solid rgba(255,255,255,.30);border-radius:var(--radius);padding:20px;
-  box-shadow:var(--shadow-1),inset 0 1px 1px var(--lg-rim-top),inset 0 -1px 1px rgba(255,255,255,.25),inset 1px 0 1px var(--lg-rim-side),inset -1px 0 1px var(--lg-rim-side);
+  background:var(--card);
+  backdrop-filter:blur(16px) saturate(190%);
+  -webkit-backdrop-filter:blur(16px) saturate(190%);
+  border:1px solid var(--border);border-radius:var(--radius);padding:20px;
+  box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top),inset 0 -1px 1px rgba(255,255,255,.03),inset 1px 0 1px var(--lg-rim-side),inset -1px 0 1px var(--lg-rim-side);
 }
 .card::after{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
-  background:linear-gradient(135deg,rgba(255,255,255,.45),rgba(255,255,255,.08) 28%,transparent 58%);mix-blend-mode:screen}
-@supports not (backdrop-filter:blur(1px)){.card{background:rgba(255,255,255,.92)}}
+  background:linear-gradient(135deg,rgba(255,255,255,.04),rgba(255,255,255,.01) 28%,transparent 58%);mix-blend-mode:screen}
+@supports not (backdrop-filter:blur(1px)){.card{background:var(--card)}}
 .card.tint-cyan,.card.tint-pink,.card.tint-green,.card.tint-amber{background:var(--card)}
 .kpi .k-top{display:flex;align-items:center;gap:9px;color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}
 .kpi .k-val{font-family:'Geist Mono',monospace;font-weight:700;font-size:30px;margin-top:12px;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;color:var(--text)}
@@ -388,34 +390,34 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .kpi .k-sub{font-size:12px;color:var(--text-muted);margin-top:7px}
 .k-val.small{font-size:25px}
 .k-val.xsmall{font-size:19px}
-.k-ico.ic-cyan{background:rgba(47,125,255,.14);color:var(--cyan)}
-.k-ico.ic-pink{background:rgba(220,38,38,.14);color:var(--pink)}
-.k-ico.ic-green{background:rgba(22,163,74,.14);color:var(--green)}
-.k-ico.ic-amber{background:rgba(217,119,6,.14);color:var(--amber)}
+.k-ico.ic-cyan{background:rgba(82,168,255,.12);color:var(--cyan)}
+.k-ico.ic-pink{background:rgba(255,86,116,.12);color:var(--pink)}
+.k-ico.ic-green{background:rgba(62,207,142,.12);color:var(--green)}
+.k-ico.ic-amber{background:rgba(245,181,68,.12);color:var(--amber)}
 .hl-card .k-flag{display:inline-flex;align-items:center;gap:8px}
 .hl-card .k-flag .fi{font-size:20px;line-height:1}
 /* ── Ao Vivo ── */
 .nav .live-badge{background:var(--success);color:#fff}
   #live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;position:relative;
-  background:rgba(255,255,255,.9);border:1px solid var(--border);box-shadow:var(--shadow-2)}
+  background:radial-gradient(circle at 50% 50%, #0d1222 0%, #04060b 100%) !important;border:1px solid rgba(82,168,255,.2);box-shadow:0 24px 64px rgba(0,0,0,0.85), inset 0 0 60px rgba(0,0,0,0.7)}
 /* filtro CSS por-frame removido: re-filtrava o canvas inteiro a cada frame do globo */
 /* ── Globo hero na Visão Geral ── */
 #globe-hero{width:100%;height:560px;border-radius:var(--radius);overflow:hidden;position:relative;
-  background:rgba(255,255,255,.9);border:1px solid var(--border);box-shadow:var(--shadow-2);
+  background:var(--card);border:1px solid var(--border);box-shadow:var(--shadow-3);
   grid-column:1/-1;margin:24px 0}
-#globe-hero::after{content:'';position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 1px 2px rgba(255,255,255,.5);pointer-events:none;z-index:1}
+#globe-hero::after{content:'';position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 1px 2px rgba(255,255,255,.04);pointer-events:none;z-index:1}
 /* skeleton do globo: shimmer radial */
-.globe-skel{width:100%;height:560px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(255,255,255,.6),rgba(255,255,255,.9));overflow:hidden;position:relative;margin:24px 0}
-.globe-skel::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.2),transparent 70%);animation:skelShimmer 1.4s ease-in-out infinite}
+.globe-skel{width:100%;height:560px;border-radius:var(--radius);background:linear-gradient(135deg,var(--card),var(--card2));overflow:hidden;position:relative;margin:24px 0}
+.globe-skel::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.05),transparent 70%);animation:skelShimmer 1.4s ease-in-out infinite}
 /* badge de presença sobre o globo (vidro claro) */
 .globe-badge{position:absolute;top:14px;left:14px;z-index:5;display:flex;align-items:center;gap:8px;
-  font-size:12px;color:var(--text);background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.5);
+  font-size:12px;color:var(--text);background:var(--card);border:1px solid var(--border);
   padding:7px 13px;border-radius:20px;backdrop-filter:blur(12px) saturate(180%);box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top)}
 .globe-badge b{font-family:'Geist Mono';color:var(--success)}
 /* card do globo: controles flutuantes em vidro (tier 3 candidato à lente) */
 .globe-card{position:relative;overflow:hidden}
 .globe-tools{position:absolute;top:14px;right:14px;z-index:5;display:flex;flex-direction:column;gap:6px;
-  background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.5);border-radius:12px;padding:6px;
+  background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:6px;
   backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);
   box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top)}
 html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) url(#lg-lens);-webkit-backdrop-filter:blur(12px) saturate(180%) url(#lg-lens)}
@@ -425,7 +427,7 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
 .gt-btn:active{transform:scale(.94)}
 .gt-div{height:1px;background:var(--border);margin:1px 4px}
 .globe-hint{position:absolute;left:14px;bottom:12px;z-index:5;font-size:10.5px;color:var(--text-muted);letter-spacing:.06em;
-  background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.5);padding:4px 10px;border-radius:14px;backdrop-filter:blur(8px);pointer-events:none;opacity:.9}
+  background:var(--card);border:1px solid var(--border);padding:4px 10px;border-radius:14px;backdrop-filter:blur(8px);pointer-events:none;opacity:.9}
 /* layout: globo + painel lateral de presença */
 .globe-wrap{display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px}
 @media(max-width:960px){.globe-wrap{grid-template-columns:1fr}}
@@ -472,16 +474,19 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
   background:var(--card);border:1px solid var(--border2);color:var(--muted);transition:.25s cubic-bezier(.34,1.56,.64,1)}
 .gm-close svg{width:16px;height:16px}
 .gm-close:hover{color:var(--text);transform:scale(1.15) rotate(90deg);border-color:var(--pink);box-shadow:0 0 14px -4px var(--pink)}
-/* fundo do globo: aurora em drift lento (só transform = GPU) + vinheta de profundidade */
-#live-globe::before,#globe::before{content:'';position:absolute;inset:-28%;z-index:0;pointer-events:none;
+/* fundo do globo: aurora em drift lento + vinheta de profundidade e brilho espacial */
+#live-globe::before{content:'';position:absolute;inset:-40%;z-index:0;pointer-events:none;
   background:
-    radial-gradient(38% 32% at 28% 32%,rgba(47,125,255,.17),transparent 70%),
-    radial-gradient(34% 28% at 74% 64%,rgba(6,182,212,.13),transparent 70%),
-    radial-gradient(26% 22% at 62% 18%,rgba(255,45,111,.08),transparent 70%);
-  animation:auroraDrift 26s ease-in-out infinite alternate;will-change:transform}
-#live-globe::after,#globe::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;border-radius:inherit;
-  box-shadow:inset 0 0 90px rgba(30,50,110,.10),inset 0 0 24px rgba(255,255,255,.30)}
-@keyframes auroraDrift{from{transform:rotate(0deg) scale(1)}to{transform:rotate(10deg) scale(1.14)}}
+    radial-gradient(45% 45% at 50% 50%,rgba(82,168,255,.22) 0%,transparent 65%),
+    radial-gradient(35% 35% at 30% 35%,rgba(255,45,111,.14) 0%,transparent 60%),
+    radial-gradient(40% 40% at 75% 65%,rgba(37,244,238,.12) 0%,transparent 65%);
+  animation:auroraDrift 18s ease-in-out infinite alternate;will-change:transform;
+  filter:blur(15px);opacity:0.9}
+#live-globe::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;border-radius:inherit;
+  box-shadow:inset 0 0 110px rgba(0,0,0,0.9), inset 0 0 40px rgba(82,168,255,0.22), 0 0 50px rgba(82,168,255,0.08);
+  animation:globePulse 4s ease-in-out infinite alternate}
+@keyframes globePulse{from{box-shadow:inset 0 0 110px rgba(0,0,0,0.9), inset 0 0 35px rgba(82,168,255,0.18), 0 0 40px rgba(82,168,255,0.05)}to{box-shadow:inset 0 0 110px rgba(0,0,0,0.9), inset 0 0 45px rgba(82,168,255,0.26), 0 0 60px rgba(82,168,255,0.12)}}
+@keyframes auroraDrift{from{transform:rotate(0deg) scale(1)}to{transform:rotate(12deg) scale(1.12)}}
 @media(prefers-reduced-motion:reduce){#live-globe::before,#globe::before{animation:none}}
 .live-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}
 .live-grid>.card{min-width:0}
@@ -496,13 +501,11 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
 .live-pill.info{color:var(--accent-dark);background:var(--accent-light);border-color:rgba(47,125,255,.3)}
 .live-dot-anim{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(22,163,74,.6);animation:livePulse 1.6s infinite}
 @keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.55)}70%{box-shadow:0 0 0 7px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
-.lrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);transition:background .15s}
+.lrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);transition:all .22s cubic-bezier(.2,.8,.2,1);cursor:pointer;border-radius:6px}
 .lrow:last-child{border-bottom:0}
-.lrow:hover{background:var(--hover)}
+.lrow:hover{background:var(--hover);transform:translateX(3px);border-bottom-color:transparent}
 .lrow .lflag{font-size:22px;line-height:1;flex-shrink:0}
 .lrow .lmain{min-width:0;flex:1}
-.lrow{transition:.2s;cursor:pointer}
-.lrow:hover{background:var(--hover)}
 .lrow .lmain b{display:block;font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lrow .lmain span{display:block;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .lrow .ldur{font-size:11px;color:var(--text-muted)}
@@ -521,7 +524,8 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
 .lhot-head{display:flex;align-items:center;gap:9px;font-size:11.5px;font-weight:700;color:var(--pink);text-transform:uppercase;letter-spacing:.09em;
   padding:10px 14px;border-bottom:1px solid rgba(255,45,111,.25);background:rgba(255,45,111,.06);position:sticky;top:0;z-index:2;backdrop-filter:blur(6px)}
 .lhot-dot{width:8px;height:8px;border-radius:50%;background:var(--pink);box-shadow:0 0 10px var(--pink);animation:hotDot 1.3s ease-in-out infinite}
-.live-empty{padding:44px 20px;text-align:center;color:var(--muted2);font-size:13px}
+.live-empty{padding:48px 24px;text-align:center;color:var(--text-sub);font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;opacity:0.85}
+.live-empty svg{color:var(--accent);filter:drop-shadow(0 0 8px var(--accent-light));opacity:0.75;margin-bottom:4px}
 /* Entrada escalonada de cima para baixo */
 @keyframes liveRowIn{0%{opacity:0;transform:translateY(-14px)}60%{opacity:1}100%{opacity:1;transform:translateY(0)}}
 .lrow.enter{animation:liveRowIn .5s cubic-bezier(.2,.8,.2,1) both}
@@ -586,7 +590,9 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
 .k-val .amb{color:var(--warning)}
 .k-val .mut,.k-sub .mut{color:var(--text-muted)}
 
-  .section-title{display:flex;align-items:center;gap:10px;margin:36px 0 16px;font-size:15px;font-weight:600;color:var(--text);flex-wrap:wrap;min-width:0}
+  .section-title{display:flex;align-items:center;gap:10px;margin:38px 0 18px;font-size:15.5px;font-weight:700;color:#ffffff;flex-wrap:wrap;min-width:0;letter-spacing:-0.015em}
+  .section-title span:first-child{position:relative;padding-left:14px}
+  .section-title span:first-child::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
   /* passos numerados dos cards de instrução (snippet, webhook) */
   .steps{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px}
   .step{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
@@ -595,15 +601,28 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
   .mini-feats span{font-size:12px;color:var(--muted2);display:flex;align-items:center;gap:6px}
   .mini-feats span::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--kg1,var(--pink));flex:none}
   /* tutorial passo a passo (instalação do script) */
-  .tut-step{display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--border)}
-  .tut-step:first-of-type{border-top:0;padding-top:4px}
-  .tut-n{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--kg1,var(--pink));color:#fff;font-size:13px;font-weight:700;flex:none}
+  .tut-step{display:flex;gap:16px;align-items:flex-start;padding:18px 20px;border:1px solid var(--border);background:var(--card2);border-radius:12px;margin-bottom:16px;transition:all .25s cubic-bezier(.2,.8,.2,1)}
+  .tut-step:hover{border-color:var(--border2);box-shadow:0 12px 32px rgba(0,0,0,.5);transform:translateY(-1.5px)}
+  .tut-n{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#ff3d7a 0%,#52a8ff 100%);color:#fff;font-size:14px;font-weight:800;flex:none;box-shadow:0 0 12px rgba(82,168,255,.25)}
   .tut-txt{flex:1;min-width:0}
-  .tut-txt>b{font-size:14px;color:var(--text)}
-  .tut-txt p{margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.65}
-  .tut-list{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
-  .tut-list li{font-size:12.5px;color:var(--muted);line-height:1.6}
-  .tut-list li b{color:var(--text)}
+  .tut-txt>b{font-size:15px;color:var(--text);font-weight:700;letter-spacing:.02em}
+  .tut-txt p{margin:8px 0 0;font-size:13.5px;color:var(--text-sub);line-height:1.65}
+  .tut-list{margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:8px}
+  .tut-list li{font-size:13px;color:var(--text-sub);line-height:1.65}
+  .tut-list li b{color:var(--text);font-weight:600}
+  /* Mockups interativos para os tutoriais */
+  .mock-container{background:#0a0c16;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:14px;box-shadow:0 12px 36px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,0.03);transition:all .22s ease}
+  .mock-container:hover{border-color:var(--border2);box-shadow:0 16px 44px rgba(0,0,0,.6)}
+  .mock-header{background:#0e111e;border-bottom:1px solid rgba(255,255,255,.05);padding:10px 14px;display:flex;align-items:center;gap:6px}
+  .mock-dot{width:8.5px;height:8.5px;border-radius:50%;background:#ff5f56;flex-shrink:0}
+  .mock-dot:nth-child(2){background:#ffbd2e}
+  .mock-dot:nth-child(3){background:#27c93f}
+  .mock-title{font-size:11.5px;color:var(--text-muted);margin-left:8px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mock-body{padding:16px;font-size:12.5px;color:var(--text-sub)}
+  .mock-code-box{background:#04060b;border-radius:8px;padding:12px;margin:10px 0;font-family:'Geist Mono',monospace;font-size:11.5px;color:#58a6ff;border-left:3px solid var(--pink);position:relative;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.5)}
+  .btn-xs{padding:3px 9px;font-size:10.5px;border-radius:6px;font-weight:700;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(0,0,0,0.25)}
+  .mock-pointer{display:inline-flex;align-items:center;gap:6px;color:var(--pink);font-weight:700;font-size:11.5px;margin-top:6px;animation:mockBounce 1.2s ease-in-out infinite alternate}
+  @keyframes mockBounce{from{transform:translateX(0)}to{transform:translateX(8px)}}
   /* linha do tempo do trajeto do lead (drawer) */
   .jrny{display:flex;flex-direction:column;gap:0;margin:4px 0 10px;padding-left:5px}
   .jstep{display:flex;align-items:center;gap:10px;position:relative;padding:5px 0 5px 14px}
@@ -667,10 +686,10 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
   .cn-x:hover{color:var(--red)}
   /* Tooltip do gráfico de tendência */
   .chart-wrap{position:relative}
-  .chart-tip{position:absolute;pointer-events:none;background:rgba(255,255,255,.9);backdrop-filter:blur(12px) saturate(180%);border:1px solid rgba(255,255,255,.5);border-radius:10px;padding:7px 10px;font-size:12px;z-index:5;box-shadow:var(--shadow-3),inset 0 1px 1px var(--lg-rim-top);white-space:nowrap}
+  .chart-tip{position:absolute;pointer-events:none;background:var(--card2);backdrop-filter:blur(12px) saturate(180%);border:1px solid var(--border);border-radius:10px;padding:7px 10px;font-size:12px;z-index:5;box-shadow:var(--shadow-3),inset 0 1px 1px var(--lg-rim-top);white-space:nowrap}
   .chart-tip b{display:block;font-family:'Geist Mono',monospace;font-size:14px}
   .chart-tip span{color:var(--muted2);font-size:10.5px}
-.section-title .line{flex:1;height:1px;background:var(--border)}
+.section-title .line{flex:1;height:1px;background:linear-gradient(90deg, var(--border2), var(--border) 60%, transparent);opacity:0.85}
 
 /* ── Gráfico ── */
 .chart-wrap{position:relative;min-height:220px;width:100%}
@@ -715,7 +734,7 @@ tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay
 
 /* ── Geo ── */
 .geo-grid{display:grid;grid-template-columns:1.3fr .9fr;gap:16px}
-#globe{width:100%;height:440px;border-radius:var(--radius);overflow:hidden;position:relative;background:radial-gradient(circle at 50% 40%,#eef3fb,#dfe7f5)}
+#globe{width:100%;height:440px;border-radius:var(--radius);overflow:hidden;position:relative;background:radial-gradient(circle at 50% 40%,#151518,#0a0a0b)}
 .clist{display:flex;flex-direction:column;gap:2px;max-height:440px;overflow-y:auto}
 .crow{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:11px;transition:.12s}
 .crow:hover{background:var(--hover)}
@@ -858,7 +877,7 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 /* ── Drawer ── */
 .drawer-bg{position:fixed;inset:0;background:rgba(40,50,80,.25);backdrop-filter:blur(6px) saturate(120%);opacity:0;pointer-events:none;transition:.25s;z-index:40}
 .drawer-bg.open{opacity:1;pointer-events:auto}
-.drawer{position:fixed;top:0;right:0;height:100vh;width:min(460px,94vw);background:rgba(255,255,255,.82);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border-left:1px solid rgba(255,255,255,.5);box-shadow:-12px 0 48px rgba(30,40,80,.14);transform:translateX(100%);transition:transform var(--dur-slow) var(--spring);z-index:50;display:flex;flex-direction:column}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(460px,94vw);background:rgba(9,12,24,0.85);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border-left:1px solid var(--border);box-shadow:-12px 0 48px rgba(0,0,0,.6);transform:translateX(100%);transition:transform var(--dur-slow) var(--spring);z-index:50;display:flex;flex-direction:column}
 .drawer.open{transform:none}
 .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border);gap:10px}
 .drawer-head h3{font-size:16px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -876,7 +895,7 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .btn-icon:hover{color:var(--cyan);border-color:var(--cyan)}
 
 /* ── Toast ── */
-.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);opacity:0;visibility:hidden;background:rgba(255,255,255,.85);backdrop-filter:blur(12px) saturate(180%);border:1px solid rgba(255,255,255,.5);color:var(--text);padding:12px 20px;border-radius:14px;font-size:13.5px;font-weight:600;z-index:60;transition:transform var(--dur-slow) var(--spring),opacity .3s,visibility .3s;box-shadow:var(--shadow-3),inset 0 1px 1px var(--lg-rim-top);pointer-events:none}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);opacity:0;visibility:hidden;background:rgba(15,22,40,0.88);backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);border:1px solid var(--border2);color:var(--text);padding:12px 20px;border-radius:14px;font-size:13.5px;font-weight:600;z-index:60;transition:transform var(--dur-slow) var(--spring),opacity .3s,visibility .3s;box-shadow:0 12px 32px rgba(0,0,0,.5),inset 0 1px 1px var(--lg-rim-top);pointer-events:none}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1;visibility:visible}
 .toast.ok{border-color:rgba(22,163,74,.5)} .toast.err{border-color:rgba(220,38,38,.5)}
 
@@ -924,16 +943,6 @@ details[open]>.setup-summary .chev{transform:rotate(180deg)}
 .si-txt b{font-size:13px;font-weight:600;display:block}
 .si-txt span{font-size:12px;color:var(--muted);display:block;margin-top:1px}
 .si-go{flex-shrink:0}
-
-/* ── Checklists guiados por aba do Rastreamento (progresso + pular p/ a etapa) ── */
-.tc-host{margin-bottom:16px}
-.tc-card .setup-summary{gap:8px}
-.setup-badge.all{background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--green)}
-.si-dot.num{border-color:var(--border2);color:var(--muted);font-size:11px;font-weight:700}
-.tc-go{flex-shrink:0}
-.tc-flash{animation:tcFlash 1.4s ease}
-@keyframes tcFlash{0%,100%{box-shadow:none}18%,62%{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}}
-@media(prefers-reduced-motion:reduce){.tc-flash{animation:none}}
 
 /* ── Funil + entradas lado a lado na Visão Geral ── */
 @media(max-width:900px){.ov-pages{grid-template-columns:1fr!important}}
@@ -1032,12 +1041,15 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
    borda acesa e glow na cor de identidade (--glow). Nada de efeitos
    diferentes por família — uma linguagem só em toda a dash. */
 .card{transition:border-color var(--dur) var(--ease),transform var(--dur-slow) var(--spring),box-shadow var(--dur-slow) var(--ease),background var(--dur) var(--ease)}
-.card:hover{background:rgba(255,255,255,.72);transform:translateY(-2px);
-  box-shadow:var(--shadow-2),inset 0 1px 1px rgba(255,255,255,.65),inset 0 -1px 1px rgba(255,255,255,.3),inset 1px 0 1px var(--lg-rim-side),inset -1px 0 1px var(--lg-rim-side)}
-.card:hover{border-color:var(--border2)}
-.kpi,.mstat,.cfg-card,.gs-stat,.hitem{transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.card:hover{background:var(--card2);transform:translateY(-3px);
+  box-shadow:0 16px 36px rgba(0,0,0,.65), 0 0 15px rgba(82,168,255,.14), inset 0 1px 1px rgba(255,255,255,.12);
+  border-color:rgba(82,168,255,.42)}
+.kpi,.mstat,.cfg-card,.gs-stat,.hitem{transition:border-color var(--dur) var(--ease),transform var(--dur-slow) var(--spring),box-shadow var(--dur-slow) var(--ease)}
 .kpi:hover,.mstat:hover,.cfg-card:hover,.gs-stat:hover,.hitem:hover{
-  transform:translateY(-2px);border-color:var(--border2);box-shadow:var(--shadow)}
+  transform:translateY(-3px);
+  border-color:rgba(82,168,255,.38);
+  box-shadow:0 14px 28px rgba(0,0,0,.6), 0 0 12px rgba(82,168,255,.12);
+}
 /* micro-interação única do ícone (mesma em todos) */
 .kpi:hover .k-ico,.mstat:hover .ms-ico,.cfg-card:hover .cfg-ico{transform:scale(1.08)}
 
@@ -1096,8 +1108,8 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .msg-track i{display:block;height:100%;border-radius:3px;background:var(--mc,#06b6d4);width:0;transition:width .9s cubic-bezier(.2,.7,.3,1)}
 .msg-n{min-width:20px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0}
 /* ��─ Visão Geral: cabeçalho de bloco leve (título + contexto, divisor sutil) ── */
-#view-overview .section-title span:first-child{position:relative;padding-left:16px}
-#view-overview .section-title span:first-child::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:7px;height:7px;border-radius:2px;background:var(--accent);opacity:.85}
+#view-overview .section-title span:first-child{padding-left:14px}
+#view-overview .section-title span:first-child::before{display:none}
 #view-overview .section-title .line{background:linear-gradient(90deg,var(--border2),var(--border) 40%,transparent)}
 
 /* ── Visão Geral: meta de receita — plana, sem brilho ambiente ── */
@@ -1131,9 +1143,9 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .nav button:active{transform:scale(.97)}
 /* gota líquida deslizante: elemento posicionado por JS, estica no meio do caminho */
 #nav-gota{position:absolute;top:0;left:0;height:100%;border-radius:11px;pointer-events:none;z-index:0;
-  background:rgba(255,255,255,.72);
-  box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top),inset 0 -1px 1px rgba(255,255,255,.3);
-  border:1px solid var(--accent);
+  background:rgba(82,168,255,.07);
+  box-shadow:0 8px 32px rgba(0,0,0,.45), inset 0 1px 1px rgba(255,255,255,.12);
+  border:1px solid rgba(82,168,255,.35);
   transition:transform var(--dur-slow) var(--spring),width var(--dur-slow) var(--spring);
   will-change:transform}
 /* a gota vira lente de verdade: refrata os botões que passam por baixo dela */
@@ -1258,7 +1270,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 /* Paleta de comandos ⌘K */
 .cmdk-bg{position:fixed;inset:0;background:rgba(5,5,10,.6);backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:.18s;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh}
 .cmdk-bg.open{opacity:1;pointer-events:auto}
-.cmdk{width:min(560px,94vw);background:rgba(255,255,255,.85);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid rgba(255,255,255,.5);border-radius:18px;box-shadow:var(--shadow-4),inset 0 1px 1px var(--lg-rim-top);overflow:hidden;transform:translateY(-10px) scale(.98);transition:.25s var(--spring)}
+.cmdk{width:min(560px,94vw);background:rgba(12,16,30,0.88);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid var(--border2);border-radius:18px;box-shadow:0 24px 64px rgba(0,0,0,0.7),inset 0 1px 1px var(--lg-rim-top);overflow:hidden;transform:translateY(-10px) scale(.98);transition:.25s var(--spring)}
 .cmdk-bg.open .cmdk{transform:none}
 .cmdk-top{display:flex;align-items:center;gap:11px;padding:15px 18px;border-bottom:1px solid var(--border)}
 .cmdk-top svg{width:18px;height:18px;color:var(--muted2);flex-shrink:0}
@@ -1424,7 +1436,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <div class="brand-xl">
         <div class="logo-orbit">
           <div class="logo-ring"></div>
-          <img src="/assets/roi-nados-logo.jpg" alt="Logo ROI-NADOS" />
+          <img src="/assets/roi-nados-logo.jpg" alt="Logo" />
         </div>
       </div>
       <div class="hh-status">
@@ -1486,10 +1498,10 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ─���� Ao Vivo ── -->
       <section class="view" id="view-live">
         <div class="grid kpis" id="live-kpis"></div>
-        <div class="section-title" style="margin-top:0"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online agora no mapa</span></div>
+        <div class="section-title" style="margin-top:0"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online navegando agora</span></div>
         <div class="globe-wrap">
-          <div class="card globe-card" style="padding:0" id="globe-card">
-            <div id="live-globe"></div>
+          <div class="card globe-card" style="padding:0; height:520px; overflow:hidden; position:relative" id="globe-card">
+            <div id="live-globe" style="height:100%"></div>
             <div class="globe-tools">
               <button class="gt-btn" id="globe-zoom-in" title="Aproximar" aria-label="Aproximar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
               <button class="gt-btn" id="globe-zoom-out" title="Afastar" aria-label="Afastar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
@@ -1503,9 +1515,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <div class="gs-stat"><span class="gs-dot grn-d"></span><div class="gs-txt"><b id="gs-online">0</b><span>online agora</span></div></div>
               <div class="gs-stat"><span class="gs-dot pnk-d"></span><div class="gs-txt"><b id="gs-ck">0</b><span>no checkout</span></div></div>
             </div>
-            <div class="card gs-leads">
-              <div class="gs-head"><span class="live-dot-anim"></span>Leads rastreados<button class="gs-all" id="gs-all">Ver todos</button></div>
-              <div class="gs-list" id="ov-live-list" aria-busy="true"><div style="padding:12px"><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div></div></div>
+            <div class="card gs-leads" style="padding:0; overflow:hidden; display:flex; flex-direction:column; height:396px">
+              <div class="gs-head"><span class="live-dot-anim"></span>Leads navegando em tempo real<button class="gs-all" id="gs-all">Ver todos</button></div>
+              <div class="gs-list" id="ov-live-list" aria-busy="true" style="flex:1; overflow-y:auto"><div style="padding:12px"><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div></div></div>
             </div>
           </aside>
         </div>
@@ -1539,11 +1551,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <span class="ls-cta">Ver ao vivo &#8594;</span>
         </button>
         <div class="card traffic-card reveal" id="traffic-pulse"></div>
-        <!-- Globo hero: mundo em tempo real com leads por país -->
-        <div class="card" style="padding:0;overflow:hidden">
-          <div class="globe-skel" id="ov-globe-skel"></div>
-          <div id="globe-hero" hidden></div>
-        </div>
         <div id="ov-goal-sec" hidden>
           <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
           <div class="card goal-card reveal" id="ov-goal"></div>
@@ -1627,10 +1634,43 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Links de Checkout ── -->
       <section class="view" id="view-links">
-        <!-- checklist guiado: substitui o banner/tutorial longo -->
-        <div class="tc-host" id="lk-setup"></div>
-        <details class="hint-details" style="margin:-6px 0 16px"><summary class="hint" style="cursor:pointer">Como funciona por dentro</summary><p class="hint" style="margin-top:6px;line-height:1.7">Quando o lead clica no <code>/go/</code>, registramos o clique, disparamos InitiateCheckout na CAPI do TikTok e redirecionamos para o checkout com o <code>lead_id</code> anexado. A venda volta pelo webhook do gateway e fecha o ciclo &mdash; incluindo o teste A/B, se houver mais de uma URL.</p></details>
-        <div class="grid" style="grid-template-columns:1.2fr 1fr">
+        <div class="card" style="margin-bottom:20px;padding:16px 24px">
+          <div style="display:flex;align-items:center;gap:20px;width:100%;flex-wrap:wrap;justify-content:space-between">
+            <!-- Step 1 -->
+            <div style="display:flex;align-items:center;gap:12px;min-width:180px;flex:1">
+              <div style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--accent) 0%,var(--accent-dark) 100%);color:#fff;font-size:13px;font-weight:800;box-shadow:0 0 12px rgba(59,130,246,0.35);flex-shrink:0">1</div>
+              <div>
+                <div style="font-weight:700;font-size:13px;color:#fff">Crie o Link</div>
+                <div style="font-size:11.5px;color:var(--text-muted)">Cadastre seu checkout</div>
+              </div>
+            </div>
+            
+            <!-- Arrow / Line 1 -->
+            <div style="height:2px;background:linear-gradient(90deg,var(--border2),transparent);flex:1;min-width:20px;max-width:100px" class="step-line"></div>
+            
+            <!-- Step 2 -->
+            <div style="display:flex;align-items:center;gap:12px;min-width:210px;flex:1.2">
+              <div style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--success) 0%,var(--accent) 100%);color:#fff;font-size:13px;font-weight:800;box-shadow:0 0 12px rgba(16,185,129,0.3);flex-shrink:0">2</div>
+              <div>
+                <div style="font-weight:700;font-size:13px;color:#fff">Divulgue o Link</div>
+                <div style="font-size:11.5px;color:var(--text-muted)">Use a URL <code>/go/&lt;slug&gt;</code></div>
+              </div>
+            </div>
+            
+            <!-- Arrow / Line 2 -->
+            <div style="height:2px;background:linear-gradient(90deg,var(--border2),transparent);flex:1;min-width:20px;max-width:100px" class="step-line"></div>
+            
+            <!-- Step 3 -->
+            <div style="display:flex;align-items:center;gap:12px;min-width:180px;flex:1">
+              <div style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--warning) 0%,var(--success) 100%);color:#fff;font-size:13px;font-weight:800;box-shadow:0 0 12px rgba(245,158,11,0.3);flex-shrink:0">3</div>
+              <div>
+                <div style="font-weight:700;font-size:13px;color:#fff">Rastreie Tudo</div>
+                <div style="font-size:11.5px;color:var(--text-muted)">Monitore convers&otilde;es ao vivo</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="grid dynamic-grid" id="lk-grid">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
               <h3 style="font-size:16px">Meus links</h3>
@@ -1678,7 +1718,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
         </div>
         <!-- domínio próprio: recolhido por padrão, é opcional -->
-        <details class="ck-adv" id="lk-domain-details" style="margin-top:20px">
+        <details class="ck-adv" style="margin-top:20px">
           <summary>Dom&iacute;nio personalizado <span class="hint" style="font-weight:400">&mdash; opcional: use o SEU dom&iacute;nio nos an&uacute;ncios</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
           <div class="ck-adv-body">
             <div style="display:flex;gap:8px;align-items:center;margin:4px 0 14px">
@@ -1686,16 +1726,63 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
             </div>
             <div id="dm-list" style="margin-bottom:14px"></div>
-            <div class="hint" style="line-height:1.7;margin:0 0 12px">
-              <b style="color:var(--text)">Como ligar seu dom&iacute;nio (passo a passo):</b>
-              <ol class="tut-list" style="padding-left:18px;margin-top:8px">
-                <li>No painel onde voc&ecirc; comprou o dom&iacute;nio (ou onde gerencia o DNS), crie um registro do tipo <b>CNAME</b>.</li>
-                <li>No campo de <b>nome/host</b>, use o subdom&iacute;nio que voc&ecirc; digitou acima (ex.: <code>link</code>). No campo de <b>destino/valor</b>, coloque: <code><span class="dm-apphost">este-app</span></code></li>
-                <li>Se voc&ecirc; hospeda na <b>Vercel</b>, adicione o mesmo dom&iacute;nio tamb&eacute;m em <b>Project &#8594; Domains</b>.</li>
-                <li>Aguarde alguns minutos (o DNS pode levar at&eacute; algumas horas para propagar) e clique em <b>Verificar</b>.</li>
-              </ol>
-              <p style="margin:8px 0 0">Quando ficar verde, seus links de checkout e o rastreamento passam a usar o seu pr&oacute;prio endere&ccedil;o nos an&uacute;ncios.</p>
+            
+            <div class="domain-tut-container" style="margin-top: 16px; display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px">
+              <div style="font-weight: 600; color: var(--text); font-size: 13.5px; display: flex; align-items: center; gap: 8px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--accent)"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                Configura&ccedil;&atilde;o DNS R&aacute;pida:
+              </div>
+              
+              <!-- Passo 1 -->
+              <div class="tut-step" style="border-left: 4px solid var(--pink); margin-bottom: 0">
+                <span class="tut-n">1</span>
+                <div class="tut-txt">
+                  <b>Crie um registro CNAME</b>
+                  <p>No painel do seu dom&iacute;nio (Cloudflare, Hostgator, Godaddy&hellip;), v&aacute; em <b>Configura&ccedil;&atilde;o de DNS</b>.</p>
+                </div>
+              </div>
+
+              <!-- Passo 2 -->
+              <div class="tut-step" style="border-left: 4px solid var(--accent); margin-bottom: 0">
+                <span class="tut-n">2</span>
+                <div class="tut-txt">
+                  <b>Preencha com estas informa&ccedil;&otilde;es</b>
+                  <p>Adicione o novo registro do tipo <b>CNAME</b> usando os dados abaixo:</p>
+                  
+                  <div class="mock-container" style="margin-top: 10px">
+                    <div class="mock-header">
+                      <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot"></span>
+                      <span class="mock-title">📋 Tabela de DNS (Copiar e Colar)</span>
+                    </div>
+                    <div class="mock-body" style="background: #090c15; padding: 12px">
+                      <div style="display: grid; grid-template-columns: 80px 110px 1fr; gap: 8px; font-weight: 600; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 8px">
+                        <div>Tipo</div>
+                        <div>Nome / Host</div>
+                        <div>Destino / Valor</div>
+                      </div>
+                      <div style="display: grid; grid-template-columns: 80px 110px 1fr; gap: 8px; font-family: 'Geist Mono', monospace; font-size: 11.5px; align-items: center">
+                        <div style="color: var(--pink); font-weight: bold">CNAME</div>
+                        <div style="color: #fff">link <span style="font-size:10px; opacity:0.5">(ou o seu)</span></div>
+                        <div style="display: flex; align-items: center; gap: 6px; overflow: hidden">
+                          <span class="dm-apphost" style="color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">carregando...</span>
+                          <button class="btn btn-xs" style="padding: 2px 8px; font-size: 10px; background: rgba(82,168,255,0.15); border-color: rgba(82,168,255,0.3); font-family: inherit; margin-left: auto" onclick="navigator.clipboard.writeText(DM_APPHOST).then(function(){toast('Destino copiado!')}).catch(function(){toast('Erro ao copiar',false)})">Copiar</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Passo 3 -->
+              <div class="tut-step" style="border-left: 4px solid var(--success); margin-bottom: 0">
+                <span class="tut-n">3</span>
+                <div class="tut-txt">
+                  <b>Verifique e use!</b>
+                  <p>Clique em <b>Verificar</b> acima. Uma vez ativado, todos os seus links passam a usar o seu dom&iacute;nio automaticamente.</p>
+                </div>
+              </div>
             </div>
+
             <div class="form-row" style="margin-bottom:0">
               <label>Script no seu dom&iacute;nio <span class="hint">— cole no &lt;head&gt; das suas p&aacute;ginas</span></label>
               <div style="display:flex;gap:8px;align-items:center;max-width:480px">
@@ -1705,44 +1792,37 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
           </div>
         </details>
-        <details class="ck-adv" style="margin-top:20px">
-          <summary>Ver desempenho <span class="hint" style="font-weight:400">&mdash; teste A/B e convers&atilde;o por p&aacute;gina</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="ck-adv-body">
-            <div class="section-title" style="margin-top:0"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
-            <div id="lk-perf"></div>
-            <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
-            <div class="card" style="padding:0">
-              <div class="tbl-wrap" style="border:0">
-                <table>
-                  <thead><tr><th>P&aacute;gina</th><th>Leads</th><th>Foram ao checkout</th><th>Compras</th><th>Convers&atilde;o</th></tr></thead>
-                  <tbody id="pg-conv"></tbody>
-                </table>
-              </div>
-            </div>
+        <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
+        <div id="lk-perf"></div>
+        <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
+        <div class="card" style="padding:0">
+          <div class="tbl-wrap" style="border:0">
+            <table>
+              <thead><tr><th>P&aacute;gina</th><th>Leads</th><th>Foram ao checkout</th><th>Compras</th><th>Convers&atilde;o</th></tr></thead>
+              <tbody id="pg-conv"></tbody>
+            </table>
           </div>
-        </details>
+        </div>
       </section>
 
       <!-- ��─ Filtro de Bots / Revisores TikTok (cloaking) ── -->
       <section class="view" id="view-cloak">
         <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Roteia revisores do TikTok Ads para a white page &mdash; pessoas reais v&atilde;o para a offer</p></div></div>
 
-        <!-- checklist guiado -->
-        <div class="tc-host" id="ck-setup"></div>
-
         <!-- Hero: interruptor mestre + sensibilidade -->
-        <div class="card cfg-card" id="ck-hero" style="--cc:var(--cyan);margin-bottom:16px">
+        <div class="card cfg-card" style="--cc:var(--cyan);margin-bottom:16px">
           <div class="cfg-head">
             <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
             <div><h3>Prote&ccedil;&atilde;o de cloaking</h3><p id="ck-status-line">Bots e revisores v&atilde;o para a white page; pessoas reais seguem para a offer.</p></div>
             <label class="switch" style="margin-left:auto"><input type="checkbox" id="ck-enabled"><span class="slider"></span></label>
           </div>
           <div class="seg" id="ck-sens" style="margin-top:4px">
-            <button data-s="strict" type="button">Agressivo<span class="seg-sub">barra o m&aacute;ximo de bots (pode barrar alguns reais)</span></button>
-            <button data-s="balanced" type="button">Equilibrado<span class="seg-sub">o melhor dos dois &mdash; recomendado</span></button>
-            <button data-s="loose" type="button">Conservador<span class="seg-sub">libera quase todos (alguns bots passam)</span></button>
-            <button data-s="custom" type="button">Manual<span class="seg-sub">voc&ecirc; define o rigor abaixo</span></button>
+            <button data-s="strict" type="button">Agressivo</button>
+            <button data-s="balanced" type="button">Equilibrado</button>
+            <button data-s="loose" type="button">Conservador</button>
+            <button data-s="custom" type="button">Manual</button>
           </div>
+          <p id="ck-sens-desc" class="hint" style="margin-top:10px;margin-bottom:0">Equilibrado: a melhor proporção de segurança e conversão — recomendado</p>
           <div id="ck-threshold-wrap" style="margin-top:14px;display:none">
             <label class="hint">Rigor da filtragem: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> &mdash; quanto <b>menor</b>, mais gente vai para a white page (mais rigoroso); quanto <b>maior</b>, mais gente passa para a offer</label>
             <input type="range" id="ck-threshold" min="10" max="90" step="5" value="40" style="width:100%;accent-color:var(--cyan);margin-top:6px">
@@ -1750,7 +1830,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
 
         <!-- Regras por link: offer, white page, países e pixel -->
-        <div class="card" id="ck-rules-card" style="margin-bottom:16px">
+        <div class="card" style="margin-bottom:16px">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <div style="flex:1;min-width:180px">
               <h3 style="font-size:15px;margin:0">Regras por link</h3>
@@ -1762,7 +1842,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
 
         <!-- Testar (compacto) -->
-        <div class="card cfg-card" id="ck-test-card" style="--cc:var(--green);margin-bottom:0">
+        <div class="card cfg-card" style="--cc:var(--green);margin-bottom:0">
           <div class="cfg-head">
             <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
             <div><h3>Testar com meu navegador</h3><p>Veja como o SEU acesso seria classificado. Deve dar <b>real</b>.</p></div>
@@ -1818,10 +1898,8 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Pixel TikTok ── -->
       <section class="view" id="view-pixels">
-        <!-- checklist guiado: substitui o banner + tutorial longos -->
-        <div class="tc-host" id="px-setup"></div>
-        <details class="hint-details" style="margin:-6px 0 16px"><summary class="hint" style="cursor:pointer">O que \u00e9 o rastreamento avan\u00e7ado?</summary><p class="hint" style="margin-top:6px;line-height:1.7">Cada visitante recebe uma identidade &uacute;nica e segura. Com ela, o TikTok reconhece a mesma pessoa desde o clique no an&uacute;ncio at&eacute; a compra &mdash; mesmo em p&aacute;ginas diferentes. Isso melhora a qualidade dos dados e ajuda o TikTok a encontrar mais compradores parecidos. Voc&ecirc; s&oacute; precisa seguir os passos acima; o resto &eacute; autom&aacute;tico.</p></details>
-        <div class="grid" style="grid-template-columns:1.2fr 1fr">
+        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Rastreamento avançado, lead por lead</b><p>Cada visitante recebe uma identidade única e segura. Com ela, o TikTok reconhece a mesma pessoa desde o clique no anúncio até a compra — mesmo em páginas diferentes. Isso melhora a qualidade dos dados e ajuda o TikTok a encontrar mais compradores parecidos. Você só precisa colar o script (abaixo) nas suas páginas; o resto é automático.</p></div></div>
+        <div class="grid dynamic-grid" id="px-grid">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
               <h3 style="font-size:16px">Pixels configurados</h3>
@@ -1833,7 +1911,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <h3 style="font-size:16px;margin-bottom:4px" id="px-form-title">Novo pixel</h3>
             <p class="hint" style="margin-bottom:14px">Cada pixel fica guardado separadamente e continua funcionando sozinho, mesmo com esta tela fechada.</p>
             <div class="form-row">
-              <label>Nome <span class="hint">— só para voc�� identificar (ex.: a campanha)</span></label>
+              <label>Nome <span class="hint">— só para você identificar (ex.: a campanha)</span></label>
               <input class="inp" id="px-name" placeholder="Campanha Espanha" style="width:100%">
             </div>
             <div class="form-row">
@@ -1877,42 +1955,105 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div id="ph-events" class="hint" style="margin-top:12px"></div>
           <div id="ph-errors" style="margin-top:6px"></div>
         </div>
-        <div class="section-title" id="tk-install"><span>Script de rastreamento</span><span class="line"></span><span class="muted" style="font-size:11.5px">cole no &lt;head&gt; de cada p&aacute;gina</span></div>
-        <div class="card">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
-            <button class="btn btn-sm primary" id="tk-copy">Copiar script</button>
+        <div class="section-title"><span>Passo a Passo: Como ativar o rastreamento</span><span class="line"></span></div>
+        <div class="card" style="padding: 24px">
+          <p class="hint" style="margin:0 0 20px;line-height:1.7;font-size:14px;color:var(--text-sub)">Siga estes <b>3 passos simples</b> para ativar o rastreamento automático. Funciona em qualquer criador de páginas (Elementor, Wix, WordPress, GreatPages, Typebot, etc.) sem precisar entender de programação.</p>
+
+          <!-- Passo 1 -->
+          <div class="tut-step" style="border-left: 4px solid var(--pink)">
+            <span class="tut-n">1</span>
+            <div class="tut-txt">
+              <b>Copie o código abaixo</b>
+              <p style="margin-bottom: 12px">Este código inteligente conecta o seu site a este painel de controle. Clique no botão para copiar.</p>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+                <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px;background:var(--bg2)">
+                <button class="btn btn-sm primary" id="tk-copy" style="padding: 10px 18px; transition: all 0.2s">Copiar Código</button>
+              </div>
+            </div>
           </div>
-          <div class="mini-feats" style="margin-top:12px">
-            <span>Registra a visita no pixel do TikTok</span>
-            <span>O lead aparece na tela "Ao Vivo"</span>
-            <span>Conecta a visita &agrave; venda</span>
+
+          <!-- Passo 2 -->
+          <div class="tut-step" style="border-left: 4px solid var(--accent)">
+            <span class="tut-n">2</span>
+            <div class="tut-txt">
+              <b>Cole nas configurações do seu site</b>
+              <p>Abra o criador de páginas onde o seu site foi feito e cole o código copiado no campo de <b>scripts personalizados, cabeçalho ou "head"</b>.</p>
+              
+              <!-- PRINT / MOCKUP EXPLICATIVO -->
+              <div class="mock-container">
+                <div class="mock-header">
+                  <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot"></span>
+                  <span class="mock-title">⚙️ Painel do seu Criador de Páginas</span>
+                </div>
+                <div class="mock-body" style="background: #090c15">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px">
+                    <span style="font-weight: 600; color: #fff">Seção de Código / Scripts</span>
+                    <span style="font-size:11px; opacity:0.6; color: #52a8ff">Elementor / GreatPages / WordPress / Wix</span>
+                  </div>
+                  <div class="mock-code-box">
+                    &lt;!-- Colar o código aqui dentro --&gt;
+                    <div class="mock-pointer">👉 Pressione Ctrl + V (ou Cmd + V) para colar o código</div>
+                  </div>
+                  <div style="font-size:11.5px; opacity:0.8; color: var(--text-muted)">
+                    💡 Procure por opções chamadas: <i>"Scripts Personalizados"</i>, <i>"Configurações Globais"</i>, <i>"Custom Code"</i> ou <i>"Script no Cabeçalho (Head)"</i>.
+                  </div>
+                </div>
+              </div>
+
+            </div>
           </div>
-          <details class="ck-adv" style="margin-top:12px">
-            <summary>Onde e como colar? <span class="hint" style="font-weight:400">&mdash; construtor, WordPress ou HTML</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
-            <div class="ck-adv-body">
-              <p class="hint" style="margin:0 0 8px;line-height:1.7">Cole o script uma &uacute;nica vez em <b>cada p&aacute;gina sua</b> (presell, VSL, vendas), dentro do <code>&lt;head&gt;</code>. Depois salve e publique &mdash; o resto &eacute; autom&aacute;tico.</p>
-              <ul class="tut-list">
-                <li><b>Construtor de p&aacute;ginas:</b> procure <i>"C&oacute;digo no cabe&ccedil;alho"</i>, <i>"Head"</i> ou <i>"Scripts"</i> nas configura&ccedil;&otilde;es da p&aacute;gina.</li>
-                <li><b>WordPress:</b> use um plugin como <i>"Insert Headers and Footers"</i>.</li>
-                <li><b>HTML pr&oacute;prio:</b> cole logo antes de <code>&lt;/head&gt;</code>.</li>
+
+          <!-- Passo 3 -->
+          <div class="tut-step" style="border-left: 4px solid var(--success)">
+            <span class="tut-n">3</span>
+            <div class="tut-txt">
+              <b>Salve e publique o seu site</b>
+              <p>Clique em "Salvar" ou "Publicar" no criador. Pronto! A partir de agora, todas as visitas e compras serão gravadas e mostradas automaticamente em tempo real.</p>
+              
+              <!-- PRINT / MOCKUP ATIVO -->
+              <div class="mock-container" style="border-color: rgba(62,207,142,0.2)">
+                <div class="mock-header" style="background: rgba(62,207,142,0.06)">
+                  <span class="mock-dot" style="background:#3ecf8e"></span>
+                  <span class="mock-title" style="color: #3ecf8e; font-weight: 600">⚡ Rastreamento Funcionando</span>
+                </div>
+                <div class="mock-body" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #080d14">
+                  <div>
+                    <span style="font-weight: 600; color: #fff">Páginas ativas detectadas</span>
+                    <p style="margin: 3px 0 0; font-size: 11px; opacity: 0.8; color: var(--text-muted)">Enviando dados de forma ultra-rápida e segura para o TikTok</p>
+                  </div>
+                  <span style="background: rgba(62,207,142,0.12); color: #3ecf8e; font-family: monospace; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px">STATUS: OK</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="alert" style="background:rgba(47,125,255,.06);border-color:rgba(47,125,255,.25);margin-top:4px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--cyan)"><path d="M12 16v-4M12 8h.01"/><circle cx="12" cy="12" r="10"/></svg>
+            <div>
+              <b style="font-size:13.5px">Perguntas fáceis</b>
+              <ul class="tut-list" style="margin-top:6px">
+                <li><b>Preciso mexer nos meus botões de venda?</b> Não! O script rastreia tudo automaticamente a partir dos links configurados.</li>
+                <li><b>Preciso configurar o TikTok de forma complicada?</b> Não, nosso robô cuida de ligar as visitas dos anúncios às compras de forma automática.</li>
+                <li><b>É necessário criar arquivos no meu servidor?</b> Não. Só colar o script no criador de páginas e salvar.</li>
+                <li><b>Uso domínio próprio?</b> Após cadastrar seu domínio próprio (na aba ao lado), o código gerado usará o seu endereço automaticamente.</li>
               </ul>
             </div>
-          </details>
-          <details class="ck-adv" style="margin-top:8px">
-            <summary>Perguntas comuns<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
-            <div class="ck-adv-body">
-              <ul class="tut-list">
-                <li><b>Preciso mexer nos bot&otilde;es de "Comprar"?</b> N&atilde;o &mdash; basta que levem ao seu link de checkout (aba <b>Links de Checkout</b>).</li>
-                <li><b>E as UTMs do TikTok?</b> Nada a configurar; o script guarda e repassa sozinho at&eacute; a venda.</li>
-                <li><b>Preciso criar arquivos no servidor?</b> N&atilde;o &mdash; s&oacute; colar o script no cabe&ccedil;alho.</li>
-                <li><b>Uso dom&iacute;nio pr&oacute;prio?</b> Ap&oacute;s validar em <b>Links &rarr; Dom&iacute;nio personalizado</b>, copie o script por l&aacute;.</li>
-              </ul>
-            </div>
-          </details>
+          </div>
+
+          <div class="mini-feats">
+            <span>Registra visitantes no pixel do TikTok</span>
+            <span>Acompanhe ao vivo quem navega</span>
+            <span>Vincula cliques a vendas reais</span>
+          </div>
         </div>
-        <div class="section-title"><span>Webhook de convers&otilde;es</span><span class="line"></span><span class="muted" style="font-size:11.5px">cole no seu gateway (Kiwify, Hotmart&hellip;)</span></div>
-        <div class="card" id="cw-card">
+        <div class="section-title"><span>Integração Automática com Plataforma de Vendas (Webhook)</span><span class="line"></span></div>
+        <div class="card">
+          <div class="steps">
+            <span class="step"><b>1</b> Copie o link abaixo</span>
+            <span class="step"><b>2</b> Cole no painel da sua plataforma (Kiwify, Hotmart, PerfectPay, Monetizze, Appmax...)</span>
+            <span class="step"><b>3</b> Pronto! Toda venda cai automática aqui e envia para o TikTok</span>
+          </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input class="inp" id="cw-url" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
             <button class="btn btn-sm" id="cw-reveal" title="Mostrar/ocultar segredo">Revelar</button>
@@ -1926,29 +2067,24 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <p class="hint" id="cw-status" style="margin-top:10px"></p>
         </div>
-        <details class="ck-adv" style="margin-top:20px">
-          <summary>Ver hist&oacute;rico de disparos <span class="hint" style="font-weight:400">&mdash; webhooks recebidos e envios server-side</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="ck-adv-body">
-            <div class="section-title" style="margin-top:0"><span>Webhooks recebidos</span><span class="line"></span><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
-            <div class="card" style="padding:0">
-              <div class="tbl-wrap" style="border:0">
-                <table>
-                  <thead><tr><th>Quando</th><th>Gateway</th><th>Evento</th><th>Valor</th><th>Match</th><th>Status CAPI</th></tr></thead>
-                  <tbody id="cw-log"></tbody>
-                </table>
-              </div>
-            </div>
-            <div class="section-title"><span>Disparos server-side recentes</span><span class="line"></span><button class="btn-icon" id="px-log-refresh">Atualizar</button></div>
-            <div class="card" style="padding:0">
-              <div class="tbl-wrap" style="border:0">
-                <table>
-                  <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Qualidade</th><th>Status</th><th>Resposta</th></tr></thead>
-                  <tbody id="px-log"></tbody>
-                </table>
-              </div>
-            </div>
+        <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
+        <div class="card" style="padding:0">
+          <div class="tbl-wrap" style="border:0">
+            <table>
+              <thead><tr><th>Quando</th><th>Gateway</th><th>Evento</th><th>Valor</th><th>Match</th><th>Status CAPI</th></tr></thead>
+              <tbody id="cw-log"></tbody>
+            </table>
           </div>
-        </details>
+        </div>
+        <div class="section-title"><span>Disparos server-side recentes</span><span class="line"></span><button class="btn-icon" id="px-log-refresh">Atualizar</button></div>
+        <div class="card" style="padding:0">
+          <div class="tbl-wrap" style="border:0">
+            <table>
+              <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Qualidade</th><th>Status</th><th>Resposta</th></tr></thead>
+              <tbody id="px-log"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- ── Configurações: coluna única, leitura de cima para baixo ── -->
@@ -2107,7 +2243,7 @@ function timeAgo(iso){
   return Math.floor(d/86400)+'d';
 }
 function fmtDateLocal(iso){
-  if(!iso) return '��';
+  if(!iso) return '—';
   try{ return new Intl.DateTimeFormat('pt-PT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Lisbon'}).format(new Date(iso)); }
   catch(e){ return iso.slice(0,16).replace('T',' '); }
 }
@@ -2812,46 +2948,45 @@ function loadWorldPolys(cb){
       WORLD_GEOJSON_WAITERS=[];
     }).catch(function(){ WORLD_GEOJSON_LOADING=false; });
 }
-// Aplica os polygons light no globo (países em cinza-azulado suave sobre oceano claro)
+// Aplica as bordas dos países sobre a textura realista do globo
 function applyLightPolys(g){
   loadWorldPolys(function(feats){
     try{
       g.polygonsData(feats)
-        .polygonCapColor(function(){return 'rgba(150,165,200,.30)';})
-        .polygonSideColor(function(){return 'rgba(150,165,200,.06)';})
-        .polygonStrokeColor(function(){return 'rgba(110,130,170,.45)';})
-        .polygonAltitude(0.006);
+        .polygonCapColor(function(){return 'rgba(59,130,246,0.08)';})
+        .polygonSideColor(function(){return 'rgba(0,0,0,0)';})
+        .polygonStrokeColor(function(){return 'rgba(147,197,253,0.22)';})
+        .polygonAltitude(0.005);
     }catch(_){}
   });
 }
-// Construtor de globo LIGHT (liquid glass) — usado pelo Ao Vivo e pelo hero da Visão Geral.
+// Construtor de globo DARK (realista) — usado pelo hero da Visão Geral.
 function makeGlobe(el,height){
   el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
   var g=Globe()(el)
-    .globeImageUrl(null)
+    .globeImageUrl('//unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
     .backgroundColor('rgba(0,0,0,0)')
     .showGraticules(false)
-    .showAtmosphere(true).atmosphereColor('#8ab4ff').atmosphereAltitude(0.22)
+    .showAtmosphere(true).atmosphereColor('#3b82f6').atmosphereAltitude(0.15)
     .pointLat('lat').pointLng('lng')
     .ringLat('lat').ringLng('lng');
-  // oceano claro: esfera branco-azulada (liquid glass).
-  // O globe.gl reseta o material na inicialização assíncrona — aplicar após o boot (2 tentativas).
+  // Ajuste do material para que a textura brilhe corretamente
   function paintOcean(){
     try{
       var mat=g.globeMaterial();
-      if(mat.color&&mat.color.set) mat.color.set('#e8eefa');
-      if(mat.emissive&&mat.emissive.set){ mat.emissive.set('#dfe8f8'); mat.emissiveIntensity=0.55; }
-      mat.shininess=8;
+      if(mat.color&&mat.color.set) mat.color.set('#ffffff');
+      if(mat.emissive&&mat.emissive.set){ mat.emissive.set('#000000'); mat.emissiveIntensity=0.0; }
+      mat.shininess=30;
     }catch(_){}
   }
   setTimeout(paintOcean,150); setTimeout(paintOcean,900);
   try{
-    // ajustar as luzes default do globe.gl (ambient + directional) para cena clara
+    // Ajustar as luzes default do globe.gl para cena dark/realistic
     var lights=g.lights&&g.lights();
     if(lights&&lights.length){
       lights.forEach(function(l){
         if(l.isAmbientLight){ l.intensity=2.2; if(l.color&&l.color.set)l.color.set('#ffffff'); }
-        if(l.isDirectionalLight){ l.intensity=0.85; if(l.color&&l.color.set)l.color.set('#ffffff'); }
+        if(l.isDirectionalLight){ l.intensity=1.8; if(l.color&&l.color.set)l.color.set('#ffffff'); }
       });
     }
   }catch(_){}
@@ -3207,45 +3342,48 @@ function liveDur(ms){
   return Math.floor(s/3600)+'h';
 }
 function renderLiveGlobe(){
-  var el=document.getElementById('live-globe'); if(!el) return;
-  if(typeof Globe==='undefined'){ el.innerHTML='<div class="empty" style="height:100%;display:flex;align-items:center;justify-content:center">Globo indispon&iacute;vel.</div>'; return; }
+  var el=document.getElementById('live-globe');
   var cs=(LIVE.summary&&LIVE.summary.countries)||[];
-  var top=cs[0]?cs[0].count:1;
-  var pts=cs.filter(function(c){return GEO[c.code];}).map(function(c){
-    var g=GEO[c.code]; var sz=Math.max(.25,Math.min(1,c.count/top));
-    return {lat:g[0],lng:g[1],size:sz,count:c.count,name:c.name,code:c.code};
-  });
-  try{
-    if(!liveGlobe){
-      liveGlobe=makeGlobe(el,520);
-      liveGlobe.pointAltitude(function(d){return 0.03+d.size*0.32;})
-        .pointRadius(function(d){return 0.3+d.size*0.55;})
-        .pointColor(function(d){return heatColor(d.size);})
-        .pointLabel(function(d){
-          var c=heatColor(d.size);
-          return '<div style="background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);padding:10px 14px;border-radius:12px;'+
-            'font-family:Inter,sans-serif;box-shadow:0 12px 32px rgba(30,40,80,.15),inset 0 1px 1px rgba(255,255,255,.6);backdrop-filter:blur(12px)">'+
-            '<div style="font-size:13px;color:#1a1d27;font-weight:600;display:flex;align-items:center;gap:7px">'+
-              '<span style="font-size:17px">'+flag(d.code)+'</span>'+d.name+'</div>'+
-            '<div style="font-size:11px;color:#6b7183;margin-top:5px;display:flex;align-items:center;gap:6px">'+
-              '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+c+';box-shadow:0 0 7px '+c+'"></span>'+
-              '<b style="color:'+c+';font-size:13px">'+d.count+'</b>&nbsp;online agora</div>'+
-          '</div>';
-        })
-        .ringColor(function(d){return function(t){return heatRGBA(d.size,(1-t)*.9);};})
-        .ringMaxRadius(function(d){return 2.8+d.size*5;})
-        .ringPropagationSpeed(2.2)
-        .ringRepeatPeriod(function(d){return 850-d.size*400;});
-      // liga controles: zoom +/− e tela cheia
-      var zi=document.getElementById('globe-zoom-in'), zo=document.getElementById('globe-zoom-out'), fs=document.getElementById('globe-fs');
-      if(zi)zi.onclick=function(){globeZoom(0.72);};
-      if(zo)zo.onclick=function(){globeZoom(1.38);};
-      if(fs)fs.onclick=globeFullscreen;
-      window.addEventListener('resize',resizeGlobe);
-    }
-    liveGlobe.pointsData(pts);
-    liveGlobe.ringsData(pts);
-  }catch(e){ el.innerHTML='<div class="empty">N&atilde;o foi poss&iacute;vel carregar o globo.</div>'; }
+  if(el && typeof Globe!=='undefined'){
+    var top=cs[0]?cs[0].count:1;
+    var pts=cs.filter(function(c){return GEO[c.code];}).map(function(c){
+      var g=GEO[c.code]; var sz=Math.max(.25,Math.min(1,c.count/top));
+      return {lat:g[0],lng:g[1],size:sz,count:c.count,name:c.name,code:c.code};
+    });
+    try{
+      if(!liveGlobe){
+        liveGlobe=makeGlobe(el,520);
+        liveGlobe.pointAltitude(function(d){return 0.01+d.size*0.08;})
+          .pointRadius(function(d){return 0.22+d.size*0.35;})
+          .pointColor(function(d){return heatColor(d.size);})
+          .pointLabel(function(d){
+            var c=heatColor(d.size);
+            return '<div style="background:rgba(8,10,18,0.92);border:1px solid rgba(255,255,255,0.09);padding:10px 14px;border-radius:12px;'+
+              'font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 12px 36px rgba(0,0,0,0.7),inset 0 1px 0 rgba(255,255,255,0.1);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)">'+
+              '<div style="font-size:13px;color:#fff;font-weight:700;display:flex;align-items:center;gap:8px">'+
+                '<span style="font-size:16px">'+flag(d.code)+'</span>'+d.name+'</div>'+
+              '<div style="font-size:11px;color:#94a3b8;margin-top:5px;display:flex;align-items:center;gap:6px">'+
+                '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+c+';box-shadow:0 0 8px '+c+'"></span>'+
+                '<span style="color:#cbd5e1"><b style="color:'+c+';font-size:12.5px">'+d.count+'</b>&nbsp;online agora</span></div>'+
+            '</div>';
+          })
+          .ringColor(function(d){return function(t){return heatRGBA(d.size,(1-t)*0.75);};})
+          .ringMaxRadius(function(d){return 1.8+d.size*3.2;})
+          .ringPropagationSpeed(1.6)
+          .ringRepeatPeriod(function(d){return 1200-d.size*400;});
+        // liga controles: zoom +/− e tela cheia
+        var zi=document.getElementById('globe-zoom-in'), zo=document.getElementById('globe-zoom-out'), fs=document.getElementById('globe-fs');
+        if(zi)zi.onclick=function(){globeZoom(0.72);};
+        if(zo)zo.onclick=function(){globeZoom(1.38);};
+        if(fs)fs.onclick=globeFullscreen;
+        window.addEventListener('resize',resizeGlobe);
+      }
+      liveGlobe.pointsData(pts);
+      liveGlobe.ringsData(pts);
+    }catch(e){ el.innerHTML='<div class="empty">N&atilde;o foi poss&iacute;vel carregar o globo.</div>'; }
+  } else if(el) {
+    el.innerHTML='<div class="empty" style="height:100%;display:flex;align-items:center;justify-content:center">Globo indispon&iacute;vel.</div>';
+  }
   // subtítulo com presença atual
   var n=(LIVE.summary&&LIVE.summary.online)||0;
   var sub=document.getElementById('ov-globe-sub');
@@ -3268,13 +3406,13 @@ function renderGlobeHero(){
     if(!globoHero){
       if(skel)skel.hidden=true; el.hidden=false;
       globoHero=makeGlobe(el,560);
-      globoHero.pointAltitude(function(d){return 0.03+d.size*0.3;})
-        .pointRadius(function(d){return 0.3+d.size*0.5;})
+      globoHero.pointAltitude(function(d){return 0.01+d.size*0.08;})
+        .pointRadius(function(d){return 0.22+d.size*0.35;})
         .pointColor(function(d){return heatColor(d.size);})
-        .ringColor(function(d){return function(t){return heatRGBA(d.size,(1-t)*.8);};})
-        .ringMaxRadius(function(d){return 2.6+d.size*4.5;})
-        .ringPropagationSpeed(2.2)
-        .ringRepeatPeriod(function(d){return 900-d.size*400;});
+        .ringColor(function(d){return function(t){return heatRGBA(d.size,(1-t)*0.75);};})
+        .ringMaxRadius(function(d){return 1.8+d.size*3.2;})
+        .ringPropagationSpeed(1.6)
+        .ringRepeatPeriod(function(d){return 1200-d.size*400;});
       // redimensiona junto com o container (o globo memoriza o width da criação)
       window.addEventListener('resize',function(){
         try{ if(!el.hidden&&globoHero) globoHero.width(el.clientWidth).height(560); }catch(_){}
@@ -3323,13 +3461,15 @@ function loadLinks(){
   fetch('/api/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     LK_LIST=d.links||[];
     renderLinks();
-    renderLinksSetup();
   }).catch(function(){});
 }
 function renderLinks(){
   var el=document.getElementById('lk-list'); if(!el) return;
   if(!LK_LIST.length){
-    el.innerHTML='<div class="live-empty">Nenhum link ainda.<br>Clique em <b>+ Criar link</b> e cole a URL do seu checkout.</div>';
+    el.innerHTML='<div class="live-empty">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:40px;height:40px"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>' +
+      '<div><b>Nenhum link ativo ainda</b><p style="margin:6px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6">Clique em <b>+ Criar link</b> no canto superior para registrar o seu primeiro redirecionamento e começar a rastrear cliques.</p></div>' +
+    '</div>';
   } else {
     el.innerHTML=LK_LIST.map(function(l){
       var nv=(l.variantes||[]).length;
@@ -3426,6 +3566,7 @@ function renderLinkPerf(){
   }).join('');
 }
 function showLinkForm(l){
+  var g=document.getElementById('lk-grid'); if(g) g.classList.add('form-open');
   document.getElementById('lk-form-card').style.display='';
   document.getElementById('lk-form-title').textContent=l?('Editar: '+l.nome):'Novo link';
   document.getElementById('lk-slug').value=l?l.slug:'';
@@ -3495,7 +3636,10 @@ function renderDomains(){
   // alvo do CNAME nas instruções
   Array.prototype.forEach.call(document.querySelectorAll('.dm-apphost'),function(n){ n.textContent=DM_APPHOST; });
   if(!DM_LIST.length){
-    el.innerHTML='<div class="live-empty">Nenhum dom&iacute;nio ainda.<br>Adicione o seu (ex.: <code>link.seudominio.com</code>) e siga as instru&ccedil;&otilde;es de DNS ao lado.</div>';
+    el.innerHTML='<div class="live-empty">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:40px;height:40px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>' +
+      '<div><b>Nenhum domínio personalizado</b><p style="margin:6px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6">Insira o seu domínio no campo acima para ocultar a URL padrão e aumentar a conversão dos anúncios.</p></div>' +
+    '</div>';
   } else {
     el.innerHTML=DM_LIST.map(function(d){
       return '<div class="lrow" style="cursor:default">'+
@@ -3575,7 +3719,7 @@ function saveLink(){
   fetch('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ toast('Link salvo'); document.getElementById('lk-form-card').style.display='none'; loadLinks(); }
+      if(d.ok){ toast('Link salvo'); document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); loadLinks(); }
       else toast(d.error||'Erro ao salvar',false);
     }).catch(function(){ toast('Erro ao salvar',false); });
 }
@@ -3711,16 +3855,26 @@ var CK_LAYERS=[
 ];
 function loadCloakConfig(){
   fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_STATE=d||{}; renderCloak(); renderCloakSetup();
+    CK_STATE=d||{}; renderCloak();
   }).catch(function(){});
   fetch('/api/cloak/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_LINKS=(d&&d.links)||[]; CK_PIXELS=(d&&d.pixels)||[]; renderCloakLinks(); renderCloakSetup();
+    CK_LINKS=(d&&d.links)||[]; CK_PIXELS=(d&&d.pixels)||[]; renderCloakLinks();
   }).catch(function(){});
 }
 function renderCloak(){
   var c=CK_STATE;
   var en=document.getElementById('ck-enabled'); if(en) en.checked=c.enabled!==false;
   document.querySelectorAll('#ck-sens button').forEach(function(b){ b.classList.toggle('on',b.getAttribute('data-s')===(c.sensitivity||'balanced')); });
+  var sensDesc=document.getElementById('ck-sens-desc');
+  if(sensDesc){
+    var descs={
+      strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
+      balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
+      loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
+      custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
+    };
+    sensDesc.textContent=descs[c.sensitivity||'balanced']||'';
+  }
   var wrap=document.getElementById('ck-threshold-wrap'); if(wrap) wrap.style.display=(c.sensitivity==='custom')?'block':'none';
   var rng=document.getElementById('ck-threshold'); if(rng) rng.value=c.threshold||40;
   var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=c.threshold||40;
@@ -3877,8 +4031,19 @@ function bindCloak(){
     var b=e.target.closest('button[data-s]'); if(!b) return;
     document.querySelectorAll('#ck-sens button').forEach(function(x){ x.classList.remove('on'); });
     b.classList.add('on');
+    var s=b.getAttribute('data-s');
     var wrap=document.getElementById('ck-threshold-wrap');
-    if(wrap) wrap.style.display=(b.getAttribute('data-s')==='custom')?'block':'none';
+    if(wrap) wrap.style.display=(s==='custom')?'block':'none';
+    var sensDesc=document.getElementById('ck-sens-desc');
+    if(sensDesc){
+      var descs={
+        strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
+        balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
+        loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
+        custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
+      };
+      sensDesc.textContent=descs[s]||'';
+    }
   });
   var rng=document.getElementById('ck-threshold');
   if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=this.value; });
@@ -3961,7 +4126,6 @@ function loadPixels(){
   fetch('/api/pixels').then(function(r){return r.json();}).then(function(d){
     PX_LIST=d.pixels||[];
     renderPixels();
-    renderPixelSetup();
     var badge=document.getElementById('nav-px-badge');
     var n=PX_LIST.filter(function(p){return p.active;}).length;
     if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; badge.className='badge live-badge'; }
@@ -4000,7 +4164,10 @@ function loadCapiHealth(){
 function renderPixels(){
   var el=document.getElementById('px-list'); if(!el) return;
   if(!PX_LIST.length){
-    el.innerHTML='<div class="live-empty">Nenhum pixel ainda.<br>Clique em "+ Adicionar pixel" — cada pixel vira um arquivo próprio em <code>pixels/</code> e passa a disparar em todas as páginas na hora.</div>';
+    el.innerHTML='<div class="live-empty">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:40px;height:40px"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
+      '<div><b>Nenhum pixel do TikTok ativo</b><p style="margin:6px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6">Cadastre o ID do seu pixel no botão <b>+ Adicionar pixel</b> para ativar o rastreamento inteligente via API de Conversões.</p></div>' +
+    '</div>';
     return;
   }
   el.innerHTML=PX_LIST.map(function(p){
@@ -4022,6 +4189,7 @@ function renderPixels(){
   }).join('');
 }
 function showPxForm(px){
+  var g=document.getElementById('px-grid'); if(g) g.classList.add('form-open');
   document.getElementById('px-form-card').style.display='';
   document.getElementById('px-form-title').textContent=px?('Editar: '+px.name):'Novo pixel';
   document.getElementById('px-slug').value=px?px.slug:'';
@@ -4079,7 +4247,7 @@ function savePixel(){
     .then(function(r){return r.json();})
     .then(function(d){
       btn.disabled=false;
-      if(d.ok){ toast('Pixel salvo em pixels/'+d.pixel.slug+'.json'); document.getElementById('px-form-card').style.display='none'; loadPixels(); }
+      if(d.ok){ toast('Pixel salvo em pixels/'+d.pixel.slug+'.json'); document.getElementById('px-form-card').style.display='none'; var g=document.getElementById('px-grid'); if(g) g.classList.remove('form-open'); loadPixels(); }
       else toast(d.error||'Erro ao salvar',false);
     })
     .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
@@ -4171,28 +4339,11 @@ function setupChecklistHTML(compact){
   }).join('')+'</div>';
   return html;
 }
-// Card na Visão Geral: só aparece enquanto há pendências.
-// Recolhível — quem já sabe das pendências não precisa vê-las abertas todo dia.
+// Card na Visão Geral: desativado a pedido do usuário para deixar a aba Visão Geral mais limpa.
 function renderSetupCard(){
   var el=document.getElementById('ov-setup'); if(!el) return;
-  var items=setupItems();
-  if(!items){ el.hidden=true; return; }
-  var pending=items.filter(function(i){return !i.ok;}).length;
-  if(!pending){ el.hidden=true; el.innerHTML=''; return; }
-  el.hidden=false;
-  var open=localStorage.getItem('setupCollapsed')!=='1';
-  el.innerHTML='<details class="card setup-card" id="setup-details"'+(open?' open':'')+'>'+
-    '<summary class="setup-summary">'+
-      '<span class="setup-badge">'+pending+'</span>'+
-      '<b>Configura&ccedil;&atilde;o pendente</b>'+
-      '<span class="setup-sub" style="margin-left:4px">'+(items.length-pending)+' de '+items.length+' conclu\u00eddos</span>'+
-      '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;margin-left:auto"><path d="M6 9l6 6 6-6"/></svg>'+
-    '</summary>'+
-    '<div class="setup-body">'+setupChecklistHTML(true)+'</div>'+
-  '</details>';
-  // memoriza a preferência de recolhido/aberto
-  var det=document.getElementById('setup-details');
-  det.addEventListener('toggle',function(){ localStorage.setItem('setupCollapsed',det.open?'0':'1'); });
+  el.hidden=true;
+  el.innerHTML='';
 }
 // Versão completa em Configurações
 function renderHealth(){
@@ -4201,110 +4352,6 @@ function renderHealth(){
   if(!HEALTH){ grid.innerHTML='<div class="muted" style="padding:8px 0;font-size:13px">Indispon&iacute;vel</div>'; return; }
   grid.innerHTML=setupChecklistHTML(false);
 }
-
-/* ══════ Checklists guiados do Rastreamento (progresso + pular para a etapa) ══════ */
-function tcDone(k){ try{ return localStorage.getItem('tc_'+k)==='1'; }catch(_){ return false; } }
-function tcSet(k,v){ try{ localStorage.setItem('tc_'+k, v?'1':'0'); }catch(_){ } }
-// pinta um checklist recolhível no topo de uma aba
-function tcRender(hostId,title,steps){
-  var host=document.getElementById(hostId); if(!host) return;
-  var req=steps.filter(function(s){return !s.opt;});
-  var done=req.filter(function(s){return s.ok;}).length, total=req.length;
-  var pct=total?Math.round(done/total*100):100, allDone=done>=total;
-  var okey='tcopen_'+hostId, saved=null; try{ saved=localStorage.getItem(okey); }catch(_){}
-  var open=(saved===null)?!allDone:(saved==='1');
-  var rows=steps.map(function(s,i){
-    var dot=s.ok
-      ? '<span class="si-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></span>'
-      : '<span class="si-dot num">'+(i+1)+'</span>';
-    var btn=s.act
-      ? '<button class="'+(s.ok?'btn-icon':'btn btn-sm')+' tc-go" data-act="'+s.act+'">'+(s.ok?(s.actDone||'Rever'):(s.actLabel||'Fazer'))+'</button>'
-      : '';
-    return '<div class="setup-item'+(s.ok?' done':'')+'">'+dot+
-      '<div class="si-txt"><b>'+s.title+'</b>'+(s.sub?'<span>'+s.sub+'</span>':'')+'</div>'+btn+'</div>';
-  }).join('');
-  host.innerHTML='<details class="card setup-card tc-card"'+(open?' open':'')+'>'+
-    '<summary class="setup-summary">'+
-      '<span class="setup-badge'+(allDone?' all':'')+'">'+(allDone?'\u2713':done+'/'+total)+'</span>'+
-      '<b>'+title+'</b>'+
-      '<span class="setup-sub">'+(allDone?'tudo pronto':done+' de '+total+' conclu\u00eddos')+'</span>'+
-      '<div class="setup-bar" style="max-width:120px;margin-left:auto"><i style="width:'+pct+'%"></i></div>'+
-      '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;flex-shrink:0"><path d="M6 9l6 6 6-6"/></svg>'+
-    '</summary>'+
-    '<div class="setup-body"><div class="setup-list">'+rows+'</div></div>'+
-  '</details>';
-  var det=host.querySelector('details');
-  if(det) det.addEventListener('toggle',function(){ try{localStorage.setItem(okey,det.open?'1':'0');}catch(_){} });
-}
-// rola até um bloco e dá um flash de destaque
-function tcScrollTo(id,focusId){
-  var el=document.getElementById(id); if(!el) return;
-  el.scrollIntoView({behavior:'smooth',block:'center'});
-  el.classList.remove('tc-flash'); void el.offsetWidth; el.classList.add('tc-flash');
-  setTimeout(function(){ el.classList.remove('tc-flash'); },1500);
-  if(focusId){ var f=document.getElementById(focusId); if(f){ try{ f.focus(); if(f.select) f.select(); }catch(_){} } }
-}
-// estado → passos de cada aba
-function renderLinksSetup(){
-  var list=(typeof LK_LIST!=='undefined'&&LK_LIST)||[];
-  var has=list.length>0;
-  var used=tcDone('lk_used')||list.some(function(l){return (l.variantes||[]).some(function(v){return (v.clicks||0)>0;});});
-  var dom=list.some(function(l){return l.dominioValidado;});
-  tcRender('lk-setup','Rastrear seus links de checkout',[
-    {ok:has,title:'Crie seu primeiro link',sub:has?(list.length+' link'+(list.length!==1?'s':'')+' criado'+(list.length!==1?'s':'')):'Cole a URL do seu checkout',act:'lk-new',actLabel:'Criar link'},
-    {ok:used,title:'Use /go/ no seu an\u00fancio',sub:used?'Em uso':'Copie o link e cole no an\u00fancio do TikTok',act:has?'lk-copy':'lk-new',actLabel:'Copiar link'},
-    {ok:dom,opt:true,title:'Dom\u00ednio pr\u00f3prio (opcional)',sub:dom?'Dom\u00ednio validado':'Use o SEU dom\u00ednio nos an\u00fancios',act:'lk-domain',actLabel:'Configurar'}
-  ]);
-}
-function renderPixelSetup(){
-  var list=(typeof PX_LIST!=='undefined'&&PX_LIST)||[];
-  var hasPx=list.length>0;
-  var copied=tcDone('tk_copied');
-  var pasted=tcDone('tk_pasted');
-  var wh=(typeof HEALTH!=='undefined'&&HEALTH&&HEALTH.conversionWebhook)||tcDone('cw_tested');
-  tcRender('px-setup','Ativar o Pixel TikTok',[
-    {ok:hasPx,title:'Adicione seu pixel',sub:hasPx?(list.length+' pixel'+(list.length!==1?'s':'')+' configurado'+(list.length!==1?'s':'')):'ID do Pixel + token do TikTok',act:'px-new',actLabel:'Adicionar'},
-    {ok:copied,title:'Copie o script',sub:copied?'Script copiado':'Um c\u00f3digo \u00fanico para suas p\u00e1ginas',act:'px-script',actLabel:'Ver script'},
-    {ok:pasted,title:'Cole no <head> das p\u00e1ginas',sub:pasted?'Feito':'Presell, VSL e p\u00e1gina de vendas',act:'px-paste',actLabel:'J\u00e1 colei'},
-    {ok:wh,title:'Conecte o webhook do gateway',sub:wh?'Recebendo convers\u00f5es':'Para registrar as vendas',act:'px-webhook',actLabel:'Configurar'}
-  ]);
-}
-function renderCloakSetup(){
-  var st=(typeof CK_STATE!=='undefined'&&CK_STATE)||{};
-  var cklinks=(typeof CK_LINKS!=='undefined'&&CK_LINKS)||[];
-  var en=st.enabled!==false;
-  var sens=!!st.sensitivity;
-  var rule=cklinks.length>0;
-  var tested=tcDone('ck_tested');
-  tcRender('ck-setup','Configurar o filtro de bots',[
-    {ok:en,title:'Ative a prote\u00e7\u00e3o',sub:en?'Ligada':'Bots v\u00e3o para a white page',act:'ck-enable',actLabel:'Ativar'},
-    {ok:sens,title:'Escolha a sensibilidade',sub:'Equilibrado \u00e9 o recomendado',act:'ck-sens',actLabel:'Ajustar'},
-    {ok:rule,title:'Defina a regra por link',sub:rule?'Regras definidas':'Para onde cada p\u00fablico vai',act:'ck-rule',actLabel:'Definir'},
-    {ok:tested,title:'Teste com seu navegador',sub:tested?'Testado':'O seu acesso deve dar "real"',act:'ck-test',actLabel:'Testar'}
-  ]);
-}
-// ações "Fazer / pular para a etapa" + marcações automáticas
-document.addEventListener('click',function(e){
-  var b=e.target.closest('.tc-go');
-  if(b){
-    var act=b.getAttribute('data-act');
-    if(act==='lk-new'){ if(typeof showLinkForm==='function') showLinkForm(null); tcScrollTo('lk-form-card'); }
-    else if(act==='lk-copy'){ var l=(typeof LK_LIST!=='undefined'&&LK_LIST&&LK_LIST[0]); if(l&&typeof copyLink==='function'){ copyLink(l.slug); } tcSet('lk_used',1); renderLinksSetup(); }
-    else if(act==='lk-domain'){ var d=document.getElementById('lk-domain-details'); if(d){ d.open=true; tcScrollTo('lk-domain-details'); } }
-    else if(act==='px-new'){ if(typeof showPxForm==='function') showPxForm(null); tcScrollTo('px-form-card'); }
-    else if(act==='px-script'){ tcScrollTo('tk-install','tk-snippet'); }
-    else if(act==='px-paste'){ tcSet('tk_pasted',1); renderPixelSetup(); if(typeof toast==='function') toast('Passo marcado como conclu\u00eddo'); }
-    else if(act==='px-webhook'){ tcScrollTo('cw-card'); }
-    else if(act==='ck-enable'||act==='ck-sens'){ tcScrollTo('ck-hero'); }
-    else if(act==='ck-rule'){ tcScrollTo('ck-rules-card','ck-link-select'); }
-    else if(act==='ck-test'){ tcScrollTo('ck-test-card'); }
-    return;
-  }
-  // marcações automáticas ao interagir com os controles reais
-  if(e.target.closest('#tk-copy')){ tcSet('tk_copied',1); setTimeout(renderPixelSetup,60); }
-  else if(e.target.closest('#cw-test')){ tcSet('cw_tested',1); setTimeout(renderPixelSetup,60); }
-  else if(e.target.closest('#ck-test')){ tcSet('ck_tested',1); setTimeout(renderCloakSetup,900); }
-});
 
 /* ── Drawer ── */
 function openLead(id){
@@ -4682,7 +4729,7 @@ function applySetView(v){
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
   if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); }
   if(g==='tracking'){
-    if(trackingTab==='pixels'){ loadPixels(); loadHealth().then(function(){ if(typeof renderPixelSetup==='function') renderPixelSetup(); }); }
+    if(trackingTab==='pixels') loadPixels();
     else if(trackingTab==='cloak') loadCloakConfig();
     else { loadLinks(); loadDomains(); }
   }
@@ -4818,7 +4865,7 @@ document.getElementById('lk-save').addEventListener('click',saveLink);
 document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
 document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnippet);
-document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; });
+document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
 document.getElementById('lk-validate').addEventListener('click',validateDomain);
 // auto-save: qualquer toggle de notificação salva na hora (sem botão Salvar)
 ['pc-ev-sale','pc-ev-failed','pc-ev-refund','pc-ev-dispute','pc-ev-checkout','pc-ev-daily'].forEach(function(id){
@@ -4832,7 +4879,7 @@ if(pcUrl) pcUrl.addEventListener('change',savePushcutConfig);
   document.getElementById('pc-test').addEventListener('click',testPushcut);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });
 document.getElementById('px-save').addEventListener('click',savePixel);
-document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; });
+document.getElementById('px-cancel').addEventListener('click',function(){ document.getElementById('px-form-card').style.display='none'; var g=document.getElementById('px-grid'); if(g) g.classList.remove('form-open'); });
 document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
 document.getElementById('ph-refresh').addEventListener('click',loadCapiHealth);
