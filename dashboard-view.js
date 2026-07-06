@@ -69,7 +69,8 @@ module.exports = `<!DOCTYPE html>
   --line:var(--border); --ring:var(--focus-ring); --shadow:var(--shadow-2);
 }
 *{box-sizing:border-box}
-html{background:var(--bg);color-scheme:light}
+html{background:var(--bg);color-scheme:light;overflow-x:clip}
+body{overflow-x:clip}
 html,body{margin:0;padding:0}
 body{
   background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:13.5px;line-height:1.55;-webkit-font-smoothing:antialiased;
@@ -228,7 +229,7 @@ html[data-liquid-glass] .lg-lens{
 .topbar h2{font-size:21px;font-weight:650;letter-spacing:-.02em;background:linear-gradient(180deg,var(--text),var(--text-sub));-webkit-background-clip:text;background-clip:text;color:transparent;transition:.3s}
 .topbar .sub{font-size:12px;color:var(--text-muted);margin-top:2px}
 .spacer{flex:1}
-.segment{display:flex;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px}
+.segment{display:flex;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px;max-width:100%;overflow-x:auto;scrollbar-width:none}
 /* grupo do topo à direita: busca, atualizar e período */
 .tb-right{display:flex;align-items:center;gap:8px;margin-left:auto;position:relative;min-width:0;max-width:100%}
 /* mobile: o grupo ocupa a linha inteira e o seletor de período rola horizontal
@@ -564,7 +565,7 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
 .k-val .amb{color:var(--warning)}
 .k-val .mut,.k-sub .mut{color:var(--text-muted)}
 
-  .section-title{display:flex;align-items:center;gap:10px;margin:36px 0 16px;font-size:15px;font-weight:600;color:var(--text)}
+  .section-title{display:flex;align-items:center;gap:10px;margin:36px 0 16px;font-size:15px;font-weight:600;color:var(--text);flex-wrap:wrap;min-width:0}
   /* passos numerados dos cards de instrução (snippet, webhook) */
   .steps{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px}
   .step{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
@@ -3108,7 +3109,13 @@ function renderGlobeHero(){
         .ringMaxRadius(function(d){return 2.6+d.size*4.5;})
         .ringPropagationSpeed(2.2)
         .ringRepeatPeriod(function(d){return 900-d.size*400;});
+      // redimensiona junto com o container (o globo memoriza o width da criação)
+      window.addEventListener('resize',function(){
+        try{ if(!el.hidden&&globoHero) globoHero.width(el.clientWidth).height(560); }catch(_){}
+      });
     }
+    // corrige width se o container mudou desde a criação (ex.: troca de viewport)
+    try{ if(globoHero.width()!==el.clientWidth) globoHero.width(el.clientWidth).height(560); }catch(_){}
     globoHero.pointsData(pts);
     globoHero.ringsData(pts);
   }catch(e){ if(skel)skel.hidden=false; el.hidden=true; }
