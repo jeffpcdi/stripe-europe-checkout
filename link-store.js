@@ -71,6 +71,15 @@ function normalize(slug, raw) {
       .filter((c) => /^[A-Z]{2}$/.test(c))
       .filter((c, i, a) => a.indexOf(c) === i)
       .slice(0, 30),
+    // Allowlist de idiomas (ISO-639-1 minúsculo: pt, es, en, it, fr, de).
+    // Vazio = todos os idiomas liberados. Idioma do navegador fora da lista
+    // → white page (mesmo tratamento dos países). Checagem instantânea via
+    // header Accept-Language, sem custo de DNS.
+    idiomas: (Array.isArray(raw.idiomas) ? raw.idiomas : [])
+      .map((c) => String(c || '').trim().toLowerCase().split('-')[0])
+      .filter((c) => /^[a-z]{2}$/.test(c))
+      .filter((c, i, a) => a.indexOf(c) === i)
+      .slice(0, 20),
     // Pixel que dispara nesse link (slug do pixel-store). Vazio = dispatchToAll por rota.
     pixelSlug: String(raw.pixelSlug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40),
     ativo: raw.ativo !== false,

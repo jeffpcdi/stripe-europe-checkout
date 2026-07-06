@@ -840,6 +840,20 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .pais-chip button:hover{opacity:1}
 .pais-box input{flex:1;min-width:70px;border:none;background:transparent;color:var(--text);font-size:12.5px;text-transform:uppercase;outline:none;padding:4px}
 .pais-box.all input{text-transform:none}
+/* Grid de checkboxes de país/idioma (allowlist do cloaker) */
+.geo-wrap{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:12px}
+.geo-block{display:flex;flex-direction:column;gap:8px}
+.geo-block-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.geo-block-head b{font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em}
+.geo-block-head button{border:none;background:transparent;color:var(--cyan);cursor:pointer;font-size:11px;font-weight:600;padding:0}
+.geo-block-head button:hover{text-decoration:underline}
+.geo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
+.geo-chk{display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;font-size:12.5px;color:var(--text);background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 9px;transition:border-color .15s,background .15s}
+.geo-chk:hover{border-color:color-mix(in srgb,var(--cyan) 40%,transparent)}
+.geo-chk input{accent-color:var(--cyan);width:15px;height:15px;flex-shrink:0;margin:0}
+.geo-chk.on{background:color-mix(in srgb,var(--cyan) 12%,transparent);border-color:color-mix(in srgb,var(--cyan) 38%,transparent)}
+.geo-chk .flag{font-size:15px;line-height:1}
+.geo-chk .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ck-sync{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted2);cursor:pointer;user-select:none}
 .ck-adv{margin-top:16px;border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden}
 .ck-adv>summary{list-style:none;cursor:pointer;padding:14px 16px;font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:9px}
@@ -3997,10 +4011,10 @@ function renderCloakRule(slug){
       '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+offer+'</div>'+
       '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
         '<input class="inp" id="ck-r-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.urlWhitePage||'')+'" style="width:100%"></div>'+
-      '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— vazio = todos. Fora da lista vai para a white page</span></label>'+
-        '<div class="pais-box'+((l.paises&&l.paises.length)?'':' all')+'" id="ck-r-paisbox">'+
-          (l.paises||[]).map(paisChip).join('')+
-          '<input id="ck-r-paisinput" maxlength="2" placeholder="'+((l.paises&&l.paises.length)?'+ código':'todos os países — digite BR, PT, US...')+'"></div></div>'+
+      '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— nada marcado = todos os países. Fora da lista vai para a white page</span></label>'+
+        renderPaisGrid(l)+'</div>'+
+      '<div class="ck-field full"><label>Idiomas liberados para a offer <span class="hint">— nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page</span></label>'+
+        renderIdiomaGrid(l)+'</div>'+
       '<div class="ck-field"><label>Pixel do TikTok <span class="hint">— dispara só p/ quem vai à offer</span></label>'+
         '<select class="select" id="ck-r-pixel">'+pixOpts+'</select></div>'+
       '<div class="ck-field"><label>Sincronização</label>'+
@@ -4011,36 +4025,74 @@ function renderCloakRule(slug){
       '<p class="hint" id="ck-r-status" style="margin:0"></p></div>';
   bindCloakRule();
 }
-function paisChip(cc){
-  return '<span class="pais-chip" data-cc="'+esc(cc)+'">'+esc(cc)+'<button type="button" data-rm="'+esc(cc)+'" aria-label="Remover '+esc(cc)+'">&times;</button></span>';
+/* Catálogo de países por bloco (código ISO-2, nome, bandeira) */
+var CK_COUNTRY_BLOCKS=[
+  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲🇽'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷']]},
+  {block:'Europa Sul',items:[['PT','Portugal','🇵🇹'],['ES','Espanha','🇪🇸'],['IT','Itália','🇮🇹'],['FR','França','🇫🇷']]},
+  {block:'Europa Norte/Central',items:[['DE','Alemanha','🇩🇪'],['NL','Países Baixos','🇳🇱'],['BE','Bélgica','🇧🇪'],['AT','Áustria','🇦🇹'],['CH','Suíça','🇨🇭'],['IE','Irlanda','🇮🇪'],['GB','Reino Unido','🇬🇧']]},
+  {block:'Outros',items:[['AU','Austrália','🇦🇺'],['AE','Emirados Árabes','🇦🇪'],['SA','Arábia Saudita','🇸🇦'],['PL','Polônia','🇵🇱'],['RO','Romênia','🇷🇴']]}
+];
+/* Blocos pré-marcados por padrão em links ainda sem allowlist salva */
+var CK_COUNTRY_DEFAULT=['BR','MX','US','CA','CO','CL','AR','PT','ES','IT','FR','DE','NL','BE','AT','CH','IE','GB'];
+var CK_LANGS=[['pt','Português','🇵🇹'],['es','Espanhol','🇪🇸'],['en','Inglês','🇬🇧'],['it','Italiano','🇮🇹'],['fr','Francês','🇫🇷'],['de','Alemão','🇩🇪']];
+
+function geoChk(scope,code,name,flag,on){
+  return '<label class="geo-chk'+(on?' on':'')+'">'+
+    '<input type="checkbox" data-'+scope+'="'+esc(code)+'"'+(on?' checked':'')+'>'+
+    '<span class="flag" aria-hidden="true">'+flag+'</span>'+
+    '<span class="nm">'+esc(name)+'</span></label>';
+}
+function renderPaisGrid(l){
+  var sel=(l.paises&&l.paises.length)?l.paises.slice():CK_COUNTRY_DEFAULT.slice();
+  var blocks=CK_COUNTRY_BLOCKS.map(function(b){
+    var codes=b.items.map(function(it){return it[0];});
+    var allOn=codes.every(function(c){return sel.indexOf(c)>=0;});
+    return '<div class="geo-block">'+
+      '<div class="geo-block-head"><b>'+esc(b.block)+'</b>'+
+        '<button type="button" data-blocktoggle="pais" data-codes="'+esc(codes.join(','))+'">'+(allOn?'Desmarcar':'Marcar todos')+'</button></div>'+
+      '<div class="geo-grid">'+b.items.map(function(it){return geoChk('cc',it[0],it[1],it[2],sel.indexOf(it[0])>=0);}).join('')+'</div>'+
+    '</div>';
+  }).join('');
+  return '<div class="geo-wrap" id="ck-r-paisbox">'+blocks+'</div>';
+}
+function renderIdiomaGrid(l){
+  var sel=(l.idiomas&&l.idiomas.length)?l.idiomas.slice():[];
+  return '<div class="geo-wrap" id="ck-r-idiomabox"><div class="geo-grid">'+
+    CK_LANGS.map(function(it){return geoChk('lang',it[0],it[1],it[2],sel.indexOf(it[0])>=0);}).join('')+
+    '</div></div>';
 }
 function currentPaises(){
-  return Array.prototype.map.call(document.querySelectorAll('#ck-r-paisbox .pais-chip'),function(c){return c.getAttribute('data-cc');});
+  return Array.prototype.map.call(document.querySelectorAll('#ck-r-paisbox input[data-cc]:checked'),function(c){return c.getAttribute('data-cc');});
 }
-function addPais(cc){
-  cc=String(cc||'').trim().toUpperCase();
-  if(!/^[A-Z]{2}$/.test(cc)) return;
-  if(currentPaises().indexOf(cc)>=0) return;
-  var box=document.getElementById('ck-r-paisbox'); var input=document.getElementById('ck-r-paisinput');
-  input.insertAdjacentHTML('beforebegin',paisChip(cc));
-  box.classList.remove('all'); input.placeholder='+ código';
+function currentIdiomas(){
+  return Array.prototype.map.call(document.querySelectorAll('#ck-r-idiomabox input[data-lang]:checked'),function(c){return c.getAttribute('data-lang');});
 }
 function bindCloakRule(){
-  var input=document.getElementById('ck-r-paisinput');
-  if(input){
-    input.addEventListener('keydown',function(e){
-      if(e.key==='Enter'||e.key===','||e.key===' '){ e.preventDefault(); addPais(this.value); this.value=''; }
-      else if(e.key==='Backspace'&&!this.value){ var chips=document.querySelectorAll('#ck-r-paisbox .pais-chip'); if(chips.length) chips[chips.length-1].remove(); if(!document.querySelectorAll('#ck-r-paisbox .pais-chip').length){ document.getElementById('ck-r-paisbox').classList.add('all'); this.placeholder='todos os países — digite BR, PT, US...'; } }
+  // toggle visual (classe .on) ao marcar/desmarcar qualquer checkbox de geo
+  document.querySelectorAll('#ck-r-paisbox,#ck-r-idiomabox').forEach(function(box){
+    box.addEventListener('change',function(e){
+      var chk=e.target.closest('input[type=checkbox]'); if(!chk) return;
+      chk.closest('.geo-chk').classList.toggle('on',chk.checked);
+      syncBlockButtons();
     });
-    input.addEventListener('blur',function(){ if(this.value){ addPais(this.value); this.value=''; } });
-  }
-  var box=document.getElementById('ck-r-paisbox');
-  if(box) box.addEventListener('click',function(e){
-    var b=e.target.closest('button[data-rm]'); if(!b) return;
-    b.closest('.pais-chip').remove();
-    if(!document.querySelectorAll('#ck-r-paisbox .pais-chip').length){ box.classList.add('all'); var i=document.getElementById('ck-r-paisinput'); if(i) i.placeholder='todos os países — digite BR, PT, US...'; }
+    box.addEventListener('click',function(e){
+      var b=e.target.closest('button[data-blocktoggle]'); if(!b) return;
+      var codes=b.getAttribute('data-codes').split(',');
+      var boxes=codes.map(function(c){return box.querySelector('input[data-cc="'+c+'"]');}).filter(Boolean);
+      var allOn=boxes.every(function(x){return x.checked;});
+      boxes.forEach(function(x){ x.checked=!allOn; x.closest('.geo-chk').classList.toggle('on',x.checked); });
+      syncBlockButtons();
+    });
   });
   var save=document.getElementById('ck-r-save'); if(save) save.addEventListener('click',saveCloakRule);
+}
+function syncBlockButtons(){
+  document.querySelectorAll('#ck-r-paisbox button[data-blocktoggle]').forEach(function(b){
+    var codes=b.getAttribute('data-codes').split(',');
+    var boxes=codes.map(function(c){return document.querySelector('#ck-r-paisbox input[data-cc="'+c+'"]');}).filter(Boolean);
+    var allOn=boxes.length&&boxes.every(function(x){return x.checked;});
+    b.textContent=allOn?'Desmarcar':'Marcar todos';
+  });
 }
 function saveCloakRule(){
   if(!CK_CUR) return;
@@ -4048,6 +4100,7 @@ function saveCloakRule(){
   var body={
     urlWhitePage:document.getElementById('ck-r-white').value.trim(),
     paises:currentPaises(),
+    idiomas:currentIdiomas(),
     pixelSlug:document.getElementById('ck-r-pixel').value,
     syncPixel:document.getElementById('ck-r-sync').checked
   };
@@ -4057,7 +4110,7 @@ function saveCloakRule(){
       if(d.ok){
         // atualiza cache local
         var l=CK_LINKS.filter(function(x){return x.slug===CK_CUR;})[0];
-        if(l){ l.urlWhitePage=d.link.urlWhitePage; l.paises=d.link.paises; l.pixelSlug=d.link.pixelSlug; }
+        if(l){ l.urlWhitePage=d.link.urlWhitePage; l.paises=d.link.paises; l.idiomas=d.link.idiomas; l.pixelSlug=d.link.pixelSlug; }
         toast(d.pixelSynced?'Regra salva e pixel sincronizado':'Regra do link salva');
         if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; }
       } else { toast(d.error||'Erro ao salvar',false); if(st){ st.textContent=d.error||'Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
