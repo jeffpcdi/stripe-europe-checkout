@@ -925,6 +925,16 @@ details[open]>.setup-summary .chev{transform:rotate(180deg)}
 .si-txt span{font-size:12px;color:var(--muted);display:block;margin-top:1px}
 .si-go{flex-shrink:0}
 
+/* ── Checklists guiados por aba do Rastreamento (progresso + pular p/ a etapa) ── */
+.tc-host{margin-bottom:16px}
+.tc-card .setup-summary{gap:8px}
+.setup-badge.all{background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--green)}
+.si-dot.num{border-color:var(--border2);color:var(--muted);font-size:11px;font-weight:700}
+.tc-go{flex-shrink:0}
+.tc-flash{animation:tcFlash 1.4s ease}
+@keyframes tcFlash{0%,100%{box-shadow:none}18%,62%{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}}
+@media(prefers-reduced-motion:reduce){.tc-flash{animation:none}}
+
 /* ── Funil + entradas lado a lado na Visão Geral ── */
 @media(max-width:900px){.ov-pages{grid-template-columns:1fr!important}}
 
@@ -1617,15 +1627,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Links de Checkout ── -->
       <section class="view" id="view-links">
-        <!-- resumo em 3 passos: substitui o banner longo -->
-        <div class="card" style="margin-bottom:16px;padding:16px 20px">
-          <div class="steps" style="margin-bottom:0">
-            <div class="step"><b>1</b> Crie o link com a URL do seu checkout</div>
-            <div class="step"><b>2</b> Use <code>/go/&lt;slug&gt;</code> no an&uacute;ncio</div>
-            <div class="step"><b>3</b> Cliques e vendas aparecem sozinhos aqui</div>
-          </div>
-          <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Como funciona por dentro</summary><p class="hint" style="margin-top:6px;line-height:1.7">Quando o lead clica no <code>/go/</code>, registramos o clique, disparamos InitiateCheckout na CAPI do TikTok e redirecionamos para o checkout com o <code>lead_id</code> anexado. A venda volta pelo webhook do gateway e fecha o ciclo &mdash; incluindo o teste A/B, se houver mais de uma URL.</p></details>
-        </div>
+        <!-- checklist guiado: substitui o banner/tutorial longo -->
+        <div class="tc-host" id="lk-setup"></div>
+        <details class="hint-details" style="margin:-6px 0 16px"><summary class="hint" style="cursor:pointer">Como funciona por dentro</summary><p class="hint" style="margin-top:6px;line-height:1.7">Quando o lead clica no <code>/go/</code>, registramos o clique, disparamos InitiateCheckout na CAPI do TikTok e redirecionamos para o checkout com o <code>lead_id</code> anexado. A venda volta pelo webhook do gateway e fecha o ciclo &mdash; incluindo o teste A/B, se houver mais de uma URL.</p></details>
         <div class="grid" style="grid-template-columns:1.2fr 1fr">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -1674,7 +1678,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
         </div>
         <!-- domínio próprio: recolhido por padrão, é opcional -->
-        <details class="ck-adv" style="margin-top:20px">
+        <details class="ck-adv" id="lk-domain-details" style="margin-top:20px">
           <summary>Dom&iacute;nio personalizado <span class="hint" style="font-weight:400">&mdash; opcional: use o SEU dom&iacute;nio nos an&uacute;ncios</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
           <div class="ck-adv-body">
             <div style="display:flex;gap:8px;align-items:center;margin:4px 0 14px">
@@ -1701,25 +1705,33 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
           </div>
         </details>
-        <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
-        <div id="lk-perf"></div>
-        <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
-        <div class="card" style="padding:0">
-          <div class="tbl-wrap" style="border:0">
-            <table>
-              <thead><tr><th>P&aacute;gina</th><th>Leads</th><th>Foram ao checkout</th><th>Compras</th><th>Convers&atilde;o</th></tr></thead>
-              <tbody id="pg-conv"></tbody>
-            </table>
+        <details class="ck-adv" style="margin-top:20px">
+          <summary>Ver desempenho <span class="hint" style="font-weight:400">&mdash; teste A/B e convers&atilde;o por p&aacute;gina</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="ck-adv-body">
+            <div class="section-title" style="margin-top:0"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
+            <div id="lk-perf"></div>
+            <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
+            <div class="card" style="padding:0">
+              <div class="tbl-wrap" style="border:0">
+                <table>
+                  <thead><tr><th>P&aacute;gina</th><th>Leads</th><th>Foram ao checkout</th><th>Compras</th><th>Convers&atilde;o</th></tr></thead>
+                  <tbody id="pg-conv"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
+        </details>
       </section>
 
       <!-- ��─ Filtro de Bots / Revisores TikTok (cloaking) ── -->
       <section class="view" id="view-cloak">
         <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Roteia revisores do TikTok Ads para a white page &mdash; pessoas reais v&atilde;o para a offer</p></div></div>
 
+        <!-- checklist guiado -->
+        <div class="tc-host" id="ck-setup"></div>
+
         <!-- Hero: interruptor mestre + sensibilidade -->
-        <div class="card cfg-card" style="--cc:var(--cyan);margin-bottom:16px">
+        <div class="card cfg-card" id="ck-hero" style="--cc:var(--cyan);margin-bottom:16px">
           <div class="cfg-head">
             <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
             <div><h3>Prote&ccedil;&atilde;o de cloaking</h3><p id="ck-status-line">Bots e revisores v&atilde;o para a white page; pessoas reais seguem para a offer.</p></div>
@@ -1738,7 +1750,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
 
         <!-- Regras por link: offer, white page, países e pixel -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card" id="ck-rules-card" style="margin-bottom:16px">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <div style="flex:1;min-width:180px">
               <h3 style="font-size:15px;margin:0">Regras por link</h3>
@@ -1750,7 +1762,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
 
         <!-- Testar (compacto) -->
-        <div class="card cfg-card" style="--cc:var(--green);margin-bottom:0">
+        <div class="card cfg-card" id="ck-test-card" style="--cc:var(--green);margin-bottom:0">
           <div class="cfg-head">
             <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
             <div><h3>Testar com meu navegador</h3><p>Veja como o SEU acesso seria classificado. Deve dar <b>real</b>.</p></div>
@@ -1806,7 +1818,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Pixel TikTok ── -->
       <section class="view" id="view-pixels">
-        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Rastreamento avançado, lead por lead</b><p>Cada visitante recebe uma identidade única e segura. Com ela, o TikTok reconhece a mesma pessoa desde o clique no anúncio até a compra — mesmo em páginas diferentes. Isso melhora a qualidade dos dados e ajuda o TikTok a encontrar mais compradores parecidos. Você só precisa colar o script (abaixo) nas suas páginas; o resto é automático.</p></div></div>
+        <!-- checklist guiado: substitui o banner + tutorial longos -->
+        <div class="tc-host" id="px-setup"></div>
+        <details class="hint-details" style="margin:-6px 0 16px"><summary class="hint" style="cursor:pointer">O que \u00e9 o rastreamento avan\u00e7ado?</summary><p class="hint" style="margin-top:6px;line-height:1.7">Cada visitante recebe uma identidade &uacute;nica e segura. Com ela, o TikTok reconhece a mesma pessoa desde o clique no an&uacute;ncio at&eacute; a compra &mdash; mesmo em p&aacute;ginas diferentes. Isso melhora a qualidade dos dados e ajuda o TikTok a encontrar mais compradores parecidos. Voc&ecirc; s&oacute; precisa seguir os passos acima; o resto &eacute; autom&aacute;tico.</p></details>
         <div class="grid" style="grid-template-columns:1.2fr 1fr">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -1819,7 +1833,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <h3 style="font-size:16px;margin-bottom:4px" id="px-form-title">Novo pixel</h3>
             <p class="hint" style="margin-bottom:14px">Cada pixel fica guardado separadamente e continua funcionando sozinho, mesmo com esta tela fechada.</p>
             <div class="form-row">
-              <label>Nome <span class="hint">— só para você identificar (ex.: a campanha)</span></label>
+              <label>Nome <span class="hint">— só para voc�� identificar (ex.: a campanha)</span></label>
               <input class="inp" id="px-name" placeholder="Campanha Espanha" style="width:100%">
             </div>
             <div class="form-row">
@@ -1863,71 +1877,42 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div id="ph-events" class="hint" style="margin-top:12px"></div>
           <div id="ph-errors" style="margin-top:6px"></div>
         </div>
-        <div class="section-title"><span>Como instalar o rastreamento nas suas p&aacute;ginas</span><span class="line"></span></div>
+        <div class="section-title" id="tk-install"><span>Script de rastreamento</span><span class="line"></span><span class="muted" style="font-size:11.5px">cole no &lt;head&gt; de cada p&aacute;gina</span></div>
         <div class="card">
-          <p class="hint" style="margin:0 0 14px;line-height:1.7">Cole este script uma &uacute;nica vez em <b>cada p&aacute;gina sua</b> (presell, VSL, p&aacute;gina de vendas). Ele funciona em qualquer site &mdash; construtor de p&aacute;ginas, WordPress, HTML, etc. Depois de colado, ele trabalha sozinho: n&atilde;o precisa mexer em mais nada.</p>
-
-          <!-- Passo 1 -->
-          <div class="tut-step">
-            <span class="tut-n">1</span>
-            <div class="tut-txt">
-              <b>Copie o script abaixo</b>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
-                <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
-                <button class="btn btn-sm primary" id="tk-copy">Copiar script</button>
-              </div>
-            </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
+            <button class="btn btn-sm primary" id="tk-copy">Copiar script</button>
           </div>
-
-          <!-- Passo 2 -->
-          <div class="tut-step">
-            <span class="tut-n">2</span>
-            <div class="tut-txt">
-              <b>Cole dentro do &lt;head&gt; da p&aacute;gina</b>
-              <p>Todo site tem uma &aacute;rea chamada <code>&lt;head&gt;</code> (o "cabe&ccedil;alho" do c&oacute;digo). &Eacute; l&aacute; que o script deve ficar, para carregar antes do resto.</p>
-              <ul class="tut-list">
-                <li><b>Construtor de p&aacute;ginas</b> (ex.: sistemas de VSL/landing): procure um campo chamado <i>"C&oacute;digo no cabe&ccedil;alho"</i>, <i>"Head"</i>, <i>"Scripts"</i> ou <i>"C&oacute;digo personalizado"</i> nas configura&ccedil;&otilde;es da p&aacute;gina e cole l&aacute;.</li>
-                <li><b>WordPress:</b> use um plugin como <i>"Insert Headers and Footers"</i> e cole no campo do cabe&ccedil;alho.</li>
-                <li><b>Site em HTML pr&oacute;prio:</b> cole logo antes da linha <code>&lt;/head&gt;</code> do arquivo da p&aacute;gina.</li>
-              </ul>
-            </div>
-          </div>
-
-          <!-- Passo 3 -->
-          <div class="tut-step">
-            <span class="tut-n">3</span>
-            <div class="tut-txt">
-              <b>Salve e publique a p&aacute;gina. Pronto!</b>
-              <p>N&atilde;o &eacute; preciso mexer nos bot&otilde;es, links ou em nenhum outro c&oacute;digo. O script identifica a visita e liga tudo automaticamente do clique no an&uacute;ncio at&eacute; a compra.</p>
-            </div>
-          </div>
-
-          <div class="alert" style="background:rgba(47,125,255,.06);border-color:rgba(47,125,255,.25);margin-top:4px">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--cyan)"><path d="M12 16v-4M12 8h.01"/><circle cx="12" cy="12" r="10"/></svg>
-            <div>
-              <b style="font-size:13px">Perguntas comuns</b>
-              <ul class="tut-list" style="margin-top:6px">
-                <li><b>Preciso mexer nos meus bot&otilde;es de "Comprar"?</b> N&atilde;o. Basta que eles levem o visitante para o seu link de checkout (aba <b>Links de Checkout</b>). O restante &eacute; autom&aacute;tico.</li>
-                <li><b>E os par&acirc;metros de UTM do TikTok?</b> N&atilde;o precisa configurar nada. O script guarda sozinho as informa&ccedil;&otilde;es do clique (inclusive UTMs) e as repassa at&eacute; a venda.</li>
-                <li><b>Preciso criar pastas ou arquivos no meu servidor?</b> N&atilde;o. &Eacute; s&oacute; colar o script no cabe&ccedil;alho &mdash; nada de subir arquivos ou criar pastas.</li>
-                <li><b>Uso um dom&iacute;nio pr&oacute;prio?</b> Depois de verificar seu dom&iacute;nio (aba <b>Links de Checkout</b> &rarr; Dom&iacute;nio personalizado), copie o script por l&aacute; para ele usar o seu endere&ccedil;o.</li>
-              </ul>
-            </div>
-          </div>
-
-          <div class="mini-feats">
+          <div class="mini-feats" style="margin-top:12px">
             <span>Registra a visita no pixel do TikTok</span>
             <span>O lead aparece na tela "Ao Vivo"</span>
             <span>Conecta a visita &agrave; venda</span>
           </div>
+          <details class="ck-adv" style="margin-top:12px">
+            <summary>Onde e como colar? <span class="hint" style="font-weight:400">&mdash; construtor, WordPress ou HTML</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="ck-adv-body">
+              <p class="hint" style="margin:0 0 8px;line-height:1.7">Cole o script uma &uacute;nica vez em <b>cada p&aacute;gina sua</b> (presell, VSL, vendas), dentro do <code>&lt;head&gt;</code>. Depois salve e publique &mdash; o resto &eacute; autom&aacute;tico.</p>
+              <ul class="tut-list">
+                <li><b>Construtor de p&aacute;ginas:</b> procure <i>"C&oacute;digo no cabe&ccedil;alho"</i>, <i>"Head"</i> ou <i>"Scripts"</i> nas configura&ccedil;&otilde;es da p&aacute;gina.</li>
+                <li><b>WordPress:</b> use um plugin como <i>"Insert Headers and Footers"</i>.</li>
+                <li><b>HTML pr&oacute;prio:</b> cole logo antes de <code>&lt;/head&gt;</code>.</li>
+              </ul>
+            </div>
+          </details>
+          <details class="ck-adv" style="margin-top:8px">
+            <summary>Perguntas comuns<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="ck-adv-body">
+              <ul class="tut-list">
+                <li><b>Preciso mexer nos bot&otilde;es de "Comprar"?</b> N&atilde;o &mdash; basta que levem ao seu link de checkout (aba <b>Links de Checkout</b>).</li>
+                <li><b>E as UTMs do TikTok?</b> Nada a configurar; o script guarda e repassa sozinho at&eacute; a venda.</li>
+                <li><b>Preciso criar arquivos no servidor?</b> N&atilde;o &mdash; s&oacute; colar o script no cabe&ccedil;alho.</li>
+                <li><b>Uso dom&iacute;nio pr&oacute;prio?</b> Ap&oacute;s validar em <b>Links &rarr; Dom&iacute;nio personalizado</b>, copie o script por l&aacute;.</li>
+              </ul>
+            </div>
+          </details>
         </div>
-        <div class="section-title"><span>Webhook universal de conversões</span><span class="line"></span></div>
-        <div class="card">
-          <div class="steps">
-            <span class="step"><b>1</b> Copie a URL</span>
-            <span class="step"><b>2</b> Cole no painel do gateway (Kiwify, Hotmart&hellip;)</span>
-            <span class="step"><b>3</b> Pronto</span>
-          </div>
+        <div class="section-title"><span>Webhook de convers&otilde;es</span><span class="line"></span><span class="muted" style="font-size:11.5px">cole no seu gateway (Kiwify, Hotmart&hellip;)</span></div>
+        <div class="card" id="cw-card">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input class="inp" id="cw-url" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
             <button class="btn btn-sm" id="cw-reveal" title="Mostrar/ocultar segredo">Revelar</button>
@@ -1941,24 +1926,29 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <p class="hint" id="cw-status" style="margin-top:10px"></p>
         </div>
-        <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
-        <div class="card" style="padding:0">
-          <div class="tbl-wrap" style="border:0">
-            <table>
-              <thead><tr><th>Quando</th><th>Gateway</th><th>Evento</th><th>Valor</th><th>Match</th><th>Status CAPI</th></tr></thead>
-              <tbody id="cw-log"></tbody>
-            </table>
+        <details class="ck-adv" style="margin-top:20px">
+          <summary>Ver hist&oacute;rico de disparos <span class="hint" style="font-weight:400">&mdash; webhooks recebidos e envios server-side</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="ck-adv-body">
+            <div class="section-title" style="margin-top:0"><span>Webhooks recebidos</span><span class="line"></span><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
+            <div class="card" style="padding:0">
+              <div class="tbl-wrap" style="border:0">
+                <table>
+                  <thead><tr><th>Quando</th><th>Gateway</th><th>Evento</th><th>Valor</th><th>Match</th><th>Status CAPI</th></tr></thead>
+                  <tbody id="cw-log"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="section-title"><span>Disparos server-side recentes</span><span class="line"></span><button class="btn-icon" id="px-log-refresh">Atualizar</button></div>
+            <div class="card" style="padding:0">
+              <div class="tbl-wrap" style="border:0">
+                <table>
+                  <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Qualidade</th><th>Status</th><th>Resposta</th></tr></thead>
+                  <tbody id="px-log"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="section-title"><span>Disparos server-side recentes</span><span class="line"></span><button class="btn-icon" id="px-log-refresh">Atualizar</button></div>
-        <div class="card" style="padding:0">
-          <div class="tbl-wrap" style="border:0">
-            <table>
-              <thead><tr><th>Quando</th><th>Pixel</th><th>Evento</th><th>Lead</th><th>Qualidade</th><th>Status</th><th>Resposta</th></tr></thead>
-              <tbody id="px-log"></tbody>
-            </table>
-          </div>
-        </div>
+        </details>
       </section>
 
       <!-- ── Configurações: coluna única, leitura de cima para baixo ── -->
@@ -2117,7 +2107,7 @@ function timeAgo(iso){
   return Math.floor(d/86400)+'d';
 }
 function fmtDateLocal(iso){
-  if(!iso) return '—';
+  if(!iso) return '��';
   try{ return new Intl.DateTimeFormat('pt-PT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Lisbon'}).format(new Date(iso)); }
   catch(e){ return iso.slice(0,16).replace('T',' '); }
 }
@@ -3333,6 +3323,7 @@ function loadLinks(){
   fetch('/api/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     LK_LIST=d.links||[];
     renderLinks();
+    renderLinksSetup();
   }).catch(function(){});
 }
 function renderLinks(){
@@ -3720,10 +3711,10 @@ var CK_LAYERS=[
 ];
 function loadCloakConfig(){
   fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_STATE=d||{}; renderCloak();
+    CK_STATE=d||{}; renderCloak(); renderCloakSetup();
   }).catch(function(){});
   fetch('/api/cloak/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_LINKS=(d&&d.links)||[]; CK_PIXELS=(d&&d.pixels)||[]; renderCloakLinks();
+    CK_LINKS=(d&&d.links)||[]; CK_PIXELS=(d&&d.pixels)||[]; renderCloakLinks(); renderCloakSetup();
   }).catch(function(){});
 }
 function renderCloak(){
@@ -3970,6 +3961,7 @@ function loadPixels(){
   fetch('/api/pixels').then(function(r){return r.json();}).then(function(d){
     PX_LIST=d.pixels||[];
     renderPixels();
+    renderPixelSetup();
     var badge=document.getElementById('nav-px-badge');
     var n=PX_LIST.filter(function(p){return p.active;}).length;
     if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; badge.className='badge live-badge'; }
@@ -4209,6 +4201,110 @@ function renderHealth(){
   if(!HEALTH){ grid.innerHTML='<div class="muted" style="padding:8px 0;font-size:13px">Indispon&iacute;vel</div>'; return; }
   grid.innerHTML=setupChecklistHTML(false);
 }
+
+/* ══════ Checklists guiados do Rastreamento (progresso + pular para a etapa) ══════ */
+function tcDone(k){ try{ return localStorage.getItem('tc_'+k)==='1'; }catch(_){ return false; } }
+function tcSet(k,v){ try{ localStorage.setItem('tc_'+k, v?'1':'0'); }catch(_){ } }
+// pinta um checklist recolhível no topo de uma aba
+function tcRender(hostId,title,steps){
+  var host=document.getElementById(hostId); if(!host) return;
+  var req=steps.filter(function(s){return !s.opt;});
+  var done=req.filter(function(s){return s.ok;}).length, total=req.length;
+  var pct=total?Math.round(done/total*100):100, allDone=done>=total;
+  var okey='tcopen_'+hostId, saved=null; try{ saved=localStorage.getItem(okey); }catch(_){}
+  var open=(saved===null)?!allDone:(saved==='1');
+  var rows=steps.map(function(s,i){
+    var dot=s.ok
+      ? '<span class="si-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></span>'
+      : '<span class="si-dot num">'+(i+1)+'</span>';
+    var btn=s.act
+      ? '<button class="'+(s.ok?'btn-icon':'btn btn-sm')+' tc-go" data-act="'+s.act+'">'+(s.ok?(s.actDone||'Rever'):(s.actLabel||'Fazer'))+'</button>'
+      : '';
+    return '<div class="setup-item'+(s.ok?' done':'')+'">'+dot+
+      '<div class="si-txt"><b>'+s.title+'</b>'+(s.sub?'<span>'+s.sub+'</span>':'')+'</div>'+btn+'</div>';
+  }).join('');
+  host.innerHTML='<details class="card setup-card tc-card"'+(open?' open':'')+'>'+
+    '<summary class="setup-summary">'+
+      '<span class="setup-badge'+(allDone?' all':'')+'">'+(allDone?'\u2713':done+'/'+total)+'</span>'+
+      '<b>'+title+'</b>'+
+      '<span class="setup-sub">'+(allDone?'tudo pronto':done+' de '+total+' conclu\u00eddos')+'</span>'+
+      '<div class="setup-bar" style="max-width:120px;margin-left:auto"><i style="width:'+pct+'%"></i></div>'+
+      '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;flex-shrink:0"><path d="M6 9l6 6 6-6"/></svg>'+
+    '</summary>'+
+    '<div class="setup-body"><div class="setup-list">'+rows+'</div></div>'+
+  '</details>';
+  var det=host.querySelector('details');
+  if(det) det.addEventListener('toggle',function(){ try{localStorage.setItem(okey,det.open?'1':'0');}catch(_){} });
+}
+// rola até um bloco e dá um flash de destaque
+function tcScrollTo(id,focusId){
+  var el=document.getElementById(id); if(!el) return;
+  el.scrollIntoView({behavior:'smooth',block:'center'});
+  el.classList.remove('tc-flash'); void el.offsetWidth; el.classList.add('tc-flash');
+  setTimeout(function(){ el.classList.remove('tc-flash'); },1500);
+  if(focusId){ var f=document.getElementById(focusId); if(f){ try{ f.focus(); if(f.select) f.select(); }catch(_){} } }
+}
+// estado → passos de cada aba
+function renderLinksSetup(){
+  var list=(typeof LK_LIST!=='undefined'&&LK_LIST)||[];
+  var has=list.length>0;
+  var used=tcDone('lk_used')||list.some(function(l){return (l.variantes||[]).some(function(v){return (v.clicks||0)>0;});});
+  var dom=list.some(function(l){return l.dominioValidado;});
+  tcRender('lk-setup','Rastrear seus links de checkout',[
+    {ok:has,title:'Crie seu primeiro link',sub:has?(list.length+' link'+(list.length!==1?'s':'')+' criado'+(list.length!==1?'s':'')):'Cole a URL do seu checkout',act:'lk-new',actLabel:'Criar link'},
+    {ok:used,title:'Use /go/ no seu an\u00fancio',sub:used?'Em uso':'Copie o link e cole no an\u00fancio do TikTok',act:has?'lk-copy':'lk-new',actLabel:'Copiar link'},
+    {ok:dom,opt:true,title:'Dom\u00ednio pr\u00f3prio (opcional)',sub:dom?'Dom\u00ednio validado':'Use o SEU dom\u00ednio nos an\u00fancios',act:'lk-domain',actLabel:'Configurar'}
+  ]);
+}
+function renderPixelSetup(){
+  var list=(typeof PX_LIST!=='undefined'&&PX_LIST)||[];
+  var hasPx=list.length>0;
+  var copied=tcDone('tk_copied');
+  var pasted=tcDone('tk_pasted');
+  var wh=(typeof HEALTH!=='undefined'&&HEALTH&&HEALTH.conversionWebhook)||tcDone('cw_tested');
+  tcRender('px-setup','Ativar o Pixel TikTok',[
+    {ok:hasPx,title:'Adicione seu pixel',sub:hasPx?(list.length+' pixel'+(list.length!==1?'s':'')+' configurado'+(list.length!==1?'s':'')):'ID do Pixel + token do TikTok',act:'px-new',actLabel:'Adicionar'},
+    {ok:copied,title:'Copie o script',sub:copied?'Script copiado':'Um c\u00f3digo \u00fanico para suas p\u00e1ginas',act:'px-script',actLabel:'Ver script'},
+    {ok:pasted,title:'Cole no <head> das p\u00e1ginas',sub:pasted?'Feito':'Presell, VSL e p\u00e1gina de vendas',act:'px-paste',actLabel:'J\u00e1 colei'},
+    {ok:wh,title:'Conecte o webhook do gateway',sub:wh?'Recebendo convers\u00f5es':'Para registrar as vendas',act:'px-webhook',actLabel:'Configurar'}
+  ]);
+}
+function renderCloakSetup(){
+  var st=(typeof CK_STATE!=='undefined'&&CK_STATE)||{};
+  var cklinks=(typeof CK_LINKS!=='undefined'&&CK_LINKS)||[];
+  var en=st.enabled!==false;
+  var sens=!!st.sensitivity;
+  var rule=cklinks.length>0;
+  var tested=tcDone('ck_tested');
+  tcRender('ck-setup','Configurar o filtro de bots',[
+    {ok:en,title:'Ative a prote\u00e7\u00e3o',sub:en?'Ligada':'Bots v\u00e3o para a white page',act:'ck-enable',actLabel:'Ativar'},
+    {ok:sens,title:'Escolha a sensibilidade',sub:'Equilibrado \u00e9 o recomendado',act:'ck-sens',actLabel:'Ajustar'},
+    {ok:rule,title:'Defina a regra por link',sub:rule?'Regras definidas':'Para onde cada p\u00fablico vai',act:'ck-rule',actLabel:'Definir'},
+    {ok:tested,title:'Teste com seu navegador',sub:tested?'Testado':'O seu acesso deve dar "real"',act:'ck-test',actLabel:'Testar'}
+  ]);
+}
+// ações "Fazer / pular para a etapa" + marcações automáticas
+document.addEventListener('click',function(e){
+  var b=e.target.closest('.tc-go');
+  if(b){
+    var act=b.getAttribute('data-act');
+    if(act==='lk-new'){ if(typeof showLinkForm==='function') showLinkForm(null); tcScrollTo('lk-form-card'); }
+    else if(act==='lk-copy'){ var l=(typeof LK_LIST!=='undefined'&&LK_LIST&&LK_LIST[0]); if(l&&typeof copyLink==='function'){ copyLink(l.slug); } tcSet('lk_used',1); renderLinksSetup(); }
+    else if(act==='lk-domain'){ var d=document.getElementById('lk-domain-details'); if(d){ d.open=true; tcScrollTo('lk-domain-details'); } }
+    else if(act==='px-new'){ if(typeof showPxForm==='function') showPxForm(null); tcScrollTo('px-form-card'); }
+    else if(act==='px-script'){ tcScrollTo('tk-install','tk-snippet'); }
+    else if(act==='px-paste'){ tcSet('tk_pasted',1); renderPixelSetup(); if(typeof toast==='function') toast('Passo marcado como conclu\u00eddo'); }
+    else if(act==='px-webhook'){ tcScrollTo('cw-card'); }
+    else if(act==='ck-enable'||act==='ck-sens'){ tcScrollTo('ck-hero'); }
+    else if(act==='ck-rule'){ tcScrollTo('ck-rules-card','ck-link-select'); }
+    else if(act==='ck-test'){ tcScrollTo('ck-test-card'); }
+    return;
+  }
+  // marcações automáticas ao interagir com os controles reais
+  if(e.target.closest('#tk-copy')){ tcSet('tk_copied',1); setTimeout(renderPixelSetup,60); }
+  else if(e.target.closest('#cw-test')){ tcSet('cw_tested',1); setTimeout(renderPixelSetup,60); }
+  else if(e.target.closest('#ck-test')){ tcSet('ck_tested',1); setTimeout(renderCloakSetup,900); }
+});
 
 /* ── Drawer ── */
 function openLead(id){
@@ -4586,7 +4682,7 @@ function applySetView(v){
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
   if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); }
   if(g==='tracking'){
-    if(trackingTab==='pixels') loadPixels();
+    if(trackingTab==='pixels'){ loadPixels(); loadHealth().then(function(){ if(typeof renderPixelSetup==='function') renderPixelSetup(); }); }
     else if(trackingTab==='cloak') loadCloakConfig();
     else { loadLinks(); loadDomains(); }
   }
