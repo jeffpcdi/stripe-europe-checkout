@@ -538,9 +538,22 @@ app.get('/go/:slug', async (req, res) => {
     return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
   }
 
-  // Rajada do mesmo IP (spy tool / clique inflado)
-  if (rateLimited(clientIp(req), 'go', 20)) {
-    return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
+  // Rajada do mesmo IP+UA (spy tool / clique inflado). A chave inclui o UA
+  // para não punir usuários reais atrás de CGNAT (operadoras móveis põem
+  // milhares de pessoas no mesmo IP — tráfego TikTok é quase todo mobile).
+  if (rateLimited(clientIp(req) + '|' + uaRaw.slice(0, 60), 'go', 30)) {
+    if (cloakOn) return res.redirect(302, whitePage);
+    // Fallback SEM contar clique, mas preservando atribuição e dispositivo:
+    // respeita urlMobile, repassa a query original (UTMs/ttclid) e, se o
+    // visitante já tem cookie v_id, anexa o lead_id para o checkout conciliar.
+    const v0 = link.variantes[0];
+    const rlDev = uaTools.parse(uaRaw);
+    const rlBase = (rlDev.device !== 'desktop' && v0.urlMobile) ? v0.urlMobile : v0.url;
+    const rlParams = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+    const rlVid = (q.vid && VID_RE.test(String(q.vid))) ? String(q.vid) : readCookie(req, 'v_id');
+    if (rlVid) { rlParams.set('lead_id', rlVid); rlParams.set('client_reference_id', rlVid); }
+    const rlQs = rlParams.toString();
+    return res.redirect(302, rlBase + (rlQs ? (rlBase.includes('?') ? '&' : '?') + rlQs : ''));
   }
 
   // ── Gate geográfico (allowlist por país) — INSTANTÂNEO, sem DNS ────────
