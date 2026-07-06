@@ -1608,40 +1608,52 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Links de Checkout ── -->
       <section class="view" id="view-links">
-        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Checkout externo com rastreamento completo</b><p>Cada link gera uma URL <code>/go/&lt;slug&gt;</code> para usar nos seus an&uacute;ncios. Quando o lead clica, registramos o clique, disparamos InitiateCheckout na CAPI e redirecionamos para o seu checkout (qualquer gateway) com o <code>lead_id</code> anexado. A convers&atilde;o volta pelo webhook universal e fecha o ciclo &mdash; incluindo o teste A/B entre variantes.</p></div></div>
+        <!-- resumo em 3 passos: substitui o banner longo -->
+        <div class="card" style="margin-bottom:16px;padding:16px 20px">
+          <div class="steps" style="margin-bottom:0">
+            <div class="step"><b>1</b> Crie o link com a URL do seu checkout</div>
+            <div class="step"><b>2</b> Use <code>/go/&lt;slug&gt;</code> no an&uacute;ncio</div>
+            <div class="step"><b>3</b> Cliques e vendas aparecem sozinhos aqui</div>
+          </div>
+          <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Como funciona por dentro</summary><p class="hint" style="margin-top:6px;line-height:1.7">Quando o lead clica no <code>/go/</code>, registramos o clique, disparamos InitiateCheckout na CAPI do TikTok e redirecionamos para o checkout com o <code>lead_id</code> anexado. A venda volta pelo webhook do gateway e fecha o ciclo &mdash; incluindo o teste A/B, se houver mais de uma URL.</p></details>
+        </div>
         <div class="grid" style="grid-template-columns:1.2fr 1fr">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-              <h3 style="font-size:16px">Links configurados</h3>
+              <h3 style="font-size:16px">Meus links</h3>
               <button class="btn btn-sm primary" id="lk-new">+ Criar link</button>
             </div>
             <div id="lk-list"></div>
           </div>
           <div class="card" id="lk-form-card" style="display:none">
-            <h3 style="font-size:16px;margin-bottom:4px" id="lk-form-title">Novo link</h3>
-            <p class="hint" style="margin-bottom:14px">O slug vira a URL p&uacute;blica <code>/go/&lt;slug&gt;</code>.</p>
+            <h3 style="font-size:16px;margin-bottom:14px" id="lk-form-title">Novo link</h3>
             <div class="form-row">
-              <label>Nome <span class="hint">— vira o slug do link</span></label>
+              <label>Nome</label>
               <input class="inp" id="lk-name" placeholder="Oferta Espanha" style="width:100%">
             </div>
             <div class="form-row">
-              <label>Variantes <span class="hint">— nome | URL computador | peso % | URL celular (opcional). Uma por linha; 2+ ativa o teste A/B</span></label>
-              <textarea class="inp" id="lk-variants" rows="4" placeholder="Checkout A | https://pay.gateway.com/oferta-a | 50&#10;Checkout B | https://pay.gateway.com/oferta-b | 50 | https://pay.gateway.com/oferta-b-mobile" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
-              <p class="hint" style="margin-top:6px">Com a URL celular preenchida, computador vai para a URL principal e celular/tablet vai para a alternativa.</p>
+              <label>URL do checkout <span class="hint">— uma por linha; 2+ linhas ativa o teste A/B autom&aacute;tico</span></label>
+              <textarea class="inp" id="lk-variants" rows="3" placeholder="https://pay.gateway.com/oferta" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
             </div>
-            <div class="form-row">
-              <label>White Page <span class="hint">— p&aacute;gina enviada para revisores &amp; bots do TikTok Ads</span></label>
-              <input class="inp" id="lk-whitepage" placeholder="https://seudominio.com/pagina-neutra" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
-              <p class="hint" style="margin-top:6px;line-height:1.6">Visitantes identificados como revisores de an&uacute;ncio (score alto: datacenter, headless, sem JS, idioma inconsistente) s&atilde;o redirecionados aqui. Usu&aacute;rios reais v&atilde;o para a <b>Offer Page</b> acima. Deixe vazio para desativar o cloaking neste link.</p>
-            </div>
-            <div class="form-row">
-              <label>Validar dom&iacute;nio <span class="hint">— DNS + resposta HTTP do checkout</span></label>
-              <div style="display:flex;gap:8px;align-items:center">
-                <input class="inp" id="lk-domain" placeholder="pay.gateway.com" style="flex:1;font-family:'Geist Mono',monospace">
-                <button class="btn btn-sm" id="lk-validate">Validar</button>
+            <details class="ck-adv" style="margin-top:4px;margin-bottom:14px">
+              <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="ck-adv-body">
+                <p class="hint" style="margin:0 0 12px;line-height:1.7">Formato completo da linha (tudo opcional al&eacute;m da URL):<br><code>nome | URL | peso % | URL celular</code><br>Com a URL celular preenchida, computador vai para a principal e celular vai para a alternativa.</p>
+                <div class="form-row">
+                  <label>White Page <span class="hint">— para onde revisores/bots do TikTok s&atilde;o enviados</span></label>
+                  <input class="inp" id="lk-whitepage" placeholder="https://seudominio.com/pagina-neutra" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
+                  <p class="hint" style="margin-top:6px">Vazio = sem cloaking neste link.</p>
+                </div>
+                <div class="form-row" style="margin-bottom:0">
+                  <label>Validar dom&iacute;nio do checkout</label>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <input class="inp" id="lk-domain" placeholder="pay.gateway.com" style="flex:1;font-family:'Geist Mono',monospace">
+                    <button class="btn btn-sm" id="lk-validate">Validar</button>
+                  </div>
+                  <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
+                </div>
               </div>
-              <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
-            </div>
+            </details>
             <div class="form-row">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="lk-active" checked> Link ativo</label>
             </div>
@@ -1652,32 +1664,25 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <input type="hidden" id="lk-slug" value="">
           </div>
         </div>
-        <div class="section-title"><span>Dom&iacute;nios personalizados</span><span class="line"></span><span class="muted" style="font-size:11.5px">use o SEU dom&iacute;nio nos an&uacute;ncios</span></div>
-        <div class="grid" style="grid-template-columns:1.2fr 1fr">
-          <div class="card">
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
-              <input class="inp" id="dm-host" placeholder="link.seudominio.com" style="flex:1;font-family:'Geist Mono',monospace">
+        <!-- domínio próprio: recolhido por padrão, é opcional -->
+        <details class="ck-adv" style="margin-top:20px">
+          <summary>Dom&iacute;nio personalizado <span class="hint" style="font-weight:400">&mdash; opcional: use o SEU dom&iacute;nio nos an&uacute;ncios</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <div class="ck-adv-body">
+            <div style="display:flex;gap:8px;align-items:center;margin:4px 0 14px">
+              <input class="inp" id="dm-host" placeholder="link.seudominio.com" style="flex:1;max-width:340px;font-family:'Geist Mono',monospace">
               <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
             </div>
-            <div id="dm-list"></div>
-          </div>
-          <div class="card">
-            <h3 style="font-size:15px;margin-bottom:10px">Como plugar o dom&iacute;nio (DNS)</h3>
-            <ol class="hint" style="margin:0 0 12px 18px;line-height:1.8;font-size:12.5px">
-              <li>No painel DNS do seu dom&iacute;nio, crie um registro <b>CNAME</b>:<br><code>link.seudominio.com &#8594; <span class="dm-apphost">este-app</span></code></li>
-              <li>Se o app estiver na Vercel, adicione o dom&iacute;nio tamb&eacute;m em <b>Project &#8594; Domains</b> (emite o certificado SSL).</li>
-              <li>Aguarde propagar (minutos at&eacute; algumas horas) e clique em <b>Verificar</b>.</li>
-            </ol>
-            <p class="hint" style="font-size:12.5px;line-height:1.7">Depois de verificado, as URLs <code>/go/&lt;slug&gt;</code>, <code>/l/&lt;slug&gt;</code> e o <b>pixel de rastreamento</b> <code>/t.js</code> funcionam direto no seu dom&iacute;nio &mdash; o rastreamento come&ccedil;a nele, sem depender do dom&iacute;nio do app.</p>
-            <div class="form-row" style="margin-top:10px">
+            <div id="dm-list" style="margin-bottom:14px"></div>
+            <p class="hint" style="line-height:1.8;margin:0 0 12px">Crie um <b>CNAME</b> no seu DNS: <code>link.seudominio.com &#8594; <span class="dm-apphost">este-app</span></code> &middot; se usar Vercel, adicione tamb&eacute;m em <b>Project &#8594; Domains</b> &middot; aguarde propagar e clique em <b>Verificar</b>. Depois disso, <code>/go/</code>, <code>/l/</code> e o pixel <code>/t.js</code> funcionam no seu dom&iacute;nio.</p>
+            <div class="form-row" style="margin-bottom:0">
               <label>Pixel no seu dom&iacute;nio <span class="hint">— cole no &lt;head&gt; das suas p&aacute;ginas</span></label>
-              <div style="display:flex;gap:8px;align-items:center">
+              <div style="display:flex;gap:8px;align-items:center;max-width:480px">
                 <select class="select" id="dm-snip-host" style="flex:1"></select>
                 <button class="btn btn-sm" id="dm-snip-copy">Copiar snippet</button>
               </div>
             </div>
           </div>
-        </div>
+        </details>
         <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
         <div id="lk-perf"></div>
         <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
@@ -3271,7 +3276,7 @@ function loadLinks(){
 function renderLinks(){
   var el=document.getElementById('lk-list'); if(!el) return;
   if(!LK_LIST.length){
-    el.innerHTML='<div class="live-empty">Nenhum link ainda.<br>Clique em "+ Criar link" — cada link vira uma URL <code>/go/&lt;slug&gt;</code> para usar nos an&uacute;ncios, com rastreamento e teste A/B integrados.</div>';
+    el.innerHTML='<div class="live-empty">Nenhum link ainda.<br>Clique em <b>+ Criar link</b> e cole a URL do seu checkout.</div>';
   } else {
     el.innerHTML=LK_LIST.map(function(l){
       var nv=(l.variantes||[]).length;
@@ -3403,12 +3408,24 @@ function copyLink(slug){
 function parseVariantLines(){
   var lines=document.getElementById('lk-variants').value.split(String.fromCharCode(10));
   var out=[];
+  var letters='ABCDEFGHIJ';
   lines.forEach(function(ln){
     ln=ln.trim(); if(!ln) return;
     var parts=ln.split('|').map(function(p){return p.trim();});
-    if(parts.length<2) return;
+    if(parts.length===1){
+      // modo simples: só a URL — nome e peso automáticos
+      var low=parts[0].toLowerCase();
+      if(low.indexOf('http:')!==0&&low.indexOf('https:')!==0) return;
+      out.push({nome:'Checkout '+(letters[out.length]||(out.length+1)),url:parts[0],peso:0});
+      return;
+    }
     out.push({nome:parts[0],url:parts[1],peso:parts[2]!=null?+parts[2]:0,urlMobile:parts[3]||undefined});
   });
+  // pesos ausentes: distribui igualmente (senão o A/B nunca alterna)
+  if(out.length&&!out.some(function(v){return v.peso>0;})){
+    var w=Math.floor(100/out.length);
+    out.forEach(function(v,i){ v.peso=i===out.length-1?100-w*(out.length-1):w; });
+  }
   return out;
 }
 
