@@ -12,6 +12,12 @@
 > 5. Ao terminar mudanças relevantes, **atualize este arquivo** para mantê-lo preciso.
 > 6. Depois de editar módulos, o servidor precisa ser **reiniciado** para recarregar (sem hot-reload).
 
+## 0. Índice
+1. Visão geral · 2. Stack · 3. Deploy e ambientes · 4. Arquitetura (4.1 Backend, 4.2 Frontend) ·
+5. Rotas · 6. Esquema do banco · 7. Redis · 8. Score do bot-filter · 9. Fluxo do `/go/:slug` ·
+10. CAPI do TikTok · 11. Comandos · 12. Variáveis de ambiente · 13. Convenções · 14. Armadilhas ·
+15. Estrutura de arquivos · 16. Ciclo de vida do lead · 17. Formato dos eventos de tracking.
+
 ## 1. Visão geral
 Painel de rastreamento de funil e vendas para infoprodutos vendidos com tráfego do TikTok.
 Rastreia o lead de ponta a ponta (visita → checkout → compra), dispara eventos server-side
@@ -263,3 +269,45 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 - **Primeiro registro = admin:** com o banco vazio, a primeira conta criada em `/register` vira admin
   e herda os dados legados. Para "resetar" o admin é preciso limpar a tabela `accounts` no Neon.
 - **Sem hot-reload:** após editar módulos, reiniciar o processo (`node server.js`) para recarregar.
+
+## 15. Estrutura de arquivos
+```
+/ (raiz)
+├── server.js              # Express + todas as rotas (ponto de entrada)
+├── auth.js / auth-view.js # autenticação e páginas /login /register
+├── db.js / redis.js       # persistência (Neon) e cache (Upstash)
+├── config.js              # config editável na dash (multi-bloco)
+├── stats.js               # cache quente de métricas + write-through
+├── bot-filter.js / ua.js  # cloaking (score) e parse de User-Agent
+├── tiktok-events.js       # CAPI do TikTok (server-side)
+├── pixel-store.js / link-store.js / gateway-store.js  # CRUD dos recursos
+├── presence.js / pulse-client.js   # visitantes ao vivo
+├── pushcut.js             # notificações push
+├── *-view.js              # views (HTML como string): dashboard, lp, legal, tracker, vision, auth
+├── assets/                # estáticos servidos em /assets/*
+├── pixels/                # assets do pixel do navegador
+├── data/                  # cache local em JSON (IGNORADO no git; não é fonte de verdade)
+├── package.json / railway.json  # deps e config de deploy Railway
+└── CLAUDE.md / README.md  # este mapa e o readme
+```
+Não há subpastas de código-fonte: todo módulo `.js` vive na raiz, um arquivo por responsabilidade.
+
+## 16. Ciclo de vida do lead
+Um lead avança por **stages** (etapa no funil) e carrega um **status** (resultado do disparo CAPI):
+- **stage:** `visit` (pageview registrada) → `checkout` (chegou/entrou no checkout, `InitiateCheckout`)
+  → `purchased` (compra confirmada via webhook, `CompletePayment`).
+- **status (do disparo/conversão):** `pending` (em processamento) · `converted` (evento aceito pelo
+  TikTok) · `dedup` (ignorado por dedup — `event_id` repetido) · `erro` (falha no envio à CAPI).
+- Identidade: cookie `v_id` (visitante, 90 dias). O middleware conta 1 lead por visitante e ignora bots (`ua.js`).
+- `orphan`: lead de conversão sem visita prévia casada (chegou webhook mas não há sessão/visita ligada).
+
+## 17. Formato dos eventos de tracking
+- **Tipos de evento CAPI usados:** `ViewContent` (pageview/visita), `InitiateCheckout` (entrada no
+  checkout, disparado no `/go/:slug` após os gates) e `CompletePayment` (compra, via webhook de gateway).
+- **Ingestão navegador → servidor:** `/t.js` (tracker) chama `POST /api/track`; o pixel do navegador
+  (`/px.js`) chama `POST /api/px/event`. Ambos casam com o disparo server-side pelo mesmo `event_id`.
+- **event_id determinístico:** `Evento.<v_id>.<yyyymmddhh>` — garante dedup navegador↔servidor no TikTok.
+  **Nunca** alterar esse formato sem migrar a lógica de dedup em ambos os lados.
+- **Conversão (compra):** chega por `POST /hook/:token` (por gateway) ou `POST /api/conversion`
+  (webhook universal, validado por `CONVERSION_WEBHOOK_SECRET`), marca o lead como `purchased` e
+  dispara `CompletePayment` na CAPI com o valor/moeda recebidos.
