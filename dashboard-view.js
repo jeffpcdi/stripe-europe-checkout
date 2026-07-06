@@ -13,7 +13,6 @@ module.exports = `<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<script src="https://unpkg.com/globe.gl"></script>
 <style>
 :root{
   /* ═══ LIQUID GLASS COSMIC DARK THEME ═══ */
@@ -2743,7 +2742,7 @@ function renderGoal(m,prev){
     '</div>';
 }
 
-/* ── Gráfico de tendência ── */
+/* ─��� Gráfico de tendência ── */
 function renderChart(m){
   var el=document.getElementById('chart');
   if(!el) return;
@@ -3002,6 +3001,27 @@ function renderGeo(m){
       '<div class="cval">'+c.count+'</div></div>';
   }).join(''):'<div class="empty">Sem dados de pa&iacute;s ainda.</div>';
 }
+// ── Lazy load da lib globe.gl (three.js ~1MB): só baixa quando um globo
+// vai realmente ser desenhado, tirando o peso do carregamento inicial ──
+var GLOBE_LIB_LOADING=false, GLOBE_LIB_WAITERS=[];
+function ensureGlobeLib(cb){
+  if(typeof Globe!=='undefined'){ cb(true); return; }
+  GLOBE_LIB_WAITERS.push(cb);
+  if(GLOBE_LIB_LOADING) return;
+  GLOBE_LIB_LOADING=true;
+  var s=document.createElement('script');
+  s.src='https://unpkg.com/globe.gl';
+  s.onload=function(){
+    GLOBE_LIB_WAITERS.forEach(function(w){ try{w(true);}catch(_){}});
+    GLOBE_LIB_WAITERS=[];
+  };
+  s.onerror=function(){
+    GLOBE_LIB_LOADING=false;
+    GLOBE_LIB_WAITERS.forEach(function(w){ try{w(false);}catch(_){}});
+    GLOBE_LIB_WAITERS=[];
+  };
+  document.head.appendChild(s);
+}
 // ── GeoJSON de países (cache compartilhado entre os dois globos) ──
 var WORLD_GEOJSON=null, WORLD_GEOJSON_LOADING=false, WORLD_GEOJSON_WAITERS=[];
 function loadWorldPolys(cb){
@@ -3009,7 +3029,8 @@ function loadWorldPolys(cb){
   WORLD_GEOJSON_WAITERS.push(cb);
   if(WORLD_GEOJSON_LOADING) return;
   WORLD_GEOJSON_LOADING=true;
-  fetch('https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson')
+  // servido localmente (cache de 7d em /assets) — sem depender do GitHub
+  fetch('/assets/countries.geojson')
     .then(function(r){return r.json();})
     .then(function(j){
       WORLD_GEOJSON=j.features||[];
@@ -3033,7 +3054,7 @@ function applyLightPolys(g){
 function makeGlobe(el,height){
   el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
   var g=Globe()(el)
-    .globeImageUrl('//unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+    .globeImageUrl('/assets/earth-blue-marble.jpg')
     .backgroundColor('rgba(0,0,0,0)')
     .showGraticules(false)
     .showAtmosphere(true).atmosphereColor('#3b82f6').atmosphereAltitude(0.15)
@@ -3413,6 +3434,11 @@ function liveDur(ms){
 function renderLiveGlobe(){
   var el=document.getElementById('live-globe');
   var cs=(LIVE.summary&&LIVE.summary.countries)||[];
+  // lib ainda não baixada? pede sob demanda e re-renderiza quando chegar
+  if(el && typeof Globe==='undefined'){
+    ensureGlobeLib(function(ok){ if(ok) renderLiveGlobe(); else el.innerHTML='<div class="empty" style="height:100%;display:flex;align-items:center;justify-content:center">Globo indispon&iacute;vel.</div>'; });
+    return;
+  }
   if(el && typeof Globe!=='undefined'){
     var top=cs[0]?cs[0].count:1;
     var pts=cs.filter(function(c){return GEO[c.code];}).map(function(c){
@@ -3464,7 +3490,9 @@ function renderLiveGlobe(){
 // Usa os mesmos dados do Ao Vivo (LIVE.summary.countries + GEO) — sem fetch extra.
 function renderGlobeHero(){
   var el=document.getElementById('globe-hero'), skel=document.getElementById('ov-globe-skel');
-  if(!el||typeof Globe==='undefined') return;
+  if(!el) return;
+  // lib ainda não baixada? pede sob demanda e re-renderiza quando chegar
+  if(typeof Globe==='undefined'){ ensureGlobeLib(function(ok){ if(ok) renderGlobeHero(); }); return; }
   var cs=(LIVE.summary&&LIVE.summary.countries)||[];
   var top=cs[0]?cs[0].count:1;
   var pts=cs.filter(function(c){return GEO[c.code];}).map(function(c){

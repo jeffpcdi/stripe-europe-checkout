@@ -27,7 +27,8 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 
 ## 2. Stack
 - **Runtime:** Node.js >= 18 (JavaScript puro, CommonJS). Sem TypeScript, sem framework de front, sem build.
-- **Web:** Express `^4.21.0`.
+- **Web:** Express `^4.21.0` + `compression` (gzip em todas as respostas > 1 KB — essencial:
+  o HTML da dashboard tem ~340 KB e cai para ~55 KB comprimido).
 - **Banco:** Neon Postgres via `@neondatabase/serverless` `^1.1.0` (SQL puro por template tag, sem ORM).
 - **Cache/dedup:** Upstash Redis `@upstash/redis` `^1.38.0` via HTTP REST (opcional; fallback em memória).
 - **Geo:** `geoip-lite` `^2.0.3` (fallback; a fonte primária são headers de edge Vercel/Cloudflare).
@@ -120,7 +121,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 ### 5.1 Páginas e assets (GET)
 - `GET /` — landing page. `GET /termos`, `GET /privacidade` — legais.
 - `GET /dashboard` — painel (exige sessão). `GET /login`, `GET /register` — auth.
-- `GET /assets/*` — estáticos. `GET /t.js` — snippet de tracking. `GET /px.js`, `GET /px/:token.js`,
+- `GET /assets/*` — estáticos (cache 7d). Inclui `countries.geojson` (bordas dos países) e
+  `earth-blue-marble.jpg` (textura do globo) — servidos localmente para não depender de
+  GitHub/unpkg. A lib `globe.gl` (three.js ~1MB) é **lazy-loaded** pela dashboard via
+  `ensureGlobeLib()` só quando um globo vai renderizar (não está mais no `<head>`).
+- `GET /t.js` — snippet de tracking. `GET /px.js`, `GET /px/:token.js`,
   `GET /px.gif` — pixel do navegador. `GET /l/:slug` — shortlink. `GET /go/:slug` — redirect com cloaking (§9).
 
 ### 5.2 API consumida pela dashboard (auth)

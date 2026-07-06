@@ -10,6 +10,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
     "@upstash/redis": "^1.38.0",
+    "compression": "^1.8.1",
     "express": "^4.21.0",
     "geoip-lite": "^2.0.3",
     "ws": "^8.21.0"
