@@ -48,17 +48,18 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 .hero-head{position:relative;background:linear-gradient(180deg,#101014 0%,var(--bg) 100%);border-bottom:1px solid var(--border);overflow:hidden}
 .hh-glow{position:absolute;inset:-40% -10% auto;height:180%;pointer-events:none;
   background:radial-gradient(520px 220px at 50% 0%, rgba(82,168,255,.07), transparent 65%)}
-.hh-inner{position:relative;display:flex;align-items:center;gap:20px;padding:18px 26px 10px;flex-wrap:wrap}
+/* cabeçalho compacto: a marca é assinatura, não protagonista — o conteúdo é */
+.hh-inner{position:relative;display:flex;align-items:center;gap:20px;padding:10px 26px 4px;flex-wrap:wrap}
 /* marca centralizada: status ancorado à direita, marca no centro real do header */
-.brand-xl{display:flex;align-items:center;justify-content:center;gap:16px;flex:1;min-width:0}
+.brand-xl{display:flex;align-items:center;justify-content:center;gap:12px;flex:1;min-width:0}
 .hh-inner::before{content:'';flex:0 0 0}
-.logo-orbit{position:relative;width:68px;height:68px;flex-shrink:0}
-.logo-orbit img{position:absolute;inset:5px;width:58px;height:58px;border-radius:50%;object-fit:cover;z-index:2;
+.logo-orbit{position:relative;width:46px;height:46px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:4px;width:38px;height:38px;border-radius:50%;object-fit:cover;z-index:2;
   box-shadow:0 0 0 2px rgba(255,255,255,.14),0 4px 18px rgba(0,0,0,.6);
   filter:contrast(1.18) saturate(1.25) brightness(1.08)}
-.logo-orbit::after{content:'';position:absolute;inset:5px;border-radius:50%;z-index:3;pointer-events:none;
+.logo-orbit::after{content:'';position:absolute;inset:4px;border-radius:50%;z-index:3;pointer-events:none;
   background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
-.logo-ring{position:absolute;inset:0;border-radius:50%;padding:2.5px;z-index:1;
+.logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
   background:conic-gradient(from var(--ra,0deg),#ff2d6f,#52a8ff,#25f4ee,#ff2d6f);
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask-composite:exclude;
@@ -68,7 +69,7 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 /* marca estática — o brilho/giro só acontece no hover (momento premium pontual) */
 .brand-xl:hover .logo-ring{animation:ringSpin 4s linear infinite;filter:drop-shadow(0 0 10px rgba(255,45,111,.5))}
 .brand-txt{display:flex;flex-direction:column;gap:2px}
-.bt-name{font-weight:800;font-size:28px;line-height:1;letter-spacing:.04em;
+.bt-name{font-weight:800;font-size:20px;line-height:1;letter-spacing:.04em;
   background:linear-gradient(92deg,#ff3d7a 0%,#ff6b8a 28%,#6cb4ff 62%,#3ffcf6 100%);
   background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
   filter:drop-shadow(0 1px 0 rgba(0,0,0,.55))}
@@ -77,17 +78,17 @@ h1,h2,h3,h4{font-family:'Inter',system-ui,sans-serif;margin:0;letter-spacing:-.0
 .hh-live{font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:20px}
 
 /* dock de navegação: grande, central, interativo */
-.nav.dock{position:relative;display:flex;flex-direction:row;gap:6px;padding:10px 22px 14px;overflow-x:auto;scrollbar-width:none}
+.nav.dock{position:relative;display:flex;flex-direction:row;gap:6px;padding:6px 22px 10px;overflow-x:auto;scrollbar-width:none}
 .nav.dock::-webkit-scrollbar{display:none}
-.nav.dock button{position:relative;display:flex;align-items:center;gap:10px;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--muted);padding:11px 18px;border-radius:12px;font-size:14px;font-weight:600;font-family:inherit;transition:.2s;white-space:nowrap}
-.nav.dock button .d-ico{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--card2);box-shadow:inset 0 0 0 1px var(--border);transition:.2s;flex-shrink:0}
-.nav.dock button svg{width:17px;height:17px}
+.nav.dock button{position:relative;display:flex;align-items:center;gap:9px;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--muted);padding:8px 15px;border-radius:11px;font-size:13.5px;font-weight:600;font-family:inherit;transition:.2s;white-space:nowrap}
+.nav.dock button .d-ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--card2);box-shadow:inset 0 0 0 1px var(--border);transition:.2s;flex-shrink:0}
+.nav.dock button svg{width:15px;height:15px}
 .nav.dock button:hover{color:var(--text);background:var(--hover);transform:translateY(-2px)}
 .nav.dock button:hover .d-ico{box-shadow:inset 0 0 0 1px var(--border2),0 4px 14px rgba(0,0,0,.4)}
 .nav.dock button.active{color:var(--text);background:var(--card);border-color:var(--border2);box-shadow:0 6px 22px rgba(0,0,0,.45)}
 .nav.dock button.active .d-ico{background:color-mix(in srgb,var(--accent) 15%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 35%,transparent)}
 .nav.dock button.active svg{color:var(--accent)}
-.nav.dock button.active::after{content:'';position:absolute;left:16px;right:16px;bottom:-14px;height:2px;border-radius:2px;background:var(--accent);opacity:.9}
+.nav.dock button.active::after{content:'';position:absolute;left:14px;right:14px;bottom:-10px;height:2px;border-radius:2px;background:var(--accent);opacity:.9}
 .nav .badge{margin-left:2px;background:var(--pink);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 8px var(--green)}
 .dot.off{background:var(--red);box-shadow:0 0 8px var(--red)}
@@ -380,11 +381,12 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .notif-empty{padding:34px 18px;text-align:center;color:var(--muted2);font-size:12.5px}
 .live-right{display:flex;flex-direction:column;gap:16px;min-width:0}
 .pos{color:var(--green)} .neg{color:var(--red)} .cyn{color:var(--cyan)} .pnk{color:var(--pink)} .amb{color:var(--amber)} .grn{color:var(--green)}
-/* Valores de KPI com cor semântica — sem glow */
+/* Valores de KPI com cor semântica — sem glow; zero = neutro (sem falso alarme/celebração) */
 .k-val .pos,.k-val .grn{color:var(--green)}
 .k-val .cyn,.k-val .blu{color:var(--cyan)}
 .k-val .pnk{color:var(--pink)}
 .k-val .amb{color:var(--amber)}
+.k-val .mut,.k-sub .mut{color:var(--muted)}
 
   .section-title{display:flex;align-items:center;gap:10px;margin:36px 0 16px;font-size:15px;font-weight:600;color:var(--text)}
   /* passos numerados dos cards de instrução (snippet, webhook) */
@@ -690,6 +692,15 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 
 /* ── Setup guiado (checklist com progresso) ── */
 .setup-card{border-color:color-mix(in srgb,var(--accent) 22%,transparent)}
+/* recolhível: summary vira a linha-resumo; corpo esconde o título duplicado */
+.setup-summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none;font-size:13.5px;user-select:none}
+.setup-summary::-webkit-details-marker{display:none}
+.setup-summary .chev{color:var(--muted);transition:transform var(--dur) var(--ease)}
+details[open]>.setup-summary .chev{transform:rotate(180deg)}
+.setup-badge{display:grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:20px;
+  background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);font-size:12px;font-weight:700}
+.setup-body{margin-top:14px}
+.setup-body .setup-title,.setup-body .setup-sub{display:none} /* summary já mostra título e contagem */
 .setup-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px}
 .setup-title{font-size:14px;font-weight:600;display:block}
 .setup-sub{font-size:12px;color:var(--muted);display:block;margin-top:2px}
@@ -777,6 +788,18 @@ button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visibl
   .tracking-tabs::-webkit-scrollbar{display:none}
   .tracking-tabs button{white-space:nowrap}
   .live-strip{flex-wrap:wrap;row-gap:4px}
+  /* card Conversão: funil mini apertado — rótulos curtos e fonte menor */
+  .k-funnel .kf-lbl{font-size:10px;width:52px}
+  .k-funnel .kf-pct{font-size:10.5px}
+  /* seletor de período: rola horizontal em vez de quebrar linha */
+  .tb-right{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .tb-right::-webkit-scrollbar{display:none}
+  .segment#period{flex-shrink:0}
+  .segment#period button{white-space:nowrap;padding:6px 10px;font-size:12px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar h2{font-size:18px}
+  .topbar .sub{display:none} /* subtítulo dispensável em telas pequenas */
+  .hh-status{display:none} /* o strip de presença já informa o "ao vivo" */
 }
 #menuToggle{display:none!important}
 
@@ -1936,27 +1959,31 @@ function renderOverview(m){
   // multi-moeda cai no texto estático "X € + Y £"
   var revCurs=Object.keys(m.rev||{}).filter(function(c){return (m.rev[c]||0)>0;});
   var singleCur=revCurs.length<=1;
-  var revHtml=singleCur?'<span class="pos" id="ov-cu-rev">'+money(0,revCurs[0]||'EUR')+'</span>':'<span class="pos">'+revObj(m.rev)+'</span>';
+  // zeros neutros: valor zerado usa cinza — cor semântica só quando há sinal real
+  function zc(v,cls){ return v>0?cls:'mut'; }
+  var hasRev=revCurs.length>0&&(m.rev[revCurs[0]]||0)>0;
+  var revHtml=singleCur?'<span class="'+(hasRev?'pos':'mut')+'" id="ov-cu-rev">'+money(0,revCurs[0]||'EUR')+'</span>':'<span class="pos">'+revObj(m.rev)+'</span>';
   document.getElementById('ov-kpis').removeAttribute('aria-busy');
   document.getElementById('ov-chips').removeAttribute('aria-busy');
   document.getElementById('ov-kpis').innerHTML=
     kpi(I.money,'tint-green','Receita total',revHtml,'no período selecionado', dc('rev')+spark(seriesFor('revenue'),'#3ecf8e'))+
-    kpi(I.check,'tint-green','Vendas aprovadas','<span class="pos" id="ov-cu-sales">0</span>','<span class="neg">'+m.failed+'</span> recusadas', dc('sales')+sparkBars(seriesFor('sales'),'#3ecf8e'))+
-    kpi(I.users,'tint-cyan','Novos leads','<span class="cyn" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
-    kpi(I.pct,'tint-amber','Conversão','<span class="'+pctColor(m.overall)+'" id="ov-cu-conv">0%</span>','visita &#8594; compra', dc('overall')+funnelMini(m));
+    kpi(I.check,'tint-green','Vendas aprovadas','<span class="'+zc(m.sales,'pos')+'" id="ov-cu-sales">0</span>',(m.failed>0?'<span class="neg">'+m.failed+'</span>':'<span class="mut">0</span>')+' recusadas', dc('sales')+sparkBars(seriesFor('sales'),'#3ecf8e'))+
+    kpi(I.users,'tint-cyan','Novos leads','<span class="'+zc(m.visits,'cyn')+'" id="ov-cu-visits">0</span>','entraram no funil', dc('visits')+spark(seriesFor('visits'),'#52a8ff'))+
+    kpi(I.pct,'tint-amber','Conversão','<span class="'+(m.overall>0?pctColor(m.overall):'mut')+'" id="ov-cu-conv">0%</span>','visita &#8594; compra', dc('overall')+funnelMini(m));
 
   // ministats: aprovação verde quando saud��vel (ou sem tentativas), alertas âmbar/vermelho só quando existem
   var hasAttempts=(m.sales+m.failed)>0;
-  var apColor=!hasAttempts||m.approval>=70?'#3ecf8e':m.approval>=40?'#f5b544':'#ff5674';
-  var apBg=!hasAttempts||m.approval>=70?'rgba(62,207,142,.12)':m.approval>=40?'rgba(245,181,68,.12)':'rgba(255,86,116,.12)';
-  var refColor=m.refunds?'#f5b544':'#3ecf8e', dispColor=m.disputes?'#ff5674':'#3ecf8e';
+  // sem tentativas = neutro (cinza), não verde — zero não é sucesso nem falha
+  var apColor=!hasAttempts?'#9ca1ad':m.approval>=70?'#3ecf8e':m.approval>=40?'#f5b544':'#ff5674';
+  var apBg=!hasAttempts?'rgba(156,161,173,.10)':m.approval>=70?'rgba(62,207,142,.12)':m.approval>=40?'rgba(245,181,68,.12)':'rgba(255,86,116,.12)';
+  var refColor=m.refunds?'#f5b544':'#9ca1ad', dispColor=m.disputes?'#ff5674':'#9ca1ad';
   // micro-gráficos: aprovação em barras, ticket/reembolsos/disputas em trendline,
   // países com mini-tabela de bandeiras + volume (só quando há dados no período)
   var hasSales=m.sales>0, hasGeo=m.countries.length>0;
   document.getElementById('ov-chips').innerHTML=
     mstat(apColor,apBg,I.check,'Aprovação',m.approval+'%',m.sales+' aprovadas de '+(m.sales+m.failed)+' tentativas',m.approval,apColor,'ov-cu-appr',((cur&&prev)?deltaChip(cur.approval,prev.approval):'')+(hasAttempts?sparkBars(seriesFor('approval'),apColor):''))+
-    mstat('#3ecf8e','rgba(62,207,142,.12)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null,null,null,((cur&&prev&&prev.bought>0)?deltaChip(cur.bought?cur.rev/cur.bought:0,prev.rev/prev.bought):'')+(hasSales?spark(seriesFor('ticket'),'#3ecf8e'):''))+
-    mstat('#25f4ee','rgba(37,244,238,.1)',I.globe,'Países ativos',m.countries.length,(hasGeo?'':'aguardando leads'),null,null,'ov-cu-geo',geoMini(m.countries))+
+    mstat(hasSales?'#3ecf8e':'#9ca1ad',hasSales?'rgba(62,207,142,.12)':'rgba(156,161,173,.10)',I.money,'Ticket médio',money(m.avgTicket,m.mainCur),'por venda aprovada',null,null,null,((cur&&prev&&prev.bought>0)?deltaChip(cur.bought?cur.rev/cur.bought:0,prev.rev/prev.bought):'')+(hasSales?spark(seriesFor('ticket'),'#3ecf8e'):''))+
+    mstat(hasGeo?'#25f4ee':'#9ca1ad',hasGeo?'rgba(37,244,238,.1)':'rgba(156,161,173,.10)',I.globe,'Países ativos',m.countries.length,(hasGeo?'':'aguardando leads'),null,null,'ov-cu-geo',geoMini(m.countries))+
     mstat(refColor,m.refunds?'rgba(245,181,68,.12)':'rgba(62,207,142,.1)',I.refund,'Reembolsos',m.refunds,m.refunds?'exige aten\u00e7\u00e3o':'nenhum no per\u00edodo',null,null,'ov-cu-ref',m.refunds?spark(seriesFor('refunds'),refColor):'')+
     mstat(dispColor,m.disputes?'rgba(255,86,116,.12)':'rgba(62,207,142,.1)',I.dispute,'Disputas',m.disputes,m.disputes?'responda o quanto antes':'nenhuma aberta',null,null,'ov-cu-disp',m.disputes?spark(seriesFor('disputes'),dispColor):'');
 
@@ -3594,7 +3621,7 @@ function loadPxLog(){
         '<td>'+timeAgo(e.at)+'</td>'+
         '<td>'+esc(e.pixel||'—')+'</td>'+
         '<td><span class="tag '+(e.event==='CompletePayment'?'purchased':(e.event==='InitiateCheckout'?'checkout':'visit'))+'">'+esc(e.event||'—')+'</span></td>'+
-        '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'—').slice(0,10))+'</td>'+
+        '<td style="font-family:\\'Geist Mono\\',monospace;font-size:11.5px">'+esc((e.leadId||'��').slice(0,10))+'</td>'+
         '<td>'+emqCell+'</td>'+
         '<td><span class="'+(ok?'grn':'neg')+'">'+(ok?'OK':'erro')+'</span></td>'+
         '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--muted2)">'+esc(String(resp).slice(0,120))+'</td>'+
@@ -3664,7 +3691,8 @@ function setupChecklistHTML(compact){
   }).join('')+'</div>';
   return html;
 }
-// Card na Visão Geral: só aparece enquanto há pendências
+// Card na Visão Geral: só aparece enquanto há pendências.
+// Recolhível — quem já sabe das pendências não precisa vê-las abertas todo dia.
 function renderSetupCard(){
   var el=document.getElementById('ov-setup'); if(!el) return;
   var items=setupItems();
@@ -3672,7 +3700,19 @@ function renderSetupCard(){
   var pending=items.filter(function(i){return !i.ok;}).length;
   if(!pending){ el.hidden=true; el.innerHTML=''; return; }
   el.hidden=false;
-  el.innerHTML='<div class="card setup-card">'+setupChecklistHTML(true)+'</div>';
+  var open=localStorage.getItem('setupCollapsed')!=='1';
+  el.innerHTML='<details class="card setup-card" id="setup-details"'+(open?' open':'')+'>'+
+    '<summary class="setup-summary">'+
+      '<span class="setup-badge">'+pending+'</span>'+
+      '<b>Configura&ccedil;&atilde;o pendente</b>'+
+      '<span class="setup-sub" style="margin-left:4px">'+(items.length-pending)+' de '+items.length+' conclu\u00eddos</span>'+
+      '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;margin-left:auto"><path d="M6 9l6 6 6-6"/></svg>'+
+    '</summary>'+
+    '<div class="setup-body">'+setupChecklistHTML(true)+'</div>'+
+  '</details>';
+  // memoriza a preferência de recolhido/aberto
+  var det=document.getElementById('setup-details');
+  det.addEventListener('toggle',function(){ localStorage.setItem('setupCollapsed',det.open?'0':'1'); });
 }
 // Versão completa em Configurações
 function renderHealth(){
