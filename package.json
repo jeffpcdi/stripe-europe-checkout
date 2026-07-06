@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env.development.local server.js",
     "build": "echo 'No build step required'",
-    "start": "node --env-file-if-exists=.env.development.local server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
