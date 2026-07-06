@@ -179,6 +179,16 @@ html[data-liquid-glass] .card:hover::before,
 html[data-liquid-glass] .lg:hover::before,
 html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
 
+/* 3) Ripple no clique: círculo branco que expande e some em 600ms */
+@keyframes liquidRipple{from{transform:translate(-50%,-50%) scale(0);opacity:.5}to{transform:translate(-50%,-50%) scale(1);opacity:0}}
+.lg-ripple{position:absolute;border-radius:50%;pointer-events:none;z-index:3;
+  background:radial-gradient(circle,rgba(255,255,255,.9),rgba(255,255,255,.3) 60%,transparent);
+  mix-blend-mode:screen;animation:liquidRipple .6s ease-out forwards}
+/* 4) Wobble elástico ao soltar o clique (oscilação com decaimento) */
+@keyframes liquidWobble{0%{transform:scale(.96)}35%{transform:scale(1.02)}60%{transform:scale(.988)}80%{transform:scale(1.006)}100%{transform:scale(1)}}
+.lg-wobbling{animation:liquidWobble .55s cubic-bezier(.2,.8,.2,1)}
+@media(prefers-reduced-motion:reduce){.lg-ripple,.lg-wobbling{animation:none}}
+
 /* ── Layout ── */
 .app{display:flex;flex-direction:column;min-height:100vh}
 
@@ -463,21 +473,17 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
   background:var(--card);border:1px solid var(--border2);color:var(--muted);transition:.25s cubic-bezier(.34,1.56,.64,1)}
 .gm-close svg{width:16px;height:16px}
 .gm-close:hover{color:var(--text);transform:scale(1.15) rotate(90deg);border-color:var(--pink);box-shadow:0 0 14px -4px var(--pink)}
-#live-globe::before,#globe::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;
-  background-image:
-    radial-gradient(1px 1px at 10% 15%,rgba(255,255,255,.5),transparent),
-    radial-gradient(1px 1px at 25% 8%,rgba(255,255,255,.35),transparent),
-    radial-gradient(1px 1px at 55% 5%,rgba(255,255,255,.3),transparent),
-    radial-gradient(1px 1px at 70% 18%,rgba(255,255,255,.4),transparent),
-    radial-gradient(1px 1px at 30% 42%,rgba(255,255,255,.35),transparent),
-    radial-gradient(1px 1px at 80% 28%,rgba(255,255,255,.4),transparent),
-    radial-gradient(1px 1px at 48% 65%,rgba(255,255,255,.35),transparent),
-    radial-gradient(1px 1px at 90% 62%,rgba(255,255,255,.35),transparent),
-    radial-gradient(1px 1px at 22% 82%,rgba(255,255,255,.3),transparent),
-    radial-gradient(1px 1px at 52% 85%,rgba(255,255,255,.35),transparent),
-    radial-gradient(1px 1px at 95% 78%,rgba(255,255,255,.3),transparent),
-    radial-gradient(1px 1px at 45% 95%,rgba(255,255,255,.3),transparent);
-  opacity:0}
+/* fundo do globo: aurora em drift lento (só transform = GPU) + vinheta de profundidade */
+#live-globe::before,#globe::before{content:'';position:absolute;inset:-28%;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(38% 32% at 28% 32%,rgba(47,125,255,.17),transparent 70%),
+    radial-gradient(34% 28% at 74% 64%,rgba(6,182,212,.13),transparent 70%),
+    radial-gradient(26% 22% at 62% 18%,rgba(255,45,111,.08),transparent 70%);
+  animation:auroraDrift 26s ease-in-out infinite alternate;will-change:transform}
+#live-globe::after,#globe::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;border-radius:inherit;
+  box-shadow:inset 0 0 90px rgba(30,50,110,.10),inset 0 0 24px rgba(255,255,255,.30)}
+@keyframes auroraDrift{from{transform:rotate(0deg) scale(1)}to{transform:rotate(10deg) scale(1.14)}}
+@media(prefers-reduced-motion:reduce){#live-globe::before,#globe::before{animation:none}}
 .live-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}
 .live-grid>.card{min-width:0}
 #live-globe canvas{max-width:100%}
@@ -1302,6 +1308,35 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
     document.documentElement.setAttribute('data-liquid-glass','');
     buildLensMap();
     trackSpecular();
+    rippleWobble();
+  }
+
+  /* ── Ripple + wobble (spec liquid glass): delegação única, sem listeners por botão ── */
+  function rippleWobble(){
+    var SEL='.btn,.nav button,.gt-btn,.gs-all,.seg-btn,.tab-btn';
+    document.addEventListener('pointerdown',function(e){
+      var t=e.target&&e.target.closest&&e.target.closest(SEL);
+      if(!t) return;
+      var r=t.getBoundingClientRect();
+      if(!r.width) return;
+      var d=Math.max(r.width,r.height)*2.2;
+      var s=document.createElement('span');
+      s.className='lg-ripple';
+      s.style.width=s.style.height=d+'px';
+      s.style.left=(e.clientX-r.left)+'px';
+      s.style.top=(e.clientY-r.top)+'px';
+      if(getComputedStyle(t).position==='static') t.style.position='relative';
+      t.style.overflow='hidden';
+      t.appendChild(s);
+      setTimeout(function(){ s.remove(); },650);
+    },{passive:true});
+    document.addEventListener('pointerup',function(e){
+      var t=e.target&&e.target.closest&&e.target.closest(SEL);
+      if(!t) return;
+      t.classList.remove('lg-wobbling'); void t.offsetWidth;
+      t.classList.add('lg-wobbling');
+      setTimeout(function(){ t.classList.remove('lg-wobbling'); },600);
+    },{passive:true});
   }
 
   /* ── Lente de refração REAL (mescla do projeto liquid glass) ──
@@ -2771,7 +2806,7 @@ function makeGlobe(el,height){
     }
   }catch(_){}
   applyLightPolys(g);
-  g.pointOfView({lat:24,lng:-12,altitude:1.95},0);
+  globeEntrance(g); // entrada cinematográfica: giro + aproximação
   var ctrl=g.controls();
   if(ctrl){
     ctrl.autoRotate=true;ctrl.autoRotateSpeed=0.42;
@@ -2780,6 +2815,19 @@ function makeGlobe(el,height){
   }
   setTimeout(function(){ try{g.width(el.clientWidth).height(height);}catch(e){} },80);
   return g;
+}
+// ── Entrada cinematográfica do globo ──
+// Começa afastado e rotacionado a oeste; o easing interno do globe.gl faz o
+// giro + zoom-in até o enquadramento padrão. Usada na criação e ao reentrar na aba.
+function globeEntrance(g){
+  if(!g) return;
+  try{
+    if(matchMedia('(prefers-reduced-motion:reduce)').matches){
+      g.pointOfView({lat:24,lng:-12,altitude:1.95},0); return;
+    }
+    g.pointOfView({lat:8,lng:-115,altitude:3.3},0);
+    setTimeout(function(){ g.pointOfView({lat:24,lng:-12,altitude:1.95},1350); },90);
+  }catch(_){}
 }
 // Cor da marcação conforme intensidade (paleta light): frio (ciano) → médio (azul) → quente (rosa marca)
 function heatColor(sz){
@@ -4455,13 +4503,27 @@ function applySetView(v){
   var sec=document.getElementById('view-'+views[0]);
   if(sec){ sec.classList.remove('entering'); void sec.offsetWidth; sec.classList.add('entering'); setTimeout(function(){sec.classList.remove('entering');},700); }
   if(!RENDERED_GROUPS[g]) renderAll(); // pinta o grupo na primeira abertura com os dados atuais
+  // pausa o loop WebGL dos globos fora de vista (economiza CPU/GPU nas outras abas)
+  try{
+    if(liveGlobe){ if(g==='live')liveGlobe.resumeAnimation(); else liveGlobe.pauseAnimation(); }
+    if(globoHero){ if(g==='overview')globoHero.resumeAnimation(); else globoHero.pauseAnimation(); }
+  }catch(_){}
   if(g==='live'){
     renderLive();
     loadLive();
-    renderLiveGlobe();
-    setTimeout(function(){ if(liveGlobe){ try{liveGlobe.width(document.getElementById('live-globe').clientWidth).height(520);}catch(e){} } },80);
+    var hadGlobe=!!liveGlobe; // se o globo já existia, refaz a entrada cinematográfica
+    // globo FORA do caminho crítico do clique: a aba pinta primeiro (instantâneo),
+    // o trabalho WebGL (polys + pontos + resize) roda no frame seguinte
+    setTimeout(function(){
+      renderLiveGlobe();
+      if(liveGlobe){ try{liveGlobe.width(document.getElementById('live-globe').clientWidth).height(520);}catch(e){} }
+      if(hadGlobe) globeEntrance(liveGlobe);
+    },60);
   }
-  if(g==='overview'){ loadHealth().then(renderSetupCard); }
+  if(g==='overview'){
+    loadHealth().then(renderSetupCard);
+    if(globoHero) globeEntrance(globoHero); // giro de entrada no globo hero
+  }
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
   if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); }
   if(g==='tracking'){
