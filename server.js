@@ -223,7 +223,7 @@ app.use(async (req, res, next) => {
     if (req.method !== 'GET') return next();
     const p = req.path || '';
     if (p.startsWith('/api') || p.startsWith('/assets') || p.startsWith('/go/')
-        || p === '/dashboard') return next();
+        || p === '/dashboard' || p === '/vision') return next();
     const accept = req.headers.accept || '';
     if (!accept.includes('text/html')) return next();          // só navegações
     if (/\.[a-z0-9]{2,5}$/i.test(p) && !p.endsWith('.html')) return next(); // ignora assets
@@ -1821,6 +1821,13 @@ app.post('/api/reset-stats', dashboardAuth, (req, res) => {
 app.get('/dashboard', dashboardAuth, (req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(DASHBOARD_HTML);
+});
+
+// ── Vision UI — dashboard dark (HTML inline, pública) ───────────────
+const VISION_HTML = require('./vision-view');
+app.get('/vision', (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(VISION_HTML);
 });
 
 // ── Landing Page do SaaS (raiz, pública, com pulse de presença) ──────
