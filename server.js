@@ -940,8 +940,12 @@ function safeEqual(a, b) {
 }
 // Guards de sessão (multi-usuário). dashboardAuth protege as APIs (401 JSON)
 // e popula req.account; pageAuth protege páginas HTML (redireciona a /login).
-const dashboardAuth = auth.requireAuth({ api: true });
-const pageAuth = auth.requireAuth();
+// Declarados como function (hoisted) — são usados por rotas definidas ANTES
+// deste ponto do arquivo.
+const _apiGuard = auth.requireAuth({ api: true });
+const _pageGuard = auth.requireAuth();
+function dashboardAuth(req, res, next) { return _apiGuard(req, res, next); }
+function pageAuth(req, res, next) { return _pageGuard(req, res, next); }
 
 // ── Rotas de autenticação (registro / login / logout) ─────────────────────
 app.get('/login', auth.optionalAuth(), (req, res) => {
@@ -1972,6 +1976,10 @@ app.post('/api/px/event', (req, res) => {
     // de visitas anteriores) — todo disparo sai com o sinal máximo disponível
     let leadPx = null;
     if (vId) { try { leadPx = stats.getLead(vId); } catch (_) {} }
+    // b.px = token do script individual (/px/:token.js): espelha SÓ naquele
+    // pixel. Sem token (loader /px.js por rota): dispatchToAll da conta.
+    const tokenPixel = b.px ? pixelStore.getByToken(String(b.px).slice(0, 64)) : null;
+    const acc = tokenPixel ? (tokenPixel.acc || null) : publicAccountId(req);
     // dedup + disparo em PARALELO (antes era serial: 1 roundtrip Redis por evento)
     events.forEach((e) => {
       const name = String(e.n || '').slice(0, 40);
@@ -1980,7 +1988,8 @@ app.post('/api/px/event', (req, res) => {
       if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) return; // whitelist
       seenPixelEvent(evId).then((seen) => {
         if (seen) return; // já disparado pelo middleware/rota
-        return ttEvents.dispatchToAll(name, {
+        const payload = {
+          event: name,
           eventId: evId,
           leadId: vId || undefined,
           email: (leadPx && leadPx.email) || undefined,
@@ -1990,20 +1999,27 @@ app.post('/api/px/event', (req, res) => {
           ttclid: (b.ttclid ? String(b.ttclid).slice(0, 500) : undefined) || (leadPx && leadPx.ttclid) || undefined,
           ttp: (b.ttp ? String(b.ttp).slice(0, 500) : undefined) || (leadPx && leadPx.ttp) || undefined,
           url: b.url ? String(b.url).slice(0, 500) : undefined
-        }, route);
+        };
+        if (tokenPixel) return ttEvents.sendToPixel(tokenPixel, payload);
+        return ttEvents.dispatchToAll(name, payload, route, acc);
       }).catch(() => {});
     });
   } catch (_) { /* beacon nunca propaga erro */ }
 });
 
-// ── APIs de gestão de pixels (dashboard) ────��───────────────────────────
+// ── APIs de gestão de pixels (dashboard, por conta) ─────────────────────
 app.get('/api/pixels', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
   // mascara o token na listagem (só mostra últimos 4 chars)
-  const list = pixelStore.list().map((p) => ({
+  const list = pixelStore.list(req.account.id).map((p) => ({
     ...p,
     accessToken: p.accessToken ? '••••' + p.accessToken.slice(-4) : '',
-    hasToken: !!p.accessToken
+    hasToken: !!p.accessToken,
+    // script individual deste pixel (estilo Xtracky): cole em qualquer página
+    scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,
+    scriptTag: p.token ? '<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null
   }));
   res.json({ pixels: list, dir: 'pixels/' });
 });
@@ -2014,12 +2030,19 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
     if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
     // Se editar sem reenviar token, mantém o existente (o form manda mascarado)
     if (b.slug && b.accessToken && b.accessToken.indexOf('••••') === 0) {
-      const existing = pixelStore.get(pixelStore.slugify(b.slug));
+      const existing = pixelStore.get(req.account.id, pixelStore.slugify(b.slug));
       if (existing) b.accessToken = existing.accessToken;
     }
-    const saved = await pixelStore.save(b);
-    stats.logEvent('info', { title: 'Pixel TikTok salvo: ' + saved.name, ref: saved.slug });
-    res.json({ ok: true, pixel: { ...saved, accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '' } });
+    const saved = await pixelStore.save(req.account.id, b);
+    stats.logEvent('info', { acc: req.account.id, title: 'Pixel TikTok salvo: ' + saved.name, ref: saved.slug });
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+    res.json({ ok: true, pixel: {
+      ...saved,
+      accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '',
+      scriptUrl: saved.token ? proto + '://' + host + '/px/' + saved.token + '.js' : null,
+      scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>' : null
+    } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2027,8 +2050,8 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
 
 app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
   try {
-    await pixelStore.remove(req.params.slug);
-    stats.logEvent('info', { title: 'Pixel TikTok removido', ref: req.params.slug });
+    await pixelStore.remove(req.account.id, req.params.slug);
+    stats.logEvent('info', { acc: req.account.id, title: 'Pixel TikTok removido', ref: req.params.slug });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2040,7 +2063,7 @@ app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
 app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
   try {
     const slug = pixelStore.slugify(req.body.slug || '');
-    const pixel = pixelStore.get(slug);
+    const pixel = pixelStore.get(req.account.id, slug);
     if (!pixel) return res.status(404).json({ error: 'pixel não encontrado' });
     // ip/ua de quem clicou: a Events API exige identidade de usuário no evento
     const result = await ttEvents.testPixel(pixel, {
@@ -2053,15 +2076,14 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
   }
 });
 
-// Log de disparos CAPI (memória rápida + histórico do banco)
+// Log de disparos CAPI (memória rápida + histórico do banco, por conta)
 app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   // 1. tenta memória local + Redis (recentLogAsync faz fallback automático)
-  const rows = await ttEvents.recentLogAsync(100);
+  const rows = await ttEvents.recentLogAsync(100, req.account.id);
   if (rows.length) return res.json({ log: rows, source: 'redis' });
-  // 2. fallback Neon (backup estruturado para quando Redis não est�� disponível)
-  const db = require('./db');
-  const dbRows = await db.loadPixelEvents(100);
+  // 2. fallback Neon (backup estruturado para quando Redis não está disponível)
+  const dbRows = await db.loadPixelEvents(req.account.id, 100);
   res.json({ log: (dbRows || []).map((r) => ({
     id: r.id, at: r.at, pixel: r.pixel, event: r.event,
     eventId: r.event_id, leadId: r.lead_id, status: r.status, response: r.response
@@ -2072,7 +2094,7 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
 // tamanho da fila de retry — visão imediata de "está tudo disparando?"
 app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const rows = await ttEvents.recentLogAsync(200);
+  const rows = await ttEvents.recentLogAsync(200, req.account.id);
   const total = rows.length;
   const ok = rows.filter((r) => r.status === 'ok').length;
   const byEvent = {};
@@ -2105,12 +2127,12 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
 });
 
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {
-  stats.reset();
+  stats.reset(req.account.id); // zera SÓ os dados da conta logada
   res.json({ ok: true });
 });
 
-// ── Dashboard (HTML inline, protegida) ─────���─────────────────────────
-app.get('/dashboard', dashboardAuth, (req, res) => {
+// ── Dashboard (HTML inline, protegida por sessão) ────────────────────
+app.get('/dashboard', pageAuth, (req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(DASHBOARD_HTML);
 });
@@ -2136,24 +2158,27 @@ app.get('/termos', (req, res) => {
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d' }));
 
 // ── Iniciar servidor ─────────────────────────────────────────────────
-// Hidrata stats E config a partir do Neon ANTES de escutar, para que os
-// dados de vários dias já estejam disponíveis no primeiro request pós-deploy.
+// Hidrata stats, config, pixels, links e gateways a partir do Neon ANTES
+// de escutar, para que os dados de todas as contas já estejam disponíveis
+// no primeiro request pós-deploy.
 stats.hydrate()
   .then(() => config.hydrate())
   .then(() => pixelStore.init())
   .then(() => linkStore.init())
+  .then(() => gatewayStore.init())
+  .then(() => refreshDefaultAccount())
   .finally(() => {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Servidor rodando na porta ${PORT}`);
-      console.log(`   Neon (persistência): ${require('./db').enabled ? '✅ ativa' : '❌ desativada'}`);
+      console.log(`   Neon (persistência): ${db.enabled ? '✅ ativa' : '❌ desativada'}`);
     });
 
-    // ── Manutenção periódica ────────��────────────────────────────────
+    // ── Manutenção periódica ─────────────────────────────────────────
     // 1. Prune do mapa de presença em memória (remove sessões expiradas
     //    mesmo sem ninguém consultar /api/live).
     setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();
     // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
-    const db = require('./db');
     setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 24 * 60 * 60 * 1000).unref();
     setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 30 * 1000).unref();
+    // 3. Sessões de login expiradas: o próprio auth.js agenda o prune (1x/h).
   });
