@@ -38,9 +38,16 @@ module.exports = `<!DOCTYPE html>
   --globe-poly-base:rgba(150,165,200,.18); --globe-poly-hot:rgba(47,125,255,.32);
   --globe-arc-const:rgba(47,125,255,.12); --globe-graticule:rgba(120,140,180,.06);
   
+  /* Vidro Liquid Glass (1.3) */
+  --lg-tint:rgba(255,255,255,.10); --lg-tint-thick:rgba(255,255,255,.55);
+  --lg-tint-clear:rgba(255,255,255,.04); --lg-tint-brand:rgba(47,125,255,.08);
+  --lg-blur:12px; --lg-sat:180%; --lg-bright:1.06;
+  --lg-rim-top:rgba(255,255,255,.55); --lg-rim-side:rgba(255,255,255,.20);
+  
   /* Motion tokens */
-  --dur-fast:120ms; --dur:200ms; --dur-slow:360ms;
+  --dur-fast:150ms; --dur:300ms; --dur-slow:450ms;
   --ease:cubic-bezier(.22,.61,.36,1); --ease-spring:cubic-bezier(.32,.72,.24,1.06);
+  --spring:cubic-bezier(.32,.72,.24,1.06);
   
   /* Sombras em 5 níveis (compostas: ambiente + contato) */
   --shadow-0:none; /* hairline só */
@@ -107,6 +114,46 @@ html{background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000
   body.bg-active::before{animation:meshFloat1 22s ease-in-out infinite, meshFloat2 28s ease-in-out infinite}
 }
 
+/* ═══ SISTEMA LIQUID GLASS (iOS 26) — 4 camadas: tint / frost / rim / sheen ═══ */
+.lg,.lg-thick,.lg-clear,.lg-tinted{
+  position:relative;isolation:isolate;
+  background:var(--lg-tint);
+  -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  border:1px solid rgba(255,255,255,.18);
+  box-shadow:
+    var(--shadow-2),
+    inset 0 1px 1px var(--lg-rim-top),
+    inset 0 -1px 1px rgba(255,255,255,.30),
+    inset 1px 0 1px var(--lg-rim-side),
+    inset -1px 0 1px var(--lg-rim-side);
+}
+.lg-thick{background:var(--lg-tint-thick)}
+.lg-clear{background:var(--lg-tint-clear);box-shadow:inset 0 1px 1px var(--lg-rim-top),inset 0 -1px 1px rgba(255,255,255,.2)}
+.lg-tinted{background:var(--lg-tint-brand)}
+/* camada 4: sheen diagonal glossy (screen blend = luz real) */
+.lg::after,.lg-thick::after,.lg-tinted::after{
+  content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(135deg,rgba(255,255,255,.45),rgba(255,255,255,.08) 28%,transparent 58%);
+  mix-blend-mode:screen;
+}
+/* tier 2: wobble líquido — só quando o gate confirma Chromium */
+html[data-liquid-glass] .lg{
+  -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright)) url(#lg-wobble);
+  backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright)) url(#lg-wobble);
+}
+/* tier 3: lente geométrica — SÓ elementos-assinatura pequenos */
+html[data-liquid-glass] .lg-lens{
+  -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright)) url(#lg-lens);
+  backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright)) url(#lg-lens);
+}
+/* fallback tier 0: sem backdrop-filter */
+@supports not (backdrop-filter:blur(1px)){
+  .lg,.lg-thick,.lg-clear,.lg-tinted{background:rgba(255,255,255,.92)}
+}
+/* interatividade do vidro: press morph (rim inverte + afunda) */
+.lg-press:active{transform:scale(.97);box-shadow:var(--shadow-1),inset 0 1px 2px rgba(30,40,80,.12),inset 0 -1px 1px rgba(255,255,255,.5)}
+
 /* ── Layout ── */
 .app{display:flex;flex-direction:column;min-height:100vh}
 
@@ -151,10 +198,11 @@ html{background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000
 .nav.dock button svg{width:15px;height:15px}
 .nav.dock button:hover{color:var(--text);background:rgba(255,255,255,.8);transform:translateY(-2px)}
 .nav.dock button:hover .d-ico{background:rgba(255,255,255,1);box-shadow:inset 0 0 0 1px var(--border),var(--shadow-2)}
-.nav.dock button.active{color:var(--text);background:var(--card);border-color:var(--accent);box-shadow:var(--shadow-2)}
+.nav.dock button.active{color:var(--text);background:transparent;border-color:transparent;box-shadow:none}
+.nav.dock.no-gota button.active{background:var(--card);border-color:var(--accent);box-shadow:var(--shadow-2)}
 .nav.dock button.active .d-ico{background:var(--accent-light);box-shadow:inset 0 0 0 1px var(--accent-light)}
 .nav.dock button.active svg{color:var(--accent-dark)}
-.nav.dock button.active::after{content:'';position:absolute;left:14px;right:14px;bottom:-10px;height:2px;border-radius:2px;background:var(--accent);opacity:.9}
+/* sublinhado removido — a gota deslizante (#nav-gota) substitui o indicador */
 .nav .badge{margin-left:2px;background:var(--error);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px}
 /* dots de presença com respiração (pulsam) */
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success);margin-right:6px;box-shadow:0 0 8px var(--success);animation:dotBreak 2.4s ease-in-out infinite}
@@ -163,7 +211,9 @@ html{background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000
 @media(prefers-reduced-motion:reduce){.dot{animation:none}}
 
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
-.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 26px;background:rgba(255,255,255,.7);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--border);box-shadow:var(--shadow-1);transition:.3s}
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 26px;background:var(--lg-tint-thick);backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));-webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));border-bottom:1px solid var(--border);box-shadow:var(--shadow-1),inset 0 1px 1px var(--lg-rim-top);transition:padding .25s var(--ease),box-shadow .25s var(--ease)}
+.topbar.condensed{padding:7px 26px;box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top)}
+.topbar.condensed h1{font-size:17px}
 .topbar.condensed{padding:8px 26px}
 .topbar.condensed h2{font-size:17px}
 /* Escala tipográfica (7 níveis): display 30/700 · h1 21/650 · h2 16/650 · h3 14/600 · eyebrow 11/650 · body 13.5/450 · caption 12/450 */
@@ -265,7 +315,17 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 /* ── Cards & KPIs ── */
 .grid{display:grid;gap:16px}
 .kpis{grid-template-columns:repeat(auto-fit,minmax(186px,1fr))}
-.card{background:rgba(255,255,255,.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-1)}
+.card{
+  position:relative;isolation:isolate;
+  background:var(--lg-tint-thick);
+  -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  border:1px solid rgba(255,255,255,.30);border-radius:var(--radius);padding:20px;
+  box-shadow:var(--shadow-1),inset 0 1px 1px var(--lg-rim-top),inset 0 -1px 1px rgba(255,255,255,.25),inset 1px 0 1px var(--lg-rim-side),inset -1px 0 1px var(--lg-rim-side);
+}
+.card::after{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(135deg,rgba(255,255,255,.45),rgba(255,255,255,.08) 28%,transparent 58%);mix-blend-mode:screen}
+@supports not (backdrop-filter:blur(1px)){.card{background:rgba(255,255,255,.92)}}
 .card.tint-cyan,.card.tint-pink,.card.tint-green,.card.tint-amber{background:var(--card)}
 .kpi .k-top{display:flex;align-items:center;gap:9px;color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}
 .kpi .k-val{font-family:'Geist Mono',monospace;font-weight:700;font-size:30px;margin-top:12px;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;color:var(--text)}
@@ -904,8 +964,9 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
    Todos os cards interativos compartilham o mesmo hover: lift de 3px,
    borda acesa e glow na cor de identidade (--glow). Nada de efeitos
    diferentes por família — uma linguagem só em toda a dash. */
-.card{transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease),box-shadow var(--dur-slow) var(--ease),background var(--dur) var(--ease)}
-.card:hover{background:rgba(255,255,255,.95);box-shadow:var(--shadow-2);transform:translateY(-1px)}
+.card{transition:border-color var(--dur) var(--ease),transform var(--dur-slow) var(--spring),box-shadow var(--dur-slow) var(--ease),background var(--dur) var(--ease)}
+.card:hover{background:rgba(255,255,255,.72);transform:translateY(-2px);
+  box-shadow:var(--shadow-2),inset 0 1px 1px rgba(255,255,255,.65),inset 0 -1px 1px rgba(255,255,255,.3),inset 1px 0 1px var(--lg-rim-side),inset -1px 0 1px var(--lg-rim-side)}
 .card:hover{border-color:var(--border2)}
 .kpi,.mstat,.cfg-card,.gs-stat,.hitem{transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
 .kpi:hover,.mstat:hover,.cfg-card:hover,.gs-stat:hover,.hitem:hover{
@@ -998,9 +1059,22 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .view.entering .reveal{animation:none}
 
 /* Nav — indicador ativo é o sublinhado do dock */
-.nav button{position:relative;transition:background .15s,color .15s}
+.nav button{position:relative;transition:background .15s,color .15s;z-index:1}
 .nav button svg{transition:color .2s}
-.nav button:active{transform:scale(.99)}
+.nav button:active{transform:scale(.97)}
+/* gota líquida deslizante: elemento posicionado por JS, estica no meio do caminho */
+#nav-gota{position:absolute;top:0;left:0;height:100%;border-radius:11px;pointer-events:none;z-index:0;
+  background:rgba(255,255,255,.9);
+  box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top),inset 0 -1px 1px rgba(255,255,255,.3);
+  border:1px solid var(--accent);
+  transition:transform var(--dur-slow) var(--spring),width var(--dur-slow) var(--spring);
+  will-change:transform}
+@media(prefers-reduced-motion:reduce){#nav-gota{transition:none}}
+/* specular tracking: luz radial que segue o ponteiro (vars --mx/--my via JS) */
+.card.spec::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:0;
+  background:radial-gradient(300px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.35),transparent 65%);
+  opacity:0;transition:opacity .4s}
+.card.spec:hover::before{opacity:1}
 
 /* Ponto ao vivo — anel pulsante */
 .dot{position:relative}
@@ -1153,6 +1227,34 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 </style>
 </head>
 <body>
+
+<!-- Filtros SVG do Liquid Glass (tier 2 wobble + tier 3 lente) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="lg-wobble" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.008 0.008" numOctaves="2" seed="4" result="noise"/>
+    <feGaussianBlur in="noise" stdDeviation="2" result="blurred"/>
+    <feDisplacementMap in="SourceGraphic" in2="blurred" scale="24" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <filter id="lg-lens" x="-10%" y="-10%" width="120%" height="120%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.012 0.012" numOctaves="1" seed="7" result="n2"/>
+    <feGaussianBlur in="n2" stdDeviation="3" result="b2"/>
+    <feDisplacementMap in="SourceGraphic" in2="b2" scale="-42" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
+<script>
+/* Gate do Liquid Glass: só Chromium + pointer fino + sem reduced-motion + GPU ok */
+(function(){
+  try{
+    var isChromium=navigator.userAgentData?navigator.userAgentData.brands.some(function(b){return /Chromium/.test(b.brand)}):(!!window.chrome&&/Chrome\\//.test(navigator.userAgent));
+    var finePointer=matchMedia('(pointer:fine)').matches;
+    var noReduce=!matchMedia('(prefers-reduced-motion:reduce)').matches;
+    var gpuOk=(navigator.deviceMemory===undefined||navigator.deviceMemory>=4)&&(navigator.hardwareConcurrency===undefined||navigator.hardwareConcurrency>=4);
+    if(isChromium&&finePointer&&noReduce&&gpuOk&&document.getElementById('lg-wobble')){
+      document.documentElement.setAttribute('data-liquid-glass','');
+    }
+  }catch(e){}
+})();
+</script>
 
 <!-- Popup do globo expandido -->
 <div class="globe-modal" id="globe-modal" hidden>
@@ -4136,6 +4238,48 @@ function setView(v){
     applySetView(v);
   }
 }
+/* ── Gota líquida do nav: mede o botão ativo e desliza (esticando no caminho) ── */
+function moveGota(){
+  var nav=document.getElementById('nav'); if(!nav) return;
+  var gota=document.getElementById('nav-gota');
+  if(!gota){ gota=document.createElement('div'); gota.id='nav-gota'; nav.insertBefore(gota,nav.firstChild); }
+  var act=nav.querySelector('button.active'); if(!act){ gota.style.opacity='0'; return; }
+  gota.style.opacity='1';
+  gota.style.width=act.offsetWidth+'px';
+  gota.style.transform='translateX('+act.offsetLeft+'px)';
+}
+window.addEventListener('resize',function(){ moveGota(); });
+window.addEventListener('load',function(){ setTimeout(moveGota,120); }); // re-mede após fontes carregarem
+
+/* ── Specular tracking: um único pointermove com rAF atualiza --mx/--my ── */
+(function(){
+  if(matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  if(!matchMedia('(pointer:fine)').matches) return;
+  var pending=null;
+  document.addEventListener('pointermove',function(e){
+    if(pending) return;
+    pending=requestAnimationFrame(function(){
+      pending=null;
+      var t=e.target&&e.target.closest?e.target.closest('.card'):null;
+      if(t){
+        var r=t.getBoundingClientRect();
+        t.classList.add('spec');
+        t.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
+        t.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%');
+      }
+    });
+  },{passive:true});
+})();
+
+/* ── Topbar condensa ao rolar ── */
+(function(){
+  var last=false;
+  window.addEventListener('scroll',function(){
+    var c=window.scrollY>80;
+    if(c!==last){ last=c; document.querySelectorAll('.topbar').forEach(function(t){ t.classList.toggle('condensed',c); }); }
+  },{passive:true});
+})();
+
 function applySetView(v){
   var g=groupOf(v), sub=(v!==g)?v:null;
   currentView=g;
@@ -4146,6 +4290,7 @@ function applySetView(v){
     views=[trackingTab];
   }
   document.querySelectorAll('.nav button[data-view]').forEach(function(b){ b.classList.toggle('active',b.getAttribute('data-view')===g); });
+  moveGota();
   document.querySelectorAll('section.view').forEach(function(s){ s.classList.toggle('active',views.indexOf(s.id.replace('view-',''))>=0); });
   // barra de sub-abas só visível no Rastreamento
   var tt=document.getElementById('tracking-tabs');
