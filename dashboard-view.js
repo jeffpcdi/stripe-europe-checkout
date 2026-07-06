@@ -201,11 +201,11 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
 /* marca centralizada: status ancorado à direita, marca no centro real do header */
 .brand-xl{display:flex;align-items:center;justify-content:center;gap:12px;flex:1;min-width:0}
 .hh-inner::before{content:'';flex:0 0 0}
-.logo-orbit{position:relative;width:46px;height:46px;flex-shrink:0}
-.logo-orbit img{position:absolute;inset:4px;width:38px;height:38px;border-radius:50%;object-fit:cover;z-index:2;
+.logo-orbit{position:relative;width:74px;height:74px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:5px;width:64px;height:64px;border-radius:50%;object-fit:cover;z-index:2;
   box-shadow:0 0 0 2px rgba(255,255,255,.75),0 4px 16px rgba(30,40,80,.18);
   filter:contrast(1.12) saturate(1.2) brightness(1.05)}
-.logo-orbit::after{content:'';position:absolute;inset:4px;border-radius:50%;z-index:3;pointer-events:none;
+.logo-orbit::after{content:'';position:absolute;inset:5px;border-radius:50%;z-index:3;pointer-events:none;
   background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
 .logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
   background:conic-gradient(from var(--ra,0deg),#ff2d6f,#2f7dff,#06b6d4,#ff2d6f);
@@ -964,9 +964,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visibl
   .geo-grid,.ab-grid{grid-template-columns:1fr}
   .kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
   .hh-inner{padding:14px 16px 8px}
-  .logo-orbit{width:52px;height:52px}
-  .logo-orbit img{inset:4px;width:44px;height:44px}
-  .bt-name{font-size:20px}
+    .logo-orbit{width:64px;height:64px}
+    .logo-orbit img{inset:5px;width:54px;height:54px}
   .hh-status{width:100%;margin-left:0}
   .nav.dock{padding:8px 12px 12px}
   .nav.dock button{padding:9px 13px;font-size:13px}
@@ -1407,9 +1406,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="logo-orbit">
           <div class="logo-ring"></div>
           <img src="/assets/roi-nados-logo.jpg" alt="Logo ROI-NADOS" />
-        </div>
-        <div class="brand-txt">
-          <div class="bt-name">ROI<span class="bt-dash">-</span>NADOS</div>
         </div>
       </div>
       <div class="hh-status">
