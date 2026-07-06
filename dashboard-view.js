@@ -357,23 +357,25 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 /* skeleton do globo: shimmer radial */
 .globe-skel{width:100%;height:560px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(255,255,255,.6),rgba(255,255,255,.9));overflow:hidden;position:relative;margin:24px 0}
 .globe-skel::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.2),transparent 70%);animation:skelShimmer 1.4s ease-in-out infinite}
-/* badge de presença sobre o globo */
+/* badge de presença sobre o globo (vidro claro) */
 .globe-badge{position:absolute;top:14px;left:14px;z-index:5;display:flex;align-items:center;gap:8px;
-  font-size:12px;color:var(--text);background:rgba(10,12,20,.72);border:1px solid var(--border2);
-  padding:7px 13px;border-radius:20px;backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(0,0,0,.4)}
-.globe-badge b{font-family:'Geist Mono';color:var(--green);text-shadow:0 0 10px rgba(62,207,142,.5)}
-/* card do globo: controles flutuantes + fullscreen */
+  font-size:12px;color:var(--text);background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.5);
+  padding:7px 13px;border-radius:20px;backdrop-filter:blur(12px) saturate(180%);box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top)}
+.globe-badge b{font-family:'Geist Mono';color:var(--success)}
+/* card do globo: controles flutuantes em vidro (tier 3 candidato à lente) */
 .globe-card{position:relative;overflow:hidden}
 .globe-tools{position:absolute;top:14px;right:14px;z-index:5;display:flex;flex-direction:column;gap:6px;
-  background:rgba(13,13,18,.72);border:1px solid var(--border2);border-radius:12px;padding:6px;backdrop-filter:blur(10px);
-  box-shadow:0 8px 24px rgba(0,0,0,.5)}
-.gt-btn{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;border:0;background:transparent;color:var(--muted);cursor:pointer;transition:.18s}
+  background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.5);border-radius:12px;padding:6px;
+  backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);
+  box-shadow:var(--shadow-2),inset 0 1px 1px var(--lg-rim-top)}
+html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) url(#lg-lens);-webkit-backdrop-filter:blur(12px) saturate(180%) url(#lg-lens)}
+.gt-btn{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;border:0;background:transparent;color:var(--text-muted);cursor:pointer;transition:.18s}
 .gt-btn svg{width:16px;height:16px}
-.gt-btn:hover{background:var(--hover);color:var(--text);transform:scale(1.08)}
+.gt-btn:hover{background:var(--hover);color:var(--accent-dark);transform:scale(1.08)}
 .gt-btn:active{transform:scale(.94)}
 .gt-div{height:1px;background:var(--border);margin:1px 4px}
-.globe-hint{position:absolute;left:14px;bottom:12px;z-index:5;font-size:10.5px;color:var(--muted2);letter-spacing:.06em;
-  background:rgba(13,13,18,.6);border:1px solid var(--border);padding:4px 10px;border-radius:14px;backdrop-filter:blur(8px);pointer-events:none;opacity:.85}
+.globe-hint{position:absolute;left:14px;bottom:12px;z-index:5;font-size:10.5px;color:var(--text-muted);letter-spacing:.06em;
+  background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.5);padding:4px 10px;border-radius:14px;backdrop-filter:blur(8px);pointer-events:none;opacity:.9}
 /* layout: globo + painel lateral de presença */
 .globe-wrap{display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px}
 @media(max-width:960px){.globe-wrap{grid-template-columns:1fr}}
@@ -1341,7 +1343,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
     <div class="content">
 
-      <!-- ── Ao Vivo ── -->
+      <!-- ─���� Ao Vivo ── -->
       <section class="view" id="view-live">
         <div class="grid kpis" id="live-kpis"></div>
         <div class="section-title" style="margin-top:0"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online agora no mapa</span></div>
@@ -2620,26 +2622,65 @@ function renderGeo(m){
       '<div class="cval">'+c.count+'</div></div>';
   }).join(''):'<div class="empty">Sem dados de pa&iacute;s ainda.</div>';
 }
-// Construtor de globo (visual refinado) — usado pela aba Ao Vivo.
+// ── GeoJSON de países (cache compartilhado entre os dois globos) ──
+var WORLD_GEOJSON=null, WORLD_GEOJSON_LOADING=false, WORLD_GEOJSON_WAITERS=[];
+function loadWorldPolys(cb){
+  if(WORLD_GEOJSON){ cb(WORLD_GEOJSON); return; }
+  WORLD_GEOJSON_WAITERS.push(cb);
+  if(WORLD_GEOJSON_LOADING) return;
+  WORLD_GEOJSON_LOADING=true;
+  fetch('https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson')
+    .then(function(r){return r.json();})
+    .then(function(j){
+      WORLD_GEOJSON=j.features||[];
+      WORLD_GEOJSON_WAITERS.forEach(function(w){ try{w(WORLD_GEOJSON);}catch(_){}});
+      WORLD_GEOJSON_WAITERS=[];
+    }).catch(function(){ WORLD_GEOJSON_LOADING=false; });
+}
+// Aplica os polygons light no globo (países em cinza-azulado suave sobre oceano claro)
+function applyLightPolys(g){
+  loadWorldPolys(function(feats){
+    try{
+      g.polygonsData(feats)
+        .polygonCapColor(function(){return 'rgba(150,165,200,.30)';})
+        .polygonSideColor(function(){return 'rgba(150,165,200,.06)';})
+        .polygonStrokeColor(function(){return 'rgba(110,130,170,.45)';})
+        .polygonAltitude(0.006);
+    }catch(_){}
+  });
+}
+// Construtor de globo LIGHT (liquid glass) — usado pelo Ao Vivo e pelo hero da Visão Geral.
 function makeGlobe(el,height){
   el.innerHTML=''; // limpa canvas/contexto WebGL residual antes de recriar
   var g=Globe()(el)
-    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
-    .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+    .globeImageUrl(null)
     .backgroundColor('rgba(0,0,0,0)')
     .showGraticules(false)
-    .showAtmosphere(true).atmosphereColor('#3f9fff').atmosphereAltitude(0.28)
+    .showAtmosphere(true).atmosphereColor('#8ab4ff').atmosphereAltitude(0.22)
     .pointLat('lat').pointLng('lng')
     .ringLat('lat').ringLng('lng');
+  // oceano claro: esfera branco-azulada (liquid glass).
+  // O globe.gl reseta o material na inicialização assíncrona — aplicar após o boot (2 tentativas).
+  function paintOcean(){
+    try{
+      var mat=g.globeMaterial();
+      if(mat.color&&mat.color.set) mat.color.set('#e8eefa');
+      if(mat.emissive&&mat.emissive.set){ mat.emissive.set('#dfe8f8'); mat.emissiveIntensity=0.55; }
+      mat.shininess=8;
+    }catch(_){}
+  }
+  setTimeout(paintOcean,150); setTimeout(paintOcean,900);
   try{
-    var scene=g.scene && g.scene();
-    if(scene){
-      scene.add(new THREE.AmbientLight(0xf0f5ff,1.9));
-      var dl=new THREE.DirectionalLight(0xdde9ff,1.1); dl.position.set(1,0.6,0.8); scene.add(dl);
-      // luz de preenchimento rosa sutil vinda de baixo — assinatura da marca
-      var pk=new THREE.DirectionalLight(0xff2d6f,0.18); pk.position.set(-1,-0.8,-0.4); scene.add(pk);
+    // ajustar as luzes default do globe.gl (ambient + directional) para cena clara
+    var lights=g.lights&&g.lights();
+    if(lights&&lights.length){
+      lights.forEach(function(l){
+        if(l.isAmbientLight){ l.intensity=2.2; if(l.color&&l.color.set)l.color.set('#ffffff'); }
+        if(l.isDirectionalLight){ l.intensity=0.85; if(l.color&&l.color.set)l.color.set('#ffffff'); }
+      });
     }
   }catch(_){}
+  applyLightPolys(g);
   g.pointOfView({lat:24,lng:-12,altitude:1.95},0);
   var ctrl=g.controls();
   if(ctrl){
@@ -2650,16 +2691,16 @@ function makeGlobe(el,height){
   setTimeout(function(){ try{g.width(el.clientWidth).height(height);}catch(e){} },80);
   return g;
 }
-// Cor da marcação conforme intensidade: frio (ciano) → médio (azul) → quente (rosa)
+// Cor da marcação conforme intensidade (paleta light): frio (ciano) → médio (azul) → quente (rosa marca)
 function heatColor(sz){
   if(sz>=.75) return '#ff2d6f';
-  if(sz>=.45) return '#52a8ff';
-  return '#25f4ee';
+  if(sz>=.45) return '#2f7dff';
+  return '#06b6d4';
 }
 function heatRGBA(sz,a){
   if(sz>=.75) return 'rgba(255,45,111,'+a+')';
-  if(sz>=.45) return 'rgba(82,168,255,'+a+')';
-  return 'rgba(37,244,238,'+a+')';
+  if(sz>=.45) return 'rgba(47,125,255,'+a+')';
+  return 'rgba(6,182,212,'+a+')';
 }
 // ── Zoom programático (botões + e −) ──
 function globeZoom(factor){
@@ -2731,6 +2772,7 @@ function loadLive(){
     updateLiveBadge();
     updateLiveStrip(); // strip compacto da Visão Geral
     if(currentView==='live'){ renderLive(); renderLiveGlobe(); } // globo mora no Ao Vivo
+    if(currentView==='overview'){ renderGlobeHero(); } // globo hero da Visão Geral usa os mesmos dados
   }).catch(function(){liveLoading=false;});
 }
 function updateLiveBadge(){
@@ -2990,11 +3032,11 @@ function renderLiveGlobe(){
         .pointColor(function(d){return heatColor(d.size);})
         .pointLabel(function(d){
           var c=heatColor(d.size);
-          return '<div style="background:rgba(13,13,20,.94);border:1px solid '+c+'55;padding:10px 14px;border-radius:12px;'+
-            'font-family:Inter,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.6),0 0 18px -6px '+c+';backdrop-filter:blur(8px)">'+
-            '<div style="font-size:13px;color:#fff;font-weight:600;display:flex;align-items:center;gap:7px">'+
+          return '<div style="background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);padding:10px 14px;border-radius:12px;'+
+            'font-family:Inter,sans-serif;box-shadow:0 12px 32px rgba(30,40,80,.15),inset 0 1px 1px rgba(255,255,255,.6);backdrop-filter:blur(12px)">'+
+            '<div style="font-size:13px;color:#1a1d27;font-weight:600;display:flex;align-items:center;gap:7px">'+
               '<span style="font-size:17px">'+flag(d.code)+'</span>'+d.name+'</div>'+
-            '<div style="font-size:11px;color:#8b8b98;margin-top:5px;display:flex;align-items:center;gap:6px">'+
+            '<div style="font-size:11px;color:#6b7183;margin-top:5px;display:flex;align-items:center;gap:6px">'+
               '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+c+';box-shadow:0 0 7px '+c+'"></span>'+
               '<b style="color:'+c+';font-size:13px">'+d.count+'</b>&nbsp;online agora</div>'+
           '</div>';
@@ -3020,21 +3062,32 @@ function renderLiveGlobe(){
   renderGlobeSide();
   renderTrafficPulse(); // pulso de tráfego vive junto do globo
 }
-// Globo hero na Visão Geral: renderiza um globo menor e mais limpo (sem controles, sem painel)
-function renderGlobeHero(m){
+// Globo hero na Visão Geral: mundo em vidro com pontos de presença por país.
+// Usa os mesmos dados do Ao Vivo (LIVE.summary.countries + GEO) — sem fetch extra.
+function renderGlobeHero(){
   var el=document.getElementById('globe-hero'), skel=document.getElementById('ov-globe-skel');
-  if(!el) return;
-  // se há países, mostra o globo; senão fica o skeleton
-  if(!m.countries||!m.countries.length){ if(skel)skel.hidden=false; if(el)el.hidden=true; return; }
-  if(skel)skel.hidden=true; if(el)el.hidden=false;
-  // TODO: render globo hero — por enquanto é um placeholder
+  if(!el||typeof Globe==='undefined') return;
+  var cs=(LIVE.summary&&LIVE.summary.countries)||[];
+  var top=cs[0]?cs[0].count:1;
+  var pts=cs.filter(function(c){return GEO[c.code];}).map(function(c){
+    var g=GEO[c.code]; var sz=Math.max(.25,Math.min(1,c.count/top));
+    return {lat:g[0],lng:g[1],size:sz,count:c.count,name:c.name,code:c.code};
+  });
   try{
-    // usar a mesma função makeGlobe mas com height menor e sem painel
-    if(!globoHero) globoHero=makeGlobe(el,560);
-    // alimentar com pontos dos países (mesmo que o live globe, mas mais limpo)
-    var pts=(m.countries||[]).map(function(c){ return {lat:c.lat,lng:c.lng,size:c.size,name:c.name}; });
+    if(!globoHero){
+      if(skel)skel.hidden=true; el.hidden=false;
+      globoHero=makeGlobe(el,560);
+      globoHero.pointAltitude(function(d){return 0.03+d.size*0.3;})
+        .pointRadius(function(d){return 0.3+d.size*0.5;})
+        .pointColor(function(d){return heatColor(d.size);})
+        .ringColor(function(d){return function(t){return heatRGBA(d.size,(1-t)*.8);};})
+        .ringMaxRadius(function(d){return 2.6+d.size*4.5;})
+        .ringPropagationSpeed(2.2)
+        .ringRepeatPeriod(function(d){return 900-d.size*400;});
+    }
     globoHero.pointsData(pts);
-  }catch(e){} // silencioso se WebGL falhar
+    globoHero.ringsData(pts);
+  }catch(e){ if(skel)skel.hidden=false; el.hidden=true; }
 }
 var globoHero=null;
 // Painel lateral do globo: stats compactos + até 5 leads rastreados
