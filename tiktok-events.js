@@ -39,6 +39,7 @@ function pushLog(entry) {
   const row = {
     id: crypto.randomBytes(8).toString('hex'),
     at: new Date().toISOString(),
+    acc: entry.acc || null,                              // conta dona (multi-tenant)
     pixel: entry.pixel,
     event: entry.event,
     eventId: entry.eventId,
@@ -53,22 +54,27 @@ function pushLog(entry) {
   // Upstash Redis: write rápido (~1ms), TTL automático de 14 dias
   rdb.pushPixelLog(row).catch(() => {});
   // Neon: backup durável (estruturado para queries analíticas)
-  if (db.enabled) db.insertPixelEvent(row);
+  if (db.enabled) db.insertPixelEvent(row.acc, row);
   return row;
 }
-function recentLog(n) { return log.slice(0, n || 50); }
+function recentLog(n, accountId) {
+  const rows = accountId ? log.filter((r) => r.acc === accountId) : log;
+  return rows.slice(0, n || 50);
+}
 
 // Versão async: usa Redis como fallback se memória local estiver vazia
-async function recentLogAsync(n) {
-  if (log.length > 0) return log.slice(0, n || 100);
-  // após restart: busca do Redis
-  const redisRows = await rdb.loadPixelLog(n || 100);
-  if (redisRows && redisRows.length) {
-    // re-popula memória local para próximas chamadas
-    log.push(...redisRows.slice(0, LOG_MAX));
-    return redisRows;
+async function recentLogAsync(n, accountId) {
+  let rows = log;
+  if (!rows.length) {
+    // após restart: busca do Redis e re-popula memória local
+    const redisRows = await rdb.loadPixelLog(200);
+    if (redisRows && redisRows.length) {
+      log.push(...redisRows.slice(0, LOG_MAX));
+      rows = log;
+    }
   }
-  return [];
+  if (accountId) rows = rows.filter((r) => r.acc === accountId);
+  return rows.slice(0, n || 100);
 }
 
 // Guards de qualidade: cada campo só entra no payload se for PERFEITO —

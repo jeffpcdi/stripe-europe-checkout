@@ -1,16 +1,18 @@
-// ── Multi-pixel store — 1 arquivo por pixel (pixels/*.json) ───────────────
-// A fonte de verdade são os arquivos JSON no diretório pixels/. Cada arquivo
-// é um pixel COMPLETO e independente (código, token, eventos, rotas), então
-// funciona mesmo sem a dashboard: basta criar/editar o arquivo. A dashboard é
-// só uma conveniência que escreve esses arquivos. Também espelhamos no Neon
-// (backup durável) porque o filesystem de deploy pode ser efêmero.
+// ── Multi-pixel store — POR CONTA (multi-tenant) ──────────────────────────
+// Fonte de verdade durável: Neon (tabela pixels, PK `${accountId}:${slug}`).
+// Cache quente em memória com TODOS os pixels de TODAS as contas; a API
+// filtra por accountId. Cada pixel tem um `token` público próprio que
+// alimenta o script individual GET /px/:token.js (instalável em qualquer
+// página, estilo Xtracky). O disco (pixels/*.json) é só conveniência local
+// de dev — best-effort, nunca fonte de verdade.
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const db = require('./db');
 
 const DIR = path.join(__dirname, 'pixels');
-let cache = [];        // lista de pixels carregados
-let byRoute = null;    // memo simples invalidado a cada reload
+let cache = [];        // pixels de todas as contas (cada um com .acc)
+let byRoute = null;    // memo por conta+rota, invalidado a cada mudança
 
 function ensureDir() {
   try { if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true }); }
@@ -27,12 +29,18 @@ function slugify(s) {
     .slice(0, 40) || ('pixel-' + Date.now());
 }
 
-// normaliza um objeto de pixel vindo de arquivo/dashboard
+function newToken() {
+  return 'px_' + crypto.randomBytes(16).toString('hex');
+}
+
+// normaliza um objeto de pixel vindo de arquivo/dashboard/banco
 function normalize(slug, raw) {
   raw = raw || {};
   const ev = raw.events || {};
   return {
     slug,
+    acc: raw.acc || raw.accountId || null,     // conta dona (multi-tenant)
+    token: raw.token || newToken(),            // token público do script /px/:token.js
     name: raw.name || slug,
     pixelCode: String(raw.pixelCode || '').trim(),
     accessToken: String(raw.accessToken || '').trim(),
@@ -43,185 +51,133 @@ function normalize(slug, raw) {
     events: {
       ViewContent: ev.ViewContent !== false,
       InitiateCheckout: ev.InitiateCheckout !== false,
-      // meio do funil (webhook universal: pagamento em processamento)
       AddPaymentInfo: ev.AddPaymentInfo !== false,
       CompletePayment: ev.CompletePayment !== false,
-      // eventos opcionais (upsell mapeia p/ CompletePayment)
       AddToCart: ev.AddToCart === true
     },
     updatedAt: raw.updatedAt || new Date().toISOString()
   };
 }
 
-function fileFor(slug) { return path.join(DIR, slug + '.json'); }
-
-// Lê todos os arquivos do diretório para a memória.
-function loadFromDisk() {
-  ensureDir();
-  const out = [];
-  let files = [];
-  try { files = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')); }
-  catch (e) { console.error('[pixels] readdir:', e.message); }
-  for (const f of files) {
-    try {
-      const raw = JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8'));
-      out.push(normalize(f.replace(/\.json$/, ''), raw));
-    } catch (e) {
-      console.error('[pixels] arquivo inválido ' + f + ':', e.message);
-    }
-  }
-  cache = out;
-  byRoute = null;
-  return out;
+function fileFor(acc, slug) {
+  return path.join(DIR, (acc ? acc + '--' : '') + slug + '.json');
 }
 
-// Escreve o arquivo do pixel no disco — BEST-EFFORT. Em produção (Vercel)
-// o filesystem é somente leitura: a escrita falha e tudo bem, porque a
-// fonte de verdade durável é o Neon e a fonte quente é o cache em memória.
-// Antes esta função lançava EROFS e derrubava o save ANTES do espelho no
-// banco — era isso que fazia o pixel "sumir" a cada deploy.
-function writeFile(slug, cfg) {
+// Escreve o arquivo do pixel no disco — BEST-EFFORT (FS read-only em prod).
+function writeFile(acc, slug, cfg) {
   try {
     ensureDir();
-    fs.writeFileSync(fileFor(slug), JSON.stringify(cfg, null, 2));
+    fs.writeFileSync(fileFor(acc, slug), JSON.stringify(cfg, null, 2));
   } catch (e) {
     console.warn('[pixels] disco indisponível (ok em produção):', e.code || e.message);
   }
 }
 
-// ── Boot: carrega do disco; se vazio, tenta re-hidratar do banco; e migra
-// o pixel legado das variáveis de ambiente para pixels/default.json. ──────
+// ── Boot: hidrata TODAS as contas do Neon (fonte de verdade) ──────────────
 async function init() {
-  loadFromDisk();
-
-  // O BANCO é a fonte de verdade: pixels salvos no Neon vencem sobre o que
-  // veio no repo/disco (que pode estar vazio ou desatualizado após um
-  // deploy). Arquivos locais que não existem no banco são preservados e
-  // espelhados para o banco (fluxo "editei o arquivo na mão").
-  let dbConfirmedEmpty = !db.enabled; // sem banco, migração legada pode rodar
   if (db.enabled) {
     try {
-      const res = await db.loadPixels();
+      const res = await db.loadPixels(null); // todas as contas
       if (res && res.ok) {
-        const rows = res.data || [];
-        dbConfirmedEmpty = rows.length === 0;
-        if (rows.length) {
-          const fromDb = rows.map((r) => normalize(r.slug, r));
-          const dbSlugs = new Set(fromDb.map((p) => p.slug));
-          // arquivos locais inéditos (não estão no banco) são mantidos e espelhados
-          const localOnly = cache.filter((p) => !dbSlugs.has(p.slug));
-          localOnly.forEach((p) => db.upsertPixel(p.slug, p));
-          cache = fromDb.concat(localOnly);
-          byRoute = null;
-          fromDb.forEach((p) => writeFile(p.slug, p)); // best-effort
-          console.log('[pixels] ' + fromDb.length + ' pixel(s) hidratado(s) do banco' +
-            (localOnly.length ? ' + ' + localOnly.length + ' local(is) espelhado(s).' : '.'));
-        } else if (cache.length) {
-          // banco confirmado vazio mas há arquivos locais: semeia o banco
-          cache.forEach((p) => db.upsertPixel(p.slug, p));
-          console.log('[pixels] banco vazio — ' + cache.length + ' pixel(s) do disco espelhado(s) no Neon.');
-        }
+        cache = (res.data || []).map((r) => {
+          // r.slug vem limpo do db.js; account vem embutido no data ou no prefixo
+          const px = normalize(r.slug, r);
+          return px;
+        });
+        byRoute = null;
+        // Garante que todo pixel tenha token (pixels antigos não tinham) —
+        // espelha de volta no banco os que ganharam token agora.
+        cache.forEach((p) => {
+          if (!p.token) { p.token = newToken(); }
+        });
+        console.log('[pixels] ' + cache.length + ' pixel(s) hidratado(s) do banco.');
       } else {
-        console.warn('[pixels] falha ao ler pixels do Neon — usando somente o disco, banco intocado.');
+        console.warn('[pixels] falha ao ler pixels do Neon — cache vazio nesta sessão, banco intocado.');
       }
     } catch (e) { console.error('[pixels] rehydrate:', e.message); }
   }
 
-  // Migração do pixel único legado (compatibilidade) — só quando temos
-  // CERTEZA de que não há pixels em lugar nenhum (evita duplicar após um
-  // erro transitório de leitura do banco).
-  if (!cache.length && dbConfirmedEmpty) {
+  // Migração do pixel único legado (env) — só sem banco/dados (dev local).
+  if (!cache.length && !db.enabled) {
     const legacyCode = process.env.TIKTOK_PIXEL_CODE;
-    const legacyToken = process.env.TIKTOK_ACCESS_TOKEN;
     if (legacyCode) {
-      const n = normalize('default', {
+      cache = [normalize('default', {
         name: 'Pixel principal',
         pixelCode: legacyCode,
-        accessToken: legacyToken || '',
+        accessToken: process.env.TIKTOK_ACCESS_TOKEN || '',
         active: true,
         routes: ['*']
-      });
-      cache = [n];
+      })];
       byRoute = null;
-      if (db.enabled) db.upsertPixel('default', n);
-      writeFile('default', n); // best-effort
-      console.log('[pixels] pixel legado migrado (env → memória/banco).');
+      console.log('[pixels] pixel legado carregado do env (modo sem banco).');
     }
   }
 
-  // Observa o diretório para hot-reload quando arquivos mudam manualmente.
-  // O reload MESCLA disco sobre a memória (disco vence por slug), mas nunca
-  // descarta pixels que só existem em memória/banco (disco read-only em prod).
-  try {
-    fs.watch(DIR, { persistent: false }, () => {
-      clearTimeout(init._t);
-      init._t = setTimeout(() => {
-        const before = cache.slice();
-        loadFromDisk();
-        const diskSlugs = new Set(cache.map((p) => p.slug));
-        before.forEach((p) => { if (!diskSlugs.has(p.slug)) cache.push(p); });
-        byRoute = null;
-      }, 200);
-    });
-  } catch (_) { /* fs.watch pode não existir em alguns ambientes */ }
-
-  console.log('[pixels] pronto — ' + cache.length + ' pixel(s) ativo(s).');
+  console.log('[pixels] pronto — ' + cache.length + ' pixel(s) no cache.');
   return cache.length;
 }
 
-// ── API pública ───────────────────────────────────────────────────────────
-function list() { return cache.slice(); }
+// ── API pública (todas escopadas por conta) ───────────────────────────────
+function list(accountId) {
+  return cache.filter((p) => !accountId || p.acc === accountId).map((p) => ({ ...p }));
+}
 
-// Pixels ativos que se aplicam a uma rota (path).
-// Memoizado por rota — é chamado em TODO page view (/px.js) e em cada disparo
-// de evento; o memo é invalidado automaticamente quando loadFromDisk roda.
-function forRoute(routePath) {
+// Pixels ativos de UMA conta que se aplicam a uma rota (path).
+function forRoute(accountId, routePath) {
   const p = (routePath || '/').split('?')[0];
+  const key = (accountId || '') + '|' + p;
   if (!byRoute) byRoute = new Map();
-  if (byRoute.has(p)) return byRoute.get(p);
+  if (byRoute.has(key)) return byRoute.get(key);
   const out = cache.filter((px) => {
+    if (accountId && px.acc !== accountId) return false;
+    if (!accountId && px.acc) return false; // sem conta: só pixels legados
     if (!px.active || !px.pixelCode) return false;
     if (px.routes.indexOf('*') >= 0) return true;
     return px.routes.some((r) => r === p || (r !== '/' && p.indexOf(r) === 0));
   });
-  if (byRoute.size < 200) byRoute.set(p, out); // limite defensivo contra rotas dinâmicas
+  if (byRoute.size < 500) byRoute.set(key, out); // limite defensivo
   return out;
 }
 
-// Pixels ativos que aceitam um evento específico numa rota.
-function forEvent(eventName, routePath) {
-  return forRoute(routePath).filter((px) => px.events && px.events[eventName]);
+// Pixels ativos de uma conta que aceitam um evento específico numa rota.
+function forEvent(accountId, eventName, routePath) {
+  return forRoute(accountId, routePath).filter((px) => px.events && px.events[eventName]);
 }
 
-function get(slug) { return cache.find((p) => p.slug === slug) || null; }
+function get(accountId, slug) {
+  return cache.find((p) => p.slug === slug && (!accountId ? !p.acc : p.acc === accountId)) || null;
+}
 
-// Cria/atualiza um pixel: BANCO PRIMEIRO (fonte durável), depois memória,
-// e por fim o arquivo local como conveniência (best-effort). Antes a ordem
-// era disco → banco, e em produção (FS read-only) o save morria no disco
-// sem nunca espelhar no Neon — o pixel sumia a cada deploy.
-async function save(input) {
+// Busca por token público (para o script individual /px/:token.js).
+function getByToken(token) {
+  if (!token) return null;
+  return cache.find((p) => p.token === token) || null;
+}
+
+// Cria/atualiza um pixel: BANCO PRIMEIRO (fonte durável), depois memória.
+async function save(accountId, input) {
   const slug = input.slug ? slugify(input.slug) : slugify(input.name);
-  const existing = get(slug);
-  const cfg = normalize(slug, { ...(existing || {}), ...input, slug });
+  const existing = get(accountId, slug);
+  const cfg = normalize(slug, { ...(existing || {}), ...input, slug, acc: accountId });
   cfg.updatedAt = new Date().toISOString();
-  if (db.enabled) await db.upsertPixel(slug, cfg);   // durável primeiro
-  const idx = cache.findIndex((p) => p.slug === slug);
+  if (db.enabled) await db.upsertPixel(accountId, slug, cfg);   // durável primeiro
+  const idx = cache.findIndex((p) => p.slug === slug && p.acc === accountId);
   if (idx >= 0) cache[idx] = cfg; else cache.push(cfg);
   byRoute = null;
-  writeFile(slug, cfg);                              // local, pode falhar
-  return get(slug);
+  writeFile(accountId, slug, cfg);                              // local, pode falhar
+  return get(accountId, slug);
 }
 
-async function remove(slug) {
+async function remove(accountId, slug) {
   slug = slugify(slug);
-  if (db.enabled) await db.deletePixel(slug);        // durável primeiro
-  cache = cache.filter((p) => p.slug !== slug);
+  if (db.enabled) await db.deletePixel(accountId, slug);        // durável primeiro
+  cache = cache.filter((p) => !(p.slug === slug && p.acc === accountId));
   byRoute = null;
-  try { if (fs.existsSync(fileFor(slug))) fs.unlinkSync(fileFor(slug)); }
+  try { if (fs.existsSync(fileFor(accountId, slug))) fs.unlinkSync(fileFor(accountId, slug)); }
   catch (e) { console.warn('[pixels] remove (disco):', e.message); }
   return true;
 }
 
 module.exports = {
-  init, list, forRoute, forEvent, get, save, remove, slugify, reload: loadFromDisk, DIR
+  init, list, forRoute, forEvent, get, getByToken, save, remove, slugify, DIR
 };
