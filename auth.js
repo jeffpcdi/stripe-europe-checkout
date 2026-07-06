@@ -35,7 +35,7 @@ function validEmail(email) {
 }
 
 async function register({ email, password, name }) {
-  if (!db.enabled) return { error: 'Banco de dados indisponível. Tente novamente.' };
+  if (!db.enabled) return { error: 'Banco de dados não configurado no servidor (defina DATABASE_URL nas variáveis de ambiente). Confira /api/status.' };
   if (!validEmail(email)) return { error: 'E-mail inválido.' };
   if (!password || String(password).length < 8) return { error: 'A senha precisa ter pelo menos 8 caracteres.' };
 
@@ -64,7 +64,7 @@ async function register({ email, password, name }) {
 }
 
 async function login({ email, password }) {
-  if (!db.enabled) return { error: 'Banco de dados indisponível. Tente novamente.' };
+  if (!db.enabled) return { error: 'Banco de dados não configurado no servidor (defina DATABASE_URL nas variáveis de ambiente). Confira /api/status.' };
   const row = await db.getAccountByEmail(email || '');
   if (!row || !verifyPassword(password, row.password_hash)) {
     return { error: 'E-mail ou senha incorretos.' };

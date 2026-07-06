@@ -611,6 +611,24 @@ app.get('/go/:slug', async (req, res) => {
     }
   }
 
+  // ── Gate de idioma (allowlist) — INSTANTÂNEO, via Accept-Language ───────
+  // Lê o idioma primário do navegador (ex.: "pt-BR,pt;q=0.9" → "pt"). Se o
+  // link tem allowlist de idiomas e o visitante está fora dela, vai direto
+  // para a white page — mesmo tratamento do gate de país, sem custo de DNS.
+  if (cloakOn && Array.isArray(link.idiomas) && link.idiomas.length) {
+    const primaryLang = String(req.headers['accept-language'] || '')
+      .split(',')[0].split('-')[0].trim().toLowerCase();
+    if (!primaryLang || link.idiomas.indexOf(primaryLang) < 0) {
+      stats.logEvent('info', {
+        acc,
+        title: '[cloak] idioma ' + (primaryLang || '??') + ' fora da allowlist → white',
+        gateway: 'link:' + link.slug,
+        ref: clientIp(req)
+      });
+      return res.redirect(302, whitePage);
+    }
+  }
+
   // Motor de score só roda com cloaking ativo — economiza o DNS lookup de ASN
   let judgment = { verdict: 'real', score: 0, signals: [] };
   if (cloakOn) {
@@ -946,6 +964,20 @@ const _apiGuard = auth.requireAuth({ api: true });
 const _pageGuard = auth.requireAuth();
 function dashboardAuth(req, res, next) { return _apiGuard(req, res, next); }
 function pageAuth(req, res, next) { return _pageGuard(req, res, next); }
+
+// ── Status público (diagnóstico de deploy — sem auth) ─────────────────────
+// Use em produção (ex.: Railway) para checar se as variáveis essenciais estão
+// configuradas ANTES de tentar registrar/logar. Não expõe segredos.
+app.get('/api/status', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const rdb = require('./redis');
+  res.json({
+    ok: db.enabled,               // precisa ser true para registro/login funcionarem
+    db: db.enabled,               // DATABASE_URL configurada?
+    redis: !!(rdb && rdb.enabled),// UPSTASH_* configurada? (opcional)
+    hint: db.enabled ? undefined : 'DATABASE_URL ausente: configure a connection string do Neon nas variáveis de ambiente do servidor (ex.: painel do Railway).'
+  });
+});
 
 // ── Rotas de autenticação (registro / login / logout) ─────────────────────
 app.get('/login', auth.optionalAuth(), (req, res) => {
@@ -1302,6 +1334,7 @@ app.get('/api/cloak/links', dashboardAuth, (req, res) => {
     offerCount: (l.variantes || []).length,
     urlWhitePage: l.urlWhitePage || '',
     paises: Array.isArray(l.paises) ? l.paises : [],
+    idiomas: Array.isArray(l.idiomas) ? l.idiomas : [],
     pixelSlug: l.pixelSlug || ''
   }));
   const pixels = pixelStore.list(req.account.id).map((p) => ({
@@ -1321,6 +1354,7 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
   const patch = { slug: link.slug };
   if (typeof b.urlWhitePage === 'string') patch.urlWhitePage = b.urlWhitePage.trim();
   if (Array.isArray(b.paises)) patch.paises = b.paises;
+  if (Array.isArray(b.idiomas)) patch.idiomas = b.idiomas;
   if (typeof b.pixelSlug === 'string') patch.pixelSlug = b.pixelSlug;
 
   let saved;
@@ -1349,7 +1383,7 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
     ok: true, pixelSynced,
     link: {
       slug: saved.slug, urlWhitePage: saved.urlWhitePage || '',
-      paises: saved.paises || [], pixelSlug: saved.pixelSlug || ''
+      paises: saved.paises || [], idiomas: saved.idiomas || [], pixelSlug: saved.pixelSlug || ''
     }
   });
 });

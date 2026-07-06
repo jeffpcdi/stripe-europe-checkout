@@ -840,6 +840,20 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .pais-chip button:hover{opacity:1}
 .pais-box input{flex:1;min-width:70px;border:none;background:transparent;color:var(--text);font-size:12.5px;text-transform:uppercase;outline:none;padding:4px}
 .pais-box.all input{text-transform:none}
+/* Grid de checkboxes de país/idioma (allowlist do cloaker) */
+.geo-wrap{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:12px}
+.geo-block{display:flex;flex-direction:column;gap:8px}
+.geo-block-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.geo-block-head b{font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em}
+.geo-block-head button{border:none;background:transparent;color:var(--cyan);cursor:pointer;font-size:11px;font-weight:600;padding:0}
+.geo-block-head button:hover{text-decoration:underline}
+.geo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
+.geo-chk{display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;font-size:12.5px;color:var(--text);background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 9px;transition:border-color .15s,background .15s}
+.geo-chk:hover{border-color:color-mix(in srgb,var(--cyan) 40%,transparent)}
+.geo-chk input{accent-color:var(--cyan);width:15px;height:15px;flex-shrink:0;margin:0}
+.geo-chk.on{background:color-mix(in srgb,var(--cyan) 12%,transparent);border-color:color-mix(in srgb,var(--cyan) 38%,transparent)}
+.geo-chk .flag{font-size:15px;line-height:1}
+.geo-chk .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ck-sync{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted2);cursor:pointer;user-select:none}
 .ck-adv{margin-top:16px;border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden}
 .ck-adv>summary{list-style:none;cursor:pointer;padding:14px 16px;font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:9px}
@@ -1686,9 +1700,27 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <input class="inp" id="lk-name" placeholder="Oferta Espanha" style="width:100%">
             </div>
             <div class="form-row">
-              <label>URL do checkout <span class="hint">— uma por linha; 2+ linhas ativa o teste A/B autom&aacute;tico</span></label>
-              <textarea class="inp" id="lk-variants" rows="3" placeholder="https://pay.gateway.com/oferta" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
+              <label>URL do checkout <span class="hint">— a p&aacute;gina de destino do seu an&uacute;ncio</span></label>
+              <input class="inp" id="lk-url" placeholder="https://pay.gateway.com/oferta" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
+              <p class="hint" style="margin-top:6px;line-height:1.7">Este link j&aacute; passa pelo <b>filtro de bots</b> e dispara o <b>pixel</b> configurado. Use a URL <code>/go/&hellip;</code> como destino no TikTok Ads.</p>
             </div>
+            <details class="ck-adv" id="lk-ab-wrap" style="margin-top:4px;margin-bottom:14px">
+              <summary>Teste A/B de checkout externo <span class="hint" style="font-weight:400">&mdash; opcional: divide o tr&aacute;fego com outro checkout</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="ck-adv-body">
+                <p class="hint" style="margin:0 0 12px;line-height:1.7">Um segundo checkout que <b>compartilha o mesmo pixel e o mesmo filtro de bots</b>. O tr&aacute;fego v&aacute;lido &eacute; dividido entre os dois para voc&ecirc; comparar convers&atilde;o.</p>
+                <div class="form-row" style="margin-bottom:10px">
+                  <label>URL do checkout B</label>
+                  <input class="inp" id="lk-url-b" placeholder="https://outro-checkout.com/oferta" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
+                </div>
+                <div class="form-row" style="margin-bottom:0">
+                  <label>Divis&atilde;o do tr&aacute;fego <span class="hint">— % que vai para o checkout B</span></label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <input type="range" id="lk-ab-split" min="10" max="90" step="5" value="50" style="flex:1">
+                    <span id="lk-ab-split-val" style="font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--muted2);min-width:96px;text-align:right">A 50% / B 50%</span>
+                  </div>
+                </div>
+              </div>
+            </details>
             <details class="ck-adv" style="margin-top:4px;margin-bottom:14px">
               <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="ck-adv-body">
@@ -3517,7 +3549,7 @@ function renderLinks(){
         '<span class="ldot" style="background:'+(l.ativo?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
         '<div class="lmain">'+
   '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span>'+(l.urlWhitePage?'&nbsp;<span class="tag" style="font-size:10px;background:rgba(0,200,255,.12);color:var(--cyn,#00c2ff);border:1px solid rgba(0,200,255,.25);padding:1px 6px;border-radius:4px;font-weight:600">CLOAK</span>':'')+'</b>'+
-  '<span>'+nv+' variante'+(nv!==1?'s':'')+(nv>1?' &middot; <span class="cyn">teste A/B ativo</span>':'')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
+  '<span>'+(nv>1?'<span class="cyn">teste A/B ('+nv+' checkouts)</span>':'checkout &uacute;nico')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
   '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
@@ -3609,7 +3641,15 @@ function showLinkForm(l){
   document.getElementById('lk-form-title').textContent=l?('Editar: '+l.nome):'Novo link';
   document.getElementById('lk-slug').value=l?l.slug:'';
   document.getElementById('lk-name').value=l?l.nome:'';
-  document.getElementById('lk-variants').value=l?(l.variantes||[]).map(function(v){return v.nome+' | '+v.url+' | '+(v.peso||0)+(v.urlMobile?' | '+v.urlMobile:'');}).join(String.fromCharCode(10)):'';
+  // checkout principal = 1ª variante; A/B = 2ª variante (se existir)
+  var vs=l?(l.variantes||[]):[];
+  document.getElementById('lk-url').value=vs[0]?vs[0].url:'';
+  document.getElementById('lk-url-b').value=vs[1]?vs[1].url:'';
+  var abWrap=document.getElementById('lk-ab-wrap');
+  if(abWrap) abWrap.open=!!vs[1];
+  var splitB=vs[1]?(vs[1].peso||50):50;
+  var sp=document.getElementById('lk-ab-split'); if(sp) sp.value=splitB;
+  updateAbSplitLabel(splitB);
   document.getElementById('lk-whitepage').value=l?(l.urlWhitePage||''):'';
   document.getElementById('lk-domain').value=l?(l.dominio||''):'';
   document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
@@ -3637,28 +3677,29 @@ function copyLink(slug){
     .then(function(){ toast('URL copiada ('+linkOrigin().replace('https://','')+')'); })
     .catch(function(){ toast('Erro ao copiar',false); });
 }
+// Monta as variantes a partir dos campos: checkout principal (A) + A/B opcional (B).
+// Mantem o formato variantes[] que o backend ja entende (retrocompativel).
 function parseVariantLines(){
-  var lines=document.getElementById('lk-variants').value.split(String.fromCharCode(10));
+  var urlA=(document.getElementById('lk-url').value||'').trim();
+  var urlB=(document.getElementById('lk-url-b').value||'').trim();
   var out=[];
-  var letters='ABCDEFGHIJ';
-  lines.forEach(function(ln){
-    ln=ln.trim(); if(!ln) return;
-    var parts=ln.split('|').map(function(p){return p.trim();});
-    if(parts.length===1){
-      // modo simples: só a URL — nome e peso automáticos
-      var low=parts[0].toLowerCase();
-      if(low.indexOf('http:')!==0&&low.indexOf('https:')!==0) return;
-      out.push({nome:'Checkout '+(letters[out.length]||(out.length+1)),url:parts[0],peso:0});
-      return;
-    }
-    out.push({nome:parts[0],url:parts[1],peso:parts[2]!=null?+parts[2]:0,urlMobile:parts[3]||undefined});
-  });
-  // pesos ausentes: distribui igualmente (senão o A/B nunca alterna)
-  if(out.length&&!out.some(function(v){return v.peso>0;})){
-    var w=Math.floor(100/out.length);
-    out.forEach(function(v,i){ v.peso=i===out.length-1?100-w*(out.length-1):w; });
+  var isUrl=function(u){ var low=u.toLowerCase(); return low.indexOf('http:')===0||low.indexOf('https:')===0; };
+  if(!isUrl(urlA)) return out;
+  var abOpen=document.getElementById('lk-ab-wrap');
+  var hasAB=abOpen&&abOpen.open&&isUrl(urlB);
+  if(hasAB){
+    var splitB=+document.getElementById('lk-ab-split').value||50;
+    out.push({nome:'Checkout A',url:urlA,peso:100-splitB});
+    out.push({nome:'Checkout B',url:urlB,peso:splitB});
+  } else {
+    out.push({nome:'Checkout A',url:urlA,peso:100});
   }
   return out;
+}
+function updateAbSplitLabel(splitB){
+  splitB=+splitB||50;
+  var el=document.getElementById('lk-ab-split-val');
+  if(el) el.textContent='A '+(100-splitB)+'% / B '+splitB+'%';
 }
 
 /* ── Domínios personalizados ─────────────────────────────────���───────── */
@@ -3753,7 +3794,7 @@ function saveLink(){
   ativo:document.getElementById('lk-active').checked
   };
   if(!body.nome){ toast('D\u00ea um nome ao link',false); return; }
-  if(!body.variantes.length){ toast('Adicione pelo menos 1 variante (nome | url | peso)',false); return; }
+  if(!body.variantes.length){ toast('Informe a URL do checkout (come\u00e7ando com https://)',false); return; }
   fetch('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -3997,10 +4038,10 @@ function renderCloakRule(slug){
       '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+offer+'</div>'+
       '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
         '<input class="inp" id="ck-r-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.urlWhitePage||'')+'" style="width:100%"></div>'+
-      '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— vazio = todos. Fora da lista vai para a white page</span></label>'+
-        '<div class="pais-box'+((l.paises&&l.paises.length)?'':' all')+'" id="ck-r-paisbox">'+
-          (l.paises||[]).map(paisChip).join('')+
-          '<input id="ck-r-paisinput" maxlength="2" placeholder="'+((l.paises&&l.paises.length)?'+ código':'todos os países — digite BR, PT, US...')+'"></div></div>'+
+      '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— nada marcado = todos os países. Fora da lista vai para a white page</span></label>'+
+        renderPaisGrid(l)+'</div>'+
+      '<div class="ck-field full"><label>Idiomas liberados para a offer <span class="hint">— nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page</span></label>'+
+        renderIdiomaGrid(l)+'</div>'+
       '<div class="ck-field"><label>Pixel do TikTok <span class="hint">— dispara só p/ quem vai à offer</span></label>'+
         '<select class="select" id="ck-r-pixel">'+pixOpts+'</select></div>'+
       '<div class="ck-field"><label>Sincronização</label>'+
@@ -4011,36 +4052,74 @@ function renderCloakRule(slug){
       '<p class="hint" id="ck-r-status" style="margin:0"></p></div>';
   bindCloakRule();
 }
-function paisChip(cc){
-  return '<span class="pais-chip" data-cc="'+esc(cc)+'">'+esc(cc)+'<button type="button" data-rm="'+esc(cc)+'" aria-label="Remover '+esc(cc)+'">&times;</button></span>';
+/* Catálogo de países por bloco (código ISO-2, nome, bandeira) */
+var CK_COUNTRY_BLOCKS=[
+  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲🇽'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷']]},
+  {block:'Europa Sul',items:[['PT','Portugal','🇵🇹'],['ES','Espanha','🇪🇸'],['IT','Itália','🇮🇹'],['FR','França','🇫🇷']]},
+  {block:'Europa Norte/Central',items:[['DE','Alemanha','🇩🇪'],['NL','Países Baixos','🇳🇱'],['BE','Bélgica','🇧🇪'],['AT','Áustria','🇦🇹'],['CH','Suíça','🇨🇭'],['IE','Irlanda','🇮🇪'],['GB','Reino Unido','🇬🇧']]},
+  {block:'Outros',items:[['AU','Austrália','🇦🇺'],['AE','Emirados Árabes','🇦🇪'],['SA','Arábia Saudita','🇸🇦'],['PL','Polônia','🇵🇱'],['RO','Romênia','🇷🇴']]}
+];
+/* Blocos pré-marcados por padrão em links ainda sem allowlist salva */
+var CK_COUNTRY_DEFAULT=['BR','MX','US','CA','CO','CL','AR','PT','ES','IT','FR','DE','NL','BE','AT','CH','IE','GB'];
+var CK_LANGS=[['pt','Português','🇵🇹'],['es','Espanhol','🇪🇸'],['en','Inglês','🇬🇧'],['it','Italiano','🇮🇹'],['fr','Francês','🇫🇷'],['de','Alemão','🇩🇪']];
+
+function geoChk(scope,code,name,flag,on){
+  return '<label class="geo-chk'+(on?' on':'')+'">'+
+    '<input type="checkbox" data-'+scope+'="'+esc(code)+'"'+(on?' checked':'')+'>'+
+    '<span class="flag" aria-hidden="true">'+flag+'</span>'+
+    '<span class="nm">'+esc(name)+'</span></label>';
+}
+function renderPaisGrid(l){
+  var sel=(l.paises&&l.paises.length)?l.paises.slice():CK_COUNTRY_DEFAULT.slice();
+  var blocks=CK_COUNTRY_BLOCKS.map(function(b){
+    var codes=b.items.map(function(it){return it[0];});
+    var allOn=codes.every(function(c){return sel.indexOf(c)>=0;});
+    return '<div class="geo-block">'+
+      '<div class="geo-block-head"><b>'+esc(b.block)+'</b>'+
+        '<button type="button" data-blocktoggle="pais" data-codes="'+esc(codes.join(','))+'">'+(allOn?'Desmarcar':'Marcar todos')+'</button></div>'+
+      '<div class="geo-grid">'+b.items.map(function(it){return geoChk('cc',it[0],it[1],it[2],sel.indexOf(it[0])>=0);}).join('')+'</div>'+
+    '</div>';
+  }).join('');
+  return '<div class="geo-wrap" id="ck-r-paisbox">'+blocks+'</div>';
+}
+function renderIdiomaGrid(l){
+  var sel=(l.idiomas&&l.idiomas.length)?l.idiomas.slice():[];
+  return '<div class="geo-wrap" id="ck-r-idiomabox"><div class="geo-grid">'+
+    CK_LANGS.map(function(it){return geoChk('lang',it[0],it[1],it[2],sel.indexOf(it[0])>=0);}).join('')+
+    '</div></div>';
 }
 function currentPaises(){
-  return Array.prototype.map.call(document.querySelectorAll('#ck-r-paisbox .pais-chip'),function(c){return c.getAttribute('data-cc');});
+  return Array.prototype.map.call(document.querySelectorAll('#ck-r-paisbox input[data-cc]:checked'),function(c){return c.getAttribute('data-cc');});
 }
-function addPais(cc){
-  cc=String(cc||'').trim().toUpperCase();
-  if(!/^[A-Z]{2}$/.test(cc)) return;
-  if(currentPaises().indexOf(cc)>=0) return;
-  var box=document.getElementById('ck-r-paisbox'); var input=document.getElementById('ck-r-paisinput');
-  input.insertAdjacentHTML('beforebegin',paisChip(cc));
-  box.classList.remove('all'); input.placeholder='+ código';
+function currentIdiomas(){
+  return Array.prototype.map.call(document.querySelectorAll('#ck-r-idiomabox input[data-lang]:checked'),function(c){return c.getAttribute('data-lang');});
 }
 function bindCloakRule(){
-  var input=document.getElementById('ck-r-paisinput');
-  if(input){
-    input.addEventListener('keydown',function(e){
-      if(e.key==='Enter'||e.key===','||e.key===' '){ e.preventDefault(); addPais(this.value); this.value=''; }
-      else if(e.key==='Backspace'&&!this.value){ var chips=document.querySelectorAll('#ck-r-paisbox .pais-chip'); if(chips.length) chips[chips.length-1].remove(); if(!document.querySelectorAll('#ck-r-paisbox .pais-chip').length){ document.getElementById('ck-r-paisbox').classList.add('all'); this.placeholder='todos os países — digite BR, PT, US...'; } }
+  // toggle visual (classe .on) ao marcar/desmarcar qualquer checkbox de geo
+  document.querySelectorAll('#ck-r-paisbox,#ck-r-idiomabox').forEach(function(box){
+    box.addEventListener('change',function(e){
+      var chk=e.target.closest('input[type=checkbox]'); if(!chk) return;
+      chk.closest('.geo-chk').classList.toggle('on',chk.checked);
+      syncBlockButtons();
     });
-    input.addEventListener('blur',function(){ if(this.value){ addPais(this.value); this.value=''; } });
-  }
-  var box=document.getElementById('ck-r-paisbox');
-  if(box) box.addEventListener('click',function(e){
-    var b=e.target.closest('button[data-rm]'); if(!b) return;
-    b.closest('.pais-chip').remove();
-    if(!document.querySelectorAll('#ck-r-paisbox .pais-chip').length){ box.classList.add('all'); var i=document.getElementById('ck-r-paisinput'); if(i) i.placeholder='todos os países — digite BR, PT, US...'; }
+    box.addEventListener('click',function(e){
+      var b=e.target.closest('button[data-blocktoggle]'); if(!b) return;
+      var codes=b.getAttribute('data-codes').split(',');
+      var boxes=codes.map(function(c){return box.querySelector('input[data-cc="'+c+'"]');}).filter(Boolean);
+      var allOn=boxes.every(function(x){return x.checked;});
+      boxes.forEach(function(x){ x.checked=!allOn; x.closest('.geo-chk').classList.toggle('on',x.checked); });
+      syncBlockButtons();
+    });
   });
   var save=document.getElementById('ck-r-save'); if(save) save.addEventListener('click',saveCloakRule);
+}
+function syncBlockButtons(){
+  document.querySelectorAll('#ck-r-paisbox button[data-blocktoggle]').forEach(function(b){
+    var codes=b.getAttribute('data-codes').split(',');
+    var boxes=codes.map(function(c){return document.querySelector('#ck-r-paisbox input[data-cc="'+c+'"]');}).filter(Boolean);
+    var allOn=boxes.length&&boxes.every(function(x){return x.checked;});
+    b.textContent=allOn?'Desmarcar':'Marcar todos';
+  });
 }
 function saveCloakRule(){
   if(!CK_CUR) return;
@@ -4048,6 +4127,7 @@ function saveCloakRule(){
   var body={
     urlWhitePage:document.getElementById('ck-r-white').value.trim(),
     paises:currentPaises(),
+    idiomas:currentIdiomas(),
     pixelSlug:document.getElementById('ck-r-pixel').value,
     syncPixel:document.getElementById('ck-r-sync').checked
   };
@@ -4057,7 +4137,7 @@ function saveCloakRule(){
       if(d.ok){
         // atualiza cache local
         var l=CK_LINKS.filter(function(x){return x.slug===CK_CUR;})[0];
-        if(l){ l.urlWhitePage=d.link.urlWhitePage; l.paises=d.link.paises; l.pixelSlug=d.link.pixelSlug; }
+        if(l){ l.urlWhitePage=d.link.urlWhitePage; l.paises=d.link.paises; l.idiomas=d.link.idiomas; l.pixelSlug=d.link.pixelSlug; }
         toast(d.pixelSynced?'Regra salva e pixel sincronizado':'Regra do link salva');
         if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; }
       } else { toast(d.error||'Erro ao salvar',false); if(st){ st.textContent=d.error||'Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
@@ -5018,7 +5098,9 @@ document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
 document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnippet);
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
-document.getElementById('lk-validate').addEventListener('click',validateDomain);
+  document.getElementById('lk-validate').addEventListener('click',validateDomain);
+  var abSplit=document.getElementById('lk-ab-split');
+  if(abSplit) abSplit.addEventListener('input',function(){ updateAbSplitLabel(this.value); });
 // auto-save: qualquer toggle de notificação salva na hora (sem botão Salvar)
 ['pc-ev-sale','pc-ev-failed','pc-ev-refund','pc-ev-dispute','pc-ev-checkout','pc-ev-daily'].forEach(function(id){
   var el=document.getElementById(id); if(el) el.addEventListener('change',savePushcutConfig);
@@ -5075,7 +5157,7 @@ document.getElementById('tk-copy').addEventListener('click',function(){
 document.getElementById('reset-btn').addEventListener('click',function(){
   if(!confirm('Tem certeza? Isto apaga todos os leads e eventos.')) return;
   fetch('/api/reset-stats',{method:'POST'})
-    .then(function(){ toast('Estatísticas zeradas'); refresh(); })
+    .then(function(){ toast('Estat��sticas zeradas'); refresh(); })
     .catch(function(){toast('Erro',false);});
 });
 
