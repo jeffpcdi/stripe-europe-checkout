@@ -1700,9 +1700,27 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <input class="inp" id="lk-name" placeholder="Oferta Espanha" style="width:100%">
             </div>
             <div class="form-row">
-              <label>URL do checkout <span class="hint">— uma por linha; 2+ linhas ativa o teste A/B autom&aacute;tico</span></label>
-              <textarea class="inp" id="lk-variants" rows="3" placeholder="https://pay.gateway.com/oferta" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7"></textarea>
+              <label>URL do checkout <span class="hint">— a p&aacute;gina de destino do seu an&uacute;ncio</span></label>
+              <input class="inp" id="lk-url" placeholder="https://pay.gateway.com/oferta" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
+              <p class="hint" style="margin-top:6px;line-height:1.7">Este link j&aacute; passa pelo <b>filtro de bots</b> e dispara o <b>pixel</b> configurado. Use a URL <code>/go/&hellip;</code> como destino no TikTok Ads.</p>
             </div>
+            <details class="ck-adv" id="lk-ab-wrap" style="margin-top:4px;margin-bottom:14px">
+              <summary>Teste A/B de checkout externo <span class="hint" style="font-weight:400">&mdash; opcional: divide o tr&aacute;fego com outro checkout</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="ck-adv-body">
+                <p class="hint" style="margin:0 0 12px;line-height:1.7">Um segundo checkout que <b>compartilha o mesmo pixel e o mesmo filtro de bots</b>. O tr&aacute;fego v&aacute;lido &eacute; dividido entre os dois para voc&ecirc; comparar convers&atilde;o.</p>
+                <div class="form-row" style="margin-bottom:10px">
+                  <label>URL do checkout B</label>
+                  <input class="inp" id="lk-url-b" placeholder="https://outro-checkout.com/oferta" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
+                </div>
+                <div class="form-row" style="margin-bottom:0">
+                  <label>Divis&atilde;o do tr&aacute;fego <span class="hint">— % que vai para o checkout B</span></label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <input type="range" id="lk-ab-split" min="10" max="90" step="5" value="50" style="flex:1">
+                    <span id="lk-ab-split-val" style="font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--muted2);min-width:96px;text-align:right">A 50% / B 50%</span>
+                  </div>
+                </div>
+              </div>
+            </details>
             <details class="ck-adv" style="margin-top:4px;margin-bottom:14px">
               <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="ck-adv-body">
@@ -3531,7 +3549,7 @@ function renderLinks(){
         '<span class="ldot" style="background:'+(l.ativo?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
         '<div class="lmain">'+
   '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span>'+(l.urlWhitePage?'&nbsp;<span class="tag" style="font-size:10px;background:rgba(0,200,255,.12);color:var(--cyn,#00c2ff);border:1px solid rgba(0,200,255,.25);padding:1px 6px;border-radius:4px;font-weight:600">CLOAK</span>':'')+'</b>'+
-  '<span>'+nv+' variante'+(nv!==1?'s':'')+(nv>1?' &middot; <span class="cyn">teste A/B ativo</span>':'')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
+  '<span>'+(nv>1?'<span class="cyn">teste A/B ('+nv+' checkouts)</span>':'checkout &uacute;nico')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
   '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
@@ -3623,7 +3641,15 @@ function showLinkForm(l){
   document.getElementById('lk-form-title').textContent=l?('Editar: '+l.nome):'Novo link';
   document.getElementById('lk-slug').value=l?l.slug:'';
   document.getElementById('lk-name').value=l?l.nome:'';
-  document.getElementById('lk-variants').value=l?(l.variantes||[]).map(function(v){return v.nome+' | '+v.url+' | '+(v.peso||0)+(v.urlMobile?' | '+v.urlMobile:'');}).join(String.fromCharCode(10)):'';
+  // checkout principal = 1ª variante; A/B = 2ª variante (se existir)
+  var vs=l?(l.variantes||[]):[];
+  document.getElementById('lk-url').value=vs[0]?vs[0].url:'';
+  document.getElementById('lk-url-b').value=vs[1]?vs[1].url:'';
+  var abWrap=document.getElementById('lk-ab-wrap');
+  if(abWrap) abWrap.open=!!vs[1];
+  var splitB=vs[1]?(vs[1].peso||50):50;
+  var sp=document.getElementById('lk-ab-split'); if(sp) sp.value=splitB;
+  updateAbSplitLabel(splitB);
   document.getElementById('lk-whitepage').value=l?(l.urlWhitePage||''):'';
   document.getElementById('lk-domain').value=l?(l.dominio||''):'';
   document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
@@ -3651,28 +3677,29 @@ function copyLink(slug){
     .then(function(){ toast('URL copiada ('+linkOrigin().replace('https://','')+')'); })
     .catch(function(){ toast('Erro ao copiar',false); });
 }
+// Monta as variantes a partir dos campos: checkout principal (A) + A/B opcional (B).
+// Mantem o formato variantes[] que o backend ja entende (retrocompativel).
 function parseVariantLines(){
-  var lines=document.getElementById('lk-variants').value.split(String.fromCharCode(10));
+  var urlA=(document.getElementById('lk-url').value||'').trim();
+  var urlB=(document.getElementById('lk-url-b').value||'').trim();
   var out=[];
-  var letters='ABCDEFGHIJ';
-  lines.forEach(function(ln){
-    ln=ln.trim(); if(!ln) return;
-    var parts=ln.split('|').map(function(p){return p.trim();});
-    if(parts.length===1){
-      // modo simples: só a URL — nome e peso automáticos
-      var low=parts[0].toLowerCase();
-      if(low.indexOf('http:')!==0&&low.indexOf('https:')!==0) return;
-      out.push({nome:'Checkout '+(letters[out.length]||(out.length+1)),url:parts[0],peso:0});
-      return;
-    }
-    out.push({nome:parts[0],url:parts[1],peso:parts[2]!=null?+parts[2]:0,urlMobile:parts[3]||undefined});
-  });
-  // pesos ausentes: distribui igualmente (senão o A/B nunca alterna)
-  if(out.length&&!out.some(function(v){return v.peso>0;})){
-    var w=Math.floor(100/out.length);
-    out.forEach(function(v,i){ v.peso=i===out.length-1?100-w*(out.length-1):w; });
+  var isUrl=function(u){ var low=u.toLowerCase(); return low.indexOf('http:')===0||low.indexOf('https:')===0; };
+  if(!isUrl(urlA)) return out;
+  var abOpen=document.getElementById('lk-ab-wrap');
+  var hasAB=abOpen&&abOpen.open&&isUrl(urlB);
+  if(hasAB){
+    var splitB=+document.getElementById('lk-ab-split').value||50;
+    out.push({nome:'Checkout A',url:urlA,peso:100-splitB});
+    out.push({nome:'Checkout B',url:urlB,peso:splitB});
+  } else {
+    out.push({nome:'Checkout A',url:urlA,peso:100});
   }
   return out;
+}
+function updateAbSplitLabel(splitB){
+  splitB=+splitB||50;
+  var el=document.getElementById('lk-ab-split-val');
+  if(el) el.textContent='A '+(100-splitB)+'% / B '+splitB+'%';
 }
 
 /* ── Domínios personalizados ─────────────────────────────────���───────── */
@@ -3767,7 +3794,7 @@ function saveLink(){
   ativo:document.getElementById('lk-active').checked
   };
   if(!body.nome){ toast('D\u00ea um nome ao link',false); return; }
-  if(!body.variantes.length){ toast('Adicione pelo menos 1 variante (nome | url | peso)',false); return; }
+  if(!body.variantes.length){ toast('Informe a URL do checkout (come\u00e7ando com https://)',false); return; }
   fetch('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -5071,7 +5098,9 @@ document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
 document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnippet);
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
-document.getElementById('lk-validate').addEventListener('click',validateDomain);
+  document.getElementById('lk-validate').addEventListener('click',validateDomain);
+  var abSplit=document.getElementById('lk-ab-split');
+  if(abSplit) abSplit.addEventListener('input',function(){ updateAbSplitLabel(this.value); });
 // auto-save: qualquer toggle de notificação salva na hora (sem botão Salvar)
 ['pc-ev-sale','pc-ev-failed','pc-ev-refund','pc-ev-dispute','pc-ev-checkout','pc-ev-daily'].forEach(function(id){
   var el=document.getElementById(id); if(el) el.addEventListener('change',savePushcutConfig);
@@ -5128,7 +5157,7 @@ document.getElementById('tk-copy').addEventListener('click',function(){
 document.getElementById('reset-btn').addEventListener('click',function(){
   if(!confirm('Tem certeza? Isto apaga todos os leads e eventos.')) return;
   fetch('/api/reset-stats',{method:'POST'})
-    .then(function(){ toast('Estatísticas zeradas'); refresh(); })
+    .then(function(){ toast('Estat��sticas zeradas'); refresh(); })
     .catch(function(){toast('Erro',false);});
 });
 
