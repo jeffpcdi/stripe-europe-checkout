@@ -82,9 +82,13 @@ function normalize(slug, raw) {
 async function init() {
   if (!db.enabled) { console.log('[links] Neon desativado — links só em memória.'); return 0; }
   try {
-    const rows = await db.loadLinks();
-    cache = (rows || []).map((r) => normalize(r.slug, r));
-    console.log('[links] ' + cache.length + ' link(s) de checkout carregado(s).');
+    const res = await db.loadLinks();
+    if (res && res.ok) {
+      cache = (res.data || []).map((r) => normalize(r.slug, r));
+      console.log('[links] ' + cache.length + ' link(s) de checkout carregado(s).');
+    } else {
+      console.warn('[links] falha ao ler links do Neon — cache vazio nesta sessão, banco intocado.');
+    }
   } catch (e) { console.error('[links] init:', e.message); }
   return cache.length;
 }

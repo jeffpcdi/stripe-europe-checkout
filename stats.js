@@ -473,7 +473,7 @@ function reset() {
 // é efêmero, então recarregamos leads/eventos do Postgres.
 async function hydrate() {
   try {
-    await db.init();
+    await db.initWithRetry(3);
     if (!db.enabled) return;
     const persisted = await db.loadState(MAX_LEADS, MAX_EVENTS);
     if (!persisted) return;

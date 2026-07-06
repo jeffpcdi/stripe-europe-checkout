@@ -108,6 +108,20 @@ async function init() {
   }
 }
 
+// init com retry — uma falha transitória de rede no boot não pode deixar o
+// processo rodando sem persistência (era um dos vetores de perda de config).
+async function initWithRetry(attempts) {
+  const max = Math.max(1, attempts || 3);
+  for (let i = 1; i <= max; i++) {
+    if (await init()) return true;
+    if (i < max) {
+      console.warn('[db] init falhou, tentando de novo (' + i + '/' + max + ')...');
+      await new Promise((r) => setTimeout(r, 1000 * i));
+    }
+  }
+  return false;
+}
+
 // ── Leads / eventos / variantes (write-through) ───────────────────────────
 async function upsertLead(lead) {
   if (!enabled || !lead || !lead.id) return;
@@ -201,15 +215,22 @@ async function saveConfig(data) {
   } catch (err) { console.error('[db] saveConfig:', err.message); }
 }
 
+// Retorna { ok, data }: ok=false significa ERRO de leitura (não sobrescrever
+// nada!); ok=true com data=null significa "confirmado: não há config salva".
+// Essa distinção evita que uma falha transitória no boot seja confundida com
+// "primeira execução" e apague a config salva com os defaults.
 async function loadConfig() {
-  if (!enabled) return null;
-  try {
-    const rows = await sql`SELECT data FROM config WHERE key = 'main' LIMIT 1`;
-    return rows.length ? rows[0].data : null;
-  } catch (err) {
-    console.error('[db] loadConfig:', err.message);
-    return null;
+  if (!enabled) return { ok: false, data: null };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const rows = await sql`SELECT data FROM config WHERE key = 'main' LIMIT 1`;
+      return { ok: true, data: rows.length ? rows[0].data : null };
+    } catch (err) {
+      console.error('[db] loadConfig (tentativa ' + attempt + '/3):', err.message);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
   }
+  return { ok: false, data: null };
 }
 
 // ── Pixels TikTok (espelho durável dos arquivos pixels/*.json) ───────────
@@ -229,15 +250,20 @@ async function deletePixel(slug) {
   } catch (err) { console.error('[db] deletePixel:', err.message); }
 }
 
+// Mesmo contrato do loadConfig: { ok, data } — erro de leitura NUNCA deve
+// ser tratado como "não há pixels salvos".
 async function loadPixels() {
-  if (!enabled) return null;
-  try {
-    const rows = await sql`SELECT slug, data FROM pixels`;
-    return rows.map((r) => ({ slug: r.slug, ...r.data }));
-  } catch (err) {
-    console.error('[db] loadPixels:', err.message);
-    return null;
+  if (!enabled) return { ok: false, data: null };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const rows = await sql`SELECT slug, data FROM pixels`;
+      return { ok: true, data: rows.map((r) => ({ slug: r.slug, ...r.data })) };
+    } catch (err) {
+      console.error('[db] loadPixels (tentativa ' + attempt + '/3):', err.message);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
   }
+  return { ok: false, data: null };
 }
 
 // ── Links de checkout externos (espelho durável) ─────────────────────────
@@ -257,15 +283,19 @@ async function deleteLink(slug) {
   } catch (err) { console.error('[db] deleteLink:', err.message); }
 }
 
+// Mesmo contrato do loadConfig: { ok, data }.
 async function loadLinks() {
-  if (!enabled) return null;
-  try {
-    const rows = await sql`SELECT slug, data FROM links`;
-    return rows.map((r) => ({ slug: r.slug, ...r.data }));
-  } catch (err) {
-    console.error('[db] loadLinks:', err.message);
-    return null;
+  if (!enabled) return { ok: false, data: null };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const rows = await sql`SELECT slug, data FROM links`;
+      return { ok: true, data: rows.map((r) => ({ slug: r.slug, ...r.data })) };
+    } catch (err) {
+      console.error('[db] loadLinks (tentativa ' + attempt + '/3):', err.message);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
   }
+  return { ok: false, data: null };
 }
 
 // ── Log de disparos CAPI ──────────────────────────────────────────────────
@@ -338,7 +368,7 @@ async function pruneSessions(olderThanDays) {
 module.exports = {
   enabled,
   isReady: () => ready,
-  init, upsertLead, insertEvent, upsertVariant, loadState, reset, upsertSession,
+  init, initWithRetry, upsertLead, insertEvent, upsertVariant, loadState, reset, upsertSession,
   saveConfig, loadConfig, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels,
   upsertLink, deleteLink, loadLinks,

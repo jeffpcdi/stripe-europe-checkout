@@ -94,24 +94,43 @@ function writeFile(slug, cfg) {
 async function init() {
   loadFromDisk();
 
-  // Re-hidrata do banco se o FS estiver vazio (deploy efêmero / read-only).
-  // Direto para a MEMÓRIA — não depende de conseguir escrever no disco
-  // (em Vercel o writeFile falhava e o cache ficava vazio mesmo com
-  // pixels salvos no banco).
-  if (!cache.length && db.enabled) {
+  // O BANCO é a fonte de verdade: pixels salvos no Neon vencem sobre o que
+  // veio no repo/disco (que pode estar vazio ou desatualizado após um
+  // deploy). Arquivos locais que não existem no banco são preservados e
+  // espelhados para o banco (fluxo "editei o arquivo na mão").
+  let dbConfirmedEmpty = !db.enabled; // sem banco, migração legada pode rodar
+  if (db.enabled) {
     try {
-      const rows = await db.loadPixels();
-      if (rows && rows.length) {
-        cache = rows.map((r) => normalize(r.slug, r));
-        byRoute = null;
-        rows.forEach((r) => writeFile(r.slug, normalize(r.slug, r))); // best-effort
-        console.log('[pixels] ' + cache.length + ' pixel(s) re-hidratado(s) do banco.');
+      const res = await db.loadPixels();
+      if (res && res.ok) {
+        const rows = res.data || [];
+        dbConfirmedEmpty = rows.length === 0;
+        if (rows.length) {
+          const fromDb = rows.map((r) => normalize(r.slug, r));
+          const dbSlugs = new Set(fromDb.map((p) => p.slug));
+          // arquivos locais inéditos (não estão no banco) são mantidos e espelhados
+          const localOnly = cache.filter((p) => !dbSlugs.has(p.slug));
+          localOnly.forEach((p) => db.upsertPixel(p.slug, p));
+          cache = fromDb.concat(localOnly);
+          byRoute = null;
+          fromDb.forEach((p) => writeFile(p.slug, p)); // best-effort
+          console.log('[pixels] ' + fromDb.length + ' pixel(s) hidratado(s) do banco' +
+            (localOnly.length ? ' + ' + localOnly.length + ' local(is) espelhado(s).' : '.'));
+        } else if (cache.length) {
+          // banco confirmado vazio mas há arquivos locais: semeia o banco
+          cache.forEach((p) => db.upsertPixel(p.slug, p));
+          console.log('[pixels] banco vazio — ' + cache.length + ' pixel(s) do disco espelhado(s) no Neon.');
+        }
+      } else {
+        console.warn('[pixels] falha ao ler pixels do Neon — usando somente o disco, banco intocado.');
       }
     } catch (e) { console.error('[pixels] rehydrate:', e.message); }
   }
 
-  // Migração do pixel único legado (compatibilidade).
-  if (!cache.length) {
+  // Migração do pixel único legado (compatibilidade) — só quando temos
+  // CERTEZA de que não há pixels em lugar nenhum (evita duplicar após um
+  // erro transitório de leitura do banco).
+  if (!cache.length && dbConfirmedEmpty) {
     const legacyCode = process.env.TIKTOK_PIXEL_CODE;
     const legacyToken = process.env.TIKTOK_ACCESS_TOKEN;
     if (legacyCode) {
@@ -131,10 +150,18 @@ async function init() {
   }
 
   // Observa o diretório para hot-reload quando arquivos mudam manualmente.
+  // O reload MESCLA disco sobre a memória (disco vence por slug), mas nunca
+  // descarta pixels que só existem em memória/banco (disco read-only em prod).
   try {
     fs.watch(DIR, { persistent: false }, () => {
       clearTimeout(init._t);
-      init._t = setTimeout(() => { loadFromDisk(); }, 200);
+      init._t = setTimeout(() => {
+        const before = cache.slice();
+        loadFromDisk();
+        const diskSlugs = new Set(cache.map((p) => p.slug));
+        before.forEach((p) => { if (!diskSlugs.has(p.slug)) cache.push(p); });
+        byRoute = null;
+      }, 200);
     });
   } catch (_) { /* fs.watch pode não existir em alguns ambientes */ }
 

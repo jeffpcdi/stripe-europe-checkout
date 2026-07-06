@@ -97,16 +97,25 @@ function persist() {
 }
 
 // Hidrata do Neon no boot (banco vence sobre o arquivo efêmero).
+// IMPORTANTE: só semeamos o Neon com defaults quando a leitura CONFIRMA que
+// não existe config salva (ok=true, data=null). Se a leitura FALHAR (ok=false),
+// jamais gravamos por cima — era isso que apagava domínio/pixel/dados a cada
+// deploy quando o banco tinha um soluço no boot.
 async function hydrate() {
   try {
-    const persisted = await db.loadConfig();
-    if (persisted && typeof persisted === 'object') {
-      cfg = mergeDefaults(persisted);
+    const res = await db.loadConfig();
+    if (res && res.ok && res.data && typeof res.data === 'object') {
+      cfg = mergeDefaults(res.data);
       console.log('[config] Config hidratada do Neon.');
-    } else {
+    } else if (res && res.ok && !res.data) {
+      // confirmado: banco vazio — primeira execução, semeia com o estado atual
       ensureLoaded();
-      // primeira execução com banco: semeia o Neon com o estado atual
       if (db.enabled) db.saveConfig(cfg);
+      console.log('[config] Nenhuma config no Neon — semeada com o estado atual.');
+    } else {
+      // erro de leitura: usa o snapshot local SEM tocar no banco
+      ensureLoaded();
+      console.warn('[config] Falha ao ler config do Neon — mantendo snapshot local, banco intocado.');
     }
   } catch (err) {
     console.error('[config] Erro ao hidratar config:', err.message);
