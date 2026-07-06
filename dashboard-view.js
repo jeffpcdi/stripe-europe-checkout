@@ -223,13 +223,13 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
   filter:drop-shadow(0 1px 1px rgba(255,255,255,.6))}
 .bt-dash{-webkit-text-fill-color:transparent}
 .hh-status{margin-left:auto;display:flex;align-items:center;gap:14px;position:absolute;right:26px;top:50%;transform:translateY(-50%)}
-.hh-live{font-size:12px;color:var(--text-muted);background:rgba(255,255,255,.8);backdrop-filter:blur(12px);border:1px solid var(--border);padding:7px 14px;border-radius:20px;box-shadow:var(--shadow-1)}
+.hh-live{font-size:12px;color:var(--text-muted);background:rgba(255,255,255,.9);border:1px solid var(--border);padding:7px 14px;border-radius:20px;box-shadow:var(--shadow-1)}
 
 /* dock de navegação: grande, central, interativo */
 .nav.dock{position:relative;display:flex;flex-direction:row;gap:6px;padding:6px 22px 10px;overflow-x:auto;scrollbar-width:none}
 .nav.dock::-webkit-scrollbar{display:none}
-.nav.dock button{position:relative;display:flex;align-items:center;gap:9px;cursor:pointer;border:1px solid var(--border2);background:rgba(255,255,255,.5);backdrop-filter:blur(12px);color:var(--text-muted);padding:8px 15px;border-radius:11px;font-size:13.5px;font-weight:600;font-family:inherit;transition:.2s;white-space:nowrap}
-.nav.dock button .d-ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:rgba(255,255,255,.6);backdrop-filter:blur(8px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.4);transition:.2s;flex-shrink:0}
+.nav.dock button{position:relative;display:flex;align-items:center;gap:9px;cursor:pointer;border:1px solid var(--border2);background:rgba(255,255,255,.72);color:var(--text-muted);padding:8px 15px;border-radius:11px;font-size:13.5px;font-weight:600;font-family:inherit;transition:.2s;white-space:nowrap}
+.nav.dock button .d-ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:rgba(255,255,255,.6);box-shadow:inset 0 0 0 1px rgba(255,255,255,.4);transition:.2s;flex-shrink:0}
 .nav.dock button svg{width:15px;height:15px}
 .nav.dock button:hover{color:var(--text);background:rgba(255,255,255,.8);transform:translateY(-2px)}
 .nav.dock button:hover .d-ico{background:rgba(255,255,255,1);box-shadow:inset 0 0 0 1px var(--border),var(--shadow-2)}
@@ -305,7 +305,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 /* knob estica ao pressionar (feedback tátil iOS) */
 .switch:active .slider:before{width:26px}
 .switch:active input:checked+.slider:before{transform:translateX(14px)}
-.select,.inp{background:rgba(255,255,255,.6);backdrop-filter:blur(8px);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-family:inherit;font-size:13.5px;outline:none;transition:.2s}
+.select,.inp{background:rgba(255,255,255,.85);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 10px;font-family:inherit;font-size:13.5px;outline:none;transition:.2s}
 .select::placeholder,.inp::placeholder{color:var(--text-lighter)}
 .select:focus,.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,125,255,.1);background:rgba(255,255,255,.9)}
 .btn{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:10px;padding:9px 15px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:.2s;box-shadow:0 4px 14px rgba(47,125,255,.35)}
@@ -368,9 +368,9 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .kpis{grid-template-columns:repeat(auto-fit,minmax(186px,1fr))}
 .card{
   position:relative;isolation:isolate;
-  background:var(--lg-tint-thick);
-  -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
-  backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  /* fundo sólido: cards ficam sobre um fundo quase opaco, então o backdrop-filter
+     custava uma camada de composição por card (39×) sem ganho visual. Removido. */
+  background:rgba(255,255,255,.9);
   border:1px solid rgba(255,255,255,.30);border-radius:var(--radius);padding:20px;
   box-shadow:var(--shadow-1),inset 0 1px 1px var(--lg-rim-top),inset 0 -1px 1px rgba(255,255,255,.25),inset 1px 0 1px var(--lg-rim-side),inset -1px 0 1px var(--lg-rim-side);
 }
@@ -396,14 +396,13 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .hl-card .k-flag .fi{font-size:20px;line-height:1}
 /* ── Ao Vivo ── */
 .nav .live-badge{background:var(--success);color:#fff}
-#live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;position:relative;
-  background:rgba(255,255,255,.8);backdrop-filter:blur(12px);border:1px solid var(--border);box-shadow:var(--shadow-2)}
-#live-globe canvas{filter:contrast(1.08) saturate(1.1)}
+  #live-globe{width:100%;height:520px;border-radius:var(--radius);overflow:hidden;position:relative;
+  background:rgba(255,255,255,.9);border:1px solid var(--border);box-shadow:var(--shadow-2)}
+/* filtro CSS por-frame removido: re-filtrava o canvas inteiro a cada frame do globo */
 /* ── Globo hero na Visão Geral ── */
 #globe-hero{width:100%;height:560px;border-radius:var(--radius);overflow:hidden;position:relative;
-  background:rgba(255,255,255,.8);backdrop-filter:blur(12px);border:1px solid var(--border);box-shadow:var(--shadow-2);
+  background:rgba(255,255,255,.9);border:1px solid var(--border);box-shadow:var(--shadow-2);
   grid-column:1/-1;margin:24px 0}
-#globe-hero canvas{filter:contrast(1.08) saturate(1.1)}
 #globe-hero::after{content:'';position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 1px 2px rgba(255,255,255,.5);pointer-events:none;z-index:1}
 /* skeleton do globo: shimmer radial */
 .globe-skel{width:100%;height:560px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(255,255,255,.6),rgba(255,255,255,.9));overflow:hidden;position:relative;margin:24px 0}
@@ -1696,7 +1695,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         </div>
       </section>
 
-      <!-- ── Filtro de Bots / Revisores TikTok (cloaking) ── -->
+      <!-- ��─ Filtro de Bots / Revisores TikTok (cloaking) ── -->
       <section class="view" id="view-cloak">
         <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Roteia revisores do TikTok Ads para a white page &mdash; pessoas reais v&atilde;o para a offer</p></div></div>
 
@@ -2806,6 +2805,9 @@ function makeGlobe(el,height){
       });
     }
   }catch(_){}
+  // Retina/HiDPI: limita o pixel ratio a 1.5 — DPR 2 renderiza 4x mais pixels
+  // por frame com diferença visual mínima num globo em rotação. Grande economia de GPU no Mac.
+  try{ var rnd=g.renderer&&g.renderer(); if(rnd&&rnd.setPixelRatio) rnd.setPixelRatio(Math.min(window.devicePixelRatio||1,1.5)); }catch(_){}
   applyLightPolys(g);
   globeEntrance(g); // entrada cinematográfica: giro + aproximação
   var ctrl=g.controls();
@@ -3307,7 +3309,7 @@ function renderPageConv(){
   var agg={};
   (DATA.leads||[]).forEach(function(l){
     if(l.orphan) return;
-    // páginas únicas que o lead visitou (journey; fallback: landing)
+    // páginas ��nicas que o lead visitou (journey; fallback: landing)
     var pages={};
     (l.journey||[]).forEach(function(s){
       var p=String(s.p||'');
@@ -4461,25 +4463,9 @@ function moveGota(){
 window.addEventListener('resize',function(){ moveGota(); });
 window.addEventListener('load',function(){ setTimeout(moveGota,120); }); // re-mede após fontes carregarem
 
-/* ── Specular tracking: um único pointermove com rAF atualiza --mx/--my ── */
-(function(){
-  if(matchMedia('(prefers-reduced-motion:reduce)').matches) return;
-  if(!matchMedia('(pointer:fine)').matches) return;
-  var pending=null;
-  document.addEventListener('pointermove',function(e){
-    if(pending) return;
-    pending=requestAnimationFrame(function(){
-      pending=null;
-      var t=e.target&&e.target.closest?e.target.closest('.card'):null;
-      if(t){
-        var r=t.getBoundingClientRect();
-        t.classList.add('spec');
-        t.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
-        t.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%');
-      }
-    });
-  },{passive:true});
-})();
+/* Specular tracking duplicado removido: trackSpecular() (sob o gate do Liquid
+   Glass) já cobre .card/.lg — este rodava sempre, inclusive no Safari onde o
+   reflexo nem é renderizado, desperdiçando layout a cada movimento do mouse. */
 
 /* ── Topbar condensa ao rolar ── */
 (function(){
