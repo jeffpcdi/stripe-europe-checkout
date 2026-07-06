@@ -201,11 +201,11 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:1}
 /* marca centralizada: status ancorado à direita, marca no centro real do header */
 .brand-xl{display:flex;align-items:center;justify-content:center;gap:12px;flex:1;min-width:0}
 .hh-inner::before{content:'';flex:0 0 0}
-.logo-orbit{position:relative;width:74px;height:74px;flex-shrink:0}
-.logo-orbit img{position:absolute;inset:5px;width:64px;height:64px;border-radius:50%;object-fit:cover;z-index:2;
+.logo-orbit{position:relative;width:89px;height:89px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:6px;width:77px;height:77px;border-radius:50%;object-fit:cover;z-index:2;
   box-shadow:0 0 0 2px rgba(255,255,255,.75),0 4px 16px rgba(30,40,80,.18);
   filter:contrast(1.12) saturate(1.2) brightness(1.05)}
-.logo-orbit::after{content:'';position:absolute;inset:5px;border-radius:50%;z-index:3;pointer-events:none;
+.logo-orbit::after{content:'';position:absolute;inset:6px;border-radius:50%;z-index:3;pointer-events:none;
   background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
 .logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
   background:conic-gradient(from var(--ra,0deg),#ff2d6f,#2f7dff,#06b6d4,#ff2d6f);
@@ -594,6 +594,16 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
   .mini-feats{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px}
   .mini-feats span{font-size:12px;color:var(--muted2);display:flex;align-items:center;gap:6px}
   .mini-feats span::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--kg1,var(--pink));flex:none}
+  /* tutorial passo a passo (instalação do script) */
+  .tut-step{display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--border)}
+  .tut-step:first-of-type{border-top:0;padding-top:4px}
+  .tut-n{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--kg1,var(--pink));color:#fff;font-size:13px;font-weight:700;flex:none}
+  .tut-txt{flex:1;min-width:0}
+  .tut-txt>b{font-size:14px;color:var(--text)}
+  .tut-txt p{margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.65}
+  .tut-list{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+  .tut-list li{font-size:12.5px;color:var(--muted);line-height:1.6}
+  .tut-list li b{color:var(--text)}
   /* linha do tempo do trajeto do lead (drawer) */
   .jrny{display:flex;flex-direction:column;gap:0;margin:4px 0 10px;padding-left:5px}
   .jstep{display:flex;align-items:center;gap:10px;position:relative;padding:5px 0 5px 14px}
@@ -963,8 +973,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visibl
   .geo-grid,.ab-grid{grid-template-columns:1fr}
   .kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
   .hh-inner{padding:14px 16px 8px}
-    .logo-orbit{width:64px;height:64px}
-    .logo-orbit img{inset:5px;width:54px;height:54px}
+    .logo-orbit{width:77px;height:77px}
+    .logo-orbit img{inset:6px;width:65px;height:65px}
   .hh-status{width:100%;margin-left:0}
   .nav.dock{padding:8px 12px 12px}
   .nav.dock button{padding:9px 13px;font-size:13px}
@@ -1672,12 +1682,21 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
             </div>
             <div id="dm-list" style="margin-bottom:14px"></div>
-            <p class="hint" style="line-height:1.8;margin:0 0 12px">Crie um <b>CNAME</b> no seu DNS: <code>link.seudominio.com &#8594; <span class="dm-apphost">este-app</span></code> &middot; se usar Vercel, adicione tamb&eacute;m em <b>Project &#8594; Domains</b> &middot; aguarde propagar e clique em <b>Verificar</b>. Depois disso, <code>/go/</code>, <code>/l/</code> e o pixel <code>/t.js</code> funcionam no seu dom&iacute;nio.</p>
+            <div class="hint" style="line-height:1.7;margin:0 0 12px">
+              <b style="color:var(--text)">Como ligar seu dom&iacute;nio (passo a passo):</b>
+              <ol class="tut-list" style="padding-left:18px;margin-top:8px">
+                <li>No painel onde voc&ecirc; comprou o dom&iacute;nio (ou onde gerencia o DNS), crie um registro do tipo <b>CNAME</b>.</li>
+                <li>No campo de <b>nome/host</b>, use o subdom&iacute;nio que voc&ecirc; digitou acima (ex.: <code>link</code>). No campo de <b>destino/valor</b>, coloque: <code><span class="dm-apphost">este-app</span></code></li>
+                <li>Se voc&ecirc; hospeda na <b>Vercel</b>, adicione o mesmo dom&iacute;nio tamb&eacute;m em <b>Project &#8594; Domains</b>.</li>
+                <li>Aguarde alguns minutos (o DNS pode levar at&eacute; algumas horas para propagar) e clique em <b>Verificar</b>.</li>
+              </ol>
+              <p style="margin:8px 0 0">Quando ficar verde, seus links de checkout e o rastreamento passam a usar o seu pr&oacute;prio endere&ccedil;o nos an&uacute;ncios.</p>
+            </div>
             <div class="form-row" style="margin-bottom:0">
-              <label>Pixel no seu dom&iacute;nio <span class="hint">— cole no &lt;head&gt; das suas p&aacute;ginas</span></label>
+              <label>Script no seu dom&iacute;nio <span class="hint">— cole no &lt;head&gt; das suas p&aacute;ginas</span></label>
               <div style="display:flex;gap:8px;align-items:center;max-width:480px">
                 <select class="select" id="dm-snip-host" style="flex:1"></select>
-                <button class="btn btn-sm" id="dm-snip-copy">Copiar snippet</button>
+                <button class="btn btn-sm" id="dm-snip-copy">Copiar script</button>
               </div>
             </div>
           </div>
@@ -1707,13 +1726,13 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <label class="switch" style="margin-left:auto"><input type="checkbox" id="ck-enabled"><span class="slider"></span></label>
           </div>
           <div class="seg" id="ck-sens" style="margin-top:4px">
-            <button data-s="strict" type="button">Agressivo<span class="seg-sub">pega mais bots</span></button>
-            <button data-s="balanced" type="button">Equilibrado<span class="seg-sub">recomendado</span></button>
-            <button data-s="loose" type="button">Conservador<span class="seg-sub">menos falso+</span></button>
-            <button data-s="custom" type="button">Manual<span class="seg-sub">ajuste fino</span></button>
+            <button data-s="strict" type="button">Agressivo<span class="seg-sub">barra o m&aacute;ximo de bots (pode barrar alguns reais)</span></button>
+            <button data-s="balanced" type="button">Equilibrado<span class="seg-sub">o melhor dos dois &mdash; recomendado</span></button>
+            <button data-s="loose" type="button">Conservador<span class="seg-sub">libera quase todos (alguns bots passam)</span></button>
+            <button data-s="custom" type="button">Manual<span class="seg-sub">voc&ecirc; define o rigor abaixo</span></button>
           </div>
           <div id="ck-threshold-wrap" style="margin-top:14px;display:none">
-            <label class="hint">Threshold manual: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> &mdash; score &ge; este valor = bot</label>
+            <label class="hint">Rigor da filtragem: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> &mdash; quanto <b>menor</b>, mais gente vai para a white page (mais rigoroso); quanto <b>maior</b>, mais gente passa para a offer</label>
             <input type="range" id="ck-threshold" min="10" max="90" step="5" value="40" style="width:100%;accent-color:var(--cyan);margin-top:6px">
           </div>
         </div>
@@ -1749,7 +1768,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </summary>
           <div class="ck-adv-body">
             <div style="margin:6px 0 16px">
-              <label class="hint" style="font-weight:600;color:var(--muted)">Velocidade do redirect: <b id="ck-deadline-val" style="color:var(--cyan)">120</b> ms <span class="hint" style="font-weight:500">&mdash; teto de espera da an&aacute;lise de rede. Menor = redirect mais r&aacute;pido</span></label>
+              <label class="hint" style="font-weight:600;color:var(--muted)">Tempo m&aacute;ximo de an&aacute;lise: <b id="ck-deadline-val" style="color:var(--cyan)">120</b> ms <span class="hint" style="font-weight:500">&mdash; quanto o sistema pode esperar antes de decidir para onde mandar a pessoa. Menor = p&aacute;gina abre mais r&aacute;pido, por&eacute;m com menos checagens</span></label>
               <input type="range" id="ck-deadline" min="40" max="500" step="20" value="120" style="width:100%;accent-color:var(--cyan);margin-top:8px">
             </div>
             <div class="section-title" style="margin-top:0"><span>Camadas de detec&ccedil;&atilde;o</span><span class="line"></span><span class="muted" style="font-size:11.5px">ligue/desligue cada sinal</span></div>
@@ -1787,7 +1806,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Pixel TikTok ── -->
       <section class="view" id="view-pixels">
-        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Rastreamento avançado por lead (Events API)</b><p>Cada pixel vive num arquivo próprio em <code>pixels/</code> e funciona sem a dashboard. Todo lead ganha um ID único (hash SHA-256) enviado como external_id em ViewContent, InitiateCheckout e CompletePayment — com IP, user-agent, ttclid, _ttp e e-mail hasheado para o melhor matching no gerenciador de anúncios.</p></div></div>
+        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Rastreamento avançado, lead por lead</b><p>Cada visitante recebe uma identidade única e segura. Com ela, o TikTok reconhece a mesma pessoa desde o clique no anúncio até a compra — mesmo em páginas diferentes. Isso melhora a qualidade dos dados e ajuda o TikTok a encontrar mais compradores parecidos. Você só precisa colar o script (abaixo) nas suas páginas; o resto é automático.</p></div></div>
         <div class="grid" style="grid-template-columns:1.2fr 1fr">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -1798,25 +1817,25 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <div class="card" id="px-form-card" style="display:none">
             <h3 style="font-size:16px;margin-bottom:4px" id="px-form-title">Novo pixel</h3>
-            <p class="hint" style="margin-bottom:14px">Salvo como arquivo próprio em <code>pixels/&lt;nome&gt;.json</code> + espelho no banco.</p>
+            <p class="hint" style="margin-bottom:14px">Cada pixel fica guardado separadamente e continua funcionando sozinho, mesmo com esta tela fechada.</p>
             <div class="form-row">
-              <label>Nome <span class="hint">— vira o nome do arquivo</span></label>
+              <label>Nome <span class="hint">— só para você identificar (ex.: a campanha)</span></label>
               <input class="inp" id="px-name" placeholder="Campanha Espanha" style="width:100%">
             </div>
             <div class="form-row">
-              <label>Pixel Code <span class="hint">— do TikTok Events Manager</span></label>
+              <label>ID do Pixel <span class="hint">— copie do TikTok, em Events Manager &rarr; seu pixel</span></label>
               <input class="inp" id="px-code" placeholder="C0ABC1DE2FGH3IJKLM" style="width:100%;font-family:'Geist Mono',monospace">
             </div>
             <div class="form-row">
-              <label>Access Token <span class="hint">— Events API, opcional p/ só-navegador</span></label>
-              <input class="inp" id="px-token" placeholder="token da Events API" style="width:100%;font-family:'Geist Mono',monospace" autocomplete="off">
+              <label>Token de acesso <span class="hint">— copie do TikTok (opcional, mas recomendado)</span></label>
+              <input class="inp" id="px-token" placeholder="cole aqui o token do TikTok" style="width:100%;font-family:'Geist Mono',monospace" autocomplete="off">
             </div>
             <div class="form-row">
-              <label>Rotas <span class="hint">— uma por linha; vazio = todas as páginas</span></label>
+              <label>Em quais páginas <span class="hint">— uma por linha; deixe vazio para valer em todas</span></label>
               <textarea class="inp" id="px-routes" rows="3" placeholder="/&#10;/checkout&#10;/s1" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px"></textarea>
             </div>
             <div class="form-row">
-              <label>Eventos server-side</label>
+              <label>Eventos enviados direto ao TikTok <span class="hint">— pelo servidor, mais confiável</span></label>
               <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
                 <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="px-ev-vc" checked> ViewContent</label>
                 <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="px-ev-ic" checked> InitiateCheckout</label>
@@ -1844,21 +1863,62 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div id="ph-events" class="hint" style="margin-top:12px"></div>
           <div id="ph-errors" style="margin-top:6px"></div>
         </div>
-        <div class="section-title"><span>Rastreamento em p&aacute;ginas externas</span><span class="line"></span></div>
+        <div class="section-title"><span>Como instalar o rastreamento nas suas p&aacute;ginas</span><span class="line"></span></div>
         <div class="card">
-          <div class="steps">
-            <span class="step"><b>1</b> Copie o snippet</span>
-            <span class="step"><b>2</b> Cole em qualquer p&aacute;gina sua (presell, VSL, landing)</span>
-            <span class="step"><b>3</b> Pronto</span>
+          <p class="hint" style="margin:0 0 14px;line-height:1.7">Cole este script uma &uacute;nica vez em <b>cada p&aacute;gina sua</b> (presell, VSL, p&aacute;gina de vendas). Ele funciona em qualquer site &mdash; construtor de p&aacute;ginas, WordPress, HTML, etc. Depois de colado, ele trabalha sozinho: n&atilde;o precisa mexer em mais nada.</p>
+
+          <!-- Passo 1 -->
+          <div class="tut-step">
+            <span class="tut-n">1</span>
+            <div class="tut-txt">
+              <b>Copie o script abaixo</b>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+                <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
+                <button class="btn btn-sm primary" id="tk-copy">Copiar script</button>
+              </div>
+            </div>
           </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
-            <button class="btn btn-sm primary" id="tk-copy">Copiar snippet</button>
+
+          <!-- Passo 2 -->
+          <div class="tut-step">
+            <span class="tut-n">2</span>
+            <div class="tut-txt">
+              <b>Cole dentro do &lt;head&gt; da p&aacute;gina</b>
+              <p>Todo site tem uma &aacute;rea chamada <code>&lt;head&gt;</code> (o "cabe&ccedil;alho" do c&oacute;digo). &Eacute; l&aacute; que o script deve ficar, para carregar antes do resto.</p>
+              <ul class="tut-list">
+                <li><b>Construtor de p&aacute;ginas</b> (ex.: sistemas de VSL/landing): procure um campo chamado <i>"C&oacute;digo no cabe&ccedil;alho"</i>, <i>"Head"</i>, <i>"Scripts"</i> ou <i>"C&oacute;digo personalizado"</i> nas configura&ccedil;&otilde;es da p&aacute;gina e cole l&aacute;.</li>
+                <li><b>WordPress:</b> use um plugin como <i>"Insert Headers and Footers"</i> e cole no campo do cabe&ccedil;alho.</li>
+                <li><b>Site em HTML pr&oacute;prio:</b> cole logo antes da linha <code>&lt;/head&gt;</code> do arquivo da p&aacute;gina.</li>
+              </ul>
+            </div>
           </div>
+
+          <!-- Passo 3 -->
+          <div class="tut-step">
+            <span class="tut-n">3</span>
+            <div class="tut-txt">
+              <b>Salve e publique a p&aacute;gina. Pronto!</b>
+              <p>N&atilde;o &eacute; preciso mexer nos bot&otilde;es, links ou em nenhum outro c&oacute;digo. O script identifica a visita e liga tudo automaticamente do clique no an&uacute;ncio at&eacute; a compra.</p>
+            </div>
+          </div>
+
+          <div class="alert" style="background:rgba(47,125,255,.06);border-color:rgba(47,125,255,.25);margin-top:4px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--cyan)"><path d="M12 16v-4M12 8h.01"/><circle cx="12" cy="12" r="10"/></svg>
+            <div>
+              <b style="font-size:13px">Perguntas comuns</b>
+              <ul class="tut-list" style="margin-top:6px">
+                <li><b>Preciso mexer nos meus bot&otilde;es de "Comprar"?</b> N&atilde;o. Basta que eles levem o visitante para o seu link de checkout (aba <b>Links de Checkout</b>). O restante &eacute; autom&aacute;tico.</li>
+                <li><b>E os par&acirc;metros de UTM do TikTok?</b> N&atilde;o precisa configurar nada. O script guarda sozinho as informa&ccedil;&otilde;es do clique (inclusive UTMs) e as repassa at&eacute; a venda.</li>
+                <li><b>Preciso criar pastas ou arquivos no meu servidor?</b> N&atilde;o. &Eacute; s&oacute; colar o script no cabe&ccedil;alho &mdash; nada de subir arquivos ou criar pastas.</li>
+                <li><b>Uso um dom&iacute;nio pr&oacute;prio?</b> Depois de verificar seu dom&iacute;nio (aba <b>Links de Checkout</b> &rarr; Dom&iacute;nio personalizado), copie o script por l&aacute; para ele usar o seu endere&ccedil;o.</li>
+              </ul>
+            </div>
+          </div>
+
           <div class="mini-feats">
-            <span>Dispara ViewContent no pixel</span>
-            <span>Lead aparece no Ao Vivo</span>
-            <span>Liga a visita &agrave; compra</span>
+            <span>Registra a visita no pixel do TikTok</span>
+            <span>O lead aparece na tela "Ao Vivo"</span>
+            <span>Conecta a visita &agrave; venda</span>
           </div>
         </div>
         <div class="section-title"><span>Webhook universal de conversões</span><span class="line"></span></div>
@@ -2433,7 +2493,7 @@ function renderPageFunnel(){
   });
   var list=Object.keys(pages).map(function(k){ return pages[k]; });
   if(!withJourney||!list.length){
-    el.innerHTML='<div class="empty">Assim que os leads navegarem pelas suas p&aacute;ginas (snippet instalado), o funil aparece aqui etapa por etapa.</div>';
+    el.innerHTML='<div class="empty">Assim que os leads navegarem pelas suas p&aacute;ginas (script instalado), o funil aparece aqui etapa por etapa.</div>';
     return;
   }
   // ordena pela posição média no trajeto; empate = maior volume primeiro
@@ -3331,7 +3391,7 @@ function renderPageConv(){
     return {p:p,leads:a.leads,ck:a.ck,buy:a.buy,rate:a.leads?a.buy/a.leads*100:0};
   }).sort(function(a,b){return b.leads-a.leads;}).slice(0,20);
   if(!rows.length){
-    el.innerHTML='<tr><td colspan="5"><div class="empty">Sem dados ainda. Instale o snippet (aba Pixel) nas suas p&aacute;ginas para ver a convers&atilde;o de cada uma.</div></td></tr>';
+    el.innerHTML='<tr><td colspan="5"><div class="empty">Sem dados ainda. Instale o script (aba Pixel) nas suas p&aacute;ginas para ver a convers&atilde;o de cada uma.</div></td></tr>';
     return;
   }
   el.innerHTML=rows.map(function(r){
@@ -3507,7 +3567,7 @@ function copyDomainSnippet(){
   var origin=linkOrigin();
   var snip='<script src="'+origin+'/t.js" defer><\\/script><noscript><img src="'+origin+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>';
   navigator.clipboard.writeText(snip)
-    .then(function(){ toast('Snippet copiado para '+origin.replace('https://','')); })
+    .then(function(){ toast('Script copiado para '+origin.replace('https://','')); })
     .catch(function(){ toast('Erro ao copiar',false); });
 }
 function saveLink(){
@@ -3649,14 +3709,14 @@ var CK_LINKS=[];       // links com regras (offer/white/paises/pixel)
 var CK_PIXELS=[];      // pixels disponíveis para o dropdown
 var CK_CUR=null;       // slug do link selecionado
 var CK_LAYERS=[
-  ['blockDatacenter','Datacenter & ByteDance','Bloqueia IPs de datacenter e ASNs do TikTok/ByteDance'],
-  ['blockHeadless','Navegador headless','Detecta HeadlessChrome, automação e Client Hints falsos'],
-  ['checkHeaders','Headers HTTP','Exige cabeçalhos de navegador real (Accept, Sec-Fetch)'],
-  ['requireJsChallenge','Desafio JavaScript','Token HMAC que só um navegador real devolve'],
-  ['checkWebgl','WebGL & Canvas','Detecta renderizadores de software (SwiftShader) de sandbox'],
-  ['checkTimezone','Fuso vs. localização','Compara o fuso do navegador com o país do IP'],
-  ['checkBehavior','Comportamento','Mede interação real: mouse, scroll, toque e tempo'],
-  ['blockZhLang','Idioma chinês fora de rota','Sinaliza accept-language chinês fora do bloco CN']
+  ['blockDatacenter','Servidores e rede do TikTok','Bloqueia acessos que vêm de servidores (data centers) e da própria rede do TikTok — é de lá que saem os revisores de anúncios.'],
+  ['blockHeadless','Robôs automatizados','Detecta navegadores controlados por robô, sem tela, usados para varrer páginas automaticamente.'],
+  ['checkHeaders','Assinatura de navegador real','Confere se o acesso tem a "identidade" que todo navegador de verdade envia. Programas simples não têm.'],
+  ['requireJsChallenge','Teste de navegador real','Faz um pequeno teste invisível que só um navegador de verdade consegue responder. Robôs falham.'],
+  ['checkWebgl','Placa de vídeo de verdade','Verifica se o aparelho tem uma placa de vídeo real. Robôs costumam usar uma simulada (falsa).'],
+  ['checkTimezone','Horário x país do acesso','Compara o horário do aparelho com o país de onde o acesso vem. Se não bate, é suspeito.'],
+  ['checkBehavior','Comportamento humano','Mede sinais de gente real: movimento do mouse, rolagem, toque na tela e tempo na página.'],
+  ['blockZhLang','Aparelho em idioma suspeito','Sinaliza aparelhos configurados em chinês fora da China — padrão comum nas contas de revisão.']
 ];
 function loadCloakConfig(){
   fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
@@ -4711,7 +4771,7 @@ function trackerSnippet(){ return '<script src="'+location.origin+'/t.js" defer>
 })();
 document.getElementById('tk-copy').addEventListener('click',function(){
   navigator.clipboard.writeText(trackerSnippet())
-    .then(function(){ toast('Snippet copiado \u2014 cole na p\u00e1gina externa'); })
+    .then(function(){ toast('Script copiado \u2014 cole no <head> das suas p\u00e1ginas'); })
     .catch(function(){ toast('Clipboard indispon\u00edvel',false); });
 });
 document.getElementById('reset-btn').addEventListener('click',function(){
