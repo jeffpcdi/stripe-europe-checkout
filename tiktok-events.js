@@ -303,6 +303,7 @@ async function sendToPixel(pixel, p) {
       const json = await resp.json().catch(() => ({}));
       const ok = json && json.code === 0;
       pushLog({
+        acc: pixel.acc || null,
         pixel: pixel.slug || pixel.pixelCode,
         event: p.event,
         eventId,
@@ -318,6 +319,7 @@ async function sendToPixel(pixel, p) {
     }
   }
   pushLog({
+    acc: pixel.acc || null,
     pixel: pixel.slug || pixel.pixelCode,
     event: p.event,
     eventId,
@@ -335,12 +337,15 @@ async function sendToPixel(pixel, p) {
 
 /**
  * Dispara um evento para TODOS os pixels ativos que aceitam esse evento na rota.
+ * Multi-tenant: quando accountId é informado, só dispara para os pixels da conta.
  * @param {string} eventName
  * @param {object} p           Payload (identidade, valor, url…)
  * @param {string} [routeHint] Rota para filtrar pixels (padrão '*')
+ * @param {string} [accountId] Conta dona dos pixels (isola tenants)
  */
-async function dispatchToAll(eventName, p, routeHint) {
-  const targets = pixelStore.forEvent(eventName, routeHint || '*');
+async function dispatchToAll(eventName, p, routeHint, accountId) {
+  const acc = accountId || p.acc || null;
+  const targets = pixelStore.forEvent(acc, eventName, routeHint || '*');
   if (!targets.length) return { dispatched: 0 };
   // allSettled: um pixel com problema NUNCA derruba o disparo dos demais
   const settled = await Promise.allSettled(
@@ -375,7 +380,7 @@ async function testPixel(pixel, ctx) {
 
 // Compat: assinatura antiga (1 pixel via env). Redireciona para dispatchToAll.
 async function sendTikTokEvent(p) {
-  return dispatchToAll(p.event, p, p.route || '*');
+  return dispatchToAll(p.event, p, p.route || '*', p.acc || null);
 }
 
 module.exports = {

@@ -5,10 +5,10 @@
 // persistida no config store (Neon); a env PUSHCUT_WEBHOOK_URL é fallback.
 // O nome final da notificação (/notifications/<Nome>) é trocado por evento,
 // permitindo criar notificações separadas no app Pushcut (Aprovada, Recusada, etc.).
-function baseEndpoint() {
+function baseEndpoint(accountId) {
   let url = null;
   try {
-    const pc = require('./config').get().pushcut || {};
+    const pc = require('./config').get(accountId).pushcut || {};
     if (pc.url) url = pc.url;
   } catch (_) {}
   if (!url) url = process.env.PUSHCUT_WEBHOOK_URL || null;
@@ -22,9 +22,9 @@ function baseEndpoint() {
  * @param {string} notificationName - nome da notificação no Pushcut (ex.: 'Aprovada')
  * @param {object} payload - { title, text, ...extras aceitos pela API do Pushcut }
  */
-async function sendPushcut(notificationName, payload) {
+async function sendPushcut(notificationName, payload, accountId) {
   try {
-    const base = baseEndpoint();
+    const base = baseEndpoint(accountId);
     if (!base) return false; // sem webhook configurado — silenciosamente off
     const url = base + encodeURIComponent(notificationName || 'Aprovada');
     const res = await fetch(url, {

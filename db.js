@@ -219,6 +219,16 @@ async function countAccounts() {
   } catch (err) { console.error('[db] countAccounts:', err.message); return -1; }
 }
 
+// Conta padrão para tráfego público sem domínio mapeado: o primeiro admin
+// (ou a conta mais antiga). Usado por publicAccountId() no server.js.
+async function getFirstAccountId() {
+  if (!enabled) return null;
+  try {
+    const rows = await sql`SELECT id FROM accounts ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1`;
+    return rows.length ? rows[0].id : null;
+  } catch (err) { console.error('[db] getFirstAccountId:', err.message); return null; }
+}
+
 // Migração: atribui todos os dados legados (account_id IS NULL) à conta
 // informada (o primeiro admin). Idempotente — roda no registro do 1º usuário.
 async function claimLegacyData(accountId) {
@@ -643,7 +653,7 @@ module.exports = {
   isReady: () => ready,
   init, initWithRetry,
   // contas / auth / migração
-  createAccount, getAccountByEmail, getAccountById, countAccounts, claimLegacyData,
+  createAccount, getAccountByEmail, getAccountById, countAccounts, getFirstAccountId, claimLegacyData,
   createAuthSession, getAuthSession, deleteAuthSession, pruneAuthSessions,
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
