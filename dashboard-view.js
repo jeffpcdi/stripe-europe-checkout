@@ -301,12 +301,14 @@ input:checked+.slider:before{transform:translateX(18px)}
 .select,.inp{background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 12px;font-family:inherit;font-size:13.5px;outline:none;transition:all .2s cubic-bezier(.2,.8,.2,1)}
 .select::placeholder,.inp::placeholder{color:var(--text-muted)}
 .select:focus,.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light), inset 0 1px 1px rgba(0,0,0,0.2);background:var(--card)}
-.btn{position:relative;background:var(--accent);color:#08080a;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:9px 16px;font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;transition:all .2s cubic-bezier(.2,.8,.2,1);box-shadow:0 4px 16px rgba(37,244,238,0.25), inset 0 1px 0 rgba(255,255,255,0.18)}
-.btn:hover{background:var(--accent-dark);box-shadow:0 6px 20px rgba(37,244,238,0.35), inset 0 1px 0 rgba(255,255,255,0.25);transform:translateY(-1.5px)}
-.btn:active{transform:translateY(0) scale(.98);box-shadow:0 2px 8px rgba(37,244,238,0.2)}
+/* padrão = botão secundário discreto (Cancelar, Validar, etc.) */
+.btn{position:relative;background:var(--card2);color:var(--text);border:1px solid var(--border2);border-radius:10px;padding:9px 16px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:all .18s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{background:var(--hover);border-color:var(--muted2);color:var(--text)}
+.btn:active{transform:scale(.98)}
 .btn svg{width:16px;height:16px;display:block}
-.btn.primary{background:var(--accent);color:#fff;border-color:transparent}
-.btn.primary:hover{filter:brightness(1.08)}
+/* .primary = ação principal em accent, texto escuro consistente e brilho contido */
+.btn.primary{background:var(--accent);color:#08080a;border-color:transparent;font-weight:700;box-shadow:none}
+.btn.primary:hover{background:var(--accent-dark);color:#08080a;filter:none}
 .btn.danger{border-color:rgba(239,68,68,.3);color:var(--error);background:transparent}
 .btn.danger:hover{background:var(--error-light);border-color:rgba(239,68,68,.5);transform:translateY(-1.5px)}
 .btn-sm{padding:5px 11px;font-size:12px;border-radius:8px}
@@ -1206,10 +1208,10 @@ html[data-liquid-glass] #nav-gota{
 
 /* Badge de alerta — estático (sem loop; o número já comunica) */
 
-/* Botões — clique tátil + brilho */
+/* Botões — clique tátil discreto */
 .btn{transition:background .15s,transform .1s,box-shadow .18s,filter .15s}
 .btn:active,.btn-icon:active,.segment button:active{transform:scale(.95)}
-.btn.primary:hover{box-shadow:0 10px 26px -10px rgba(47,125,255,.6)}
+.btn.primary:hover{box-shadow:0 4px 14px -6px rgba(37,244,238,.35)}
 .btn-icon{transition:color .15s,border-color .15s,background .15s,transform .1s}
 #refresh-btn.spinning svg{animation:spin .8s linear infinite}
 
@@ -1745,11 +1747,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="ck-adv-body">
                 <p class="hint" style="margin:0 0 12px;line-height:1.7">Formato completo da linha (tudo opcional al&eacute;m da URL):<br><code>nome | URL | peso % | URL celular</code><br>Com a URL celular preenchida, computador vai para a principal e celular vai para a alternativa.</p>
-                <div class="form-row">
-                  <label>White Page <span class="hint">— para onde revisores/bots do TikTok s&atilde;o enviados</span></label>
-                  <input class="inp" id="lk-whitepage" placeholder="https://seudominio.com/pagina-neutra" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
-                  <p class="hint" style="margin-top:6px">Vazio = sem cloaking neste link.</p>
-                </div>
                 <div class="form-row" style="margin-bottom:0">
                   <label>Validar dom&iacute;nio do checkout</label>
                   <div style="display:flex;gap:8px;align-items:center">
@@ -3621,7 +3618,6 @@ function showLinkForm(l){
   var splitB=vs[1]?(vs[1].peso||50):50;
   var sp=document.getElementById('lk-ab-split'); if(sp) sp.value=splitB;
   updateAbSplitLabel(splitB);
-  document.getElementById('lk-whitepage').value=l?(l.urlWhitePage||''):'';
   document.getElementById('lk-domain').value=l?(l.dominio||''):'';
   document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
   document.getElementById('lk-active').checked=l?!!l.ativo:true;
@@ -3756,11 +3752,14 @@ function delDomain(host){
   });
 }
 function saveLink(){
+  var editSlug=document.getElementById('lk-slug').value||undefined;
+  // white page é configurada no Filtro de Bots; aqui só preservamos o valor existente
+  var existing=editSlug?LK_LIST.filter(function(x){return x.slug===editSlug;})[0]:null;
   var body={
-  slug:document.getElementById('lk-slug').value||undefined,
+  slug:editSlug,
   nome:document.getElementById('lk-name').value,
   variantes:parseVariantLines(),
-  urlWhitePage:document.getElementById('lk-whitepage').value.trim()||undefined,
+  urlWhitePage:existing?existing.urlWhitePage:undefined,
   dominio:document.getElementById('lk-domain').value.trim(),
   ativo:document.getElementById('lk-active').checked
   };
