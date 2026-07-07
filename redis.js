@@ -488,10 +488,23 @@ function redisRandId() {
 // ttclid reaparecer com contexto divergente, é replay → sinaliza para a white.
 // Retorna { firstSeen, reused, ctx } — reused=true quando diverge do 1º contexto.
 const TTCLID_TTL = 12 * 3600;
+const ttclidMem = new Map(); // fallback SEM Redis: ttclid -> { ctx, exp } (single-instance)
 async function checkTtclidContext(ttclid, ctx) {
-  if (!enabled || !ttclid) return { firstSeen: true, reused: false };
-  const key = 'ttclid:' + String(ttclid).slice(0, 80);
+  if (!ttclid) return { firstSeen: true, reused: false };
   const fp = String(ctx || '').slice(0, 40);
+  // Sem Redis: mantém o anti-replay em memória local. Não é compartilhado entre
+  // instâncias, mas barra o replay do MESMO processo (melhor que não barrar nada).
+  if (!enabled) {
+    const now = Date.now();
+    if (ttclidMem.size > 5000) { for (const [k, v] of ttclidMem) { if (v.exp < now) ttclidMem.delete(k); } }
+    const cur = ttclidMem.get(ttclid);
+    if (!cur || cur.exp < now) {
+      ttclidMem.set(ttclid, { ctx: fp, exp: now + TTCLID_TTL * 1000 });
+      return { firstSeen: true, reused: false, ctx: fp };
+    }
+    return { firstSeen: false, reused: cur.ctx !== fp, ctx: cur.ctx };
+  }
+  const key = 'ttclid:' + String(ttclid).slice(0, 80);
   try {
     // 1ª vez: grava contexto e retorna firstSeen. NX garante atomicidade.
     const set = await redis.set(key, fp, { ex: TTCLID_TTL, nx: true });
@@ -506,12 +519,25 @@ async function checkTtclidContext(ttclid, ctx) {
 // N acessos do mesmo IP/ASN/ttclid em poucos segundos = device farm ou revisão
 // automatizada. INCR + EXPIRE numa chave por janela dá um contador durável e
 // multi-instância. Retorna a contagem atual (1 = primeiro na janela).
+const velMem = new Map(); // fallback SEM Redis: key -> { n, exp } (single-instance)
 async function bumpVelocity(kind, id, windowSec) {
-  if (!enabled || !id) return 0;
+  if (!id) return 0;
+  const win = windowSec || 60;
+  // Sem Redis: contagem por janela em memória local. Barra device farm no mesmo
+  // processo; sem compartilhamento entre instâncias, mas melhor que ignorar.
+  if (!enabled) {
+    const now = Date.now();
+    if (velMem.size > 5000) { for (const [k, v] of velMem) { if (v.exp < now) velMem.delete(k); } }
+    const key = kind + ':' + String(id).slice(0, 60);
+    const cur = velMem.get(key);
+    if (!cur || cur.exp < now) { velMem.set(key, { n: 1, exp: now + win * 1000 }); return 1; }
+    cur.n += 1;
+    return cur.n;
+  }
   const key = 'vel:' + kind + ':' + String(id).slice(0, 60);
   try {
     const n = await redis.incr(key);
-    if (n === 1) await redis.expire(key, windowSec || 60);
+    if (n === 1) await redis.expire(key, win);
     return Number(n) || 0;
   } catch (_) { return 0; }
 }

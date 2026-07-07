@@ -916,6 +916,15 @@ app.get('/c/:slug', async (req, res) => {
     const qs = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
     return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
   };
+  // Igual ao go(), mas garante o vid na query do destino. O tracker (/t.js) dá
+  // preferência ao ?vid= da URL, então a página de destino (offer) amarra os
+  // sinais do browser a ESTE visitante mesmo em outro domínio (cookie não cruza).
+  const goWithVid = (url, vid) => {
+    const params = new URLSearchParams(req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '');
+    if (vid && !params.get('vid')) params.set('vid', vid);
+    const qs = params.toString();
+    return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
+  };
 
   // Crawler conhecido → página segura (nunca à offer)
   if (uaTools.isBot(uaRaw)) {
@@ -946,6 +955,33 @@ app.get('/c/:slug', async (req, res) => {
   const aggressive = entry.sensitivity === 'strict';
   const adClickOk = aggressive ? isWebview : (fromTikTok || validTtclid);
 
+  // ── Identidade do visitante (habilita sticky + atribuição no destino) ──────
+  // O /c não assinava cookie; sem um id estável, o veredito sticky e os sinais
+  // 2026 coletados na página de destino (via /t.js → /api/cloakcheck) não podiam
+  // ser amarrados a este visitante. Costura: usa ?vid válido (encurtador/clique)
+  // ou gera um novo, gravando o cookie ANTES do redirect.
+  let cloakVid = readCookie(req, 'v_id') || '';
+  if (q.vid && VID_RE.test(String(q.vid))) {
+    cloakVid = String(q.vid);
+    if (readCookie(req, 'v_id') !== cloakVid) appendCookie(res, 'v_id=' + cloakVid + ';Path=/;Max-Age=7776000;SameSite=Lax');
+  } else if (!cloakVid) {
+    cloakVid = 'ld_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    appendCookie(res, 'v_id=' + cloakVid + ';Path=/;Max-Age=7776000;SameSite=Lax');
+  }
+
+  // ── Veredito STICKY (só bot) — mesmo comportamento do /go/ ─────────────────
+  // Visitante já condenado antes (score alto OU o beacon /api/cloakcheck flagrou
+  // WebGL de software / webview falsificada) vai direto à white, sem re-rodar o
+  // judge e sem oscilar offer↔white. Nunca cacheamos 'real' (fail-safe).
+  if (cloakOn && cloakVid) {
+    const sticky = await redis.getStickyBot(cloakVid).catch(() => null);
+    if (sticky) {
+      stats.logEvent('info', { acc, title: '[cloak] sticky bot → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      bumpDecision('white', 'sticky');
+      return go(white);
+    }
+  }
+
   // Gate "apenas celular" (default LIGADO): desktop/notebook nunca vê a offer.
   if (cloakOn && entry.mobileOnly !== false && !isMobile) {
     stats.logEvent('info', { acc, title: '[cloak] ' + (dev.device || 'desktop') + ' (não-celular) → white', gateway: 'cloak:' + entry.slug, ref: dev.device || 'desktop' });
@@ -962,13 +998,17 @@ app.get('/c/:slug', async (req, res) => {
     return go(white);
   }
 
-  // Anti-replay + velocity (só quando cloaking ligado e há Redis). O revisor
-  // que captura a URL reusa o MESMO ttclid de outra rede/dispositivo; e device
-  // farms martelam o link várias vezes por minuto. Ambos caem na white.
-  if (cloakOn && redis.enabled) {
+  // Anti-replay + velocity (sempre que o cloaking está ligado). O revisor que
+  // captura a URL reusa o MESMO ttclid de outra rede/dispositivo; e device farms
+  // martelam o link várias vezes por minuto. Ambos caem na white. Sem Redis, o
+  // redis.js usa fallback em memória (single-instance) — melhor que não barrar.
+  if (cloakOn) {
     try {
       const ip = clientIp(req);
-      const asn = (await botFilter.lookupASN(ip).catch(() => ({ asn: 0 }))).asn || 0;
+      // ASN só com Redis: evita o custo de DNS no caminho quente quando não há
+      // Redis. Sem ASN, o contexto do ttclid usa só o tipo de device (ainda barra
+      // reuso do mesmo ttclid entre celular/desktop).
+      const asn = redis.enabled ? ((await botFilter.lookupASN(ip).catch(() => ({ asn: 0 }))).asn || 0) : 0;
       // 1) ttclid de uso único: contexto = ASN + tipo de device do 1º clique
       if (entry.requireAdClick !== false && validTtclid) {
         const ctx = asn + ':' + (isMobile ? 'm' : 'd');
@@ -1010,23 +1050,29 @@ app.get('/c/:slug', async (req, res) => {
 
   // Motor de score — recebe a config do PRÓPRIO link como cloakCfg
   if (cloakOn) {
-    const filterVid = readCookie(req, 'v_id') || '';
-    const lead0 = (() => { try { return stats.getLead(filterVid) || {}; } catch (_) { return {}; } })();
+    const lead0 = (() => { try { return stats.getLead(cloakVid) || {}; } catch (_) { return {}; } })();
     const challengeToken = lead0.cloakChallenge === 'ok'
-      ? botFilter.issueChallengeToken(filterVid)
+      ? botFilter.issueChallengeToken(cloakVid)
       : (lead0.cloakChallenge === 'fail' ? '' : null);
     const challengeData = buildCloakChallengeData(lead0);
     const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
-    const j = await botFilter.judge(filterReq, filterVid, challengeToken, challengeData, entry)
+    const j = await botFilter.judge(filterReq, cloakVid, challengeToken, challengeData, entry)
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
     if (j.verdict === 'bot') {
       stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
       bumpDecision('white', 'score');
+      // Memoriza o veredito por visitante (só score alto/forte): próximas visitas
+      // curto-circuitam no gate sticky acima, sem re-rodar o judge.
+      if (cloakVid && j.score >= (j.threshold || 40)) {
+        redis.setStickyBot(cloakVid, { at: Date.now(), score: j.score, sig: (j.signals || []).slice(0, 3) }).catch(() => {});
+      }
       return go(white);
     }
   }
   if (cloakOn) bumpDecision('offer', null);
-  return go(offer);
+  // Encaminha o vid ao destino para o tracker da offer amarrar os sinais do
+  // browser a ESTE visitante (habilita sticky/atribuição sem cookie de terceiros).
+  return goWithVid(offer, cloakVid);
 });
 
 // ── Encurtador rastreável (/l/:slug) ─────────────────────────────────
