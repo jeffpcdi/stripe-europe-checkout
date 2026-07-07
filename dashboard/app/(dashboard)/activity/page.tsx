@@ -1,5 +1,5 @@
-import { ViewPlaceholder } from '@/components/view-placeholder'
+import { ActivityView } from '@/components/activity/activity-view'
 
 export default function ActivityPage() {
-  return <ViewPlaceholder view="Atividade" />
+  return <ActivityView />
 }

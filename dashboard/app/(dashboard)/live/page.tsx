@@ -1,5 +1,5 @@
-import { ViewPlaceholder } from '@/components/view-placeholder'
+import { LiveView } from '@/components/live/live-view'
 
 export default function LivePage() {
-  return <ViewPlaceholder view="Ao Vivo" />
+  return <LiveView />
 }

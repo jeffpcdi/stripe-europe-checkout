@@ -1,7 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
-import type { StatsResponse, HealthResponse } from './types'
+import type { StatsResponse, HealthResponse, LiveResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -25,6 +25,15 @@ const POLL_MS = 12_000
 export function useStats() {
   return useSWR<StatsResponse>('/api/stats', fetcher, {
     refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Presença ao vivo: ritmo mais rápido (5s), como a aba Ao Vivo legada
+export function useLive() {
+  return useSWR<LiveResponse>('/api/live', fetcher, {
+    refreshInterval: 5_000,
     revalidateOnFocus: true,
     keepPreviousData: true,
   })

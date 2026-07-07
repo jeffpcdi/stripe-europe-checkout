@@ -19,6 +19,7 @@ export interface PeriodMetrics {
   avgTicket: number
   countries: { code: string; name: string; count: number; purchased: number }[]
   series: { day: string; revenue: number; sales: number; visits: number }[]
+  byGateway: { name: string; checkout: number; purchased: number }[]
 }
 
 export function periodStart(period: Period, now = new Date()): Date | null {
@@ -115,6 +116,17 @@ export function aggregate(
     countryMap.set(l.country, c)
   }
 
+  // Funil por gateway — mesma lógica do byGateway do stats.js, mas por período
+  const gwMap = new Map<string, { name: string; checkout: number; purchased: number }>()
+  for (const l of leads) {
+    if (!l.gateway) continue
+    if (l.stage !== 'checkout' && l.stage !== 'purchased') continue
+    const g = gwMap.get(l.gateway) ?? { name: l.gateway, checkout: 0, purchased: 0 }
+    g.checkout++
+    if (l.stage === 'purchased') g.purchased++
+    gwMap.set(l.gateway, g)
+  }
+
   const attempts = sales + failed
   const mainCur =
     Object.entries(rev).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'EUR'
@@ -139,6 +151,7 @@ export function aggregate(
     avgTicket: sales ? Math.round(totalRev / sales) : 0,
     countries: [...countryMap.values()].sort((a, b) => b.count - a.count),
     series,
+    byGateway: [...gwMap.values()].sort((a, b) => b.checkout - a.checkout),
   }
 }
 
