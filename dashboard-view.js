@@ -2927,7 +2927,7 @@ function renderGeo(m){
       '<div class="cval">'+c.count+'</div></div>';
   }).join(''):'<div class="empty">Sem dados de pa&iacute;s ainda.</div>';
 }
-// ── Lazy load da lib globe.gl (three.js ~1MB): só baixa quando um globo
+// ─�� Lazy load da lib globe.gl (three.js ~1MB): só baixa quando um globo
 // vai realmente ser desenhado, tirando o peso do carregamento inicial ──
 var GLOBE_LIB_LOADING=false, GLOBE_LIB_WAITERS=[];
 function ensureGlobeLib(cb){
@@ -3835,6 +3835,7 @@ function dmTutVerify(){
           ?'DNS propagado! Falta o certificado/app responder \u2014 tente novamente em instantes.'
           :(d.dnsDetail||d.httpDetail||'O registro ainda n\u00e3o foi encontrado.');
         var wb=document.getElementById('dmtut-warn');
+        if(!/[.!?]$/.test(det)) det+='.';
         if(wb){ wb.style.display='block'; wb.innerHTML='<b>Ainda n\u00e3o propagou</b><p>'+esc(det)+' A propaga\u00e7\u00e3o pode levar de alguns minutos at\u00e9 algumas horas.</p>'; }
         btn.disabled=false; btn.textContent='Verificar novamente';
       }
@@ -5019,7 +5020,7 @@ function toast(msg,ok){
   setTimeout(function(){t.className='toast';},2800);
 }
 
-/* ── Exportação CSV ── */
+/* ── Exportação CSV ─��� */
 function downloadCSV(name,rows){
   var NL=String.fromCharCode(10);
   var csv=rows.map(function(r){ return r.map(function(c){ c=(c==null?'':String(c)); if(/[",;\\n]/.test(c)) c='"'+c.replace(/"/g,'""')+'"'; return c; }).join(';'); }).join(NL);
