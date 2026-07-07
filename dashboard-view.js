@@ -4070,33 +4070,36 @@ function renderCloakEditor(l,isNew){
       '<label class="hint">Rigor da filtragem: <b id="cke-threshold-val">'+(l.threshold||40)+'</b> — quanto menor, mais acessos são barrados</label>'+
       '<input type="range" id="cke-threshold" min="10" max="90" value="'+(l.threshold||40)+'" style="width:100%">'+
     '</div>'+
-    // Gates de intenção: quem realmente pode chegar à offer
-    '<div class="ck-gates" style="margin-top:16px;display:flex;flex-direction:column;gap:10px">'+
-      '<div class="ck-layer'+(l.mobileOnly!==false?' on':'')+'">'+
-        '<div class="ck-l-body"><b>Apenas celulares</b><span>Desktop e notebook vão para a white page. Só mobile chega à offer.</span></div>'+
-        '<label class="switch"><input type="checkbox" id="cke-mobileonly"'+(l.mobileOnly!==false?' checked':'')+'><span class="slider"></span></label>'+
-      '</div>'+
-      '<div class="ck-layer'+(l.requireAdClick!==false?' on':'')+'">'+
-        '<div class="ck-l-body"><b>Exigir clique no anúncio do TikTok</b><span>Só quem clicou no anúncio (webview do app ou ttclid) vai à offer. Copiar/colar o link no navegador cai na white.</span></div>'+
-        '<label class="switch"><input type="checkbox" id="cke-adclick"'+(l.requireAdClick!==false?' checked':'')+'><span class="slider"></span></label>'+
-      '</div>'+
-    '</div>'+
+    // Essencial: os dois destinos (o resto vai para "Opções avançadas")
     '<div class="ck-rule" style="margin-top:16px">'+
       '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+
         '<input class="inp" id="cke-offer" type="url" placeholder="https://sua-offer.com" value="'+esc(l.offerUrl||'')+'" style="width:100%"></div>'+
       '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
         '<input class="inp" id="cke-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.whitePageUrl||'')+'" style="width:100%"></div>'+
-      '<details class="ck-field full geo-collapse"><summary><b>Países liberados para a offer</b> <span class="hint" id="ck-pais-count">'+ckPaisSummary(l)+'</span></summary>'+
-        '<p class="hint" style="margin:8px 0 10px">Escolha um preset. Quem estiver fora dos países liberados vai para a white page.</p>'+
-        renderPaisPresets(l)+
-        '<div id="cke-pais-custom" style="margin-top:12px;display:'+(ckPaisPreset(l)==='custom'?'block':'none')+'">'+renderPaisGrid(l)+'</div>'+
-      '</details>'+
-      '<details class="ck-field full geo-collapse"><summary><b>Idiomas liberados para a offer</b> <span class="hint" id="ck-idioma-count">'+ckIdiomaSummary(l)+'</span></summary>'+
-        '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page.</p>'+
-        renderIdiomaGrid(l)+'</details>'+
     '</div>'+
-    '<details class="ck-adv" style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;color:var(--muted2)">Camadas de detecção — ligue/desligue cada sinal</summary>'+
-      '<div class="ck-layers" id="cke-layers" style="margin-top:12px">'+layers+'</div>'+
+    // Opções avançadas: gates de intenção, país/idioma e sinais de detecção
+    '<details class="ck-adv" style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;color:var(--muted2)">Opções avançadas <span class="hint">— filtros de dispositivo, país, idioma e detecção</span></summary>'+
+      '<div class="ck-adv-body" style="margin-top:12px;display:flex;flex-direction:column;gap:10px">'+
+        '<div class="ck-layer'+(l.mobileOnly!==false?' on':'')+'">'+
+          '<div class="ck-l-body"><b>Apenas celulares</b><span>Desktop e notebook vão para a white page. Só mobile chega à offer.</span></div>'+
+          '<label class="switch"><input type="checkbox" id="cke-mobileonly"'+(l.mobileOnly!==false?' checked':'')+'><span class="slider"></span></label>'+
+        '</div>'+
+        '<div class="ck-layer'+(l.requireAdClick!==false?' on':'')+'">'+
+          '<div class="ck-l-body"><b>Exigir clique no anúncio do TikTok</b><span>Só quem clicou no anúncio (webview do app ou ttclid) vai à offer. Copiar/colar o link no navegador cai na white.</span></div>'+
+          '<label class="switch"><input type="checkbox" id="cke-adclick"'+(l.requireAdClick!==false?' checked':'')+'><span class="slider"></span></label>'+
+        '</div>'+
+        '<details class="ck-field full geo-collapse"><summary><b>Países liberados para a offer</b> <span class="hint" id="ck-pais-count">'+ckPaisSummary(l)+'</span></summary>'+
+          '<p class="hint" style="margin:8px 0 10px">Escolha um preset. Quem estiver fora dos países liberados vai para a white page.</p>'+
+          renderPaisPresets(l)+
+          '<div id="cke-pais-custom" style="margin-top:12px;display:'+(ckPaisPreset(l)==='custom'?'block':'none')+'">'+renderPaisGrid(l)+'</div>'+
+        '</details>'+
+        '<details class="ck-field full geo-collapse"><summary><b>Idiomas liberados para a offer</b> <span class="hint" id="ck-idioma-count">'+ckIdiomaSummary(l)+'</span></summary>'+
+          '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page.</p>'+
+          renderIdiomaGrid(l)+'</details>'+
+        '<details class="ck-field full geo-collapse"><summary><b>Camadas de detecção</b> <span class="hint">— ligue/desligue cada sinal</span></summary>'+
+          '<div class="ck-layers" id="cke-layers" style="margin-top:12px">'+layers+'</div>'+
+        '</details>'+
+      '</div>'+
     '</details>'+
     '<div style="display:flex;gap:10px;margin-top:16px;align-items:center">'+
       '<button class="btn primary" id="cke-save" data-new="'+(isNew?'1':'')+'">'+(isNew?'Criar link':'Salvar alterações')+'</button>'+
@@ -4231,6 +4234,8 @@ function bindCloakEditor(){
     var s=b.getAttribute('data-s');
     var wrap=document.getElementById('cke-threshold-wrap'); if(wrap) wrap.style.display=(s==='custom')?'block':'none';
     var d=document.getElementById('cke-sens-desc'); if(d) d.textContent=CK_SENS_DESC[s]||'';
+    // no modo Manual, abre as Opções avançadas para revelar as camadas de detecção
+    if(s==='custom'){ var adv=b.closest('.ck-editor-wrap, .ck-card, form, body').querySelector('details.ck-adv'); if(adv) adv.open=true; }
   });
   var rng=document.getElementById('cke-threshold');
   if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('cke-threshold-val'); if(tv) tv.textContent=this.value; });
