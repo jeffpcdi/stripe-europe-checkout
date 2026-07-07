@@ -7,6 +7,15 @@ import type {
   LiveResponse,
   LinksResponse,
   DomainsResponse,
+  PixelsResponse,
+  PixelLogResponse,
+  PixelHealthResponse,
+  EmqTrendResponse,
+  GatewaysResponse,
+  ConversionLogResponse,
+  CloakConfig,
+  CloakStatsResponse,
+  CloakEntriesResponse,
 } from './types'
 
 export class ApiError extends Error {
@@ -61,6 +70,71 @@ export function useLinks() {
 
 export function useDomains() {
   return useSWR<DomainsResponse>('/api/domains', fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+export function usePixels() {
+  return useSWR<PixelsResponse>('/api/pixels', fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Log de disparos CAPI: poll no mesmo ritmo do stats (12s)
+export function usePixelLog() {
+  return useSWR<PixelLogResponse>('/api/pixels/log', fetcher, {
+    refreshInterval: POLL_MS,
+    keepPreviousData: true,
+  })
+}
+
+export function usePixelHealth() {
+  return useSWR<PixelHealthResponse>('/api/pixels/health', fetcher, {
+    refreshInterval: POLL_MS,
+    keepPreviousData: true,
+  })
+}
+
+// Tendência de EMQ muda no máximo 1x/dia — sem polling agressivo
+export function useEmqTrend() {
+  return useSWR<EmqTrendResponse>('/api/pixels/emq-trend', fetcher, {
+    refreshInterval: 60_000,
+    keepPreviousData: true,
+  })
+}
+
+export function useGateways() {
+  return useSWR<GatewaysResponse>('/api/gateways', fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+export function useConversionLog() {
+  return useSWR<ConversionLogResponse>('/api/conversion/log', fetcher, {
+    refreshInterval: POLL_MS,
+    keepPreviousData: true,
+  })
+}
+
+export function useCloakConfig() {
+  return useSWR<CloakConfig>('/api/cloak-config', fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+export function useCloakStats() {
+  return useSWR<CloakStatsResponse>('/api/cloak/stats', fetcher, {
+    refreshInterval: POLL_MS,
+    keepPreviousData: true,
+  })
+}
+
+export function useCloakEntries() {
+  return useSWR<CloakEntriesResponse>('/api/cloak/entries', fetcher, {
     revalidateOnFocus: true,
     keepPreviousData: true,
   })

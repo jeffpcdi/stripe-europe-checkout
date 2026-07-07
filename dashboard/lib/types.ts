@@ -186,3 +186,222 @@ export interface DomainVerifyResult {
   reconectado?: boolean
   dnsRecords?: { type: string; name: string; value: string }[] | null
 }
+
+// ── /api/pixels — pixels TikTok + CAPI (pixel-store.js) ──
+export interface PixelEvents {
+  ViewContent: boolean
+  InitiateCheckout: boolean
+  AddPaymentInfo: boolean
+  CompletePayment: boolean
+  AddToCart: boolean
+}
+
+export interface Pixel {
+  slug: string
+  acc?: string | null
+  token: string
+  name: string
+  pixelCode: string
+  accessToken: string // mascarado na listagem: "••••abcd"
+  hasToken: boolean
+  testEventCode?: string
+  active: boolean
+  events: PixelEvents
+  scriptUrl: string | null
+  scriptTag: string | null
+  updatedAt: string
+}
+
+export interface PixelsResponse {
+  pixels: Pixel[]
+}
+
+// ── /api/pixels/log — disparos CAPI recentes ──
+export interface PixelLogRow {
+  id: string
+  at: string
+  pixel: string
+  event: string
+  eventId?: string
+  leadId?: string
+  status: 'ok' | 'error' | string
+  emq?: number | null
+  response?: { code?: number; message?: string } | null
+}
+
+export interface PixelLogResponse {
+  log: PixelLogRow[]
+  source: 'redis' | 'neon'
+}
+
+// ── /api/pixels/health — saúde da CAPI ──
+export interface PixelEventHealth {
+  event: string
+  total: number
+  ok: number
+  rate: number
+  emq: number | null
+}
+
+export interface PixelHealthResponse {
+  ok: boolean
+  total: number
+  success: number
+  rate: number | null
+  emq: number | null
+  events: PixelEventHealth[]
+  errors: { at: string; pixel: string; event: string; message: string }[]
+  retryQueue: number
+}
+
+// ── /api/pixels/emq-trend — tendência de EMQ com alerta de queda ──
+export interface EmqTrendDay {
+  day: string
+  avg: number
+  count: number
+}
+
+export interface PixelEmqTrend {
+  pixel: string
+  pixelCode: string
+  trend: EmqTrendDay[]
+  recentAvg: number | null
+  baseAvg: number | null
+  alert: 'baixo' | 'queda' | null
+}
+
+export interface EmqTrendResponse {
+  ok: boolean
+  pixels: PixelEmqTrend[]
+  alerts: number
+}
+
+// ── /api/gateways — webhooks de conversão (gateway-store.js) ──
+export interface GatewayProvider {
+  id: string
+  label: string
+  secretLabel: string
+  docs: string
+}
+
+export interface Gateway {
+  id: string
+  provider: string
+  name: string
+  webhookUrl: string
+  hasSecret: boolean
+  lastEventAt?: string | null
+  lastEventStatus?: string | null
+  createdAt: string
+}
+
+export interface GatewaysResponse {
+  providers: GatewayProvider[]
+  gateways: Gateway[]
+}
+
+// ── /api/conversion/log — webhooks recebidos ──
+export interface ConversionLogRow {
+  id?: string
+  at: string
+  acc?: string | null
+  gateway?: string
+  event?: string
+  status?: string
+  orderId?: string
+  amount?: number | string
+  currency?: string
+  email?: string
+  matched?: boolean
+  [k: string]: unknown
+}
+
+export interface ConversionLogResponse {
+  configured: boolean
+  secret: string
+  log: ConversionLogRow[]
+}
+
+// ── /api/cloak-config — configuração global do filtro de bots ──
+export type CloakSensitivity = 'strict' | 'balanced' | 'loose' | 'custom'
+
+export interface CloakConfig {
+  enabled: boolean
+  threshold: number
+  deadlineMs: number
+  sensitivity?: CloakSensitivity
+  defaultWhitePage?: string
+  blockDatacenter: boolean
+  blockHeadless: boolean
+  checkHeaders: boolean
+  requireJsChallenge: boolean
+  checkWebgl: boolean
+  checkTimezone: boolean
+  checkBehavior: boolean
+  blockZhLang: boolean
+  checkWebview: boolean
+  checkCoherence: boolean
+  checkEntropy: boolean
+  sensitivityThresholds: Record<string, number>
+}
+
+// ── /api/cloak/test — julgamento do request atual ──
+export interface CloakTestResult {
+  verdict: string
+  score: number
+  threshold: number
+  signals: string[]
+  ip: string
+  ua: string
+}
+
+// ── /api/cloak/stats — offer vs white por link ──
+export interface CloakStatItem {
+  tipo: 'go' | 'cloak'
+  slug: string
+  nome: string
+  offer: number
+  white: number
+  total: number
+  blockRate: number
+  reasons: Record<string, number>
+  daily: { day: string; offer: number; white: number }[]
+}
+
+export interface CloakStatsResponse {
+  ok: boolean
+  redis: boolean
+  aggregate: {
+    offer: number
+    white: number
+    total: number
+    blockRate: number
+    reasons: Record<string, number>
+  }
+  links: CloakStatItem[]
+}
+
+// ── /api/cloak/entries — links de cloaking dedicados (/c/:slug) ──
+export interface CloakEntry {
+  slug: string
+  nome: string
+  dominio?: string
+  offerUrl: string
+  whitePageUrl: string
+  enabled: boolean
+  mobileOnly: boolean
+  requireAdClick: boolean
+  sensitivity?: CloakSensitivity
+  threshold?: number
+  deadlineMs?: number
+  paisPreset?: string
+  paises: string[]
+  idiomas: string[]
+  criadoEm: string
+  updatedAt: string
+}
+
+export interface CloakEntriesResponse {
+  entries: CloakEntry[]
+  baseUrl: string
+}

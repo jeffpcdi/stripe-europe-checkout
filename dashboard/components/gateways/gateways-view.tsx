@@ -1,0 +1,353 @@
+'use client'
+
+import { useState } from 'react'
+import {
+  Plus,
+  Webhook,
+  Copy,
+  Check,
+  Trash2,
+  Zap,
+  CircleCheck,
+  CircleX,
+  Info,
+} from 'lucide-react'
+import { useGateways, useConversionLog, apiSend } from '@/lib/api'
+import type { Gateway, GatewayProvider } from '@/lib/types'
+import { GlassCard } from '@/components/glass-card'
+import { StatusBadge } from '@/components/status-badge'
+import { Skeleton } from '@/components/skeleton'
+import { timeAgo } from '@/lib/format'
+
+export function GatewaysView() {
+  const { data, mutate, isLoading } = useGateways()
+  const { data: convLog, mutate: mutateLog } = useConversionLog()
+
+  const [creating, setCreating] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testing, setTesting] = useState(false)
+
+  const providers = data?.providers ?? []
+  const gateways = data?.gateways ?? []
+
+  function handleCopy(id: string, url: string) {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(id)
+      setTimeout(() => setCopied(null), 2000)
+    })
+  }
+
+  async function handleDelete(g: Gateway) {
+    if (!window.confirm(`Remover o gateway "${g.name}"? Os webhooks dele deixam de ser processados.`)) return
+    await apiSend(`/api/gateways/${encodeURIComponent(g.id)}`, 'DELETE')
+    mutate()
+  }
+
+  async function handleTest() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const r = await apiSend<{ ok?: boolean; error?: string; receipt?: { status?: string; matched?: boolean } }>(
+        '/api/conversion/test',
+        'POST',
+      )
+      if (r.ok) {
+        const rc = r.receipt
+        setTestResult({
+          ok: true,
+          msg: `Fluxo OK — status "${rc?.status ?? 'paid'}"${rc?.matched ? ', lead casado' : ' (dry-run)'}`,
+        })
+        mutateLog()
+      } else {
+        setTestResult({ ok: false, msg: r.error || 'Falha no teste' })
+      }
+    } catch (e) {
+      setTestResult({ ok: false, msg: e instanceof Error ? e.message : 'Falha no teste' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
+        {/* Gateways cadastrados */}
+        <GlassCard className="p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Gateways de pagamento</h2>
+              <p className="text-xs text-muted-foreground">
+                Webhook único por gateway — cole a URL no painel do checkout
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleTest}
+                disabled={testing}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                <Zap className="size-3.5" /> {testing ? 'Testando…' : 'Testar fluxo'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-1.5 text-xs font-semibold text-black transition-opacity hover:opacity-90"
+              >
+                <Plus className="size-3.5" /> Novo gateway
+              </button>
+            </div>
+          </div>
+
+          {testResult && (
+            <p
+              className={`mb-3 flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+                testResult.ok ? 'bg-[var(--success-light)] text-success' : 'bg-destructive/10 text-destructive'
+              }`}
+              role="status"
+            >
+              {testResult.ok ? <CircleCheck className="size-3.5" /> : <CircleX className="size-3.5" />}
+              {testResult.msg}
+            </p>
+          )}
+
+          {isLoading ? (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-24" />
+              <Skeleton className="h-24" />
+            </div>
+          ) : gateways.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Nenhum gateway conectado. Adicione um para receber webhooks de conversão.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {gateways.map((g) => {
+                const prov = providers.find((p) => p.id === g.provider)
+                return (
+                  <li key={g.id} className="rounded-xl border border-border bg-secondary/40 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className="flex size-8 items-center justify-center rounded-[10px] text-[color:var(--brand-cyan)]"
+                          style={{ background: 'color-mix(in oklab, var(--brand-cyan) 14%, transparent)' }}
+                          aria-hidden="true"
+                        >
+                          <Webhook className="size-4" />
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{g.name}</p>
+                          <p className="text-[11px] text-muted-foreground">{prov?.label ?? g.provider}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {g.hasSecret && <StatusBadge status="info">assinado</StatusBadge>}
+                        {g.lastEventAt ? (
+                          <StatusBadge status={g.lastEventStatus === 'ok' ? 'success' : 'warning'}>
+                            recebeu {timeAgo(g.lastEventAt)}
+                          </StatusBadge>
+                        ) : (
+                          <StatusBadge status="neutral">sem eventos</StatusBadge>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Webhook URL para colar no gateway */}
+                    <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">
+                      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+                        {g.webhookUrl}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(g.id, g.webhookUrl)}
+                        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
+                      >
+                        {copied === g.id ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                        {copied === g.id ? 'Copiado' : 'Copiar'}
+                      </button>
+                    </div>
+
+                    {prov?.docs && (
+                      <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                        <Info className="mt-0.5 size-3 shrink-0" />
+                        {prov.docs}
+                      </p>
+                    )}
+
+                    <div className="mt-3 flex justify-end border-t border-border pt-3">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(g)}
+                        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" /> Remover
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </GlassCard>
+
+        {/* Log de webhooks recebidos */}
+        <GlassCard className="p-5">
+          <h2 className="mb-1 text-sm font-semibold text-foreground">Webhooks recebidos</h2>
+          <p className="mb-3 text-xs text-muted-foreground">Últimas conversões processadas dos seus gateways</p>
+          {!convLog || convLog.log.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Nenhum webhook recebido ainda.</p>
+          ) : (
+            <ul className="flex max-h-[32rem] flex-col gap-1 overflow-y-auto">
+              {convLog.log.map((row, i) => (
+                <li
+                  key={row.id ?? i}
+                  className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary/60"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={`size-1.5 shrink-0 rounded-full ${
+                        row.status === 'paid' || row.matched ? 'bg-success' : 'bg-muted-foreground'
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <span className="truncate font-mono text-foreground">{row.gateway ?? 'gateway'}</span>
+                    <span className="truncate text-muted-foreground">{row.status ?? row.event ?? '—'}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(row.at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </GlassCard>
+      </div>
+
+      {creating && (
+        <GatewayEditor
+          providers={providers}
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            setCreating(false)
+            mutate()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Editor inline (modal) ─────────────────────────────────────────────
+function GatewayEditor({
+  providers,
+  onClose,
+  onSaved,
+}: {
+  providers: GatewayProvider[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [provider, setProvider] = useState(providers[0]?.id ?? 'generic')
+  const [name, setName] = useState('')
+  const [secret, setSecret] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const prov = providers.find((p) => p.id === provider)
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    try {
+      await apiSend('/api/gateways', 'POST', {
+        provider,
+        name: name.trim() || undefined,
+        secret: secret.trim() || undefined,
+      })
+      onSaved()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls =
+    'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring'
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm md:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Novo gateway"
+    >
+      <GlassCard variant="thick" className="my-8 w-full max-w-lg p-6">
+        <h2 className="mb-5 text-base font-semibold text-foreground">Novo gateway de pagamento</h2>
+        <div className="flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Provedor</span>
+            <select className={inputCls} value={provider} onChange={(e) => setProvider(e.target.value)}>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Nome (opcional)</span>
+            <input
+              className={inputCls}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={prov?.label ?? 'Meu gateway'}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">{prov?.secretLabel ?? 'Segredo (opcional)'}</span>
+            <input
+              className={inputCls}
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder="deixe em branco se não usar"
+              autoComplete="off"
+            />
+          </label>
+
+          {prov?.docs && (
+            <p className="flex items-start gap-1.5 rounded-lg bg-secondary/60 px-3 py-2 text-[11px] text-muted-foreground">
+              <Info className="mt-0.5 size-3 shrink-0" />
+              {prov.docs}
+            </p>
+          )}
+
+          {error && (
+            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? 'Salvando…' : 'Criar gateway'}
+            </button>
+          </div>
+        </div>
+      </GlassCard>
+    </div>
+  )
+}

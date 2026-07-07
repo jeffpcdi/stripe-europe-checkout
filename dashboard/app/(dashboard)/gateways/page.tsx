@@ -1,5 +1,5 @@
-import { ViewPlaceholder } from '@/components/view-placeholder'
+import { GatewaysView } from '@/components/gateways/gateways-view'
 
 export default function GatewaysPage() {
-  return <ViewPlaceholder view="Gateways" />
+  return <GatewaysView />
 }
