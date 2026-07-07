@@ -256,7 +256,7 @@ app.use(async (req, res, next) => {
     if (req.method !== 'GET') return next();
     const p = req.path || '';
     if (p.startsWith('/api') || p.startsWith('/assets') || p.startsWith('/go/')
-        || p.startsWith('/c/') || p === '/dashboard') return next();
+        || p.startsWith('/c/') || p.startsWith('/__dev') || p === '/dashboard') return next();
     const accept = req.headers.accept || '';
     if (!accept.includes('text/html')) return next();          // só navegações
     if (/\.[a-z0-9]{2,5}$/i.test(p) && !p.endsWith('.html')) return next(); // ignora assets
@@ -1074,6 +1074,38 @@ app.get('/register', auth.optionalAuth(), (req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(registerPage());
 });
+
+// ── Acesso rápido para desenvolvimento (NUNCA em produção) ────────────────
+// Loga automaticamente na conta existente (ou cria uma conta dev) e cai direto
+// na dashboard, sem passar pela tela de login. Usado por v0/testes automáticos.
+// Gate: só funciona quando NODE_ENV !== 'production' → num deploy Vercel
+// (preview ou produção usam NODE_ENV=production) a rota responde 404.
+const DEV_LOGIN_ENABLED = process.env.NODE_ENV !== 'production';
+if (DEV_LOGIN_ENABLED) {
+  app.get('/__dev/login', async (req, res) => {
+    try {
+      if (!db.enabled) return res.status(503).send('DATABASE_URL não configurada.');
+      let accountId = await db.getFirstAccountId();
+      if (!accountId) {
+        // Nenhuma conta ainda: cria uma conta admin de desenvolvimento.
+        const reg = await auth.register({ email: 'dev@local.test', password: 'devdevdev', name: 'Dev' });
+        if (reg.error || !reg.account) return res.status(500).send('Falha ao criar conta dev: ' + (reg.error || ''));
+        try { config.migrateLegacyTo(reg.account.id); } catch (_) {}
+        await refreshDefaultAccount();
+        appendCookie(res, auth.sessionCookie(reg.token));
+        return res.redirect('/dashboard');
+      }
+      // Já existe conta: cria sessão real para ela e entra com os dados reais.
+      const token = await db.createAuthSession(accountId, 30);
+      appendCookie(res, auth.sessionCookie(token));
+      return res.redirect('/dashboard');
+    } catch (err) {
+      console.error('[dev-login]', err.message);
+      res.status(500).send('Erro no acesso rápido: ' + err.message);
+    }
+  });
+  console.log('[dev-login] Acesso rápido habilitado em /__dev/login (apenas desenvolvimento).');
+}
 
 app.post('/register', async (req, res) => {
   try {
