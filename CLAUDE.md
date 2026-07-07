@@ -134,7 +134,14 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `ensureGlobeLib()` só quando um globo vai renderizar (não está mais no `<head>`).
 - `GET /t.js` — snippet de tracking. `GET /px.js`, `GET /px/:token.js`,
   `GET /px.gif` — pixel do navegador. `GET /l/:slug` — shortlink. `GET /go/:slug` — redirect com cloaking (§9).
-- `GET /c/:slug` — link de cloaking dedicado (offer/white próprios por link, §9).
+- `GET /c/:slug` — link de cloaking dedicado (offer/white próprios por link, §9). Slug **aleatório**
+  (não deriva do nome). Cada link tem: `nome` (rótulo), `dominio` (opcional; a URL vira
+  `https://<dominio>/c/<slug>` — precisa apontar DNS para o app), `mobileOnly` e `requireAdClick`.
+  Gates aplicados na ordem: bot-UA → **mobileOnly** (desktop→white, default ON) → **requireAdClick**
+  (sem prova de clique no anúncio TikTok → white; prova = webview in-app OU `ttclid` OU referrer do
+  TikTok; fecha o buraco de "copiar/colar o link no navegador") → país (preset: `all`/`br`/`latam`/`eu`/
+  `custom`, `[]`=todos) → idioma → motor de score. Ambos os gates têm default LIGADO inclusive para
+  links antigos (retroativo via `boolOr(...,true)` na sanitização do config).
 - `GET /_safe` — **página neutra embutida** (fail-safe do cloaker). Destino final de bots/revisores
   quando o link não tem white page própria nem white global configurada. HTML institucional inofensivo,
   `noindex`, sem redirect nem oferta. **Bots nunca chegam à offer.**

@@ -897,6 +897,36 @@ app.get('/c/:slug', async (req, res) => {
     return go(offer);
   }
 
+  // ── Sinais de dispositivo e de ORIGEM do clique (calculados uma vez) ──────
+  const dev = uaTools.parse(uaRaw);
+  const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
+  const q = req.query || {};
+  const ref = String(req.headers['referer'] || req.headers['referrer'] || '');
+  const hasTtclid = typeof q.ttclid === 'string' && q.ttclid.trim().length > 3;
+  // Prova de que o acesso veio de um anúncio REAL do TikTok:
+  //  a) webview interno do app (musical_ly/BytedanceWebview…), OU
+  //  b) ttclid na URL (o TikTok anexa no clique do anúncio), OU
+  //  c) referrer de domínio do TikTok.
+  // Copiar/colar o link num navegador comum não tem NENHUM desses → white.
+  const fromTikTok = uaTools.isInAppTikTok(uaRaw) || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
+  const adClickOk = fromTikTok || hasTtclid;
+
+  // Gate "apenas celular" (default LIGADO): desktop/notebook nunca vê a offer.
+  if (cloakOn && entry.mobileOnly !== false && !isMobile) {
+    stats.logEvent('info', { acc, title: '[cloak] ' + (dev.device || 'desktop') + ' (não-celular) → white', gateway: 'cloak:' + entry.slug, ref: dev.device || 'desktop' });
+    bumpDecision('white', 'mobile');
+    return go(white);
+  }
+
+  // Gate do ANÚNCIO (default LIGADO): sem prova de clique real no anúncio do
+  // TikTok, vai para a white. É isto que faz "colar o link no navegador" cair
+  // na white — só quem realmente clicou no anúncio (webview OU ttclid) segue.
+  if (cloakOn && entry.requireAdClick !== false && !adClickOk) {
+    stats.logEvent('info', { acc, title: '[cloak] sem prova de clique no anúncio → white', gateway: 'cloak:' + entry.slug, ref: (ref || 'sem-referer').slice(0, 80) });
+    bumpDecision('white', 'anuncio');
+    return go(white);
+  }
+
   // Gate geográfico (instantâneo, sem DNS)
   if (cloakOn && Array.isArray(entry.paises) && entry.paises.length) {
     const cc = String(geoFromReq(req).country || '').toUpperCase();
@@ -1672,6 +1702,14 @@ app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
 const _ckSlugify = (s) => String(s || '').toLowerCase().normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 const _ckValidHttps = (u) => /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
+// Slug ALEATÓRIO (~8 chars): a URL /c/<slug> deixa de ser previsível a partir
+// do nome do link — mais difícil de adivinhar/enumerar por revisores.
+const _ckRandSlug = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 4);
+// Extrai só o hostname de um domínio digitado (aceita com ou sem https://)
+const _ckHost = (input) => {
+  const s = String(input || '').trim(); if (!s) return '';
+  try { return new URL(s.includes('://') ? s : 'https://' + s).hostname.toLowerCase(); } catch (_) { return ''; }
+};
 
 app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -1685,23 +1723,38 @@ app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
 app.post('/api/cloak/entries', dashboardAuth, (req, res) => {
   const b = req.body || {};
   const nome = String(b.nome || '').trim();
-  const slug = _ckSlugify(b.slug || nome);
-  if (!slug) return res.status(400).json({ error: 'nome do link é obrigatório' });
   if (!_ckValidHttps(b.offerUrl)) return res.status(400).json({ error: 'a offer precisa ser uma URL https:// válida' });
 
   const cur = config.get(req.account.id).cloakLinks || [];
+  // Edição: usa o slug enviado (já existe). Criação: gera slug ALEATÓRIO único.
+  let slug;
+  if (b.slug) {
+    slug = _ckSlugify(b.slug);
+  } else {
+    if (!nome) return res.status(400).json({ error: 'dê um nome ao link' });
+    do { slug = _ckRandSlug(); } while (cur.some((l) => l.slug === slug));
+  }
+  if (!slug) return res.status(400).json({ error: 'slug inválido' });
+
   const existing = cur.find((l) => l.slug === slug);
   const isNew = !existing;
 
   const entry = Object.assign({}, existing || {}, {
     slug,
-    nome: nome || slug,
+    nome: nome || (existing ? existing.nome : slug),
+    // Domínio personalizado (opcional): a URL do link vira https://<dominio>/c/<slug>.
+    // O domínio precisa apontar (DNS) para este app para o /c/:slug responder lá.
+    dominio: b.dominio !== undefined ? _ckHost(b.dominio) : (existing ? existing.dominio || '' : ''),
     offerUrl: String(b.offerUrl).trim(),
     whitePageUrl: _ckValidHttps(b.whitePageUrl) ? String(b.whitePageUrl).trim() : '',
     enabled: typeof b.enabled === 'boolean' ? b.enabled : (existing ? existing.enabled : true),
+    // Novos gates (default LIGADO, inclusive retroativo para links antigos):
+    mobileOnly: typeof b.mobileOnly === 'boolean' ? b.mobileOnly : (existing ? existing.mobileOnly !== false : true),
+    requireAdClick: typeof b.requireAdClick === 'boolean' ? b.requireAdClick : (existing ? existing.requireAdClick !== false : true),
     sensitivity: b.sensitivity,
     threshold: b.threshold,
     deadlineMs: b.deadlineMs,
+    paisPreset: typeof b.paisPreset === 'string' ? b.paisPreset : (existing ? existing.paisPreset : ''),
     paises: Array.isArray(b.paises) ? b.paises : (existing ? existing.paises : []),
     idiomas: Array.isArray(b.idiomas) ? b.idiomas : (existing ? existing.idiomas : []),
     criadoEm: existing ? existing.criadoEm : new Date().toISOString(),

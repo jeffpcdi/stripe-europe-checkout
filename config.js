@@ -224,9 +224,18 @@ function set(accountId, patch) {
       return {
         slug:               slugify(l.slug || l.nome),
         nome:               String(l.nome || l.slug || '').slice(0, 80),
+        // Domínio personalizado (só o hostname; vazio = domínio padrão).
+        dominio: (function (d) {
+          d = String(d || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
+          return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d) ? d.slice(0, 120) : '';
+        })(l.dominio),
         offerUrl:           validHttps(l.offerUrl) ? String(l.offerUrl).trim().slice(0, 500) : '',
         whitePageUrl:       validHttps(l.whitePageUrl) ? String(l.whitePageUrl).trim().slice(0, 500) : '',
         enabled:            boolOr(l.enabled, true),
+        // Gates de intenção (default LIGADO, inclusive para links antigos).
+        mobileOnly:         boolOr(l.mobileOnly, true),
+        requireAdClick:     boolOr(l.requireAdClick, true),
+        paisPreset:         ['all', 'br', 'latam', 'eu', 'custom'].includes(l.paisPreset) ? l.paisPreset : '',
         sensitivity:        sens,
         threshold:          Math.max(10, Math.min(90, Math.round(Number(l.threshold) || 40))),
         deadlineMs:         Math.max(40, Math.min(500, Math.round(Number(l.deadlineMs) || 120))),

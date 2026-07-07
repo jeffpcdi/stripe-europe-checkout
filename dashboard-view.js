@@ -3909,14 +3909,19 @@ function renderCloakAgg(){
     '<span style="color:var(--muted2)">White <b>'+CK_AGG.white+'</b></span>'+
     '<span>Bloqueio geral <b>'+pct+'%</b> <span class="hint">('+CK_AGG.total+' visitas)</span></span>';
 }
-function ckUrl(slug){ return (CK_BASE||location.origin)+'/c/'+slug; }
+function ckUrl(l){
+  // aceita objeto (usa domínio personalizado) ou string de slug (compat)
+  if(typeof l==='string') return (CK_BASE||location.origin)+'/c/'+l;
+  var base=l.dominio ? ('https://'+l.dominio) : (CK_BASE||location.origin);
+  return base+'/c/'+l.slug;
+}
 /* Card colapsado (resumo) de um link de cloaking */
 function ckCard(l){
   // FAIL-SAFE: mesmo sem white page própria, bots caem numa página segura
   // (white global ou /_safe embutida) — nunca na offer. Então "protegido"
   // depende só do interruptor do link.
   var on=l.enabled!==false;
-  var url=ckUrl(l.slug);
+  var url=ckUrl(l);
   var statusTxt = (l.enabled===false) ? 'Proteção desligada — tudo vai à offer'
     : ('Protegido — modo '+({strict:'agressivo',balanced:'equilibrado',loose:'conservador',custom:'manual'}[l.sensitivity]||'equilibrado')+(!l.whitePageUrl?' · usando página segura padrão':''));
   return '<div class="card ck-card" data-slug="'+esc(l.slug)+'" style="margin-bottom:12px">'+
@@ -3945,7 +3950,7 @@ function ckStatsRow(tipo,slug){
   }
   var pct=Math.round((st.blockRate||0)*100);
   var reasons=st.reasons||{};
-  var rlabel={'bot-ua':'bot','pais':'país','idioma':'idioma','score':'score','rate-limit':'rajada'};
+  var rlabel={'bot-ua':'bot','pais':'país','idioma':'idioma','score':'score','rate-limit':'rajada','mobile':'não-celular','anuncio':'sem anúncio'};
   var chips=Object.keys(reasons).sort(function(a,b){return reasons[b]-reasons[a];}).slice(0,4).map(function(r){
     return '<span class="ck-chip" style="display:inline-block;padding:1px 7px;border-radius:10px;background:var(--line,rgba(255,255,255,.06));margin:2px 4px 0 0;font-size:11px">'+esc(rlabel[r]||r)+': '+reasons[r]+'</span>';
   }).join('');
@@ -3975,10 +3980,16 @@ function renderCloakList(){
 function renderCloakEditor(l,isNew){
   l=l||{};
   var sens=l.sensitivity||'balanced';
-  var nameField=isNew
-    ? '<div class="ck-field full"><label>Nome / slug do link <span class="hint">— vira a URL /c/&lt;slug&gt;</span></label>'+
-        '<input class="inp" id="cke-nome" type="text" placeholder="ex.: campanha-espanha" style="width:100%"></div>'
-    : '';
+  // Nome (identifica o link no painel) + domínio personalizado (opcional).
+  // A slug é sempre aleatória — o nome NÃO vira mais a URL.
+  var slugHint=isNew
+    ? '<span class="hint">— a URL /c/&lt;slug&gt; é gerada automaticamente</span>'
+    : '<span class="hint">— URL: /c/'+esc(l.slug||'')+'</span>';
+  var nameField=
+    '<div class="ck-field full"><label>Nome do link '+slugHint+'</label>'+
+      '<input class="inp" id="cke-nome" type="text" placeholder="ex.: Campanha Espanha - Julho" value="'+esc(l.nome||'')+'" style="width:100%"></div>'+
+    '<div class="ck-field full"><label>Domínio personalizado <span class="hint">— opcional; precisa apontar para este app</span></label>'+
+      '<input class="inp" id="cke-dominio" type="text" placeholder="ex.: seu-dominio.com (vazio = domínio padrão)" value="'+esc(l.dominio||'')+'" style="width:100%"></div>';
   var layers=CK_LAYERS.map(function(x){
     var lon=l[x[0]]!==false;
     return '<div class="ck-layer'+(lon?' on':'')+'" data-layer="'+x[0]+'">'+
@@ -4005,14 +4016,27 @@ function renderCloakEditor(l,isNew){
       '<label class="hint">Rigor da filtragem: <b id="cke-threshold-val">'+(l.threshold||40)+'</b> — quanto menor, mais acessos são barrados</label>'+
       '<input type="range" id="cke-threshold" min="10" max="90" value="'+(l.threshold||40)+'" style="width:100%">'+
     '</div>'+
+    // Gates de intenção: quem realmente pode chegar à offer
+    '<div class="ck-gates" style="margin-top:16px;display:flex;flex-direction:column;gap:10px">'+
+      '<div class="ck-layer'+(l.mobileOnly!==false?' on':'')+'">'+
+        '<div class="ck-l-body"><b>Apenas celulares</b><span>Desktop e notebook vão para a white page. Só mobile chega à offer.</span></div>'+
+        '<label class="switch"><input type="checkbox" id="cke-mobileonly"'+(l.mobileOnly!==false?' checked':'')+'><span class="slider"></span></label>'+
+      '</div>'+
+      '<div class="ck-layer'+(l.requireAdClick!==false?' on':'')+'">'+
+        '<div class="ck-l-body"><b>Exigir clique no anúncio do TikTok</b><span>Só quem clicou no anúncio (webview do app ou ttclid) vai à offer. Copiar/colar o link no navegador cai na white.</span></div>'+
+        '<label class="switch"><input type="checkbox" id="cke-adclick"'+(l.requireAdClick!==false?' checked':'')+'><span class="slider"></span></label>'+
+      '</div>'+
+    '</div>'+
     '<div class="ck-rule" style="margin-top:16px">'+
       '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+
         '<input class="inp" id="cke-offer" type="url" placeholder="https://sua-offer.com" value="'+esc(l.offerUrl||'')+'" style="width:100%"></div>'+
       '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
         '<input class="inp" id="cke-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.whitePageUrl||'')+'" style="width:100%"></div>'+
       '<details class="ck-field full geo-collapse"><summary><b>Países liberados para a offer</b> <span class="hint" id="ck-pais-count">'+ckPaisSummary(l)+'</span></summary>'+
-        '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os países. Quem estiver fora da lista vai para a white page.</p>'+
-        renderPaisGrid(l)+'</details>'+
+        '<p class="hint" style="margin:8px 0 10px">Escolha um preset. Quem estiver fora dos países liberados vai para a white page.</p>'+
+        renderPaisPresets(l)+
+        '<div id="cke-pais-custom" style="margin-top:12px;display:'+(ckPaisPreset(l)==='custom'?'block':'none')+'">'+renderPaisGrid(l)+'</div>'+
+      '</details>'+
       '<details class="ck-field full geo-collapse"><summary><b>Idiomas liberados para a offer</b> <span class="hint" id="ck-idioma-count">'+ckIdiomaSummary(l)+'</span></summary>'+
         '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page.</p>'+
         renderIdiomaGrid(l)+'</details>'+
@@ -4028,14 +4052,42 @@ function renderCloakEditor(l,isNew){
 }
 /* Catálogo de países por bloco (código ISO-2, nome, bandeira) */
 var CK_COUNTRY_BLOCKS=[
-  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲🇽'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷']]},
+  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲🇽'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷'],['PE','Peru','🇵🇪'],['UY','Uruguai','🇺🇾'],['PY','Paraguai','🇵🇾'],['EC','Equador','🇪🇨']]},
   {block:'Europa Sul',items:[['PT','Portugal','🇵🇹'],['ES','Espanha','🇪🇸'],['IT','Itália','🇮🇹'],['FR','França','🇫🇷']]},
   {block:'Europa Norte/Central',items:[['DE','Alemanha','🇩🇪'],['NL','Países Baixos','🇳🇱'],['BE','Bélgica','🇧🇪'],['AT','Áustria','🇦🇹'],['CH','Suíça','🇨🇭'],['IE','Irlanda','🇮🇪'],['GB','Reino Unido','🇬🇧']]},
   {block:'Outros',items:[['AU','Austrália','🇦🇺'],['AE','Emirados Árabes','🇦🇪'],['SA','Arábia Saudita','🇸🇦'],['PL','Polônia','🇵🇱'],['RO','Romênia','🇷🇴']]}
 ];
-/* Blocos pré-marcados por padrão em links ainda sem allowlist salva */
-var CK_COUNTRY_DEFAULT=['BR','MX','US','CA','CO','CL','AR','PT','ES','IT','FR','DE','NL','BE','AT','CH','IE','GB'];
+/* Presets de país prontos — configuração fácil sem marcar caixa por caixa.
+   [] = todos os países liberados. 'custom' abre a grade detalhada. */
+var CK_PAIS_PRESETS={
+  all:[],
+  br:['BR'],
+  latam:['BR','MX','CO','CL','AR','PE','UY','PY','EC'],
+  eu:['PT','ES','IT','FR','DE','NL','BE','AT','CH','IE','GB']
+};
+var CK_PAIS_PRESET_LABELS=[['all','Todos os países'],['br','Só Brasil'],['latam','Brasil + LATAM'],['eu','Europa (Tier 1)'],['custom','Personalizado']];
 var CK_LANGS=[['pt','Português','🇵🇹'],['es','Espanhol','🇪🇸'],['en','Inglês','🇬🇧'],['it','Italiano','🇮🇹'],['fr','Francês','🇫🇷'],['de','Alemão','🇩🇪']];
+/* Descobre qual preset corresponde à allowlist salva (ou 'custom'). */
+function ckPaisPreset(l){
+  if(l && l.paisPreset) return l.paisPreset;
+  var a=(l&&l.paises)?l.paises.slice().sort():[];
+  if(!a.length) return 'all';
+  var keys=['br','latam','eu'];
+  for(var i=0;i<keys.length;i++){
+    var p=CK_PAIS_PRESETS[keys[i]].slice().sort();
+    if(p.length===a.length && p.every(function(c,idx){return c===a[idx];})) return keys[i];
+  }
+  return 'custom';
+}
+/* Renderiza o seletor de presets (segmento de botões). */
+function renderPaisPresets(l){
+  var cur=ckPaisPreset(l);
+  return '<div class="seg ck-pais-preset" id="cke-pais-preset" style="flex-wrap:wrap">'+
+    CK_PAIS_PRESET_LABELS.map(function(x){
+      return '<button type="button" data-p="'+x[0]+'"'+(cur===x[0]?' class="on"':'')+'>'+esc(x[1])+'</button>';
+    }).join('')+
+  '</div>';
+}
 
 function geoChk(scope,code,name,flag,on){
   return '<label class="geo-chk'+(on?' on':'')+'">'+
@@ -4043,8 +4095,11 @@ function geoChk(scope,code,name,flag,on){
     '<span class="flag" aria-hidden="true">'+flag+'</span>'+
     '<span class="nm">'+esc(name)+'</span></label>';
 }
+var CK_PAIS_PRESET_SUMMARY={all:'todos os países',br:'só Brasil',latam:'Brasil + LATAM',eu:'Europa (Tier 1)'};
 function ckPaisSummary(l){
-  var n=(l.paises&&l.paises.length)?l.paises.length:CK_COUNTRY_DEFAULT.length;
+  var p=ckPaisPreset(l);
+  if(CK_PAIS_PRESET_SUMMARY[p]) return '— '+CK_PAIS_PRESET_SUMMARY[p];
+  var n=(l.paises&&l.paises.length)||0;
   return '— '+n+(n===1?' país liberado':' países liberados');
 }
 function ckIdiomaSummary(l){
@@ -4054,12 +4109,17 @@ function ckIdiomaSummary(l){
 // Atualiza o texto de resumo no <summary> conforme o usuário marca/desmarca
 function refreshGeoSummaries(){
   var pc=document.getElementById('ck-pais-count');
-  if(pc){ var n=currentPaises().length; pc.textContent='— '+n+(n===1?' país liberado':' países liberados'); }
+  if(pc){
+    var pb=document.querySelector('#cke-pais-preset button.on');
+    var p=pb?pb.getAttribute('data-p'):'custom';
+    if(CK_PAIS_PRESET_SUMMARY[p]){ pc.textContent='— '+CK_PAIS_PRESET_SUMMARY[p]; }
+    else { var n=currentPaises().length; pc.textContent='— '+n+(n===1?' país liberado':' países liberados'); }
+  }
   var ic=document.getElementById('ck-idioma-count');
   if(ic){ var m=currentIdiomas().length; ic.textContent=m?('— '+m+(m===1?' idioma liberado':' idiomas liberados')):'— todos os idiomas'; }
 }
 function renderPaisGrid(l){
-  var sel=(l.paises&&l.paises.length)?l.paises.slice():CK_COUNTRY_DEFAULT.slice();
+  var sel=(l.paises&&l.paises.length)?l.paises.slice():[];
   var blocks=CK_COUNTRY_BLOCKS.map(function(b){
     var codes=b.items.map(function(it){return it[0];});
     var allOn=codes.every(function(c){return sel.indexOf(c)>=0;});
@@ -4100,6 +4160,14 @@ function bindCloakEditor(){
       syncBlockButtons(); refreshGeoSummaries();
     });
   });
+  // presets de país (Todos / Só Brasil / LATAM / Europa / Personalizado)
+  var pp=document.getElementById('cke-pais-preset');
+  if(pp) pp.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-p]'); if(!b) return;
+    pp.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    applyPaisPreset(b.getAttribute('data-p'));
+  });
   // segmento de sensibilidade
   var seg=document.getElementById('cke-sens');
   if(seg) seg.addEventListener('click',function(e){
@@ -4127,6 +4195,21 @@ function bindCloakEditor(){
   var save=document.getElementById('cke-save'); if(save) save.addEventListener('click',function(){ saveCloakEntry(this.getAttribute('data-new')==='1'); });
   var cancel=document.getElementById('cke-cancel'); if(cancel) cancel.addEventListener('click',function(){ CK_OPEN=null; renderCloakList(); });
 }
+/* Aplica um preset de país: mostra/esconde a grade e marca as caixas
+   correspondentes (para custom, a grade fica editável pelo usuário). */
+function applyPaisPreset(preset){
+  var custom=document.getElementById('cke-pais-custom');
+  if(custom) custom.style.display=(preset==='custom')?'block':'none';
+  if(preset!=='custom'){
+    var codes=CK_PAIS_PRESETS[preset]||[];
+    document.querySelectorAll('#ck-r-paisbox input[data-cc]').forEach(function(chk){
+      chk.checked=codes.indexOf(chk.getAttribute('data-cc'))>=0;
+      var w=chk.closest('.geo-chk'); if(w) w.classList.toggle('on',chk.checked);
+    });
+    syncBlockButtons();
+  }
+  refreshGeoSummaries();
+}
 function syncBlockButtons(){
   document.querySelectorAll('#ck-r-paisbox button[data-blocktoggle]').forEach(function(b){
     var codes=b.getAttribute('data-codes').split(',');
@@ -4138,23 +4221,28 @@ function syncBlockButtons(){
 function saveCloakEntry(isNew){
   var st=document.getElementById('cke-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
   var seg=document.querySelector('#cke-sens button.on');
+  // preset de país → allowlist final ([] = todos; 'custom' = grade marcada)
+  var pb=document.querySelector('#cke-pais-preset button.on');
+  var preset=pb?pb.getAttribute('data-p'):'all';
+  var paises=(preset==='custom')?currentPaises():(CK_PAIS_PRESETS[preset]||[]);
+  var nome=((document.getElementById('cke-nome')||{}).value||'').trim();
+  if(!nome){ if(st){ st.textContent='Dê um nome ao link'; st.style.color='var(--pink,#f31260)'; } return; }
   var body={
+    nome:nome,
+    dominio:((document.getElementById('cke-dominio')||{}).value||'').trim(),
     enabled:document.getElementById('cke-enabled').checked,
+    mobileOnly:(document.getElementById('cke-mobileonly')||{}).checked!==false,
+    requireAdClick:(document.getElementById('cke-adclick')||{}).checked!==false,
     sensitivity:seg?seg.getAttribute('data-s'):'balanced',
     threshold:Number((document.getElementById('cke-threshold')||{}).value)||40,
     offerUrl:document.getElementById('cke-offer').value.trim(),
     whitePageUrl:document.getElementById('cke-white').value.trim(),
-    paises:currentPaises(),
+    paisPreset:preset,
+    paises:paises,
     idiomas:currentIdiomas()
   };
   CK_LAYERS.forEach(function(x){ var c=document.querySelector('#cke-layers input[data-ck="'+x[0]+'"]'); body[x[0]]=c?c.checked:true; });
-  if(isNew){
-    var nome=(document.getElementById('cke-nome')||{}).value||'';
-    body.nome=nome.trim();
-    if(!body.nome){ if(st){ st.textContent='Dê um nome ao link'; st.style.color='var(--pink,#f31260)'; } return; }
-  } else {
-    body.slug=CK_OPEN;
-  }
+  if(!isNew) body.slug=CK_OPEN;
   fetch('/api/cloak/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
