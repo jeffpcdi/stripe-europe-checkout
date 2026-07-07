@@ -16,7 +16,8 @@
 1. Visão geral · 2. Stack · 3. Deploy e ambientes · 4. Arquitetura (4.1 Backend, 4.2 Frontend) ·
 5. Rotas · 6. Esquema do banco · 7. Redis · 8. Score do bot-filter · 9. Fluxo do `/go/:slug` ·
 10. CAPI do TikTok · 11. Comandos · 12. Variáveis de ambiente · 13. Convenções · 14. Armadilhas ·
-15. Estrutura de arquivos · 16. Ciclo de vida do lead · 17. Formato dos eventos de tracking.
+15. Estrutura de arquivos · 16. Ciclo de vida do lead · 17. Formato dos eventos de tracking ·
+18. Ciclo de vida do domínio personalizado.
 
 ## 1. Visão geral
 Painel de rastreamento de funil e vendas para infoprodutos vendidos com tráfego do TikTok.
@@ -100,6 +101,14 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 - **tracker-view.js** — snippet `/t.js` injetado em páginas externas (envia pageview/eventos).
 - **ua.js** — parse de User-Agent + detecção de bots (usado no middleware de lead).
 - **pushcut.js** — notificações push (venda, etc.) via webhook Pushcut.
+- **domain-provider.js** — automação de Custom Domains na hospedagem (hoje Railway GraphQL). Interface
+  única (`enabled`/`register`/`status`/`remove`) que isola o provedor — trocar p/ outro (ex.: Cloudflare
+  for SaaS) é mexer só aqui. Lê `RAILWAY_API_TOKEN` + IDs de `process.env` e **nunca** vaza o token
+  (erros da API viram mensagens genéricas: `auth`/`duplicado`/`limite`/`offline`/`falha na hospedagem`).
+  Detecta sozinho o tipo de token (Bearer p/ account/workspace × `Project-Access-Token` p/ project token)
+  via `selfTest()` no boot + fallback na 1ª chamada; `register()` **adota** domínio já existente
+  (`findByDomain`) quando a criação dá `duplicado`. Degrada gracioso: sem token/IDs, `enabled=false` e o
+  app segue em modo manual sem quebrar nada. Detalhes de operação em §5.2.2 e ciclo completo em §18.
 - **lp-view.js / legal-view.js** — landing page em `/` e páginas legais (`/termos`, `/privacidade`).
 - **vision-view.js** — dashboard alternativa "Vision UI" (HTML estático) em rota interna.
 
@@ -449,3 +458,39 @@ Um lead avança por **stages** (etapa no funil) e carrega um **status** (resulta
 - **Conversão (compra):** chega por `POST /hook/:token` (por gateway) ou `POST /api/conversion`
   (webhook universal, validado por `CONVERSION_WEBHOOK_SECRET`), marca o lead como `purchased` e
   dispara `CompletePayment` na CAPI com o valor/moeda recebidos.
+
+## 18. Ciclo de vida do domínio personalizado (ponta a ponta)
+Amarra §4.1 (`domain-provider.js`), §5.2 (rotas), §5.2.1 (guard) e §5.2.2 (operação). Termos:
+**host principal** = onde roda o painel (`roi-nados.top`/domínio do Railway); **domínio personalizado**
+= domínio do lojista usado só no funil (checkout/cloaker/pixel).
+
+**1. Cadastro** — lojista adiciona o domínio na aba *Domínios* → `POST /api/domains`:
+- Se a automação está ligada (`domain-provider.enabled`), chama `register(host)`:
+  - **sucesso** → guarda `providerId` no config da conta e devolve `dnsRecords` (CNAME + eventual TXT).
+  - **`duplicado`** → `findByDomain()` adota o domínio já criado no Railway (pega `providerId` + DNS reais).
+  - **`limite`/`auth`/`offline`** → NÃO bloqueia: salva o domínio em **modo manual** (sem `providerId`) e
+    devolve `providerNote` (aviso amigável). O CNAME de fallback aponta p/ o host principal.
+- O popup "Conectar domínio" mostra o passo a passo com os valores reais (ou o fallback manual).
+
+**2. DNS** — lojista cria o CNAME (e TXT, se houver) no painel do domínio dele. **Cloudflare: nuvem
+CINZA (Somente DNS)** — laranja quebra o SSL/roteamento do Railway (§5.2.2).
+
+**3. Verificação** — `POST /api/domains/verify` (botão manual ou polling de 30s no front):
+- **Auto-recuperação:** se o domínio está em manual (sem `providerId`) e a automação está ligada, tenta
+  `register()` de novo — cobre o caso de um slot do Railway ter vagado (upgrade/remoção). Se reconectar,
+  grava o `providerId`, devolve `reconectado:true`+`dnsRecords` e o popup re-renderiza com o alvo real.
+- **Decisão real (`ok = httpOk`):** só passa quando `GET https://host/__domain-check` responde 200 com a
+  assinatura do app. DNS apontado sozinho não basta (sem roteamento na hospedagem, `/go` daria 404 do
+  Railway). `dnsPronto=true` = DNS ok mas app ainda não atende (aguardando SSL/roteamento).
+
+**4. Uso (guard)** — com o domínio ativo, o middleware de §5.2.1 garante que ele sirva **só o funil**
+(`/go`, `/c`, `/l`, `/hook`, `/t.js`, `/px*`, `/_safe`, `/__domain-check`, `/assets`); qualquer outra
+rota (painel, login, APIs de gestão) responde **404 puro**. O painel existe só no host principal.
+
+**5. Remoção** — `DELETE /api/domains/:host` remove do config e, se havia `providerId`, chama
+`remove()` (`customDomainDelete`) p/ liberar o slot no Railway e não acumular contra o teto do plano.
+
+**Armadilhas específicas:** (a) apontar CNAME p/ `roi-nados.top` nunca roteia — cada domínio precisa
+existir no Railway; (b) sem **redeploy**, mudança de `RAILWAY_API_TOKEN`/código não vale (sem hot
+reload); (c) o sandbox do v0 não tem as vars `RAILWAY_*`, então lá é sempre modo manual — teste real
+só no Railway (§5.2.2).
