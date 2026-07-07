@@ -1862,13 +1862,8 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <button data-s="strict" type="button">Agressivo</button>
             <button data-s="balanced" type="button">Equilibrado</button>
             <button data-s="loose" type="button">Conservador</button>
-            <button data-s="custom" type="button">Manual</button>
           </div>
           <p id="ck-sens-desc" class="hint" style="margin-top:10px;margin-bottom:0">Equilibrado: a melhor proporção de segurança e conversão — recomendado</p>
-          <div id="ck-threshold-wrap" style="margin-top:14px;display:none">
-            <label class="hint">Rigor da filtragem: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> &mdash; quanto <b>menor</b>, mais gente vai para a white page (mais rigoroso); quanto <b>maior</b>, mais gente passa para a offer</label>
-            <input type="range" id="ck-threshold" min="10" max="90" step="5" value="40" style="width:100%;accent-color:var(--cyan);margin-top:6px">
-          </div>
         </div>
 
         <!-- Regras por link: offer, white page, países e pixel -->
@@ -1892,23 +1887,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <div id="ck-test-out" style="margin-top:4px"></div>
         </div>
-
-        <!-- Avançado: latência + camadas de detecção -->
-        <details class="ck-adv">
-          <summary>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            Ajustes avan&ccedil;ados
-            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M6 9l6 6 6-6"/></svg>
-          </summary>
-          <div class="ck-adv-body">
-            <div style="margin:6px 0 16px">
-              <label class="hint" style="font-weight:600;color:var(--muted)">Tempo m&aacute;ximo de an&aacute;lise: <b id="ck-deadline-val" style="color:var(--cyan)">120</b> ms <span class="hint" style="font-weight:500">&mdash; quanto o sistema pode esperar antes de decidir para onde mandar a pessoa. Menor = p&aacute;gina abre mais r&aacute;pido, por&eacute;m com menos checagens</span></label>
-              <input type="range" id="ck-deadline" min="40" max="500" step="20" value="120" style="width:100%;accent-color:var(--cyan);margin-top:8px">
-            </div>
-            <div class="section-title" style="margin-top:0"><span>Camadas de detec&ccedil;&atilde;o</span><span class="line"></span><span class="muted" style="font-size:11.5px">ligue/desligue cada sinal</span></div>
-            <div class="grid" id="ck-layers" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
-          </div>
-        </details>
 
         <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
           <button class="btn primary" id="ck-save">Salvar prote&ccedil;&atilde;o</button>
@@ -3948,13 +3926,15 @@ function renderCloak(){
 }
 function collectCloak(){
   var sb=document.querySelector('#ck-sens button.on');
+  var prev=CK_STATE||{};
+  // rigor, tempo de análise e camadas são geridos automaticamente — preservamos o que já estava salvo
   var body={
     enabled:document.getElementById('ck-enabled').checked,
     sensitivity:sb?sb.getAttribute('data-s'):'balanced',
-    threshold:+document.getElementById('ck-threshold').value||40,
-    deadlineMs:+document.getElementById('ck-deadline').value||120
+    threshold:prev.threshold||40,
+    deadlineMs:prev.deadlineMs||120
   };
-  document.querySelectorAll('#ck-layers input[data-ck]').forEach(function(i){ body[i.getAttribute('data-ck')]=i.checked; });
+  CK_LAYERS.forEach(function(l){ body[l[0]]=prev[l[0]]!==false; });
   return body;
 }
 function saveCloakConfig(){
