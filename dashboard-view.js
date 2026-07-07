@@ -1756,7 +1756,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <details class="ck-adv" style="margin-top:4px;margin-bottom:14px">
               <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="ck-adv-body">
-                <p class="hint" style="margin:0 0 12px;line-height:1.7">Formato completo da linha (tudo opcional al&eacute;m da URL):<br><code>nome | URL | peso % | URL celular</code><br>Com a URL celular preenchida, computador vai para a principal e celular vai para a alternativa.</p>
                 <div class="form-row" style="margin-bottom:0">
                   <label>Dom&iacute;nio do link</label>
                   <select class="inp" id="lk-domain" style="width:100%;font-family:'Geist Mono',monospace"></select>
