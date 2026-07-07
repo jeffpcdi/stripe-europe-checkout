@@ -3694,8 +3694,11 @@ function silentVerifyDomain(host){
     .then(function(r){return r.json();})
     .then(function(d){
       // Verificação pode ter reconectado o domínio (um slot da hospedagem vagou):
-      // atualiza os registros DNS exibidos no tutorial com os valores reais.
-      if(d.reconectado && d.dnsRecords) DMTUT_DNS[host]=d.dnsRecords;
+      // atualiza os registros DNS reais e re-renderiza o tutorial se estiver aberto.
+      if(d.reconectado && d.dnsRecords){
+        DMTUT_DNS[host]=d.dnsRecords;
+        if(DMTUT_HOST===host && !d.ok) dmTutRender(); // mostra alvo real + TXT
+      }
       if(d.ok){
         toast('Dom\u00ednio verificado: '+host);
         if(DMTUT_HOST===host) dmTutSuccess(host); // modal aberto no mesmo host: anima
@@ -3849,10 +3852,17 @@ function dmTutVerify(){
     .then(function(r){return r.json();})
     .then(function(d){
       if(DMTUT_HOST!==host) return; // usuário fechou/trocou o modal no meio
+      // Reconectou à hospedagem agora? Atualiza os registros DNS reais.
+      if(d.reconectado && d.dnsRecords) DMTUT_DNS[host]=d.dnsRecords;
       if(d.ok){
         toast('Dom\u00ednio verificado: '+host);
         dmTutSuccess(host);
         loadDomains();
+      } else if(d.reconectado && d.dnsRecords){
+        // Passou de manual para gerenciado: re-renderiza mostrando alvo real + TXT.
+        dmTutRender();
+        var wb0=document.getElementById('dmtut-warn');
+        if(wb0){ wb0.style.display='block'; wb0.innerHTML='<b>Conectado \u00e0 hospedagem</b><p>Atualize o CNAME para o novo destino acima (e o TXT, se houver) e verifique de novo.</p>'; }
       } else {
         var det=d.dnsPronto
           ?'DNS propagado! Falta o certificado/app responder \u2014 tente novamente em instantes.'

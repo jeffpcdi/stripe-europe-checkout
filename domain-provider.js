@@ -117,14 +117,48 @@ function pickCname(dnsRecords) {
   };
 }
 
+// Lista os custom domains do serviço e acha um pelo nome (case-insensitive).
+// Serve para "adotar" um domínio que já existe no Railway — evita ficar preso
+// em 'duplicado' quando uma tentativa anterior já o criou (mas o app não
+// guardou o providerId). Retorna o mesmo shape de register(), ou null.
+async function findByDomain(host) {
+  if (!enabled) return null;
+  const data = await gql(
+    'query($p:String!,$e:String!,$s:String!){domains(projectId:$p,environmentId:$e,serviceId:$s){customDomains{id domain status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationToken verified certificateStatus}}}}',
+    { p: PROJECT_ID, e: ENVIRONMENT_ID, s: SERVICE_ID }
+  );
+  const list = (data && data.domains && data.domains.customDomains) || [];
+  const want = String(host || '').toLowerCase();
+  const cd = list.find((d) => String(d.domain || '').toLowerCase() === want);
+  if (!cd) return null;
+  return {
+    manual: false,
+    providerId: cd.id || null,
+    verified: !!(cd.status && cd.status.verified),
+    verificationToken: (cd.status && cd.status.verificationToken) || null,
+    dns: pickCname(cd.status && cd.status.dnsRecords)
+  };
+}
+
 // Registra o domínio na hospedagem. Retorna os registros DNS que o lojista
 // precisa criar (CNAME + eventual TXT de verificação) e o id do provedor.
+// Se o domínio JÁ existe no Railway ('duplicado'), adota o existente em vez de
+// falhar — assim o lojista recebe o alvo real do Railway (não o fallback manual).
 async function register(host) {
   if (!enabled) return { manual: true };
-  const data = await gql(
-    'mutation($input:CustomDomainCreateInput!){customDomainCreate(input:$input){id status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationToken verified}}}',
-    { input: { domain: host, projectId: PROJECT_ID, environmentId: ENVIRONMENT_ID, serviceId: SERVICE_ID } }
-  );
+  let data;
+  try {
+    data = await gql(
+      'mutation($input:CustomDomainCreateInput!){customDomainCreate(input:$input){id status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationToken verified}}}',
+      { input: { domain: host, projectId: PROJECT_ID, environmentId: ENVIRONMENT_ID, serviceId: SERVICE_ID } }
+    );
+  } catch (e) {
+    if (e.message === 'duplicado') {
+      const existing = await findByDomain(host); // pode lançar; propaga se falhar
+      if (existing && existing.providerId) return existing;
+    }
+    throw e;
+  }
   const cd = data && data.customDomainCreate;
   if (!cd) throw new Error('falha na hospedagem');
   const rec = pickCname(cd.status && cd.status.dnsRecords);
