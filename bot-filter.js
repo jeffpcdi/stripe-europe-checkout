@@ -51,6 +51,41 @@ const DATACENTER_ASNS = new Set([
   // Proxies residenciais e mobile-proxy conhecidos por revisores
   212238,  // Datacamp Limited (proxy residencial)
   60068,   // CDN77 (usado como relay)
+  // Hosting / VPS de uso geral — origem clássica de scrapers, headless e
+  // proxies de datacenter. Usuário pago do TikTok vem de operadora móvel,
+  // quase nunca destes ASNs; peso datacenter (+38) é seguro aqui.
+  16276,   // OVH
+  24940,   // Hetzner Online
+  14061,   // DigitalOcean
+  20473,   // The Constant Company / Vultr
+  63949,   // Akamai / Linode
+  51167,   // Contabo
+  31898,   // Oracle Cloud (OCI)
+  45102,   // Alibaba Cloud (intl)
+  132203,  // Tencent Cloud
+  37963,   // Alibaba (CN)
+  60781,   // LeaseWeb NL
+  30633,   // Leaseweb USA (também em farms)
+  8100,    // QuadraNet
+  62240,   // Clouvider
+  9009,    // M247 (VPN/proxy hosting)
+  212238,  // Datacamp/CDN (dup-safe: Set deduplica)
+  49505,   // Selectel (RU hosting)
+  201814,  // Proxy-Seller / mobile proxies
+  206092,  // IPXO (proxy leasing)
+  212238,  // Datacamp
+  50673,   // Serverius (proxy hosting)
+  29802,   // HIVELOCITY (VPS/farms)
+  40676,   // Psychz Networks (device farms)
+  53667,   // FranTech / BuyVM (proxy VPS)
+  35916,   // MULTA-ASN / hosting
+  46844,   // ReliableSite (VPS)
+  19318,   // Interserver (VPS)
+  55286,   // ServerMania
+  35913,   // DediPath (encerrado, mas ainda visto em logs)
+  399629,  // BL Networks (proxy)
+  208046,  // Hosting proxies EU
+  14618,   // Amazon AWS (dup-safe)
 ]);
 
 // CIDRs ByteDance CONFIRMADOS via BGP.tools (AS138699, jan 2025).

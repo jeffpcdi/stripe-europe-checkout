@@ -57,9 +57,13 @@ require.cache[rdbPath] = {
   exports: {
     loadCapiRetryQueue: async () => seeded,
     saveCapiRetryQueue: async (q) => { persisted = q; },
+    // lock distribuído (drainRetryQueue): no-op que sempre concede
+    acquireLock: async () => true,
+    releaseLock: async () => {},
     // usados por outras partes do módulo; no-ops seguros
     recentPixelLog: async () => [],
-    pushPixelLog: async () => {}
+    pushPixelLog: async () => {},
+    bumpEmq: async () => {}
   }
 };
 

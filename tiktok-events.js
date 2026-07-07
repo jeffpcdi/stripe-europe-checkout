@@ -58,6 +58,11 @@ function pushLog(entry) {
   if (log.length > LOG_MAX) log.length = LOG_MAX;
   // Upstash Redis: write rápido (~1ms), TTL automático de 14 dias
   rdb.pushPixelLog(row).catch(() => {});
+  // Rollup de EMQ por pixel/dia — só disparos REAIS (ok/erro têm score de
+  // identidade calculado); ignora linhas de controle ('bloqueado'/'dispatch').
+  if (row.emq != null && (row.status === 'ok' || row.status === 'erro')) {
+    rdb.bumpEmq(row.acc, row.pixel, row.emq).catch(() => {});
+  }
   // Neon: backup durável (estruturado para queries analíticas)
   if (db.enabled) db.insertPixelEvent(row.acc, row);
   return row;
@@ -254,6 +259,11 @@ async function drainRetryQueue() {
   const now = Date.now();
   const due = retryQueue.filter((it) => it.nextAt <= now);
   if (!due.length) return;
+  // Lock distribuído: com várias instâncias, todas carregam o MESMO snapshot
+  // do Redis e drenariam em paralelo → o mesmo evento seria disparado N vezes.
+  // Só a instância que adquire o lock drena neste ciclo (as demais esperam 60s).
+  if (!(await rdb.acquireLock('capiRetryDrain', 55))) return;
+  try {
   for (const item of due) {
     // expirou (24h) ou esgotou o backoff → descarta de vez
     if (now - item.firstAt > RETRY_MAX_AGE_MS || item.attempt >= RETRY_BACKOFF_MS.length) {
@@ -275,6 +285,9 @@ async function drainRetryQueue() {
     }
   }
   persistRetryQueue();
+  } finally {
+    rdb.releaseLock('capiRetryDrain').catch(() => {});
+  }
 }
 
 // varre a cada 60s; unref() para não segurar o processo vivo no shutdown

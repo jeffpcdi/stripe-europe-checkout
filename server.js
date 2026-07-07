@@ -394,6 +394,13 @@ app.post('/api/cloakcheck', async (req, res) => {
   if (typeof b.beh   === 'number')             patch.cloakBeh   = b.beh;
 
   try { stats.attachTracking(vid, patch); } catch (_) {}
+
+  // Beacon revelou headless (WebGL de software) mesmo tendo passado a 1ª visita
+  // só por headers → grava veredito sticky de bot para a PRÓXIMA visita ir à
+  // white sem depender do judge. Fecha a janela do "primeiro acesso limpo".
+  if (typeof b.webgl === 'string' && /SwiftShader|llvmpipe|Mesa|VMware|VirtualBox/i.test(b.webgl)) {
+    redis.setStickyBot(vid, { at: Date.now(), score: 100, sig: ['webgl:software-renderer'] }).catch(() => {});
+  }
   res.status(204).end();
 });
 
@@ -682,6 +689,22 @@ app.get('/go/:slug', async (req, res) => {
     }
   }
 
+  // v_id do visitante (para veredito sticky). Lido uma vez e reusado.
+  const cloakVid = readCookie(req, 'v_id') || '';
+
+  // ── Veredito STICKY (só bot) ──────────────────────────────────────────────
+  // Se este visitante JÁ foi condenado numa visita anterior (sinais fortes:
+  // WebGL software, ASN datacenter…), vai direto à white sem re-rodar o judge.
+  // Consistência: o mesmo revisor nunca vê ora offer, ora white. Nunca cacheamos
+  // 'real', então um bot jamais fica preso como usuário real (fail-safe).
+  if (cloakOn && cloakVid) {
+    const sticky = await redis.getStickyBot(cloakVid).catch(() => null);
+    if (sticky) {
+      bumpDecision('white', 'sticky');
+      return res.redirect(302, safePage);
+    }
+  }
+
   // Motor de score só roda com cloaking ativo — economiza o DNS lookup de ASN
   let judgment = { verdict: 'real', score: 0, signals: [] };
   if (cloakOn) {
@@ -723,6 +746,11 @@ app.get('/go/:slug', async (req, res) => {
     });
     // FAIL-SAFE: bot detectado SEMPRE vai para a página segura, nunca à offer.
     bumpDecision('white', 'score');
+    // Memoriza o veredito por visitante: próximas visitas curto-circuitam sem
+    // re-rodar o judge (mais barato) e sem oscilar. Só para score alto/forte.
+    if (cloakVid && judgment.score >= (judgment.threshold || 40)) {
+      redis.setStickyBot(cloakVid, { at: Date.now(), score: judgment.score, sig: (judgment.signals || []).slice(0, 3) }).catch(() => {});
+    }
     return res.redirect(302, safePage);
   }
 
@@ -2022,6 +2050,54 @@ async function processConversion(n) {
   return receipt;
 }
 
+// ── Ponte DURÁVEL entre o webhook e o processamento ────────────────────────
+// Em vez de processar em background logo após o 200 (perde a venda se o
+// processo reiniciar no meio), a conversão é GRAVADA no Redis primeiro. Um
+// worker consome e confirma; um crash no meio deixa o item na fila e ele é
+// reprocessado (idempotente via dedup). Sem Redis, cai no comportamento antigo
+// (processa inline) — funciona, só não sobrevive a restart.
+function submitConversion(n) {
+  if (rdb.enabled) {
+    rdb.enqueueConversion(n).then((ok) => {
+      // se o enqueue falhar (Redis instável), processa inline como rede de segurança
+      if (!ok) processConversion(n).catch(() => {});
+    }).catch(() => { processConversion(n).catch(() => {}); });
+  } else {
+    processConversion(n).catch(() => {});
+  }
+}
+
+// Worker: consome a fila durável de conversões. Lock distribuído garante que,
+// com várias instâncias, só UMA drena por ciclo (evita disparo duplicado).
+let _convWorkerBusy = false;
+async function convWorkerTick() {
+  if (!rdb.enabled || _convWorkerBusy) return;
+  _convWorkerBusy = true;
+  try {
+    if (!(await rdb.acquireLock('convWorker', 25))) return; // outra instância já drena
+    const batch = await rdb.reserveConversions(25);
+    for (const item of batch) {
+      const n = item.env && item.env.n;
+      if (!n) { await rdb.ackConversion(item.raw); continue; } // item corrompido → descarta
+      try { await processConversion(n); } catch (_) {}
+      await rdb.ackConversion(item.raw); // dedup cobre reprocesso; ack sempre
+    }
+  } catch (_) {} finally {
+    _convWorkerBusy = false;
+    rdb.releaseLock('convWorker').catch(() => {});
+  }
+}
+if (rdb.enabled) {
+  // drena a cada 2s (baixa latência para a venda aparecer na dashboard)
+  const _cw = setInterval(() => { convWorkerTick().catch(() => {}); }, 2000);
+  if (_cw.unref) _cw.unref();
+  // requeue de itens presos (worker morto no meio) a cada 60s, idade > 120s
+  const _cr = setInterval(() => { rdb.reclaimConversions(120000).catch(() => {}); }, 60000);
+  if (_cr.unref) _cr.unref();
+  // no boot, recupera imediatamente qualquer item deixado por um restart anterior
+  setTimeout(() => { rdb.reclaimConversions(0 + 1).then(() => convWorkerTick()).catch(() => {}); }, 4000).unref();
+}
+
 // Endpoint público que os gateways chamam.
 app.post('/api/conversion', (req, res) => {
   const secret = process.env.CONVERSION_WEBHOOK_SECRET;
@@ -2051,7 +2127,7 @@ app.post('/api/conversion', (req, res) => {
   res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
   // legado (sem conta no token): atribui à conta padrão
   n.acc = _defaultAccountId;
-  processConversion(n).catch(() => {});
+  submitConversion(n);
 });
 
 // ═══ Webhook DEDICADO por gateway (multi-tenant): POST /hook/:token ═══
@@ -2093,7 +2169,7 @@ app.post('/hook/:token', (req, res) => {
   n.acc = gw.accountId;
   n.gatewayId = gw.id;
   gatewayStore.touch(gw.id, 'ok: ' + n.event);
-  processConversion(n).catch(() => {});
+  submitConversion(n);
 });
 
 // ═══ CRUD de gateways (dashboard, por conta) ══════════════════════════
@@ -2457,6 +2533,43 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
     events, errors,
     retryQueue: ttEvents.retryQueueSize()
   });
+});
+
+// Tendência de EMQ por pixel (série diária) + ALERTA de queda. O EMQ é o
+// Event Match Quality: quanto mais sinal de identidade casa, melhor o TikTok
+// otimiza. Quando cai, a campanha piora EM SILÊNCIO — este endpoint detecta a
+// queda comparando a média recente (3d) com a base anterior (dias 4–10).
+app.get('/api/pixels/emq-trend', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const pixels = pixelStore.list(acc);
+  const out = [];
+  for (const p of pixels) {
+    const name = p.slug || p.pixelCode;
+    if (!name) continue;
+    const trend = await redis.getEmqTrend(acc, name, 14).catch(() => []);
+    // média recente (últimos 3 dias com dado) vs base (3 dias anteriores a esses)
+    const withData = trend.filter((d) => d.count > 0);
+    const recent = withData.slice(-3);
+    const base = withData.slice(-6, -3);
+    const avg = (arr) => arr.length ? arr.reduce((s, d) => s + d.avg, 0) / arr.length : null;
+    const rAvg = avg(recent), bAvg = avg(base);
+    // alerta: EMQ recente < 4/10 OU caiu >= 1.5 pontos vs a base
+    let alert = null;
+    if (rAvg != null && rAvg < 4) alert = 'baixo';
+    else if (rAvg != null && bAvg != null && (bAvg - rAvg) >= 1.5) alert = 'queda';
+    out.push({
+      pixel: name,
+      pixelCode: p.pixelCode,
+      trend,
+      recentAvg: rAvg != null ? Math.round(rAvg * 10) / 10 : null,
+      baseAvg: bAvg != null ? Math.round(bAvg * 10) / 10 : null,
+      alert
+    });
+  }
+  // ordena: pixels em alerta primeiro
+  out.sort((a, b) => (b.alert ? 1 : 0) - (a.alert ? 1 : 0));
+  res.json({ ok: true, pixels: out, alerts: out.filter((p) => p.alert).length });
 });
 
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {

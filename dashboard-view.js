@@ -1962,6 +1962,11 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div id="ph-events" class="hint" style="margin-top:12px"></div>
           <div id="ph-errors" style="margin-top:6px"></div>
         </div>
+        <div class="section-title"><span>Tend&ecirc;ncia de qualidade (EMQ)</span><span class="line"></span><span class="muted" style="font-size:11.5px">m&eacute;dia di&aacute;ria por pixel</span></div>
+        <div class="card">
+          <div class="hint" style="margin-bottom:10px">O <b>Event Match Quality</b> (0&ndash;10) mede quanto sinal de identidade casa com o TikTok. Quando cai, a otimiza&ccedil;&atilde;o piora em sil&ecirc;ncio &mdash; fique de olho nos alertas.</div>
+          <div id="emq-trend"><div class="muted" style="font-size:12.5px">Carregando&hellip;</div></div>
+        </div>
         <!-- Guia de instalação: só aparece quando existe pelo menos 1 pixel
              (o script é único por domínio e injeta todos os pixels ativos) -->
         <div id="tk-guide" style="display:none">
@@ -4281,7 +4286,38 @@ function loadPixels(){
   loadPxLog();
   loadConvLog();
   loadCapiHealth();
+  loadEmqTrend();
   loadGateways();
+}
+// Tendência de EMQ por pixel (série diária) + alerta de queda de qualidade.
+function loadEmqTrend(){
+  var box=document.getElementById('emq-trend'); if(!box) return;
+  fetch('/api/pixels/emq-trend').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok||!d.pixels||!d.pixels.length){
+      box.innerHTML='<div class="muted" style="font-size:12.5px">Sem dados de EMQ ainda \u2014 aparece aqui quando os pixels come\u00e7arem a disparar.</div>';
+      return;
+    }
+    box.innerHTML=d.pixels.map(function(p){
+      var trend=p.trend||[];
+      // sparkline: uma barra por dia, altura proporcional ao EMQ (0-10)
+      var bars=trend.map(function(t){
+        var h=Math.max(3,Math.round((t.avg/10)*28));
+        var col=t.avg>=6?'var(--success)':(t.avg>=3?'var(--amber,#e6a700)':'var(--pink)');
+        return '<span title="'+esc(t.day)+': '+t.avg+'/10 ('+t.count+' disparos)" style="display:inline-block;width:8px;height:'+h+'px;background:'+col+';border-radius:2px;vertical-align:bottom;margin-right:2px"></span>';
+      }).join('');
+      if(!bars) bars='<span class="muted" style="font-size:11.5px">sem hist\u00f3rico</span>';
+      var recent=p.recentAvg!=null?p.recentAvg+'/10':'--';
+      var recentCls=p.recentAvg==null?'':(p.recentAvg>=6?'grn':(p.recentAvg>=3?'amb':'neg'));
+      var alertChip='';
+      if(p.alert==='baixo') alertChip='<span class="chip neg" style="margin-left:8px">EMQ baixo</span>';
+      else if(p.alert==='queda') alertChip='<span class="chip amb" style="margin-left:8px">queda de '+((p.baseAvg||0)-(p.recentAvg||0)).toFixed(1)+' pts</span>';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06))">'+
+        '<div style="min-width:0"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.pixel)+alertChip+'</div>'+
+        '<div class="muted" style="font-size:11px;margin-top:2px">m\u00e9dia recente <b class="'+recentCls+'">'+recent+'</b>'+(p.baseAvg!=null?' \u00b7 base '+p.baseAvg+'/10':'')+'</div></div>'+
+        '<div style="display:flex;align-items:flex-end;height:28px">'+bars+'</div>'+
+      '</div>';
+    }).join('');
+  }).catch(function(){});
 }
 // Saúde da CAPI: taxa de sucesso, EMQ médio, fila de retry e últimos erros
 function loadCapiHealth(){
@@ -5209,7 +5245,7 @@ document.getElementById('gw-cancel').addEventListener('click',function(){ docume
 document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
 document.getElementById('cw-gw-filter').addEventListener('change',renderConvLog);
-document.getElementById('ph-refresh').addEventListener('click',loadCapiHealth);
+document.getElementById('ph-refresh').addEventListener('click',function(){loadCapiHealth();loadEmqTrend();});
 document.getElementById('cw-reveal').addEventListener('click',function(){
   CW_REVEALED=!CW_REVEALED;
   document.getElementById('cw-url').value=cwUrl();
