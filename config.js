@@ -189,6 +189,9 @@ function set(accountId, patch) {
     const c = Object.assign({}, d, next.cloak || {});
     const sens = ['strict', 'balanced', 'loose', 'custom'].includes(c.sensitivity) ? c.sensitivity : 'balanced';
     const boolOr = (v, def) => (typeof v === 'boolean' ? v : def);
+    // White page global de fallback: aceita apenas https:// válido; qualquer
+    // outra coisa vira '' (o servidor cai na página neutra embutida /_safe).
+    const validHttps = (u) => /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
     next.cloak = {
       enabled:            boolOr(c.enabled, true),
       sensitivity:        sens,
@@ -201,7 +204,8 @@ function set(accountId, patch) {
       checkWebgl:         boolOr(c.checkWebgl, true),
       checkTimezone:      boolOr(c.checkTimezone, true),
       checkBehavior:      boolOr(c.checkBehavior, true),
-      blockZhLang:        boolOr(c.blockZhLang, true)
+      blockZhLang:        boolOr(c.blockZhLang, true),
+      defaultWhitePage:   validHttps(c.defaultWhitePage) ? String(c.defaultWhitePage).trim().slice(0, 500) : ''
     };
   }
 

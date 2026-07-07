@@ -3866,10 +3866,13 @@ function loadCloakConfig(){
 function ckUrl(slug){ return (CK_BASE||location.origin)+'/c/'+slug; }
 /* Card colapsado (resumo) de um link de cloaking */
 function ckCard(l){
-  var on=l.enabled!==false && !!l.whitePageUrl;
+  // FAIL-SAFE: mesmo sem white page própria, bots caem numa página segura
+  // (white global ou /_safe embutida) — nunca na offer. Então "protegido"
+  // depende só do interruptor do link.
+  var on=l.enabled!==false;
   var url=ckUrl(l.slug);
-  var statusTxt = !l.whitePageUrl ? 'Sem white page — tudo vai à offer'
-    : (l.enabled===false ? 'Proteção desligada' : 'Protegido — modo '+({strict:'agressivo',balanced:'equilibrado',loose:'conservador',custom:'manual'}[l.sensitivity]||'equilibrado'));
+  var statusTxt = (l.enabled===false) ? 'Proteção desligada — tudo vai à offer'
+    : ('Protegido — modo '+({strict:'agressivo',balanced:'equilibrado',loose:'conservador',custom:'manual'}[l.sensitivity]||'equilibrado')+(!l.whitePageUrl?' · usando página segura padrão':''));
   return '<div class="card ck-card" data-slug="'+esc(l.slug)+'" style="margin-bottom:12px">'+
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
       '<span class="ck-dot'+(on?' on':'')+'" title="'+esc(statusTxt)+'"></span>'+
@@ -3884,7 +3887,27 @@ function ckCard(l){
       '<button class="btn btn-sm" data-ck-edit="'+esc(l.slug)+'" type="button">Configurar</button>'+
       '<button class="cn-x" data-ck-del="'+esc(l.slug)+'" title="Apagar" aria-label="Apagar link de cloaking">&times;</button>'+
     '</div>'+
+    ckStatsRow('cloak',l.slug)+
     (CK_OPEN===l.slug?('<div class="ck-editor-wrap" style="margin-top:16px;border-top:1px solid var(--line,rgba(255,255,255,.06));padding-top:16px">'+renderCloakEditor(l,false)+'</div>'):'')+
+  '</div>';
+}
+/* Mini-painel de decisões (→ Offer / → White / % bloqueio) de um link. */
+function ckStatsRow(tipo,slug){
+  var st=ckStatFor(tipo,slug);
+  if(!st||!st.total){
+    return '<div class="ck-stats" style="margin-top:10px;font-size:12px;color:var(--muted2)">Sem trÃ¡fego registrado ainda.</div>';
+  }
+  var pct=Math.round((st.blockRate||0)*100);
+  var reasons=st.reasons||{};
+  var rlabel={'bot-ua':'bot','pais':'paÃ­s','idioma':'idioma','score':'score','rate-limit':'rajada'};
+  var chips=Object.keys(reasons).sort(function(a,b){return reasons[b]-reasons[a];}).slice(0,4).map(function(r){
+    return '<span class="ck-chip" style="display:inline-block;padding:1px 7px;border-radius:10px;background:var(--line,rgba(255,255,255,.06));margin:2px 4px 0 0;font-size:11px">'+esc(rlabel[r]||r)+': '+reasons[r]+'</span>';
+  }).join('');
+  return '<div class="ck-stats" style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:14px;font-size:12px;border-top:1px dashed var(--line,rgba(255,255,255,.06));padding-top:10px">'+
+    '<span style="color:var(--green,#39d98a)">&rarr; Offer <b>'+st.offer+'</b></span>'+
+    '<span style="color:var(--muted2)">&rarr; White <b>'+st.white+'</b></span>'+
+    '<span>Bloqueio <b>'+pct+'%</b> <span class="hint">('+st.total+' visitas)</span></span>'+
+    (chips?'<span style="flex-basis:100%;margin-top:2px">'+chips+'</span>':'')+
   '</div>';
 }
 function renderCloakList(){

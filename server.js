@@ -541,6 +541,41 @@ app.post('/api/track', async (req, res) => {
   } catch (_) { /* rastreamento nunca derruba o servidor */ }
 });
 
+// ── Página neutra de segurança (/_safe) ──────────────────────────────
+// Fallback FINAL do cloaker: quando um bot/revisor é detectado e o link não
+// tem white page própria nem white page global configurada, ele cai AQUI —
+// nunca na offer. Conteúdo institucional inofensivo, sem redirect nem oferta,
+// para que a revisão do anúncio veja uma página legítima e neutra.
+// Regra: HTML por concatenação, sem crase nem ${} (convenção do projeto).
+app.get('/_safe', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  var html =
+    '<!doctype html><html lang="pt"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta name="robots" content="noindex,nofollow">' +
+    '<title>Informacoes</title>' +
+    '<style>body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;' +
+    'background:#f5f6f8;color:#1a1a2e;line-height:1.6}' +
+    '.wrap{max-width:680px;margin:0 auto;padding:48px 24px}' +
+    'h1{font-size:26px;margin:0 0 12px}h2{font-size:18px;margin:28px 0 8px}' +
+    'p{margin:0 0 14px;color:#3a3a4a}footer{margin-top:40px;font-size:13px;color:#8a8a9a}' +
+    'a{color:#2b59ff;text-decoration:none}</style></head><body><div class="wrap">' +
+    '<h1>Central de Informacoes</h1>' +
+    '<p>Bem-vindo. Esta pagina reune informacoes gerais sobre os nossos servicos, ' +
+    'politicas de utilizacao e formas de contacto.</p>' +
+    '<h2>Sobre</h2>' +
+    '<p>Trabalhamos para oferecer uma experiencia clara, segura e transparente. ' +
+    'O conteudo desta area e meramente informativo.</p>' +
+    '<h2>Privacidade</h2>' +
+    '<p>Respeitamos a sua privacidade e tratamos os dados de acordo com a ' +
+    'legislacao aplicavel. Nao recolhemos informacoes sem consentimento.</p>' +
+    '<h2>Contacto</h2>' +
+    '<p>Para questoes ou esclarecimentos, utilize os canais de apoio habituais.</p>' +
+    '<footer>&copy; ' + new Date().getFullYear() + ' &middot; Todos os direitos reservados.</footer>' +
+    '</div></body></html>';
+  res.status(200).send(html);
+});
+
 // ── Links de Checkout externos (/go/:slug) ───────────────────────────
 // O checkout NÃO vive neste projeto: cada link aponta para URLs externas
 // do usuário (qualquer gateway). Este redirect é o ponto de rastreamento:
@@ -565,28 +600,38 @@ app.get('/go/:slug', async (req, res) => {
   // Se não houver white page, revisores são redirecionados para a variante
   // normal (comportamento anterior — não bloqueia o anúncio de ser aprovado).
   const cloakCfg  = config.get(acc).cloak || {};
-  const whitePage = link.urlWhitePage || null;
+  // FAIL-SAFE: white page sempre existe. Preferência: white do próprio link →
+  // white global da conta → página neutra embutida /_safe. Assim NENHUM bot
+  // chega à offer, mesmo em links sem white configurada.
+  const safePage = link.urlWhitePage || cloakCfg.defaultWhitePage || '/_safe';
 
-  // Interruptor mestre desligado OU sem white page configurada → sem cloaking.
-  // (crawlers ainda não são rastreados, mas seguem para o destino normal)
-  const cloakOn = cloakCfg.enabled !== false && !!whitePage;
+  // Interruptor mestre da conta liga/desliga o cloaking. Como há sempre um
+  // destino seguro (safePage), não dependemos mais de white page por link.
+  const cloakOn = cloakCfg.enabled !== false;
+
+  // Registra a decisão (offer/white + motivo) nos contadores do painel.
+  const bumpDecision = (decision, reason) => {
+    try { redis.bumpCloakDecision(acc, link.slug, decision, reason); } catch (_) {}
+  };
 
   if (uaTools.isBot(uaRaw)) {
-    // Crawlers / preview de apps: vai para white page (se cloak on) ou variante 1
+    // Crawlers / preview de apps: vão para a página segura (nunca à offer).
     stats.logEvent('info', {
       acc,
       title: '[cloak] bot UA → ' + (cloakOn ? 'white' : 'offer'),
       gateway: 'link:' + link.slug,
       ref: String(uaRaw).slice(0, 80)
     });
-    return res.redirect(302, cloakOn ? whitePage : link.variantes[0].url);
+    if (cloakOn) { bumpDecision('white', 'bot-ua'); return res.redirect(302, safePage); }
+    bumpDecision('offer', null);
+    return res.redirect(302, link.variantes[0].url);
   }
 
   // Rajada do mesmo IP+UA (spy tool / clique inflado). A chave inclui o UA
   // para não punir usuários reais atrás de CGNAT (operadoras móveis põem
   // milhares de pessoas no mesmo IP — tráfego TikTok é quase todo mobile).
   if (rateLimited(clientIp(req) + '|' + uaRaw.slice(0, 60), 'go', 30)) {
-    if (cloakOn) return res.redirect(302, whitePage);
+    if (cloakOn) { bumpDecision('white', 'rate-limit'); return res.redirect(302, safePage); }
     // Fallback SEM contar clique, mas preservando atribuição e dispositivo:
     // respeita urlMobile, repassa a query original (UTMs/ttclid) e, se o
     // visitante já tem cookie v_id, anexa o lead_id para o checkout conciliar.
@@ -613,7 +658,8 @@ app.get('/go/:slug', async (req, res) => {
         gateway: 'link:' + link.slug,
         ref: clientIp(req)
       });
-      return res.redirect(302, whitePage);
+      bumpDecision('white', 'pais');
+      return res.redirect(302, safePage);
     }
   }
 
@@ -631,7 +677,8 @@ app.get('/go/:slug', async (req, res) => {
         gateway: 'link:' + link.slug,
         ref: clientIp(req)
       });
-      return res.redirect(302, whitePage);
+      bumpDecision('white', 'idioma');
+      return res.redirect(302, safePage);
     }
   }
 
@@ -674,9 +721,13 @@ app.get('/go/:slug', async (req, res) => {
       gateway: 'link:' + link.slug,
       ref: clientIp(req)
     });
-    if (whitePage) return res.redirect(302, whitePage);
-    // sem white page configurada: deixa passar (não bloqueia aprovação do anúncio)
+    // FAIL-SAFE: bot detectado SEMPRE vai para a página segura, nunca à offer.
+    bumpDecision('white', 'score');
+    return res.redirect(302, safePage);
   }
+
+  // Passou por todos os gates → usuário real seguindo para a offer.
+  if (cloakOn) bumpDecision('offer', null);
 
   // Costura de identidade: se veio de página externa com snippet /t.js,
   // o link chega decorado com ?vid=ld_… — usa ESSE id (o mesmo lead que
@@ -792,10 +843,17 @@ app.get('/c/:slug', async (req, res) => {
   if (!found || !found.entry.offerUrl) return res.status(404).send('Link não encontrado');
   const { acc, entry } = found;
   const offer = entry.offerUrl;
-  const white = entry.whitePageUrl || null;
+  // FAIL-SAFE: white do próprio link → white global da conta → /_safe embutida.
+  const acctCloak = config.get(acc).cloak || {};
+  const white = entry.whitePageUrl || acctCloak.defaultWhitePage || '/_safe';
   const uaRaw = String(req.headers['user-agent'] || '');
-  // sem white page OU interruptor do link desligado → sem cloaking (tudo vai à offer)
-  const cloakOn = entry.enabled !== false && !!white;
+  // Interruptor do link liga/desliga o cloaking; o destino seguro sempre existe.
+  const cloakOn = entry.enabled !== false;
+
+  // Registra a decisão (offer/white + motivo) nos contadores do painel.
+  const bumpDecision = (decision, reason) => {
+    try { redis.bumpCloakDecision(acc, 'cloak:' + entry.slug, decision, reason); } catch (_) {}
+  };
 
   // preserva a query original (UTMs/ttclid) no destino final
   const go = (url) => {
@@ -803,10 +861,12 @@ app.get('/c/:slug', async (req, res) => {
     return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
   };
 
-  // Crawler conhecido → white (se cloak on) ou offer
+  // Crawler conhecido → página segura (nunca à offer)
   if (uaTools.isBot(uaRaw)) {
     stats.logEvent('info', { acc, title: '[cloak] bot UA → ' + (cloakOn ? 'white' : 'offer'), gateway: 'cloak:' + entry.slug, ref: String(uaRaw).slice(0, 80) });
-    return go(cloakOn ? white : offer);
+    if (cloakOn) { bumpDecision('white', 'bot-ua'); return go(white); }
+    bumpDecision('offer', null);
+    return go(offer);
   }
 
   // Gate geográfico (instantâneo, sem DNS)
@@ -814,6 +874,7 @@ app.get('/c/:slug', async (req, res) => {
     const cc = String(geoFromReq(req).country || '').toUpperCase();
     if (!cc || entry.paises.indexOf(cc) < 0) {
       stats.logEvent('info', { acc, title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      bumpDecision('white', 'pais');
       return go(white);
     }
   }
@@ -822,6 +883,7 @@ app.get('/c/:slug', async (req, res) => {
     const lang = String(req.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
     if (!lang || entry.idiomas.indexOf(lang) < 0) {
       stats.logEvent('info', { acc, title: '[cloak] idioma ' + (lang || '??') + ' fora da allowlist → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      bumpDecision('white', 'idioma');
       return go(white);
     }
   }
@@ -843,9 +905,11 @@ app.get('/c/:slug', async (req, res) => {
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
     if (j.verdict === 'bot') {
       stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      bumpDecision('white', 'score');
       return go(white);
     }
   }
+  if (cloakOn) bumpDecision('offer', null);
   return go(offer);
 });
 
@@ -1434,6 +1498,9 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
   if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
   if (b.deadlineMs != null && !isNaN(Number(b.deadlineMs))) next.deadlineMs = Number(b.deadlineMs);
+  // White page global de fallback (a sanitização do config valida o https://).
+  // String vazia limpa o valor e volta a usar a página neutra embutida /_safe.
+  if (typeof b.defaultWhitePage === 'string') next.defaultWhitePage = b.defaultWhitePage.trim();
   config.set(req.account.id, { cloak: next });
   res.json({ ok: true, cloak: config.get(req.account.id).cloak });
 });
@@ -1518,6 +1585,55 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     signals: j.signals, ip: clientIp(req),
     ua: String(req.headers['user-agent'] || '').slice(0, 120)
   });
+});
+
+// ── Métricas de decisão do cloaker (offer vs white) por conta ──────────────
+// Devolve, por link (/go e /c), quantas visitas foram para a offer vs white,
+// a taxa de bloqueio e o breakdown por motivo (bot-ua, pais, idioma, score,
+// rate-limit). Alimenta o painel white/offer da aba Filtro de Bots.
+app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+
+  // Junta os dois tipos de link protegido: checkout (/go/<slug>) e cloak (/c/<slug>)
+  const goLinks = linkStore.list(acc).map((l) => ({ tipo: 'go', slug: l.slug, nome: l.nome, key: l.slug }));
+  const ckLinks = (config.get(acc).cloakLinks || []).map((l) => ({ tipo: 'cloak', slug: l.slug, nome: l.nome || l.slug, key: 'cloak:' + l.slug }));
+  const all = goLinks.concat(ckLinks);
+
+  const items = await Promise.all(all.map(async (l) => {
+    const s = await redis.getCloakStats(acc, l.key).catch(() => null);
+    const st = s || { offer: 0, white: 0, total: 0, offerRate: 0, reasons: {}, daily: [] };
+    return {
+      tipo: l.tipo, slug: l.slug, nome: l.nome,
+      offer: st.offer, white: st.white, total: st.total,
+      blockRate: st.total ? st.white / st.total : 0,   // taxa de bloqueio
+      reasons: st.reasons, daily: st.daily
+    };
+  }));
+
+  // Agregado geral da conta
+  const agg = items.reduce((a, it) => {
+    a.offer += it.offer; a.white += it.white; a.total += it.total;
+    Object.keys(it.reasons || {}).forEach((r) => { a.reasons[r] = (a.reasons[r] || 0) + it.reasons[r]; });
+    return a;
+  }, { offer: 0, white: 0, total: 0, reasons: {} });
+  agg.blockRate = agg.total ? agg.white / agg.total : 0;
+
+  res.json({ ok: true, redis: redis.enabled, aggregate: agg, links: items });
+});
+
+// Zera os contadores de um link (ou de todos, se slug ausente).
+app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
+  const acc = req.account.id;
+  const key = req.body && req.body.key ? String(req.body.key).slice(0, 60) : null;
+  if (key) {
+    await redis.resetCloakStats(acc, key).catch(() => {});
+  } else {
+    const keys = linkStore.list(acc).map((l) => l.slug)
+      .concat((config.get(acc).cloakLinks || []).map((l) => 'cloak:' + l.slug));
+    await Promise.all(keys.map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
+  }
+  res.json({ ok: true });
 });
 
 // ── Links de cloaking (entidade própria, servidos em /c/:slug) ─────────────
@@ -1870,8 +1986,11 @@ async function processConversion(n) {
       }
       notifyPushcut(n.event, n);
     }
-    // 4. dispara a CAPI com o MÁXIMO de sinal: identidade do lead do backend
+    // 4. dispara a CAPI com o MÁXIMO de sinal: identidade do lead do backend.
+    // _trusted: origem = gateway (webhook/api de conversão) → libera a trava
+    // gateway-only para eventos monetários (CompletePayment/AddPaymentInfo…).
     const r = await ttEvents.dispatchToAll(n.event, {
+      _trusted: true,
       eventId: evId,
       email: n.email || (lead && lead.email) || undefined,
       phone: n.phone || (lead && lead.phone) || undefined,
