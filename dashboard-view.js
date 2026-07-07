@@ -597,8 +597,8 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
 .k-val .mut,.k-sub .mut{color:var(--text-muted)}
 
   .section-title{display:flex;align-items:center;gap:10px;margin:38px 0 18px;font-size:15.5px;font-weight:700;color:#ffffff;flex-wrap:wrap;min-width:0;letter-spacing:-0.015em}
-  .section-title span:first-child{position:relative;padding-left:14px}
-  .section-title span:first-child::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.section-title span:first-child{position:relative;padding-left:16px}
+.section-title span:first-child::before{content:'';position:absolute;left:2px;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent)}
   /* passos numerados dos cards de instrução (snippet, webhook) */
   .steps{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px}
   .step{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
@@ -934,9 +934,11 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .btn-icon:hover{color:var(--cyan);border-color:var(--cyan)}
 
 /* ── Toast ── */
-.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);opacity:0;visibility:hidden;background:rgba(15,22,40,0.88);backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);border:1px solid var(--border2);color:var(--text);padding:12px 20px;border-radius:14px;font-size:13.5px;font-weight:600;z-index:60;transition:transform var(--dur-slow) var(--spring),opacity .3s,visibility .3s;box-shadow:0 12px 32px rgba(0,0,0,.5),inset 0 1px 1px var(--lg-rim-top);pointer-events:none}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);opacity:0;visibility:hidden;background:rgba(19,19,22,0.92);backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(180%);border:1px solid var(--border2);color:var(--text);padding:12px 20px;border-radius:14px;font-size:13.5px;font-weight:600;z-index:60;transition:transform var(--dur-slow) var(--spring),opacity .3s,visibility .3s;box-shadow:0 12px 32px rgba(0,0,0,.5),inset 0 1px 1px var(--lg-rim-top);pointer-events:none}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1;visibility:visible}
-.toast.ok{border-color:rgba(34,197,94,.5)} .toast.err{border-color:rgba(220,38,38,.5)}
+ /* faixa lateral + fundo tingido: verde = sucesso, vermelho = erro */
+ .toast.ok{border-color:rgba(34,197,94,.5);border-left:3px solid var(--success);background:linear-gradient(90deg,rgba(34,197,94,.14),rgba(19,19,22,.9) 40%)}
+ .toast.err{border-color:rgba(220,38,38,.5);border-left:3px solid var(--error);background:linear-gradient(90deg,rgba(239,68,68,.14),rgba(19,19,22,.9) 40%)}
 
 /* ── Health dots ── */
 .health-grid{display:block}
@@ -1152,8 +1154,9 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .msg-track i{display:block;height:100%;border-radius:3px;background:var(--mc,#06b6d4);width:0;transition:width .9s cubic-bezier(.2,.7,.3,1)}
 .msg-n{min-width:20px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0}
 /* ��─ Visão Geral: cabeçalho de bloco leve (título + contexto, divisor sutil) ── */
-#view-overview .section-title span:first-child{padding-left:14px}
-#view-overview .section-title span:first-child::before{display:none}
+/* sem bolinha no overview: remove também o recuo (senão o título fica "flutuando") */
+ #view-overview .section-title span:first-child{padding-left:0}
+ #view-overview .section-title span:first-child::before{display:none}
 #view-overview .section-title .line{background:linear-gradient(90deg,var(--border2),var(--border) 40%,transparent)}
 
 /* ── Visão Geral: meta de receita — plana, sem brilho ambiente ── */
@@ -2164,7 +2167,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <div class="card" id="gw-form-card" style="display:none">
             <h3 style="font-size:16px;margin-bottom:6px" id="gw-form-title">Novo gateway</h3>
-            <p class="hint" style="margin:0 0 14px;line-height:1.7">Escolha a plataforma e d&ecirc; um nome. Ao salvar, voc&ecirc; recebe a URL do webhook para colar no painel do gateway.</p>
+            <p class="hint" style="margin:0 0 14px;line-height:1.7">Escolha a plataforma e d&ecirc; um nome. Ao salvar, voc&ecirc; recebe uma URL de notifica&ccedil;&atilde;o &mdash; cole-a no painel do seu checkout e as vendas entram sozinhas aqui.</p>
             <input type="hidden" id="gw-id" value="">
             <div class="form-row">
               <label>Plataforma</label>
@@ -3845,11 +3848,12 @@ function verifyCustomDomain(host,btn){
     .finally(function(){ if(btn){ btn.textContent='Verificar'; btn.disabled=false; } });
 }
 function delDomain(host){
-  if(!confirm('Remover o dom\u00ednio "'+host+'"? As URLs nele param de ser recomendadas (o DNS continua seu).')) return;
-  fetch('/api/domains/'+encodeURIComponent(host),{method:'DELETE'})
-    .then(function(r){return r.json();})
-    .then(function(d){ if(d.ok){ toast('Dom\u00ednio removido'); loadDomains(); } else toast(d.error||'Erro',false); })
-    .catch(function(){ toast('Erro ao remover',false); });
+  uiConfirm({title:'Remover este dom\u00ednio?',msg:'"'+host+'" deixa de ser recomendado nas URLs (o DNS continua seu).',okLabel:'Remover',danger:true},function(){
+    fetch('/api/domains/'+encodeURIComponent(host),{method:'DELETE'})
+      .then(function(r){return r.json();})
+      .then(function(d){ if(d.ok){ toast('Dom\u00ednio removido'); loadDomains(); } else toast(d.error||'Erro',false); })
+      .catch(function(){ toast('Erro ao remover',false); });
+  });
 }
 function copyDomainSnippet(){
   var origin=linkOrigin();
@@ -4289,9 +4293,12 @@ function bindShortlinks(){
     var cp=e.target.closest?e.target.closest('[data-copy]'):null;
     if(cp){ navigator.clipboard.writeText(cp.getAttribute('data-copy')).then(function(){ toast('Link copiado'); }); return; }
     var del=e.target.closest?e.target.closest('[data-del]'):null;
-    if(del&&confirm('Apagar o link /l/'+del.getAttribute('data-del')+'?')){
-      fetch('/api/shortlinks/'+del.getAttribute('data-del'),{method:'DELETE'})
-        .then(function(){ toast('Link apagado'); loadShortlinks(); }).catch(function(){});
+    if(del){
+      var slDel=del.getAttribute('data-del');
+      uiConfirm({title:'Apagar este link curto?',msg:'A URL /l/'+slDel+' deixa de funcionar na hora.',okLabel:'Apagar',danger:true},function(){
+        fetch('/api/shortlinks/'+slDel,{method:'DELETE'})
+          .then(function(){ toast('Link apagado'); loadShortlinks(); }).catch(function(){});
+      });
     }
   });
 }
@@ -4409,11 +4416,12 @@ function copyPxScript(slug){
   navigator.clipboard.writeText(px.scriptTag).then(function(){ toast('Script do pixel copiado \u2014 cole no head das suas p\u00e1ginas'); });
 }
 function delPixel(slug){
-  if(!confirm('Excluir o pixel "'+slug+'"? O arquivo pixels/'+slug+'.json será removido.')) return;
-  fetch('/api/pixels/'+encodeURIComponent(slug),{method:'DELETE'})
-    .then(function(r){return r.json();})
-    .then(function(d){ if(d.ok){ toast('Pixel removido'); loadPixels(); } else toast(d.error||'Erro',false); })
-    .catch(function(){ toast('Erro ao remover',false); });
+  uiConfirm({title:'Excluir este pixel?',msg:'"'+slug+'" para de disparar eventos para o TikTok na hora.',okLabel:'Excluir',danger:true},function(){
+    fetch('/api/pixels/'+encodeURIComponent(slug),{method:'DELETE'})
+      .then(function(r){return r.json();})
+      .then(function(d){ if(d.ok){ toast('Pixel removido'); loadPixels(); } else toast(d.error||'Erro',false); })
+      .catch(function(){ toast('Erro ao remover',false); });
+  });
 }
 function testPixel(slug){
   toast('Enviando evento de teste...');
@@ -4526,11 +4534,12 @@ function editGateway(id){
 }
 function delGateway(id){
   var g=GW_LIST.filter(function(x){return x.id===id;})[0];
-  if(!confirm('Excluir o gateway "'+(g?g.name:id)+'"? A URL do webhook para de funcionar na hora.')) return;
-  fetch('/api/gateways/'+encodeURIComponent(id),{method:'DELETE'})
-    .then(function(r){return r.json();})
-    .then(function(d){ if(d.ok){ toast('Gateway removido'); loadGateways(); } else toast(d.error||'Erro',false); })
-    .catch(function(){ toast('Erro ao remover',false); });
+  uiConfirm({title:'Excluir este gateway?',msg:'"'+(g?g.name:id)+'" para de receber vendas na hora \u2014 a URL de notifica\u00e7\u00e3o deixa de funcionar.',okLabel:'Excluir',danger:true},function(){
+    fetch('/api/gateways/'+encodeURIComponent(id),{method:'DELETE'})
+      .then(function(r){return r.json();})
+      .then(function(d){ if(d.ok){ toast('Gateway removido'); loadGateways(); } else toast(d.error||'Erro',false); })
+      .catch(function(){ toast('Erro ao remover',false); });
+  });
 }
 function saveGateway(){
   var body={
@@ -4618,9 +4627,9 @@ function setupItems(){
   // SaaS: apenas 3 itens configuráveis pelo usuário (infra é transparente)
   if(!HEALTH) return null;
   var items=[
-    {ok:!!HEALTH.conversionWebhook,label:'Webhook de conversões',todo:'Cole a URL do seu webhook no seu gateway de pagamento',act:{t:'Configurar',go:'pixels'}},
-    {ok:!!HEALTH.tiktok,label:'Pixel TikTok (CAPI)',todo:'Adicione um pixel TikTok com Access Token válido',act:{t:'Adicionar pixel',go:'pixels'}},
-    {ok:!!HEALTH.pushcut,label:'Notificações Pushcut',todo:'Cole a URL do webhook do seu app Pushcut para alertas em tempo real',act:{t:'Configurar',go:'config'}}
+    {ok:!!HEALTH.conversionWebhook,label:'Receber vendas do checkout',todo:'Copie a URL de notifica\u00e7\u00e3o e cole no painel do seu checkout \u2014 as vendas passam a entrar sozinhas',act:{t:'Configurar',go:'pixels'}},
+    {ok:!!HEALTH.tiktok,label:'Pixel TikTok',todo:'Adicione um pixel TikTok com a chave de acesso v\u00e1lida',act:{t:'Adicionar pixel',go:'pixels'}},
+    {ok:!!HEALTH.pushcut,label:'Alertas no celular',todo:'Cole a URL do seu app Pushcut para receber alertas de venda em tempo real',act:{t:'Configurar',go:'config'}}
   ];
   return items;
 }
@@ -4984,11 +4993,20 @@ function groupOf(v){
    fallback direto em navegadores sem suporte ou com reduced-motion */
 function setView(v){
   if(document.startViewTransition&&!REDUCED&&groupOf(v)!==currentView){
-    document.startViewTransition(function(){ applySetView(v); });
+  document.startViewTransition(function(){ applySetView(v); });
   } else {
-    applySetView(v);
+  applySetView(v);
   }
-}
+  // 1ª visita às Configurações: popup de orientação (não volta a aparecer)
+  if(v==='config'&&!localStorage.getItem('cfgWelcomed')){
+    localStorage.setItem('cfgWelcomed','1');
+    setTimeout(function(){
+      uiConfirm({title:'Bem-vindo \u00e0s Configura\u00e7\u00f5es',
+        msg:'Aqui ficam o script de acompanhamento para as suas p\u00e1ginas, os dom\u00ednios pr\u00f3prios e a API. Copie o script e cole nas suas p\u00e1ginas para come\u00e7ar a medir visitas.',
+        okLabel:'Entendi',icon:'hi',noCancel:true});
+    },350);
+  }
+  }
 /* ── Gota líquida do nav: mede o botão ativo e desliza (esticando no caminho) ── */
 function moveGota(){
   var nav=document.getElementById('nav'); if(!nav) return;
@@ -5037,6 +5055,7 @@ function applySetView(v){
   document.getElementById('page-sub').textContent=(g==='tracking')?('Rastreamento \u00b7 '+TRACK_LABELS[trackingTab]):titles[g][1];
   document.getElementById('sidebar').classList.remove('open');
   var scrim=document.getElementById('side-scrim'); if(scrim) scrim.classList.remove('open');
+  window.scrollTo(0,0); // aba nova abre sempre no topo (não herda o scroll da anterior)
   // animação de entrada em cascata (só na primeira section do grupo)
   var sec=document.getElementById('view-'+views[0]);
   if(sec){ sec.classList.remove('entering'); void sec.offsetWidth; sec.classList.add('entering'); setTimeout(function(){sec.classList.remove('entering');},700); }
@@ -5264,10 +5283,11 @@ document.getElementById('tk-copy').addEventListener('click',function(){
     .catch(function(){ toast('Clipboard indispon\u00edvel',false); });
 });
 document.getElementById('reset-btn').addEventListener('click',function(){
-  if(!confirm('Tem certeza? Isto apaga todos os leads e eventos.')) return;
-  fetch('/api/reset-stats',{method:'POST'})
-    .then(function(){ toast('Estat��sticas zeradas'); refresh(); })
-    .catch(function(){toast('Erro',false);});
+  uiConfirm({title:'Apagar todos os dados?',msg:'Todos os leads e eventos ser\u00e3o apagados de forma permanente. N\u00e3o h\u00e1 como recuperar depois.',okLabel:'Apagar tudo',danger:true},function(){
+    fetch('/api/reset-stats',{method:'POST'})
+      .then(function(){ toast('Estat\u00edsticas zeradas'); refresh(); })
+      .catch(function(){toast('Erro',false);});
+  });
 });
 
 /* ── Auto-refresh ── */
