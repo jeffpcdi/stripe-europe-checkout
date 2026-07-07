@@ -4193,7 +4193,7 @@ function bindCloak(){
   var gwSave=document.getElementById('ck-global-white-save');
   if(gwSave) gwSave.addEventListener('click',function(){
     var v=(gw&&gw.value||'').trim();
-    if(v && !/^https:\/\//i.test(v)){ toast('A p\u00e1gina segura deve come\u00e7ar com https://',false); return; }
+    if(v && v.slice(0,8).toLowerCase()!=='https://'){ toast('A p\u00e1gina segura deve come\u00e7ar com https://',false); return; }
     fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({defaultWhitePage:v})})
       .then(function(r){return r.json();})
       .then(function(d){ toast(d&&d.ok!==false?'P\u00e1gina segura salva':'Erro ao salvar', d&&d.ok!==false); })
