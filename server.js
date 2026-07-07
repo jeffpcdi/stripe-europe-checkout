@@ -252,6 +252,46 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// ── Guard de domínio personalizado ───────────────────────────────────
+// Os domínios personalizados dos lojistas servem APENAS o funil público
+// (tracking, cloaker, checkout, pixel, webhook). O app do SaaS — landing,
+// dashboard, login, register, páginas legais e TODAS as APIs de gestão —
+// fica acessível SÓ no host principal. Num domínio personalizado, qualquer
+// rota fora da allowlist responde 404 puro (nem revela que ali há um painel).
+// Allowlist (não denylist) de propósito: rota nova nasce bloqueada no domínio
+// do lojista até ser explicitamente liberada aqui.
+const CUSTOM_ALLOW_EXACT = new Set([
+  '/_safe', '/__domain-check',
+  '/t.js', '/px.js', '/px.gif',
+  '/api/track', '/api/px/event', '/api/cloakcheck', '/api/conversion'
+]);
+const CUSTOM_ALLOW_PREFIX = ['/go/', '/c/', '/l/', '/hook/', '/assets/'];
+function allowedOnCustomDomain(p) {
+  if (CUSTOM_ALLOW_EXACT.has(p)) return true;
+  if (/^\/px\/[^/]+\.js$/.test(p)) return true;              // /px/:token.js
+  for (const pre of CUSTOM_ALLOW_PREFIX) if (p.startsWith(pre)) return true;
+  return false;
+}
+// Hosts que NUNCA são tratados como personalizados (salvaguarda contra lockout
+// do painel caso o apex principal seja adicionado por engano a uma conta).
+const PRIMARY_HOSTS = new Set(
+  [process.env.PRIMARY_HOST, process.env.RAILWAY_PUBLIC_DOMAIN]
+    .filter(Boolean).map((h) => String(h).toLowerCase().replace(/:\d+$/, ''))
+);
+function isCustomDomain(req) {
+  try {
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+    if (!host || PRIMARY_HOSTS.has(host)) return false;      // host principal
+    return !!config.accountForDomain(host);                  // achou conta dona → personalizado
+  } catch (_) { return false; }
+}
+app.use((req, res, next) => {
+  if (!isCustomDomain(req)) return next();                   // host principal: app completo
+  if (allowedOnCustomDomain(req.path)) return next();        // rota pública do funil
+  return res.status(404).type('text/plain').send('Not found'); // 404 puro
+});
+
 // ── Rastreio de funil: todo visitante (page view HTML) vira um lead ──
 app.use(async (req, res, next) => {
   try {
