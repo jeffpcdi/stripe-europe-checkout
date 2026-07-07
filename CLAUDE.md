@@ -196,6 +196,31 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   prefixos `/go/`, `/c/`, `/l/`, `/hook/`, `/assets/`. Ao liberar uma rota pública nova no funil,
   adicione-a a `CUSTOM_ALLOW_EXACT`/`CUSTOM_ALLOW_PREFIX` em `server.js`.
 
+### 5.2.2 Domínios personalizados — operação e diagnóstico (aprendido em produção)
+- **Cada domínio precisa ser registrado individualmente no Railway.** Apontar o CNAME do domínio do
+  lojista para `roi-nados.top` **não funciona**: o Railway roteia por Host header e só conhece os
+  domínios cadastrados nele. Host desconhecido → a borda do Railway responde **404
+  `{"status":"error","code":"NOT_FOUND","message":"Application not found",...}`**. Esse JSON com
+  `request_id` é a assinatura de "domínio não registrado no Railway" (≠ 404 do nosso app).
+- **Sinal de diagnóstico rápido:** `GET https://<host>/__domain-check` → `200 {app:"roi-nados-tracker"}`
+  = domínio roteado e nosso app responde (verifica na hora). `404 Application not found` = domínio não
+  está no Railway (ficou em modo manual / precisa (re)registrar).
+- **Cloudflare deve ficar CINZA (Somente DNS), não laranja.** Com proxy laranja (IPs `104.21.x`/
+  `172.67.x`) a Cloudflare intercepta e o SSL/roteamento do Railway pode não emitir. O tutorial no popup
+  já avisa isso.
+- **Teto de Custom Domains do plano Railway é real.** O código não bloqueia o cadastro (cai em manual +
+  auto-recuperação), mas p/ o domínio ser roteado/ganhar SSL precisa de slot livre — libere domínios não
+  usados em *Settings → Networking* ou faça upgrade. Após liberar, a verificação reconecta sozinha.
+- **Sem hot reload:** mudanças de env (ex.: `RAILWAY_API_TOKEN`) ou de código só valem após **redeploy**.
+  Confirme no log de boot: `[domain-provider] Railway conectado — <tipo> token válido`.
+- **Fatos do schema GraphQL do Railway** (confirmados por introspection, backboard.railway.com/graphql/v2):
+  `customDomainCreate(input:{domain!, projectId!, environmentId!, serviceId!})`; `customDomainDelete(id!)`;
+  `customDomain(id!, projectId!)` — **ambos obrigatórios**; `domains(projectId!, environmentId!, serviceId!)`
+  → `AllDomains{ customDomains[{id,domain,status{dnsRecords,verified,verificationToken,certificateStatus}}], serviceDomains }`.
+  Sonda de auth no boot: `project(id)` (Bearer) e `projectToken` (Project-Access-Token).
+- **Sandbox v0 ≠ runtime Railway:** as vars `RAILWAY_*` não existem no sandbox do v0, então `enabled=false`
+  e os logs mostram "modo manual" aqui — isso não reflete produção. Teste auth de token só roda no Railway.
+
 ### 5.3 Ingestão pública / webhooks (sem sessão)
 - `GET /api/status` — diagnóstico público (`{ok, db, redis}`).
 - `POST /api/pulse`, `POST /api/pulse/leave` — heartbeat de presença.
@@ -335,6 +360,10 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
   ou mensagem de erro. Usa também `RAILWAY_PROJECT_ID`/`RAILWAY_ENVIRONMENT_ID`/`RAILWAY_SERVICE_ID`
   (injetados automaticamente pelo Railway em runtime). **Obs.:** se um project token for recusado para
   `customDomainCreate`, troque por um account/workspace token (Account Settings → Tokens).
+- `PRIMARY_HOST` — (opcional) host do painel/SaaS (ex.: `roi-nados.top`). Salvaguarda do guard de
+  domínio personalizado (§5.2.1): esse host — junto de `RAILWAY_PUBLIC_DOMAIN` — nunca é tratado como
+  domínio de lojista, evitando lockout do painel. Sem ele, o guard ainda funciona (o host principal
+  simplesmente não consta em `accountForDomain`), mas defini-lo é a rede de segurança recomendada.
 - `PORT` — porta HTTP (padrão 3000).
 - (Legado) `DASHBOARD_PASSWORD` — antigo Basic Auth de senha única, **substituído** pela auth por conta.
 
