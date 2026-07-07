@@ -953,6 +953,9 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .dmtut-check circle{fill:none;stroke:var(--success);stroke-width:2.5;stroke-dasharray:151;stroke-dashoffset:151;animation:dmtutDraw .6s ease forwards}
 .dmtut-check path{fill:none;stroke:var(--success);stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:38;stroke-dashoffset:38;animation:dmtutDraw .45s ease .5s forwards}
 @keyframes dmtutDraw{to{stroke-dashoffset:0}}
+.dmtut-code{margin-top:10px;border:1px solid var(--border);border-radius:12px;background:#090c15;padding:12px;
+  font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--text-sub);line-height:1.6;word-break:break-all;max-height:110px;overflow:auto}
+.dmtut-copy.big{height:42px;padding:0 20px;font-size:13.5px;margin-top:10px}
 .dmtut-spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,.25);border-top-color:currentColor;display:inline-block;animation:dmtutSpin .7s linear infinite}
 @keyframes dmtutSpin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.dmtut,.dmtut-bg.open{animation:none}.dmtut-check circle,.dmtut-check path{animation:none;stroke-dashoffset:0}}
@@ -1964,37 +1967,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div class="hint" style="margin-bottom:10px">O <b>Event Match Quality</b> (0&ndash;10) mede quanto sinal de identidade casa com o TikTok. Quando cai, a otimiza&ccedil;&atilde;o piora em sil&ecirc;ncio &mdash; fique de olho nos alertas.</div>
           <div id="emq-trend"><div class="muted" style="font-size:12.5px">Carregando&hellip;</div></div>
         </div>
-        <!-- Guia de instalação: só aparece quando existe pelo menos 1 pixel
-             (o script é único por domínio e injeta todos os pixels ativos) -->
-        <div id="tk-guide" style="display:none">
-        <div class="section-title"><span>Como ativar o rastreamento</span><span class="line"></span><span class="muted" style="font-size:11.5px">um s&oacute; script para todos os pixels</span></div>
-        <div class="card">
-          <div class="tut-step" style="border-left:3px solid var(--pink)">
-            <span class="tut-n">1</span>
-            <div class="tut-txt">
-              <b>Copie o c&oacute;digo</b>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
-                <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px;background:var(--bg2)">
-                <button class="btn btn-sm primary" id="tk-copy">Copiar C&oacute;digo</button>
-              </div>
-            </div>
-          </div>
-          <div class="tut-step" style="border-left:3px solid var(--accent)">
-            <span class="tut-n">2</span>
-            <div class="tut-txt">
-              <b>Cole no seu criador de p&aacute;ginas</b>
-              <p>No campo de <b>scripts personalizados / cabe&ccedil;alho (head)</b> do Elementor, Wix, WordPress, GreatPages, etc.</p>
-            </div>
-          </div>
-          <div class="tut-step" style="border-left:3px solid var(--success);margin-bottom:0">
-            <span class="tut-n">3</span>
-            <div class="tut-txt">
-              <b>Salve e publique</b>
-              <p>Pronto \u2014 visitas e compras passam a aparecer aqui em tempo real. Com dom&iacute;nio pr&oacute;prio verificado, o c&oacute;digo usa o seu endere&ccedil;o automaticamente.</p>
-            </div>
-          </div>
-        </div>
-        </div>
         <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><select class="select" id="cw-gw-filter" style="width:auto;min-width:140px;padding:5px 10px;font-size:12px"><option value="">Todos os gateways</option></select><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
         <div class="card" style="padding:0">
           <div class="tbl-wrap" style="border:0">
@@ -2177,6 +2149,21 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
     </div>
     <div id="dmtut-status"></div>
     <div id="dmtut-body"></div>
+  </div>
+</div>
+
+<!-- Tutorial de instalação de pixel: um modal por pixel, com script exclusivo -->
+<div class="dmtut-bg" id="pxtut-bg" role="presentation">
+  <div class="dmtut" role="dialog" aria-modal="true" aria-labelledby="pxtut-title">
+    <div class="dmtut-head">
+      <span class="dmtut-globe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
+      <div style="min-width:0">
+        <h3 id="pxtut-title">Instalar pixel</h3>
+        <div class="dmtut-host" id="pxtut-host"></div>
+      </div>
+      <button class="dmtut-x" id="pxtut-x" aria-label="Fechar tutorial">&times;</button>
+    </div>
+    <div id="pxtut-body"></div>
   </div>
 </div>
 
@@ -2927,7 +2914,7 @@ function renderGeo(m){
       '<div class="cval">'+c.count+'</div></div>';
   }).join(''):'<div class="empty">Sem dados de pa&iacute;s ainda.</div>';
 }
-// ─�� Lazy load da lib globe.gl (three.js ~1MB): só baixa quando um globo
+// ─��� Lazy load da lib globe.gl (three.js ~1MB): só baixa quando um globo
 // vai realmente ser desenhado, tirando o peso do carregamento inicial ──
 var GLOBE_LIB_LOADING=false, GLOBE_LIB_WAITERS=[];
 function ensureGlobeLib(cb){
@@ -4526,9 +4513,6 @@ function loadPixels(){
     var badge=document.getElementById('nav-px-badge');
     var n=PX_LIST.filter(function(p){return p.active;}).length;
     if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; badge.className='badge live-badge'; }
-    // guia de instalação: só faz sentido com pelo menos 1 pixel cadastrado
-    var guide=document.getElementById('tk-guide');
-    if(guide) guide.style.display=PX_LIST.length?'':'none';
   }).catch(function(){});
   loadPxLog();
   loadConvLog();
@@ -4612,7 +4596,7 @@ function renderPixels(){
         '<span>Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
       '</div>'+
       '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
-        (p.scriptTag?'<button class="btn-icon" onclick="copyPxScript(\\''+esc(p.slug)+'\\')" title="Script exclusivo deste pixel — cole em qualquer página">Copiar script</button>':'')+
+        (p.scriptTag?'<button class="btn btn-sm" style="color:var(--accent);border-color:rgba(37,244,238,0.3)" onclick="pxTutOpen(\\''+esc(p.slug)+'\\')" title="Passo a passo de instala\u00e7\u00e3o deste pixel">Instalar</button>':'')+
         '<button class="btn-icon" onclick="testPixel(\\''+esc(p.slug)+'\\')">Testar</button>'+
         '<button class="btn-icon" onclick="editPixel(\\''+esc(p.slug)+'\\')">Editar</button>'+
         '<button class="btn-icon" style="color:var(--red)" onclick="delPixel(\\''+esc(p.slug)+'\\')">Excluir</button>'+
@@ -4639,11 +4623,46 @@ function editPixel(slug){
   var px=PX_LIST.filter(function(p){return p.slug===slug;})[0];
   if(px) showPxForm(px);
 }
-// Copia o <script> exclusivo do pixel (estilo Xtracky): dispara SÓ este pixel
-function copyPxScript(slug){
+/* ── Tutorial de instalação de pixel (modal por pixel) ── */
+var PXTUT_PX=null;
+function pxTutOpen(slug){
   var px=PX_LIST.filter(function(p){return p.slug===slug;})[0];
+  if(px) pxTutOpenPx(px);
+}
+function pxTutOpenPx(px){
   if(!px||!px.scriptTag) return;
-  navigator.clipboard.writeText(px.scriptTag).then(function(){ toast('Script do pixel copiado \u2014 cole no head das suas p\u00e1ginas'); });
+  PXTUT_PX=px;
+  document.getElementById('pxtut-host').textContent=px.name+' \u00b7 '+px.pixelCode;
+  document.getElementById('pxtut-body').innerHTML=
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">1</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Copie o script deste pixel</b>'+
+        '<p>Este c\u00f3digo \u00e9 exclusivo do pixel <b>'+esc(px.name)+'</b> \u2014 s\u00f3 ele dispara nas p\u00e1ginas onde for colado.</p>'+
+        '<div class="dmtut-code">'+esc(px.scriptTag)+'</div>'+
+        '<button class="dmtut-copy big" id="pxtut-copy">'+DMTUT_COPY_ICO+' Copiar script</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">2</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Cole no seu criador de p\u00e1ginas</b>'+
+        '<p>No campo de <b>scripts personalizados / cabe\u00e7alho (head)</b> do Elementor, Wix, WordPress, GreatPages, etc. Salve e publique a p\u00e1gina.</p>'+
+      '</div>'+
+    '</div>'+
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">3</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Teste o disparo</b>'+
+        '<p style="margin-bottom:10px">Visitas e compras passam a aparecer em tempo real. Quer confirmar agora? Envie um evento de teste direto ao TikTok.</p>'+
+        '<button class="btn primary" id="pxtut-test" style="min-width:160px">Enviar teste</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('pxtut-bg').classList.add('open');
+}
+function pxTutClose(){
+  PXTUT_PX=null;
+  document.getElementById('pxtut-bg').classList.remove('open');
 }
 function delPixel(slug){
   uiConfirm({title:'Excluir este pixel?',msg:'"'+slug+'" para de disparar eventos para o TikTok na hora.',okLabel:'Excluir',danger:true},function(){
@@ -4684,7 +4703,13 @@ function savePixel(){
     .then(function(r){return r.json();})
     .then(function(d){
       btn.disabled=false;
-      if(d.ok){ toast('Pixel salvo em pixels/'+d.pixel.slug+'.json'); document.getElementById('px-form-card').style.display='none'; var g=document.getElementById('px-grid'); if(g) g.classList.remove('form-open'); loadPixels(); }
+      if(d.ok){
+    toast('Pixel salvo em pixels/'+d.pixel.slug+'.json');
+    document.getElementById('px-form-card').style.display='none';
+    var g=document.getElementById('px-grid'); if(g) g.classList.remove('form-open');
+    loadPixels();
+    if(!slug&&d.pixel&&d.pixel.scriptTag) pxTutOpenPx(d.pixel); // pixel novo: abre o passo a passo de instalação
+  }
       else toast(d.error||'Erro ao salvar',false);
     })
     .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
@@ -5387,6 +5412,8 @@ document.addEventListener('keydown',function(e){
   if(document.getElementById('cmdk-bg').classList.contains('open')) return; // cmdk cuida
   var dt=document.getElementById('dmtut-bg');
   if(dt&&dt.classList.contains('open')){ dmTutClose(); return; }
+  var pt=document.getElementById('pxtut-bg');
+  if(pt&&pt.classList.contains('open')){ pxTutClose(); return; }
   var gm=document.getElementById('globe-modal');
   if(gm&&!gm.hidden){ globeModalClose(); return; }
   var dw=document.getElementById('drawer');
@@ -5503,16 +5530,22 @@ document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
 document.getElementById('cw-gw-filter').addEventListener('change',renderConvLog);
 document.getElementById('ph-refresh').addEventListener('click',function(){loadCapiHealth();loadEmqTrend();});
-/* ── Snippet de rastreamento para páginas externas ── */
-function trackerSnippet(){ var o=linkOrigin(); return '<script src="'+o+'/t.js" defer><\\/script><noscript><img src="'+o+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>'; }
-(function(){
-  var inp=document.getElementById('tk-snippet');
-  if(inp) inp.value=trackerSnippet();
-})();
-document.getElementById('tk-copy').addEventListener('click',function(){
-  navigator.clipboard.writeText(trackerSnippet())
-    .then(function(){ toast('Script copiado \u2014 cole no <head> das suas p\u00e1ginas'); })
-    .catch(function(){ toast('Clipboard indispon\u00edvel',false); });
+// tutorial de pixel: fechar (×/scrim) e ações internas por delegação
+document.getElementById('pxtut-x').addEventListener('click',pxTutClose);
+document.getElementById('pxtut-bg').addEventListener('click',function(e){ if(e.target===this) pxTutClose(); });
+document.getElementById('pxtut-body').addEventListener('click',function(e){
+  if(e.target.closest('#pxtut-copy')){
+    var btn=e.target.closest('#pxtut-copy');
+    if(PXTUT_PX&&PXTUT_PX.scriptTag){
+      navigator.clipboard.writeText(PXTUT_PX.scriptTag).then(function(){
+        btn.classList.add('copied');
+        btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px"><path d="M20 6L9 17l-5-5"/></svg> Copiado!';
+        setTimeout(function(){ btn.classList.remove('copied'); btn.innerHTML=DMTUT_COPY_ICO+' Copiar script'; },1500);
+      }).catch(function(){ toast('Erro ao copiar',false); });
+    }
+    return;
+  }
+  if(e.target.closest('#pxtut-test')&&PXTUT_PX){ testPixel(PXTUT_PX.slug); return; }
 });
 document.getElementById('reset-btn').addEventListener('click',function(){
   uiConfirm({title:'Apagar todos os dados?',msg:'Todos os leads e eventos ser\u00e3o apagados de forma permanente. N\u00e3o h\u00e1 como recuperar depois.',okLabel:'Apagar tudo',danger:true},function(){
