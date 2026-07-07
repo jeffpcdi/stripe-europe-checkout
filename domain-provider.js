@@ -99,11 +99,12 @@ async function register(host) {
 }
 
 // Consulta status/registros de um domínio já registrado (por id do provedor).
+// A query customDomain exige id E projectId (ambos obrigatórios no schema).
 async function status(providerId) {
   if (!enabled || !providerId) return null;
   const data = await gql(
-    'query($id:String!){customDomain(id:$id){id status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationToken verified certificateStatus}}}',
-    { id: providerId }
+    'query($id:String!,$projectId:String!){customDomain(id:$id,projectId:$projectId){id status{dnsRecords{recordType hostlabel fqdn requiredValue currentValue purpose status} verificationToken verified certificateStatus}}}',
+    { id: providerId, projectId: PROJECT_ID }
   );
   const cd = data && data.customDomain;
   if (!cd) return null;
