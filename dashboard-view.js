@@ -3952,7 +3952,7 @@ function renderCloakEditor(l,isNew){
 }
 /* Catálogo de países por bloco (código ISO-2, nome, bandeira) */
 var CK_COUNTRY_BLOCKS=[
-  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲���'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷']]},
+  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲🇽'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷']]},
   {block:'Europa Sul',items:[['PT','Portugal','🇵🇹'],['ES','Espanha','🇪🇸'],['IT','Itália','🇮🇹'],['FR','França','🇫🇷']]},
   {block:'Europa Norte/Central',items:[['DE','Alemanha','🇩🇪'],['NL','Países Baixos','🇳🇱'],['BE','Bélgica','🇧🇪'],['AT','Áustria','🇦🇹'],['CH','Suíça','🇨🇭'],['IE','Irlanda','🇮🇪'],['GB','Reino Unido','🇬🇧']]},
   {block:'Outros',items:[['AU','Austrália','🇦🇺'],['AE','Emirados Árabes','🇦🇪'],['SA','Arábia Saudita','🇸🇦'],['PL','Polônia','🇵🇱'],['RO','Romênia','🇷🇴']]}
