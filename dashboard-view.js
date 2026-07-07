@@ -909,6 +909,53 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .pop-actions .btn{min-width:110px}
 .pop-actions .btn.pop-danger{background:var(--error);color:#fff;box-shadow:0 4px 16px rgba(239,68,68,.3)}
 @media(prefers-reduced-motion:reduce){.pop,.pop-bg.open{animation:none}}
+/* ── Modal: tutorial de conexão de domínio (um por domínio) ── */
+.dmtut-bg{position:fixed;inset:0;z-index:95;display:none;align-items:center;justify-content:center;padding:20px;
+  background:rgba(0,0,0,.65);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.dmtut-bg.open{display:flex;animation:popBgIn .2s ease}
+.dmtut{width:min(560px,94vw);max-height:calc(100vh - 40px);overflow:auto;background:var(--card2);
+  border:1px solid var(--border2);border-radius:18px;padding:22px;box-shadow:var(--shadow-4);animation:popIn .28s var(--spring)}
+.dmtut-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+.dmtut-globe{width:42px;height:42px;border-radius:12px;background:var(--accent-light);color:var(--accent);display:grid;place-items:center;flex-shrink:0}
+.dmtut-globe svg{width:22px;height:22px}
+.dmtut-head h3{font-size:16px;margin:0 0 3px}
+.dmtut-host{font-family:'Geist Mono',monospace;font-size:12.5px;color:var(--accent);word-break:break-all}
+.dmtut-x{margin-left:auto;flex-shrink:0;background:none;border:0;color:var(--text-muted);cursor:pointer;font-size:22px;line-height:1;padding:2px 8px;border-radius:8px}
+.dmtut-x:hover{background:var(--hover);color:var(--text)}
+.dmtut-badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:14px;transition:background .3s,color .3s}
+.dmtut-badge.warn{background:var(--warning-light);color:var(--warning)}
+.dmtut-badge.ok{background:var(--success-light);color:var(--success)}
+.dmtut-step{display:flex;gap:12px;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--card);margin-bottom:10px}
+.dmtut-n{width:24px;height:24px;border-radius:50%;background:var(--accent-light);color:var(--accent);font-size:12px;font-weight:700;display:grid;place-items:center;flex-shrink:0}
+.dmtut-txt{min-width:0;flex:1}
+.dmtut-txt>b{font-size:13.5px;display:block;margin-bottom:3px}
+.dmtut-txt p{font-size:12.5px;color:var(--text-muted);line-height:1.55;margin:0}
+.dmtut-dns{margin-top:10px;border:1px solid var(--border);border-radius:12px;background:#090c15;overflow:hidden}
+.dmtut-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05);flex-wrap:wrap}
+.dmtut-row:last-child{border-bottom:0}
+.dmtut-lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);width:96px;flex-shrink:0}
+.dmtut-val{font-family:'Geist Mono',monospace;font-size:13px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dmtut-val.accent{color:var(--accent)}
+.dmtut-val.pink{color:var(--pink,#fe2c55);font-weight:700}
+.dmtut-copy{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:10px;border:1px solid rgba(37,244,238,.3);
+  background:rgba(37,244,238,.12);color:var(--accent);font-size:12.5px;font-weight:600;cursor:pointer;transition:background .15s,color .2s,border-color .2s;flex-shrink:0}
+.dmtut-copy svg{width:14px;height:14px}
+.dmtut-copy:hover{background:rgba(37,244,238,.2)}
+.dmtut-copy.copied{background:var(--success-light);border-color:rgba(34,197,94,.4);color:var(--success)}
+.dmtut-note{font-size:11.5px;color:var(--text-muted);margin-top:8px;line-height:1.5}
+.dmtut-warn{display:none;margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.35);background:var(--warning-light)}
+.dmtut-warn b{font-size:12.5px;color:var(--warning);display:block;margin-bottom:3px}
+.dmtut-warn p{font-size:12px;color:var(--text-sub);line-height:1.55;margin:0}
+.dmtut-okbox{text-align:center;padding:26px 16px 18px}
+.dmtut-okbox b{font-size:15.5px;display:block;margin-bottom:6px}
+.dmtut-okbox p{font-size:12.5px;color:var(--text-muted);line-height:1.55;margin:0 0 16px}
+.dmtut-check{width:64px;height:64px;margin:0 auto 14px;display:block}
+.dmtut-check circle{fill:none;stroke:var(--success);stroke-width:2.5;stroke-dasharray:151;stroke-dashoffset:151;animation:dmtutDraw .6s ease forwards}
+.dmtut-check path{fill:none;stroke:var(--success);stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:38;stroke-dashoffset:38;animation:dmtutDraw .45s ease .5s forwards}
+@keyframes dmtutDraw{to{stroke-dashoffset:0}}
+.dmtut-spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,.25);border-top-color:currentColor;display:inline-block;animation:dmtutSpin .7s linear infinite}
+@keyframes dmtutSpin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.dmtut,.dmtut-bg.open{animation:none}.dmtut-check circle,.dmtut-check path{animation:none;stroke-dashoffset:0}}
 .danger-card{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;border-color:rgba(220,38,38,.22)!important;
   background:linear-gradient(90deg,rgba(220,38,38,.05),transparent 55%);animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) .3s backwards}
 .danger-card:hover{border-color:rgba(220,38,38,.4)!important}
@@ -1782,62 +1829,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
             </div>
             <div id="dm-list" style="margin-bottom:14px"></div>
-            
-            <div id="dm-dns-guide" class="domain-tut-container" style="margin-top: 16px; display: none; flex-direction: column; gap: 16px; margin-bottom: 20px">
-              <div style="font-weight: 600; color: var(--text); font-size: 13.5px; display: flex; align-items: center; gap: 8px">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--accent)"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-                Configura&ccedil;&atilde;o DNS R&aacute;pida:
-              </div>
-              
-              <!-- Passo 1 -->
-              <div class="tut-step" style="border-left: 4px solid var(--pink); margin-bottom: 0">
-                <span class="tut-n">1</span>
-                <div class="tut-txt">
-                  <b>Crie um registro CNAME</b>
-                  <p>No painel do seu dom&iacute;nio (Cloudflare, Hostgator, Godaddy&hellip;), v&aacute; em <b>Configura&ccedil;&atilde;o de DNS</b>.</p>
-                </div>
-              </div>
-
-              <!-- Passo 2 -->
-              <div class="tut-step" style="border-left: 4px solid var(--accent); margin-bottom: 0">
-                <span class="tut-n">2</span>
-                <div class="tut-txt">
-                  <b>Preencha com estas informa&ccedil;&otilde;es</b>
-                  <p>Adicione o novo registro do tipo <b>CNAME</b> usando os dados abaixo:</p>
-                  
-                  <div class="mock-container" style="margin-top: 10px">
-                    <div class="mock-header">
-                      <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot"></span>
-                      <span class="mock-title">📋 Tabela de DNS (Copiar e Colar)</span>
-                    </div>
-                    <div class="mock-body" style="background: #090c15; padding: 12px">
-                      <div style="display: grid; grid-template-columns: 80px 110px 1fr; gap: 8px; font-weight: 600; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 8px">
-                        <div>Tipo</div>
-                        <div>Nome / Host</div>
-                        <div>Destino / Valor</div>
-                      </div>
-                      <div style="display: grid; grid-template-columns: 80px 110px 1fr; gap: 8px; font-family: 'Geist Mono', monospace; font-size: 11.5px; align-items: center">
-                        <div style="color: var(--pink); font-weight: bold">CNAME</div>
-                        <div style="color: #fff">link <span style="font-size:11px; opacity:0.5">(ou o seu)</span></div>
-                        <div style="display: flex; align-items: center; gap: 6px; overflow: hidden">
-                          <span class="dm-apphost" style="color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">carregando...</span>
-                          <button class="btn btn-xs" style="padding: 2px 8px; font-size: 11px; background: rgba(37,244,238,0.15); border-color: rgba(37,244,238,0.3); color: var(--accent); font-family: inherit; margin-left: auto" onclick="navigator.clipboard.writeText(DM_APPHOST).then(function(){toast('Destino copiado!')}).catch(function(){toast('Erro ao copiar',false)})">Copiar</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Passo 3 -->
-              <div class="tut-step" style="border-left: 4px solid var(--success); margin-bottom: 0">
-                <span class="tut-n">3</span>
-                <div class="tut-txt">
-                  <b>Pronto \u2014 verificamos sozinhos</b>
-                  <p>Assim que o DNS propagar, o dom&iacute;nio &eacute; verificado automaticamente e todos os seus links passam a usar o seu endere&ccedil;o.</p>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
         <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
@@ -2170,6 +2161,22 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <button class="btn ghost" id="pop-cancel">Cancelar</button>
       <button class="btn" id="pop-ok">Confirmar</button>
     </div>
+  </div>
+</div>
+
+<!-- Tutorial de conexão de domínio: um modal por domínio, com CNAME personalizado -->
+<div class="dmtut-bg" id="dmtut-bg" role="presentation">
+  <div class="dmtut" role="dialog" aria-modal="true" aria-labelledby="dmtut-title">
+    <div class="dmtut-head">
+      <span class="dmtut-globe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg></span>
+      <div style="min-width:0">
+        <h3 id="dmtut-title">Conectar dom&iacute;nio</h3>
+        <div class="dmtut-host" id="dmtut-host"></div>
+      </div>
+      <button class="dmtut-x" id="dmtut-x" aria-label="Fechar tutorial">&times;</button>
+    </div>
+    <div id="dmtut-status"></div>
+    <div id="dmtut-body"></div>
   </div>
 </div>
 
@@ -3649,12 +3656,10 @@ function loadDomains(){
 }
 function renderDomains(){
   var el=document.getElementById('dm-list'); if(!el) return;
-  // alvo do CNAME nas instruções
-  Array.prototype.forEach.call(document.querySelectorAll('.dm-apphost'),function(n){ n.textContent=DM_APPHOST; });
   if(!DM_LIST.length){
     el.innerHTML='<div class="live-empty">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:40px;height:40px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>' +
-      '<div><b>Nenhum domínio personalizado</b><p style="margin:6px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6">Insira o seu domínio no campo acima para ocultar a URL padrão e aumentar a conversão dos anúncios.</p></div>' +
+      '<div><b>Nenhum domínio personalizado</b><p style="margin:6px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6">Insira o seu domínio no campo acima — ao adicionar, abrimos o passo a passo de configuração do DNS.</p></div>' +
     '</div>';
   } else {
     el.innerHTML=DM_LIST.map(function(d){
@@ -3667,17 +3672,11 @@ function renderDomains(){
             :'<span class="badge-warn">Aguardando DNS &mdash; verificamos automaticamente</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
+          (d.verificado?'':'<button class="btn btn-sm" style="color:var(--accent);border-color:rgba(37,244,238,0.3)" onclick="dmTutOpen(\\''+esc(d.host)+'\\')">Configurar</button>')+
           '<button class="btn-icon" style="color:var(--red)" onclick="delDomain(\\''+esc(d.host)+'\\')">Remover</button>'+
         '</div>'+
       '</div>';
     }).join('');
-  }
-  // Tutorial de DNS: só aparece quando há domínio adicionado mas ainda não
-  // verificado (DNS não propagou). Some quando todos verificados ou lista vazia.
-  var guide=document.getElementById('dm-dns-guide');
-  if(guide){
-    var pendentes=(DM_LIST||[]).filter(function(d){return !d.verificado;});
-    guide.style.display=pendentes.length?'flex':'none';
   }
   // se o formulário de link está aberto, mantém o select de domínio em dia
   var lkCard=document.getElementById('lk-form-card');
@@ -3710,7 +3709,11 @@ function silentVerifyDomain(host){
   fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ toast('Dom\u00ednio verificado: '+host); loadDomains(); }
+      if(d.ok){
+        toast('Dom\u00ednio verificado: '+host);
+        if(DMTUT_HOST===host) dmTutSuccess(host); // modal aberto no mesmo host: anima
+        loadDomains();
+      }
     }).catch(function(){});
 }
 function addDomain(){
@@ -3722,12 +3725,125 @@ function addDomain(){
     .then(function(d){
       if(d.ok){
         inp.value='';
-        toast('Dom\u00ednio adicionado \u2014 aponte o CNAME; verificamos automaticamente');
         loadDomains();
+        dmTutOpen(host); // abre o passo a passo personalizado para este domínio
         silentVerifyDomain(host); // 1ª tentativa imediata (DNS pode já estar pronto)
       }
       else toast(d.error||'Erro',false);
     }).catch(function(){ toast('Erro ao adicionar',false); });
+}
+/* ── Tutorial de conexão de domínio (modal por domínio) ── */
+var DMTUT_HOST='';
+// Nome do registro CNAME a partir do host: "a1.dominio.com" → "a1"; apex → "@".
+function dmCnameName(host){
+  var parts=(host||'').split('.');
+  if(parts.length<=2) return '@';
+  return parts.slice(0,parts.length-2).join('.');
+}
+function dmTutIsVerified(host){
+  return (DM_LIST||[]).some(function(d){ return d.host===host&&d.verificado; });
+}
+function dmTutOpen(host){
+  DMTUT_HOST=host;
+  dmTutRender();
+  document.getElementById('dmtut-bg').classList.add('open');
+}
+function dmTutClose(){
+  DMTUT_HOST='';
+  document.getElementById('dmtut-bg').classList.remove('open');
+}
+var DMTUT_COPY_ICO='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+function dmTutRender(){
+  var host=DMTUT_HOST; if(!host) return;
+  document.getElementById('dmtut-host').textContent=host;
+  var st=document.getElementById('dmtut-status');
+  var body=document.getElementById('dmtut-body');
+  if(dmTutIsVerified(host)){ dmTutSuccess(host); return; }
+  var name=dmCnameName(host);
+  st.innerHTML='<span class="dmtut-badge warn"><span class="ldot" style="background:var(--warning);box-shadow:none;width:7px;height:7px"></span>Aguardando DNS</span>';
+  body.innerHTML=
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">1</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Acesse o painel do seu dom\u00ednio</b>'+
+        '<p>Entre no site onde voc\u00ea comprou o dom\u00ednio (Cloudflare, Registro.br, Hostgator, GoDaddy\u2026) e abra a <b>Configura\u00e7\u00e3o de DNS</b>.</p>'+
+      '</div>'+
+    '</div>'+
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">2</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Crie este registro CNAME</b>'+
+        '<p>Adicione um novo registro copiando os valores abaixo:</p>'+
+        '<div class="dmtut-dns">'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Tipo</span><span class="dmtut-val pink">CNAME</span></div>'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Nome / Host</span><span class="dmtut-val">'+esc(name)+'</span>'+
+            '<button class="dmtut-copy" data-copy="'+esc(name)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Destino / Valor</span><span class="dmtut-val accent">'+esc(DM_APPHOST)+'</span>'+
+            '<button class="dmtut-copy" data-copy="'+esc(DM_APPHOST)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
+        '</div>'+
+        (name==='@'?'<div class="dmtut-note">Dom\u00ednio raiz: alguns pain\u00e9is n\u00e3o aceitam CNAME em "@" \u2014 use a op\u00e7\u00e3o <b>ALIAS</b> ou <b>CNAME flattening</b> (autom\u00e1tico na Cloudflare).</div>':'')+
+        '<div class="dmtut-note">Usa Cloudflare? Deixe a nuvem <b>cinza (Somente DNS)</b>, n\u00e3o laranja.</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">3</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Verifique a conex\u00e3o</b>'+
+        '<p style="margin-bottom:10px">Salvou o registro? Clique abaixo \u2014 ou aguarde, verificamos automaticamente a cada 30 segundos.</p>'+
+        '<button class="btn primary" id="dmtut-verify" style="min-width:180px">Verificar dom\u00ednio</button>'+
+        '<div class="dmtut-warn" id="dmtut-warn"></div>'+
+      '</div>'+
+    '</div>';
+}
+function dmTutSuccess(host){
+  if(DMTUT_HOST!==host) return;
+  var st=document.getElementById('dmtut-status');
+  var body=document.getElementById('dmtut-body');
+  st.innerHTML='<span class="dmtut-badge ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="width:12px;height:12px"><path d="M20 6L9 17l-5-5"/></svg>Verificado</span>';
+  body.innerHTML=
+    '<div class="dmtut-okbox">'+
+      '<svg class="dmtut-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M14 27l8 8 16-16"/></svg>'+
+      '<b>Dom\u00ednio verificado!</b>'+
+      '<p>Tudo pronto \u2014 seus links j\u00e1 podem usar <span class="dmtut-host" style="font-size:12px">'+esc(host)+'</span>.</p>'+
+      '<button class="btn primary" id="dmtut-done" style="min-width:140px">Concluir</button>'+
+    '</div>';
+}
+function dmTutCopy(btn){
+  var text=btn.getAttribute('data-copy')||'';
+  navigator.clipboard.writeText(text).then(function(){
+    btn.classList.add('copied');
+    btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px"><path d="M20 6L9 17l-5-5"/></svg> Copiado!';
+    setTimeout(function(){ btn.classList.remove('copied'); btn.innerHTML=DMTUT_COPY_ICO+' Copiar'; },1500);
+  }).catch(function(){ toast('Erro ao copiar',false); });
+}
+function dmTutVerify(){
+  var btn=document.getElementById('dmtut-verify');
+  var host=DMTUT_HOST;
+  if(!btn||!host) return;
+  btn.disabled=true;
+  btn.innerHTML='<span class="dmtut-spin"></span> Verificando\u2026';
+  fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(DMTUT_HOST!==host) return; // usuário fechou/trocou o modal no meio
+      if(d.ok){
+        toast('Dom\u00ednio verificado: '+host);
+        dmTutSuccess(host);
+        loadDomains();
+      } else {
+        var det=d.dnsPronto
+          ?'DNS propagado! Falta o certificado/app responder \u2014 tente novamente em instantes.'
+          :(d.dnsDetail||d.httpDetail||'O registro ainda n\u00e3o foi encontrado.');
+        var wb=document.getElementById('dmtut-warn');
+        if(wb){ wb.style.display='block'; wb.innerHTML='<b>Ainda n\u00e3o propagou</b><p>'+esc(det)+' A propaga\u00e7\u00e3o pode levar de alguns minutos at\u00e9 algumas horas.</p>'; }
+        btn.disabled=false; btn.textContent='Verificar novamente';
+      }
+    })
+    .catch(function(){
+      if(DMTUT_HOST!==host) return;
+      toast('Erro de rede na verifica\u00e7\u00e3o',false);
+      btn.disabled=false; btn.textContent='Verificar dom\u00ednio';
+    });
 }
 function delDomain(host){
   uiConfirm({title:'Remover este dom\u00ednio?',msg:'"'+host+'" deixa de ser recomendado nas URLs (o DNS continua seu).',okLabel:'Remover',danger:true},function(){
@@ -5268,6 +5384,8 @@ document.getElementById('gs-all').addEventListener('click',function(){ setView('
 document.addEventListener('keydown',function(e){
   if(e.key!=='Escape') return;
   if(document.getElementById('cmdk-bg').classList.contains('open')) return; // cmdk cuida
+  var dt=document.getElementById('dmtut-bg');
+  if(dt&&dt.classList.contains('open')){ dmTutClose(); return; }
   var gm=document.getElementById('globe-modal');
   if(gm&&!gm.hidden){ globeModalClose(); return; }
   var dw=document.getElementById('drawer');
@@ -5351,6 +5469,15 @@ document.getElementById('lk-new').addEventListener('click',function(){ showLinkF
 document.getElementById('lk-save').addEventListener('click',saveLink);
 document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
+// tutorial de domínio: fechar (×/scrim) e ações internas por delegação
+document.getElementById('dmtut-x').addEventListener('click',dmTutClose);
+document.getElementById('dmtut-bg').addEventListener('click',function(e){ if(e.target===this) dmTutClose(); });
+document.getElementById('dmtut-body').addEventListener('click',function(e){
+  var cp=e.target.closest('.dmtut-copy');
+  if(cp){ dmTutCopy(cp); return; }
+  if(e.target.closest('#dmtut-verify')){ dmTutVerify(); return; }
+  if(e.target.closest('#dmtut-done')){ dmTutClose(); return; }
+});
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
   var lkDom=document.getElementById('lk-domain'); if(lkDom) lkDom.addEventListener('change',updateLinkDomainStatus);
   var abSplit=document.getElementById('lk-ab-split');
