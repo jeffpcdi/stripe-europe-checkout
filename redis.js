@@ -291,6 +291,231 @@ async function resetCloakStats(accountId, slug) {
   catch (err) { console.error('[redis] resetCloakStats:', err.message); return false; }
 }
 
+// ── Fila DURÁVEL de conversões (webhook → processamento) ──────────────────
+// O webhook responde 200 ao gateway e SÓ ENTÃO processa (resolve lead, dispara
+// CAPI). Sem durabilidade, um restart nesse intervalo PERDE a venda paga — o
+// gateway já recebeu 200 e não reenvia. Aqui a conversão é gravada numa lista
+// Redis ANTES do 200; um worker consome e confirma. Como processConversion é
+// idempotente (dedup por event_id), reprocessar após crash nunca duplica.
+//   convQ       : fila principal (LPUSH na cabeça, consumo pela cauda = FIFO)
+//   convQ:proc  : itens reservados/em processamento (reclaim por idade)
+const CONV_QUEUE = 'convQ';
+const CONV_PROC  = 'convQ:proc';
+const CONV_QUEUE_CAP = 5000;
+
+async function enqueueConversion(n) {
+  if (!enabled) return false;
+  try {
+    const env = { qid: (redisRandId()), at: Date.now(), n };
+    const pipe = redis.pipeline();
+    pipe.lpush(CONV_QUEUE, JSON.stringify(env));
+    pipe.ltrim(CONV_QUEUE, 0, CONV_QUEUE_CAP - 1);
+    await pipe.exec();
+    return true;
+  } catch (err) {
+    console.error('[redis] enqueueConversion:', err.message);
+    return false;
+  }
+}
+
+// Move até `max` itens da fila para a lista de processamento (atômico por item
+// via RPOPLPUSH) e devolve [{ raw, env }]. `raw` é usado para dar ack via LREM.
+async function reserveConversions(max) {
+  if (!enabled) return [];
+  const out = [];
+  try {
+    for (let i = 0; i < (max || 20); i++) {
+      // LMOVE origem→destino RIGHT→LEFT = equivalente ao antigo RPOPLPUSH:
+      // remove o item mais ANTIGO (cauda, pois usamos LPUSH) e reserva em :proc
+      const raw = await redis.lmove(CONV_QUEUE, CONV_PROC, 'right', 'left');
+      if (raw == null) break;
+      let env = null;
+      try { env = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { env = null; }
+      out.push({ raw, env });
+    }
+  } catch (err) {
+    console.error('[redis] reserveConversions:', err.message);
+  }
+  return out;
+}
+
+// Confirma o processamento de um item — remove-o da lista de processamento.
+async function ackConversion(raw) {
+  if (!enabled || raw == null) return;
+  try { await redis.lrem(CONV_PROC, 1, raw); } catch (err) { console.error('[redis] ackConversion:', err.message); }
+}
+
+// Requeue de itens presos em convQ:proc (worker morreu no meio). Só reprocessa
+// os mais velhos que `olderThanMs` — evita brigar com um processamento em curso.
+async function reclaimConversions(olderThanMs) {
+  if (!enabled) return 0;
+  try {
+    const items = await redis.lrange(CONV_PROC, 0, -1);
+    if (!items || !items.length) return 0;
+    const now = Date.now();
+    const cut = olderThanMs || 120000;
+    let moved = 0;
+    for (const raw of items) {
+      let env = null;
+      try { env = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { env = null; }
+      const at = env && env.at ? env.at : 0;
+      if (now - at > cut) {
+        const pipe = redis.pipeline();
+        pipe.lrem(CONV_PROC, 1, raw);
+        pipe.lpush(CONV_QUEUE, raw);
+        await pipe.exec();
+        moved++;
+      }
+    }
+    return moved;
+  } catch (err) {
+    console.error('[redis] reclaimConversions:', err.message);
+    return 0;
+  }
+}
+
+async function convQueueDepth() {
+  if (!enabled) return { queue: 0, processing: 0 };
+  try {
+    const [q, p] = await Promise.all([redis.llen(CONV_QUEUE), redis.llen(CONV_PROC)]);
+    return { queue: Number(q) || 0, processing: Number(p) || 0 };
+  } catch (_) { return { queue: 0, processing: 0 }; }
+}
+
+// ── Veredito "sticky" do cloaker (consistência por visitante) ─────────────
+// SOMENTE unidirecional para BOT: quando o judge condena um visitante, o
+// veredito fica cacheado por TTL. Visitas seguintes do mesmo v_id vão direto à
+// white sem re-rodar o judge (mais barato e SEM oscilar offer↔white). Nunca
+// cacheamos 'real' → um bot jamais fica "presRealo" como real (fail-safe).
+const STICKY_BOT_TTL = 6 * 3600; // 6h
+
+async function setStickyBot(vid, info) {
+  if (!enabled || !vid) return false;
+  try {
+    await redis.set('cloakbot:' + vid, JSON.stringify(info || { at: Date.now() }), { ex: STICKY_BOT_TTL });
+    return true;
+  } catch (_) { return false; }
+}
+
+async function getStickyBot(vid) {
+  if (!enabled || !vid) return null;
+  try {
+    const raw = await redis.get('cloakbot:' + vid);
+    if (!raw) return null;
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch (_) { return null; }
+}
+
+// ── Lock distribuído (SET NX EX) ──────────────────────────────────────────
+// Garante que só UMA instância execute uma seção crítica (ex.: drenar a fila
+// de retry da CAPI) — sem isso, N instâncias disparam o MESMO evento N vezes.
+async function acquireLock(name, ttlSec) {
+  if (!enabled) return true; // sem Redis = processo único = já é exclusivo
+  try {
+    const res = await redis.set('lock:' + name, String(Date.now()), { ex: ttlSec || 55, nx: true });
+    return res !== null; // OK = adquiriu; null = já travado por outra instância
+  } catch (_) { return true; } // erro de rede: não bloqueia o trabalho
+}
+
+async function releaseLock(name) {
+  if (!enabled || !name) return;
+  try { await redis.del('lock:' + name); } catch (_) {}
+}
+
+// ── Rollup de EMQ (Event Match Quality) por pixel e por dia ───────────────
+// Cada disparo da CAPI carrega um score 0–10 de identidade. Guardamos soma +
+// contagem por pixel/dia num hash — permite o painel plotar a TENDÊNCIA e
+// alertar quando o EMQ despenca (otimização do TikTok cai em silêncio).
+//   emq:<acc>:<pixel>  →  d:<YYYY-MM-DD>:sum / d:<YYYY-MM-DD>:cnt
+const emqMem = new Map(); // fallback sem Redis
+function emqKey(acc, pixel) { return 'emq:' + (acc || 'default') + ':' + (pixel || 'unknown'); }
+
+async function bumpEmq(acc, pixel, score) {
+  if (pixel == null || score == null || isNaN(score)) return false;
+  const key = emqKey(acc, pixel);
+  const day = todayUTC();
+  if (!enabled) {
+    const h = emqMem.get(key) || {};
+    h['d:' + day + ':sum'] = (h['d:' + day + ':sum'] || 0) + Number(score);
+    h['d:' + day + ':cnt'] = (h['d:' + day + ':cnt'] || 0) + 1;
+    emqMem.set(key, h);
+    return true;
+  }
+  try {
+    const pipe = redis.pipeline();
+    pipe.hincrbyfloat(key, 'd:' + day + ':sum', Number(score));
+    pipe.hincrby(key, 'd:' + day + ':cnt', 1);
+    pipe.expire(key, 40 * 86400); // retém ~40 dias
+    await pipe.exec();
+    return true;
+  } catch (err) {
+    console.error('[redis] bumpEmq:', err.message);
+    return false;
+  }
+}
+
+// Retorna série diária [{ day, avg, count }] dos últimos `days` para um pixel.
+async function getEmqTrend(acc, pixel, days) {
+  const key = emqKey(acc, pixel);
+  const h = !enabled ? (emqMem.get(key) || {}) : await redis.hgetall(key).catch(() => ({}));
+  return normalizeEmqHash(h || {}, days || 14);
+}
+
+function normalizeEmqHash(h, days) {
+  const map = {};
+  Object.keys(h).forEach((k) => {
+    const m = /^d:(\d{4}-\d{2}-\d{2}):(sum|cnt)$/.exec(k);
+    if (!m) return;
+    const day = m[1];
+    map[day] = map[day] || { day, sum: 0, cnt: 0 };
+    map[day][m[2] === 'sum' ? 'sum' : 'cnt'] = Number(h[k]) || 0;
+  });
+  const rows = Object.values(map)
+    .map((r) => ({ day: r.day, avg: r.cnt ? Math.round((r.sum / r.cnt) * 10) / 10 : 0, count: r.cnt }))
+    .sort((a, b) => (a.day < b.day ? -1 : 1));
+  return rows.slice(-days);
+}
+
+function redisRandId() {
+  try { return require('crypto').randomBytes(8).toString('hex'); }
+  catch (_) { return String(Date.now()) + Math.random().toString(36).slice(2, 8); }
+}
+
+// ── ttclid: uso único por contexto ────────────────────────────────────────
+// O TikTok anexa um ttclid ÚNICO a cada clique no anúncio. Um revisor que copia
+// a URL capturada reusa o MESMO ttclid de outro dispositivo/rede. Guardamos a
+// "impressão digital" do 1º contexto (ASN + tipo de device) por 12h; se o mesmo
+// ttclid reaparecer com contexto divergente, é replay → sinaliza para a white.
+// Retorna { firstSeen, reused, ctx } — reused=true quando diverge do 1º contexto.
+const TTCLID_TTL = 12 * 3600;
+async function checkTtclidContext(ttclid, ctx) {
+  if (!enabled || !ttclid) return { firstSeen: true, reused: false };
+  const key = 'ttclid:' + String(ttclid).slice(0, 80);
+  const fp = String(ctx || '').slice(0, 40);
+  try {
+    // 1ª vez: grava contexto e retorna firstSeen. NX garante atomicidade.
+    const set = await redis.set(key, fp, { ex: TTCLID_TTL, nx: true });
+    if (set !== null) return { firstSeen: true, reused: false, ctx: fp };
+    const prev = await redis.get(key);
+    const reused = prev != null && String(prev) !== fp;
+    return { firstSeen: false, reused, ctx: prev };
+  } catch (_) { return { firstSeen: true, reused: false }; }
+}
+
+// ── Velocity: contagem de acessos por chave numa janela ────────────────────
+// N acessos do mesmo IP/ASN/ttclid em poucos segundos = device farm ou revisão
+// automatizada. INCR + EXPIRE numa chave por janela dá um contador durável e
+// multi-instância. Retorna a contagem atual (1 = primeiro na janela).
+async function bumpVelocity(kind, id, windowSec) {
+  if (!enabled || !id) return 0;
+  const key = 'vel:' + kind + ':' + String(id).slice(0, 60);
+  try {
+    const n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, windowSec || 60);
+    return Number(n) || 0;
+  } catch (_) { return 0; }
+}
+
 // ── Ping de saúde ─────────────────────────────────────────────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
@@ -311,5 +536,10 @@ module.exports = {
   seenEventId,
   getAsnCache, setAsnCache,
   bumpCloakDecision, getCloakStats, resetCloakStats,
+  enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,
+  setStickyBot, getStickyBot,
+  checkTtclidContext, bumpVelocity,
+  acquireLock, releaseLock,
+  bumpEmq, getEmqTrend,
   ping, TTL
 };

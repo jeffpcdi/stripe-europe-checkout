@@ -134,7 +134,14 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `ensureGlobeLib()` só quando um globo vai renderizar (não está mais no `<head>`).
 - `GET /t.js` — snippet de tracking. `GET /px.js`, `GET /px/:token.js`,
   `GET /px.gif` — pixel do navegador. `GET /l/:slug` — shortlink. `GET /go/:slug` — redirect com cloaking (§9).
-- `GET /c/:slug` — link de cloaking dedicado (offer/white próprios por link, §9).
+- `GET /c/:slug` — link de cloaking dedicado (offer/white próprios por link, §9). Slug **aleatório**
+  (não deriva do nome). Cada link tem: `nome` (rótulo), `dominio` (opcional; a URL vira
+  `https://<dominio>/c/<slug>` — precisa apontar DNS para o app), `mobileOnly` e `requireAdClick`.
+  Gates aplicados na ordem: bot-UA → **mobileOnly** (desktop→white, default ON) → **requireAdClick**
+  (sem prova de clique no anúncio TikTok → white; prova = webview in-app OU `ttclid` OU referrer do
+  TikTok; fecha o buraco de "copiar/colar o link no navegador") → país (preset: `all`/`br`/`latam`/`eu`/
+  `custom`, `[]`=todos) → idioma → motor de score. Ambos os gates têm default LIGADO inclusive para
+  links antigos (retroativo via `boolOr(...,true)` na sanitização do config).
 - `GET /_safe` — **página neutra embutida** (fail-safe do cloaker). Destino final de bots/revisores
   quando o link não tem white page própria nem white global configurada. HTML institucional inofensivo,
   `noindex`, sem redirect nem oferta. **Bots nunca chegam à offer.**
@@ -195,8 +202,12 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **pixelLog** (lista, cap 500) + **pixelLogByTime** (zset) — log de disparos CAPI (TTL 14 dias).
 - **conversionWebhookLog** (lista, cap 200) — cada webhook `/api/conversion` recebido (+ ring em memória sempre).
 - **capiRetryQueue** — fila durável de eventos CAPI que falharam após os retries imediatos (cap 300, TTL 2d).
+- **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup.
 - **dedup:<event_id>** — dedup navegador↔servidor (SET NX, TTL 2h). Em erro, deixa passar (melhor duplicar que perder).
 - **asn:<ip>** — cache do lookup BGP/ASN do bot-filter (TTL 24h), compartilhado entre instâncias.
+- **cloakbot:<v_id>** — veredito STICKY do cloaker (só bot, TTL 6h). `/go` curto-circuita à white sem re-rodar o judge; setado no veredito bot e no beacon `/api/cloakcheck` com WebGL de software. Nunca cacheia 'real' (fail-safe).
+- **lock:<nome>** — lock distribuído (SET NX EX). Usos: `capiRetryDrain` (só 1 instância drena a fila de retry) e `convWorker` (só 1 instância drena convQ por ciclo). Sem Redis = processo único = já exclusivo.
+- **emq:<acc>:<pixel>** — rollup de EMQ por pixel/dia (`d:<data>:sum`/`:cnt`, retenção ~40d). Alimenta `GET /api/pixels/emq-trend` (série + alerta de queda) e o painel de tendência na aba Pixels.
 Sem Upstash tudo degrada para memória (perde persistência entre restarts, mas funciona).
 
 ## 8. Modelo de score do bot-filter (cloaking)

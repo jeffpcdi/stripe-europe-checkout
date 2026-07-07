@@ -1673,9 +1673,10 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Rastreamento: sub-abas (Links / Pixel / Bots) ��─ -->
       <div class="segment tracking-tabs" id="tracking-tabs" hidden>
         <button data-t="links" class="active">Links de Checkout</button>
+        <button data-t="cloak">Filtro de Bots</button>
+        <button data-t="domains">Dom&iacute;nios</button>
         <button data-t="pixels">Pixel TikTok</button>
         <button data-t="gateways">Gateways</button>
-        <button data-t="cloak">Filtro de Bots</button>
       </div>
 
       <!-- ── Links de Checkout ── -->
@@ -1755,14 +1756,11 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <details class="ck-adv" style="margin-top:4px;margin-bottom:14px">
               <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="ck-adv-body">
-                <p class="hint" style="margin:0 0 12px;line-height:1.7">Formato completo da linha (tudo opcional al&eacute;m da URL):<br><code>nome | URL | peso % | URL celular</code><br>Com a URL celular preenchida, computador vai para a principal e celular vai para a alternativa.</p>
                 <div class="form-row" style="margin-bottom:0">
-                  <label>Validar dom&iacute;nio do checkout</label>
-                  <div style="display:flex;gap:8px;align-items:center">
-                    <input class="inp" id="lk-domain" placeholder="pay.gateway.com" style="flex:1;font-family:'Geist Mono',monospace">
-                    <button class="btn btn-sm" id="lk-validate">Validar</button>
-                  </div>
+                  <label>Dom&iacute;nio do link</label>
+                  <select class="inp" id="lk-domain" style="width:100%;font-family:'Geist Mono',monospace"></select>
                   <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
+                  <p class="hint" style="margin-top:4px;line-height:1.6">Só aparecem dom&iacute;nios <b>verificados</b>. Cadastre e verifique na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom&iacute;nios</a> para us&aacute;-lo aqui.</p>
                 </div>
               </div>
             </details>
@@ -1776,17 +1774,16 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <input type="hidden" id="lk-slug" value="">
           </div>
         </div>
-        <!-- domínio próprio: recolhido por padrão, é opcional -->
-        <details class="ck-adv" style="margin-top:20px">
-          <summary>Dom&iacute;nio personalizado <span class="hint" style="font-weight:400">&mdash; opcional: use o SEU dom&iacute;nio nos an&uacute;ncios</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="ck-adv-body">
+        <!-- gerenciador de domínios: realocado para a aba "Domínios" via JS (mountDomainPanel) -->
+        <div id="dm-panel">
+          <div>
             <div style="display:flex;gap:8px;align-items:center;margin:4px 0 14px">
               <input class="inp" id="dm-host" placeholder="link.seudominio.com" style="flex:1;max-width:340px;font-family:'Geist Mono',monospace">
               <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
             </div>
             <div id="dm-list" style="margin-bottom:14px"></div>
             
-            <div class="domain-tut-container" style="margin-top: 16px; display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px">
+            <div id="dm-dns-guide" class="domain-tut-container" style="margin-top: 16px; display: none; flex-direction: column; gap: 16px; margin-bottom: 20px">
               <div style="font-weight: 600; color: var(--text); font-size: 13.5px; display: flex; align-items: center; gap: 8px">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--accent)"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
                 Configura&ccedil;&atilde;o DNS R&aacute;pida:
@@ -1842,7 +1839,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               </div>
             </div>
           </div>
-        </details>
+        </div>
         <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
         <div id="lk-perf"></div>
         <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
@@ -1857,6 +1854,15 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       </section>
 
       <!-- ��─ Filtro de Bots / Revisores TikTok (cloaking) ── -->
+      <!-- ── Domínios (compartilhado: checkout + cloaker) ── -->
+      <section class="view" id="view-domains">
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg></span><div><h2>Dom&iacute;nios</h2><p>Cadastre e verifique os seus dom&iacute;nios &mdash; eles ficam dispon&iacute;veis para os <b>links de checkout</b> e para o <b>filtro de bots</b></p></div></div>
+        <div class="card">
+          <div id="dm-mount"><p class="hint">Carregando gerenciador de dom&iacute;nios&hellip;</p></div>
+        </div>
+      </section>
+
+      <!-- ── Filtro de Bots / Revisores TikTok (cloaking) ── -->
       <section class="view" id="view-cloak">
         <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Crie links de cloaking &mdash; cada um com sua pr&oacute;pria prote&ccedil;&atilde;o, offer e white page</p></div></div>
 
@@ -1961,6 +1967,11 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <div id="ph-events" class="hint" style="margin-top:12px"></div>
           <div id="ph-errors" style="margin-top:6px"></div>
+        </div>
+        <div class="section-title"><span>Tend&ecirc;ncia de qualidade (EMQ)</span><span class="line"></span><span class="muted" style="font-size:11.5px">m&eacute;dia di&aacute;ria por pixel</span></div>
+        <div class="card">
+          <div class="hint" style="margin-bottom:10px">O <b>Event Match Quality</b> (0&ndash;10) mede quanto sinal de identidade casa com o TikTok. Quando cai, a otimiza&ccedil;&atilde;o piora em sil&ecirc;ncio &mdash; fique de olho nos alertas.</div>
+          <div id="emq-trend"><div class="muted" style="font-size:12.5px">Carregando&hellip;</div></div>
         </div>
         <!-- Guia de instalação: só aparece quando existe pelo menos 1 pixel
              (o script é único por domínio e injeta todos os pixels ativos) -->
@@ -3484,7 +3495,11 @@ function renderLinks(){
         '<div class="lmain">'+
   '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span>'+(l.urlWhitePage?'&nbsp;<span class="tag" style="font-size:11px;background:rgba(0,200,255,.12);color:var(--cyn,#00c2ff);border:1px solid rgba(0,200,255,.25);padding:1px 6px;border-radius:4px;font-weight:600">CLOAK</span>':'')+'</b>'+
   '<span>'+(nv>1?'<span class="cyn">teste A/B ('+nv+' checkouts)</span>':'checkout &uacute;nico')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
-  '<span>'+(l.dominioValidado?'<span class="badge-ok">Dom&iacute;nio validado &middot; '+esc(l.dominio)+'</span>':'<span class="badge-warn">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
+  '<span>'+(!l.dominio
+      ?'<span class="badge-ok" style="background:rgba(120,130,150,.14);color:var(--text-muted);border-color:rgba(120,130,150,.25)">Dom&iacute;nio padr&atilde;o do app</span>'
+      :(l.dominioValidado
+        ?'<span class="badge-ok">Dom&iacute;nio validado &middot; '+esc(l.dominio)+'</span>'
+        :'<span class="badge-warn">'+esc(l.dominio)+' &mdash; n&atilde;o verificado</span>'))+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
           '<button class="btn-icon" onclick="copyLink(\\''+esc(l.slug)+'\\')">Copiar URL</button>'+
@@ -3584,8 +3599,8 @@ function showLinkForm(l){
   var splitB=vs[1]?(vs[1].peso||50):50;
   var sp=document.getElementById('lk-ab-split'); if(sp) sp.value=splitB;
   updateAbSplitLabel(splitB);
-  document.getElementById('lk-domain').value=l?(l.dominio||''):'';
-  document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
+  fillLinkDomainSelect(l?(l.dominio||''):'');
+  updateLinkDomainStatus();
   document.getElementById('lk-active').checked=l?!!l.ativo:true;
   document.getElementById('lk-name').focus();
 }
@@ -3636,8 +3651,16 @@ function updateAbSplitLabel(splitB){
   if(el) el.textContent='A '+(100-splitB)+'% / B '+splitB+'%';
 }
 
-/* ── Domínios personalizados ─────────────────────────────────���───────── */
+/* ── Domínios personalizados ───────────────────────��─────────���───────── */
 var DM_LIST=[],DM_APPHOST='';
+// Realoca o gerenciador de domínios (#dm-panel) para dentro da aba "Domínios".
+// O markup nasce dentro de view-links por histórico; movemos o nó uma única vez
+// para que ele apareça na sua própria aba, compartilhado por checkout e cloaker.
+function mountDomainPanel(){
+  var panel=document.getElementById('dm-panel');
+  var mount=document.getElementById('dm-mount');
+  if(panel&&mount&&panel.parentNode!==mount){ mount.innerHTML=''; mount.appendChild(panel); }
+}
 function loadDomains(){
   fetch('/api/domains',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     DM_LIST=d.domains||[]; DM_APPHOST=d.appHost||location.host;
@@ -3669,6 +3692,23 @@ function renderDomains(){
       '</div>';
     }).join('');
   }
+  // Tutorial de DNS: só aparece quando há domínio adicionado mas ainda não
+  // verificado (DNS não propagou). Some quando todos verificados ou lista vazia.
+  var guide=document.getElementById('dm-dns-guide');
+  if(guide){
+    var pendentes=(DM_LIST||[]).filter(function(d){return !d.verificado;});
+    guide.style.display=pendentes.length?'flex':'none';
+  }
+  // se o formulário de link está aberto, mantém o select de domínio em dia
+  var lkCard=document.getElementById('lk-form-card');
+  if(lkCard&&lkCard.style.display!=='none'){
+    var sel=document.getElementById('lk-domain');
+    fillLinkDomainSelect(sel?sel.value:'');
+    updateLinkDomainStatus();
+  }
+  // idem para o editor do filtro de bots (cloaker), se estiver aberto
+  var cke=document.getElementById('cke-dominio');
+  if(cke) fillDomainSelect('cke-dominio',cke.value);
   // verificação automática: enquanto houver domínio pendente, tenta a cada 30s
   scheduleDomainAutoVerify();
 }
@@ -3738,18 +3778,37 @@ function saveLink(){
       else toast(d.error||'Erro ao salvar',false);
     }).catch(function(){ toast('Erro ao salvar',false); });
 }
-function validateDomain(){
-  var dom=document.getElementById('lk-domain').value.trim();
-  var st=document.getElementById('lk-domain-status');
-  if(!dom){ st.innerHTML='<span class="amb">Informe o dom&iacute;nio (ex.: pay.gateway.com)</span>'; return; }
-  st.textContent='Validando DNS e HTTP...';
-  fetch('/api/links/validate-domain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dominio:dom})})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      st.innerHTML=d.ok
-        ? '<span class="pos">Dom&iacute;nio v&aacute;lido &middot; DNS '+esc(d.ip||'ok')+(d.httpStatus?' &middot; HTTP '+d.httpStatus:'')+'</span>'
-        : '<span class="neg">Falhou: '+esc(d.error||'sem resposta')+'</span>';
-    }).catch(function(){ st.innerHTML='<span class="neg">Erro na valida&ccedil;&atilde;o</span>'; });
+// Popula o <select> do link com os domínios VERIFICADOS + a opção padrão.
+// Se o link já tinha um domínio que não está mais verificado, ainda o mostra
+// (marcado como não verificado) para não perder a seleção silenciosamente.
+// Opções <option> compartilhadas por todos os seletores de domínio (checkout e
+// cloaker). Lista só os domínios VERIFICADOS + a opção "domínio padrão do app".
+function domainSelectOptions(selected){
+  var verified=(DM_LIST||[]).filter(function(d){return d.verificado;});
+  var sel=function(v){return v===(selected||'')?' selected':'';};
+  var opts='<option value=""'+sel('')+'>Dom\u00ednio padr\u00e3o do app'+(DM_APPHOST?(' ('+esc(DM_APPHOST)+')'):'')+'</option>';
+  verified.forEach(function(d){ opts+='<option value="'+esc(d.host)+'"'+sel(d.host)+'>'+esc(d.host)+' \u2014 verificado</option>'; });
+  if(selected && !verified.some(function(d){return d.host===selected;})){
+    opts+='<option value="'+esc(selected)+'"'+sel(selected)+'>'+esc(selected)+' \u2014 n\u00e3o verificado</option>';
+  }
+  return opts;
+}
+// Preenche um <select> de domínio pelo id, mantendo o valor escolhido.
+function fillDomainSelect(id,selected){
+  var sel=document.getElementById(id); if(!sel) return;
+  sel.innerHTML=domainSelectOptions(selected); sel.value=selected||'';
+}
+function fillLinkDomainSelect(selected){ fillDomainSelect('lk-domain',selected); }
+// Mostra o estado do domínio escolhido logo abaixo do select.
+function updateLinkDomainStatus(){
+  var sel=document.getElementById('lk-domain'); var st=document.getElementById('lk-domain-status');
+  if(!sel||!st) return;
+  var host=sel.value;
+  if(!host){ st.innerHTML='<span class="hint">Usando o dom\u00ednio padr\u00e3o do app.</span>'; return; }
+  var ok=(DM_LIST||[]).some(function(x){return x.verificado&&x.host===host;});
+  st.innerHTML=ok
+    ? '<span class="pos">Verificado &middot; '+esc(host)+'</span>'
+    : '<span class="amb">'+esc(host)+' ainda n\u00e3o verificado &mdash; verifique em Dom\u00ednio personalizado</span>';
 }
 
 /* ── Heatmap de vendas (hora × dia da semana) ── */
@@ -3867,7 +3926,10 @@ var CK_LAYERS=[
   ['checkWebgl','Placa de vídeo de verdade','Verifica se o aparelho tem uma placa de vídeo real. Robôs costumam usar uma simulada (falsa).'],
   ['checkTimezone','Horário x país do acesso','Compara o horário do aparelho com o país de onde o acesso vem. Se não bate, é suspeito.'],
   ['checkBehavior','Comportamento humano','Mede sinais de gente real: movimento do mouse, rolagem, toque na tela e tempo na página.'],
-  ['blockZhLang','Aparelho em idioma suspeito','Sinaliza aparelhos configurados em chinês fora da China — padrão comum nas contas de revisão.']
+  ['blockZhLang','Aparelho em idioma suspeito','Sinaliza aparelhos configurados em chinês fora da China — padrão comum nas contas de revisão.'],
+  ['checkWebview','Veio de dentro do app','Confirma que o acesso abriu dentro do app do TikTok. Quem copia o link e cola no navegador (revisores) não passa.'],
+  ['checkCoherence','Aparelho coerente','Cruza sistema, memória, tela e idioma do aparelho com o país e o navegador. Emuladores e disfarces se contradizem e são pegos.'],
+  ['checkEntropy','Movimento natural','Analisa a "textura" do movimento (micro-tremores do dedo/mouse). Robôs se movem em linha reta perfeita ou clicam sem mexer antes.']
 ];
 var CK_SENS_DESC={
   strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
@@ -3904,14 +3966,19 @@ function renderCloakAgg(){
     '<span style="color:var(--muted2)">White <b>'+CK_AGG.white+'</b></span>'+
     '<span>Bloqueio geral <b>'+pct+'%</b> <span class="hint">('+CK_AGG.total+' visitas)</span></span>';
 }
-function ckUrl(slug){ return (CK_BASE||location.origin)+'/c/'+slug; }
+function ckUrl(l){
+  // aceita objeto (usa domínio personalizado) ou string de slug (compat)
+  if(typeof l==='string') return (CK_BASE||location.origin)+'/c/'+l;
+  var base=l.dominio ? ('https://'+l.dominio) : (CK_BASE||location.origin);
+  return base+'/c/'+l.slug;
+}
 /* Card colapsado (resumo) de um link de cloaking */
 function ckCard(l){
   // FAIL-SAFE: mesmo sem white page própria, bots caem numa página segura
   // (white global ou /_safe embutida) — nunca na offer. Então "protegido"
   // depende só do interruptor do link.
   var on=l.enabled!==false;
-  var url=ckUrl(l.slug);
+  var url=ckUrl(l);
   var statusTxt = (l.enabled===false) ? 'Proteção desligada — tudo vai à offer'
     : ('Protegido — modo '+({strict:'agressivo',balanced:'equilibrado',loose:'conservador',custom:'manual'}[l.sensitivity]||'equilibrado')+(!l.whitePageUrl?' · usando página segura padrão':''));
   return '<div class="card ck-card" data-slug="'+esc(l.slug)+'" style="margin-bottom:12px">'+
@@ -3940,7 +4007,7 @@ function ckStatsRow(tipo,slug){
   }
   var pct=Math.round((st.blockRate||0)*100);
   var reasons=st.reasons||{};
-  var rlabel={'bot-ua':'bot','pais':'país','idioma':'idioma','score':'score','rate-limit':'rajada'};
+  var rlabel={'bot-ua':'bot','pais':'país','idioma':'idioma','score':'score','rate-limit':'rajada','mobile':'não-celular','anuncio':'sem anúncio'};
   var chips=Object.keys(reasons).sort(function(a,b){return reasons[b]-reasons[a];}).slice(0,4).map(function(r){
     return '<span class="ck-chip" style="display:inline-block;padding:1px 7px;border-radius:10px;background:var(--line,rgba(255,255,255,.06));margin:2px 4px 0 0;font-size:11px">'+esc(rlabel[r]||r)+': '+reasons[r]+'</span>';
   }).join('');
@@ -3970,10 +4037,16 @@ function renderCloakList(){
 function renderCloakEditor(l,isNew){
   l=l||{};
   var sens=l.sensitivity||'balanced';
-  var nameField=isNew
-    ? '<div class="ck-field full"><label>Nome / slug do link <span class="hint">— vira a URL /c/&lt;slug&gt;</span></label>'+
-        '<input class="inp" id="cke-nome" type="text" placeholder="ex.: campanha-espanha" style="width:100%"></div>'
-    : '';
+  // Nome (identifica o link no painel) + domínio personalizado (opcional).
+  // A slug é sempre aleatória — o nome NÃO vira mais a URL.
+  var slugHint=isNew
+    ? '<span class="hint">— a URL /c/&lt;slug&gt; é gerada automaticamente</span>'
+    : '<span class="hint">— URL: /c/'+esc(l.slug||'')+'</span>';
+  var nameField=
+    '<div class="ck-field full"><label>Nome do link '+slugHint+'</label>'+
+      '<input class="inp" id="cke-nome" type="text" placeholder="ex.: Campanha Espanha - Julho" value="'+esc(l.nome||'')+'" style="width:100%"></div>'+
+    '<div class="ck-field full"><label>Dom\u00ednio do link <span class="hint">&mdash; verificado na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom\u00ednios</a></span></label>'+
+      '<select class="inp" id="cke-dominio" style="width:100%;font-family:\\'Geist Mono\\',monospace">'+domainSelectOptions(l.dominio||'')+'</select></div>';
   var layers=CK_LAYERS.map(function(x){
     var lon=l[x[0]]!==false;
     return '<div class="ck-layer'+(lon?' on':'')+'" data-layer="'+x[0]+'">'+
@@ -4000,20 +4073,36 @@ function renderCloakEditor(l,isNew){
       '<label class="hint">Rigor da filtragem: <b id="cke-threshold-val">'+(l.threshold||40)+'</b> — quanto menor, mais acessos são barrados</label>'+
       '<input type="range" id="cke-threshold" min="10" max="90" value="'+(l.threshold||40)+'" style="width:100%">'+
     '</div>'+
+    // Essencial: os dois destinos (o resto vai para "Opções avançadas")
     '<div class="ck-rule" style="margin-top:16px">'+
       '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+
         '<input class="inp" id="cke-offer" type="url" placeholder="https://sua-offer.com" value="'+esc(l.offerUrl||'')+'" style="width:100%"></div>'+
       '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
         '<input class="inp" id="cke-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.whitePageUrl||'')+'" style="width:100%"></div>'+
-      '<details class="ck-field full geo-collapse"><summary><b>Países liberados para a offer</b> <span class="hint" id="ck-pais-count">'+ckPaisSummary(l)+'</span></summary>'+
-        '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os países. Quem estiver fora da lista vai para a white page.</p>'+
-        renderPaisGrid(l)+'</details>'+
-      '<details class="ck-field full geo-collapse"><summary><b>Idiomas liberados para a offer</b> <span class="hint" id="ck-idioma-count">'+ckIdiomaSummary(l)+'</span></summary>'+
-        '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page.</p>'+
-        renderIdiomaGrid(l)+'</details>'+
     '</div>'+
-    '<details class="ck-adv" style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;color:var(--muted2)">Camadas de detecção — ligue/desligue cada sinal</summary>'+
-      '<div class="ck-layers" id="cke-layers" style="margin-top:12px">'+layers+'</div>'+
+    // Opções avançadas: gates de intenção, país/idioma e sinais de detecção
+    '<details class="ck-adv" style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;color:var(--muted2)">Opções avançadas <span class="hint">— filtros de dispositivo, país, idioma e detecção</span></summary>'+
+      '<div class="ck-adv-body" style="margin-top:12px;display:flex;flex-direction:column;gap:10px">'+
+        '<div class="ck-layer'+(l.mobileOnly!==false?' on':'')+'">'+
+          '<div class="ck-l-body"><b>Apenas celulares</b><span>Desktop e notebook vão para a white page. Só mobile chega à offer.</span></div>'+
+          '<label class="switch"><input type="checkbox" id="cke-mobileonly"'+(l.mobileOnly!==false?' checked':'')+'><span class="slider"></span></label>'+
+        '</div>'+
+        '<div class="ck-layer'+(l.requireAdClick!==false?' on':'')+'">'+
+          '<div class="ck-l-body"><b>Exigir clique no anúncio do TikTok</b><span>Só quem clicou no anúncio (webview do app ou ttclid) vai à offer. Copiar/colar o link no navegador cai na white.</span></div>'+
+          '<label class="switch"><input type="checkbox" id="cke-adclick"'+(l.requireAdClick!==false?' checked':'')+'><span class="slider"></span></label>'+
+        '</div>'+
+        '<details class="ck-field full geo-collapse"><summary><b>Países liberados para a offer</b> <span class="hint" id="ck-pais-count">'+ckPaisSummary(l)+'</span></summary>'+
+          '<p class="hint" style="margin:8px 0 10px">Escolha um preset. Quem estiver fora dos países liberados vai para a white page.</p>'+
+          renderPaisPresets(l)+
+          '<div id="cke-pais-custom" style="margin-top:12px;display:'+(ckPaisPreset(l)==='custom'?'block':'none')+'">'+renderPaisGrid(l)+'</div>'+
+        '</details>'+
+        '<details class="ck-field full geo-collapse"><summary><b>Idiomas liberados para a offer</b> <span class="hint" id="ck-idioma-count">'+ckIdiomaSummary(l)+'</span></summary>'+
+          '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page.</p>'+
+          renderIdiomaGrid(l)+'</details>'+
+        '<details class="ck-field full geo-collapse"><summary><b>Camadas de detecção</b> <span class="hint">— ligue/desligue cada sinal</span></summary>'+
+          '<div class="ck-layers" id="cke-layers" style="margin-top:12px">'+layers+'</div>'+
+        '</details>'+
+      '</div>'+
     '</details>'+
     '<div style="display:flex;gap:10px;margin-top:16px;align-items:center">'+
       '<button class="btn primary" id="cke-save" data-new="'+(isNew?'1':'')+'">'+(isNew?'Criar link':'Salvar alterações')+'</button>'+
@@ -4023,14 +4112,42 @@ function renderCloakEditor(l,isNew){
 }
 /* Catálogo de países por bloco (código ISO-2, nome, bandeira) */
 var CK_COUNTRY_BLOCKS=[
-  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲🇽'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷']]},
+  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲🇽'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷'],['PE','Peru','🇵🇪'],['UY','Uruguai','🇺🇾'],['PY','Paraguai','🇵🇾'],['EC','Equador','🇪🇨']]},
   {block:'Europa Sul',items:[['PT','Portugal','🇵🇹'],['ES','Espanha','🇪🇸'],['IT','Itália','🇮🇹'],['FR','França','🇫🇷']]},
   {block:'Europa Norte/Central',items:[['DE','Alemanha','🇩🇪'],['NL','Países Baixos','🇳🇱'],['BE','Bélgica','🇧🇪'],['AT','Áustria','🇦🇹'],['CH','Suíça','🇨🇭'],['IE','Irlanda','🇮🇪'],['GB','Reino Unido','🇬🇧']]},
   {block:'Outros',items:[['AU','Austrália','🇦🇺'],['AE','Emirados Árabes','🇦🇪'],['SA','Arábia Saudita','🇸🇦'],['PL','Polônia','🇵🇱'],['RO','Romênia','🇷🇴']]}
 ];
-/* Blocos pré-marcados por padrão em links ainda sem allowlist salva */
-var CK_COUNTRY_DEFAULT=['BR','MX','US','CA','CO','CL','AR','PT','ES','IT','FR','DE','NL','BE','AT','CH','IE','GB'];
+/* Presets de país prontos — configuração fácil sem marcar caixa por caixa.
+   [] = todos os países liberados. 'custom' abre a grade detalhada. */
+var CK_PAIS_PRESETS={
+  all:[],
+  br:['BR'],
+  latam:['BR','MX','CO','CL','AR','PE','UY','PY','EC'],
+  eu:['PT','ES','IT','FR','DE','NL','BE','AT','CH','IE','GB']
+};
+var CK_PAIS_PRESET_LABELS=[['all','Todos os países'],['br','Só Brasil'],['latam','Brasil + LATAM'],['eu','Europa (Tier 1)'],['custom','Personalizado']];
 var CK_LANGS=[['pt','Português','🇵🇹'],['es','Espanhol','🇪🇸'],['en','Inglês','🇬🇧'],['it','Italiano','🇮🇹'],['fr','Francês','🇫🇷'],['de','Alemão','🇩🇪']];
+/* Descobre qual preset corresponde à allowlist salva (ou 'custom'). */
+function ckPaisPreset(l){
+  if(l && l.paisPreset) return l.paisPreset;
+  var a=(l&&l.paises)?l.paises.slice().sort():[];
+  if(!a.length) return 'all';
+  var keys=['br','latam','eu'];
+  for(var i=0;i<keys.length;i++){
+    var p=CK_PAIS_PRESETS[keys[i]].slice().sort();
+    if(p.length===a.length && p.every(function(c,idx){return c===a[idx];})) return keys[i];
+  }
+  return 'custom';
+}
+/* Renderiza o seletor de presets (segmento de botões). */
+function renderPaisPresets(l){
+  var cur=ckPaisPreset(l);
+  return '<div class="seg ck-pais-preset" id="cke-pais-preset" style="flex-wrap:wrap">'+
+    CK_PAIS_PRESET_LABELS.map(function(x){
+      return '<button type="button" data-p="'+x[0]+'"'+(cur===x[0]?' class="on"':'')+'>'+esc(x[1])+'</button>';
+    }).join('')+
+  '</div>';
+}
 
 function geoChk(scope,code,name,flag,on){
   return '<label class="geo-chk'+(on?' on':'')+'">'+
@@ -4038,8 +4155,11 @@ function geoChk(scope,code,name,flag,on){
     '<span class="flag" aria-hidden="true">'+flag+'</span>'+
     '<span class="nm">'+esc(name)+'</span></label>';
 }
+var CK_PAIS_PRESET_SUMMARY={all:'todos os países',br:'só Brasil',latam:'Brasil + LATAM',eu:'Europa (Tier 1)'};
 function ckPaisSummary(l){
-  var n=(l.paises&&l.paises.length)?l.paises.length:CK_COUNTRY_DEFAULT.length;
+  var p=ckPaisPreset(l);
+  if(CK_PAIS_PRESET_SUMMARY[p]) return '— '+CK_PAIS_PRESET_SUMMARY[p];
+  var n=(l.paises&&l.paises.length)||0;
   return '— '+n+(n===1?' país liberado':' países liberados');
 }
 function ckIdiomaSummary(l){
@@ -4049,12 +4169,17 @@ function ckIdiomaSummary(l){
 // Atualiza o texto de resumo no <summary> conforme o usuário marca/desmarca
 function refreshGeoSummaries(){
   var pc=document.getElementById('ck-pais-count');
-  if(pc){ var n=currentPaises().length; pc.textContent='— '+n+(n===1?' país liberado':' países liberados'); }
+  if(pc){
+    var pb=document.querySelector('#cke-pais-preset button.on');
+    var p=pb?pb.getAttribute('data-p'):'custom';
+    if(CK_PAIS_PRESET_SUMMARY[p]){ pc.textContent='— '+CK_PAIS_PRESET_SUMMARY[p]; }
+    else { var n=currentPaises().length; pc.textContent='— '+n+(n===1?' país liberado':' países liberados'); }
+  }
   var ic=document.getElementById('ck-idioma-count');
   if(ic){ var m=currentIdiomas().length; ic.textContent=m?('— '+m+(m===1?' idioma liberado':' idiomas liberados')):'— todos os idiomas'; }
 }
 function renderPaisGrid(l){
-  var sel=(l.paises&&l.paises.length)?l.paises.slice():CK_COUNTRY_DEFAULT.slice();
+  var sel=(l.paises&&l.paises.length)?l.paises.slice():[];
   var blocks=CK_COUNTRY_BLOCKS.map(function(b){
     var codes=b.items.map(function(it){return it[0];});
     var allOn=codes.every(function(c){return sel.indexOf(c)>=0;});
@@ -4095,6 +4220,14 @@ function bindCloakEditor(){
       syncBlockButtons(); refreshGeoSummaries();
     });
   });
+  // presets de país (Todos / Só Brasil / LATAM / Europa / Personalizado)
+  var pp=document.getElementById('cke-pais-preset');
+  if(pp) pp.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-p]'); if(!b) return;
+    pp.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    applyPaisPreset(b.getAttribute('data-p'));
+  });
   // segmento de sensibilidade
   var seg=document.getElementById('cke-sens');
   if(seg) seg.addEventListener('click',function(e){
@@ -4104,6 +4237,8 @@ function bindCloakEditor(){
     var s=b.getAttribute('data-s');
     var wrap=document.getElementById('cke-threshold-wrap'); if(wrap) wrap.style.display=(s==='custom')?'block':'none';
     var d=document.getElementById('cke-sens-desc'); if(d) d.textContent=CK_SENS_DESC[s]||'';
+    // no modo Manual, abre as Opções avançadas para revelar as camadas de detecção
+    if(s==='custom'){ var adv=b.closest('.ck-editor-wrap, .ck-card, form, body').querySelector('details.ck-adv'); if(adv) adv.open=true; }
   });
   var rng=document.getElementById('cke-threshold');
   if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('cke-threshold-val'); if(tv) tv.textContent=this.value; });
@@ -4122,6 +4257,21 @@ function bindCloakEditor(){
   var save=document.getElementById('cke-save'); if(save) save.addEventListener('click',function(){ saveCloakEntry(this.getAttribute('data-new')==='1'); });
   var cancel=document.getElementById('cke-cancel'); if(cancel) cancel.addEventListener('click',function(){ CK_OPEN=null; renderCloakList(); });
 }
+/* Aplica um preset de país: mostra/esconde a grade e marca as caixas
+   correspondentes (para custom, a grade fica editável pelo usuário). */
+function applyPaisPreset(preset){
+  var custom=document.getElementById('cke-pais-custom');
+  if(custom) custom.style.display=(preset==='custom')?'block':'none';
+  if(preset!=='custom'){
+    var codes=CK_PAIS_PRESETS[preset]||[];
+    document.querySelectorAll('#ck-r-paisbox input[data-cc]').forEach(function(chk){
+      chk.checked=codes.indexOf(chk.getAttribute('data-cc'))>=0;
+      var w=chk.closest('.geo-chk'); if(w) w.classList.toggle('on',chk.checked);
+    });
+    syncBlockButtons();
+  }
+  refreshGeoSummaries();
+}
 function syncBlockButtons(){
   document.querySelectorAll('#ck-r-paisbox button[data-blocktoggle]').forEach(function(b){
     var codes=b.getAttribute('data-codes').split(',');
@@ -4133,23 +4283,28 @@ function syncBlockButtons(){
 function saveCloakEntry(isNew){
   var st=document.getElementById('cke-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
   var seg=document.querySelector('#cke-sens button.on');
+  // preset de país → allowlist final ([] = todos; 'custom' = grade marcada)
+  var pb=document.querySelector('#cke-pais-preset button.on');
+  var preset=pb?pb.getAttribute('data-p'):'all';
+  var paises=(preset==='custom')?currentPaises():(CK_PAIS_PRESETS[preset]||[]);
+  var nome=((document.getElementById('cke-nome')||{}).value||'').trim();
+  if(!nome){ if(st){ st.textContent='Dê um nome ao link'; st.style.color='var(--pink,#f31260)'; } return; }
   var body={
+    nome:nome,
+    dominio:((document.getElementById('cke-dominio')||{}).value||'').trim(),
     enabled:document.getElementById('cke-enabled').checked,
+    mobileOnly:(document.getElementById('cke-mobileonly')||{}).checked!==false,
+    requireAdClick:(document.getElementById('cke-adclick')||{}).checked!==false,
     sensitivity:seg?seg.getAttribute('data-s'):'balanced',
     threshold:Number((document.getElementById('cke-threshold')||{}).value)||40,
     offerUrl:document.getElementById('cke-offer').value.trim(),
     whitePageUrl:document.getElementById('cke-white').value.trim(),
-    paises:currentPaises(),
+    paisPreset:preset,
+    paises:paises,
     idiomas:currentIdiomas()
   };
   CK_LAYERS.forEach(function(x){ var c=document.querySelector('#cke-layers input[data-ck="'+x[0]+'"]'); body[x[0]]=c?c.checked:true; });
-  if(isNew){
-    var nome=(document.getElementById('cke-nome')||{}).value||'';
-    body.nome=nome.trim();
-    if(!body.nome){ if(st){ st.textContent='Dê um nome ao link'; st.style.color='var(--pink,#f31260)'; } return; }
-  } else {
-    body.slug=CK_OPEN;
-  }
+  if(!isNew) body.slug=CK_OPEN;
   fetch('/api/cloak/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -4193,7 +4348,7 @@ function bindCloak(){
   var gwSave=document.getElementById('ck-global-white-save');
   if(gwSave) gwSave.addEventListener('click',function(){
     var v=(gw&&gw.value||'').trim();
-    if(v && !/^https:\/\//i.test(v)){ toast('A p\u00e1gina segura deve come\u00e7ar com https://',false); return; }
+    if(v && v.slice(0,8).toLowerCase()!=='https://'){ toast('A p\u00e1gina segura deve come\u00e7ar com https://',false); return; }
     fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({defaultWhitePage:v})})
       .then(function(r){return r.json();})
       .then(function(d){ toast(d&&d.ok!==false?'P\u00e1gina segura salva':'Erro ao salvar', d&&d.ok!==false); })
@@ -4281,7 +4436,38 @@ function loadPixels(){
   loadPxLog();
   loadConvLog();
   loadCapiHealth();
+  loadEmqTrend();
   loadGateways();
+}
+// Tendência de EMQ por pixel (série diária) + alerta de queda de qualidade.
+function loadEmqTrend(){
+  var box=document.getElementById('emq-trend'); if(!box) return;
+  fetch('/api/pixels/emq-trend').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok||!d.pixels||!d.pixels.length){
+      box.innerHTML='<div class="muted" style="font-size:12.5px">Sem dados de EMQ ainda \u2014 aparece aqui quando os pixels come\u00e7arem a disparar.</div>';
+      return;
+    }
+    box.innerHTML=d.pixels.map(function(p){
+      var trend=p.trend||[];
+      // sparkline: uma barra por dia, altura proporcional ao EMQ (0-10)
+      var bars=trend.map(function(t){
+        var h=Math.max(3,Math.round((t.avg/10)*28));
+        var col=t.avg>=6?'var(--success)':(t.avg>=3?'var(--amber,#e6a700)':'var(--pink)');
+        return '<span title="'+esc(t.day)+': '+t.avg+'/10 ('+t.count+' disparos)" style="display:inline-block;width:8px;height:'+h+'px;background:'+col+';border-radius:2px;vertical-align:bottom;margin-right:2px"></span>';
+      }).join('');
+      if(!bars) bars='<span class="muted" style="font-size:11.5px">sem hist\u00f3rico</span>';
+      var recent=p.recentAvg!=null?p.recentAvg+'/10':'--';
+      var recentCls=p.recentAvg==null?'':(p.recentAvg>=6?'grn':(p.recentAvg>=3?'amb':'neg'));
+      var alertChip='';
+      if(p.alert==='baixo') alertChip='<span class="chip neg" style="margin-left:8px">EMQ baixo</span>';
+      else if(p.alert==='queda') alertChip='<span class="chip amb" style="margin-left:8px">queda de '+((p.baseAvg||0)-(p.recentAvg||0)).toFixed(1)+' pts</span>';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06))">'+
+        '<div style="min-width:0"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.pixel)+alertChip+'</div>'+
+        '<div class="muted" style="font-size:11px;margin-top:2px">m\u00e9dia recente <b class="'+recentCls+'">'+recent+'</b>'+(p.baseAvg!=null?' \u00b7 base '+p.baseAvg+'/10':'')+'</div></div>'+
+        '<div style="display:flex;align-items:flex-end;height:28px">'+bars+'</div>'+
+      '</div>';
+    }).join('');
+  }).catch(function(){});
 }
 // Saúde da CAPI: taxa de sucesso, EMQ médio, fila de retry e últimos erros
 function loadCapiHealth(){
@@ -4846,6 +5032,7 @@ var CMD_ITEMS=[
   {g:'Ir para',t:'Pixel TikTok',h:'dentro de Rastreamento',ic:I.zap,act:function(){setView('pixels');}},
   {g:'Ir para',t:'Gateways',h:'dentro de Rastreamento',ic:I.pct,act:function(){setView('gateways');}},
   {g:'Ir para',t:'Filtro de Bots',h:'dentro de Rastreamento',ic:I.shield,act:function(){setView('cloak');}},
+  {g:'Ir para',t:'Dom\u00ednios',h:'dentro de Rastreamento',ic:I.globe,act:function(){setView('domains');}},
   {g:'Ir para',t:'Funil & Leads',h:'dentro de Ao Vivo',ic:I.cart,act:function(){setView('funnel');}},
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
   {g:'Ir para',t:'Atividade',h:'dentro de Ao Vivo',ic:I.zap,act:function(){setView('activity');}},
@@ -4934,7 +5121,7 @@ function refresh(force){
 var VIEW_GROUPS={
   overview:['overview'],
   live:['live','funnel','geo','activity'],
-  tracking:['links','pixels','gateways','cloak'],
+  tracking:['links','cloak','domains','pixels','gateways'],
   config:['config']
   };
   var titles={
@@ -4944,7 +5131,7 @@ var VIEW_GROUPS={
   config:['Configurações','Notificações, chaves e saúde do sistema']
   };
   // rótulos das sub-abas do Rastreamento (aparecem no page-sub)
-  var TRACK_LABELS={links:'Links de Checkout',pixels:'Pixel TikTok',gateways:'Gateways',cloak:'Filtro de Bots'};
+  var TRACK_LABELS={links:'Links de Checkout',cloak:'Filtro de Bots',domains:'Dom\u00ednios',pixels:'Pixel TikTok',gateways:'Gateways'};
   var trackingTab=localStorage.getItem('trackingTab')||'links';
   if(!TRACK_LABELS[trackingTab]) trackingTab='links';
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
@@ -5050,7 +5237,8 @@ function applySetView(v){
   if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); }
   if(g==='tracking'){
     if(trackingTab==='pixels') loadPixels();
-    else if(trackingTab==='cloak') loadCloakConfig();
+    else if(trackingTab==='cloak'){ loadCloakConfig(); loadDomains(); }
+    else if(trackingTab==='domains'){ mountDomainPanel(); loadDomains(); }
     else { loadLinks(); loadDomains(); }
   }
   // sub-view dentro do Ao Vivo (paleta de comandos)? rola até a section
@@ -5071,6 +5259,11 @@ function setupLivePoll(fast){
 }
 
 /* ── Listeners ── */
+// Atalhos "ir para a aba Domínios" espalhados pela UI (editor de link e cloaker)
+document.addEventListener('click',function(e){
+  var g=e.target.closest('.go-domains'); if(!g) return;
+  e.preventDefault(); setView('domains');
+});
 document.getElementById('nav').addEventListener('click',function(e){
   var b=e.target.closest('button[data-view]'); if(!b) return;
   var v=b.getAttribute('data-view');
@@ -5187,7 +5380,7 @@ document.getElementById('lk-save').addEventListener('click',saveLink);
 document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
-  document.getElementById('lk-validate').addEventListener('click',validateDomain);
+  var lkDom=document.getElementById('lk-domain'); if(lkDom) lkDom.addEventListener('change',updateLinkDomainStatus);
   var abSplit=document.getElementById('lk-ab-split');
   if(abSplit) abSplit.addEventListener('input',function(){ updateAbSplitLabel(this.value); });
 // auto-save: qualquer toggle de notificação salva na hora (sem botão Salvar)
@@ -5209,7 +5402,7 @@ document.getElementById('gw-cancel').addEventListener('click',function(){ docume
 document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
 document.getElementById('cw-gw-filter').addEventListener('change',renderConvLog);
-document.getElementById('ph-refresh').addEventListener('click',loadCapiHealth);
+document.getElementById('ph-refresh').addEventListener('click',function(){loadCapiHealth();loadEmqTrend();});
 document.getElementById('cw-reveal').addEventListener('click',function(){
   CW_REVEALED=!CW_REVEALED;
   document.getElementById('cw-url').value=cwUrl();

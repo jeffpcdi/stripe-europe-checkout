@@ -41,7 +41,10 @@ require.cache[rdbPath] = {
     saveCapiRetryQueue: async () => {},
     recentPixelLog: async () => [],
     pushPixelLog: async () => {},
-    seenEventId: async () => false
+    seenEventId: async () => false,
+    acquireLock: async () => true,
+    releaseLock: async () => {},
+    bumpEmq: async () => {}
   }
 };
 

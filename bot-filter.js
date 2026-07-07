@@ -51,6 +51,41 @@ const DATACENTER_ASNS = new Set([
   // Proxies residenciais e mobile-proxy conhecidos por revisores
   212238,  // Datacamp Limited (proxy residencial)
   60068,   // CDN77 (usado como relay)
+  // Hosting / VPS de uso geral — origem clássica de scrapers, headless e
+  // proxies de datacenter. Usuário pago do TikTok vem de operadora móvel,
+  // quase nunca destes ASNs; peso datacenter (+38) é seguro aqui.
+  16276,   // OVH
+  24940,   // Hetzner Online
+  14061,   // DigitalOcean
+  20473,   // The Constant Company / Vultr
+  63949,   // Akamai / Linode
+  51167,   // Contabo
+  31898,   // Oracle Cloud (OCI)
+  45102,   // Alibaba Cloud (intl)
+  132203,  // Tencent Cloud
+  37963,   // Alibaba (CN)
+  60781,   // LeaseWeb NL
+  30633,   // Leaseweb USA (também em farms)
+  8100,    // QuadraNet
+  62240,   // Clouvider
+  9009,    // M247 (VPN/proxy hosting)
+  212238,  // Datacamp/CDN (dup-safe: Set deduplica)
+  49505,   // Selectel (RU hosting)
+  201814,  // Proxy-Seller / mobile proxies
+  206092,  // IPXO (proxy leasing)
+  212238,  // Datacamp
+  50673,   // Serverius (proxy hosting)
+  29802,   // HIVELOCITY (VPS/farms)
+  40676,   // Psychz Networks (device farms)
+  53667,   // FranTech / BuyVM (proxy VPS)
+  35916,   // MULTA-ASN / hosting
+  46844,   // ReliableSite (VPS)
+  19318,   // Interserver (VPS)
+  55286,   // ServerMania
+  35913,   // DediPath (encerrado, mas ainda visto em logs)
+  399629,  // BL Networks (proxy)
+  208046,  // Hosting proxies EU
+  14618,   // Amazon AWS (dup-safe)
 ]);
 
 // CIDRs ByteDance CONFIRMADOS via BGP.tools (AS138699, jan 2025).
@@ -204,7 +239,10 @@ const DEFAULT_CONFIG = {
   checkWebgl:       true,  // Camada D2: WebGL renderer (SwiftShader)
   checkTimezone:    true,  // Camada D3: timezone IANA vs geo do IP
   checkBehavior:    true,  // Camada D6: biometria comportamental
-  blockZhLang:      true   // Camada E: accept-language zh fora do bloco CN
+  blockZhLang:      true,  // Camada E: accept-language zh fora do bloco CN
+  checkWebview:     true,  // Camada F: integridade de webview (UA in-app x globals)
+  checkCoherence:   true,  // Camada G: coerência plataforma/hardware/idioma x UA/geo
+  checkEntropy:     true   // Camada H: entropia de movimento e ação-sem-trilha
 };
 
 // Presets de sensibilidade → ajustam o threshold (menor = mais agressivo)
@@ -451,6 +489,85 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
     }
   }
 
+  // ─── Camada F: Integridade de WEBVIEW ────────────────────────────────────
+  // O usuário PAGO vive no webview do app da TikTok. Esse webview expõe globals
+  // (webkit.messageHandlers no iOS, flag "; wv)" no Android, JSBridge Bytedance)
+  // que um Chrome/Safari comum — onde o revisor COLA o link — não tem. Se a UA
+  // diz in-app mas o browser não expõe NENHUM desses, é UA falsificada (bot).
+  if (cfg.checkWebview) {
+    const wv = String(cd.wv || '');
+    if (inAppTikTok) {
+      if (cd.wv !== undefined && !wv) {
+        // UA in-app + zero globals de webview = revisor spoofando a UA no desktop
+        signals.push('webview:ua-spoof'); score += 45;
+      } else if (wv) {
+        signals.push('webview:ok=' + wv); score -= 15; // webview real confirmado
+      }
+      // Chrome desktop "de verdade" (window.chrome.runtime) sob UA in-app = incoerente
+      if (Number(cd.hasChrome) === 1) { signals.push('webview:chrome-runtime-inapp'); score += 22; }
+    }
+  }
+
+  // ─── Camada G: Coerência de ambiente ─────────────────────────────────────
+  // O sinal de MAIOR confiança em 2026 é a INCONSISTÊNCIA entre camadas: um
+  // ambiente real é coerente (UA, plataforma, hardware, tela, idioma e geo
+  // fecham entre si); revisores em proxy/emulador destoam em pelo menos uma.
+  if (cfg.checkCoherence) {
+    const uaIsApple = /iPhone|iPad|iPod|Macintosh/i.test(ua);
+    const uaIsMobileDev = /Mobile|Android|iPhone|iPad/i.test(ua);
+    const plat = String(cd.plat || '');
+    const webgl = String(cd.webgl || '');
+
+    // G1. UA Apple mas WebGL renderer não-Apple (ANGLE/Google/NVIDIA no Windows)
+    if (uaIsApple && webgl && !/Apple|Metal/i.test(webgl) && /ANGLE|Direct3D|NVIDIA|Intel|Radeon|SwiftShader/i.test(webgl)) {
+      signals.push('coh:apple-ua-nonapple-gpu'); score += 28;
+    }
+    // G2. navigator.platform incoerente com a UA (iPhone/Mac UA com Win32/Linux)
+    if (plat) {
+      if (uaIsApple && /Win|Linux/i.test(plat)) { signals.push('coh:plat-mismatch=' + plat); score += 30; }
+      else if (/Android/i.test(ua) && /Win|MacIntel/i.test(plat)) { signals.push('coh:plat-mismatch=' + plat); score += 28; }
+    }
+    // G3. "Mobile" com hardware de desktop: núcleos/RAM altos são raros em celular
+    if (uaIsMobileDev) {
+      const hc = Number(cd.hc), dm = Number(cd.dm);
+      if (!isNaN(hc) && hc >= 16) { signals.push('coh:mobile-cpu-alto=' + hc); score += 18; }
+      if (!isNaN(dm) && dm >= 16) { signals.push('coh:mobile-ram-alta=' + dm); score += 14; }
+      // maxTouchPoints 0 num "celular" = emulador/desktop spoofando mobile
+      if (Number(cd.tp) === 0 && cd.tp !== undefined) { signals.push('coh:mobile-sem-touch'); score += 16; }
+    }
+    // G4. Proporção de tela desktop declarada por UA mobile (ex.: 1920x1080)
+    const sw = Number(cd.sw), sh = Number(cd.sh);
+    if (uaIsMobileDev && sw > 0 && sh > 0) {
+      const maxSide = Math.max(sw, sh);
+      if (maxSide >= 1280) { signals.push('coh:mobile-tela-desktop=' + sw + 'x' + sh); score += 14; }
+    }
+    // G5. Idioma do navegador x timezone/geo — dois batem e um destoa = proxy
+    const lang = String(cd.lang || '').split('-')[0].toLowerCase();
+    if (lang && geoCountry) {
+      const langOkForGeo = LANG_BY_COUNTRY[geoCountry] ? LANG_BY_COUNTRY[geoCountry].includes(lang) : null;
+      if (langOkForGeo === false && lang !== 'en') { // en é neutro (aceito em qualquer geo)
+        signals.push('coh:lang-fora-geo=' + lang + '/' + geoCountry); score += 12;
+      }
+    }
+  }
+
+  // ─── Camada H: Entropia comportamental ───────────────────────────────────
+  // Contar eventos não basta: automação (CDP) injeta eventos "perfeitos demais".
+  // Medimos a TEXTURA do movimento — passos sub-pixel (ponteiro físico) e se
+  // houve trilha de movimento ANTES do clique/conversão.
+  if (cfg.checkEntropy) {
+    const ent = Number(cd.ent);
+    const beh = Number(cd.beh);
+    // Houve interação (beh>0) mas ZERO passos sub-pixel = movimento sintético reto
+    if (!isNaN(ent) && !isNaN(beh) && beh > 0 && ent === 0) {
+      signals.push('ent:movimento-sintetico'); score += 20;
+    } else if (!isNaN(ent) && ent >= 40) {
+      signals.push('ent:humano=' + ent); score -= 10; // micro-tremor real
+    }
+    // Clique/conversão SEM nenhum movimento antes = ação sem trilha (bot)
+    if (Number(cd.nt) === 1) { signals.push('ent:acao-sem-trilha'); score += 22; }
+  }
+
   // ─── Camada E: Accept-Language e geo ─────────────────────────────────────
   if (cfg.blockZhLang) {
     const acceptLang = String(req.headers['accept-language'] || '');
@@ -496,6 +613,17 @@ const COUNTRY_TZ_PREFIXES = {
   JP: ['Asia/Tok'], KR: ['Asia/Seo'], SG: ['Asia/Sin'],
   // Oriente Médio
   AE: ['Asia/Dub'], SA: ['Asia/Riy'],
+};
+
+// Idiomas primários esperados por país (para a Camada G5). Lista permissiva:
+// só sinaliza quando o idioma do navegador claramente não pertence ao país e
+// não é 'en' (neutro). País ausente do mapa = não penaliza.
+const LANG_BY_COUNTRY = {
+  BR: ['pt'], PT: ['pt'], US: ['en','es'], GB: ['en'], ES: ['es','ca'],
+  FR: ['fr'], DE: ['de'], IT: ['it'], NL: ['nl'], BE: ['nl','fr'],
+  MX: ['es'], AR: ['es'], CO: ['es'], CL: ['es'], PE: ['es'],
+  CN: ['zh'], TW: ['zh'], HK: ['zh'], JP: ['ja'], KR: ['ko'], SG: ['en','zh'],
+  AE: ['ar'], SA: ['ar'],
 };
 
 function detectTimezoneMismatch(browserTz, geoCountry) {
@@ -549,6 +677,31 @@ function challengeSnippet(visitorId, token) {
     // 2. Timezone IANA
     try{ d.tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_){}
 
+    // 2b. Integridade de WEBVIEW: o app do TikTok roda num webview que expõe
+    // marcadores que um Chrome/Safari normal (onde o revisor COLA o link) não
+    // tem. Montamos flags: iw=webkit.messageHandlers (iOS in-app), aw=window
+    // sem chrome real, jb=JSBridge do Bytedance, mh=nomes de handlers nativos.
+    try{
+      var wv='';
+      if(window.webkit&&window.webkit.messageHandlers) wv+='iw';           // iOS WKWebView
+      if(/(; ?wv[;)])/i.test(navigator.userAgent)) wv+='aw';               // Android WebView flag
+      if(window.ByteBridge||window.JSBridge||window.__bytedance||window.TTJSBridge) wv+='jb'; // Bytedance bridge
+      if(window.ReactNativeWebView) wv+='rn';
+      // Chrome desktop "de verdade" tem window.chrome com runtime; webview não.
+      d.hasChrome=!!(window.chrome&&window.chrome.runtime)?1:0;
+      d.wv=wv;
+    }catch(_){}
+
+    // 2c. Coerência de ambiente: plataforma, hardware e locale declarados pelo
+    // browser. Servem para cruzar com a UA/geo no servidor (ex.: UA de iPhone
+    // com platform Win32, ou "mobile" com 16 núcleos = spoofing).
+    try{ d.plat=(navigator.platform||'').slice(0,20); }catch(_){}
+    try{ d.dm=Number(navigator.deviceMemory)||0; }catch(_){}
+    try{ d.hc=Number(navigator.hardwareConcurrency)||0; }catch(_){}
+    try{ d.lang=(navigator.language||'').slice(0,10); }catch(_){}
+    try{ d.tp=Number(navigator.maxTouchPoints)||0; }catch(_){}
+    try{ d.sw=screen.width||0; d.sh=screen.height||0; }catch(_){}
+
     // 3. Canvas fingerprint hash leve (últimos 20 chars do dataURL)
     try{
       var cv=document.createElement('canvas');
@@ -569,19 +722,41 @@ function challengeSnippet(visitorId, token) {
       d.dt=Math.round((performance.now()-t0)*10)/10;
     }catch(_){}
 
-    // 5. Score comportamental: mouse, scroll, touch em 3s
+    // 5. Score comportamental + ENTROPIA: além de contar eventos, medimos se o
+    // movimento parece humano. Automação (CDP/injeção) costuma mover em linha
+    // reta, com passos de pixel inteiro e sem micro-tremor — ou dispara clique
+    // SEM nenhum mousemove/touch antes (ação sem trilha = bot).
     var events=0;
+    var moves=0, fracSteps=0, lastX=null, lastY=null, sumJit=0, moveBeforeAction=0, actioned=0;
+    function onMove(e){
+      events++; moves++;
+      var x=e.clientX, y=e.clientY;
+      if(lastX!=null){
+        var dx=x-lastX, dy=y-lastY;
+        // passo com componente fracionária (sub-pixel) = ponteiro físico real
+        if((dx%1)!==0||(dy%1)!==0) fracSteps++;
+        sumJit+=Math.abs(dx)+Math.abs(dy);
+      }
+      lastX=x; lastY=y;
+      if(!actioned) moveBeforeAction=1;
+    }
+    function onTouch(e){ events+=3; moves++; if(!actioned) moveBeforeAction=1; }
+    function onAction(){ events+=5; actioned=1; }
     var listeners=[
-      ['mousemove',function(){events++;}],
+      ['mousemove',onMove],
       ['scroll',function(){events+=2;}],
-      ['touchstart',function(){events+=3;}],
-      ['click',function(){events+=5;}],
+      ['touchstart',onTouch],['touchmove',onTouch],
+      ['click',onAction],['pointerdown',onAction],
       ['keydown',function(){events+=4;}]
     ];
     listeners.forEach(function(l){document.addEventListener(l[0],l[1],{passive:true,once:false});});
     setTimeout(function(){
       // normaliza em 0-100: 0 = zero interação (bot), 60+ = interação humana real
       d.beh=Math.min(100,events*3);
+      // entropia 0-100: proporção de passos sub-pixel (humano ~alto). Sem moves = 0.
+      d.ent=moves>1?Math.round((fracSteps/(moves-1))*100):0;
+      // clicou/converteu sem NENHUM movimento antes = ação sem trilha (bot)
+      d.nt=(actioned&&!moveBeforeAction)?1:0;
       listeners.forEach(function(l){document.removeEventListener(l[0],l[1]);});
       _send(d);
     },3000);
@@ -606,6 +781,7 @@ function challengeSnippet(visitorId, token) {
 
 module.exports = {
   judge,
+  lookupASN,
   issueChallengeToken,
   verifyChallengeToken,
   challengeSnippet,

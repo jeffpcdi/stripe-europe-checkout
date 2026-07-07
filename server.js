@@ -353,6 +353,23 @@ const rlSweep = setInterval(() => {
 }, 120e3);
 if (rlSweep.unref) rlSweep.unref();
 
+// Reconstrói o objeto de sinais do browser a partir do lead persistido pelo
+// /api/cloakcheck, para alimentar botFilter.judge() no /go/ e no /c/ sem repetir
+// o mapeamento em dois lugares. Inclui os sinais 2026 (webview, coerência, entropia).
+function buildCloakChallengeData(lead0) {
+  const l = lead0 || {};
+  const num = (v) => (typeof v === 'number' ? v : NaN);
+  return {
+    webgl: l.cloakWebgl || '', tz: l.cloakTz || '', fp: l.cloakFp || '',
+    dt: num(l.cloakDt), beh: num(l.cloakBeh),
+    wv: l.cloakWv || '', hasChrome: num(l.cloakHasChrome),
+    plat: l.cloakPlat || '', dm: num(l.cloakDm), hc: num(l.cloakHc),
+    lang: l.cloakLang || '', tp: num(l.cloakTp),
+    sw: num(l.cloakSw), sh: num(l.cloakSh),
+    ent: num(l.cloakEnt), nt: num(l.cloakNt)
+  };
+}
+
 app.get('/t.js', (req, res) => {
   res.set({
     'Content-Type': 'application/javascript; charset=utf-8',
@@ -392,8 +409,32 @@ app.post('/api/cloakcheck', async (req, res) => {
   if (typeof b.fp    === 'string' && b.fp)    patch.cloakFp    = b.fp.slice(0, 24);
   if (typeof b.dt    === 'number')             patch.cloakDt    = b.dt;
   if (typeof b.beh   === 'number')             patch.cloakBeh   = b.beh;
+  // Novos sinais 2026: integridade de webview, coerência de ambiente, entropia
+  if (typeof b.wv    === 'string')             patch.cloakWv    = b.wv.slice(0, 12);
+  if (typeof b.hasChrome === 'number')         patch.cloakHasChrome = b.hasChrome;
+  if (typeof b.plat  === 'string' && b.plat)   patch.cloakPlat  = b.plat.slice(0, 20);
+  if (typeof b.dm    === 'number')             patch.cloakDm    = b.dm;
+  if (typeof b.hc    === 'number')             patch.cloakHc    = b.hc;
+  if (typeof b.lang  === 'string' && b.lang)   patch.cloakLang  = b.lang.slice(0, 10);
+  if (typeof b.tp    === 'number')             patch.cloakTp    = b.tp;
+  if (typeof b.sw    === 'number')             patch.cloakSw    = b.sw;
+  if (typeof b.sh    === 'number')             patch.cloakSh    = b.sh;
+  if (typeof b.ent   === 'number')             patch.cloakEnt   = b.ent;
+  if (typeof b.nt    === 'number')             patch.cloakNt    = b.nt;
 
   try { stats.attachTracking(vid, patch); } catch (_) {}
+
+  // Beacon revelou headless (WebGL de software) mesmo tendo passado a 1ª visita
+  // só por headers → grava veredito sticky de bot para a PRÓXIMA visita ir à
+  // white sem depender do judge. Fecha a janela do "primeiro acesso limpo".
+  if (typeof b.webgl === 'string' && /SwiftShader|llvmpipe|Mesa|VMware|VirtualBox/i.test(b.webgl)) {
+    redis.setStickyBot(vid, { at: Date.now(), score: 100, sig: ['webgl:software-renderer'] }).catch(() => {});
+  }
+  // UA declara webview in-app da TikTok mas o browser NÃO expõe nenhum global de
+  // webview (iw/aw/jb) → UA falsificada por revisor num Chrome comum. Sticky bot.
+  if (uaTools.isInAppTikTok(String(req.headers['user-agent'] || '')) && typeof b.wv === 'string' && !b.wv) {
+    redis.setStickyBot(vid, { at: Date.now(), score: 100, sig: ['webview:ua-spoof'] }).catch(() => {});
+  }
   res.status(204).end();
 });
 
@@ -682,6 +723,22 @@ app.get('/go/:slug', async (req, res) => {
     }
   }
 
+  // v_id do visitante (para veredito sticky). Lido uma vez e reusado.
+  const cloakVid = readCookie(req, 'v_id') || '';
+
+  // ── Veredito STICKY (só bot) ──────────────────────────────────────────────
+  // Se este visitante JÁ foi condenado numa visita anterior (sinais fortes:
+  // WebGL software, ASN datacenter…), vai direto à white sem re-rodar o judge.
+  // Consistência: o mesmo revisor nunca vê ora offer, ora white. Nunca cacheamos
+  // 'real', então um bot jamais fica preso como usuário real (fail-safe).
+  if (cloakOn && cloakVid) {
+    const sticky = await redis.getStickyBot(cloakVid).catch(() => null);
+    if (sticky) {
+      bumpDecision('white', 'sticky');
+      return res.redirect(302, safePage);
+    }
+  }
+
   // Motor de score só roda com cloaking ativo — economiza o DNS lookup de ASN
   let judgment = { verdict: 'real', score: 0, signals: [] };
   if (cloakOn) {
@@ -699,13 +756,7 @@ app.get('/go/:slug', async (req, res) => {
       : (lead0.cloakChallenge === 'fail' ? '' : null);
 
     // Monta o objeto challengeData com todos os sinais do browser persistidos
-    const challengeData = {
-      webgl: lead0.cloakWebgl || '',
-      tz:    lead0.cloakTz    || '',
-      fp:    lead0.cloakFp    || '',
-      dt:    typeof lead0.cloakDt  === 'number' ? lead0.cloakDt  : NaN,
-      beh:   typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
-    };
+    const challengeData = buildCloakChallengeData(lead0);
 
     const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
     judgment = await botFilter
@@ -723,6 +774,11 @@ app.get('/go/:slug', async (req, res) => {
     });
     // FAIL-SAFE: bot detectado SEMPRE vai para a página segura, nunca à offer.
     bumpDecision('white', 'score');
+    // Memoriza o veredito por visitante: próximas visitas curto-circuitam sem
+    // re-rodar o judge (mais barato) e sem oscilar. Só para score alto/forte.
+    if (cloakVid && judgment.score >= (judgment.threshold || 40)) {
+      redis.setStickyBot(cloakVid, { at: Date.now(), score: judgment.score, sig: (judgment.signals || []).slice(0, 3) }).catch(() => {});
+    }
     return res.redirect(302, safePage);
   }
 
@@ -869,6 +925,70 @@ app.get('/c/:slug', async (req, res) => {
     return go(offer);
   }
 
+  // ── Sinais de dispositivo e de ORIGEM do clique (calculados uma vez) ──────
+  const dev = uaTools.parse(uaRaw);
+  const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
+  const q = req.query || {};
+  const ref = String(req.headers['referer'] || req.headers['referrer'] || '');
+  const ttclidRaw = typeof q.ttclid === 'string' ? q.ttclid.trim() : '';
+  // ttclid REAL do TikTok é uma string longa (base64-like). Um "?ttclid=abc"
+  // colado à mão não passa: exigimos comprimento e charset plausíveis.
+  const validTtclid = /^[A-Za-z0-9._-]{20,}$/.test(ttclidRaw);
+  const isWebview = uaTools.isInAppTikTok(uaRaw);
+  // Prova de que o acesso veio de um anúncio REAL do TikTok:
+  //  a) webview interno do app (musical_ly/BytedanceWebview…), OU
+  //  b) ttclid VÁLIDO na URL (o TikTok anexa no clique do anúncio), OU
+  //  c) referrer de domínio do TikTok.
+  // Copiar/colar o link num navegador comum não tem NENHUM desses → white.
+  const fromTikTok = isWebview || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
+  // Modo AGRESSIVO (sensibilidade strict): exige WEBVIEW real do app — ttclid
+  // sozinho não basta (revisor cola o link no Chrome com o ttclid capturado).
+  const aggressive = entry.sensitivity === 'strict';
+  const adClickOk = aggressive ? isWebview : (fromTikTok || validTtclid);
+
+  // Gate "apenas celular" (default LIGADO): desktop/notebook nunca vê a offer.
+  if (cloakOn && entry.mobileOnly !== false && !isMobile) {
+    stats.logEvent('info', { acc, title: '[cloak] ' + (dev.device || 'desktop') + ' (não-celular) → white', gateway: 'cloak:' + entry.slug, ref: dev.device || 'desktop' });
+    bumpDecision('white', 'mobile');
+    return go(white);
+  }
+
+  // Gate do ANÚNCIO (default LIGADO): sem prova de clique real no anúncio do
+  // TikTok, vai para a white. É isto que faz "colar o link no navegador" cair
+  // na white — só quem realmente clicou no anúncio (webview OU ttclid) segue.
+  if (cloakOn && entry.requireAdClick !== false && !adClickOk) {
+    stats.logEvent('info', { acc, title: '[cloak] ' + (aggressive ? 'sem webview do app (agressivo)' : 'sem prova de clique no anúncio') + ' → white', gateway: 'cloak:' + entry.slug, ref: (ref || 'sem-referer').slice(0, 80) });
+    bumpDecision('white', 'anuncio');
+    return go(white);
+  }
+
+  // Anti-replay + velocity (só quando cloaking ligado e há Redis). O revisor
+  // que captura a URL reusa o MESMO ttclid de outra rede/dispositivo; e device
+  // farms martelam o link várias vezes por minuto. Ambos caem na white.
+  if (cloakOn && redis.enabled) {
+    try {
+      const ip = clientIp(req);
+      const asn = (await botFilter.lookupASN(ip).catch(() => ({ asn: 0 }))).asn || 0;
+      // 1) ttclid de uso único: contexto = ASN + tipo de device do 1º clique
+      if (entry.requireAdClick !== false && validTtclid) {
+        const ctx = asn + ':' + (isMobile ? 'm' : 'd');
+        const tc = await redis.checkTtclidContext(ttclidRaw, ctx).catch(() => ({ reused: false }));
+        if (tc.reused) {
+          stats.logEvent('info', { acc, title: '[cloak] ttclid reusado de outro contexto → white', gateway: 'cloak:' + entry.slug, ref: ip });
+          bumpDecision('white', 'ttclid-replay');
+          return go(white);
+        }
+      }
+      // 2) velocity por IP: >12 acessos/min ao mesmo link = automação/farm
+      const vip = await redis.bumpVelocity('c:' + entry.slug + ':ip', ip, 60).catch(() => 0);
+      if (vip > 12) {
+        stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/min → white', gateway: 'cloak:' + entry.slug, ref: ip });
+        bumpDecision('white', 'velocity');
+        return go(white);
+      }
+    } catch (_) { /* Redis instável nunca bloqueia o usuário legítimo */ }
+  }
+
   // Gate geográfico (instantâneo, sem DNS)
   if (cloakOn && Array.isArray(entry.paises) && entry.paises.length) {
     const cc = String(geoFromReq(req).country || '').toUpperCase();
@@ -895,11 +1015,7 @@ app.get('/c/:slug', async (req, res) => {
     const challengeToken = lead0.cloakChallenge === 'ok'
       ? botFilter.issueChallengeToken(filterVid)
       : (lead0.cloakChallenge === 'fail' ? '' : null);
-    const challengeData = {
-      webgl: lead0.cloakWebgl || '', tz: lead0.cloakTz || '', fp: lead0.cloakFp || '',
-      dt: typeof lead0.cloakDt === 'number' ? lead0.cloakDt : NaN,
-      beh: typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
-    };
+    const challengeData = buildCloakChallengeData(lead0);
     const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
     const j = await botFilter.judge(filterReq, filterVid, challengeToken, challengeData, entry)
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
@@ -1285,6 +1401,12 @@ app.get('/api/links', dashboardAuth, (req, res) => {
 
 app.post('/api/links', dashboardAuth, async (req, res) => {
   try {
+    // Um domínio já verificado na aba "Domínio personalizado" conta como
+    // validado para o link — sem precisar revalidar por link (era a origem do
+    // "Domínio não validado" apesar do domínio estar verificado).
+    (config.get(req.account.id).customDomains || [])
+      .filter((d) => d.verificado)
+      .forEach((d) => linkStore.markDomainValidated(d.host, d.verificadoEm));
     const saved = await linkStore.save(req.account.id, req.body || {});
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
     res.json({ ok: true, link: saved });
@@ -1423,17 +1545,21 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       else out.httpDetail = 'HTTPS responde, mas é outro servidor — confira o DNS';
     } else if (r.status === 404) {
       out.httpDetail = out.cloudflareProxy
-        ? 'HTTPS 404 — a Cloudflare está no meio; desative o proxy (nuvem cinza) e adicione o domínio na Vercel → Domains'
-        : 'HTTPS respondeu 404 — adicione este domínio no painel da hospedagem (ex.: Vercel → Domains) para ele ser servido por este app';
+        ? 'HTTPS 404 — a Cloudflare está no meio; desative o proxy (nuvem cinza) e adicione o domínio na hospedagem (Railway → Settings → Networking → Custom Domain)'
+        : 'HTTPS respondeu 404 — o DNS chega na hospedagem, mas o domínio ainda NÃO está ligado a este app. Adicione-o em Railway → Settings → Networking → Custom Domain (sem isso os links /go dão 404).';
     } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
   } catch (_) {
     out.httpDetail = out.dnsOk
-      ? 'HTTPS ainda não responde — o certificado SSL pode estar sendo emitido (adicione o domínio também no painel da hospedagem, ex.: Vercel → Domains)'
+      ? 'HTTPS ainda não responde — o certificado SSL pode estar sendo emitido (confirme que o domínio foi adicionado em Railway → Settings → Networking → Custom Domain)'
       : 'sem resposta HTTPS';
   }
 
-  // verificado = prova HTTPS (forte) ou DNS correto (SSL ainda propagando)
-  out.ok = out.httpOk || out.dnsOk;
+  // Verificado exige a PROVA FORTE: o marcador /__domain-check deste app precisa
+  // responder no domínio. Só DNS apontado não basta — na Railway o host só é
+  // servido depois de adicionado como Custom Domain; sem isso os /go dão 404
+  // (era o falso "Verificado" que deixava os links quebrados).
+  out.ok = out.httpOk;
+  out.dnsPronto = out.dnsOk && !out.httpOk; // DNS ok mas app ainda não atende
   if (out.ok) {
     const now = new Date().toISOString();
     const cur = config.get(req.account.id).customDomains || [];
@@ -1493,7 +1619,8 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   const cur = config.get(req.account.id).cloak || {};
   const next = Object.assign({}, cur);
   const boolKeys = ['enabled', 'blockDatacenter', 'blockHeadless', 'checkHeaders',
-    'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang'];
+    'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang',
+    'checkWebview', 'checkCoherence', 'checkEntropy'];
   boolKeys.forEach((k) => { if (typeof b[k] === 'boolean') next[k] = b[k]; });
   if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
   if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
@@ -1587,7 +1714,7 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   });
 });
 
-// ── Métricas de decisão do cloaker (offer vs white) por conta ──────────────
+// ── Métricas de decisão do cloaker (offer vs white) por conta ────────────��─
 // Devolve, por link (/go e /c), quantas visitas foram para a offer vs white,
 // a taxa de bloqueio e o breakdown por motivo (bot-ua, pais, idioma, score,
 // rate-limit). Alimenta o painel white/offer da aba Filtro de Bots.
@@ -1644,6 +1771,14 @@ app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
 const _ckSlugify = (s) => String(s || '').toLowerCase().normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 const _ckValidHttps = (u) => /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
+// Slug ALEATÓRIO (~8 chars): a URL /c/<slug> deixa de ser previsível a partir
+// do nome do link — mais difícil de adivinhar/enumerar por revisores.
+const _ckRandSlug = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 4);
+// Extrai só o hostname de um domínio digitado (aceita com ou sem https://)
+const _ckHost = (input) => {
+  const s = String(input || '').trim(); if (!s) return '';
+  try { return new URL(s.includes('://') ? s : 'https://' + s).hostname.toLowerCase(); } catch (_) { return ''; }
+};
 
 app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -1657,30 +1792,46 @@ app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
 app.post('/api/cloak/entries', dashboardAuth, (req, res) => {
   const b = req.body || {};
   const nome = String(b.nome || '').trim();
-  const slug = _ckSlugify(b.slug || nome);
-  if (!slug) return res.status(400).json({ error: 'nome do link é obrigatório' });
   if (!_ckValidHttps(b.offerUrl)) return res.status(400).json({ error: 'a offer precisa ser uma URL https:// válida' });
 
   const cur = config.get(req.account.id).cloakLinks || [];
+  // Edição: usa o slug enviado (já existe). Criação: gera slug ALEATÓRIO único.
+  let slug;
+  if (b.slug) {
+    slug = _ckSlugify(b.slug);
+  } else {
+    if (!nome) return res.status(400).json({ error: 'dê um nome ao link' });
+    do { slug = _ckRandSlug(); } while (cur.some((l) => l.slug === slug));
+  }
+  if (!slug) return res.status(400).json({ error: 'slug inválido' });
+
   const existing = cur.find((l) => l.slug === slug);
   const isNew = !existing;
 
   const entry = Object.assign({}, existing || {}, {
     slug,
-    nome: nome || slug,
+    nome: nome || (existing ? existing.nome : slug),
+    // Domínio personalizado (opcional): a URL do link vira https://<dominio>/c/<slug>.
+    // O domínio precisa apontar (DNS) para este app para o /c/:slug responder lá.
+    dominio: b.dominio !== undefined ? _ckHost(b.dominio) : (existing ? existing.dominio || '' : ''),
     offerUrl: String(b.offerUrl).trim(),
     whitePageUrl: _ckValidHttps(b.whitePageUrl) ? String(b.whitePageUrl).trim() : '',
     enabled: typeof b.enabled === 'boolean' ? b.enabled : (existing ? existing.enabled : true),
+    // Novos gates (default LIGADO, inclusive retroativo para links antigos):
+    mobileOnly: typeof b.mobileOnly === 'boolean' ? b.mobileOnly : (existing ? existing.mobileOnly !== false : true),
+    requireAdClick: typeof b.requireAdClick === 'boolean' ? b.requireAdClick : (existing ? existing.requireAdClick !== false : true),
     sensitivity: b.sensitivity,
     threshold: b.threshold,
     deadlineMs: b.deadlineMs,
+    paisPreset: typeof b.paisPreset === 'string' ? b.paisPreset : (existing ? existing.paisPreset : ''),
     paises: Array.isArray(b.paises) ? b.paises : (existing ? existing.paises : []),
     idiomas: Array.isArray(b.idiomas) ? b.idiomas : (existing ? existing.idiomas : []),
     criadoEm: existing ? existing.criadoEm : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   });
   ['blockDatacenter', 'blockHeadless', 'checkHeaders', 'requireJsChallenge',
-    'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang'].forEach((k) => {
+    'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang',
+    'checkWebview', 'checkCoherence', 'checkEntropy'].forEach((k) => {
     if (typeof b[k] === 'boolean') entry[k] = b[k];
   });
 
@@ -2022,6 +2173,54 @@ async function processConversion(n) {
   return receipt;
 }
 
+// ── Ponte DURÁVEL entre o webhook e o processamento ────────────────────────
+// Em vez de processar em background logo após o 200 (perde a venda se o
+// processo reiniciar no meio), a conversão é GRAVADA no Redis primeiro. Um
+// worker consome e confirma; um crash no meio deixa o item na fila e ele é
+// reprocessado (idempotente via dedup). Sem Redis, cai no comportamento antigo
+// (processa inline) — funciona, só não sobrevive a restart.
+function submitConversion(n) {
+  if (rdb.enabled) {
+    rdb.enqueueConversion(n).then((ok) => {
+      // se o enqueue falhar (Redis instável), processa inline como rede de segurança
+      if (!ok) processConversion(n).catch(() => {});
+    }).catch(() => { processConversion(n).catch(() => {}); });
+  } else {
+    processConversion(n).catch(() => {});
+  }
+}
+
+// Worker: consome a fila durável de conversões. Lock distribuído garante que,
+// com várias instâncias, só UMA drena por ciclo (evita disparo duplicado).
+let _convWorkerBusy = false;
+async function convWorkerTick() {
+  if (!rdb.enabled || _convWorkerBusy) return;
+  _convWorkerBusy = true;
+  try {
+    if (!(await rdb.acquireLock('convWorker', 25))) return; // outra instância já drena
+    const batch = await rdb.reserveConversions(25);
+    for (const item of batch) {
+      const n = item.env && item.env.n;
+      if (!n) { await rdb.ackConversion(item.raw); continue; } // item corrompido → descarta
+      try { await processConversion(n); } catch (_) {}
+      await rdb.ackConversion(item.raw); // dedup cobre reprocesso; ack sempre
+    }
+  } catch (_) {} finally {
+    _convWorkerBusy = false;
+    rdb.releaseLock('convWorker').catch(() => {});
+  }
+}
+if (rdb.enabled) {
+  // drena a cada 2s (baixa latência para a venda aparecer na dashboard)
+  const _cw = setInterval(() => { convWorkerTick().catch(() => {}); }, 2000);
+  if (_cw.unref) _cw.unref();
+  // requeue de itens presos (worker morto no meio) a cada 60s, idade > 120s
+  const _cr = setInterval(() => { rdb.reclaimConversions(120000).catch(() => {}); }, 60000);
+  if (_cr.unref) _cr.unref();
+  // no boot, recupera imediatamente qualquer item deixado por um restart anterior
+  setTimeout(() => { rdb.reclaimConversions(0 + 1).then(() => convWorkerTick()).catch(() => {}); }, 4000).unref();
+}
+
 // Endpoint público que os gateways chamam.
 app.post('/api/conversion', (req, res) => {
   const secret = process.env.CONVERSION_WEBHOOK_SECRET;
@@ -2051,7 +2250,7 @@ app.post('/api/conversion', (req, res) => {
   res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
   // legado (sem conta no token): atribui à conta padrão
   n.acc = _defaultAccountId;
-  processConversion(n).catch(() => {});
+  submitConversion(n);
 });
 
 // ═══ Webhook DEDICADO por gateway (multi-tenant): POST /hook/:token ═══
@@ -2093,7 +2292,7 @@ app.post('/hook/:token', (req, res) => {
   n.acc = gw.accountId;
   n.gatewayId = gw.id;
   gatewayStore.touch(gw.id, 'ok: ' + n.event);
-  processConversion(n).catch(() => {});
+  submitConversion(n);
 });
 
 // ═══ CRUD de gateways (dashboard, por conta) ══════════════════════════
@@ -2187,7 +2386,7 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
 // ═══ TikTok multi-pixel ═══════════════════════════════════════════════
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
-// editar um pixel (arquivo em pixels/ ou painel) atualiza todas as páginas.
+// editar um pixel (arquivo em pixels/ ou painel) atualiza todas as p��ginas.
 app.get('/px.js', (req, res) => {
   res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
   // rota da página que pediu o script (Referer) — decide QUAIS pixels carregar
@@ -2457,6 +2656,43 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
     events, errors,
     retryQueue: ttEvents.retryQueueSize()
   });
+});
+
+// Tendência de EMQ por pixel (série diária) + ALERTA de queda. O EMQ é o
+// Event Match Quality: quanto mais sinal de identidade casa, melhor o TikTok
+// otimiza. Quando cai, a campanha piora EM SILÊNCIO — este endpoint detecta a
+// queda comparando a média recente (3d) com a base anterior (dias 4–10).
+app.get('/api/pixels/emq-trend', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const pixels = pixelStore.list(acc);
+  const out = [];
+  for (const p of pixels) {
+    const name = p.slug || p.pixelCode;
+    if (!name) continue;
+    const trend = await redis.getEmqTrend(acc, name, 14).catch(() => []);
+    // média recente (últimos 3 dias com dado) vs base (3 dias anteriores a esses)
+    const withData = trend.filter((d) => d.count > 0);
+    const recent = withData.slice(-3);
+    const base = withData.slice(-6, -3);
+    const avg = (arr) => arr.length ? arr.reduce((s, d) => s + d.avg, 0) / arr.length : null;
+    const rAvg = avg(recent), bAvg = avg(base);
+    // alerta: EMQ recente < 4/10 OU caiu >= 1.5 pontos vs a base
+    let alert = null;
+    if (rAvg != null && rAvg < 4) alert = 'baixo';
+    else if (rAvg != null && bAvg != null && (bAvg - rAvg) >= 1.5) alert = 'queda';
+    out.push({
+      pixel: name,
+      pixelCode: p.pixelCode,
+      trend,
+      recentAvg: rAvg != null ? Math.round(rAvg * 10) / 10 : null,
+      baseAvg: bAvg != null ? Math.round(bAvg * 10) / 10 : null,
+      alert
+    });
+  }
+  // ordena: pixels em alerta primeiro
+  out.sort((a, b) => (b.alert ? 1 : 0) - (a.alert ? 1 : 0));
+  res.json({ ok: true, pixels: out, alerts: out.filter((p) => p.alert).length });
 });
 
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {
