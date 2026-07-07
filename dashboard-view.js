@@ -1023,7 +1023,7 @@ details[open]>.setup-summary .chev{transform:rotate(180deg)}
 .skel-line{height:12px;width:60%}
 @media(prefers-reduced-motion:reduce){.skel::after{animation:none}}
 
-/* ── Foco visível para navegação por teclado ── */
+/* ── Foco visível para navegação por teclado ─�� */
 button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visible{
   outline:2px solid var(--ring);outline-offset:2px;border-radius:6px}
 .inp:focus-visible{outline-offset:0}
@@ -1342,8 +1342,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 .k-val.flash{animation:valFlash .6s var(--ease)}
 @keyframes valFlash{0%{color:var(--accent)}100%{}}
 
-/* Título de seção com ponto animado */
-.section-title>span:first-child{position:relative;padding-left:2px}
+/* Título de seção: o recuo do ponto é definido na regra base (padding-left:16px) */
 
 /* Acessibilidade — respeita preferência por menos movimento */
 @media(prefers-reduced-motion:reduce){
