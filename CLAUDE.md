@@ -27,7 +27,8 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 
 ## 2. Stack
 - **Runtime:** Node.js >= 18 (JavaScript puro, CommonJS). Sem TypeScript, sem framework de front, sem build.
-- **Web:** Express `^4.21.0`.
+- **Web:** Express `^4.21.0` + `compression` (gzip em todas as respostas > 1 KB — essencial:
+  o HTML da dashboard tem ~340 KB e cai para ~55 KB comprimido).
 - **Banco:** Neon Postgres via `@neondatabase/serverless` `^1.1.0` (SQL puro por template tag, sem ORM).
 - **Cache/dedup:** Upstash Redis `@upstash/redis` `^1.38.0` via HTTP REST (opcional; fallback em memória).
 - **Geo:** `geoip-lite` `^2.0.3` (fallback; a fonte primária são headers de edge Vercel/Cloudflare).
@@ -110,7 +111,14 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   links de checkout, gateways, filtro de bots), **`live`** (visitantes ao vivo + globo 3D) e
   **`config`** (configurações). Todo o estado é buscado por `fetch()` nos endpoints `/api/*` (§5.2);
   não há store client-side — a página relê os endpoints e re-renderiza os blocos.
-- **CSS:** dark theme, azul como cor primária. Definido inline nas `<style>` de cada view.
+- **CSS:** tema **"Glitch TikTok"** (derivado da logo): fundo preto neutro `#08080a` (nunca azul),
+  ciano neon `#25f4ee` = interação/links/abas, rosa `#fe2c55` = "ao vivo"/atenção, verde `#22c55e`
+  = **só dinheiro**, dourado `#fbbf24` = avisos/checkout, texto `#f4f4f5`/`#a1a1aa`. O degradê
+  ciano→rosa (`--brand-grad`) é reservado a: logo, card-herói de Receita e anel do globo.
+  Tokens em `:root` no topo do dashboard-view.js — **usar sempre os tokens, nunca cor hardcoded**.
+  Escalas fixas: gaps 6/8/12/16px, raios 10px (interno) e 14px (cards), fontes mínimo 11px.
+  Popups de confirmação: usar `uiConfirm({title,msg,okLabel,danger},cb)` — nunca `confirm()` nativo.
+  Header compacto (~64px): logo 46px + nav inline + status. KPIs em grelha fixa 4→2→1.
 - **Regra de ouro do front:** como o HTML é uma string JS, **nunca** use crase nem `${}` dentro dele;
   para interpolar valores do servidor, concatene com `+` e escape aspas/apóstrofos.
 - **Snippets servidos para páginas externas:** `/t.js` (tracker-view.js) e `/px.js` `/px/:token.js`
@@ -120,7 +128,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 ### 5.1 Páginas e assets (GET)
 - `GET /` — landing page. `GET /termos`, `GET /privacidade` — legais.
 - `GET /dashboard` — painel (exige sessão). `GET /login`, `GET /register` — auth.
-- `GET /assets/*` — estáticos. `GET /t.js` — snippet de tracking. `GET /px.js`, `GET /px/:token.js`,
+- `GET /assets/*` — estáticos (cache 7d). Inclui `countries.geojson` (bordas dos países) e
+  `earth-blue-marble.jpg` (textura do globo) — servidos localmente para não depender de
+  GitHub/unpkg. A lib `globe.gl` (three.js ~1MB) é **lazy-loaded** pela dashboard via
+  `ensureGlobeLib()` só quando um globo vai renderizar (não está mais no `<head>`).
+- `GET /t.js` — snippet de tracking. `GET /px.js`, `GET /px/:token.js`,
   `GET /px.gif` — pixel do navegador. `GET /l/:slug` — shortlink. `GET /go/:slug` — redirect com cloaking (§9).
 
 ### 5.2 API consumida pela dashboard (auth)

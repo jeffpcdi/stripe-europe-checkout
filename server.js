@@ -21,6 +21,7 @@
 })();
 
 const express = require('express');
+const compression = require('compression'); // gzip/brotli nas respostas (HTML gigante da dashboard + JSON do polling)
 const path = require('path');
 const ttEvents = require('./tiktok-events');
 const pixelStore = require('./pixel-store');
@@ -219,6 +220,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Middleware ────────────────────────────────────────────────────────
+// Compressão gzip: o HTML da dashboard tem ~340 KB e cai para ~55 KB comprimido.
+// Também comprime as respostas JSON do polling (/api/stats a cada 12s).
+// Threshold de 1 KB: respostas minúsculas (px.gif, 204s) não pagam o custo do gzip.
+app.use(compression({ threshold: 1024 }));
 // rawBody: necessário para verificar assinaturas HMAC de webhooks (Stripe,
 // Kiwify) — o HMAC é calculado sobre os bytes originais, não o JSON re-serializado
 app.use(express.json({
@@ -1128,7 +1133,7 @@ app.post('/api/links/validate-domain', dashboardAuth, async (req, res) => {
   res.json(result);
 });
 
-// ═══ Domínios personalizados — plugue qualquer domínio via DNS ════════
+// ═══ Domínios personalizados — plugue qualquer domínio via DNS ════���═══
 // O usuário aponta um CNAME do domínio dele para este app; como todas as
 // rotas públicas (/go, /l, /t.js, /px.gif) são agnósticas de Host, o mesmo
 // servidor atende o domínio personalizado automaticamente. Aqui fica o
