@@ -353,6 +353,23 @@ const rlSweep = setInterval(() => {
 }, 120e3);
 if (rlSweep.unref) rlSweep.unref();
 
+// Reconstrói o objeto de sinais do browser a partir do lead persistido pelo
+// /api/cloakcheck, para alimentar botFilter.judge() no /go/ e no /c/ sem repetir
+// o mapeamento em dois lugares. Inclui os sinais 2026 (webview, coerência, entropia).
+function buildCloakChallengeData(lead0) {
+  const l = lead0 || {};
+  const num = (v) => (typeof v === 'number' ? v : NaN);
+  return {
+    webgl: l.cloakWebgl || '', tz: l.cloakTz || '', fp: l.cloakFp || '',
+    dt: num(l.cloakDt), beh: num(l.cloakBeh),
+    wv: l.cloakWv || '', hasChrome: num(l.cloakHasChrome),
+    plat: l.cloakPlat || '', dm: num(l.cloakDm), hc: num(l.cloakHc),
+    lang: l.cloakLang || '', tp: num(l.cloakTp),
+    sw: num(l.cloakSw), sh: num(l.cloakSh),
+    ent: num(l.cloakEnt), nt: num(l.cloakNt)
+  };
+}
+
 app.get('/t.js', (req, res) => {
   res.set({
     'Content-Type': 'application/javascript; charset=utf-8',
@@ -392,6 +409,18 @@ app.post('/api/cloakcheck', async (req, res) => {
   if (typeof b.fp    === 'string' && b.fp)    patch.cloakFp    = b.fp.slice(0, 24);
   if (typeof b.dt    === 'number')             patch.cloakDt    = b.dt;
   if (typeof b.beh   === 'number')             patch.cloakBeh   = b.beh;
+  // Novos sinais 2026: integridade de webview, coerência de ambiente, entropia
+  if (typeof b.wv    === 'string')             patch.cloakWv    = b.wv.slice(0, 12);
+  if (typeof b.hasChrome === 'number')         patch.cloakHasChrome = b.hasChrome;
+  if (typeof b.plat  === 'string' && b.plat)   patch.cloakPlat  = b.plat.slice(0, 20);
+  if (typeof b.dm    === 'number')             patch.cloakDm    = b.dm;
+  if (typeof b.hc    === 'number')             patch.cloakHc    = b.hc;
+  if (typeof b.lang  === 'string' && b.lang)   patch.cloakLang  = b.lang.slice(0, 10);
+  if (typeof b.tp    === 'number')             patch.cloakTp    = b.tp;
+  if (typeof b.sw    === 'number')             patch.cloakSw    = b.sw;
+  if (typeof b.sh    === 'number')             patch.cloakSh    = b.sh;
+  if (typeof b.ent   === 'number')             patch.cloakEnt   = b.ent;
+  if (typeof b.nt    === 'number')             patch.cloakNt    = b.nt;
 
   try { stats.attachTracking(vid, patch); } catch (_) {}
 
@@ -400,6 +429,11 @@ app.post('/api/cloakcheck', async (req, res) => {
   // white sem depender do judge. Fecha a janela do "primeiro acesso limpo".
   if (typeof b.webgl === 'string' && /SwiftShader|llvmpipe|Mesa|VMware|VirtualBox/i.test(b.webgl)) {
     redis.setStickyBot(vid, { at: Date.now(), score: 100, sig: ['webgl:software-renderer'] }).catch(() => {});
+  }
+  // UA declara webview in-app da TikTok mas o browser NÃO expõe nenhum global de
+  // webview (iw/aw/jb) → UA falsificada por revisor num Chrome comum. Sticky bot.
+  if (uaTools.isInAppTikTok(String(req.headers['user-agent'] || '')) && typeof b.wv === 'string' && !b.wv) {
+    redis.setStickyBot(vid, { at: Date.now(), score: 100, sig: ['webview:ua-spoof'] }).catch(() => {});
   }
   res.status(204).end();
 });
@@ -722,13 +756,7 @@ app.get('/go/:slug', async (req, res) => {
       : (lead0.cloakChallenge === 'fail' ? '' : null);
 
     // Monta o objeto challengeData com todos os sinais do browser persistidos
-    const challengeData = {
-      webgl: lead0.cloakWebgl || '',
-      tz:    lead0.cloakTz    || '',
-      fp:    lead0.cloakFp    || '',
-      dt:    typeof lead0.cloakDt  === 'number' ? lead0.cloakDt  : NaN,
-      beh:   typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
-    };
+    const challengeData = buildCloakChallengeData(lead0);
 
     const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
     judgment = await botFilter
@@ -902,14 +930,21 @@ app.get('/c/:slug', async (req, res) => {
   const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
   const q = req.query || {};
   const ref = String(req.headers['referer'] || req.headers['referrer'] || '');
-  const hasTtclid = typeof q.ttclid === 'string' && q.ttclid.trim().length > 3;
+  const ttclidRaw = typeof q.ttclid === 'string' ? q.ttclid.trim() : '';
+  // ttclid REAL do TikTok é uma string longa (base64-like). Um "?ttclid=abc"
+  // colado à mão não passa: exigimos comprimento e charset plausíveis.
+  const validTtclid = /^[A-Za-z0-9._-]{20,}$/.test(ttclidRaw);
+  const isWebview = uaTools.isInAppTikTok(uaRaw);
   // Prova de que o acesso veio de um anúncio REAL do TikTok:
   //  a) webview interno do app (musical_ly/BytedanceWebview…), OU
-  //  b) ttclid na URL (o TikTok anexa no clique do anúncio), OU
+  //  b) ttclid VÁLIDO na URL (o TikTok anexa no clique do anúncio), OU
   //  c) referrer de domínio do TikTok.
   // Copiar/colar o link num navegador comum não tem NENHUM desses → white.
-  const fromTikTok = uaTools.isInAppTikTok(uaRaw) || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
-  const adClickOk = fromTikTok || hasTtclid;
+  const fromTikTok = isWebview || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
+  // Modo AGRESSIVO (sensibilidade strict): exige WEBVIEW real do app — ttclid
+  // sozinho não basta (revisor cola o link no Chrome com o ttclid capturado).
+  const aggressive = entry.sensitivity === 'strict';
+  const adClickOk = aggressive ? isWebview : (fromTikTok || validTtclid);
 
   // Gate "apenas celular" (default LIGADO): desktop/notebook nunca vê a offer.
   if (cloakOn && entry.mobileOnly !== false && !isMobile) {
@@ -922,9 +957,36 @@ app.get('/c/:slug', async (req, res) => {
   // TikTok, vai para a white. É isto que faz "colar o link no navegador" cair
   // na white — só quem realmente clicou no anúncio (webview OU ttclid) segue.
   if (cloakOn && entry.requireAdClick !== false && !adClickOk) {
-    stats.logEvent('info', { acc, title: '[cloak] sem prova de clique no anúncio → white', gateway: 'cloak:' + entry.slug, ref: (ref || 'sem-referer').slice(0, 80) });
+    stats.logEvent('info', { acc, title: '[cloak] ' + (aggressive ? 'sem webview do app (agressivo)' : 'sem prova de clique no anúncio') + ' → white', gateway: 'cloak:' + entry.slug, ref: (ref || 'sem-referer').slice(0, 80) });
     bumpDecision('white', 'anuncio');
     return go(white);
+  }
+
+  // Anti-replay + velocity (só quando cloaking ligado e há Redis). O revisor
+  // que captura a URL reusa o MESMO ttclid de outra rede/dispositivo; e device
+  // farms martelam o link várias vezes por minuto. Ambos caem na white.
+  if (cloakOn && redis.enabled) {
+    try {
+      const ip = clientIp(req);
+      const asn = (await botFilter.lookupASN(ip).catch(() => ({ asn: 0 }))).asn || 0;
+      // 1) ttclid de uso único: contexto = ASN + tipo de device do 1º clique
+      if (entry.requireAdClick !== false && validTtclid) {
+        const ctx = asn + ':' + (isMobile ? 'm' : 'd');
+        const tc = await redis.checkTtclidContext(ttclidRaw, ctx).catch(() => ({ reused: false }));
+        if (tc.reused) {
+          stats.logEvent('info', { acc, title: '[cloak] ttclid reusado de outro contexto → white', gateway: 'cloak:' + entry.slug, ref: ip });
+          bumpDecision('white', 'ttclid-replay');
+          return go(white);
+        }
+      }
+      // 2) velocity por IP: >12 acessos/min ao mesmo link = automação/farm
+      const vip = await redis.bumpVelocity('c:' + entry.slug + ':ip', ip, 60).catch(() => 0);
+      if (vip > 12) {
+        stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/min → white', gateway: 'cloak:' + entry.slug, ref: ip });
+        bumpDecision('white', 'velocity');
+        return go(white);
+      }
+    } catch (_) { /* Redis instável nunca bloqueia o usuário legítimo */ }
   }
 
   // Gate geográfico (instantâneo, sem DNS)
@@ -953,11 +1015,7 @@ app.get('/c/:slug', async (req, res) => {
     const challengeToken = lead0.cloakChallenge === 'ok'
       ? botFilter.issueChallengeToken(filterVid)
       : (lead0.cloakChallenge === 'fail' ? '' : null);
-    const challengeData = {
-      webgl: lead0.cloakWebgl || '', tz: lead0.cloakTz || '', fp: lead0.cloakFp || '',
-      dt: typeof lead0.cloakDt === 'number' ? lead0.cloakDt : NaN,
-      beh: typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
-    };
+    const challengeData = buildCloakChallengeData(lead0);
     const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
     const j = await botFilter.judge(filterReq, filterVid, challengeToken, challengeData, entry)
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
@@ -1655,7 +1713,7 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   });
 });
 
-// ── Métricas de decisão do cloaker (offer vs white) por conta ──────────────
+// ── Métricas de decisão do cloaker (offer vs white) por conta ────────────��─
 // Devolve, por link (/go e /c), quantas visitas foram para a offer vs white,
 // a taxa de bloqueio e o breakdown por motivo (bot-ua, pais, idioma, score,
 // rate-limit). Alimenta o painel white/offer da aba Filtro de Bots.

@@ -481,6 +481,41 @@ function redisRandId() {
   catch (_) { return String(Date.now()) + Math.random().toString(36).slice(2, 8); }
 }
 
+// ── ttclid: uso único por contexto ────────────────────────────────────────
+// O TikTok anexa um ttclid ÚNICO a cada clique no anúncio. Um revisor que copia
+// a URL capturada reusa o MESMO ttclid de outro dispositivo/rede. Guardamos a
+// "impressão digital" do 1º contexto (ASN + tipo de device) por 12h; se o mesmo
+// ttclid reaparecer com contexto divergente, é replay → sinaliza para a white.
+// Retorna { firstSeen, reused, ctx } — reused=true quando diverge do 1º contexto.
+const TTCLID_TTL = 12 * 3600;
+async function checkTtclidContext(ttclid, ctx) {
+  if (!enabled || !ttclid) return { firstSeen: true, reused: false };
+  const key = 'ttclid:' + String(ttclid).slice(0, 80);
+  const fp = String(ctx || '').slice(0, 40);
+  try {
+    // 1ª vez: grava contexto e retorna firstSeen. NX garante atomicidade.
+    const set = await redis.set(key, fp, { ex: TTCLID_TTL, nx: true });
+    if (set !== null) return { firstSeen: true, reused: false, ctx: fp };
+    const prev = await redis.get(key);
+    const reused = prev != null && String(prev) !== fp;
+    return { firstSeen: false, reused, ctx: prev };
+  } catch (_) { return { firstSeen: true, reused: false }; }
+}
+
+// ── Velocity: contagem de acessos por chave numa janela ────────────────────
+// N acessos do mesmo IP/ASN/ttclid em poucos segundos = device farm ou revisão
+// automatizada. INCR + EXPIRE numa chave por janela dá um contador durável e
+// multi-instância. Retorna a contagem atual (1 = primeiro na janela).
+async function bumpVelocity(kind, id, windowSec) {
+  if (!enabled || !id) return 0;
+  const key = 'vel:' + kind + ':' + String(id).slice(0, 60);
+  try {
+    const n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, windowSec || 60);
+    return Number(n) || 0;
+  } catch (_) { return 0; }
+}
+
 // ── Ping de saúde ─────────────────────────────────────────────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
@@ -503,6 +538,7 @@ module.exports = {
   bumpCloakDecision, getCloakStats, resetCloakStats,
   enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,
   setStickyBot, getStickyBot,
+  checkTtclidContext, bumpVelocity,
   acquireLock, releaseLock,
   bumpEmq, getEmqTrend,
   ping, TTL
