@@ -909,6 +909,58 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .pop-actions .btn{min-width:110px}
 .pop-actions .btn.pop-danger{background:var(--error);color:#fff;box-shadow:0 4px 16px rgba(239,68,68,.3)}
 @media(prefers-reduced-motion:reduce){.pop,.pop-bg.open{animation:none}}
+/* ── Modal: tutorial de conexão de domínio (um por domínio) ── */
+.dmtut-bg{position:fixed;inset:0;z-index:95;display:none;align-items:center;justify-content:center;padding:20px;
+  background:rgba(0,0,0,.65);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.dmtut-bg.open{display:flex;animation:popBgIn .2s ease}
+.dmtut{width:min(560px,94vw);max-height:calc(100vh - 40px);overflow:auto;background:var(--card2);
+  border:1px solid var(--border2);border-radius:18px;padding:22px;box-shadow:var(--shadow-4);animation:popIn .28s var(--spring)}
+.dmtut-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+.dmtut-globe{width:42px;height:42px;border-radius:12px;background:var(--accent-light);color:var(--accent);display:grid;place-items:center;flex-shrink:0}
+.dmtut-globe svg{width:22px;height:22px}
+.dmtut-head h3{font-size:16px;margin:0 0 3px}
+.dmtut-host{font-family:'Geist Mono',monospace;font-size:12.5px;color:var(--accent);word-break:break-all}
+.dmtut-x{margin-left:auto;flex-shrink:0;background:none;border:0;color:var(--text-muted);cursor:pointer;font-size:22px;line-height:1;padding:2px 8px;border-radius:8px}
+.dmtut-x:hover{background:var(--hover);color:var(--text)}
+.dmtut-badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:14px;transition:background .3s,color .3s}
+.dmtut-badge.warn{background:var(--warning-light);color:var(--warning)}
+.dmtut-badge.ok{background:var(--success-light);color:var(--success)}
+.dmtut-step{display:flex;gap:12px;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--card);margin-bottom:10px}
+.dmtut-n{width:24px;height:24px;border-radius:50%;background:var(--accent-light);color:var(--accent);font-size:12px;font-weight:700;display:grid;place-items:center;flex-shrink:0}
+.dmtut-txt{min-width:0;flex:1}
+.dmtut-txt>b{font-size:13.5px;display:block;margin-bottom:3px}
+.dmtut-txt p{font-size:12.5px;color:var(--text-muted);line-height:1.55;margin:0}
+.dmtut-dns{margin-top:10px;border:1px solid var(--border);border-radius:12px;background:#090c15;overflow:hidden}
+.dmtut-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05);flex-wrap:wrap}
+.dmtut-row:last-child{border-bottom:0}
+.dmtut-lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);width:96px;flex-shrink:0}
+.dmtut-val{font-family:'Geist Mono',monospace;font-size:13px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dmtut-val.accent{color:var(--accent)}
+.dmtut-val.pink{color:var(--pink,#fe2c55);font-weight:700}
+.dmtut-copy{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:10px;border:1px solid rgba(37,244,238,.3);
+  background:rgba(37,244,238,.12);color:var(--accent);font-size:12.5px;font-weight:600;cursor:pointer;transition:background .15s,color .2s,border-color .2s;flex-shrink:0}
+.dmtut-copy svg{width:14px;height:14px}
+.dmtut-copy:hover{background:rgba(37,244,238,.2)}
+.dmtut-copy.copied{background:var(--success-light);border-color:rgba(34,197,94,.4);color:var(--success)}
+.dmtut-note{font-size:11.5px;color:var(--text-muted);margin-top:8px;line-height:1.5}
+.dmtut-warn{display:none;margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.35);background:var(--warning-light)}
+.dmtut-warn b{font-size:12.5px;color:var(--warning);display:block;margin-bottom:3px}
+.dmtut-warn p{font-size:12px;color:var(--text-sub);line-height:1.55;margin:0}
+.dmtut-warn.ok{border-color:rgba(34,197,94,.4);background:var(--success-light)}
+.dmtut-warn.ok b{color:var(--success)}
+.dmtut-okbox{text-align:center;padding:26px 16px 18px}
+.dmtut-okbox b{font-size:15.5px;display:block;margin-bottom:6px}
+.dmtut-okbox p{font-size:12.5px;color:var(--text-muted);line-height:1.55;margin:0 0 16px}
+.dmtut-check{width:64px;height:64px;margin:0 auto 14px;display:block}
+.dmtut-check circle{fill:none;stroke:var(--success);stroke-width:2.5;stroke-dasharray:151;stroke-dashoffset:151;animation:dmtutDraw .6s ease forwards}
+.dmtut-check path{fill:none;stroke:var(--success);stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:38;stroke-dashoffset:38;animation:dmtutDraw .45s ease .5s forwards}
+@keyframes dmtutDraw{to{stroke-dashoffset:0}}
+.dmtut-code{margin-top:10px;border:1px solid var(--border);border-radius:12px;background:#090c15;padding:12px;
+  font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--text-sub);line-height:1.6;word-break:break-all;max-height:110px;overflow:auto}
+.dmtut-copy.big{height:42px;padding:0 20px;font-size:13.5px;margin-top:10px}
+.dmtut-spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,.25);border-top-color:currentColor;display:inline-block;animation:dmtutSpin .7s linear infinite}
+@keyframes dmtutSpin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.dmtut,.dmtut-bg.open{animation:none}.dmtut-check circle,.dmtut-check path{animation:none;stroke-dashoffset:0}}
 .danger-card{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;border-color:rgba(220,38,38,.22)!important;
   background:linear-gradient(90deg,rgba(220,38,38,.05),transparent 55%);animation:kpiIn .5s cubic-bezier(.2,.7,.3,1) .3s backwards}
 .danger-card:hover{border-color:rgba(220,38,38,.4)!important}
@@ -1753,17 +1805,12 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
                 </div>
               </div>
             </details>
-            <details class="ck-adv" style="margin-top:4px;margin-bottom:14px">
-              <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
-              <div class="ck-adv-body">
-                <div class="form-row" style="margin-bottom:0">
-                  <label>Dom&iacute;nio do link</label>
-                  <select class="inp" id="lk-domain" style="width:100%;font-family:'Geist Mono',monospace"></select>
-                  <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
-                  <p class="hint" style="margin-top:4px;line-height:1.6">Só aparecem dom&iacute;nios <b>verificados</b>. Cadastre e verifique na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom&iacute;nios</a> para us&aacute;-lo aqui.</p>
-                </div>
-              </div>
-            </details>
+            <div class="form-row">
+              <label>Dom&iacute;nio do link <span class="hint">&mdash; o endere&ccedil;o que aparece no seu an&uacute;ncio</span></label>
+              <select class="inp" id="lk-domain" style="width:100%;font-family:'Geist Mono',monospace"></select>
+              <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
+              <p class="hint" style="margin-top:4px;line-height:1.6">Só aparecem dom&iacute;nios <b>verificados</b>. Cadastre e verifique na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom&iacute;nios</a> para us&aacute;-lo aqui.</p>
+            </div>
             <div class="form-row">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="lk-active" checked> Link ativo</label>
             </div>
@@ -1782,62 +1829,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
             </div>
             <div id="dm-list" style="margin-bottom:14px"></div>
-            
-            <div id="dm-dns-guide" class="domain-tut-container" style="margin-top: 16px; display: none; flex-direction: column; gap: 16px; margin-bottom: 20px">
-              <div style="font-weight: 600; color: var(--text); font-size: 13.5px; display: flex; align-items: center; gap: 8px">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--accent)"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-                Configura&ccedil;&atilde;o DNS R&aacute;pida:
-              </div>
-              
-              <!-- Passo 1 -->
-              <div class="tut-step" style="border-left: 4px solid var(--pink); margin-bottom: 0">
-                <span class="tut-n">1</span>
-                <div class="tut-txt">
-                  <b>Crie um registro CNAME</b>
-                  <p>No painel do seu dom&iacute;nio (Cloudflare, Hostgator, Godaddy&hellip;), v&aacute; em <b>Configura&ccedil;&atilde;o de DNS</b>.</p>
-                </div>
-              </div>
-
-              <!-- Passo 2 -->
-              <div class="tut-step" style="border-left: 4px solid var(--accent); margin-bottom: 0">
-                <span class="tut-n">2</span>
-                <div class="tut-txt">
-                  <b>Preencha com estas informa&ccedil;&otilde;es</b>
-                  <p>Adicione o novo registro do tipo <b>CNAME</b> usando os dados abaixo:</p>
-                  
-                  <div class="mock-container" style="margin-top: 10px">
-                    <div class="mock-header">
-                      <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot"></span>
-                      <span class="mock-title">📋 Tabela de DNS (Copiar e Colar)</span>
-                    </div>
-                    <div class="mock-body" style="background: #090c15; padding: 12px">
-                      <div style="display: grid; grid-template-columns: 80px 110px 1fr; gap: 8px; font-weight: 600; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 8px">
-                        <div>Tipo</div>
-                        <div>Nome / Host</div>
-                        <div>Destino / Valor</div>
-                      </div>
-                      <div style="display: grid; grid-template-columns: 80px 110px 1fr; gap: 8px; font-family: 'Geist Mono', monospace; font-size: 11.5px; align-items: center">
-                        <div style="color: var(--pink); font-weight: bold">CNAME</div>
-                        <div style="color: #fff">link <span style="font-size:11px; opacity:0.5">(ou o seu)</span></div>
-                        <div style="display: flex; align-items: center; gap: 6px; overflow: hidden">
-                          <span class="dm-apphost" style="color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">carregando...</span>
-                          <button class="btn btn-xs" style="padding: 2px 8px; font-size: 11px; background: rgba(37,244,238,0.15); border-color: rgba(37,244,238,0.3); color: var(--accent); font-family: inherit; margin-left: auto" onclick="navigator.clipboard.writeText(DM_APPHOST).then(function(){toast('Destino copiado!')}).catch(function(){toast('Erro ao copiar',false)})">Copiar</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Passo 3 -->
-              <div class="tut-step" style="border-left: 4px solid var(--success); margin-bottom: 0">
-                <span class="tut-n">3</span>
-                <div class="tut-txt">
-                  <b>Pronto \u2014 verificamos sozinhos</b>
-                  <p>Assim que o DNS propagar, o dom&iacute;nio &eacute; verificado automaticamente e todos os seus links passam a usar o seu endere&ccedil;o.</p>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
         <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
@@ -1972,57 +1963,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="card">
           <div class="hint" style="margin-bottom:10px">O <b>Event Match Quality</b> (0&ndash;10) mede quanto sinal de identidade casa com o TikTok. Quando cai, a otimiza&ccedil;&atilde;o piora em sil&ecirc;ncio &mdash; fique de olho nos alertas.</div>
           <div id="emq-trend"><div class="muted" style="font-size:12.5px">Carregando&hellip;</div></div>
-        </div>
-        <!-- Guia de instalação: só aparece quando existe pelo menos 1 pixel
-             (o script é único por domínio e injeta todos os pixels ativos) -->
-        <div id="tk-guide" style="display:none">
-        <div class="section-title"><span>Como ativar o rastreamento</span><span class="line"></span><span class="muted" style="font-size:11.5px">um s&oacute; script para todos os pixels</span></div>
-        <div class="card">
-          <div class="tut-step" style="border-left:3px solid var(--pink)">
-            <span class="tut-n">1</span>
-            <div class="tut-txt">
-              <b>Copie o c&oacute;digo</b>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
-                <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px;background:var(--bg2)">
-                <button class="btn btn-sm primary" id="tk-copy">Copiar C&oacute;digo</button>
-              </div>
-            </div>
-          </div>
-          <div class="tut-step" style="border-left:3px solid var(--accent)">
-            <span class="tut-n">2</span>
-            <div class="tut-txt">
-              <b>Cole no seu criador de p&aacute;ginas</b>
-              <p>No campo de <b>scripts personalizados / cabe&ccedil;alho (head)</b> do Elementor, Wix, WordPress, GreatPages, etc.</p>
-            </div>
-          </div>
-          <div class="tut-step" style="border-left:3px solid var(--success);margin-bottom:0">
-            <span class="tut-n">3</span>
-            <div class="tut-txt">
-              <b>Salve e publique</b>
-              <p>Pronto \u2014 visitas e compras passam a aparecer aqui em tempo real. Com dom&iacute;nio pr&oacute;prio verificado, o c&oacute;digo usa o seu endere&ccedil;o automaticamente.</p>
-            </div>
-          </div>
-        </div>
-        </div>
-        <div class="section-title"><span>Integração Automática com Plataforma de Vendas (Webhook)</span><span class="line"></span></div>
-        <div class="card">
-          <div class="steps">
-            <span class="step"><b>1</b> Copie o link abaixo</span>
-            <span class="step"><b>2</b> Cole no painel da sua plataforma (Kiwify, Hotmart, PerfectPay, Monetizze, Appmax...)</span>
-            <span class="step"><b>3</b> Pronto! Toda venda cai automática aqui e envia para o TikTok</span>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input class="inp" id="cw-url" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
-            <button class="btn btn-sm" id="cw-reveal" title="Mostrar/ocultar segredo">Revelar</button>
-            <button class="btn btn-sm primary" id="cw-copy">Copiar URL</button>
-            <button class="btn btn-sm" id="cw-test" title="Envia um disparo de teste e mostra o resultado">Testar</button>
-          </div>
-          <div class="mini-feats">
-            <span>Toda venda vira evento no pixel</span>
-            <span>PIX gerado marca o lead como checkout</span>
-            <span>Sem duplicar (dedup por pedido)</span>
-          </div>
-          <p class="hint" id="cw-status" style="margin-top:10px"></p>
         </div>
         <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><select class="select" id="cw-gw-filter" style="width:auto;min-width:140px;padding:5px 10px;font-size:12px"><option value="">Todos os gateways</option></select><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
         <div class="card" style="padding:0">
@@ -2190,6 +2130,37 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <button class="btn ghost" id="pop-cancel">Cancelar</button>
       <button class="btn" id="pop-ok">Confirmar</button>
     </div>
+  </div>
+</div>
+
+<!-- Tutorial de conexão de domínio: um modal por domínio, com CNAME personalizado -->
+<div class="dmtut-bg" id="dmtut-bg" role="presentation">
+  <div class="dmtut" role="dialog" aria-modal="true" aria-labelledby="dmtut-title">
+    <div class="dmtut-head">
+      <span class="dmtut-globe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg></span>
+      <div style="min-width:0">
+        <h3 id="dmtut-title">Conectar dom&iacute;nio</h3>
+        <div class="dmtut-host" id="dmtut-host"></div>
+      </div>
+      <button class="dmtut-x" id="dmtut-x" aria-label="Fechar tutorial">&times;</button>
+    </div>
+    <div id="dmtut-status"></div>
+    <div id="dmtut-body"></div>
+  </div>
+</div>
+
+<!-- Tutorial de instalação de pixel: um modal por pixel, com script exclusivo -->
+<div class="dmtut-bg" id="pxtut-bg" role="presentation">
+  <div class="dmtut" role="dialog" aria-modal="true" aria-labelledby="pxtut-title">
+    <div class="dmtut-head">
+      <span class="dmtut-globe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
+      <div style="min-width:0">
+        <h3 id="pxtut-title">Instalar pixel</h3>
+        <div class="dmtut-host" id="pxtut-host"></div>
+      </div>
+      <button class="dmtut-x" id="pxtut-x" aria-label="Fechar tutorial">&times;</button>
+    </div>
+    <div id="pxtut-body"></div>
   </div>
 </div>
 
@@ -2477,7 +2448,7 @@ function renderOverview(m){
   // multi-moeda cai no texto estático "X € + Y £"
   var revCurs=Object.keys(m.rev||{}).filter(function(c){return (m.rev[c]||0)>0;});
   var singleCur=revCurs.length<=1;
-  // zeros neutros: valor zerado usa cinza — cor semântica só quando há sinal real
+  // zeros neutros: valor zerado usa cinza — cor sem��ntica só quando há sinal real
   function zc(v,cls){ return v>0?cls:'mut'; }
   var hasRev=revCurs.length>0&&(m.rev[revCurs[0]]||0)>0;
   var revHtml=singleCur?'<span class="'+(hasRev?'pos':'mut')+'" id="ov-cu-rev">'+money(0,revCurs[0]||'EUR')+'</span>':'<span class="pos">'+revObj(m.rev)+'</span>';
@@ -2940,7 +2911,7 @@ function renderGeo(m){
       '<div class="cval">'+c.count+'</div></div>';
   }).join(''):'<div class="empty">Sem dados de pa&iacute;s ainda.</div>';
 }
-// ── Lazy load da lib globe.gl (three.js ~1MB): só baixa quando um globo
+// ─��� Lazy load da lib globe.gl (three.js ~1MB): só baixa quando um globo
 // vai realmente ser desenhado, tirando o peso do carregamento inicial ──
 var GLOBE_LIB_LOADING=false, GLOBE_LIB_WAITERS=[];
 function ensureGlobeLib(cb){
@@ -3384,7 +3355,7 @@ function renderLiveGlobe(){
           .ringMaxRadius(function(d){return 1.8+d.size*3.2;})
           .ringPropagationSpeed(1.6)
           .ringRepeatPeriod(function(d){return 1200-d.size*400;});
-        // liga controles: zoom +/− e tela cheia
+        // liga controles: zoom +/�� e tela cheia
         var zi=document.getElementById('globe-zoom-in'), zo=document.getElementById('globe-zoom-out'), fs=document.getElementById('globe-fs');
         if(zi)zi.onclick=function(){globeZoom(0.72);};
         if(zo)zo.onclick=function(){globeZoom(1.38);};
@@ -3669,12 +3640,10 @@ function loadDomains(){
 }
 function renderDomains(){
   var el=document.getElementById('dm-list'); if(!el) return;
-  // alvo do CNAME nas instruções
-  Array.prototype.forEach.call(document.querySelectorAll('.dm-apphost'),function(n){ n.textContent=DM_APPHOST; });
   if(!DM_LIST.length){
     el.innerHTML='<div class="live-empty">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:40px;height:40px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>' +
-      '<div><b>Nenhum domínio personalizado</b><p style="margin:6px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6">Insira o seu domínio no campo acima para ocultar a URL padrão e aumentar a conversão dos anúncios.</p></div>' +
+      '<div><b>Nenhum domínio personalizado</b><p style="margin:6px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6">Insira o seu domínio no campo acima — ao adicionar, abrimos o passo a passo de configuração do DNS.</p></div>' +
     '</div>';
   } else {
     el.innerHTML=DM_LIST.map(function(d){
@@ -3687,17 +3656,11 @@ function renderDomains(){
             :'<span class="badge-warn">Aguardando DNS &mdash; verificamos automaticamente</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
+          (d.verificado?'':'<button class="btn btn-sm" style="color:var(--accent);border-color:rgba(37,244,238,0.3)" onclick="dmTutOpen(\\''+esc(d.host)+'\\')">Configurar</button>')+
           '<button class="btn-icon" style="color:var(--red)" onclick="delDomain(\\''+esc(d.host)+'\\')">Remover</button>'+
         '</div>'+
       '</div>';
     }).join('');
-  }
-  // Tutorial de DNS: só aparece quando há domínio adicionado mas ainda não
-  // verificado (DNS não propagou). Some quando todos verificados ou lista vazia.
-  var guide=document.getElementById('dm-dns-guide');
-  if(guide){
-    var pendentes=(DM_LIST||[]).filter(function(d){return !d.verificado;});
-    guide.style.display=pendentes.length?'flex':'none';
   }
   // se o formulário de link está aberto, mantém o select de domínio em dia
   var lkCard=document.getElementById('lk-form-card');
@@ -3730,7 +3693,11 @@ function silentVerifyDomain(host){
   fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ toast('Dom\u00ednio verificado: '+host); loadDomains(); }
+      if(d.ok){
+        toast('Dom\u00ednio verificado: '+host);
+        if(DMTUT_HOST===host) dmTutSuccess(host); // modal aberto no mesmo host: anima
+        loadDomains();
+      }
     }).catch(function(){});
 }
 function addDomain(){
@@ -3742,12 +3709,126 @@ function addDomain(){
     .then(function(d){
       if(d.ok){
         inp.value='';
-        toast('Dom\u00ednio adicionado \u2014 aponte o CNAME; verificamos automaticamente');
         loadDomains();
+        dmTutOpen(host); // abre o passo a passo personalizado para este domínio
         silentVerifyDomain(host); // 1ª tentativa imediata (DNS pode já estar pronto)
       }
       else toast(d.error||'Erro',false);
     }).catch(function(){ toast('Erro ao adicionar',false); });
+}
+/* ── Tutorial de conexão de domínio (modal por domínio) ── */
+var DMTUT_HOST='';
+// Nome do registro CNAME a partir do host: "a1.dominio.com" → "a1"; apex → "@".
+function dmCnameName(host){
+  var parts=(host||'').split('.');
+  if(parts.length<=2) return '@';
+  return parts.slice(0,parts.length-2).join('.');
+}
+function dmTutIsVerified(host){
+  return (DM_LIST||[]).some(function(d){ return d.host===host&&d.verificado; });
+}
+function dmTutOpen(host){
+  DMTUT_HOST=host;
+  dmTutRender();
+  document.getElementById('dmtut-bg').classList.add('open');
+}
+function dmTutClose(){
+  DMTUT_HOST='';
+  document.getElementById('dmtut-bg').classList.remove('open');
+}
+var DMTUT_COPY_ICO='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+function dmTutRender(){
+  var host=DMTUT_HOST; if(!host) return;
+  document.getElementById('dmtut-host').textContent=host;
+  var st=document.getElementById('dmtut-status');
+  var body=document.getElementById('dmtut-body');
+  if(dmTutIsVerified(host)){ dmTutSuccess(host); return; }
+  var name=dmCnameName(host);
+  st.innerHTML='<span class="dmtut-badge warn"><span class="ldot" style="background:var(--warning);box-shadow:none;width:7px;height:7px"></span>Aguardando DNS</span>';
+  body.innerHTML=
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">1</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Acesse o painel do seu dom\u00ednio</b>'+
+        '<p>Entre no site onde voc\u00ea comprou o dom\u00ednio (Cloudflare, Registro.br, Hostgator, GoDaddy\u2026) e abra a <b>Configura\u00e7\u00e3o de DNS</b>.</p>'+
+      '</div>'+
+    '</div>'+
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">2</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Crie este registro CNAME</b>'+
+        '<p>Adicione um novo registro copiando os valores abaixo:</p>'+
+        '<div class="dmtut-dns">'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Tipo</span><span class="dmtut-val pink">CNAME</span></div>'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Nome / Host</span><span class="dmtut-val">'+esc(name)+'</span>'+
+            '<button class="dmtut-copy" data-copy="'+esc(name)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Destino / Valor</span><span class="dmtut-val accent">'+esc(DM_APPHOST)+'</span>'+
+            '<button class="dmtut-copy" data-copy="'+esc(DM_APPHOST)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
+        '</div>'+
+        (name==='@'?'<div class="dmtut-note">Dom\u00ednio raiz: alguns pain\u00e9is n\u00e3o aceitam CNAME em "@" \u2014 use a op\u00e7\u00e3o <b>ALIAS</b> ou <b>CNAME flattening</b> (autom\u00e1tico na Cloudflare).</div>':'')+
+        '<div class="dmtut-note">Usa Cloudflare? Deixe a nuvem <b>cinza (Somente DNS)</b>, n\u00e3o laranja.</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">3</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Verifique a conex\u00e3o</b>'+
+        '<p style="margin-bottom:10px">Salvou o registro? Clique abaixo \u2014 ou aguarde, verificamos automaticamente a cada 30 segundos.</p>'+
+        '<button class="btn primary" id="dmtut-verify" style="min-width:180px">Verificar dom\u00ednio</button>'+
+        '<div class="dmtut-warn" id="dmtut-warn"></div>'+
+      '</div>'+
+    '</div>';
+}
+function dmTutSuccess(host){
+  if(DMTUT_HOST!==host) return;
+  var st=document.getElementById('dmtut-status');
+  var body=document.getElementById('dmtut-body');
+  st.innerHTML='<span class="dmtut-badge ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="width:12px;height:12px"><path d="M20 6L9 17l-5-5"/></svg>Verificado</span>';
+  body.innerHTML=
+    '<div class="dmtut-okbox">'+
+      '<svg class="dmtut-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M14 27l8 8 16-16"/></svg>'+
+      '<b>Dom\u00ednio verificado!</b>'+
+      '<p>Tudo pronto \u2014 seus links j\u00e1 podem usar <span class="dmtut-host" style="font-size:12px">'+esc(host)+'</span>.</p>'+
+      '<button class="btn primary" id="dmtut-done" style="min-width:140px">Concluir</button>'+
+    '</div>';
+}
+function dmTutCopy(btn){
+  var text=btn.getAttribute('data-copy')||'';
+  navigator.clipboard.writeText(text).then(function(){
+    btn.classList.add('copied');
+    btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px"><path d="M20 6L9 17l-5-5"/></svg> Copiado!';
+    setTimeout(function(){ btn.classList.remove('copied'); btn.innerHTML=DMTUT_COPY_ICO+' Copiar'; },1500);
+  }).catch(function(){ toast('Erro ao copiar',false); });
+}
+function dmTutVerify(){
+  var btn=document.getElementById('dmtut-verify');
+  var host=DMTUT_HOST;
+  if(!btn||!host) return;
+  btn.disabled=true;
+  btn.innerHTML='<span class="dmtut-spin"></span> Verificando\u2026';
+  fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(DMTUT_HOST!==host) return; // usuário fechou/trocou o modal no meio
+      if(d.ok){
+        toast('Dom\u00ednio verificado: '+host);
+        dmTutSuccess(host);
+        loadDomains();
+      } else {
+        var det=d.dnsPronto
+          ?'DNS propagado! Falta o certificado/app responder \u2014 tente novamente em instantes.'
+          :(d.dnsDetail||d.httpDetail||'O registro ainda n\u00e3o foi encontrado.');
+        var wb=document.getElementById('dmtut-warn');
+        if(!/[.!?]$/.test(det)) det+='.';
+        if(wb){ wb.style.display='block'; wb.innerHTML='<b>Ainda n\u00e3o propagou</b><p>'+esc(det)+' A propaga\u00e7\u00e3o pode levar de alguns minutos at\u00e9 algumas horas.</p>'; }
+        btn.disabled=false; btn.textContent='Verificar novamente';
+      }
+    })
+    .catch(function(){
+      if(DMTUT_HOST!==host) return;
+      toast('Erro de rede na verifica\u00e7\u00e3o',false);
+      btn.disabled=false; btn.textContent='Verificar dom\u00ednio';
+    });
 }
 function delDomain(host){
   uiConfirm({title:'Remover este dom\u00ednio?',msg:'"'+host+'" deixa de ser recomendado nas URLs (o DNS continua seu).',okLabel:'Remover',danger:true},function(){
@@ -4429,9 +4510,6 @@ function loadPixels(){
     var badge=document.getElementById('nav-px-badge');
     var n=PX_LIST.filter(function(p){return p.active;}).length;
     if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; badge.className='badge live-badge'; }
-    // guia de instalação: só faz sentido com pelo menos 1 pixel cadastrado
-    var guide=document.getElementById('tk-guide');
-    if(guide) guide.style.display=PX_LIST.length?'':'none';
   }).catch(function(){});
   loadPxLog();
   loadConvLog();
@@ -4515,7 +4593,7 @@ function renderPixels(){
         '<span>Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
       '</div>'+
       '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
-        (p.scriptTag?'<button class="btn-icon" onclick="copyPxScript(\\''+esc(p.slug)+'\\')" title="Script exclusivo deste pixel — cole em qualquer página">Copiar script</button>':'')+
+        (p.scriptTag?'<button class="btn btn-sm" style="color:var(--accent);border-color:rgba(37,244,238,0.3)" onclick="pxTutOpen(\\''+esc(p.slug)+'\\')" title="Passo a passo de instala\u00e7\u00e3o deste pixel">Instalar</button>':'')+
         '<button class="btn-icon" onclick="testPixel(\\''+esc(p.slug)+'\\')">Testar</button>'+
         '<button class="btn-icon" onclick="editPixel(\\''+esc(p.slug)+'\\')">Editar</button>'+
         '<button class="btn-icon" style="color:var(--red)" onclick="delPixel(\\''+esc(p.slug)+'\\')">Excluir</button>'+
@@ -4542,11 +4620,47 @@ function editPixel(slug){
   var px=PX_LIST.filter(function(p){return p.slug===slug;})[0];
   if(px) showPxForm(px);
 }
-// Copia o <script> exclusivo do pixel (estilo Xtracky): dispara SÓ este pixel
-function copyPxScript(slug){
+/* ── Tutorial de instalação de pixel (modal por pixel) ── */
+var PXTUT_PX=null;
+function pxTutOpen(slug){
   var px=PX_LIST.filter(function(p){return p.slug===slug;})[0];
+  if(px) pxTutOpenPx(px);
+}
+function pxTutOpenPx(px){
   if(!px||!px.scriptTag) return;
-  navigator.clipboard.writeText(px.scriptTag).then(function(){ toast('Script do pixel copiado \u2014 cole no head das suas p\u00e1ginas'); });
+  PXTUT_PX=px;
+  document.getElementById('pxtut-host').textContent=px.name+' \u00b7 '+px.pixelCode;
+  document.getElementById('pxtut-body').innerHTML=
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">1</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Copie o script deste pixel</b>'+
+        '<p>Este c\u00f3digo \u00e9 exclusivo do pixel <b>'+esc(px.name)+'</b> \u2014 s\u00f3 ele dispara nas p\u00e1ginas onde for colado.</p>'+
+        '<div class="dmtut-code">'+esc(px.scriptTag)+'</div>'+
+        '<button class="dmtut-copy big" id="pxtut-copy">'+DMTUT_COPY_ICO+' Copiar script</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">2</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Cole no seu criador de p\u00e1ginas</b>'+
+        '<p>No campo de <b>scripts personalizados / cabe\u00e7alho (head)</b> do Elementor, Wix, WordPress, GreatPages, etc. Salve e publique a p\u00e1gina.</p>'+
+      '</div>'+
+    '</div>'+
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">3</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Teste o disparo</b>'+
+        '<p style="margin-bottom:10px">Visitas e compras passam a aparecer em tempo real. Quer confirmar agora? Envie um evento de teste direto ao TikTok.</p>'+
+        '<button class="btn primary" id="pxtut-test" style="min-width:160px">Enviar teste</button>'+
+        '<div class="dmtut-warn" id="pxtut-result"></div>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('pxtut-bg').classList.add('open');
+}
+function pxTutClose(){
+  PXTUT_PX=null;
+  document.getElementById('pxtut-bg').classList.remove('open');
 }
 function delPixel(slug){
   uiConfirm({title:'Excluir este pixel?',msg:'"'+slug+'" para de disparar eventos para o TikTok na hora.',okLabel:'Excluir',danger:true},function(){
@@ -4557,15 +4671,43 @@ function delPixel(slug){
   });
 }
 function testPixel(slug){
-  toast('Enviando evento de teste...');
+  var btn=document.getElementById('pxtut-test');
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="dmtut-spin"></span> Enviando\u2026'; }
+  else toast('Enviando evento de teste...');
   fetch('/api/pixels/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:slug})})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok) toast('TikTok aceitou o disparo (code 0)');
-      else toast('Falhou: '+(d.message||d.error||'ver log'),false);
-      loadPxLog();
-    })
-    .catch(function(){ toast('Erro no teste',false); });
+  .then(function(r){return r.json();})
+  .then(function(d){
+    var msg=pxTestMsg(d);
+    if(d.ok) toast('TikTok aceitou o disparo (code 0)');
+    else toast('Falhou: '+msg,false);
+    pxTutShowResult(slug,!!d.ok,msg);
+    loadPxLog();
+  })
+  .catch(function(){
+    toast('Erro de rede no teste',false);
+    pxTutShowResult(slug,false,'Erro de rede \u2014 tente novamente.');
+  })
+  .finally(function(){
+    var b=document.getElementById('pxtut-test');
+    if(b){ b.disabled=false; b.textContent='Enviar teste'; }
+  });
+}
+// Traduz a resposta do teste em mensagem acionável para o usuário leigo
+function pxTestMsg(d){
+  if(d.ok) return 'Evento recebido pelo TikTok \u2014 pixel e token est\u00e3o corretos.';
+  var m=d.message||d.error||'';
+  if(/access.?token|auth|permission/i.test(m)) return 'Token de acesso inv\u00e1lido \u2014 gere um novo em TikTok Events Manager \u2192 Configura\u00e7\u00f5es do pixel \u2192 Gerar token.';
+  if(/pixel|event_source_id|not exist/i.test(m)) return 'C\u00f3digo do pixel n\u00e3o reconhecido \u2014 confira o Pixel ID no TikTok Events Manager.';
+  return m||'ver o log de disparos abaixo';
+}
+// Mostra o resultado do teste dentro do modal de instalação (se aberto)
+function pxTutShowResult(slug,ok,msg){
+  if(!PXTUT_PX||PXTUT_PX.slug!==slug) return;
+  var box=document.getElementById('pxtut-result');
+  if(!box) return;
+  box.style.display='block';
+  box.className='dmtut-warn'+(ok?' ok':'');
+  box.innerHTML=(ok?'<b>Teste aprovado!</b>':'<b>Teste falhou</b>')+'<p>'+esc(msg)+'</p>';
 }
 function savePixel(){
   var slug=document.getElementById('px-slug').value;
@@ -4587,7 +4729,13 @@ function savePixel(){
     .then(function(r){return r.json();})
     .then(function(d){
       btn.disabled=false;
-      if(d.ok){ toast('Pixel salvo em pixels/'+d.pixel.slug+'.json'); document.getElementById('px-form-card').style.display='none'; var g=document.getElementById('px-grid'); if(g) g.classList.remove('form-open'); loadPixels(); }
+      if(d.ok){
+    toast('Pixel salvo em pixels/'+d.pixel.slug+'.json');
+    document.getElementById('px-form-card').style.display='none';
+    var g=document.getElementById('px-grid'); if(g) g.classList.remove('form-open');
+    loadPixels();
+    if(!slug&&d.pixel&&d.pixel.scriptTag) pxTutOpenPx(d.pixel); // pixel novo: abre o passo a passo de instalação
+  }
       else toast(d.error||'Erro ao salvar',false);
     })
     .catch(function(){ btn.disabled=false; toast('Erro ao salvar',false); });
@@ -4725,17 +4873,9 @@ function loadPxLog(){
     }).join('');
   }).catch(function(){});
 }
-// ── Webhook universal de conversões ──
-var CW_SECRET='', CW_REVEALED=false;
-// encodeURIComponent: segredos com @, &, + etc. precisam ser escapados na URL
-function cwUrl(){ return location.origin+'/api/conversion?secret='+(CW_REVEALED?encodeURIComponent(CW_SECRET):'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'); }
+// ── Log de webhooks de conversão (gateways) ──
 function loadConvLog(){
   fetch('/api/conversion/log').then(function(r){return r.json();}).then(function(d){
-    CW_SECRET=d.secret||'';
-    var inp=document.getElementById('cw-url');
-    if(inp) inp.value=d.configured?cwUrl():'configure CONVERSION_WEBHOOK_SECRET no servidor';
-    var st=document.getElementById('cw-status');
-    if(st) st.innerHTML=d.configured?'Segredo configurado. Envie um POST de teste e ele aparece abaixo.':'<span class="neg">Sem segredo configurado — o endpoint responde 503 at\u00e9 voc\u00ea definir CONVERSION_WEBHOOK_SECRET.</span>';
     var tb=document.getElementById('cw-log'); if(!tb) return;
     var log=d.log||[];
     CW_LOG=log;
@@ -4758,7 +4898,7 @@ function renderConvLog(){
   var gw=fsel?fsel.value:'';
   var log=gw?CW_LOG.filter(function(e){return (e.gateway||'')===gw;}):CW_LOG;
   log=log.slice(0,12);
-  if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">'+(gw?'Nenhum webhook deste gateway.':'Nenhum webhook recebido ainda \u2014 configure a URL acima no seu gateway.')+'</td></tr>'; return; }
+  if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">'+(gw?'Nenhum webhook deste gateway.':'Nenhum webhook recebido ainda \u2014 cadastre um gateway na aba Gateways e cole a URL no painel da plataforma.')+'</td></tr>'; return; }
   tb.innerHTML=log.map(function(e){
       var ok=e.status==='ok', dd=e.status==='dedup';
       return '<tr style="cursor:default">'+
@@ -4931,7 +5071,7 @@ function toast(msg,ok){
   setTimeout(function(){t.className='toast';},2800);
 }
 
-/* ── Exportação CSV ── */
+/* ── Exportação CSV ─��� */
 function downloadCSV(name,rows){
   var NL=String.fromCharCode(10);
   var csv=rows.map(function(r){ return r.map(function(c){ c=(c==null?'':String(c)); if(/[",;\\n]/.test(c)) c='"'+c.replace(/"/g,'""')+'"'; return c; }).join(';'); }).join(NL);
@@ -5022,7 +5162,7 @@ function applyDr(){
   toast('Per\u00edodo segmentado aplicado');
 }
 
-/* ─�� Paleta de comandos ⌘K ── */
+/* ─�� Paleta de comandos ⌘K ─�� */
 var CMD_ITEMS=[
   {g:'Telas',t:'Visão Geral',h:'resumo',ic:I.money,act:function(){setView('overview');}},
   {g:'Telas',t:'Ao Vivo',h:'presença, funil, países',ic:I.zap,act:function(){setView('live');}},
@@ -5296,6 +5436,10 @@ document.getElementById('gs-all').addEventListener('click',function(){ setView('
 document.addEventListener('keydown',function(e){
   if(e.key!=='Escape') return;
   if(document.getElementById('cmdk-bg').classList.contains('open')) return; // cmdk cuida
+  var dt=document.getElementById('dmtut-bg');
+  if(dt&&dt.classList.contains('open')){ dmTutClose(); return; }
+  var pt=document.getElementById('pxtut-bg');
+  if(pt&&pt.classList.contains('open')){ pxTutClose(); return; }
   var gm=document.getElementById('globe-modal');
   if(gm&&!gm.hidden){ globeModalClose(); return; }
   var dw=document.getElementById('drawer');
@@ -5379,6 +5523,15 @@ document.getElementById('lk-new').addEventListener('click',function(){ showLinkF
 document.getElementById('lk-save').addEventListener('click',saveLink);
 document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
+// tutorial de domínio: fechar (×/scrim) e ações internas por delegação
+document.getElementById('dmtut-x').addEventListener('click',dmTutClose);
+document.getElementById('dmtut-bg').addEventListener('click',function(e){ if(e.target===this) dmTutClose(); });
+document.getElementById('dmtut-body').addEventListener('click',function(e){
+  var cp=e.target.closest('.dmtut-copy');
+  if(cp){ dmTutCopy(cp); return; }
+  if(e.target.closest('#dmtut-verify')){ dmTutVerify(); return; }
+  if(e.target.closest('#dmtut-done')){ dmTutClose(); return; }
+});
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
   var lkDom=document.getElementById('lk-domain'); if(lkDom) lkDom.addEventListener('change',updateLinkDomainStatus);
   var abSplit=document.getElementById('lk-ab-split');
@@ -5403,39 +5556,22 @@ document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
 document.getElementById('cw-gw-filter').addEventListener('change',renderConvLog);
 document.getElementById('ph-refresh').addEventListener('click',function(){loadCapiHealth();loadEmqTrend();});
-document.getElementById('cw-reveal').addEventListener('click',function(){
-  CW_REVEALED=!CW_REVEALED;
-  document.getElementById('cw-url').value=cwUrl();
-  this.textContent=CW_REVEALED?'Ocultar':'Revelar';
-});
-document.getElementById('cw-copy').addEventListener('click',function(){
-  if(!CW_SECRET){ toast('Configure o segredo primeiro',false); return; }
-  // copia sempre a URL REAL (com segredo URL-encoded), mesmo com o campo mascarado
-  navigator.clipboard.writeText(location.origin+'/api/conversion?secret='+encodeURIComponent(CW_SECRET))
-    .then(function(){ toast('URL copiada com o segredo',true); })
-    .catch(function(){ toast('Erro ao copiar',false); });
-});
-document.getElementById('cw-test').addEventListener('click',function(){
-  var btn=this; btn.disabled=true; btn.textContent='Testando\u2026';
-  fetch('/api/conversion/test',{method:'POST'})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok&&d.receipt){ toast('Webhook OK \u2014 status: '+(d.receipt.status||'?')); loadConvLog(); }
-      else toast('Falhou: '+(d.error||'erro desconhecido'),false);
-    })
-    .catch(function(){ toast('Erro de rede no teste',false); })
-    .finally(function(){ btn.disabled=false; btn.textContent='Testar'; });
-});
-/* ── Snippet de rastreamento para páginas externas ── */
-function trackerSnippet(){ var o=linkOrigin(); return '<script src="'+o+'/t.js" defer><\\/script><noscript><img src="'+o+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>'; }
-(function(){
-  var inp=document.getElementById('tk-snippet');
-  if(inp) inp.value=trackerSnippet();
-})();
-document.getElementById('tk-copy').addEventListener('click',function(){
-  navigator.clipboard.writeText(trackerSnippet())
-    .then(function(){ toast('Script copiado \u2014 cole no <head> das suas p\u00e1ginas'); })
-    .catch(function(){ toast('Clipboard indispon\u00edvel',false); });
+// tutorial de pixel: fechar (×/scrim) e ações internas por delegação
+document.getElementById('pxtut-x').addEventListener('click',pxTutClose);
+document.getElementById('pxtut-bg').addEventListener('click',function(e){ if(e.target===this) pxTutClose(); });
+document.getElementById('pxtut-body').addEventListener('click',function(e){
+  if(e.target.closest('#pxtut-copy')){
+    var btn=e.target.closest('#pxtut-copy');
+    if(PXTUT_PX&&PXTUT_PX.scriptTag){
+      navigator.clipboard.writeText(PXTUT_PX.scriptTag).then(function(){
+        btn.classList.add('copied');
+        btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px"><path d="M20 6L9 17l-5-5"/></svg> Copiado!';
+        setTimeout(function(){ btn.classList.remove('copied'); btn.innerHTML=DMTUT_COPY_ICO+' Copiar script'; },1500);
+      }).catch(function(){ toast('Erro ao copiar',false); });
+    }
+    return;
+  }
+  if(e.target.closest('#pxtut-test')&&PXTUT_PX){ testPixel(PXTUT_PX.slug); return; }
 });
 document.getElementById('reset-btn').addEventListener('click',function(){
   uiConfirm({title:'Apagar todos os dados?',msg:'Todos os leads e eventos ser\u00e3o apagados de forma permanente. N\u00e3o h\u00e1 como recuperar depois.',okLabel:'Apagar tudo',danger:true},function(){
