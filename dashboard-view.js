@@ -2004,26 +2004,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
         </div>
         </div>
-        <div class="section-title"><span>Integração Automática com Plataforma de Vendas (Webhook)</span><span class="line"></span></div>
-        <div class="card">
-          <div class="steps">
-            <span class="step"><b>1</b> Copie o link abaixo</span>
-            <span class="step"><b>2</b> Cole no painel da sua plataforma (Kiwify, Hotmart, PerfectPay, Monetizze, Appmax...)</span>
-            <span class="step"><b>3</b> Pronto! Toda venda cai automática aqui e envia para o TikTok</span>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input class="inp" id="cw-url" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px">
-            <button class="btn btn-sm" id="cw-reveal" title="Mostrar/ocultar segredo">Revelar</button>
-            <button class="btn btn-sm primary" id="cw-copy">Copiar URL</button>
-            <button class="btn btn-sm" id="cw-test" title="Envia um disparo de teste e mostra o resultado">Testar</button>
-          </div>
-          <div class="mini-feats">
-            <span>Toda venda vira evento no pixel</span>
-            <span>PIX gerado marca o lead como checkout</span>
-            <span>Sem duplicar (dedup por pedido)</span>
-          </div>
-          <p class="hint" id="cw-status" style="margin-top:10px"></p>
-        </div>
         <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><select class="select" id="cw-gw-filter" style="width:auto;min-width:140px;padding:5px 10px;font-size:12px"><option value="">Todos os gateways</option></select><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
         <div class="card" style="padding:0">
           <div class="tbl-wrap" style="border:0">
@@ -4725,17 +4705,9 @@ function loadPxLog(){
     }).join('');
   }).catch(function(){});
 }
-// ── Webhook universal de conversões ──
-var CW_SECRET='', CW_REVEALED=false;
-// encodeURIComponent: segredos com @, &, + etc. precisam ser escapados na URL
-function cwUrl(){ return location.origin+'/api/conversion?secret='+(CW_REVEALED?encodeURIComponent(CW_SECRET):'\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'); }
+// ── Log de webhooks de conversão (gateways) ──
 function loadConvLog(){
   fetch('/api/conversion/log').then(function(r){return r.json();}).then(function(d){
-    CW_SECRET=d.secret||'';
-    var inp=document.getElementById('cw-url');
-    if(inp) inp.value=d.configured?cwUrl():'configure CONVERSION_WEBHOOK_SECRET no servidor';
-    var st=document.getElementById('cw-status');
-    if(st) st.innerHTML=d.configured?'Segredo configurado. Envie um POST de teste e ele aparece abaixo.':'<span class="neg">Sem segredo configurado — o endpoint responde 503 at\u00e9 voc\u00ea definir CONVERSION_WEBHOOK_SECRET.</span>';
     var tb=document.getElementById('cw-log'); if(!tb) return;
     var log=d.log||[];
     CW_LOG=log;
@@ -4758,7 +4730,7 @@ function renderConvLog(){
   var gw=fsel?fsel.value:'';
   var log=gw?CW_LOG.filter(function(e){return (e.gateway||'')===gw;}):CW_LOG;
   log=log.slice(0,12);
-  if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">'+(gw?'Nenhum webhook deste gateway.':'Nenhum webhook recebido ainda \u2014 configure a URL acima no seu gateway.')+'</td></tr>'; return; }
+  if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">'+(gw?'Nenhum webhook deste gateway.':'Nenhum webhook recebido ainda \u2014 cadastre um gateway na aba Gateways e cole a URL no painel da plataforma.')+'</td></tr>'; return; }
   tb.innerHTML=log.map(function(e){
       var ok=e.status==='ok', dd=e.status==='dedup';
       return '<tr style="cursor:default">'+
@@ -5403,29 +5375,6 @@ document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
 document.getElementById('cw-gw-filter').addEventListener('change',renderConvLog);
 document.getElementById('ph-refresh').addEventListener('click',function(){loadCapiHealth();loadEmqTrend();});
-document.getElementById('cw-reveal').addEventListener('click',function(){
-  CW_REVEALED=!CW_REVEALED;
-  document.getElementById('cw-url').value=cwUrl();
-  this.textContent=CW_REVEALED?'Ocultar':'Revelar';
-});
-document.getElementById('cw-copy').addEventListener('click',function(){
-  if(!CW_SECRET){ toast('Configure o segredo primeiro',false); return; }
-  // copia sempre a URL REAL (com segredo URL-encoded), mesmo com o campo mascarado
-  navigator.clipboard.writeText(location.origin+'/api/conversion?secret='+encodeURIComponent(CW_SECRET))
-    .then(function(){ toast('URL copiada com o segredo',true); })
-    .catch(function(){ toast('Erro ao copiar',false); });
-});
-document.getElementById('cw-test').addEventListener('click',function(){
-  var btn=this; btn.disabled=true; btn.textContent='Testando\u2026';
-  fetch('/api/conversion/test',{method:'POST'})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok&&d.receipt){ toast('Webhook OK \u2014 status: '+(d.receipt.status||'?')); loadConvLog(); }
-      else toast('Falhou: '+(d.error||'erro desconhecido'),false);
-    })
-    .catch(function(){ toast('Erro de rede no teste',false); })
-    .finally(function(){ btn.disabled=false; btn.textContent='Testar'; });
-});
 /* ── Snippet de rastreamento para páginas externas ── */
 function trackerSnippet(){ var o=linkOrigin(); return '<script src="'+o+'/t.js" defer><\\/script><noscript><img src="'+o+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>'; }
 (function(){
