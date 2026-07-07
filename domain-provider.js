@@ -15,10 +15,14 @@
 //     continua no modo "manual" anterior (o lojista aponta o CNAME e adiciona
 //     o domínio na hospedagem na mão). Nada quebra o POST /api/domains.
 
-// Token e IDs vêm só do ambiente. Nomes próprios para não colidir com a CLI
-// do Railway (RAILWAY_TOKEN é usado pela CLI e é project-scoped, que NÃO
-// autoriza mutations de domínio — por isso exigimos um Workspace/Account token).
-const API_TOKEN = process.env.RAILWAY_API_TOKEN || '';
+// Token e IDs vêm só do ambiente. Aceitamos QUALQUER tipo de token do Railway:
+//   - Account/Workspace/OAuth token → header "Authorization: Bearer".
+//   - Project token (criado em Project Settings → Tokens) → header
+//     "Project-Access-Token" (a doc do Railway exige esse header p/ project token).
+// Como não dá pra saber o tipo pela string, detectamos o header certo na 1ª
+// chamada (tenta Bearer; se der erro de auth, tenta Project-Access-Token) e
+// guardamos qual funcionou. Fallback do nome: RAILWAY_API_TOKEN, senão RAILWAY_TOKEN.
+const API_TOKEN = process.env.RAILWAY_API_TOKEN || process.env.RAILWAY_TOKEN || '';
 const PROJECT_ID = process.env.RAILWAY_PROJECT_ID || '';
 const ENVIRONMENT_ID = process.env.RAILWAY_ENVIRONMENT_ID || '';
 const SERVICE_ID = process.env.RAILWAY_SERVICE_ID || '';
@@ -28,7 +32,7 @@ const API_URL = 'https://backboard.railway.com/graphql/v2';
 const enabled = !!(API_TOKEN && PROJECT_ID && ENVIRONMENT_ID && SERVICE_ID);
 
 if (enabled) {
-  console.log('[domain-provider] Railway conectado (projeto ' + PROJECT_ID.slice(0, 8) + '…)');
+  console.log('[domain-provider] Railway habilitado (projeto ' + PROJECT_ID.slice(0, 8) + '…) — detectando tipo de token…');
 } else if (API_TOKEN) {
   // Token presente mas faltam IDs (Railway injeta esses IDs automaticamente).
   console.log('[domain-provider] token presente, mas faltam RAILWAY_PROJECT_ID/ENVIRONMENT_ID/SERVICE_ID — modo manual');
@@ -36,17 +40,26 @@ if (enabled) {
   console.log('[domain-provider] RAILWAY_API_TOKEN ausente — modo manual (aponte o CNAME e adicione o domínio na hospedagem)');
 }
 
-// Chamada GraphQL crua. Nunca deixa o token vazar: em erro, lança mensagem
-// genérica (o corpo da resposta da Railway não inclui o token, mas por higiene
-// não repassamos detalhes de transporte que possam conter cabeçalhos).
-async function gql(query, variables) {
+// Esquema de auth já descoberto ('bearer' | 'project'), ou null = ainda não sei.
+let authScheme = null;
+
+// Monta os headers conforme o esquema. O token nunca é logado.
+function headersFor(scheme) {
+  const h = { 'Content-Type': 'application/json' };
+  if (scheme === 'project') h['Project-Access-Token'] = API_TOKEN;
+  else h['Authorization'] = 'Bearer ' + API_TOKEN;
+  return h;
+}
+
+// POST cru para a API, com timeout. Retorna o JSON (ou lança 'offline').
+async function rawFetch(scheme, query, variables) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 12000);
   let r;
   try {
     r = await fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + API_TOKEN },
+      headers: headersFor(scheme),
       body: JSON.stringify({ query, variables: variables || {} }),
       signal: ctrl.signal
     });
@@ -55,16 +68,42 @@ async function gql(query, variables) {
     throw new Error('offline'); // sem detalhes de rede
   }
   clearTimeout(t);
-  const j = await r.json().catch(() => null);
+  return r.json().catch(() => null);
+}
+
+// Detecta erro de autorização na resposta GraphQL.
+function isAuthError(j) {
+  return !!(j && j.errors && j.errors.length &&
+    /not authorized|unauthorized|forbidden|access denied|invalid token/i.test(String(j.errors[0].message || '')));
+}
+
+// Traduz a resposta em data ou erro genérico (nunca expõe token/transporte).
+function interpret(j) {
   if (!j) throw new Error('resposta inválida da hospedagem');
   if (j.errors && j.errors.length) {
     const msg = String(j.errors[0].message || '').toLowerCase();
-    if (/not authorized|unauthorized|forbidden/.test(msg)) throw new Error('auth');
+    if (/not authorized|unauthorized|forbidden|access denied|invalid token/.test(msg)) throw new Error('auth');
     if (/already exists|taken|in use|duplicate/.test(msg)) throw new Error('duplicado');
     if (/limit|maximum|quota/.test(msg)) throw new Error('limite');
     throw new Error('falha na hospedagem'); // genérica — nunca expõe o token
   }
   return j.data;
+}
+
+// Chamada GraphQL com auto-detecção do header. Se o esquema já é conhecido,
+// usa direto; senão tenta Bearer e, em erro de auth, tenta Project-Access-Token
+// (erro de auth = nada foi criado, então repetir a mutation é seguro).
+async function gql(query, variables) {
+  if (authScheme) return interpret(await rawFetch(authScheme, query, variables));
+
+  const jb = await rawFetch('bearer', query, variables);
+  if (jb && !isAuthError(jb)) { authScheme = 'bearer'; return interpret(jb); }
+
+  const jp = await rawFetch('project', query, variables);
+  if (jp && !isAuthError(jp)) { authScheme = 'project'; return interpret(jp); }
+
+  // Ambos os headers deram erro de auth → token inválido para esta operação.
+  throw new Error('auth');
 }
 
 // Extrai só o registro CNAME que interessa ao lojista (host → alvo).
@@ -121,5 +160,35 @@ async function remove(providerId) {
   await gql('mutation($id:String!){customDomainDelete(id:$id)}', { id: providerId });
   return { ok: true };
 }
+
+// Autoteste não-bloqueante no boot: descobre qual header autentica e loga um
+// sinal claro nos logs do Railway (sem precisar cadastrar um domínio de teste).
+// Sondas específicas: project(id) autentica account/workspace; projectToken
+// autentica project token. Nunca loga o token.
+async function selfTest() {
+  if (!enabled) return;
+  try {
+    const jb = await rawFetch('bearer', 'query($id:String!){project(id:$id){id}}', { id: PROJECT_ID });
+    if (jb && jb.data && jb.data.project) {
+      authScheme = 'bearer';
+      console.log('[domain-provider] Railway conectado — token account/workspace válido (registro automático ATIVO).');
+      return;
+    }
+    const jp = await rawFetch('project', 'query{projectToken{projectId environmentId}}');
+    if (jp && jp.data && jp.data.projectToken) {
+      authScheme = 'project';
+      console.log('[domain-provider] Railway conectado — project token válido (registro automático ATIVO).');
+      return;
+    }
+    console.warn('[domain-provider] token presente mas NÃO autenticou (nem account/workspace nem project). ' +
+      'Crie um token em Account Settings → Tokens e defina RAILWAY_API_TOKEN. Seguindo em modo manual.');
+  } catch (_) {
+    // Rede indisponível no boot não é fatal: a detecção acontece no 1º domínio.
+    console.warn('[domain-provider] não foi possível validar o token no boot (rede) — tentará de novo no 1º domínio.');
+  }
+}
+
+// Dispara sem bloquear o boot do servidor.
+if (enabled) { selfTest(); }
 
 module.exports = { enabled, register, status, remove };
