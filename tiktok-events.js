@@ -8,6 +8,11 @@ const rdb = require('./redis');
 
 const TIKTOK_API_URL = 'https://business-api.tiktok.com/open_api/v1.3/event/track/';
 
+// Eventos MONETÁRIOS: só disparam com confirmação do gateway (p._trusted).
+// Client-side fica restrito a ViewContent / InitiateCheckout / AddToCart.
+// Refund/Dispute entram aqui para o dia em que os providers os enviarem.
+const MONEY_EVENTS = new Set(['CompletePayment', 'AddPaymentInfo', 'Refund', 'Dispute']);
+
 // SHA-256 exigido pelo TikTok para todos os dados de identidade (PII)
 function hash(value) {
   if (!value) return undefined;
@@ -367,6 +372,25 @@ async function sendToPixel(pixel, p) {
  */
 async function dispatchToAll(eventName, p, routeHint, accountId) {
   const acc = accountId || p.acc || null;
+
+  // ── Trava gateway-only para eventos de DINHEIRO ──────────────────────────
+  // Venda/pagamento só pode ser disparado por origem confiável: webhook do
+  // gateway (/hook/:token) ou /api/conversion, que passam p._trusted = true.
+  // Qualquer disparo client-side (beacon /px) ou automático de evento monetário
+  // é BLOQUEADO aqui — impede venda "fantasma" sem confirmação do gateway.
+  if (MONEY_EVENTS.has(eventName) && !p._trusted) {
+    pushLog({
+      acc,
+      pixel: 'dispatch',
+      event: eventName,
+      eventId: p.eventId,
+      leadId: p.leadId,
+      status: 'bloqueado',
+      response: { message: 'evento monetário sem origem de gateway (gateway-only)' }
+    });
+    return { dispatched: 0, blocked: 'gateway-only' };
+  }
+
   const targets = pixelStore.forEvent(acc, eventName, routeHint || '*');
   if (!targets.length) return { dispatched: 0 };
   // allSettled: um pixel com problema NUNCA derruba o disparo dos demais

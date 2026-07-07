@@ -134,6 +134,10 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `ensureGlobeLib()` só quando um globo vai renderizar (não está mais no `<head>`).
 - `GET /t.js` — snippet de tracking. `GET /px.js`, `GET /px/:token.js`,
   `GET /px.gif` — pixel do navegador. `GET /l/:slug` — shortlink. `GET /go/:slug` — redirect com cloaking (§9).
+- `GET /c/:slug` — link de cloaking dedicado (offer/white próprios por link, §9).
+- `GET /_safe` — **página neutra embutida** (fail-safe do cloaker). Destino final de bots/revisores
+  quando o link não tem white page própria nem white global configurada. HTML institucional inofensivo,
+  `noindex`, sem redirect nem oferta. **Bots nunca chegam à offer.**
 - `GET /__dev/login` — **acesso rápido só em desenvolvimento** (ver §11.1). Loga automaticamente e
   redireciona para `/dashboard`, sem tela de login. **404 em produção** (`NODE_ENV=production`).
 
@@ -144,8 +148,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `GET /api/pixels/log`, `POST /api/pixels/test`.
 - **Links de checkout:** `GET/POST /api/links`, `GET/PUT/DELETE /api/links/:slug`,
   `POST /api/links/validate-domain`.
-- **Cloak/filtro de bots:** `GET/POST /api/cloak-config`, `GET /api/cloak/links`,
+- **Cloak/filtro de bots:** `GET/POST /api/cloak-config` (inclui `defaultWhitePage`, a white global
+  de fallback da conta), `GET /api/cloak/links`, `GET/POST/DELETE /api/cloak/entries[/:slug]` (links `/c/`),
   `POST /api/cloak/link/:slug`, `POST /api/cloak/test`, `GET /api/cloakcheck`.
+  **Métricas de decisão:** `GET /api/cloak/stats` (offer vs white + taxa de bloqueio + breakdown por
+  motivo, por link e agregado) e `POST /api/cloak/stats/reset` (zera um link via `{key}` ou todos).
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
 - **Conversões:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
@@ -204,18 +211,25 @@ Cada visita retorna `{ verdict:'real'|'bot', score:0-100, signals[] }`. **`score
   fast-path 100% confirmado. No estouro do `deadlineMs`, o `judge` segue SEM o sinal ASN (marca
   `asn:deadline`) e popula o cache em background — nunca atrasa o redirect.
 
-## 9. Fluxo do `/go/:slug` (cloaking) — ordem dos gates
-Só roda com `cloak.enabled` **e** white page configurada no link; senão apenas registra o evento.
-1. **rate-limit** (por IP).
-2. **gate de país** — allowlist `link.paises`, instantâneo via headers de edge
-   (`x-vercel-ip-country`, `cf-ipcountry`, `x-country`), sem DNS. Fora da lista → white page.
-3. **gate de idioma** — allowlist `link.idiomas`, instantâneo via header `Accept-Language`
-   (idioma primário, ex.: `pt` de `pt-BR`). Fora da lista → white page.
-4. **motor de score** (`bot-filter.judge`) — score 0–100; bots/revisores → white page.
-5. **escolha da variante** (`pickVariant`, split A/B determinístico) + disparo de `InitiateCheckout`
+## 9. Fluxo do `/go/:slug` e `/c/:slug` (cloaking) — ordem dos gates
+Roda com `cloak.enabled` (interruptor da conta no `/go`, do link no `/c`). **FAIL-SAFE:** não depende
+mais de white page por link — o destino seguro sempre existe, na ordem: **white do link → `defaultWhitePage`
+global da conta → `/_safe` embutida.** Assim **nenhum bot chega à offer**, mesmo em link sem white.
+1. **UA de bot** (`uaTools.isBot`) → página segura.
+2. **rate-limit** (por IP) → página segura.
+3. **gate de país** — allowlist `link.paises`, instantâneo via headers de edge
+   (`x-vercel-ip-country`, `cf-ipcountry`, `x-country`), sem DNS. Fora da lista → página segura.
+4. **gate de idioma** — allowlist `link.idiomas`, instantâneo via header `Accept-Language`
+   (idioma primário, ex.: `pt` de `pt-BR`). Fora da lista → página segura.
+5. **motor de score** (`bot-filter.judge`) — score 0–100; bots/revisores → página segura (SEMPRE, sem exceção).
+6. **escolha da variante** (`pickVariant`, split A/B determinístico) + disparo de `InitiateCheckout`
    no pixel de `link.pixelSlug` (via `sendToPixel`). Só pessoas reais que chegam à offer geram evento.
 
 País e idioma rodam ANTES do score (são ~0ms). **Não reordenar.**
+**Métricas:** cada decisão chama `redis.bumpCloakDecision(acc, key, 'offer'|'white', motivo)` — `key` é
+o `slug` no `/go` e `'cloak:'+slug` no `/c`. Alimenta `GET /api/cloak/stats` e o painel white/offer.
+Motivos: `bot-ua`, `rate-limit`, `pais`, `idioma`, `score`. Contadores em `cloakstats:<acc>:<key>` (Redis,
+90d, fallback em memória).
 
 ## 10. CAPI do TikTok (tiktok-events.js)
 - **Endpoint:** `POST https://business-api.tiktok.com/open_api/v1.3/event/track/`, header `Access-Token`.
@@ -228,15 +242,23 @@ País e idioma rodam ANTES do score (são ~0ms). **Não reordenar.**
   navegador↔servidor (duplica ou perde eventos). Retry imediato + fila durável (`capiRetryQueue`).
 - **Multi-pixel:** `dispatchToAll` dispara em todos os pixels ativos; `sendToPixel` mira um específico
   (usado pelo `/go` quando o link tem `pixelSlug`).
+- **Trava gateway-only (eventos de dinheiro):** `MONEY_EVENTS` = `CompletePayment`, `AddPaymentInfo`,
+  `Refund`, `Dispute`. `dispatchToAll` BLOQUEIA esses eventos se o payload não tiver `p._trusted = true`.
+  Só o webhook do gateway (`/hook/:token`) e `/api/conversion` marcam `_trusted`. Isso impede venda
+  "fantasma" disparada por beacon client-side. Bloqueio é logado com `status:'bloqueado'` e retorna
+  `{ blocked:'gateway-only' }`. Client-side fica restrito a `ViewContent`/`InitiateCheckout`/`AddToCart`.
 
 ## 11. Comandos essenciais
 ```bash
 npm install     # instala dependências
 npm start       # produção: node server.js (porta 3000 ou $PORT)
 npm run dev     # local: node --env-file-if-exists=.env.development.local server.js
+npm test        # roda os testes de regressão (test/*.test.js), sem rede/DB reais
 ```
 - **Build:** não há (script `build` é um `echo`; JS puro, sem transpile).
-- **Testes / lint / typecheck:** não configurados no `package.json`.
+- **Testes:** `npm test` — asserts em Node puro, sem framework. `test/retry-queue.test.js` (re-resolução
+  da fila CAPI por token) e `test/gateway-only.test.js` (trava de eventos monetários). Stubam
+  `pixel-store`/`redis` no require-cache e `global.fetch`. Ao mexer no motor CAPI, rode-os.
 - **Migração de banco:** automática e idempotente — `db.init()` roda `CREATE TABLE/ALTER … IF NOT EXISTS` no boot.
 
 ### 11.1 Acesso rápido à dashboard em desenvolvimento (para IAs/testes)
@@ -285,8 +307,13 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
   Ao editar, sempre passar pela sanitização — escrever direto no objeto pula validação/persistência.
 - **`loadConfig` retorna `{ok,data}`:** `ok=false` = ERRO de leitura (NÃO sobrescreva a config!);
   `ok=true, data=null` = confirmado que não há config salva. Tratar os dois casos distintamente.
-- **Cloak x white page:** o filtro só redireciona se houver white page por link **e** `cloak.enabled`;
-  senão apenas registra. Threshold muito agressivo manda usuário real → white page = venda perdida.
+- **Cloak x white page (FAIL-SAFE):** o destino seguro SEMPRE existe (white do link → `defaultWhitePage`
+  global → `/_safe`). O filtro depende só de `cloak.enabled`; bot detectado nunca vai à offer.
+  Threshold muito agressivo manda usuário real → página segura = venda perdida (ajuste com cuidado
+  olhando a taxa de bloqueio em `/api/cloak/stats`).
+- **Eventos de dinheiro são gateway-only:** nunca dispare `CompletePayment`/`AddPaymentInfo` (nem
+  `Refund`/`Dispute`) sem `p._trusted=true`. Só webhook do gateway e `/api/conversion` são confiáveis;
+  o motor bloqueia o resto (ver §10). Adicionar um novo caminho de venda exige marcar `_trusted`.
 - **`deadlineMs` e sinal ASN:** lookup de ASN tem teto de latência; no estouro o `judge` segue SEM
   esse sinal (marca `asn:deadline`) e popula o cache em background. Baixar demais reduz a precisão.
 - **Pixel do link vence:** se `link.pixelSlug` aponta um pixel ativo, o `InitiateCheckout` dispara SÓ

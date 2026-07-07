@@ -1868,6 +1868,21 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <button class="btn primary" id="ck-new" type="button">+ Criar link de cloaking</button>
         </div>
 
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <h3 style="font-size:15px;margin:0">P&aacute;gina segura padr&atilde;o <span class="hint">(fail-safe)</span></h3>
+              <p class="hint" style="margin:3px 0 0">Destino dos bots quando um link n&atilde;o tem white page pr&oacute;pria. Se vazio, usamos uma p&aacute;gina neutra embutida (<code>/_safe</code>). Bots <b>nunca</b> chegam &agrave; offer.</p>
+            </div>
+            <div id="ck-agg" style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;align-items:center"></div>
+            <button class="btn btn-sm" id="ck-stats-refresh" type="button">Atualizar m&eacute;tricas</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <input class="inp" id="ck-global-white" type="url" placeholder="https://seu-site.com/pagina-neutra" style="flex:1;min-width:220px">
+            <button class="btn" id="ck-global-white-save" type="button">Salvar</button>
+          </div>
+        </div>
+
         <div id="ck-list"></div>
       </section>
 
@@ -3839,9 +3854,11 @@ function testPushcut(){
 }
 
 /* ── Filtro de Bots / Links de cloaking (entidade /c/:slug) ── */
-var CK_ENTRIES=[];     // links de cloaking, cada um com config própria
-var CK_BASE='';        // base URL para montar /c/<slug>
-var CK_OPEN=null;      // slug em edição, ou '__new__' para o formulário de criação
+ var CK_ENTRIES=[];     // links de cloaking, cada um com config própria
+ var CK_BASE='';        // base URL para montar /c/<slug>
+ var CK_OPEN=null;      // slug em edição, ou '__new__' para o formulário de criação
+ var CK_STATS={};       // decisões por link: chave 'tipo/slug' → {offer,white,total,blockRate,reasons}
+ var CK_AGG=null;       // agregado geral da conta (offer/white/total/blockRate/reasons)
 var CK_LAYERS=[
   ['blockDatacenter','Servidores e rede do TikTok','Bloqueia acessos que vêm de servidores (data centers) e da própria rede do TikTok — é de lá que saem os revisores de anúncios.'],
   ['blockHeadless','Robôs automatizados','Detecta navegadores controlados por robô, sem tela, usados para varrer páginas automaticamente.'],
@@ -3862,14 +3879,41 @@ function loadCloakConfig(){
   fetch('/api/cloak/entries',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     CK_ENTRIES=(d&&d.entries)||[]; CK_BASE=(d&&d.baseUrl)||location.origin; renderCloakList();
   }).catch(function(){});
+  loadCloakStats();
+}
+/* Busca as métricas de decisão (offer/white) e re-renderiza a lista. */
+function loadCloakStats(){
+  fetch('/api/cloak/stats',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    if(!d||!d.ok) return;
+    CK_AGG=d.aggregate||null;
+    var map={};
+    (d.links||[]).forEach(function(it){ map[it.tipo+'/'+it.slug]=it; });
+    CK_STATS=map;
+    renderCloakList();
+    renderCloakAgg();
+  }).catch(function(){});
+}
+/* Lê as métricas de um link específico do cache CK_STATS. */
+function ckStatFor(tipo,slug){ return CK_STATS[tipo+'/'+slug]||null; }
+/* Preenche o resumo agregado da conta (se o container existir). */
+function renderCloakAgg(){
+  var host=document.getElementById('ck-agg'); if(!host) return;
+  if(!CK_AGG||!CK_AGG.total){ host.innerHTML=''; return; }
+  var pct=Math.round((CK_AGG.blockRate||0)*100);
+  host.innerHTML='<span style="color:var(--green,#39d98a)">Offer <b>'+CK_AGG.offer+'</b></span>'+
+    '<span style="color:var(--muted2)">White <b>'+CK_AGG.white+'</b></span>'+
+    '<span>Bloqueio geral <b>'+pct+'%</b> <span class="hint">('+CK_AGG.total+' visitas)</span></span>';
 }
 function ckUrl(slug){ return (CK_BASE||location.origin)+'/c/'+slug; }
 /* Card colapsado (resumo) de um link de cloaking */
 function ckCard(l){
-  var on=l.enabled!==false && !!l.whitePageUrl;
+  // FAIL-SAFE: mesmo sem white page própria, bots caem numa página segura
+  // (white global ou /_safe embutida) — nunca na offer. Então "protegido"
+  // depende só do interruptor do link.
+  var on=l.enabled!==false;
   var url=ckUrl(l.slug);
-  var statusTxt = !l.whitePageUrl ? 'Sem white page — tudo vai à offer'
-    : (l.enabled===false ? 'Proteção desligada' : 'Protegido — modo '+({strict:'agressivo',balanced:'equilibrado',loose:'conservador',custom:'manual'}[l.sensitivity]||'equilibrado'));
+  var statusTxt = (l.enabled===false) ? 'Proteção desligada — tudo vai à offer'
+    : ('Protegido — modo '+({strict:'agressivo',balanced:'equilibrado',loose:'conservador',custom:'manual'}[l.sensitivity]||'equilibrado')+(!l.whitePageUrl?' · usando página segura padrão':''));
   return '<div class="card ck-card" data-slug="'+esc(l.slug)+'" style="margin-bottom:12px">'+
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
       '<span class="ck-dot'+(on?' on':'')+'" title="'+esc(statusTxt)+'"></span>'+
@@ -3884,7 +3928,27 @@ function ckCard(l){
       '<button class="btn btn-sm" data-ck-edit="'+esc(l.slug)+'" type="button">Configurar</button>'+
       '<button class="cn-x" data-ck-del="'+esc(l.slug)+'" title="Apagar" aria-label="Apagar link de cloaking">&times;</button>'+
     '</div>'+
+    ckStatsRow('cloak',l.slug)+
     (CK_OPEN===l.slug?('<div class="ck-editor-wrap" style="margin-top:16px;border-top:1px solid var(--line,rgba(255,255,255,.06));padding-top:16px">'+renderCloakEditor(l,false)+'</div>'):'')+
+  '</div>';
+}
+/* Mini-painel de decisões (→ Offer / → White / % bloqueio) de um link. */
+function ckStatsRow(tipo,slug){
+  var st=ckStatFor(tipo,slug);
+  if(!st||!st.total){
+    return '<div class="ck-stats" style="margin-top:10px;font-size:12px;color:var(--muted2)">Sem tráfego registrado ainda.</div>';
+  }
+  var pct=Math.round((st.blockRate||0)*100);
+  var reasons=st.reasons||{};
+  var rlabel={'bot-ua':'bot','pais':'país','idioma':'idioma','score':'score','rate-limit':'rajada'};
+  var chips=Object.keys(reasons).sort(function(a,b){return reasons[b]-reasons[a];}).slice(0,4).map(function(r){
+    return '<span class="ck-chip" style="display:inline-block;padding:1px 7px;border-radius:10px;background:var(--line,rgba(255,255,255,.06));margin:2px 4px 0 0;font-size:11px">'+esc(rlabel[r]||r)+': '+reasons[r]+'</span>';
+  }).join('');
+  return '<div class="ck-stats" style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:14px;font-size:12px;border-top:1px dashed var(--line,rgba(255,255,255,.06));padding-top:10px">'+
+    '<span style="color:var(--green,#39d98a)">&rarr; Offer <b>'+st.offer+'</b></span>'+
+    '<span style="color:var(--muted2)">&rarr; White <b>'+st.white+'</b></span>'+
+    '<span>Bloqueio <b>'+pct+'%</b> <span class="hint">('+st.total+' visitas)</span></span>'+
+    (chips?'<span style="flex-basis:100%;margin-top:2px">'+chips+'</span>':'')+
   '</div>';
 }
 function renderCloakList(){
@@ -4119,6 +4183,25 @@ function bindCloak(){
     var del=e.target.closest?e.target.closest('[data-ck-del]'):null;
     if(del){ deleteCloakEntry(del.getAttribute('data-ck-del')); return; }
   });
+  // White page global de fallback: carrega o valor atual e salva.
+  var gw=document.getElementById('ck-global-white');
+  if(gw){
+    fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      if(d&&typeof d.defaultWhitePage==='string') gw.value=d.defaultWhitePage;
+    }).catch(function(){});
+  }
+  var gwSave=document.getElementById('ck-global-white-save');
+  if(gwSave) gwSave.addEventListener('click',function(){
+    var v=(gw&&gw.value||'').trim();
+    if(v && !/^https:\/\//i.test(v)){ toast('A p\u00e1gina segura deve come\u00e7ar com https://',false); return; }
+    fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({defaultWhitePage:v})})
+      .then(function(r){return r.json();})
+      .then(function(d){ toast(d&&d.ok!==false?'P\u00e1gina segura salva':'Erro ao salvar', d&&d.ok!==false); })
+      .catch(function(){ toast('Erro ao salvar',false); });
+  });
+  // Atualizar métricas de decisão (offer/white).
+  var rf=document.getElementById('ck-stats-refresh');
+  if(rf) rf.addEventListener('click',function(){ loadCloakStats(); toast('M\u00e9tricas atualizadas'); });
 }
 
 /* ─��� Links curtos rastreáveis (/l/:slug) ── */
