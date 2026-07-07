@@ -3926,7 +3926,10 @@ var CK_LAYERS=[
   ['checkWebgl','Placa de vídeo de verdade','Verifica se o aparelho tem uma placa de vídeo real. Robôs costumam usar uma simulada (falsa).'],
   ['checkTimezone','Horário x país do acesso','Compara o horário do aparelho com o país de onde o acesso vem. Se não bate, é suspeito.'],
   ['checkBehavior','Comportamento humano','Mede sinais de gente real: movimento do mouse, rolagem, toque na tela e tempo na página.'],
-  ['blockZhLang','Aparelho em idioma suspeito','Sinaliza aparelhos configurados em chinês fora da China — padrão comum nas contas de revisão.']
+  ['blockZhLang','Aparelho em idioma suspeito','Sinaliza aparelhos configurados em chinês fora da China — padrão comum nas contas de revisão.'],
+  ['checkWebview','Veio de dentro do app','Confirma que o acesso abriu dentro do app do TikTok. Quem copia o link e cola no navegador (revisores) não passa.'],
+  ['checkCoherence','Aparelho coerente','Cruza sistema, memória, tela e idioma do aparelho com o país e o navegador. Emuladores e disfarces se contradizem e são pegos.'],
+  ['checkEntropy','Movimento natural','Analisa a "textura" do movimento (micro-tremores do dedo/mouse). Robôs se movem em linha reta perfeita ou clicam sem mexer antes.']
 ];
 var CK_SENS_DESC={
   strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',

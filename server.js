@@ -1619,7 +1619,8 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   const cur = config.get(req.account.id).cloak || {};
   const next = Object.assign({}, cur);
   const boolKeys = ['enabled', 'blockDatacenter', 'blockHeadless', 'checkHeaders',
-    'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang'];
+    'requireJsChallenge', 'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang',
+    'checkWebview', 'checkCoherence', 'checkEntropy'];
   boolKeys.forEach((k) => { if (typeof b[k] === 'boolean') next[k] = b[k]; });
   if (['strict', 'balanced', 'loose', 'custom'].includes(b.sensitivity)) next.sensitivity = b.sensitivity;
   if (b.threshold != null && !isNaN(Number(b.threshold))) next.threshold = Number(b.threshold);
@@ -1829,7 +1830,8 @@ app.post('/api/cloak/entries', dashboardAuth, (req, res) => {
     updatedAt: new Date().toISOString()
   });
   ['blockDatacenter', 'blockHeadless', 'checkHeaders', 'requireJsChallenge',
-    'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang'].forEach((k) => {
+    'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang',
+    'checkWebview', 'checkCoherence', 'checkEntropy'].forEach((k) => {
     if (typeof b[k] === 'boolean') entry[k] = b[k];
   });
 

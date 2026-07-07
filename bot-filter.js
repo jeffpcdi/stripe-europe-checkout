@@ -781,6 +781,7 @@ function challengeSnippet(visitorId, token) {
 
 module.exports = {
   judge,
+  lookupASN,
   issueChallengeToken,
   verifyChallengeToken,
   challengeSnippet,
