@@ -16,6 +16,7 @@ const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || null;
+// Aceita DATABASE_URL (padrão) ou POSTGRES_URL como fonte da connection string.
 const enabled = !!URL;
 const sql = enabled ? neon(URL) : null;
 
