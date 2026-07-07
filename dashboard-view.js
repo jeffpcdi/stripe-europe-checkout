@@ -372,6 +372,9 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .kpis{grid-template-columns:repeat(4,1fr)}
 @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:560px){.kpis{grid-template-columns:1fr}}
+/* Ao Vivo só tem 2 KPIs: ocupam a fila inteira (senão sobra meio ecrã vazio) */
+#view-live .kpis{grid-template-columns:repeat(2,1fr)}
+@media(max-width:560px){#view-live .kpis{grid-template-columns:1fr}}
 .card{
   position:relative;isolation:isolate;
   background:var(--card);
@@ -570,6 +573,10 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
 .notif-head .nh-title .live-dot-anim{width:7px;height:7px}
 .notif-tools{display:flex;align-items:center;gap:6px}
 .icon-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;transition:.15s}
+/* botões utilitários do topo (busca/atualizar): fantasma — o ciano cheio gritava
+   mais que os próprios dados; o preenchido fica só para ações primárias */
+#cmdk-open,#refresh-btn{background:var(--card);color:var(--accent);border:1px solid var(--border2);box-shadow:none}
+#cmdk-open:hover,#refresh-btn:hover{background:var(--accent-light);border-color:var(--accent)}
 .icon-btn:hover{color:var(--text);border-color:var(--border2)}
 .icon-btn svg{width:16px;height:16px}
 .icon-btn.on{color:var(--green);border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.1)}
@@ -696,6 +703,13 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
   .chart-tip b{display:block;font-family:'Geist Mono',monospace;font-size:14px}
   .chart-tip span{color:var(--muted2);font-size:10.5px}
 .section-title .line{flex:1;height:1px;background:linear-gradient(90deg, var(--border2), var(--border) 60%, transparent);opacity:0.85}
+/* legenda à direita do título: leve, não compete com o título (que é 700) */
+.section-title .muted{font-weight:500;letter-spacing:0}
+/* badges de estado do domínio: pill âmbar (pendente) / verde (validado) */
+.badge-warn{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;color:var(--warning);background:var(--warning-light);border:1px solid rgba(251,191,36,.3);width:max-content;max-width:100%}
+.badge-warn::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--warning)}
+.badge-ok{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;color:var(--success);background:var(--success-light);border:1px solid rgba(34,197,94,.3);width:max-content;max-width:100%}
+.badge-ok::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--success)}
 
 /* ── Gráfico ── */
 .chart-wrap{position:relative;min-height:220px;width:100%}
@@ -734,7 +748,11 @@ tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay
 .tag.orphan{color:var(--red);background:rgba(220,38,38,.12);border-color:rgba(220,38,38,.3)}
 .muted{color:var(--muted2)}
 /* Empty state padronizado: compacto, 1 frase, sem ocupar meia tela */
-.empty{display:flex;align-items:center;justify-content:center;gap:8px;padding:26px 16px;text-align:center;color:var(--muted2);font-size:13px}
+/* estado vazio com presença: moldura tracejada + ponto ciano, deixa de parecer "tela seca" */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:34px 16px;text-align:center;color:var(--muted2);font-size:13px;border:1px dashed var(--border);border-radius:10px;margin:6px}
+.empty::before{content:'';width:34px;height:34px;border-radius:50%;background:var(--accent-light);
+  box-shadow:inset 0 0 0 1px rgba(37,244,238,.3),0 0 14px rgba(37,244,238,.12);
+  background-image:radial-gradient(circle,var(--accent) 3px,transparent 3.5px);background-position:center;background-repeat:no-repeat}
 .empty svg{width:18px;height:18px;opacity:.7}
 .tbl-count{font-size:12px;color:var(--muted2);margin-left:auto}
 
@@ -1023,7 +1041,7 @@ details[open]>.setup-summary .chev{transform:rotate(180deg)}
 .skel-line{height:12px;width:60%}
 @media(prefers-reduced-motion:reduce){.skel::after{animation:none}}
 
-/* ── Foco visível para navegação por teclado ─�� */
+/* ── Foco visível para navegação por teclado ─��� */
 button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visible{
   outline:2px solid var(--ring);outline-offset:2px;border-radius:6px}
 .inp:focus-visible{outline-offset:0}
@@ -1118,7 +1136,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 @keyframes kpiIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
 
 /* ── Ministats (substitui os chips) ── */
-.ministats{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:2px 0 6px}
+.ministats{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:16px 0 6px}
 .mstat{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px 14px 19px;overflow:hidden;transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease);animation:kpiIn .5s var(--ease) backwards;--mc:var(--accent)}
 .mstat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px;background:var(--mc);opacity:.6}
 .mstat:nth-child(1){animation-delay:.05s}.mstat:nth-child(2){animation-delay:.11s}.mstat:nth-child(3){animation-delay:.17s}
@@ -3625,7 +3643,7 @@ function renderLinks(){
         '<div class="lmain">'+
   '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span>'+(l.urlWhitePage?'&nbsp;<span class="tag" style="font-size:11px;background:rgba(0,200,255,.12);color:var(--cyn,#00c2ff);border:1px solid rgba(0,200,255,.25);padding:1px 6px;border-radius:4px;font-weight:600">CLOAK</span>':'')+'</b>'+
   '<span>'+(nv>1?'<span class="cyn">teste A/B ('+nv+' checkouts)</span>':'checkout &uacute;nico')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
-  '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
+  '<span>'+(l.dominioValidado?'<span class="badge-ok">Dom&iacute;nio validado &middot; '+esc(l.dominio)+'</span>':'<span class="badge-warn">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
           '<button class="btn-icon" onclick="copyLink(\\''+esc(l.slug)+'\\')">Copiar URL</button>'+
@@ -4131,7 +4149,7 @@ function renderCloakRule(slug){
 }
 /* Catálogo de países por bloco (código ISO-2, nome, bandeira) */
 var CK_COUNTRY_BLOCKS=[
-  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲🇽'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷']]},
+  {block:'Américas',items:[['BR','Brasil','🇧🇷'],['MX','México','🇲���'],['US','Estados Unidos','🇺🇸'],['CA','Canadá','🇨🇦'],['CO','Colômbia','🇨🇴'],['CL','Chile','🇨🇱'],['AR','Argentina','🇦🇷']]},
   {block:'Europa Sul',items:[['PT','Portugal','🇵🇹'],['ES','Espanha','🇪🇸'],['IT','Itália','🇮🇹'],['FR','França','🇫🇷']]},
   {block:'Europa Norte/Central',items:[['DE','Alemanha','🇩🇪'],['NL','Países Baixos','🇳🇱'],['BE','Bélgica','🇧🇪'],['AT','Áustria','🇦🇹'],['CH','Suíça','🇨🇭'],['IE','Irlanda','🇮🇪'],['GB','Reino Unido','🇬🇧']]},
   {block:'Outros',items:[['AU','Austrália','🇦🇺'],['AE','Emirados Árabes','🇦🇪'],['SA','Arábia Saudita','🇸🇦'],['PL','Polônia','🇵🇱'],['RO','Romênia','🇷🇴']]}
