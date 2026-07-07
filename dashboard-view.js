@@ -946,6 +946,8 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .dmtut-warn{display:none;margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.35);background:var(--warning-light)}
 .dmtut-warn b{font-size:12.5px;color:var(--warning);display:block;margin-bottom:3px}
 .dmtut-warn p{font-size:12px;color:var(--text-sub);line-height:1.55;margin:0}
+.dmtut-warn.ok{border-color:rgba(34,197,94,.4);background:var(--success-light)}
+.dmtut-warn.ok b{color:var(--success)}
 .dmtut-okbox{text-align:center;padding:26px 16px 18px}
 .dmtut-okbox b{font-size:15.5px;display:block;margin-bottom:6px}
 .dmtut-okbox p{font-size:12.5px;color:var(--text-muted);line-height:1.55;margin:0 0 16px}
@@ -2451,7 +2453,7 @@ function renderOverview(m){
   // multi-moeda cai no texto estático "X € + Y £"
   var revCurs=Object.keys(m.rev||{}).filter(function(c){return (m.rev[c]||0)>0;});
   var singleCur=revCurs.length<=1;
-  // zeros neutros: valor zerado usa cinza — cor semântica só quando há sinal real
+  // zeros neutros: valor zerado usa cinza — cor sem��ntica só quando há sinal real
   function zc(v,cls){ return v>0?cls:'mut'; }
   var hasRev=revCurs.length>0&&(m.rev[revCurs[0]]||0)>0;
   var revHtml=singleCur?'<span class="'+(hasRev?'pos':'mut')+'" id="ov-cu-rev">'+money(0,revCurs[0]||'EUR')+'</span>':'<span class="pos">'+revObj(m.rev)+'</span>';
@@ -3358,7 +3360,7 @@ function renderLiveGlobe(){
           .ringMaxRadius(function(d){return 1.8+d.size*3.2;})
           .ringPropagationSpeed(1.6)
           .ringRepeatPeriod(function(d){return 1200-d.size*400;});
-        // liga controles: zoom +/− e tela cheia
+        // liga controles: zoom +/�� e tela cheia
         var zi=document.getElementById('globe-zoom-in'), zo=document.getElementById('globe-zoom-out'), fs=document.getElementById('globe-fs');
         if(zi)zi.onclick=function(){globeZoom(0.72);};
         if(zo)zo.onclick=function(){globeZoom(1.38);};
@@ -4656,6 +4658,7 @@ function pxTutOpenPx(px){
         '<b>Teste o disparo</b>'+
         '<p style="margin-bottom:10px">Visitas e compras passam a aparecer em tempo real. Quer confirmar agora? Envie um evento de teste direto ao TikTok.</p>'+
         '<button class="btn primary" id="pxtut-test" style="min-width:160px">Enviar teste</button>'+
+        '<div class="dmtut-warn" id="pxtut-result"></div>'+
       '</div>'+
     '</div>';
   document.getElementById('pxtut-bg').classList.add('open');
@@ -4673,15 +4676,43 @@ function delPixel(slug){
   });
 }
 function testPixel(slug){
-  toast('Enviando evento de teste...');
+  var btn=document.getElementById('pxtut-test');
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="dmtut-spin"></span> Enviando\u2026'; }
+  else toast('Enviando evento de teste...');
   fetch('/api/pixels/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:slug})})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok) toast('TikTok aceitou o disparo (code 0)');
-      else toast('Falhou: '+(d.message||d.error||'ver log'),false);
-      loadPxLog();
-    })
-    .catch(function(){ toast('Erro no teste',false); });
+  .then(function(r){return r.json();})
+  .then(function(d){
+    var msg=pxTestMsg(d);
+    if(d.ok) toast('TikTok aceitou o disparo (code 0)');
+    else toast('Falhou: '+msg,false);
+    pxTutShowResult(slug,!!d.ok,msg);
+    loadPxLog();
+  })
+  .catch(function(){
+    toast('Erro de rede no teste',false);
+    pxTutShowResult(slug,false,'Erro de rede \u2014 tente novamente.');
+  })
+  .finally(function(){
+    var b=document.getElementById('pxtut-test');
+    if(b){ b.disabled=false; b.textContent='Enviar teste'; }
+  });
+}
+// Traduz a resposta do teste em mensagem acionável para o usuário leigo
+function pxTestMsg(d){
+  if(d.ok) return 'Evento recebido pelo TikTok \u2014 pixel e token est\u00e3o corretos.';
+  var m=d.message||d.error||'';
+  if(/access.?token|auth|permission/i.test(m)) return 'Token de acesso inv\u00e1lido \u2014 gere um novo em TikTok Events Manager \u2192 Configura\u00e7\u00f5es do pixel \u2192 Gerar token.';
+  if(/pixel|event_source_id|not exist/i.test(m)) return 'C\u00f3digo do pixel n\u00e3o reconhecido \u2014 confira o Pixel ID no TikTok Events Manager.';
+  return m||'ver o log de disparos abaixo';
+}
+// Mostra o resultado do teste dentro do modal de instalação (se aberto)
+function pxTutShowResult(slug,ok,msg){
+  if(!PXTUT_PX||PXTUT_PX.slug!==slug) return;
+  var box=document.getElementById('pxtut-result');
+  if(!box) return;
+  box.style.display='block';
+  box.className='dmtut-warn'+(ok?' ok':'');
+  box.innerHTML=(ok?'<b>Teste aprovado!</b>':'<b>Teste falhou</b>')+'<p>'+esc(msg)+'</p>';
 }
 function savePixel(){
   var slug=document.getElementById('px-slug').value;
@@ -5136,7 +5167,7 @@ function applyDr(){
   toast('Per\u00edodo segmentado aplicado');
 }
 
-/* ─�� Paleta de comandos ⌘K ── */
+/* ─�� Paleta de comandos ⌘K ─�� */
 var CMD_ITEMS=[
   {g:'Telas',t:'Visão Geral',h:'resumo',ic:I.money,act:function(){setView('overview');}},
   {g:'Telas',t:'Ao Vivo',h:'presença, funil, países',ic:I.zap,act:function(){setView('live');}},

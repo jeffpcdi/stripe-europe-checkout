@@ -434,7 +434,15 @@ async function testPixel(pixel, ctx) {
     value: 0,
     currency: 'EUR'
   });
-  return { eventId, response: json };
+  // ok explícito: o painel decide sucesso/falha por este campo (code 0 = aceito)
+  const ok = !!(json && json.code === 0);
+  return {
+    ok,
+    eventId,
+    code: json ? json.code : undefined,
+    message: (json && (json.message || json.msg || json.error)) || undefined,
+    response: json
+  };
 }
 
 // Compat: assinatura antiga (1 pixel via env). Redireciona para dispatchToAll.
