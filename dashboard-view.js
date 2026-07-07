@@ -958,16 +958,6 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .tracking-tabs[hidden]{display:none!important} /* .segment é flex; garante que hidden vença */
 .tracking-tabs button{padding:8px 16px;font-size:13px}
 
-/* ── Strip de presença (Visão Geral → Ao Vivo) ── */
-.live-strip{display:flex;align-items:center;gap:10px;width:100%;margin-top:14px;padding:12px 16px;
-  background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--muted);
-  font:inherit;font-size:13px;cursor:pointer;text-align:left;
-  transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
-.live-strip:hover{border-color:var(--border2);background:var(--card2)}
-.live-strip b{color:var(--text);font-variant-numeric:tabular-nums}
-.live-strip .ls-sep{width:1px;height:14px;background:var(--border2)}
-.live-strip .ls-cta{margin-left:auto;color:var(--accent);font-weight:600;font-size:12.5px}
-
 /* ── Setup guiado (checklist com progresso) ── */
 .setup-card{border-color:color-mix(in srgb,var(--accent) 22%,transparent)}
 /* recolhível: summary vira a linha-resumo; corpo esconde o título duplicado */
@@ -1062,7 +1052,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visibl
   .tracking-tabs{overflow-x:auto;scrollbar-width:none}
   .tracking-tabs::-webkit-scrollbar{display:none}
   .tracking-tabs button{white-space:nowrap}
-  .live-strip{flex-wrap:wrap;row-gap:4px}
   /* card Conversão: funil mini apertado — rótulos curtos e fonte menor */
   .k-funnel .kf-lbl{font-size:11px;width:52px}
   .k-funnel .kf-pct{font-size:10.5px}
@@ -1595,14 +1584,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div id="ov-setup" hidden></div>
         <div class="grid kpis kpis-xl" id="ov-kpis" aria-busy="true"><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div></div>
         <div class="ministats" id="ov-chips" aria-busy="true"><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div></div>
-        <!-- strip compacto de presença: o globo mora no Ao Vivo -->
-        <button class="live-strip" id="ov-live-strip" type="button">
-          <span class="live-dot-anim"></span>
-          <span><b id="ovs-online">0</b> online agora</span>
-          <span class="ls-sep"></span>
-          <span><b id="ovs-ck">0</b> no checkout</span>
-          <span class="ls-cta">Ver ao vivo &#8594;</span>
-        </button>
         <div class="card traffic-card reveal" id="traffic-pulse"></div>
         <div id="ov-goal-sec" hidden>
           <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
@@ -3180,16 +3161,9 @@ function updateLiveBadge(){
   var b=document.getElementById('nav-live-badge');
   if(b){ b.textContent=n; b.style.display=n>0?'':'none'; }
 }
-// strip de presença na Visão Geral: só números + atalho para o Ao Vivo
+// mantém o pulso de tráfego da Visão Geral em dia (a faixa de presença foi removida)
 function updateLiveStrip(){
-  var on=document.getElementById('ovs-online'), ck=document.getElementById('ovs-ck');
-  if(!on) return;
-  var vs=(LIVE.visitors||[]);
-  var c=LIVE.checkout||{};
-  var totalCk=c.externalEst!=null?c.externalEst:vs.filter(isCheckoutLead).length;
-  countUp(on,(LIVE.summary&&LIVE.summary.online)||0,'',450);
-  if(ck) countUp(ck,totalCk,'',450);
-  if(currentView==='overview') renderTrafficPulse(); // o pulso de tráfego vive na Visão Geral
+  if(currentView==='overview') renderTrafficPulse();
 }
 
 /* ── Notificações (aba Ao Vivo) ─────────────────────────────────────────
@@ -5061,9 +5035,6 @@ document.getElementById('tracking-tabs').addEventListener('click',function(e){
 // setup guiado: botões "Configurar" levam à tela certa
 document.addEventListener('click',function(e){
   var b=e.target.closest('.si-go'); if(b) setView(b.getAttribute('data-go'));
-});
-// strip de presença → Ao Vivo
-document.getElementById('ov-live-strip').addEventListener('click',function(){ setView('live');
 });
 function setSideMenu(open){
   document.getElementById('sidebar').classList.toggle('open',open);
