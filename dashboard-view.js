@@ -1673,9 +1673,10 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       <!-- ── Rastreamento: sub-abas (Links / Pixel / Bots) ��─ -->
       <div class="segment tracking-tabs" id="tracking-tabs" hidden>
         <button data-t="links" class="active">Links de Checkout</button>
+        <button data-t="cloak">Filtro de Bots</button>
+        <button data-t="domains">Dom&iacute;nios</button>
         <button data-t="pixels">Pixel TikTok</button>
         <button data-t="gateways">Gateways</button>
-        <button data-t="cloak">Filtro de Bots</button>
       </div>
 
       <!-- ── Links de Checkout ── -->
@@ -1760,7 +1761,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
                   <label>Dom&iacute;nio do link</label>
                   <select class="inp" id="lk-domain" style="width:100%;font-family:'Geist Mono',monospace"></select>
                   <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
-                  <p class="hint" style="margin-top:4px;line-height:1.6">Só aparecem dom&iacute;nios <b>verificados</b>. Cadastre e verifique em <b>Dom&iacute;nio personalizado</b> (abaixo) para us&aacute;-lo aqui.</p>
+                  <p class="hint" style="margin-top:4px;line-height:1.6">Só aparecem dom&iacute;nios <b>verificados</b>. Cadastre e verifique na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom&iacute;nios</a> para us&aacute;-lo aqui.</p>
                 </div>
               </div>
             </details>
@@ -1774,10 +1775,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <input type="hidden" id="lk-slug" value="">
           </div>
         </div>
-        <!-- domínio próprio: recolhido por padrão, é opcional -->
-        <details class="ck-adv" style="margin-top:20px">
-          <summary>Dom&iacute;nio personalizado <span class="hint" style="font-weight:400">&mdash; opcional: use o SEU dom&iacute;nio nos an&uacute;ncios</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
-          <div class="ck-adv-body">
+        <!-- gerenciador de domínios: realocado para a aba "Domínios" via JS (mountDomainPanel) -->
+        <div id="dm-panel">
+          <div>
             <div style="display:flex;gap:8px;align-items:center;margin:4px 0 14px">
               <input class="inp" id="dm-host" placeholder="link.seudominio.com" style="flex:1;max-width:340px;font-family:'Geist Mono',monospace">
               <button class="btn btn-sm primary" id="dm-add">+ Adicionar</button>
@@ -1840,7 +1840,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               </div>
             </div>
           </div>
-        </details>
+        </div>
         <div class="section-title"><span>Desempenho A/B por link</span><span class="line"></span><span class="muted" style="font-size:11.5px">cliques &#8594; convers&otilde;es por variante</span></div>
         <div id="lk-perf"></div>
         <div class="section-title"><span>Convers&atilde;o por p&aacute;gina</span><span class="line"></span><span class="muted" style="font-size:11.5px">onde o lead entra &times; quanto converte</span></div>
@@ -1855,6 +1855,15 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
       </section>
 
       <!-- ��─ Filtro de Bots / Revisores TikTok (cloaking) ── -->
+      <!-- ── Domínios (compartilhado: checkout + cloaker) ── -->
+      <section class="view" id="view-domains">
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg></span><div><h2>Dom&iacute;nios</h2><p>Cadastre e verifique os seus dom&iacute;nios &mdash; eles ficam dispon&iacute;veis para os <b>links de checkout</b> e para o <b>filtro de bots</b></p></div></div>
+        <div class="card">
+          <div id="dm-mount"><p class="hint">Carregando gerenciador de dom&iacute;nios&hellip;</p></div>
+        </div>
+      </section>
+
+      <!-- ── Filtro de Bots / Revisores TikTok (cloaking) ── -->
       <section class="view" id="view-cloak">
         <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Crie links de cloaking &mdash; cada um com sua pr&oacute;pria prote&ccedil;&atilde;o, offer e white page</p></div></div>
 
@@ -3645,6 +3654,14 @@ function updateAbSplitLabel(splitB){
 
 /* ── Domínios personalizados ─────────────────────────────────���───────── */
 var DM_LIST=[],DM_APPHOST='';
+// Realoca o gerenciador de domínios (#dm-panel) para dentro da aba "Domínios".
+// O markup nasce dentro de view-links por histórico; movemos o nó uma única vez
+// para que ele apareça na sua própria aba, compartilhado por checkout e cloaker.
+function mountDomainPanel(){
+  var panel=document.getElementById('dm-panel');
+  var mount=document.getElementById('dm-mount');
+  if(panel&&mount&&panel.parentNode!==mount){ mount.innerHTML=''; mount.appendChild(panel); }
+}
 function loadDomains(){
   fetch('/api/domains',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     DM_LIST=d.domains||[]; DM_APPHOST=d.appHost||location.host;
@@ -3683,6 +3700,9 @@ function renderDomains(){
     fillLinkDomainSelect(sel?sel.value:'');
     updateLinkDomainStatus();
   }
+  // idem para o editor do filtro de bots (cloaker), se estiver aberto
+  var cke=document.getElementById('cke-dominio');
+  if(cke) fillDomainSelect('cke-dominio',cke.value);
   // verificação automática: enquanto houver domínio pendente, tenta a cada 30s
   scheduleDomainAutoVerify();
 }
@@ -3755,17 +3775,24 @@ function saveLink(){
 // Popula o <select> do link com os domínios VERIFICADOS + a opção padrão.
 // Se o link já tinha um domínio que não está mais verificado, ainda o mostra
 // (marcado como não verificado) para não perder a seleção silenciosamente.
-function fillLinkDomainSelect(selected){
-  var sel=document.getElementById('lk-domain'); if(!sel) return;
+// Opções <option> compartilhadas por todos os seletores de domínio (checkout e
+// cloaker). Lista só os domínios VERIFICADOS + a opção "domínio padrão do app".
+function domainSelectOptions(selected){
   var verified=(DM_LIST||[]).filter(function(d){return d.verificado;});
-  var opts='<option value="">Dom\u00ednio padr\u00e3o do app'+(DM_APPHOST?(' ('+esc(DM_APPHOST)+')'):'')+'</option>';
-  verified.forEach(function(d){ opts+='<option value="'+esc(d.host)+'">'+esc(d.host)+' \u2014 verificado</option>'; });
+  var sel=function(v){return v===(selected||'')?' selected':'';};
+  var opts='<option value=""'+sel('')+'>Dom\u00ednio padr\u00e3o do app'+(DM_APPHOST?(' ('+esc(DM_APPHOST)+')'):'')+'</option>';
+  verified.forEach(function(d){ opts+='<option value="'+esc(d.host)+'"'+sel(d.host)+'>'+esc(d.host)+' \u2014 verificado</option>'; });
   if(selected && !verified.some(function(d){return d.host===selected;})){
-    opts+='<option value="'+esc(selected)+'">'+esc(selected)+' \u2014 n\u00e3o verificado</option>';
+    opts+='<option value="'+esc(selected)+'"'+sel(selected)+'>'+esc(selected)+' \u2014 n\u00e3o verificado</option>';
   }
-  sel.innerHTML=opts;
-  sel.value=selected||'';
+  return opts;
 }
+// Preenche um <select> de domínio pelo id, mantendo o valor escolhido.
+function fillDomainSelect(id,selected){
+  var sel=document.getElementById(id); if(!sel) return;
+  sel.innerHTML=domainSelectOptions(selected); sel.value=selected||'';
+}
+function fillLinkDomainSelect(selected){ fillDomainSelect('lk-domain',selected); }
 // Mostra o estado do domínio escolhido logo abaixo do select.
 function updateLinkDomainStatus(){
   var sel=document.getElementById('lk-domain'); var st=document.getElementById('lk-domain-status');
@@ -4009,8 +4036,8 @@ function renderCloakEditor(l,isNew){
   var nameField=
     '<div class="ck-field full"><label>Nome do link '+slugHint+'</label>'+
       '<input class="inp" id="cke-nome" type="text" placeholder="ex.: Campanha Espanha - Julho" value="'+esc(l.nome||'')+'" style="width:100%"></div>'+
-    '<div class="ck-field full"><label>Domínio personalizado <span class="hint">— opcional; precisa apontar para este app</span></label>'+
-      '<input class="inp" id="cke-dominio" type="text" placeholder="ex.: seu-dominio.com (vazio = domínio padrão)" value="'+esc(l.dominio||'')+'" style="width:100%"></div>';
+    '<div class="ck-field full"><label>Dom\u00ednio do link <span class="hint">&mdash; verificado na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom\u00ednios</a></span></label>'+
+      '<select class="inp" id="cke-dominio" style="width:100%;font-family:\\'Geist Mono\\',monospace">'+domainSelectOptions(l.dominio||'')+'</select></div>';
   var layers=CK_LAYERS.map(function(x){
     var lon=l[x[0]]!==false;
     return '<div class="ck-layer'+(lon?' on':'')+'" data-layer="'+x[0]+'">'+
@@ -4991,6 +5018,7 @@ var CMD_ITEMS=[
   {g:'Ir para',t:'Pixel TikTok',h:'dentro de Rastreamento',ic:I.zap,act:function(){setView('pixels');}},
   {g:'Ir para',t:'Gateways',h:'dentro de Rastreamento',ic:I.pct,act:function(){setView('gateways');}},
   {g:'Ir para',t:'Filtro de Bots',h:'dentro de Rastreamento',ic:I.shield,act:function(){setView('cloak');}},
+  {g:'Ir para',t:'Dom\u00ednios',h:'dentro de Rastreamento',ic:I.globe,act:function(){setView('domains');}},
   {g:'Ir para',t:'Funil & Leads',h:'dentro de Ao Vivo',ic:I.cart,act:function(){setView('funnel');}},
   {g:'Ir para',t:'Países',h:'dentro de Ao Vivo',ic:I.globe,act:function(){setView('geo');}},
   {g:'Ir para',t:'Atividade',h:'dentro de Ao Vivo',ic:I.zap,act:function(){setView('activity');}},
@@ -5079,7 +5107,7 @@ function refresh(force){
 var VIEW_GROUPS={
   overview:['overview'],
   live:['live','funnel','geo','activity'],
-  tracking:['links','pixels','gateways','cloak'],
+  tracking:['links','cloak','domains','pixels','gateways'],
   config:['config']
   };
   var titles={
@@ -5089,7 +5117,7 @@ var VIEW_GROUPS={
   config:['Configurações','Notificações, chaves e saúde do sistema']
   };
   // rótulos das sub-abas do Rastreamento (aparecem no page-sub)
-  var TRACK_LABELS={links:'Links de Checkout',pixels:'Pixel TikTok',gateways:'Gateways',cloak:'Filtro de Bots'};
+  var TRACK_LABELS={links:'Links de Checkout',cloak:'Filtro de Bots',domains:'Dom\u00ednios',pixels:'Pixel TikTok',gateways:'Gateways'};
   var trackingTab=localStorage.getItem('trackingTab')||'links';
   if(!TRACK_LABELS[trackingTab]) trackingTab='links';
 // Aceita tanto a chave do grupo quanto o nome de uma sub-view antiga
@@ -5195,7 +5223,8 @@ function applySetView(v){
   if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); }
   if(g==='tracking'){
     if(trackingTab==='pixels') loadPixels();
-    else if(trackingTab==='cloak') loadCloakConfig();
+    else if(trackingTab==='cloak'){ loadCloakConfig(); loadDomains(); }
+    else if(trackingTab==='domains'){ mountDomainPanel(); loadDomains(); }
     else { loadLinks(); loadDomains(); }
   }
   // sub-view dentro do Ao Vivo (paleta de comandos)? rola até a section
@@ -5216,6 +5245,11 @@ function setupLivePoll(fast){
 }
 
 /* ── Listeners ── */
+// Atalhos "ir para a aba Domínios" espalhados pela UI (editor de link e cloaker)
+document.addEventListener('click',function(e){
+  var g=e.target.closest('.go-domains'); if(!g) return;
+  e.preventDefault(); setView('domains');
+});
 document.getElementById('nav').addEventListener('click',function(e){
   var b=e.target.closest('button[data-view]'); if(!b) return;
   var v=b.getAttribute('data-view');
