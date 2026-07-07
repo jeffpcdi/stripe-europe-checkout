@@ -173,10 +173,28 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   **Registro automático na hospedagem:** `POST /api/domains` chama `domain-provider.js` (Railway GraphQL
   `customDomainCreate`) quando `RAILWAY_API_TOKEN` está setado; devolve `dnsRecords` (CNAME + eventual TXT
   de verificação) que o popup exibe. `DELETE` remove também na Railway (`customDomainDelete` via
-  `providerId` salvo no config). Erros `limite`/`duplicado` bloqueiam com aviso; `auth`/`offline`
-  degradam para modo manual sem quebrar o cadastro.
+  `providerId` salvo no config). **Nenhum erro bloqueia o cadastro:** `limite`/`auth`/`offline` caem em
+  modo manual (com aviso) e a verificação re-tenta o registro sozinha quando há capacidade
+  (auto-recuperação em `POST /api/domains/verify`); `duplicado` faz `domain-provider.findByDomain()`
+  **adotar** o domínio já existente no Railway (pega `providerId` + DNS reais em vez de falhar).
+  O `domain-provider.js` aceita account/workspace token (header `Authorization: Bearer`) OU project token
+  (header `Project-Access-Token`), detectando o header certo no boot (`selfTest`).
 - **Diversos:** `GET/POST /api/pushcut-config`, `POST /api/pushcut/test`, `GET/POST /api/notes`,
   `PUT /api/notes/:d`, `GET/POST /api/shortlinks`, `DELETE /api/shortlinks/:slug`, `GET/POST /api/public-token`.
+
+### 5.2.1 Guard de domínio personalizado (isolamento host principal × campanha)
+- Um request é "personalizado" quando `config.accountForDomain(host)` acha uma conta dona do Host
+  (o host principal / domínio do Railway não está na lista de ninguém → não é personalizado).
+  `PRIMARY_HOST`/`RAILWAY_PUBLIC_DOMAIN` (env) são salvaguardas: nunca tratados como personalizados
+  (evita lockout do painel se o apex for adicionado por engano a uma conta).
+- Em domínio personalizado, um middleware (logo após o CORS `/api`, antes do rastreio de funil) serve
+  **só o funil público** e responde **404 puro** em qualquer outra rota — o app do SaaS (LP `/`,
+  `/dashboard`, `/login`, `/register`, `/privacidade`, `/termos` e TODAS as APIs de gestão) fica
+  acessível **só no host principal**. É **allowlist** (não denylist): rota nova nasce bloqueada no
+  domínio do lojista. Allowlist: exatos `/_safe`, `/__domain-check`, `/t.js`, `/px.js`, `/px.gif`,
+  `/api/track`, `/api/px/event`, `/api/cloakcheck`, `/api/conversion`; regex `/px/:token.js`;
+  prefixos `/go/`, `/c/`, `/l/`, `/hook/`, `/assets/`. Ao liberar uma rota pública nova no funil,
+  adicione-a a `CUSTOM_ALLOW_EXACT`/`CUSTOM_ALLOW_PREFIX` em `server.js`.
 
 ### 5.3 Ingestão pública / webhooks (sem sessão)
 - `GET /api/status` — diagnóstico público (`{ok, db, redis}`).
