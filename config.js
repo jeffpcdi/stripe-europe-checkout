@@ -42,6 +42,12 @@ function defaults() {
       checkBehavior: true,
       blockZhLang: true
     },
+    // Links de cloaking (entidade própria, servidos em /c/:slug). Cada link
+    // carrega SUA própria configuração de proteção (interruptor, sensibilidade,
+    // camadas de detecção) + offer/white page + allowlists de país e idioma.
+    // [{ slug, nome, offerUrl, whitePageUrl, enabled, sensitivity, threshold,
+    //    deadlineMs, blockDatacenter, ..., paises, idiomas, criadoEm, updatedAt }]
+    cloakLinks: [],
     // API pública read-only (/api/v1/summary?token=...)
     api: { token: '' },
     lastDailyReport: '',
@@ -193,6 +199,50 @@ function set(accountId, patch) {
       checkBehavior:      boolOr(c.checkBehavior, true),
       blockZhLang:        boolOr(c.blockZhLang, true)
     };
+  }
+
+  // Sanitização dos links de cloaking (entidade /c/:slug)
+  {
+    const validHttps = (u) => /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
+    const slugify = (s) => String(s || '')
+      .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    const boolOr = (v, def) => (typeof v === 'boolean' ? v : def);
+    if (!Array.isArray(next.cloakLinks)) next.cloakLinks = [];
+    const seen = {};
+    next.cloakLinks = next.cloakLinks.slice(0, 100).map((l) => {
+      l = l || {};
+      const sens = ['strict', 'balanced', 'loose', 'custom'].includes(l.sensitivity) ? l.sensitivity : 'balanced';
+      return {
+        slug:               slugify(l.slug || l.nome),
+        nome:               String(l.nome || l.slug || '').slice(0, 80),
+        offerUrl:           validHttps(l.offerUrl) ? String(l.offerUrl).trim().slice(0, 500) : '',
+        whitePageUrl:       validHttps(l.whitePageUrl) ? String(l.whitePageUrl).trim().slice(0, 500) : '',
+        enabled:            boolOr(l.enabled, true),
+        sensitivity:        sens,
+        threshold:          Math.max(10, Math.min(90, Math.round(Number(l.threshold) || 40))),
+        deadlineMs:         Math.max(40, Math.min(500, Math.round(Number(l.deadlineMs) || 120))),
+        blockDatacenter:    boolOr(l.blockDatacenter, true),
+        blockHeadless:      boolOr(l.blockHeadless, true),
+        checkHeaders:       boolOr(l.checkHeaders, true),
+        requireJsChallenge: boolOr(l.requireJsChallenge, true),
+        checkWebgl:         boolOr(l.checkWebgl, true),
+        checkTimezone:      boolOr(l.checkTimezone, true),
+        checkBehavior:      boolOr(l.checkBehavior, true),
+        blockZhLang:        boolOr(l.blockZhLang, true),
+        paises: (Array.isArray(l.paises) ? l.paises : [])
+          .map((c) => String(c || '').trim().toUpperCase())
+          .filter((c) => /^[A-Z]{2}$/.test(c)).filter((c, i, a) => a.indexOf(c) === i).slice(0, 40),
+        idiomas: (Array.isArray(l.idiomas) ? l.idiomas : [])
+          .map((c) => String(c || '').trim().toLowerCase().split('-')[0])
+          .filter((c) => /^[a-z]{2}$/.test(c)).filter((c, i, a) => a.indexOf(c) === i).slice(0, 20),
+        criadoEm: l.criadoEm || new Date().toISOString(),
+        updatedAt: l.updatedAt || new Date().toISOString()
+      };
+    }).filter((l) => {
+      if (!l.slug || seen[l.slug]) return false; // slug obrigatório e único
+      seen[l.slug] = 1; return true;
+    });
   }
 
   next.updatedAt = new Date().toISOString();

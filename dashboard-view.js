@@ -1661,7 +1661,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="card"><div class="clist" id="country-list"></div></div>
       </section>
 
-      <!-- ── Rastreamento: sub-abas (Links / Pixel / Bots) ── -->
+      <!-- ── Rastreamento: sub-abas (Links / Pixel / Bots) ��─ -->
       <div class="segment tracking-tabs" id="tracking-tabs" hidden>
         <button data-t="links" class="active">Links de Checkout</button>
         <button data-t="pixels">Pixel TikTok</button>
@@ -1849,49 +1849,17 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ��─ Filtro de Bots / Revisores TikTok (cloaking) ── -->
       <section class="view" id="view-cloak">
-        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Roteia revisores do TikTok Ads para a white page &mdash; pessoas reais v&atilde;o para a offer</p></div></div>
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Crie links de cloaking &mdash; cada um com sua pr&oacute;pria prote&ccedil;&atilde;o, offer e white page</p></div></div>
 
-        <!-- Hero: interruptor mestre + sensibilidade -->
-        <div class="card cfg-card" style="--cc:var(--cyan);margin-bottom:16px">
-          <div class="cfg-head">
-            <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
-            <div><h3>Prote&ccedil;&atilde;o de cloaking</h3><p id="ck-status-line">Bots e revisores v&atilde;o para a white page; pessoas reais seguem para a offer.</p></div>
-            <label class="switch" style="margin-left:auto"><input type="checkbox" id="ck-enabled"><span class="slider"></span></label>
+        <div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px">
+          <div style="flex:1;min-width:180px">
+            <h3 style="font-size:15px;margin:0">Seus links de cloaking</h3>
+            <p class="hint" style="margin:3px 0 0">Cada link gera uma URL <code>/c/&lt;slug&gt;</code>. Bots e revisores v&atilde;o para a white page; pessoas reais seguem para a offer.</p>
           </div>
-          <div class="seg" id="ck-sens" style="margin-top:4px">
-            <button data-s="strict" type="button">Agressivo</button>
-            <button data-s="balanced" type="button">Equilibrado</button>
-            <button data-s="loose" type="button">Conservador</button>
-          </div>
-          <p id="ck-sens-desc" class="hint" style="margin-top:10px;margin-bottom:0">Equilibrado: a melhor proporção de segurança e conversão — recomendado</p>
+          <button class="btn primary" id="ck-new" type="button">+ Criar link de cloaking</button>
         </div>
 
-        <!-- Regras por link: offer, white page, países e pixel -->
-        <div class="card" style="margin-bottom:16px">
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <div style="flex:1;min-width:180px">
-              <h3 style="font-size:15px;margin:0">Regras por link</h3>
-              <p class="hint" style="margin:3px 0 0">Escolha para onde cada p&uacute;blico vai &mdash; por link de checkout.</p>
-            </div>
-            <select class="select" id="ck-link-select" style="min-width:220px"><option value="">Selecione um link...</option></select>
-          </div>
-          <div id="ck-link-rule"></div>
-        </div>
-
-        <!-- Testar (compacto) -->
-        <div class="card cfg-card" style="--cc:var(--green);margin-bottom:0">
-          <div class="cfg-head">
-            <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
-            <div><h3>Testar com meu navegador</h3><p>Veja como o SEU acesso seria classificado. Deve dar <b>real</b>.</p></div>
-            <button class="btn btn-sm" id="ck-test" style="margin-left:auto">Rodar teste</button>
-          </div>
-          <div id="ck-test-out" style="margin-top:4px"></div>
-        </div>
-
-        <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
-          <button class="btn primary" id="ck-save">Salvar prote&ccedil;&atilde;o</button>
-          <p class="hint" id="ck-status" style="margin:0"></p>
-        </div>
+        <div id="ck-list"></div>
       </section>
 
       <!-- ── Atividade ── -->
