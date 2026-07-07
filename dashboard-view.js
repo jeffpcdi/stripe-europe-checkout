@@ -1805,17 +1805,12 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
                 </div>
               </div>
             </details>
-            <details class="ck-adv" style="margin-top:4px;margin-bottom:14px">
-              <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
-              <div class="ck-adv-body">
-                <div class="form-row" style="margin-bottom:0">
-                  <label>Dom&iacute;nio do link</label>
-                  <select class="inp" id="lk-domain" style="width:100%;font-family:'Geist Mono',monospace"></select>
-                  <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
-                  <p class="hint" style="margin-top:4px;line-height:1.6">Só aparecem dom&iacute;nios <b>verificados</b>. Cadastre e verifique na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom&iacute;nios</a> para us&aacute;-lo aqui.</p>
-                </div>
-              </div>
-            </details>
+            <div class="form-row">
+              <label>Dom&iacute;nio do link <span class="hint">&mdash; o endere&ccedil;o que aparece no seu an&uacute;ncio</span></label>
+              <select class="inp" id="lk-domain" style="width:100%;font-family:'Geist Mono',monospace"></select>
+              <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
+              <p class="hint" style="margin-top:4px;line-height:1.6">Só aparecem dom&iacute;nios <b>verificados</b>. Cadastre e verifique na aba <a href="#" class="go-domains" style="color:var(--accent);text-decoration:underline">Dom&iacute;nios</a> para us&aacute;-lo aqui.</p>
+            </div>
             <div class="form-row">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="lk-active" checked> Link ativo</label>
             </div>
