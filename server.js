@@ -1532,24 +1532,24 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   // Registra o domínio na hospedagem (Railway) para ele ser roteado + ganhar
   // SSL. Se o provider estiver em modo manual (sem token), segue o fluxo antigo:
   // o lojista aponta o CNAME e adiciona o domínio na hospedagem na mão.
-  let dnsRecords = null, providerId = null;
+  let dnsRecords = null, providerId = null, providerNote = null;
   if (domainProvider.enabled) {
     try {
       const reg = await domainProvider.register(host);
       providerId = reg.providerId || null;
       dnsRecords = reg.dns || null;
     } catch (e) {
-      // Mensagens genéricas — nunca expõem token nem detalhe interno da API.
-      const map = {
-        limite: 'limite de domínios da hospedagem atingido — remova um domínio não usado e tente de novo',
-        duplicado: 'este domínio já está registrado na hospedagem (possivelmente em outro projeto)',
-        auth: 'a automação de domínio está indisponível no momento — o domínio foi salvo em modo manual',
-        offline: 'não foi possível falar com a hospedagem agora — o domínio foi salvo em modo manual'
+      // NENHUM erro da hospedagem bloqueia o cadastro: tudo degrada para modo
+      // manual (o lojista aponta o CNAME/adiciona o domínio depois). Assim que
+      // houver capacidade, a verificação re-tenta o registro sozinha. Mensagens
+      // genéricas — nunca expõem token nem detalhe interno da API.
+      const notes = {
+        limite: 'limite de domínios da hospedagem atingido — salvo em modo manual; reconectamos automaticamente quando um slot vagar (ou remova um domínio não usado)',
+        duplicado: 'este domínio já está registrado na hospedagem (possivelmente em outro projeto) — salvo em modo manual',
+        auth: 'a automação de domínio está indisponível no momento — salvo em modo manual',
+        offline: 'não foi possível falar com a hospedagem agora — salvo em modo manual'
       };
-      // 'limite' e 'duplicado' são bloqueantes; auth/offline degradam para manual.
-      if (e.message === 'limite' || e.message === 'duplicado') {
-        return res.status(400).json({ error: map[e.message] });
-      }
+      providerNote = notes[e.message] || 'salvo em modo manual';
       stats.logEvent('warn', { acc: req.account.id, title: 'Domínio salvo em modo manual (' + e.message + '): ' + host });
     }
   }
@@ -1559,8 +1559,9 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   config.set(req.account.id, { customDomains: cur.concat([entry]) });
   stats.logEvent('info', { acc: req.account.id, title: 'Domínio personalizado adicionado: ' + host });
   // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
-  // aqui contém segredo — são valores públicos de DNS.
-  res.json({ ok: true, host, dnsRecords, managed: domainProvider.enabled });
+  // aqui contém segredo — são valores públicos de DNS. providerNote avisa quando
+  // caiu em modo manual (ex.: teto da hospedagem) sem bloquear o cadastro.
+  res.json({ ok: true, host, dnsRecords, managed: domainProvider.enabled && !!providerId, providerNote });
 });
 
 app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
@@ -1596,6 +1597,25 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   if (!host) return res.status(400).json({ error: 'domínio inválido' });
   const appHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '');
   const out = { host, appHost, dnsOk: false, dnsDetail: '', httpOk: false, httpDetail: '' };
+
+  // 0. Auto-recuperação: se o domínio está em modo manual (sem providerId) e a
+  // automação está ligada, tenta registrar agora — cobre o caso de um slot da
+  // hospedagem ter vagado desde o cadastro. Best-effort: nunca derruba a verificação.
+  if (domainProvider.enabled) {
+    const cur0 = config.get(req.account.id).customDomains || [];
+    const d0 = cur0.find((d) => d.host === host);
+    if (d0 && !d0.providerId) {
+      try {
+        const reg = await domainProvider.register(host);
+        if (reg && reg.providerId) {
+          const next = cur0.map((d) => d.host === host ? Object.assign({}, d, { providerId: reg.providerId }) : d);
+          config.set(req.account.id, { customDomains: next });
+          out.reconectado = true;
+          out.dnsRecords = reg.dns || null;
+        }
+      } catch (_) { /* segue a verificação normal em modo manual */ }
+    }
+  }
 
   // 1. DNS: CNAME direto ou IPs coincidentes
   try {
