@@ -217,6 +217,80 @@ async function setAsnCache(ip, entry) {
   } catch (_) { return false; }
 }
 
+// ── Contadores de decisão do cloaker (offer vs white) ─────────────────────
+// Um hash por link: "cloakstats:<accountId>:<slug>". Campos:
+//   offer, white                          → totais
+//   d:<YYYY-MM-DD>:offer / :white         → série diária (para o painel)
+//   r:<motivo>                            → contagem por motivo do desvio à white
+// Durável, multi-instância e atômico via HINCRBY; fallback em memória sem Redis.
+const cloakStatsMem = new Map(); // key -> { field: number }
+function cloakKey(accountId, slug) { return 'cloakstats:' + (accountId || 'default') + ':' + slug; }
+function todayUTC() { return new Date().toISOString().slice(0, 10); }
+
+async function bumpCloakDecision(accountId, slug, decision, reason) {
+  if (!slug) return false;
+  const key = cloakKey(accountId, slug);
+  const day = todayUTC();
+  const dec = decision === 'offer' ? 'offer' : 'white';
+  const fields = [dec, 'd:' + day + ':' + dec];
+  if (dec === 'white' && reason) fields.push('r:' + String(reason).slice(0, 40));
+  if (!enabled) {
+    const h = cloakStatsMem.get(key) || {};
+    fields.forEach((f) => { h[f] = (h[f] || 0) + 1; });
+    h._ts = Date.now();
+    cloakStatsMem.set(key, h);
+    return true;
+  }
+  try {
+    const pipe = redis.pipeline();
+    fields.forEach((f) => pipe.hincrby(key, f, 1));
+    pipe.expire(key, 90 * 86400); // retenção de 90 dias
+    await pipe.exec();
+    return true;
+  } catch (err) {
+    console.error('[redis] bumpCloakDecision:', err.message);
+    return false;
+  }
+}
+
+async function getCloakStats(accountId, slug) {
+  const key = cloakKey(accountId, slug);
+  if (!enabled) return normalizeCloakHash(cloakStatsMem.get(key) || {});
+  try {
+    const h = await redis.hgetall(key);
+    return normalizeCloakHash(h || {});
+  } catch (err) {
+    console.error('[redis] getCloakStats:', err.message);
+    return normalizeCloakHash({});
+  }
+}
+
+// Converte o hash cru em { offer, white, total, offerRate, reasons{}, daily[] }
+function normalizeCloakHash(h) {
+  const num = (v) => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
+  const offer = num(h.offer), white = num(h.white), total = offer + white;
+  const reasons = {}; const dailyMap = {};
+  Object.keys(h).forEach((k) => {
+    if (k.startsWith('r:')) reasons[k.slice(2)] = num(h[k]);
+    else if (k.startsWith('d:')) {
+      const rest = k.slice(2); const i = rest.lastIndexOf(':');
+      const day = rest.slice(0, i), kind = rest.slice(i + 1);
+      dailyMap[day] = dailyMap[day] || { day, offer: 0, white: 0 };
+      dailyMap[day][kind] = num(h[k]);
+    }
+  });
+  const daily = Object.values(dailyMap).sort((a, b) => a.day < b.day ? -1 : 1);
+  return { offer, white, total, offerRate: total ? offer / total : 0, reasons, daily };
+}
+
+async function resetCloakStats(accountId, slug) {
+  const key = cloakKey(accountId, slug);
+  cloakStatsMem.delete(key);
+  if (!enabled) return true;
+  try { await redis.del(key); return true; }
+  catch (err) { console.error('[redis] resetCloakStats:', err.message); return false; }
+}
+
 // ── Ping de saúde ─────────────────────────────────────────────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
@@ -236,5 +310,6 @@ module.exports = {
   saveCapiRetryQueue, loadCapiRetryQueue,
   seenEventId,
   getAsnCache, setAsnCache,
+  bumpCloakDecision, getCloakStats, resetCloakStats,
   ping, TTL
 };

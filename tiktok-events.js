@@ -205,6 +205,10 @@ async function ensureRetryLoaded() {
 function queueRetry(pixel, p, eventId) {
   // payload mínimo e serializável (sem funções, sem objetos circulares)
   const item = {
+    // token é globalmente único → re-resolução não depende da conta.
+    // slug + acc ficam como fallback para itens/pixels legados.
+    token: pixel.token || null,
+    acc: pixel.acc || pixel.accountId || null,
     slug: pixel.slug || pixel.pixelCode,
     eventId,
     p: {
@@ -222,6 +226,23 @@ function queueRetry(pixel, p, eventId) {
   persistRetryQueue();
 }
 
+// Re-resolve o pixel de um item da fila sem depender do escopo de conta.
+// token é único globalmente; se faltar (item/pixel legado), tenta (acc, slug)
+// e por fim uma varredura por slug em todas as contas.
+function resolvePixelForRetry(item) {
+  if (item.token) {
+    const byTok = pixelStore.getByToken(item.token);
+    if (byTok) return byTok;
+  }
+  if (item.slug) {
+    const byAcc = pixelStore.get(item.acc || null, item.slug);
+    if (byAcc) return byAcc;
+    const all = pixelStore.list(null).filter((p) => p.slug === item.slug);
+    if (all.length === 1) return all[0]; // slug único entre as contas → seguro
+  }
+  return null;
+}
+
 async function drainRetryQueue() {
   await ensureRetryLoaded();
   if (!retryQueue.length) return;
@@ -234,8 +255,9 @@ async function drainRetryQueue() {
       retryQueue = retryQueue.filter((x) => x !== item);
       continue;
     }
-    // re-resolve o pixel: token pode ter sido atualizado no painel
-    const pixel = pixelStore.get(item.slug);
+    // re-resolve o pixel: token/config podem ter mudado no painel.
+    // Ordem: token (globalmente único) → get(acc, slug) → varredura por slug (legado).
+    const pixel = resolvePixelForRetry(item);
     if (!pixel || !pixel.active) { retryQueue = retryQueue.filter((x) => x !== item); continue; }
     const json = await sendToPixel(pixel, { ...item.p, _fromRetryQueue: true });
     if (json && json.code === 0) {

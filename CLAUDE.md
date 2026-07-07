@@ -134,6 +134,8 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `ensureGlobeLib()` só quando um globo vai renderizar (não está mais no `<head>`).
 - `GET /t.js` — snippet de tracking. `GET /px.js`, `GET /px/:token.js`,
   `GET /px.gif` — pixel do navegador. `GET /l/:slug` — shortlink. `GET /go/:slug` — redirect com cloaking (§9).
+- `GET /__dev/login` — **acesso rápido só em desenvolvimento** (ver §11.1). Loga automaticamente e
+  redireciona para `/dashboard`, sem tela de login. **404 em produção** (`NODE_ENV=production`).
 
 ### 5.2 API consumida pela dashboard (auth)
 - **Auth/conta:** `POST /login`, `POST /register`, `POST /logout`, `GET /api/me`.
@@ -236,6 +238,22 @@ npm run dev     # local: node --env-file-if-exists=.env.development.local server
 - **Build:** não há (script `build` é um `echo`; JS puro, sem transpile).
 - **Testes / lint / typecheck:** não configurados no `package.json`.
 - **Migração de banco:** automática e idempotente — `db.init()` roda `CREATE TABLE/ALTER … IF NOT EXISTS` no boot.
+
+### 11.1 Acesso rápido à dashboard em desenvolvimento (para IAs/testes)
+Para testar a dashboard **sem cair na tela de login** (registrar conta + injetar cookie a cada vez),
+basta abrir uma única rota:
+```
+GET http://localhost:3000/__dev/login   →  302 /dashboard  (já autenticado)
+```
+- **Como funciona:** cria uma sessão real para a **primeira conta existente** (`db.getFirstAccountId()`,
+  então você vê os dados reais); se o banco estiver vazio, cria uma conta admin de desenvolvimento
+  (`dev@local.test` / senha `devdevdev`) e entra nela. Usa a mesma maquinaria de sessão/cookie da auth normal.
+- **Uso típico com agent-browser:** `agent-browser open "http://localhost:3000/__dev/login"` — depois é só
+  navegar; o cookie `dash_session` fica setado. Não precisa mais de `curl /register` nem `cookies set`.
+- **Segurança:** a rota **só existe quando `NODE_ENV !== 'production'`**. Em qualquer deploy Vercel
+  (preview e produção usam `NODE_ENV=production`) ela **não é registrada** e responde 404 — portanto
+  **nunca** vira um bypass de auth em produção. Definida em `server.js` logo antes de `POST /register`.
+- Requer `DATABASE_URL` configurada (sem banco não há contas nem sessões); responde 503 caso falte.
 
 ## 12. Variáveis de ambiente
 Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, `.env`

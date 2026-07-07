@@ -40,7 +40,11 @@ function defaults() {
       checkWebgl: true,
       checkTimezone: true,
       checkBehavior: true,
-      blockZhLang: true
+      blockZhLang: true,
+      // White page GLOBAL de fallback: usada quando um link protegido não tem
+      // white page própria. Se vazia, o sistema serve uma página neutra embutida
+      // (/_safe) — assim NENHUM bot chega à offer, mesmo sem white configurada.
+      defaultWhitePage: ''
     },
     // Links de cloaking (entidade própria, servidos em /c/:slug). Cada link
     // carrega SUA própria configuração de proteção (interruptor, sensibilidade,

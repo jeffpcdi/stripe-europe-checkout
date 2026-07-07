@@ -15,6 +15,7 @@
 
 const dns  = require('dns').promises;
 const crypto = require('crypto');
+const uaTools = require('./ua'); // detecção de in-app TikTok (usuário real) e crawlers
 // Redis é opcional: cache de ASN entre processos/restarts. Degrada para o Map
 // em memória se o módulo/serviço não estiver disponível.
 let _redis = null;
@@ -245,6 +246,14 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
               || req.socket?.remoteAddress || '');
 
   // ─── Camada A: UA ─────────────────────────────────────────────────────────
+
+  // A0. Navegador in-app da TikTok = USUÁRIO REAL do anúncio. O webview envia
+  // headers "incompletos" (sec-fetch/client-hints parciais) que as camadas B/C
+  // penalizariam — este crédito forte evita jogar o usuário pago para a white.
+  // Bots reais em datacenter/headless que spoofam essa UA continuam sendo
+  // pegos pelos sinais de ASN (+38/55) e WebGL software (+45), que dominam.
+  const inAppTikTok = uaTools.isInAppTikTok(ua);
+  if (inAppTikTok) { signals.push('ua:tiktok-inapp'); score -= 40; }
 
   // A1. UA ausente ou minúsculo
   if (!ua || ua.length < 15) {
