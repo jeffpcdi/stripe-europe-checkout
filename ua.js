@@ -8,7 +8,7 @@
 const BOT_RE = new RegExp([
   'bot\\b', 'crawler', 'spider', 'crawling',
   'facebookexternalhit', 'whatsapp', 'telegrambot', 'slackbot', 'discordbot',
-  'bytespider', 'bytedance', 'tiktok',                       // crawlers da própria ByteDance
+  'bytespider',                         // crawler REAL da ByteDance (NÃO é o app)
   'googlebot', 'adsbot', 'bingpreview', 'yandex', 'duckduckbot', 'baiduspider',
   'ahrefs', 'semrush', 'mj12bot', 'dotbot', 'petalbot', 'gptbot', 'claudebot',
   'headlesschrome', 'phantomjs', 'puppeteer', 'playwright', 'selenium',
@@ -18,10 +18,21 @@ const BOT_RE = new RegExp([
   'axios/', 'postmanruntime', 'insomnia', 'vercel-screenshot', 'checkly'
 ].join('|'), 'i');
 
+// Navegador in-app da TikTok/ByteDance — é ONDE VIVE O USUÁRIO REAL do anúncio.
+// A UA contém "BytedanceWebview"/"musical_ly"/"Trill"/"Aweme". ATENÇÃO: NÃO pode
+// cair no BOT_RE (o token "bytedance"/"tiktok" antes derrubava esses usuários
+// reais para a white page). Este guard protege a maior fatia do tráfego pago.
+const INAPP_TIKTOK_RE = /musical_ly|bytedancewebview|byteful|bytelocale|\bTrill[_\/]|\bAweme|AwemeBrowser/i;
+
+function isInAppTikTok(ua) {
+  return !!ua && INAPP_TIKTOK_RE.test(String(ua));
+}
+
 function isBot(ua) {
   if (!ua) return true;                 // sem UA = automação (browsers sempre enviam)
   const s = String(ua);
   if (s.length < 12) return true;       // "Mozilla" sozinho, "test", etc.
+  if (isInAppTikTok(s)) return false;   // usuário real no app da TikTok — nunca é bot
   return BOT_RE.test(s);
 }
 
@@ -62,4 +73,4 @@ function parse(ua) {
   return out;
 }
 
-module.exports = { isBot, parse };
+module.exports = { isBot, parse, isInAppTikTok };
