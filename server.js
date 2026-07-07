@@ -1343,6 +1343,12 @@ app.get('/api/links', dashboardAuth, (req, res) => {
 
 app.post('/api/links', dashboardAuth, async (req, res) => {
   try {
+    // Um domínio já verificado na aba "Domínio personalizado" conta como
+    // validado para o link — sem precisar revalidar por link (era a origem do
+    // "Domínio não validado" apesar do domínio estar verificado).
+    (config.get(req.account.id).customDomains || [])
+      .filter((d) => d.verificado)
+      .forEach((d) => linkStore.markDomainValidated(d.host, d.verificadoEm));
     const saved = await linkStore.save(req.account.id, req.body || {});
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
     res.json({ ok: true, link: saved });
@@ -1481,17 +1487,21 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       else out.httpDetail = 'HTTPS responde, mas é outro servidor — confira o DNS';
     } else if (r.status === 404) {
       out.httpDetail = out.cloudflareProxy
-        ? 'HTTPS 404 — a Cloudflare está no meio; desative o proxy (nuvem cinza) e adicione o domínio na Vercel → Domains'
-        : 'HTTPS respondeu 404 — adicione este domínio no painel da hospedagem (ex.: Vercel → Domains) para ele ser servido por este app';
+        ? 'HTTPS 404 — a Cloudflare está no meio; desative o proxy (nuvem cinza) e adicione o domínio na hospedagem (Railway → Settings → Networking → Custom Domain)'
+        : 'HTTPS respondeu 404 — o DNS chega na hospedagem, mas o domínio ainda NÃO está ligado a este app. Adicione-o em Railway → Settings → Networking → Custom Domain (sem isso os links /go dão 404).';
     } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
   } catch (_) {
     out.httpDetail = out.dnsOk
-      ? 'HTTPS ainda não responde — o certificado SSL pode estar sendo emitido (adicione o domínio também no painel da hospedagem, ex.: Vercel → Domains)'
+      ? 'HTTPS ainda não responde — o certificado SSL pode estar sendo emitido (confirme que o domínio foi adicionado em Railway → Settings → Networking → Custom Domain)'
       : 'sem resposta HTTPS';
   }
 
-  // verificado = prova HTTPS (forte) ou DNS correto (SSL ainda propagando)
-  out.ok = out.httpOk || out.dnsOk;
+  // Verificado exige a PROVA FORTE: o marcador /__domain-check deste app precisa
+  // responder no domínio. Só DNS apontado não basta — na Railway o host só é
+  // servido depois de adicionado como Custom Domain; sem isso os /go dão 404
+  // (era o falso "Verificado" que deixava os links quebrados).
+  out.ok = out.httpOk;
+  out.dnsPronto = out.dnsOk && !out.httpOk; // DNS ok mas app ainda não atende
   if (out.ok) {
     const now = new Date().toISOString();
     const cur = config.get(req.account.id).customDomains || [];
@@ -2316,7 +2326,7 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
 // ═══ TikTok multi-pixel ═══════════════════════════════════════════════
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
-// editar um pixel (arquivo em pixels/ ou painel) atualiza todas as páginas.
+// editar um pixel (arquivo em pixels/ ou painel) atualiza todas as p��ginas.
 app.get('/px.js', (req, res) => {
   res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
   // rota da página que pediu o script (Referer) — decide QUAIS pixels carregar

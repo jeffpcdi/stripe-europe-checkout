@@ -57,7 +57,10 @@ function normalize(slug, raw) {
     slug,
     acc: raw.acc || raw.accountId || null, // conta dona (multi-tenant)
     nome: String(raw.nome || slug).slice(0, 80),
-    dominio: hostnameOf(raw.dominio) || (variantes[0] ? hostnameOf(variantes[0].url) : null),
+    // Domínio personalizado do link (rótulo/URL exibida). Vazio = domínio padrão
+    // do app. NÃO cai mais para o host do checkout (isso gerava um "domínio não
+    // validado" fantasma). O roteamento /go é por Host de entrada, não por aqui.
+    dominio: hostnameOf(raw.dominio) || null,
     dominioValidado: raw.dominioValidado === true,
     dominioValidadoEm: raw.dominioValidadoEm || null,
     variantes,
@@ -257,7 +260,25 @@ async function validateDomain(input) {
   return { ok: true, host, dns: true, http: true, status, validadoEm: now };
 }
 
+// Marca um host como validado (ex.: veio verificado da lista global de
+// domínios personalizados). Alimenta o mesmo mapa usado pelo save() e aplica
+// aos links já existentes que usam esse domínio.
+function markDomainValidated(input, iso) {
+  const host = hostnameOf(input);
+  if (!host) return false;
+  const when = iso || new Date().toISOString();
+  validatedDomains.set(host, when);
+  cache.forEach((l) => {
+    if (l.dominio === host && !l.dominioValidado) {
+      l.dominioValidado = true;
+      l.dominioValidadoEm = when;
+      persistSoon(l);
+    }
+  });
+  return true;
+}
+
 module.exports = {
   init, list, get, resolve, save, remove, pickVariant,
-  recordClick, recordConversion, validateDomain, slugify
+  recordClick, recordConversion, validateDomain, markDomainValidated, slugify
 };

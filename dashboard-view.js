@@ -1757,12 +1757,10 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <div class="ck-adv-body">
                 <p class="hint" style="margin:0 0 12px;line-height:1.7">Formato completo da linha (tudo opcional al&eacute;m da URL):<br><code>nome | URL | peso % | URL celular</code><br>Com a URL celular preenchida, computador vai para a principal e celular vai para a alternativa.</p>
                 <div class="form-row" style="margin-bottom:0">
-                  <label>Validar dom&iacute;nio do checkout</label>
-                  <div style="display:flex;gap:8px;align-items:center">
-                    <input class="inp" id="lk-domain" placeholder="pay.gateway.com" style="flex:1;font-family:'Geist Mono',monospace">
-                    <button class="btn btn-sm" id="lk-validate">Validar</button>
-                  </div>
+                  <label>Dom&iacute;nio do link</label>
+                  <select class="inp" id="lk-domain" style="width:100%;font-family:'Geist Mono',monospace"></select>
                   <p class="hint" id="lk-domain-status" style="margin-top:8px"></p>
+                  <p class="hint" style="margin-top:4px;line-height:1.6">Só aparecem dom&iacute;nios <b>verificados</b>. Cadastre e verifique em <b>Dom&iacute;nio personalizado</b> (abaixo) para us&aacute;-lo aqui.</p>
                 </div>
               </div>
             </details>
@@ -3489,7 +3487,11 @@ function renderLinks(){
         '<div class="lmain">'+
   '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span>'+(l.urlWhitePage?'&nbsp;<span class="tag" style="font-size:11px;background:rgba(0,200,255,.12);color:var(--cyn,#00c2ff);border:1px solid rgba(0,200,255,.25);padding:1px 6px;border-radius:4px;font-weight:600">CLOAK</span>':'')+'</b>'+
   '<span>'+(nv>1?'<span class="cyn">teste A/B ('+nv+' checkouts)</span>':'checkout &uacute;nico')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
-  '<span>'+(l.dominioValidado?'<span class="badge-ok">Dom&iacute;nio validado &middot; '+esc(l.dominio)+'</span>':'<span class="badge-warn">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
+  '<span>'+(!l.dominio
+      ?'<span class="badge-ok" style="background:rgba(120,130,150,.14);color:var(--text-muted);border-color:rgba(120,130,150,.25)">Dom&iacute;nio padr&atilde;o do app</span>'
+      :(l.dominioValidado
+        ?'<span class="badge-ok">Dom&iacute;nio validado &middot; '+esc(l.dominio)+'</span>'
+        :'<span class="badge-warn">'+esc(l.dominio)+' &mdash; n&atilde;o verificado</span>'))+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
           '<button class="btn-icon" onclick="copyLink(\\''+esc(l.slug)+'\\')">Copiar URL</button>'+
@@ -3589,8 +3591,8 @@ function showLinkForm(l){
   var splitB=vs[1]?(vs[1].peso||50):50;
   var sp=document.getElementById('lk-ab-split'); if(sp) sp.value=splitB;
   updateAbSplitLabel(splitB);
-  document.getElementById('lk-domain').value=l?(l.dominio||''):'';
-  document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
+  fillLinkDomainSelect(l?(l.dominio||''):'');
+  updateLinkDomainStatus();
   document.getElementById('lk-active').checked=l?!!l.ativo:true;
   document.getElementById('lk-name').focus();
 }
@@ -3674,6 +3676,13 @@ function renderDomains(){
       '</div>';
     }).join('');
   }
+  // se o formulário de link está aberto, mantém o select de domínio em dia
+  var lkCard=document.getElementById('lk-form-card');
+  if(lkCard&&lkCard.style.display!=='none'){
+    var sel=document.getElementById('lk-domain');
+    fillLinkDomainSelect(sel?sel.value:'');
+    updateLinkDomainStatus();
+  }
   // verificação automática: enquanto houver domínio pendente, tenta a cada 30s
   scheduleDomainAutoVerify();
 }
@@ -3743,18 +3752,30 @@ function saveLink(){
       else toast(d.error||'Erro ao salvar',false);
     }).catch(function(){ toast('Erro ao salvar',false); });
 }
-function validateDomain(){
-  var dom=document.getElementById('lk-domain').value.trim();
-  var st=document.getElementById('lk-domain-status');
-  if(!dom){ st.innerHTML='<span class="amb">Informe o dom&iacute;nio (ex.: pay.gateway.com)</span>'; return; }
-  st.textContent='Validando DNS e HTTP...';
-  fetch('/api/links/validate-domain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dominio:dom})})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      st.innerHTML=d.ok
-        ? '<span class="pos">Dom&iacute;nio v&aacute;lido &middot; DNS '+esc(d.ip||'ok')+(d.httpStatus?' &middot; HTTP '+d.httpStatus:'')+'</span>'
-        : '<span class="neg">Falhou: '+esc(d.error||'sem resposta')+'</span>';
-    }).catch(function(){ st.innerHTML='<span class="neg">Erro na valida&ccedil;&atilde;o</span>'; });
+// Popula o <select> do link com os domínios VERIFICADOS + a opção padrão.
+// Se o link já tinha um domínio que não está mais verificado, ainda o mostra
+// (marcado como não verificado) para não perder a seleção silenciosamente.
+function fillLinkDomainSelect(selected){
+  var sel=document.getElementById('lk-domain'); if(!sel) return;
+  var verified=(DM_LIST||[]).filter(function(d){return d.verificado;});
+  var opts='<option value="">Dom\u00ednio padr\u00e3o do app'+(DM_APPHOST?(' ('+esc(DM_APPHOST)+')'):'')+'</option>';
+  verified.forEach(function(d){ opts+='<option value="'+esc(d.host)+'">'+esc(d.host)+' \u2014 verificado</option>'; });
+  if(selected && !verified.some(function(d){return d.host===selected;})){
+    opts+='<option value="'+esc(selected)+'">'+esc(selected)+' \u2014 n\u00e3o verificado</option>';
+  }
+  sel.innerHTML=opts;
+  sel.value=selected||'';
+}
+// Mostra o estado do domínio escolhido logo abaixo do select.
+function updateLinkDomainStatus(){
+  var sel=document.getElementById('lk-domain'); var st=document.getElementById('lk-domain-status');
+  if(!sel||!st) return;
+  var host=sel.value;
+  if(!host){ st.innerHTML='<span class="hint">Usando o dom\u00ednio padr\u00e3o do app.</span>'; return; }
+  var ok=(DM_LIST||[]).some(function(x){return x.verificado&&x.host===host;});
+  st.innerHTML=ok
+    ? '<span class="pos">Verificado &middot; '+esc(host)+'</span>'
+    : '<span class="amb">'+esc(host)+' ainda n\u00e3o verificado &mdash; verifique em Dom\u00ednio personalizado</span>';
 }
 
 /* ── Heatmap de vendas (hora × dia da semana) ── */
@@ -5311,7 +5332,7 @@ document.getElementById('lk-save').addEventListener('click',saveLink);
 document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
-  document.getElementById('lk-validate').addEventListener('click',validateDomain);
+  var lkDom=document.getElementById('lk-domain'); if(lkDom) lkDom.addEventListener('change',updateLinkDomainStatus);
   var abSplit=document.getElementById('lk-ab-split');
   if(abSplit) abSplit.addEventListener('input',function(){ updateAbSplitLabel(this.value); });
 // auto-save: qualquer toggle de notificação salva na hora (sem botão Salvar)
