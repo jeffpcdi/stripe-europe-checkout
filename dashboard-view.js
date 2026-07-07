@@ -3709,6 +3709,9 @@ function addDomain(){
     .then(function(d){
       if(d.ok){
         inp.value='';
+        // Guarda os registros DNS que a hospedagem exige (CNAME + eventual TXT
+        // de verificação) para o tutorial mostrar valores exatos por domínio.
+        if(d.dnsRecords) DMTUT_DNS[host]=d.dnsRecords;
         loadDomains();
         dmTutOpen(host); // abre o passo a passo personalizado para este domínio
         silentVerifyDomain(host); // 1ª tentativa imediata (DNS pode já estar pronto)
@@ -3718,6 +3721,8 @@ function addDomain(){
 }
 /* ── Tutorial de conexão de domínio (modal por domínio) ── */
 var DMTUT_HOST='';
+// Registros DNS exigidos pela hospedagem, por host: { host: { cname:{host,target}, txt:{host,value} } }
+var DMTUT_DNS={};
 // Nome do registro CNAME a partir do host: "a1.dominio.com" → "a1"; apex → "@".
 function dmCnameName(host){
   var parts=(host||'').split('.');
@@ -3744,8 +3749,15 @@ function dmTutRender(){
   var body=document.getElementById('dmtut-body');
   if(dmTutIsVerified(host)){ dmTutSuccess(host); return; }
   var name=dmCnameName(host);
+  // Registros exigidos pela hospedagem (quando o domínio foi registrado via
+  // API): CNAME pode ter alvo próprio (ex.: xyz.up.railway.app) e pode haver
+  // um TXT de verificação obrigatório. Sem eles, usa o fluxo manual (appHost).
+  var rec=DMTUT_DNS[host]||{};
+  var cnameTarget=(rec.cname&&rec.cname.target)||DM_APPHOST;
+  var txt=rec.txt&&rec.txt.value?rec.txt:null;
+  var stepN=2;
   st.innerHTML='<span class="dmtut-badge warn"><span class="ldot" style="background:var(--warning);box-shadow:none;width:7px;height:7px"></span>Aguardando DNS</span>';
-  body.innerHTML=
+  var html=
     '<div class="dmtut-step">'+
       '<span class="dmtut-n">1</span>'+
       '<div class="dmtut-txt">'+
@@ -3754,7 +3766,7 @@ function dmTutRender(){
       '</div>'+
     '</div>'+
     '<div class="dmtut-step">'+
-      '<span class="dmtut-n">2</span>'+
+      '<span class="dmtut-n">'+stepN+'</span>'+
       '<div class="dmtut-txt">'+
         '<b>Crie este registro CNAME</b>'+
         '<p>Adicione um novo registro copiando os valores abaixo:</p>'+
@@ -3762,15 +3774,35 @@ function dmTutRender(){
           '<div class="dmtut-row"><span class="dmtut-lbl">Tipo</span><span class="dmtut-val pink">CNAME</span></div>'+
           '<div class="dmtut-row"><span class="dmtut-lbl">Nome / Host</span><span class="dmtut-val">'+esc(name)+'</span>'+
             '<button class="dmtut-copy" data-copy="'+esc(name)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
-          '<div class="dmtut-row"><span class="dmtut-lbl">Destino / Valor</span><span class="dmtut-val accent">'+esc(DM_APPHOST)+'</span>'+
-            '<button class="dmtut-copy" data-copy="'+esc(DM_APPHOST)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Destino / Valor</span><span class="dmtut-val accent">'+esc(cnameTarget)+'</span>'+
+            '<button class="dmtut-copy" data-copy="'+esc(cnameTarget)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
         '</div>'+
         (name==='@'?'<div class="dmtut-note">Dom\u00ednio raiz: alguns pain\u00e9is n\u00e3o aceitam CNAME em "@" \u2014 use a op\u00e7\u00e3o <b>ALIAS</b> ou <b>CNAME flattening</b> (autom\u00e1tico na Cloudflare).</div>':'')+
         '<div class="dmtut-note">Usa Cloudflare? Deixe a nuvem <b>cinza (Somente DNS)</b>, n\u00e3o laranja.</div>'+
       '</div>'+
-    '</div>'+
+    '</div>';
+  if(txt){
+    stepN++;
+    html+=
     '<div class="dmtut-step">'+
-      '<span class="dmtut-n">3</span>'+
+      '<span class="dmtut-n">'+stepN+'</span>'+
+      '<div class="dmtut-txt">'+
+        '<b>Crie tamb\u00e9m este registro TXT</b>'+
+        '<p>A hospedagem exige um TXT de verifica\u00e7\u00e3o para emitir o certificado:</p>'+
+        '<div class="dmtut-dns">'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Tipo</span><span class="dmtut-val pink">TXT</span></div>'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Nome / Host</span><span class="dmtut-val">'+esc(txt.host||name)+'</span>'+
+            '<button class="dmtut-copy" data-copy="'+esc(txt.host||name)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
+          '<div class="dmtut-row"><span class="dmtut-lbl">Valor</span><span class="dmtut-val accent">'+esc(txt.value)+'</span>'+
+            '<button class="dmtut-copy" data-copy="'+esc(txt.value)+'">'+DMTUT_COPY_ICO+' Copiar</button></div>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }
+  stepN++;
+  html+=
+    '<div class="dmtut-step">'+
+      '<span class="dmtut-n">'+stepN+'</span>'+
       '<div class="dmtut-txt">'+
         '<b>Verifique a conex\u00e3o</b>'+
         '<p style="margin-bottom:10px">Salvou o registro? Clique abaixo \u2014 ou aguarde, verificamos automaticamente a cada 30 segundos.</p>'+
@@ -3778,6 +3810,7 @@ function dmTutRender(){
         '<div class="dmtut-warn" id="dmtut-warn"></div>'+
       '</div>'+
     '</div>';
+  body.innerHTML=html;
 }
 function dmTutSuccess(host){
   if(DMTUT_HOST!==host) return;

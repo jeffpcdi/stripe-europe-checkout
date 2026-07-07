@@ -163,6 +163,18 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
 - **Conversões:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
+  **Mecanismo de verificação (2 passos, mas só o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
+  comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
+  → `cloudflareProxy=true` (nuvem laranja mascara o CNAME real). (2) HTTP — `GET https://host/__domain-check`
+  precisa responder 200 com `{app:'roi-nados-tracker'}` (assinatura `APP_CHECK_ID`). **`ok = httpOk`**:
+  DNS apontado NÃO basta — sem o domínio roteado na hospedagem (Custom Domain + SSL), `/go` daria 404.
+  `dnsPronto=true` = DNS ok mas app ainda não atende. Sem cache: cada verify re-checa do zero. O front
+  (dashboard-view.js) tem polling de 30s (só com pendentes + aba visível).
+  **Registro automático na hospedagem:** `POST /api/domains` chama `domain-provider.js` (Railway GraphQL
+  `customDomainCreate`) quando `RAILWAY_API_TOKEN` está setado; devolve `dnsRecords` (CNAME + eventual TXT
+  de verificação) que o popup exibe. `DELETE` remove também na Railway (`customDomainDelete` via
+  `providerId` salvo no config). Erros `limite`/`duplicado` bloqueiam com aviso; `auth`/`offline`
+  degradam para modo manual sem quebrar o cadastro.
 - **Diversos:** `GET/POST /api/pushcut-config`, `POST /api/pushcut/test`, `GET/POST /api/notes`,
   `PUT /api/notes/:d`, `GET/POST /api/shortlinks`, `DELETE /api/shortlinks/:slug`, `GET/POST /api/public-token`.
 
@@ -296,6 +308,11 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 - `CONVERSION_WEBHOOK_SECRET` — valida `/api/conversion`; base do segredo HMAC do cloak.
 - `TIKTOK_ACCESS_TOKEN` — token da CAPI (e `TIKTOK_PIXEL_CODE` legado em pixel-store).
 - `PUSHCUT_WEBHOOK_URL` — URL de notificações Pushcut (pode ser definida na dash).
+- `RAILWAY_API_TOKEN` — **Workspace Token** da Railway (Account Settings → Tokens; project token NÃO
+  autoriza mutations de domínio). Habilita o registro automático de Custom Domains via
+  `domain-provider.js`. **Opcional:** sem ele, domínios ficam em modo manual (fluxo antigo). O token é
+  lido SÓ dentro de `domain-provider.js` e nunca aparece em log, resposta de API, view ou mensagem de erro.
+  Usa também `RAILWAY_PROJECT_ID`/`RAILWAY_ENVIRONMENT_ID`/`RAILWAY_SERVICE_ID` (injetados pelo Railway).
 - `PORT` — porta HTTP (padrão 3000).
 - (Legado) `DASHBOARD_PASSWORD` — antigo Basic Auth de senha única, **substituído** pela auth por conta.
 
@@ -349,6 +366,8 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── bot-filter.js / ua.js  # cloaking (score) e parse de User-Agent
 ├── tiktok-events.js       # CAPI do TikTok (server-side)
 ├── pixel-store.js / link-store.js / gateway-store.js  # CRUD dos recursos
+├── conversion-normalize.js # normalização de payloads de gateway (puro, testável)
+├── domain-provider.js     # Custom Domains na hospedagem via API (Railway; token só aqui)
 ├── presence.js / pulse-client.js   # visitantes ao vivo
 ├── pushcut.js             # notificações push
 ├── *-view.js              # views (HTML como string): dashboard, lp, legal, tracker, vision, auth

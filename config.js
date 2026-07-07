@@ -169,12 +169,17 @@ function set(accountId, patch) {
     createdAt: s.createdAt || new Date().toISOString()
   })).filter((s) => s.slug && /^https?:\/\//i.test(s.url));
   if (!Array.isArray(next.customDomains)) next.customDomains = [];
-  next.customDomains = next.customDomains.slice(0, 20).map((d) => ({
-    host: String(d.host || '').toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 253),
-    verificado: d.verificado === true,
-    verificadoEm: d.verificadoEm || null,
-    criadoEm: d.criadoEm || new Date().toISOString()
-  })).filter((d) => d.host && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d.host));
+  next.customDomains = next.customDomains.slice(0, 20).map((d) => {
+    const out = {
+      host: String(d.host || '').toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 253),
+      verificado: d.verificado === true,
+      verificadoEm: d.verificadoEm || null,
+      criadoEm: d.criadoEm || new Date().toISOString()
+    };
+    // id do domínio na hospedagem (Railway) — usado para consultar/remover via API
+    if (d.providerId) out.providerId = String(d.providerId).slice(0, 80);
+    return out;
+  }).filter((d) => d.host && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d.host));
   if (!Array.isArray(next.notes)) next.notes = [];
   next.notes = next.notes.slice(0, 200).map((n) => ({
     d: String(n.d || '').slice(0, 10),
