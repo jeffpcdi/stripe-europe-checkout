@@ -366,9 +366,7 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .kpis{grid-template-columns:repeat(4,1fr)}
 @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:560px){.kpis{grid-template-columns:1fr}}
-/* Ao Vivo só tem 2 KPIs: ocupam a fila inteira (senão sobra meio ecrã vazio) */
-#view-live .kpis{grid-template-columns:repeat(2,1fr)}
-@media(max-width:560px){#view-live .kpis{grid-template-columns:1fr}}
+
 .card{
   position:relative;isolation:isolate;
   background:var(--card);
@@ -1553,7 +1551,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ─���� Ao Vivo ── -->
       <section class="view" id="view-live">
-        <div class="grid kpis" id="live-kpis"></div>
         <div class="section-title" style="margin-top:0"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online navegando agora</span></div>
         <div class="globe-wrap">
           <div class="card globe-card" style="padding:0; height:520px; overflow:hidden; position:relative" id="globe-card">
@@ -3371,20 +3368,6 @@ function renderLive(){
     var id=v.id||JSON.stringify([v.country,v.page,v.durationMs]);
     if(seen[id]) return false; seen[id]=1; return true;
   });
-  var ck=LIVE.checkout||{externalEst:0};
-  var totalCheckout=ck.externalEst||0;
-  // estrutura montada UMA vez; depois só os números animam (sem repinte seco a cada 4s)
-  var lkEl=document.getElementById('live-kpis');
-  if(!document.getElementById('lv-online')){
-    lkEl.innerHTML=
-      kpi(I.users,'tint-green','Online agora','<span class="grn" id="lv-online">0</span>','<span id="lv-online-sub">pessoas navegando</span>')+
-      kpi(I.cart,'tint-pink','No checkout agora','<span class="pnk" id="lv-ck">0</span>','estimativa &middot; leads que clicaram num link nos &uacute;ltimos ~10&nbsp;min');
-  }
-  countUp(document.getElementById('lv-online'),s.online||0,'',600);
-  countUp(document.getElementById('lv-ck'),totalCheckout,'',600);
-  var lkSub=document.getElementById('lv-online-sub');
-  var nc=(s.countries||[]).length;
-  if(lkSub)lkSub.textContent='pessoas navegando \u00b7 '+nc+(nc===1?' pa\u00eds':' pa\u00edses');
   // Card "Pulso de tráfego"
   renderTrafficPulse();
   // checkout primeiro (mais quentes no topo), depois por atividade
