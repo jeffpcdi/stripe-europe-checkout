@@ -1783,7 +1783,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             </div>
             <div id="dm-list" style="margin-bottom:14px"></div>
             
-            <div class="domain-tut-container" style="margin-top: 16px; display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px">
+            <div id="dm-dns-guide" class="domain-tut-container" style="margin-top: 16px; display: none; flex-direction: column; gap: 16px; margin-bottom: 20px">
               <div style="font-weight: 600; color: var(--text); font-size: 13.5px; display: flex; align-items: center; gap: 8px">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--accent)"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
                 Configura&ccedil;&atilde;o DNS R&aacute;pida:
@@ -3651,7 +3651,7 @@ function updateAbSplitLabel(splitB){
   if(el) el.textContent='A '+(100-splitB)+'% / B '+splitB+'%';
 }
 
-/* ── Domínios personalizados ─────────────────────────────────���───────── */
+/* ── Domínios personalizados ───────────────────────��─────────���───────── */
 var DM_LIST=[],DM_APPHOST='';
 // Realoca o gerenciador de domínios (#dm-panel) para dentro da aba "Domínios".
 // O markup nasce dentro de view-links por histórico; movemos o nó uma única vez
@@ -3691,6 +3691,13 @@ function renderDomains(){
         '</div>'+
       '</div>';
     }).join('');
+  }
+  // Tutorial de DNS: só aparece quando há domínio adicionado mas ainda não
+  // verificado (DNS não propagou). Some quando todos verificados ou lista vazia.
+  var guide=document.getElementById('dm-dns-guide');
+  if(guide){
+    var pendentes=(DM_LIST||[]).filter(function(d){return !d.verificado;});
+    guide.style.display=pendentes.length?'flex':'none';
   }
   // se o formulário de link está aberto, mantém o select de domínio em dia
   var lkCard=document.getElementById('lk-form-card');
