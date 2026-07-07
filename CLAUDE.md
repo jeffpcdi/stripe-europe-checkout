@@ -308,11 +308,15 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 - `CONVERSION_WEBHOOK_SECRET` — valida `/api/conversion`; base do segredo HMAC do cloak.
 - `TIKTOK_ACCESS_TOKEN` — token da CAPI (e `TIKTOK_PIXEL_CODE` legado em pixel-store).
 - `PUSHCUT_WEBHOOK_URL` — URL de notificações Pushcut (pode ser definida na dash).
-- `RAILWAY_API_TOKEN` — **Workspace Token** da Railway (Account Settings → Tokens; project token NÃO
-  autoriza mutations de domínio). Habilita o registro automático de Custom Domains via
-  `domain-provider.js`. **Opcional:** sem ele, domínios ficam em modo manual (fluxo antigo). O token é
-  lido SÓ dentro de `domain-provider.js` e nunca aparece em log, resposta de API, view ou mensagem de erro.
-  Usa também `RAILWAY_PROJECT_ID`/`RAILWAY_ENVIRONMENT_ID`/`RAILWAY_SERVICE_ID` (injetados pelo Railway).
+- `RAILWAY_API_TOKEN` — token da Railway p/ registro automático de Custom Domains via `domain-provider.js`.
+  **Aceita qualquer tipo:** account/workspace token (header `Authorization: Bearer`) OU project token
+  (header `Project-Access-Token`). O módulo detecta o header certo sozinho (tenta Bearer, cai p/
+  Project-Access-Token) e loga no boot qual autenticou. Fallback de nome: usa `RAILWAY_TOKEN` se
+  `RAILWAY_API_TOKEN` não existir. **Opcional:** sem token válido, domínios ficam em modo manual (fluxo
+  antigo). O token é lido SÓ dentro de `domain-provider.js` e nunca aparece em log, resposta de API, view
+  ou mensagem de erro. Usa também `RAILWAY_PROJECT_ID`/`RAILWAY_ENVIRONMENT_ID`/`RAILWAY_SERVICE_ID`
+  (injetados automaticamente pelo Railway em runtime). **Obs.:** se um project token for recusado para
+  `customDomainCreate`, troque por um account/workspace token (Account Settings → Tokens).
 - `PORT` — porta HTTP (padrão 3000).
 - (Legado) `DASHBOARD_PASSWORD` — antigo Basic Auth de senha única, **substituído** pela auth por conta.
 
