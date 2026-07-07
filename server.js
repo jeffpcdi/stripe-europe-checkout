@@ -41,6 +41,7 @@ const TRACKER_JS = require('./tracker-view');
 const auth = require('./auth');
 const gatewayStore = require('./gateway-store');
 const db = require('./db');
+const redis = require('./redis'); // contadores de decisão do cloaker (offer/white)
 const { loginPage, registerPage } = require('./auth-view');
 
 // ── Resolução da conta para tráfego PÚBLICO (multi-tenant) ────────────────
