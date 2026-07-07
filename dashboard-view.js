@@ -859,6 +859,15 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .pais-box input{flex:1;min-width:70px;border:none;background:transparent;color:var(--text);font-size:12.5px;text-transform:uppercase;outline:none;padding:4px}
 .pais-box.all input{text-transform:none}
 /* Grid de checkboxes de país/idioma (allowlist do cloaker) */
+.geo-collapse{border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden;margin-top:6px}
+.geo-collapse>summary{list-style:none;cursor:pointer;padding:13px 15px;font-size:13.5px;color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:relative}
+.geo-collapse>summary::-webkit-details-marker{display:none}
+.geo-collapse>summary::after{content:'\\25be';margin-left:auto;color:var(--muted2);transition:transform .2s}
+.geo-collapse[open]>summary::after{transform:rotate(180deg)}
+.geo-collapse>summary:hover{background:var(--card2)}
+.geo-collapse>summary b{font-weight:600}
+.geo-collapse>.geo-wrap,.geo-collapse>p{margin-left:15px;margin-right:15px}
+.geo-collapse>.geo-wrap{margin-bottom:15px}
 .geo-wrap{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:12px}
 .geo-block{display:flex;flex-direction:column;gap:8px}
 .geo-block-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -1908,10 +1917,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <div class="form-row">
               <label>Token de acesso <span class="hint">— copie do TikTok (opcional, mas recomendado)</span></label>
               <input class="inp" id="px-token" placeholder="cole aqui o token do TikTok" style="width:100%;font-family:'Geist Mono',monospace" autocomplete="off">
-            </div>
-            <div class="form-row">
-              <label>Em quais páginas <span class="hint">— uma por linha; deixe vazio para valer em todas</span></label>
-              <textarea class="inp" id="px-routes" rows="3" placeholder="/&#10;/checkout&#10;/s1" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px"></textarea>
             </div>
             <div class="form-row">
               <label>Eventos enviados direto ao TikTok <span class="hint">— pelo servidor, mais confiável</span></label>
@@ -3936,10 +3941,12 @@ function renderCloakEditor(l,isNew){
         '<input class="inp" id="cke-offer" type="url" placeholder="https://sua-offer.com" value="'+esc(l.offerUrl||'')+'" style="width:100%"></div>'+
       '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
         '<input class="inp" id="cke-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.whitePageUrl||'')+'" style="width:100%"></div>'+
-      '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— nada marcado = todos os países. Fora da lista vai para a white page</span></label>'+
-        renderPaisGrid(l)+'</div>'+
-      '<div class="ck-field full"><label>Idiomas liberados para a offer <span class="hint">— nada marcado = todos os idiomas. Fora da lista vai para a white page</span></label>'+
-        renderIdiomaGrid(l)+'</div>'+
+      '<details class="ck-field full geo-collapse"><summary><b>Países liberados para a offer</b> <span class="hint" id="ck-pais-count">'+ckPaisSummary(l)+'</span></summary>'+
+        '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os países. Quem estiver fora da lista vai para a white page.</p>'+
+        renderPaisGrid(l)+'</details>'+
+      '<details class="ck-field full geo-collapse"><summary><b>Idiomas liberados para a offer</b> <span class="hint" id="ck-idioma-count">'+ckIdiomaSummary(l)+'</span></summary>'+
+        '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page.</p>'+
+        renderIdiomaGrid(l)+'</details>'+
     '</div>'+
     '<details class="ck-adv" style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;color:var(--muted2)">Camadas de detecção — ligue/desligue cada sinal</summary>'+
       '<div class="ck-layers" id="cke-layers" style="margin-top:12px">'+layers+'</div>'+
@@ -3966,6 +3973,21 @@ function geoChk(scope,code,name,flag,on){
     '<input type="checkbox" data-'+scope+'="'+esc(code)+'"'+(on?' checked':'')+'>'+
     '<span class="flag" aria-hidden="true">'+flag+'</span>'+
     '<span class="nm">'+esc(name)+'</span></label>';
+}
+function ckPaisSummary(l){
+  var n=(l.paises&&l.paises.length)?l.paises.length:CK_COUNTRY_DEFAULT.length;
+  return '— '+n+(n===1?' país liberado':' países liberados');
+}
+function ckIdiomaSummary(l){
+  var n=(l.idiomas&&l.idiomas.length)||0;
+  return n?('— '+n+(n===1?' idioma liberado':' idiomas liberados')):'— todos os idiomas';
+}
+// Atualiza o texto de resumo no <summary> conforme o usuário marca/desmarca
+function refreshGeoSummaries(){
+  var pc=document.getElementById('ck-pais-count');
+  if(pc){ var n=currentPaises().length; pc.textContent='— '+n+(n===1?' país liberado':' países liberados'); }
+  var ic=document.getElementById('ck-idioma-count');
+  if(ic){ var m=currentIdiomas().length; ic.textContent=m?('— '+m+(m===1?' idioma liberado':' idiomas liberados')):'— todos os idiomas'; }
 }
 function renderPaisGrid(l){
   var sel=(l.paises&&l.paises.length)?l.paises.slice():CK_COUNTRY_DEFAULT.slice();
@@ -3998,7 +4020,7 @@ function bindCloakEditor(){
     box.addEventListener('change',function(e){
       var chk=e.target.closest('input[type=checkbox]'); if(!chk) return;
       chk.closest('.geo-chk').classList.toggle('on',chk.checked);
-      syncBlockButtons();
+      syncBlockButtons(); refreshGeoSummaries();
     });
     box.addEventListener('click',function(e){
       var b=e.target.closest('button[data-blocktoggle]'); if(!b) return;
@@ -4006,7 +4028,7 @@ function bindCloakEditor(){
       var boxes=codes.map(function(c){return box.querySelector('input[data-cc="'+c+'"]');}).filter(Boolean);
       var allOn=boxes.every(function(x){return x.checked;});
       boxes.forEach(function(x){ x.checked=!allOn; x.closest('.geo-chk').classList.toggle('on',x.checked); });
-      syncBlockButtons();
+      syncBlockButtons(); refreshGeoSummaries();
     });
   });
   // segmento de sensibilidade
@@ -4215,14 +4237,13 @@ function renderPixels(){
     return;
   }
   el.innerHTML=PX_LIST.map(function(p){
-    var routes=(p.routes&&p.routes.length)?p.routes.join(', '):'todas as páginas';
     var evs=Object.keys(p.events||{}).filter(function(k){return p.events[k];}).join(' · ')||'nenhum';
     return '<div class="lrow" style="cursor:default">'+
       '<span class="ldot" style="background:'+(p.active?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
       '<div class="lmain">'+
         '<b>'+esc(p.name)+' <span class="hint" style="font-weight:400">pixels/'+esc(p.slug)+'.json</span></b>'+
         '<span style="font-family:\\'Geist Mono\\',monospace">'+esc(p.pixelCode)+'</span>'+
-        '<span>Rotas: '+esc(routes)+' &middot; Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
+        '<span>Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
       '</div>'+
       '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
         (p.scriptTag?'<button class="btn-icon" onclick="copyPxScript(\\''+esc(p.slug)+'\\')" title="Script exclusivo deste pixel — cole em qualquer página">Copiar script</button>':'')+
@@ -4241,7 +4262,6 @@ function showPxForm(px){
   document.getElementById('px-name').value=px?px.name:'';
   document.getElementById('px-code').value=px?px.pixelCode:'';
   document.getElementById('px-token').value=px?(px.accessToken||''):'';
-  document.getElementById('px-routes').value=px?((px.routes||[]).join(String.fromCharCode(10))):'';
   var ev=px?(px.events||{}):{ViewContent:true,InitiateCheckout:true,CompletePayment:true};
   document.getElementById('px-ev-vc').checked=!!ev.ViewContent;
   document.getElementById('px-ev-ic').checked=!!ev.InitiateCheckout;
@@ -4285,7 +4305,6 @@ function savePixel(){
     name:document.getElementById('px-name').value.trim(),
     pixelCode:document.getElementById('px-code').value.trim(),
     accessToken:document.getElementById('px-token').value.trim(),
-    routes:document.getElementById('px-routes').value.split(String.fromCharCode(10)).map(function(s){return s.trim();}).filter(Boolean),
     events:{
       ViewContent:document.getElementById('px-ev-vc').checked,
       InitiateCheckout:document.getElementById('px-ev-ic').checked,
