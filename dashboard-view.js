@@ -1852,17 +1852,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <div class="tut-step" style="border-left: 4px solid var(--success); margin-bottom: 0">
                 <span class="tut-n">3</span>
                 <div class="tut-txt">
-                  <b>Verifique e use!</b>
-                  <p>Clique em <b>Verificar</b> acima. Uma vez ativado, todos os seus links passam a usar o seu dom&iacute;nio automaticamente.</p>
+                  <b>Pronto \u2014 verificamos sozinhos</b>
+                  <p>Assim que o DNS propagar, o dom&iacute;nio &eacute; verificado automaticamente e todos os seus links passam a usar o seu endere&ccedil;o.</p>
                 </div>
-              </div>
-            </div>
-
-            <div class="form-row" style="margin-bottom:0">
-              <label>Script no seu dom&iacute;nio <span class="hint">— cole no &lt;head&gt; das suas p&aacute;ginas</span></label>
-              <div style="display:flex;gap:8px;align-items:center;max-width:480px">
-                <select class="select" id="dm-snip-host" style="flex:1"></select>
-                <button class="btn btn-sm" id="dm-snip-copy">Copiar script</button>
               </div>
             </div>
           </div>
@@ -1973,7 +1965,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Pixel TikTok ── -->
       <section class="view" id="view-pixels">
-        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Rastreamento avançado, lead por lead</b><p>Cada visitante recebe uma identidade única e segura. Com ela, o TikTok reconhece a mesma pessoa desde o clique no anúncio até a compra — mesmo em páginas diferentes. Isso melhora a qualidade dos dados e ajuda o TikTok a encontrar mais compradores parecidos. Você só precisa colar o script (abaixo) nas suas páginas; o resto é automático.</p></div></div>
         <div class="grid dynamic-grid" id="px-grid">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -2030,97 +2021,36 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div id="ph-events" class="hint" style="margin-top:12px"></div>
           <div id="ph-errors" style="margin-top:6px"></div>
         </div>
-        <div class="section-title"><span>Passo a Passo: Como ativar o rastreamento</span><span class="line"></span></div>
-        <div class="card" style="padding: 24px">
-          <p class="hint" style="margin:0 0 20px;line-height:1.7;font-size:14px;color:var(--text-sub)">Siga estes <b>3 passos simples</b> para ativar o rastreamento automático. Funciona em qualquer criador de páginas (Elementor, Wix, WordPress, GreatPages, Typebot, etc.) sem precisar entender de programação.</p>
-
-          <!-- Passo 1 -->
-          <div class="tut-step" style="border-left: 4px solid var(--pink)">
+        <!-- Guia de instalação: só aparece quando existe pelo menos 1 pixel
+             (o script é único por domínio e injeta todos os pixels ativos) -->
+        <div id="tk-guide" style="display:none">
+        <div class="section-title"><span>Como ativar o rastreamento</span><span class="line"></span><span class="muted" style="font-size:11.5px">um s&oacute; script para todos os pixels</span></div>
+        <div class="card">
+          <div class="tut-step" style="border-left:3px solid var(--pink)">
             <span class="tut-n">1</span>
             <div class="tut-txt">
-              <b>Copie o código abaixo</b>
-              <p style="margin-bottom: 12px">Este código inteligente conecta o seu site a este painel de controle. Clique no botão para copiar.</p>
+              <b>Copie o c&oacute;digo</b>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
                 <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px;background:var(--bg2)">
-                <button class="btn btn-sm primary" id="tk-copy" style="padding: 10px 18px; transition: all 0.2s">Copiar Código</button>
+                <button class="btn btn-sm primary" id="tk-copy">Copiar C&oacute;digo</button>
               </div>
             </div>
           </div>
-
-          <!-- Passo 2 -->
-          <div class="tut-step" style="border-left: 4px solid var(--accent)">
+          <div class="tut-step" style="border-left:3px solid var(--accent)">
             <span class="tut-n">2</span>
             <div class="tut-txt">
-              <b>Cole nas configurações do seu site</b>
-              <p>Abra o criador de páginas onde o seu site foi feito e cole o código copiado no campo de <b>scripts personalizados, cabeçalho ou "head"</b>.</p>
-              
-              <!-- PRINT / MOCKUP EXPLICATIVO -->
-              <div class="mock-container">
-                <div class="mock-header">
-                  <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot"></span>
-                  <span class="mock-title">⚙️ Painel do seu Criador de Páginas</span>
-                </div>
-                <div class="mock-body" style="background: #090c15">
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px">
-                    <span style="font-weight: 600; color: #fff">Seção de Código / Scripts</span>
-                    <span style="font-size:11px; opacity:0.75; color: var(--accent)">Elementor / GreatPages / WordPress / Wix</span>
-                  </div>
-                  <div class="mock-code-box">
-                    &lt;!-- Colar o código aqui dentro --&gt;
-                    <div class="mock-pointer">👉 Pressione Ctrl + V (ou Cmd + V) para colar o código</div>
-                  </div>
-                  <div style="font-size:11.5px; opacity:0.8; color: var(--text-muted)">
-                    💡 Procure por opções chamadas: <i>"Scripts Personalizados"</i>, <i>"Configurações Globais"</i>, <i>"Custom Code"</i> ou <i>"Script no Cabeçalho (Head)"</i>.
-                  </div>
-                </div>
-              </div>
-
+              <b>Cole no seu criador de p&aacute;ginas</b>
+              <p>No campo de <b>scripts personalizados / cabe&ccedil;alho (head)</b> do Elementor, Wix, WordPress, GreatPages, etc.</p>
             </div>
           </div>
-
-          <!-- Passo 3 -->
-          <div class="tut-step" style="border-left: 4px solid var(--success)">
+          <div class="tut-step" style="border-left:3px solid var(--success);margin-bottom:0">
             <span class="tut-n">3</span>
             <div class="tut-txt">
-              <b>Salve e publique o seu site</b>
-              <p>Clique em "Salvar" ou "Publicar" no criador. Pronto! A partir de agora, todas as visitas e compras serão gravadas e mostradas automaticamente em tempo real.</p>
-              
-              <!-- PRINT / MOCKUP ATIVO -->
-              <div class="mock-container" style="border-color: rgba(34,197,94,0.2)">
-                <div class="mock-header" style="background: rgba(34,197,94,0.06)">
-                  <span class="mock-dot" style="background:#22c55e"></span>
-                  <span class="mock-title" style="color: #22c55e; font-weight: 600">⚡ Rastreamento Funcionando</span>
-                </div>
-                <div class="mock-body" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #080d14">
-                  <div>
-                    <span style="font-weight: 600; color: #fff">Páginas ativas detectadas</span>
-                    <p style="margin: 3px 0 0; font-size: 11px; opacity: 0.8; color: var(--text-muted)">Enviando dados de forma ultra-rápida e segura para o TikTok</p>
-                  </div>
-                  <span style="background: rgba(34,197,94,0.12); color: #22c55e; font-family: monospace; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px">STATUS: OK</span>
-                </div>
-              </div>
-
+              <b>Salve e publique</b>
+              <p>Pronto \u2014 visitas e compras passam a aparecer aqui em tempo real. Com dom&iacute;nio pr&oacute;prio verificado, o c&oacute;digo usa o seu endere&ccedil;o automaticamente.</p>
             </div>
           </div>
-
-          <div class="alert" style="background:rgba(47,125,255,.06);border-color:rgba(47,125,255,.25);margin-top:4px">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--cyan)"><path d="M12 16v-4M12 8h.01"/><circle cx="12" cy="12" r="10"/></svg>
-            <div>
-              <b style="font-size:13.5px">Perguntas fáceis</b>
-              <ul class="tut-list" style="margin-top:6px">
-                <li><b>Preciso mexer nos meus botões de venda?</b> Não! O script rastreia tudo automaticamente a partir dos links configurados.</li>
-                <li><b>Preciso configurar o TikTok de forma complicada?</b> Não, nosso robô cuida de ligar as visitas dos anúncios às compras de forma automática.</li>
-                <li><b>É necessário criar arquivos no meu servidor?</b> Não. Só colar o script no criador de páginas e salvar.</li>
-                <li><b>Uso domínio próprio?</b> Após cadastrar seu domínio próprio (na aba ao lado), o código gerado usará o seu endereço automaticamente.</li>
-              </ul>
-            </div>
-          </div>
-
-          <div class="mini-feats">
-            <span>Registra visitantes no pixel do TikTok</span>
-            <span>Acompanhe ao vivo quem navega</span>
-            <span>Vincula cliques a vendas reais</span>
-          </div>
+        </div>
         </div>
         <div class="section-title"><span>Integração Automática com Plataforma de Vendas (Webhook)</span><span class="line"></span></div>
         <div class="card">
@@ -2142,7 +2072,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <p class="hint" id="cw-status" style="margin-top:10px"></p>
         </div>
-        <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
+        <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><select class="select" id="cw-gw-filter" style="width:auto;min-width:140px;padding:5px 10px;font-size:12px"><option value="">Todos os gateways</option></select><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
         <div class="card" style="padding:0">
           <div class="tbl-wrap" style="border:0">
             <table>
@@ -3753,9 +3683,9 @@ function delLink(slug){
   });
 }
 function linkOrigin(){
-  var sel=document.getElementById('dm-snip-host');
-  var v=sel&&sel.value?sel.value:'';
-  return v?('https://'+v):location.origin;
+  // usa automaticamente o primeiro domínio verificado (sem seletor manual)
+  var v=(DM_LIST||[]).filter(function(d){return d.verificado;})[0];
+  return v?('https://'+v.host):location.origin;
 }
 function copyLink(slug){
   navigator.clipboard.writeText(linkOrigin()+'/go/'+slug)
@@ -3811,27 +3741,38 @@ function renderDomains(){
         '<div class="lmain">'+
           '<b style="font-family:\\'Geist Mono\\',monospace;font-size:13px">'+esc(d.host)+'</b>'+
           '<span>'+(d.verificado
-            ?'<span class="pos">Verificado'+(d.verificadoEm?' &middot; '+new Date(d.verificadoEm).toLocaleDateString('pt-BR'):'')+'</span>'
-            :'<span class="amb">Aguardando DNS &mdash; aponte o CNAME e clique em Verificar</span>')+'</span>'+
+            ?'<span class="badge-ok">Verificado'+(d.verificadoEm?' &middot; '+new Date(d.verificadoEm).toLocaleDateString('pt-BR'):'')+'</span>'
+            :'<span class="badge-warn">Aguardando DNS &mdash; verificamos automaticamente</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
-          '<button class="btn-icon" onclick="verifyCustomDomain(\\''+esc(d.host)+'\\',this)">Verificar</button>'+
           '<button class="btn-icon" style="color:var(--red)" onclick="delDomain(\\''+esc(d.host)+'\\')">Remover</button>'+
         '</div>'+
       '</div>';
     }).join('');
   }
-  // seletor de domínio (snippet do pixel + cópia das URLs /go/)
-  var sel=document.getElementById('dm-snip-host');
-  if(sel){
-    var prev=sel.value;
-    var opts='<option value="">'+esc(location.host)+' (padr&atilde;o)</option>'+
-      DM_LIST.filter(function(d){return d.verificado;}).map(function(d){
-        return '<option value="'+esc(d.host)+'">'+esc(d.host)+'</option>';
-      }).join('');
-    sel.innerHTML=opts;
-    if(prev&&DM_LIST.some(function(d){return d.host===prev&&d.verificado;})) sel.value=prev;
-  }
+  // verificação automática: enquanto houver domínio pendente, tenta a cada 30s
+  scheduleDomainAutoVerify();
+}
+/* Verificação automática de domínios: sem botão — o painel tenta sozinho.
+   Silenciosa nas falhas (DNS ainda propagando); avisa só quando verifica. */
+var DM_POLL=null;
+function scheduleDomainAutoVerify(){
+  var pending=(DM_LIST||[]).filter(function(d){return !d.verificado;});
+  if(!pending.length){ if(DM_POLL){clearInterval(DM_POLL);DM_POLL=null;} return; }
+  if(DM_POLL) return; // já agendado
+  DM_POLL=setInterval(function(){
+    var pend=(DM_LIST||[]).filter(function(d){return !d.verificado;});
+    if(!pend.length){ clearInterval(DM_POLL); DM_POLL=null; return; }
+    if(document.hidden) return; // não gasta rede com a aba em segundo plano
+    pend.forEach(function(d){ silentVerifyDomain(d.host); });
+  },30000);
+}
+function silentVerifyDomain(host){
+  fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ toast('Dom\u00ednio verificado: '+host); loadDomains(); }
+    }).catch(function(){});
 }
 function addDomain(){
   var inp=document.getElementById('dm-host');
@@ -3840,20 +3781,14 @@ function addDomain(){
   fetch('/api/domains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ inp.value=''; toast('Dom\u00ednio adicionado \u2014 configure o DNS e clique em Verificar'); loadDomains(); }
+      if(d.ok){
+        inp.value='';
+        toast('Dom\u00ednio adicionado \u2014 aponte o CNAME; verificamos automaticamente');
+        loadDomains();
+        silentVerifyDomain(host); // 1ª tentativa imediata (DNS pode já estar pronto)
+      }
       else toast(d.error||'Erro',false);
     }).catch(function(){ toast('Erro ao adicionar',false); });
-}
-function verifyCustomDomain(host,btn){
-  if(btn){ btn.textContent='Verificando...'; btn.disabled=true; }
-  fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok) toast('Dom\u00ednio verificado: '+host+(d.httpOk?'':' (DNS ok \u2014 aguardando SSL)'));
-      else toast('Falhou \u2014 DNS: '+(d.dnsDetail||'?')+' / HTTPS: '+(d.httpDetail||'?'),false);
-      loadDomains();
-    }).catch(function(){ toast('Erro na verifica\u00e7\u00e3o',false); })
-    .finally(function(){ if(btn){ btn.textContent='Verificar'; btn.disabled=false; } });
 }
 function delDomain(host){
   uiConfirm({title:'Remover este dom\u00ednio?',msg:'"'+host+'" deixa de ser recomendado nas URLs (o DNS continua seu).',okLabel:'Remover',danger:true},function(){
@@ -3862,13 +3797,6 @@ function delDomain(host){
       .then(function(d){ if(d.ok){ toast('Dom\u00ednio removido'); loadDomains(); } else toast(d.error||'Erro',false); })
       .catch(function(){ toast('Erro ao remover',false); });
   });
-}
-function copyDomainSnippet(){
-  var origin=linkOrigin();
-  var snip='<script src="'+origin+'/t.js" defer><\\/script><noscript><img src="'+origin+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>';
-  navigator.clipboard.writeText(snip)
-    .then(function(){ toast('Script copiado para '+origin.replace('https://','')); })
-    .catch(function(){ toast('Erro ao copiar',false); });
 }
 function saveLink(){
   var body={
@@ -4336,6 +4264,9 @@ function loadPixels(){
     var badge=document.getElementById('nav-px-badge');
     var n=PX_LIST.filter(function(p){return p.active;}).length;
     if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; badge.className='badge live-badge'; }
+    // guia de instalação: só faz sentido com pelo menos 1 pixel cadastrado
+    var guide=document.getElementById('tk-guide');
+    if(guide) guide.style.display=PX_LIST.length?'':'none';
   }).catch(function(){});
   loadPxLog();
   loadConvLog();
@@ -4614,8 +4545,28 @@ function loadConvLog(){
     if(st) st.innerHTML=d.configured?'Segredo configurado. Envie um POST de teste e ele aparece abaixo.':'<span class="neg">Sem segredo configurado — o endpoint responde 503 at\u00e9 voc\u00ea definir CONVERSION_WEBHOOK_SECRET.</span>';
     var tb=document.getElementById('cw-log'); if(!tb) return;
     var log=d.log||[];
-    if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">Nenhum webhook recebido ainda \u2014 configure a URL acima no seu gateway.</td></tr>'; return; }
-    tb.innerHTML=log.map(function(e){
+    CW_LOG=log;
+    // popula o filtro de gateways (mantém a seleção atual)
+    var fsel=document.getElementById('cw-gw-filter');
+    if(fsel){
+      var prev=fsel.value;
+      var gws=[]; log.forEach(function(e){ var g=e.gateway||''; if(g&&gws.indexOf(g)<0) gws.push(g); });
+      fsel.innerHTML='<option value="">Todos os gateways</option>'+gws.map(function(g){return '<option value="'+esc(g)+'">'+esc(g)+'</option>';}).join('');
+      if(prev&&gws.indexOf(prev)>=0) fsel.value=prev;
+    }
+    renderConvLog();
+  }).catch(function(){});
+}
+/* Tabela leve: filtra pelo gateway escolhido e mostra só os 12 mais recentes */
+var CW_LOG=[];
+function renderConvLog(){
+  var tb=document.getElementById('cw-log'); if(!tb) return;
+  var fsel=document.getElementById('cw-gw-filter');
+  var gw=fsel?fsel.value:'';
+  var log=gw?CW_LOG.filter(function(e){return (e.gateway||'')===gw;}):CW_LOG;
+  log=log.slice(0,12);
+  if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">'+(gw?'Nenhum webhook deste gateway.':'Nenhum webhook recebido ainda \u2014 configure a URL acima no seu gateway.')+'</td></tr>'; return; }
+  tb.innerHTML=log.map(function(e){
       var ok=e.status==='ok', dd=e.status==='dedup';
       return '<tr style="cursor:default">'+
         '<td>'+timeAgo(e.at)+'</td>'+
@@ -4626,7 +4577,6 @@ function loadConvLog(){
         '<td><span class="'+(ok?'grn':(dd?'':'neg'))+'">'+esc(e.status||'\u2014')+'</span></td>'+
       '</tr>';
     }).join('');
-  }).catch(function(){});
 }
 /* ── Setup guiado ──
    Transforma o antigo grid de "Saúde" num checklist acionável:
@@ -5232,7 +5182,6 @@ document.getElementById('lk-new').addEventListener('click',function(){ showLinkF
 document.getElementById('lk-save').addEventListener('click',saveLink);
 document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
-document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnippet);
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
   document.getElementById('lk-validate').addEventListener('click',validateDomain);
   var abSplit=document.getElementById('lk-ab-split');
@@ -5255,6 +5204,7 @@ document.getElementById('gw-save').addEventListener('click',saveGateway);
 document.getElementById('gw-cancel').addEventListener('click',function(){ document.getElementById('gw-form-card').style.display='none'; var g=document.getElementById('gw-grid'); if(g) g.classList.remove('form-open'); });
 document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
+document.getElementById('cw-gw-filter').addEventListener('change',renderConvLog);
 document.getElementById('ph-refresh').addEventListener('click',loadCapiHealth);
 document.getElementById('cw-reveal').addEventListener('click',function(){
   CW_REVEALED=!CW_REVEALED;
@@ -5280,7 +5230,7 @@ document.getElementById('cw-test').addEventListener('click',function(){
     .finally(function(){ btn.disabled=false; btn.textContent='Testar'; });
 });
 /* ── Snippet de rastreamento para páginas externas ── */
-function trackerSnippet(){ return '<script src="'+location.origin+'/t.js" defer><\\/script><noscript><img src="'+location.origin+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>'; }
+function trackerSnippet(){ var o=linkOrigin(); return '<script src="'+o+'/t.js" defer><\\/script><noscript><img src="'+o+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>'; }
 (function(){
   var inp=document.getElementById('tk-snippet');
   if(inp) inp.value=trackerSnippet();
