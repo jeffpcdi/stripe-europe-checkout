@@ -3693,6 +3693,9 @@ function silentVerifyDomain(host){
   fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
     .then(function(r){return r.json();})
     .then(function(d){
+      // Verificação pode ter reconectado o domínio (um slot da hospedagem vagou):
+      // atualiza os registros DNS exibidos no tutorial com os valores reais.
+      if(d.reconectado && d.dnsRecords) DMTUT_DNS[host]=d.dnsRecords;
       if(d.ok){
         toast('Dom\u00ednio verificado: '+host);
         if(DMTUT_HOST===host) dmTutSuccess(host); // modal aberto no mesmo host: anima
@@ -3712,6 +3715,9 @@ function addDomain(){
         // Guarda os registros DNS que a hospedagem exige (CNAME + eventual TXT
         // de verificação) para o tutorial mostrar valores exatos por domínio.
         if(d.dnsRecords) DMTUT_DNS[host]=d.dnsRecords;
+        // Caiu em modo manual (ex.: teto da hospedagem)? Avisa sem bloquear —
+        // o domínio foi salvo e a verificação re-tenta o registro sozinha depois.
+        if(d.providerNote) toast(d.providerNote,true);
         loadDomains();
         dmTutOpen(host); // abre o passo a passo personalizado para este domínio
         silentVerifyDomain(host); // 1ª tentativa imediata (DNS pode já estar pronto)
