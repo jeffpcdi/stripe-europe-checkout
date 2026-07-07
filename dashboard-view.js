@@ -3833,11 +3833,10 @@ function testPushcut(){
     .catch(function(){ toast('Erro no teste',false); });
 }
 
-/* ── Filtro de Bots / Revisores TikTok (cloaking) ── */
-var CK_STATE={};
-var CK_LINKS=[];       // links com regras (offer/white/paises/pixel)
-var CK_PIXELS=[];      // pixels disponíveis para o dropdown
-var CK_CUR=null;       // slug do link selecionado
+/* ── Filtro de Bots / Links de cloaking (entidade /c/:slug) ── */
+var CK_ENTRIES=[];     // links de cloaking, cada um com config própria
+var CK_BASE='';        // base URL para montar /c/<slug>
+var CK_OPEN=null;      // slug em edição, ou '__new__' para o formulário de criação
 var CK_LAYERS=[
   ['blockDatacenter','Servidores e rede do TikTok','Bloqueia acessos que vêm de servidores (data centers) e da própria rede do TikTok — é de lá que saem os revisores de anúncios.'],
   ['blockHeadless','Robôs automatizados','Detecta navegadores controlados por robô, sem tela, usados para varrer páginas automaticamente.'],
@@ -3848,127 +3847,108 @@ var CK_LAYERS=[
   ['checkBehavior','Comportamento humano','Mede sinais de gente real: movimento do mouse, rolagem, toque na tela e tempo na página.'],
   ['blockZhLang','Aparelho em idioma suspeito','Sinaliza aparelhos configurados em chinês fora da China — padrão comum nas contas de revisão.']
 ];
+var CK_SENS_DESC={
+  strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
+  balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
+  loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
+  custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
+};
 function loadCloakConfig(){
-  fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_STATE=d||{}; renderCloak();
-  }).catch(function(){});
-  fetch('/api/cloak/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_LINKS=(d&&d.links)||[]; CK_PIXELS=(d&&d.pixels)||[]; renderCloakLinks();
+  fetch('/api/cloak/entries',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    CK_ENTRIES=(d&&d.entries)||[]; CK_BASE=(d&&d.baseUrl)||location.origin; renderCloakList();
   }).catch(function(){});
 }
-function renderCloak(){
-  var c=CK_STATE;
-  var en=document.getElementById('ck-enabled'); if(en) en.checked=c.enabled!==false;
-  document.querySelectorAll('#ck-sens button').forEach(function(b){ b.classList.toggle('on',b.getAttribute('data-s')===(c.sensitivity||'balanced')); });
-  var sensDesc=document.getElementById('ck-sens-desc');
-  if(sensDesc){
-    var descs={
-      strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
-      balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
-      loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
-      custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
-    };
-    sensDesc.textContent=descs[c.sensitivity||'balanced']||'';
+function ckUrl(slug){ return (CK_BASE||location.origin)+'/c/'+slug; }
+/* Card colapsado (resumo) de um link de cloaking */
+function ckCard(l){
+  var on=l.enabled!==false && !!l.whitePageUrl;
+  var url=ckUrl(l.slug);
+  var statusTxt = !l.whitePageUrl ? 'Sem white page — tudo vai à offer'
+    : (l.enabled===false ? 'Proteção desligada' : 'Protegido — modo '+({strict:'agressivo',balanced:'equilibrado',loose:'conservador',custom:'manual'}[l.sensitivity]||'equilibrado'));
+  return '<div class="card ck-card" data-slug="'+esc(l.slug)+'" style="margin-bottom:12px">'+
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+      '<span class="ck-dot'+(on?' on':'')+'" title="'+esc(statusTxt)+'"></span>'+
+      '<div style="flex:1;min-width:160px">'+
+        '<b style="font-size:14px">'+esc(l.nome||l.slug)+'</b>'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-top:3px">'+
+          '<code style="font-size:12px;color:var(--muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(url)+'</code>'+
+        '</div>'+
+        '<span class="hint" style="display:block;margin-top:2px">'+esc(statusTxt)+'</span>'+
+      '</div>'+
+      '<button class="btn btn-sm" data-ck-copy="'+esc(url)+'" type="button">Copiar link</button>'+
+      '<button class="btn btn-sm" data-ck-edit="'+esc(l.slug)+'" type="button">Configurar</button>'+
+      '<button class="cn-x" data-ck-del="'+esc(l.slug)+'" title="Apagar" aria-label="Apagar link de cloaking">&times;</button>'+
+    '</div>'+
+    (CK_OPEN===l.slug?('<div class="ck-editor-wrap" style="margin-top:16px;border-top:1px solid var(--line,rgba(255,255,255,.06));padding-top:16px">'+renderCloakEditor(l,false)+'</div>'):'')+
+  '</div>';
+}
+function renderCloakList(){
+  var host=document.getElementById('ck-list'); if(!host) return;
+  var html='';
+  if(CK_OPEN==='__new__'){
+    html+='<div class="card ck-card" data-slug="__new__" style="margin-bottom:12px;border-color:var(--cyan)">'+
+      renderCloakEditor({},true)+'</div>';
   }
-  var wrap=document.getElementById('ck-threshold-wrap'); if(wrap) wrap.style.display=(c.sensitivity==='custom')?'block':'none';
-  var rng=document.getElementById('ck-threshold'); if(rng) rng.value=c.threshold||40;
-  var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=c.threshold||40;
-  var dl=document.getElementById('ck-deadline'); if(dl) dl.value=c.deadlineMs||120;
-  var dv=document.getElementById('ck-deadline-val'); if(dv) dv.textContent=c.deadlineMs||120;
-  // linha de status contextual no hero
-  var sl=document.getElementById('ck-status-line');
-  if(sl) sl.textContent=(c.enabled===false)
-    ? 'Desligado — todos os cliques vão direto para a offer, sem análise.'
-    : 'Bots e revisores vão para a white page; pessoas reais seguem para a offer.';
-  // camadas (dentro do avançado)
-  var host=document.getElementById('ck-layers'); if(!host) return;
-  host.innerHTML=CK_LAYERS.map(function(l){
-    var on=c[l[0]]!==false;
-    return '<div class="ck-layer'+(on?' on':'')+'" data-layer="'+l[0]+'">'+
-      '<div class="ck-l-body"><b>'+esc(l[1])+'</b><span>'+esc(l[2])+'</span></div>'+
-      '<label class="switch"><input type="checkbox" data-ck="'+l[0]+'"'+(on?' checked':'')+'><span class="slider"></span></label>'+
+  if(!CK_ENTRIES.length && CK_OPEN!=='__new__'){
+    html+='<div class="card" style="text-align:center;padding:34px 16px"><p class="hint" style="margin:0">Nenhum link de cloaking ainda. Clique em <b>+ Criar link de cloaking</b> para começar.</p></div>';
+  } else {
+    html+=CK_ENTRIES.map(ckCard).join('');
+  }
+  host.innerHTML=html;
+  if(CK_OPEN) bindCloakEditor();
+}
+/* Editor completo (usado tanto na criação quanto na edição de um link) */
+function renderCloakEditor(l,isNew){
+  l=l||{};
+  var sens=l.sensitivity||'balanced';
+  var nameField=isNew
+    ? '<div class="ck-field full"><label>Nome / slug do link <span class="hint">— vira a URL /c/&lt;slug&gt;</span></label>'+
+        '<input class="inp" id="cke-nome" type="text" placeholder="ex.: campanha-espanha" style="width:100%"></div>'
+    : '';
+  var layers=CK_LAYERS.map(function(x){
+    var lon=l[x[0]]!==false;
+    return '<div class="ck-layer'+(lon?' on':'')+'" data-layer="'+x[0]+'">'+
+      '<div class="ck-l-body"><b>'+esc(x[1])+'</b><span>'+esc(x[2])+'</span></div>'+
+      '<label class="switch"><input type="checkbox" data-ck="'+x[0]+'"'+(lon?' checked':'')+'><span class="slider"></span></label>'+
     '</div>';
   }).join('');
-  var dim=(c.enabled===false);
-  host.style.opacity=dim?'.45':'1'; host.style.pointerEvents=dim?'none':'auto';
-}
-function collectCloak(){
-  var sb=document.querySelector('#ck-sens button.on');
-  var prev=CK_STATE||{};
-  // rigor, tempo de análise e camadas são geridos automaticamente — preservamos o que já estava salvo
-  var body={
-    enabled:document.getElementById('ck-enabled').checked,
-    sensitivity:sb?sb.getAttribute('data-s'):'balanced',
-    threshold:prev.threshold||40,
-    deadlineMs:prev.deadlineMs||120
-  };
-  CK_LAYERS.forEach(function(l){ body[l[0]]=prev[l[0]]!==false; });
-  return body;
-}
-function saveCloakConfig(){
-  var st=document.getElementById('ck-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
-  fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectCloak())})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok){ CK_STATE=d.cloak; renderCloak(); toast('Proteção salva'); if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; } }
-      else { toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
-    }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
-}
-function testCloak(){
-  var out=document.getElementById('ck-test-out');
-  if(out) out.innerHTML='<p class="hint" style="margin:0">Analisando seu acesso atual...</p>';
-  fetch('/api/cloak/test',{method:'POST'})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(!out) return;
-      var isBot=(d.verdict==='bot');
-      var sigs=(d.signals||[]).map(function(s){ return '<code style="font-size:10.5px;background:var(--card2);padding:2px 6px;border-radius:5px;color:var(--muted2)">'+esc(s)+'</code>'; }).join(' ');
-      out.innerHTML='<div class="ck-verdict '+(isBot?'bot':'real')+'">'+
-          (isBot?'✕ Classificado como BOT':'✓ Classificado como PESSOA REAL')+
-          ' &middot; score '+d.score+'/'+(d.threshold||40)+'</div>'+
-        '<p class="hint" style="margin:10px 0 6px">Sinais detectados:</p>'+
-        '<div style="display:flex;flex-wrap:wrap;gap:6px">'+(sigs||'<span class="hint">nenhum</span>')+'</div>';
-    })
-    .catch(function(){ if(out) out.innerHTML='<p class="hint" style="margin:0;color:var(--pink,#f31260)">Erro ao rodar o teste</p>'; });
-}
-/* ── Regras por link ── */
-function renderCloakLinks(){
-  var sel=document.getElementById('ck-link-select'); if(!sel) return;
-  var prev=CK_CUR||sel.value;
-  sel.innerHTML='<option value="">Selecione um link...</option>'+CK_LINKS.map(function(l){
-    return '<option value="'+esc(l.slug)+'">'+esc(l.nome||l.slug)+' — /go/'+esc(l.slug)+'</option>';
-  }).join('');
-  if(prev && CK_LINKS.some(function(l){return l.slug===prev;})){ sel.value=prev; renderCloakRule(prev); }
-  else { CK_CUR=null; document.getElementById('ck-link-rule').innerHTML=CK_LINKS.length?'<p class="hint" style="margin:14px 0 0">Escolha um link acima para configurar offer, white page, países e pixel.</p>':'<p class="hint" style="margin:14px 0 0">Nenhum link de checkout ainda. Crie um na aba <b>Links de Checkout</b>.</p>'; }
-}
-function renderCloakRule(slug){
-  CK_CUR=slug;
-  var host=document.getElementById('ck-link-rule'); if(!host) return;
-  var l=CK_LINKS.filter(function(x){return x.slug===slug;})[0];
-  if(!l){ host.innerHTML=''; return; }
-  var pixOpts='<option value="">Automático (por rota /go/'+esc(l.slug)+')</option>'+CK_PIXELS.map(function(p){
-    return '<option value="'+esc(p.slug)+'"'+(l.pixelSlug===p.slug?' selected':'')+'>'+esc(p.name||p.slug)+(p.active?'':' (inativo)')+'</option>';
-  }).join('');
-  var offer=l.offerUrl?('<div class="ck-offer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg><span>'+esc(l.offerUrl)+(l.offerCount>1?(' &middot; +'+(l.offerCount-1)+' variante(s) A/B'):'')+'</span></div>')
-    :'<div class="ck-offer" style="color:var(--pink,#f31260)"><span>Sem offer definida — adicione uma variante na aba Links.</span></div>';
-  host.innerHTML=''+
-    '<div class="ck-rule">'+
-      '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+offer+'</div>'+
+  var enabled=l.enabled!==false;
+  return ''+
+    nameField+
+    '<div class="cfg-head" style="margin-bottom:10px">'+
+      '<span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>'+
+      '<div><h3 style="margin:0">Proteção de cloaking</h3><p class="hint" id="cke-status-line" style="margin:2px 0 0">'+(enabled?'Bots e revisores vão para a white page; pessoas reais seguem para a offer.':'Desligado — todos os cliques vão direto para a offer.')+'</p></div>'+
+      '<label class="switch" style="margin-left:auto"><input type="checkbox" id="cke-enabled"'+(enabled?' checked':'')+'><span class="slider"></span></label>'+
+    '</div>'+
+    '<div class="seg" id="cke-sens" style="margin-top:4px">'+
+      '<button data-s="strict" type="button"'+(sens==='strict'?' class="on"':'')+'>Agressivo</button>'+
+      '<button data-s="balanced" type="button"'+(sens==='balanced'?' class="on"':'')+'>Equilibrado</button>'+
+      '<button data-s="loose" type="button"'+(sens==='loose'?' class="on"':'')+'>Conservador</button>'+
+      '<button data-s="custom" type="button"'+(sens==='custom'?' class="on"':'')+'>Manual</button>'+
+    '</div>'+
+    '<p class="hint" id="cke-sens-desc" style="margin:10px 0 0">'+esc(CK_SENS_DESC[sens]||'')+'</p>'+
+    '<div id="cke-threshold-wrap" style="margin-top:12px;display:'+(sens==='custom'?'block':'none')+'">'+
+      '<label class="hint">Rigor da filtragem: <b id="cke-threshold-val">'+(l.threshold||40)+'</b> — quanto menor, mais acessos são barrados</label>'+
+      '<input type="range" id="cke-threshold" min="10" max="90" value="'+(l.threshold||40)+'" style="width:100%">'+
+    '</div>'+
+    '<div class="ck-rule" style="margin-top:16px">'+
+      '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+
+        '<input class="inp" id="cke-offer" type="url" placeholder="https://sua-offer.com" value="'+esc(l.offerUrl||'')+'" style="width:100%"></div>'+
       '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
-        '<input class="inp" id="ck-r-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.urlWhitePage||'')+'" style="width:100%"></div>'+
+        '<input class="inp" id="cke-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.whitePageUrl||'')+'" style="width:100%"></div>'+
       '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— nada marcado = todos os países. Fora da lista vai para a white page</span></label>'+
         renderPaisGrid(l)+'</div>'+
-      '<div class="ck-field full"><label>Idiomas liberados para a offer <span class="hint">— nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page</span></label>'+
+      '<div class="ck-field full"><label>Idiomas liberados para a offer <span class="hint">— nada marcado = todos os idiomas. Fora da lista vai para a white page</span></label>'+
         renderIdiomaGrid(l)+'</div>'+
-      '<div class="ck-field"><label>Pixel do TikTok <span class="hint">— dispara só p/ quem vai à offer</span></label>'+
-        '<select class="select" id="ck-r-pixel">'+pixOpts+'</select></div>'+
-      '<div class="ck-field"><label>Sincronização</label>'+
-        '<label class="ck-sync"><input type="checkbox" id="ck-r-sync"><span>Vincular a rota <code>/go/'+esc(l.slug)+'</code> ao pixel escolhido</span></label></div>'+
     '</div>'+
-    '<div style="display:flex;gap:10px;margin-top:14px;align-items:center">'+
-      '<button class="btn primary" id="ck-r-save">Salvar regra do link</button>'+
-      '<p class="hint" id="ck-r-status" style="margin:0"></p></div>';
-  bindCloakRule();
+    '<details class="ck-adv" style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;color:var(--muted2)">Camadas de detecção — ligue/desligue cada sinal</summary>'+
+      '<div class="ck-layers" id="cke-layers" style="margin-top:12px">'+layers+'</div>'+
+    '</details>'+
+    '<div style="display:flex;gap:10px;margin-top:16px;align-items:center">'+
+      '<button class="btn primary" id="cke-save" data-new="'+(isNew?'1':'')+'">'+(isNew?'Criar link':'Salvar alterações')+'</button>'+
+      '<button class="btn btn-sm" id="cke-cancel" type="button">Cancelar</button>'+
+      '<p class="hint" id="cke-status" style="margin:0"></p>'+
+    '</div>';
 }
 /* Catálogo de países por bloco (código ISO-2, nome, bandeira) */
 var CK_COUNTRY_BLOCKS=[
@@ -4012,7 +3992,7 @@ function currentPaises(){
 function currentIdiomas(){
   return Array.prototype.map.call(document.querySelectorAll('#ck-r-idiomabox input[data-lang]:checked'),function(c){return c.getAttribute('data-lang');});
 }
-function bindCloakRule(){
+function bindCloakEditor(){
   // toggle visual (classe .on) ao marcar/desmarcar qualquer checkbox de geo
   document.querySelectorAll('#ck-r-paisbox,#ck-r-idiomabox').forEach(function(box){
     box.addEventListener('change',function(e){
@@ -4029,7 +4009,32 @@ function bindCloakRule(){
       syncBlockButtons();
     });
   });
-  var save=document.getElementById('ck-r-save'); if(save) save.addEventListener('click',saveCloakRule);
+  // segmento de sensibilidade
+  var seg=document.getElementById('cke-sens');
+  if(seg) seg.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-s]'); if(!b) return;
+    seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    var s=b.getAttribute('data-s');
+    var wrap=document.getElementById('cke-threshold-wrap'); if(wrap) wrap.style.display=(s==='custom')?'block':'none';
+    var d=document.getElementById('cke-sens-desc'); if(d) d.textContent=CK_SENS_DESC[s]||'';
+  });
+  var rng=document.getElementById('cke-threshold');
+  if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('cke-threshold-val'); if(tv) tv.textContent=this.value; });
+  // camadas: toggle visual
+  var layers=document.getElementById('cke-layers');
+  if(layers) layers.addEventListener('change',function(e){
+    var chk=e.target.closest('input[data-ck]'); if(!chk) return;
+    chk.closest('.ck-layer').classList.toggle('on',chk.checked);
+  });
+  // interruptor de proteção
+  var en=document.getElementById('cke-enabled');
+  if(en) en.addEventListener('change',function(){
+    var sl=document.getElementById('cke-status-line');
+    if(sl) sl.textContent=this.checked?'Bots e revisores vão para a white page; pessoas reais seguem para a offer.':'Desligado — todos os cliques vão direto para a offer.';
+  });
+  var save=document.getElementById('cke-save'); if(save) save.addEventListener('click',function(){ saveCloakEntry(this.getAttribute('data-new')==='1'); });
+  var cancel=document.getElementById('cke-cancel'); if(cancel) cancel.addEventListener('click',function(){ CK_OPEN=null; renderCloakList(); });
 }
 function syncBlockButtons(){
   document.querySelectorAll('#ck-r-paisbox button[data-blocktoggle]').forEach(function(b){
@@ -4039,63 +4044,59 @@ function syncBlockButtons(){
     b.textContent=allOn?'Desmarcar':'Marcar todos';
   });
 }
-function saveCloakRule(){
-  if(!CK_CUR) return;
-  var st=document.getElementById('ck-r-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
+function saveCloakEntry(isNew){
+  var st=document.getElementById('cke-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
+  var seg=document.querySelector('#cke-sens button.on');
   var body={
-    urlWhitePage:document.getElementById('ck-r-white').value.trim(),
+    enabled:document.getElementById('cke-enabled').checked,
+    sensitivity:seg?seg.getAttribute('data-s'):'balanced',
+    threshold:Number((document.getElementById('cke-threshold')||{}).value)||40,
+    offerUrl:document.getElementById('cke-offer').value.trim(),
+    whitePageUrl:document.getElementById('cke-white').value.trim(),
     paises:currentPaises(),
-    idiomas:currentIdiomas(),
-    pixelSlug:document.getElementById('ck-r-pixel').value,
-    syncPixel:document.getElementById('ck-r-sync').checked
+    idiomas:currentIdiomas()
   };
-  fetch('/api/cloak/link/'+encodeURIComponent(CK_CUR),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  CK_LAYERS.forEach(function(x){ var c=document.querySelector('#cke-layers input[data-ck="'+x[0]+'"]'); body[x[0]]=c?c.checked:true; });
+  if(isNew){
+    var nome=(document.getElementById('cke-nome')||{}).value||'';
+    body.nome=nome.trim();
+    if(!body.nome){ if(st){ st.textContent='Dê um nome ao link'; st.style.color='var(--pink,#f31260)'; } return; }
+  } else {
+    body.slug=CK_OPEN;
+  }
+  fetch('/api/cloak/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
       if(d.ok){
-        // atualiza cache local
-        var l=CK_LINKS.filter(function(x){return x.slug===CK_CUR;})[0];
-        if(l){ l.urlWhitePage=d.link.urlWhitePage; l.paises=d.link.paises; l.idiomas=d.link.idiomas; l.pixelSlug=d.link.pixelSlug; }
-        toast(d.pixelSynced?'Regra salva e pixel sincronizado':'Regra do link salva');
-        if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; }
+        var slug=d.entry.slug;
+        var i=CK_ENTRIES.findIndex(function(x){return x.slug===slug;});
+        if(i>=0) CK_ENTRIES[i]=d.entry; else CK_ENTRIES.push(d.entry);
+        CK_OPEN=null; renderCloakList();
+        toast(isNew?'Link de cloaking criado':'Alterações salvas');
       } else { toast(d.error||'Erro ao salvar',false); if(st){ st.textContent=d.error||'Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
     }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
 }
+function deleteCloakEntry(slug){
+  if(!confirm('Apagar este link de cloaking? A URL /c/'+slug+' deixará de funcionar.')) return;
+  fetch('/api/cloak/entries/'+encodeURIComponent(slug),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ CK_ENTRIES=CK_ENTRIES.filter(function(x){return x.slug!==slug;}); if(CK_OPEN===slug) CK_OPEN=null; renderCloakList(); toast('Link removido'); }
+      else toast('Erro ao remover',false);
+    }).catch(function(){ toast('Erro ao remover',false); });
+}
 function bindCloak(){
-  var sens=document.getElementById('ck-sens');
-  if(sens) sens.addEventListener('click',function(e){
-    var b=e.target.closest('button[data-s]'); if(!b) return;
-    document.querySelectorAll('#ck-sens button').forEach(function(x){ x.classList.remove('on'); });
-    b.classList.add('on');
-    var s=b.getAttribute('data-s');
-    var wrap=document.getElementById('ck-threshold-wrap');
-    if(wrap) wrap.style.display=(s==='custom')?'block':'none';
-    var sensDesc=document.getElementById('ck-sens-desc');
-    if(sensDesc){
-      var descs={
-        strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
-        balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
-        loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
-        custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
-      };
-      sensDesc.textContent=descs[s]||'';
-    }
+  var nw=document.getElementById('ck-new');
+  if(nw) nw.addEventListener('click',function(){ CK_OPEN=(CK_OPEN==='__new__')?null:'__new__'; renderCloakList(); if(CK_OPEN==='__new__'){ var f=document.getElementById('cke-nome'); if(f) f.focus(); } });
+  var list=document.getElementById('ck-list');
+  if(list) list.addEventListener('click',function(e){
+    var cp=e.target.closest?e.target.closest('[data-ck-copy]'):null;
+    if(cp){ navigator.clipboard.writeText(cp.getAttribute('data-ck-copy')).then(function(){ toast('Link copiado'); }); return; }
+    var ed=e.target.closest?e.target.closest('[data-ck-edit]'):null;
+    if(ed){ var s=ed.getAttribute('data-ck-edit'); CK_OPEN=(CK_OPEN===s)?null:s; renderCloakList(); return; }
+    var del=e.target.closest?e.target.closest('[data-ck-del]'):null;
+    if(del){ deleteCloakEntry(del.getAttribute('data-ck-del')); return; }
   });
-  var rng=document.getElementById('ck-threshold');
-  if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=this.value; });
-  var dl=document.getElementById('ck-deadline');
-  if(dl) dl.addEventListener('input',function(){ var dv=document.getElementById('ck-deadline-val'); if(dv) dv.textContent=this.value; });
-  var en=document.getElementById('ck-enabled');
-  if(en) en.addEventListener('change',function(){
-    var host=document.getElementById('ck-layers');
-    if(host){ host.style.opacity=this.checked?'1':'.45'; host.style.pointerEvents=this.checked?'auto':'none'; }
-    var sl=document.getElementById('ck-status-line');
-    if(sl) sl.textContent=this.checked?'Bots e revisores vão para a white page; pessoas reais seguem para a offer.':'Desligado — todos os cliques vão direto para a offer, sem análise.';
-  });
-  var lsel=document.getElementById('ck-link-select');
-  if(lsel) lsel.addEventListener('change',function(){ if(this.value) renderCloakRule(this.value); else { CK_CUR=null; document.getElementById('ck-link-rule').innerHTML='<p class="hint" style="margin:14px 0 0">Escolha um link acima para configurar offer, white page, países e pixel.</p>'; } });
-  var save=document.getElementById('ck-save'); if(save) save.addEventListener('click',saveCloakConfig);
-  var test=document.getElementById('ck-test'); if(test) test.addEventListener('click',testCloak);
 }
 
 /* ─��� Links curtos rastreáveis (/l/:slug) ── */
