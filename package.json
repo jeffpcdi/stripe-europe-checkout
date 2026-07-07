@@ -6,7 +6,7 @@
     "dev": "node --env-file-if-exists=.env.development.local server.js",
     "build": "echo 'No build step required'",
     "start": "node server.js",
-    "test": "node test/retry-queue.test.js && node test/gateway-only.test.js"
+    "test": "node test/retry-queue.test.js && node test/gateway-only.test.js && node test/attribution.test.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
