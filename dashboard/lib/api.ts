@@ -1,7 +1,13 @@
 'use client'
 
 import useSWR from 'swr'
-import type { StatsResponse, HealthResponse, LiveResponse } from './types'
+import type {
+  StatsResponse,
+  HealthResponse,
+  LiveResponse,
+  LinksResponse,
+  DomainsResponse,
+} from './types'
 
 export class ApiError extends Error {
   status: number
@@ -44,4 +50,37 @@ export function useHealth() {
     refreshInterval: 30_000,
     keepPreviousData: true,
   })
+}
+
+export function useLinks() {
+  return useSWR<LinksResponse>('/api/links', fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+export function useDomains() {
+  return useSWR<DomainsResponse>('/api/domains', fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// ── Mutações — POST/DELETE com o mesmo contrato de erro do Express ──
+export async function apiSend<T = unknown>(
+  path: string,
+  method: 'POST' | 'DELETE' | 'PUT',
+  body?: unknown,
+): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    credentials: 'include',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new ApiError(res.status, (data as { error?: string }).error || `Falha na API (${res.status})`)
+  }
+  return data as T
 }

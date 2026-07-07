@@ -1,5 +1,5 @@
-import { ViewPlaceholder } from '@/components/view-placeholder'
+import { LinksView } from '@/components/links/links-view'
 
 export default function LinksPage() {
-  return <ViewPlaceholder view="Links" />
+  return <LinksView />
 }

@@ -125,3 +125,64 @@ export interface HealthResponse {
 }
 
 export type Period = 'today' | '7d' | '30d' | 'all'
+
+// ── /api/links — links de checkout (link-store.js) ──
+export interface LinkVariant {
+  id: string
+  nome: string
+  url: string
+  urlMobile?: string | null
+  urlWhitePage?: string | null
+  peso: number
+  clicks: number
+  conversions: number
+  revenue: Record<string, number>
+}
+
+export interface CheckoutLink {
+  slug: string
+  acc?: string | null
+  nome: string
+  dominio?: string | null
+  dominioValidado: boolean
+  dominioValidadoEm?: string | null
+  variantes: LinkVariant[]
+  urlWhitePage?: string | null
+  paises: string[]
+  idiomas: string[]
+  pixelSlug: string
+  ativo: boolean
+  criadoEm: string
+  updatedAt: string
+}
+
+export interface LinksResponse {
+  links: CheckoutLink[]
+}
+
+// ── /api/domains — domínios personalizados (server.js) ──
+export interface CustomDomain {
+  host: string
+  verificado: boolean
+  verificadoEm?: string | null
+  criadoEm: string
+  providerId?: string
+}
+
+export interface DomainsResponse {
+  domains: CustomDomain[]
+  appHost: string
+}
+
+export interface DomainVerifyResult {
+  host: string
+  appHost: string
+  dnsOk: boolean
+  dnsDetail: string
+  httpOk: boolean
+  httpDetail: string
+  verified?: boolean
+  cloudflareProxy?: boolean
+  reconectado?: boolean
+  dnsRecords?: { type: string; name: string; value: string }[] | null
+}

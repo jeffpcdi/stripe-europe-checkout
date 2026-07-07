@@ -1,5 +1,5 @@
-import { ViewPlaceholder } from '@/components/view-placeholder'
+import { FunnelView } from '@/components/funnel/funnel-view'
 
 export default function FunnelPage() {
-  return <ViewPlaceholder view="Funil" />
+  return <FunnelView />
 }

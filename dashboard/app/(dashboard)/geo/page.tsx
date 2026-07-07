@@ -1,5 +1,5 @@
-import { ViewPlaceholder } from '@/components/view-placeholder'
+import { GeoView } from '@/components/geo/geo-view'
 
 export default function GeoPage() {
-  return <ViewPlaceholder view="Geografia" />
+  return <GeoView />
 }

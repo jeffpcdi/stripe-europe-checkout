@@ -1,5 +1,5 @@
-import { ViewPlaceholder } from '@/components/view-placeholder'
+import { DomainsView } from '@/components/domains/domains-view'
 
 export default function DomainsPage() {
-  return <ViewPlaceholder view="Domínios" />
+  return <DomainsView />
 }
