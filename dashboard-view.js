@@ -199,11 +199,11 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:0}
 /* cabeçalho compacto de ~64px: logo pequena + nav + status numa única fila */
 .hh-inner{position:relative;display:flex;align-items:center;gap:18px;padding:10px 22px;flex-wrap:wrap}
 .brand-xl{display:flex;align-items:center;justify-content:flex-start;gap:12px;flex:0 0 auto;min-width:0}
-.logo-orbit{position:relative;width:46px;height:46px;flex-shrink:0}
-.logo-orbit img{position:absolute;inset:4px;width:38px;height:38px;border-radius:50%;object-fit:cover;z-index:2;
+.logo-orbit{position:relative;width:60px;height:60px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:5px;width:50px;height:50px;border-radius:50%;object-fit:cover;z-index:2;
   box-shadow:0 0 0 1px rgba(255,255,255,.14),0 2px 10px rgba(0,0,0,.6);
   filter:contrast(1.18) saturate(1.25) brightness(1.08)}
-.logo-orbit::after{content:'';position:absolute;inset:4px;border-radius:50%;z-index:3;pointer-events:none;
+.logo-orbit::after{content:'';position:absolute;inset:5px;border-radius:50%;z-index:3;pointer-events:none;
   background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
 /* animação premium sempre ativa: giro rápido + brilho intenso (antes só no hover) */
 .logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
@@ -215,12 +215,6 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:0}
 @property --ra{syntax:'<angle>';initial-value:0deg;inherits:false}
 @keyframes ringSpin{to{--ra:360deg}}
 .brand-txt{display:flex;flex-direction:column;gap:2px}
-.bt-name{font-weight:800;font-size:16px;line-height:1;letter-spacing:.05em;
-  background:var(--brand-grad);
-  -webkit-background-clip:text;background-clip:text;color:transparent;
-  filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
-.bt-dash{-webkit-text-fill-color:transparent}
-@media(max-width:700px){.bt-name{display:none}}
 .hh-status{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
 .hh-live{font-size:12px;color:var(--text-sub);background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:20px;box-shadow:var(--shadow-1)}
 
@@ -1050,9 +1044,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visibl
 @media(max-width:960px){
   .geo-grid,.ab-grid{grid-template-columns:1fr}
   .kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
-  .hh-inner{padding:14px 16px 8px}
-    .logo-orbit{width:77px;height:77px}
-    .logo-orbit img{inset:6px;width:65px;height:65px}
+  .hh-inner{padding:10px 16px}
   .hh-status{width:100%;margin-left:0}
   .nav.dock{padding:8px 12px 12px}
   .nav.dock button{padding:9px 13px;font-size:13px}
@@ -1502,7 +1494,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div class="logo-ring"></div>
           <img src="/assets/roi-nados-logo.jpg" alt="Logo" />
         </div>
-        <span class="bt-name">ROI-NADOS</span>
       </div>
       <nav class="nav dock" id="nav" aria-label="Navega&ccedil;&atilde;o principal">
       <button data-view="overview" class="active"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span><span class="d-lbl">Visão Geral</span></button>
@@ -4275,7 +4266,7 @@ function bindCloak(){
   var test=document.getElementById('ck-test'); if(test) test.addEventListener('click',testCloak);
 }
 
-/* ── Links curtos rastreáveis (/l/:slug) ── */
+/* ─��� Links curtos rastreáveis (/l/:slug) ── */
 function loadShortlinks(){
   fetch('/api/shortlinks',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     var el=document.getElementById('sl-list'); if(!el) return;
