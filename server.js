@@ -256,7 +256,7 @@ app.use(async (req, res, next) => {
     if (req.method !== 'GET') return next();
     const p = req.path || '';
     if (p.startsWith('/api') || p.startsWith('/assets') || p.startsWith('/go/')
-        || p === '/dashboard') return next();
+        || p.startsWith('/c/') || p === '/dashboard') return next();
     const accept = req.headers.accept || '';
     if (!accept.includes('text/html')) return next();          // só navegações
     if (/\.[a-z0-9]{2,5}$/i.test(p) && !p.endsWith('.html')) return next(); // ignora assets
@@ -767,6 +767,85 @@ app.get('/go/:slug', async (req, res) => {
   const baseUrl = (dev.device !== 'desktop' && variant.urlMobile) ? variant.urlMobile : variant.url;
   const dest = baseUrl + (baseUrl.includes('?') ? '&' : '?') + params.toString();
   return res.redirect(302, dest);
+});
+
+// ── Links de cloaking (/c/:slug) ─────────────────────────────────────
+// Roteia pessoas reais → offer; bots/revisores → white page. Usa a config
+// de proteção DO PRÓPRIO link (não a global): cada link tem seu interruptor,
+// sensibilidade e camadas de detecção.
+function resolveCloakEntry(req) {
+  const slug = _ckSlugify(req.params.slug);
+  if (!slug) return null;
+  const pref = publicAccountId(req);
+  const tryAcc = (acc) => {
+    const e = (config.get(acc).cloakLinks || []).find((l) => l.slug === slug);
+    return e ? { acc, entry: e } : null;
+  };
+  if (pref) { const r = tryAcc(pref); if (r) return r; }
+  for (const acc of config.accountIds()) { const r = tryAcc(acc); if (r) return r; }
+  return null;
+}
+
+app.get('/c/:slug', async (req, res) => {
+  const found = resolveCloakEntry(req);
+  if (!found || !found.entry.offerUrl) return res.status(404).send('Link não encontrado');
+  const { acc, entry } = found;
+  const offer = entry.offerUrl;
+  const white = entry.whitePageUrl || null;
+  const uaRaw = String(req.headers['user-agent'] || '');
+  // sem white page OU interruptor do link desligado → sem cloaking (tudo vai à offer)
+  const cloakOn = entry.enabled !== false && !!white;
+
+  // preserva a query original (UTMs/ttclid) no destino final
+  const go = (url) => {
+    const qs = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
+    return res.redirect(302, url + (qs ? (url.includes('?') ? '&' : '?') + qs : ''));
+  };
+
+  // Crawler conhecido → white (se cloak on) ou offer
+  if (uaTools.isBot(uaRaw)) {
+    stats.logEvent('info', { acc, title: '[cloak] bot UA → ' + (cloakOn ? 'white' : 'offer'), gateway: 'cloak:' + entry.slug, ref: String(uaRaw).slice(0, 80) });
+    return go(cloakOn ? white : offer);
+  }
+
+  // Gate geográfico (instantâneo, sem DNS)
+  if (cloakOn && Array.isArray(entry.paises) && entry.paises.length) {
+    const cc = String(geoFromReq(req).country || '').toUpperCase();
+    if (!cc || entry.paises.indexOf(cc) < 0) {
+      stats.logEvent('info', { acc, title: '[cloak] país ' + (cc || '??') + ' fora da allowlist → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      return go(white);
+    }
+  }
+  // Gate de idioma (instantâneo, via Accept-Language)
+  if (cloakOn && Array.isArray(entry.idiomas) && entry.idiomas.length) {
+    const lang = String(req.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
+    if (!lang || entry.idiomas.indexOf(lang) < 0) {
+      stats.logEvent('info', { acc, title: '[cloak] idioma ' + (lang || '??') + ' fora da allowlist → white', gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      return go(white);
+    }
+  }
+
+  // Motor de score — recebe a config do PRÓPRIO link como cloakCfg
+  if (cloakOn) {
+    const filterVid = readCookie(req, 'v_id') || '';
+    const lead0 = (() => { try { return stats.getLead(filterVid) || {}; } catch (_) { return {}; } })();
+    const challengeToken = lead0.cloakChallenge === 'ok'
+      ? botFilter.issueChallengeToken(filterVid)
+      : (lead0.cloakChallenge === 'fail' ? '' : null);
+    const challengeData = {
+      webgl: lead0.cloakWebgl || '', tz: lead0.cloakTz || '', fp: lead0.cloakFp || '',
+      dt: typeof lead0.cloakDt === 'number' ? lead0.cloakDt : NaN,
+      beh: typeof lead0.cloakBeh === 'number' ? lead0.cloakBeh : NaN
+    };
+    const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
+    const j = await botFilter.judge(filterReq, filterVid, challengeToken, challengeData, entry)
+      .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
+    if (j.verdict === 'bot') {
+      stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
+      return go(white);
+    }
+  }
+  return go(offer);
 });
 
 // ── Encurtador rastreável (/l/:slug) ─────────────────────────────────
@@ -1406,6 +1485,69 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     signals: j.signals, ip: clientIp(req),
     ua: String(req.headers['user-agent'] || '').slice(0, 120)
   });
+});
+
+// ── Links de cloaking (entidade própria, servidos em /c/:slug) ─────────────
+// Diferente dos links de checkout (/go): cada link de cloaking carrega SUA
+// própria configuração de proteção (interruptor, sensibilidade, camadas de
+// detecção) + offer/white page + allowlists de país e idioma. Guardados no
+// bloco cloakLinks da config da conta (durável no Neon + snapshot local).
+const _ckSlugify = (s) => String(s || '').toLowerCase().normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+const _ckValidHttps = (u) => /^https:\/\/[^\s]+\.[^\s]+/i.test(String(u || '').trim());
+
+app.get('/api/cloak/entries', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  res.json({
+    entries: config.get(req.account.id).cloakLinks || [],
+    baseUrl: 'https://' + host
+  });
+});
+
+app.post('/api/cloak/entries', dashboardAuth, (req, res) => {
+  const b = req.body || {};
+  const nome = String(b.nome || '').trim();
+  const slug = _ckSlugify(b.slug || nome);
+  if (!slug) return res.status(400).json({ error: 'nome do link é obrigatório' });
+  if (!_ckValidHttps(b.offerUrl)) return res.status(400).json({ error: 'a offer precisa ser uma URL https:// válida' });
+
+  const cur = config.get(req.account.id).cloakLinks || [];
+  const existing = cur.find((l) => l.slug === slug);
+  const isNew = !existing;
+
+  const entry = Object.assign({}, existing || {}, {
+    slug,
+    nome: nome || slug,
+    offerUrl: String(b.offerUrl).trim(),
+    whitePageUrl: _ckValidHttps(b.whitePageUrl) ? String(b.whitePageUrl).trim() : '',
+    enabled: typeof b.enabled === 'boolean' ? b.enabled : (existing ? existing.enabled : true),
+    sensitivity: b.sensitivity,
+    threshold: b.threshold,
+    deadlineMs: b.deadlineMs,
+    paises: Array.isArray(b.paises) ? b.paises : (existing ? existing.paises : []),
+    idiomas: Array.isArray(b.idiomas) ? b.idiomas : (existing ? existing.idiomas : []),
+    criadoEm: existing ? existing.criadoEm : new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  ['blockDatacenter', 'blockHeadless', 'checkHeaders', 'requireJsChallenge',
+    'checkWebgl', 'checkTimezone', 'checkBehavior', 'blockZhLang'].forEach((k) => {
+    if (typeof b[k] === 'boolean') entry[k] = b[k];
+  });
+
+  const nextList = isNew ? cur.concat([entry]) : cur.map((l) => (l.slug === slug ? entry : l));
+  config.set(req.account.id, { cloakLinks: nextList });
+  const saved = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === slug);
+  stats.logEvent('info', { acc: req.account.id, title: 'Link de cloaking salvo: ' + saved.nome, ref: saved.slug });
+  res.json({ ok: true, entry: saved });
+});
+
+app.delete('/api/cloak/entries/:slug', dashboardAuth, (req, res) => {
+  const slug = _ckSlugify(req.params.slug);
+  const cur = config.get(req.account.id).cloakLinks || [];
+  config.set(req.account.id, { cloakLinks: cur.filter((l) => l.slug !== slug) });
+  stats.logEvent('info', { acc: req.account.id, title: 'Link de cloaking removido', ref: slug });
+  res.json({ ok: true });
 });
 
 app.post('/api/pushcut/test', dashboardAuth, async (req, res) => {

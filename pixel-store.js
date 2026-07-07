@@ -46,8 +46,8 @@ function normalize(slug, raw) {
     accessToken: String(raw.accessToken || '').trim(),
     testEventCode: String(raw.testEventCode || '').trim(),
     active: raw.active !== false,
-    // rotas: '*' = todas; senão prefixos (ex.: '/checkout', '/s1')
-    routes: Array.isArray(raw.routes) && raw.routes.length ? raw.routes : ['*'],
+    // filtro de rota aposentado: o pixel vale em TODA página onde o script é colado
+    routes: ['*'],
     events: {
       ViewContent: ev.ViewContent !== false,
       InitiateCheckout: ev.InitiateCheckout !== false,

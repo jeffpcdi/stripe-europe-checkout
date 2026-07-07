@@ -199,11 +199,11 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:0}
 /* cabeçalho compacto de ~64px: logo pequena + nav + status numa única fila */
 .hh-inner{position:relative;display:flex;align-items:center;gap:18px;padding:10px 22px;flex-wrap:wrap}
 .brand-xl{display:flex;align-items:center;justify-content:flex-start;gap:12px;flex:0 0 auto;min-width:0}
-.logo-orbit{position:relative;width:46px;height:46px;flex-shrink:0}
-.logo-orbit img{position:absolute;inset:4px;width:38px;height:38px;border-radius:50%;object-fit:cover;z-index:2;
+.logo-orbit{position:relative;width:60px;height:60px;flex-shrink:0}
+.logo-orbit img{position:absolute;inset:5px;width:50px;height:50px;border-radius:50%;object-fit:cover;z-index:2;
   box-shadow:0 0 0 1px rgba(255,255,255,.14),0 2px 10px rgba(0,0,0,.6);
   filter:contrast(1.18) saturate(1.25) brightness(1.08)}
-.logo-orbit::after{content:'';position:absolute;inset:4px;border-radius:50%;z-index:3;pointer-events:none;
+.logo-orbit::after{content:'';position:absolute;inset:5px;border-radius:50%;z-index:3;pointer-events:none;
   background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.22),transparent 48%)}
 /* animação premium sempre ativa: giro rápido + brilho intenso (antes só no hover) */
 .logo-ring{position:absolute;inset:0;border-radius:50%;padding:2px;z-index:1;
@@ -215,12 +215,6 @@ html[data-liquid-glass] .lg-thick:hover::before{opacity:0}
 @property --ra{syntax:'<angle>';initial-value:0deg;inherits:false}
 @keyframes ringSpin{to{--ra:360deg}}
 .brand-txt{display:flex;flex-direction:column;gap:2px}
-.bt-name{font-weight:800;font-size:16px;line-height:1;letter-spacing:.05em;
-  background:var(--brand-grad);
-  -webkit-background-clip:text;background-clip:text;color:transparent;
-  filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
-.bt-dash{-webkit-text-fill-color:transparent}
-@media(max-width:700px){.bt-name{display:none}}
 .hh-status{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
 .hh-live{font-size:12px;color:var(--text-sub);background:var(--card);border:1px solid var(--border);padding:7px 14px;border-radius:20px;box-shadow:var(--shadow-1)}
 
@@ -307,12 +301,14 @@ input:checked+.slider:before{transform:translateX(18px)}
 .select,.inp{background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 12px;font-family:inherit;font-size:13.5px;outline:none;transition:all .2s cubic-bezier(.2,.8,.2,1)}
 .select::placeholder,.inp::placeholder{color:var(--text-muted)}
 .select:focus,.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light), inset 0 1px 1px rgba(0,0,0,0.2);background:var(--card)}
-.btn{position:relative;background:var(--accent);color:#08080a;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:9px 16px;font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;transition:all .2s cubic-bezier(.2,.8,.2,1);box-shadow:0 4px 16px rgba(37,244,238,0.25), inset 0 1px 0 rgba(255,255,255,0.18)}
-.btn:hover{background:var(--accent-dark);box-shadow:0 6px 20px rgba(37,244,238,0.35), inset 0 1px 0 rgba(255,255,255,0.25);transform:translateY(-1.5px)}
-.btn:active{transform:translateY(0) scale(.98);box-shadow:0 2px 8px rgba(37,244,238,0.2)}
+/* padrão = botão secundário discreto (Cancelar, Validar, etc.) */
+.btn{position:relative;background:var(--card2);color:var(--text);border:1px solid var(--border2);border-radius:10px;padding:9px 16px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:all .18s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{background:var(--hover);border-color:var(--muted2);color:var(--text)}
+.btn:active{transform:scale(.98)}
 .btn svg{width:16px;height:16px;display:block}
-.btn.primary{background:var(--accent);color:#fff;border-color:transparent}
-.btn.primary:hover{filter:brightness(1.08)}
+/* .primary = ação principal em accent, texto escuro consistente e brilho contido */
+.btn.primary{background:var(--accent);color:#08080a;border-color:transparent;font-weight:700;box-shadow:none}
+.btn.primary:hover{background:var(--accent-dark);color:#08080a;filter:none}
 .btn.danger{border-color:rgba(239,68,68,.3);color:var(--error);background:transparent}
 .btn.danger:hover{background:var(--error-light);border-color:rgba(239,68,68,.5);transform:translateY(-1.5px)}
 .btn-sm{padding:5px 11px;font-size:12px;border-radius:8px}
@@ -372,6 +368,7 @@ section.view.active~section.view.active .section-title:first-of-type{margin-top:
 .kpis{grid-template-columns:repeat(4,1fr)}
 @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:560px){.kpis{grid-template-columns:1fr}}
+
 .card{
   position:relative;isolation:isolate;
   background:var(--card);
@@ -570,6 +567,10 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
 .notif-head .nh-title .live-dot-anim{width:7px;height:7px}
 .notif-tools{display:flex;align-items:center;gap:6px}
 .icon-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;transition:.15s}
+/* botões utilitários do topo (busca/atualizar): fantasma — o ciano cheio gritava
+   mais que os próprios dados; o preenchido fica só para ações primárias */
+#cmdk-open,#refresh-btn{background:var(--card);color:var(--accent);border:1px solid var(--border2);box-shadow:none}
+#cmdk-open:hover,#refresh-btn:hover{background:var(--accent-light);border-color:var(--accent)}
 .icon-btn:hover{color:var(--text);border-color:var(--border2)}
 .icon-btn svg{width:16px;height:16px}
 .icon-btn.on{color:var(--green);border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.1)}
@@ -696,6 +697,13 @@ html[data-liquid-glass] .globe-tools{backdrop-filter:blur(12px) saturate(180%) u
   .chart-tip b{display:block;font-family:'Geist Mono',monospace;font-size:14px}
   .chart-tip span{color:var(--muted2);font-size:10.5px}
 .section-title .line{flex:1;height:1px;background:linear-gradient(90deg, var(--border2), var(--border) 60%, transparent);opacity:0.85}
+/* legenda à direita do título: leve, não compete com o título (que é 700) */
+.section-title .muted{font-weight:500;letter-spacing:0}
+/* badges de estado do domínio: pill âmbar (pendente) / verde (validado) */
+.badge-warn{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;color:var(--warning);background:var(--warning-light);border:1px solid rgba(251,191,36,.3);width:max-content;max-width:100%}
+.badge-warn::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--warning)}
+.badge-ok{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;color:var(--success);background:var(--success-light);border:1px solid rgba(34,197,94,.3);width:max-content;max-width:100%}
+.badge-ok::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--success)}
 
 /* ── Gráfico ── */
 .chart-wrap{position:relative;min-height:220px;width:100%}
@@ -734,7 +742,11 @@ tbody tr:nth-child(5){animation-delay:.19s}tbody tr:nth-child(6){animation-delay
 .tag.orphan{color:var(--red);background:rgba(220,38,38,.12);border-color:rgba(220,38,38,.3)}
 .muted{color:var(--muted2)}
 /* Empty state padronizado: compacto, 1 frase, sem ocupar meia tela */
-.empty{display:flex;align-items:center;justify-content:center;gap:8px;padding:26px 16px;text-align:center;color:var(--muted2);font-size:13px}
+/* estado vazio com presença: moldura tracejada + ponto ciano, deixa de parecer "tela seca" */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:34px 16px;text-align:center;color:var(--muted2);font-size:13px;border:1px dashed var(--border);border-radius:10px;margin:6px}
+.empty::before{content:'';width:34px;height:34px;border-radius:50%;background:var(--accent-light);
+  box-shadow:inset 0 0 0 1px rgba(37,244,238,.3),0 0 14px rgba(37,244,238,.12);
+  background-image:radial-gradient(circle,var(--accent) 3px,transparent 3.5px);background-position:center;background-repeat:no-repeat}
 .empty svg{width:18px;height:18px;opacity:.7}
 .tbl-count{font-size:12px;color:var(--muted2);margin-left:auto}
 
@@ -847,6 +859,15 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .pais-box input{flex:1;min-width:70px;border:none;background:transparent;color:var(--text);font-size:12.5px;text-transform:uppercase;outline:none;padding:4px}
 .pais-box.all input{text-transform:none}
 /* Grid de checkboxes de país/idioma (allowlist do cloaker) */
+.geo-collapse{border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden;margin-top:6px}
+.geo-collapse>summary{list-style:none;cursor:pointer;padding:13px 15px;font-size:13.5px;color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:relative}
+.geo-collapse>summary::-webkit-details-marker{display:none}
+.geo-collapse>summary::after{content:'\\25be';margin-left:auto;color:var(--muted2);transition:transform .2s}
+.geo-collapse[open]>summary::after{transform:rotate(180deg)}
+.geo-collapse>summary:hover{background:var(--card2)}
+.geo-collapse>summary b{font-weight:600}
+.geo-collapse>.geo-wrap,.geo-collapse>p{margin-left:15px;margin-right:15px}
+.geo-collapse>.geo-wrap{margin-bottom:15px}
 .geo-wrap{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:12px}
 .geo-block{display:flex;flex-direction:column;gap:8px}
 .geo-block-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -948,16 +969,6 @@ input[type=range]{flex:1;accent-color:var(--cyan)}
 .tracking-tabs[hidden]{display:none!important} /* .segment é flex; garante que hidden vença */
 .tracking-tabs button{padding:8px 16px;font-size:13px}
 
-/* ── Strip de presença (Visão Geral → Ao Vivo) ── */
-.live-strip{display:flex;align-items:center;gap:10px;width:100%;margin-top:14px;padding:12px 16px;
-  background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--muted);
-  font:inherit;font-size:13px;cursor:pointer;text-align:left;
-  transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
-.live-strip:hover{border-color:var(--border2);background:var(--card2)}
-.live-strip b{color:var(--text);font-variant-numeric:tabular-nums}
-.live-strip .ls-sep{width:1px;height:14px;background:var(--border2)}
-.live-strip .ls-cta{margin-left:auto;color:var(--accent);font-weight:600;font-size:12.5px}
-
 /* ── Setup guiado (checklist com progresso) ── */
 .setup-card{border-color:color-mix(in srgb,var(--accent) 22%,transparent)}
 /* recolhível: summary vira a linha-resumo; corpo esconde o título duplicado */
@@ -1023,7 +1034,7 @@ details[open]>.setup-summary .chev{transform:rotate(180deg)}
 .skel-line{height:12px;width:60%}
 @media(prefers-reduced-motion:reduce){.skel::after{animation:none}}
 
-/* ── Foco visível para navegação por teclado ─�� */
+/* ── Foco visível para navegação por teclado ─��� */
 button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visible{
   outline:2px solid var(--ring);outline-offset:2px;border-radius:6px}
 .inp:focus-visible{outline-offset:0}
@@ -1032,9 +1043,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visibl
 @media(max-width:960px){
   .geo-grid,.ab-grid{grid-template-columns:1fr}
   .kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
-  .hh-inner{padding:14px 16px 8px}
-    .logo-orbit{width:77px;height:77px}
-    .logo-orbit img{inset:6px;width:65px;height:65px}
+  .hh-inner{padding:10px 16px}
   .hh-status{width:100%;margin-left:0}
   .nav.dock{padding:8px 12px 12px}
   .nav.dock button{padding:9px 13px;font-size:13px}
@@ -1054,7 +1063,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visibl
   .tracking-tabs{overflow-x:auto;scrollbar-width:none}
   .tracking-tabs::-webkit-scrollbar{display:none}
   .tracking-tabs button{white-space:nowrap}
-  .live-strip{flex-wrap:wrap;row-gap:4px}
   /* card Conversão: funil mini apertado — rótulos curtos e fonte menor */
   .k-funnel .kf-lbl{font-size:11px;width:52px}
   .k-funnel .kf-pct{font-size:10.5px}
@@ -1118,7 +1126,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 @keyframes kpiIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
 
 /* ── Ministats (substitui os chips) ── */
-.ministats{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:2px 0 6px}
+.ministats{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:16px 0 6px}
 .mstat{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px 14px 19px;overflow:hidden;transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease);animation:kpiIn .5s var(--ease) backwards;--mc:var(--accent)}
 .mstat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px;background:var(--mc);opacity:.6}
 .mstat:nth-child(1){animation-delay:.05s}.mstat:nth-child(2){animation-delay:.11s}.mstat:nth-child(3){animation-delay:.17s}
@@ -1209,10 +1217,10 @@ html[data-liquid-glass] #nav-gota{
 
 /* Badge de alerta — estático (sem loop; o número já comunica) */
 
-/* Botões — clique tátil + brilho */
+/* Botões — clique tátil discreto */
 .btn{transition:background .15s,transform .1s,box-shadow .18s,filter .15s}
 .btn:active,.btn-icon:active,.segment button:active{transform:scale(.95)}
-.btn.primary:hover{box-shadow:0 10px 26px -10px rgba(47,125,255,.6)}
+.btn.primary:hover{box-shadow:0 4px 14px -6px rgba(37,244,238,.35)}
 .btn-icon{transition:color .15s,border-color .15s,background .15s,transform .1s}
 #refresh-btn.spinning svg{animation:spin .8s linear infinite}
 
@@ -1484,7 +1492,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div class="logo-ring"></div>
           <img src="/assets/roi-nados-logo.jpg" alt="Logo" />
         </div>
-        <span class="bt-name">ROI-NADOS</span>
       </div>
       <nav class="nav dock" id="nav" aria-label="Navega&ccedil;&atilde;o principal">
       <button data-view="overview" class="active"><span class="d-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></span><span class="d-lbl">Visão Geral</span></button>
@@ -1544,7 +1551,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ─���� Ao Vivo ── -->
       <section class="view" id="view-live">
-        <div class="grid kpis" id="live-kpis"></div>
         <div class="section-title" style="margin-top:0"><span>Atividade global ao vivo</span><span class="line"></span><span class="muted" style="font-size:11.5px" id="ov-globe-sub">pessoas online navegando agora</span></div>
         <div class="globe-wrap">
           <div class="card globe-card" style="padding:0; height:520px; overflow:hidden; position:relative" id="globe-card">
@@ -1589,14 +1595,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div id="ov-setup" hidden></div>
         <div class="grid kpis kpis-xl" id="ov-kpis" aria-busy="true"><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div><div class="skel skel-kpi"></div></div>
         <div class="ministats" id="ov-chips" aria-busy="true"><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div><div class="skel" style="height:96px"></div></div>
-        <!-- strip compacto de presença: o globo mora no Ao Vivo -->
-        <button class="live-strip" id="ov-live-strip" type="button">
-          <span class="live-dot-anim"></span>
-          <span><b id="ovs-online">0</b> online agora</span>
-          <span class="ls-sep"></span>
-          <span><b id="ovs-ck">0</b> no checkout</span>
-          <span class="ls-cta">Ver ao vivo &#8594;</span>
-        </button>
         <div class="card traffic-card reveal" id="traffic-pulse"></div>
         <div id="ov-goal-sec" hidden>
           <div class="section-title"><span>Meta de receita</span><span class="line"></span><span class="muted" style="font-size:11.5px">sugerida automaticamente</span></div>
@@ -1672,7 +1670,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <div class="card"><div class="clist" id="country-list"></div></div>
       </section>
 
-      <!-- ── Rastreamento: sub-abas (Links / Pixel / Bots) ── -->
+      <!-- ── Rastreamento: sub-abas (Links / Pixel / Bots) ��─ -->
       <div class="segment tracking-tabs" id="tracking-tabs" hidden>
         <button data-t="links" class="active">Links de Checkout</button>
         <button data-t="pixels">Pixel TikTok</button>
@@ -1758,11 +1756,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <summary>Op&ccedil;&otilde;es avan&ccedil;adas<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="ck-adv-body">
                 <p class="hint" style="margin:0 0 12px;line-height:1.7">Formato completo da linha (tudo opcional al&eacute;m da URL):<br><code>nome | URL | peso % | URL celular</code><br>Com a URL celular preenchida, computador vai para a principal e celular vai para a alternativa.</p>
-                <div class="form-row">
-                  <label>White Page <span class="hint">— para onde revisores/bots do TikTok s&atilde;o enviados</span></label>
-                  <input class="inp" id="lk-whitepage" placeholder="https://seudominio.com/pagina-neutra" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
-                  <p class="hint" style="margin-top:6px">Vazio = sem cloaking neste link.</p>
-                </div>
                 <div class="form-row" style="margin-bottom:0">
                   <label>Validar dom&iacute;nio do checkout</label>
                   <div style="display:flex;gap:8px;align-items:center">
@@ -1843,17 +1836,9 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <div class="tut-step" style="border-left: 4px solid var(--success); margin-bottom: 0">
                 <span class="tut-n">3</span>
                 <div class="tut-txt">
-                  <b>Verifique e use!</b>
-                  <p>Clique em <b>Verificar</b> acima. Uma vez ativado, todos os seus links passam a usar o seu dom&iacute;nio automaticamente.</p>
+                  <b>Pronto \u2014 verificamos sozinhos</b>
+                  <p>Assim que o DNS propagar, o dom&iacute;nio &eacute; verificado automaticamente e todos os seus links passam a usar o seu endere&ccedil;o.</p>
                 </div>
-              </div>
-            </div>
-
-            <div class="form-row" style="margin-bottom:0">
-              <label>Script no seu dom&iacute;nio <span class="hint">— cole no &lt;head&gt; das suas p&aacute;ginas</span></label>
-              <div style="display:flex;gap:8px;align-items:center;max-width:480px">
-                <select class="select" id="dm-snip-host" style="flex:1"></select>
-                <button class="btn btn-sm" id="dm-snip-copy">Copiar script</button>
               </div>
             </div>
           </div>
@@ -1873,71 +1858,17 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ��─ Filtro de Bots / Revisores TikTok (cloaking) ── -->
       <section class="view" id="view-cloak">
-        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Roteia revisores do TikTok Ads para a white page &mdash; pessoas reais v&atilde;o para a offer</p></div></div>
+        <div class="block-head"><span class="bh-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><div><h2>Filtro de Bots</h2><p>Crie links de cloaking &mdash; cada um com sua pr&oacute;pria prote&ccedil;&atilde;o, offer e white page</p></div></div>
 
-        <!-- Hero: interruptor mestre + sensibilidade -->
-        <div class="card cfg-card" style="--cc:var(--cyan);margin-bottom:16px">
-          <div class="cfg-head">
-            <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
-            <div><h3>Prote&ccedil;&atilde;o de cloaking</h3><p id="ck-status-line">Bots e revisores v&atilde;o para a white page; pessoas reais seguem para a offer.</p></div>
-            <label class="switch" style="margin-left:auto"><input type="checkbox" id="ck-enabled"><span class="slider"></span></label>
+        <div class="card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px">
+          <div style="flex:1;min-width:180px">
+            <h3 style="font-size:15px;margin:0">Seus links de cloaking</h3>
+            <p class="hint" style="margin:3px 0 0">Cada link gera uma URL <code>/c/&lt;slug&gt;</code>. Bots e revisores v&atilde;o para a white page; pessoas reais seguem para a offer.</p>
           </div>
-          <div class="seg" id="ck-sens" style="margin-top:4px">
-            <button data-s="strict" type="button">Agressivo</button>
-            <button data-s="balanced" type="button">Equilibrado</button>
-            <button data-s="loose" type="button">Conservador</button>
-            <button data-s="custom" type="button">Manual</button>
-          </div>
-          <p id="ck-sens-desc" class="hint" style="margin-top:10px;margin-bottom:0">Equilibrado: a melhor proporção de segurança e conversão — recomendado</p>
-          <div id="ck-threshold-wrap" style="margin-top:14px;display:none">
-            <label class="hint">Rigor da filtragem: <b id="ck-threshold-val" style="color:var(--cyan)">40</b> &mdash; quanto <b>menor</b>, mais gente vai para a white page (mais rigoroso); quanto <b>maior</b>, mais gente passa para a offer</label>
-            <input type="range" id="ck-threshold" min="10" max="90" step="5" value="40" style="width:100%;accent-color:var(--cyan);margin-top:6px">
-          </div>
+          <button class="btn primary" id="ck-new" type="button">+ Criar link de cloaking</button>
         </div>
 
-        <!-- Regras por link: offer, white page, países e pixel -->
-        <div class="card" style="margin-bottom:16px">
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <div style="flex:1;min-width:180px">
-              <h3 style="font-size:15px;margin:0">Regras por link</h3>
-              <p class="hint" style="margin:3px 0 0">Escolha para onde cada p&uacute;blico vai &mdash; por link de checkout.</p>
-            </div>
-            <select class="select" id="ck-link-select" style="min-width:220px"><option value="">Selecione um link...</option></select>
-          </div>
-          <div id="ck-link-rule"></div>
-        </div>
-
-        <!-- Testar (compacto) -->
-        <div class="card cfg-card" style="--cc:var(--green);margin-bottom:0">
-          <div class="cfg-head">
-            <span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
-            <div><h3>Testar com meu navegador</h3><p>Veja como o SEU acesso seria classificado. Deve dar <b>real</b>.</p></div>
-            <button class="btn btn-sm" id="ck-test" style="margin-left:auto">Rodar teste</button>
-          </div>
-          <div id="ck-test-out" style="margin-top:4px"></div>
-        </div>
-
-        <!-- Avançado: latência + camadas de detecção -->
-        <details class="ck-adv">
-          <summary>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            Ajustes avan&ccedil;ados
-            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M6 9l6 6 6-6"/></svg>
-          </summary>
-          <div class="ck-adv-body">
-            <div style="margin:6px 0 16px">
-              <label class="hint" style="font-weight:600;color:var(--muted)">Tempo m&aacute;ximo de an&aacute;lise: <b id="ck-deadline-val" style="color:var(--cyan)">120</b> ms <span class="hint" style="font-weight:500">&mdash; quanto o sistema pode esperar antes de decidir para onde mandar a pessoa. Menor = p&aacute;gina abre mais r&aacute;pido, por&eacute;m com menos checagens</span></label>
-              <input type="range" id="ck-deadline" min="40" max="500" step="20" value="120" style="width:100%;accent-color:var(--cyan);margin-top:8px">
-            </div>
-            <div class="section-title" style="margin-top:0"><span>Camadas de detec&ccedil;&atilde;o</span><span class="line"></span><span class="muted" style="font-size:11.5px">ligue/desligue cada sinal</span></div>
-            <div class="grid" id="ck-layers" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
-          </div>
-        </details>
-
-        <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
-          <button class="btn primary" id="ck-save">Salvar prote&ccedil;&atilde;o</button>
-          <p class="hint" id="ck-status" style="margin:0"></p>
-        </div>
+        <div id="ck-list"></div>
       </section>
 
       <!-- ── Atividade ── -->
@@ -1964,7 +1895,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
 
       <!-- ── Pixel TikTok ── -->
       <section class="view" id="view-pixels">
-        <div class="alert info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div><b>Rastreamento avançado, lead por lead</b><p>Cada visitante recebe uma identidade única e segura. Com ela, o TikTok reconhece a mesma pessoa desde o clique no anúncio até a compra — mesmo em páginas diferentes. Isso melhora a qualidade dos dados e ajuda o TikTok a encontrar mais compradores parecidos. Você só precisa colar o script (abaixo) nas suas páginas; o resto é automático.</p></div></div>
         <div class="grid dynamic-grid" id="px-grid">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -1987,10 +1917,6 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
             <div class="form-row">
               <label>Token de acesso <span class="hint">— copie do TikTok (opcional, mas recomendado)</span></label>
               <input class="inp" id="px-token" placeholder="cole aqui o token do TikTok" style="width:100%;font-family:'Geist Mono',monospace" autocomplete="off">
-            </div>
-            <div class="form-row">
-              <label>Em quais páginas <span class="hint">— uma por linha; deixe vazio para valer em todas</span></label>
-              <textarea class="inp" id="px-routes" rows="3" placeholder="/&#10;/checkout&#10;/s1" style="width:100%;resize:vertical;font-family:'Geist Mono',monospace;font-size:12.5px"></textarea>
             </div>
             <div class="form-row">
               <label>Eventos enviados direto ao TikTok <span class="hint">— pelo servidor, mais confiável</span></label>
@@ -2021,97 +1947,36 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           <div id="ph-events" class="hint" style="margin-top:12px"></div>
           <div id="ph-errors" style="margin-top:6px"></div>
         </div>
-        <div class="section-title"><span>Passo a Passo: Como ativar o rastreamento</span><span class="line"></span></div>
-        <div class="card" style="padding: 24px">
-          <p class="hint" style="margin:0 0 20px;line-height:1.7;font-size:14px;color:var(--text-sub)">Siga estes <b>3 passos simples</b> para ativar o rastreamento automático. Funciona em qualquer criador de páginas (Elementor, Wix, WordPress, GreatPages, Typebot, etc.) sem precisar entender de programação.</p>
-
-          <!-- Passo 1 -->
-          <div class="tut-step" style="border-left: 4px solid var(--pink)">
+        <!-- Guia de instalação: só aparece quando existe pelo menos 1 pixel
+             (o script é único por domínio e injeta todos os pixels ativos) -->
+        <div id="tk-guide" style="display:none">
+        <div class="section-title"><span>Como ativar o rastreamento</span><span class="line"></span><span class="muted" style="font-size:11.5px">um s&oacute; script para todos os pixels</span></div>
+        <div class="card">
+          <div class="tut-step" style="border-left:3px solid var(--pink)">
             <span class="tut-n">1</span>
             <div class="tut-txt">
-              <b>Copie o código abaixo</b>
-              <p style="margin-bottom: 12px">Este código inteligente conecta o seu site a este painel de controle. Clique no botão para copiar.</p>
+              <b>Copie o c&oacute;digo</b>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
                 <input class="inp" id="tk-snippet" readonly value="" style="flex:1;min-width:260px;font-family:'Geist Mono',monospace;font-size:12.5px;background:var(--bg2)">
-                <button class="btn btn-sm primary" id="tk-copy" style="padding: 10px 18px; transition: all 0.2s">Copiar Código</button>
+                <button class="btn btn-sm primary" id="tk-copy">Copiar C&oacute;digo</button>
               </div>
             </div>
           </div>
-
-          <!-- Passo 2 -->
-          <div class="tut-step" style="border-left: 4px solid var(--accent)">
+          <div class="tut-step" style="border-left:3px solid var(--accent)">
             <span class="tut-n">2</span>
             <div class="tut-txt">
-              <b>Cole nas configurações do seu site</b>
-              <p>Abra o criador de páginas onde o seu site foi feito e cole o código copiado no campo de <b>scripts personalizados, cabeçalho ou "head"</b>.</p>
-              
-              <!-- PRINT / MOCKUP EXPLICATIVO -->
-              <div class="mock-container">
-                <div class="mock-header">
-                  <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot"></span>
-                  <span class="mock-title">⚙️ Painel do seu Criador de Páginas</span>
-                </div>
-                <div class="mock-body" style="background: #090c15">
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px">
-                    <span style="font-weight: 600; color: #fff">Seção de Código / Scripts</span>
-                    <span style="font-size:11px; opacity:0.75; color: var(--accent)">Elementor / GreatPages / WordPress / Wix</span>
-                  </div>
-                  <div class="mock-code-box">
-                    &lt;!-- Colar o código aqui dentro --&gt;
-                    <div class="mock-pointer">👉 Pressione Ctrl + V (ou Cmd + V) para colar o código</div>
-                  </div>
-                  <div style="font-size:11.5px; opacity:0.8; color: var(--text-muted)">
-                    💡 Procure por opções chamadas: <i>"Scripts Personalizados"</i>, <i>"Configurações Globais"</i>, <i>"Custom Code"</i> ou <i>"Script no Cabeçalho (Head)"</i>.
-                  </div>
-                </div>
-              </div>
-
+              <b>Cole no seu criador de p&aacute;ginas</b>
+              <p>No campo de <b>scripts personalizados / cabe&ccedil;alho (head)</b> do Elementor, Wix, WordPress, GreatPages, etc.</p>
             </div>
           </div>
-
-          <!-- Passo 3 -->
-          <div class="tut-step" style="border-left: 4px solid var(--success)">
+          <div class="tut-step" style="border-left:3px solid var(--success);margin-bottom:0">
             <span class="tut-n">3</span>
             <div class="tut-txt">
-              <b>Salve e publique o seu site</b>
-              <p>Clique em "Salvar" ou "Publicar" no criador. Pronto! A partir de agora, todas as visitas e compras serão gravadas e mostradas automaticamente em tempo real.</p>
-              
-              <!-- PRINT / MOCKUP ATIVO -->
-              <div class="mock-container" style="border-color: rgba(34,197,94,0.2)">
-                <div class="mock-header" style="background: rgba(34,197,94,0.06)">
-                  <span class="mock-dot" style="background:#22c55e"></span>
-                  <span class="mock-title" style="color: #22c55e; font-weight: 600">⚡ Rastreamento Funcionando</span>
-                </div>
-                <div class="mock-body" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #080d14">
-                  <div>
-                    <span style="font-weight: 600; color: #fff">Páginas ativas detectadas</span>
-                    <p style="margin: 3px 0 0; font-size: 11px; opacity: 0.8; color: var(--text-muted)">Enviando dados de forma ultra-rápida e segura para o TikTok</p>
-                  </div>
-                  <span style="background: rgba(34,197,94,0.12); color: #22c55e; font-family: monospace; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px">STATUS: OK</span>
-                </div>
-              </div>
-
+              <b>Salve e publique</b>
+              <p>Pronto \u2014 visitas e compras passam a aparecer aqui em tempo real. Com dom&iacute;nio pr&oacute;prio verificado, o c&oacute;digo usa o seu endere&ccedil;o automaticamente.</p>
             </div>
           </div>
-
-          <div class="alert" style="background:rgba(47,125,255,.06);border-color:rgba(47,125,255,.25);margin-top:4px">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--cyan)"><path d="M12 16v-4M12 8h.01"/><circle cx="12" cy="12" r="10"/></svg>
-            <div>
-              <b style="font-size:13.5px">Perguntas fáceis</b>
-              <ul class="tut-list" style="margin-top:6px">
-                <li><b>Preciso mexer nos meus botões de venda?</b> Não! O script rastreia tudo automaticamente a partir dos links configurados.</li>
-                <li><b>Preciso configurar o TikTok de forma complicada?</b> Não, nosso robô cuida de ligar as visitas dos anúncios às compras de forma automática.</li>
-                <li><b>É necessário criar arquivos no meu servidor?</b> Não. Só colar o script no criador de páginas e salvar.</li>
-                <li><b>Uso domínio próprio?</b> Após cadastrar seu domínio próprio (na aba ao lado), o código gerado usará o seu endereço automaticamente.</li>
-              </ul>
-            </div>
-          </div>
-
-          <div class="mini-feats">
-            <span>Registra visitantes no pixel do TikTok</span>
-            <span>Acompanhe ao vivo quem navega</span>
-            <span>Vincula cliques a vendas reais</span>
-          </div>
+        </div>
         </div>
         <div class="section-title"><span>Integração Automática com Plataforma de Vendas (Webhook)</span><span class="line"></span></div>
         <div class="card">
@@ -2133,7 +1998,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
           <p class="hint" id="cw-status" style="margin-top:10px"></p>
         </div>
-        <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
+        <div class="section-title"><span>Webhooks recebidos</span><span class="line"></span><select class="select" id="cw-gw-filter" style="width:auto;min-width:140px;padding:5px 10px;font-size:12px"><option value="">Todos os gateways</option></select><button class="btn-icon" id="cw-log-refresh">Atualizar</button></div>
         <div class="card" style="padding:0">
           <div class="tbl-wrap" style="border:0">
             <table>
@@ -3244,16 +3109,9 @@ function updateLiveBadge(){
   var b=document.getElementById('nav-live-badge');
   if(b){ b.textContent=n; b.style.display=n>0?'':'none'; }
 }
-// strip de presença na Visão Geral: só números + atalho para o Ao Vivo
+// mantém o pulso de tráfego da Visão Geral em dia (a faixa de presença foi removida)
 function updateLiveStrip(){
-  var on=document.getElementById('ovs-online'), ck=document.getElementById('ovs-ck');
-  if(!on) return;
-  var vs=(LIVE.visitors||[]);
-  var c=LIVE.checkout||{};
-  var totalCk=c.externalEst!=null?c.externalEst:vs.filter(isCheckoutLead).length;
-  countUp(on,(LIVE.summary&&LIVE.summary.online)||0,'',450);
-  if(ck) countUp(ck,totalCk,'',450);
-  if(currentView==='overview') renderTrafficPulse(); // o pulso de tráfego vive na Visão Geral
+  if(currentView==='overview') renderTrafficPulse();
 }
 
 /* ── Notificações (aba Ao Vivo) ─────────────────────────────────────────
@@ -3432,20 +3290,6 @@ function renderLive(){
     var id=v.id||JSON.stringify([v.country,v.page,v.durationMs]);
     if(seen[id]) return false; seen[id]=1; return true;
   });
-  var ck=LIVE.checkout||{externalEst:0};
-  var totalCheckout=ck.externalEst||0;
-  // estrutura montada UMA vez; depois só os números animam (sem repinte seco a cada 4s)
-  var lkEl=document.getElementById('live-kpis');
-  if(!document.getElementById('lv-online')){
-    lkEl.innerHTML=
-      kpi(I.users,'tint-green','Online agora','<span class="grn" id="lv-online">0</span>','<span id="lv-online-sub">pessoas navegando</span>')+
-      kpi(I.cart,'tint-pink','No checkout agora','<span class="pnk" id="lv-ck">0</span>','estimativa &middot; leads que clicaram num link nos &uacute;ltimos ~10&nbsp;min');
-  }
-  countUp(document.getElementById('lv-online'),s.online||0,'',600);
-  countUp(document.getElementById('lv-ck'),totalCheckout,'',600);
-  var lkSub=document.getElementById('lv-online-sub');
-  var nc=(s.countries||[]).length;
-  if(lkSub)lkSub.textContent='pessoas navegando \u00b7 '+nc+(nc===1?' pa\u00eds':' pa\u00edses');
   // Card "Pulso de tráfego"
   renderTrafficPulse();
   // checkout primeiro (mais quentes no topo), depois por atividade
@@ -3625,7 +3469,7 @@ function renderLinks(){
         '<div class="lmain">'+
   '<b>'+esc(l.nome)+' <span class="hint" style="font-weight:400">/go/'+esc(l.slug)+'</span>'+(l.urlWhitePage?'&nbsp;<span class="tag" style="font-size:11px;background:rgba(0,200,255,.12);color:var(--cyn,#00c2ff);border:1px solid rgba(0,200,255,.25);padding:1px 6px;border-radius:4px;font-weight:600">CLOAK</span>':'')+'</b>'+
   '<span>'+(nv>1?'<span class="cyn">teste A/B ('+nv+' checkouts)</span>':'checkout &uacute;nico')+' &middot; '+clicks+' clique'+(clicks!==1?'s':'')+' &middot; '+convs+(convs===1?' convers&atilde;o':' convers&otilde;es')+'</span>'+
-  '<span>'+(l.dominioValidado?'<span class="pos">Dom&iacute;nio validado: '+esc(l.dominio)+'</span>':'<span class="amb">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
+  '<span>'+(l.dominioValidado?'<span class="badge-ok">Dom&iacute;nio validado &middot; '+esc(l.dominio)+'</span>':'<span class="badge-warn">Dom&iacute;nio n&atilde;o validado</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
           '<button class="btn-icon" onclick="copyLink(\\''+esc(l.slug)+'\\')">Copiar URL</button>'+
@@ -3725,7 +3569,6 @@ function showLinkForm(l){
   var splitB=vs[1]?(vs[1].peso||50):50;
   var sp=document.getElementById('lk-ab-split'); if(sp) sp.value=splitB;
   updateAbSplitLabel(splitB);
-  document.getElementById('lk-whitepage').value=l?(l.urlWhitePage||''):'';
   document.getElementById('lk-domain').value=l?(l.dominio||''):'';
   document.getElementById('lk-domain-status').innerHTML=l&&l.dominioValidado?'<span class="pos">Validado</span>':'';
   document.getElementById('lk-active').checked=l?!!l.ativo:true;
@@ -3744,9 +3587,9 @@ function delLink(slug){
   });
 }
 function linkOrigin(){
-  var sel=document.getElementById('dm-snip-host');
-  var v=sel&&sel.value?sel.value:'';
-  return v?('https://'+v):location.origin;
+  // usa automaticamente o primeiro domínio verificado (sem seletor manual)
+  var v=(DM_LIST||[]).filter(function(d){return d.verificado;})[0];
+  return v?('https://'+v.host):location.origin;
 }
 function copyLink(slug){
   navigator.clipboard.writeText(linkOrigin()+'/go/'+slug)
@@ -3802,27 +3645,38 @@ function renderDomains(){
         '<div class="lmain">'+
           '<b style="font-family:\\'Geist Mono\\',monospace;font-size:13px">'+esc(d.host)+'</b>'+
           '<span>'+(d.verificado
-            ?'<span class="pos">Verificado'+(d.verificadoEm?' &middot; '+new Date(d.verificadoEm).toLocaleDateString('pt-BR'):'')+'</span>'
-            :'<span class="amb">Aguardando DNS &mdash; aponte o CNAME e clique em Verificar</span>')+'</span>'+
+            ?'<span class="badge-ok">Verificado'+(d.verificadoEm?' &middot; '+new Date(d.verificadoEm).toLocaleDateString('pt-BR'):'')+'</span>'
+            :'<span class="badge-warn">Aguardando DNS &mdash; verificamos automaticamente</span>')+'</span>'+
         '</div>'+
         '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
-          '<button class="btn-icon" onclick="verifyCustomDomain(\\''+esc(d.host)+'\\',this)">Verificar</button>'+
           '<button class="btn-icon" style="color:var(--red)" onclick="delDomain(\\''+esc(d.host)+'\\')">Remover</button>'+
         '</div>'+
       '</div>';
     }).join('');
   }
-  // seletor de domínio (snippet do pixel + cópia das URLs /go/)
-  var sel=document.getElementById('dm-snip-host');
-  if(sel){
-    var prev=sel.value;
-    var opts='<option value="">'+esc(location.host)+' (padr&atilde;o)</option>'+
-      DM_LIST.filter(function(d){return d.verificado;}).map(function(d){
-        return '<option value="'+esc(d.host)+'">'+esc(d.host)+'</option>';
-      }).join('');
-    sel.innerHTML=opts;
-    if(prev&&DM_LIST.some(function(d){return d.host===prev&&d.verificado;})) sel.value=prev;
-  }
+  // verificação automática: enquanto houver domínio pendente, tenta a cada 30s
+  scheduleDomainAutoVerify();
+}
+/* Verificação automática de domínios: sem botão — o painel tenta sozinho.
+   Silenciosa nas falhas (DNS ainda propagando); avisa só quando verifica. */
+var DM_POLL=null;
+function scheduleDomainAutoVerify(){
+  var pending=(DM_LIST||[]).filter(function(d){return !d.verificado;});
+  if(!pending.length){ if(DM_POLL){clearInterval(DM_POLL);DM_POLL=null;} return; }
+  if(DM_POLL) return; // já agendado
+  DM_POLL=setInterval(function(){
+    var pend=(DM_LIST||[]).filter(function(d){return !d.verificado;});
+    if(!pend.length){ clearInterval(DM_POLL); DM_POLL=null; return; }
+    if(document.hidden) return; // não gasta rede com a aba em segundo plano
+    pend.forEach(function(d){ silentVerifyDomain(d.host); });
+  },30000);
+}
+function silentVerifyDomain(host){
+  fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ toast('Dom\u00ednio verificado: '+host); loadDomains(); }
+    }).catch(function(){});
 }
 function addDomain(){
   var inp=document.getElementById('dm-host');
@@ -3831,20 +3685,14 @@ function addDomain(){
   fetch('/api/domains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ inp.value=''; toast('Dom\u00ednio adicionado \u2014 configure o DNS e clique em Verificar'); loadDomains(); }
+      if(d.ok){
+        inp.value='';
+        toast('Dom\u00ednio adicionado \u2014 aponte o CNAME; verificamos automaticamente');
+        loadDomains();
+        silentVerifyDomain(host); // 1ª tentativa imediata (DNS pode já estar pronto)
+      }
       else toast(d.error||'Erro',false);
     }).catch(function(){ toast('Erro ao adicionar',false); });
-}
-function verifyCustomDomain(host,btn){
-  if(btn){ btn.textContent='Verificando...'; btn.disabled=true; }
-  fetch('/api/domains/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:host})})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok) toast('Dom\u00ednio verificado: '+host+(d.httpOk?'':' (DNS ok \u2014 aguardando SSL)'));
-      else toast('Falhou \u2014 DNS: '+(d.dnsDetail||'?')+' / HTTPS: '+(d.httpDetail||'?'),false);
-      loadDomains();
-    }).catch(function(){ toast('Erro na verifica\u00e7\u00e3o',false); })
-    .finally(function(){ if(btn){ btn.textContent='Verificar'; btn.disabled=false; } });
 }
 function delDomain(host){
   uiConfirm({title:'Remover este dom\u00ednio?',msg:'"'+host+'" deixa de ser recomendado nas URLs (o DNS continua seu).',okLabel:'Remover',danger:true},function(){
@@ -3854,19 +3702,15 @@ function delDomain(host){
       .catch(function(){ toast('Erro ao remover',false); });
   });
 }
-function copyDomainSnippet(){
-  var origin=linkOrigin();
-  var snip='<script src="'+origin+'/t.js" defer><\\/script><noscript><img src="'+origin+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>';
-  navigator.clipboard.writeText(snip)
-    .then(function(){ toast('Script copiado para '+origin.replace('https://','')); })
-    .catch(function(){ toast('Erro ao copiar',false); });
-}
 function saveLink(){
+  var editSlug=document.getElementById('lk-slug').value||undefined;
+  // white page é configurada no Filtro de Bots; aqui só preservamos o valor existente
+  var existing=editSlug?LK_LIST.filter(function(x){return x.slug===editSlug;})[0]:null;
   var body={
-  slug:document.getElementById('lk-slug').value||undefined,
+  slug:editSlug,
   nome:document.getElementById('lk-name').value,
   variantes:parseVariantLines(),
-  urlWhitePage:document.getElementById('lk-whitepage').value.trim()||undefined,
+  urlWhitePage:existing?existing.urlWhitePage:undefined,
   dominio:document.getElementById('lk-domain').value.trim(),
   ativo:document.getElementById('lk-active').checked
   };
@@ -3994,11 +3838,10 @@ function testPushcut(){
     .catch(function(){ toast('Erro no teste',false); });
 }
 
-/* ── Filtro de Bots / Revisores TikTok (cloaking) ── */
-var CK_STATE={};
-var CK_LINKS=[];       // links com regras (offer/white/paises/pixel)
-var CK_PIXELS=[];      // pixels disponíveis para o dropdown
-var CK_CUR=null;       // slug do link selecionado
+/* ── Filtro de Bots / Links de cloaking (entidade /c/:slug) ── */
+var CK_ENTRIES=[];     // links de cloaking, cada um com config própria
+var CK_BASE='';        // base URL para montar /c/<slug>
+var CK_OPEN=null;      // slug em edição, ou '__new__' para o formulário de criação
 var CK_LAYERS=[
   ['blockDatacenter','Servidores e rede do TikTok','Bloqueia acessos que vêm de servidores (data centers) e da própria rede do TikTok — é de lá que saem os revisores de anúncios.'],
   ['blockHeadless','Robôs automatizados','Detecta navegadores controlados por robô, sem tela, usados para varrer páginas automaticamente.'],
@@ -4009,125 +3852,110 @@ var CK_LAYERS=[
   ['checkBehavior','Comportamento humano','Mede sinais de gente real: movimento do mouse, rolagem, toque na tela e tempo na página.'],
   ['blockZhLang','Aparelho em idioma suspeito','Sinaliza aparelhos configurados em chinês fora da China — padrão comum nas contas de revisão.']
 ];
+var CK_SENS_DESC={
+  strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
+  balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
+  loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
+  custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
+};
 function loadCloakConfig(){
-  fetch('/api/cloak-config',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_STATE=d||{}; renderCloak();
-  }).catch(function(){});
-  fetch('/api/cloak/links',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-    CK_LINKS=(d&&d.links)||[]; CK_PIXELS=(d&&d.pixels)||[]; renderCloakLinks();
+  fetch('/api/cloak/entries',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    CK_ENTRIES=(d&&d.entries)||[]; CK_BASE=(d&&d.baseUrl)||location.origin; renderCloakList();
   }).catch(function(){});
 }
-function renderCloak(){
-  var c=CK_STATE;
-  var en=document.getElementById('ck-enabled'); if(en) en.checked=c.enabled!==false;
-  document.querySelectorAll('#ck-sens button').forEach(function(b){ b.classList.toggle('on',b.getAttribute('data-s')===(c.sensitivity||'balanced')); });
-  var sensDesc=document.getElementById('ck-sens-desc');
-  if(sensDesc){
-    var descs={
-      strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
-      balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
-      loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
-      custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
-    };
-    sensDesc.textContent=descs[c.sensitivity||'balanced']||'';
+function ckUrl(slug){ return (CK_BASE||location.origin)+'/c/'+slug; }
+/* Card colapsado (resumo) de um link de cloaking */
+function ckCard(l){
+  var on=l.enabled!==false && !!l.whitePageUrl;
+  var url=ckUrl(l.slug);
+  var statusTxt = !l.whitePageUrl ? 'Sem white page — tudo vai à offer'
+    : (l.enabled===false ? 'Proteção desligada' : 'Protegido — modo '+({strict:'agressivo',balanced:'equilibrado',loose:'conservador',custom:'manual'}[l.sensitivity]||'equilibrado'));
+  return '<div class="card ck-card" data-slug="'+esc(l.slug)+'" style="margin-bottom:12px">'+
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+      '<span class="ck-dot'+(on?' on':'')+'" title="'+esc(statusTxt)+'"></span>'+
+      '<div style="flex:1;min-width:160px">'+
+        '<b style="font-size:14px">'+esc(l.nome||l.slug)+'</b>'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-top:3px">'+
+          '<code style="font-size:12px;color:var(--muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(url)+'</code>'+
+        '</div>'+
+        '<span class="hint" style="display:block;margin-top:2px">'+esc(statusTxt)+'</span>'+
+      '</div>'+
+      '<button class="btn btn-sm" data-ck-copy="'+esc(url)+'" type="button">Copiar link</button>'+
+      '<button class="btn btn-sm" data-ck-edit="'+esc(l.slug)+'" type="button">Configurar</button>'+
+      '<button class="cn-x" data-ck-del="'+esc(l.slug)+'" title="Apagar" aria-label="Apagar link de cloaking">&times;</button>'+
+    '</div>'+
+    (CK_OPEN===l.slug?('<div class="ck-editor-wrap" style="margin-top:16px;border-top:1px solid var(--line,rgba(255,255,255,.06));padding-top:16px">'+renderCloakEditor(l,false)+'</div>'):'')+
+  '</div>';
+}
+function renderCloakList(){
+  var host=document.getElementById('ck-list'); if(!host) return;
+  var html='';
+  if(CK_OPEN==='__new__'){
+    html+='<div class="card ck-card" data-slug="__new__" style="margin-bottom:12px;border-color:var(--cyan)">'+
+      renderCloakEditor({},true)+'</div>';
   }
-  var wrap=document.getElementById('ck-threshold-wrap'); if(wrap) wrap.style.display=(c.sensitivity==='custom')?'block':'none';
-  var rng=document.getElementById('ck-threshold'); if(rng) rng.value=c.threshold||40;
-  var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=c.threshold||40;
-  var dl=document.getElementById('ck-deadline'); if(dl) dl.value=c.deadlineMs||120;
-  var dv=document.getElementById('ck-deadline-val'); if(dv) dv.textContent=c.deadlineMs||120;
-  // linha de status contextual no hero
-  var sl=document.getElementById('ck-status-line');
-  if(sl) sl.textContent=(c.enabled===false)
-    ? 'Desligado — todos os cliques vão direto para a offer, sem análise.'
-    : 'Bots e revisores vão para a white page; pessoas reais seguem para a offer.';
-  // camadas (dentro do avançado)
-  var host=document.getElementById('ck-layers'); if(!host) return;
-  host.innerHTML=CK_LAYERS.map(function(l){
-    var on=c[l[0]]!==false;
-    return '<div class="ck-layer'+(on?' on':'')+'" data-layer="'+l[0]+'">'+
-      '<div class="ck-l-body"><b>'+esc(l[1])+'</b><span>'+esc(l[2])+'</span></div>'+
-      '<label class="switch"><input type="checkbox" data-ck="'+l[0]+'"'+(on?' checked':'')+'><span class="slider"></span></label>'+
+  if(!CK_ENTRIES.length && CK_OPEN!=='__new__'){
+    html+='<div class="card" style="text-align:center;padding:34px 16px"><p class="hint" style="margin:0">Nenhum link de cloaking ainda. Clique em <b>+ Criar link de cloaking</b> para começar.</p></div>';
+  } else {
+    html+=CK_ENTRIES.map(ckCard).join('');
+  }
+  host.innerHTML=html;
+  if(CK_OPEN) bindCloakEditor();
+}
+/* Editor completo (usado tanto na criação quanto na edição de um link) */
+function renderCloakEditor(l,isNew){
+  l=l||{};
+  var sens=l.sensitivity||'balanced';
+  var nameField=isNew
+    ? '<div class="ck-field full"><label>Nome / slug do link <span class="hint">— vira a URL /c/&lt;slug&gt;</span></label>'+
+        '<input class="inp" id="cke-nome" type="text" placeholder="ex.: campanha-espanha" style="width:100%"></div>'
+    : '';
+  var layers=CK_LAYERS.map(function(x){
+    var lon=l[x[0]]!==false;
+    return '<div class="ck-layer'+(lon?' on':'')+'" data-layer="'+x[0]+'">'+
+      '<div class="ck-l-body"><b>'+esc(x[1])+'</b><span>'+esc(x[2])+'</span></div>'+
+      '<label class="switch"><input type="checkbox" data-ck="'+x[0]+'"'+(lon?' checked':'')+'><span class="slider"></span></label>'+
     '</div>';
   }).join('');
-  var dim=(c.enabled===false);
-  host.style.opacity=dim?'.45':'1'; host.style.pointerEvents=dim?'none':'auto';
-}
-function collectCloak(){
-  var sb=document.querySelector('#ck-sens button.on');
-  var body={
-    enabled:document.getElementById('ck-enabled').checked,
-    sensitivity:sb?sb.getAttribute('data-s'):'balanced',
-    threshold:+document.getElementById('ck-threshold').value||40,
-    deadlineMs:+document.getElementById('ck-deadline').value||120
-  };
-  document.querySelectorAll('#ck-layers input[data-ck]').forEach(function(i){ body[i.getAttribute('data-ck')]=i.checked; });
-  return body;
-}
-function saveCloakConfig(){
-  var st=document.getElementById('ck-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
-  fetch('/api/cloak-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectCloak())})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok){ CK_STATE=d.cloak; renderCloak(); toast('Proteção salva'); if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; } }
-      else { toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
-    }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
-}
-function testCloak(){
-  var out=document.getElementById('ck-test-out');
-  if(out) out.innerHTML='<p class="hint" style="margin:0">Analisando seu acesso atual...</p>';
-  fetch('/api/cloak/test',{method:'POST'})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(!out) return;
-      var isBot=(d.verdict==='bot');
-      var sigs=(d.signals||[]).map(function(s){ return '<code style="font-size:10.5px;background:var(--card2);padding:2px 6px;border-radius:5px;color:var(--muted2)">'+esc(s)+'</code>'; }).join(' ');
-      out.innerHTML='<div class="ck-verdict '+(isBot?'bot':'real')+'">'+
-          (isBot?'✕ Classificado como BOT':'✓ Classificado como PESSOA REAL')+
-          ' &middot; score '+d.score+'/'+(d.threshold||40)+'</div>'+
-        '<p class="hint" style="margin:10px 0 6px">Sinais detectados:</p>'+
-        '<div style="display:flex;flex-wrap:wrap;gap:6px">'+(sigs||'<span class="hint">nenhum</span>')+'</div>';
-    })
-    .catch(function(){ if(out) out.innerHTML='<p class="hint" style="margin:0;color:var(--pink,#f31260)">Erro ao rodar o teste</p>'; });
-}
-/* ── Regras por link ── */
-function renderCloakLinks(){
-  var sel=document.getElementById('ck-link-select'); if(!sel) return;
-  var prev=CK_CUR||sel.value;
-  sel.innerHTML='<option value="">Selecione um link...</option>'+CK_LINKS.map(function(l){
-    return '<option value="'+esc(l.slug)+'">'+esc(l.nome||l.slug)+' — /go/'+esc(l.slug)+'</option>';
-  }).join('');
-  if(prev && CK_LINKS.some(function(l){return l.slug===prev;})){ sel.value=prev; renderCloakRule(prev); }
-  else { CK_CUR=null; document.getElementById('ck-link-rule').innerHTML=CK_LINKS.length?'<p class="hint" style="margin:14px 0 0">Escolha um link acima para configurar offer, white page, países e pixel.</p>':'<p class="hint" style="margin:14px 0 0">Nenhum link de checkout ainda. Crie um na aba <b>Links de Checkout</b>.</p>'; }
-}
-function renderCloakRule(slug){
-  CK_CUR=slug;
-  var host=document.getElementById('ck-link-rule'); if(!host) return;
-  var l=CK_LINKS.filter(function(x){return x.slug===slug;})[0];
-  if(!l){ host.innerHTML=''; return; }
-  var pixOpts='<option value="">Automático (por rota /go/'+esc(l.slug)+')</option>'+CK_PIXELS.map(function(p){
-    return '<option value="'+esc(p.slug)+'"'+(l.pixelSlug===p.slug?' selected':'')+'>'+esc(p.name||p.slug)+(p.active?'':' (inativo)')+'</option>';
-  }).join('');
-  var offer=l.offerUrl?('<div class="ck-offer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg><span>'+esc(l.offerUrl)+(l.offerCount>1?(' &middot; +'+(l.offerCount-1)+' variante(s) A/B'):'')+'</span></div>')
-    :'<div class="ck-offer" style="color:var(--pink,#f31260)"><span>Sem offer definida — adicione uma variante na aba Links.</span></div>';
-  host.innerHTML=''+
-    '<div class="ck-rule">'+
-      '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+offer+'</div>'+
-      '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
-        '<input class="inp" id="ck-r-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.urlWhitePage||'')+'" style="width:100%"></div>'+
-      '<div class="ck-field full"><label>Países liberados para a offer <span class="hint">— nada marcado = todos os países. Fora da lista vai para a white page</span></label>'+
-        renderPaisGrid(l)+'</div>'+
-      '<div class="ck-field full"><label>Idiomas liberados para a offer <span class="hint">— nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page</span></label>'+
-        renderIdiomaGrid(l)+'</div>'+
-      '<div class="ck-field"><label>Pixel do TikTok <span class="hint">— dispara só p/ quem vai à offer</span></label>'+
-        '<select class="select" id="ck-r-pixel">'+pixOpts+'</select></div>'+
-      '<div class="ck-field"><label>Sincronização</label>'+
-        '<label class="ck-sync"><input type="checkbox" id="ck-r-sync"><span>Vincular a rota <code>/go/'+esc(l.slug)+'</code> ao pixel escolhido</span></label></div>'+
+  var enabled=l.enabled!==false;
+  return ''+
+    nameField+
+    '<div class="cfg-head" style="margin-bottom:10px">'+
+      '<span class="cfg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>'+
+      '<div><h3 style="margin:0">Proteção de cloaking</h3><p class="hint" id="cke-status-line" style="margin:2px 0 0">'+(enabled?'Bots e revisores vão para a white page; pessoas reais seguem para a offer.':'Desligado — todos os cliques vão direto para a offer.')+'</p></div>'+
+      '<label class="switch" style="margin-left:auto"><input type="checkbox" id="cke-enabled"'+(enabled?' checked':'')+'><span class="slider"></span></label>'+
     '</div>'+
-    '<div style="display:flex;gap:10px;margin-top:14px;align-items:center">'+
-      '<button class="btn primary" id="ck-r-save">Salvar regra do link</button>'+
-      '<p class="hint" id="ck-r-status" style="margin:0"></p></div>';
-  bindCloakRule();
+    '<div class="seg" id="cke-sens" style="margin-top:4px">'+
+      '<button data-s="strict" type="button"'+(sens==='strict'?' class="on"':'')+'>Agressivo</button>'+
+      '<button data-s="balanced" type="button"'+(sens==='balanced'?' class="on"':'')+'>Equilibrado</button>'+
+      '<button data-s="loose" type="button"'+(sens==='loose'?' class="on"':'')+'>Conservador</button>'+
+      '<button data-s="custom" type="button"'+(sens==='custom'?' class="on"':'')+'>Manual</button>'+
+    '</div>'+
+    '<p class="hint" id="cke-sens-desc" style="margin:10px 0 0">'+esc(CK_SENS_DESC[sens]||'')+'</p>'+
+    '<div id="cke-threshold-wrap" style="margin-top:12px;display:'+(sens==='custom'?'block':'none')+'">'+
+      '<label class="hint">Rigor da filtragem: <b id="cke-threshold-val">'+(l.threshold||40)+'</b> — quanto menor, mais acessos são barrados</label>'+
+      '<input type="range" id="cke-threshold" min="10" max="90" value="'+(l.threshold||40)+'" style="width:100%">'+
+    '</div>'+
+    '<div class="ck-rule" style="margin-top:16px">'+
+      '<div class="ck-field"><label>Offer page <span class="hint">— pessoas reais</span></label>'+
+        '<input class="inp" id="cke-offer" type="url" placeholder="https://sua-offer.com" value="'+esc(l.offerUrl||'')+'" style="width:100%"></div>'+
+      '<div class="ck-field"><label>White page <span class="hint">— bots e revisores</span></label>'+
+        '<input class="inp" id="cke-white" type="url" placeholder="https://pagina-neutra.com" value="'+esc(l.whitePageUrl||'')+'" style="width:100%"></div>'+
+      '<details class="ck-field full geo-collapse"><summary><b>Países liberados para a offer</b> <span class="hint" id="ck-pais-count">'+ckPaisSummary(l)+'</span></summary>'+
+        '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os países. Quem estiver fora da lista vai para a white page.</p>'+
+        renderPaisGrid(l)+'</details>'+
+      '<details class="ck-field full geo-collapse"><summary><b>Idiomas liberados para a offer</b> <span class="hint" id="ck-idioma-count">'+ckIdiomaSummary(l)+'</span></summary>'+
+        '<p class="hint" style="margin:8px 0 10px">Nada marcado = todos os idiomas. Idioma do navegador fora da lista vai para a white page.</p>'+
+        renderIdiomaGrid(l)+'</details>'+
+    '</div>'+
+    '<details class="ck-adv" style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;color:var(--muted2)">Camadas de detecção — ligue/desligue cada sinal</summary>'+
+      '<div class="ck-layers" id="cke-layers" style="margin-top:12px">'+layers+'</div>'+
+    '</details>'+
+    '<div style="display:flex;gap:10px;margin-top:16px;align-items:center">'+
+      '<button class="btn primary" id="cke-save" data-new="'+(isNew?'1':'')+'">'+(isNew?'Criar link':'Salvar alterações')+'</button>'+
+      '<button class="btn btn-sm" id="cke-cancel" type="button">Cancelar</button>'+
+      '<p class="hint" id="cke-status" style="margin:0"></p>'+
+    '</div>';
 }
 /* Catálogo de países por bloco (código ISO-2, nome, bandeira) */
 var CK_COUNTRY_BLOCKS=[
@@ -4145,6 +3973,21 @@ function geoChk(scope,code,name,flag,on){
     '<input type="checkbox" data-'+scope+'="'+esc(code)+'"'+(on?' checked':'')+'>'+
     '<span class="flag" aria-hidden="true">'+flag+'</span>'+
     '<span class="nm">'+esc(name)+'</span></label>';
+}
+function ckPaisSummary(l){
+  var n=(l.paises&&l.paises.length)?l.paises.length:CK_COUNTRY_DEFAULT.length;
+  return '— '+n+(n===1?' país liberado':' países liberados');
+}
+function ckIdiomaSummary(l){
+  var n=(l.idiomas&&l.idiomas.length)||0;
+  return n?('— '+n+(n===1?' idioma liberado':' idiomas liberados')):'— todos os idiomas';
+}
+// Atualiza o texto de resumo no <summary> conforme o usuário marca/desmarca
+function refreshGeoSummaries(){
+  var pc=document.getElementById('ck-pais-count');
+  if(pc){ var n=currentPaises().length; pc.textContent='— '+n+(n===1?' país liberado':' países liberados'); }
+  var ic=document.getElementById('ck-idioma-count');
+  if(ic){ var m=currentIdiomas().length; ic.textContent=m?('— '+m+(m===1?' idioma liberado':' idiomas liberados')):'— todos os idiomas'; }
 }
 function renderPaisGrid(l){
   var sel=(l.paises&&l.paises.length)?l.paises.slice():CK_COUNTRY_DEFAULT.slice();
@@ -4171,13 +4014,13 @@ function currentPaises(){
 function currentIdiomas(){
   return Array.prototype.map.call(document.querySelectorAll('#ck-r-idiomabox input[data-lang]:checked'),function(c){return c.getAttribute('data-lang');});
 }
-function bindCloakRule(){
+function bindCloakEditor(){
   // toggle visual (classe .on) ao marcar/desmarcar qualquer checkbox de geo
   document.querySelectorAll('#ck-r-paisbox,#ck-r-idiomabox').forEach(function(box){
     box.addEventListener('change',function(e){
       var chk=e.target.closest('input[type=checkbox]'); if(!chk) return;
       chk.closest('.geo-chk').classList.toggle('on',chk.checked);
-      syncBlockButtons();
+      syncBlockButtons(); refreshGeoSummaries();
     });
     box.addEventListener('click',function(e){
       var b=e.target.closest('button[data-blocktoggle]'); if(!b) return;
@@ -4185,10 +4028,35 @@ function bindCloakRule(){
       var boxes=codes.map(function(c){return box.querySelector('input[data-cc="'+c+'"]');}).filter(Boolean);
       var allOn=boxes.every(function(x){return x.checked;});
       boxes.forEach(function(x){ x.checked=!allOn; x.closest('.geo-chk').classList.toggle('on',x.checked); });
-      syncBlockButtons();
+      syncBlockButtons(); refreshGeoSummaries();
     });
   });
-  var save=document.getElementById('ck-r-save'); if(save) save.addEventListener('click',saveCloakRule);
+  // segmento de sensibilidade
+  var seg=document.getElementById('cke-sens');
+  if(seg) seg.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-s]'); if(!b) return;
+    seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    var s=b.getAttribute('data-s');
+    var wrap=document.getElementById('cke-threshold-wrap'); if(wrap) wrap.style.display=(s==='custom')?'block':'none';
+    var d=document.getElementById('cke-sens-desc'); if(d) d.textContent=CK_SENS_DESC[s]||'';
+  });
+  var rng=document.getElementById('cke-threshold');
+  if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('cke-threshold-val'); if(tv) tv.textContent=this.value; });
+  // camadas: toggle visual
+  var layers=document.getElementById('cke-layers');
+  if(layers) layers.addEventListener('change',function(e){
+    var chk=e.target.closest('input[data-ck]'); if(!chk) return;
+    chk.closest('.ck-layer').classList.toggle('on',chk.checked);
+  });
+  // interruptor de proteção
+  var en=document.getElementById('cke-enabled');
+  if(en) en.addEventListener('change',function(){
+    var sl=document.getElementById('cke-status-line');
+    if(sl) sl.textContent=this.checked?'Bots e revisores vão para a white page; pessoas reais seguem para a offer.':'Desligado — todos os cliques vão direto para a offer.';
+  });
+  var save=document.getElementById('cke-save'); if(save) save.addEventListener('click',function(){ saveCloakEntry(this.getAttribute('data-new')==='1'); });
+  var cancel=document.getElementById('cke-cancel'); if(cancel) cancel.addEventListener('click',function(){ CK_OPEN=null; renderCloakList(); });
 }
 function syncBlockButtons(){
   document.querySelectorAll('#ck-r-paisbox button[data-blocktoggle]').forEach(function(b){
@@ -4198,66 +4066,62 @@ function syncBlockButtons(){
     b.textContent=allOn?'Desmarcar':'Marcar todos';
   });
 }
-function saveCloakRule(){
-  if(!CK_CUR) return;
-  var st=document.getElementById('ck-r-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
+function saveCloakEntry(isNew){
+  var st=document.getElementById('cke-status'); if(st){ st.textContent='Salvando...'; st.style.color='var(--muted2)'; }
+  var seg=document.querySelector('#cke-sens button.on');
   var body={
-    urlWhitePage:document.getElementById('ck-r-white').value.trim(),
+    enabled:document.getElementById('cke-enabled').checked,
+    sensitivity:seg?seg.getAttribute('data-s'):'balanced',
+    threshold:Number((document.getElementById('cke-threshold')||{}).value)||40,
+    offerUrl:document.getElementById('cke-offer').value.trim(),
+    whitePageUrl:document.getElementById('cke-white').value.trim(),
     paises:currentPaises(),
-    idiomas:currentIdiomas(),
-    pixelSlug:document.getElementById('ck-r-pixel').value,
-    syncPixel:document.getElementById('ck-r-sync').checked
+    idiomas:currentIdiomas()
   };
-  fetch('/api/cloak/link/'+encodeURIComponent(CK_CUR),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  CK_LAYERS.forEach(function(x){ var c=document.querySelector('#cke-layers input[data-ck="'+x[0]+'"]'); body[x[0]]=c?c.checked:true; });
+  if(isNew){
+    var nome=(document.getElementById('cke-nome')||{}).value||'';
+    body.nome=nome.trim();
+    if(!body.nome){ if(st){ st.textContent='Dê um nome ao link'; st.style.color='var(--pink,#f31260)'; } return; }
+  } else {
+    body.slug=CK_OPEN;
+  }
+  fetch('/api/cloak/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
       if(d.ok){
-        // atualiza cache local
-        var l=CK_LINKS.filter(function(x){return x.slug===CK_CUR;})[0];
-        if(l){ l.urlWhitePage=d.link.urlWhitePage; l.paises=d.link.paises; l.idiomas=d.link.idiomas; l.pixelSlug=d.link.pixelSlug; }
-        toast(d.pixelSynced?'Regra salva e pixel sincronizado':'Regra do link salva');
-        if(st){ st.textContent='Salvo com sucesso'; st.style.color='var(--green)'; }
+        var slug=d.entry.slug;
+        var i=CK_ENTRIES.findIndex(function(x){return x.slug===slug;});
+        if(i>=0) CK_ENTRIES[i]=d.entry; else CK_ENTRIES.push(d.entry);
+        CK_OPEN=null; renderCloakList();
+        toast(isNew?'Link de cloaking criado':'Alterações salvas');
       } else { toast(d.error||'Erro ao salvar',false); if(st){ st.textContent=d.error||'Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } }
     }).catch(function(){ toast('Erro ao salvar',false); if(st){ st.textContent='Erro ao salvar'; st.style.color='var(--pink,#f31260)'; } });
 }
+function deleteCloakEntry(slug){
+  if(!confirm('Apagar este link de cloaking? A URL /c/'+slug+' deixará de funcionar.')) return;
+  fetch('/api/cloak/entries/'+encodeURIComponent(slug),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ CK_ENTRIES=CK_ENTRIES.filter(function(x){return x.slug!==slug;}); if(CK_OPEN===slug) CK_OPEN=null; renderCloakList(); toast('Link removido'); }
+      else toast('Erro ao remover',false);
+    }).catch(function(){ toast('Erro ao remover',false); });
+}
 function bindCloak(){
-  var sens=document.getElementById('ck-sens');
-  if(sens) sens.addEventListener('click',function(e){
-    var b=e.target.closest('button[data-s]'); if(!b) return;
-    document.querySelectorAll('#ck-sens button').forEach(function(x){ x.classList.remove('on'); });
-    b.classList.add('on');
-    var s=b.getAttribute('data-s');
-    var wrap=document.getElementById('ck-threshold-wrap');
-    if(wrap) wrap.style.display=(s==='custom')?'block':'none';
-    var sensDesc=document.getElementById('ck-sens-desc');
-    if(sensDesc){
-      var descs={
-        strict:'Agressivo: barra o m\u00e1ximo de bots (pode reter alguns usu\u00e1rios leg\u00edtimos)',
-        balanced:'Equilibrado: a melhor propor\u00e7\u00e3o de seguran\u00e7a e convers\u00e3o \u2014 recomendado',
-        loose:'Conservador: libera quase todos os acessos (alguns bots avan\u00e7ados podem passar)',
-        custom:'Manual: voc\u00ea define o rigor da filtragem usando o controle abaixo'
-      };
-      sensDesc.textContent=descs[s]||'';
-    }
+  var nw=document.getElementById('ck-new');
+  if(nw) nw.addEventListener('click',function(){ CK_OPEN=(CK_OPEN==='__new__')?null:'__new__'; renderCloakList(); if(CK_OPEN==='__new__'){ var f=document.getElementById('cke-nome'); if(f) f.focus(); } });
+  var list=document.getElementById('ck-list');
+  if(list) list.addEventListener('click',function(e){
+    var cp=e.target.closest?e.target.closest('[data-ck-copy]'):null;
+    if(cp){ navigator.clipboard.writeText(cp.getAttribute('data-ck-copy')).then(function(){ toast('Link copiado'); }); return; }
+    var ed=e.target.closest?e.target.closest('[data-ck-edit]'):null;
+    if(ed){ var s=ed.getAttribute('data-ck-edit'); CK_OPEN=(CK_OPEN===s)?null:s; renderCloakList(); return; }
+    var del=e.target.closest?e.target.closest('[data-ck-del]'):null;
+    if(del){ deleteCloakEntry(del.getAttribute('data-ck-del')); return; }
   });
-  var rng=document.getElementById('ck-threshold');
-  if(rng) rng.addEventListener('input',function(){ var tv=document.getElementById('ck-threshold-val'); if(tv) tv.textContent=this.value; });
-  var dl=document.getElementById('ck-deadline');
-  if(dl) dl.addEventListener('input',function(){ var dv=document.getElementById('ck-deadline-val'); if(dv) dv.textContent=this.value; });
-  var en=document.getElementById('ck-enabled');
-  if(en) en.addEventListener('change',function(){
-    var host=document.getElementById('ck-layers');
-    if(host){ host.style.opacity=this.checked?'1':'.45'; host.style.pointerEvents=this.checked?'auto':'none'; }
-    var sl=document.getElementById('ck-status-line');
-    if(sl) sl.textContent=this.checked?'Bots e revisores vão para a white page; pessoas reais seguem para a offer.':'Desligado — todos os cliques vão direto para a offer, sem análise.';
-  });
-  var lsel=document.getElementById('ck-link-select');
-  if(lsel) lsel.addEventListener('change',function(){ if(this.value) renderCloakRule(this.value); else { CK_CUR=null; document.getElementById('ck-link-rule').innerHTML='<p class="hint" style="margin:14px 0 0">Escolha um link acima para configurar offer, white page, países e pixel.</p>'; } });
-  var save=document.getElementById('ck-save'); if(save) save.addEventListener('click',saveCloakConfig);
-  var test=document.getElementById('ck-test'); if(test) test.addEventListener('click',testCloak);
 }
 
-/* ── Links curtos rastreáveis (/l/:slug) ── */
+/* ─��� Links curtos rastreáveis (/l/:slug) ── */
 function loadShortlinks(){
   fetch('/api/shortlinks',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     var el=document.getElementById('sl-list'); if(!el) return;
@@ -4327,6 +4191,9 @@ function loadPixels(){
     var badge=document.getElementById('nav-px-badge');
     var n=PX_LIST.filter(function(p){return p.active;}).length;
     if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; badge.className='badge live-badge'; }
+    // guia de instalação: só faz sentido com pelo menos 1 pixel cadastrado
+    var guide=document.getElementById('tk-guide');
+    if(guide) guide.style.display=PX_LIST.length?'':'none';
   }).catch(function(){});
   loadPxLog();
   loadConvLog();
@@ -4370,14 +4237,13 @@ function renderPixels(){
     return;
   }
   el.innerHTML=PX_LIST.map(function(p){
-    var routes=(p.routes&&p.routes.length)?p.routes.join(', '):'todas as páginas';
     var evs=Object.keys(p.events||{}).filter(function(k){return p.events[k];}).join(' · ')||'nenhum';
     return '<div class="lrow" style="cursor:default">'+
       '<span class="ldot" style="background:'+(p.active?'var(--green)':'var(--muted2)')+';box-shadow:none"></span>'+
       '<div class="lmain">'+
         '<b>'+esc(p.name)+' <span class="hint" style="font-weight:400">pixels/'+esc(p.slug)+'.json</span></b>'+
         '<span style="font-family:\\'Geist Mono\\',monospace">'+esc(p.pixelCode)+'</span>'+
-        '<span>Rotas: '+esc(routes)+' &middot; Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
+        '<span>Server-side: '+esc(evs)+(p.hasToken?'':' &middot; <span class="amb">sem token (só navegador)</span>')+'</span>'+
       '</div>'+
       '<div class="lmeta" style="flex-direction:row;gap:6px;align-items:center">'+
         (p.scriptTag?'<button class="btn-icon" onclick="copyPxScript(\\''+esc(p.slug)+'\\')" title="Script exclusivo deste pixel — cole em qualquer página">Copiar script</button>':'')+
@@ -4396,7 +4262,6 @@ function showPxForm(px){
   document.getElementById('px-name').value=px?px.name:'';
   document.getElementById('px-code').value=px?px.pixelCode:'';
   document.getElementById('px-token').value=px?(px.accessToken||''):'';
-  document.getElementById('px-routes').value=px?((px.routes||[]).join(String.fromCharCode(10))):'';
   var ev=px?(px.events||{}):{ViewContent:true,InitiateCheckout:true,CompletePayment:true};
   document.getElementById('px-ev-vc').checked=!!ev.ViewContent;
   document.getElementById('px-ev-ic').checked=!!ev.InitiateCheckout;
@@ -4440,7 +4305,6 @@ function savePixel(){
     name:document.getElementById('px-name').value.trim(),
     pixelCode:document.getElementById('px-code').value.trim(),
     accessToken:document.getElementById('px-token').value.trim(),
-    routes:document.getElementById('px-routes').value.split(String.fromCharCode(10)).map(function(s){return s.trim();}).filter(Boolean),
     events:{
       ViewContent:document.getElementById('px-ev-vc').checked,
       InitiateCheckout:document.getElementById('px-ev-ic').checked,
@@ -4605,8 +4469,28 @@ function loadConvLog(){
     if(st) st.innerHTML=d.configured?'Segredo configurado. Envie um POST de teste e ele aparece abaixo.':'<span class="neg">Sem segredo configurado — o endpoint responde 503 at\u00e9 voc\u00ea definir CONVERSION_WEBHOOK_SECRET.</span>';
     var tb=document.getElementById('cw-log'); if(!tb) return;
     var log=d.log||[];
-    if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">Nenhum webhook recebido ainda \u2014 configure a URL acima no seu gateway.</td></tr>'; return; }
-    tb.innerHTML=log.map(function(e){
+    CW_LOG=log;
+    // popula o filtro de gateways (mantém a seleção atual)
+    var fsel=document.getElementById('cw-gw-filter');
+    if(fsel){
+      var prev=fsel.value;
+      var gws=[]; log.forEach(function(e){ var g=e.gateway||''; if(g&&gws.indexOf(g)<0) gws.push(g); });
+      fsel.innerHTML='<option value="">Todos os gateways</option>'+gws.map(function(g){return '<option value="'+esc(g)+'">'+esc(g)+'</option>';}).join('');
+      if(prev&&gws.indexOf(prev)>=0) fsel.value=prev;
+    }
+    renderConvLog();
+  }).catch(function(){});
+}
+/* Tabela leve: filtra pelo gateway escolhido e mostra só os 12 mais recentes */
+var CW_LOG=[];
+function renderConvLog(){
+  var tb=document.getElementById('cw-log'); if(!tb) return;
+  var fsel=document.getElementById('cw-gw-filter');
+  var gw=fsel?fsel.value:'';
+  var log=gw?CW_LOG.filter(function(e){return (e.gateway||'')===gw;}):CW_LOG;
+  log=log.slice(0,12);
+  if(!log.length){ tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted2);padding:26px">'+(gw?'Nenhum webhook deste gateway.':'Nenhum webhook recebido ainda \u2014 configure a URL acima no seu gateway.')+'</td></tr>'; return; }
+  tb.innerHTML=log.map(function(e){
       var ok=e.status==='ok', dd=e.status==='dedup';
       return '<tr style="cursor:default">'+
         '<td>'+timeAgo(e.at)+'</td>'+
@@ -4617,7 +4501,6 @@ function loadConvLog(){
         '<td><span class="'+(ok?'grn':(dd?'':'neg'))+'">'+esc(e.status||'\u2014')+'</span></td>'+
       '</tr>';
     }).join('');
-  }).catch(function(){});
 }
 /* ── Setup guiado ──
    Transforma o antigo grid de "Saúde" num checklist acionável:
@@ -5120,9 +5003,6 @@ document.getElementById('tracking-tabs').addEventListener('click',function(e){
 document.addEventListener('click',function(e){
   var b=e.target.closest('.si-go'); if(b) setView(b.getAttribute('data-go'));
 });
-// strip de presença → Ao Vivo
-document.getElementById('ov-live-strip').addEventListener('click',function(){ setView('live');
-});
 function setSideMenu(open){
   document.getElementById('sidebar').classList.toggle('open',open);
   document.getElementById('side-scrim').classList.toggle('open',open);
@@ -5223,7 +5103,6 @@ document.getElementById('lk-new').addEventListener('click',function(){ showLinkF
 document.getElementById('lk-save').addEventListener('click',saveLink);
 document.getElementById('dm-add').addEventListener('click',addDomain);
 document.getElementById('dm-host').addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) addDomain(); });
-document.getElementById('dm-snip-copy').addEventListener('click',copyDomainSnippet);
 document.getElementById('lk-cancel').addEventListener('click',function(){ document.getElementById('lk-form-card').style.display='none'; var g=document.getElementById('lk-grid'); if(g) g.classList.remove('form-open'); });
   document.getElementById('lk-validate').addEventListener('click',validateDomain);
   var abSplit=document.getElementById('lk-ab-split');
@@ -5246,6 +5125,7 @@ document.getElementById('gw-save').addEventListener('click',saveGateway);
 document.getElementById('gw-cancel').addEventListener('click',function(){ document.getElementById('gw-form-card').style.display='none'; var g=document.getElementById('gw-grid'); if(g) g.classList.remove('form-open'); });
 document.getElementById('px-log-refresh').addEventListener('click',loadPxLog);
 document.getElementById('cw-log-refresh').addEventListener('click',loadConvLog);
+document.getElementById('cw-gw-filter').addEventListener('change',renderConvLog);
 document.getElementById('ph-refresh').addEventListener('click',loadCapiHealth);
 document.getElementById('cw-reveal').addEventListener('click',function(){
   CW_REVEALED=!CW_REVEALED;
@@ -5271,7 +5151,7 @@ document.getElementById('cw-test').addEventListener('click',function(){
     .finally(function(){ btn.disabled=false; btn.textContent='Testar'; });
 });
 /* ── Snippet de rastreamento para páginas externas ── */
-function trackerSnippet(){ return '<script src="'+location.origin+'/t.js" defer><\\/script><noscript><img src="'+location.origin+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>'; }
+function trackerSnippet(){ var o=linkOrigin(); return '<script src="'+o+'/t.js" defer><\\/script><noscript><img src="'+o+'/px.gif" alt="" width="1" height="1" style="position:absolute;left:-9999px"></noscript>'; }
 (function(){
   var inp=document.getElementById('tk-snippet');
   if(inp) inp.value=trackerSnippet();
