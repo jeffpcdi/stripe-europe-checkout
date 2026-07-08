@@ -17,13 +17,18 @@ export function SparkLine({
   const max = Math.max(...data, 1)
   const min = Math.min(...data, 0)
   const range = max - min || 1
-  const pts = data
-    .map((v, i) => {
-      const x = (i / (data.length - 1)) * width
-      const y = height - 3 - ((v - min) / range) * (height - 6)
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
+  const coords = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * width
+    const y = height - 3 - ((v - min) / range) * (height - 6)
+    return [x, y] as const
+  })
+  const pts = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
+  const areaPath =
+    `M0,${height} ` +
+    coords.map(([x, y]) => `L${x.toFixed(1)},${y.toFixed(1)}`).join(' ') +
+    ` L${width},${height} Z`
+  const [lastX, lastY] = coords[coords.length - 1]
+  const gid = `spark-${color.replace(/[^a-z0-9]/gi, '')}`
 
   return (
     <svg
@@ -31,8 +36,15 @@ export function SparkLine({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       aria-hidden="true"
-      className="shrink-0"
+      className="shrink-0 overflow-visible"
     >
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gid})`} />
       <polyline
         points={pts}
         fill="none"
@@ -43,6 +55,9 @@ export function SparkLine({
         strokeDasharray="1000"
         style={{ animation: 'drawLine 1.2s var(--ease) both' }}
       />
+      <circle cx={lastX} cy={lastY} r="2" fill={color}>
+        <animate attributeName="opacity" values="1;0.3;1" dur="1.8s" repeatCount="indefinite" />
+      </circle>
     </svg>
   )
 }

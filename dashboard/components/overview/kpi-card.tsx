@@ -67,6 +67,8 @@ export function KpiCard({
 }) {
   return (
     <GlassCard
+      hover
+      sheen
       className={cn('anim-kpi-in relative overflow-hidden p-5', hero && 'kpi-hero')}
       style={{ animationDelay: `${index * 70}ms` }}
     >

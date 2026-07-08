@@ -11,10 +11,11 @@
   --card: rgba(19, 19, 22, 0.82);
   --border: rgba(255, 255, 255, 0.09);
 
-  /* Texto */
-  --text: #f4f4f5;
-  --text-sub: #d4d4d8;
-  --text-muted: #a1a1aa;
+  /* Texto — contraste elevado (muted agora ≥4.5:1 sobre #08080a) */
+  --text: #f7f7f8;
+  --text-sub: #d7d7db;
+  --text-muted: #adadb6;
+  --text-faint: #8a8a93;
 
   /* Marca */
   --accent: #25f4ee;
@@ -29,7 +30,7 @@
   --gold: #fbbf24;
   --error: #ef4444;
   --blue: #2f7dff;
-  --teal: #2f7dff;
+  --teal: #14b8c4;
   --violet: #7ab8ff;
 
   /* Fundos de badges (12–15%) */
@@ -62,6 +63,23 @@
   /* Formas */
   --radius-sm: 10px;
   --radius: 14px;
+
+  /* Sombras — 4 camadas de profundidade */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow:
+    0 4px 12px rgba(0, 0, 0, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg:
+    0 12px 32px rgba(0, 0, 0, 0.45),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-xl:
+    0 24px 64px rgba(0, 0, 0, 0.55),
+    0 8px 24px rgba(0, 0, 0, 0.4);
+
+  /* Glows de marca */
+  --glow-cyan: 0 0 0 1px rgba(37, 244, 238, 0.35), 0 8px 24px rgba(37, 244, 238, 0.25);
+  --glow-pink: 0 0 0 1px rgba(254, 44, 85, 0.35), 0 8px 24px rgba(254, 44, 85, 0.22);
+  --glow-cyan-soft: 0 6px 20px rgba(37, 244, 238, 0.18);
 }
 
 @theme inline {
@@ -92,15 +110,21 @@
   --color-error: var(--error);
   --color-info: var(--blue);
   --color-violet: var(--violet);
+  --color-teal: var(--teal);
   --color-sub: var(--text-sub);
+  --color-faint: var(--text-faint);
+
+  --shadow-card: var(--shadow);
+  --shadow-card-lg: var(--shadow-lg);
+  --shadow-card-xl: var(--shadow-xl);
 
   --radius-sm: calc(var(--radius-sm));
   --radius-md: var(--radius);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --ease-brand: var(--ease);
   --ease-spring: var(--spring);
@@ -130,6 +154,15 @@ body {
   background: rgba(37, 244, 238, 0.25);
 }
 
+/* Foco acessível e consistente em toda a app */
+:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px rgba(37, 244, 238, 0.55);
+  border-radius: var(--radius-sm);
+}
+
 /* Scrollbar fino, discreto */
 ::-webkit-scrollbar {
   width: 8px;
@@ -156,6 +189,7 @@ body {
   border-left-color: var(--lg-rim-side);
   border-right-color: var(--lg-rim-side);
   border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
 
 .glass-thick {
@@ -174,37 +208,70 @@ body {
    Fundo aurora/mesh animado
    ============================================================ */
 
-.aurora-bg {
+.app-bg {
   position: fixed;
   inset: 0;
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
+  background: var(--bg);
 }
 
-.aurora-bg::before,
-.aurora-bg::after {
+/* Grelha de pontos sutil com máscara radial (mais densa no topo) */
+.app-bg__dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.05) 1px,
+    transparent 1px
+  );
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 90% 60% at 50% 0%,
+    #000 0%,
+    transparent 75%
+  );
+  mask-image: radial-gradient(
+    ellipse 90% 60% at 50% 0%,
+    #000 0%,
+    transparent 75%
+  );
+}
+
+/* Aurora: dois orbes ciano/rosa em deriva lenta */
+.app-bg__aurora::before,
+.app-bg__aurora::after {
   content: '';
   position: absolute;
   width: 60vmax;
   height: 60vmax;
   border-radius: 50%;
-  filter: blur(120px);
-  opacity: 0.14;
+  filter: blur(130px);
+  opacity: 0.15;
+  will-change: transform;
 }
 
-.aurora-bg::before {
+.app-bg__aurora::before {
   background: radial-gradient(circle, #25f4ee, transparent 65%);
   top: -25vmax;
   left: -15vmax;
   animation: auroraDrift 26s var(--ease) infinite alternate;
 }
 
-.aurora-bg::after {
+.app-bg__aurora::after {
   background: radial-gradient(circle, #fe2c55, transparent 65%);
   bottom: -30vmax;
   right: -18vmax;
   animation: meshFloat 32s var(--ease) infinite alternate;
+}
+
+/* Grain: textura fina para quebrar bandas nos gradientes */
+.app-bg__grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* ============================================================
@@ -292,6 +359,35 @@ body {
   to { stroke-dashoffset: 0; }
 }
 
+@keyframes sheen {
+  from { transform: translateX(-120%) skewX(-18deg); }
+  to { transform: translateX(220%) skewX(-18deg); }
+}
+
+@keyframes orbitSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes glowBreathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes barGrow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes numberFlash {
+  0% { color: var(--accent); text-shadow: 0 0 12px rgba(37, 244, 238, 0.6); }
+  100% { color: inherit; text-shadow: none; }
+}
+
 /* ============================================================
    Utilitárias de animação
    ============================================================ */
@@ -351,6 +447,197 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+/* ============================================================
+   Marca ROI-NADOS — logo circular + anel cônico girando
+   ============================================================ */
+
+.brand-logo {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.brand-logo__ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    var(--accent),
+    var(--pink),
+    var(--accent),
+    var(--pink),
+    var(--accent)
+  );
+  animation: orbitSpin 6s linear infinite;
+  filter: blur(1px);
+  opacity: 0.9;
+}
+
+/* Máscara para virar apenas um anel (recorte central) */
+.brand-logo__ring::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.brand-logo__img {
+  position: relative;
+  z-index: 1;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 14px rgba(37, 244, 238, 0.35);
+}
+
+.group:hover .brand-logo__ring {
+  animation-duration: 2.4s;
+  opacity: 1;
+}
+
+/* ============================================================
+   Botões — ação primária visível (ciano sólido + glow)
+   ============================================================ */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: #05201f;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  border: 1px solid rgba(37, 244, 238, 0.5);
+  box-shadow: var(--glow-cyan-soft);
+  transition:
+    transform var(--dur-fast) var(--spring),
+    box-shadow var(--dur) var(--ease),
+    filter var(--dur-fast) var(--ease);
+}
+.btn-primary:hover {
+  filter: brightness(1.06);
+  box-shadow: var(--glow-cyan);
+  transform: translateY(-1px);
+}
+.btn-primary:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--text-sub);
+  background: var(--hover);
+  border: 1px solid var(--border);
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--spring);
+}
+.btn-ghost:hover {
+  background: var(--active);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+}
+.btn-ghost:active {
+  transform: scale(0.98);
+}
+
+.btn-danger {
+  color: #fff;
+  background: linear-gradient(135deg, #f0475a, var(--error));
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+/* ============================================================
+   Superfícies interativas — sheen + hover lift + press
+   ============================================================ */
+
+.surface {
+  position: relative;
+  transition:
+    transform var(--dur) var(--spring),
+    box-shadow var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.surface-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* Reflexo diagonal que cruza o card no hover */
+.sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.sheen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+  transform: translateX(-120%) skewX(-18deg);
+  pointer-events: none;
+  z-index: 1;
+}
+.sheen:hover::after {
+  animation: sheen 900ms var(--ease);
+}
+
+/* Stagger — atraso incremental via --i */
+.stagger > * {
+  animation: kpiIn var(--dur-slow) var(--spring) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+.anim-reveal {
+  animation: revealUp var(--dur-slow) var(--ease) both;
+}
+
+.anim-number-flash {
+  animation: numberFlash 800ms var(--ease);
+}
+
+.top-hairline {
+  position: relative;
+}
+.top-hairline::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(37, 244, 238, 0.5),
+    transparent
+  );
 }
 
 /* ============================================================

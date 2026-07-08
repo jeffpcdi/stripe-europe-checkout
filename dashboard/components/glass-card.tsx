@@ -11,12 +11,27 @@ const variantClass: Record<GlassVariant, string> = {
 
 export function GlassCard({
   variant = 'default',
+  hover = false,
+  sheen = false,
   className,
   children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { variant?: GlassVariant }) {
+}: React.HTMLAttributes<HTMLDivElement> & {
+  variant?: GlassVariant
+  hover?: boolean
+  sheen?: boolean
+}) {
   return (
-    <div className={cn('glass', variantClass[variant], className)} {...props}>
+    <div
+      className={cn(
+        'glass surface',
+        variantClass[variant],
+        hover && 'surface-hover',
+        sheen && 'sheen',
+        className,
+      )}
+      {...props}
+    >
       {children}
     </div>
   )
