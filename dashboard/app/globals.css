@@ -639,6 +639,120 @@ html[data-section='geo'] .app-bg__aurora::before {
   animation: valFlash 800ms var(--ease);
 }
 
+/* Item 29: flash âmbar→transparente em célula atualizada via tempo real */
+@keyframes cellFlash {
+  0% { background: rgba(251, 191, 36, 0.16); }
+  100% { background: transparent; }
+}
+.anim-cell-flash {
+  animation: cellFlash 900ms var(--ease);
+}
+
+/* Item 60: crossfade skeleton → conteúdo (220ms) */
+@keyframes contentIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-content-in {
+  animation: contentIn 220ms var(--ease) both;
+}
+
+/* Item 17: borda gradiente cônica girando lentamente no KPI hero */
+@property --kpi-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes kpiBorderSpin {
+  to { --kpi-angle: 360deg; }
+}
+.kpi-hero {
+  isolation: isolate;
+}
+.kpi-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--kpi-angle),
+    rgba(37, 244, 238, 0.55),
+    rgba(254, 44, 85, 0.3) 25%,
+    transparent 45%,
+    transparent 70%,
+    rgba(37, 244, 238, 0.55)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: kpiBorderSpin 9s linear infinite;
+  pointer-events: none;
+}
+
+/* Item 21: seta do delta entra com spring (sobe/desce) */
+@keyframes deltaPop {
+  0% { transform: translateY(4px) scale(0.5); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.delta-icon {
+  animation: deltaPop 420ms var(--spring) both;
+}
+
+/* Item 27: linha de tabela com hover deslizante — ciano 4% + barra esquerda */
+.tr-hover {
+  position: relative;
+  transition: background var(--dur-fast) var(--ease);
+}
+.tr-hover::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15%;
+  bottom: 15%;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--spring);
+}
+.tr-hover:hover {
+  background: rgba(37, 244, 238, 0.04);
+}
+.tr-hover:hover::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+/* Item 28: seta de ordenação com rotação spring */
+.sort-arrow {
+  display: inline-block;
+  transition: transform var(--dur-fast) var(--spring);
+}
+.sort-arrow--desc {
+  transform: rotate(180deg);
+}
+
+/* Item 137: dots de serviço — pulsante quando ativo, âmbar estático inativo */
+.svc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.svc-dot--ok {
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.55);
+  animation: livePulse 2.4s var(--ease) infinite;
+}
+.svc-dot--off {
+  background: var(--warning);
+}
+
 .live-dot {
   position: relative;
   width: 8px;

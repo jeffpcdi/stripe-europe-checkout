@@ -3,6 +3,7 @@ import { Sidebar } from '@/components/shell/sidebar'
 import { TopNav } from '@/components/shell/topnav'
 import { Header } from '@/components/shell/header'
 import { TabNotifier } from '@/components/shell/tab-notifier'
+import { RouteProgress } from '@/components/shell/route-progress'
 
 export default function DashboardLayout({
   children,
@@ -13,6 +14,8 @@ export default function DashboardLayout({
     <div className="flex min-h-dvh">
       {/* Itens 201/202: título da aba + favicon reagem a vendas e saúde */}
       <TabNotifier />
+      {/* Item 61: barra de progresso de rota no topo da viewport */}
+      <RouteProgress />
       {/* Sidebar lateral esquerda — desktop */}
       <Sidebar />
 

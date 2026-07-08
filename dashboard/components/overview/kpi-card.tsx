@@ -22,6 +22,14 @@ const tintBg: Record<KpiTint, string> = {
   neutral: 'bg-[var(--hover)]',
 }
 
+// Item 20: glow neon da cor da métrica na cápsula do ícone
+const tintGlow: Record<KpiTint, string> = {
+  green: '0 0 14px rgba(34,197,94,.35)',
+  cyan: '0 0 14px rgba(37,244,238,.35)',
+  amber: '0 0 14px rgba(251,191,36,.35)',
+  neutral: 'none',
+}
+
 export function DeltaChip({ delta, invert = false }: { delta: number | null; invert?: boolean }) {
   if (delta === null) return null
   const good = invert ? delta < 0 : delta > 0
@@ -37,7 +45,8 @@ export function DeltaChip({ delta, invert = false }: { delta: number | null; inv
             : 'bg-[var(--error-light)] text-error',
       )}
     >
-      <Icon className="size-3" aria-hidden="true" />
+      {/* Item 21: seta entra com spring */}
+      <Icon className="delta-icon size-3" aria-hidden="true" />
       <span className="font-mono tabular-nums">{fmtDelta(delta)}</span>
     </span>
   )
@@ -87,6 +96,7 @@ export function KpiCard({
               tintBg[tint],
               tintText[tint],
             )}
+            style={{ boxShadow: tintGlow[tint] }}
             aria-hidden="true"
           >
             <Icon className="size-4" />

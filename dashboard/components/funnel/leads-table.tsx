@@ -123,7 +123,7 @@ export function LeadsTable({
                 return (
                   <tr
                     key={l.id}
-                    className="border-b border-border/30 transition-colors last:border-b-0 hover:bg-[var(--hover)]"
+                    className="tr-hover border-b border-border/30 last:border-b-0"
                   >
                     <td className="py-2.5 pr-3 font-mono text-xs text-muted-foreground">
                       {l.id.slice(0, 12)}

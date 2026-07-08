@@ -12,7 +12,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { TrendingDown, TrendingUp } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
+import { fmtCompact } from '@/lib/format'
 import { money } from '@/lib/metrics'
 import { cn } from '@/lib/utils'
 
@@ -29,16 +31,98 @@ function fmtDay(day: unknown) {
   return d && m ? `${d}/${m}` : String(day ?? '')
 }
 
+type Row = { day: string; revenue: number; sales: number; visits: number }
+
+/* Item 141: tooltip glass com valor + delta vs. dia anterior */
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  metric,
+  series,
+  currency,
+  metricLabel,
+}: {
+  active?: boolean
+  payload?: { value?: number | string }[]
+  label?: string
+  metric: Metric
+  series: Row[]
+  currency: string
+  metricLabel: string
+}) {
+  if (!active || !payload?.length) return null
+  const idx = series.findIndex((s) => s.day === label)
+  const val = Number(payload[0]?.value ?? 0)
+  const prev = idx > 0 ? Number(series[idx - 1][metric] ?? 0) : null
+  const delta = prev !== null && prev > 0 ? ((val - prev) / prev) * 100 : null
+  const isMoney = metric === 'revenue'
+  const up = delta !== null && delta >= 0
+
+  return (
+    <div className="glass glass-thick rounded-[10px] px-3 py-2 text-xs">
+      <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        {fmtDay(label)}
+      </p>
+      <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-foreground">
+        {isMoney ? money(val, currency) : val}{' '}
+        <span className="text-[10px] font-normal text-muted-foreground">{metricLabel}</span>
+      </p>
+      {delta !== null ? (
+        <p
+          className={cn(
+            'mt-0.5 flex items-center gap-1 font-mono text-[10px] tabular-nums',
+            up ? 'text-success' : 'text-error',
+          )}
+        >
+          {up ? <TrendingUp className="size-2.5" /> : <TrendingDown className="size-2.5" />}
+          {`${up ? '+' : ''}${delta.toFixed(1).replace('.', ',')}% vs. dia anterior`}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 export function RevenueChart({
   series,
   currency,
 }: {
-  series: { day: string; revenue: number; sales: number; visits: number }[]
+  series: Row[]
   currency: string
 }) {
   const [metric, setMetric] = useState<Metric>('revenue')
   const conf = METRICS.find((m) => m.id === metric) ?? METRICS[0]
   const isMoney = metric === 'revenue'
+
+  // Item 135: melhor dia do período (maior valor da métrica ativa)
+  const bestIdx = series.reduce(
+    (best, s, i) => (Number(s[metric]) > Number(series[best]?.[metric] ?? -1) ? i : best),
+    0,
+  )
+
+  // Item 26/139: re-dispara as animações ao trocar métrica ou período
+  const chartKey = `${metric}-${series.length}-${series[0]?.day ?? ''}`
+
+  // Item 140: labels compactos no eixo Y (1,2 mil em vez de 1.200,00 €)
+  const yTick = (v: number) => (isMoney ? fmtCompact(Math.round(v / 100)) : fmtCompact(v))
+
+  const tooltip = (
+    <Tooltip
+      cursor={
+        metric === 'sales'
+          ? { fill: 'rgba(37,244,238,0.05)' }
+          : { stroke: 'rgba(37,244,238,0.35)', strokeDasharray: '4 4' }
+      }
+      content={
+        <ChartTooltip
+          metric={metric}
+          series={series}
+          currency={currency}
+          metricLabel={conf.label}
+        />
+      }
+    />
+  )
 
   return (
     <GlassCard className="anim-kpi-in p-5" style={{ animationDelay: '280ms' }}>
@@ -70,11 +154,11 @@ export function RevenueChart({
           Sem dados no período selecionado
         </div>
       ) : (
-        <div className="h-56">
+        <div className="h-56" key={chartKey}>
           <ResponsiveContainer width="100%" height="100%">
             {metric === 'sales' ? (
               <BarChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
-                <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
                 <XAxis
                   dataKey="day"
                   tickFormatter={fmtDay}
@@ -87,30 +171,23 @@ export function RevenueChart({
                   axisLine={false}
                   tickLine={false}
                   width={36}
+                  tickFormatter={yTick}
                   allowDecimals={false}
                 />
-                <Tooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                  contentStyle={{
-                    background: 'var(--lg-tint-thick)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 10,
-                    color: '#f4f4f5',
-                    fontSize: 12,
-                  }}
-                  labelFormatter={fmtDay}
-                />
+                {tooltip}
                 <Bar dataKey="sales" name="Vendas" fill={conf.color} radius={[3, 3, 0, 0]} />
               </BarChart>
             ) : (
               <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
                 <defs>
+                  {/* Item 24: gradiente duplo — cor da métrica no topo, ciano fraco no meio, transparente */}
                   <linearGradient id={`grad-${metric}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={conf.color} stopOpacity={0.25} />
-                    <stop offset="100%" stopColor={conf.color} stopOpacity={0} />
+                    <stop offset="0%" stopColor={conf.color} stopOpacity={0.3} />
+                    <stop offset="55%" stopColor="#25f4ee" stopOpacity={0.08} />
+                    <stop offset="100%" stopColor="#25f4ee" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
                 <XAxis
                   dataKey="day"
                   tickFormatter={fmtDay}
@@ -122,25 +199,11 @@ export function RevenueChart({
                   tick={{ fill: '#a1a1aa', fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
-                  width={isMoney ? 56 : 36}
-                  tickFormatter={(v: number) => (isMoney ? money(v, currency) : String(v))}
+                  width={44}
+                  tickFormatter={yTick}
                   allowDecimals={false}
                 />
-                <Tooltip
-                  cursor={{ stroke: 'rgba(255,255,255,0.15)' }}
-                  contentStyle={{
-                    background: 'var(--lg-tint-thick)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 10,
-                    color: '#f4f4f5',
-                    fontSize: 12,
-                  }}
-                  labelFormatter={fmtDay}
-                  formatter={(v) => [
-                    isMoney ? money(Number(v), currency) : Number(v),
-                    conf.label,
-                  ]}
-                />
+                {tooltip}
                 <Area
                   type="monotone"
                   dataKey={metric}
@@ -149,6 +212,21 @@ export function RevenueChart({
                   strokeWidth={2}
                   fill={`url(#grad-${metric})`}
                   animationDuration={700}
+                  /* Item 24: linha com drop-shadow neon */
+                  style={{ filter: `drop-shadow(0 0 6px ${conf.color}66)` }}
+                  /* Item 135: anel dourado no melhor dia do período */
+                  dot={(props: { cx?: number; cy?: number; index?: number }) => {
+                    const { cx, cy, index } = props
+                    if (index !== bestIdx || cx === undefined || cy === undefined)
+                      return <g key={`d-${index}`} />
+                    return (
+                      <g key={`best-${index}`}>
+                        <circle cx={cx} cy={cy} r={6} fill="none" stroke="#fbbf24" strokeWidth={1.5} opacity={0.9} />
+                        <circle cx={cx} cy={cy} r={2.5} fill={conf.color} />
+                      </g>
+                    )
+                  }}
+                  activeDot={{ r: 4, strokeWidth: 0, fill: conf.color }}
                 />
               </AreaChart>
             )}

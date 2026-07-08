@@ -19,7 +19,7 @@ import {
   periodStart,
   prevWindow,
 } from '@/lib/metrics'
-import { fmtPercent } from '@/lib/format'
+import { countryFlag, fmtPercent } from '@/lib/format'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { SparkBars, SparkLine } from '@/components/sparkline'
@@ -59,6 +59,7 @@ export function OverviewView() {
   }
 
   if (isLoading || !cur) {
+    // Itens 58/59: skeleton mimético (silhueta real do card) com stagger de 60ms
     return (
       <div className="flex flex-col gap-4" aria-busy="true" aria-label="Carregando métricas">
         <div className="flex justify-end">
@@ -66,17 +67,83 @@ export function OverviewView() {
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-36" />
+            <div
+              key={i}
+              className="glass anim-kpi-in flex flex-col gap-4 p-5"
+              style={{ animationDelay: `${i * 60}ms` }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Skeleton className="size-8 rounded-[10px]" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+                <Skeleton className="h-5 w-12 rounded-full" />
+              </div>
+              <div className="flex items-end justify-between gap-3">
+                <div className="flex flex-col gap-2">
+                  <Skeleton className="h-8 w-28" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+                <Skeleton className="h-7 w-24" />
+              </div>
+            </div>
           ))}
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {[0, 1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-20" />
+            <div
+              key={i}
+              className="glass anim-kpi-in flex items-center gap-3 p-4"
+              style={{ animationDelay: `${240 + i * 60}ms` }}
+            >
+              <Skeleton className="size-9 rounded-[10px]" />
+              <div className="flex flex-col gap-1.5">
+                <Skeleton className="h-4 w-14" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            </div>
           ))}
         </div>
         <div className="grid gap-4 lg:grid-cols-3">
-          <Skeleton className="h-72 lg:col-span-2" />
-          <Skeleton className="h-72" />
+          {/* Item 142: skeleton do gráfico com forma de onda fantasma */}
+          <div
+            className="glass anim-kpi-in flex flex-col gap-4 p-5 lg:col-span-2"
+            style={{ animationDelay: '540ms' }}
+          >
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-44" />
+              <Skeleton className="h-7 w-40 rounded-full" />
+            </div>
+            <svg
+              viewBox="0 0 400 140"
+              className="h-56 w-full"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M0,110 C40,100 60,60 100,70 C140,80 160,30 200,45 C240,60 260,90 300,75 C340,60 360,40 400,50 L400,140 L0,140 Z"
+                fill="rgba(255,255,255,0.06)"
+              />
+              <path
+                d="M0,110 C40,100 60,60 100,70 C140,80 160,30 200,45 C240,60 260,90 300,75 C340,60 360,40 400,50"
+                fill="none"
+                stroke="rgba(37,244,238,0.15)"
+                strokeWidth="2"
+              />
+            </svg>
+          </div>
+          <div
+            className="glass anim-kpi-in flex flex-col gap-3 p-5"
+            style={{ animationDelay: '600ms' }}
+          >
+            <Skeleton className="h-4 w-36" />
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center justify-between">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-3.5 w-14" />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     )
@@ -226,7 +293,14 @@ export function OverviewView() {
           bg={hasGeo ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
           label="Países ativos"
           value={cur.countries.length}
-          sub={hasGeo ? cur.countries.slice(0, 3).map((c) => c.code).join(' · ') : 'aguardando leads'}
+          sub={
+            hasGeo
+              ? cur.countries
+                  .slice(0, 3)
+                  .map((c) => `${countryFlag(c.code)} ${c.code}`)
+                  .join('  ')
+              : 'aguardando leads'
+          }
         />
         <MiniStat
           index={3}
