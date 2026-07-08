@@ -1,8 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { NAV_SECTIONS } from '@/lib/navigation'
-import { MobileNav } from './mobile-nav'
+import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
 
 const ALL_ITEMS = NAV_SECTIONS.flatMap((s) => s.items)
 
@@ -14,36 +13,29 @@ const DATE_FMT = new Intl.DateTimeFormat('pt-BR', {
 
 export function Header() {
   const pathname = usePathname()
+  const group = activeGroup(pathname)
   const current =
     ALL_ITEMS.find((i) =>
       i.href === '/' ? pathname === '/' : pathname.startsWith(i.href),
     ) ?? ALL_ITEMS[0]
 
   return (
-    <header className="mb-6 flex items-center justify-between gap-4">
-      <div className="flex items-center gap-3">
-        <MobileNav />
-        <div>
-          <p className="label-mono mb-0.5">
-            ROI-NADOS <span className="text-[color:var(--brand-cyan)]">/</span>{' '}
-            {current.label}
-          </p>
+    <div className="border-b border-[var(--border)]">
+      <div className="flex items-end justify-between gap-4 px-4 py-4 lg:px-6">
+        <div className="anim-row-in">
           <h1 className="text-xl font-semibold tracking-tight text-balance">
-            {current.label}
+            {group.label}
           </h1>
-          <p className="text-sm text-muted-foreground">{current.description}</p>
+          <p className="mt-0.5 text-[12px] text-faint">
+            {group.label === current.label
+              ? current.description
+              : `${group.label} · ${current.label}`}
+          </p>
         </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="label-mono hidden sm:block" suppressHydrationWarning>
+        <span className="label-mono hidden pb-1 sm:block" suppressHydrationWarning>
           {DATE_FMT.format(new Date())}
         </span>
-        <div className="glass flex items-center gap-2 rounded-full px-3.5 py-1.5">
-          <span className="live-dot" aria-hidden="true" />
-          <span className="text-xs font-medium text-sub">Ao vivo</span>
-        </div>
       </div>
-    </header>
+    </div>
   )
 }

@@ -34,6 +34,70 @@ export interface NavItem {
   href: string
 }
 
+/* Grupos de topo — identidade do dashboard legado: 4 pills centralizadas */
+export interface NavGroup {
+  id: string
+  label: string
+  icon: LucideIcon
+  href: string
+  /** rotas cobertas por este grupo (prefixos) */
+  routes: string[]
+  /** sub-abas exibidas abaixo do header quando o grupo está ativo */
+  tabs?: { label: string; href: string }[]
+}
+
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    id: 'overview',
+    label: 'Visão Geral',
+    icon: LayoutDashboard,
+    href: '/',
+    routes: ['/'],
+  },
+  {
+    id: 'live',
+    label: 'Ao Vivo',
+    icon: Radio,
+    href: '/live',
+    routes: ['/live', '/geo', '/activity', '/funnel'],
+    tabs: [
+      { label: 'Ao Vivo', href: '/live' },
+      { label: 'Geografia', href: '/geo' },
+      { label: 'Funil', href: '/funnel' },
+      { label: 'Atividade', href: '/activity' },
+    ],
+  },
+  {
+    id: 'tracking',
+    label: 'Rastreamento',
+    icon: Target,
+    href: '/links',
+    routes: ['/links', '/cloak', '/domains', '/pixels', '/gateways'],
+    tabs: [
+      { label: 'Links de Checkout', href: '/links' },
+      { label: 'Filtro de Bots', href: '/cloak' },
+      { label: 'Domínios', href: '/domains' },
+      { label: 'Pixel TikTok', href: '/pixels' },
+      { label: 'Gateways', href: '/gateways' },
+    ],
+  },
+  {
+    id: 'config',
+    label: 'Configurações',
+    icon: Settings,
+    href: '/config',
+    routes: ['/config'],
+  },
+]
+
+export function activeGroup(pathname: string): NavGroup {
+  return (
+    NAV_GROUPS.find((g) =>
+      g.routes.some((r) => (r === '/' ? pathname === '/' : pathname.startsWith(r))),
+    ) ?? NAV_GROUPS[0]
+  )
+}
+
 export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Métricas',

@@ -1,6 +1,7 @@
 import { ViewTransition } from 'react'
-import { Sidebar } from '@/components/shell/sidebar'
+import { TopNav } from '@/components/shell/topnav'
 import { Header } from '@/components/shell/header'
+import { SubNav } from '@/components/shell/subnav'
 
 export default function DashboardLayout({
   children,
@@ -9,9 +10,11 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="min-h-dvh">
-      <Sidebar />
-      <main className="px-4 py-4 pb-10 lg:pl-[17rem] lg:pr-6">
-        <Header />
+      <TopNav />
+      <Header />
+      {/* Coluna central estreita — identidade do legado: conteúdo respirando no preto */}
+      <main className="mx-auto w-full max-w-[1100px] px-4 pb-16 pt-2 lg:px-6">
+        <SubNav />
         <ViewTransition default="none" enter="vt-fade-in" exit="vt-fade-out">
           {children}
         </ViewTransition>

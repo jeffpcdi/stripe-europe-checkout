@@ -6,8 +6,8 @@
    ============================================================ */
 
 :root {
-  /* Superfícies */
-  --bg: #08080a;
+  /* Superfícies — preto puro como o legado */
+  --bg: #050506;
   --card: rgba(19, 19, 22, 0.82);
   --border: rgba(255, 255, 255, 0.09);
 
@@ -296,7 +296,7 @@ h3 {
   height: 60vmax;
   border-radius: 50%;
   filter: blur(130px);
-  opacity: 0.15;
+  opacity: 0.07;
   will-change: transform;
 }
 
@@ -552,15 +552,53 @@ h3 {
   opacity: 1;
 }
 
-/* Logo ampliada 300% (44px -> 132px, imagem 40px -> 120px) */
-.brand-logo--lg {
-  width: 132px;
-  height: 132px;
+/* ============================================================
+   Nav pills — navegação superior centralizada (identidade legada)
+   ============================================================ */
+
+.nav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-sub);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  transition:
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
-.brand-logo--lg .brand-logo__img {
-  width: 120px;
-  height: 120px;
-  box-shadow: 0 0 32px rgba(37, 244, 238, 0.4);
+
+.nav-pill svg {
+  color: var(--text-faint);
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.nav-pill:hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.nav-pill:hover svg {
+  color: var(--text);
+}
+
+/* Ativa: borda ciano com glow, ícone aceso — como no legado */
+.nav-pill--active {
+  color: var(--text);
+  background: var(--accent-light);
+  border-color: rgba(37, 244, 238, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(37, 244, 238, 0.15),
+    0 4px 18px rgba(37, 244, 238, 0.12);
+}
+.nav-pill--active svg {
+  color: var(--accent);
 }
 
 /* ============================================================
