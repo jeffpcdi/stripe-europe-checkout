@@ -55,7 +55,7 @@ export function CountUp({
     return () => cancelAnimationFrame(rafRef.current)
   }, [value, duration])
 
-  const text = format ? format(display) : Math.round(display).toLocaleString('pt-PT')
+  const text = format ? format(display) : Math.round(display).toLocaleString('pt-BR')
 
   return (
     <span className={`${className ?? ''} ${flash ? 'anim-val-flash' : ''}`.trim()}>

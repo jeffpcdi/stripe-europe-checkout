@@ -7,10 +7,11 @@ import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { PeriodPicker } from '@/components/overview/period-picker'
 import { LeadsTable } from './leads-table'
-import { countryFlag, gwLabel } from '@/lib/format'
+import { fmtPercent, gwLabel } from '@/lib/format'
 import type { Period } from '@/lib/types'
 
-const GW_COLORS = ['#2f7dff', '#dc2626', '#22c55e', '#d97706', '#06b6d4', '#e879a6']
+// Cores de gateway dentro da paleta da identidade (sem azul fora da paleta)
+const GW_COLORS = ['#25f4ee', '#fe2c55', '#22c55e', '#fbbf24', '#0ec2bd', '#f4f4f5']
 
 export function FunnelView() {
   const { data, isLoading } = useStats()
@@ -32,21 +33,32 @@ export function FunnelView() {
 
   const max = Math.max(m?.visits ?? 1, 1)
   const v2c = m && m.visits ? +((m.reachedCheckout / m.visits) * 100).toFixed(1) : 0
+  // Itens 107–109: barras na identidade (gradiente na 1ª etapa, ciano com
+  // opacidade decrescente nas seguintes); rótulos nunca truncados.
   const steps = [
-    { label: 'Visitaram', sub: 'topo do funil', value: m?.visits ?? 0, color: '#2f7dff', rate: '100%' },
     {
-      label: 'Chegaram ao checkout',
+      label: 'Visitaram',
+      sub: 'topo do funil',
+      value: m?.visits ?? 0,
+      bar: 'var(--brand-grad)',
+      color: 'var(--accent)',
+      rate: fmtPercent(100),
+    },
+    {
+      label: 'Checkout',
       sub: 'iniciaram pagamento',
       value: m?.reachedCheckout ?? 0,
-      color: '#7ab8ff',
-      rate: `${v2c}%`,
+      bar: 'color-mix(in oklab, var(--accent) 72%, transparent)',
+      color: 'var(--accent)',
+      rate: fmtPercent(v2c),
     },
     {
       label: 'Compraram',
       sub: 'pagamento aprovado',
       value: m?.purchased ?? 0,
-      color: '#22c55e',
-      rate: `${m?.overall ?? 0}%`,
+      bar: 'color-mix(in oklab, var(--accent) 44%, transparent)',
+      color: 'var(--accent)',
+      rate: fmtPercent(m?.overall ?? 0),
     },
   ]
 
@@ -65,18 +77,25 @@ export function FunnelView() {
             return (
               <div key={st.label} className="grid grid-cols-[140px_1fr_60px] items-center gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-foreground">{st.label}</p>
-                  <p className="truncate text-xs text-muted-foreground">{st.sub}</p>
+                  <p className="text-sm font-semibold text-foreground">{st.label}</p>
+                  <p className="text-xs text-muted-foreground">{st.sub}</p>
                 </div>
-                <div className="h-8 overflow-hidden rounded-md bg-muted/30">
-                  <div
-                    className="flex h-full items-center justify-end rounded-md px-2 text-xs font-bold text-white transition-all duration-500"
-                    style={{ width: `${w}%`, backgroundColor: st.color }}
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 flex-1 overflow-hidden rounded-md bg-muted/30">
+                    <div
+                      className="h-full rounded-md transition-all duration-500"
+                      style={{ width: `${w}%`, background: st.bar }}
+                    />
+                  </div>
+                  {/* Item 108: cápsula glass com número mono na cor da etapa */}
+                  <span
+                    className="glass shrink-0 rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold tabular-nums"
+                    style={{ color: st.color }}
                   >
                     {st.value}
-                  </div>
+                  </span>
                 </div>
-                <span className="text-right text-sm font-semibold tabular-nums text-muted-foreground">
+                <span className="text-right font-mono text-sm font-semibold tabular-nums text-muted-foreground">
                   {st.rate}
                 </span>
               </div>
