@@ -80,6 +80,15 @@
   --glow-cyan: 0 0 0 1px rgba(37, 244, 238, 0.35), 0 8px 24px rgba(37, 244, 238, 0.25);
   --glow-pink: 0 0 0 1px rgba(254, 44, 85, 0.35), 0 8px 24px rgba(254, 44, 85, 0.22);
   --glow-cyan-soft: 0 6px 20px rgba(37, 244, 238, 0.18);
+  --glow-pink-soft: 0 6px 20px rgba(254, 44, 85, 0.18);
+
+  /* Item 39: borda com contraste real para controles ghost */
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  /* Item 118: escala única de espaçamento vertical entre seções */
+  --gap-section-sm: 1rem; /* 16px — dentro de grupos */
+  --gap-section: 1.5rem; /* 24px — entre seções */
+  --gap-section-lg: 2rem; /* 32px — quebras maiores */
 }
 
 @theme inline {
@@ -183,6 +192,27 @@ h3 {
   color: var(--accent);
 }
 
+/* Item 88: números tabulares também em tabelas e contadores não-mono */
+table,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Item 89: valor hero dos KPIs — peso 700, tracking apertado */
+.kpi-value-hero {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* Item 91: H1 com gradiente branco→ciano sutil */
+.h1-gradient {
+  background: linear-gradient(100deg, var(--text) 55%, rgba(37, 244, 238, 0.75));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* Título de seção padronizado: hairline + eyebrow */
 .section-head {
   display: flex;
@@ -212,14 +242,17 @@ h3 {
   border-radius: var(--radius-sm);
 }
 
-/* Scrollbar fino, discreto */
+/* Item 51: scrollbar com gradiente da marca */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(37, 244, 238, 0.45), rgba(254, 44, 85, 0.45));
   border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(37, 244, 238, 0.7), rgba(254, 44, 85, 0.7));
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -312,6 +345,43 @@ h3 {
   bottom: -30vmax;
   right: -18vmax;
   animation: meshFloat 32s var(--ease) infinite alternate;
+}
+
+/* Item 1: vinheta radial — escurece as bordas, foco central no conteúdo */
+.app-bg__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 120% 90% at 50% 40%,
+    transparent 55%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+
+/* Item 2: orbe terciário âmbar-fraco atrás da área de gráficos/globo */
+.app-bg__amber {
+  position: absolute;
+  width: 44vmax;
+  height: 44vmax;
+  border-radius: 50%;
+  filter: blur(140px);
+  opacity: 0.04;
+  top: 30%;
+  left: 50%;
+  background: radial-gradient(circle, #fbbf24, transparent 65%);
+  animation: auroraDrift 44s var(--ease) infinite alternate-reverse;
+  will-change: transform;
+}
+
+/* Item 5: cor do orbe primário muda levemente por seção */
+html[data-section='live'] .app-bg__aurora::before {
+  background: radial-gradient(circle, #fe2c55, transparent 65%);
+}
+html[data-section='geo'] .app-bg__aurora::before {
+  background: radial-gradient(circle, #fbbf24, transparent 65%);
+}
+.app-bg__aurora::before {
+  transition: background 1.2s var(--ease);
 }
 
 /* Grain: textura fina para quebrar bandas nos gradientes */
@@ -515,6 +585,34 @@ h3 {
 @keyframes numberFlash {
   0% { color: var(--accent); text-shadow: 0 0 12px rgba(37, 244, 238, 0.6); }
   100% { color: inherit; text-shadow: none; }
+}
+
+/* Item 57: shimmer neon para skeletons (varredura ciano 8%) */
+@keyframes shimmerNeon {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* Item 94/207: onda ripple única disparada no anel da logo */
+@keyframes ringRipple {
+  from { transform: scale(1); opacity: 0.55; }
+  to { transform: scale(1.9); opacity: 0; }
+}
+
+/* Item 93: borda "energia" — conic-gradient girando com mask */
+@keyframes energySpin {
+  to { --energy-angle: 360deg; }
+}
+
+/* Item 62: spinner da marca — anel cônico girando */
+@keyframes brandSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Item 16: sheen lento no hairline do header */
+@keyframes hairlineSheen {
+  0%, 55% { transform: translateX(-100%); }
+  85%, 100% { transform: translateX(100%); }
 }
 
 /* ============================================================
@@ -746,6 +844,7 @@ h3 {
    Botões — ação primária visível (ciano sólido + glow)
    ============================================================ */
 
+/* Item 38: primária reforçada — gradiente ciano, texto escuro, glow 30% → 45% no hover */
 .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -755,23 +854,24 @@ h3 {
   font-weight: 600;
   font-size: 0.8125rem;
   color: #05201f;
-  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-  border: 1px solid rgba(37, 244, 238, 0.5);
-  box-shadow: var(--glow-cyan-soft);
+  background: linear-gradient(135deg, #7ff9f5, var(--accent) 45%, var(--accent-dark));
+  border: 1px solid rgba(37, 244, 238, 0.55);
+  box-shadow: 0 6px 20px rgba(37, 244, 238, 0.3);
   transition:
     transform var(--dur-fast) var(--spring),
     box-shadow var(--dur) var(--ease),
     filter var(--dur-fast) var(--ease);
 }
 .btn-primary:hover {
-  filter: brightness(1.06);
-  box-shadow: var(--glow-cyan);
+  filter: brightness(1.08);
+  box-shadow: 0 0 0 1px rgba(37, 244, 238, 0.4), 0 10px 32px rgba(37, 244, 238, 0.45);
   transform: translateY(-1px);
 }
 .btn-primary:active {
-  transform: translateY(0) scale(0.98);
+  transform: translateY(0) scale(0.97);
 }
 
+/* Item 39: ghost com borda visível e fundo 6% no repouso */
 .btn-ghost {
   display: inline-flex;
   align-items: center;
@@ -781,8 +881,8 @@ h3 {
   font-weight: 600;
   font-size: 0.8125rem;
   color: var(--text-sub);
-  background: var(--hover);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-strong);
   transition:
     background var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease),
@@ -790,17 +890,31 @@ h3 {
 }
 .btn-ghost:hover {
   background: var(--active);
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.26);
   color: var(--text);
 }
 .btn-ghost:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
+/* Item 40: danger sólido rosa da marca com glow no hover */
 .btn-danger {
   color: #fff;
-  background: linear-gradient(135deg, #f0475a, var(--error));
-  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: linear-gradient(135deg, #ff5c7c, var(--pink));
+  border: 1px solid rgba(254, 44, 85, 0.55);
+  box-shadow: var(--glow-pink-soft);
+  transition:
+    transform var(--dur-fast) var(--spring),
+    box-shadow var(--dur) var(--ease),
+    filter var(--dur-fast) var(--ease);
+}
+.btn-danger:hover {
+  filter: brightness(1.06);
+  box-shadow: var(--glow-pink);
+  transform: translateY(-1px);
+}
+.btn-danger:active {
+  transform: translateY(0) scale(0.97);
 }
 
 /* ============================================================
@@ -859,6 +973,26 @@ h3 {
 
 .anim-number-flash {
   animation: numberFlash 800ms var(--ease);
+}
+
+/* Item 62: spinner da marca — anel cônico ciano-rosa */
+.brand-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--accent), var(--pink), transparent 70%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  animation: brandSpin 700ms linear infinite;
+}
+
+/* Item 99: compressão tátil em todos os clicáveis */
+button:active:not(:disabled),
+a:active,
+[role='button']:active,
+[role='tab']:active {
+  transform: scale(0.97);
 }
 
 .top-hairline {

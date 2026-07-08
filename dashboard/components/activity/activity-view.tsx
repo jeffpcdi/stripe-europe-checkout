@@ -5,6 +5,7 @@ import { useStats } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { formatMoney, formatDateTime, plural } from '@/lib/format'
+import { countryLabel } from '@/lib/countries'
 import { cn } from '@/lib/utils'
 import {
   CheckCircle2,
@@ -46,7 +47,7 @@ function EventRow({ e }: { e: StatsEvent }) {
   if (e.customer) meta.push(e.customer)
   if (e.email) meta.push(e.email)
   if (e.gateway) meta.push(e.gateway)
-  if (e.country) meta.push(e.country)
+  if (e.country) meta.push(countryLabel(e.country))
   if (e.card) meta.push(e.card)
   if (e.landing) meta.push(e.landing)
   if (e.reason) meta.push(e.reason)

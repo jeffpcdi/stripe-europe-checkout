@@ -73,13 +73,12 @@ export function KpiCard({
       className={cn('anim-kpi-in relative overflow-hidden p-5', hero && 'kpi-hero')}
       style={{ animationDelay: `${index * 70}ms` }}
     >
-      {hero ? (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{ background: 'var(--brand-grad)' }}
-        />
-      ) : null}
+      {/* Item 117: hairline gradiente padronizada em todos os KPIs (mais forte no hero) */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px"
+        style={{ background: 'var(--brand-grad)', opacity: hero ? 1 : 0.35 }}
+      />
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span

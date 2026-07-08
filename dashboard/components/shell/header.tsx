@@ -28,7 +28,8 @@ export function Header() {
           </h1>
           <p className="mt-0.5 text-[12px] text-faint">{current.description}</p>
         </div>
-        <div className="flex items-center gap-3 pb-0.5">
+        {/* Item 119: abaixo de 1100px a data empilha sobre o badge para não colidir */}
+<div className="flex items-center gap-3 pb-0.5 max-[1100px]:flex-col max-[1100px]:items-end max-[1100px]:gap-1">
           <span className="label-mono hidden sm:block" suppressHydrationWarning>
             {DATE_FMT.format(new Date())}
           </span>

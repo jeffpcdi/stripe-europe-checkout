@@ -99,20 +99,21 @@ export function OverviewView() {
     : cur.approval >= 70
       ? '#22c55e'
       : cur.approval >= 40
-        ? '#d97706'
-        : '#dc2626'
+        ? '#fbbf24'
+        : '#fe2c55'
   const apBg = !attempts
     ? NEUTRAL_BG
     : cur.approval >= 70
       ? 'rgba(34,197,94,.12)'
       : cur.approval >= 40
-        ? 'rgba(217,119,6,.12)'
-        : 'rgba(220,38,38,.12)'
+        ? 'rgba(251,191,36,.12)'
+        : 'rgba(254,44,85,.12)'
 
   const hasSales = cur.sales > 0
   const hasGeo = cur.countries.length > 0
-  const refColor = cur.refunds ? '#d97706' : NEUTRAL
-  const dispColor = cur.disputes ? '#dc2626' : NEUTRAL
+  // Item 111: sistema fixo — ciano = métrica, verde = sucesso, âmbar = atenção, rosa = risco
+  const refColor = cur.refunds ? '#fbbf24' : NEUTRAL
+  const dispColor = cur.disputes ? '#fe2c55' : NEUTRAL
 
   return (
     <div className="flex flex-col gap-4">
@@ -140,7 +141,7 @@ export function OverviewView() {
           }
           sub="no período selecionado"
           delta={revDelta}
-          spark={<SparkLine data={revSeries} color="#22c55e" />}
+          spark={<SparkLine data={revSeries} color="#25f4ee" />}
         />
         <KpiCard
           index={1}
@@ -206,14 +207,14 @@ export function OverviewView() {
           bg={apBg}
           label="Aprovação"
           value={fmtPercent(cur.approval)}
-          sub={`${cur.sales} aprovadas de ${attempts} tentativas`}
+          sub={`${cur.sales} de ${attempts} transações`}
           extra={attempts ? <SparkBars data={salesSeries} color={apColor} width={64} height={22} /> : undefined}
         />
         <MiniStat
           index={1}
           icon={Coins}
-          color={hasSales ? '#22c55e' : NEUTRAL}
-          bg={hasSales ? 'rgba(34,197,94,.12)' : NEUTRAL_BG}
+          color={hasSales ? '#25f4ee' : NEUTRAL}
+          bg={hasSales ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
           label="Ticket médio"
           value={money(cur.avgTicket, cur.mainCur)}
           sub="por venda aprovada"
@@ -221,8 +222,8 @@ export function OverviewView() {
         <MiniStat
           index={2}
           icon={Globe2}
-          color={hasGeo ? '#06b6d4' : NEUTRAL}
-          bg={hasGeo ? 'rgba(6,182,212,.1)' : NEUTRAL_BG}
+          color={hasGeo ? '#25f4ee' : NEUTRAL}
+          bg={hasGeo ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
           label="Países ativos"
           value={cur.countries.length}
           sub={hasGeo ? cur.countries.slice(0, 3).map((c) => c.code).join(' · ') : 'aguardando leads'}
@@ -231,7 +232,7 @@ export function OverviewView() {
           index={3}
           icon={RotateCcw}
           color={refColor}
-          bg={cur.refunds ? 'rgba(217,119,6,.12)' : 'rgba(34,197,94,.1)'}
+          bg={cur.refunds ? 'rgba(251,191,36,.12)' : NEUTRAL_BG}
           label="Reembolsos"
           value={cur.refunds}
           sub={cur.refunds ? 'exige atenção' : 'nenhum no período'}
@@ -240,7 +241,7 @@ export function OverviewView() {
           index={4}
           icon={ShieldAlert}
           color={dispColor}
-          bg={cur.disputes ? 'rgba(220,38,38,.12)' : 'rgba(34,197,94,.1)'}
+          bg={cur.disputes ? 'rgba(254,44,85,.12)' : NEUTRAL_BG}
           label="Disputas"
           value={cur.disputes}
           sub={cur.disputes ? 'responda o quanto antes' : 'nenhuma aberta'}
