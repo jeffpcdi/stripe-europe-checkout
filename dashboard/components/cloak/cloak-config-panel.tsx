@@ -133,14 +133,34 @@ export function CloakConfigPanel() {
         </StatusBadge>
       </div>
 
-      {/* Interruptor mestre */}
+      {/* Item 76: interruptor mestre dramático — switch grande com glow rosa */}
       <div className="mb-4">
-        <Toggle
-          checked={cfg.enabled}
-          onChange={(v) => patch({ enabled: v })}
-          label="Cloaking ativado"
-          hint="interruptor mestre — desliga toda a proteção"
-        />
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-secondary/40 px-4 py-3">
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-foreground">Cloaking ativado</span>
+            <span className="block text-[11px] text-muted-foreground">
+              interruptor mestre — desliga toda a proteção
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={cfg.enabled}
+            aria-label="Cloaking ativado"
+            onClick={() => patch({ enabled: !cfg.enabled })}
+            className={cfg.enabled ? 'cloak-switch cloak-switch--on' : 'cloak-switch cloak-switch--off'}
+          >
+            <span className="cloak-switch__knob" />
+          </button>
+        </div>
+        {cfg.enabled && (
+          <div className="cloak-banner anim-pop-in mt-2 flex items-center gap-2 rounded-lg px-3 py-2">
+            <ShieldCheck className="size-3.5 text-[color:var(--pink)]" aria-hidden="true" />
+            <span className="text-[11px] font-medium text-[color:var(--pink)]">
+              Cloaker ativo — tráfego suspeito será desviado
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Sensibilidade */}

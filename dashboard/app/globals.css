@@ -686,6 +686,92 @@ html[data-section='geo'] .app-bg__aurora::before {
   to { transform: rotate(360deg); }
 }
 
+/* Item 143: barras do funil preenchem da esquerda com stagger */
+@keyframes barFill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.funnel-bar {
+  transform-origin: left center;
+  animation: barFill 700ms var(--ease) both;
+}
+
+/* Item 75: check DNS com draw-in de SVG path (stroke-dashoffset) */
+@keyframes checkDraw {
+  from { stroke-dashoffset: 80; }
+  to { stroke-dashoffset: 0; }
+}
+.check-draw path,
+.check-draw circle,
+.check-draw polyline {
+  stroke-dasharray: 80;
+  animation: checkDraw 600ms var(--ease) both;
+}
+
+/* Item 76: switch mestre do cloaker — glow rosa quando ativo */
+.cloak-switch {
+  position: relative;
+  height: 32px;
+  width: 60px;
+  border-radius: 999px;
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.cloak-switch--on {
+  background: var(--pink);
+  box-shadow:
+    0 0 0 1px rgba(254, 44, 85, 0.5),
+    0 0 22px rgba(254, 44, 85, 0.55);
+}
+.cloak-switch--off {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.cloak-switch__knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  height: 24px;
+  width: 24px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--dur) var(--spring);
+}
+.cloak-switch--on .cloak-switch__knob {
+  transform: translateX(28px);
+}
+
+/* Item 76: banner "Cloaker ativo" com scanline sutil */
+@keyframes scanline {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(400%); }
+}
+.cloak-banner {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(254, 44, 85, 0.35);
+  background: rgba(254, 44, 85, 0.08);
+}
+.cloak-banner::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 22%;
+  background: linear-gradient(180deg, transparent, rgba(254, 44, 85, 0.14), transparent);
+  animation: scanline 3.2s linear infinite;
+  pointer-events: none;
+}
+
+/* Item 149: highlight do termo buscado em ciano */
+mark.search-hit {
+  background: rgba(37, 244, 238, 0.22);
+  color: var(--accent);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
 /* Item 16: sheen lento no hairline do header */
 @keyframes hairlineSheen {
   0%, 55% { transform: translateX(-100%); }

@@ -19,6 +19,21 @@ import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
 import { timeAgo } from '@/lib/format'
 
+// Item 73: cor da marca por provedor — cápsula e borda no hover
+const PROVIDER_COLORS: Record<string, string> = {
+  stripe: '#635bff',
+  paypal: '#0070ba',
+  mercadopago: '#00b1ea',
+  hotmart: '#f04e23',
+  kiwify: '#22c55e',
+  perfectpay: '#fbbf24',
+  generic: '#25f4ee',
+}
+
+function providerColor(id: string): string {
+  return PROVIDER_COLORS[id] ?? PROVIDER_COLORS.generic
+}
+
 export function GatewaysView() {
   const { data, mutate, isLoading } = useGateways()
   const { data: convLog, mutate: mutateLog } = useConversionLog()
@@ -125,13 +140,28 @@ export function GatewaysView() {
             <ul className="flex flex-col gap-2">
               {gateways.map((g) => {
                 const prov = providers.find((p) => p.id === g.provider)
+                const brand = providerColor(g.provider)
                 return (
-                  <li key={g.id} className="rounded-xl border border-border bg-secondary/40 p-4">
+                  /* Item 73: cápsula e borda na cor da marca do provedor */
+                  <li
+                    key={g.id}
+                    className="group rounded-xl border border-border bg-secondary/40 p-4 transition-colors duration-150"
+                    style={{ ['--gw-brand' as string]: brand }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = `color-mix(in oklab, ${brand} 45%, transparent)`
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = ''
+                    }}
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2.5">
                         <span
-                          className="flex size-8 items-center justify-center rounded-[10px] text-[color:var(--brand-cyan)]"
-                          style={{ background: 'color-mix(in oklab, var(--brand-cyan) 14%, transparent)' }}
+                          className="flex size-8 items-center justify-center rounded-[10px]"
+                          style={{
+                            color: brand,
+                            background: `color-mix(in oklab, ${brand} 14%, transparent)`,
+                          }}
                           aria-hidden="true"
                         >
                           <Webhook className="size-4" />
