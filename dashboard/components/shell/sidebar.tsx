@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
@@ -68,10 +68,14 @@ export function Sidebar() {
   const pathname = usePathname()
   // Item 207: clique duplo na logo dispara a onda ripple do anel
   const [rippling, setRippling] = useState(false)
-  // Item 206: stagger só no primeiro load (não repete em navegação)
-  const firstLoad = useRef(true)
-  const enterAnim = firstLoad.current
-  firstLoad.current = false
+  // Item 206: stagger só no primeiro load (não repete em navegação).
+  // Estado (não ref mutada no render) para SSR e hidratação renderizarem
+  // igual; um timeout remove a classe após a animação terminar.
+  const [enterAnim, setEnterAnim] = useState(true)
+  useEffect(() => {
+    const t = window.setTimeout(() => setEnterAnim(false), 1400)
+    return () => window.clearTimeout(t)
+  }, [])
 
   let itemIndex = 0
 
