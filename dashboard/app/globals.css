@@ -657,15 +657,16 @@ html[data-section='geo'] .app-bg__aurora::before {
   animation: ping 2s var(--ease) infinite;
 }
 
+/* Item 57: skeleton com varredura ciano 8% (shimmer neon da marca) */
 .skeleton {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0.04) 25%,
-    rgba(255, 255, 255, 0.09) 50%,
+    rgba(37, 244, 238, 0.08) 50%,
     rgba(255, 255, 255, 0.04) 75%
   );
   background-size: 200% 100%;
-  animation: skelShimmer 1.6s linear infinite;
+  animation: shimmerNeon 1.8s linear infinite;
   border-radius: var(--radius-sm);
 }
 

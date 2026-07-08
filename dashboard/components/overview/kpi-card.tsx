@@ -98,10 +98,11 @@ export function KpiCard({
 
       <div className="mt-4 flex items-end justify-between gap-3">
         <div className="min-w-0">
+          {/* Item 89: hero com peso 700 e tracking -0.03em */}
           <div
             className={cn(
-              'font-mono font-semibold tracking-tight',
-              hero ? 'text-3xl' : 'text-2xl',
+              'font-mono tracking-tight',
+              hero ? 'kpi-value-hero text-3xl' : 'text-2xl font-semibold',
             )}
           >
             {value}

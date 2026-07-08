@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, Geist_Mono } from 'next/font/google'
+import { SectionAttr } from '@/components/shell/section-attr'
 import './globals.css'
 
 const inter = Inter({
@@ -35,9 +36,12 @@ export default function RootLayout({
       className={`bg-background ${inter.variable} ${geistMono.variable}`}
     >
       <body className="font-sans antialiased">
+        <SectionAttr />
         <div className="app-bg" aria-hidden="true">
           <div className="app-bg__dots" />
           <div className="app-bg__aurora" />
+          <div className="app-bg__amber" />
+          <div className="app-bg__vignette" />
           <div className="app-bg__grain" />
         </div>
         {children}

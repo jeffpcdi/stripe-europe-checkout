@@ -23,7 +23,8 @@ export function Header() {
     <div className="border-b border-[var(--border)]">
       <div className="flex items-end justify-between gap-4 px-4 py-4 lg:px-6">
         <div className="anim-row-in">
-          <h1 className="text-xl font-semibold tracking-tight text-balance">
+          {/* Item 91: H1 com gradiente branco→ciano sutil */}
+          <h1 className="h1-gradient text-xl font-semibold tracking-tight text-balance">
             {current.label}
           </h1>
           <p className="mt-0.5 text-[12px] text-faint">{current.description}</p>
