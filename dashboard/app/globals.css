@@ -837,6 +837,87 @@ mark.search-hit {
   padding: 0 1px;
 }
 
+/* ===== Fase 9 — mobile, performance e command palette (N, X, Y) ===== */
+
+/* Item 167: KPIs em carrossel horizontal com snap em telas <640px */
+@media (max-width: 639px) {
+  .kpi-carousel {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    padding-bottom: 0.25rem;
+  }
+  .kpi-carousel::-webkit-scrollbar {
+    display: none;
+  }
+  .kpi-carousel > * {
+    scroll-snap-align: center;
+    flex: 0 0 86%;
+    min-width: 0;
+  }
+}
+
+/* Item 171: PeriodPicker sticky no topo em mobile com blur */
+@media (max-width: 767px) {
+  .picker-sticky {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 30;
+  }
+}
+
+/* Item 177: seções abaixo da dobra só renderizam quando visíveis */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
+}
+
+/* Item 87: command palette — overlay glass e resultados */
+.cmdk-item {
+  position: relative;
+  transition: background var(--dur-fast) var(--ease);
+}
+.cmdk-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--spring);
+}
+.cmdk-item[data-active='true'] {
+  background: rgba(37, 244, 238, 0.06);
+}
+.cmdk-item[data-active='true']::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+/* Item 180: micro-spinner de busca dentro do input */
+@keyframes microSpin {
+  to { transform: rotate(360deg); }
+}
+.micro-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(37, 244, 238, 0.25);
+  border-top-color: var(--accent);
+  animation: microSpin 600ms linear infinite;
+}
+
 /* Item 16: sheen lento no hairline do header */
 @keyframes hairlineSheen {
   0%, 55% { transform: translateX(-100%); }

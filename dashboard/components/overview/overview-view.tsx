@@ -184,14 +184,16 @@ export function OverviewView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      {/* Item 171: sticky no topo em mobile ao rolar */}
+      <div className="picker-sticky flex justify-end">
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
-      {/* KPIs principais — mesma ordem e semântica do legado */}
+      {/* KPIs principais — mesma ordem e semântica do legado.
+          Item 167: carrossel horizontal com snap em <640px */}
       <section
         aria-label="Indicadores principais"
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="kpi-carousel grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
       >
         <KpiCard
           hero
@@ -325,8 +327,8 @@ export function OverviewView() {
         />
       </section>
 
-      {/* Gráfico + saúde */}
-      <section aria-label="Gráficos e saúde" className="grid gap-4 lg:grid-cols-3">
+      {/* Gráfico + saúde — item 177: só renderiza quando visível */}
+      <section aria-label="Gráficos e saúde" className="cv-auto grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <RevenueChart series={cur.series} currency={cur.mainCur} />
         </div>

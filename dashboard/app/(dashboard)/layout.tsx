@@ -4,6 +4,7 @@ import { TopNav } from '@/components/shell/topnav'
 import { Header } from '@/components/shell/header'
 import { TabNotifier } from '@/components/shell/tab-notifier'
 import { RouteProgress } from '@/components/shell/route-progress'
+import { CommandPalette } from '@/components/shell/command-palette'
 
 export default function DashboardLayout({
   children,
@@ -16,6 +17,8 @@ export default function DashboardLayout({
       <TabNotifier />
       {/* Item 61: barra de progresso de rota no topo da viewport */}
       <RouteProgress />
+      {/* Item 87: busca rápida de páginas com Cmd+K / Ctrl+K */}
+      <CommandPalette />
       {/* Sidebar lateral esquerda — desktop */}
       <Sidebar />
 

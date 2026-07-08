@@ -42,10 +42,18 @@ export function LeadsTable({
   leads: Lead[]
   periodStart: Date | null
 }) {
+  // Item 180: o input responde na hora, mas o filtro só roda 300ms depois
+  const [rawQuery, setRawQuery] = useState('')
   const [query, setQuery] = useState('')
   const [stage, setStage] = useState('')
   const [gateway, setGateway] = useState('')
   const [page, setPage] = useState(0)
+
+  const searching = rawQuery !== query
+  useEffect(() => {
+    const t = window.setTimeout(() => setQuery(rawQuery), 300)
+    return () => window.clearTimeout(t)
+  }, [rawQuery])
 
   const gateways = useMemo(() => {
     const seen = new Set<string>()

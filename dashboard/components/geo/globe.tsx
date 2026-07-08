@@ -301,8 +301,10 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver((entries) => {
+      // Item 172: mede também a altura — 55vh em mobile, 420px em desktop
       const w = entries[0].contentRect.width
-      setSize({ w, h: 420 })
+      const h = entries[0].contentRect.height || 420
+      setSize({ w, h })
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -340,7 +342,7 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
     <>
       <div
         ref={containerRef}
-        className="globe-stage energy-border relative h-[420px] w-full overflow-hidden rounded-xl"
+        className="globe-stage energy-border relative h-[55vh] w-full overflow-hidden rounded-xl md:h-[420px]"
         onPointerEnter={() => hoverSpeed(globeRef, true)}
         onPointerLeave={() => hoverSpeed(globeRef, false)}
       >

@@ -150,11 +150,12 @@ export function RevenueChart({
       </div>
 
       {series.length === 0 ? (
-        <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">
+        <div className="flex h-52 items-center justify-center text-sm text-muted-foreground md:h-72">
           Sem dados no período selecionado
         </div>
       ) : (
-        <div className="h-56" key={chartKey}>
+        /* Item 170: altura adaptativa — 208px mobile, 288px desktop */
+        <div className="h-52 md:h-72" key={chartKey}>
           <ResponsiveContainer width="100%" height="100%">
             {metric === 'sales' ? (
               <BarChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
