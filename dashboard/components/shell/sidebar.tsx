@@ -14,26 +14,19 @@ export function Sidebar() {
       {/* Marca ROI-NADOS */}
       <Link
         href="/"
-        className="group mb-6 flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-[var(--hover)]"
+        className="group mb-6 flex items-center justify-center rounded-xl px-2 py-3 transition-colors hover:bg-[var(--hover)]"
+        aria-label="ROI-NADOS"
       >
-        <span className="brand-logo" aria-hidden="true">
+        <span className="brand-logo brand-logo--lg" aria-hidden="true">
           <span className="brand-logo__ring" />
           <Image
             src="/roi-nados-logo.jpg"
             alt="ROI-NADOS"
-            width={40}
-            height={40}
+            width={120}
+            height={120}
             className="brand-logo__img"
             priority
           />
-        </span>
-        <span className="flex flex-col leading-tight">
-          <span className="text-[15px] font-bold tracking-tight text-foreground">
-            ROI<span className="text-gradient-brand">-NADOS</span>
-          </span>
-          <span className="text-[10.5px] font-medium uppercase tracking-[0.14em] text-faint">
-            Performance Hub
-          </span>
         </span>
       </Link>
 

@@ -552,6 +552,17 @@ h3 {
   opacity: 1;
 }
 
+/* Logo ampliada 300% (44px -> 132px, imagem 40px -> 120px) */
+.brand-logo--lg {
+  width: 132px;
+  height: 132px;
+}
+.brand-logo--lg .brand-logo__img {
+  width: 120px;
+  height: 120px;
+  box-shadow: 0 0 32px rgba(37, 244, 238, 0.4);
+}
+
 /* ============================================================
    Botões — ação primária visível (ciano sólido + glow)
    ============================================================ */
