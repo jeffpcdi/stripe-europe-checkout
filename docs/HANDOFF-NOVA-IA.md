@@ -15,7 +15,9 @@ eventos server-side na CAPI (Events API) do TikTok, tem cloaker (filtro de bots)
 checkout com A/B test, domínios personalizados, e mostra tudo numa dashboard. É **multi-tenant**
 (cada conta tem seus pixels, links, gateways e leads). Roda em produção no **Railway**.
 
-- **Idioma:** todo texto de UI e comentários em **português (PT-PT)**, moeda **EUR**, fuso `Europe/Lisbon`.
+- **Idioma:** todo texto de UI e comentários em **português do Brasil (pt-BR)**. **Multi-moeda com
+  padrão BRL** (R$) e seletor de exibição (BRL/USD/EUR, formatação client-side). Fuso de **Brasília**
+  (`America/Sao_Paulo`).
 - **Repo Git:** `jeffpcdi/stripe-europe-checkout`, branch de trabalho `dashboard-com-react`.
 
 ## A REESTRUTURAÇÃO QUE FOI FEITA (o mais importante)
@@ -131,7 +133,7 @@ dashboard/
 │   │                        #   redirect no 401, mutações POST/PUT/DELETE
 │   ├── types.ts             # tipos TS espelhando os JSONs do Express
 │   ├── metrics.ts           # deriva KPIs, funil e séries do /api/stats
-│   ├── format.ts            # formatação PT (moeda EUR, números, datas)
+│   ├── format.ts            # formatação pt-BR (multi-moeda padrão BRL, números, datas)
 │   ├── navigation.ts        # fonte única do menu (seções Métricas/Gestão/Sistema)
 │   ├── country-coords.ts    # coordenadas p/ o globo
 │   └── utils.ts             # cn() etc.
@@ -224,7 +226,7 @@ npm test        # regressão do backend
 
 1. Next = apresentação; Express = dados/auth/APIs. Nada de API route no Next.
 2. Tokens de cor do `globals.css` sempre; verde só para dinheiro; `--brand-grad` só nos 3 usos reservados.
-3. UI e comentários em PT-PT; EUR; `Europe/Lisbon`.
+3. UI e comentários em pt-BR; multi-moeda com padrão BRL (R$); fuso `America/Sao_Paulo` (Brasília).
 4. No código legado (strings HTML): nunca crase/`${}` dentro do HTML.
 5. Não quebrar o rollback `?legacy=1` nem as rotas públicas do funil.
 6. Ao terminar mudanças relevantes, atualizar `CLAUDE.md` (e este arquivo se a arquitetura mudar).

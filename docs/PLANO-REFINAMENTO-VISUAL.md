@@ -187,11 +187,11 @@ Refinamento profundo da dashboard (ciano `#25f4ee` + rosa `#fe2c55` sobre preto)
 121. **Modo compacto/confortável**: toggle de densidade nas Configurações — reduz paddings de cards e tabelas em ~25% (atributo `data-density` + tokens).
 122. **Toggle "reduzir animações"** nas Configurações (além do respeito automático a `prefers-reduced-motion`), persistido em localStorage.
 123. **Sidebar recolhível**: botão para colapsar em modo só-ícones (72px) com tooltips; estado persistido.
-124. **Seletor de moeda de exibição** (EUR/USD/BRL, só formatação client-side com taxa informativa) no header do gráfico de receita.
+124. **Seletor de moeda de exibição** (**padrão BRL**; opções BRL/USD/EUR, só formatação client-side com taxa informativa) no header do gráfico de receita.
 125. **Ocultar valores sensíveis**: botão "olho" no header que borra receita/valores (blur 8px) para gravar tela/demonstrações — modo apresentação.
 126. **Ordem dos KPIs configurável**: arrastar e soltar os 4 cards principais (drag com spring), ordem salva em localStorage.
 127. **Intervalo de atualização configurável**: seletor 5s/15s/30s/manual para o polling do SWR, nas Configurações.
-128. **Fuso horário de exibição**: seletor (Lisboa/São Paulo/UTC) que reformata todos os horários de eventos.
+128. **Fuso horário de exibição**: seletor (**padrão São Paulo/Brasília**; opções São Paulo/Lisboa/UTC) que reformata todos os horários de eventos.
 129. **Atalhos de teclado**: `g` + letra navega entre páginas (g v = Visão Geral, g l = Links); modal "?" lista os atalhos.
 130. **Exportar CSV** nos painéis de tabela (leads, países, atividade): botão discreto no canto do card, client-side.
 131. **Filtro de período custom**: opção "Personalizado" no PeriodPicker com dois date inputs em popover glass.

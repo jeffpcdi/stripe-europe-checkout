@@ -11,7 +11,8 @@
 >    quebra a string silenciosamente. Concatene com `+` e escape apóstrofos com entidades HTML.
 >    (Essa regra NÃO se aplica ao código em `dashboard/`, que é TSX normal.)
 > 3. **Banco Neon em SQL puro** (sem ORM); tabelas criadas sozinhas no boot (`CREATE TABLE IF NOT EXISTS`).
-> 4. **Todo texto de UI e comentário em português** (PT-PT, EUR, fuso `Europe/Lisbon`).
+> 4. **Todo texto de UI e comentário em português do Brasil (pt-BR)**; **multi-moeda com padrão
+>    BRL** (R$) e fuso de **Brasília** (`America/Sao_Paulo`).
 > 5. Ao terminar mudanças relevantes, **atualize este arquivo** para mantê-lo preciso.
 > 6. Depois de editar módulos do Express, o servidor precisa ser **reiniciado** (sem hot-reload).
 >    O app Next em `dashboard/` tem HMR normal em dev (`next dev`).
@@ -386,7 +387,8 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 - (Legado) `DASHBOARD_PASSWORD` — antigo Basic Auth de senha única, **substituído** pela auth por conta.
 
 ## 13. Convenções
-- **Idioma:** comentários e UI em português (PT-PT, EUR, fuso `Europe/Lisbon`).
+- **Idioma:** comentários e UI em português do Brasil (pt-BR); multi-moeda com padrão BRL (R$);
+  fuso de Brasília (`America/Sao_Paulo`).
 - **Módulos:** CommonJS (`require`/`module.exports`); um arquivo por responsabilidade, todos na raiz.
 - **Views como string:** nunca crase nem `${}` no HTML das views. Concatenar com `+`; apóstrofos como entidades.
 - **Rastreamento nunca bloqueia navegação:** middleware de tracking usa `try/catch` silencioso e
@@ -546,7 +548,8 @@ só no Railway (§5.2.2).
   (`useStats`, `useLive`, `useLinks`, `usePixels`, `useGateways`, `useCloakConfig`, etc.), com
   `credentials:'include'` e polling. **Não criar API routes no Next** — API nova nasce no Express.
 - `lib/types.ts` espelha os shapes JSON do Express; `lib/metrics.ts` deriva KPIs/funil/série do
-  `/api/stats`; `lib/format.ts` formata moeda/número/data em PT; `lib/navigation.ts` é a fonte
+  `/api/stats`; `lib/format.ts` formata moeda/número/data em pt-BR (moeda multi com padrão BRL);
+`lib/navigation.ts` é a fonte
   única do menu (seções Métricas/Gestão/Sistema) usada por sidebar, mobile-nav e subnav.
 
 ### 19.3 Páginas (App Router, grupo `(dashboard)`)
@@ -578,5 +581,6 @@ Configurações. Cada página é um `page.tsx` fino que renderiza a view de `com
   senão cookie/API quebram. Em dev, use `GET /__dev/login` primeiro (§11.1).
 - `globe.gl` importa `three` (~1MB): manter lazy (`next/dynamic`, sem SSR).
 - O Express NÃO comprime respostas de `/dashboard` (o Next já comprime) — ver filtro em `server.js`.
-- Texto de UI em PT-PT, moeda EUR, fuso `Europe/Lisbon` — como no resto do app.
+- Texto de UI em **pt-BR**; **multi-moeda com padrão BRL** (R$) e seletor de exibição
+  (BRL/USD/EUR, formatação client-side); fuso de **Brasília** (`America/Sao_Paulo`).
 - Depois de mudar código do Next em produção: `npm run build` + redeploy (o Railway roda o build).
