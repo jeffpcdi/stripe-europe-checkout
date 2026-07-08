@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { GlassCard } from '@/components/glass-card'
 import { countryFlag, gwLabel, timeAgo, formatMoney, plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -90,7 +90,14 @@ export function LeadsTable({
   const chips: { label: string; clear: () => void }[] = []
   if (stage) chips.push({ label: `Etapa: ${STAGE_LABEL[stage] ?? stage}`, clear: () => setStage('') })
   if (gateway) chips.push({ label: `Gateway: ${gwLabel(gateway)}`, clear: () => setGateway('') })
-  if (query) chips.push({ label: `Busca: "${query}"`, clear: () => setQuery('') })
+  if (query)
+    chips.push({
+      label: `Busca: "${query}"`,
+      clear: () => {
+        setRawQuery('')
+        setQuery('')
+      },
+    })
 
   function resetPage() {
     setPage(0)
@@ -147,14 +154,21 @@ export function LeadsTable({
             />
             <input
               type="search"
-              value={query}
+              value={rawQuery}
               onChange={(e) => {
-                setQuery(e.target.value)
+                setRawQuery(e.target.value)
                 resetPage()
               }}
               placeholder="Buscar lead, país, origem…"
-              className="h-8 w-52 rounded-md border border-border/60 bg-muted/20 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+              className="h-8 w-52 rounded-md border border-border/60 bg-muted/20 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
             />
+            {/* Item 180: micro-spinner enquanto o debounce roda */}
+            {searching && (
+              <span
+                className="micro-spinner absolute right-2.5 top-1/2 -translate-y-1/2"
+                aria-hidden="true"
+              />
+            )}
           </div>
           <select
             value={stage}
