@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "node --env-file-if-exists=.env.development.local server.js",
-    "build": "echo 'No build step required'",
-    "start": "node server.js",
+    "build": "cd dashboard && npm install && npm run build",
+    "start": "node start.js",
     "test": "node test/retry-queue.test.js && node test/gateway-only.test.js && node test/attribution.test.js"
   },
   "dependencies": {

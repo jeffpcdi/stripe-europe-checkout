@@ -19,7 +19,7 @@ export function TopNav() {
           <span className="brand-logo" aria-hidden="true">
             <span className="brand-logo__ring" />
             <Image
-              src="/roi-nados-logo.jpg"
+              src="/dashboard/roi-nados-logo.jpg"
               alt="ROI-NADOS"
               width={40}
               height={40}
