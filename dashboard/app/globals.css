@@ -505,6 +505,83 @@ html[data-section='geo'] .app-bg__aurora::before {
   transform: scale(0.94);
 }
 
+/* Item 93: borda "energia" — gradiente ciano-rosa percorrendo o perímetro */
+@property --energy-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes energyRotate {
+  to { --energy-angle: 360deg; }
+}
+.energy-border {
+  position: relative;
+}
+.energy-border::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--energy-angle),
+    rgba(37, 244, 238, 0.6),
+    transparent 20%,
+    transparent 45%,
+    rgba(254, 44, 85, 0.5) 55%,
+    transparent 70%,
+    transparent 92%,
+    rgba(37, 244, 238, 0.6)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: energyRotate 12s linear infinite;
+  pointer-events: none;
+}
+
+/* Item 35: HUD orbital — corner brackets ciano nos cantos do painel */
+.hud-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid rgba(37, 244, 238, 0.5);
+  pointer-events: none;
+  z-index: 5;
+}
+.hud-corner--tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; border-top-left-radius: 6px; }
+.hud-corner--tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; border-top-right-radius: 6px; }
+.hud-corner--bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; border-bottom-left-radius: 6px; }
+.hud-corner--br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; border-bottom-right-radius: 6px; }
+
+/* Item 98: reflexo de chão — o globo ilumina a superfície */
+.globe-floor {
+  position: absolute;
+  inset-inline: 10%;
+  bottom: 0;
+  height: 22%;
+  background: radial-gradient(ellipse 60% 100% at 50% 100%, rgba(37, 244, 238, 0.06), transparent 70%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Item 36: contraste extra no fullscreen */
+.globe-modal__panel.globe-stage canvas {
+  filter: contrast(1.25) saturate(1.4) brightness(1.1);
+}
+
+/* Item 166: pontos fantasma no estado sem dados */
+.globe-empty-note {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 18%;
+  display: flex;
+  justify-content: center;
+  z-index: 5;
+  pointer-events: none;
+}
+
 /* Popup de tela cheia — mesmas animações popIn/popBgIn do legado */
 .globe-modal {
   position: fixed;
