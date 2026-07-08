@@ -28,9 +28,17 @@ export class ApiError extends Error {
   }
 }
 
+// Sessão expirada (cookie presente mas inválido no Express) → login
+const LOGIN_URL = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
+
+function handleUnauthorized() {
+  if (typeof window !== 'undefined') window.location.href = LOGIN_URL
+}
+
 export async function fetcher<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: 'include' })
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized()
     throw new ApiError(res.status, `Falha na API (${res.status})`)
   }
   return res.json() as Promise<T>
@@ -168,6 +176,7 @@ export async function apiSend<T = unknown>(
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized()
     throw new ApiError(res.status, (data as { error?: string }).error || `Falha na API (${res.status})`)
   }
   return data as T

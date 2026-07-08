@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { User, Bell, LogOut, Loader2, Check } from 'lucide-react'
-import { useAccount, usePushcutConfig, apiSend } from '@/lib/api'
+import { User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send } from 'lucide-react'
+import useSWR from 'swr'
+import { useAccount, usePushcutConfig, apiSend, fetcher } from '@/lib/api'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 
@@ -21,20 +21,134 @@ export function ConfigView() {
     <div className="flex flex-col gap-6">
       <AccountCard />
       <PushcutCard />
+      <ApiTokenCard />
+      <DangerCard />
     </div>
+  )
+}
+
+function ApiTokenCard() {
+  const { data } = useSWR<{ token: string }>('/api/public-token', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const [copied, setCopied] = useState(false)
+
+  const summaryUrl = data?.token
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/v1/summary?token=${data.token}`
+    : ''
+
+  async function copy() {
+    if (!summaryUrl) return
+    await navigator.clipboard.writeText(summaryUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <KeyRound className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">API pública (read-only)</h2>
+          <p className="text-xs text-muted-foreground">
+            Para planilhas (IMPORTDATA), widgets e BI externo — sem expor a dashboard
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-lg border border-border bg-secondary/60 px-3 py-2 font-mono text-xs text-muted-foreground">
+          {summaryUrl || 'Carregando…'}
+        </code>
+        <button
+          type="button"
+          onClick={copy}
+          disabled={!summaryUrl}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+        >
+          {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+          {copied ? 'Copiado' : 'Copiar'}
+        </button>
+      </div>
+    </GlassCard>
+  )
+}
+
+function DangerCard() {
+  const [confirming, setConfirming] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [done, setDone] = useState(false)
+
+  async function handleReset() {
+    if (!confirming) {
+      setConfirming(true)
+      return
+    }
+    setResetting(true)
+    try {
+      await apiSend('/api/reset-stats', 'POST', {})
+      setDone(true)
+      setTimeout(() => setDone(false), 3000)
+    } finally {
+      setResetting(false)
+      setConfirming(false)
+    }
+  }
+
+  return (
+    <GlassCard className="border-destructive/30 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5">
+          <Trash2 className="size-4 text-destructive" />
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Zerar estatísticas</h2>
+            <p className="text-xs text-muted-foreground">
+              Apaga leads, eventos e séries da sua conta. Links, pixels e domínios são mantidos.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {confirming && (
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary"
+            >
+              Cancelar
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleReset}
+            disabled={resetting}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+              confirming
+                ? 'bg-destructive text-white hover:opacity-90'
+                : 'border border-destructive/50 text-destructive hover:bg-destructive/10'
+            }`}
+          >
+            {resetting ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : done ? (
+              <Check className="size-3.5" />
+            ) : null}
+            {done ? 'Zerado' : confirming ? 'Confirmar — apagar tudo' : 'Zerar estatísticas'}
+          </button>
+        </div>
+      </div>
+    </GlassCard>
   )
 }
 
 function AccountCard() {
   const { data: account } = useAccount()
-  const router = useRouter()
   const [loggingOut, setLoggingOut] = useState(false)
 
   async function handleLogout() {
     setLoggingOut(true)
     try {
       await fetch('/logout', { method: 'POST', credentials: 'include' })
-      router.push('/login')
+      // Login mora no Express (outro host em produção) — redirect completo
+      window.location.href = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
     } catch {
       setLoggingOut(false)
     }
@@ -79,6 +193,21 @@ function PushcutCard() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function handleTest() {
+    setTestMsg(null)
+    setTesting(true)
+    try {
+      await apiSend('/api/pushcut/test', 'POST', {})
+      setTestMsg({ ok: true, text: 'Notificação de teste enviada — confira seu iPhone.' })
+    } catch (e) {
+      setTestMsg({ ok: false, text: e instanceof Error ? e.message : 'Falha no teste' })
+    } finally {
+      setTesting(false)
+    }
+  }
 
   useEffect(() => {
     if (data && events === null) setEvents(data.events)
@@ -160,8 +289,20 @@ function PushcutCard() {
       </div>
 
       {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+      {testMsg && (
+        <p className={`mt-3 text-xs ${testMsg.ok ? 'text-success' : 'text-destructive'}`}>{testMsg.text}</p>
+      )}
 
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={handleTest}
+          disabled={testing || !data?.hasUrl}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+        >
+          {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+          Testar
+        </button>
         <button
           type="button"
           onClick={handleSave}

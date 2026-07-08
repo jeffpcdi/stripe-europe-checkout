@@ -2741,7 +2741,12 @@ app.post('/api/reset-stats', dashboardAuth, (req, res) => {
 });
 
 // ── Dashboard (HTML inline, protegida por sessão) ────────────────────
+// Cutover (Fase 10): com NEW_DASHBOARD_URL setada (ex: https://app.dominio.com),
+// redireciona para a dashboard Next.js. Rollback = remover a env var.
+// A antiga continua acessível em /dashboard?legacy=1 durante a transição.
 app.get('/dashboard', pageAuth, (req, res) => {
+  const newDash = process.env.NEW_DASHBOARD_URL;
+  if (newDash && req.query.legacy !== '1') return res.redirect(newDash);
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(DASHBOARD_HTML);
 });

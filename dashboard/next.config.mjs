@@ -16,6 +16,10 @@ const nextConfig = {
         source: '/assets/:path*',
         destination: `${apiUrl}/assets/:path*`,
       },
+      {
+        source: '/logout',
+        destination: `${apiUrl}/logout`,
+      },
     ]
   },
 }

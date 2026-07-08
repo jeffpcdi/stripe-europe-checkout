@@ -105,14 +105,18 @@ function parseCookies(req) {
   return out;
 }
 
+// COOKIE_DOMAIN (ex: ".dominio.com") compartilha a sessão com o subdomínio
+// da dashboard Next.js (app.dominio.com). Sem a env, comportamento inalterado.
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN ? '; Domain=' + process.env.COOKIE_DOMAIN : '';
+
 function sessionCookie(token, maxAgeDays) {
   const maxAge = (maxAgeDays || SESSION_TTL_DAYS) * 24 * 60 * 60;
   return COOKIE_NAME + '=' + encodeURIComponent(token) +
-    '; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=' + maxAge;
+    '; Path=/; HttpOnly; SameSite=Lax; Secure' + COOKIE_DOMAIN + '; Max-Age=' + maxAge;
 }
 
 function clearCookie() {
-  return COOKIE_NAME + '=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0';
+  return COOKIE_NAME + '=; Path=/; HttpOnly; SameSite=Lax; Secure' + COOKIE_DOMAIN + '; Max-Age=0';
 }
 
 // Middleware: exige sessão válida. Popula req.account.
