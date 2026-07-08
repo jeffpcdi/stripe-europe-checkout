@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { GlassCard } from '@/components/glass-card'
-import { countryFlag, gwLabel, timeAgo, formatMoney } from '@/lib/format'
+import { countryFlag, gwLabel, timeAgo, formatMoney, plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Search } from 'lucide-react'
 import type { Lead } from '@/lib/types'
@@ -58,7 +58,9 @@ export function LeadsTable({
     <GlassCard className="p-4">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h2 className="section-head text-sm font-semibold text-foreground">Leads</h2>
-        <span className="text-xs tabular-nums text-muted-foreground">{filtered.length} leads</span>
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          {plural(filtered.length, 'lead')}
+        </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search

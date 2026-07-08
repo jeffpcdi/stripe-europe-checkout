@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useStats } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
-import { formatMoney, formatDateTime } from '@/lib/format'
+import { formatMoney, formatDateTime, plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import {
   CheckCircle2,
@@ -106,8 +106,8 @@ export function ActivityView() {
             {f.label}
           </button>
         ))}
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-          {events.length} evento{events.length !== 1 ? 's' : ''}
+        <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
+          {plural(events.length, 'evento')}
         </span>
       </div>
 

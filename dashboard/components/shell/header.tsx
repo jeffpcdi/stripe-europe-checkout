@@ -9,6 +9,7 @@ const DATE_FMT = new Intl.DateTimeFormat('pt-BR', {
   weekday: 'short',
   day: '2-digit',
   month: 'short',
+  timeZone: 'America/Sao_Paulo',
 })
 
 export function Header() {

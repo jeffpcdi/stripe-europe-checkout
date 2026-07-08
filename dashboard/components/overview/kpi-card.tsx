@@ -3,6 +3,7 @@
 import type { LucideIcon } from 'lucide-react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
+import { fmtDelta } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export type KpiTint = 'green' | 'cyan' | 'amber' | 'neutral'
@@ -37,7 +38,7 @@ export function DeltaChip({ delta, invert = false }: { delta: number | null; inv
       )}
     >
       <Icon className="size-3" aria-hidden="true" />
-      {Math.abs(delta)}%
+      <span className="font-mono tabular-nums">{fmtDelta(delta)}</span>
     </span>
   )
 }

@@ -19,6 +19,7 @@ import {
   periodStart,
   prevWindow,
 } from '@/lib/metrics'
+import { fmtPercent } from '@/lib/format'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { SparkBars, SparkLine } from '@/components/sparkline'
@@ -184,7 +185,7 @@ export function OverviewView() {
           value={
             <CountUp
               value={cur.overall}
-              format={(v) => `${v.toFixed(1)}%`}
+              format={(v) => fmtPercent(v)}
               className={cur.overall > 0 ? 'text-warning' : 'text-muted-foreground'}
             />
           }
@@ -204,7 +205,7 @@ export function OverviewView() {
           color={apColor}
           bg={apBg}
           label="Aprovação"
-          value={`${cur.approval}%`}
+          value={fmtPercent(cur.approval)}
           sub={`${cur.sales} aprovadas de ${attempts} tentativas`}
           extra={attempts ? <SparkBars data={salesSeries} color={apColor} width={64} height={22} /> : undefined}
         />
