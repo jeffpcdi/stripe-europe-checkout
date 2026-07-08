@@ -87,12 +87,20 @@ export function TourGuide() {
     }
   }, [tour, step])
 
-  // Item 45: navegação por teclado
+  // Item 45: navegação por teclado — no último passo, avançar conclui
   useEffect(() => {
     if (!tour) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close(false)
-      if (e.key === 'ArrowRight') setStep((s) => Math.min(tour.steps.length - 1, s + 1))
+      if (e.key === 'ArrowRight' || e.key === 'Enter') {
+        setStep((s) => {
+          if (s >= tour.steps.length - 1) {
+            close(true)
+            return s
+          }
+          return s + 1
+        })
+      }
       if (e.key === 'ArrowLeft') setStep((s) => Math.max(0, s - 1))
     }
     window.addEventListener('keydown', onKey)
