@@ -632,6 +632,67 @@ h3 {
   opacity: 1;
 }
 
+/* Logo grande da sidebar — como no legado */
+.brand-logo--lg {
+  width: 112px;
+  height: 112px;
+}
+.brand-logo--lg .brand-logo__ring {
+  inset: -4px;
+  filter: blur(1.5px);
+}
+.brand-logo--lg .brand-logo__ring::after {
+  inset: 4px;
+}
+.brand-logo--lg .brand-logo__img {
+  width: 104px;
+  height: 104px;
+  box-shadow: 0 0 28px rgba(37, 244, 238, 0.3);
+}
+
+/* ============================================================
+   Sidebar — item de navegação com barra ciano à esquerda (legado)
+   ============================================================ */
+
+.side-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-sub);
+  transition:
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+.side-item:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.side-item--active {
+  color: var(--text);
+  background: var(--active);
+}
+
+/* Barra ciano à esquerda do item ativo — como no print do legado */
+.side-item--active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), var(--pink));
+  box-shadow: 0 0 8px rgba(37, 244, 238, 0.6);
+}
+
 /* ============================================================
    Nav pills — navegação superior centralizada (identidade legada)
    ============================================================ */

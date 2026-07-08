@@ -2,18 +2,16 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
-import { usePathname } from 'next/navigation'
-import { NAV_GROUPS, activeGroup } from '@/lib/navigation'
-import { cn } from '@/lib/utils'
 import { MobileNav } from './mobile-nav'
 
+/**
+ * Barra superior — visível apenas no mobile.
+ * No desktop a navegação vive na Sidebar lateral esquerda.
+ */
 export function TopNav() {
-  const pathname = usePathname()
-  const current = activeGroup(pathname)
-
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] backdrop-blur-md">
-      <div className="flex h-16 items-center justify-between gap-3 px-4 lg:px-6">
+    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] backdrop-blur-md md:hidden">
+      <div className="flex h-16 items-center justify-between gap-3 px-4">
         {/* Logo */}
         <Link href="/" className="group flex items-center" aria-label="ROI-NADOS">
           <span className="brand-logo" aria-hidden="true">
@@ -29,31 +27,13 @@ export function TopNav() {
           </span>
         </Link>
 
-        {/* Direita: pills de navegação + status ao vivo + menu mobile */}
+        {/* Direita: status ao vivo + menu */}
         <div className="flex items-center gap-3">
-          <nav className="hidden items-center gap-2 md:flex" aria-label="Navegação principal">
-            {NAV_GROUPS.map((group) => {
-              const active = group.id === current.id
-              return (
-                <Link
-                  key={group.id}
-                  href={group.href}
-                  aria-current={active ? 'page' : undefined}
-                  className={cn('nav-pill', active && 'nav-pill--active')}
-                >
-                  <group.icon className="size-4" aria-hidden="true" />
-                  {group.label}
-                </Link>
-              )
-            })}
-          </nav>
           <div className="glass flex items-center gap-2 rounded-full px-3.5 py-1.5">
             <span className="live-dot" aria-hidden="true" />
             <span className="text-xs font-medium text-sub">Ao vivo</span>
           </div>
-          <div className="md:hidden">
-            <MobileNav />
-          </div>
+          <MobileNav />
         </div>
       </div>
     </header>

@@ -21,7 +21,10 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Protege todas as rotas de página; ignora assets estáticos e as APIs
-  // (que já são proxiadas pro Express, dono da validação de sessão).
-  matcher: ['/((?!api|assets|_next/static|_next/image|favicon.ico).*)'],
+  // Protege todas as rotas de página; ignora assets estáticos, as APIs
+  // (que já são proxiadas pro Express, dono da validação de sessão) e
+  // qualquer arquivo com extensão (ex: logo .jpg do /public — o otimizador
+  // de imagens do Next busca o arquivo internamente SEM cookie de sessão,
+  // e um redirect pro login quebraria a renderização da logo).
+  matcher: ['/((?!api|assets|_next/static|_next/image|favicon.ico|.*\\..*).*)'],
 }
