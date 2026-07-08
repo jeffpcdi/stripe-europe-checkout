@@ -3,21 +3,27 @@
 > **Instruções para IAs (LEIA PRIMEIRO):** Este arquivo é o mapa mental completo do projeto.
 > Leia-o inteiro antes de mexer em qualquer coisa. É a fonte de verdade sobre stack,
 > arquitetura, convenções e armadilhas. Regras que **quebram o projeto** se ignoradas:
-> 1. É **Node.js puro + Express 4 (CommonJS)** — sem TypeScript, sem build, sem framework de front.
-> 2. As **views são template strings gigantes** (`dashboard-view.js`, `lp-view.js`, `auth-view.js`,
->    `vision-view.js`): **NUNCA** use crase (`` ` ``) nem `${}` dentro do HTML delas — quebra a
->    string silenciosamente. Concatene com `+` e escape apóstrofos com entidades HTML.
+> 1. O backend é **Node.js puro + Express 4 (CommonJS)** — sem TypeScript, sem build.
+>    **EXCEÇÃO:** a dashboard nova é um app **Next.js 16 + React + TypeScript** que vive em
+>    `dashboard/` e é servida por proxy reverso em `/dashboard` (ver §19 — leia antes de mexer na UI).
+> 2. As **views legadas são template strings gigantes** (`dashboard-view.js`, `lp-view.js`,
+>    `auth-view.js`, `vision-view.js`): **NUNCA** use crase (`` ` ``) nem `${}` dentro do HTML delas —
+>    quebra a string silenciosamente. Concatene com `+` e escape apóstrofos com entidades HTML.
+>    (Essa regra NÃO se aplica ao código em `dashboard/`, que é TSX normal.)
 > 3. **Banco Neon em SQL puro** (sem ORM); tabelas criadas sozinhas no boot (`CREATE TABLE IF NOT EXISTS`).
-> 4. **Todo texto de UI e comentário em português** (PT-PT, EUR, fuso `Europe/Lisbon`).
+> 4. **Todo texto de UI e comentário em português do Brasil (pt-BR)**; **multi-moeda com padrão
+>    BRL** (R$) e fuso de **Brasília** (`America/Sao_Paulo`).
 > 5. Ao terminar mudanças relevantes, **atualize este arquivo** para mantê-lo preciso.
-> 6. Depois de editar módulos, o servidor precisa ser **reiniciado** para recarregar (sem hot-reload).
+> 6. Depois de editar módulos do Express, o servidor precisa ser **reiniciado** (sem hot-reload).
+>    O app Next em `dashboard/` tem HMR normal em dev (`next dev`).
 
 ## 0. Índice
 1. Visão geral · 2. Stack · 3. Deploy e ambientes · 4. Arquitetura (4.1 Backend, 4.2 Frontend) ·
 5. Rotas · 6. Esquema do banco · 7. Redis · 8. Score do bot-filter · 9. Fluxo do `/go/:slug` ·
 10. CAPI do TikTok · 11. Comandos · 12. Variáveis de ambiente · 13. Convenções · 14. Armadilhas ·
 15. Estrutura de arquivos · 16. Ciclo de vida do lead · 17. Formato dos eventos de tracking ·
-18. Ciclo de vida do domínio personalizado.
+18. Ciclo de vida do domínio personalizado · **19. Nova dashboard Next.js (`dashboard/`)** —
+arquitetura, arquivos, identidade visual e plano de refinamento.
 
 ## 1. Visão geral
 Painel de rastreamento de funil e vendas para infoprodutos vendidos com tráfego do TikTok.
@@ -96,7 +102,7 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   único → webhook em `POST /hook/:token`. O token identifica CONTA + PROVIDER, dispensando segredo manual.
 - **bot-filter.js** — cloaking multicamadas (score 0–100). Modelo de score em §8. Lookup de ASN (Cymru
   via DNS) com teto de latência (`deadlineMs`, padrão 120ms via `Promise.race`) e cache 2 camadas
-  (memória + Redis `asn:<ip>`) para redirect quase instantâneo.
+  (memória + Redis `asn:<ip>`) para redirect quase instant��neo.
 - **presence.js + pulse-client.js** — visitantes online (heartbeat `/api/pulse`), globo 3D no painel.
 - **tracker-view.js** — snippet `/t.js` injetado em páginas externas (envia pageview/eventos).
 - **ua.js** — parse de User-Agent + detecção de bots (usado no middleware de lead).
@@ -325,12 +331,16 @@ Motivos: `bot-ua`, `rate-limit`, `pais`, `idioma`, `score`. Contadores em `cloak
 
 ## 11. Comandos essenciais
 ```bash
-npm install     # instala dependências
-npm start       # produção: node server.js (porta 3000 ou $PORT)
-npm run dev     # local: node --env-file-if-exists=.env.development.local server.js
+npm install     # instala dependências do Express (raiz)
+npm start       # produção: node start.js → sobe Next (porta 3001) + Express ($PORT) juntos (§19)
+npm run dev     # local: node --env-file-if-exists=.env.development.local server.js (só o Express)
+npm run build   # cd dashboard && npm install && npm run build (build do Next; o Express não tem build)
 npm test        # roda os testes de regressão (test/*.test.js), sem rede/DB reais
+
+# Dashboard Next.js em dev (segundo terminal, além do Express):
+cd dashboard && npm run dev -- -p 3001   # HMR; acesse via http://localhost:3000/dashboard (proxy)
 ```
-- **Build:** não há (script `build` é um `echo`; JS puro, sem transpile).
+- **Build:** só o app `dashboard/` tem build (Next). O Express continua JS puro sem transpile.
 - **Testes:** `npm test` — asserts em Node puro, sem framework. `test/retry-queue.test.js` (re-resolução
   da fila CAPI por token) e `test/gateway-only.test.js` (trava de eventos monetários). Stubam
   `pixel-store`/`redis` no require-cache e `global.fetch`. Ao mexer no motor CAPI, rode-os.
@@ -377,7 +387,8 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 - (Legado) `DASHBOARD_PASSWORD` — antigo Basic Auth de senha única, **substituído** pela auth por conta.
 
 ## 13. Convenções
-- **Idioma:** comentários e UI em português (PT-PT, EUR, fuso `Europe/Lisbon`).
+- **Idioma:** comentários e UI em português do Brasil (pt-BR); multi-moeda com padrão BRL (R$);
+  fuso de Brasília (`America/Sao_Paulo`).
 - **Módulos:** CommonJS (`require`/`module.exports`); um arquivo por responsabilidade, todos na raiz.
 - **Views como string:** nunca crase nem `${}` no HTML das views. Concatenar com `+`; apóstrofos como entidades.
 - **Rastreamento nunca bloqueia navegação:** middleware de tracking usa `try/catch` silencioso e
@@ -430,14 +441,23 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── domain-provider.js     # Custom Domains na hospedagem via API (Railway; token só aqui)
 ├── presence.js / pulse-client.js   # visitantes ao vivo
 ├── pushcut.js             # notificações push
-├── *-view.js              # views (HTML como string): dashboard, lp, legal, tracker, vision, auth
+├── *-view.js              # views legadas (HTML como string): dashboard, lp, legal, tracker, vision, auth
+├── start.js               # start de produção: sobe Next (3001) + Express ($PORT) no mesmo serviço (§19)
+├── dashboard/             # NOVA dashboard Next.js 16 + TypeScript + Tailwind v4 (§19)
+│   ├── app/               #   rotas App Router sob basePath /dashboard
+│   ├── components/        #   componentes por página (shell/, overview/, live/, geo/, funnel/, …)
+│   ├── lib/               #   api.ts (SWR), types.ts, navigation.ts, format.ts, metrics.ts
+│   ├── proxy.ts           #   guard de sessão (cookie dash_session do Express)
+│   └── next.config.mjs    #   basePath /dashboard + rewrites /api → Express
+├── docs/                  # documentação: HANDOFF-NOVA-IA.md e PLANO-REFINAMENTO-VISUAL.md
 ├── assets/                # estáticos servidos em /assets/*
 ├── pixels/                # assets do pixel do navegador
 ├── data/                  # cache local em JSON (IGNORADO no git; não é fonte de verdade)
 ├── package.json / railway.json  # deps e config de deploy Railway
 └── CLAUDE.md / README.md  # este mapa e o readme
 ```
-Não há subpastas de código-fonte: todo módulo `.js` vive na raiz, um arquivo por responsabilidade.
+Nos módulos do Express não há subpastas: todo `.js` vive na raiz, um arquivo por responsabilidade.
+A única subárvore de código é `dashboard/` (app Next independente, com `package.json` próprio).
 
 ## 16. Ciclo de vida do lead
 Um lead avança por **stages** (etapa no funil) e carrega um **status** (resultado do disparo CAPI):
@@ -494,3 +514,73 @@ rota (painel, login, APIs de gestão) responde **404 puro**. O painel existe só
 existir no Railway; (b) sem **redeploy**, mudança de `RAILWAY_API_TOKEN`/código não vale (sem hot
 reload); (c) o sandbox do v0 não tem as vars `RAILWAY_*`, então lá é sempre modo manual — teste real
 só no Railway (§5.2.2).
+
+## 19. Nova dashboard Next.js (`dashboard/`) — reestruturação do front
+
+> **Resumo em uma frase:** a dashboard legada (`dashboard-view.js`, string HTML de ~5200 linhas)
+> foi **reescrita como app Next.js 16 + React 19 + TypeScript + Tailwind v4** em `dashboard/`,
+> servida por **proxy reverso** no mesmo domínio em `/dashboard`. O Express continua dono de
+> **todas** as APIs, da auth e do funil público — o Next é só a camada de apresentação.
+> Documento de handoff completo (para IAs sem contexto): `docs/HANDOFF-NOVA-IA.md`.
+
+### 19.1 Arquitetura (um domínio, dois processos)
+- **Produção (`npm start` → `start.js`):** sobe o Next (`next start -p 3001`, interno) e o Express
+  (`$PORT`, público) no mesmo serviço Railway. O Express faz proxy reverso de `/dashboard/*` para
+  `localhost:3001` (`proxyToNextDashboard` em `server.js`, com `pageAuth` antes). Se o Next morrer,
+  o serviço encerra (exit propagado).
+- **Mesmo domínio = zero CORS:** cookie de sessão (`dash_session`), `/api/*` e assets funcionam
+  sem configuração extra, porque o navegador nunca sai do host do Express.
+- **basePath `/dashboard`** no `next.config.mjs`; `allowedDevOrigins` liberam o acesso via proxy
+  em dev (sem isso a hidratação falha silenciosamente e a página fica presa nos skeletons).
+- **Rewrites do Next (só relevantes em dev):** `/api/*`, `/assets/*` e `/logout` → Express
+  (`EXPRESS_API_URL`, padrão `http://localhost:3000`).
+- **Auth em duas camadas:** `dashboard/proxy.ts` (proxy do Next) só checa a **presença** do cookie
+  `dash_session` e redireciona ao `/login` do Express se faltar; a validação real é do Express em
+  cada chamada de API (401 → `lib/api.ts` redireciona ao login).
+- **Rollback:** a dashboard legada continua acessível em `/dashboard?legacy=1` (o proxy detecta
+  `legacy=1` e serve o `DASHBOARD_HTML` antigo). Não apagar `dashboard-view.js`.
+
+### 19.2 Stack e dados
+- Next.js 16 (App Router, `experimental.viewTransition`), React 19, TypeScript, Tailwind v4
+  (`@import 'tailwindcss'` + tokens em `@theme`/`:root` no `globals.css`), lucide-react (ícones),
+  Recharts (gráficos), `globe.gl` (globo 3D), SWR (dados).
+- **Todos os dados vêm dos endpoints `/api/*` do Express** (§5.2) via hooks SWR em `lib/api.ts`
+  (`useStats`, `useLive`, `useLinks`, `usePixels`, `useGateways`, `useCloakConfig`, etc.), com
+  `credentials:'include'` e polling. **Não criar API routes no Next** — API nova nasce no Express.
+- `lib/types.ts` espelha os shapes JSON do Express; `lib/metrics.ts` deriva KPIs/funil/série do
+  `/api/stats`; `lib/format.ts` formata moeda/número/data em pt-BR (moeda multi com padrão BRL);
+`lib/navigation.ts` é a fonte
+  única do menu (seções Métricas/Gestão/Sistema) usada por sidebar, mobile-nav e subnav.
+
+### 19.3 Páginas (App Router, grupo `(dashboard)`)
+`/` Visão Geral (KPIs + gráfico de receita + saúde) · `/live` Ao Vivo (feed tempo real + presença) ·
+`/geo` Geografia (globo 3D) · `/funnel` Funil (etapas + tabela de leads) · `/activity` Atividade
+(log de conversões/pixels/cloaker) · `/links` Links de Checkout · `/cloak` Filtro de Bots ·
+`/domains` Domínios · `/pixels` Pixel TikTok (saúde + EMQ) · `/gateways` Gateways · `/config`
+Configurações. Cada página é um `page.tsx` fino que renderiza a view de `components/<área>/`.
+
+### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
+- **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):
+  fundo preto neutro `#08080a` (nunca azul), ciano neon `#25f4ee` (interação/links/ativo), rosa
+  `#fe2c55` (ao vivo/atenção/perigo), verde `#22c55e` (**só dinheiro/sucesso**), dourado `#fbbf24`
+  (avisos/checkout), texto `#f4f4f5`/`#a1a1aa`. Degradê ciano→rosa (`--brand-grad`) é **reservado**
+  a: logo, card-herói de Receita e anel do globo.
+- **Linguagem visual:** glassmorphism escuro (cards translúcidos com `backdrop-blur` e borda 8–12%
+  branco), orbes de aurora derivando ao fundo, grelha de pontos sutil, hairlines com gradiente,
+  labels mono uppercase 11px, números tabulares, KPIs em grelha 4→2→1.
+- **Layout:** sidebar fixa à esquerda (logo neon + seções MÉTRICAS/GESTÃO/SISTEMA + indicador
+  ativo ciano-rosa) — substituiu as pills do topo; header com título da página, data e badge
+  "Ao vivo"; conteúdo em `main` com container central. Mobile: `mobile-nav.tsx` (menu deslizante).
+- **Globo 3D** (`components/geo/globe.tsx`): textura blue-marble local (`/assets/`), polígonos de
+  países (`countries.geojson`), pontos de tráfego, controles de zoom e modal fullscreen.
+- **Plano de refinamento pendente:** `docs/PLANO-REFINAMENTO-VISUAL.md` — 206 alterações numeradas
+  em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem** (coerência primeiro).
+
+### 19.5 Armadilhas específicas da dashboard nova
+- Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —
+  senão cookie/API quebram. Em dev, use `GET /__dev/login` primeiro (§11.1).
+- `globe.gl` importa `three` (~1MB): manter lazy (`next/dynamic`, sem SSR).
+- O Express NÃO comprime respostas de `/dashboard` (o Next já comprime) — ver filtro em `server.js`.
+- Texto de UI em **pt-BR**; **multi-moeda com padrão BRL** (R$) e seletor de exibição
+  (BRL/USD/EUR, formatação client-side); fuso de **Brasília** (`America/Sao_Paulo`).
+- Depois de mudar código do Next em produção: `npm run build` + redeploy (o Railway roda o build).

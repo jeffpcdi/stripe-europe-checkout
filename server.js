@@ -225,7 +225,17 @@ const PORT = process.env.PORT || 3000;
 // Compressão gzip: o HTML da dashboard tem ~340 KB e cai para ~55 KB comprimido.
 // Também comprime as respostas JSON do polling (/api/stats a cada 12s).
 // Threshold de 1 KB: respostas minúsculas (px.gif, 204s) não pagam o custo do gzip.
-app.use(compression({ threshold: 1024 }));
+app.use(
+  compression({
+    threshold: 1024,
+    filter: (req, res) => {
+      // /dashboard é proxy pro Next, que já faz a própria compressão em
+      // streaming — comprimir de novo bufferiza e quebra o RSC streaming.
+      if (req.originalUrl.startsWith('/dashboard') && req.query.legacy !== '1') return false;
+      return compression.filter(req, res);
+    },
+  }),
+);
 // rawBody: necessário para verificar assinaturas HMAC de webhooks (Stripe,
 // Kiwify) — o HMAC é calculado sobre os bytes originais, não o JSON re-serializado
 app.use(express.json({
@@ -2740,11 +2750,65 @@ app.post('/api/reset-stats', dashboardAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Dashboard (HTML inline, protegida por sessão) ────────────────────
+// ── Dashboard Next.js (proxy reverso, mesmo domínio) ─────────────────
+// O app Next roda internamente na porta 3001 com basePath /dashboard.
+// O Express (porta pública) repassa /dashboard/* para ele — sessão, APIs
+// e WebSocket ficam todos no MESMO domínio, sem CORS nem env de URL pública.
+// Rollback: a dashboard antiga continua acessível em /dashboard?legacy=1.
+const DASH_UPSTREAM = process.env.DASHBOARD_UPSTREAM_URL || 'http://127.0.0.1:3001';
+
+// Headers hop-by-hop NÃO podem ser repassados (RFC 7230 §6.1). Repassar
+// transfer-encoding/connection corrompe o streaming do Next (RSC) e quebra
+// a hidratação do React no cliente.
+const HOP_BY_HOP = new Set([
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+  'te', 'trailer', 'transfer-encoding', 'upgrade',
+]);
+
+function stripHopByHop(headers) {
+  const out = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (!HOP_BY_HOP.has(k.toLowerCase())) out[k] = v;
+  }
+  return out;
+}
+
+function proxyToNextDashboard(req, res) {
+  const upstream = new URL(DASH_UPSTREAM);
+  const proxyReq = require(upstream.protocol === 'https:' ? 'https' : 'http').request(
+    {
+      hostname: upstream.hostname,
+      port: upstream.port || (upstream.protocol === 'https:' ? 443 : 80),
+      path: req.originalUrl, // já inclui /dashboard/...
+      method: req.method,
+      headers: { ...stripHopByHop(req.headers), host: upstream.host },
+    },
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 502, stripHopByHop(proxyRes.headers));
+      proxyRes.pipe(res);
+    },
+  );
+  proxyReq.on('error', () => {
+    // Next fora do ar → fallback para a dashboard legada (nunca tela branca)
+    if (!res.headersSent) {
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      res.send(DASHBOARD_HTML);
+    }
+  });
+  if (req.readable) req.pipe(proxyReq);
+  else proxyReq.end();
+}
+
 app.get('/dashboard', pageAuth, (req, res) => {
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(DASHBOARD_HTML);
+  if (req.query.legacy === '1') {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    return res.send(DASHBOARD_HTML);
+  }
+  proxyToNextDashboard(req, res);
 });
+
+// Sub-rotas e assets do Next (/dashboard/live, /dashboard/_next/..., etc.)
+app.use('/dashboard', pageAuth, proxyToNextDashboard);
 
 // ── Landing Page do SaaS (raiz, pública, com pulse de presença) ──────
 app.get('/', (req, res) => {

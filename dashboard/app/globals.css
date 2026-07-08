@@ -1,0 +1,911 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/* ============================================================
+   Design System — capturado 1:1 do dashboard-view.js legado
+   ============================================================ */
+
+:root {
+  /* Superfícies — preto puro como o legado */
+  --bg: #050506;
+  --card: rgba(19, 19, 22, 0.82);
+  --border: rgba(255, 255, 255, 0.09);
+
+  /* Texto — contraste elevado (muted agora ≥4.5:1 sobre #08080a) */
+  --text: #f7f7f8;
+  --text-sub: #d7d7db;
+  --text-muted: #adadb6;
+  --text-faint: #8a8a93;
+
+  /* Marca */
+  --accent: #25f4ee;
+  --accent-dark: #0ec2bd;
+  --pink: #fe2c55;
+  --brand-grad: linear-gradient(135deg, #25f4ee, #fe2c55);
+
+  /* Semânticas */
+  --success: #22c55e;
+  --money: #22c55e;
+  --warning: #fbbf24;
+  --gold: #fbbf24;
+  --error: #ef4444;
+  --blue: #2f7dff;
+  --teal: #14b8c4;
+  --violet: #7ab8ff;
+
+  /* Fundos de badges (12–15%) */
+  --success-light: rgba(34, 197, 94, 0.13);
+  --warning-light: rgba(251, 191, 36, 0.13);
+  --error-light: rgba(239, 68, 68, 0.13);
+  --accent-light: rgba(37, 244, 238, 0.12);
+
+  /* Liquid Glass */
+  --lg-blur: 16px;
+  --lg-sat: 160%;
+  --lg-tint: rgba(19, 19, 22, 0.45);
+  --lg-tint-thick: rgba(14, 14, 17, 0.8);
+  --lg-tint-clear: rgba(10, 10, 11, 0.2);
+  --lg-tint-brand: rgba(37, 244, 238, 0.05);
+  --lg-rim-top: rgba(255, 255, 255, 0.08);
+  --lg-rim-side: rgba(255, 255, 255, 0.04);
+
+  /* Estados interativos */
+  --hover: rgba(255, 255, 255, 0.05);
+  --active: rgba(255, 255, 255, 0.08);
+
+  /* Motion */
+  --dur-fast: 150ms;
+  --dur: 300ms;
+  --dur-slow: 450ms;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --spring: cubic-bezier(0.32, 0.72, 0.24, 1.06);
+
+  /* Formas */
+  --radius-sm: 10px;
+  --radius: 14px;
+
+  /* Sombras — 4 camadas de profundidade */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow:
+    0 4px 12px rgba(0, 0, 0, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg:
+    0 12px 32px rgba(0, 0, 0, 0.45),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-xl:
+    0 24px 64px rgba(0, 0, 0, 0.55),
+    0 8px 24px rgba(0, 0, 0, 0.4);
+
+  /* Glows de marca */
+  --glow-cyan: 0 0 0 1px rgba(37, 244, 238, 0.35), 0 8px 24px rgba(37, 244, 238, 0.25);
+  --glow-pink: 0 0 0 1px rgba(254, 44, 85, 0.35), 0 8px 24px rgba(254, 44, 85, 0.22);
+  --glow-cyan-soft: 0 6px 20px rgba(37, 244, 238, 0.18);
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--card);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--lg-tint-thick);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #08080a;
+  --color-secondary: var(--hover);
+  --color-secondary-foreground: var(--text-sub);
+  --color-muted: var(--hover);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--accent-light);
+  --color-accent-foreground: var(--accent);
+  --color-destructive: var(--error);
+  --color-destructive-foreground: var(--text);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+
+  --color-brand-cyan: var(--accent);
+  --color-brand-pink: var(--pink);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--blue);
+  --color-violet: var(--violet);
+  --color-teal: var(--teal);
+  --color-sub: var(--text-sub);
+  --color-faint: var(--text-faint);
+
+  --shadow-card: var(--shadow);
+  --shadow-card-lg: var(--shadow-lg);
+  --shadow-card-xl: var(--shadow-xl);
+
+  --radius-sm: calc(var(--radius-sm));
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --ease-brand: var(--ease);
+  --ease-spring: var(--spring);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Números tabulares em toda métrica mono — colunas alinham perfeitamente */
+.font-mono,
+code,
+kbd,
+samp {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+/* ============================================================
+   Tipografia editorial — labels mono uppercase (enterprise)
+   ============================================================ */
+
+.label-mono {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+}
+
+.label-mono--accent {
+  color: var(--accent);
+}
+
+/* Título de seção padronizado: hairline + eyebrow */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.section-head::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 99px;
+  background: var(--brand-grad);
+  flex-shrink: 0;
+}
+
+::selection {
+  background: rgba(37, 244, 238, 0.25);
+}
+
+/* Foco acessível e consistente em toda a app */
+:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px rgba(37, 244, 238, 0.55);
+  border-radius: var(--radius-sm);
+}
+
+/* Scrollbar fino, discreto */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============================================================
+   Liquid Glass — assinatura visual
+   ============================================================ */
+
+.glass {
+  background: var(--lg-tint);
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  border: 1px solid var(--border);
+  border-top-color: var(--lg-rim-top);
+  border-left-color: var(--lg-rim-side);
+  border-right-color: var(--lg-rim-side);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.glass-thick {
+  background: var(--lg-tint-thick);
+}
+
+.glass-clear {
+  background: var(--lg-tint-clear);
+}
+
+.glass-brand {
+  background: var(--lg-tint-brand);
+}
+
+/* ============================================================
+   Fundo aurora/mesh animado
+   ============================================================ */
+
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--bg);
+}
+
+/* Grelha de pontos sutil com máscara radial (mais densa no topo) */
+.app-bg__dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.05) 1px,
+    transparent 1px
+  );
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 90% 60% at 50% 0%,
+    #000 0%,
+    transparent 75%
+  );
+  mask-image: radial-gradient(
+    ellipse 90% 60% at 50% 0%,
+    #000 0%,
+    transparent 75%
+  );
+}
+
+/* Aurora: dois orbes ciano/rosa em deriva lenta */
+.app-bg__aurora::before,
+.app-bg__aurora::after {
+  content: '';
+  position: absolute;
+  width: 60vmax;
+  height: 60vmax;
+  border-radius: 50%;
+  filter: blur(130px);
+  opacity: 0.07;
+  will-change: transform;
+}
+
+.app-bg__aurora::before {
+  background: radial-gradient(circle, #25f4ee, transparent 65%);
+  top: -25vmax;
+  left: -15vmax;
+  animation: auroraDrift 26s var(--ease) infinite alternate;
+}
+
+.app-bg__aurora::after {
+  background: radial-gradient(circle, #fe2c55, transparent 65%);
+  bottom: -30vmax;
+  right: -18vmax;
+  animation: meshFloat 32s var(--ease) infinite alternate;
+}
+
+/* Grain: textura fina para quebrar bandas nos gradientes */
+.app-bg__grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   Keyframes — replicados do legado
+   ============================================================ */
+
+@keyframes auroraDrift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(10vmax, 6vmax) scale(1.15); }
+}
+
+@keyframes meshFloat {
+  from { transform: translate(0, 0) scale(1.05); }
+  to { transform: translate(-8vmax, -5vmax) scale(0.95); }
+}
+
+@keyframes kpiIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes kpiRise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes rowIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes liveRowIn {
+  from { opacity: 0; transform: translateX(-10px); background: var(--accent-light); }
+  60% { background: var(--accent-light); }
+  to { opacity: 1; transform: translateX(0); background: transparent; }
+}
+
+@keyframes barUp {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes ping {
+  from { transform: scale(1); opacity: 0.7; }
+  to { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes skelShimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@keyframes valFlash {
+  0% { color: var(--accent); }
+  100% { color: inherit; }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes popBgIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes globePulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.4; }
+}
+
+/* ============================================================
+   Globo — contraste, controles e tela cheia
+   ============================================================ */
+
+/* O globo é o elemento principal: realce de contraste e saturação */
+.globe-stage canvas {
+  filter: contrast(1.18) saturate(1.3) brightness(1.08);
+}
+
+/* Botão de controle flutuante (zoom / tela cheia / fechar) */
+.globe-ctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: var(--text-sub);
+  background: rgba(8, 8, 10, 0.72);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--spring);
+}
+.globe-ctl:hover {
+  color: var(--accent);
+  border-color: rgba(37, 244, 238, 0.45);
+  background: rgba(37, 244, 238, 0.08);
+  transform: scale(1.06);
+}
+.globe-ctl:active {
+  transform: scale(0.94);
+}
+
+/* Popup de tela cheia — mesmas animações popIn/popBgIn do legado */
+.globe-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.globe-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(10px);
+  animation: popBgIn var(--dur) var(--ease) both;
+  cursor: zoom-out;
+}
+
+.globe-modal__panel {
+  position: relative;
+  width: calc(100vw - 2rem);
+  height: calc(100vh - 6rem);
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--panel, var(--card));
+  border: 1px solid rgba(37, 244, 238, 0.22);
+  box-shadow:
+    0 0 0 1px rgba(37, 244, 238, 0.08),
+    0 24px 80px rgba(0, 0, 0, 0.6),
+    0 0 60px rgba(37, 244, 238, 0.07);
+  animation: popIn var(--dur) var(--spring) both;
+}
+
+/* Saída suave e fluida */
+.globe-modal--closing .globe-modal__backdrop {
+  animation: popBgIn var(--dur-fast) var(--ease) reverse both;
+}
+.globe-modal--closing .globe-modal__panel {
+  animation: popIn var(--dur-fast) var(--ease) reverse both;
+}
+
+@keyframes hotDot {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(1.9); opacity: 0; }
+}
+
+@keyframes drawLine {
+  from { stroke-dashoffset: 1000; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes sheen {
+  from { transform: translateX(-120%) skewX(-18deg); }
+  to { transform: translateX(220%) skewX(-18deg); }
+}
+
+@keyframes orbitSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes glowBreathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes barGrow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes numberFlash {
+  0% { color: var(--accent); text-shadow: 0 0 12px rgba(37, 244, 238, 0.6); }
+  100% { color: inherit; text-shadow: none; }
+}
+
+/* ============================================================
+   Utilitárias de animação
+   ============================================================ */
+
+.anim-kpi-in {
+  animation: kpiIn var(--dur-slow) var(--spring) both;
+}
+
+.anim-row-in {
+  animation: rowIn var(--dur) var(--ease) both;
+}
+
+.anim-live-row {
+  animation: liveRowIn 900ms var(--ease) both;
+}
+
+.anim-pop-in {
+  animation: popIn var(--dur) var(--spring) both;
+}
+
+.anim-val-flash {
+  animation: valFlash 800ms var(--ease);
+}
+
+.live-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: livePulse 2s var(--ease) infinite;
+}
+
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--success);
+  animation: ping 2s var(--ease) infinite;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.09) 50%,
+    rgba(255, 255, 255, 0.04) 75%
+  );
+  background-size: 200% 100%;
+  animation: skelShimmer 1.6s linear infinite;
+  border-radius: var(--radius-sm);
+}
+
+.text-gradient-brand {
+  background: var(--brand-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ============================================================
+   Marca ROI-NADOS — logo circular + anel cônico girando
+   ============================================================ */
+
+.brand-logo {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.brand-logo__ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    var(--accent),
+    var(--pink),
+    var(--accent),
+    var(--pink),
+    var(--accent)
+  );
+  animation: orbitSpin 6s linear infinite;
+  filter: blur(1px);
+  opacity: 0.9;
+}
+
+/* Máscara para virar apenas um anel (recorte central) */
+.brand-logo__ring::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.brand-logo__img {
+  position: relative;
+  z-index: 1;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 14px rgba(37, 244, 238, 0.35);
+}
+
+.group:hover .brand-logo__ring {
+  animation-duration: 2.4s;
+  opacity: 1;
+}
+
+/* Logo grande da sidebar — como no legado */
+.brand-logo--lg {
+  width: 112px;
+  height: 112px;
+}
+.brand-logo--lg .brand-logo__ring {
+  inset: -4px;
+  filter: blur(1.5px);
+}
+.brand-logo--lg .brand-logo__ring::after {
+  inset: 4px;
+}
+.brand-logo--lg .brand-logo__img {
+  width: 104px;
+  height: 104px;
+  box-shadow: 0 0 28px rgba(37, 244, 238, 0.3);
+}
+
+/* ============================================================
+   Sidebar — item de navegação com barra ciano à esquerda (legado)
+   ============================================================ */
+
+.side-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-sub);
+  transition:
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+.side-item:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.side-item--active {
+  color: var(--text);
+  background: var(--active);
+}
+
+/* Barra ciano à esquerda do item ativo — como no print do legado */
+.side-item--active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), var(--pink));
+  box-shadow: 0 0 8px rgba(37, 244, 238, 0.6);
+}
+
+/* ============================================================
+   Nav pills — navegação superior centralizada (identidade legada)
+   ============================================================ */
+
+.nav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-sub);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  transition:
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.nav-pill svg {
+  color: var(--text-faint);
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.nav-pill:hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.nav-pill:hover svg {
+  color: var(--text);
+}
+
+/* Ativa: borda ciano com glow, ícone aceso — como no legado */
+.nav-pill--active {
+  color: var(--text);
+  background: var(--accent-light);
+  border-color: rgba(37, 244, 238, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(37, 244, 238, 0.15),
+    0 4px 18px rgba(37, 244, 238, 0.12);
+}
+.nav-pill--active svg {
+  color: var(--accent);
+}
+
+/* ============================================================
+   Botões — ação primária visível (ciano sólido + glow)
+   ============================================================ */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: #05201f;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  border: 1px solid rgba(37, 244, 238, 0.5);
+  box-shadow: var(--glow-cyan-soft);
+  transition:
+    transform var(--dur-fast) var(--spring),
+    box-shadow var(--dur) var(--ease),
+    filter var(--dur-fast) var(--ease);
+}
+.btn-primary:hover {
+  filter: brightness(1.06);
+  box-shadow: var(--glow-cyan);
+  transform: translateY(-1px);
+}
+.btn-primary:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--text-sub);
+  background: var(--hover);
+  border: 1px solid var(--border);
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--spring);
+}
+.btn-ghost:hover {
+  background: var(--active);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+}
+.btn-ghost:active {
+  transform: scale(0.98);
+}
+
+.btn-danger {
+  color: #fff;
+  background: linear-gradient(135deg, #f0475a, var(--error));
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+/* ============================================================
+   Superfícies interativas — sheen + hover lift + press
+   ============================================================ */
+
+.surface {
+  position: relative;
+  transition:
+    transform var(--dur) var(--spring),
+    box-shadow var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.surface-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* Reflexo diagonal que cruza o card no hover */
+.sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.sheen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+  transform: translateX(-120%) skewX(-18deg);
+  pointer-events: none;
+  z-index: 1;
+}
+.sheen:hover::after {
+  animation: sheen 900ms var(--ease);
+}
+
+/* Stagger — atraso incremental via --i */
+.stagger > * {
+  animation: kpiIn var(--dur-slow) var(--spring) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+.anim-reveal {
+  animation: revealUp var(--dur-slow) var(--ease) both;
+}
+
+.anim-number-flash {
+  animation: numberFlash 800ms var(--ease);
+}
+
+.top-hairline {
+  position: relative;
+}
+.top-hairline::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(37, 244, 238, 0.5),
+    transparent
+  );
+}
+
+/* ============================================================
+   View Transitions
+   ============================================================ */
+
+::view-transition-old(.vt-fade-out) {
+  animation: popBgIn var(--dur-fast) var(--ease) reverse both;
+}
+
+::view-transition-new(.vt-fade-in) {
+  animation: kpiRise var(--dur) var(--ease) both;
+}
+
+/* ============================================================
+   Acessibilidade — reduced motion
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

@@ -1,0 +1,169 @@
+// Agregação client-side por período — espelha o comportamento da dashboard
+// legada (aggregate/prevWindow em dashboard-view.js): filtra events/leads
+// pelo intervalo e deriva os mesmos KPIs.
+
+import type { StatsResponse, Period, StatsEvent, Lead } from './types'
+
+export interface PeriodMetrics {
+  rev: Record<string, number>
+  mainCur: string
+  sales: number
+  failed: number
+  refunds: number
+  disputes: number
+  approval: number
+  visits: number
+  reachedCheckout: number
+  purchased: number
+  overall: number
+  avgTicket: number
+  countries: { code: string; name: string; count: number; purchased: number }[]
+  series: { day: string; revenue: number; sales: number; visits: number }[]
+  byGateway: { name: string; checkout: number; purchased: number }[]
+}
+
+export function periodStart(period: Period, now = new Date()): Date | null {
+  if (period === 'all') return null
+  const d = new Date(now)
+  if (period === 'today') {
+    d.setHours(0, 0, 0, 0)
+    return d
+  }
+  const days = period === '7d' ? 7 : 30
+  d.setDate(d.getDate() - days)
+  return d
+}
+
+export function prevWindow(period: Period, now = new Date()) {
+  const start = periodStart(period, now)
+  if (!start) return null
+  const span = now.getTime() - start.getTime()
+  return {
+    curFrom: start,
+    curTo: now,
+    prevFrom: new Date(start.getTime() - span),
+    prevTo: start,
+  }
+}
+
+function within(at: string, from: Date | null, to: Date | null) {
+  const t = new Date(at).getTime()
+  if (from && t < from.getTime()) return false
+  if (to && t > to.getTime()) return false
+  return true
+}
+
+export function aggregate(
+  data: StatsResponse,
+  from: Date | null,
+  to: Date | null = null,
+): PeriodMetrics {
+  const events: StatsEvent[] = data.events.filter((e) => within(e.at, from, to))
+  const leads: Lead[] = data.leads.filter(
+    (l) => !l.orphan && within(l.at, from, to),
+  )
+
+  const rev: Record<string, number> = {}
+  let sales = 0
+  let failed = 0
+  let refunds = 0
+  let disputes = 0
+
+  // Série diária para sparklines/gráfico
+  const dayMap = new Map<string, { revenue: number; sales: number; visits: number }>()
+  const dayOf = (at: string) => at.slice(0, 10)
+  const bump = (at: string, key: 'revenue' | 'sales' | 'visits', v: number) => {
+    const d = dayOf(at)
+    const cur = dayMap.get(d) ?? { revenue: 0, sales: 0, visits: 0 }
+    cur[key] += v
+    dayMap.set(d, cur)
+  }
+
+  for (const e of events) {
+    if (e.type === 'sale') {
+      sales++
+      const cur = (e.currency || 'EUR').toUpperCase()
+      rev[cur] = (rev[cur] || 0) + (e.amount || 0)
+      bump(e.at, 'revenue', e.amount || 0)
+      bump(e.at, 'sales', 1)
+    } else if (e.type === 'failed') failed++
+    else if (e.type === 'refund') refunds++
+    else if (e.type === 'dispute') disputes++
+  }
+
+  const visits = leads.length
+  const reachedCheckout = leads.filter(
+    (l) => l.stage === 'checkout' || l.stage === 'purchased',
+  ).length
+  const purchased = leads.filter((l) => l.stage === 'purchased').length
+
+  for (const l of leads) bump(l.at, 'visits', 1)
+
+  const countryMap = new Map<
+    string,
+    { code: string; name: string; count: number; purchased: number }
+  >()
+  for (const l of leads) {
+    if (!l.country) continue
+    const c = countryMap.get(l.country) ?? {
+      code: l.country,
+      name: l.countryName || l.country,
+      count: 0,
+      purchased: 0,
+    }
+    c.count++
+    if (l.stage === 'purchased') c.purchased++
+    countryMap.set(l.country, c)
+  }
+
+  // Funil por gateway — mesma lógica do byGateway do stats.js, mas por período
+  const gwMap = new Map<string, { name: string; checkout: number; purchased: number }>()
+  for (const l of leads) {
+    if (!l.gateway) continue
+    if (l.stage !== 'checkout' && l.stage !== 'purchased') continue
+    const g = gwMap.get(l.gateway) ?? { name: l.gateway, checkout: 0, purchased: 0 }
+    g.checkout++
+    if (l.stage === 'purchased') g.purchased++
+    gwMap.set(l.gateway, g)
+  }
+
+  const attempts = sales + failed
+  const mainCur =
+    Object.entries(rev).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'EUR'
+  const totalRev = rev[mainCur] || 0
+
+  const series = [...dayMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, v]) => ({ day, ...v }))
+
+  return {
+    rev,
+    mainCur,
+    sales,
+    failed,
+    refunds,
+    disputes,
+    approval: attempts ? +((sales / attempts) * 100).toFixed(1) : 0,
+    visits,
+    reachedCheckout,
+    purchased,
+    overall: visits ? +((purchased / visits) * 100).toFixed(1) : 0,
+    avgTicket: sales ? Math.round(totalRev / sales) : 0,
+    countries: [...countryMap.values()].sort((a, b) => b.count - a.count),
+    series,
+    byGateway: [...gwMap.values()].sort((a, b) => b.checkout - a.checkout),
+  }
+}
+
+// Formata centavos como moeda (mesma regra fmtMoney do Express: pt-PT)
+export function money(cents: number, currency = 'EUR'): string {
+  return new Intl.NumberFormat('pt-PT', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+  }).format((cents || 0) / 100)
+}
+
+export function deltaPct(cur: number, prev: number): number | null {
+  if (!prev) return null
+  return +(((cur - prev) / prev) * 100).toFixed(1)
+}
