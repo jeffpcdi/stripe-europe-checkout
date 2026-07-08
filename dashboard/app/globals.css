@@ -778,7 +778,99 @@ html[data-section='geo'] .app-bg__aurora::before {
   background: var(--active);
 }
 
-/* Barra ciano à esquerda do item ativo — como no print do legado */
+/* Item 11: micro-bounce do ícone no hover (spring scale) */
+.side-item svg {
+  transition: transform var(--dur-fast) var(--spring);
+}
+.side-item:hover svg {
+  transform: scale(1.15);
+}
+
+/* Item 7: tooltip flutuante com nome + descrição (desktop) */
+.side-item__tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0;
+  scale: 0.94;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    scale var(--dur-fast) var(--spring);
+  white-space: nowrap;
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--bg) 88%, white 4%);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+}
+.side-item:hover .side-item__tip,
+.side-item:focus-visible .side-item__tip {
+  opacity: 1;
+  scale: 1;
+  transition-delay: 350ms;
+}
+
+/* Item 206: entrada com stagger (uma vez, no primeiro load) */
+.side-item--enter {
+  animation: rowIn 360ms var(--ease) both;
+}
+
+/* Item 12: divisória de seção com hairline ciano→transparente */
+.side-section-divider {
+  height: 1px;
+  margin: 0 0.75rem;
+  background: linear-gradient(90deg, rgba(37, 244, 238, 0.25), transparent 80%);
+}
+
+/* Item 210: label da seção ativa em ciano 60% */
+.side-section-label--active {
+  color: rgba(37, 244, 238, 0.6) !important;
+}
+
+/* Item 9: badge numérico do Ao Vivo */
+.side-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(37, 244, 238, 0.12);
+  border: 1px solid rgba(37, 244, 238, 0.25);
+}
+.side-badge--pulse {
+  animation: numberFlash 800ms var(--ease);
+}
+
+/* Itens 6/94/207: glow pulsante da logo + onda ripple manual */
+.brand-logo__ripple {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+.brand-logo--rippling .brand-logo__ripple {
+  animation: ringRipple 900ms var(--ease) both;
+}
+.group:hover .brand-logo {
+  scale: 1.02;
+  transition: scale var(--dur-fast) var(--spring);
+}
+
+/* Barra ciano à esquerda do item ativo — como no print do legado.
+   Item 8: view-transition-name faz a barra deslizar entre itens. */
 .side-item--active::before {
   content: '';
   position: absolute;
@@ -788,6 +880,7 @@ html[data-section='geo'] .app-bg__aurora::before {
   width: 3px;
   height: 60%;
   border-radius: 999px;
+  view-transition-name: side-active-bar;
   background: linear-gradient(180deg, var(--accent), var(--pink));
   box-shadow: 0 0 8px rgba(37, 244, 238, 0.6);
 }

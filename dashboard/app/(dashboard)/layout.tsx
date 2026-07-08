@@ -2,6 +2,7 @@ import { ViewTransition } from 'react'
 import { Sidebar } from '@/components/shell/sidebar'
 import { TopNav } from '@/components/shell/topnav'
 import { Header } from '@/components/shell/header'
+import { TabNotifier } from '@/components/shell/tab-notifier'
 
 export default function DashboardLayout({
   children,
@@ -10,6 +11,8 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="flex min-h-dvh">
+      {/* Itens 201/202: título da aba + favicon reagem a vendas e saúde */}
+      <TabNotifier />
       {/* Sidebar lateral esquerda — desktop */}
       <Sidebar />
 
