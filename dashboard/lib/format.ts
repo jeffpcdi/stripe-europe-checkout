@@ -147,6 +147,33 @@ export function timeAgo(iso?: string): string {
   return `há ${Math.floor(s / 86400)}d`
 }
 
+const dayKeyFmt = new Intl.DateTimeFormat('en-CA', {
+  // en-CA gera YYYY-MM-DD — estável para comparar dias no fuso certo
+  timeZone: TIMEZONE,
+})
+
+const dayShortFmt = new Intl.DateTimeFormat(LOCALE, {
+  day: '2-digit',
+  month: '2-digit',
+  timeZone: TIMEZONE,
+})
+
+/** Rótulo de agrupamento por dia (item 151): "Hoje", "Ontem" ou "05/07". */
+export function dayLabel(iso?: string): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    const key = dayKeyFmt.format(d)
+    const today = dayKeyFmt.format(new Date())
+    const yesterday = dayKeyFmt.format(new Date(Date.now() - 86_400_000))
+    if (key === today) return 'Hoje'
+    if (key === yesterday) return 'Ontem'
+    return dayShortFmt.format(d)
+  } catch {
+    return ''
+  }
+}
+
 /* ── Domínio (legado) ──────────────────────────────────────────────────── */
 
 /** Bandeira emoji a partir do código ISO do país (ex.: "BR" → 🇧🇷) */

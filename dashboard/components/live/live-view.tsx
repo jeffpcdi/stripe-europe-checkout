@@ -1,33 +1,129 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import { useLive } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
-import { countryFlag, pageLabel, liveDuration, isCheckoutVisitor } from '@/lib/format'
+import { countryFlag, pageLabel, liveDuration, isCheckoutVisitor, plural } from '@/lib/format'
 import { ShoppingCart, Radio, Users, Globe2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { LiveVisitor } from '@/lib/types'
 
-function VisitorRow({ v }: { v: LiveVisitor }) {
+/* Item 64: odômetro — dígitos rolantes que deslizam a cada mudança */
+function OdometerDigit({ digit }: { digit: number }) {
+  return (
+    <span className="inline-block h-[1em] overflow-hidden align-baseline">
+      <span
+        className="flex flex-col transition-transform duration-500 ease-out"
+        style={{ transform: `translateY(-${digit}em)` }}
+        aria-hidden="true"
+      >
+        {Array.from({ length: 10 }).map((_, n) => (
+          <span key={n} className="h-[1em] leading-none">
+            {n}
+          </span>
+        ))}
+      </span>
+    </span>
+  )
+}
+
+function Odometer({ value }: { value: number }) {
+  const digits = String(Math.max(0, value)).split('').map(Number)
+  const prev = useRef(value)
+  const [pulse, setPulse] = useState(false)
+
+  // Ring de pulso a cada incremento
+  useEffect(() => {
+    if (value > prev.current) {
+      setPulse(true)
+      const t = window.setTimeout(() => setPulse(false), 900)
+      prev.current = value
+      return () => window.clearTimeout(t)
+    }
+    prev.current = value
+  }, [value])
+
+  return (
+    <span className="relative inline-flex items-baseline">
+      {pulse ? (
+        <span
+          className="absolute -inset-2 animate-ping rounded-full bg-[var(--accent)]/15"
+          aria-hidden="true"
+        />
+      ) : null}
+      <span className="sr-only">{value}</span>
+      {digits.map((d, i) => (
+        <OdometerDigit key={`${digits.length}-${i}`} digit={d} />
+      ))}
+    </span>
+  )
+}
+
+/* Item 67: indicador de conexão com 3 estados */
+function ConnectionDot({ state }: { state: 'ok' | 'reconnecting' | 'down' }) {
+  const map = {
+    ok: { color: 'var(--success)', label: 'Conectado', anim: 'animate-pulse' },
+    reconnecting: { color: 'var(--warning)', label: 'Reconectando', anim: 'animate-ping' },
+    down: { color: 'var(--destructive)', label: 'Sem conexão', anim: '' },
+  } as const
+  const s = map[state]
+  return (
+    <span className="inline-flex items-center gap-1.5" title={s.label}>
+      <span className="relative flex size-2">
+        {s.anim ? (
+          <span
+            className={cn('absolute inline-flex size-full rounded-full opacity-60', s.anim)}
+            style={{ background: s.color }}
+            aria-hidden="true"
+          />
+        ) : null}
+        <span
+          className="relative inline-flex size-2 rounded-full"
+          style={{ background: s.color, boxShadow: `0 0 6px ${s.color}` }}
+          aria-hidden="true"
+        />
+      </span>
+      <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        {s.label}
+      </span>
+    </span>
+  )
+}
+
+function VisitorRow({ v, isNew }: { v: LiveVisitor; isNew?: boolean }) {
   const idle = (v.idleMs || 0) > 20_000
   const inCheckout = isCheckoutVisitor(v.page)
   return (
     <div
       className={cn(
-        'flex items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 transition-colors',
+        // Item 66: linha do tempo — dot alinhado ao hairline vertical do feed
+        'relative flex items-center gap-3 rounded-lg border border-transparent py-2.5 pl-7 pr-3 transition-colors',
         inCheckout && 'border-primary/20 bg-primary/5',
-        idle && 'opacity-55'
+        idle && 'opacity-55',
+        // Item 63: entrada em cascata com flash ciano para visitantes novos
+        isNew && 'anim-live-row',
       )}
     >
       <span
         className={cn(
-          'size-2 shrink-0 rounded-full',
+          'absolute left-[9px] top-1/2 size-2 -translate-y-1/2 rounded-full',
           idle ? 'bg-muted-foreground/40' : 'bg-success shadow-[0_0_8px_var(--success)]',
-          !idle && 'animate-pulse'
+          !idle && 'animate-pulse',
         )}
         aria-hidden
       />
-      <span className="text-base leading-none" aria-hidden>
+      {/* Item 65: bandeira entra com pop + ring ciano quando novo */}
+      <span
+        className={cn(
+          'relative text-base leading-none',
+          isNew && 'anim-pop-in',
+        )}
+        aria-hidden
+      >
+        {isNew ? (
+          <span className="absolute -inset-1.5 animate-ping rounded-full border border-[var(--brand-cyan)]/40" />
+        ) : null}
         {countryFlag(v.country)}
       </span>
       <div className="min-w-0 flex-1">
@@ -47,14 +143,18 @@ function VisitorRow({ v }: { v: LiveVisitor }) {
         {(v.pageviews || 1) > 1 ? (
           <span title="páginas vistas nesta sessão">{v.pageviews} págs</span>
         ) : null}
-        <span className="tabular-nums">{liveDuration(v.durationMs)}</span>
+        <span className="font-mono tabular-nums">{liveDuration(v.durationMs)}</span>
       </div>
     </div>
   )
 }
 
 export function LiveView() {
-  const { data, isLoading, error } = useLive()
+  const { data, isLoading, error, isValidating } = useLive()
+
+  // Item 63/65: rastreia ids já vistos — novos ganham animação de entrada
+  const seenIds = useRef<Set<string> | null>(null)
+  const newIds = useRef<Set<string>>(new Set())
 
   const visitors = data?.visitors ?? []
   // dedupe defensivo por id (mesma lógica do legado)
@@ -65,6 +165,23 @@ export function LiveView() {
     seen.add(id)
     return true
   })
+
+  useEffect(() => {
+    if (!data) return
+    const ids = (data.visitors ?? []).map((v) => v.id).filter(Boolean) as string[]
+    if (seenIds.current === null) {
+      seenIds.current = new Set(ids)
+      return
+    }
+    const fresh = ids.filter((id) => !seenIds.current!.has(id))
+    for (const id of fresh) {
+      seenIds.current.add(id)
+      newIds.current.add(id)
+      // remove o realce depois da animação
+      window.setTimeout(() => newIds.current.delete(id), 4000)
+    }
+  }, [data])
+
   // checkout primeiro (mais quentes no topo), depois por atividade
   const sorted = unique.toSorted((a, b) => {
     const ac = isCheckoutVisitor(a.page) ? 1 : 0
@@ -76,6 +193,13 @@ export function LiveView() {
   const online = data?.summary.online ?? 0
   const countries = data?.summary.countries ?? []
 
+  // Item 67: estado da conexão a partir do ciclo do SWR
+  const connState: 'ok' | 'reconnecting' | 'down' = error
+    ? data && isValidating
+      ? 'reconnecting'
+      : 'down'
+    : 'ok'
+
   return (
     <div className="flex flex-col gap-4">
       {/* Resumo do topo */}
@@ -85,7 +209,10 @@ export function LiveView() {
             <Radio className="size-4.5" aria-hidden />
           </span>
           <div>
-            <p className="font-mono text-xl font-semibold text-foreground">{online}</p>
+            {/* Item 64: odômetro com dígitos rolantes */}
+            <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+              <Odometer value={online} />
+            </p>
             <p className="label-mono">Online agora</p>
           </div>
         </GlassCard>
@@ -94,7 +221,7 @@ export function LiveView() {
             <ShoppingCart className="size-4.5" aria-hidden />
           </span>
           <div>
-            <p className="font-mono text-xl font-semibold text-foreground">
+            <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
               {inCheckoutCount + (data?.checkout.externalEst ?? 0)}
             </p>
             <p className="label-mono">No checkout (est.)</p>
@@ -105,7 +232,9 @@ export function LiveView() {
             <Globe2 className="size-4.5" aria-hidden />
           </span>
           <div>
-            <p className="font-mono text-xl font-semibold text-foreground">{countries.length}</p>
+            <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+              {countries.length}
+            </p>
             <p className="label-mono">Países ativos</p>
           </div>
         </GlassCard>
@@ -114,12 +243,18 @@ export function LiveView() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
         {/* Lista de visitantes */}
         <GlassCard className="p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="section-head text-sm font-semibold text-foreground">Visitantes agora</h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <h2 className="section-head text-sm font-semibold text-foreground">
+                Visitantes agora
+              </h2>
+              {/* Item 67: indicador de conexão do feed */}
+              <ConnectionDot state={connState} />
+            </div>
             {inCheckoutCount > 0 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
                 <span className="size-1.5 animate-pulse rounded-full bg-primary" aria-hidden />
-                {inCheckoutCount} lead{inCheckoutCount > 1 ? 's' : ''} no checkout agora
+                {plural(inCheckoutCount, 'lead')} no checkout agora
               </span>
             ) : null}
           </div>
@@ -129,14 +264,23 @@ export function LiveView() {
               <Skeleton className="h-12" />
               <Skeleton className="h-12" />
             </div>
-          ) : error ? (
+          ) : error && !data ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
               Não foi possível carregar a presença ao vivo.
             </p>
           ) : sorted.length > 0 ? (
-            <div className="flex flex-col gap-1">
+            /* Item 66: hairline vertical conectando os eventos */
+            <div className="relative flex flex-col gap-1">
+              <span
+                className="pointer-events-none absolute bottom-3 left-[12px] top-3 w-px"
+                style={{
+                  background:
+                    'linear-gradient(180deg, transparent, rgba(37,244,238,.25) 15%, rgba(37,244,238,.25) 85%, transparent)',
+                }}
+                aria-hidden="true"
+              />
               {sorted.map((v) => (
-                <VisitorRow key={v.id} v={v} />
+                <VisitorRow key={v.id} v={v} isNew={!!v.id && newIds.current.has(v.id)} />
               ))}
             </div>
           ) : (
@@ -160,7 +304,9 @@ export function LiveView() {
                 <li key={c.code} className="flex items-center gap-2.5 text-sm">
                   <span aria-hidden>{countryFlag(c.code)}</span>
                   <span className="min-w-0 flex-1 truncate text-foreground">{c.name}</span>
-                  <span className="font-semibold tabular-nums text-primary">{c.count}</span>
+                  <span className="font-mono font-semibold tabular-nums text-primary">
+                    {c.count}
+                  </span>
                 </li>
               ))}
             </ul>
