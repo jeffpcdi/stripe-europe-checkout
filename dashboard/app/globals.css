@@ -398,6 +398,86 @@ h3 {
   50% { opacity: 0.4; }
 }
 
+/* ============================================================
+   Globo — contraste, controles e tela cheia
+   ============================================================ */
+
+/* O globo é o elemento principal: realce de contraste e saturação */
+.globe-stage canvas {
+  filter: contrast(1.18) saturate(1.3) brightness(1.08);
+}
+
+/* Botão de controle flutuante (zoom / tela cheia / fechar) */
+.globe-ctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: var(--text-sub);
+  background: rgba(8, 8, 10, 0.72);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--spring);
+}
+.globe-ctl:hover {
+  color: var(--accent);
+  border-color: rgba(37, 244, 238, 0.45);
+  background: rgba(37, 244, 238, 0.08);
+  transform: scale(1.06);
+}
+.globe-ctl:active {
+  transform: scale(0.94);
+}
+
+/* Popup de tela cheia — mesmas animações popIn/popBgIn do legado */
+.globe-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.globe-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(10px);
+  animation: popBgIn var(--dur) var(--ease) both;
+  cursor: zoom-out;
+}
+
+.globe-modal__panel {
+  position: relative;
+  width: calc(100vw - 2rem);
+  height: calc(100vh - 6rem);
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--panel, var(--card));
+  border: 1px solid rgba(37, 244, 238, 0.22);
+  box-shadow:
+    0 0 0 1px rgba(37, 244, 238, 0.08),
+    0 24px 80px rgba(0, 0, 0, 0.6),
+    0 0 60px rgba(37, 244, 238, 0.07);
+  animation: popIn var(--dur) var(--spring) both;
+}
+
+/* Saída suave e fluida */
+.globe-modal--closing .globe-modal__backdrop {
+  animation: popBgIn var(--dur-fast) var(--ease) reverse both;
+}
+.globe-modal--closing .globe-modal__panel {
+  animation: popIn var(--dur-fast) var(--ease) reverse both;
+}
+
 @keyframes hotDot {
   from { transform: scale(1); opacity: 1; }
   to { transform: scale(1.9); opacity: 0; }
