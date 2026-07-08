@@ -18,5 +18,21 @@ export function SectionAttr() {
     document.documentElement.dataset.section = section
   }, [pathname])
 
+  // Bloco S: aplica preferências visuais salvas (densidade/animações/
+  // privacidade) no boot de qualquer página, antes do usuário abrir Config.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('roi:prefs')
+      if (!raw) return
+      const prefs = JSON.parse(raw) as Record<string, string>
+      const el = document.documentElement
+      if (prefs.density) el.dataset.density = prefs.density
+      if (prefs.anim) el.dataset.anim = prefs.anim
+      if (prefs.privacy) el.dataset.privacy = prefs.privacy
+    } catch {
+      /* prefs corrompidas — ignora */
+    }
+  }, [])
+
   return null
 }

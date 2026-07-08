@@ -764,6 +764,71 @@ html[data-section='geo'] .app-bg__aurora::before {
   pointer-events: none;
 }
 
+/* ===== Fase 8 — formulários e preferências (blocos M e S) ===== */
+
+/* Item 77: underline gradiente cresce do centro ao focar o input */
+.input-neon {
+  background-image: linear-gradient(90deg, var(--accent), var(--pink));
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: 0% 2px;
+  transition:
+    background-size var(--dur) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.input-neon:focus {
+  background-size: 100% 2px;
+}
+
+/* Item 79: erro de validação entra com shake curto */
+@keyframes shakeX {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+.anim-shake {
+  animation: shakeX 320ms var(--ease);
+}
+
+/* Item 82: zona de perigo demarcada — hairline rosa + fundo rosa 3% */
+.danger-zone {
+  border-color: rgba(254, 44, 85, 0.3) !important;
+  background:
+    linear-gradient(rgba(254, 44, 85, 0.03), rgba(254, 44, 85, 0.03)),
+    var(--lg-tint);
+}
+
+/* Item 121: modo compacto — paddings de cards/tabelas reduzidos ~25% */
+html[data-density='compact'] .glass.p-5 {
+  padding: 1rem;
+}
+html[data-density='compact'] .glass.p-4 {
+  padding: 0.75rem;
+}
+html[data-density='compact'] table td,
+html[data-density='compact'] table th {
+  padding-block: 0.35rem;
+}
+
+/* Item 122: reduzir animações por preferência do usuário (além do SO) */
+html[data-anim='off'] *,
+html[data-anim='off'] *::before,
+html[data-anim='off'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* Item 125: modo apresentação — borra valores sensíveis */
+[data-sensitive] {
+  transition: filter var(--dur) var(--ease);
+}
+html[data-privacy='on'] [data-sensitive] {
+  filter: blur(9px);
+}
+
 /* Item 149: highlight do termo buscado em ciano */
 mark.search-hit {
   background: rgba(37, 244, 238, 0.22);

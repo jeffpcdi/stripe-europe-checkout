@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useSWRConfig } from 'swr'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { RefreshCw, LogOut, UserRound } from 'lucide-react'
+import { RefreshCw, LogOut, UserRound, Eye, EyeOff } from 'lucide-react'
 import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
 import { useAccount, useHealth } from '@/lib/api'
+import { usePrefs } from '@/lib/prefs'
 import { cn } from '@/lib/utils'
 
 const ALL_ITEMS = NAV_SECTIONS.flatMap((s) => s.items)
@@ -104,6 +105,27 @@ function RefreshButton() {
       title={lastAt ? `Atualizado às ${TIME_FMT.format(lastAt)}` : 'Atualizar dados'}
     >
       <RefreshCw className={cn('size-3.5', busy && 'animate-spin')} aria-hidden="true" />
+    </button>
+  )
+}
+
+/** Item 125: modo apresentação — borra receita/valores sensíveis para demos */
+function PrivacyButton() {
+  const { prefs, update } = usePrefs()
+  const on = prefs.privacy === 'on'
+  return (
+    <button
+      type="button"
+      onClick={() => update({ privacy: on ? 'off' : 'on' })}
+      className={cn(
+        'glass hidden size-8 items-center justify-center rounded-full transition-colors sm:flex',
+        on ? 'text-brand-cyan' : 'text-muted-foreground hover:text-foreground',
+      )}
+      aria-label={on ? 'Mostrar valores sensíveis' : 'Ocultar valores sensíveis'}
+      aria-pressed={on}
+      title={on ? 'Modo apresentação ativo — valores borrados' : 'Ocultar valores para gravar tela'}
+    >
+      {on ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
     </button>
   )
 }
@@ -234,6 +256,7 @@ export function Header() {
             <LiveClock />
           </span>
           <div className="flex items-center gap-2">
+            <PrivacyButton />
             <RefreshButton />
             <LiveBadge />
             <UserMenu />

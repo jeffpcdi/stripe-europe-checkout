@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { GlassCard } from '@/components/glass-card'
 import { countryFlag, gwLabel, timeAgo, formatMoney, plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Search, X } from 'lucide-react'
 import type { Lead } from '@/lib/types'
 
 const STAGE_LABEL: Record<string, string> = {
@@ -88,6 +88,31 @@ export function LeadsTable({
     setPage(0)
   }
 
+  // Item 130: exporta os leads filtrados como CSV, client-side
+  function exportCsv() {
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const header = ['id', 'etapa', 'pais', 'gateway', 'valor', 'quando']
+    const rows = filtered.map((l) =>
+      [
+        l.id,
+        STAGE_LABEL[l.stage] ?? l.stage,
+        l.countryName || l.country || '',
+        l.gateway ? gwLabel(l.gateway) : '',
+        l.amount ? formatMoney(l.amount, l.currency) : '',
+        l.at,
+      ].map(esc).join(','),
+    )
+    const blob = new Blob(['\uFEFF' + [header.join(','), ...rows].join('\n')], {
+      type: 'text/csv;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <GlassCard className="p-4">
       <div className="mb-2 flex flex-wrap items-center gap-3">
@@ -96,6 +121,17 @@ export function LeadsTable({
           {plural(filtered.length, 'lead')}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* Item 130: exportar CSV discreto no canto do card */}
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+            className="flex h-8 items-center gap-1.5 rounded-md border border-border/60 px-2.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+            title="Exportar leads filtrados como CSV"
+          >
+            <Download className="size-3.5" aria-hidden="true" />
+            CSV
+          </button>
           <div className="relative">
             <Search
               className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"

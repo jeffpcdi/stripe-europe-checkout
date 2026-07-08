@@ -200,11 +200,14 @@ export function OverviewView() {
           tint="green"
           label="Receita total"
           value={
-            <CountUp
-              value={revCents}
-              format={(v) => money(Math.round(v), cur.mainCur)}
-              className={revCents > 0 ? 'text-success' : 'text-muted-foreground'}
-            />
+            /* Item 125: borrado no modo apresentação */
+            <span data-sensitive>
+              <CountUp
+                value={revCents}
+                format={(v) => money(Math.round(v), cur.mainCur)}
+                className={revCents > 0 ? 'text-success' : 'text-muted-foreground'}
+              />
+            </span>
           }
           sub="no período selecionado"
           delta={revDelta}
@@ -283,7 +286,7 @@ export function OverviewView() {
           color={hasSales ? '#25f4ee' : NEUTRAL}
           bg={hasSales ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
           label="Ticket médio"
-          value={money(cur.avgTicket, cur.mainCur)}
+          value={<span data-sensitive>{money(cur.avgTicket, cur.mainCur)}</span>}
           sub="por venda aprovada"
         />
         <MiniStat
