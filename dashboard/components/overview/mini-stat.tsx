@@ -42,7 +42,7 @@ export function MiniStat({
           <p className="truncate font-mono text-base font-semibold" style={{ color }}>
             {value}
           </p>
-          <p className="truncate text-[11px] text-muted-foreground">{sub}</p>
+          <p className="line-clamp-2 text-[11px] leading-snug text-muted-foreground">{sub}</p>
         </div>
       </div>
       {extra}

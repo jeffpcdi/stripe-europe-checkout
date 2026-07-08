@@ -82,7 +82,7 @@ export function aggregate(
   for (const e of events) {
     if (e.type === 'sale') {
       sales++
-      const cur = (e.currency || 'EUR').toUpperCase()
+      const cur = (e.currency || 'BRL').toUpperCase()
       rev[cur] = (rev[cur] || 0) + (e.amount || 0)
       bump(e.at, 'revenue', e.amount || 0)
       bump(e.at, 'sales', 1)
@@ -129,7 +129,7 @@ export function aggregate(
 
   const attempts = sales + failed
   const mainCur =
-    Object.entries(rev).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'EUR'
+    Object.entries(rev).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'BRL'
   const totalRev = rev[mainCur] || 0
 
   const series = [...dayMap.entries()]
@@ -155,13 +155,8 @@ export function aggregate(
   }
 }
 
-// Formata centavos como moeda (mesma regra fmtMoney do Express: pt-PT)
-export function money(cents: number, currency = 'EUR'): string {
-  return new Intl.NumberFormat('pt-PT', {
-    style: 'currency',
-    currency: currency.toUpperCase(),
-  }).format((cents || 0) / 100)
-}
+// Formata centavos como moeda — delega ao helper unificado (item 185).
+export { fmtCurrency as money } from './format'
 
 export function deltaPct(cur: number, prev: number): number | null {
   if (!prev) return null

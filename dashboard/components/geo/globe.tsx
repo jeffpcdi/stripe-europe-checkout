@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import GlobeGL from 'react-globe.gl'
-import { Maximize2, Minus, Plus, X } from 'lucide-react'
+import { Crosshair, Maximize2, Minus, Plus, X } from 'lucide-react'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
 
 interface GeoPoint {
@@ -14,8 +14,19 @@ interface GeoPoint {
   label: string
 }
 
+interface GeoArc {
+  startLat: number
+  startLng: number
+  endLat: number
+  endLng: number
+}
+
 interface GlobePanelProps {
   countries: { code: string; name: string; count: number; purchased: number }[]
+  /* Item 161: código do país em foco (hover na tabela) — gira o globo até ele */
+  focusCode?: string | null
+  /* Item 163: métrica ativa muda a cor dos pontos */
+  metric?: 'visits' | 'sales'
 }
 
 // Cores da marca capturadas do legado
@@ -26,18 +37,27 @@ const ALT_MIN = 1.2
 const ALT_MAX = 3.5
 const ALT_DEFAULT = 2.2
 const ALT_STEP = 0.45
+// Item 30: reentrada cinematográfica — começa distante e faz zoom-in
+const ALT_ENTRY = 4.5
+const ENTRY_MS = 1600
 
-function buildPoints(countries: GlobePanelProps['countries']) {
-  const max = Math.max(1, ...countries.map((c) => c.count))
-  const points: GeoPoint[] = countries.flatMap((c) => {
+function buildPoints(
+  countries: GlobePanelProps['countries'],
+  metric: 'visits' | 'sales' = 'visits',
+) {
+  // Item 163: em "vendas" só países com compra pontuam, em verde
+  const base = metric === 'sales' ? countries.filter((c) => c.purchased > 0) : countries
+  const max = Math.max(1, ...base.map((c) => (metric === 'sales' ? c.purchased : c.count)))
+  const points: GeoPoint[] = base.flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
+    const value = metric === 'sales' ? c.purchased : c.count
     return [
       {
         lat: coords[0],
         lng: coords[1],
-        size: 0.25 + (c.count / max) * 0.85,
-        color: c.purchased > 0 ? PINK : CYAN,
+        size: 0.25 + (value / max) * 0.85,
+        color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
         label: `${c.name}: ${c.count} visitas${c.purchased ? ` · ${c.purchased} vendas` : ''}`,
       },
     ]
@@ -48,7 +68,38 @@ function buildPoints(countries: GlobePanelProps['countries']) {
     if (!coords || c.purchased <= 0) return []
     return [{ lat: coords[0], lng: coords[1] }]
   })
-  return { points, rings }
+  // Item 32: arcos de tráfego — dos demais países ativos para o país líder
+  const leader = countries[0]
+  const leaderCoords = leader ? COUNTRY_COORDS[leader.code?.toUpperCase() ?? ''] : null
+  const arcs: GeoArc[] = leaderCoords
+    ? countries.slice(1, 9).flatMap((c) => {
+        const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
+        if (!coords) return []
+        return [
+          {
+            startLat: coords[0],
+            startLng: coords[1],
+            endLat: leaderCoords[0],
+            endLng: leaderCoords[1],
+          },
+        ]
+      })
+    : []
+  return { points, rings, arcs }
+}
+
+/** Item 30/37: anima a chegada da órbita — zoom-in distante → próximo */
+function playEntry(globeRef: React.MutableRefObject<any>) {
+  const g = globeRef.current
+  if (!g) return
+  g.pointOfView({ lat: 20, lng: -30, altitude: ALT_ENTRY }, 0)
+  g.controls().autoRotateSpeed = 2.4
+  window.setTimeout(() => {
+    g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, ENTRY_MS)
+  }, 60)
+  window.setTimeout(() => {
+    if (globeRef.current) globeRef.current.controls().autoRotateSpeed = 0.6
+  }, ENTRY_MS + 120)
 }
 
 /** Canvas do globo — reutilizado no painel e na tela cheia */
@@ -57,18 +108,26 @@ function GlobeCanvas({
   width,
   height,
   globeRef,
+  metric = 'visits',
 }: GlobePanelProps & {
   width: number
   height: number
   globeRef: React.MutableRefObject<any>
 }) {
+  const entered = useRef(false)
+
   useEffect(() => {
     const g = globeRef.current
     if (!g) return
     g.controls().autoRotate = true
-    g.controls().autoRotateSpeed = 0.6
     g.controls().enableZoom = false
-    g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 0)
+
+    if (!entered.current) {
+      entered.current = true
+      playEntry(globeRef)
+    } else {
+      g.controls().autoRotateSpeed = 0.6
+    }
 
     // Mais contraste: luzes mais fortes que os padrões suaves do three-globe
     try {
@@ -81,7 +140,7 @@ function GlobeCanvas({
     }
   }, [width, globeRef])
 
-  const { points, rings } = buildPoints(countries)
+  const { points, rings, arcs } = buildPoints(countries, metric)
 
   return (
     <GlobeGL
@@ -107,27 +166,45 @@ function GlobeCanvas({
       ringMaxRadius={4}
       ringPropagationSpeed={2}
       ringRepeatPeriod={900}
+      /* Item 32: arcos ciano→rosa com dash animado rumo ao país líder */
+      arcsData={arcs}
+      arcStartLat="startLat"
+      arcStartLng="startLng"
+      arcEndLat="endLat"
+      arcEndLng="endLng"
+      arcColor={() => [CYAN, PINK]}
+      arcAltitudeAutoScale={0.35}
+      arcStroke={0.4}
+      arcDashLength={0.45}
+      arcDashGap={0.6}
+      arcDashAnimateTime={2400}
     />
   )
 }
 
-/** Controles flutuantes: zoom + / − e tela cheia — estilo do legado */
+/** Controles flutuantes: zoom + / − / recentrar / tela cheia */
 function GlobeControls({
   onZoomIn,
   onZoomOut,
+  onRecenter,
   onFullscreen,
 }: {
   onZoomIn: () => void
   onZoomOut: () => void
+  onRecenter: () => void
   onFullscreen?: () => void
 }) {
   return (
-    <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5">
+    <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5" data-tour="globe-controls">
       <button type="button" onClick={onZoomIn} className="globe-ctl" aria-label="Aproximar">
         <Plus className="size-4" aria-hidden="true" />
       </button>
       <button type="button" onClick={onZoomOut} className="globe-ctl" aria-label="Afastar">
         <Minus className="size-4" aria-hidden="true" />
+      </button>
+      {/* Item 37: recentrar refaz a animação de reentrada */}
+      <button type="button" onClick={onRecenter} className="globe-ctl" aria-label="Recentrar globo">
+        <Crosshair className="size-4" aria-hidden="true" />
       </button>
       {onFullscreen && (
         <button
@@ -143,6 +220,47 @@ function GlobeControls({
   )
 }
 
+/* Item 35: HUD orbital — corner brackets + legenda mono */
+function GlobeHud({ empty }: { empty?: boolean }) {
+  return (
+    <>
+      <span className="hud-corner hud-corner--tl" aria-hidden="true" />
+      <span className="hud-corner hud-corner--tr" aria-hidden="true" />
+      <span className="hud-corner hud-corner--bl" aria-hidden="true" />
+      <span className="hud-corner hud-corner--br" aria-hidden="true" />
+      {/* Alinhado à esquerda para nunca colidir com a legenda de intensidade à direita */}
+      <span
+        className="label-mono pointer-events-none absolute bottom-3 left-8 z-10 whitespace-nowrap text-[9.5px] opacity-70"
+        aria-hidden="true"
+      >
+        ROI-NADOS · TRÁFEGO GLOBAL
+      </span>
+      {/* Item 165: mini-legenda de intensidade */}
+      <span
+        className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-1.5"
+        aria-hidden="true"
+      >
+        <span className="font-mono text-[9px] uppercase tracking-wider text-faint">fraco</span>
+        <span
+          className="h-1 w-12 rounded-full"
+          style={{ background: 'linear-gradient(90deg, rgba(37,244,238,.15), #25f4ee, #fe2c55)' }}
+        />
+        <span className="font-mono text-[9px] uppercase tracking-wider text-faint">forte</span>
+      </span>
+      {/* Item 166: estado sem dados */}
+      {empty ? (
+        <span className="globe-empty-note">
+          <span className="glass rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            aguardando tráfego
+          </span>
+        </span>
+      ) : null}
+      {/* Item 98: reflexo de chão ciano na base */}
+      <span className="globe-floor" aria-hidden="true" />
+    </>
+  )
+}
+
 function zoomBy(globeRef: React.MutableRefObject<any>, delta: number) {
   const g = globeRef.current
   if (!g) return
@@ -151,7 +269,14 @@ function zoomBy(globeRef: React.MutableRefObject<any>, delta: number) {
   g.pointOfView({ ...pov, altitude }, 320)
 }
 
-export default function GlobePanel({ countries }: GlobePanelProps) {
+/* Item 34: rotação desacelera no hover e retoma ao sair */
+function hoverSpeed(globeRef: React.MutableRefObject<any>, hovering: boolean) {
+  const g = globeRef.current
+  if (!g) return
+  g.controls().autoRotateSpeed = hovering ? 0.15 : 0.6
+}
+
+export default function GlobePanel({ countries, focusCode, metric = 'visits' }: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
   const fsGlobeRef = useRef<any>(null)
@@ -160,12 +285,26 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
   const [fullscreen, setFullscreen] = useState(false)
   const [closing, setClosing] = useState(false)
 
+  const empty = countries.length === 0
+
+  // Item 161: hover na tabela gira o globo até o país
+  useEffect(() => {
+    if (!focusCode) return
+    const coords = COUNTRY_COORDS[focusCode.toUpperCase()]
+    const g = globeRef.current
+    if (!coords || !g) return
+    const alt = g.pointOfView().altitude
+    g.pointOfView({ lat: coords[0], lng: coords[1], altitude: alt }, 700)
+  }, [focusCode])
+
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver((entries) => {
+      // Item 172: mede também a altura — 55vh em mobile, 420px em desktop
       const w = entries[0].contentRect.width
-      setSize({ w, h: 420 })
+      const h = entries[0].contentRect.height || 420
+      setSize({ w, h })
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -203,7 +342,10 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
     <>
       <div
         ref={containerRef}
-        className="globe-stage relative h-[420px] w-full overflow-hidden rounded-xl"
+        className="globe-stage energy-border relative h-[55vh] w-full overflow-hidden rounded-xl md:h-[420px]"
+        data-tour="globe"
+        onPointerEnter={() => hoverSpeed(globeRef, true)}
+        onPointerLeave={() => hoverSpeed(globeRef, false)}
       >
         {size.w > 0 && (
           <GlobeCanvas
@@ -211,11 +353,14 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
             width={size.w}
             height={size.h}
             globeRef={globeRef}
+            metric={metric}
           />
         )}
+        <GlobeHud empty={empty} />
         <GlobeControls
           onZoomIn={() => zoomBy(globeRef, -ALT_STEP)}
           onZoomOut={() => zoomBy(globeRef, ALT_STEP)}
+          onRecenter={() => playEntry(globeRef)}
           onFullscreen={() => setFullscreen(true)}
         />
       </div>
@@ -234,7 +379,11 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
               aria-label="Fechar tela cheia"
               onClick={closeFullscreen}
             />
-            <div className="globe-modal__panel globe-stage">
+            <div
+              className="globe-modal__panel globe-stage"
+              onPointerEnter={() => hoverSpeed(fsGlobeRef, true)}
+              onPointerLeave={() => hoverSpeed(fsGlobeRef, false)}
+            >
               <button
                 type="button"
                 onClick={closeFullscreen}
@@ -249,11 +398,14 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
                   width={fsSize.w}
                   height={fsSize.h}
                   globeRef={fsGlobeRef}
+                  metric={metric}
                 />
               )}
+              <GlobeHud empty={empty} />
               <GlobeControls
                 onZoomIn={() => zoomBy(fsGlobeRef, -ALT_STEP)}
                 onZoomOut={() => zoomBy(fsGlobeRef, ALT_STEP)}
+                onRecenter={() => playEntry(fsGlobeRef)}
               />
             </div>
           </div>,

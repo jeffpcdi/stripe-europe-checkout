@@ -1,9 +1,9 @@
 'use client'
 
 import { GlassCard } from '@/components/glass-card'
-import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
 import { useHealth } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 const CHECKS: { key: 'db' | 'redis' | 'conversionWebhook' | 'tiktok' | 'pushcut'; label: string }[] = [
   { key: 'db', label: 'Banco de dados' },
@@ -46,15 +46,27 @@ export function HealthCard() {
       ) : error ? (
         <p className="text-sm text-error">Não foi possível carregar a saúde do sistema.</p>
       ) : data ? (
-        <ul className="flex flex-col gap-2.5">
+        // Item 137: dots pulsantes nos ativos, âmbar estático nos inativos
+        <ul className="anim-content-in flex flex-col gap-2.5">
           {CHECKS.map((c) => {
             const ok = data[c.key]
             return (
               <li key={c.key} className="flex items-center justify-between gap-3">
                 <span className="text-sm text-sub">{c.label}</span>
-                <StatusBadge status={ok ? 'success' : 'warning'}>
-                  {ok ? 'Ativo' : 'Inativo'}
-                </StatusBadge>
+                <span className="flex items-center gap-2">
+                  <span
+                    className={ok ? 'svc-dot svc-dot--ok' : 'svc-dot svc-dot--off'}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className={cn(
+                      'font-mono text-[11px]',
+                      ok ? 'text-success' : 'text-warning',
+                    )}
+                  >
+                    {ok ? 'Ativo' : 'Inativo'}
+                  </span>
+                </span>
               </li>
             )
           })}

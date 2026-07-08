@@ -167,8 +167,9 @@ function DomainCard({
     <GlassCard className="p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
+          {/* Item 75: check verde com draw-in de SVG path quando verificado */}
           {domain.verificado ? (
-            <CheckCircle2 className="size-5 text-[color:var(--success)]" />
+            <CheckCircle2 className="check-draw size-5 text-[color:var(--success)]" />
           ) : (
             <AlertCircle className="size-5 text-[color:var(--warning)]" />
           )}
@@ -204,7 +205,7 @@ function DomainCard({
         <div className="mt-3 flex flex-col gap-1.5 rounded-lg border border-border bg-secondary/40 p-3 text-xs">
           <div className="flex items-center gap-2">
             {result.dnsOk ? (
-              <CheckCircle2 className="size-3.5 text-[color:var(--success)]" />
+              <CheckCircle2 className="check-draw size-3.5 text-[color:var(--success)]" />
             ) : (
               <AlertCircle className="size-3.5 text-[color:var(--warning)]" />
             )}
@@ -212,7 +213,7 @@ function DomainCard({
           </div>
           <div className="flex items-center gap-2">
             {result.httpOk ? (
-              <CheckCircle2 className="size-3.5 text-[color:var(--success)]" />
+              <CheckCircle2 className="check-draw size-3.5 text-[color:var(--success)]" />
             ) : (
               <AlertCircle className="size-3.5 text-[color:var(--warning)]" />
             )}

@@ -3,6 +3,7 @@
 import type { LucideIcon } from 'lucide-react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
+import { fmtDelta } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export type KpiTint = 'green' | 'cyan' | 'amber' | 'neutral'
@@ -21,6 +22,14 @@ const tintBg: Record<KpiTint, string> = {
   neutral: 'bg-[var(--hover)]',
 }
 
+// Item 20: glow neon da cor da métrica na cápsula do ícone
+const tintGlow: Record<KpiTint, string> = {
+  green: '0 0 14px rgba(34,197,94,.35)',
+  cyan: '0 0 14px rgba(37,244,238,.35)',
+  amber: '0 0 14px rgba(251,191,36,.35)',
+  neutral: 'none',
+}
+
 export function DeltaChip({ delta, invert = false }: { delta: number | null; invert?: boolean }) {
   if (delta === null) return null
   const good = invert ? delta < 0 : delta > 0
@@ -36,8 +45,9 @@ export function DeltaChip({ delta, invert = false }: { delta: number | null; inv
             : 'bg-[var(--error-light)] text-error',
       )}
     >
-      <Icon className="size-3" aria-hidden="true" />
-      {Math.abs(delta)}%
+      {/* Item 21: seta entra com spring */}
+      <Icon className="delta-icon size-3" aria-hidden="true" />
+      <span className="font-mono tabular-nums">{fmtDelta(delta)}</span>
     </span>
   )
 }
@@ -72,13 +82,12 @@ export function KpiCard({
       className={cn('anim-kpi-in relative overflow-hidden p-5', hero && 'kpi-hero')}
       style={{ animationDelay: `${index * 70}ms` }}
     >
-      {hero ? (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{ background: 'var(--brand-grad)' }}
-        />
-      ) : null}
+      {/* Item 117: hairline gradiente padronizada em todos os KPIs (mais forte no hero) */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px"
+        style={{ background: 'var(--brand-grad)', opacity: hero ? 1 : 0.35 }}
+      />
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span
@@ -87,6 +96,7 @@ export function KpiCard({
               tintBg[tint],
               tintText[tint],
             )}
+            style={{ boxShadow: tintGlow[tint] }}
             aria-hidden="true"
           >
             <Icon className="size-4" />
@@ -98,10 +108,11 @@ export function KpiCard({
 
       <div className="mt-4 flex items-end justify-between gap-3">
         <div className="min-w-0">
+          {/* Item 89: hero com peso 700 e tracking -0.03em */}
           <div
             className={cn(
-              'font-mono font-semibold tracking-tight',
-              hero ? 'text-3xl' : 'text-2xl',
+              'font-mono tracking-tight',
+              hero ? 'kpi-value-hero text-3xl' : 'text-2xl font-semibold',
             )}
           >
             {value}

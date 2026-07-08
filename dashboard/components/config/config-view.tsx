@@ -1,9 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send } from 'lucide-react'
+import {
+  User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send, SlidersHorizontal,
+} from 'lucide-react'
 import useSWR from 'swr'
 import { useAccount, usePushcutConfig, apiSend, fetcher } from '@/lib/api'
+import { usePrefs } from '@/lib/prefs'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 
@@ -20,10 +23,90 @@ export function ConfigView() {
   return (
     <div className="flex flex-col gap-6">
       <AccountCard />
+      <PreferencesCard />
       <PushcutCard />
       <ApiTokenCard />
       <DangerCard />
     </div>
+  )
+}
+
+/** Bloco S (itens 121/122/125): preferências visuais persistidas em localStorage */
+function PreferencesCard() {
+  const { prefs, update } = usePrefs()
+
+  const OPTIONS: {
+    key: 'density' | 'anim' | 'privacy'
+    label: string
+    hint: string
+    on: string
+    off: string
+    isOn: boolean
+    toggle: () => void
+  }[] = [
+    {
+      key: 'density',
+      label: 'Modo compacto',
+      hint: 'Reduz espaçamentos de cards e tabelas em ~25%',
+      on: 'compact',
+      off: 'comfortable',
+      isOn: prefs.density === 'compact',
+      toggle: () => update({ density: prefs.density === 'compact' ? 'comfortable' : 'compact' }),
+    },
+    {
+      key: 'anim',
+      label: 'Reduzir animações',
+      hint: 'Desliga transições e efeitos de movimento',
+      on: 'off',
+      off: 'on',
+      isOn: prefs.anim === 'off',
+      toggle: () => update({ anim: prefs.anim === 'off' ? 'on' : 'off' }),
+    },
+    {
+      key: 'privacy',
+      label: 'Modo apresentação',
+      hint: 'Borra receita e valores sensíveis para gravar tela',
+      on: 'on',
+      off: 'off',
+      isOn: prefs.privacy === 'on',
+      toggle: () => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' }),
+    },
+  ]
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <SlidersHorizontal className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="section-head text-sm font-semibold text-foreground">Aparência</h2>
+          <p className="text-xs text-muted-foreground">
+            Preferências visuais salvas neste navegador
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 border-t border-border pt-3">
+        {OPTIONS.map((opt) => (
+          <label key={opt.key} className="flex cursor-pointer items-center justify-between gap-3 py-1">
+            <span>
+              <span className="block text-sm text-foreground">{opt.label}</span>
+              <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={opt.isOn}
+              aria-label={opt.label}
+              onClick={opt.toggle}
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${opt.isOn ? 'bg-[color:var(--brand-cyan)]' : 'bg-secondary'}`}
+            >
+              <span
+                className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${opt.isOn ? 'translate-x-4' : 'translate-x-0.5'}`}
+              />
+            </button>
+          </label>
+        ))}
+      </div>
+    </GlassCard>
   )
 }
 
@@ -95,7 +178,8 @@ function DangerCard() {
   }
 
   return (
-    <GlassCard className="border-destructive/30 p-5">
+    /* Item 82: zona de perigo demarcada — hairline rosa + fundo rosa 3% */
+    <GlassCard className="danger-zone p-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
           <Trash2 className="size-4 text-destructive" />
@@ -237,8 +321,9 @@ function PushcutCard() {
     }
   }
 
+  // Item 77: underline gradiente cresce do centro ao focar
   const inputCls =
-    'w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none'
+    'input-neon w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none'
 
   return (
     <GlassCard className="p-5">
@@ -288,9 +373,14 @@ function PushcutCard() {
         ))}
       </div>
 
-      {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+      {/* Item 79: erro entra com shake curto; sucesso com check draw-in */}
+      {error && <p className="anim-shake mt-3 text-xs text-destructive">{error}</p>}
       {testMsg && (
-        <p className={`mt-3 text-xs ${testMsg.ok ? 'text-success' : 'text-destructive'}`}>{testMsg.text}</p>
+        <p
+          className={`mt-3 text-xs ${testMsg.ok ? 'text-success' : 'anim-shake text-destructive'}`}
+        >
+          {testMsg.text}
+        </p>
       )}
 
       <div className="mt-4 flex justify-end gap-2">

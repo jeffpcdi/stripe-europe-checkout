@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Link2, Plus, Copy, Check, Pencil, Trash2, Globe, Languages } from 'lucide-react'
+import { Link2, Plus, Copy, Check, Pencil, Trash2, Globe, Languages, QrCode } from 'lucide-react'
 import { useLinks, useDomains, apiSend } from '@/lib/api'
 import type { CheckoutLink } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -15,6 +15,8 @@ export function LinksView() {
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  // Item 71: QR code em popover glass por link
+  const [qrFor, setQrFor] = useState<string | null>(null)
 
   const appHost = domainsData?.appHost ?? ''
   const links = data?.links ?? []
@@ -74,7 +76,11 @@ export function LinksView() {
             const clicks = l.variantes.reduce((s, v) => s + v.clicks, 0)
             const convs = l.variantes.reduce((s, v) => s + v.conversions, 0)
             return (
-              <GlassCard key={l.slug} className="p-4">
+              /* Item 69: hover eleva com sheen; slug em mono ciano */
+              <GlassCard
+                key={l.slug}
+                className="sheen p-4 transition-transform duration-150 hover:-translate-y-0.5"
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -95,7 +101,8 @@ export function LinksView() {
                       )}
                     </div>
                     <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                      {publicUrl(l)}
+                      https://{l.dominio || appHost}/go/
+                      <span className="text-primary">{l.slug}</span>
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>
@@ -115,7 +122,8 @@ export function LinksView() {
                       )}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="relative flex shrink-0 items-center gap-1">
+                    {/* Item 70: morph clipboard → check com rotação spring */}
                     <button
                       type="button"
                       onClick={() => copyUrl(l)}
@@ -123,11 +131,34 @@ export function LinksView() {
                       aria-label="Copiar URL"
                     >
                       {copied === l.slug ? (
-                        <Check className="size-4 text-[color:var(--success)]" />
+                        <Check className="anim-pop-in size-4 text-[color:var(--success)]" />
                       ) : (
                         <Copy className="size-4" />
                       )}
                     </button>
+                    {/* Item 71: QR code em popover glass */}
+                    <button
+                      type="button"
+                      onClick={() => setQrFor(qrFor === l.slug ? null : l.slug)}
+                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      aria-label="Ver QR code"
+                      aria-expanded={qrFor === l.slug}
+                    >
+                      <QrCode className="size-4" />
+                    </button>
+                    {qrFor === l.slug && (
+                      <div className="glass glass-thick anim-pop-in absolute right-0 top-11 z-20 flex flex-col items-center gap-2 p-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&bgcolor=13-13-16&color=37-244-238&data=${encodeURIComponent(publicUrl(l))}`}
+                          alt={`QR code do link ${l.nome}`}
+                          width={140}
+                          height={140}
+                          className="rounded-md"
+                        />
+                        <span className="font-mono text-[10px] text-muted-foreground">/go/{l.slug}</span>
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => setEditing(l)}

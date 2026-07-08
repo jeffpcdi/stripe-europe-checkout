@@ -7,3 +7,4 @@ node_modules/
 # de verdade durável é o Neon e o app recria estes arquivos sozinho)
 data/
 pixels/
+*.tsbuildinfo

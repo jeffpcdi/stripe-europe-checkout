@@ -15,7 +15,7 @@
   --text: #f7f7f8;
   --text-sub: #d7d7db;
   --text-muted: #adadb6;
-  --text-faint: #8a8a93;
+  --text-faint: #94949d; /* Item 100: contraste AA para textos secundários */
 
   /* Marca */
   --accent: #25f4ee;
@@ -80,6 +80,15 @@
   --glow-cyan: 0 0 0 1px rgba(37, 244, 238, 0.35), 0 8px 24px rgba(37, 244, 238, 0.25);
   --glow-pink: 0 0 0 1px rgba(254, 44, 85, 0.35), 0 8px 24px rgba(254, 44, 85, 0.22);
   --glow-cyan-soft: 0 6px 20px rgba(37, 244, 238, 0.18);
+  --glow-pink-soft: 0 6px 20px rgba(254, 44, 85, 0.18);
+
+  /* Item 39: borda com contraste real para controles ghost */
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  /* Item 118: escala única de espaçamento vertical entre seções */
+  --gap-section-sm: 1rem; /* 16px — dentro de grupos */
+  --gap-section: 1.5rem; /* 24px — entre seções */
+  --gap-section-lg: 2rem; /* 32px — quebras maiores */
 }
 
 @theme inline {
@@ -183,6 +192,27 @@ h3 {
   color: var(--accent);
 }
 
+/* Item 88: números tabulares também em tabelas e contadores não-mono */
+table,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Item 89: valor hero dos KPIs — peso 700, tracking apertado */
+.kpi-value-hero {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* Item 91: H1 com gradiente branco→ciano sutil */
+.h1-gradient {
+  background: linear-gradient(100deg, var(--text) 55%, rgba(37, 244, 238, 0.75));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* Título de seção padronizado: hairline + eyebrow */
 .section-head {
   display: flex;
@@ -212,14 +242,17 @@ h3 {
   border-radius: var(--radius-sm);
 }
 
-/* Scrollbar fino, discreto */
+/* Item 51: scrollbar com gradiente da marca */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(37, 244, 238, 0.45), rgba(254, 44, 85, 0.45));
   border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(37, 244, 238, 0.7), rgba(254, 44, 85, 0.7));
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -312,6 +345,43 @@ h3 {
   bottom: -30vmax;
   right: -18vmax;
   animation: meshFloat 32s var(--ease) infinite alternate;
+}
+
+/* Item 1: vinheta radial — escurece as bordas, foco central no conteúdo */
+.app-bg__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 120% 90% at 50% 40%,
+    transparent 55%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+
+/* Item 2: orbe terciário âmbar-fraco atrás da área de gráficos/globo */
+.app-bg__amber {
+  position: absolute;
+  width: 44vmax;
+  height: 44vmax;
+  border-radius: 50%;
+  filter: blur(140px);
+  opacity: 0.04;
+  top: 30%;
+  left: 50%;
+  background: radial-gradient(circle, #fbbf24, transparent 65%);
+  animation: auroraDrift 44s var(--ease) infinite alternate-reverse;
+  will-change: transform;
+}
+
+/* Item 5: cor do orbe primário muda levemente por seção */
+html[data-section='live'] .app-bg__aurora::before {
+  background: radial-gradient(circle, #fe2c55, transparent 65%);
+}
+html[data-section='geo'] .app-bg__aurora::before {
+  background: radial-gradient(circle, #fbbf24, transparent 65%);
+}
+.app-bg__aurora::before {
+  transition: background 1.2s var(--ease);
 }
 
 /* Grain: textura fina para quebrar bandas nos gradientes */
@@ -435,6 +505,83 @@ h3 {
   transform: scale(0.94);
 }
 
+/* Item 93: borda "energia" — gradiente ciano-rosa percorrendo o perímetro */
+@property --energy-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes energyRotate {
+  to { --energy-angle: 360deg; }
+}
+.energy-border {
+  position: relative;
+}
+.energy-border::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--energy-angle),
+    rgba(37, 244, 238, 0.6),
+    transparent 20%,
+    transparent 45%,
+    rgba(254, 44, 85, 0.5) 55%,
+    transparent 70%,
+    transparent 92%,
+    rgba(37, 244, 238, 0.6)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: energyRotate 12s linear infinite;
+  pointer-events: none;
+}
+
+/* Item 35: HUD orbital — corner brackets ciano nos cantos do painel */
+.hud-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid rgba(37, 244, 238, 0.5);
+  pointer-events: none;
+  z-index: 5;
+}
+.hud-corner--tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; border-top-left-radius: 6px; }
+.hud-corner--tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; border-top-right-radius: 6px; }
+.hud-corner--bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; border-bottom-left-radius: 6px; }
+.hud-corner--br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; border-bottom-right-radius: 6px; }
+
+/* Item 98: reflexo de chão — o globo ilumina a superfície */
+.globe-floor {
+  position: absolute;
+  inset-inline: 10%;
+  bottom: 0;
+  height: 22%;
+  background: radial-gradient(ellipse 60% 100% at 50% 100%, rgba(37, 244, 238, 0.06), transparent 70%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Item 36: contraste extra no fullscreen */
+.globe-modal__panel.globe-stage canvas {
+  filter: contrast(1.25) saturate(1.4) brightness(1.1);
+}
+
+/* Item 166: pontos fantasma no estado sem dados */
+.globe-empty-note {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 18%;
+  display: flex;
+  justify-content: center;
+  z-index: 5;
+  pointer-events: none;
+}
+
 /* Popup de tela cheia — mesmas animações popIn/popBgIn do legado */
 .globe-modal {
   position: fixed;
@@ -517,6 +664,327 @@ h3 {
   100% { color: inherit; text-shadow: none; }
 }
 
+/* Item 57: shimmer neon para skeletons (varredura ciano 8%) */
+@keyframes shimmerNeon {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* Item 94/207: onda ripple única disparada no anel da logo */
+@keyframes ringRipple {
+  from { transform: scale(1); opacity: 0.55; }
+  to { transform: scale(1.9); opacity: 0; }
+}
+
+/* Item 93: borda "energia" — conic-gradient girando com mask */
+@keyframes energySpin {
+  to { --energy-angle: 360deg; }
+}
+
+/* Item 62: spinner da marca — anel cônico girando */
+@keyframes brandSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Item 143: barras do funil preenchem da esquerda com stagger */
+@keyframes barFill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.funnel-bar {
+  transform-origin: left center;
+  animation: barFill 700ms var(--ease) both;
+}
+
+/* Item 75: check DNS com draw-in de SVG path (stroke-dashoffset) */
+@keyframes checkDraw {
+  from { stroke-dashoffset: 80; }
+  to { stroke-dashoffset: 0; }
+}
+.check-draw path,
+.check-draw circle,
+.check-draw polyline {
+  stroke-dasharray: 80;
+  animation: checkDraw 600ms var(--ease) both;
+}
+
+/* Item 76: switch mestre do cloaker — glow rosa quando ativo */
+.cloak-switch {
+  position: relative;
+  height: 32px;
+  width: 60px;
+  border-radius: 999px;
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.cloak-switch--on {
+  background: var(--pink);
+  box-shadow:
+    0 0 0 1px rgba(254, 44, 85, 0.5),
+    0 0 22px rgba(254, 44, 85, 0.55);
+}
+.cloak-switch--off {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.cloak-switch__knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  height: 24px;
+  width: 24px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--dur) var(--spring);
+}
+.cloak-switch--on .cloak-switch__knob {
+  transform: translateX(28px);
+}
+
+/* Item 76: banner "Cloaker ativo" com scanline sutil */
+@keyframes scanline {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(400%); }
+}
+.cloak-banner {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(254, 44, 85, 0.35);
+  background: rgba(254, 44, 85, 0.08);
+}
+.cloak-banner::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 22%;
+  background: linear-gradient(180deg, transparent, rgba(254, 44, 85, 0.14), transparent);
+  animation: scanline 3.2s linear infinite;
+  pointer-events: none;
+}
+
+/* ===== Fase 8 — formulários e preferências (blocos M e S) ===== */
+
+/* Item 77: underline gradiente cresce do centro ao focar o input */
+.input-neon {
+  background-image: linear-gradient(90deg, var(--accent), var(--pink));
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: 0% 2px;
+  transition:
+    background-size var(--dur) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.input-neon:focus {
+  background-size: 100% 2px;
+}
+
+/* Item 79: erro de validação entra com shake curto */
+@keyframes shakeX {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+.anim-shake {
+  animation: shakeX 320ms var(--ease);
+}
+
+/* Item 82: zona de perigo demarcada — hairline rosa + fundo rosa 3% */
+.danger-zone {
+  border-color: rgba(254, 44, 85, 0.3) !important;
+  background:
+    linear-gradient(rgba(254, 44, 85, 0.03), rgba(254, 44, 85, 0.03)),
+    var(--lg-tint);
+}
+
+/* Item 121: modo compacto — paddings de cards/tabelas reduzidos ~25% */
+html[data-density='compact'] .glass.p-5 {
+  padding: 1rem;
+}
+html[data-density='compact'] .glass.p-4 {
+  padding: 0.75rem;
+}
+html[data-density='compact'] table td,
+html[data-density='compact'] table th {
+  padding-block: 0.35rem;
+}
+
+/* Item 122: reduzir animações por preferência do usuário (além do SO) */
+html[data-anim='off'] *,
+html[data-anim='off'] *::before,
+html[data-anim='off'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* Item 125: modo apresentação — borra valores sensíveis */
+[data-sensitive] {
+  transition: filter var(--dur) var(--ease);
+}
+html[data-privacy='on'] [data-sensitive] {
+  filter: blur(9px);
+}
+
+/* Item 149: highlight do termo buscado em ciano */
+mark.search-hit {
+  background: rgba(37, 244, 238, 0.22);
+  color: var(--accent);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+/* ===== Fase 9 — mobile, performance e command palette (N, X, Y) ===== */
+
+/* Item 167: KPIs em carrossel horizontal com snap em telas <640px */
+@media (max-width: 639px) {
+  .kpi-carousel {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    padding-bottom: 0.25rem;
+  }
+  .kpi-carousel::-webkit-scrollbar {
+    display: none;
+  }
+  .kpi-carousel > * {
+    scroll-snap-align: center;
+    flex: 0 0 86%;
+    min-width: 0;
+  }
+}
+
+/* Item 171: PeriodPicker sticky no topo em mobile com blur */
+@media (max-width: 767px) {
+  .picker-sticky {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 30;
+  }
+}
+
+/* Item 177: seções abaixo da dobra só renderizam quando visíveis */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
+}
+
+/* Item 87: command palette — overlay glass e resultados */
+.cmdk-item {
+  position: relative;
+  transition: background var(--dur-fast) var(--ease);
+}
+.cmdk-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--spring);
+}
+.cmdk-item[data-active='true'] {
+  background: rgba(37, 244, 238, 0.06);
+}
+.cmdk-item[data-active='true']::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+/* Item 180: micro-spinner de busca dentro do input */
+@keyframes microSpin {
+  to { transform: rotate(360deg); }
+}
+.micro-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(37, 244, 238, 0.25);
+  border-top-color: var(--accent);
+  animation: microSpin 600ms linear infinite;
+}
+
+/* ===== Fase 10 — tours, acessibilidade e identidade (H, Q, P) ===== */
+
+/* Itens 44/50: spotlight do tour — backdrop com recorte radial no alvo */
+@keyframes spotFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tour-spotlight {
+  background: radial-gradient(
+    circle var(--sr, 80px) at var(--sx, 50%) var(--sy, 50%),
+    transparent 0%,
+    transparent 88%,
+    rgba(4, 4, 6, 0.8) 100%
+  );
+  animation: spotFadeIn 240ms var(--ease) both;
+}
+
+/* Item 99: estados :active táteis em tudo que é clicável */
+button:active:not(:disabled),
+a:active,
+[role='button']:active,
+[role='switch']:active {
+  transform: scale(0.97);
+}
+
+/* Item 102: skip-link aparece com spring no primeiro Tab */
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: #000;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: top var(--dur) var(--spring);
+}
+.skip-link:focus-visible {
+  top: 1rem;
+}
+
+/* Item 94: assinatura da logo — pulso de onda a cada 30s */
+@keyframes logoRipple {
+  0% { box-shadow: 0 0 0 0 rgba(37, 244, 238, 0.5); }
+  4% { box-shadow: 0 0 0 14px rgba(37, 244, 238, 0); }
+  5%, 100% { box-shadow: 0 0 0 0 rgba(37, 244, 238, 0); }
+}
+.logo-ripple {
+  animation: logoRipple 30s linear infinite;
+  border-radius: 50%;
+}
+
+/* Item 96: glow reativo — receita brilha proporcional ao crescimento */
+.kpi-glow {
+  box-shadow: 0 0 calc(12px + 26px * var(--glow, 0))
+    rgba(37, 244, 238, calc(0.06 + 0.2 * var(--glow, 0)));
+  transition: box-shadow 600ms var(--ease);
+}
+
+/* Item 16: sheen lento no hairline do header */
+@keyframes hairlineSheen {
+  0%, 55% { transform: translateX(-100%); }
+  85%, 100% { transform: translateX(100%); }
+}
+
 /* ============================================================
    Utilitárias de animação
    ============================================================ */
@@ -541,6 +1009,120 @@ h3 {
   animation: valFlash 800ms var(--ease);
 }
 
+/* Item 29: flash âmbar→transparente em célula atualizada via tempo real */
+@keyframes cellFlash {
+  0% { background: rgba(251, 191, 36, 0.16); }
+  100% { background: transparent; }
+}
+.anim-cell-flash {
+  animation: cellFlash 900ms var(--ease);
+}
+
+/* Item 60: crossfade skeleton → conteúdo (220ms) */
+@keyframes contentIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-content-in {
+  animation: contentIn 220ms var(--ease) both;
+}
+
+/* Item 17: borda gradiente cônica girando lentamente no KPI hero */
+@property --kpi-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes kpiBorderSpin {
+  to { --kpi-angle: 360deg; }
+}
+.kpi-hero {
+  isolation: isolate;
+}
+.kpi-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--kpi-angle),
+    rgba(37, 244, 238, 0.55),
+    rgba(254, 44, 85, 0.3) 25%,
+    transparent 45%,
+    transparent 70%,
+    rgba(37, 244, 238, 0.55)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: kpiBorderSpin 9s linear infinite;
+  pointer-events: none;
+}
+
+/* Item 21: seta do delta entra com spring (sobe/desce) */
+@keyframes deltaPop {
+  0% { transform: translateY(4px) scale(0.5); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.delta-icon {
+  animation: deltaPop 420ms var(--spring) both;
+}
+
+/* Item 27: linha de tabela com hover deslizante — ciano 4% + barra esquerda */
+.tr-hover {
+  position: relative;
+  transition: background var(--dur-fast) var(--ease);
+}
+.tr-hover::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15%;
+  bottom: 15%;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--spring);
+}
+.tr-hover:hover {
+  background: rgba(37, 244, 238, 0.04);
+}
+.tr-hover:hover::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+/* Item 28: seta de ordenação com rotação spring */
+.sort-arrow {
+  display: inline-block;
+  transition: transform var(--dur-fast) var(--spring);
+}
+.sort-arrow--desc {
+  transform: rotate(180deg);
+}
+
+/* Item 137: dots de serviço — pulsante quando ativo, âmbar estático inativo */
+.svc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.svc-dot--ok {
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.55);
+  animation: livePulse 2.4s var(--ease) infinite;
+}
+.svc-dot--off {
+  background: var(--warning);
+}
+
 .live-dot {
   position: relative;
   width: 8px;
@@ -559,15 +1141,16 @@ h3 {
   animation: ping 2s var(--ease) infinite;
 }
 
+/* Item 57: skeleton com varredura ciano 8% (shimmer neon da marca) */
 .skeleton {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0.04) 25%,
-    rgba(255, 255, 255, 0.09) 50%,
+    rgba(37, 244, 238, 0.08) 50%,
     rgba(255, 255, 255, 0.04) 75%
   );
   background-size: 200% 100%;
-  animation: skelShimmer 1.6s linear infinite;
+  animation: shimmerNeon 1.8s linear infinite;
   border-radius: var(--radius-sm);
 }
 
@@ -679,7 +1262,99 @@ h3 {
   background: var(--active);
 }
 
-/* Barra ciano à esquerda do item ativo — como no print do legado */
+/* Item 11: micro-bounce do ícone no hover (spring scale) */
+.side-item svg {
+  transition: transform var(--dur-fast) var(--spring);
+}
+.side-item:hover svg {
+  transform: scale(1.15);
+}
+
+/* Item 7: tooltip flutuante com nome + descrição (desktop) */
+.side-item__tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0;
+  scale: 0.94;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    scale var(--dur-fast) var(--spring);
+  white-space: nowrap;
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--bg) 88%, white 4%);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+}
+.side-item:hover .side-item__tip,
+.side-item:focus-visible .side-item__tip {
+  opacity: 1;
+  scale: 1;
+  transition-delay: 350ms;
+}
+
+/* Item 206: entrada com stagger (uma vez, no primeiro load) */
+.side-item--enter {
+  animation: rowIn 360ms var(--ease) both;
+}
+
+/* Item 12: divisória de seção com hairline ciano→transparente */
+.side-section-divider {
+  height: 1px;
+  margin: 0 0.75rem;
+  background: linear-gradient(90deg, rgba(37, 244, 238, 0.25), transparent 80%);
+}
+
+/* Item 210: label da seção ativa em ciano 60% */
+.side-section-label--active {
+  color: rgba(37, 244, 238, 0.6) !important;
+}
+
+/* Item 9: badge numérico do Ao Vivo */
+.side-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(37, 244, 238, 0.12);
+  border: 1px solid rgba(37, 244, 238, 0.25);
+}
+.side-badge--pulse {
+  animation: numberFlash 800ms var(--ease);
+}
+
+/* Itens 6/94/207: glow pulsante da logo + onda ripple manual */
+.brand-logo__ripple {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+.brand-logo--rippling .brand-logo__ripple {
+  animation: ringRipple 900ms var(--ease) both;
+}
+.group:hover .brand-logo {
+  scale: 1.02;
+  transition: scale var(--dur-fast) var(--spring);
+}
+
+/* Barra ciano à esquerda do item ativo — como no print do legado.
+   Item 8: view-transition-name faz a barra deslizar entre itens. */
 .side-item--active::before {
   content: '';
   position: absolute;
@@ -689,6 +1364,7 @@ h3 {
   width: 3px;
   height: 60%;
   border-radius: 999px;
+  view-transition-name: side-active-bar;
   background: linear-gradient(180deg, var(--accent), var(--pink));
   box-shadow: 0 0 8px rgba(37, 244, 238, 0.6);
 }
@@ -746,6 +1422,7 @@ h3 {
    Botões — ação primária visível (ciano sólido + glow)
    ============================================================ */
 
+/* Item 38: primária reforçada — gradiente ciano, texto escuro, glow 30% → 45% no hover */
 .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -755,23 +1432,24 @@ h3 {
   font-weight: 600;
   font-size: 0.8125rem;
   color: #05201f;
-  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-  border: 1px solid rgba(37, 244, 238, 0.5);
-  box-shadow: var(--glow-cyan-soft);
+  background: linear-gradient(135deg, #7ff9f5, var(--accent) 45%, var(--accent-dark));
+  border: 1px solid rgba(37, 244, 238, 0.55);
+  box-shadow: 0 6px 20px rgba(37, 244, 238, 0.3);
   transition:
     transform var(--dur-fast) var(--spring),
     box-shadow var(--dur) var(--ease),
     filter var(--dur-fast) var(--ease);
 }
 .btn-primary:hover {
-  filter: brightness(1.06);
-  box-shadow: var(--glow-cyan);
+  filter: brightness(1.08);
+  box-shadow: 0 0 0 1px rgba(37, 244, 238, 0.4), 0 10px 32px rgba(37, 244, 238, 0.45);
   transform: translateY(-1px);
 }
 .btn-primary:active {
-  transform: translateY(0) scale(0.98);
+  transform: translateY(0) scale(0.97);
 }
 
+/* Item 39: ghost com borda visível e fundo 6% no repouso */
 .btn-ghost {
   display: inline-flex;
   align-items: center;
@@ -781,8 +1459,8 @@ h3 {
   font-weight: 600;
   font-size: 0.8125rem;
   color: var(--text-sub);
-  background: var(--hover);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-strong);
   transition:
     background var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease),
@@ -790,17 +1468,31 @@ h3 {
 }
 .btn-ghost:hover {
   background: var(--active);
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.26);
   color: var(--text);
 }
 .btn-ghost:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
+/* Item 40: danger sólido rosa da marca com glow no hover */
 .btn-danger {
   color: #fff;
-  background: linear-gradient(135deg, #f0475a, var(--error));
-  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: linear-gradient(135deg, #ff5c7c, var(--pink));
+  border: 1px solid rgba(254, 44, 85, 0.55);
+  box-shadow: var(--glow-pink-soft);
+  transition:
+    transform var(--dur-fast) var(--spring),
+    box-shadow var(--dur) var(--ease),
+    filter var(--dur-fast) var(--ease);
+}
+.btn-danger:hover {
+  filter: brightness(1.06);
+  box-shadow: var(--glow-pink);
+  transform: translateY(-1px);
+}
+.btn-danger:active {
+  transform: translateY(0) scale(0.97);
 }
 
 /* ============================================================
@@ -859,6 +1551,26 @@ h3 {
 
 .anim-number-flash {
   animation: numberFlash 800ms var(--ease);
+}
+
+/* Item 62: spinner da marca — anel cônico ciano-rosa */
+.brand-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--accent), var(--pink), transparent 70%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  animation: brandSpin 700ms linear infinite;
+}
+
+/* Item 99: compressão tátil em todos os clicáveis */
+button:active:not(:disabled),
+a:active,
+[role='button']:active,
+[role='tab']:active {
+  transform: scale(0.97);
 }
 
 .top-hairline {
