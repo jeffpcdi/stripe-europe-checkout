@@ -4,6 +4,11 @@ const nextConfig = {
   // proxy reverso de /dashboard/* para este app (porta interna 3001).
   // Assim tudo roda no MESMO domínio: sessão, APIs e WS sem CORS.
   basePath: '/dashboard',
+  // Em dev o app é acessado ATRAVÉS do proxy do Express (porta 3000) —
+  // sem isso o runtime dev do Next bloqueia a origem e a hidratação
+  // falha silenciosamente (página fica presa nos skeletons).
+  // Só afeta desenvolvimento; produção usa `next start` e ignora isso.
+  allowedDevOrigins: ['localhost:3000', '127.0.0.1:3000'],
   experimental: {
     viewTransition: true,
   },
