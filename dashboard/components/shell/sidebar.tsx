@@ -95,8 +95,12 @@ export function Sidebar() {
             setTimeout(() => setRippling(false), 950)
           }}
         >
+          {/* Item 94: pulso de onda automático a cada 30s */}
           <span
-            className={cn('brand-logo brand-logo--lg', rippling && 'brand-logo--rippling')}
+            className={cn(
+              'brand-logo brand-logo--lg logo-ripple',
+              rippling && 'brand-logo--rippling',
+            )}
             aria-hidden="true"
           >
             <span className="brand-logo__ring" />
@@ -114,7 +118,7 @@ export function Sidebar() {
       </div>
 
       {/* Seções de navegação */}
-      <nav className="flex flex-col gap-5 px-3" aria-label="Seções">
+      <nav className="flex flex-col gap-5 px-3" aria-label="Seções" data-tour="nav">
         {NAV_SECTIONS.map((section, sIdx) => {
           const sectionActive = section.items.some((item) =>
             item.href === '/' ? pathname === '/' : pathname.startsWith(item.href),

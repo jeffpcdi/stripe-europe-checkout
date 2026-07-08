@@ -204,13 +204,17 @@ export function LiveView() {
     <div className="flex flex-col gap-4">
       {/* Resumo do topo */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <GlassCard className="flex items-center gap-3 p-4">
+        <GlassCard className="flex items-center gap-3 p-4" data-tour="live-counter">
           <span className="flex size-9 items-center justify-center rounded-lg bg-success/10 text-success">
             <Radio className="size-4.5" aria-hidden />
           </span>
           <div>
-            {/* Item 64: odômetro com dígitos rolantes */}
-            <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+            {/* Itens 64/101: odômetro com dígitos rolantes + aria-live para leitores */}
+            <p
+              className="font-mono text-2xl font-semibold tabular-nums text-foreground"
+              aria-live="polite"
+              aria-atomic="true"
+            >
               <Odometer value={online} />
             </p>
             <p className="label-mono">Online agora</p>
@@ -227,7 +231,7 @@ export function LiveView() {
             <p className="label-mono">No checkout (est.)</p>
           </div>
         </GlassCard>
-        <GlassCard className="flex items-center gap-3 p-4">
+        <GlassCard className="flex items-center gap-3 p-4" data-tour="live-countries">
           <span className="flex size-9 items-center justify-center rounded-lg bg-accent/10 text-accent">
             <Globe2 className="size-4.5" aria-hidden />
           </span>
@@ -242,7 +246,7 @@ export function LiveView() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
         {/* Lista de visitantes */}
-        <GlassCard className="p-4">
+        <GlassCard className="p-4" data-tour="live-sessions">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <h2 className="section-head text-sm font-semibold text-foreground">

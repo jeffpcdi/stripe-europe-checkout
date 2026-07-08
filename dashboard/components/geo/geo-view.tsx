@@ -115,7 +115,12 @@ export function GeoView() {
               <p className="text-xs text-muted-foreground">Visitas e vendas por país</p>
             </div>
             {/* Item 163: alterna a métrica dos pontos do globo */}
-            <div className="glass flex items-center gap-0.5 rounded-full p-0.5" role="tablist" aria-label="Métrica do globo">
+            <div
+              className="glass flex items-center gap-0.5 rounded-full p-0.5"
+              role="tablist"
+              aria-label="Métrica do globo"
+              data-tour="geo-metric"
+            >
               {(
                 [
                   { key: 'visits', label: 'Visitas' },
@@ -142,7 +147,7 @@ export function GeoView() {
           <GlobePanel countries={agg.countries} focusCode={focusCode} metric={metric} />
         </GlassCard>
 
-        <GlassCard className="p-5">
+        <GlassCard className="p-5" data-tour="geo-table">
           <div className="mb-3">
             <h2 className="section-head text-sm font-semibold text-foreground">Ranking de países</h2>
             <p className="text-xs text-muted-foreground">

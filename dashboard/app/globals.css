@@ -15,7 +15,7 @@
   --text: #f7f7f8;
   --text-sub: #d7d7db;
   --text-muted: #adadb6;
-  --text-faint: #8a8a93;
+  --text-faint: #94949d; /* Item 100: contraste AA para textos secundários */
 
   /* Marca */
   --accent: #25f4ee;
@@ -916,6 +916,67 @@ mark.search-hit {
   border: 1.5px solid rgba(37, 244, 238, 0.25);
   border-top-color: var(--accent);
   animation: microSpin 600ms linear infinite;
+}
+
+/* ===== Fase 10 — tours, acessibilidade e identidade (H, Q, P) ===== */
+
+/* Itens 44/50: spotlight do tour — backdrop com recorte radial no alvo */
+@keyframes spotFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tour-spotlight {
+  background: radial-gradient(
+    circle var(--sr, 80px) at var(--sx, 50%) var(--sy, 50%),
+    transparent 0%,
+    transparent 88%,
+    rgba(4, 4, 6, 0.8) 100%
+  );
+  animation: spotFadeIn 240ms var(--ease) both;
+}
+
+/* Item 99: estados :active táteis em tudo que é clicável */
+button:active:not(:disabled),
+a:active,
+[role='button']:active,
+[role='switch']:active {
+  transform: scale(0.97);
+}
+
+/* Item 102: skip-link aparece com spring no primeiro Tab */
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: #000;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: top var(--dur) var(--spring);
+}
+.skip-link:focus-visible {
+  top: 1rem;
+}
+
+/* Item 94: assinatura da logo — pulso de onda a cada 30s */
+@keyframes logoRipple {
+  0% { box-shadow: 0 0 0 0 rgba(37, 244, 238, 0.5); }
+  4% { box-shadow: 0 0 0 14px rgba(37, 244, 238, 0); }
+  5%, 100% { box-shadow: 0 0 0 0 rgba(37, 244, 238, 0); }
+}
+.logo-ripple {
+  animation: logoRipple 30s linear infinite;
+  border-radius: 50%;
+}
+
+/* Item 96: glow reativo — receita brilha proporcional ao crescimento */
+.kpi-glow {
+  box-shadow: 0 0 calc(12px + 26px * var(--glow, 0))
+    rgba(37, 244, 238, calc(0.06 + 0.2 * var(--glow, 0)));
+  transition: box-shadow 600ms var(--ease);
 }
 
 /* Item 16: sheen lento no hairline do header */

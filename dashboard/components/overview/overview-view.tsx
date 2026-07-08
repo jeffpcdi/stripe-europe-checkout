@@ -185,7 +185,7 @@ export function OverviewView() {
   return (
     <div className="flex flex-col gap-4">
       {/* Item 171: sticky no topo em mobile ao rolar */}
-      <div className="picker-sticky flex justify-end">
+      <div className="picker-sticky flex justify-end" data-tour="period">
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
@@ -194,13 +194,23 @@ export function OverviewView() {
       <section
         aria-label="Indicadores principais"
         className="kpi-carousel grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        data-tour="kpis"
       >
-        <KpiCard
-          hero
-          index={0}
-          icon={Banknote}
-          tint="green"
-          label="Receita total"
+        {/* Item 96: glow do card de receita cresce com o delta do período */}
+        <div
+          className="kpi-glow rounded-[var(--radius)]"
+          style={{
+            ['--glow' as string]: String(
+              revDelta && revDelta > 0 ? Math.min(1, revDelta / 100) : 0,
+            ),
+          }}
+        >
+          <KpiCard
+            hero
+            index={0}
+            icon={Banknote}
+            tint="green"
+            label="Receita total"
           value={
             /* Item 125: borrado no modo apresentação */
             <span data-sensitive>
@@ -211,10 +221,11 @@ export function OverviewView() {
               />
             </span>
           }
-          sub="no período selecionado"
-          delta={revDelta}
-          spark={<SparkLine data={revSeries} color="#25f4ee" />}
-        />
+            sub="no período selecionado"
+            delta={revDelta}
+            spark={<SparkLine data={revSeries} color="#25f4ee" />}
+          />
+        </div>
         <KpiCard
           index={1}
           icon={CircleCheck}
@@ -328,7 +339,11 @@ export function OverviewView() {
       </section>
 
       {/* Gráfico + saúde — item 177: só renderiza quando visível */}
-      <section aria-label="Gráficos e saúde" className="cv-auto grid gap-4 lg:grid-cols-3">
+      <section
+        aria-label="Gráficos e saúde"
+        className="cv-auto grid gap-4 lg:grid-cols-3"
+        data-tour="chart"
+      >
         <div className="lg:col-span-2">
           <RevenueChart series={cur.series} currency={cur.mainCur} />
         </div>

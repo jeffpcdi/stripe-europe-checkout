@@ -195,7 +195,7 @@ function GlobeControls({
   onFullscreen?: () => void
 }) {
   return (
-    <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5">
+    <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5" data-tour="globe-controls">
       <button type="button" onClick={onZoomIn} className="globe-ctl" aria-label="Aproximar">
         <Plus className="size-4" aria-hidden="true" />
       </button>
@@ -343,6 +343,7 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
       <div
         ref={containerRef}
         className="globe-stage energy-border relative h-[55vh] w-full overflow-hidden rounded-xl md:h-[420px]"
+        data-tour="globe"
         onPointerEnter={() => hoverSpeed(globeRef, true)}
         onPointerLeave={() => hoverSpeed(globeRef, false)}
       >

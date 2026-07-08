@@ -63,6 +63,7 @@ function LiveBadge() {
     <div
       className="group/badge glass hidden items-center gap-2 rounded-full px-3.5 py-1.5 md:flex"
       title={typeof latency === 'number' ? `Latência do banco: ${latency}ms` : undefined}
+      data-tour="live-badge"
     >
       <span
         className={cn('live-dot', !ok && '[--success:var(--error)]', slow && '[--success:var(--warning)]')}
