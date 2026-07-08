@@ -103,7 +103,7 @@ export function DomainsView() {
             type="button"
             onClick={handleAdd}
             disabled={adding || !host.trim()}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
           >
             <Plus className="size-4" /> Adicionar
           </button>

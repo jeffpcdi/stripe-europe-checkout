@@ -55,7 +55,7 @@ export function LinksView() {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90"
+          className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
         >
           <Plus className="size-4" /> Novo link
         </button>

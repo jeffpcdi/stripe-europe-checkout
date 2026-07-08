@@ -60,8 +60,25 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
     ]
   })
 
+  // Anéis pulsantes apenas onde houve vendas — chamam atenção para conversões
+  const rings = countries.flatMap((c) => {
+    const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
+    if (!coords || c.purchased <= 0) return []
+    return [{ lat: coords[0], lng: coords[1] }]
+  })
+
   return (
     <div ref={containerRef} className="relative h-[420px] w-full overflow-hidden">
+      {/* Glow radial atrás do globo para dar profundidade */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-1/2 -z-0 size-[380px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+        style={{
+          background:
+            'radial-gradient(circle, color-mix(in oklab, var(--brand-cyan) 22%, transparent), transparent 68%)',
+          filter: 'blur(30px)',
+        }}
+      />
       {size.w > 0 && (
         <GlobeGL
           ref={globeRef}
@@ -79,6 +96,11 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
           pointRadius={(d: object) => (d as GeoPoint).size}
           pointLabel="label"
           pointsMerge={false}
+          ringsData={rings}
+          ringColor={() => (t: number) => `rgba(254,44,85,${1 - t})`}
+          ringMaxRadius={4}
+          ringPropagationSpeed={2}
+          ringRepeatPeriod={900}
         />
       )}
     </div>
