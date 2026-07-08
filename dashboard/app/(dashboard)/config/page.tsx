@@ -1,5 +1,5 @@
-import { ViewPlaceholder } from '@/components/view-placeholder'
+import { ConfigView } from '@/components/config/config-view'
 
 export default function ConfigPage() {
-  return <ViewPlaceholder view="Configurações" />
+  return <ConfigView />
 }

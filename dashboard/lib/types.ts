@@ -405,3 +405,26 @@ export interface CloakEntriesResponse {
   entries: CloakEntry[]
   baseUrl: string
 }
+
+// ── /api/me — conta logada ──
+export interface Account {
+  email: string
+  name: string
+  role: string
+}
+
+// ── /api/pushcut-config — notificações push ──
+export interface PushcutEvents {
+  sale: boolean
+  failed: boolean
+  refund: boolean
+  dispute: boolean
+  checkout: boolean
+  daily: boolean
+}
+
+export interface PushcutConfig {
+  url: string // mascarada
+  hasUrl: boolean
+  events: PushcutEvents
+}

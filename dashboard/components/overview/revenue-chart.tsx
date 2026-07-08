@@ -24,9 +24,9 @@ const METRICS: { id: Metric; label: string; color: string }[] = [
   { id: 'visits', label: 'Leads', color: '#25f4ee' },
 ]
 
-function fmtDay(day: string) {
-  const [, m, d] = day.split('-')
-  return `${d}/${m}`
+function fmtDay(day: unknown) {
+  const [, m, d] = String(day ?? '').split('-')
+  return d && m ? `${d}/${m}` : String(day ?? '')
 }
 
 export function RevenueChart({
@@ -136,8 +136,8 @@ export function RevenueChart({
                     fontSize: 12,
                   }}
                   labelFormatter={fmtDay}
-                  formatter={(v: number) => [
-                    isMoney ? money(v, currency) : v,
+                  formatter={(v) => [
+                    isMoney ? money(Number(v), currency) : Number(v),
                     conf.label,
                   ]}
                 />

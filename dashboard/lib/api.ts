@@ -16,6 +16,8 @@ import type {
   CloakConfig,
   CloakStatsResponse,
   CloakEntriesResponse,
+  Account,
+  PushcutConfig,
 } from './types'
 
 export class ApiError extends Error {
@@ -137,6 +139,18 @@ export function useCloakEntries() {
   return useSWR<CloakEntriesResponse>('/api/cloak/entries', fetcher, {
     revalidateOnFocus: true,
     keepPreviousData: true,
+  })
+}
+
+export function useAccount() {
+  return useSWR<Account>('/api/me', fetcher, {
+    revalidateOnFocus: false,
+  })
+}
+
+export function usePushcutConfig() {
+  return useSWR<PushcutConfig>('/api/pushcut-config', fetcher, {
+    revalidateOnFocus: true,
   })
 }
 
