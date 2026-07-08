@@ -58,7 +58,7 @@ export function FunnelView() {
 
       {/* Funil */}
       <GlassCard className="p-5">
-        <h2 className="mb-4 text-sm font-semibold text-foreground">Funil de conversão</h2>
+        <h2 className="section-head mb-4 text-sm font-semibold text-foreground">Funil de conversão</h2>
         <div className="flex flex-col gap-4">
           {steps.map((st) => {
             const w = Math.max(5, (st.value / max) * 100)
@@ -87,7 +87,7 @@ export function FunnelView() {
 
       {/* Cards por gateway */}
       <div>
-        <h2 className="mb-3 text-sm font-semibold text-foreground">Conversão por gateway</h2>
+        <h2 className="section-head mb-3 text-sm font-semibold text-foreground">Conversão por gateway</h2>
         {m && m.byGateway.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {m.byGateway.map((g, i) => {
@@ -106,12 +106,12 @@ export function FunnelView() {
                   </div>
                   <div className="flex gap-5">
                     <div>
-                      <p className="text-xs text-muted-foreground">Checkouts</p>
-                      <p className="text-lg font-bold tabular-nums text-foreground">{g.checkout}</p>
+                      <p className="label-mono">Checkouts</p>
+                      <p className="font-mono text-lg font-semibold text-foreground">{g.checkout}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Compras</p>
-                      <p className="text-lg font-bold tabular-nums" style={{ color }}>
+                      <p className="label-mono">Compras</p>
+                      <p className="font-mono text-lg font-semibold" style={{ color }}>
                         {g.purchased}
                       </p>
                     </div>

@@ -91,15 +91,22 @@ export function KpiCard({
           >
             <Icon className="size-4" />
           </span>
-          <span className="text-[13px] font-medium text-sub">{label}</span>
+          <span className="label-mono">{label}</span>
         </div>
         {delta !== undefined ? <DeltaChip delta={delta} invert={deltaInvert} /> : null}
       </div>
 
       <div className="mt-4 flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-mono text-2xl font-semibold tracking-tight">{value}</div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>
+          <div
+            className={cn(
+              'font-mono font-semibold tracking-tight',
+              hero ? 'text-3xl' : 'text-2xl',
+            )}
+          >
+            {value}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
         </div>
         {spark}
       </div>

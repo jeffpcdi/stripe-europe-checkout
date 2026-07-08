@@ -47,7 +47,7 @@ export function CloakStatsPanel() {
             <Filter className="size-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Offer vs White</h2>
+            <h2 className="section-head text-sm font-semibold text-foreground">Offer vs White</h2>
             <p className="text-xs text-muted-foreground">Decisões do cloaker por link</p>
           </div>
         </div>

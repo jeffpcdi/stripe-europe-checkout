@@ -76,7 +76,7 @@ export function DomainsView() {
     <div className="flex flex-col gap-4">
       {/* Adicionar domínio */}
       <GlassCard className="p-5">
-        <h2 className="mb-1 text-sm font-semibold text-foreground">Adicionar domínio</h2>
+        <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Adicionar domínio</h2>
         <p className="mb-3 text-xs text-muted-foreground text-pretty">
           Aponte um CNAME do seu domínio para{' '}
           <button

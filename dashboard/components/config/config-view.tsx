@@ -49,7 +49,7 @@ function ApiTokenCard() {
       <div className="mb-3 flex items-center gap-2.5">
         <KeyRound className="size-4 text-[color:var(--brand-cyan)]" />
         <div>
-          <h2 className="text-sm font-semibold text-foreground">API pública (read-only)</h2>
+          <h2 className="section-head text-sm font-semibold text-foreground">API pública (read-only)</h2>
           <p className="text-xs text-muted-foreground">
             Para planilhas (IMPORTDATA), widgets e BI externo — sem expor a dashboard
           </p>
@@ -100,7 +100,7 @@ function DangerCard() {
         <div className="flex items-center gap-2.5">
           <Trash2 className="size-4 text-destructive" />
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Zerar estatísticas</h2>
+            <h2 className="section-head text-sm font-semibold text-foreground">Zerar estatísticas</h2>
             <p className="text-xs text-muted-foreground">
               Apaga leads, eventos e séries da sua conta. Links, pixels e domínios são mantidos.
             </p>
@@ -245,7 +245,7 @@ function PushcutCard() {
       <div className="mb-4 flex items-center gap-2.5">
         <Bell className="size-4 text-[color:var(--brand-cyan)]" />
         <div>
-          <h2 className="text-sm font-semibold text-foreground">Notificações push (Pushcut)</h2>
+          <h2 className="section-head text-sm font-semibold text-foreground">Notificações push (Pushcut)</h2>
           <p className="text-xs text-muted-foreground">Alertas no iPhone a cada evento importante</p>
         </div>
       </div>

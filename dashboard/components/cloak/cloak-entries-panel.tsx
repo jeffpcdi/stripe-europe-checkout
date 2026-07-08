@@ -39,7 +39,7 @@ export function CloakEntriesPanel() {
     <GlassCard className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">Links de cloaking</h2>
+          <h2 className="section-head text-sm font-semibold text-foreground">Links de cloaking</h2>
           <p className="text-xs text-muted-foreground">URLs /c/&lt;slug&gt; com proteção própria e slug aleatório</p>
         </div>
         <button

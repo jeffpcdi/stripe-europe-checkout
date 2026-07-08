@@ -150,6 +150,55 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Números tabulares em toda métrica mono — colunas alinham perfeitamente */
+.font-mono,
+code,
+kbd,
+samp {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+/* ============================================================
+   Tipografia editorial — labels mono uppercase (enterprise)
+   ============================================================ */
+
+.label-mono {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+}
+
+.label-mono--accent {
+  color: var(--accent);
+}
+
+/* Título de seção padronizado: hairline + eyebrow */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.section-head::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 99px;
+  background: var(--brand-grad);
+  flex-shrink: 0;
+}
+
 ::selection {
   background: rgba(37, 244, 238, 0.25);
 }

@@ -43,7 +43,7 @@ export function RevenueChart({
   return (
     <GlassCard className="anim-kpi-in p-5" style={{ animationDelay: '280ms' }}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium text-sub">Desempenho no período</h3>
+        <h3 className="section-head text-sm font-semibold text-foreground">Desempenho no período</h3>
         <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="tablist" aria-label="Métrica do gráfico">
           {METRICS.map((m) => (
             <button

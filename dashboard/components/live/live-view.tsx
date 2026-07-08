@@ -85,8 +85,8 @@ export function LiveView() {
             <Radio className="size-4.5" aria-hidden />
           </span>
           <div>
-            <p className="text-xl font-bold tabular-nums text-foreground">{online}</p>
-            <p className="text-xs text-muted-foreground">online agora</p>
+            <p className="font-mono text-xl font-semibold text-foreground">{online}</p>
+            <p className="label-mono">Online agora</p>
           </div>
         </GlassCard>
         <GlassCard className="flex items-center gap-3 p-4">
@@ -94,10 +94,10 @@ export function LiveView() {
             <ShoppingCart className="size-4.5" aria-hidden />
           </span>
           <div>
-            <p className="text-xl font-bold tabular-nums text-foreground">
+            <p className="font-mono text-xl font-semibold text-foreground">
               {inCheckoutCount + (data?.checkout.externalEst ?? 0)}
             </p>
-            <p className="text-xs text-muted-foreground">no checkout (estimado)</p>
+            <p className="label-mono">No checkout (est.)</p>
           </div>
         </GlassCard>
         <GlassCard className="flex items-center gap-3 p-4">
@@ -105,8 +105,8 @@ export function LiveView() {
             <Globe2 className="size-4.5" aria-hidden />
           </span>
           <div>
-            <p className="text-xl font-bold tabular-nums text-foreground">{countries.length}</p>
-            <p className="text-xs text-muted-foreground">países ativos</p>
+            <p className="font-mono text-xl font-semibold text-foreground">{countries.length}</p>
+            <p className="label-mono">Países ativos</p>
           </div>
         </GlassCard>
       </div>
@@ -115,7 +115,7 @@ export function LiveView() {
         {/* Lista de visitantes */}
         <GlassCard className="p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">Visitantes agora</h2>
+            <h2 className="section-head text-sm font-semibold text-foreground">Visitantes agora</h2>
             {inCheckoutCount > 0 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
                 <span className="size-1.5 animate-pulse rounded-full bg-primary" aria-hidden />
@@ -153,7 +153,7 @@ export function LiveView() {
 
         {/* Países online */}
         <GlassCard className="h-fit p-4">
-          <h2 className="mb-3 text-sm font-semibold text-foreground">Países online</h2>
+          <h2 className="section-head mb-3 text-sm font-semibold text-foreground">Países online</h2>
           {countries.length > 0 ? (
             <ul className="flex flex-col gap-2">
               {countries.map((c) => (

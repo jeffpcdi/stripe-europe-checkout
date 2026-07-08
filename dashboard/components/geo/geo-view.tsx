@@ -93,7 +93,7 @@ export function GeoView() {
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <GlassCard className="p-5">
           <div className="mb-3">
-            <h2 className="text-sm font-semibold text-foreground">Mapa global</h2>
+            <h2 className="section-head text-sm font-semibold text-foreground">Mapa global</h2>
             <p className="text-xs text-muted-foreground">Visitas e vendas por país</p>
           </div>
           <GlobePanel countries={agg.countries} />
@@ -101,7 +101,7 @@ export function GeoView() {
 
         <GlassCard className="p-5">
           <div className="mb-3">
-            <h2 className="text-sm font-semibold text-foreground">Ranking de países</h2>
+            <h2 className="section-head text-sm font-semibold text-foreground">Ranking de países</h2>
             <p className="text-xs text-muted-foreground">
               {agg.countries.length} países no período
             </p>

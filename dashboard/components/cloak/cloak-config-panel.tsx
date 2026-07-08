@@ -124,7 +124,7 @@ export function CloakConfigPanel() {
             <ShieldCheck className="size-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Filtro de bots (global)</h2>
+            <h2 className="section-head text-sm font-semibold text-foreground">Filtro de bots (global)</h2>
             <p className="text-xs text-muted-foreground">Regras padrão aplicadas a todos os links protegidos</p>
           </div>
         </div>

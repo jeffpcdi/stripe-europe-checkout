@@ -49,7 +49,7 @@ function CloakTestPanel() {
     <GlassCard className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">Teste ao vivo</h2>
+          <h2 className="section-head text-sm font-semibold text-foreground">Teste ao vivo</h2>
           <p className="text-xs text-muted-foreground">Julga a requisição atual deste navegador</p>
         </div>
         <button
@@ -75,8 +75,8 @@ function CloakTestPanel() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/40 p-4">
             <div>
-              <p className="text-xs text-muted-foreground">Veredito</p>
-              <p className="text-lg font-bold text-foreground">
+              <p className="label-mono">Veredito</p>
+              <p className="text-lg font-semibold text-foreground">
                 {isBlocked ? 'Página branca' : 'Offer liberada'}
               </p>
             </div>

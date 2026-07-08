@@ -76,7 +76,7 @@ export function GatewaysView() {
         <GlassCard className="p-5">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-foreground">Gateways de pagamento</h2>
+              <h2 className="section-head text-sm font-semibold text-foreground">Gateways de pagamento</h2>
               <p className="text-xs text-muted-foreground">
                 Webhook único por gateway — cole a URL no painel do checkout
               </p>
@@ -193,7 +193,7 @@ export function GatewaysView() {
 
         {/* Log de webhooks recebidos */}
         <GlassCard className="p-5">
-          <h2 className="mb-1 text-sm font-semibold text-foreground">Webhooks recebidos</h2>
+          <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Webhooks recebidos</h2>
           <p className="mb-3 text-xs text-muted-foreground">Últimas conversões processadas dos seus gateways</p>
           {!convLog || convLog.log.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Nenhum webhook recebido ainda.</p>

@@ -28,7 +28,7 @@ export function HealthCard() {
   return (
     <GlassCard className="anim-kpi-in p-5" style={{ animationDelay: '340ms' }}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium text-sub">Saúde do sistema</h3>
+        <h3 className="section-head text-sm font-semibold text-foreground">Saúde do sistema</h3>
         {data ? (
           <span className="font-mono text-[11px] text-muted-foreground">
             uptime {fmtUptime(data.uptimeSec)}

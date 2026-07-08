@@ -57,7 +57,7 @@ export function LeadsTable({
   return (
     <GlassCard className="p-4">
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h2 className="text-sm font-semibold text-foreground">Leads</h2>
+        <h2 className="section-head text-sm font-semibold text-foreground">Leads</h2>
         <span className="text-xs tabular-nums text-muted-foreground">{filtered.length} leads</span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -104,14 +104,14 @@ export function LeadsTable({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead>
-              <tr className="border-b border-border/60 text-xs text-muted-foreground">
-                <th className="pb-2 pr-3 font-medium">ID</th>
-                <th className="pb-2 pr-3 font-medium">Etapa</th>
-                <th className="pb-2 pr-3 font-medium">Gateway</th>
-                <th className="pb-2 pr-3 font-medium">País</th>
-                <th className="pb-2 pr-3 font-medium">Origem</th>
-                <th className="pb-2 pr-3 font-medium">Valor</th>
-                <th className="pb-2 font-medium">Quando</th>
+              <tr className="border-b border-border/60">
+                <th className="label-mono pb-2 pr-3">ID</th>
+                <th className="label-mono pb-2 pr-3">Etapa</th>
+                <th className="label-mono pb-2 pr-3">Gateway</th>
+                <th className="label-mono pb-2 pr-3">País</th>
+                <th className="label-mono pb-2 pr-3">Origem</th>
+                <th className="label-mono pb-2 pr-3">Valor</th>
+                <th className="label-mono pb-2">Quando</th>
               </tr>
             </thead>
             <tbody>
@@ -119,7 +119,10 @@ export function LeadsTable({
                 const origin = l.utm?.source || (l.referer ? 'ref' : 'direto')
                 const hits = l.checkoutHits?.length ? `${l.checkoutHits.length}x` : null
                 return (
-                  <tr key={l.id} className="border-b border-border/30 last:border-b-0">
+                  <tr
+                    key={l.id}
+                    className="border-b border-border/30 transition-colors last:border-b-0 hover:bg-[var(--hover)]"
+                  >
                     <td className="py-2.5 pr-3 font-mono text-xs text-muted-foreground">
                       {l.id.slice(0, 12)}
                     </td>
