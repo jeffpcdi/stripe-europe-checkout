@@ -68,24 +68,16 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
   })
 
   return (
-    <div ref={containerRef} className="relative h-[420px] w-full overflow-hidden">
-      {/* Glow radial atrás do globo para dar profundidade */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute left-1/2 top-1/2 -z-0 size-[380px] -translate-x-1/2 -translate-y-1/2 rounded-full"
-        style={{
-          background:
-            'radial-gradient(circle, color-mix(in oklab, var(--brand-cyan) 22%, transparent), transparent 68%)',
-          filter: 'blur(30px)',
-        }}
-      />
+    <div ref={containerRef} className="relative h-[420px] w-full overflow-hidden rounded-xl">
       {size.w > 0 && (
         <GlobeGL
           ref={globeRef}
           width={size.w}
           height={size.h}
           backgroundColor="rgba(0,0,0,0)"
-          globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
+          backgroundImageUrl="//unpkg.com/three-globe/example/img/night-sky.png"
+          globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
+          bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
           atmosphereColor={CYAN}
           atmosphereAltitude={0.18}
           pointsData={points}
