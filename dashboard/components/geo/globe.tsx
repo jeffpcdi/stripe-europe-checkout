@@ -23,6 +23,10 @@ interface GeoArc {
 
 interface GlobePanelProps {
   countries: { code: string; name: string; count: number; purchased: number }[]
+  /* Item 161: código do país em foco (hover na tabela) — gira o globo até ele */
+  focusCode?: string | null
+  /* Item 163: métrica ativa muda a cor dos pontos */
+  metric?: 'visits' | 'sales'
 }
 
 // Cores da marca capturadas do legado
@@ -37,17 +41,23 @@ const ALT_STEP = 0.45
 const ALT_ENTRY = 4.5
 const ENTRY_MS = 1600
 
-function buildPoints(countries: GlobePanelProps['countries']) {
-  const max = Math.max(1, ...countries.map((c) => c.count))
-  const points: GeoPoint[] = countries.flatMap((c) => {
+function buildPoints(
+  countries: GlobePanelProps['countries'],
+  metric: 'visits' | 'sales' = 'visits',
+) {
+  // Item 163: em "vendas" só países com compra pontuam, em verde
+  const base = metric === 'sales' ? countries.filter((c) => c.purchased > 0) : countries
+  const max = Math.max(1, ...base.map((c) => (metric === 'sales' ? c.purchased : c.count)))
+  const points: GeoPoint[] = base.flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
+    const value = metric === 'sales' ? c.purchased : c.count
     return [
       {
         lat: coords[0],
         lng: coords[1],
-        size: 0.25 + (c.count / max) * 0.85,
-        color: c.purchased > 0 ? PINK : CYAN,
+        size: 0.25 + (value / max) * 0.85,
+        color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
         label: `${c.name}: ${c.count} visitas${c.purchased ? ` · ${c.purchased} vendas` : ''}`,
       },
     ]
@@ -98,6 +108,7 @@ function GlobeCanvas({
   width,
   height,
   globeRef,
+  metric = 'visits',
 }: GlobePanelProps & {
   width: number
   height: number
@@ -129,7 +140,7 @@ function GlobeCanvas({
     }
   }, [width, globeRef])
 
-  const { points, rings, arcs } = buildPoints(countries)
+  const { points, rings, arcs } = buildPoints(countries, metric)
 
   return (
     <GlobeGL
@@ -217,8 +228,9 @@ function GlobeHud({ empty }: { empty?: boolean }) {
       <span className="hud-corner hud-corner--tr" aria-hidden="true" />
       <span className="hud-corner hud-corner--bl" aria-hidden="true" />
       <span className="hud-corner hud-corner--br" aria-hidden="true" />
+      {/* Alinhado à esquerda para nunca colidir com a legenda de intensidade à direita */}
       <span
-        className="label-mono pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[9.5px] opacity-70"
+        className="label-mono pointer-events-none absolute bottom-3 left-8 z-10 whitespace-nowrap text-[9.5px] opacity-70"
         aria-hidden="true"
       >
         ROI-NADOS · TRÁFEGO GLOBAL
@@ -264,7 +276,7 @@ function hoverSpeed(globeRef: React.MutableRefObject<any>, hovering: boolean) {
   g.controls().autoRotateSpeed = hovering ? 0.15 : 0.6
 }
 
-export default function GlobePanel({ countries }: GlobePanelProps) {
+export default function GlobePanel({ countries, focusCode, metric = 'visits' }: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
   const fsGlobeRef = useRef<any>(null)
@@ -274,6 +286,16 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
   const [closing, setClosing] = useState(false)
 
   const empty = countries.length === 0
+
+  // Item 161: hover na tabela gira o globo até o país
+  useEffect(() => {
+    if (!focusCode) return
+    const coords = COUNTRY_COORDS[focusCode.toUpperCase()]
+    const g = globeRef.current
+    if (!coords || !g) return
+    const alt = g.pointOfView().altitude
+    g.pointOfView({ lat: coords[0], lng: coords[1], altitude: alt }, 700)
+  }, [focusCode])
 
   useEffect(() => {
     const el = containerRef.current
@@ -328,6 +350,7 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
             width={size.w}
             height={size.h}
             globeRef={globeRef}
+            metric={metric}
           />
         )}
         <GlobeHud empty={empty} />
@@ -372,6 +395,7 @@ export default function GlobePanel({ countries }: GlobePanelProps) {
                   width={fsSize.w}
                   height={fsSize.h}
                   globeRef={fsGlobeRef}
+                  metric={metric}
                 />
               )}
               <GlobeHud empty={empty} />
