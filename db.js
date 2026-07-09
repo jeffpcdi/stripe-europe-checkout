@@ -486,20 +486,26 @@ async function loadAllConfigs() {
 }
 
 // ── Pixels TikTok (por conta; PK namespaced) ──────────────────────────────
+// Retorna TRUE só quando a escrita foi confirmada pelo Postgres. Antes engolia
+// o erro e retornava void, então quem chamava (pixel-store.save) achava que o
+// pixel tinha sido salvo mesmo quando o banco falhava — a config "sumia" no
+// próximo restart. Agora o estado propaga para o chamador decidir o fallback.
 async function upsertPixel(accountId, slug, data) {
-  if (!enabled || !slug) return;
+  if (!enabled || !slug) return false;
   try {
     await sql`INSERT INTO pixels (slug, account_id, data, updated_at)
       VALUES (${nsKey(accountId, slug)}, ${accountId || null}, ${JSON.stringify(data)}::jsonb, now())
       ON CONFLICT (slug) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
-  } catch (err) { console.error('[db] upsertPixel:', err.message); }
+    return true;
+  } catch (err) { console.error('[db] upsertPixel:', err.message); return false; }
 }
 
 async function deletePixel(accountId, slug) {
-  if (!enabled || !slug) return;
+  if (!enabled || !slug) return false;
   try {
     await sql`DELETE FROM pixels WHERE slug = ${nsKey(accountId, slug)}`;
-  } catch (err) { console.error('[db] deletePixel:', err.message); }
+    return true;
+  } catch (err) { console.error('[db] deletePixel:', err.message); return false; }
 }
 
 // Mesmo contrato do loadConfig: { ok, data } — erro de leitura NUNCA deve

@@ -10,6 +10,7 @@ import type {
   PixelsResponse,
   PixelLogResponse,
   PixelHealthResponse,
+  PixelDurabilityResponse,
   EmqTrendResponse,
   GatewaysResponse,
   ConversionLogResponse,
@@ -102,6 +103,15 @@ export function usePixelLog() {
 
 export function usePixelHealth() {
   return useSWR<PixelHealthResponse>('/api/pixels/health', fetcher, {
+    refreshInterval: POLL_MS,
+    keepPreviousData: true,
+  })
+}
+
+// Diagnóstico de PERSISTÊNCIA/config: por que o pixel pode não estar disparando
+// (config não durável, sem gateway trusted, credencial incompleta).
+export function usePixelDurability() {
+  return useSWR<PixelDurabilityResponse>('/api/pixels/durability', fetcher, {
     refreshInterval: POLL_MS,
     keepPreviousData: true,
   })

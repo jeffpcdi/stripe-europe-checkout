@@ -9,6 +9,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./db');
+const redis = require('./redis');
+
+// Diagnóstico de saúde da última gravação — lido pelo painel (/api/pixels/health)
+// para mostrar se a config está DURÁVEL (banco/Redis) ou só em memória volátil.
+const saveHealth = { lastOk: null, lastError: null, durable: false, at: null };
 
 const DIR = path.join(__dirname, 'pixels');
 let cache = [];        // pixels de todas as contas (cada um com .acc)
@@ -92,9 +97,24 @@ async function init() {
         });
         console.log('[pixels] ' + cache.length + ' pixel(s) hidratado(s) do banco.');
       } else {
-        console.warn('[pixels] falha ao ler pixels do Neon — cache vazio nesta sessão, banco intocado.');
+        console.warn('[pixels] falha ao ler pixels do Neon — tentando snapshot no Redis.');
       }
     } catch (e) { console.error('[pixels] rehydrate:', e.message); }
+  }
+
+  // Fallback DURÁVEL: se o banco não trouxe nada (off, vazio ou erro de leitura),
+  // hidrata do snapshot no Redis. Isso evita perder toda a config de pixel num
+  // restart quando o Neon está indisponível — antes o cache ficava vazio e
+  // NENHUM evento era disparado ao TikTok.
+  if (!cache.length) {
+    try {
+      const snap = await redis.loadPixelSnapshot();
+      if (snap && snap.length) {
+        cache = snap.map((r) => normalize(r.slug || slugify(r.name), r));
+        byRoute = null;
+        console.log('[pixels] ' + cache.length + ' pixel(s) hidratado(s) do snapshot Redis (banco indisponível).');
+      }
+    } catch (e) { console.error('[pixels] snapshot Redis:', e.message); }
   }
 
   // Migração do pixel único legado (env) — só sem banco/dados (dev local).
@@ -154,23 +174,59 @@ function getByToken(token) {
   return cache.find((p) => p.token === token) || null;
 }
 
-// Cria/atualiza um pixel: BANCO PRIMEIRO (fonte durável), depois memória.
+// Cria/atualiza um pixel: DURABILIDADE PRIMEIRO (Neon e/ou Redis), depois
+// memória. Antes o `save` sempre reportava sucesso mesmo que o banco falhasse —
+// a config parecia salva, mas sumia no próximo restart e o pixel parava de
+// disparar. Agora exigimos confirmação de PELO MENOS uma camada durável e
+// registramos o estado em `saveHealth` para o painel avisar o usuário.
 async function save(accountId, input) {
   const slug = input.slug ? slugify(input.slug) : slugify(input.name);
   const existing = get(accountId, slug);
   const cfg = normalize(slug, { ...(existing || {}), ...input, slug, acc: accountId });
   cfg.updatedAt = new Date().toISOString();
-  if (db.enabled) await db.upsertPixel(accountId, slug, cfg);   // durável primeiro
+
+  let dbOk = false;
+  let redisOk = false;
+  if (db.enabled) dbOk = await db.upsertPixel(accountId, slug, cfg);   // fonte primária
+  if (redis.enabled) redisOk = await redis.savePixelSnapshot(accountId, slug, cfg); // espelho durável
+
+  const durable = dbOk || redisOk;
+  saveHealth.durable = durable;
+  saveHealth.at = cfg.updatedAt;
+  if (durable) {
+    saveHealth.lastOk = cfg.updatedAt;
+    saveHealth.lastError = null;
+  } else {
+    // Nenhuma camada durável confirmou. Ainda atualizamos a memória para não
+    // travar a sessão atual, mas avisamos claramente que a config é volátil.
+    saveHealth.lastError = db.enabled || redis.enabled
+      ? 'Falha ao gravar no armazenamento durável — config só em memória (some ao reiniciar).'
+      : 'Sem banco nem Redis configurados — config só em memória (some ao reiniciar).';
+    console.error('[pixels] SAVE NÃO DURÁVEL:', saveHealth.lastError, '(' + slug + ')');
+  }
+
   const idx = cache.findIndex((p) => p.slug === slug && p.acc === accountId);
   if (idx >= 0) cache[idx] = cfg; else cache.push(cfg);
   byRoute = null;
   writeFile(accountId, slug, cfg);                              // local, pode falhar
-  return get(accountId, slug);
+  return { ...get(accountId, slug), _durable: durable, _saveError: saveHealth.lastError };
+}
+
+// Estado da última gravação — consumido pelo painel para exibir o aviso de
+// "config não durável" (item 51/53).
+function health() {
+  return {
+    ...saveHealth,
+    dbEnabled: !!db.enabled,
+    redisEnabled: !!redis.enabled,
+    count: cache.length
+  };
 }
 
 async function remove(accountId, slug) {
   slug = slugify(slug);
   if (db.enabled) await db.deletePixel(accountId, slug);        // durável primeiro
+  if (redis.enabled) await redis.deletePixelSnapshot(accountId, slug); // espelho
   cache = cache.filter((p) => !(p.slug === slug && p.acc === accountId));
   byRoute = null;
   try { if (fs.existsSync(fileFor(accountId, slug))) fs.unlinkSync(fileFor(accountId, slug)); }
@@ -179,5 +235,5 @@ async function remove(accountId, slug) {
 }
 
 module.exports = {
-  init, list, forRoute, forEvent, get, getByToken, save, remove, slugify, DIR
+  init, list, forRoute, forEvent, get, getByToken, save, remove, slugify, health, DIR
 };

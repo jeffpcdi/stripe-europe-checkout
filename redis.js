@@ -194,7 +194,7 @@ async function seenEventId(eventId) {
   }
 }
 
-// ── Cache de ASN (lookup Cymru) ────────────────────────────────────────────
+// ── Cache de ASN (lookup Cymru) ──────────────────────────────────────��─────
 // Chave "asn:<ip>" com o resultado do lookup BGP. TTL de 24h. Compartilha a
 // resolução entre processos/instâncias e sobrevive a restarts, deixando o
 // caminho quente do /go/ quase instantâneo para IPs recorrentes.
@@ -542,6 +542,42 @@ async function bumpVelocity(kind, id, windowSec) {
   } catch (_) { return 0; }
 }
 
+// ── Fallback DURÁVEL de pixels (quando o Neon falha ou está off) ──────────
+// A config do pixel é a fonte de verdade da monetização; perdê-la num restart
+// zera o rastreamento. O Neon é a fonte primária, mas quando ele falha (ou não
+// está configurado) espelhamos cada pixel num hash Redis "pixels:all" — assim a
+// config sobrevive a restarts mesmo sem banco. `field` = `${accountId}:${slug}`.
+const PIXELS_KEY = 'pixels:all';
+
+async function savePixelSnapshot(accountId, slug, cfg) {
+  if (!enabled || !slug) return false;
+  try {
+    await redis.hset(PIXELS_KEY, { [(accountId || 'legacy') + ':' + slug]: JSON.stringify(cfg) });
+    return true;
+  } catch (err) { console.error('[redis] savePixelSnapshot:', err.message); return false; }
+}
+
+async function deletePixelSnapshot(accountId, slug) {
+  if (!enabled || !slug) return false;
+  try {
+    await redis.hdel(PIXELS_KEY, (accountId || 'legacy') + ':' + slug);
+    return true;
+  } catch (err) { console.error('[redis] deletePixelSnapshot:', err.message); return false; }
+}
+
+// Retorna array de pixels do snapshot (ou null se Redis off / erro de leitura —
+// jamais [] por erro, para não ser confundido com "não há pixels salvos").
+async function loadPixelSnapshot() {
+  if (!enabled) return null;
+  try {
+    const h = await redis.hgetall(PIXELS_KEY);
+    if (!h) return [];
+    return Object.values(h)
+      .map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } })
+      .filter(Boolean);
+  } catch (err) { console.error('[redis] loadPixelSnapshot:', err.message); return null; }
+}
+
 // ── Ping de saúde ─────────────────────────────────────────────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
@@ -567,5 +603,6 @@ module.exports = {
   checkTtclidContext, bumpVelocity,
   acquireLock, releaseLock,
   bumpEmq, getEmqTrend,
+  savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,
   ping, TTL
 };
