@@ -4,7 +4,9 @@ node_modules/
 .env*.local
 
 # Estado de runtime — nunca versionar (cache local do stats.js; a fonte
-# de verdade durável é o Neon e o app recria estes arquivos sozinho)
+# de verdade durável é o Neon e o app recria estes arquivos sozinho).
+# "/pixels/" é ancorado na raiz: só o cache local, NÃO a UI em
+# dashboard/components/pixels nem a rota dashboard/app/(dashboard)/pixels.
 data/
-pixels/
+/pixels/
 *.tsbuildinfo

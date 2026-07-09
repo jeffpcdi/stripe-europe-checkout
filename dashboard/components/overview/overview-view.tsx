@@ -185,10 +185,6 @@ export function OverviewView() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Globo em destaque — elemento principal da página inicial, em alto
-          contraste, com os números de presença compactados como overlay. */}
-      <HeroGlobe />
-
       {/* Item 171: sticky no topo em mobile ao rolar */}
       <div className="picker-sticky flex justify-end" data-tour="period">
         <PeriodPicker value={period} onChange={setPeriod} />
@@ -342,6 +338,10 @@ export function OverviewView() {
           sub={cur.disputes ? 'responda o quanto antes' : 'nenhuma aberta'}
         />
       </section>
+
+      {/* Globo — presença global ao vivo. Fica na página inicial, mas depois
+          dos números: primeiro o usuário vê o dinheiro, depois o mundo. */}
+      <HeroGlobe />
 
       {/* Gráfico + saúde — item 177: só renderiza quando visível */}
       <section
