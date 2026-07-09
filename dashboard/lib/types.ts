@@ -254,6 +254,19 @@ export interface PixelHealthResponse {
   retryQueue: number
 }
 
+// ── /api/pixels/durability — por que a config pode não estar disparando ──
+export interface PixelDurabilityResponse {
+  durable: boolean
+  dbEnabled: boolean
+  redisEnabled: boolean
+  lastOk: string | null
+  lastError: string | null
+  trustedGateways: number
+  salePixels: number
+  incomplete: { slug: string; name: string; missing: string[] }[]
+  warnings: string[]
+}
+
 // ── /api/pixels/emq-trend — tendência de EMQ com alerta de queda ──
 export interface EmqTrendDay {
   day: string

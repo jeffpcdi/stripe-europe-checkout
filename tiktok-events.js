@@ -306,7 +306,21 @@ function retryQueueSize() { return retryQueue.length; }
  */
 async function sendToPixel(pixel, p) {
   if (!pixel || !pixel.pixelCode || !pixel.accessToken) {
-    return { skipped: true, reason: 'pixel sem código/token' };
+    // Antes o skip era SILENCIOSO: uma credencial faltando virava no-op invisível
+    // e o usuário jamais via por que o evento "não foi". Agora registra no log do
+    // painel exatamente o que faltou (item 55).
+    const missing = [!pixel || !pixel.pixelCode ? 'pixelCode' : null,
+                     !pixel || !pixel.accessToken ? 'accessToken' : null].filter(Boolean);
+    pushLog({
+      acc: (pixel && pixel.acc) || null,
+      pixel: (pixel && (pixel.slug || pixel.pixelCode)) || 'desconhecido',
+      event: p && p.event,
+      eventId: p && p.eventId,
+      leadId: p && p.leadId,
+      status: 'ignorado',
+      response: { message: 'config incompleta — faltando: ' + (missing.join(', ') || 'credenciais') }
+    });
+    return { skipped: true, reason: 'pixel sem código/token', missing };
   }
   // event_id é obrigatório para dedup — gera fallback se faltar
   const eventId = p.eventId || (p.event + '.' + crypto.randomBytes(8).toString('hex'));
@@ -405,7 +419,33 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
   }
 
   const targets = pixelStore.forEvent(acc, eventName, routeHint || '*');
-  if (!targets.length) return { dispatched: 0 };
+  if (!targets.length) {
+    // Diagnóstico (item 54): descobre POR QUE não há alvo. Sem isto, um evento
+    // descartado por descasamento de conta ou pixel inativo somia em silêncio.
+    let reason = 'nenhum pixel ativo aceita este evento';
+    try {
+      const all = pixelStore.list(acc) || [];
+      if (!all.length) {
+        reason = acc ? 'nenhum pixel cadastrado para a conta ' + acc : 'nenhum pixel cadastrado';
+      } else if (!all.some((px) => px.active)) {
+        reason = 'há pixels na conta, mas todos inativos';
+      } else if (!all.some((px) => px.events && px.events[eventName])) {
+        reason = 'pixels ativos existem, mas nenhum tem o evento "' + eventName + '" ligado';
+      } else {
+        reason = 'pixels ativos existem, mas não casaram com a rota/conta (accountId=' + (acc || 'null') + ')';
+      }
+    } catch (_) {}
+    pushLog({
+      acc,
+      pixel: 'dispatch',
+      event: eventName,
+      eventId: p.eventId,
+      leadId: p.leadId,
+      status: 'descartado',
+      response: { message: reason }
+    });
+    return { dispatched: 0, reason };
+  }
   // allSettled: um pixel com problema NUNCA derruba o disparo dos demais
   const settled = await Promise.allSettled(
     targets.map((px) => sendToPixel(px, { ...p, event: eventName }))

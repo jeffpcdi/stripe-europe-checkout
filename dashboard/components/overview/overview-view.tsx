@@ -30,6 +30,7 @@ import { MiniStat } from './mini-stat'
 import { PeriodPicker } from './period-picker'
 import { RevenueChart } from './revenue-chart'
 import { HealthCard } from './health-card'
+import { HeroGlobe } from './hero-globe'
 
 const NEUTRAL = '#6b7183'
 const NEUTRAL_BG = 'rgba(107,113,131,.10)'
@@ -184,6 +185,10 @@ export function OverviewView() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Globo em destaque — elemento principal da página inicial, em alto
+          contraste, com os números de presença compactados como overlay. */}
+      <HeroGlobe />
+
       {/* Item 171: sticky no topo em mobile ao rolar */}
       <div className="picker-sticky flex justify-end" data-tour="period">
         <PeriodPicker value={period} onChange={setPeriod} />

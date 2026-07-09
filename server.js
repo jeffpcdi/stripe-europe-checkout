@@ -1495,7 +1495,7 @@ app.get('/api/live', dashboardAuth, async (req, res) => {
   }
 });
 
-// ═══ Links de Checkout — CRUD + validação de domínio (por conta) ══════
+// ══��� Links de Checkout — CRUD + validação de domínio (por conta) ══════
 app.get('/api/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ links: linkStore.list(req.account.id) });
@@ -2304,7 +2304,7 @@ app.post('/api/conversion', (req, res) => {
 });
 
 // ═══ Webhook DEDICADO por gateway (multi-tenant): POST /hook/:token ═══
-// Cada gateway cadastrado na dashboard tem um token único que identifica
+// Cada gateway cadastrado na dashboard tem um token ��nico que identifica
 // a CONTA e o PROVIDER — cole a URL no painel do gateway e pronto.
 // Suporta assinatura por provider (Stripe whsec, Hotmart hottok, Kiwify
 // signature) e adapta payloads específicos antes do normalizador genérico.
@@ -2589,7 +2589,7 @@ app.post('/api/px/event', (req, res) => {
   } catch (_) { /* beacon nunca propaga erro */ }
 });
 
-// ── APIs de gestão de pixels (dashboard, por conta) ─────────────────────
+// ── APIs de gestão de pixels (dashboard, por conta) ───────��─────────────
 app.get('/api/pixels', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
@@ -2616,15 +2616,26 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
       if (existing) b.accessToken = existing.accessToken;
     }
     const saved = await pixelStore.save(req.account.id, b);
-    stats.logEvent('info', { acc: req.account.id, title: 'Pixel TikTok salvo: ' + saved.name, ref: saved.slug });
+    stats.logEvent(saved._durable ? 'info' : 'error', {
+      acc: req.account.id,
+      title: (saved._durable ? 'Pixel TikTok salvo: ' : 'Pixel salvo SÓ EM MEMÓRIA (não durável): ') + saved.name,
+      ref: saved.slug
+    });
     const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
     const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
-    res.json({ ok: true, pixel: {
-      ...saved,
-      accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '',
-      scriptUrl: saved.token ? proto + '://' + host + '/px/' + saved.token + '.js' : null,
-      scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>' : null
-    } });
+    res.json({
+      ok: true,
+      // Avisa o painel quando a gravação NÃO foi durável — evita o cenário
+      // silencioso em que o usuário salva, some no restart e o pixel para.
+      durable: saved._durable,
+      warning: saved._durable ? null : saved._saveError,
+      pixel: {
+        ...saved,
+        accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '',
+        scriptUrl: saved.token ? proto + '://' + host + '/px/' + saved.token + '.js' : null,
+        scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>' : null
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2638,6 +2649,47 @@ app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Saúde da PERSISTÊNCIA de pixels: informa se a config está durável (Neon ou
+// Redis) ou apenas em memória volátil, além de detectar pixels com venda ligada
+// mas sem gateway "trusted" entregando (o motivo nº1 de "config não vai pro
+// pixel"). Alimenta o banner de diagnóstico no painel. (Distinto de
+// /api/pixels/health, que mede a taxa de sucesso dos DISPAROS.)
+app.get('/api/pixels/durability', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const h = pixelStore.health();
+  const pixels = pixelStore.list(req.account.id);
+  // Gateways que entregam eventos "trusted" (server-side) para esta conta.
+  let trustedGateways = 0;
+  try { trustedGateways = (gatewayStore.list(req.account.id) || []).length; } catch (_) {}
+  const warnings = [];
+  if (!h.durable && (h.dbEnabled || h.redisEnabled) && h.lastError) warnings.push(h.lastError);
+  if (!h.dbEnabled && !h.redisEnabled) {
+    warnings.push('Sem Neon nem Redis: a config de pixel vive só em memória e some a cada reinício.');
+  }
+  // Pixels que dependem de CompletePayment mas não há webhook de gateway
+  // instalado — nesse caso o evento de venda NUNCA dispara (trava _trusted).
+  const salePixels = pixels.filter((p) => p.events && p.events.CompletePayment).length;
+  if (salePixels > 0 && trustedGateways === 0) {
+    warnings.push('Você tem ' + salePixels + ' pixel(s) com "Compra" ligada, mas nenhum gateway conectado. '
+      + 'Eventos de venda (CompletePayment) só disparam via webhook do gateway — configure um gateway para o pixel receber conversões.');
+  }
+  const incomplete = pixels
+    .filter((p) => p.active && (!p.pixelCode || !p.accessToken))
+    .map((p) => ({ slug: p.slug, name: p.name, missing: [!p.pixelCode && 'pixelCode', !p.accessToken && 'accessToken'].filter(Boolean) }));
+  if (incomplete.length) warnings.push(incomplete.length + ' pixel(s) ativo(s) com credencial incompleta (não disparam).');
+  res.json({
+    durable: h.durable,
+    dbEnabled: h.dbEnabled,
+    redisEnabled: h.redisEnabled,
+    lastOk: h.lastOk,
+    lastError: h.lastError,
+    trustedGateways,
+    salePixels,
+    incomplete,
+    warnings
+  });
 });
 
 // Teste de disparo: envia um ViewContent de teste e devolve a resposta CRUA
