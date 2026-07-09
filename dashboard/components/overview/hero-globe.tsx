@@ -61,8 +61,9 @@ export function HeroGlobe() {
       aria-label="Presença global em tempo real"
       className="hero-globe relative overflow-hidden rounded-2xl border border-border/60"
     >
-      {/* Palco do globo — ocupa a área toda e fica em alto contraste */}
-      <div className="relative h-[62vh] min-h-[420px] w-full">
+      {/* Palco do globo — altura contida para não dominar a página nem gerar
+          faixa vazia; o globo é coadjuvante dos KPIs, não o herói. */}
+      <div className="relative h-[340px] w-full sm:h-[400px] lg:h-[440px]">
         {isLoading && !data ? (
           <Skeleton className="absolute inset-0 rounded-2xl" />
         ) : (
