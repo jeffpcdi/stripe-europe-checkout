@@ -12,11 +12,11 @@
 |------|--------|-------|--------|
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~15/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~30/110 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | ~33/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 0/130 |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~55/570** — Leva 1 (backend) 100% concluída
+**Total concluído: ~58/570** — Leva 1 (backend) 100% + itens 31–50 (bugs/robustez) 100% concluídos
 
 ## Itens concluídos (com evidência)
 
@@ -66,10 +66,13 @@
 - ✅ 39. QR code gerado localmente (lib `qrcode`)
 - ✅ 40. Auto-polling de verificação de domínio (45s)
 - ✅ 41. `/api/pixels/test` com erro pt-BR amigável sem token ("Configure o Access Token...")
+- ✅ 42. Mapa de erros TikTok → pt-BR (`tiktok-errors.js`, usado no caminho compartilhado de disparo/teste em `tiktok-events.js`)
 - ✅ 43. Validação de host no POST /api/domains (`normHost` + `DOMAIN_RE`)
+- ✅ 45. (= 114) Idempotência de webhook por order_id (`seenWebhookOrder`, Redis SET NX + fallback memória, TTL 24h)
 - ✅ 44. `touchGateway`/`touch()` com try/catch (falha de métrica não derruba webhook)
 - ✅ 46. Rate-limit no `/hook/:token` (120/janela, 429 sem detalhe) — verificado ao vivo (120×404 + 5×429)
 - ✅ 47. Hint público de `/api/status` sem citar plataforma de hospedagem
+- ✅ 48. Snapshot durável de gateways no Redis (espelho em save/remove/rotate/touch + hidratação com fallback quando Neon falha) — 4/4 testes após a mudança
 - ✅ 49. Toggle ativo/pausado inline no card do pixel (otimista) + merge-patch no POST /api/pixels — verificado ao vivo (toggle + reload preserva token)
 - ✅ 50. Aviso no editor de pixel quando falta Access Token (CAPI não dispara)
 - ✅ 79. Tendência de EMQ (card + sparkline + alerta) — verificado no navegador
@@ -91,7 +94,7 @@
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Demais itens da Leva 3 (42, 45, 48, 51–78, 83–98, 102–113, 120–130, 133–140)
+1. Demais itens da Leva 3 (51–78, 83–98, 102–113, 120–130, 133–140)
 2. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
 3. Leva 4 em diante (141–570)
 

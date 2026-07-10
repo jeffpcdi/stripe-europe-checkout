@@ -608,6 +608,40 @@ async function loadPixelSnapshot() {
   } catch (err) { console.error('[redis] loadPixelSnapshot:', err.message); return null; }
 }
 
+// ── Snapshot durável de gateways (item 48) ─────────────────────────────────
+// Espelho igual ao dos pixels: se o Neon falhar no boot, os gateways hidratam
+// do Redis e os webhooks não ficam órfãos. `field` = `${accountId}:${id}`.
+const GATEWAYS_KEY = 'gateways:all';
+
+async function saveGatewaySnapshot(accountId, id, cfg) {
+  if (!enabled || !id) return false;
+  try {
+    await redis.hset(GATEWAYS_KEY, { [(accountId || 'legacy') + ':' + id]: JSON.stringify(cfg) });
+    return true;
+  } catch (err) { console.error('[redis] saveGatewaySnapshot:', err.message); return false; }
+}
+
+async function deleteGatewaySnapshot(accountId, id) {
+  if (!enabled || !id) return false;
+  try {
+    await redis.hdel(GATEWAYS_KEY, (accountId || 'legacy') + ':' + id);
+    return true;
+  } catch (err) { console.error('[redis] deleteGatewaySnapshot:', err.message); return false; }
+}
+
+// Retorna array de gateways do snapshot (ou null se Redis off / erro de leitura
+// — jamais [] por erro, para não confundir com "não há gateways salvos").
+async function loadGatewaySnapshot() {
+  if (!enabled) return null;
+  try {
+    const h = await redis.hgetall(GATEWAYS_KEY);
+    if (!h) return [];
+    return Object.values(h)
+      .map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } })
+      .filter(Boolean);
+  } catch (err) { console.error('[redis] loadGatewaySnapshot:', err.message); return null; }
+}
+
 // ── Ping de saúde ─────────────────────────────────────────────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
@@ -634,5 +668,6 @@ module.exports = {
   acquireLock, releaseLock,
   bumpEmq, getEmqTrend,
   savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,
+  saveGatewaySnapshot, deleteGatewaySnapshot, loadGatewaySnapshot,
   ping, TTL
 };
