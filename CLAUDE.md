@@ -593,7 +593,7 @@ em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluí
 **Leva 1 (backend, itens 1–10) 100% concluída. Itens 241–252 (durabilidade de schema) 100%
 concluídos (antecipados):** tabela `custom_domains`, coluna `accounts.currency`, snapshot Redis
 `domains:all`, write-through assíncrono via `config.set` e reconciliação no boot (§8/§10).
-Entregues (~84): moeda por conta+UI, uso por
+Entregues (~93): moeda por conta+UI, uso por
 domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
 log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
 tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
@@ -604,7 +604,11 @@ URL https:// no editor, aviso de troca de domínio, exclusão protegida por nome
 UTM builder no editor, países/idiomas por nome (GeoMultiSelect + presets de mercado + colar lista)
 e ações em massa (checkbox por card + barra Ativar/Pausar/Excluir com confirmação em 2 cliques);
 item 60: 5ª suíte `test/security.test.js` (anti-SSRF, normHost, dedup de webhook, edição de
-gateway, pesos A/B) com helpers extraídos do server.js para `security-helpers.js`.
+gateway, pesos A/B) com helpers extraídos do server.js para `security-helpers.js`; aba Pixels
+(itens 83–87, 89, 92–94): QR "Baixar PNG", copiar tag ou só a URL do script (GTM), cópia com
+`aria-live`, token mascarado com Revelar/Ocultar + últimos 4 dígitos, avisos de config inócua
+(sem eventos ligados; Compra sem gateway), `durability.incomplete` por pixel, duplicar pixel
+(sem token, pausado) e hint do Test Event Code.
 Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
 o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
 `node --env-file-if-exists=.env.development.local server.js`. No sandbox, use

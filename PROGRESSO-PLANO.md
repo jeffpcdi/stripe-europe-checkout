@@ -14,11 +14,11 @@
 |------|--------|-------|--------|
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~15/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~50/110 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | ~56/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 12/130 (241–252 ✅) |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~87/570** — Leva 1 (backend) 100% + itens 31–50 (bugs/robustez) 100% + item 60 (testes) + itens 62–76 (Links) + itens 89/93 (Pixels) + itens 241–252 (durabilidade de schema) 100% concluídos
+**Total concluído: ~93/570** — Leva 1 (backend) 100% + itens 31–50 (bugs/robustez) 100% + item 60 (testes) + itens 62–76 (Links) + itens 83–87/89/92–94 (Pixels) + itens 241–252 (durabilidade de schema) 100% concluídos
 
 ## Itens concluídos (com evidência)
 
@@ -108,6 +108,12 @@
 - ✅ 70. Botão "Baixar PNG" no popover do QR (regenera com `qrcode` a 512px, sem serviço externo; download via `<a download>`) — verificado ao vivo (botão presente e habilitado com o QR gerado)
 - ✅ 89. Aba Pixels: além de "Copiar tag" (`<script>` completo), botão "Só URL" que copia apenas `scriptUrl` para colar em GTM/Tag Manager (chaves de `copied` distintas `:tag`/`:url`) — verificado ao vivo (ambos os botões presentes)
 - ✅ 93. Feedback de cópia acessível na aba Pixels: região `role=status` `aria-live=polite` (sr-only) anuncia "X copiado…" além do destaque visual do botão — verificado ao vivo (região presente no DOM)
+- ✅ 83. Campo do Access Token mascarado (`type=password`) com botão Revelar/Ocultar (`aria-pressed`) + hint "Token atual termina em ••XXXX" quando já há token salvo — verificado ao vivo
+- ✅ 85. Aviso no card quando o pixel está ativo mas nenhum evento ligado (config inócua que nunca dispara) — verificado ao vivo
+- ✅ 86. Aviso no card quando Compra/Pagamento está ligado mas `trustedGateways === 0` (eventos de dinheiro só saem do webhook do gateway), com link para /gateways — condição validada ao vivo (com 2 gateways conectados o aviso corretamente não aparece)
+- ✅ 87. `durability.incomplete` renderizado pixel a pixel no banner de diagnóstico ("X está com configuração incompleta: falta …") — antes só warnings agregados apareciam
+- ✅ 92. Duplicar pixel: clona nome/código/eventos SEM o Access Token (cada conta de anúncio tem o seu); cópia nasce pausada com slug `-copia` (sufixo incremental) — verificado ao vivo (`1-copia` criado com `active:false`, `hasToken:false`)
+- ✅ 94. Hint explicando o Test Event Code no editor (aba Eventos de teste do TikTok Events Manager, com link para a doc oficial e aviso de remover ao ir ao ar)
 
 ### Leva 6 — Durabilidade de schema e persistência (241–252) — ANTECIPADA
 
@@ -130,7 +136,7 @@ Evidência: `node --check` limpo nos 4 módulos + 4/4 suítes de teste passando 
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Demais itens da Leva 3 (51–59, 61, 67, 77, 78, 83–88, 90–92, 94, 95, 98, 102–113, 120–130, 133–140)
+1. Demais itens da Leva 3 (51–59, 61, 67, 77, 78, 88, 90, 91, 95, 98, 102–113, 120–130, 133–140)
 2. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
 3. Leva 4 em diante (141–240, 253–570) — 241–252 já concluídos (antecipados)
 
@@ -139,5 +145,5 @@ Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor →
 - **Sessão 1–2:** Leva 1 parcial + tutoriais + bugs 31/33/34/35/36/38/39/40 + itens 99–101, 114, 116–119, 131–132 (PR #42, mesclado)
 - **Sessão 3:** Itens 79–82 (aba Pixels: EMQ, retry, filtro, log expansível) — commit `5d1080e`
 - **Sessão 4 (atual):** criação deste tracker + itens 8, 12, 17, 20, 30, 32, 36, 37 (copy neutro, avisos de gateway, moeda UI, cores de provedor, normalizar pesos, default AddToCart) + 5/6/9/11/41 (leva 1 completa) + 43/44/46 (validação host, touch try/catch, rate-limit hook) + 27 (tours guiados das 5 abas, verificado com popover ao vivo) + 47/49/50 (hint neutro, toggle otimista do pixel com merge-patch, aviso sem token). Type-check limpo, 4/4 testes, card de moeda + rate-limit do hook + tour de Gateways + toggle de pixel verificados ao vivo.
-- **Sessão 6:** itens 70 (baixar QR em PNG a 512px), 89 (copiar só a URL do script do pixel para GTM) e 93 (feedback de cópia acessível com `aria-live` na aba Pixels). Type-check + `next build` limpos; QR e os botões de cópia da aba Pixels verificados ao vivo (build de produção na 3001 + Express na 3000).
+- **Sessão 6:** itens 70 (baixar QR em PNG a 512px), 89 (copiar só a URL do script do pixel para GTM) e 93 (feedback de cópia acessível com `aria-live` na aba Pixels). Depois, refinos da aba Pixels: 83 (token mascarado com Revelar/Ocultar + últimos 4 dígitos), 85/86 (avisos de config inócua no card: sem eventos ligados; Compra sem gateway), 87 (`durability.incomplete` renderizado por pixel), 92 (duplicar pixel sem token, cópia pausada) e 94 (hint do Test Event Code). Type-check + `next build` limpos; tudo verificado ao vivo (build de produção na 3001 + Express na 3000) e dados de teste removidos.
 - **Sessão 5 (atual):** plano salvo em `PLANO-PRAGMATIC-FLOW.md` (raiz) + Leva 6 antecipada — itens 241–252 (durabilidade de schema): tabela `custom_domains` multi-tenant, coluna `accounts.currency`, snapshot Redis de domínios, write-through assíncrono via `config.set`, reconciliação no boot via `config.hydrate`, claim legado e `migrations` no `/api/health`. `node --check` limpo + 4/4 testes. Durabilidade validada ponta a ponta contra Neon+Redis reais (criar/excluir domínio propaga aos 2 espelhos). Depois, aba Links da Leva 3: itens 62–66, 68, 69, 73, 74, 76 — type-check limpo, toggle/duplicar/busca/badge de pixel verificados ao vivo no navegador (build de produção; o dev server Turbopack do sandbox não hidratava, sem relação com as mudanças). Depois, itens 71 (UTM builder) e 75 (países/idiomas por nome + presets + colar lista via `onPaste` no GeoMultiSelect), ambos verificados ao vivo. Fix acessório: `turbopack.root` fixado no `next.config.mjs` (o Turbopack inferia a raiz do monorepo e o `next build` falhava no sandbox). Por fim, item 72 (ações em massa nos links: checkbox + barra Ativar/Pausar/Excluir com confirmação em 2 cliques) — verificado ao vivo ponta a ponta. E item 60: nova suíte `test/security.test.js` (anti-SSRF, normHost, dedup de webhook, edição de gateway, pesos A/B) com extração de `security-helpers.js`; 5/5 suítes + smoke test do servidor ao vivo.
