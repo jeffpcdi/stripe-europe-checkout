@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { NAV_SECTIONS } from '@/lib/navigation'
 import { useLive, useHealth } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { GestaoHelp } from '@/components/shell/gestao-help'
 
 /** Item 10/208: rodapé com status do sistema + uptime + versão */
 function SidebarFooter() {
@@ -127,14 +128,16 @@ export function Sidebar() {
             <div key={section.title}>
               {/* Item 12: divisória com hairline ciano→transparente */}
               {sIdx > 0 ? <div className="side-section-divider mb-4" aria-hidden="true" /> : null}
-              {/* Item 210: label da seção ativa em ciano */}
+              {/* Item 210: label da seção ativa em ciano.
+                  Item 59: "?" na seção Gestão abre a visão geral do fluxo. */}
               <p
                 className={cn(
-                  'mb-2 px-3 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground',
+                  'mb-2 flex items-center gap-1.5 px-3 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground',
                   sectionActive && 'side-section-label--active',
                 )}
               >
                 {section.title}
+                {section.title === 'Gestão' && <GestaoHelp />}
               </p>
               <ul className="flex flex-col gap-0.5">
                 {section.items.map((item) => {
