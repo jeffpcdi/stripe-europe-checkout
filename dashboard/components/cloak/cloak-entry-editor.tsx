@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import { apiSend, useDomains } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity } from '@/lib/types'
 
 interface Props {
@@ -30,6 +30,14 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
   const [idiomas, setIdiomas] = useState((entry?.idiomas ?? []).join(', '))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Só domínios já verificados podem servir o cloaking — um domínio pendente
+  // devolve 404 nos links /go. Listamos apenas os verificados para seleção.
+  const { data: domainsData } = useDomains()
+  const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado)
+  // Preserva um domínio já salvo na entrada mesmo que não esteja mais na lista
+  // (ex.: removido depois), para não apagá-lo silenciosamente ao editar.
+  const currentInList = verifiedDomains.some((d) => d.host === dominio)
 
   async function handleSave() {
     setError(null)
@@ -103,7 +111,31 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
 
           <div>
             <label className={labelCls} htmlFor="ck-dom">Domínio personalizado (opcional)</label>
-            <input id="ck-dom" className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)} placeholder="go.meudominio.com" />
+            {verifiedDomains.length === 0 && !dominio ? (
+              <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-xs text-muted-foreground">
+                Nenhum domínio verificado ainda. Cadastre e verifique um domínio em{' '}
+                <span className="font-medium text-foreground">Domínios</span> para poder selecioná-lo aqui.
+              </div>
+            ) : (
+              <select
+                id="ck-dom"
+                className={inputCls}
+                value={dominio}
+                onChange={(e) => setDominio(e.target.value)}
+              >
+                <option value="">Padrão (domínio principal do app)</option>
+                {verifiedDomains.map((d) => (
+                  <option key={d.host} value={d.host}>{d.host}</option>
+                ))}
+                {/* Mantém visível um domínio salvo que não está mais verificado */}
+                {dominio && !currentInList && (
+                  <option value={dominio}>{dominio} (não verificado)</option>
+                )}
+              </select>
+            )}
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Apenas domínios verificados aparecem aqui — eles já respondem os links de redirecionamento.
+            </p>
           </div>
 
           <div>
