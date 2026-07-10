@@ -302,7 +302,7 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || !nome.trim() || !variantes.some((v) => v.url.trim())}
+              disabled={saving || !nome.trim() || !variantes.some((v) => v.url.trim()) || pesoInvalido}
               className="rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               {saving ? 'Salvando…' : 'Salvar link'}

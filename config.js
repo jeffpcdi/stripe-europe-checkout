@@ -176,8 +176,14 @@ function set(accountId, patch) {
       verificadoEm: d.verificadoEm || null,
       criadoEm: d.criadoEm || new Date().toISOString()
     };
+    // Uso do domínio: onde ele vale (checkout, cloaker ou ambos). O sanitizador
+    // PRECISA preservar este campo, senão a escolha do lojista some no save.
+    if (['checkout', 'cloaker', 'ambos'].includes(d.uso)) out.uso = d.uso;
     // id do domínio na hospedagem (Railway) — usado para consultar/remover via API
     if (d.providerId) out.providerId = String(d.providerId).slice(0, 80);
+    // Registros DNS salvos no cadastro — o tutorial da dashboard reexibe
+    // as instruções sem depender de nova chamada à hospedagem.
+    if (d.dns && typeof d.dns === 'object') out.dns = d.dns;
     return out;
   }).filter((d) => d.host && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d.host));
   if (!Array.isArray(next.notes)) next.notes = [];

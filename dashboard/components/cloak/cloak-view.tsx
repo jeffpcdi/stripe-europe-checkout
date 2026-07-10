@@ -10,6 +10,7 @@ import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/t
 import { CloakConfigPanel } from './cloak-config-panel'
 import { CloakStatsPanel } from './cloak-stats-panel'
 import { CloakEntriesPanel } from './cloak-entries-panel'
+import { describeSignal } from './signal-labels'
 
 const CLOAK_STEPS: TutorialStep[] = [
   {
@@ -158,16 +159,26 @@ function CloakTestPanel() {
           {result.signals?.length > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-medium text-muted-foreground">Sinais detectados</p>
-              <div className="flex flex-wrap gap-1.5">
-                {result.signals.map((s, i) => (
-                  <span
-                    key={i}
-                    className="rounded-md bg-destructive/15 px-2 py-0.5 font-mono text-[11px] text-destructive"
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
+              {/* Legendas pt-BR: verde = indica humano real, vermelho = suspeito,
+                  cinza = informativo. O código técnico fica no title (hover). */}
+              <ul className="flex flex-wrap gap-1.5">
+                {result.signals.map((s, i) => {
+                  const info = describeSignal(s)
+                  const cls =
+                    info.kind === 'confiavel'
+                      ? 'bg-[var(--success-light)] text-success'
+                      : info.kind === 'suspeito'
+                        ? 'bg-destructive/15 text-destructive'
+                        : 'bg-secondary text-muted-foreground'
+                  return (
+                    <li key={i}>
+                      <span title={s} className={`inline-block rounded-md px-2 py-0.5 text-[11px] ${cls}`}>
+                        {info.label}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           )}
         </div>
