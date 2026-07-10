@@ -185,7 +185,7 @@ async function lookupASN(ip) {
   return entry;
 }
 
-// ─── 4. Tokens de challenge ─────────────────────────────────────────────────
+// ─── 4. Tokens de challenge ────────────────────���────────────────────────────
 function _secret() {
   return (process.env.CONVERSION_WEBHOOK_SECRET || 'roi-nados-cloak-dev') + '-cloak-v2';
 }
@@ -278,6 +278,8 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
   const t0      = Date.now();
   const signals = [];
   let score     = 0;
+  let infraAsn  = 0;   // Item 163: ASN resolvido (0 = desconhecido/privado)
+  let infraOrg  = '';  // Item 163: organização/operadora do IP
 
   const ua = String(req.headers['user-agent'] || '');
   const ip = String((req.headers['x-forwarded-for'] || '').split(',')[0].trim()
@@ -389,6 +391,10 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
     if (ip && !signals.includes('ip:bytedance-cidr')) {
       const r = await lookupASNDeadline(ip, cfg.deadlineMs).catch(() => ({ asn: 0, org: '' }));
       const asn = r.asn;
+      // Item 163: guarda o ASN/org resolvidos para o painel de teste mostrar
+      // "operadora móvel (real)" x "datacenter/ByteDance (bot)".
+      infraAsn = asn || 0;
+      infraOrg = r.org || (r._timedOut ? 'timeout' : '');
       if (r._timedOut) {
         signals.push('asn:deadline');
       } else if (asn > 0) {
@@ -594,7 +600,7 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
   // 55 (loose) = conservador — só pega bots muito óbvios
   const verdict = score >= cfg.threshold ? 'bot' : 'real';
 
-  return { verdict, score, signals, threshold: cfg.threshold, resolvedAt: Date.now() - t0 };
+  return { verdict, score, signals, threshold: cfg.threshold, resolvedAt: Date.now() - t0, asn: infraAsn, org: infraOrg };
 }
 
 // ─── Detecção de inconsistência timezone vs país ─────────────────────────────

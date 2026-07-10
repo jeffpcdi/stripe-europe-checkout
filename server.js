@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────���������������───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────�����������������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1620,7 +1620,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
       // s�� precisa saber que o provisionamento automático não completou agora
       // e que a reconexão é automática.
       const notes = {
-        limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
+        limite: 'limite de domínios simultâneos atingido ��� domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
         duplicado: 'este domínio já está provisionado (possivelmente em outra conta) — domínio salvo; verifique em alguns minutos',
         auth: 'o provisionamento automático está indisponível no momento — domínio salvo; tentamos de novo sozinhos na próxima verificação',
         offline: 'não foi possível completar o provisionamento agora — domínio salvo; tentamos de novo sozinhos na próxima verificação'
@@ -1953,7 +1953,9 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     verdict: j.verdict, score: j.score, threshold: j.threshold,
     signals: j.signals, ip: clientIp(req),
     ua: String(req.headers['user-agent'] || '').slice(0, 120),
-    slug: slug || undefined, gates
+    slug: slug || undefined, gates,
+    // Itens 163/164/210: infraestrutura resolvida + tempo de julgamento
+    asn: j.asn || 0, org: j.org || '', resolvedAt: j.resolvedAt || 0
   });
 });
 
