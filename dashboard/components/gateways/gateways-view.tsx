@@ -202,17 +202,21 @@ export function GatewaysView() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
+      {/* Item 57: minmax(0,·) — sem isso os grid items têm min-width:auto e o
+          conteúdo intrínseco (log de webhooks) estoura a viewport no mobile */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         {/* Gateways cadastrados */}
-        <GlassCard className="p-5">
-          <div className="mb-4 flex items-center justify-between">
+        <GlassCard className="min-w-0 p-5">
+          {/* Item 57: flex-wrap para o grupo de botões quebrar linha no mobile
+              (sem isso o card estoura a viewport e a página inteira rola na horizontal) */}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="section-head text-sm font-semibold text-foreground">Gateways de pagamento</h2>
               <p className="text-xs text-muted-foreground">
                 Webhook único por gateway — cole a URL no painel do checkout
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <TutorialButton onClick={() => setShowTutorial(true)} />
               <button
                 type="button"
@@ -421,7 +425,7 @@ export function GatewaysView() {
         </GlassCard>
 
         {/* Log de webhooks recebidos */}
-        <GlassCard className="p-5" data-tour="gateways-webhooks">
+        <GlassCard className="min-w-0 p-5" data-tour="gateways-webhooks">
           <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Webhooks recebidos</h2>
           <p className="mb-3 text-xs text-muted-foreground">Últimas conversões processadas dos seus gateways</p>
           {!convLog || convLog.log.length === 0 ? (

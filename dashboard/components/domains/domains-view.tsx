@@ -503,9 +503,18 @@ function DomainCard({
             <p className="break-all font-mono text-sm font-semibold text-foreground">{domain.host}</p>
             <p className="text-xs text-muted-foreground">
               {domain.verificado ? 'Verificado e ativo' : 'Aguardando verificação de DNS'}
-              {domain.uso && domain.uso !== 'ambos' ? ` — só ${domain.uso}` : ''}
             </p>
           </div>
+          {/* Item 54: badge de uso do domínio (checkout / cloaker / ambos) */}
+          <span
+            className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+              !domain.uso || domain.uso === 'ambos'
+                ? 'border-border text-muted-foreground'
+                : 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan'
+            }`}
+          >
+            {domain.uso === 'checkout' ? 'só checkout' : domain.uso === 'cloaker' ? 'só cloaker' : 'checkout + cloaker'}
+          </span>
           {/* Badge dedicada: proxy da Cloudflare (nuvem laranja) mascara o CNAME */}
           {result?.cloudflareProxy && (
             <span className="flex shrink-0 items-center gap-1 rounded-full border border-[#f6821f]/40 bg-[#f6821f]/10 px-2 py-0.5 text-[11px] font-medium text-[#f6821f]">
