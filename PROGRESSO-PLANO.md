@@ -14,11 +14,11 @@
 |------|--------|-------|--------|
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~15/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~75/110 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | ~87/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 12/130 (241–252 ✅) |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~112/570** — Leva 1 (backend) 100% + **faixa 31–101 COMPLETA** (bugs reais, robustez, testes, a11y, responsividade, Links, Pixels, Gateways, padronização visual) + itens 241–252 (durabilidade de schema) concluídos
+**Total concluído: ~124/570** — Leva 1 (backend) 100% + **faixa 31–113 COMPLETA** (bugs reais, robustez, testes, a11y, responsividade, Links, Pixels, Gateways) + itens 241–252 (durabilidade de schema) concluídos
 
 ## Itens concluídos (com evidência)
 
@@ -122,6 +122,16 @@
 - ✅ 57. Responsividade auditada nas 5 abas a 375px: Links/Pixels/Domínios/Cloak ok; BUG REAL corrigido na aba Gateways (overflow de 699px): cabeçalho sem `flex-wrap` + grid `1.3fr_1fr` sem `minmax(0,·)` deixavam o log de webhooks alargar a página — corrigido com `flex-wrap` + `minmax(0,1.3fr)_minmax(0,1fr)` + `min-w-0` nos cards, re-verificado ao vivo (scrollWidth = 375)
 - ✅ 58. Padronização visual das 5 abas da Gestão: ritmo vertical unificado em `gap-5` na raiz (Links era gap-4, Cloak gap-6, Domains gap-4; Pixels/Gateways já eram gap-5) + `flex-wrap` no cabeçalho do Cloak (padrão das demais abas no mobile); todas já compartilhavam GlassCard `p-5`, descrição + TutorialButton no topo e tokens de tema — verificado ao vivo nas 5 abas (`gap-5 ok`)
 
+### Leva 3 — Aba Gateways (102–113)
+
+- ✅ 102. Marca visual por provedor no card: `ProviderIcon` — marks oficiais de Stripe e Hotmart (via theSVG.org, inline em `currentColor` para herdar a cor da marca) + monograma com cor do catálogo para os gateways BR de nicho sem SVG público (kiwify, cakto, vega, adoorei, payt, perfectpay); ícone genérico Webhook removido — verificado ao vivo (monograma "P" renderizado)
+- ✅ 103. Segredo do gateway mascarado (`type=password`) com Revelar/Ocultar (`aria-pressed`) + hint "já tem um segredo salvo, deixe em branco para manter" quando `hasSecret` — verificado ao vivo
+- ✅ 104/105. Log de webhooks com linha expansível (`aria-expanded`): clique revela Pedido (orderId), Valor+moeda, E-mail, Evento e status do lead (casou com clique rastreado / órfã ou fora da janela) — verificado ao vivo (52 linhas expansíveis, detalhe renderizado)
+- ✅ 106. Aviso cruzado no estado vazio de Gateways: "sem gateway, os eventos de dinheiro do pixel (Compra e Pagamento) nunca disparam" (par do item 86 na aba Pixels)
+- ✅ 107/108/111/112/113 — auditados e JÁ IMPLEMENTADOS: tutorial por provedor via `prov.docs` no card e editor (107), estado vazio guiado com CTA (108), badge de saúde do último evento com motivo (111, `lastEventStatus`), `touchGateway` com catch logado (112, via 44), snapshot Redis de gateways (113, via 48)
+- ✅ 109. Nome único por conta — backend já validava (case-insensitive, ignora o próprio registro na edição) e o editor exibe o erro via `setError`
+- ✅ 110. Cópia do webhook com anúncio `aria-live` (região `role=status` sr-only, padrão do item 93) — verificado ao vivo
+
 ### Leva 6 — Durabilidade de schema e persistência (241–252) — ANTECIPADA
 
 - ✅ 241. Tabela `custom_domains` no Neon (host PK, account_id, uso, verificado, verificado_em, provider_id, provider_note, dns jsonb, timestamps) criada no `init()` do `db.js`
@@ -143,7 +153,7 @@ Evidência: `node --check` limpo nos 4 módulos + 4/4 suítes de teste passando 
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Demais itens da Leva 3 (102–113, 120–130, 133–140)
+1. Demais itens da Leva 3 (120–130, 133–140)
 2. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
 3. Leva 4 em diante (141–240, 253–570) — 241–252 já concluídos (antecipados)
 
