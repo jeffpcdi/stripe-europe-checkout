@@ -574,7 +574,13 @@ Configurações. Cada página é um `page.tsx` fino que renderiza a view de `com
 - **Globo 3D** (`components/geo/globe.tsx`): textura blue-marble local (`/assets/`), polígonos de
   países (`countries.geojson`), pontos de tráfego, controles de zoom e modal fullscreen.
 - **Plano de refinamento pendente:** `docs/PLANO-REFINAMENTO-VISUAL.md` — 206 alterações numeradas
-  em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem** (coerência primeiro).
+em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem** (coerência primeiro).
+- **Plano ativo (570 modificações):** `v0_plans/pragmatic-flow.md` — 7 levas cobrindo backend, as
+5 sub-abas da Gestão, shell, lado público e camadas transversais. **Progresso rastreado item a item
+em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluído, com evidência.
+Já entregues (~36): moeda por conta, uso por domínio, idempotência de webhook, edição/teste/rotação
+de gateways, EMQ trend + filtro/expansão do log de pixels, QR local, validação de pesos A/B,
+legendas pt-BR do cloaker, tutoriais das 5 abas. Fila de execução no topo do PROGRESSO-PLANO.md.
 
 ### 19.5 Armadilhas específicas da dashboard nova
 - Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —

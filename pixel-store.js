@@ -58,7 +58,9 @@ function normalize(slug, raw) {
       InitiateCheckout: ev.InitiateCheckout !== false,
       AddPaymentInfo: ev.AddPaymentInfo !== false,
       CompletePayment: ev.CompletePayment !== false,
-      AddToCart: ev.AddToCart === true
+      // Item 37: default ALINHADO ao editor da dashboard (que cria pixels com
+      // AddToCart ligado). Só desliga se o usuário desmarcar explicitamente.
+      AddToCart: ev.AddToCart !== false
     },
     updatedAt: raw.updatedAt || new Date().toISOString()
   };

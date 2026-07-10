@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import {
   Plus,
   Target,
@@ -228,6 +229,17 @@ export function PixelsView() {
               </button>
             </div>
           </div>
+
+          {/* Item 12: aviso permanente — Compra só dispara com gateway conectado */}
+          <p className="mb-3 rounded-lg border border-[color:var(--warning)]/25 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-muted-foreground text-pretty">
+            O script cobre Visita, Carrinho e Checkout. O evento de{' '}
+            <strong className="text-foreground">Compra (CompletePayment)</strong> só dispara quando um
+            gateway confirma o pagamento —{' '}
+            <Link href="/gateways" className="font-semibold text-[color:var(--brand-cyan)] hover:underline">
+              conecte um gateway
+            </Link>
+            .
+          </p>
 
           {isLoading ? (
             <div className="flex flex-col gap-2">

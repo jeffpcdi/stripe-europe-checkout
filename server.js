@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────�������───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────���������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1620,13 +1620,16 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
       // manual (o lojista aponta o CNAME/adiciona o domínio depois). Assim que
       // houver capacidade, a verificação re-tenta o registro sozinha. Mensagens
       // genéricas — nunca expõem token nem detalhe interno da API.
+      // Itens 8/20: linguagem NEUTRA — nunca citar provedor interno. O lojista
+      // só precisa saber que o provisionamento automático não completou agora
+      // e que a reconexão é automática.
       const notes = {
-        limite: 'limite de domínios da hospedagem atingido — salvo em modo manual; reconectamos automaticamente quando um slot vagar (ou remova um domínio não usado)',
-        duplicado: 'este domínio já está registrado na hospedagem (possivelmente em outro projeto) — salvo em modo manual',
-        auth: 'a automação de domínio está indisponível no momento — salvo em modo manual',
-        offline: 'não foi possível falar com a hospedagem agora — salvo em modo manual'
+        limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
+        duplicado: 'este domínio já está provisionado (possivelmente em outra conta) — domínio salvo; verifique em alguns minutos',
+        auth: 'o provisionamento automático está indisponível no momento — domínio salvo; tentamos de novo sozinhos na próxima verificação',
+        offline: 'não foi possível completar o provisionamento agora — domínio salvo; tentamos de novo sozinhos na próxima verificação'
       };
-      providerNote = notes[e.message] || 'salvo em modo manual';
+      providerNote = notes[e.message] || 'domínio salvo — o provisionamento automático completa na próxima verificação';
       stats.logEvent('warn', { acc: req.account.id, title: 'Domínio salvo em modo manual (' + e.message + '): ' + host });
     }
   }
@@ -1645,7 +1648,10 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
   // aqui contém segredo — são valores públicos de DNS. providerNote avisa quando
   // caiu em modo manual (ex.: teto da hospedagem) sem bloquear o cadastro.
-  res.json({ ok: true, host, dnsRecords, managed: domainProvider.enabled && !!providerId, providerNote });
+  // Item 8: `mode` explícito — 'auto' = provisionado automaticamente;
+  // 'manual' = aguardando (a verificação re-tenta o registro sozinha).
+  const managed = domainProvider.enabled && !!providerId;
+  res.json({ ok: true, host, dnsRecords, managed, mode: managed ? 'auto' : 'manual', providerNote });
 });
 
 app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
@@ -1749,7 +1755,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       } else if (gerenciado) {
         out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro automático foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
       } else {
-        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas a ativação do domínio na hospedagem ainda está pendente do nosso lado. Clique em Verificar de novo em alguns minutos (a reconexão é automática).';
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o provisionamento automático ainda está completando do nosso lado. Clique em Verificar de novo em alguns minutos (a reconexão é automática).';
         stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (modo manual): ' + host });
       }
     } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
@@ -1919,7 +1925,7 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   });
 });
 
-// ── Métricas de decisão do cloaker (offer vs white) por conta ────────────��─
+// ── Métricas de decisão do cloaker (offer vs white) por conta ─────────��──��─
 // Devolve, por link (/go e /c), quantas visitas foram para a offer vs white,
 // a taxa de bloqueio e o breakdown por motivo (bot-ua, pais, idioma, score,
 // rate-limit). Alimenta o painel white/offer da aba Filtro de Bots.
@@ -2721,7 +2727,7 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
   // mascara o token na listagem (só mostra últimos 4 chars)
   const list = pixelStore.list(req.account.id).map((p) => ({
     ...p,
-    accessToken: p.accessToken ? '••••' + p.accessToken.slice(-4) : '',
+    accessToken: p.accessToken ? '•��••' + p.accessToken.slice(-4) : '',
     hasToken: !!p.accessToken,
     // script individual deste pixel (estilo Xtracky): cole em qualquer página
     scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,

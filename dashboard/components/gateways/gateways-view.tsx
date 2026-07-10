@@ -78,13 +78,18 @@ const GATEWAY_STEPS: TutorialStep[] = [
 ]
 
 // Item 73: cor da marca por provedor — cápsula e borda no hover
+// Item 32: mapa ALINHADO ao catálogo real de PROVIDERS do gateway-store.js
+// (kiwify, hotmart, perfectpay, cakto, stripe, vega, adoorei, payt, generic).
+// paypal/mercadopago não existem no catálogo e foram removidos.
 const PROVIDER_COLORS: Record<string, string> = {
-  stripe: '#635bff',
-  paypal: '#0070ba',
-  mercadopago: '#00b1ea',
-  hotmart: '#f04e23',
   kiwify: '#22c55e',
+  hotmart: '#f04e23',
   perfectpay: '#fbbf24',
+  cakto: '#7c9a3d',
+  stripe: '#635bff',
+  vega: '#3b82f6',
+  adoorei: '#e879a0',
+  payt: '#0ea5a3',
   generic: '#25f4ee',
 }
 
@@ -225,6 +230,15 @@ export function GatewaysView() {
               </button>
             </div>
           </div>
+
+          {/* Item 17: regra de ouro sempre visível — venda só conta via webhook */}
+          <p className="mb-3 flex items-start gap-2 rounded-lg border border-[color:var(--warning)]/25 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-muted-foreground text-pretty">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
+            <span>
+              Eventos de pagamento (<strong className="text-foreground">Compra / CompletePayment</strong>) só
+              disparam quando um gateway conectado confirma via webhook — nunca pelo navegador do cliente.
+            </span>
+          </p>
 
           {testResult && (
             <p

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import {
-  User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send, SlidersHorizontal,
+  User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send, SlidersHorizontal, Coins,
 } from 'lucide-react'
 import useSWR from 'swr'
 import { useAccount, usePushcutConfig, apiSend, fetcher } from '@/lib/api'
@@ -23,11 +23,93 @@ export function ConfigView() {
   return (
     <div className="flex flex-col gap-6">
       <AccountCard />
+      <CurrencyCard />
       <PreferencesCard />
       <PushcutCard />
       <ApiTokenCard />
       <DangerCard />
     </div>
+  )
+}
+
+// Moedas mais comuns no público do app (LATAM + principais globais)
+const CURRENCIES: { code: string; label: string }[] = [
+  { code: 'BRL', label: 'Real brasileiro (R$)' },
+  { code: 'USD', label: 'Dólar americano (US$)' },
+  { code: 'EUR', label: 'Euro (€)' },
+  { code: 'GBP', label: 'Libra esterlina (£)' },
+  { code: 'MXN', label: 'Peso mexicano (MX$)' },
+  { code: 'ARS', label: 'Peso argentino (AR$)' },
+  { code: 'COP', label: 'Peso colombiano (CO$)' },
+  { code: 'CLP', label: 'Peso chileno (CL$)' },
+  { code: 'PEN', label: 'Sol peruano (S/)' },
+]
+
+/** Item 30: moeda padrão da conta — alimenta disparos e testes da Events API */
+function CurrencyCard() {
+  const { data, mutate } = useSWR<{ defaultCurrency: string }>('/api/settings', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleChange(code: string) {
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+    try {
+      await apiSend('/api/settings', 'POST', { defaultCurrency: code })
+      await mutate()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao salvar moeda')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const current = data?.defaultCurrency ?? 'BRL'
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <Coins className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="section-head text-sm font-semibold text-foreground">Moeda da conta</h2>
+          <p className="text-xs text-muted-foreground">
+            Usada nos eventos enviados ao TikTok quando o gateway não informa a moeda
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
+        <select
+          value={current}
+          onChange={(e) => handleChange(e.target.value)}
+          disabled={saving || !data}
+          aria-label="Moeda padrão da conta"
+          className="rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        >
+          {CURRENCIES.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.code} — {c.label}
+            </option>
+          ))}
+        </select>
+        {saving && <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Salvando" />}
+        {saved && (
+          <span className="flex items-center gap-1 text-xs text-success" role="status">
+            <Check className="size-3.5" /> Moeda salva
+          </span>
+        )}
+        {error && (
+          <span className="text-xs text-destructive" role="alert">
+            {error}
+          </span>
+        )}
+      </div>
+    </GlassCard>
   )
 }
 
