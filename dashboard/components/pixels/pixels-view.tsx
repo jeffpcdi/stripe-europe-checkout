@@ -209,31 +209,47 @@ export function PixelsView() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Item 51: cabeçalho de saúde consolidado — config durável vs. memória */}
-      {durability && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs">
-          <span
-            className={`flex items-center gap-1.5 font-semibold ${durability.durable ? 'text-success' : 'text-warning'}`}
-          >
-            <span
-              className={`size-2 rounded-full ${durability.durable ? 'bg-[color:var(--success)]' : 'bg-[color:var(--warning)]'}`}
-              aria-hidden="true"
-            />
-            {durability.durable ? 'Config durável' : 'Config volátil (só em memória)'}
-          </span>
-          <span className="text-muted-foreground">
-            Banco: <strong className={durability.dbEnabled ? 'text-success' : 'text-warning'}>{durability.dbEnabled ? 'conectado' : 'off'}</strong>
-          </span>
-          <span className="text-muted-foreground">
-            Redis: <strong className={durability.redisEnabled ? 'text-success' : 'text-muted-foreground'}>{durability.redisEnabled ? 'conectado' : 'off'}</strong>
-          </span>
-          {!durability.durable && (
-            <span className="text-pretty text-muted-foreground">
-              — pixels criados agora podem sumir num restart do servidor
-            </span>
-          )}
-        </div>
-      )}
+      {/* Item 51: cabeçalho de saúde consolidado. "Durável" = há uma camada de
+          persistência disponível (banco OU Redis); é a capacidade que garante que
+          a config sobrevive a um restart, independente de já ter havido gravação. */}
+      {durability &&
+        (() => {
+          const persistente = durability.dbEnabled || durability.redisEnabled
+          return (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs">
+              <span
+                className={`flex items-center gap-1.5 font-semibold ${persistente ? 'text-success' : 'text-warning'}`}
+              >
+                <span
+                  className={`size-2 rounded-full ${persistente ? 'bg-[color:var(--success)]' : 'bg-[color:var(--warning)]'}`}
+                  aria-hidden="true"
+                />
+                {persistente ? 'Config durável' : 'Config volátil (só em memória)'}
+              </span>
+              <span className="text-muted-foreground">
+                Banco:{' '}
+                <strong className={durability.dbEnabled ? 'text-success' : 'text-warning'}>
+                  {durability.dbEnabled ? 'conectado' : 'off'}
+                </strong>
+              </span>
+              <span className="text-muted-foreground">
+                Redis:{' '}
+                <strong className={durability.redisEnabled ? 'text-success' : 'text-muted-foreground'}>
+                  {durability.redisEnabled ? 'conectado' : 'off'}
+                </strong>
+              </span>
+              {!persistente && (
+                <span className="text-pretty text-muted-foreground">
+                  — pixels criados agora podem sumir num restart do servidor
+                </span>
+              )}
+              {/* Erro real de gravação durável (banco/Redis habilitado mas falhou) */}
+              {persistente && durability.lastError && (
+                <span className="text-pretty text-warning">— {durability.lastError}</span>
+              )}
+            </div>
+          )
+        })()}
 
       {/* Diagnóstico: por que a config pode não estar chegando ao pixel */}
       {warnings.length > 0 && (

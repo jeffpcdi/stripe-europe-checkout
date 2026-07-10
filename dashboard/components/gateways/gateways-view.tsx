@@ -259,11 +259,30 @@ export function GatewaysView() {
               <Skeleton className="h-24" />
               <Skeleton className="h-24" />
             </div>
-          ) : gateways.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Nenhum gateway conectado. Adicione um para receber webhooks de conversão.
-            </p>
-          ) : (
+            ) : gateways.length === 0 ? (
+              /* Item 53: estado vazio guiado — CTA de criação + tutorial */
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <p className="text-sm text-muted-foreground text-pretty">
+                  Nenhum gateway conectado. Adicione um para receber webhooks de conversão.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreating(true)}
+                    className="rounded-lg bg-[color:var(--brand-cyan)] px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
+                  >
+                    Conectar primeiro gateway
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowTutorial(true)}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    Ver tutorial
+                  </button>
+                </div>
+              </div>
+            ) : (
             <ul className="flex flex-col gap-2" data-tour="gateways-list">
               {gateways.map((g) => {
                 const prov = providers.find((p) => p.id === g.provider)
