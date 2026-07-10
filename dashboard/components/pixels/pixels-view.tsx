@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import {
   Plus,
   Target,
@@ -14,15 +15,19 @@ import {
   TriangleAlert,
   Search,
   Loader2,
+  TrendingDown,
+  RefreshCw,
+  ChevronDown,
 } from 'lucide-react'
 import {
   usePixels,
   usePixelHealth,
   usePixelLog,
   usePixelDurability,
+  useEmqTrend,
   apiSend,
 } from '@/lib/api'
-import type { Pixel, PixelEvents, PixelTestResult } from '@/lib/types'
+import type { Pixel, PixelEvents, PixelTestResult, PixelEmqTrend } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
@@ -108,6 +113,14 @@ export function PixelsView() {
   const { data: health } = usePixelHealth()
   const { data: log, mutate: mutateLog } = usePixelLog()
   const { data: durability } = usePixelDurability()
+  const { data: emqTrend } = useEmqTrend()
+
+  // Filtros do log de disparos (item 81) e linha expandida (item 82)
+  const [logPixel, setLogPixel] = useState('')
+  const [logEvent, setLogEvent] = useState('')
+  const [logStatus, setLogStatus] = useState('')
+  const [expandedLog, setExpandedLog] = useState<string | null>(null)
+  const [copiedEventId, setCopiedEventId] = useState<string | null>(null)
 
   const [editing, setEditing] = useState<Pixel | null>(null)
   const [creating, setCreating] = useState(false)
@@ -134,6 +147,23 @@ export function PixelsView() {
     if (!window.confirm(`Remover o pixel "${p.name}"? Os eventos dele param de disparar.`)) return
     await apiSend(`/api/pixels/${encodeURIComponent(p.slug)}`, 'DELETE')
     mutate()
+  }
+
+  // Item 49: toggle ativo/pausado inline com atualização OTIMISTA — o backend
+  // faz merge-patch (só `active` muda; token/eventos são preservados).
+  async function handleToggleActive(p: Pixel) {
+    const next = !p.active
+    mutate(
+      (cur) =>
+        cur ? { ...cur, pixels: cur.pixels.map((x) => (x.slug === p.slug ? { ...x, active: next } : x)) } : cur,
+      { revalidate: false },
+    )
+    try {
+      await apiSend('/api/pixels', 'POST', { slug: p.slug, active: next })
+      mutate()
+    } catch {
+      mutate() // reverte para o estado do servidor em caso de erro
+    }
   }
 
   async function handleTest(p: Pixel) {
@@ -179,6 +209,48 @@ export function PixelsView() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Item 51: cabeçalho de saúde consolidado. "Durável" = há uma camada de
+          persistência disponível (banco OU Redis); é a capacidade que garante que
+          a config sobrevive a um restart, independente de já ter havido gravação. */}
+      {durability &&
+        (() => {
+          const persistente = durability.dbEnabled || durability.redisEnabled
+          return (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs">
+              <span
+                className={`flex items-center gap-1.5 font-semibold ${persistente ? 'text-success' : 'text-warning'}`}
+              >
+                <span
+                  className={`size-2 rounded-full ${persistente ? 'bg-[color:var(--success)]' : 'bg-[color:var(--warning)]'}`}
+                  aria-hidden="true"
+                />
+                {persistente ? 'Config durável' : 'Config volátil (só em memória)'}
+              </span>
+              <span className="text-muted-foreground">
+                Banco:{' '}
+                <strong className={durability.dbEnabled ? 'text-success' : 'text-warning'}>
+                  {durability.dbEnabled ? 'conectado' : 'off'}
+                </strong>
+              </span>
+              <span className="text-muted-foreground">
+                Redis:{' '}
+                <strong className={durability.redisEnabled ? 'text-success' : 'text-muted-foreground'}>
+                  {durability.redisEnabled ? 'conectado' : 'off'}
+                </strong>
+              </span>
+              {!persistente && (
+                <span className="text-pretty text-muted-foreground">
+                  — pixels criados agora podem sumir num restart do servidor
+                </span>
+              )}
+              {/* Erro real de gravação durável (banco/Redis habilitado mas falhou) */}
+              {persistente && durability.lastError && (
+                <span className="text-pretty text-warning">— {durability.lastError}</span>
+              )}
+            </div>
+          )
+        })()}
+
       {/* Diagnóstico: por que a config pode não estar chegando ao pixel */}
       {warnings.length > 0 && (
         <div
@@ -209,6 +281,7 @@ export function PixelsView() {
               <TutorialButton onClick={() => setShowTutorial(true)} />
               <button
                 type="button"
+                data-tour="pixels-new"
                 onClick={() => setCreating(true)}
                 className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
               >
@@ -217,17 +290,47 @@ export function PixelsView() {
             </div>
           </div>
 
+          {/* Item 12: aviso permanente — Compra só dispara com gateway conectado */}
+          <p className="mb-3 rounded-lg border border-[color:var(--warning)]/25 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-muted-foreground text-pretty">
+            O script cobre Visita, Carrinho e Checkout. O evento de{' '}
+            <strong className="text-foreground">Compra (CompletePayment)</strong> só dispara quando um
+            gateway confirma o pagamento —{' '}
+            <Link href="/gateways" className="font-semibold text-[color:var(--brand-cyan)] hover:underline">
+              conecte um gateway
+            </Link>
+            .
+          </p>
+
           {isLoading ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-28" />
               <Skeleton className="h-28" />
             </div>
           ) : pixels.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground text-pretty">
-              Nenhum pixel configurado. Adicione o Pixel Code e o Access Token do TikTok Events API.
-            </p>
+            /* Item 53: estado vazio guiado — CTA de criação + tutorial */
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <p className="text-sm text-muted-foreground text-pretty">
+                Nenhum pixel configurado. Adicione o Pixel Code e o Access Token do TikTok Events API.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCreating(true)}
+                  className="rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
+                >
+                  Criar primeiro pixel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTutorial(true)}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  Ver tutorial
+                </button>
+              </div>
+            </div>
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-2" data-tour="pixels-list">
               {pixels.map((p) => (
                 <li key={p.slug} className="rounded-xl border border-border bg-secondary/40 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -246,6 +349,23 @@ export function PixelsView() {
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
+                      {/* Item 49: toggle inline ativo/pausado (otimista) */}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={p.active}
+                        aria-label={p.active ? `Pausar pixel ${p.name}` : `Ativar pixel ${p.name}`}
+                        onClick={() => handleToggleActive(p)}
+                        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          p.active ? 'bg-brand-cyan' : 'bg-secondary'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 size-4 rounded-full bg-background shadow transition-transform ${
+                            p.active ? 'translate-x-4' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
                       <StatusBadge status={p.active ? 'success' : 'neutral'}>
                         {p.active ? 'ativo' : 'pausado'}
                       </StatusBadge>
@@ -353,7 +473,7 @@ export function PixelsView() {
 
         {/* Verificar instalação + saúde da CAPI + log de disparos */}
         <div className="flex min-w-0 flex-col gap-5">
-          <GlassCard className="p-5">
+          <GlassCard className="p-5" data-tour="pixels-verify">
             <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Verificar instalação</h2>
             <p className="mb-3 text-xs text-muted-foreground text-pretty">
               Cole a URL da sua página e confirmamos, pelo servidor, se o script do pixel está presente
@@ -425,7 +545,7 @@ export function PixelsView() {
             )}
           </GlassCard>
 
-          <GlassCard className="p-5">
+          <GlassCard className="p-5" data-tour="pixels-health">
             <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Saúde dos disparos</h2>
             <p className="mb-3 text-xs text-muted-foreground">Taxa de sucesso da Events API (24h)</p>
             {!health ? (
@@ -455,9 +575,38 @@ export function PixelsView() {
                     </span>
                   </div>
                 ))}
+                {/* Fila de reenvio da CAPI (item 80): eventos que falharam e
+                    aguardam nova tentativa automática. Zero = tudo entregue. */}
+                {health.retryQueue > 0 && (
+                  <div className="mt-1 flex items-center gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-xs text-warning">
+                    <RefreshCw className="size-3.5 shrink-0" aria-hidden="true" />
+                    <span className="text-pretty">
+                      {health.retryQueue} {health.retryQueue === 1 ? 'evento aguarda' : 'eventos aguardam'} reenvio
+                      automático à Events API
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </GlassCard>
+
+          {/* Tendência de EMQ (item 79): o backend já calcula, mas nada exibia.
+              Sparkline por pixel + alerta de EMQ baixo ou em queda. */}
+          {emqTrend && emqTrend.pixels.some((p) => p.trend.length > 0) && (
+            <GlassCard className="p-5">
+              <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Qualidade do match (EMQ)</h2>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Tendência do Event Match Quality — quanto maior, melhor o TikTok casa seus eventos
+              </p>
+              <div className="flex flex-col gap-4">
+                {emqTrend.pixels
+                  .filter((p) => p.trend.length > 0)
+                  .map((p) => (
+                    <EmqSparkline key={p.pixelCode} pixel={p} />
+                  ))}
+              </div>
+            </GlassCard>
+          )}
 
           <GlassCard className="p-5">
             <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Disparos recentes</h2>
@@ -465,28 +614,171 @@ export function PixelsView() {
             {!log || log.log.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Nenhum disparo registrado ainda.</p>
             ) : (
-              <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
-                {log.log.map((row, i) => (
-                  <li
-                    key={row.id ?? i}
-                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary/60"
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span
-                        className={`size-1.5 shrink-0 rounded-full ${
-                          row.status === 'ok' ? 'bg-success' : row.status === 'error' ? 'bg-error' : 'bg-warning'
-                        }`}
-                        aria-hidden="true"
-                      />
-                      <span className="truncate font-mono text-foreground">{row.event}</span>
-                      <span className="truncate text-muted-foreground">
-                        {row.status !== 'ok' && row.response?.message ? row.response.message : row.pixel}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(row.at)}</span>
-                  </li>
-                ))}
-              </ul>
+              (() => {
+                // Filtros do log (item 81) — derivados do próprio log carregado.
+                const pixelOpts = Array.from(new Set(log.log.map((r) => r.pixel))).sort()
+                const eventOpts = Array.from(new Set(log.log.map((r) => r.event))).sort()
+                const rows = log.log.filter(
+                  (r) =>
+                    (!logPixel || r.pixel === logPixel) &&
+                    (!logEvent || r.event === logEvent) &&
+                    (!logStatus ||
+                      (logStatus === 'descarte'
+                        ? r.status !== 'ok' && r.status !== 'error'
+                        : r.status === logStatus)),
+                )
+                return (
+                  <>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <select
+                        value={logPixel}
+                        onChange={(e) => setLogPixel(e.target.value)}
+                        aria-label="Filtrar por pixel"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-input px-2 py-1 text-xs text-foreground"
+                      >
+                        <option value="">Todos os pixels</option>
+                        {pixelOpts.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={logEvent}
+                        onChange={(e) => setLogEvent(e.target.value)}
+                        aria-label="Filtrar por evento"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-input px-2 py-1 text-xs text-foreground"
+                      >
+                        <option value="">Todos os eventos</option>
+                        {eventOpts.map((ev) => (
+                          <option key={ev} value={ev}>
+                            {ev}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={logStatus}
+                        onChange={(e) => setLogStatus(e.target.value)}
+                        aria-label="Filtrar por status"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-input px-2 py-1 text-xs text-foreground"
+                      >
+                        <option value="">Qualquer status</option>
+                        <option value="ok">Sucesso</option>
+                        <option value="error">Erro</option>
+                        <option value="descarte">Descarte</option>
+                      </select>
+                    </div>
+                    {rows.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-muted-foreground">
+                        Nenhum disparo com esses filtros.
+                      </p>
+                    ) : (
+                      <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+                        {rows.map((row, i) => {
+                          const key = row.id ?? String(i)
+                          const open = expandedLog === key
+                          return (
+                            <li key={key} className="rounded-lg text-xs hover:bg-secondary/60">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedLog(open ? null : key)}
+                                aria-expanded={open}
+                                className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left"
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <span
+                                    className={`size-1.5 shrink-0 rounded-full ${
+                                      row.status === 'ok'
+                                        ? 'bg-success'
+                                        : row.status === 'error'
+                                          ? 'bg-error'
+                                          : 'bg-warning'
+                                    }`}
+                                    aria-hidden="true"
+                                  />
+                                  <span className="truncate font-mono text-foreground">{row.event}</span>
+                                  <span className="truncate text-muted-foreground">
+                                    {row.status !== 'ok' && row.response?.message
+                                      ? row.response.message
+                                      : row.pixel}
+                                  </span>
+                                </span>
+                                <span className="flex shrink-0 items-center gap-1.5">
+                                  <span className="text-[11px] text-muted-foreground">{timeAgo(row.at)}</span>
+                                  <ChevronDown
+                                    className={`size-3.5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
+                                    aria-hidden="true"
+                                  />
+                                </span>
+                              </button>
+                              {open && (
+                                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-border/60 px-2 py-2 font-mono text-[11px]">
+                                  <dt className="text-muted-foreground">Pixel</dt>
+                                  <dd className="truncate text-foreground">{row.pixel}</dd>
+                                  {row.eventId && (
+                                    <>
+                                      <dt className="text-muted-foreground">Event ID</dt>
+                                      <dd className="flex items-center gap-1.5">
+                                        <span className="truncate text-foreground">{row.eventId}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(row.eventId!).then(() => {
+                                              setCopiedEventId(key)
+                                              setTimeout(() => setCopiedEventId(null), 2000)
+                                            })
+                                          }}
+                                          aria-label="Copiar Event ID"
+                                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                                        >
+                                          {copiedEventId === key ? (
+                                            <Check className="size-3 text-success" aria-hidden="true" />
+                                          ) : (
+                                            <Copy className="size-3" aria-hidden="true" />
+                                          )}
+                                        </button>
+                                        <span className="sr-only" aria-live="polite">
+                                          {copiedEventId === key ? 'Event ID copiado' : ''}
+                                        </span>
+                                      </dd>
+                                    </>
+                                  )}
+                                  {row.leadId && (
+                                    <>
+                                      <dt className="text-muted-foreground">Lead</dt>
+                                      <dd className="truncate text-foreground">{row.leadId}</dd>
+                                    </>
+                                  )}
+                                  {row.emq != null && (
+                                    <>
+                                      <dt className="text-muted-foreground">EMQ</dt>
+                                      <dd className="text-foreground">{row.emq.toFixed(1)}</dd>
+                                    </>
+                                  )}
+                                  <dt className="text-muted-foreground">Status</dt>
+                                  <dd className="text-foreground">{row.status}</dd>
+                                  {row.response?.code != null && (
+                                    <>
+                                      <dt className="text-muted-foreground">Código</dt>
+                                      <dd className="text-foreground">{row.response.code}</dd>
+                                    </>
+                                  )}
+                                  {row.response?.message && (
+                                    <>
+                                      <dt className="text-muted-foreground">Resposta</dt>
+                                      <dd className="text-pretty text-foreground">{row.response.message}</dd>
+                                    </>
+                                  )}
+                                </dl>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </>
+                )
+              })()
             )}
           </GlassCard>
         </div>
@@ -514,6 +806,60 @@ export function PixelsView() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ── Sparkline de EMQ por pixel (item 79) ──────────────────────────────
+// Barras simples via flexbox (sem SVG). Escala EMQ 0–10 do TikTok.
+function EmqSparkline({ pixel }: { pixel: PixelEmqTrend }) {
+  const max = 10
+  const alertLabel =
+    pixel.alert === 'queda'
+      ? 'EMQ em queda vs. média anterior'
+      : pixel.alert === 'baixo'
+        ? 'EMQ baixo — melhore os dados enviados'
+        : null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="truncate font-medium text-foreground">{pixel.pixel}</span>
+        <span className="flex items-center gap-1.5">
+          {pixel.recentAvg != null && (
+            <span
+              className={`font-mono ${
+                pixel.recentAvg >= 7 ? 'text-success' : pixel.recentAvg >= 5 ? 'text-warning' : 'text-error'
+              }`}
+            >
+              {pixel.recentAvg.toFixed(1)}
+            </span>
+          )}
+          {alertLabel && (
+            <span
+              title={alertLabel}
+              className="flex items-center gap-0.5 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning"
+            >
+              <TrendingDown className="size-3" aria-hidden="true" />
+              {pixel.alert === 'queda' ? 'queda' : 'baixo'}
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="flex h-10 items-end gap-0.5" role="img" aria-label={`Tendência de EMQ do pixel ${pixel.pixel}`}>
+        {pixel.trend.map((d) => {
+          const h = Math.max(6, Math.round((d.avg / max) * 100))
+          return (
+            <div
+              key={d.day}
+              title={`${d.day}: EMQ ${d.avg.toFixed(1)} (${d.count} eventos)`}
+              className={`min-w-0 flex-1 rounded-sm ${
+                d.avg >= 7 ? 'bg-success/70' : d.avg >= 5 ? 'bg-warning/70' : 'bg-error/70'
+              }`}
+              style={{ height: `${h}%` }}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -615,6 +961,13 @@ function PixelEditor({
               placeholder={pixel?.hasToken ? 'mantém o atual se não alterar' : 'cole o token do TikTok'}
               autoComplete="off"
             />
+            {/* Item 50: sem token os eventos server-side (CAPI) não disparam */}
+            {!accessToken.trim() && !pixel?.hasToken && (
+              <span className="rounded-md bg-[color:var(--warning)]/10 px-2 py-1.5 text-[11px] text-[color:var(--warning)] text-pretty">
+                Sem o Access Token, os eventos server-side (Events API) não disparam — o pixel só
+                funciona no navegador. Gere o token no TikTok Events Manager.
+              </span>
+            )}
           </label>
 
           <label className="flex flex-col gap-1.5">

@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────�������───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────���������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1342,7 +1342,8 @@ app.get('/api/status', (req, res) => {
     ok: db.enabled,               // precisa ser true para registro/login funcionarem
     db: db.enabled,               // DATABASE_URL configurada?
     redis: !!(rdb && rdb.enabled),// UPSTASH_* configurada? (opcional)
-    hint: db.enabled ? undefined : 'DATABASE_URL ausente: configure a connection string do Neon nas variáveis de ambiente do servidor (ex.: painel do Railway).'
+    // Item 47: rota é pública — sem citar plataforma de hospedagem interna.
+    hint: db.enabled ? undefined : 'DATABASE_URL ausente: configure a connection string do banco nas variáveis de ambiente do servidor.'
   });
 });
 
@@ -1620,13 +1621,16 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
       // manual (o lojista aponta o CNAME/adiciona o domínio depois). Assim que
       // houver capacidade, a verificação re-tenta o registro sozinha. Mensagens
       // genéricas — nunca expõem token nem detalhe interno da API.
+      // Itens 8/20: linguagem NEUTRA — nunca citar provedor interno. O lojista
+      // só precisa saber que o provisionamento automático não completou agora
+      // e que a reconexão é automática.
       const notes = {
-        limite: 'limite de domínios da hospedagem atingido — salvo em modo manual; reconectamos automaticamente quando um slot vagar (ou remova um domínio não usado)',
-        duplicado: 'este domínio já está registrado na hospedagem (possivelmente em outro projeto) — salvo em modo manual',
-        auth: 'a automação de domínio está indisponível no momento — salvo em modo manual',
-        offline: 'não foi possível falar com a hospedagem agora — salvo em modo manual'
+        limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
+        duplicado: 'este domínio já está provisionado (possivelmente em outra conta) — domínio salvo; verifique em alguns minutos',
+        auth: 'o provisionamento automático está indisponível no momento — domínio salvo; tentamos de novo sozinhos na próxima verificação',
+        offline: 'não foi possível completar o provisionamento agora — domínio salvo; tentamos de novo sozinhos na próxima verificação'
       };
-      providerNote = notes[e.message] || 'salvo em modo manual';
+      providerNote = notes[e.message] || 'domínio salvo — o provisionamento automático completa na próxima verificação';
       stats.logEvent('warn', { acc: req.account.id, title: 'Domínio salvo em modo manual (' + e.message + '): ' + host });
     }
   }
@@ -1645,7 +1649,10 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
   // aqui contém segredo — são valores públicos de DNS. providerNote avisa quando
   // caiu em modo manual (ex.: teto da hospedagem) sem bloquear o cadastro.
-  res.json({ ok: true, host, dnsRecords, managed: domainProvider.enabled && !!providerId, providerNote });
+  // Item 8: `mode` explícito — 'auto' = provisionado automaticamente;
+  // 'manual' = aguardando (a verificação re-tenta o registro sozinha).
+  const managed = domainProvider.enabled && !!providerId;
+  res.json({ ok: true, host, dnsRecords, managed, mode: managed ? 'auto' : 'manual', providerNote });
 });
 
 app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
@@ -1749,7 +1756,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       } else if (gerenciado) {
         out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro automático foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
       } else {
-        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas a ativação do domínio na hospedagem ainda está pendente do nosso lado. Clique em Verificar de novo em alguns minutos (a reconexão é automática).';
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o provisionamento automático ainda está completando do nosso lado. Clique em Verificar de novo em alguns minutos (a reconexão é automática).';
         stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (modo manual): ' + host });
       }
     } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
@@ -1919,7 +1926,7 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   });
 });
 
-// ── Métricas de decisão do cloaker (offer vs white) por conta ────────────��─
+// ── Métricas de decisão do cloaker (offer vs white) por conta ─────────��──��─
 // Devolve, por link (/go e /c), quantas visitas foram para a offer vs white,
 // a taxa de bloqueio e o breakdown por motivo (bot-ua, pais, idioma, score,
 // rate-limit). Alimenta o painel white/offer da aba Filtro de Bots.
@@ -2357,6 +2364,12 @@ app.post('/api/conversion', (req, res) => {
 // signature) e adapta payloads específicos antes do normalizador genérico.
 app.post('/hook/:token', async (req, res) => {
   const token = String(req.params.token || '').slice(0, 64);
+  // Item 46: rate-limit por token — 120/janela é folgado para gateways reais
+  // (retries inclusos) mas corta flood/brute-force de token. Respondemos 429
+  // sem detalhe para não confirmar se o token existe.
+  if (rateLimited('hook|' + token, 'hook', 120)) {
+    return res.status(429).json({ ok: false });
+  }
   const gw = gatewayStore.findByToken(token);
   if (!gw) return res.status(404).json({ ok: false, error: 'webhook não encontrado' });
 
@@ -2557,7 +2570,7 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
 });
 
 // ���─ API: zerar estatísticas ──────────────────────────────────────────
-// ═══ TikTok multi-pixel ═══════════════════════════════════════════════
+// ═══ TikTok multi-pixel ═════════════════════════════════════════════��═
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
 // editar um pixel (arquivo em pixels/ ou painel) atualiza todas as p��ginas.
@@ -2721,23 +2734,46 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
   // mascara o token na listagem (só mostra últimos 4 chars)
   const list = pixelStore.list(req.account.id).map((p) => ({
     ...p,
-    accessToken: p.accessToken ? '••••' + p.accessToken.slice(-4) : '',
+    accessToken: p.accessToken ? '•��••' + p.accessToken.slice(-4) : '',
     hasToken: !!p.accessToken,
     // script individual deste pixel (estilo Xtracky): cole em qualquer página
     scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,
     scriptTag: p.token ? '<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null
   }));
-  res.json({ pixels: list, dir: 'pixels/' });
+  // Item 6: snippet BASE do loader (dispara para todos os pixels da conta) e
+  // orientação clara — eventos de pagamento exigem gateway, nunca o navegador.
+  const base = proto + '://' + host + '/px.js';
+  res.json({
+    pixels: list,
+    dir: 'pixels/',
+    meta: {
+      loaderUrl: base,
+      loaderTag: '<script src="' + base + '" defer></script>',
+      paymentNote: 'Este script cobre Visita, Carrinho e Checkout. O evento de Compra (CompletePayment) só dispara quando um gateway confirma o pagamento via webhook — conecte um gateway na aba Gateways.'
+    }
+  });
 });
 
 app.post('/api/pixels', dashboardAuth, async (req, res) => {
   try {
     const b = req.body || {};
     if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
-    // Se editar sem reenviar token, mantém o existente (o form manda mascarado)
-    if (b.slug && b.accessToken && b.accessToken.indexOf('••••') === 0) {
+    // Item 49: edição parcial segura — para slug existente, campos AUSENTES do
+    // payload preservam o valor atual (merge-patch). Permite toggles inline
+    // (ex.: ativo/pausado) sem reenviar token/eventos e sem risco de apagá-los.
+    if (b.slug) {
       const existing = pixelStore.get(req.account.id, pixelStore.slugify(b.slug));
-      if (existing) b.accessToken = existing.accessToken;
+      if (existing) {
+        // Token mascarado (form) ou ausente (patch) → mantém o existente
+        if (b.accessToken === undefined || (b.accessToken && b.accessToken.indexOf('••••') === 0)) {
+          b.accessToken = existing.accessToken;
+        }
+        if (b.pixelCode === undefined) b.pixelCode = existing.pixelCode;
+        if (b.name === undefined) b.name = existing.name;
+        if (b.events === undefined) b.events = existing.events;
+        if (b.testEventCode === undefined) b.testEventCode = existing.testEventCode;
+        if (b.active === undefined) b.active = existing.active;
+      }
     }
     const saved = await pixelStore.save(req.account.id, b);
     stats.logEvent(saved._durable ? 'info' : 'error', {
@@ -2920,6 +2956,12 @@ async function buscarPaginaSegura(rawUrl) {
 
 app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
   try {
+    // Item 5/9: rate-limit dedicado — verify-url faz fetch externo, então
+    // limitamos a 10 verificações por janela por conta (evita abuso de SSRF-scan
+    // e proteje nossa saída de rede). 429 com mensagem pt-BR clara.
+    if (rateLimited('verify-url|' + req.account.id, 'verifyurl', 10)) {
+      return res.status(429).json({ ok: false, error: 'Muitas verificações seguidas. Aguarde um minuto e tente de novo.' });
+    }
     const page = await buscarPaginaSegura((req.body || {}).url);
     if (page.error) return res.json({ ok: false, error: page.error });
     const html = page.html || '';

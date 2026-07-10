@@ -464,14 +464,18 @@ export interface PixelTestResult {
 }
 
 // ── /api/pixels/verify-url — verificação de instalação por URL externa ──
+export interface PixelVerifyUrlPixel {
+  slug: string
+  name: string
+  scriptOk: boolean // script /px/<token>.js presente na página
+  nativeOk: boolean // pixelCode nativo (ttq) presente
+  instalado: boolean // scriptOk || nativeOk
+}
 export interface PixelVerifyUrlResult {
   ok: boolean
-  found: boolean
-  scriptFound: boolean
-  pixelCodeFound: boolean
-  signals: string[]
-  status?: number
-  detail?: string
+  url?: string // URL final após redirects
+  algumInstalado?: boolean
+  pixels?: PixelVerifyUrlPixel[]
   error?: string
 }
 

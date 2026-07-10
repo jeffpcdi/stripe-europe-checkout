@@ -132,6 +132,7 @@ export function LinksView() {
           <TutorialButton onClick={() => setShowTutorial(true)} />
           <button
             type="button"
+            data-tour="links-new"
             onClick={() => setCreating(true)}
             className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
           >
@@ -153,9 +154,26 @@ export function LinksView() {
           <p className="text-sm text-muted-foreground text-pretty">
             Nenhum link ainda. Crie um link /go/slug com split A/B, cloak e domínio próprio.
           </p>
+          {/* Item 53: estado vazio guiado — CTA de criação + tutorial */}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
+            >
+              Criar primeiro link
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTutorial(true)}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              Ver tutorial
+            </button>
+          </div>
         </GlassCard>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3" data-tour="links-list">
           {links.map((l) => {
             const clicks = l.variantes.reduce((s, v) => s + v.clicks, 0)
             const convs = l.variantes.reduce((s, v) => s + v.conversions, 0)
@@ -215,7 +233,8 @@ export function LinksView() {
                       )}
                     </div>
                   </div>
-                  <div className="relative flex shrink-0 items-center gap-1">
+                  {/* data-tour repete por card; o tour destaca o 1º (querySelector) */}
+                  <div className="relative flex shrink-0 items-center gap-1" data-tour="links-qr">
                     {/* Item 70: morph clipboard → check com rotação spring */}
                     <button
                       type="button"

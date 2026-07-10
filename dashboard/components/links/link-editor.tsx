@@ -54,6 +54,24 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
     setVariantes((vs) => vs.map((v, j) => (j === i ? { ...v, ...patch } : v)))
   }
 
+  // Item 36: reescala proporcionalmente os pesos das variantes ATIVAS para
+  // somarem exatamente 100 (a sobra do arredondamento vai para a primeira).
+  function normalizePesos() {
+    setVariantes((vs) => {
+      const ativas = vs.filter((v) => v.url.trim())
+      if (ativas.length === 0) return vs
+      const soma = ativas.reduce((s, v) => s + (Number.isFinite(v.peso) && v.peso > 0 ? v.peso : 0), 0)
+      // Se tudo é 0, distribui igualmente; senão reescala proporcional.
+      const escalados = ativas.map((v) =>
+        soma > 0 ? Math.round(((Number.isFinite(v.peso) && v.peso > 0 ? v.peso : 0) / soma) * 100) : Math.floor(100 / ativas.length),
+      )
+      const diff = 100 - escalados.reduce((s, p) => s + p, 0)
+      escalados[0] += diff
+      let k = 0
+      return vs.map((v) => (v.url.trim() ? { ...v, peso: escalados[k++] } : v))
+    })
+  }
+
   function addVariant() {
     setVariantes((vs) => [
       ...vs,
@@ -212,10 +230,21 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
               </button>
             </div>
             {pesoInvalido && (
-              <p className="mb-2 rounded-lg bg-[color:var(--warning)]/10 px-3 py-2 text-xs text-[color:var(--warning)] text-pretty" role="alert">
-                Os pesos das variantes precisam somar 100% (atualmente {totalPeso}%). Ajuste os valores para o
-                split A/B dividir o tráfego direito.
-              </p>
+              <div
+                className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[color:var(--warning)]/10 px-3 py-2 text-xs text-[color:var(--warning)]"
+                role="alert"
+              >
+                <span className="text-pretty">
+                  Os pesos das variantes precisam somar 100% (atualmente {totalPeso}%).
+                </span>
+                <button
+                  type="button"
+                  onClick={normalizePesos}
+                  className="shrink-0 rounded-md border border-[color:var(--warning)]/40 px-2 py-1 font-semibold transition-colors hover:bg-[color:var(--warning)]/15"
+                >
+                  Normalizar para 100%
+                </button>
+              </div>
             )}
             <div className="flex flex-col gap-2">
               {variantes.map((v, i) => (

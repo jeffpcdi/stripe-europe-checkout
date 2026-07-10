@@ -13,6 +13,7 @@ import {
   Info,
   Pencil,
   RefreshCw,
+  TriangleAlert,
 } from 'lucide-react'
 import { useGateways, useConversionLog, apiSend } from '@/lib/api'
 import type { Gateway, GatewayProvider, GatewayTestResult, GatewayRotateResult } from '@/lib/types'
@@ -78,13 +79,18 @@ const GATEWAY_STEPS: TutorialStep[] = [
 ]
 
 // Item 73: cor da marca por provedor — cápsula e borda no hover
+// Item 32: mapa ALINHADO ao catálogo real de PROVIDERS do gateway-store.js
+// (kiwify, hotmart, perfectpay, cakto, stripe, vega, adoorei, payt, generic).
+// paypal/mercadopago não existem no catálogo e foram removidos.
 const PROVIDER_COLORS: Record<string, string> = {
-  stripe: '#635bff',
-  paypal: '#0070ba',
-  mercadopago: '#00b1ea',
-  hotmart: '#f04e23',
   kiwify: '#22c55e',
+  hotmart: '#f04e23',
   perfectpay: '#fbbf24',
+  cakto: '#7c9a3d',
+  stripe: '#635bff',
+  vega: '#3b82f6',
+  adoorei: '#e879a0',
+  payt: '#0ea5a3',
   generic: '#25f4ee',
 }
 
@@ -218,6 +224,7 @@ export function GatewaysView() {
               </button>
               <button
                 type="button"
+                data-tour="gateways-new"
                 onClick={() => setCreating(true)}
                 className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
               >
@@ -225,6 +232,15 @@ export function GatewaysView() {
               </button>
             </div>
           </div>
+
+          {/* Item 17: regra de ouro sempre visível — venda só conta via webhook */}
+          <p className="mb-3 flex items-start gap-2 rounded-lg border border-[color:var(--warning)]/25 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-muted-foreground text-pretty">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
+            <span>
+              Eventos de pagamento (<strong className="text-foreground">Compra / CompletePayment</strong>) só
+              disparam quando um gateway conectado confirma via webhook — nunca pelo navegador do cliente.
+            </span>
+          </p>
 
           {testResult && (
             <p
@@ -243,12 +259,31 @@ export function GatewaysView() {
               <Skeleton className="h-24" />
               <Skeleton className="h-24" />
             </div>
-          ) : gateways.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Nenhum gateway conectado. Adicione um para receber webhooks de conversão.
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
+            ) : gateways.length === 0 ? (
+              /* Item 53: estado vazio guiado — CTA de criação + tutorial */
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <p className="text-sm text-muted-foreground text-pretty">
+                  Nenhum gateway conectado. Adicione um para receber webhooks de conversão.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreating(true)}
+                    className="rounded-lg bg-[color:var(--brand-cyan)] px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
+                  >
+                    Conectar primeiro gateway
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowTutorial(true)}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    Ver tutorial
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <ul className="flex flex-col gap-2" data-tour="gateways-list">
               {gateways.map((g) => {
                 const prov = providers.find((p) => p.id === g.provider)
                 const brand = providerColor(g.provider)
@@ -293,6 +328,18 @@ export function GatewaysView() {
                         )}
                       </div>
                     </div>
+
+                    {/* Item 52: motivo do último evento quando não foi 'ok' —
+                        ajuda a debugar assinatura/payload sem abrir logs */}
+                    {g.lastEventAt && g.lastEventStatus && g.lastEventStatus !== 'ok' && (
+                      <p className="mt-2 flex items-start gap-1.5 rounded-md bg-[color:var(--warning)]/10 px-2.5 py-1.5 text-[11px] text-[color:var(--warning)] text-pretty">
+                        <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+                        <span>
+                          Último webhook falhou: <strong>{g.lastEventStatus}</strong> — veja o
+                          detalhe no painel "Webhooks recebidos" abaixo.
+                        </span>
+                      </p>
+                    )}
 
                     {/* Webhook URL para colar no gateway */}
                     <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">
@@ -374,7 +421,7 @@ export function GatewaysView() {
         </GlassCard>
 
         {/* Log de webhooks recebidos */}
-        <GlassCard className="p-5">
+        <GlassCard className="p-5" data-tour="gateways-webhooks">
           <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Webhooks recebidos</h2>
           <p className="mb-3 text-xs text-muted-foreground">Últimas conversões processadas dos seus gateways</p>
           {!convLog || convLog.log.length === 0 ? (

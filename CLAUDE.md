@@ -574,7 +574,18 @@ Configurações. Cada página é um `page.tsx` fino que renderiza a view de `com
 - **Globo 3D** (`components/geo/globe.tsx`): textura blue-marble local (`/assets/`), polígonos de
   países (`countries.geojson`), pontos de tráfego, controles de zoom e modal fullscreen.
 - **Plano de refinamento pendente:** `docs/PLANO-REFINAMENTO-VISUAL.md` — 206 alterações numeradas
-  em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem** (coerência primeiro).
+em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem** (coerência primeiro).
+- **Plano ativo (570 modificações):** `v0_plans/pragmatic-flow.md` — 7 levas cobrindo backend, as
+5 sub-abas da Gestão, shell, lado público e camadas transversais. **Progresso rastreado item a item
+em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluído, com evidência.
+**Leva 1 (backend, itens 1–10) 100% concluída.** Entregues (~52): moeda por conta+UI, uso por
+domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
+log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
+tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
+anti-SSRF + rate-limit, rate-limit no /hook, snippet base do loader. Fila e histórico no
+`PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503, o Express na 3000
+subiu antes do env ser espelhado — mate o processo e suba com
+`node --env-file-if-exists=.env.development.local server.js`.
 
 ### 19.5 Armadilhas específicas da dashboard nova
 - Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —

@@ -9,6 +9,7 @@
 // específicos para o normalizador genérico do server.js entender).
 const crypto = require('crypto');
 const db = require('./db');
+const redis = require('./redis'); // item 48: espelho durável dos gateways
 
 // ── Catálogo de providers suportados ───────────────────────────────────────
 // secretLabel: nome do campo de segredo na UI (null = sem segredo)
@@ -81,16 +82,30 @@ function fromRow(r) {
   };
 }
 
-// ── Boot: hidrata do Neon ──────────────────────────────────────────────────
+// ── Boot: hidrata do Neon (fallback: snapshot no Redis — item 48) ───────────
 async function init() {
-  if (!db.enabled) { console.log('[gateways] Neon desativado — gateways só em memória.'); return 0; }
-  const res = await db.loadGateways(null);
-  if (res.ok) {
-    cache = (res.data || []).map(fromRow);
-    console.log('[gateways] ' + cache.length + ' gateway(s) carregado(s).');
+  let dbFailed = false;
+  if (db.enabled) {
+    const res = await db.loadGateways(null);
+    if (res.ok) {
+      cache = (res.data || []).map(fromRow);
+      console.log('[gateways] ' + cache.length + ' gateway(s) carregado(s).');
+      return cache.length;
+    }
+    dbFailed = true;
+    console.warn('[gateways] falha ao ler gateways do Neon — tentando snapshot no Redis.');
   } else {
-    console.warn('[gateways] falha ao ler gateways do Neon — cache vazio nesta sessão, banco intocado.');
+    console.log('[gateways] Neon desativado — tentando snapshot no Redis.');
   }
+  // Item 48: sem banco (desativado OU com falha de leitura), hidrata do espelho
+  // no Redis. Evita webhooks órfãos (404) após restart com Neon fora do ar.
+  try {
+    const snap = await redis.loadGatewaySnapshot();
+    if (Array.isArray(snap) && snap.length) {
+      cache = snap.map(fromRow);
+      console.log('[gateways] ' + cache.length + ' gateway(s) hidratado(s) do snapshot Redis' + (dbFailed ? ' (banco indisponível).' : '.'));
+    }
+  } catch (e) { console.error('[gateways] snapshot Redis:', e.message); }
   return cache.length;
 }
 
@@ -128,6 +143,7 @@ async function save(accountId, input) {
   const idx = cache.findIndex((x) => x.id === g.id);
   if (idx >= 0) cache[idx] = g; else cache.push(g);
   if (db.enabled) await db.upsertGateway(g);
+  await redis.saveGatewaySnapshot(accountId, g.id, g); // item 48: espelho durável
   return { ...g };
 }
 
@@ -136,13 +152,19 @@ async function remove(accountId, id) {
   if (!g) return false;
   cache = cache.filter((x) => x.id !== id);
   if (db.enabled) await db.deleteGateway(accountId, id);
+  await redis.deleteGatewaySnapshot(accountId, id); // item 48: espelho durável
   return true;
 }
 
 // Marca o último evento recebido (feedback "recebendo webhooks" na UI).
 function touch(id, status) {
   const g = cache.find((x) => x.id === id);
-  if (g) { g.lastEventAt = new Date().toISOString(); g.lastEventStatus = status || null; }
+  if (g) {
+    g.lastEventAt = new Date().toISOString();
+    g.lastEventStatus = status || null;
+    // item 48: espelho durável (best-effort — nunca bloqueia o webhook)
+    redis.saveGatewaySnapshot(g.accountId, g.id, g).catch(() => {});
+  }
   // Escrita no banco é best-effort: NUNCA pode derrubar o processamento do
   // webhook. Antes rodava sem await/catch (falha silenciosa) — agora capturamos
   // e logamos, mas seguimos em frente (o cache em memória já foi atualizado).
@@ -162,6 +184,7 @@ async function rotateToken(accountId, id) {
   const idx = cache.findIndex((x) => x.id === g.id);
   if (idx >= 0) cache[idx] = g;
   if (db.enabled) await db.upsertGateway(g);
+  await redis.saveGatewaySnapshot(accountId, g.id, g); // item 48: espelho durável
   return { ...g };
 }
 
