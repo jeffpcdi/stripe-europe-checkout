@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────────────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────���───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1495,7 +1495,7 @@ app.get('/api/live', dashboardAuth, async (req, res) => {
   }
 });
 
-// ══��� Links de Checkout — CRUD + validação de domínio (por conta) ══════
+// ══����� Links de Checkout — CRUD + validação de domínio (por conta) ══════
 app.get('/api/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ links: linkStore.list(req.account.id) });
@@ -1563,8 +1563,9 @@ app.get('/api/domains', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({
     domains: config.get(req.account.id).customDomains || [],
-    // host principal do app — alvo do CNAME nas instruções de DNS
-    appHost: String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim()
+    // host principal do app — alvo do CNAME nas instruções de DNS (sem porta,
+    // igual à rota de verificação: porta não entra em registro CNAME)
+    appHost: String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '')
   });
 });
 
@@ -1606,6 +1607,10 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
 
   const entry = { host, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() };
   if (providerId) entry.providerId = providerId;
+  // Guarda os registros DNS junto do domínio: o tutorial da dashboard precisa
+  // deles a qualquer momento (não só na resposta do cadastro), para o lojista
+  // reabrir as instruções sem depender de acesso à hospedagem.
+  if (dnsRecords) entry.dns = dnsRecords;
   config.set(req.account.id, { customDomains: cur.concat([entry]) });
   stats.logEvent('info', { acc: req.account.id, title: 'Domínio personalizado adicionado: ' + host });
   // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
@@ -1618,7 +1623,7 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   const host = normHost(req.params.host);
   const cur = config.get(req.account.id).customDomains || [];
   const found = cur.find((d) => d.host === host);
-  // Remove também na hospedagem, para não acumular contra o teto do provedor.
+  // Remove tamb��m na hospedagem, para não acumular contra o teto do provedor.
   if (found && found.providerId && domainProvider.enabled) {
     try { await domainProvider.remove(found.providerId); }
     catch (_) { /* best-effort — segue removendo localmente */ }
@@ -1658,7 +1663,9 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       try {
         const reg = await domainProvider.register(host);
         if (reg && reg.providerId) {
-          const next = cur0.map((d) => d.host === host ? Object.assign({}, d, { providerId: reg.providerId }) : d);
+          const patch = { providerId: reg.providerId };
+          if (reg.dns) patch.dns = reg.dns; // instruções ficam disponíveis no tutorial
+          const next = cur0.map((d) => d.host === host ? Object.assign({}, d, patch) : d);
           config.set(req.account.id, { customDomains: next });
           out.reconectado = true;
           out.dnsRecords = reg.dns || null;
@@ -1685,7 +1692,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
         out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
       } else if (hostIps.length && hostIps.some(isCloudflareIp)) {
         out.cloudflareProxy = true;
-        out.dnsDetail = 'proxy da Cloudflare ativo (nuvem laranja) — mude o CNAME para "Somente DNS" (nuvem cinza) e adicione o domínio na Vercel → Domains';
+        out.dnsDetail = 'proxy da Cloudflare ativo (nuvem laranja) — edite o registro na Cloudflare e mude para "Somente DNS" (nuvem cinza)';
       } else {
         out.dnsDetail = 'DNS aponta para outro destino (' + (cnames[0] || hostIps.join(', ')) + ')';
       }
@@ -1693,6 +1700,11 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   } catch (e) { out.dnsDetail = 'erro na consulta DNS: ' + e.message; }
 
   // 2. HTTPS: o marcador deste app responde no domínio?
+  // As mensagens são escritas para o LOJISTA, que só controla o DNS do domínio
+  // dele — nunca citam a hospedagem interna (Railway) nem pedem ação lá. Quando
+  // a ativação na hospedagem está pendente, o texto diz o que fazer NA dashboard.
+  const entry2 = (config.get(req.account.id).customDomains || []).find((d) => d.host === host);
+  const gerenciado = !!(entry2 && entry2.providerId); // registro automático já feito
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
@@ -1701,16 +1713,21 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
     if (r.status === 200) {
       const j = await r.json().catch(() => null);
       if (j && j.app === APP_CHECK_ID) { out.httpOk = true; out.httpDetail = 'HTTPS ativo e servido por este app'; }
-      else out.httpDetail = 'HTTPS responde, mas é outro servidor — confira o DNS';
+      else out.httpDetail = 'HTTPS responde, mas é outro servidor — confira se o CNAME aponta para ' + appHost;
     } else if (r.status === 404) {
-      out.httpDetail = out.cloudflareProxy
-        ? 'HTTPS 404 — a Cloudflare está no meio; desative o proxy (nuvem cinza) e adicione o domínio na hospedagem (Railway → Settings → Networking → Custom Domain)'
-        : 'HTTPS respondeu 404 — o DNS chega na hospedagem, mas o domínio ainda NÃO está ligado a este app. Adicione-o em Railway → Settings → Networking → Custom Domain (sem isso os links /go dão 404).';
+      if (out.cloudflareProxy) {
+        out.httpDetail = 'HTTPS 404 — o proxy da Cloudflare (nuvem laranja) está na frente. Edite o registro DNS na Cloudflare e mude para "Somente DNS" (nuvem cinza), depois clique em Verificar de novo.';
+      } else if (gerenciado) {
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro automático foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
+      } else {
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas a ativação do domínio na hospedagem ainda está pendente do nosso lado. Clique em Verificar de novo em alguns minutos (a reconexão é automática).';
+        stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (modo manual): ' + host });
+      }
     } else out.httpDetail = 'HTTPS respondeu status ' + r.status;
   } catch (_) {
     out.httpDetail = out.dnsOk
-      ? 'HTTPS ainda não responde — o certificado SSL pode estar sendo emitido (confirme que o domínio foi adicionado em Railway → Settings → Networking → Custom Domain)'
-      : 'sem resposta HTTPS';
+      ? 'HTTPS ainda não responde — o certificado SSL deve estar sendo emitido. Aguarde alguns minutos e clique em Verificar de novo.'
+      : 'sem resposta HTTPS — confira se o registro DNS foi criado e aguarde a propagação (pode levar de minutos a algumas horas)';
   }
 
   // Verificado exige a PROVA FORTE: o marcador /__domain-check deste app precisa
@@ -2589,7 +2606,7 @@ app.post('/api/px/event', (req, res) => {
   } catch (_) { /* beacon nunca propaga erro */ }
 });
 
-// ── APIs de gestão de pixels (dashboard, por conta) ───────��─────────────
+// ── APIs de gestão de pixels (dashboard, por conta) ────���──��─────────────
 app.get('/api/pixels', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();

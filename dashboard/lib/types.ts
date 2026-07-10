@@ -161,17 +161,33 @@ export interface LinksResponse {
 }
 
 // ── /api/domains — domínios personalizados (server.js) ──
+// Registros DNS que o lojista cria no registrador do domínio dele. Shape vem
+// do domain-provider (pickCname): CNAME principal + TXT opcional de verificação.
+export interface DomainDnsRecords {
+  cname: { host: string; target: string } | null
+  txt: { host: string; value: string } | null
+}
+
 export interface CustomDomain {
   host: string
   verificado: boolean
   verificadoEm?: string | null
   criadoEm: string
   providerId?: string
+  dns?: DomainDnsRecords | null
 }
 
 export interface DomainsResponse {
   domains: CustomDomain[]
   appHost: string
+}
+
+export interface DomainAddResponse {
+  ok: boolean
+  host: string
+  dnsRecords: DomainDnsRecords | null
+  managed: boolean
+  providerNote: string | null
 }
 
 export interface DomainVerifyResult {
@@ -184,7 +200,7 @@ export interface DomainVerifyResult {
   verified?: boolean
   cloudflareProxy?: boolean
   reconectado?: boolean
-  dnsRecords?: { type: string; name: string; value: string }[] | null
+  dnsRecords?: DomainDnsRecords | null
 }
 
 // ── /api/pixels — pixels TikTok + CAPI (pixel-store.js) ──
