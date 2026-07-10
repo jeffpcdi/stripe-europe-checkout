@@ -194,6 +194,36 @@ async function seenEventId(eventId) {
   }
 }
 
+// ── Idempotência de webhook por order_id (item 45/114) ─────────────────────
+// Gateways reenviam webhooks (retry) — sem dedup, o MESMO pagamento dispararia
+// CompletePayment duplicado. Chave por conta+evento+pedido com TTL de 24h.
+// Fallback em memória quando o Redis está off (protege ao menos o processo).
+const _memWebhookDedup = new Map(); // key → expiraEm(ms)
+function _memSeen(key, ttlMs) {
+  const now = Date.now();
+  // limpeza oportunista para não crescer sem limite
+  if (_memWebhookDedup.size > 5000) {
+    for (const [k, exp] of _memWebhookDedup) { if (exp < now) _memWebhookDedup.delete(k); }
+  }
+  const exp = _memWebhookDedup.get(key);
+  if (exp && exp > now) return true;
+  _memWebhookDedup.set(key, now + ttlMs);
+  return false;
+}
+
+async function seenWebhookOrder(accountId, event, orderId) {
+  if (!orderId) return false; // sem order_id não há como deduplicar
+  const key = 'whdedup:' + (accountId || 'default') + ':' + String(event || '') + ':' + String(orderId).slice(0, 120);
+  if (!enabled) return _memSeen(key, 24 * 3600 * 1000);
+  try {
+    const res = await redis.set(key, '1', { ex: 24 * 3600, nx: true });
+    return res === null; // null = já visto
+  } catch (err) {
+    console.error('[redis] seenWebhookOrder:', err.message);
+    return _memSeen(key, 24 * 3600 * 1000);
+  }
+}
+
 // ── Cache de ASN (lookup Cymru) ──────────────────────────────────────��─────
 // Chave "asn:<ip>" com o resultado do lookup BGP. TTL de 24h. Compartilha a
 // resolução entre processos/instâncias e sobrevive a restarts, deixando o
@@ -595,7 +625,7 @@ module.exports = {
   pushPixelLog, loadPixelLog,
   pushConversionLog, loadConversionLog,
   saveCapiRetryQueue, loadCapiRetryQueue,
-  seenEventId,
+  seenEventId, seenWebhookOrder,
   getAsnCache, setAsnCache,
   bumpCloakDecision, getCloakStats, resetCloakStats,
   enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,

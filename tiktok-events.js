@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const pixelStore = require('./pixel-store');
 const db  = require('./db');
 const rdb = require('./redis');
+const { traduzErroTikTok } = require('./tiktok-errors');
 
 const TIKTOK_API_URL = 'https://business-api.tiktok.com/open_api/v1.3/event/track/';
 
@@ -155,7 +156,10 @@ function buildProperties(p) {
   if (p.value != null && Number.isFinite(v) && v >= 0) {
     properties.value = Math.round(v * 100) / 100; // 2 casas: TikTok espera moeda
     const cur = String(p.currency || '').toUpperCase();
-    properties.currency = CUR_RE.test(cur) ? cur : 'EUR'; // value sem currency é rejeitado
+    // Fallback configurável por conta (p.fallbackCurrency vem da config da
+    // conta via caller); último recurso é BRL — value sem currency é rejeitado
+    const fb = String(p.fallbackCurrency || '').toUpperCase();
+    properties.currency = CUR_RE.test(cur) ? cur : (CUR_RE.test(fb) ? fb : 'BRL');
   }
   if (Array.isArray(p.contents) && p.contents.length) {
     // sanitiza cada item: só campos válidos, com tipos certos
@@ -457,30 +461,41 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
 /**
  * Envio de teste (painel): valida token/pixel na hora e retorna a resposta crua.
  */
+// Eventos que o painel pode disparar em teste (nomes oficiais da Events API)
+const TEST_EVENTS = ['ViewContent', 'AddToCart', 'InitiateCheckout', 'AddPaymentInfo', 'CompletePayment'];
+
 async function testPixel(pixel, ctx) {
   ctx = ctx || {};
   const eventId = 'test.' + crypto.randomBytes(6).toString('hex');
+  // Evento escolhível pelo painel (default ViewContent); valida contra a lista
+  const eventName = TEST_EVENTS.includes(ctx.event) ? ctx.event : 'ViewContent';
+  // Moeda da conta (fallback BRL) — antes era EUR fixo
+  const cur = String(ctx.currency || '').toUpperCase();
   // A Events API exige AO MENOS UM identificador de usuário (ip+ua, email,
   // phone, ttclid ou external_id). Sem isso o teste falhava SEMPRE com erro
   // de parâmetro, mesmo com código/token corretos. Usa o ip/ua reais de quem
   // clicou em "Testar" + um external_id sintético como sinal extra.
   const json = await sendToPixel(pixel, {
-    event: 'ViewContent',
+    event: eventName,
     eventId,
     url: 'https://example.com/teste-pixel',
     ip: ctx.ip,
     userAgent: ctx.userAgent,
     externalId: hash('teste-painel.' + eventId),
     value: 0,
-    currency: 'EUR'
+    currency: /^[A-Z]{3}$/.test(cur) ? cur : 'BRL'
   });
   // ok explícito: o painel decide sucesso/falha por este campo (code 0 = aceito)
   const ok = !!(json && json.code === 0);
+  const rawMsg = (json && (json.message || json.msg || json.error)) || undefined;
   return {
     ok,
+    event: eventName,
     eventId,
     code: json ? json.code : undefined,
-    message: (json && (json.message || json.msg || json.error)) || undefined,
+    message: rawMsg,
+    // Tradução pt-BR amigável do erro (null quando sucesso)
+    messagePtBr: ok ? null : traduzErroTikTok(json ? json.code : undefined, rawMsg),
     response: json
   };
 }

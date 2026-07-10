@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────�����───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────�������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1559,6 +1559,32 @@ app.get('/__domain-check', (_req, res) => {
   res.json({ app: APP_CHECK_ID, ok: true });
 });
 
+// ── Configurações da conta (moeda padrão etc.) ────────────────────────────
+// A moeda escolhida aqui alimenta TODOS os disparos/testes que não trazem
+// moeda própria no payload (fallback era EUR fixo; agora é por conta, BRL).
+function accountCurrency(accId) {
+  const cur = String((config.get(accId).settings || {}).defaultCurrency || '').toUpperCase();
+  return /^[A-Z]{3}$/.test(cur) ? cur : 'BRL';
+}
+
+app.get('/api/settings', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const s = config.get(req.account.id).settings || {};
+  res.json({ defaultCurrency: accountCurrency(req.account.id), raw: { defaultCurrency: s.defaultCurrency || null } });
+});
+
+app.post('/api/settings', dashboardAuth, (req, res) => {
+  const body = req.body || {};
+  const cur = String(body.defaultCurrency || '').toUpperCase();
+  if (!/^[A-Z]{3}$/.test(cur)) {
+    return res.status(400).json({ error: 'moeda inválida — use um código de 3 letras (BRL, USD, EUR…)' });
+  }
+  const s = Object.assign({}, config.get(req.account.id).settings || {}, { defaultCurrency: cur });
+  config.set(req.account.id, { settings: s });
+  stats.logEvent('info', { acc: req.account.id, title: 'Moeda padrão da conta: ' + cur });
+  res.json({ ok: true, defaultCurrency: cur });
+});
+
 app.get('/api/domains', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({
@@ -1605,7 +1631,10 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
     }
   }
 
-  const entry = { host, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() };
+  // Uso do domínio: onde ele vale — links de checkout, cloaker ou ambos.
+  const usoRaw = String((req.body || {}).uso || 'ambos');
+  const uso = ['checkout', 'cloaker', 'ambos'].includes(usoRaw) ? usoRaw : 'ambos';
+  const entry = { host, uso, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() };
   if (providerId) entry.providerId = providerId;
   // Guarda os registros DNS junto do domínio: o tutorial da dashboard precisa
   // deles a qualquer momento (não só na resposta do cadastro), para o lojista
@@ -2221,6 +2250,7 @@ async function processConversion(n) {
       url: (lead && lead.ttUrl) || undefined,
       value: n.amountCents ? n.amountCents / 100 : undefined,
       currency: n.currency,
+      fallbackCurrency: n.acc ? accountCurrency(n.acc) : undefined,
       contents: n.product ? [{
         // content_id derivado do nome (slug estável) — TikTok usa para catálogo/otimização
         content_id: String(n.product).toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 100),
@@ -2325,7 +2355,7 @@ app.post('/api/conversion', (req, res) => {
 // a CONTA e o PROVIDER — cole a URL no painel do gateway e pronto.
 // Suporta assinatura por provider (Stripe whsec, Hotmart hottok, Kiwify
 // signature) e adapta payloads específicos antes do normalizador genérico.
-app.post('/hook/:token', (req, res) => {
+app.post('/hook/:token', async (req, res) => {
   const token = String(req.params.token || '').slice(0, 64);
   const gw = gatewayStore.findByToken(token);
   if (!gw) return res.status(404).json({ ok: false, error: 'webhook não encontrado' });
@@ -2354,7 +2384,21 @@ app.post('/hook/:token', (req, res) => {
     return res.status(400).json({ ok: false, error: n.error });
   }
 
-  // 3. resposta imediata + processamento em background NA CONTA DO GATEWAY
+  // 3. idempotência por order_id (item 45): gateways REENVIAM webhooks em
+  // retry — o mesmo pedido não pode disparar CompletePayment duas vezes.
+  // Responde 200 mesmo assim (o gateway precisa parar de reenviar).
+  const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId).catch(() => false);
+  if (dup) {
+    gatewayStore.touch(gw.id, 'reentrega ignorada: ' + n.event);
+    rdb.pushConversionLog({
+      at: new Date().toISOString(), acc: gw.accountId,
+      gateway: gw.provider, event: n.event, status: 'duplicado',
+      orderId: n.orderId, error: 'reentrega do gateway ignorada (mesmo order_id em 24h)'
+    }).catch(() => {});
+    return res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId, deduplicated: true });
+  }
+
+  // 4. resposta imediata + processamento em background NA CONTA DO GATEWAY
   res.json({ ok: true, event: n.event, gateway: gw.provider, orderId: n.orderId });
   n.acc = gw.accountId;
   n.gatewayId = gw.id;
@@ -2386,6 +2430,15 @@ app.get('/api/gateways', dashboardAuth, (req, res) => {
 
 app.post('/api/gateways', dashboardAuth, async (req, res) => {
   try {
+    // Nome único por conta (item 109): dois "Stripe" idênticos confundem o
+    // log e a escolha do webhook. A checagem ignora o próprio registro na edição.
+    const body = req.body || {};
+    const nome = String(body.name || '').trim();
+    if (nome) {
+      const clash = gatewayStore.list(req.account.id)
+        .find((g) => g.name.toLowerCase() === nome.toLowerCase() && g.id !== body.id);
+      if (clash) return res.status(400).json({ error: 'já existe um gateway com este nome — escolha outro para diferenciá-los' });
+    }
     const saved = await gatewayStore.save(req.account.id, req.body || {});
     stats.logEvent('info', { acc: req.account.id, title: 'Gateway salvo: ' + saved.name + ' (' + saved.provider + ')' });
     const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
@@ -2410,16 +2463,70 @@ app.delete('/api/gateways/:id', dashboardAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Rotaciona o webhook token (item 100): a URL antiga PARA de funcionar —
+// use quando a URL vazou ou para invalidar um checkout antigo.
+app.post('/api/gateways/:id/rotate', dashboardAuth, async (req, res) => {
+  try {
+    const g = await gatewayStore.rotateToken(req.account.id, String(req.params.id || ''));
+    if (!g) return res.status(404).json({ error: 'gateway não encontrado' });
+    stats.logEvent('warn', { acc: req.account.id, title: 'Webhook do gateway rotacionado: ' + g.name });
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+    res.json({ ok: true, webhookUrl: proto + '://' + host + '/hook/' + g.webhookToken });
+  } catch (err) {
+    res.status(500).json({ error: String(err.message || err).slice(0, 200) });
+  }
+});
+
+// Teste POR GATEWAY (itens 34/101/152): simula um webhook naquele token,
+// percorrendo o MESMO fluxo real (assinatura → adaptação → normalização →
+// dry-run) e devolve o resultado estruturado, inclusive da assinatura.
+app.post('/api/gateways/:id/test', dashboardAuth, async (req, res) => {
+  try {
+    const g = gatewayStore.get(req.account.id, String(req.params.id || ''));
+    if (!g) return res.status(404).json({ error: 'gateway não encontrado' });
+    // Verificação de assinatura: como o teste vem do painel (sem headers do
+    // provider), com segredo configurado avisamos que o teste pula a assinatura
+    const signatureNote = g.secret
+      ? 'este gateway tem segredo configurado — o teste do painel valida o fluxo do payload, mas a assinatura só é conferida em webhooks reais do provedor'
+      : 'sem segredo configurado — o token da URL é a autenticação';
+    const cur = accountCurrency(req.account.id);
+    const adapted = gatewayStore.adaptPayload(g.provider, g.provider === 'stripe' ? {
+      type: 'checkout.session.completed',
+      data: { object: { id: 'cs_teste_' + Date.now().toString(36), amount_total: 100, currency: cur.toLowerCase(), customer_details: { email: 'teste@webhook.local', name: 'Teste do Painel' } } }
+    } : {
+      event: 'paid',
+      order_id: 'teste_' + Date.now().toString(36),
+      amount: '1.00',
+      currency: cur,
+      email: 'teste@webhook.local',
+      name: 'Teste do Painel',
+      product: 'Disparo de teste'
+    });
+    const n = normalizeConversion(adapted, { gateway: g.provider });
+    if (n.error) return res.status(400).json({ ok: false, error: n.error, signatureNote });
+    n.dryRun = true;
+    n.acc = req.account.id;
+    n.gatewayId = g.id;
+    const receipt = await processConversion(n);
+    res.json({ ok: true, gateway: { id: g.id, name: g.name, provider: g.provider }, signatureNote, receipt });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err.message || err).slice(0, 200) });
+  }
+});
+
 // Teste do webhook direto da dashboard (protegido): injeta um payload de
 // exemplo no MESMO fluxo real (normaliza → processa) e devolve o recibo na
 // hora — confere status/match sem sair da tela e sem depender do gateway.
 app.post('/api/conversion/test', dashboardAuth, async (req, res) => {
   try {
+    const bodyCur = String((req.body || {}).currency || '').toUpperCase();
+    const cur = /^[A-Z]{3}$/.test(bodyCur) ? bodyCur : accountCurrency(req.account.id);
     const n = normalizeConversion({
       event: 'paid',
       order_id: 'teste_' + Date.now().toString(36),
       amount: '1.00',
-      currency: 'eur',
+      currency: cur,
       email: 'teste@webhook.local',
       name: 'Teste da Dashboard',
       product: 'Disparo de teste'
@@ -2606,7 +2713,7 @@ app.post('/api/px/event', (req, res) => {
   } catch (_) { /* beacon nunca propaga erro */ }
 });
 
-// ── APIs de gestão de pixels (dashboard, por conta) ────���──����────────────
+// ── APIs de gestão de pixels (dashboard, por conta) ────�����─����────────────
 app.get('/api/pixels', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
@@ -2716,10 +2823,18 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
     const slug = pixelStore.slugify(req.body.slug || '');
     const pixel = pixelStore.get(req.account.id, slug);
     if (!pixel) return res.status(404).json({ error: 'pixel não encontrado' });
-    // ip/ua de quem clicou: a Events API exige identidade de usuário no evento
+    // Exige Access Token com mensagem pt-BR clara (item 41): sem token, o
+    // evento server-side jamais dispara — melhor avisar antes de chamar a API.
+    if (!pixel.accessToken) {
+      return res.status(400).json({ ok: false, error: 'Configure o Access Token da Events API para testar este pixel.' });
+    }
+    // ip/ua de quem clicou: a Events API exige identidade de usuário no evento.
+    // Evento e moeda são escolhíveis pelo painel (default ViewContent / moeda da conta).
     const result = await ttEvents.testPixel(pixel, {
       ip: clientIp(req),
-      userAgent: String(req.headers['user-agent'] || '').slice(0, 500)
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
+      event: String(req.body.event || ''),
+      currency: accountCurrency(req.account.id)
     });
     res.json(result);
   } catch (err) {
