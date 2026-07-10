@@ -593,7 +593,17 @@ em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluí
 **Leva 1 (backend, itens 1–10) 100% concluída. Itens 241–252 (durabilidade de schema) 100%
 concluídos (antecipados):** tabela `custom_domains`, coluna `accounts.currency`, snapshot Redis
 `domains:all`, write-through assíncrono via `config.set` e reconciliação no boot (§8/§10).
-Entregues (~112, faixa 31–101 COMPLETA): moeda por conta+UI, uso por
+Aba Domínios (itens 120–130): card "Verificado e ativo desde DD/MM" + "reconectado", copiar bloco
+DNS completo (CNAME+TXT), dica de TTL, aviso automático de apex (CNAME em raiz), checagem
+instantânea de propagação via DoH da Cloudflare direto do navegador, falha de rede vira estado
+próprio com retry (`networkError`), diagnóstico dirigido (DNS pendente reabre tutorial; DNS ok +
+HTTPS pendente explica certificado automático), atalho "Usar em um link" (→ editor com domínio
+pré-selecionado via `?novo=1&dominio=`) e estado vazio guiado. **Aba Cloak (itens 133–141,
+LEVA 3 COMPLETA):** teste por entry (`POST /api/cloak/test` com `slug` → simula o julgamento do
+`/c/:slug` e reporta gates pré-score mobile/ad-click/país/idioma), stats offer/white inline por
+link, badge de sensibilidade+threshold no card, liga/desliga inline + ações em lote, preview da
+white page em nova aba, explicação do threshold (mapa sensibilidade→número) e aviso de domínio não
+verificado no editor. Entregues (faixa 31–140 COMPLETA): moeda por conta+UI, uso por
 domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
 log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
 tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
@@ -613,7 +623,7 @@ gateway, pesos A/B) com helpers extraídos do server.js para `security-helpers.j
 Link → Pixel → Gateway → Domínio → Cloaker); item 54: badge de uso no card de domínio; item 57:
 overflow horizontal da aba Gateways em mobile corrigido (grid precisa de `minmax(0,·)` +
 `flex-wrap` no cabeçalho — armadilha de `min-width:auto` em grid items); item 58: ritmo vertical
-unificado (`gap-5` na raiz das 5 abas). Próxima fila: 102–113, 120–130, 133–140.
+unificado (`gap-5` na raiz das 5 abas). Próxima fila: Leva 4 (141–200) — refinos por aba/microcopy.
 Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
 o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
 `node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
