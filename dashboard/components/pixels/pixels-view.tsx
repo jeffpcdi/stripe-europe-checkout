@@ -14,15 +14,19 @@ import {
   TriangleAlert,
   Search,
   Loader2,
+  TrendingDown,
+  RefreshCw,
+  ChevronDown,
 } from 'lucide-react'
 import {
   usePixels,
   usePixelHealth,
   usePixelLog,
   usePixelDurability,
+  useEmqTrend,
   apiSend,
 } from '@/lib/api'
-import type { Pixel, PixelEvents, PixelTestResult } from '@/lib/types'
+import type { Pixel, PixelEvents, PixelTestResult, PixelEmqTrend } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
@@ -108,6 +112,14 @@ export function PixelsView() {
   const { data: health } = usePixelHealth()
   const { data: log, mutate: mutateLog } = usePixelLog()
   const { data: durability } = usePixelDurability()
+  const { data: emqTrend } = useEmqTrend()
+
+  // Filtros do log de disparos (item 81) e linha expandida (item 82)
+  const [logPixel, setLogPixel] = useState('')
+  const [logEvent, setLogEvent] = useState('')
+  const [logStatus, setLogStatus] = useState('')
+  const [expandedLog, setExpandedLog] = useState<string | null>(null)
+  const [copiedEventId, setCopiedEventId] = useState<string | null>(null)
 
   const [editing, setEditing] = useState<Pixel | null>(null)
   const [creating, setCreating] = useState(false)
@@ -455,9 +467,38 @@ export function PixelsView() {
                     </span>
                   </div>
                 ))}
+                {/* Fila de reenvio da CAPI (item 80): eventos que falharam e
+                    aguardam nova tentativa automática. Zero = tudo entregue. */}
+                {health.retryQueue > 0 && (
+                  <div className="mt-1 flex items-center gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-xs text-warning">
+                    <RefreshCw className="size-3.5 shrink-0" aria-hidden="true" />
+                    <span className="text-pretty">
+                      {health.retryQueue} {health.retryQueue === 1 ? 'evento aguarda' : 'eventos aguardam'} reenvio
+                      automático à Events API
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </GlassCard>
+
+          {/* Tendência de EMQ (item 79): o backend já calcula, mas nada exibia.
+              Sparkline por pixel + alerta de EMQ baixo ou em queda. */}
+          {emqTrend && emqTrend.pixels.some((p) => p.trend.length > 0) && (
+            <GlassCard className="p-5">
+              <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Qualidade do match (EMQ)</h2>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Tendência do Event Match Quality — quanto maior, melhor o TikTok casa seus eventos
+              </p>
+              <div className="flex flex-col gap-4">
+                {emqTrend.pixels
+                  .filter((p) => p.trend.length > 0)
+                  .map((p) => (
+                    <EmqSparkline key={p.pixelCode} pixel={p} />
+                  ))}
+              </div>
+            </GlassCard>
+          )}
 
           <GlassCard className="p-5">
             <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Disparos recentes</h2>
@@ -465,28 +506,171 @@ export function PixelsView() {
             {!log || log.log.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Nenhum disparo registrado ainda.</p>
             ) : (
-              <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
-                {log.log.map((row, i) => (
-                  <li
-                    key={row.id ?? i}
-                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary/60"
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span
-                        className={`size-1.5 shrink-0 rounded-full ${
-                          row.status === 'ok' ? 'bg-success' : row.status === 'error' ? 'bg-error' : 'bg-warning'
-                        }`}
-                        aria-hidden="true"
-                      />
-                      <span className="truncate font-mono text-foreground">{row.event}</span>
-                      <span className="truncate text-muted-foreground">
-                        {row.status !== 'ok' && row.response?.message ? row.response.message : row.pixel}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(row.at)}</span>
-                  </li>
-                ))}
-              </ul>
+              (() => {
+                // Filtros do log (item 81) — derivados do próprio log carregado.
+                const pixelOpts = Array.from(new Set(log.log.map((r) => r.pixel))).sort()
+                const eventOpts = Array.from(new Set(log.log.map((r) => r.event))).sort()
+                const rows = log.log.filter(
+                  (r) =>
+                    (!logPixel || r.pixel === logPixel) &&
+                    (!logEvent || r.event === logEvent) &&
+                    (!logStatus ||
+                      (logStatus === 'descarte'
+                        ? r.status !== 'ok' && r.status !== 'error'
+                        : r.status === logStatus)),
+                )
+                return (
+                  <>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <select
+                        value={logPixel}
+                        onChange={(e) => setLogPixel(e.target.value)}
+                        aria-label="Filtrar por pixel"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-input px-2 py-1 text-xs text-foreground"
+                      >
+                        <option value="">Todos os pixels</option>
+                        {pixelOpts.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={logEvent}
+                        onChange={(e) => setLogEvent(e.target.value)}
+                        aria-label="Filtrar por evento"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-input px-2 py-1 text-xs text-foreground"
+                      >
+                        <option value="">Todos os eventos</option>
+                        {eventOpts.map((ev) => (
+                          <option key={ev} value={ev}>
+                            {ev}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={logStatus}
+                        onChange={(e) => setLogStatus(e.target.value)}
+                        aria-label="Filtrar por status"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-input px-2 py-1 text-xs text-foreground"
+                      >
+                        <option value="">Qualquer status</option>
+                        <option value="ok">Sucesso</option>
+                        <option value="error">Erro</option>
+                        <option value="descarte">Descarte</option>
+                      </select>
+                    </div>
+                    {rows.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-muted-foreground">
+                        Nenhum disparo com esses filtros.
+                      </p>
+                    ) : (
+                      <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+                        {rows.map((row, i) => {
+                          const key = row.id ?? String(i)
+                          const open = expandedLog === key
+                          return (
+                            <li key={key} className="rounded-lg text-xs hover:bg-secondary/60">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedLog(open ? null : key)}
+                                aria-expanded={open}
+                                className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left"
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <span
+                                    className={`size-1.5 shrink-0 rounded-full ${
+                                      row.status === 'ok'
+                                        ? 'bg-success'
+                                        : row.status === 'error'
+                                          ? 'bg-error'
+                                          : 'bg-warning'
+                                    }`}
+                                    aria-hidden="true"
+                                  />
+                                  <span className="truncate font-mono text-foreground">{row.event}</span>
+                                  <span className="truncate text-muted-foreground">
+                                    {row.status !== 'ok' && row.response?.message
+                                      ? row.response.message
+                                      : row.pixel}
+                                  </span>
+                                </span>
+                                <span className="flex shrink-0 items-center gap-1.5">
+                                  <span className="text-[11px] text-muted-foreground">{timeAgo(row.at)}</span>
+                                  <ChevronDown
+                                    className={`size-3.5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
+                                    aria-hidden="true"
+                                  />
+                                </span>
+                              </button>
+                              {open && (
+                                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-border/60 px-2 py-2 font-mono text-[11px]">
+                                  <dt className="text-muted-foreground">Pixel</dt>
+                                  <dd className="truncate text-foreground">{row.pixel}</dd>
+                                  {row.eventId && (
+                                    <>
+                                      <dt className="text-muted-foreground">Event ID</dt>
+                                      <dd className="flex items-center gap-1.5">
+                                        <span className="truncate text-foreground">{row.eventId}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(row.eventId!).then(() => {
+                                              setCopiedEventId(key)
+                                              setTimeout(() => setCopiedEventId(null), 2000)
+                                            })
+                                          }}
+                                          aria-label="Copiar Event ID"
+                                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                                        >
+                                          {copiedEventId === key ? (
+                                            <Check className="size-3 text-success" aria-hidden="true" />
+                                          ) : (
+                                            <Copy className="size-3" aria-hidden="true" />
+                                          )}
+                                        </button>
+                                        <span className="sr-only" aria-live="polite">
+                                          {copiedEventId === key ? 'Event ID copiado' : ''}
+                                        </span>
+                                      </dd>
+                                    </>
+                                  )}
+                                  {row.leadId && (
+                                    <>
+                                      <dt className="text-muted-foreground">Lead</dt>
+                                      <dd className="truncate text-foreground">{row.leadId}</dd>
+                                    </>
+                                  )}
+                                  {row.emq != null && (
+                                    <>
+                                      <dt className="text-muted-foreground">EMQ</dt>
+                                      <dd className="text-foreground">{row.emq.toFixed(1)}</dd>
+                                    </>
+                                  )}
+                                  <dt className="text-muted-foreground">Status</dt>
+                                  <dd className="text-foreground">{row.status}</dd>
+                                  {row.response?.code != null && (
+                                    <>
+                                      <dt className="text-muted-foreground">Código</dt>
+                                      <dd className="text-foreground">{row.response.code}</dd>
+                                    </>
+                                  )}
+                                  {row.response?.message && (
+                                    <>
+                                      <dt className="text-muted-foreground">Resposta</dt>
+                                      <dd className="text-pretty text-foreground">{row.response.message}</dd>
+                                    </>
+                                  )}
+                                </dl>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </>
+                )
+              })()
             )}
           </GlassCard>
         </div>
@@ -514,6 +698,60 @@ export function PixelsView() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ── Sparkline de EMQ por pixel (item 79) ──────────────────────────────
+// Barras simples via flexbox (sem SVG). Escala EMQ 0–10 do TikTok.
+function EmqSparkline({ pixel }: { pixel: PixelEmqTrend }) {
+  const max = 10
+  const alertLabel =
+    pixel.alert === 'queda'
+      ? 'EMQ em queda vs. média anterior'
+      : pixel.alert === 'baixo'
+        ? 'EMQ baixo — melhore os dados enviados'
+        : null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="truncate font-medium text-foreground">{pixel.pixel}</span>
+        <span className="flex items-center gap-1.5">
+          {pixel.recentAvg != null && (
+            <span
+              className={`font-mono ${
+                pixel.recentAvg >= 7 ? 'text-success' : pixel.recentAvg >= 5 ? 'text-warning' : 'text-error'
+              }`}
+            >
+              {pixel.recentAvg.toFixed(1)}
+            </span>
+          )}
+          {alertLabel && (
+            <span
+              title={alertLabel}
+              className="flex items-center gap-0.5 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning"
+            >
+              <TrendingDown className="size-3" aria-hidden="true" />
+              {pixel.alert === 'queda' ? 'queda' : 'baixo'}
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="flex h-10 items-end gap-0.5" role="img" aria-label={`Tendência de EMQ do pixel ${pixel.pixel}`}>
+        {pixel.trend.map((d) => {
+          const h = Math.max(6, Math.round((d.avg / max) * 100))
+          return (
+            <div
+              key={d.day}
+              title={`${d.day}: EMQ ${d.avg.toFixed(1)} (${d.count} eventos)`}
+              className={`min-w-0 flex-1 rounded-sm ${
+                d.avg >= 7 ? 'bg-success/70' : d.avg >= 5 ? 'bg-warning/70' : 'bg-error/70'
+              }`}
+              style={{ height: `${h}%` }}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }
