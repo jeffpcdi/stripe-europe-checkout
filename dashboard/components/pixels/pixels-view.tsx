@@ -18,6 +18,9 @@ import {
   TrendingDown,
   RefreshCw,
   ChevronDown,
+  CopyPlus,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import {
   usePixels,
@@ -154,6 +157,26 @@ export function PixelsView() {
     mutate()
   }
 
+  // Item 92: duplicar pixel — clona nome/código/eventos SEM o Access Token
+  // (cada conta de anúncio tem o seu). A cópia nasce pausada e sem token,
+  // pronta para receber as credenciais da outra conta.
+  async function handleDuplicate(p: Pixel) {
+    const base = `${p.slug}-copia`
+    let slug = base
+    let n = 2
+    while (pixels.some((x) => x.slug === slug)) slug = `${base}-${n++}`
+    await apiSend('/api/pixels', 'POST', {
+      slug,
+      name: `${p.name} (cópia)`,
+      pixelCode: p.pixelCode,
+      accessToken: '',
+      testEventCode: '',
+      events: p.events,
+      active: false,
+    })
+    mutate()
+  }
+
   // Item 49: toggle ativo/pausado inline com atualização OTIMISTA — o backend
   // faz merge-patch (só `active` muda; token/eventos são preservados).
   async function handleToggleActive(p: Pixel) {
@@ -260,8 +283,10 @@ export function PixelsView() {
           )
         })()}
 
-      {/* Diagnóstico: por que a config pode não estar chegando ao pixel */}
-      {warnings.length > 0 && (
+      {/* Diagnóstico: por que a config pode não estar chegando ao pixel.
+          Item 87: além dos warnings gerais, lista pixel a pixel o que falta
+          (credencial ausente) — antes só a string agregada aparecia. */}
+      {(warnings.length > 0 || (durability?.incomplete?.length ?? 0) > 0) && (
         <div
           className="flex flex-col gap-1.5 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3"
           role="alert"
@@ -270,6 +295,15 @@ export function PixelsView() {
             <p key={i} className="flex items-start gap-2 text-xs text-warning">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
               <span className="text-pretty">{w}</span>
+            </p>
+          ))}
+          {(durability?.incomplete ?? []).map((inc) => (
+            <p key={inc.slug} className="flex items-start gap-2 text-xs text-warning">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span className="text-pretty">
+                <strong>{inc.name}</strong> está com configuração incompleta: falta{' '}
+                {inc.missing.join(', ')}. Edite o pixel para completar.
+              </span>
             </p>
           ))}
         </div>
@@ -402,6 +436,38 @@ export function PixelsView() {
                     ))}
                   </div>
 
+                  {/* Item 85: pixel ativo mas sem nenhum evento ligado = config
+                      inócua (nunca dispara nada). Aviso direto no card. */}
+                  {p.active && !EVENT_LABELS.some(({ key }) => p.events?.[key]) && (
+                    <p className="mt-2 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+                      <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                      <span className="text-pretty">
+                        Este pixel está ativo mas <strong>nenhum evento está ligado</strong> — ele nunca
+                        vai disparar. Edite e ligue ao menos um evento.
+                      </span>
+                    </p>
+                  )}
+
+                  {/* Item 86: eventos de dinheiro ligados sem nenhum gateway
+                      conectado — CompletePayment/AddPaymentInfo só saem do
+                      webhook do gateway (trava trusted), então nunca disparam. */}
+                  {p.active &&
+                    (p.events?.CompletePayment || p.events?.AddPaymentInfo) &&
+                    durability != null &&
+                    durability.trustedGateways === 0 && (
+                      <p className="mt-2 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                        <span className="text-pretty">
+                          {p.events?.CompletePayment ? 'Compra' : 'Pagamento'} está ligada, mas{' '}
+                          <strong>nenhum gateway está conectado</strong> — eventos de dinheiro só
+                          disparam via webhook do gateway.{' '}
+                          <Link href="/gateways" className="font-semibold text-brand-cyan hover:underline">
+                            Conectar gateway
+                          </Link>
+                        </span>
+                      </p>
+                    )}
+
                   {/* Script para instalar. Item 89: copiar a tag <script> inteira
                       OU só a URL do script (para colar em GTM/Tag Manager). */}
                   {p.scriptTag && (
@@ -470,6 +536,14 @@ export function PixelsView() {
                       className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
                     >
                       <Zap className="size-3.5" /> {testing === p.slug ? 'Testando…' : 'Testar disparo'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDuplicate(p)}
+                      title="Clona nome, código e eventos — sem o Access Token (para outra conta de anúncio)"
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      <CopyPlus className="size-3.5" /> Duplicar
                     </button>
                     <button
                       type="button"
@@ -898,6 +972,8 @@ function PixelEditor({
   const [name, setName] = useState(pixel?.name ?? '')
   const [pixelCode, setPixelCode] = useState(pixel?.pixelCode ?? '')
   const [accessToken, setAccessToken] = useState(pixel?.accessToken ?? '')
+  // Item 83: revelar/ocultar o que está no campo do token
+  const [showToken, setShowToken] = useState(false)
   const [testEventCode, setTestEventCode] = useState(pixel?.testEventCode ?? '')
   const [active, setActive] = useState(pixel?.active ?? true)
   const [events, setEvents] = useState<PixelEvents>(
@@ -975,13 +1051,37 @@ function PixelEditor({
 
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Access Token (Events API)</span>
-            <input
-              className={inputCls}
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-              placeholder={pixel?.hasToken ? 'mantém o atual se não alterar' : 'cole o token do TikTok'}
-              autoComplete="off"
-            />
+            {/* Item 83: campo mascarado por padrão com botão revelar/ocultar.
+                O backend nunca devolve o token completo (só ••••XXXX), então o
+                toggle vale para o que está sendo digitado — e o sufixo atual
+                fica visível para conferir sem redigitar. */}
+            <div className="relative">
+              <input
+                type={showToken ? 'text' : 'password'}
+                className={`${inputCls} w-full pr-16`}
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                placeholder={pixel?.hasToken ? 'mantém o atual se não alterar' : 'cole o token do TikTok'}
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken((v) => !v)}
+                aria-label={showToken ? 'Ocultar token' : 'Revelar token'}
+                aria-pressed={showToken}
+                className="absolute inset-y-0 right-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                {showToken ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
+                {showToken ? 'Ocultar' : 'Revelar'}
+              </button>
+            </div>
+            {pixel?.hasToken && pixel.accessToken && (
+              <span className="text-[11px] text-muted-foreground">
+                Token atual termina em{' '}
+                <code className="font-mono text-foreground">{pixel.accessToken.slice(-4)}</code> — não
+                altere o campo para mantê-lo; cole um novo para substituir.
+              </span>
+            )}
             {/* Item 50: sem token os eventos server-side (CAPI) não disparam */}
             {!accessToken.trim() && !pixel?.hasToken && (
               <span className="rounded-md bg-[color:var(--warning)]/10 px-2 py-1.5 text-[11px] text-[color:var(--warning)] text-pretty">
@@ -1000,6 +1100,20 @@ function PixelEditor({
               placeholder="TEST12345"
               autoComplete="off"
             />
+            {/* Item 94: o que é o testEventCode e onde encontrá-lo */}
+            <span className="text-[11px] text-muted-foreground text-pretty">
+              Com esse código, os disparos aparecem na aba{' '}
+              <a
+                href="https://ads.tiktok.com/help/article/events-api-test-events"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-brand-cyan hover:underline"
+              >
+                Eventos de teste
+              </a>{' '}
+              do TikTok Events Manager, sem contaminar os dados reais. Pegue o código lá e remova
+              quando for ao ar.
+            </span>
           </label>
 
           <fieldset className="flex flex-col gap-2">
