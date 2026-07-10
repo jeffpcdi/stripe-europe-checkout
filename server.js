@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────�������������───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────���������������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1910,14 +1910,50 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
 // mostra na dashboard como o próprio admin seria classificado (deve dar 'real').
 app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const cloakCfg = config.get(req.account.id).cloak || {};
+  // Item 134: quando vem `slug`, simula o julgamento DAQUELE link /c/:slug —
+  // usa a config do próprio entry no motor de score E reporta os gates extras
+  // (mobile, ad-click, país, idioma) que decidem ANTES do score na rota real.
+  const slug = req.body && req.body.slug ? String(req.body.slug).slice(0, 40) : '';
+  let cloakCfg = config.get(req.account.id).cloak || {};
+  let entry = null;
+  if (slug) {
+    entry = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === slug) || null;
+    if (!entry) return res.status(404).json({ error: 'link de cloaking não encontrado' });
+    cloakCfg = entry; // o /c/:slug passa o próprio entry como cloakCfg ao judge
+  }
   const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
   const j = await botFilter.judge(filterReq, 'admin-test', null, {}, cloakCfg)
     .catch((e) => ({ verdict: 'erro', score: 0, signals: ['erro:' + e.message] }));
+
+  // Avalia os gates pré-score do /c/:slug com o request atual do admin (mesma
+  // lógica da rota real) para o painel mostrar o que barraria além do score.
+  let gates = null;
+  if (entry) {
+    const uaRaw = String(req.headers['user-agent'] || '');
+    const dev = uaTools.parse(uaRaw);
+    const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
+    const ref = String(req.headers['referer'] || req.headers['referrer'] || '');
+    const q = req.query || {};
+    const ttclidRaw = typeof q.ttclid === 'string' ? q.ttclid.trim() : '';
+    const validTtclid = /^[A-Za-z0-9._-]{20,}$/.test(ttclidRaw);
+    const isWebview = uaTools.isInAppTikTok(uaRaw);
+    const fromTikTok = isWebview || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
+    const adClickOk = entry.sensitivity === 'strict' ? isWebview : (fromTikTok || validTtclid);
+    const cc = String(geoFromReq(req).country || '').toUpperCase();
+    const lang = String(req.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
+    gates = {
+      mobile: entry.mobileOnly === false ? 'off' : (isMobile ? 'pass' : 'block'),
+      adClick: entry.requireAdClick === false ? 'off' : (adClickOk ? 'pass' : 'block'),
+      pais: !Array.isArray(entry.paises) || !entry.paises.length ? 'off' : (cc && entry.paises.indexOf(cc) >= 0 ? 'pass' : 'block'),
+      idioma: !Array.isArray(entry.idiomas) || !entry.idiomas.length ? 'off' : (lang && entry.idiomas.indexOf(lang) >= 0 ? 'pass' : 'block'),
+    };
+  }
+
   res.json({
     verdict: j.verdict, score: j.score, threshold: j.threshold,
     signals: j.signals, ip: clientIp(req),
-    ua: String(req.headers['user-agent'] || '').slice(0, 120)
+    ua: String(req.headers['user-agent'] || '').slice(0, 120),
+    slug: slug || undefined, gates
   });
 });
 
@@ -2441,7 +2477,7 @@ app.get('/api/gateways', dashboardAuth, (req, res) => {
 
 app.post('/api/gateways', dashboardAuth, async (req, res) => {
   try {
-    // Nome único por conta (item 109): dois "Stripe" idênticos confundem o
+    // Nome único por conta (item 109): dois "Stripe" id��nticos confundem o
     // log e a escolha do webhook. A checagem ignora o próprio registro na edição.
     const body = req.body || {};
     const nome = String(body.name || '').trim();
@@ -2567,7 +2603,7 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
   });
 });
 
-// ���─ API: zerar estatísticas ─────���────────────────────────────────────
+// ���─ API: zerar estatísticas ─────���───────���────────────────────────────
 // ═══ TikTok multi-pixel ══════════════════════════���══════════════════��═
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou

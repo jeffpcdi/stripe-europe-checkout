@@ -102,6 +102,18 @@ export function LinksView() {
   const [qrFor, setQrFor] = useState<string | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [showTutorial, setShowTutorial] = useState(false)
+  // Item 124: atalho "usar em um link" da aba Domínios — ?novo=1&dominio=host
+  // abre o editor de criação já com o domínio selecionado
+  const [presetDominio, setPresetDominio] = useState<string | null>(null)
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    if (sp.get('novo') === '1') {
+      setPresetDominio(sp.get('dominio'))
+      setCreating(true)
+      // limpa a URL para o refresh não reabrir o editor
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
 
   const appHost = domainsData?.appHost ?? ''
   const links = data?.links ?? []
@@ -766,13 +778,16 @@ export function LinksView() {
           link={editing}
           domains={domainsData?.domains ?? []}
           appHost={appHost}
+          presetDominio={presetDominio}
           onClose={() => {
             setCreating(false)
             setEditing(null)
+            setPresetDominio(null)
           }}
           onSaved={() => {
             setCreating(false)
             setEditing(null)
+            setPresetDominio(null)
             mutate()
           }}
         />

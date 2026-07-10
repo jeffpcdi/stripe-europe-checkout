@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Loader2, ShieldAlert, Scale, ShieldOff, Check } from 'lucide-react'
+import { X, Loader2, ShieldAlert, Scale, ShieldOff, Check, ExternalLink } from 'lucide-react'
 import { apiSend, useDomains } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity } from '@/lib/types'
 import { GeoMultiSelect } from './geo-multi-select'
@@ -45,6 +45,10 @@ const SENSITIVITIES: {
     icon: ShieldOff,
   },
 ]
+
+// Item 141: threshold efetivo por sensibilidade (espelha SENSITIVITY_THRESHOLDS
+// do bot-filter.js) — mostra ao usuário o número que a escolha de fato aplica.
+const EFFECTIVE_THRESHOLD: Record<string, number> = { strict: 30, balanced: 40, loose: 55 }
 
 interface Props {
   entry: CloakEntry | null
@@ -153,7 +157,20 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
             <div>
               <label className={labelCls} htmlFor="ck-white">Página branca (opcional, https)</label>
               <input id="ck-white" className={inputCls} value={whitePageUrl} onChange={(e) => setWhitePageUrl(e.target.value)} placeholder="https://pagina-segura.com" />
-              <p className="mt-1 text-[11px] text-muted-foreground">Para onde bots e revisores são desviados. Vazio = página neutra embutida.</p>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">Para onde bots e revisores são desviados. Vazio = página neutra embutida.</p>
+                {/* Item 138: abrir a white page em nova aba direto do editor */}
+                {/^https:\/\//.test(whitePageUrl.trim()) && (
+                  <a
+                    href={whitePageUrl.trim()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
+                  >
+                    <ExternalLink className="size-3" /> Ver
+                  </a>
+                )}
+              </div>
             </div>
 
             <div>
@@ -174,13 +191,31 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
                   )}
                 </select>
               )}
+              {/* Item 140: aviso quando o domínio selecionado não está verificado —
+                  o /c/:slug responde 404 nesse host até o DNS apontar pra cá */}
+              {dominio && !currentInList && (
+                <p className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-3 py-2 text-[11px] text-foreground">
+                  <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
+                  <span>
+                    <strong>{dominio}</strong> ainda não está verificado — o link <code>/c/{'{slug}'}</code> só vai
+                    responder neste domínio depois que o DNS apontar pra cá. Verifique em <strong>Domínios</strong> ou
+                    use o domínio principal do app.
+                  </span>
+                </p>
+              )}
             </div>
           </section>
 
           {/* ── Seção: sensibilidade ── */}
           <section>
             <h3 className="mb-1 text-sm font-semibold text-foreground">Sensibilidade da detecção</h3>
-            <p className={hintCls}>Define o quão agressivo o filtro é ao decidir quem vê a página branca.</p>
+            <p className={hintCls}>
+              Define o quão agressivo o filtro é ao decidir quem vê a página branca.{' '}
+              {/* Item 141: threshold efetivo herdado da sensibilidade escolhida */}
+              <span className="text-foreground">
+                Score ≥ <strong>{EFFECTIVE_THRESHOLD[sensitivity] ?? 40}</strong> é tratado como bot.
+              </span>
+            </p>
             <div className="flex flex-col gap-2">
               {SENSITIVITIES.map((s) => {
                 const active = sensitivity === s.value

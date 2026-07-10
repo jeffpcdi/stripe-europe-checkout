@@ -205,6 +205,9 @@ export interface DomainVerifyResult {
   cloudflareProxy?: boolean
   reconectado?: boolean
   dnsRecords?: DomainDnsRecords | null
+  // Item 127: marcado no CLIENTE quando o próprio fetch de verify falhou
+  // (rede/servidor fora) — a UI oferece retry em vez de "DNS pendente"
+  networkError?: boolean
 }
 
 // ── /api/pixels — pixels TikTok + CAPI (pixel-store.js) ──
@@ -379,6 +382,8 @@ export interface CloakConfig {
 }
 
 // ── /api/cloak/test — julgamento do request atual ──
+// Item 134: 'off' = gate desligado; 'pass'/'block' = decisão com o request atual
+export type CloakGateState = 'off' | 'pass' | 'block'
 export interface CloakTestResult {
   verdict: string
   score: number
@@ -386,6 +391,13 @@ export interface CloakTestResult {
   signals: string[]
   ip: string
   ua: string
+  slug?: string
+  gates?: {
+    mobile: CloakGateState
+    adClick: CloakGateState
+    pais: CloakGateState
+    idioma: CloakGateState
+  } | null
 }
 
 // ── /api/cloak/stats — offer vs white por link ──

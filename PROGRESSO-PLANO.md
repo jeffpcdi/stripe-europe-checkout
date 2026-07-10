@@ -14,11 +14,11 @@
 |------|--------|-------|--------|
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~15/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~87/110 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | 110/110 ✅ |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 12/130 (241–252 ✅) |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~124/570** — Leva 1 (backend) 100% + **faixa 31–113 COMPLETA** (bugs reais, robustez, testes, a11y, responsividade, Links, Pixels, Gateways) + itens 241–252 (durabilidade de schema) concluídos
+**Total concluído: ~143/570** — Leva 1 (backend) 100% + **LEVA 3 COMPLETA (31–140)** (bugs reais, robustez, testes, a11y, responsividade, Links, Pixels, Gateways, Domínios, Cloak) + itens 241–252 (durabilidade de schema) concluídos; próximo alvo: Leva 4 (141–200)
 
 ## Itens concluídos (com evidência)
 
@@ -132,6 +132,32 @@
 - ✅ 109. Nome único por conta — backend já validava (case-insensitive, ignora o próprio registro na edição) e o editor exibe o erro via `setError`
 - ✅ 110. Cópia do webhook com anúncio `aria-live` (região `role=status` sr-only, padrão do item 93) — verificado ao vivo
 
+### Leva 3 — Aba Domínios (120–130)
+
+- ✅ 120. Card mostra "Verificado e ativo desde DD/MM/AAAA" (`verificadoEm`) + sufixo "reconectado à hospedagem" quando o verify re-registra (`result.reconectado`) — verificado ao vivo
+- ✅ 121. Botão "Copiar tudo (CNAME + TXT)" no tutorial de DNS — bloco em formato de zona para colar de uma vez — verificado ao vivo
+- ✅ 122. Checagem rápida de propagação via DoH (cloudflare-dns.com/dns-query, CORS ok) direto do navegador: botão "Já propagou? Checar agora" compara o CNAME respondido com o target e dá feedback em segundos (propagou / aponta pro lugar errado / ainda não) — verificado ao vivo (resposta real de DNS)
+- ✅ 123. Dica de TTL (300s/Auto) + aviso automático quando o host é apex (2 labels): CNAME não funciona em domínio raiz em muitos registradores → sugerir subdomínio ou ALIAS/flattening — verificado ao vivo
+- ✅ 124. Atalho "Usar em um link" no card de domínio verificado (oculto para uso=cloaker) → navega para `/dashboard/links?novo=1&dominio=host`; links-view lê o param, abre o editor com o domínio pré-selecionado e limpa a URL — verificado ao vivo (select pré-preenchido)
+- ✅ 125. Diagnóstico dirigido no resultado do verify: DNS falhou → botão que reabre o tutorial ("O DNS ainda não aponta pra cá"); DNS ok + HTTPS pendente → mensagem "falta só o certificado, é automático"; proxy Cloudflare já tinha badge própria
+- ✅ 127. Falha de REDE no verify ganha estado próprio (`networkError` no tipo): banner âmbar "falha de conexão — o DNS pode estar certo" com botão "Tentar de novo", em vez do resultado genérico que parecia DNS pendente
+- ✅ 129. Estado vazio guiado: explica o benefício do domínio próprio + CTA "Ver como funciona" abrindo o tutorial conceitual
+- ✅ 126/128/130 — auditados e JÁ IMPLEMENTADOS: mensagens do domain-provider já são neutras (grep sem termos internos; notas mapeadas em server.js — itens 8/20), limite de 20 domínios + erro de duplicado/outra conta no POST (128), verify chama `linkStore.markDomainValidated` para todos os hosts verificados e o mutate reflete na UI (130)
+
+### Leva 3 — Aba Cloak (133–141)
+
+- ✅ 133. Feedback "Salvo ✓" no config panel — JÁ EXISTIA (`savedAt` com estado transitório); confirmado
+- ✅ 134. Teste por entry: botão "Testar" em cada card de `/c/:slug` chama `POST /api/cloak/test` com `slug` — backend simula o julgamento DAQUELE link (usa o próprio entry como `cloakCfg` no motor de score) e reporta os gates pré-score (mobile, ad-click, país, idioma) com o request atual do admin; UI mostra veredito+score+threshold, chips de gate (passa/bloqueia/desligado) e signals — verificado ao vivo (gates: mobile block, ad-click block, país/idioma off) e via curl direto no endpoint
+- ✅ 135. Estatística offer/white inline por link no card (barra proporcional + % bloqueado), do `useCloakStats` mapeado por slug — verificado ao vivo
+- ✅ 136. Badge de sensibilidade + threshold efetivo no card ("Equilibrado · ≥40") + resumo dos gates ativos (mobile/ad-click) — verificado ao vivo
+- ✅ 137. Liga/desliga inline por entry (`role=switch`, POST enabled) + seleção múltipla com ações em lote (ativar/desativar/remover selecionados) — verificado ao vivo (toggle "Ativo" presente)
+- ✅ 138. Preview da white page em nova aba: link "Ver" no editor (quando URL https válida) + "Ver white" no card da lista — verificado ao vivo (href aponta para a white configurada)
+- ✅ 139. Explicação do threshold no config panel: texto sobre score 0–100 → página branca + mapa sensibilidade→número efetivo (Rígido ≥30 · Equilibrado ≥40 · Leve ≥55) lido de `cfg.sensitivityThresholds` — verificado ao vivo
+- ✅ 140. Aviso no editor quando o domínio selecionado não está verificado: `/c/:slug` responde 404 nesse host até o DNS apontar pra cá; orienta a verificar em Domínios ou usar o principal — verificado ao vivo (via seleção de domínio não verificado)
+- ✅ 141. Threshold efetivo mostrado no editor na seção de sensibilidade ("Score ≥ N é tratado como bot"), espelhando `EFFECTIVE_THRESHOLD` do bot-filter — verificado ao vivo
+
+Evidência: `node --check server.js` limpo, `tsc --noEmit` limpo, `next build` ok, 5/5 suítes de teste passando, verificação ao vivo no navegador de todos os 9 itens. Entry de QA criado e removido após o teste.
+
 ### Leva 6 — Durabilidade de schema e persistência (241–252) — ANTECIPADA
 
 - ✅ 241. Tabela `custom_domains` no Neon (host PK, account_id, uso, verificado, verificado_em, provider_id, provider_note, dns jsonb, timestamps) criada no `init()` do `db.js`
@@ -153,9 +179,9 @@ Evidência: `node --check` limpo nos 4 módulos + 4/4 suítes de teste passando 
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Demais itens da Leva 3 (120–130, 133–140)
-2. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
-3. Leva 4 em diante (141–240, 253–570) — 241–252 já concluídos (antecipados)
+1. Leva 4 (141–200) — refinos por aba, tours guiados, microcopy
+2. 15, 18, 22, 24, 26 — refinos visuais restantes da Leva 2
+3. Leva 5–7 (201–570) — 241–252 já concluídos (antecipados)
 
 ## Histórico de sessões
 
