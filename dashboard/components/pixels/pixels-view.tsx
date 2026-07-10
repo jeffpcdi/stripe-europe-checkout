@@ -136,9 +136,14 @@ export function PixelsView() {
 
   const pixels = data?.pixels ?? []
 
-  function handleCopy(slug: string, text: string) {
+  // Item 93: feedback de cópia acessível — além do destaque visual no botão,
+  // anunciamos via aria-live para leitores de tela.
+  const [copyAnnounce, setCopyAnnounce] = useState('')
+
+  function handleCopy(slug: string, text: string, label = 'Script') {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(slug)
+      setCopyAnnounce(`${label} copiado para a área de transferência.`)
       setTimeout(() => setCopied(null), 2000)
     })
   }
@@ -209,6 +214,10 @@ export function PixelsView() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Item 55/93: anúncio acessível das cópias (fora de tela, polido) */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {copyAnnounce}
+      </span>
       {/* Item 51: cabeçalho de saúde consolidado. "Durável" = há uma camada de
           persistência disponível (banco OU Redis); é a capacidade que garante que
           a config sobrevive a um restart, independente de já ter havido gravação. */}
@@ -393,7 +402,8 @@ export function PixelsView() {
                     ))}
                   </div>
 
-                  {/* Script tag para instalar */}
+                  {/* Script para instalar. Item 89: copiar a tag <script> inteira
+                      OU só a URL do script (para colar em GTM/Tag Manager). */}
                   {p.scriptTag && (
                     <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">
                       <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
@@ -401,12 +411,23 @@ export function PixelsView() {
                       </code>
                       <button
                         type="button"
-                        onClick={() => handleCopy(p.slug, p.scriptTag!)}
+                        onClick={() => handleCopy(`${p.slug}:tag`, p.scriptTag!, 'Tag do script')}
                         className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-brand-cyan transition-colors hover:bg-secondary"
                       >
-                        {copied === p.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-                        {copied === p.slug ? 'Copiado' : 'Copiar'}
+                        {copied === `${p.slug}:tag` ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                        {copied === `${p.slug}:tag` ? 'Copiado' : 'Copiar tag'}
                       </button>
+                      {p.scriptUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(`${p.slug}:url`, p.scriptUrl!, 'URL do script')}
+                          title="Copiar só a URL (para GTM)"
+                          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        >
+                          {copied === `${p.slug}:url` ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                          {copied === `${p.slug}:url` ? 'Copiado' : 'Só URL'}
+                        </button>
+                      )}
                     </div>
                   )}
 

@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Power,
   Radio,
+  Download,
 } from 'lucide-react'
 import QRCodeLib from 'qrcode'
 import { useLinks, useDomains, usePixels, apiSend } from '@/lib/api'
@@ -262,6 +263,20 @@ export function LinksView() {
     await navigator.clipboard.writeText(publicUrl(l))
     setCopied(l.slug)
     setTimeout(() => setCopied(null), 1500)
+  }
+
+  // Item 70: baixa o QR gerado no cliente como PNG (sem serviço externo).
+  // Regenera em alta resolução para impressão/material de anúncio.
+  async function downloadQr(l: CheckoutLink) {
+    const dataUrl = await QRCodeLib.toDataURL(publicUrl(l), {
+      width: 512,
+      margin: 2,
+      color: { dark: '#0d0d10', light: '#ffffff' },
+    })
+    const a = document.createElement('a')
+    a.href = dataUrl
+    a.download = `qr-${l.slug}.png`
+    a.click()
   }
 
   async function handleDelete(slug: string) {
@@ -663,6 +678,14 @@ export function LinksView() {
                           </div>
                         )}
                         <span className="font-mono text-[10px] text-muted-foreground">/go/{l.slug}</span>
+                        <button
+                          type="button"
+                          onClick={() => downloadQr(l)}
+                          disabled={!qrDataUrl}
+                          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                        >
+                          <Download className="size-3" aria-hidden="true" /> Baixar PNG
+                        </button>
                       </div>
                     )}
                     <button
