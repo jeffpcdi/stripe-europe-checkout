@@ -50,18 +50,6 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
   const totalPeso = activeVariants.reduce((s, v) => s + (Number.isFinite(v.peso) ? v.peso : 0), 0)
   const pesoInvalido = activeVariants.length >= 2 && totalPeso !== 100
 
-  // Item 73: validação de URL no front, com o MESMO critério do backend
-  // (validUrl no link-store.js exige https://) — antes o erro só voltava
-  // genérico do servidor depois do save.
-  const isValidUrl = (u: string) => /^https:\/\/[^\s]+\.[^\s]+/i.test(u.trim())
-  const urlInvalida = (u: string) => !!u.trim() && !isValidUrl(u)
-  const temUrlInvalida =
-    variantes.some((v) => urlInvalida(v.url) || urlInvalida(v.urlMobile)) || urlInvalida(urlWhitePage)
-
-  // Item 74: trocar o domínio de um link existente derruba a validação
-  // anterior (o save() do backend zera dominioValidado) — avisar ANTES do save.
-  const dominioMudou = !!link && (link.dominio ?? '') !== dominio && !!dominio
-
   function updateVariant(i: number, patch: Partial<VariantDraft>) {
     setVariantes((vs) => vs.map((v, j) => (j === i ? { ...v, ...patch } : v)))
   }
@@ -195,30 +183,14 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
             </label>
           </div>
 
-          {dominioMudou && (
-            <p
-              className="rounded-lg bg-[color:var(--warning)]/10 px-3 py-2 text-xs text-[color:var(--warning)]"
-              role="alert"
-            >
-              Ao trocar o domínio, a validação anterior deixa de valer: o link será salvo como
-              &quot;domínio não verificado&quot; até você validar {dominio} de novo.
-            </p>
-          )}
-
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">White page (cloak — revisores/bots)</span>
             <input
-              className={`${inputCls} ${urlInvalida(urlWhitePage) ? 'border-destructive focus:ring-destructive' : ''}`}
+              className={inputCls}
               value={urlWhitePage}
               onChange={(e) => setUrlWhitePage(e.target.value)}
               placeholder="https://blog-inocente.com"
-              aria-invalid={urlInvalida(urlWhitePage)}
             />
-            {urlInvalida(urlWhitePage) && (
-              <span className="text-[11px] text-destructive">
-                A URL precisa começar com https:// e ter um domínio válido.
-              </span>
-            )}
           </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -311,32 +283,20 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
                     <label className="flex flex-col gap-1">
                       <span className="text-[11px] text-muted-foreground">URL do checkout</span>
                       <input
-                        className={`${inputCls} ${urlInvalida(v.url) ? 'border-destructive focus:ring-destructive' : ''}`}
+                        className={inputCls}
                         value={v.url}
                         onChange={(e) => updateVariant(i, { url: e.target.value })}
                         placeholder="https://pay.gateway.com/abc"
-                        aria-invalid={urlInvalida(v.url)}
                       />
-                      {urlInvalida(v.url) && (
-                        <span className="text-[11px] text-destructive">
-                          A URL precisa começar com https:// e ter um domínio válido.
-                        </span>
-                      )}
                     </label>
                     <label className="flex flex-col gap-1">
                       <span className="text-[11px] text-muted-foreground">URL mobile (opcional)</span>
                       <input
-                        className={`${inputCls} ${urlInvalida(v.urlMobile) ? 'border-destructive focus:ring-destructive' : ''}`}
+                        className={inputCls}
                         value={v.urlMobile}
                         onChange={(e) => updateVariant(i, { urlMobile: e.target.value })}
                         placeholder="https://pay.gateway.com/abc-m"
-                        aria-invalid={urlInvalida(v.urlMobile)}
                       />
-                      {urlInvalida(v.urlMobile) && (
-                        <span className="text-[11px] text-destructive">
-                          A URL precisa começar com https:// e ter um domínio válido.
-                        </span>
-                      )}
                     </label>
                   </div>
                 </div>
@@ -371,7 +331,7 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || !nome.trim() || !variantes.some((v) => v.url.trim()) || pesoInvalido || temUrlInvalida}
+              disabled={saving || !nome.trim() || !variantes.some((v) => v.url.trim()) || pesoInvalido}
               className="rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               {saving ? 'Salvando…' : 'Salvar link'}
