@@ -1,10 +1,12 @@
 # PROGRESSO — Plano de 570 modificações (pragmatic-flow)
 
-> Fonte do plano: `v0_plans/pragmatic-flow.md` (570 itens em 7 levas).
+> Fonte do plano: `PLANO-PRAGMATIC-FLOW.md` na raiz do repositório (570 itens em 7 levas).
+> (Antes referenciado como `v0_plans/pragmatic-flow.md` — movido para a raiz porque
+> o diretório `v0_plans/` é reservado pelo ambiente do v0.)
 > Este arquivo é atualizado **a cada item concluído**. Legenda:
 > ✅ concluído e verificado · 🔶 parcial · ⬜ pendente
 >
-> Última atualização: 2026-07-10 (sessão 4)
+> Última atualização: 2026-07-10 (sessão 5)
 
 ## Resumo
 
@@ -13,10 +15,10 @@
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~15/20 |
 | 3 | Bugs reais + capacidades órfãs | 31–140 | ~33/110 |
-| 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 0/130 |
+| 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 12/130 (241–252 ✅) |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~58/570** — Leva 1 (backend) 100% + itens 31–50 (bugs/robustez) 100% concluídos
+**Total concluído: ~70/570** — Leva 1 (backend) 100% + itens 31–50 (bugs/robustez) 100% + itens 241–252 (durabilidade de schema) 100% concluídos
 
 ## Itens concluídos (com evidência)
 
@@ -90,16 +92,34 @@
 - ✅ 131. (= 31) Teste unificado
 - ✅ 132. Legendas pt-BR dos sinais do cloaker (`signal-labels.ts`)
 
+### Leva 6 — Durabilidade de schema e persistência (241–252) — ANTECIPADA
+
+- ✅ 241. Tabela `custom_domains` no Neon (host PK, account_id, uso, verificado, verificado_em, provider_id, provider_note, dns jsonb, timestamps) criada no `init()` do `db.js`
+- ✅ 242. `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency text DEFAULT 'BRL'` + write-through no POST /api/settings (`db.setAccountCurrency`) + hidratação no boot (`config.hydrate` → `loadAccountCurrencies`, config tem precedência)
+- ✅ 243. Coluna `uso` (checkout/cloaker/ambos) no schema + índice `custom_domains_account_idx (account_id, host)`
+- ✅ 244. Índice único de host: `host` é PRIMARY KEY — impede duplicidade entre contas
+- ✅ 245. Snapshot durável de domínios no Redis (`saveDomainSnapshot`/`deleteDomainSnapshot`/`loadDomainSnapshot`, hash `domains:all`, padrão dos pixels) + fallback na reconciliação do boot quando o Neon falha
+- ✅ 246. Snapshot durável de gateways — JÁ EXISTIA (implementado no item 48, `gateways:all`); confirmado em `gateway-store.js`
+- ✅ 247. `claimLegacyData()` agora atribui `custom_domains` com `account_id IS NULL` ao primeiro admin
+- ✅ 248. Migração idempotente no `init()` (CREATE TABLE/ADD COLUMN IF NOT EXISTS) — default BRL não afeta contas EUR (config editável tem precedência)
+- ✅ 249. `initWithRetry` cobre as novas migrações (fazem parte do `init()`) + `/api/health` reporta `migrations: { customDomains, accountCurrency }`
+- ✅ 250. `/api/domains` devolve `uso` e `verificadoEm` — entradas preservadas pelo sanitizador e reconciliadas do novo schema no boot
+- ✅ 251. Índices de gateway confirmados: `webhook_token UNIQUE` (caminho quente do `/hook/:token`) + `gateways_account_idx` já existiam
+- ✅ 252. Write-through ASSÍNCRONO dos domínios (padrão stats.js): `config.set` espelha em `setImmediate` no Neon + Redis sem bloquear o request; leitura nunca semeia escrita (`config.seed` só em memória)
+
+Evidência: `node --check` limpo nos 4 módulos + 4/4 suítes de teste passando após as mudanças.
+
 ## Fila de execução (próximos)
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
 1. Demais itens da Leva 3 (51–78, 83–98, 102–113, 120–130, 133–140)
 2. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
-3. Leva 4 em diante (141–570)
+3. Leva 4 em diante (141–240, 253–570) — 241–252 já concluídos (antecipados)
 
 ## Histórico de sessões
 
 - **Sessão 1–2:** Leva 1 parcial + tutoriais + bugs 31/33/34/35/36/38/39/40 + itens 99–101, 114, 116–119, 131–132 (PR #42, mesclado)
 - **Sessão 3:** Itens 79–82 (aba Pixels: EMQ, retry, filtro, log expansível) — commit `5d1080e`
 - **Sessão 4 (atual):** criação deste tracker + itens 8, 12, 17, 20, 30, 32, 36, 37 (copy neutro, avisos de gateway, moeda UI, cores de provedor, normalizar pesos, default AddToCart) + 5/6/9/11/41 (leva 1 completa) + 43/44/46 (validação host, touch try/catch, rate-limit hook) + 27 (tours guiados das 5 abas, verificado com popover ao vivo) + 47/49/50 (hint neutro, toggle otimista do pixel com merge-patch, aviso sem token). Type-check limpo, 4/4 testes, card de moeda + rate-limit do hook + tour de Gateways + toggle de pixel verificados ao vivo.
+- **Sessão 5 (atual):** plano salvo em `PLANO-PRAGMATIC-FLOW.md` (raiz) + Leva 6 antecipada — itens 241–252 (durabilidade de schema): tabela `custom_domains` multi-tenant, coluna `accounts.currency`, snapshot Redis de domínios, write-through assíncrono via `config.set`, reconciliação no boot via `config.hydrate`, claim legado e `migrations` no `/api/health`. `node --check` limpo + 4/4 testes.

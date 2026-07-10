@@ -248,7 +248,7 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 ## 6. Esquema do banco (Neon, multi-tenant)
 Todas as tabelas de dados têm `account_id text`. Tabelas keyed-by-name usam PK namespaced
 `${accountId}:${nome}`. Dados legados (`account_id IS NULL`) são atribuídos ao 1º admin via `claimLegacyData()`.
-- **accounts** — `id, email (unique), password_hash, name, role ('user'|'admin'), created_at`.
+- **accounts** — `id, email (unique), password_hash, name, role ('user'|'admin'), currency (default 'BRL'), created_at`.
 - **account_sessions** — `token (pk), account_id, created_at, expires_at` (+ índice por expiração).
 - **gateways** — `id, account_id, provider, name, webhook_token (unique), secret, config jsonb,
   last_event_at, last_event_status, created_at`.
@@ -261,11 +261,19 @@ Todas as tabelas de dados têm `account_id text`. Tabelas keyed-by-name usam PK 
 - **pixels** — `slug (pk namespaced), account_id, data jsonb, updated_at`.
 - **links** — `slug (pk namespaced), account_id, data jsonb, updated_at`.
 - **pixel_events** — `id, account_id, pixel, event, event_id, lead_id, status, response jsonb, at` (log CAPI).
+- **custom_domains** — `host (pk — unicidade global entre contas), account_id, uso
+  ('checkout'|'cloaker'|'ambos'), verificado, verificado_em, provider_id, provider_note, dns jsonb,
+  criado_em, updated_at` (itens 241–252). O cache quente continua sendo `config.customDomains`
+  (jsonb por conta); `config.set` faz write-through ASSÍNCRONO (setImmediate) para esta tabela +
+  snapshot Redis `domains:all`, e `config.hydrate()` reconcilia no boot (Neon → fallback Redis,
+  SÓ em memória via `config.seed` — leitura nunca semeia escrita).
 
 Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAccounts`, `getFirstAccountId`,
 `claimLegacyData`, sessões (`create/get/delete/pruneAuthSession`), gateways (`upsert/delete/load/getByToken/touch`),
 `upsertLead`, `insertEvent`, `upsertVariant`, `loadState` (hidrata cache no boot), `saveConfig`/`loadConfig`
-(retorna `{ok,data}`: `ok=false` = ERRO de leitura, não sobrescrever!), `reset`.
+(retorna `{ok,data}`: `ok=false` = ERRO de leitura, não sobrescrever!), `reset`,
+`upsert/delete/loadCustomDomains`, `setAccountCurrency`/`loadAccountCurrencies`,
+`migrationStatus()` (flags `customDomains`/`accountCurrency` expostas no `/api/health` como `migrations`).
 
 ## 7. Redis (Upstash) — chaves, TTLs e usos
 - **presence:<id>** — presença ao vivo (TTL 60s, renovado por heartbeat ~12s). `listPresence` faz SCAN+MGET.
@@ -275,6 +283,9 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup.
 - **dedup:<event_id>** — dedup navegador↔servidor (SET NX, TTL 2h). Em erro, deixa passar (melhor duplicar que perder).
 - **asn:<ip>** — cache do lookup BGP/ASN do bot-filter (TTL 24h), compartilhado entre instâncias.
+- **domains:all** — hash `${accountId}:${host}` → JSON do domínio (item 245): espelho durável dos
+  domínios personalizados (mesmo padrão de `pixels:all`/`gateways:all`); fallback de hidratação
+  quando o Neon falha no boot.
 - **cloakbot:<v_id>** — veredito STICKY do cloaker (só bot, TTL 6h). `/go` curto-circuita à white sem re-rodar o judge; setado no veredito bot e no beacon `/api/cloakcheck` com WebGL de software. Nunca cacheia 'real' (fail-safe).
 - **lock:<nome>** — lock distribuído (SET NX EX). Usos: `capiRetryDrain` (só 1 instância drena a fila de retry) e `convWorker` (só 1 instância drena convQ por ciclo). Sem Redis = processo único = já exclusivo.
 - **emq:<acc>:<pixel>** — rollup de EMQ por pixel/dia (`d:<data>:sum`/`:cnt`, retenção ~40d). Alimenta `GET /api/pixels/emq-trend` (série + alerta de queda) e o painel de tendência na aba Pixels.

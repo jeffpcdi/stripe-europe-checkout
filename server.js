@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────���������───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────�����������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1582,6 +1582,9 @@ app.post('/api/settings', dashboardAuth, (req, res) => {
   }
   const s = Object.assign({}, config.get(req.account.id).settings || {}, { defaultCurrency: cur });
   config.set(req.account.id, { settings: s });
+  // Item 242: espelha em accounts.currency (write-through assíncrono — a
+  // moeda sobrevive mesmo se a config jsonb for recriada/perdida).
+  db.setAccountCurrency(req.account.id, cur);
   stats.logEvent('info', { acc: req.account.id, title: 'Moeda padrão da conta: ' + cur });
   res.json({ ok: true, defaultCurrency: cur });
 });
@@ -1622,7 +1625,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
       // houver capacidade, a verificação re-tenta o registro sozinha. Mensagens
       // genéricas — nunca expõem token nem detalhe interno da API.
       // Itens 8/20: linguagem NEUTRA — nunca citar provedor interno. O lojista
-      // só precisa saber que o provisionamento automático não completou agora
+      // s�� precisa saber que o provisionamento automático não completou agora
       // e que a reconexão é automática.
       const notes = {
         limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
@@ -2085,6 +2088,9 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
     dashboard:   true, // sessão obrigatória — sempre protegida
     db:          dbPing.ok,
     dbLatencyMs: dbPing.ok ? dbPing.latencyMs : null,
+    // Item 249: as migrações novas (custom_domains + accounts.currency)
+    // rodaram com sucesso no boot? false = boot com Neon degradado.
+    migrations:  require('./db').migrationStatus(),
     redis:       redisPing.ok,
     redisEnabled:rdb.enabled,
     uptimeSec:   Math.round(process.uptime()),
@@ -2570,7 +2576,7 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
 });
 
 // ���─ API: zerar estatísticas ──────────────────────────────────────────
-// ═══ TikTok multi-pixel ═════════════════════════════════════════════��═
+// ═══ TikTok multi-pixel ══════════════════════════���══════════════════��═
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
 // editar um pixel (arquivo em pixels/ ou painel) atualiza todas as p��ginas.

@@ -642,6 +642,41 @@ async function loadGatewaySnapshot() {
   } catch (err) { console.error('[redis] loadGatewaySnapshot:', err.message); return null; }
 }
 
+// ── Snapshot durável de domínios (item 245) ────────────────────────────────
+// Espelho igual ao dos pixels/gateways: se o Neon falhar no boot, os domínios
+// personalizados hidratam do Redis e o roteamento Host → conta não quebra.
+// `field` = `${accountId}:${host}`.
+const DOMAINS_KEY = 'domains:all';
+
+async function saveDomainSnapshot(accountId, host, cfg) {
+  if (!enabled || !host) return false;
+  try {
+    await redis.hset(DOMAINS_KEY, { [(accountId || 'legacy') + ':' + host]: JSON.stringify(cfg) });
+    return true;
+  } catch (err) { console.error('[redis] saveDomainSnapshot:', err.message); return false; }
+}
+
+async function deleteDomainSnapshot(accountId, host) {
+  if (!enabled || !host) return false;
+  try {
+    await redis.hdel(DOMAINS_KEY, (accountId || 'legacy') + ':' + host);
+    return true;
+  } catch (err) { console.error('[redis] deleteDomainSnapshot:', err.message); return false; }
+}
+
+// Retorna array de domínios do snapshot (ou null se Redis off / erro de leitura
+// — jamais [] por erro, para não confundir com "não há domínios salvos").
+async function loadDomainSnapshot() {
+  if (!enabled) return null;
+  try {
+    const h = await redis.hgetall(DOMAINS_KEY);
+    if (!h) return [];
+    return Object.values(h)
+      .map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } })
+      .filter(Boolean);
+  } catch (err) { console.error('[redis] loadDomainSnapshot:', err.message); return null; }
+}
+
 // ── Ping de saúde ─────────────────────────────────────────────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
@@ -669,5 +704,6 @@ module.exports = {
   bumpEmq, getEmqTrend,
   savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,
   saveGatewaySnapshot, deleteGatewaySnapshot, loadGatewaySnapshot,
+  saveDomainSnapshot, deleteDomainSnapshot, loadDomainSnapshot,
   ping, TTL
 };
