@@ -184,7 +184,7 @@ export function DomainsView() {
   return (
     <div className="flex flex-col gap-4">
       {/* Adicionar domínio */}
-      <GlassCard className="p-5">
+      <GlassCard className="p-5" data-tour="domains-add">
         <div className="mb-1 flex items-center justify-between gap-2">
           <h2 className="section-head text-sm font-semibold text-foreground">Adicionar domínio</h2>
           <TutorialButton onClick={() => setShowIntro(true)} />
@@ -219,7 +219,7 @@ export function DomainsView() {
           </p>
         )}
         {/* Uso do domínio: checkout, cloaker ou ambos */}
-        <fieldset className="mt-3">
+        <fieldset className="mt-3" data-tour="domains-use">
           <legend className="mb-1.5 text-xs font-medium text-muted-foreground">Onde este domínio vale</legend>
           <div className="flex flex-wrap gap-2">
             {USO_LABELS.map((u) => (
@@ -260,7 +260,7 @@ export function DomainsView() {
           <p className="text-sm text-muted-foreground">Nenhum domínio personalizado ainda.</p>
         </GlassCard>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3" data-tour="domains-list">
           {domains.map((d) => (
             <DomainCard
               key={d.host}

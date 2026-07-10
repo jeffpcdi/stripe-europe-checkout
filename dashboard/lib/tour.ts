@@ -102,11 +102,136 @@ const LIVE_TOUR: Tour = {
   ],
 }
 
+/** Item 27: tour dos Links */
+const LINKS_TOUR: Tour = {
+  key: 'links',
+  label: 'Links',
+  steps: [
+    {
+      target: 'links-new',
+      title: 'Criar link',
+      body: 'Comece por aqui: dê um nome e um slug (o final de /go/slug). É o link que você divulga.',
+    },
+    {
+      target: 'links-list',
+      title: 'Seus links',
+      body: 'Cada card mostra cliques, o destino e o domínio usado. Toque para editar destino, split A/B e cloak.',
+    },
+    {
+      target: 'links-qr',
+      title: 'QR e cópia',
+      body: 'Gere o QR code na hora ou copie a URL curta para colar no anúncio, bio ou stories.',
+    },
+  ],
+}
+
+/** Item 27: tour dos Pixels */
+const PIXELS_TOUR: Tour = {
+  key: 'pixels',
+  label: 'Pixels',
+  steps: [
+    {
+      target: 'pixels-new',
+      title: 'Novo pixel',
+      body: 'Cole o Pixel Code (ex.: C0ABC123) e o Access Token da Events API. É o que conecta seu tráfego ao TikTok.',
+    },
+    {
+      target: 'pixels-list',
+      title: 'Seus pixels',
+      body: 'Ligue/desligue eventos (Visita, Carrinho, Checkout) e veja o status de cada pixel.',
+    },
+    {
+      target: 'pixels-verify',
+      title: 'Verificar instalação',
+      body: 'Cole a URL da sua página e confirme se o script está instalado — sem precisar abrir o console.',
+    },
+    {
+      target: 'pixels-health',
+      title: 'Saúde e log',
+      body: 'Acompanhe a qualidade dos eventos (EMQ), a fila de retry e cada disparo enviado ao TikTok.',
+    },
+  ],
+}
+
+/** Item 27: tour dos Gateways */
+const GATEWAYS_TOUR: Tour = {
+  key: 'gateways',
+  label: 'Gateways',
+  steps: [
+    {
+      target: 'gateways-new',
+      title: 'Conectar gateway',
+      body: 'Escolha o provedor (Kiwify, Hotmart, etc.) e geramos uma URL de webhook exclusiva para você colar lá.',
+    },
+    {
+      target: 'gateways-list',
+      title: 'Seus gateways',
+      body: 'É por aqui que as vendas confirmadas viram o evento de Compra. Teste, edite ou rotacione o segredo em cada card.',
+    },
+    {
+      target: 'gateways-webhooks',
+      title: 'Webhooks recebidos',
+      body: 'Veja em tempo real cada notificação que o gateway enviou e o resultado do processamento.',
+    },
+  ],
+}
+
+/** Item 27: tour dos Domínios */
+const DOMAINS_TOUR: Tour = {
+  key: 'domains',
+  label: 'Domínios',
+  steps: [
+    {
+      target: 'domains-add',
+      title: 'Adicionar domínio',
+      body: 'Digite um subdomínio seu (ex.: link.seudominio.com). O roteamento e o SSL são automáticos.',
+    },
+    {
+      target: 'domains-use',
+      title: 'Uso do domínio',
+      body: 'Escolha se ele serve para checkout, cloaker ou ambos — o badge no card mostra o uso atual.',
+    },
+    {
+      target: 'domains-list',
+      title: 'Verificação',
+      body: 'Depois de apontar o DNS, a verificação roda sozinha. O card mostra o estado e o passo a passo em caso de pendência.',
+    },
+  ],
+}
+
+/** Item 27: tour do Cloaker */
+const CLOAK_TOUR: Tour = {
+  key: 'cloak',
+  label: 'Cloaker',
+  steps: [
+    {
+      target: 'cloak-test',
+      title: 'Teste ao vivo',
+      body: 'Simule um acesso e veja o veredito: quem vê a página branca (segura) e quem vê a oferta.',
+    },
+    {
+      target: 'cloak-config',
+      title: 'Regras e threshold',
+      body: 'Ajuste o score mínimo e os sinais analisados. Quanto maior o threshold, mais rígido o filtro.',
+    },
+    {
+      target: 'cloak-stats',
+      title: 'Estatísticas',
+      body: 'Acompanhe quantos acessos foram para a oferta vs. página branca e os últimos bloqueios.',
+    },
+  ],
+}
+
 /** Mapa rota → tour disponível */
 export const TOURS: Record<string, Tour> = {
   '/': OVERVIEW_TOUR,
   '/geo': GEO_TOUR,
   '/live': LIVE_TOUR,
+  '/links': LINKS_TOUR,
+  '/pixels': PIXELS_TOUR,
+  '/gateways': GATEWAYS_TOUR,
+  '/domains': DOMAINS_TOUR,
+  '/cloak': CLOAK_TOUR,
 }
 
 /** Resolve o tour da rota atual (pathname sem basePath) */
@@ -114,6 +239,11 @@ export function tourForPath(pathname: string): Tour | null {
   if (pathname === '/' || pathname === '') return OVERVIEW_TOUR
   if (pathname.startsWith('/geo')) return GEO_TOUR
   if (pathname.startsWith('/live')) return LIVE_TOUR
+  if (pathname.startsWith('/links')) return LINKS_TOUR
+  if (pathname.startsWith('/pixels')) return PIXELS_TOUR
+  if (pathname.startsWith('/gateways')) return GATEWAYS_TOUR
+  if (pathname.startsWith('/domains')) return DOMAINS_TOUR
+  if (pathname.startsWith('/cloak')) return CLOAK_TOUR
   return null
 }
 

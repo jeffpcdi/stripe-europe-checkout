@@ -222,6 +222,7 @@ export function PixelsView() {
               <TutorialButton onClick={() => setShowTutorial(true)} />
               <button
                 type="button"
+                data-tour="pixels-new"
                 onClick={() => setCreating(true)}
                 className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
               >
@@ -251,7 +252,7 @@ export function PixelsView() {
               Nenhum pixel configurado. Adicione o Pixel Code e o Access Token do TikTok Events API.
             </p>
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-2" data-tour="pixels-list">
               {pixels.map((p) => (
                 <li key={p.slug} className="rounded-xl border border-border bg-secondary/40 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -377,7 +378,7 @@ export function PixelsView() {
 
         {/* Verificar instalação + saúde da CAPI + log de disparos */}
         <div className="flex min-w-0 flex-col gap-5">
-          <GlassCard className="p-5">
+          <GlassCard className="p-5" data-tour="pixels-verify">
             <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Verificar instalação</h2>
             <p className="mb-3 text-xs text-muted-foreground text-pretty">
               Cole a URL da sua página e confirmamos, pelo servidor, se o script do pixel está presente
@@ -449,7 +450,7 @@ export function PixelsView() {
             )}
           </GlassCard>
 
-          <GlassCard className="p-5">
+          <GlassCard className="p-5" data-tour="pixels-health">
             <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Saúde dos disparos</h2>
             <p className="mb-3 text-xs text-muted-foreground">Taxa de sucesso da Events API (24h)</p>
             {!health ? (

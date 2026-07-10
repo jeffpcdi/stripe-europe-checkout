@@ -132,6 +132,7 @@ export function LinksView() {
           <TutorialButton onClick={() => setShowTutorial(true)} />
           <button
             type="button"
+            data-tour="links-new"
             onClick={() => setCreating(true)}
             className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
           >
@@ -155,7 +156,7 @@ export function LinksView() {
           </p>
         </GlassCard>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3" data-tour="links-list">
           {links.map((l) => {
             const clicks = l.variantes.reduce((s, v) => s + v.clicks, 0)
             const convs = l.variantes.reduce((s, v) => s + v.conversions, 0)
@@ -215,7 +216,8 @@ export function LinksView() {
                       )}
                     </div>
                   </div>
-                  <div className="relative flex shrink-0 items-center gap-1">
+                  {/* data-tour repete por card; o tour destaca o 1º (querySelector) */}
+                  <div className="relative flex shrink-0 items-center gap-1" data-tour="links-qr">
                     {/* Item 70: morph clipboard → check com rotação spring */}
                     <button
                       type="button"

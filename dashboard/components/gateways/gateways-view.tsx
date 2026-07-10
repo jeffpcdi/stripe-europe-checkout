@@ -223,6 +223,7 @@ export function GatewaysView() {
               </button>
               <button
                 type="button"
+                data-tour="gateways-new"
                 onClick={() => setCreating(true)}
                 className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
               >
@@ -262,7 +263,7 @@ export function GatewaysView() {
               Nenhum gateway conectado. Adicione um para receber webhooks de conversão.
             </p>
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-2" data-tour="gateways-list">
               {gateways.map((g) => {
                 const prov = providers.find((p) => p.id === g.provider)
                 const brand = providerColor(g.provider)
@@ -388,7 +389,7 @@ export function GatewaysView() {
         </GlassCard>
 
         {/* Log de webhooks recebidos */}
-        <GlassCard className="p-5">
+        <GlassCard className="p-5" data-tour="gateways-webhooks">
           <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Webhooks recebidos</h2>
           <p className="mb-3 text-xs text-muted-foreground">Últimas conversões processadas dos seus gateways</p>
           {!convLog || convLog.log.length === 0 ? (
