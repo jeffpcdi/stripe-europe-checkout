@@ -23,7 +23,8 @@
 10. CAPI do TikTok · 11. Comandos · 12. Variáveis de ambiente · 13. Convenções · 14. Armadilhas ·
 15. Estrutura de arquivos · 16. Ciclo de vida do lead · 17. Formato dos eventos de tracking ·
 18. Ciclo de vida do domínio personalizado · **19. Nova dashboard Next.js (`dashboard/`)** —
-arquitetura, arquivos, identidade visual e plano de refinamento.
+arquitetura, arquivos, identidade visual, armadilhas (incluindo `backdrop-filter`/portal e
+`--brand-cyan`), e detalhes por área (Pixels, Domínios, Cloaker, Visão Geral) §19.1–19.8.
 
 ## 1. Visão geral
 Painel de rastreamento de funil e vendas para infoprodutos vendidos com tráfego do TikTok.
@@ -584,3 +585,73 @@ Configurações. Cada página é um `page.tsx` fino que renderiza a view de `com
 - Texto de UI em **pt-BR**; **multi-moeda com padrão BRL** (R$) e seletor de exibição
   (BRL/USD/EUR, formatação client-side); fuso de **Brasília** (`America/Sao_Paulo`).
 - Depois de mudar código do Next em produção: `npm run build` + redeploy (o Railway roda o build).
+- **`position:fixed` dentro de `GlassCard` não funciona.** `GlassCard` usa `backdrop-filter:blur`,
+  que cria um containing block para `position:fixed` — o elemento fica preso dentro do card, não
+  cobre a viewport. Todo modal/overlay **deve usar `createPortal(…, document.body)`** e um estado
+  `mounted` (com `useEffect`) para evitar hidratação errada no SSR. Já aplicado no `CloakEntryEditor`.
+- **`var(--brand-cyan)` é alias, não o token Tailwind v4.** O `@theme` define `--color-brand-cyan`;
+  o CSS `:root` define `--brand-cyan` como alias. Use a classe utilitária `bg-brand-cyan` (Tailwind
+  gera automaticamente de `--color-brand-cyan`) em vez de `bg-[color:var(--brand-cyan)]`.
+  Os aliases `--brand-cyan`/`--brand-pink` foram adicionados ao `:root` em `globals.css` para
+  compatibilidade com componentes que usam `var()` diretamente.
+
+### 19.6 Páginas e componentes — detalhes por área
+
+#### Pixels (`/pixels` — `components/pixels/pixels-view.tsx`)
+Criada do zero (a rota `/pixels` existia na navegação mas não tinha `app/(dashboard)/pixels/page.tsx`).
+- Lista de pixels com badge de status (ativo/inativo), token ok/erro, eventos habilitados, script tag copiável.
+- Modal de edição: Pixel Code, Access Token, Test Event Code, toggles de eventos por tipo.
+- Cartão de saúde CAPI (taxa de sucesso + EMQ) e log de disparos recentes.
+- **A rota estava bloqueada pelo `.gitignore`** — a regra `pixels/` era ampla demais (ancorada na raiz após a correção com `/pixels/`).
+
+#### Domínios (`/domains` — `components/domains/domains-view.tsx`)
+Reescrito para funcionar sem acesso à hospedagem Railway.
+- **Popup de tutorial DNS** (abre ao adicionar e reabrível pelo botão "Tutorial DNS"): CNAME/TXT copiáveis,
+  aviso de proxy Cloudflare, passo a passo para qualquer registrador.
+- Mensagens de verificação reescritas — nunca citam Railway nem pedem ação na hospedagem. Quando a
+  ativação está pendente do nosso lado, o texto diz "aguarde e verifique de novo" (reconexão automática).
+- `dns` (shape `{cname,txt}`) agora persiste junto do domínio no config — o tutorial funciona a qualquer
+  momento, não só na resposta do cadastro. Tipo `DomainDnsRecords` em `lib/types.ts`.
+- `appHost` no servidor agora remove a porta (`.replace(/:\d+$/, '')`) — porta inválida em CNAME.
+- **`DomainAddResponse`** adicionado em `types.ts`; tipo antigo `dnsRecords` era array genérico, agora é
+  `{cname,txt}` espelhando o shape real do `domain-provider.js`.
+
+#### Cloaker (`/cloak` — `components/cloak/cloak-entry-editor.tsx`)
+Editor de link de cloaking completamente refeito.
+- **Sensibilidade em cards visuais** (ícone + tag "Mais proteção"/"Recomendado"/"Menos bloqueio" +
+  descrição em linguagem simples). Valores `strict`/`balanced`/`loose` batem com thresholds do backend
+  (30/40/55 em `bot-filter.js`).
+- **Países e idiomas por nome** via `GeoMultiSelect` (`components/cloak/geo-multi-select.tsx`) com
+  busca texto-livre e chips removíveis. Dados em `lib/geo-options.ts` (pares nome→ISO em pt-BR).
+  O código ISO aparece como detalhe discreto; o usuário não precisa mais saber siglas.
+- **Domínio personalizado** agora é `<select>` populado via `useDomains()` com apenas domínios verificados.
+  Se não houver nenhum, exibe aviso apontando para a aba Domínios. Domínio salvo mas não-mais-verificado
+  aparece marcado como "(não verificado)" para não ser apagado silenciosamente.
+- Modal usa `createPortal` (ver armadilha §19.5).
+
+#### Visão Geral (`/` — `components/overview/overview-view.tsx`)
+- **Reordenação**: KPIs primeiro → ministats → globo → gráfico. O globo continua na home mas como
+  coadjuvante dos números; sua altura passou de `62vh` para `340–440px` (fixo), eliminando a faixa preta vazia.
+
+### 19.7 Novos arquivos criados nessa sessão
+```
+dashboard/app/(dashboard)/pixels/page.tsx     # rota que faltava (nav apontava, 404)
+dashboard/components/pixels/pixels-view.tsx   # view completa do Pixel TikTok
+dashboard/components/cloak/geo-multi-select.tsx # seletor multi com busca por nome
+dashboard/lib/geo-options.ts                  # dados país/idioma em pt-BR (ISO)
+```
+
+### 19.8 Fixes de backend desta sessão
+- **`var(--brand-cyan)` não resolvia** em 42 usos espalhados por 13 componentes → aliases
+  `--brand-cyan`/`--brand-pink` adicionados ao `:root` de `globals.css`.
+- **`/pixels` retornava 404** — rota existia na navegação mas page.tsx nunca foi criada.
+- **.gitignore bloqueava a pasta da UI** — regra `pixels/` anchorada para `/pixels/` (só o cache
+  de runtime na raiz, não a UI em `dashboard/`).
+- **`appHost` vinha com porta** (ex.: `localhost:3000`) — inválido em CNAME; `.replace(/:\d+$/,'')`.
+- **Mensagens de verificação de domínio citavam Railway** (inacessível ao lojista) — reescritas
+  para instruir o lojista a aguardar/verificar de novo; Railway nunca aparece no texto do usuário.
+- **DNS persistido no config do domínio** — antes só estava na resposta do `POST /api/domains`;
+  agora fica salvo em `entry.dns` para o tutorial funcionar a qualquer momento.
+- **Cloudflare dnsDetail** corrigida — o texto anterior citava "Vercel → Domains" (errado).
+- **Detecção de domínio "gerenciado"** na verificação HTTP 404: se o `providerId` está salvo, a
+  mensagem é "ativação automática em andamento, aguarde"; caso contrário instrui a verificar de novo.
