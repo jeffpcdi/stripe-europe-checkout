@@ -154,6 +154,23 @@ export function LinksView() {
           <p className="text-sm text-muted-foreground text-pretty">
             Nenhum link ainda. Crie um link /go/slug com split A/B, cloak e domínio próprio.
           </p>
+          {/* Item 53: estado vazio guiado — CTA de criação + tutorial */}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
+            >
+              Criar primeiro link
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTutorial(true)}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              Ver tutorial
+            </button>
+          </div>
         </GlassCard>
       ) : (
         <div className="flex flex-col gap-3" data-tour="links-list">

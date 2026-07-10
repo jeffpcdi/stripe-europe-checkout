@@ -13,6 +13,7 @@ import {
   Info,
   Pencil,
   RefreshCw,
+  TriangleAlert,
 } from 'lucide-react'
 import { useGateways, useConversionLog, apiSend } from '@/lib/api'
 import type { Gateway, GatewayProvider, GatewayTestResult, GatewayRotateResult } from '@/lib/types'
@@ -308,6 +309,18 @@ export function GatewaysView() {
                         )}
                       </div>
                     </div>
+
+                    {/* Item 52: motivo do último evento quando não foi 'ok' —
+                        ajuda a debugar assinatura/payload sem abrir logs */}
+                    {g.lastEventAt && g.lastEventStatus && g.lastEventStatus !== 'ok' && (
+                      <p className="mt-2 flex items-start gap-1.5 rounded-md bg-[color:var(--warning)]/10 px-2.5 py-1.5 text-[11px] text-[color:var(--warning)] text-pretty">
+                        <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+                        <span>
+                          Último webhook falhou: <strong>{g.lastEventStatus}</strong> — veja o
+                          detalhe no painel "Webhooks recebidos" abaixo.
+                        </span>
+                      </p>
+                    )}
 
                     {/* Webhook URL para colar no gateway */}
                     <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">

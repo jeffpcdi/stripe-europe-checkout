@@ -209,6 +209,32 @@ export function PixelsView() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Item 51: cabeçalho de saúde consolidado — config durável vs. memória */}
+      {durability && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs">
+          <span
+            className={`flex items-center gap-1.5 font-semibold ${durability.durable ? 'text-success' : 'text-warning'}`}
+          >
+            <span
+              className={`size-2 rounded-full ${durability.durable ? 'bg-[color:var(--success)]' : 'bg-[color:var(--warning)]'}`}
+              aria-hidden="true"
+            />
+            {durability.durable ? 'Config durável' : 'Config volátil (só em memória)'}
+          </span>
+          <span className="text-muted-foreground">
+            Banco: <strong className={durability.dbEnabled ? 'text-success' : 'text-warning'}>{durability.dbEnabled ? 'conectado' : 'off'}</strong>
+          </span>
+          <span className="text-muted-foreground">
+            Redis: <strong className={durability.redisEnabled ? 'text-success' : 'text-muted-foreground'}>{durability.redisEnabled ? 'conectado' : 'off'}</strong>
+          </span>
+          {!durability.durable && (
+            <span className="text-pretty text-muted-foreground">
+              — pixels criados agora podem sumir num restart do servidor
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Diagnóstico: por que a config pode não estar chegando ao pixel */}
       {warnings.length > 0 && (
         <div
@@ -265,9 +291,28 @@ export function PixelsView() {
               <Skeleton className="h-28" />
             </div>
           ) : pixels.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground text-pretty">
-              Nenhum pixel configurado. Adicione o Pixel Code e o Access Token do TikTok Events API.
-            </p>
+            /* Item 53: estado vazio guiado — CTA de criação + tutorial */
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <p className="text-sm text-muted-foreground text-pretty">
+                Nenhum pixel configurado. Adicione o Pixel Code e o Access Token do TikTok Events API.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCreating(true)}
+                  className="rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
+                >
+                  Criar primeiro pixel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTutorial(true)}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  Ver tutorial
+                </button>
+              </div>
+            </div>
           ) : (
             <ul className="flex flex-col gap-2" data-tour="pixels-list">
               {pixels.map((p) => (
