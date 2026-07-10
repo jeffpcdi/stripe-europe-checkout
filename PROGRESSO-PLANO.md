@@ -12,11 +12,11 @@
 |------|--------|-------|--------|
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~14/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~24/110 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | ~27/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 0/130 |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~48/570** — Leva 1 (backend) 100% concluída
+**Total concluído: ~51/570** — Leva 1 (backend) 100% concluída
 
 ## Itens concluídos (com evidência)
 
@@ -66,6 +66,9 @@
 - ✅ 39. QR code gerado localmente (lib `qrcode`)
 - ✅ 40. Auto-polling de verificação de domínio (45s)
 - ✅ 41. `/api/pixels/test` com erro pt-BR amigável sem token ("Configure o Access Token...")
+- ✅ 43. Validação de host no POST /api/domains (`normHost` + `DOMAIN_RE`)
+- ✅ 44. `touchGateway`/`touch()` com try/catch (falha de métrica não derruba webhook)
+- ✅ 46. Rate-limit no `/hook/:token` (120/janela, 429 sem detalhe) — verificado ao vivo (120×404 + 5×429)
 - ✅ 79. Tendência de EMQ (card + sparkline + alerta) — verificado no navegador
 - ✅ 80. Fila de retry da CAPI visível no painel de saúde
 - ✅ 81. Filtro do log (pixel/evento/status)
@@ -85,15 +88,13 @@
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. 41 — erro amigável sem token no `/api/pixels/test`
-2. 5 + 11 — verify-url (backend anti-SSRF + painel "Testar por URL")
-3. 6 — snippet de implementação do gateway/checkout na API
-4. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
-5. 27 — tours guiados (tour.ts + data-tour)
-6. Leva 4 em diante (141–570)
+1. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
+2. 27 — tours guiados (tour.ts + data-tour)
+3. Demais itens da Leva 3 (42, 45, 47–78, 83–98, 102–113, 120–130, 133–140)
+4. Leva 4 em diante (141–570)
 
 ## Histórico de sessões
 
 - **Sessão 1–2:** Leva 1 parcial + tutoriais + bugs 31/33/34/35/36/38/39/40 + itens 99–101, 114, 116–119, 131–132 (PR #42, mesclado)
 - **Sessão 3:** Itens 79–82 (aba Pixels: EMQ, retry, filtro, log expansível) — commit `5d1080e`
-- **Sessão 4 (atual):** criação deste tracker + itens 8, 12, 17, 20, 30, 32, 36, 37 (copy neutro, avisos de gateway, moeda UI, cores de provedor, normalizar pesos, default AddToCart). Type-check limpo, 4/4 testes, card de moeda verificado no navegador.
+- **Sessão 4 (atual):** criação deste tracker + itens 8, 12, 17, 20, 30, 32, 36, 37 (copy neutro, avisos de gateway, moeda UI, cores de provedor, normalizar pesos, default AddToCart) + 5/6/9/11/41 (leva 1 completa) + 43/44/46 (validação host, touch try/catch, rate-limit hook). Type-check limpo, 4/4 testes, card de moeda + rate-limit do hook verificados ao vivo.
