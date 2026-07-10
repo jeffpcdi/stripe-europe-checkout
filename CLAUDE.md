@@ -593,7 +593,7 @@ em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluí
 **Leva 1 (backend, itens 1–10) 100% concluída. Itens 241–252 (durabilidade de schema) 100%
 concluídos (antecipados):** tabela `custom_domains`, coluna `accounts.currency`, snapshot Redis
 `domains:all`, write-through assíncrono via `config.set` e reconciliação no boot (§8/§10).
-Entregues (~111): moeda por conta+UI, uso por
+Entregues (~112, faixa 31–101 COMPLETA): moeda por conta+UI, uso por
 domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
 log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
 tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
@@ -612,8 +612,8 @@ gateway, pesos A/B) com helpers extraídos do server.js para `security-helpers.j
 (`components/shell/gestao-help.tsx`, "?" no label da seção no sidebar → TutorialModal com o fluxo
 Link → Pixel → Gateway → Domínio → Cloaker); item 54: badge de uso no card de domínio; item 57:
 overflow horizontal da aba Gateways em mobile corrigido (grid precisa de `minmax(0,·)` +
-`flex-wrap` no cabeçalho — armadilha de `min-width:auto` em grid items). Da faixa 31–101 do plano
-falta apenas o item 58 (padronização visual das 5 abas).
+`flex-wrap` no cabeçalho — armadilha de `min-width:auto` em grid items); item 58: ritmo vertical
+unificado (`gap-5` na raiz das 5 abas). Próxima fila: 102–113, 120–130, 133–140.
 Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
 o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
 `node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
