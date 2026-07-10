@@ -12,11 +12,11 @@
 |------|--------|-------|--------|
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~15/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~27/110 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | ~30/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 0/130 |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~52/570** — Leva 1 (backend) 100% concluída
+**Total concluído: ~55/570** — Leva 1 (backend) 100% concluída
 
 ## Itens concluídos (com evidência)
 
@@ -69,6 +69,9 @@
 - ✅ 43. Validação de host no POST /api/domains (`normHost` + `DOMAIN_RE`)
 - ✅ 44. `touchGateway`/`touch()` com try/catch (falha de métrica não derruba webhook)
 - ✅ 46. Rate-limit no `/hook/:token` (120/janela, 429 sem detalhe) — verificado ao vivo (120×404 + 5×429)
+- ✅ 47. Hint público de `/api/status` sem citar plataforma de hospedagem
+- ✅ 49. Toggle ativo/pausado inline no card do pixel (otimista) + merge-patch no POST /api/pixels — verificado ao vivo (toggle + reload preserva token)
+- ✅ 50. Aviso no editor de pixel quando falta Access Token (CAPI não dispara)
 - ✅ 79. Tendência de EMQ (card + sparkline + alerta) — verificado no navegador
 - ✅ 80. Fila de retry da CAPI visível no painel de saúde
 - ✅ 81. Filtro do log (pixel/evento/status)
@@ -88,7 +91,7 @@
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Demais itens da Leva 3 (42, 45, 47–78, 83–98, 102–113, 120–130, 133–140)
+1. Demais itens da Leva 3 (42, 45, 48, 51–78, 83–98, 102–113, 120–130, 133–140)
 2. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
 3. Leva 4 em diante (141–570)
 
@@ -96,4 +99,4 @@ Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor →
 
 - **Sessão 1–2:** Leva 1 parcial + tutoriais + bugs 31/33/34/35/36/38/39/40 + itens 99–101, 114, 116–119, 131–132 (PR #42, mesclado)
 - **Sessão 3:** Itens 79–82 (aba Pixels: EMQ, retry, filtro, log expansível) — commit `5d1080e`
-- **Sessão 4 (atual):** criação deste tracker + itens 8, 12, 17, 20, 30, 32, 36, 37 (copy neutro, avisos de gateway, moeda UI, cores de provedor, normalizar pesos, default AddToCart) + 5/6/9/11/41 (leva 1 completa) + 43/44/46 (validação host, touch try/catch, rate-limit hook) + 27 (tours guiados das 5 abas, verificado com popover ao vivo). Type-check limpo, 4/4 testes, card de moeda + rate-limit do hook + tour de Gateways verificados ao vivo.
+- **Sessão 4 (atual):** criação deste tracker + itens 8, 12, 17, 20, 30, 32, 36, 37 (copy neutro, avisos de gateway, moeda UI, cores de provedor, normalizar pesos, default AddToCart) + 5/6/9/11/41 (leva 1 completa) + 43/44/46 (validação host, touch try/catch, rate-limit hook) + 27 (tours guiados das 5 abas, verificado com popover ao vivo) + 47/49/50 (hint neutro, toggle otimista do pixel com merge-patch, aviso sem token). Type-check limpo, 4/4 testes, card de moeda + rate-limit do hook + tour de Gateways + toggle de pixel verificados ao vivo.
