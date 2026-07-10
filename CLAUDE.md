@@ -578,11 +578,14 @@ em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem**
 - **Plano ativo (570 modificações):** `v0_plans/pragmatic-flow.md` — 7 levas cobrindo backend, as
 5 sub-abas da Gestão, shell, lado público e camadas transversais. **Progresso rastreado item a item
 em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluído, com evidência.
-**Leva 1 (backend, itens 1–10) 100% concluída.** Entregues (~51): moeda por conta+UI, uso por
+**Leva 1 (backend, itens 1–10) 100% concluída.** Entregues (~52): moeda por conta+UI, uso por
 domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
 log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
-copy neutra sem jargão interno, verify-url anti-SSRF + rate-limit, rate-limit no /hook, snippet base
-do loader. Fila de execução e histórico no topo do `PROGRESSO-PLANO.md`.
+tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
+anti-SSRF + rate-limit, rate-limit no /hook, snippet base do loader. Fila e histórico no
+`PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503, o Express na 3000
+subiu antes do env ser espelhado — mate o processo e suba com
+`node --env-file-if-exists=.env.development.local server.js`.
 
 ### 19.5 Armadilhas específicas da dashboard nova
 - Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —
