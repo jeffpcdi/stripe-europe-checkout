@@ -92,6 +92,10 @@ export function LinksView() {
   const [sortBy, setSortBy] = useState<SortKey>('recentes')
   // Itens 62/63: feedback de ação em andamento por card
   const [busySlug, setBusySlug] = useState<string | null>(null)
+  // Item 72: ações em massa — seleção por checkbox + barra de ações
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   // Item 71: QR code em popover glass por link — gerado LOCALMENTE (a URL do
   // link nunca sai para um serviço de terceiros)
   const [qrFor, setQrFor] = useState<string | null>(null)
@@ -171,6 +175,54 @@ export function LinksView() {
       mutate()
     } finally {
       setBusySlug(null)
+    }
+  }
+
+  // Item 72: ações em massa. Reusa o merge-patch { slug, ativo } do item 62
+  // e o DELETE por slug; roda em série para não estourar o rate-limit da API.
+  function toggleSelect(slug: string) {
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(slug)) next.delete(slug)
+      else next.add(slug)
+      return next
+    })
+    setConfirmBulkDelete(false)
+  }
+
+  function clearSelection() {
+    setSelected(new Set())
+    setConfirmBulkDelete(false)
+  }
+
+  async function bulkSetAtivo(ativo: boolean) {
+    setBulkBusy(true)
+    try {
+      for (const slug of selected) {
+        await apiSend('/api/links', 'POST', { slug, ativo })
+      }
+      mutate()
+      clearSelection()
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  async function bulkDelete() {
+    // Primeiro clique arma a confirmação; o segundo executa.
+    if (!confirmBulkDelete) {
+      setConfirmBulkDelete(true)
+      return
+    }
+    setBulkBusy(true)
+    try {
+      for (const slug of selected) {
+        await apiSend(`/api/links/${encodeURIComponent(slug)}`, 'DELETE')
+      }
+      mutate()
+      clearSelection()
+    } finally {
+      setBulkBusy(false)
     }
   }
 
@@ -315,6 +367,56 @@ export function LinksView() {
         </GlassCard>
       ) : (
         <div className="flex flex-col gap-3" data-tour="links-list">
+          {/* Item 72: barra de ações em massa (aparece quando há seleção) */}
+          {selected.size > 0 && (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/60 px-3 py-2"
+              role="toolbar"
+              aria-label="Ações em massa nos links selecionados"
+            >
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {selected.size} selecionado{selected.size === 1 ? '' : 's'}
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => bulkSetAtivo(true)}
+                  disabled={bulkBusy}
+                  className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                >
+                  Ativar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => bulkSetAtivo(false)}
+                  disabled={bulkBusy}
+                  className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                >
+                  Pausar
+                </button>
+                <button
+                  type="button"
+                  onClick={bulkDelete}
+                  disabled={bulkBusy}
+                  className={`rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 ${
+                    confirmBulkDelete
+                      ? 'bg-destructive text-white hover:opacity-90'
+                      : 'border border-destructive/40 text-destructive hover:bg-destructive/10'
+                  }`}
+                >
+                  {confirmBulkDelete ? `Confirmar exclusão de ${selected.size}` : 'Excluir'}
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  disabled={bulkBusy}
+                  className="rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                >
+                  Limpar
+                </button>
+              </div>
+            </div>
+          )}
           {visibleLinks.length === 0 && (
             <GlassCard className="p-6 text-center">
               <p className="text-sm text-muted-foreground">
@@ -348,7 +450,18 @@ export function LinksView() {
                 className="sheen p-4 transition-transform duration-150 hover:-translate-y-0.5"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    {/* Item 72: checkbox de seleção (só aparece com 2+ links) */}
+                    {links.length > 1 && (
+                      <input
+                        type="checkbox"
+                        checked={selected.has(l.slug)}
+                        onChange={() => toggleSelect(l.slug)}
+                        aria-label={`Selecionar o link ${l.nome}`}
+                        className="mt-0.5 size-4 shrink-0 accent-[color:var(--brand-cyan)]"
+                      />
+                    )}
+                    <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-sm font-semibold text-foreground">{l.nome}</h3>
                       <span
@@ -468,6 +581,7 @@ export function LinksView() {
                         })}
                       </div>
                     )}
+                  </div>
                   </div>
                   {/* data-tour repete por card; o tour destaca o 1º (querySelector) */}
                   <div className="relative flex shrink-0 items-center gap-1" data-tour="links-qr">
