@@ -1,21 +1,56 @@
 'use client'
 
-import { useState } from 'react'
-import { X, Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { X, Loader2, ShieldAlert, Scale, ShieldOff, Check } from 'lucide-react'
 import { apiSend, useDomains } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity } from '@/lib/types'
+import { GeoMultiSelect } from './geo-multi-select'
+import {
+  COUNTRY_OPTIONS,
+  LANGUAGE_OPTIONS,
+  labelForCountry,
+  labelForLanguage,
+} from '@/lib/geo-options'
+import type { LucideIcon } from 'lucide-react'
+
+// Sensibilidade explicada em linguagem de negócio — o usuário entende o efeito
+// (proteção x risco de perder acesso real) sem precisar saber de "threshold".
+const SENSITIVITIES: {
+  value: Exclude<CloakSensitivity, 'custom'>
+  label: string
+  tag: string
+  desc: string
+  icon: LucideIcon
+}[] = [
+  {
+    value: 'strict',
+    label: 'Rígido',
+    tag: 'Mais proteção',
+    desc: 'Desvia ao menor sinal suspeito. Máxima defesa contra revisores de anúncio, mas pode mandar alguns usuários reais para a página branca.',
+    icon: ShieldAlert,
+  },
+  {
+    value: 'balanced',
+    label: 'Equilibrado',
+    tag: 'Recomendado',
+    desc: 'Melhor equilíbrio: protege a offer dos revisores e mantém os acessos legítimos passando para a oferta.',
+    icon: Scale,
+  },
+  {
+    value: 'loose',
+    label: 'Frouxo',
+    tag: 'Menos proteção',
+    desc: 'Só desvia bots muito óbvios. Praticamente nenhum falso positivo, porém deixa passar revisores mais disfarçados.',
+    icon: ShieldOff,
+  },
+]
 
 interface Props {
   entry: CloakEntry | null
   onClose: () => void
   onSaved: () => void
 }
-
-const SENSITIVITIES: { value: CloakSensitivity; label: string }[] = [
-  { value: 'strict', label: 'Rígido' },
-  { value: 'balanced', label: 'Equilibrado' },
-  { value: 'loose', label: 'Frouxo' },
-]
 
 export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
   const [nome, setNome] = useState(entry?.nome ?? '')
@@ -26,17 +61,21 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
   const [mobileOnly, setMobileOnly] = useState(entry?.mobileOnly ?? true)
   const [requireAdClick, setRequireAdClick] = useState(entry?.requireAdClick ?? true)
   const [sensitivity, setSensitivity] = useState<CloakSensitivity>(entry?.sensitivity ?? 'balanced')
-  const [paises, setPaises] = useState((entry?.paises ?? []).join(', '))
-  const [idiomas, setIdiomas] = useState((entry?.idiomas ?? []).join(', '))
+  const [paises, setPaises] = useState<string[]>(entry?.paises ?? [])
+  const [idiomas, setIdiomas] = useState<string[]>(entry?.idiomas ?? [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // O modal é renderizado via portal no <body>. Sem isso ele fica preso dentro
+  // do GlassCard pai, que tem backdrop-filter (blur) — e backdrop-filter cria um
+  // containing block para position:fixed, impedindo o overlay de cobrir a tela.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   // Só domínios já verificados podem servir o cloaking — um domínio pendente
   // devolve 404 nos links /go. Listamos apenas os verificados para seleção.
   const { data: domainsData } = useDomains()
   const verifiedDomains = (domainsData?.domains ?? []).filter((d) => d.verificado)
-  // Preserva um domínio já salvo na entrada mesmo que não esteja mais na lista
-  // (ex.: removido depois), para não apagá-lo silenciosamente ao editar.
   const currentInList = verifiedDomains.some((d) => d.host === dominio)
 
   async function handleSave() {
@@ -55,8 +94,8 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
         mobileOnly,
         requireAdClick,
         sensitivity,
-        paises: paises.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
-        idiomas: idiomas.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+        paises,
+        idiomas,
       })
       onSaved()
     } catch (e) {
@@ -68,18 +107,22 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
 
   const inputCls =
     'w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none'
-  const labelCls = 'mb-1 block text-xs font-medium text-muted-foreground'
+  const labelCls = 'mb-1 block text-xs font-medium text-foreground'
+  const hintCls = 'mb-1.5 text-[11px] leading-relaxed text-muted-foreground'
 
-  return (
+  if (!mounted) return null
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl"
+        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        {/* Cabeçalho fixo */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-6 py-4 backdrop-blur">
           <h2 className="text-base font-semibold text-foreground">
             {entry ? 'Editar link de cloaking' : 'Novo link de cloaking'}
           </h2>
@@ -93,100 +136,168 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
           </button>
         </div>
 
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className={labelCls} htmlFor="ck-nome">Nome</label>
-            <input id="ck-nome" className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Campanha BR - Oferta X" />
-          </div>
-
-          <div>
-            <label className={labelCls} htmlFor="ck-offer">Offer (URL https)</label>
-            <input id="ck-offer" className={inputCls} value={offerUrl} onChange={(e) => setOfferUrl(e.target.value)} placeholder="https://minha-oferta.com" />
-          </div>
-
-          <div>
-            <label className={labelCls} htmlFor="ck-white">Página branca (opcional)</label>
-            <input id="ck-white" className={inputCls} value={whitePageUrl} onChange={(e) => setWhitePageUrl(e.target.value)} placeholder="https://pagina-segura.com" />
-          </div>
-
-          <div>
-            <label className={labelCls} htmlFor="ck-dom">Domínio personalizado (opcional)</label>
-            {verifiedDomains.length === 0 && !dominio ? (
-              <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-xs text-muted-foreground">
-                Nenhum domínio verificado ainda. Cadastre e verifique um domínio em{' '}
-                <span className="font-medium text-foreground">Domínios</span> para poder selecioná-lo aqui.
-              </div>
-            ) : (
-              <select
-                id="ck-dom"
-                className={inputCls}
-                value={dominio}
-                onChange={(e) => setDominio(e.target.value)}
-              >
-                <option value="">Padrão (domínio principal do app)</option>
-                {verifiedDomains.map((d) => (
-                  <option key={d.host} value={d.host}>{d.host}</option>
-                ))}
-                {/* Mantém visível um domínio salvo que não está mais verificado */}
-                {dominio && !currentInList && (
-                  <option value={dominio}>{dominio} (não verificado)</option>
-                )}
-              </select>
-            )}
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Apenas domínios verificados aparecem aqui — eles já respondem os links de redirecionamento.
-            </p>
-          </div>
-
-          <div>
-            <label className={labelCls} htmlFor="ck-sens">Sensibilidade da detecção</label>
-            <select id="ck-sens" className={inputCls} value={sensitivity} onChange={(e) => setSensitivity(e.target.value as CloakSensitivity)}>
-              {SENSITIVITIES.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-6 px-6 py-5">
+          {/* ── Seção: básico ── */}
+          <section className="flex flex-col gap-4">
             <div>
-              <label className={labelCls} htmlFor="ck-paises">Países (ISO, separados por vírgula)</label>
-              <input id="ck-paises" className={inputCls} value={paises} onChange={(e) => setPaises(e.target.value)} placeholder="BR, PT" />
+              <label className={labelCls} htmlFor="ck-nome">Nome do link</label>
+              <input id="ck-nome" className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Campanha BR - Oferta X" />
             </div>
-            <div>
-              <label className={labelCls} htmlFor="ck-idiomas">Idiomas</label>
-              <input id="ck-idiomas" className={inputCls} value={idiomas} onChange={(e) => setIdiomas(e.target.value)} placeholder="pt, es" />
-            </div>
-          </div>
 
-          <div className="flex flex-col gap-2 border-t border-border pt-4">
-            <ToggleRow label="Link ativo" checked={enabled} onChange={setEnabled} />
-            <ToggleRow label="Apenas mobile" hint="Bloqueia acessos desktop" checked={mobileOnly} onChange={setMobileOnly} />
-            <ToggleRow label="Exigir clique de anúncio" hint="Exige parâmetro de ad-click válido" checked={requireAdClick} onChange={setRequireAdClick} />
-          </div>
+            <div>
+              <label className={labelCls} htmlFor="ck-offer">Offer (página real, https)</label>
+              <input id="ck-offer" className={inputCls} value={offerUrl} onChange={(e) => setOfferUrl(e.target.value)} placeholder="https://minha-oferta.com" />
+              <p className="mt-1 text-[11px] text-muted-foreground">Para onde o usuário real é levado.</p>
+            </div>
+
+            <div>
+              <label className={labelCls} htmlFor="ck-white">Página branca (opcional, https)</label>
+              <input id="ck-white" className={inputCls} value={whitePageUrl} onChange={(e) => setWhitePageUrl(e.target.value)} placeholder="https://pagina-segura.com" />
+              <p className="mt-1 text-[11px] text-muted-foreground">Para onde bots e revisores são desviados. Vazio = página neutra embutida.</p>
+            </div>
+
+            <div>
+              <label className={labelCls} htmlFor="ck-dom">Domínio personalizado (opcional)</label>
+              {verifiedDomains.length === 0 && !dominio ? (
+                <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-xs text-muted-foreground">
+                  Nenhum domínio verificado ainda. Cadastre e verifique um domínio em{' '}
+                  <span className="font-medium text-foreground">Domínios</span> para poder selecioná-lo aqui.
+                </div>
+              ) : (
+                <select id="ck-dom" className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
+                  <option value="">Padrão (domínio principal do app)</option>
+                  {verifiedDomains.map((d) => (
+                    <option key={d.host} value={d.host}>{d.host}</option>
+                  ))}
+                  {dominio && !currentInList && (
+                    <option value={dominio}>{dominio} (não verificado)</option>
+                  )}
+                </select>
+              )}
+            </div>
+          </section>
+
+          {/* ── Seção: sensibilidade ── */}
+          <section>
+            <h3 className="mb-1 text-sm font-semibold text-foreground">Sensibilidade da detecção</h3>
+            <p className={hintCls}>Define o quão agressivo o filtro é ao decidir quem vê a página branca.</p>
+            <div className="flex flex-col gap-2">
+              {SENSITIVITIES.map((s) => {
+                const active = sensitivity === s.value
+                const Icon = s.icon
+                return (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => setSensitivity(s.value)}
+                    aria-pressed={active}
+                    className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${
+                      active
+                        ? 'border-[color:var(--brand-cyan)] bg-[var(--accent-light)] shadow-[var(--glow-cyan-soft)]'
+                        : 'border-border bg-secondary/40 hover:bg-secondary'
+                    }`}
+                  >
+                    <span
+                      className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg ${
+                        active ? 'text-[color:var(--brand-cyan)]' : 'text-muted-foreground'
+                      }`}
+                      style={active ? { background: 'color-mix(in oklab, var(--brand-cyan) 16%, transparent)' } : undefined}
+                      aria-hidden="true"
+                    >
+                      <Icon className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">{s.label}</span>
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                            s.value === 'balanced'
+                              ? 'bg-[var(--accent-light)] text-[color:var(--brand-cyan)]'
+                              : 'bg-secondary text-muted-foreground'
+                          }`}
+                        >
+                          {s.tag}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">{s.desc}</span>
+                    </span>
+                    {active && <Check className="mt-0.5 size-4 shrink-0 text-[color:var(--brand-cyan)]" aria-hidden="true" />}
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* ── Seção: segmentação ── */}
+          <section className="flex flex-col gap-4">
+            <div>
+              <h3 className="mb-1 text-sm font-semibold text-foreground">Onde a offer é liberada</h3>
+              <p className={hintCls}>Deixe vazio para liberar em qualquer lugar. Quem estiver fora vê a página branca.</p>
+            </div>
+
+            <div>
+              <label className={labelCls} htmlFor="ck-paises">Países permitidos</label>
+              <GeoMultiSelect
+                id="ck-paises"
+                value={paises}
+                onChange={setPaises}
+                options={COUNTRY_OPTIONS}
+                normalize={(s) => s.trim().toUpperCase()}
+                labelFor={labelForCountry}
+                emptyLabel="Todos os países"
+                placeholder="Buscar país (ex.: Brasil)"
+                manualPattern={/^[A-Za-z]{2}$/}
+              />
+            </div>
+
+            <div>
+              <label className={labelCls} htmlFor="ck-idiomas">Idiomas permitidos</label>
+              <GeoMultiSelect
+                id="ck-idiomas"
+                value={idiomas}
+                onChange={setIdiomas}
+                options={LANGUAGE_OPTIONS}
+                normalize={(s) => s.trim().toLowerCase()}
+                labelFor={labelForLanguage}
+                emptyLabel="Todos os idiomas"
+                placeholder="Buscar idioma (ex.: Português)"
+                manualPattern={/^[A-Za-z]{2}$/}
+              />
+            </div>
+          </section>
+
+          {/* ── Seção: regras ── */}
+          <section className="flex flex-col gap-2 border-t border-border pt-5">
+            <ToggleRow label="Link ativo" hint="Desligado, o link não redireciona ninguém" checked={enabled} onChange={setEnabled} />
+            <ToggleRow label="Apenas mobile" hint="Bloqueia acessos de desktop (revisores costumam usar desktop)" checked={mobileOnly} onChange={setMobileOnly} />
+            <ToggleRow label="Exigir clique de anúncio" hint="Só libera quem chega com parâmetro de ad-click válido" checked={requireAdClick} onChange={setRequireAdClick} />
+          </section>
 
           {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
-            >
-              {saving && <Loader2 className="size-3.5 animate-spin" />}
-              {entry ? 'Salvar' : 'Criar link'}
-            </button>
-          </div>
+        {/* Rodapé fixo */}
+        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-card/95 px-6 py-4 backdrop-blur">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+          >
+            {saving && <Loader2 className="size-3.5 animate-spin" />}
+            {entry ? 'Salvar' : 'Criar link'}
+          </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -205,12 +316,13 @@ function ToggleRow({
     <label className="flex cursor-pointer items-center justify-between gap-3">
       <span>
         <span className="block text-sm text-foreground">{label}</span>
-        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
+        {hint && <span className="block text-[11px] text-muted-foreground">{hint}</span>}
       </span>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
         className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? 'bg-[color:var(--brand-cyan)]' : 'bg-secondary'}`}
       >
