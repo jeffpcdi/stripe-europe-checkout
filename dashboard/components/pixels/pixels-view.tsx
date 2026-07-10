@@ -118,7 +118,7 @@ export function PixelsView() {
             <button
               type="button"
               onClick={() => setCreating(true)}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
+              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
             >
               <Plus className="size-3.5" /> Novo pixel
             </button>
@@ -140,7 +140,7 @@ export function PixelsView() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span
-                        className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--brand-cyan)]/15 text-[color:var(--brand-cyan)]"
+                        className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-brand-cyan/15 text-brand-cyan"
                         aria-hidden="true"
                       >
                         <Target className="size-4" />
@@ -171,7 +171,7 @@ export function PixelsView() {
                         key={key}
                         className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                           p.events?.[key]
-                            ? 'bg-[color:var(--brand-cyan)]/12 text-[color:var(--brand-cyan)]'
+                            ? 'bg-brand-cyan/12 text-brand-cyan'
                             : 'bg-secondary text-muted-foreground line-through opacity-60'
                         }`}
                       >
@@ -189,7 +189,7 @@ export function PixelsView() {
                       <button
                         type="button"
                         onClick={() => handleCopy(p.slug, p.scriptTag!)}
-                        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
+                        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-brand-cyan transition-colors hover:bg-secondary"
                       >
                         {copied === p.slug ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
                         {copied === p.slug ? 'Copiado' : 'Copiar'}
@@ -447,7 +447,7 @@ function PixelEditor({
                   key={key}
                   className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${
                     events[key]
-                      ? 'border-[color:var(--brand-cyan)]/50 bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)]'
+                      ? 'border-brand-cyan/50 bg-brand-cyan/10 text-brand-cyan'
                       : 'border-border text-muted-foreground'
                   }`}
                 >
@@ -465,7 +465,7 @@ function PixelEditor({
           </fieldset>
 
           <label className="flex items-center gap-2 text-sm text-foreground">
-            <input type="checkbox" checked={active} onChange={() => setActive((v) => !v)} className="accent-[color:var(--brand-cyan)]" />
+            <input type="checkbox" checked={active} onChange={() => setActive((v) => !v)} className="accent-brand-cyan" />
             Pixel ativo
           </label>
 
@@ -487,7 +487,7 @@ function PixelEditor({
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+              className="rounded-lg bg-brand-cyan px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               {saving ? 'Salvando…' : pixel ? 'Salvar alterações' : 'Criar pixel'}
             </button>

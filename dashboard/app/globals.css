@@ -22,6 +22,11 @@
   --accent-dark: #0ec2bd;
   --pink: #fe2c55;
   --brand-grad: linear-gradient(135deg, #25f4ee, #fe2c55);
+  /* Aliases usados como var(--brand-*) direto nos componentes. Sem eles,
+     var(--brand-cyan) não resolve (só --color-brand-cyan existe no @theme)
+     e os botões primários ficam com fundo transparente + texto preto. */
+  --brand-cyan: var(--accent);
+  --brand-pink: var(--pink);
 
   /* Semânticas */
   --success: #22c55e;
