@@ -17,6 +17,51 @@ const REASON_LABELS: Record<string, string> = {
   webview: 'webview',
 }
 
+// Item 144: mini-gráfico diário offer×white por link (o backend já devolve
+// `daily`, mas nunca era plotado). Barras verticais empilhadas com os mesmos
+// tokens das barras agregadas — offer (verde) embaixo, white (âmbar) em cima.
+function DailyMiniChart({ daily }: { daily: { day: string; offer: number; white: number }[] }) {
+  const days = daily.slice(-14) // últimas 2 semanas
+  const max = Math.max(1, ...days.map((d) => d.offer + d.white))
+  if (!days.some((d) => d.offer + d.white > 0)) return null
+  return (
+    <div className="mt-2.5">
+      <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span>Últimos {days.length} dias</span>
+        <span className="flex items-center gap-2">
+          <span className="flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-success" aria-hidden="true" /> offer
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" /> white
+          </span>
+        </span>
+      </div>
+      <div className="flex h-12 items-end gap-0.5" role="img" aria-label="Gráfico diário de decisões offer contra white page">
+        {days.map((d) => {
+          const total = d.offer + d.white
+          const h = total ? Math.max(6, Math.round((total / max) * 100)) : 2
+          const offerPct = total ? (d.offer / total) * 100 : 0
+          const label = new Date(d.day).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+          return (
+            <div
+              key={d.day}
+              className="flex flex-1 flex-col justify-end"
+              style={{ height: '100%' }}
+              title={`${label}: ${d.offer} offer · ${d.white} white`}
+            >
+              <div className="flex w-full flex-col overflow-hidden rounded-sm" style={{ height: `${h}%` }}>
+                <div className="w-full bg-warning" style={{ height: `${100 - offerPct}%` }} aria-hidden="true" />
+                <div className="w-full bg-success" style={{ height: `${offerPct}%` }} aria-hidden="true" />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function CloakStatsPanel() {
   const { data, mutate } = useCloakStats()
 
@@ -131,6 +176,8 @@ export function CloakStatsPanel() {
                     <div className="bg-success" style={{ width: `${100 - pct}%` }} aria-hidden="true" />
                     <div className="bg-warning" style={{ width: `${pct}%` }} aria-hidden="true" />
                   </div>
+                  {/* Item 144: evolução diária offer×white */}
+                  {Array.isArray(l.daily) && <DailyMiniChart daily={l.daily} />}
                 </li>
               )
             })}

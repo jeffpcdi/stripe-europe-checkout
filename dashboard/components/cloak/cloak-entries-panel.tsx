@@ -42,6 +42,8 @@ export function CloakEntriesPanel() {
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<CloakEntry | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  // Item 143: anúncio acessível da cópia (padrão dos itens 55/93/110)
+  const [copyAnnounce, setCopyAnnounce] = useState('')
   // Item 134: teste por entry (resultado inline por slug)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<Record<string, CloakTestResult>>({})
@@ -79,6 +81,7 @@ export function CloakEntriesPanel() {
   function handleCopy(e: CloakEntry) {
     navigator.clipboard.writeText(urlFor(e)).then(() => {
       setCopied(e.slug)
+      setCopyAnnounce(`URL do link ${e.nome} copiada para a área de transferência.`)
       setTimeout(() => setCopied(null), 2000)
     })
   }
@@ -175,6 +178,8 @@ export function CloakEntriesPanel() {
 
   return (
     <GlassCard className="p-5">
+      {/* Item 143: anúncio acessível de cópia para leitores de tela */}
+      <span className="sr-only" role="status" aria-live="polite">{copyAnnounce}</span>
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="section-head text-sm font-semibold text-foreground">Links de cloaking</h2>
