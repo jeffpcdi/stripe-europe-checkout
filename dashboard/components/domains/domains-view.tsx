@@ -17,6 +17,51 @@ import { useDomains, apiSend } from '@/lib/api'
 import type { CustomDomain, DomainVerifyResult, DomainAddResponse, DomainDnsRecords } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
+
+// Tutorial conceitual da aba (o "porquê"); o passo a passo de DNS por domínio
+// continua no DnsTutorialModal, que já traz os valores exatos para copiar.
+const DOMAIN_STEPS: TutorialStep[] = [
+  {
+    title: 'Para que serve um domínio personalizado',
+    body: (
+      <>
+        Em vez de compartilhar links no nosso domínio, você usa o <strong>seu próprio</strong> (ex.:{' '}
+        <code>link.seudominio.com</code>). Isso passa mais confiança, melhora a entrega dos anúncios e
+        deixa a marca com a sua cara.
+      </>
+    ),
+  },
+  {
+    title: '1. Adicione o domínio',
+    body: (
+      <>
+        Digite o subdomínio que quer usar e clique em <strong>Adicionar</strong>. Nós já registramos ele
+        na hospedagem automaticamente — <strong>sem aprovação manual</strong>, funciona para qualquer conta.
+      </>
+    ),
+    tip: 'Recomendamos um subdomínio (link., go., etc.) em vez do domínio raiz.',
+  },
+  {
+    title: '2. Aponte o DNS',
+    body: (
+      <>
+        Abrimos o <strong>tutorial de DNS</strong> na hora, com o registro <code>CNAME</code> (e o{' '}
+        <code>TXT</code> quando necessário) já preenchidos para você copiar e colar no seu registrador.
+      </>
+    ),
+    tip: 'Na Cloudflare, deixe o proxy como "Somente DNS" (nuvem cinza).',
+  },
+  {
+    title: '3. Verifique e pronto',
+    body: (
+      <>
+        Clique em <strong>Verificar</strong>. Quando o DNS propagar, o domínio fica verde e o{' '}
+        <strong>SSL é emitido automaticamente</strong> — você não configura mais nada.
+      </>
+    ),
+  },
+]
 
 export function DomainsView() {
   const { data, isLoading, mutate } = useDomains()
@@ -30,6 +75,8 @@ export function DomainsView() {
   const [tutorial, setTutorial] = useState<{ host: string; dns: DomainDnsRecords | null; note?: string | null } | null>(
     null,
   )
+  // Tutorial conceitual da aba (visão geral do fluxo)
+  const [showIntro, setShowIntro] = useState(false)
 
   const appHost = data?.appHost ?? ''
   const domains = data?.domains ?? []
@@ -87,7 +134,10 @@ export function DomainsView() {
     <div className="flex flex-col gap-4">
       {/* Adicionar domínio */}
       <GlassCard className="p-5">
-        <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Adicionar domínio</h2>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h2 className="section-head text-sm font-semibold text-foreground">Adicionar domínio</h2>
+          <TutorialButton onClick={() => setShowIntro(true)} />
+        </div>
         <p className="mb-3 text-xs text-muted-foreground text-pretty">
           Digite o domínio (ou subdomínio) que você quer usar nos links. Depois de adicionar, mostramos o passo a passo
           exato do que configurar no DNS.
@@ -144,6 +194,13 @@ export function DomainsView() {
           ))}
         </div>
       )}
+
+      <TutorialModal
+        open={showIntro}
+        onClose={() => setShowIntro(false)}
+        title="Domínio personalizado nos seus links"
+        steps={DOMAIN_STEPS}
+      />
 
       {tutorial && (
         <DnsTutorialModal

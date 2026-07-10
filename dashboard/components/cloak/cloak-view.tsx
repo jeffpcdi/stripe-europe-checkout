@@ -6,13 +6,65 @@ import { apiSend } from '@/lib/api'
 import type { CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
+import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { CloakConfigPanel } from './cloak-config-panel'
 import { CloakStatsPanel } from './cloak-stats-panel'
 import { CloakEntriesPanel } from './cloak-entries-panel'
 
+const CLOAK_STEPS: TutorialStep[] = [
+  {
+    title: 'O que o cloaker faz',
+    body: (
+      <>
+        Ele decide, a cada acesso, quem vê a <strong>página segura</strong> (white page) e quem vê a{' '}
+        <strong>oferta real</strong>. Robôs de revisão, bots e acessos suspeitos ficam na página segura;
+        o comprador real passa para a oferta.
+      </>
+    ),
+    tip: 'Isso protege a conta de anúncios de reprovações por revisar a oferta diretamente.',
+  },
+  {
+    title: 'Como pontua o acesso',
+    body: (
+      <>
+        Cada acesso ganha um <strong>score</strong> a partir de sinais (data center, robôs conhecidos,
+        país fora do alvo, comportamento de automação…). Se o score passa do <strong>limiar</strong>, o
+        acesso é bloqueado e vê a white page.
+      </>
+    ),
+  },
+  {
+    title: 'Configuração e entradas',
+    body: (
+      <>
+        No painel de <strong>configuração</strong> você ajusta o limiar e as regras. Em{' '}
+        <strong>entradas</strong>, define páginas branca/oferta e segmentação por país. Comece com o
+        preset padrão — ele já é seguro.
+      </>
+    ),
+  },
+  {
+    title: 'Teste antes de subir',
+    body: (
+      <>
+        Use o <strong>Teste ao vivo</strong> para ver como o cloaker classificaria o seu próprio acesso,
+        com o score e os sinais detectados. Assim você valida a regra sem gastar clique de anúncio.
+      </>
+    ),
+  },
+]
+
 export function CloakView() {
+  const [showTutorial, setShowTutorial] = useState(false)
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground text-pretty">
+          Proteja sua oferta: robôs veem a página segura, compradores veem a oferta real.
+        </p>
+        <TutorialButton onClick={() => setShowTutorial(true)} />
+      </div>
+
       <CloakStatsPanel />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -21,6 +73,13 @@ export function CloakView() {
       </div>
 
       <CloakEntriesPanel />
+
+      <TutorialModal
+        open={showTutorial}
+        onClose={() => setShowTutorial(false)}
+        title="Como funciona o cloaker"
+        steps={CLOAK_STEPS}
+      />
     </div>
   )
 }

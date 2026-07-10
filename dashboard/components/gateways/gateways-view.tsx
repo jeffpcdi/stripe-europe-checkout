@@ -17,7 +17,63 @@ import type { Gateway, GatewayProvider } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
+import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
+
+// Tutorial da aba Gateways — inclui a regra de ouro: venda só conta quando o
+// GATEWAY confirma o pagamento via webhook (nunca pelo navegador do cliente).
+const GATEWAY_STEPS: TutorialStep[] = [
+  {
+    title: 'O que o gateway faz aqui',
+    body: (
+      <>
+        O gateway (Stripe, Hotmart, Kiwify…) é quem processa o pagamento. Quando alguém compra, ele avisa
+        o nosso servidor por <strong>webhook</strong> — e só então registramos a venda e disparamos o
+        evento de <strong>Compra</strong> para o TikTok.
+      </>
+    ),
+    tip: 'É por isso que venda NUNCA é contada pelo navegador do cliente: só o gateway confirma pagamento real.',
+  },
+  {
+    title: '1. Crie o gateway',
+    body: (
+      <>
+        Clique em <strong>Novo gateway</strong>, escolha o provedor e dê um nome. Geramos uma{' '}
+        <strong>URL de webhook única</strong> para ele — essa URL é o seu &quot;script&quot; de integração:
+        não precisa colar código nenhum na página.
+      </>
+    ),
+  },
+  {
+    title: '2. Cole a URL no painel do checkout',
+    body: (
+      <>
+        No painel do seu gateway, procure <strong>Webhooks</strong> (ou &quot;Notificações&quot; /
+        &quot;Postback&quot;) e cole a URL copiada. Marque os eventos de <strong>pagamento aprovado</strong>{' '}
+        (e reembolso/chargeback, se houver).
+      </>
+    ),
+    tip: 'Cada gateway tem a própria URL — não reutilize a mesma URL em dois gateways.',
+  },
+  {
+    title: '3. Teste o fluxo',
+    body: (
+      <>
+        Use <strong>Testar fluxo</strong> para simular uma confirmação de pagamento e ver o caminho
+        completo: webhook recebido → lead casado → evento CompletePayment na fila do TikTok.
+      </>
+    ),
+  },
+  {
+    title: '4. Acompanhe o diário de conversões',
+    body: (
+      <>
+        O painel ao lado mostra cada webhook que chegou e o que aconteceu com ele (aceito, duplicado,
+        recusado e por quê). Se uma venda não apareceu, é aqui que você descobre o motivo.
+      </>
+    ),
+  },
+]
 
 // Item 73: cor da marca por provedor — cápsula e borda no hover
 const PROVIDER_COLORS: Record<string, string> = {
@@ -42,6 +98,7 @@ export function GatewaysView() {
   const [copied, setCopied] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [testing, setTesting] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(false)
 
   const providers = data?.providers ?? []
   const gateways = data?.gateways ?? []
@@ -97,6 +154,7 @@ export function GatewaysView() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <TutorialButton onClick={() => setShowTutorial(true)} />
               <button
                 type="button"
                 onClick={handleTest}
@@ -251,6 +309,13 @@ export function GatewaysView() {
           )}
         </GlassCard>
       </div>
+
+      <TutorialModal
+        open={showTutorial}
+        onClose={() => setShowTutorial(false)}
+        title="Como conectar seu gateway de pagamento"
+        steps={GATEWAY_STEPS}
+      />
 
       {creating && (
         <GatewayEditor

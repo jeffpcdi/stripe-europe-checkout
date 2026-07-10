@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────���───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────�����───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1495,7 +1495,7 @@ app.get('/api/live', dashboardAuth, async (req, res) => {
   }
 });
 
-// ══����� Links de Checkout — CRUD + validação de domínio (por conta) ══════
+// ���═����� Links de Checkout — CRUD + validação de domínio (por conta) ══════
 app.get('/api/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ links: linkStore.list(req.account.id) });
@@ -2606,7 +2606,7 @@ app.post('/api/px/event', (req, res) => {
   } catch (_) { /* beacon nunca propaga erro */ }
 });
 
-// ── APIs de gestão de pixels (dashboard, por conta) ────���──��─────────────
+// ── APIs de gestão de pixels (dashboard, por conta) ────���──����────────────
 app.get('/api/pixels', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
@@ -2724,6 +2724,106 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Verificação de instalação do pixel por URL ────────────────────────────
+// O lojista cola a URL de uma página dele (ex.: a LP ou a página de obrigado)
+// e o servidor busca o HTML e confere se o script do pixel (/px/<token>.js)
+// ou o pixel code do TikTok aparecem na página. Roda 100% server-side.
+//
+// SEGURANÇA (anti-SSRF): só http/https; o hostname é resolvido via DNS e IPs
+// privados/loopback/link-local são bloqueados; redirects são seguidos
+// manualmente (máx. 3) revalidando cada destino; timeout de 8s e leitura
+// limitada a 1,5 MB. Nunca devolvemos o HTML cru ao cliente — só o veredito.
+function ipPrivado(ip) {
+  if (!ip) return true;
+  if (ip.includes(':')) { // IPv6: bloqueia loopback, link-local e ULA
+    const low = ip.toLowerCase();
+    return low === '::1' || low.startsWith('fe80') || low.startsWith('fc') || low.startsWith('fd') || low.startsWith('::ffff:127.');
+  }
+  const p = ip.split('.').map(Number);
+  if (p.length !== 4 || p.some((n) => !Number.isFinite(n))) return true;
+  return p[0] === 10 || p[0] === 127 || p[0] === 0 ||
+    (p[0] === 169 && p[1] === 254) ||
+    (p[0] === 172 && p[1] >= 16 && p[1] <= 31) ||
+    (p[0] === 192 && p[1] === 168) ||
+    (p[0] === 100 && p[1] >= 64 && p[1] <= 127);
+}
+
+async function hostSeguro(hostname) {
+  try {
+    const addrs = await dnsp.lookup(hostname, { all: true });
+    if (!addrs.length) return false;
+    return addrs.every((a) => !ipPrivado(a.address));
+  } catch (_) { return false; }
+}
+
+async function buscarPaginaSegura(rawUrl) {
+  let u;
+  try { u = new URL(String(rawUrl || '').trim()); } catch (_) { return { error: 'URL inválida — use o endereço completo, ex.: https://minhapagina.com/oferta' }; }
+  for (let hop = 0; hop <= 3; hop++) {
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return { error: 'só endereços http(s) são aceitos' };
+    if (!(await hostSeguro(u.hostname))) return { error: 'este endereço não pode ser verificado (host bloqueado ou não resolve)' };
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    let r;
+    try {
+      r = await fetch(u.href, {
+        redirect: 'manual',
+        signal: ctrl.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ROI-NADOS-PixelCheck/1.0)', 'Accept': 'text/html' }
+      });
+    } catch (_) {
+      clearTimeout(t);
+      return { error: 'não foi possível acessar a página (offline ou bloqueou a verificação)' };
+    }
+    clearTimeout(t);
+    if (r.status >= 300 && r.status < 400) {
+      const loc = r.headers.get('location');
+      if (!loc || hop === 3) return { error: 'a página redirecionou demais — verifique a URL final' };
+      try { u = new URL(loc, u); continue; } catch (_) { return { error: 'redirecionamento inválido' }; }
+    }
+    if (!r.ok) return { error: 'a página respondeu com erro HTTP ' + r.status };
+    const reader = r.body && r.body.getReader ? r.body.getReader() : null;
+    let html = '';
+    if (reader) {
+      const dec = new TextDecoder();
+      while (html.length < 1.5 * 1024 * 1024) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        html += dec.decode(value, { stream: true });
+      }
+      try { reader.cancel(); } catch (_) {}
+    } else {
+      html = (await r.text()).slice(0, 1.5 * 1024 * 1024);
+    }
+    return { html, finalUrl: u.href };
+  }
+  return { error: 'a página redirecionou demais' };
+}
+
+app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
+  try {
+    const page = await buscarPaginaSegura((req.body || {}).url);
+    if (page.error) return res.json({ ok: false, error: page.error });
+    const html = page.html || '';
+    const pixels = pixelStore.list(req.account.id);
+    // Para cada pixel da conta: o script tag (/px/<token>.js) está na página?
+    // E o pixel code do TikTok (instalação nativa ttq) aparece?
+    const found = pixels.map((p) => {
+      const scriptOk = !!(p.token && html.indexOf('/px/' + p.token + '.js') !== -1);
+      const nativeOk = !!(p.pixelCode && html.indexOf(p.pixelCode) !== -1);
+      return { slug: p.slug, name: p.name, scriptOk, nativeOk, instalado: scriptOk || nativeOk };
+    });
+    const algum = found.some((f) => f.instalado);
+    stats.logEvent('info', {
+      acc: req.account.id,
+      title: 'Verificação de pixel por URL: ' + (algum ? 'instalado' : 'NÃO encontrado') + ' em ' + page.finalUrl
+    });
+    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, pixels: found });
+  } catch (err) {
+    res.status(500).json({ error: 'falha na verificação' });
   }
 });
 

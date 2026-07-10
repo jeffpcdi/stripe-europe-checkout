@@ -6,7 +6,49 @@ import { useLinks, useDomains, apiSend } from '@/lib/api'
 import type { CheckoutLink } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { LinkEditor } from './link-editor'
+
+const LINK_STEPS: TutorialStep[] = [
+  {
+    title: 'O que é um link de checkout',
+    body: (
+      <>
+        É um link <code>/go/seu-slug</code> que você usa nos anúncios. Ele rastreia o clique, aplica
+        cloaker e split A/B quando você quiser, e leva o visitante ao checkout certo.
+      </>
+    ),
+  },
+  {
+    title: '1. Crie o link',
+    body: (
+      <>
+        Clique em <strong>Novo link</strong>, dê um nome e defina o <code>slug</code> (o final da URL).
+        Adicione uma ou mais <strong>variantes</strong> de destino para testar ofertas (split A/B).
+      </>
+    ),
+    tip: 'Com 2+ variantes, o tráfego é dividido automaticamente e você compara a conversão de cada uma.',
+  },
+  {
+    title: '2. Use domínio próprio (opcional)',
+    body: (
+      <>
+        Se você verificou um domínio na aba <strong>Domínios</strong>, escolha-o aqui para o link sair
+        com a sua marca em vez do domínio padrão.
+      </>
+    ),
+  },
+  {
+    title: '3. Cloaker e segmentação',
+    body: (
+      <>
+        Configure página branca (white page), países e idiomas permitidos. Assim, quem não é público-alvo
+        (ou o robô de revisão) vê a página segura, e o comprador real vê a oferta.
+      </>
+    ),
+    tip: 'Copie a URL pronta pelo botão de copiar ou gere um QR code para mídia offline.',
+  },
+]
 
 export function LinksView() {
   const { data, isLoading, mutate } = useLinks()
@@ -17,6 +59,7 @@ export function LinksView() {
   const [deleting, setDeleting] = useState<string | null>(null)
   // Item 71: QR code em popover glass por link
   const [qrFor, setQrFor] = useState<string | null>(null)
+  const [showTutorial, setShowTutorial] = useState(false)
 
   const appHost = domainsData?.appHost ?? ''
   const links = data?.links ?? []
@@ -54,14 +97,24 @@ export function LinksView() {
         <p className="text-sm text-muted-foreground">
           {links.length} link{links.length === 1 ? '' : 's'} de checkout
         </p>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
-        >
-          <Plus className="size-4" /> Novo link
-        </button>
+        <div className="flex items-center gap-2">
+          <TutorialButton onClick={() => setShowTutorial(true)} />
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
+          >
+            <Plus className="size-4" /> Novo link
+          </button>
+        </div>
       </div>
+
+      <TutorialModal
+        open={showTutorial}
+        onClose={() => setShowTutorial(false)}
+        title="Como criar seus links de checkout"
+        steps={LINK_STEPS}
+      />
 
       {links.length === 0 ? (
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">

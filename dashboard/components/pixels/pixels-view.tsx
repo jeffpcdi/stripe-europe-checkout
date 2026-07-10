@@ -12,6 +12,8 @@ import {
   CircleCheck,
   CircleX,
   TriangleAlert,
+  Search,
+  Loader2,
 } from 'lucide-react'
 import {
   usePixels,
@@ -24,7 +26,73 @@ import type { Pixel, PixelEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
+import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
+
+// Resultado da verificação de instalação por URL (server-side)
+type UrlCheck = {
+  ok: boolean
+  url?: string
+  algumInstalado?: boolean
+  pixels?: { slug: string; name: string; scriptOk: boolean; nativeOk: boolean; instalado: boolean }[]
+  error?: string
+}
+
+// Passos do tutorial da aba Pixels
+const PIXEL_STEPS: TutorialStep[] = [
+  {
+    title: 'O que é o Pixel TikTok aqui',
+    body: (
+      <>
+        Cada pixel dispara eventos <strong>server-side</strong> (Events API / CAPI) direto do nosso servidor
+        para o TikTok. Isso é mais confiável que o pixel do navegador, que costuma ser bloqueado dentro do
+        app do TikTok.
+      </>
+    ),
+    tip: 'Você precisa do Pixel Code e do Access Token, ambos gerados no TikTok Events Manager.',
+  },
+  {
+    title: '1. Crie o pixel',
+    body: (
+      <>
+        Clique em <strong>Novo pixel</strong> e cole o <code>Pixel Code</code> (ex.: C0ABC123) e o{' '}
+        <code>Access Token</code>. Deixe ligados os eventos que quer enviar: Visita, Carrinho, Checkout,
+        Pagamento e Compra.
+      </>
+    ),
+  },
+  {
+    title: '2. Instale o script na sua página',
+    body: (
+      <>
+        Copie a tag <code>&lt;script&gt;</code> do pixel e cole antes do <code>&lt;/head&gt;</code> da sua
+        landing page. Ela rastreia visita, carrinho e checkout automaticamente.
+      </>
+    ),
+    tip: 'A tag é individual por pixel — cada campanha pode ter a sua.',
+  },
+  {
+    title: '3. Confirme que está instalado',
+    body: (
+      <>
+        Use o painel <strong>Verificar instalação</strong>: cole a URL da sua página e nós buscamos o HTML
+        dela para confirmar se o script está presente. Você também pode usar <strong>Testar disparo</strong>{' '}
+        para enviar um evento de teste e ver a resposta do TikTok.
+      </>
+    ),
+  },
+  {
+    title: '4. Evento de Compra só vem do gateway',
+    body: (
+      <>
+        A <strong>Visita/Carrinho/Checkout</strong> saem do script na página. Mas a{' '}
+        <strong>Compra (CompletePayment)</strong> só dispara quando o <strong>gateway confirma o pagamento</strong>{' '}
+        via webhook — é assim que garantimos que só venda real conta. Configure um gateway na aba Gateways.
+      </>
+    ),
+    tip: 'Sem gateway conectado, o evento de Compra nunca dispara — por design, para não contar venda falsa.',
+  },
+]
 
 // Rótulos PT-BR dos eventos CAPI — mesma ordem do funil real
 const EVENT_LABELS: { key: keyof PixelEvents; label: string }[] = [
@@ -46,6 +114,10 @@ export function PixelsView() {
   const [copied, setCopied] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ slug: string; ok: boolean; msg: string } | null>(null)
+  const [showTutorial, setShowTutorial] = useState(false)
+  const [checkUrl, setCheckUrl] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [urlCheck, setUrlCheck] = useState<UrlCheck | null>(null)
 
   const pixels = data?.pixels ?? []
 
@@ -85,6 +157,22 @@ export function PixelsView() {
     }
   }
 
+  // Verificação server-side: o backend busca o HTML da URL e procura o script
+  async function handleCheckUrl() {
+    const url = checkUrl.trim()
+    if (!url || checking) return
+    setChecking(true)
+    setUrlCheck(null)
+    try {
+      const r = await apiSend<UrlCheck>('/api/pixels/verify-url', 'POST', { url })
+      setUrlCheck(r)
+    } catch (e) {
+      setUrlCheck({ ok: false, error: e instanceof Error ? e.message : 'Falha na verificação' })
+    } finally {
+      setChecking(false)
+    }
+  }
+
   const warnings = durability?.warnings ?? []
 
   return (
@@ -115,13 +203,16 @@ export function PixelsView() {
                 Eventos server-side (CAPI) — cole o script em qualquer página
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
-            >
-              <Plus className="size-3.5" /> Novo pixel
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <TutorialButton onClick={() => setShowTutorial(true)} />
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
+              >
+                <Plus className="size-3.5" /> Novo pixel
+              </button>
+            </div>
           </div>
 
           {isLoading ? (
@@ -241,8 +332,80 @@ export function PixelsView() {
           )}
         </GlassCard>
 
-        {/* Saúde da CAPI + log de disparos */}
+        {/* Verificar instalação + saúde da CAPI + log de disparos */}
         <div className="flex min-w-0 flex-col gap-5">
+          <GlassCard className="p-5">
+            <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Verificar instalação</h2>
+            <p className="mb-3 text-xs text-muted-foreground text-pretty">
+              Cole a URL da sua página e confirmamos, pelo servidor, se o script do pixel está presente
+            </p>
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleCheckUrl()
+              }}
+            >
+              <input
+                type="url"
+                inputMode="url"
+                value={checkUrl}
+                onChange={(e) => setCheckUrl(e.target.value)}
+                placeholder="https://minhapagina.com/oferta"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                aria-label="URL da página para verificar o pixel"
+              />
+              <button
+                type="submit"
+                disabled={checking || !checkUrl.trim()}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-2 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40"
+              >
+                {checking ? <Loader2 className="size-3.5 animate-spin" /> : <Search className="size-3.5" />}
+                {checking ? 'Verificando…' : 'Verificar'}
+              </button>
+            </form>
+
+            {urlCheck && (
+              <div className="mt-3" role="status">
+                {urlCheck.error ? (
+                  <p className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    <CircleX className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                    <span className="text-pretty">{urlCheck.error}</span>
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    <p
+                      className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                        urlCheck.algumInstalado
+                          ? 'bg-[var(--success-light)] text-success'
+                          : 'bg-warning/10 text-warning'
+                      }`}
+                    >
+                      {urlCheck.algumInstalado ? (
+                        <CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                      ) : (
+                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                      )}
+                      <span className="text-pretty">
+                        {urlCheck.algumInstalado
+                          ? 'Pixel encontrado na página!'
+                          : 'Nenhum pixel seu foi encontrado nessa página. Cole a tag do script antes do </head> e tente de novo.'}
+                      </span>
+                    </p>
+                    {(urlCheck.pixels ?? []).map((p) => (
+                      <p key={p.slug} className="flex items-center justify-between gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-[11px]">
+                        <span className="truncate font-medium text-foreground">{p.name}</span>
+                        <span className={`shrink-0 font-mono ${p.instalado ? 'text-success' : 'text-muted-foreground'}`}>
+                          {p.instalado ? (p.scriptOk ? 'script ok' : 'pixel nativo ok') : 'não encontrado'}
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </GlassCard>
+
           <GlassCard className="p-5">
             <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Saúde dos disparos</h2>
             <p className="mb-3 text-xs text-muted-foreground">Taxa de sucesso da Events API (24h)</p>
@@ -309,6 +472,13 @@ export function PixelsView() {
           </GlassCard>
         </div>
       </div>
+
+      <TutorialModal
+        open={showTutorial}
+        onClose={() => setShowTutorial(false)}
+        title="Como configurar seu pixel TikTok"
+        steps={PIXEL_STEPS}
+      />
 
       {(creating || editing) && (
         <PixelEditor
