@@ -4,19 +4,19 @@
 > Este arquivo é atualizado **a cada item concluído**. Legenda:
 > ✅ concluído e verificado · 🔶 parcial · ⬜ pendente
 >
-> Última atualização: 2026-07-10
+> Última atualização: 2026-07-10 (sessão 4)
 
 ## Resumo
 
 | Leva | Escopo | Itens | Status |
 |------|--------|-------|--------|
-| 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 6/10 |
-| 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~8/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~22/110 |
+| 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 8/10 |
+| 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~12/20 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | ~24/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 0/130 |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~36/570**
+**Total concluído: ~44/570**
 
 ## Itens concluídos (com evidência)
 
@@ -28,21 +28,21 @@
 - ⬜ 5. `POST /api/pixels/verify-url` (anti-SSRF, detecção de instalação)
 - ⬜ 6. Snippet de gateway/checkout exposto na API
 - ✅ 7. Campo `uso` por domínio (checkout/cloaker/ambos) + fix sanitizador `config.js`
-- ⬜ 8. Copy sem termos internos + `mode: auto|manual`
+- ✅ 8. Copy sem termos internos + `mode: auto|manual` na resposta de add domínio
 - 🔶 9. Hardening (mapa de erros TikTok pt-BR feito em `tiktok-errors.js`; rate-limit verify-url pende do item 5)
 - ✅ 10. Bateria de testes de backend (4/4 passando)
 
 ### Leva 2 — UI Gestão
 - ⬜ 11. Painel "Testar por URL" (depende do item 5)
-- ⬜ 12. Bloco de implementação do gateway na aba Pixels
+- ✅ 12. Aviso "Compra só via gateway" com link para /gateways na aba Pixels
 - ✅ 13. Tutorial passo a passo dos Pixels
 - ✅ 14. "Testar disparo" com escolha de evento + resposta legível
 - ⬜ 15. Refino visual pixels-view
 - ✅ 16. Tutorial dos Gateways por provedor
-- ⬜ 17. Aviso "pagamento só via gateway"
+- ✅ 17. Aviso "pagamento só via gateway" fixo no topo da aba Gateways
 - ⬜ 18. Refino visual gateways-view
 - ✅ 19. Seletor de uso no add de domínio + badge
-- ⬜ 20. Copy "automático" sem jargão interno
+- ✅ 20. Copy "automático" sem jargão interno (notas + httpDetail neutralizados)
 - ✅ 21. Tutorial de DNS aprimorado
 - ⬜ 22. Refino visual domains-view
 - ✅ 23. Tutorial dos Links
@@ -52,16 +52,16 @@
 - ⬜ 27. Tours guiados (tour.ts + data-tour)
 - ✅ 28. `TutorialModal` reutilizável + botão "?"
 - ✅ 29. Tipos e hooks dos novos endpoints
-- ⬜ 30. UI de configuração de moeda (Sistema/Configurações)
+- ✅ 30. UI de configuração de moeda (`CurrencyCard` em Configurações) — verificado no navegador (select=USD)
 
 ### Leva 3 — Bugs reais + capacidades órfãs (31–140)
 - ✅ 31. Teste de cloaker unificado (componente único, verdict alinhado)
-- ⬜ 32. Cores de provedor sincronizadas com catálogo real
+- ✅ 32. Cores de provedor sincronizadas com catálogo real (kiwify/hotmart/perfectpay/cakto/stripe/vega/adoorei/payt/generic)
 - ✅ 33. Edição de gateway (preserva webhookToken/segredo)
 - ✅ 34. Teste por gateway específico + nota de assinatura
 - ✅ 35. Badge "domínio não verificado" nos links
-- 🔶 36. Validação de pesos A/B (indicador de soma + bloqueio feitos; botão "normalizar" pendente)
-- ⬜ 37. Alinhar default `AddToCart` (editor × normalize)
+- ✅ 36. Validação de pesos A/B (indicador de soma + bloqueio + botão "Normalizar para 100%")
+- ✅ 37. Alinhar default `AddToCart` (`ev.AddToCart !== false` no pixel-store)
 - ✅ 38. Mensagem do teste reflete o evento real testado
 - ✅ 39. QR code gerado localmente (lib `qrcode`)
 - ✅ 40. Auto-polling de verificação de domínio (45s)
@@ -85,21 +85,15 @@
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. 37 — default AddToCart
-2. 32 — cores de provedor
-3. 41 — erro amigável sem token
-4. 36 — botão "normalizar para 100%"
-5. 17 — aviso pagamento só via gateway
-6. 5 + 11 — verify-url (backend + painel)
-7. 12, 6 — snippet de implementação
-8. 30 — UI de moeda
-9. 20, 8 — copy sem jargão
-10. 15, 18, 22, 24, 26 — refinos visuais
-11. 27 — tours guiados
-12. Leva 4 em diante (141–570)
+1. 41 — erro amigável sem token no `/api/pixels/test`
+2. 5 + 11 — verify-url (backend anti-SSRF + painel "Testar por URL")
+3. 6 — snippet de implementação do gateway/checkout na API
+4. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
+5. 27 — tours guiados (tour.ts + data-tour)
+6. Leva 4 em diante (141–570)
 
 ## Histórico de sessões
 
 - **Sessão 1–2:** Leva 1 parcial + tutoriais + bugs 31/33/34/35/36/38/39/40 + itens 99–101, 114, 116–119, 131–132 (PR #42, mesclado)
 - **Sessão 3:** Itens 79–82 (aba Pixels: EMQ, retry, filtro, log expansível) — commit `5d1080e`
-- **Sessão 4 (atual):** criação deste tracker + execução da fila
+- **Sessão 4 (atual):** criação deste tracker + itens 8, 12, 17, 20, 30, 32, 36, 37 (copy neutro, avisos de gateway, moeda UI, cores de provedor, normalizar pesos, default AddToCart). Type-check limpo, 4/4 testes, card de moeda verificado no navegador.
