@@ -2363,6 +2363,12 @@ app.post('/api/conversion', (req, res) => {
 // signature) e adapta payloads específicos antes do normalizador genérico.
 app.post('/hook/:token', async (req, res) => {
   const token = String(req.params.token || '').slice(0, 64);
+  // Item 46: rate-limit por token — 120/janela é folgado para gateways reais
+  // (retries inclusos) mas corta flood/brute-force de token. Respondemos 429
+  // sem detalhe para não confirmar se o token existe.
+  if (rateLimited('hook|' + token, 'hook', 120)) {
+    return res.status(429).json({ ok: false });
+  }
   const gw = gatewayStore.findByToken(token);
   if (!gw) return res.status(404).json({ ok: false, error: 'webhook não encontrado' });
 
