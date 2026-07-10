@@ -22,7 +22,7 @@ import {
   usePixelDurability,
   apiSend,
 } from '@/lib/api'
-import type { Pixel, PixelEvents } from '@/lib/types'
+import type { Pixel, PixelEvents, PixelTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
@@ -114,6 +114,8 @@ export function PixelsView() {
   const [copied, setCopied] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ slug: string; ok: boolean; msg: string } | null>(null)
+  // Evento escolhido para o teste, por pixel (default ViewContent)
+  const [testEvent, setTestEvent] = useState<Record<string, keyof PixelEvents>>({})
   const [showTutorial, setShowTutorial] = useState(false)
   const [checkUrl, setCheckUrl] = useState('')
   const [checking, setChecking] = useState(false)
@@ -135,19 +137,19 @@ export function PixelsView() {
   }
 
   async function handleTest(p: Pixel) {
+    const event = testEvent[p.slug] || 'ViewContent'
     setTesting(p.slug)
     setTestResult(null)
     try {
-      const r = await apiSend<{ ok?: boolean; error?: string; code?: number; message?: string }>(
-        '/api/pixels/test',
-        'POST',
-        { slug: p.slug },
-      )
+      const r = await apiSend<PixelTestResult>('/api/pixels/test', 'POST', { slug: p.slug, event })
       const ok = r.ok !== false && !r.error
+      const evLabel = EVENT_LABELS.find((e) => e.key === (r.event || event))?.label || (r.event || event)
       setTestResult({
         slug: p.slug,
         ok,
-        msg: ok ? 'TikTok aceitou o evento de teste (ViewContent).' : r.error || r.message || 'TikTok recusou o evento',
+        msg: ok
+          ? `TikTok aceitou o evento de teste (${evLabel}).`
+          : r.messagePtBr || r.error || r.message || 'TikTok recusou o evento',
       })
       mutateLog()
     } catch (e) {
@@ -303,6 +305,23 @@ export function PixelsView() {
                   )}
 
                   <div className="mt-3 flex items-center justify-end gap-1 border-t border-border pt-3">
+                    {/* Seletor de evento de teste: permite validar qualquer
+                        etapa do funil, não só a Visita (item 33) */}
+                    <select
+                      value={testEvent[p.slug] || 'ViewContent'}
+                      onChange={(e) =>
+                        setTestEvent((prev) => ({ ...prev, [p.slug]: e.target.value as keyof PixelEvents }))
+                      }
+                      disabled={!p.hasToken}
+                      aria-label={`Evento de teste para ${p.name}`}
+                      className="mr-auto rounded-md border border-border bg-input px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
+                    >
+                      {EVENT_LABELS.map(({ key, label }) => (
+                        <option key={key} value={key}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={() => handleTest(p)}

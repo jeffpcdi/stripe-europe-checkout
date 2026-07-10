@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Globe,
   Plus,
@@ -12,9 +12,10 @@ import {
   Check,
   BookOpen,
   X,
+  CloudOff,
 } from 'lucide-react'
 import { useDomains, apiSend } from '@/lib/api'
-import type { CustomDomain, DomainVerifyResult, DomainAddResponse, DomainDnsRecords } from '@/lib/types'
+import type { CustomDomain, DomainVerifyResult, DomainAddResponse, DomainDnsRecords, DomainUso } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
@@ -63,9 +64,29 @@ const DOMAIN_STEPS: TutorialStep[] = [
   },
 ]
 
+// Rótulos PT-BR do uso do domínio
+const USO_LABELS: { value: DomainUso; label: string; hint: string }[] = [
+  { value: 'ambos', label: 'Ambos', hint: 'links de checkout e cloaker' },
+  { value: 'checkout', label: 'Checkout', hint: 'só links de checkout' },
+  { value: 'cloaker', label: 'Cloaker', hint: 'só rotas do cloaker' },
+]
+
+// Validação leve de hostname no cliente — evita ida ao servidor com valor
+// obviamente inválido (espaços, protocolo, sem ponto)
+function hostInvalidReason(raw: string): string | null {
+  const h = raw.trim().toLowerCase()
+  if (!h) return null
+  if (/^https?:\/\//.test(h)) return 'Digite só o domínio, sem https:// (ex.: link.seudominio.com)'
+  if (/[\s/]/.test(h)) return 'O domínio não pode ter espaços nem barras'
+  if (!h.includes('.')) return 'Domínio incompleto — faltou o ponto (ex.: link.seudominio.com)'
+  if (!/^[a-z0-9.-]+$/.test(h)) return 'O domínio só pode ter letras, números, pontos e hífens'
+  return null
+}
+
 export function DomainsView() {
   const { data, isLoading, mutate } = useDomains()
   const [host, setHost] = useState('')
+  const [uso, setUso] = useState<DomainUso>('ambos')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [verifying, setVerifying] = useState<string | null>(null)
@@ -81,11 +102,41 @@ export function DomainsView() {
   const appHost = data?.appHost ?? ''
   const domains = data?.domains ?? []
 
+  // Polling automático: enquanto houver domínio pendente, re-verifica a cada
+  // 45s — o lojista não precisa ficar clicando em Verificar durante a propagação
+  const pendingHosts = domains.filter((d) => !d.verificado).map((d) => d.host)
+  const pendingKey = pendingHosts.join(',')
+  const pollBusy = useRef(false)
+  useEffect(() => {
+    if (!pendingKey) return
+    const id = setInterval(async () => {
+      if (pollBusy.current) return
+      pollBusy.current = true
+      try {
+        for (const h of pendingKey.split(',')) {
+          const res = await apiSend<DomainVerifyResult>('/api/domains/verify', 'POST', { host: h })
+          setResults((r) => ({ ...r, [h]: res }))
+        }
+        mutate()
+      } catch {
+        /* silencioso: o polling tenta de novo no próximo ciclo */
+      } finally {
+        pollBusy.current = false
+      }
+    }, 45_000)
+    return () => clearInterval(id)
+  }, [pendingKey, mutate])
+
   async function handleAdd() {
+    const invalid = hostInvalidReason(host)
+    if (invalid) {
+      setError(invalid)
+      return
+    }
     setAdding(true)
     setError(null)
     try {
-      const res = await apiSend<DomainAddResponse>('/api/domains', 'POST', { host })
+      const res = await apiSend<DomainAddResponse>('/api/domains', 'POST', { host, uso })
       setHost('')
       mutate()
       // Abre o tutorial na hora: o lojista sai daqui sabendo exatamente o que
@@ -155,12 +206,44 @@ export function DomainsView() {
           <button
             type="button"
             onClick={handleAdd}
-            disabled={adding || !host.trim()}
+            disabled={adding || !host.trim() || !!hostInvalidReason(host)}
             className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
           >
             <Plus className="size-4" /> {adding ? 'Adicionando…' : 'Adicionar'}
           </button>
         </div>
+        {/* Validação inline enquanto digita — mensagem antes de bater no servidor */}
+        {host.trim() && hostInvalidReason(host) && (
+          <p className="mt-2 text-xs text-warning" role="alert">
+            {hostInvalidReason(host)}
+          </p>
+        )}
+        {/* Uso do domínio: checkout, cloaker ou ambos */}
+        <fieldset className="mt-3">
+          <legend className="mb-1.5 text-xs font-medium text-muted-foreground">Onde este domínio vale</legend>
+          <div className="flex flex-wrap gap-2">
+            {USO_LABELS.map((u) => (
+              <label
+                key={u.value}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                  uso === u.value
+                    ? 'border-brand-cyan/50 bg-brand-cyan/10 text-brand-cyan'
+                    : 'border-border text-muted-foreground hover:bg-secondary'
+                }`}
+                title={u.hint}
+              >
+                <input
+                  type="radio"
+                  name="domain-uso"
+                  className="sr-only"
+                  checked={uso === u.value}
+                  onChange={() => setUso(u.value)}
+                />
+                {u.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         {error && (
           <p className="mt-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
             {error}
@@ -420,8 +503,15 @@ function DomainCard({
             <p className="break-all font-mono text-sm font-semibold text-foreground">{domain.host}</p>
             <p className="text-xs text-muted-foreground">
               {domain.verificado ? 'Verificado e ativo' : 'Aguardando verificação de DNS'}
+              {domain.uso && domain.uso !== 'ambos' ? ` — só ${domain.uso}` : ''}
             </p>
           </div>
+          {/* Badge dedicada: proxy da Cloudflare (nuvem laranja) mascara o CNAME */}
+          {result?.cloudflareProxy && (
+            <span className="flex shrink-0 items-center gap-1 rounded-full border border-[#f6821f]/40 bg-[#f6821f]/10 px-2 py-0.5 text-[11px] font-medium text-[#f6821f]">
+              <CloudOff className="size-3" aria-hidden="true" /> proxy Cloudflare ativo
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {!domain.verificado && (
