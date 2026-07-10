@@ -22,12 +22,30 @@ import type {
   AccountSettings,
 } from './types'
 
+// Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
+// `hint` traz a orientação pt-BR do que fazer; `code` é estável para lógica.
+// Rotas ainda não migradas simplesmente não trazem code/hint (retrocompatível).
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  code?: string
+  hint?: string
+  constructor(status: number, message: string, opts?: { code?: string; hint?: string }) {
     super(message)
     this.status = status
+    this.code = opts?.code
+    this.hint = opts?.hint
   }
+  // Mensagem pronta para exibir: prioriza a orientação (hint) quando existe.
+  get display(): string {
+    return this.hint ? `${this.message} ${this.hint}`.trim() : this.message
+  }
+}
+
+// Extrai { error, code, hint } de um corpo de resposta em qualquer formato.
+function parseApiError(status: number, data: unknown): ApiError {
+  const d = (data ?? {}) as { error?: string; message?: string; code?: string; hint?: string }
+  const msg = d.error || d.message || `Falha na API (${status})`
+  return new ApiError(status, msg, { code: d.code, hint: d.hint })
 }
 
 // Sessão expirada (cookie presente mas inválido no Express) → login
@@ -41,7 +59,8 @@ export async function fetcher<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: 'include' })
   if (!res.ok) {
     if (res.status === 401) handleUnauthorized()
-    throw new ApiError(res.status, `Falha na API (${res.status})`)
+    const data = await res.json().catch(() => ({}))
+    throw parseApiError(res.status, data)
   }
   return res.json() as Promise<T>
 }
@@ -196,7 +215,7 @@ export async function apiSend<T = unknown>(
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     if (res.status === 401) handleUnauthorized()
-    throw new ApiError(res.status, (data as { error?: string }).error || `Falha na API (${res.status})`)
+    throw parseApiError(res.status, data)
   }
   return data as T
 }

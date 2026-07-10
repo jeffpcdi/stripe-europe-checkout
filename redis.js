@@ -228,7 +228,11 @@ async function seenWebhookOrder(accountId, event, orderId) {
 // Chave "asn:<ip>" com o resultado do lookup BGP. TTL de 24h. Compartilha a
 // resolução entre processos/instâncias e sobrevive a restarts, deixando o
 // caminho quente do /go/ quase instantâneo para IPs recorrentes.
-const ASN_TTL = 24 * 3600; // 24h
+const ASN_TTL = 24 * 3600; // 24h (hit válido: asn > 0)
+// Item 176: cache negativo curto também no Redis — um lookup sem ASN resolvido
+// (asn:0/unknown/timeout) não pode ficar 24h fixado, senão um datacenter cujo
+// primeiro lookup falhou passaria o dia inteiro como neutro em todas as instâncias.
+const ASN_NEG_TTL = 5 * 60; // 5 minutos
 
 async function getAsnCache(ip) {
   if (!enabled || !ip) return null;
@@ -242,7 +246,8 @@ async function getAsnCache(ip) {
 async function setAsnCache(ip, entry) {
   if (!enabled || !ip || !entry) return false;
   try {
-    await redis.set('asn:' + ip, JSON.stringify(entry), { ex: ASN_TTL });
+    const ttl = (entry.asn > 0) ? ASN_TTL : ASN_NEG_TTL;
+    await redis.set('asn:' + ip, JSON.stringify(entry), { ex: ttl });
     return true;
   } catch (_) { return false; }
 }
