@@ -165,7 +165,23 @@ export function CloakConfigPanel() {
 
       {/* Sensibilidade */}
       <div className="mb-4">
-        <span className="mb-2 block text-xs font-medium text-muted-foreground">Sensibilidade</span>
+        <span className="mb-1 block text-xs font-medium text-muted-foreground">Sensibilidade</span>
+        {/* Item 139: explica o que o threshold significa e o mapa sensibilidade→número */}
+        <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
+          Cada acesso recebe um <strong className="text-foreground">score</strong> de suspeita (0–100). Quando o score
+          atinge o <strong className="text-foreground">threshold</strong>, o visitante vai para a página branca.
+          Threshold mais baixo = protege mais, mas arrisca desviar alguns usuários reais.
+          {cfg.sensitivityThresholds && (
+            <>
+              {' '}
+              Efetivo:{' '}
+              {Object.entries(cfg.sensitivityThresholds)
+                .map(([k, v]) => `${SENSITIVITY.find((s) => s.id === k)?.label ?? k} ≥${v}`)
+                .join(' · ')}
+              .
+            </>
+          )}
+        </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {SENSITIVITY.map((s) => {
             const active = (cfg.sensitivity ?? 'balanced') === s.id
