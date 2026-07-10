@@ -14,11 +14,11 @@
 |------|--------|-------|--------|
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~15/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~33/110 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | ~43/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 12/130 (241–252 ✅) |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~70/570** — Leva 1 (backend) 100% + itens 31–50 (bugs/robustez) 100% + itens 241–252 (durabilidade de schema) 100% concluídos
+**Total concluído: ~80/570** — Leva 1 (backend) 100% + itens 31–50 (bugs/robustez) 100% + itens 62–66/68/69/73/74/76 (Links) + itens 241–252 (durabilidade de schema) 100% concluídos
 
 ## Itens concluídos (com evidência)
 
@@ -91,6 +91,16 @@
 - ✅ 119. Badge proxy Cloudflare
 - ✅ 131. (= 31) Teste unificado
 - ✅ 132. Legendas pt-BR dos sinais do cloaker (`signal-labels.ts`)
+- ✅ 62. Toggle ativo/pausado inline no card do link (otimista com rollback; merge-patch `{slug, ativo}` no POST /api/links) — verificado ao vivo (Pausar → `ativo:false` na API)
+- ✅ 63. Duplicar link (slug `-copia` com desambiguação, cópia nasce pausada, contadores zerados pelo normalize) — verificado ao vivo
+- ✅ 64. Busca por nome/slug/domínio + ordenação (recentes/nome/cliques/conversões), só aparece com 2+ links — verificado ao vivo (filtro "outro" → 1 card)
+- ✅ 65. Receita por moeda + taxa de conversão no card do link (soma `variantes[].revenue`, `formatMoney`)
+- ✅ 66. Barra de performance por variante (trilho = peso configurado; preenchimento = participação real nas conversões)
+- ✅ 68. Badge do pixel associado no card com alerta quando o pixel não existe mais ou está pausado — verificado ao vivo ("pixel-fantasma (não existe)")
+- ✅ 69. Botão "abrir /go em nova aba" no card (com aviso de que conta como clique)
+- ✅ 73. Validação de URL https:// no editor (mesmo critério do `validUrl` do backend), erro inline por campo + botão salvar bloqueado
+- ✅ 74. Aviso antes de salvar quando o domínio do link mudou (a troca zera `dominioValidado` no backend)
+- ✅ 76. Exclusão de link com tráfego exige digitar o nome do link (botão desabilitado até coincidir)
 
 ### Leva 6 — Durabilidade de schema e persistência (241–252) — ANTECIPADA
 
@@ -113,7 +123,7 @@ Evidência: `node --check` limpo nos 4 módulos + 4/4 suítes de teste passando 
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Demais itens da Leva 3 (51–78, 83–98, 102–113, 120–130, 133–140)
+1. Demais itens da Leva 3 (51–61, 67, 70–72, 75, 77, 78, 83–98, 102–113, 120–130, 133–140)
 2. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
 3. Leva 4 em diante (141–240, 253–570) — 241–252 já concluídos (antecipados)
 
@@ -122,4 +132,4 @@ Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor →
 - **Sessão 1–2:** Leva 1 parcial + tutoriais + bugs 31/33/34/35/36/38/39/40 + itens 99–101, 114, 116–119, 131–132 (PR #42, mesclado)
 - **Sessão 3:** Itens 79–82 (aba Pixels: EMQ, retry, filtro, log expansível) — commit `5d1080e`
 - **Sessão 4 (atual):** criação deste tracker + itens 8, 12, 17, 20, 30, 32, 36, 37 (copy neutro, avisos de gateway, moeda UI, cores de provedor, normalizar pesos, default AddToCart) + 5/6/9/11/41 (leva 1 completa) + 43/44/46 (validação host, touch try/catch, rate-limit hook) + 27 (tours guiados das 5 abas, verificado com popover ao vivo) + 47/49/50 (hint neutro, toggle otimista do pixel com merge-patch, aviso sem token). Type-check limpo, 4/4 testes, card de moeda + rate-limit do hook + tour de Gateways + toggle de pixel verificados ao vivo.
-- **Sessão 5 (atual):** plano salvo em `PLANO-PRAGMATIC-FLOW.md` (raiz) + Leva 6 antecipada — itens 241–252 (durabilidade de schema): tabela `custom_domains` multi-tenant, coluna `accounts.currency`, snapshot Redis de domínios, write-through assíncrono via `config.set`, reconciliação no boot via `config.hydrate`, claim legado e `migrations` no `/api/health`. `node --check` limpo + 4/4 testes.
+- **Sessão 5 (atual):** plano salvo em `PLANO-PRAGMATIC-FLOW.md` (raiz) + Leva 6 antecipada — itens 241–252 (durabilidade de schema): tabela `custom_domains` multi-tenant, coluna `accounts.currency`, snapshot Redis de domínios, write-through assíncrono via `config.set`, reconciliação no boot via `config.hydrate`, claim legado e `migrations` no `/api/health`. `node --check` limpo + 4/4 testes. Durabilidade validada ponta a ponta contra Neon+Redis reais (criar/excluir domínio propaga aos 2 espelhos). Depois, aba Links da Leva 3: itens 62–66, 68, 69, 73, 74, 76 — type-check limpo, toggle/duplicar/busca/badge de pixel verificados ao vivo no navegador (build de produção; o dev server Turbopack do sandbox não hidratava, sem relação com as mudanças).

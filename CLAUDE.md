@@ -593,14 +593,20 @@ em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluí
 **Leva 1 (backend, itens 1–10) 100% concluída. Itens 241–252 (durabilidade de schema) 100%
 concluídos (antecipados):** tabela `custom_domains`, coluna `accounts.currency`, snapshot Redis
 `domains:all`, write-through assíncrono via `config.set` e reconciliação no boot (§8/§10).
-Entregues (~70): moeda por conta+UI, uso por
+Entregues (~80): moeda por conta+UI, uso por
 domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
 log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
 tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
-anti-SSRF + rate-limit, rate-limit no /hook, snippet base do loader. Fila e histórico no
-`PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503, o Express na 3000
-subiu antes do env ser espelhado — mate o processo e suba com
-`node --env-file-if-exists=.env.development.local server.js`.
+anti-SSRF + rate-limit, rate-limit no /hook, snippet base do loader; aba Links (itens 62–66, 68,
+69, 73, 74, 76): toggle/duplicar/busca+ordenação nos cards, receita+taxa de conversão, barra de
+performance por variante, badge do pixel (com alerta de pixel inexistente/pausado), validação de
+URL https:// no editor, aviso de troca de domínio e exclusão protegida por nome quando há tráfego.
+Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
+o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
+`node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
+`vercel env pull /tmp/env-preview --environment=preview` + `node --env-file=/tmp/env-preview server.js`
+para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
+dashboard com `next build` + `next start -p 3001`.
 
 ### 19.5 Armadilhas específicas da dashboard nova
 - Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —
