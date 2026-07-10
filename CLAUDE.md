@@ -292,7 +292,10 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 Sem Upstash tudo degrada para memória (perde persistência entre restarts, mas funciona).
 
 ## 8. Modelo de score do bot-filter (cloaking)
-Cada visita retorna `{ verdict:'real'|'bot', score:0-100, signals[] }`. **`score >= threshold` ⇒ bot ⇒ white page.**
+Cada visita retorna `{ verdict:'real'|'bot', score:0-100, signals[], threshold, resolvedAt, asn, org }`.
+**`score >= threshold` ⇒ bot ⇒ white page.** Os campos `asn`/`org` (infra resolvida) e `resolvedAt`
+(ms do julgamento) são consumidos SÓ pela transparência do `/api/cloak/test`/painel — não alteram a
+decisão nem o redirect. `asn=0`/`org=''` = desconhecido/privado; `asn:deadline` ⇒ `org='timeout'`.
 - **Threshold:** padrão 40; presets de sensibilidade `strict:30 / balanced:40 / loose:55` (têm prioridade
   sobre threshold manual). Clamp final 10–90. `deadlineMs` clamp 40–500 (padrão 120).
 - **Sinais (exemplos e pesos):** `ua:ausente` +55, `ua:headless` (SwiftShader/llvmpipe) +50,
