@@ -627,6 +627,7 @@ export function LinksView() {
         <LinkEditor
           link={editing}
           domains={domainsData?.domains ?? []}
+          appHost={appHost}
           onClose={() => {
             setCreating(false)
             setEditing(null)
