@@ -14,11 +14,11 @@
 |------|--------|-------|--------|
 | 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
 | 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~15/20 |
-| 3 | Bugs reais + capacidades órfãs | 31–140 | ~87/110 |
+| 3 | Bugs reais + capacidades órfãs | 31–140 | ~98/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 12/130 (241–252 ✅) |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~124/570** — Leva 1 (backend) 100% + **faixa 31–113 COMPLETA** (bugs reais, robustez, testes, a11y, responsividade, Links, Pixels, Gateways) + itens 241–252 (durabilidade de schema) concluídos
+**Total concluído: ~135/570** — Leva 1 (backend) 100% + **faixa 31–132 COMPLETA** (bugs reais, robustez, testes, a11y, responsividade, Links, Pixels, Gateways, Domínios) + itens 241–252 (durabilidade de schema) concluídos; da Leva 3 faltam apenas 133–140 (aba Cloak)
 
 ## Itens concluídos (com evidência)
 
@@ -165,7 +165,7 @@ Evidência: `node --check` limpo nos 4 módulos + 4/4 suítes de teste passando 
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Demais itens da Leva 3 (120–130, 133–140)
+1. Demais itens da Leva 3 (133–140)
 2. 15, 18, 22, 24, 26 — refinos visuais das 5 abas
 3. Leva 4 em diante (141–240, 253–570) — 241–252 já concluídos (antecipados)
 
