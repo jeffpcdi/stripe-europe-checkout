@@ -149,6 +149,23 @@ export function PixelsView() {
     mutate()
   }
 
+  // Item 49: toggle ativo/pausado inline com atualização OTIMISTA — o backend
+  // faz merge-patch (só `active` muda; token/eventos são preservados).
+  async function handleToggleActive(p: Pixel) {
+    const next = !p.active
+    mutate(
+      (cur) =>
+        cur ? { ...cur, pixels: cur.pixels.map((x) => (x.slug === p.slug ? { ...x, active: next } : x)) } : cur,
+      { revalidate: false },
+    )
+    try {
+      await apiSend('/api/pixels', 'POST', { slug: p.slug, active: next })
+      mutate()
+    } catch {
+      mutate() // reverte para o estado do servidor em caso de erro
+    }
+  }
+
   async function handleTest(p: Pixel) {
     const event = testEvent[p.slug] || 'ViewContent'
     setTesting(p.slug)
@@ -271,6 +288,23 @@ export function PixelsView() {
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
+                      {/* Item 49: toggle inline ativo/pausado (otimista) */}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={p.active}
+                        aria-label={p.active ? `Pausar pixel ${p.name}` : `Ativar pixel ${p.name}`}
+                        onClick={() => handleToggleActive(p)}
+                        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          p.active ? 'bg-brand-cyan' : 'bg-secondary'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 size-4 rounded-full bg-background shadow transition-transform ${
+                            p.active ? 'translate-x-4' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
                       <StatusBadge status={p.active ? 'success' : 'neutral'}>
                         {p.active ? 'ativo' : 'pausado'}
                       </StatusBadge>
@@ -866,6 +900,13 @@ function PixelEditor({
               placeholder={pixel?.hasToken ? 'mantém o atual se não alterar' : 'cole o token do TikTok'}
               autoComplete="off"
             />
+            {/* Item 50: sem token os eventos server-side (CAPI) não disparam */}
+            {!accessToken.trim() && !pixel?.hasToken && (
+              <span className="rounded-md bg-[color:var(--warning)]/10 px-2 py-1.5 text-[11px] text-[color:var(--warning)] text-pretty">
+                Sem o Access Token, os eventos server-side (Events API) não disparam — o pixel só
+                funciona no navegador. Gere o token no TikTok Events Manager.
+              </span>
+            )}
           </label>
 
           <label className="flex flex-col gap-1.5">

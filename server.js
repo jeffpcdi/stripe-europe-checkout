@@ -1342,7 +1342,8 @@ app.get('/api/status', (req, res) => {
     ok: db.enabled,               // precisa ser true para registro/login funcionarem
     db: db.enabled,               // DATABASE_URL configurada?
     redis: !!(rdb && rdb.enabled),// UPSTASH_* configurada? (opcional)
-    hint: db.enabled ? undefined : 'DATABASE_URL ausente: configure a connection string do Neon nas variáveis de ambiente do servidor (ex.: painel do Railway).'
+    // Item 47: rota é pública — sem citar plataforma de hospedagem interna.
+    hint: db.enabled ? undefined : 'DATABASE_URL ausente: configure a connection string do banco nas variáveis de ambiente do servidor.'
   });
 });
 
@@ -2569,7 +2570,7 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
 });
 
 // ���─ API: zerar estatísticas ──────────────────────────────────────────
-// ═══ TikTok multi-pixel ═══════════════════════════════════════════════
+// ═══ TikTok multi-pixel ═════════════════════════════════════════════��═
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
 // editar um pixel (arquivo em pixels/ ou painel) atualiza todas as p��ginas.
@@ -2757,10 +2758,22 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
   try {
     const b = req.body || {};
     if (!b.pixelCode && !b.slug) return res.status(400).json({ error: 'pixelCode é obrigatório' });
-    // Se editar sem reenviar token, mantém o existente (o form manda mascarado)
-    if (b.slug && b.accessToken && b.accessToken.indexOf('••••') === 0) {
+    // Item 49: edição parcial segura — para slug existente, campos AUSENTES do
+    // payload preservam o valor atual (merge-patch). Permite toggles inline
+    // (ex.: ativo/pausado) sem reenviar token/eventos e sem risco de apagá-los.
+    if (b.slug) {
       const existing = pixelStore.get(req.account.id, pixelStore.slugify(b.slug));
-      if (existing) b.accessToken = existing.accessToken;
+      if (existing) {
+        // Token mascarado (form) ou ausente (patch) → mantém o existente
+        if (b.accessToken === undefined || (b.accessToken && b.accessToken.indexOf('••••') === 0)) {
+          b.accessToken = existing.accessToken;
+        }
+        if (b.pixelCode === undefined) b.pixelCode = existing.pixelCode;
+        if (b.name === undefined) b.name = existing.name;
+        if (b.events === undefined) b.events = existing.events;
+        if (b.testEventCode === undefined) b.testEventCode = existing.testEventCode;
+        if (b.active === undefined) b.active = existing.active;
+      }
     }
     const saved = await pixelStore.save(req.account.id, b);
     stats.logEvent(saved._durable ? 'info' : 'error', {
