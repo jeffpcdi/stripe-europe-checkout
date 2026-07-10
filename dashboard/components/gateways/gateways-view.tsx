@@ -11,13 +11,71 @@ import {
   CircleCheck,
   CircleX,
   Info,
+  Pencil,
+  RefreshCw,
 } from 'lucide-react'
 import { useGateways, useConversionLog, apiSend } from '@/lib/api'
-import type { Gateway, GatewayProvider } from '@/lib/types'
+import type { Gateway, GatewayProvider, GatewayTestResult, GatewayRotateResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
+import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
+
+// Tutorial da aba Gateways — inclui a regra de ouro: venda só conta quando o
+// GATEWAY confirma o pagamento via webhook (nunca pelo navegador do cliente).
+const GATEWAY_STEPS: TutorialStep[] = [
+  {
+    title: 'O que o gateway faz aqui',
+    body: (
+      <>
+        O gateway (Stripe, Hotmart, Kiwify…) é quem processa o pagamento. Quando alguém compra, ele avisa
+        o nosso servidor por <strong>webhook</strong> — e só então registramos a venda e disparamos o
+        evento de <strong>Compra</strong> para o TikTok.
+      </>
+    ),
+    tip: 'É por isso que venda NUNCA é contada pelo navegador do cliente: só o gateway confirma pagamento real.',
+  },
+  {
+    title: '1. Crie o gateway',
+    body: (
+      <>
+        Clique em <strong>Novo gateway</strong>, escolha o provedor e dê um nome. Geramos uma{' '}
+        <strong>URL de webhook única</strong> para ele — essa URL é o seu &quot;script&quot; de integração:
+        não precisa colar código nenhum na página.
+      </>
+    ),
+  },
+  {
+    title: '2. Cole a URL no painel do checkout',
+    body: (
+      <>
+        No painel do seu gateway, procure <strong>Webhooks</strong> (ou &quot;Notificações&quot; /
+        &quot;Postback&quot;) e cole a URL copiada. Marque os eventos de <strong>pagamento aprovado</strong>{' '}
+        (e reembolso/chargeback, se houver).
+      </>
+    ),
+    tip: 'Cada gateway tem a própria URL — não reutilize a mesma URL em dois gateways.',
+  },
+  {
+    title: '3. Teste o fluxo',
+    body: (
+      <>
+        Use <strong>Testar fluxo</strong> para simular uma confirmação de pagamento e ver o caminho
+        completo: webhook recebido → lead casado → evento CompletePayment na fila do TikTok.
+      </>
+    ),
+  },
+  {
+    title: '4. Acompanhe o diário de conversões',
+    body: (
+      <>
+        O painel ao lado mostra cada webhook que chegou e o que aconteceu com ele (aceito, duplicado,
+        recusado e por quê). Se uma venda não apareceu, é aqui que você descobre o motivo.
+      </>
+    ),
+  },
+]
 
 // Item 73: cor da marca por provedor — cápsula e borda no hover
 const PROVIDER_COLORS: Record<string, string> = {
@@ -39,9 +97,15 @@ export function GatewaysView() {
   const { data: convLog, mutate: mutateLog } = useConversionLog()
 
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<Gateway | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [testing, setTesting] = useState(false)
+  // Teste por card: resultado atrelado ao id do gateway
+  const [cardTest, setCardTest] = useState<{ id: string; ok: boolean; msg: string; note?: string } | null>(null)
+  const [cardTesting, setCardTesting] = useState<string | null>(null)
+  const [rotating, setRotating] = useState<string | null>(null)
+  const [showTutorial, setShowTutorial] = useState(false)
 
   const providers = data?.providers ?? []
   const gateways = data?.gateways ?? []
@@ -57,6 +121,52 @@ export function GatewaysView() {
     if (!window.confirm(`Remover o gateway "${g.name}"? Os webhooks dele deixam de ser processados.`)) return
     await apiSend(`/api/gateways/${encodeURIComponent(g.id)}`, 'DELETE')
     mutate()
+  }
+
+  // Teste POR gateway: usa o token real daquele gateway e mostra a nota de assinatura
+  async function handleCardTest(g: Gateway) {
+    setCardTesting(g.id)
+    setCardTest(null)
+    try {
+      const r = await apiSend<GatewayTestResult>(`/api/gateways/${encodeURIComponent(g.id)}/test`, 'POST')
+      const rc = r.receipt as { status?: string; matched?: boolean } | undefined
+      setCardTest({
+        id: g.id,
+        ok: r.ok !== false && !r.error,
+        msg: r.ok
+          ? `Fluxo OK — status "${rc?.status ?? 'paid'}"${rc?.matched ? ', lead casado' : ' (dry-run)'}`
+          : r.error || 'Falha no teste',
+        note: r.signatureNote,
+      })
+      mutateLog()
+    } catch (e) {
+      setCardTest({ id: g.id, ok: false, msg: e instanceof Error ? e.message : 'Falha no teste' })
+    } finally {
+      setCardTesting(null)
+    }
+  }
+
+  // Rotação do webhook: a URL antiga para de funcionar imediatamente
+  async function handleRotate(g: Gateway) {
+    if (
+      !window.confirm(
+        `Rotacionar o webhook de "${g.name}"? A URL atual PARA de funcionar na hora — você precisará colar a nova no painel do checkout.`,
+      )
+    )
+      return
+    setRotating(g.id)
+    try {
+      const r = await apiSend<GatewayRotateResult>(`/api/gateways/${encodeURIComponent(g.id)}/rotate`, 'POST')
+      if (r.ok) {
+        await navigator.clipboard.writeText(r.webhookUrl).catch(() => {})
+        setCardTest({ id: g.id, ok: true, msg: 'Novo webhook gerado e copiado. Cole no painel do seu gateway.' })
+        mutate()
+      }
+    } catch (e) {
+      setCardTest({ id: g.id, ok: false, msg: e instanceof Error ? e.message : 'Falha ao rotacionar' })
+    } finally {
+      setRotating(null)
+    }
   }
 
   async function handleTest() {
@@ -97,6 +207,7 @@ export function GatewaysView() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <TutorialButton onClick={() => setShowTutorial(true)} />
               <button
                 type="button"
                 onClick={handleTest}
@@ -205,7 +316,48 @@ export function GatewaysView() {
                       </p>
                     )}
 
-                    <div className="mt-3 flex justify-end border-t border-border pt-3">
+                    {/* Resultado do teste/rotação POR card */}
+                    {cardTest?.id === g.id && (
+                      <div
+                        className={`mt-3 rounded-lg px-3 py-2 text-xs ${
+                          cardTest.ok ? 'bg-[var(--success-light)] text-success' : 'bg-destructive/10 text-destructive'
+                        }`}
+                        role="status"
+                      >
+                        <p className="flex items-center gap-2">
+                          {cardTest.ok ? <CircleCheck className="size-3.5" /> : <CircleX className="size-3.5" />}
+                          {cardTest.msg}
+                        </p>
+                        {cardTest.note && (
+                          <p className="mt-1 pl-5 text-[11px] text-muted-foreground text-pretty">{cardTest.note}</p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-border pt-3">
+                      <button
+                        type="button"
+                        onClick={() => handleCardTest(g)}
+                        disabled={cardTesting === g.id}
+                        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                      >
+                        <Zap className="size-3.5" /> {cardTesting === g.id ? 'Testando…' : 'Testar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditing(g)}
+                        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      >
+                        <Pencil className="size-3.5" /> Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRotate(g)}
+                        disabled={rotating === g.id}
+                        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                      >
+                        <RefreshCw className={`size-3.5 ${rotating === g.id ? 'animate-spin' : ''}`} /> Rotacionar
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleDelete(g)}
@@ -252,12 +404,24 @@ export function GatewaysView() {
         </GlassCard>
       </div>
 
-      {creating && (
+      <TutorialModal
+        open={showTutorial}
+        onClose={() => setShowTutorial(false)}
+        title="Como conectar seu gateway de pagamento"
+        steps={GATEWAY_STEPS}
+      />
+
+      {(creating || editing) && (
         <GatewayEditor
           providers={providers}
-          onClose={() => setCreating(false)}
+          gateway={editing}
+          onClose={() => {
+            setCreating(false)
+            setEditing(null)
+          }}
           onSaved={() => {
             setCreating(false)
+            setEditing(null)
             mutate()
           }}
         />
@@ -266,18 +430,20 @@ export function GatewaysView() {
   )
 }
 
-// ── Editor inline (modal) ─────────────────────────────────────────────
+// ── Editor inline (modal) — cria ou edita um gateway ──────────────────
 function GatewayEditor({
   providers,
+  gateway,
   onClose,
   onSaved,
 }: {
   providers: GatewayProvider[]
+  gateway: Gateway | null
   onClose: () => void
   onSaved: () => void
 }) {
-  const [provider, setProvider] = useState(providers[0]?.id ?? 'generic')
-  const [name, setName] = useState('')
+  const [provider, setProvider] = useState(gateway?.provider ?? providers[0]?.id ?? 'generic')
+  const [name, setName] = useState(gateway?.name ?? '')
   const [secret, setSecret] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -289,6 +455,9 @@ function GatewayEditor({
     setError(null)
     try {
       await apiSend('/api/gateways', 'POST', {
+        // Na edição enviamos o id: o backend preserva o webhookToken e só troca
+        // o segredo se um novo for digitado (campo em branco mantém o atual).
+        id: gateway?.id,
         provider,
         name: name.trim() || undefined,
         secret: secret.trim() || undefined,
@@ -309,10 +478,12 @@ function GatewayEditor({
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm md:items-center"
       role="dialog"
       aria-modal="true"
-      aria-label="Novo gateway"
+      aria-label={gateway ? 'Editar gateway' : 'Novo gateway'}
     >
       <GlassCard variant="thick" className="my-8 w-full max-w-lg p-6">
-        <h2 className="mb-5 text-base font-semibold text-foreground">Novo gateway de pagamento</h2>
+        <h2 className="mb-5 text-base font-semibold text-foreground">
+          {gateway ? `Editar gateway: ${gateway.name}` : 'Novo gateway de pagamento'}
+        </h2>
         <div className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Provedor</span>
@@ -341,7 +512,9 @@ function GatewayEditor({
               className={inputCls}
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
-              placeholder="deixe em branco se não usar"
+              placeholder={
+                gateway?.hasSecret ? 'mantém o segredo atual se deixar em branco' : 'deixe em branco se não usar'
+              }
               autoComplete="off"
             />
           </label>

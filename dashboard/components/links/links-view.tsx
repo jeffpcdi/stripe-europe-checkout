@@ -1,12 +1,55 @@
 'use client'
 
-import { useState } from 'react'
-import { Link2, Plus, Copy, Check, Pencil, Trash2, Globe, Languages, QrCode } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link2, Plus, Copy, Check, Pencil, Trash2, Globe, Languages, QrCode, TriangleAlert } from 'lucide-react'
+import QRCodeLib from 'qrcode'
 import { useLinks, useDomains, apiSend } from '@/lib/api'
 import type { CheckoutLink } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { LinkEditor } from './link-editor'
+
+const LINK_STEPS: TutorialStep[] = [
+  {
+    title: 'O que é um link de checkout',
+    body: (
+      <>
+        É um link <code>/go/seu-slug</code> que você usa nos anúncios. Ele rastreia o clique, aplica
+        cloaker e split A/B quando você quiser, e leva o visitante ao checkout certo.
+      </>
+    ),
+  },
+  {
+    title: '1. Crie o link',
+    body: (
+      <>
+        Clique em <strong>Novo link</strong>, dê um nome e defina o <code>slug</code> (o final da URL).
+        Adicione uma ou mais <strong>variantes</strong> de destino para testar ofertas (split A/B).
+      </>
+    ),
+    tip: 'Com 2+ variantes, o tráfego é dividido automaticamente e você compara a conversão de cada uma.',
+  },
+  {
+    title: '2. Use domínio próprio (opcional)',
+    body: (
+      <>
+        Se você verificou um domínio na aba <strong>Domínios</strong>, escolha-o aqui para o link sair
+        com a sua marca em vez do domínio padrão.
+      </>
+    ),
+  },
+  {
+    title: '3. Cloaker e segmentação',
+    body: (
+      <>
+        Configure página branca (white page), países e idiomas permitidos. Assim, quem não é público-alvo
+        (ou o robô de revisão) vê a página segura, e o comprador real vê a oferta.
+      </>
+    ),
+    tip: 'Copie a URL pronta pelo botão de copiar ou gere um QR code para mídia offline.',
+  },
+]
 
 export function LinksView() {
   const { data, isLoading, mutate } = useLinks()
@@ -15,11 +58,42 @@ export function LinksView() {
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
-  // Item 71: QR code em popover glass por link
+  // Item 71: QR code em popover glass por link — gerado LOCALMENTE (a URL do
+  // link nunca sai para um serviço de terceiros)
   const [qrFor, setQrFor] = useState<string | null>(null)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [showTutorial, setShowTutorial] = useState(false)
 
   const appHost = domainsData?.appHost ?? ''
   const links = data?.links ?? []
+  const verifiedHosts = new Set((domainsData?.domains ?? []).filter((d) => d.verificado).map((d) => d.host))
+
+  // Gera o QR no navegador quando o popover abre
+  useEffect(() => {
+    if (!qrFor) {
+      setQrDataUrl(null)
+      return
+    }
+    const link = links.find((l) => l.slug === qrFor)
+    if (!link) return
+    const url = `https://${link.dominio || appHost}/go/${link.slug}`
+    let alive = true
+    QRCodeLib.toDataURL(url, {
+      width: 140,
+      margin: 1,
+      color: { dark: '#25f4ee', light: '#0d0d10' },
+    })
+      .then((d) => {
+        if (alive) setQrDataUrl(d)
+      })
+      .catch(() => {
+        if (alive) setQrDataUrl(null)
+      })
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qrFor, appHost])
 
   function publicUrl(l: CheckoutLink) {
     const host = l.dominio || appHost
@@ -54,14 +128,24 @@ export function LinksView() {
         <p className="text-sm text-muted-foreground">
           {links.length} link{links.length === 1 ? '' : 's'} de checkout
         </p>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
-        >
-          <Plus className="size-4" /> Novo link
-        </button>
+        <div className="flex items-center gap-2">
+          <TutorialButton onClick={() => setShowTutorial(true)} />
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
+          >
+            <Plus className="size-4" /> Novo link
+          </button>
+        </div>
       </div>
+
+      <TutorialModal
+        open={showTutorial}
+        onClose={() => setShowTutorial(false)}
+        title="Como criar seus links de checkout"
+        steps={LINK_STEPS}
+      />
 
       {links.length === 0 ? (
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
@@ -97,6 +181,15 @@ export function LinksView() {
                       {l.urlWhitePage && (
                         <span className="rounded-md bg-[color:var(--brand-pink)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-pink)]">
                           Cloak
+                        </span>
+                      )}
+                      {/* Aviso: o link usa domínio próprio que ainda não verificou — a URL vai dar erro */}
+                      {l.dominio && !verifiedHosts.has(l.dominio) && (
+                        <span
+                          className="flex items-center gap-1 rounded-md bg-[color:var(--warning)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--warning)]"
+                          title={`O domínio ${l.dominio} ainda não foi verificado na aba Domínios — este link não funciona até verificar.`}
+                        >
+                          <TriangleAlert className="size-3" aria-hidden="true" /> domínio não verificado
                         </span>
                       )}
                     </div>
@@ -148,14 +241,20 @@ export function LinksView() {
                     </button>
                     {qrFor === l.slug && (
                       <div className="glass glass-thick anim-pop-in absolute right-0 top-11 z-20 flex flex-col items-center gap-2 p-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&bgcolor=13-13-16&color=37-244-238&data=${encodeURIComponent(publicUrl(l))}`}
-                          alt={`QR code do link ${l.nome}`}
-                          width={140}
-                          height={140}
-                          className="rounded-md"
-                        />
+                        {qrDataUrl ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={qrDataUrl || "/placeholder.svg"}
+                            alt={`QR code do link ${l.nome}`}
+                            width={140}
+                            height={140}
+                            className="rounded-md"
+                          />
+                        ) : (
+                          <div className="flex size-[140px] items-center justify-center rounded-md bg-secondary/60">
+                            <QrCode className="size-6 animate-pulse text-muted-foreground" aria-hidden="true" />
+                          </div>
+                        )}
                         <span className="font-mono text-[10px] text-muted-foreground">/go/{l.slug}</span>
                       </div>
                     )}

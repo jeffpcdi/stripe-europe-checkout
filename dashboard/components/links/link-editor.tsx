@@ -44,6 +44,12 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Validação de pesos do split A/B: só conta variantes com URL preenchida.
+  // Com 2+ variantes a soma precisa ser 100 para a divisão fazer sentido.
+  const activeVariants = variantes.filter((v) => v.url.trim())
+  const totalPeso = activeVariants.reduce((s, v) => s + (Number.isFinite(v.peso) ? v.peso : 0), 0)
+  const pesoInvalido = activeVariants.length >= 2 && totalPeso !== 100
+
   function updateVariant(i: number, patch: Partial<VariantDraft>) {
     setVariantes((vs) => vs.map((v, j) => (j === i ? { ...v, ...patch } : v)))
   }
@@ -185,6 +191,17 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">
                 Variantes (split A/B por peso)
+                {activeVariants.length >= 2 && (
+                  <span
+                    className={`ml-2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+                      pesoInvalido
+                        ? 'bg-[color:var(--warning)]/15 text-[color:var(--warning)]'
+                        : 'bg-[color:var(--success)]/15 text-[color:var(--success)]'
+                    }`}
+                  >
+                    soma {totalPeso}%
+                  </span>
+                )}
               </span>
               <button
                 type="button"
@@ -194,6 +211,12 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
                 <Plus className="size-3.5" /> Adicionar
               </button>
             </div>
+            {pesoInvalido && (
+              <p className="mb-2 rounded-lg bg-[color:var(--warning)]/10 px-3 py-2 text-xs text-[color:var(--warning)] text-pretty" role="alert">
+                Os pesos das variantes precisam somar 100% (atualmente {totalPeso}%). Ajuste os valores para o
+                split A/B dividir o tráfego direito.
+              </p>
+            )}
             <div className="flex flex-col gap-2">
               {variantes.map((v, i) => (
                 <div key={v.id} className="rounded-lg border border-border bg-secondary/40 p-3">
@@ -279,7 +302,7 @@ export function LinkEditor({ link, domains, onClose, onSaved }: LinkEditorProps)
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || !nome.trim() || !variantes.some((v) => v.url.trim())}
+              disabled={saving || !nome.trim() || !variantes.some((v) => v.url.trim()) || pesoInvalido}
               className="rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               {saving ? 'Salvando…' : 'Salvar link'}

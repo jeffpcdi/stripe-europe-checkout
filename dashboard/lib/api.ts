@@ -19,6 +19,7 @@ import type {
   CloakEntriesResponse,
   Account,
   PushcutConfig,
+  AccountSettings,
 } from './types'
 
 export class ApiError extends Error {
@@ -163,6 +164,14 @@ export function useCloakEntries() {
 export function useAccount() {
   return useSWR<Account>('/api/me', fetcher, {
     revalidateOnFocus: false,
+  })
+}
+
+// Configurações da conta (moeda padrão dos disparos/testes)
+export function useAccountSettings() {
+  return useSWR<AccountSettings>('/api/settings', fetcher, {
+    revalidateOnFocus: false,
+    keepPreviousData: true,
   })
 }
 

@@ -143,7 +143,26 @@ async function remove(accountId, id) {
 function touch(id, status) {
   const g = cache.find((x) => x.id === id);
   if (g) { g.lastEventAt = new Date().toISOString(); g.lastEventStatus = status || null; }
-  if (db.enabled) db.touchGateway(id, status);
+  // Escrita no banco é best-effort: NUNCA pode derrubar o processamento do
+  // webhook. Antes rodava sem await/catch (falha silenciosa) — agora capturamos
+  // e logamos, mas seguimos em frente (o cache em memória já foi atualizado).
+  if (db.enabled) {
+    Promise.resolve()
+      .then(() => db.touchGateway(id, status))
+      .catch((e) => console.warn('[gateways] touch falhou (seguindo mesmo assim):', e && e.message));
+  }
+}
+
+// Rotaciona o webhook token (item 100): gera um token novo, invalidando a URL
+// antiga. Usado quando o segredo/URL vaza. Mantém o resto do registro.
+async function rotateToken(accountId, id) {
+  const g = get(accountId, id);
+  if (!g) return null;
+  g.webhookToken = newToken();
+  const idx = cache.findIndex((x) => x.id === g.id);
+  if (idx >= 0) cache[idx] = g;
+  if (db.enabled) await db.upsertGateway(g);
+  return { ...g };
 }
 
 // ── Verificação de assinatura por provider ─────────────────────────────────
@@ -248,6 +267,6 @@ function adaptPayload(provider, body) {
 
 module.exports = {
   PROVIDERS,
-  init, list, get, save, remove, findByToken, touch,
+  init, list, get, save, remove, findByToken, touch, rotateToken,
   verifySignature, adaptPayload
 };

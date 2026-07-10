@@ -168,8 +168,12 @@ export interface DomainDnsRecords {
   txt: { host: string; value: string } | null
 }
 
+// Uso do domínio: onde ele vale — links de checkout, cloaker ou ambos
+export type DomainUso = 'checkout' | 'cloaker' | 'ambos'
+
 export interface CustomDomain {
   host: string
+  uso?: DomainUso
   verificado: boolean
   verificadoEm?: string | null
   criadoEm: string
@@ -440,6 +444,50 @@ export interface Account {
   email: string
   name: string
   role: string
+}
+
+// ── /api/settings — configurações da conta (moeda padrão) ──
+export interface AccountSettings {
+  defaultCurrency: string // ex.: 'BRL' — fallback de moeda dos disparos/testes
+}
+
+// ── /api/pixels/test — resultado do teste de disparo ──
+export interface PixelTestResult {
+  ok: boolean
+  event?: string // evento realmente testado (ViewContent, CompletePayment…)
+  eventId?: string
+  code?: number
+  message?: string
+  messagePtBr?: string | null // tradução amigável do erro (null = sucesso)
+  error?: string
+  response?: unknown
+}
+
+// ── /api/pixels/verify-url — verificação de instalação por URL externa ──
+export interface PixelVerifyUrlResult {
+  ok: boolean
+  found: boolean
+  scriptFound: boolean
+  pixelCodeFound: boolean
+  signals: string[]
+  status?: number
+  detail?: string
+  error?: string
+}
+
+// ── /api/gateways/:id/test — teste por gateway ──
+export interface GatewayTestResult {
+  ok: boolean
+  gateway?: { id: string; name: string; provider: string }
+  signatureNote?: string
+  receipt?: unknown
+  error?: string
+}
+
+// ── /api/gateways/:id/rotate — rotação do webhook token ──
+export interface GatewayRotateResult {
+  ok: boolean
+  webhookUrl: string
 }
 
 // ── /api/pushcut-config — notificações push ──
