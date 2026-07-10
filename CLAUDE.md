@@ -586,10 +586,14 @@ Configurações. Cada página é um `page.tsx` fino que renderiza a view de `com
   países (`countries.geojson`), pontos de tráfego, controles de zoom e modal fullscreen.
 - **Plano de refinamento pendente:** `docs/PLANO-REFINAMENTO-VISUAL.md` — 206 alterações numeradas
 em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem** (coerência primeiro).
-- **Plano ativo (570 modificações):** `v0_plans/pragmatic-flow.md` — 7 levas cobrindo backend, as
+- **Plano ativo (570 modificações):** `PLANO-PRAGMATIC-FLOW.md` (raiz; antes `v0_plans/pragmatic-flow.md`,
+movido porque `v0_plans/` é diretório reservado do ambiente v0) — 7 levas cobrindo backend, as
 5 sub-abas da Gestão, shell, lado público e camadas transversais. **Progresso rastreado item a item
 em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluído, com evidência.
-**Leva 1 (backend, itens 1–10) 100% concluída.** Entregues (~52): moeda por conta+UI, uso por
+**Leva 1 (backend, itens 1–10) 100% concluída. Itens 241–252 (durabilidade de schema) 100%
+concluídos (antecipados):** tabela `custom_domains`, coluna `accounts.currency`, snapshot Redis
+`domains:all`, write-through assíncrono via `config.set` e reconciliação no boot (§8/§10).
+Entregues (~70): moeda por conta+UI, uso por
 domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
 log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
 tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
