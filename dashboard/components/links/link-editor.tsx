@@ -26,6 +26,8 @@ interface LinkEditorProps {
   domains: CustomDomain[]
   /** Host padrão do app (para montar a URL pública no UTM builder). */
   appHost?: string
+  /** Item 124: domínio pré-selecionado (atalho "usar em um link" da aba Domínios). */
+  presetDominio?: string | null
   onClose: () => void
   onSaved: () => void
 }
@@ -52,10 +54,11 @@ function slugify(s: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
-export function LinkEditor({ link, domains, appHost = '', onClose, onSaved }: LinkEditorProps) {
+export function LinkEditor({ link, domains, appHost = '', presetDominio = null, onClose, onSaved }: LinkEditorProps) {
   const [nome, setNome] = useState(link?.nome ?? '')
   const [slug, setSlug] = useState(link?.slug ?? '')
-  const [dominio, setDominio] = useState(link?.dominio ?? '')
+  // Item 124: criação vinda do atalho da aba Domínios já nasce com o domínio
+  const [dominio, setDominio] = useState(link?.dominio ?? presetDominio ?? '')
   const [urlWhitePage, setUrlWhitePage] = useState(link?.urlWhitePage ?? '')
   // Item 75: seleção por nome (arrays de códigos) em vez de texto livre
   const [paises, setPaises] = useState<string[]>(link?.paises ?? [])

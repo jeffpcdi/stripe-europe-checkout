@@ -132,6 +132,18 @@
 - ✅ 109. Nome único por conta — backend já validava (case-insensitive, ignora o próprio registro na edição) e o editor exibe o erro via `setError`
 - ✅ 110. Cópia do webhook com anúncio `aria-live` (região `role=status` sr-only, padrão do item 93) — verificado ao vivo
 
+### Leva 3 — Aba Domínios (120–130)
+
+- ✅ 120. Card mostra "Verificado e ativo desde DD/MM/AAAA" (`verificadoEm`) + sufixo "reconectado à hospedagem" quando o verify re-registra (`result.reconectado`) — verificado ao vivo
+- ✅ 121. Botão "Copiar tudo (CNAME + TXT)" no tutorial de DNS — bloco em formato de zona para colar de uma vez — verificado ao vivo
+- ✅ 122. Checagem rápida de propagação via DoH (cloudflare-dns.com/dns-query, CORS ok) direto do navegador: botão "Já propagou? Checar agora" compara o CNAME respondido com o target e dá feedback em segundos (propagou / aponta pro lugar errado / ainda não) — verificado ao vivo (resposta real de DNS)
+- ✅ 123. Dica de TTL (300s/Auto) + aviso automático quando o host é apex (2 labels): CNAME não funciona em domínio raiz em muitos registradores → sugerir subdomínio ou ALIAS/flattening — verificado ao vivo
+- ✅ 124. Atalho "Usar em um link" no card de domínio verificado (oculto para uso=cloaker) → navega para `/dashboard/links?novo=1&dominio=host`; links-view lê o param, abre o editor com o domínio pré-selecionado e limpa a URL — verificado ao vivo (select pré-preenchido)
+- ✅ 125. Diagnóstico dirigido no resultado do verify: DNS falhou → botão que reabre o tutorial ("O DNS ainda não aponta pra cá"); DNS ok + HTTPS pendente → mensagem "falta só o certificado, é automático"; proxy Cloudflare já tinha badge própria
+- ✅ 127. Falha de REDE no verify ganha estado próprio (`networkError` no tipo): banner âmbar "falha de conexão — o DNS pode estar certo" com botão "Tentar de novo", em vez do resultado genérico que parecia DNS pendente
+- ✅ 129. Estado vazio guiado: explica o benefício do domínio próprio + CTA "Ver como funciona" abrindo o tutorial conceitual
+- ✅ 126/128/130 — auditados e JÁ IMPLEMENTADOS: mensagens do domain-provider já são neutras (grep sem termos internos; notas mapeadas em server.js — itens 8/20), limite de 20 domínios + erro de duplicado/outra conta no POST (128), verify chama `linkStore.markDomainValidated` para todos os hosts verificados e o mutate reflete na UI (130)
+
 ### Leva 6 — Durabilidade de schema e persistência (241–252) — ANTECIPADA
 
 - ✅ 241. Tabela `custom_domains` no Neon (host PK, account_id, uso, verificado, verificado_em, provider_id, provider_note, dns jsonb, timestamps) criada no `init()` do `db.js`

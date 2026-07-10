@@ -156,6 +156,8 @@ export function DomainsView() {
       setResults((r) => ({ ...r, [h]: res }))
       mutate()
     } catch (e) {
+      // Item 127: falha de REDE (fetch caiu) é diferente de "DNS pendente" —
+      // marca networkError para a UI oferecer retry em vez do estado genérico
       setResults((r) => ({
         ...r,
         [h]: {
@@ -165,6 +167,7 @@ export function DomainsView() {
           dnsDetail: e instanceof Error ? e.message : 'erro',
           httpOk: false,
           httpDetail: '',
+          networkError: true,
         },
       }))
     } finally {
@@ -259,6 +262,18 @@ export function DomainsView() {
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
           <Globe className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Nenhum domínio personalizado ainda.</p>
+          {/* Item 129: estado vazio guiado — explica o benefício e abre o tutorial */}
+          <p className="max-w-sm text-xs text-muted-foreground text-pretty">
+            Com um domínio seu (ex.: <code>link.seudominio.com</code>), os links ficam com a sua marca e passam mais
+            confiança nos anúncios.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowIntro(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-brand-cyan/40 px-3 py-1.5 text-xs font-medium text-brand-cyan transition-colors hover:bg-brand-cyan/10"
+          >
+            <BookOpen className="size-3.5" /> Ver como funciona
+          </button>
         </GlassCard>
       ) : (
         <div className="flex flex-col gap-3" data-tour="domains-list">
@@ -352,6 +367,49 @@ function DnsTutorialModal({
   const cnameTarget = dns?.cname?.target || appHost
   const txt = dns?.txt ?? null
 
+  // Item 121: bloco completo em formato de zona — cola tudo de uma vez em
+  // registradores que aceitam edição em texto (ou serve de "colinha" completa)
+  const [blockCopied, setBlockCopied] = useState(false)
+  const dnsBlock = [
+    `${cnameHost}  CNAME  ${cnameTarget}`,
+    ...(txt ? [`${txt.host}  TXT  "${txt.value}"`] : []),
+  ].join('\n')
+  async function copyBlock() {
+    await navigator.clipboard.writeText(dnsBlock)
+    setBlockCopied(true)
+    setTimeout(() => setBlockCopied(false), 1500)
+  }
+
+  // Item 123: apex (domínio raiz, sem subdomínio) não aceita CNAME em muitos
+  // registradores — detectar e orientar para subdomínio
+  const isApex = host.split('.').length === 2
+
+  // Item 122: checagem RÁPIDA de propagação direto do navegador via DoH
+  // (DNS-over-HTTPS da Cloudflare, com CORS liberado) — feedback em segundos,
+  // sem esperar o verify oficial do servidor
+  const [doh, setDoh] = useState<{ state: 'idle' | 'busy' | 'ok' | 'pending' | 'error'; detail?: string }>({
+    state: 'idle',
+  })
+  async function checkPropagation() {
+    setDoh({ state: 'busy' })
+    try {
+      const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(cnameHost)}&type=CNAME`, {
+        headers: { accept: 'application/dns-json' },
+      })
+      const json = (await res.json()) as { Answer?: { type: number; data: string }[] }
+      const cname = (json.Answer ?? []).find((a) => a.type === 5)
+      if (cname && cname.data.replace(/\.$/, '').toLowerCase() === cnameTarget.replace(/\.$/, '').toLowerCase()) {
+        setDoh({ state: 'ok', detail: 'O CNAME já propagou! Pode clicar em Verificar agora.' })
+      } else if (cname) {
+        setDoh({ state: 'pending', detail: `O DNS responde, mas aponta para ${cname.data} — confira o Valor/Destino.` })
+      } else {
+        setDoh({ state: 'pending', detail: 'O CNAME ainda não propagou — aguarde alguns minutos e cheque de novo.' })
+      }
+    } catch {
+      setDoh({ state: 'error', detail: 'Não foi possível checar agora — tente o botão Verificar mesmo assim.' })
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
@@ -406,10 +464,35 @@ function DnsTutorialModal({
               </p>
               <CopyField label="Nome / Host" value={cnameHost} />
               <CopyField label="Valor / Destino" value={cnameTarget} />
+              {/* Item 121: copiar CNAME + TXT de uma vez */}
+              <button
+                type="button"
+                onClick={copyBlock}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                {blockCopied ? (
+                  <Check className="size-3.5 text-[color:var(--success)]" />
+                ) : (
+                  <Copy className="size-3.5" />
+                )}
+                {blockCopied ? 'Bloco copiado!' : txt ? 'Copiar tudo (CNAME + TXT)' : 'Copiar registro completo'}
+              </button>
               <p className="text-xs text-muted-foreground text-pretty">
                 Na Cloudflare, deixe o proxy <strong>desligado</strong> (nuvem cinza, &quot;Somente DNS&quot;) — com a
                 nuvem laranja a verificação falha.
               </p>
+              {/* Item 123: TTL + aviso de apex */}
+              <p className="text-xs text-muted-foreground text-pretty">
+                Se o registrador pedir <strong>TTL</strong>, use o menor disponível (300s/&quot;Auto&quot;) — a
+                propagação fica mais rápida.
+              </p>
+              {isApex && (
+                <p className="rounded-lg border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-3 py-2 text-xs text-foreground text-pretty">
+                  <strong>{host}</strong> é um domínio raiz (sem subdomínio) — muitos registradores não aceitam
+                  CNAME nele. Se o seu recusar, use um subdomínio como <code>link.{host}</code> (ou o recurso
+                  &quot;ALIAS&quot;/&quot;CNAME flattening&quot; se o registrador tiver).
+                </p>
+              )}
             </div>
           </li>
 
@@ -428,12 +511,32 @@ function DnsTutorialModal({
 
           <li className="flex gap-3">
             <StepNumber n={txt ? 4 : 3} />
-            <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
               <p className="text-sm font-medium text-foreground">Aguarde e verifique</p>
-              <p className="mt-0.5 text-xs text-muted-foreground text-pretty">
+              <p className="text-xs text-muted-foreground text-pretty">
                 A propagação do DNS leva de alguns minutos a algumas horas. O SSL é emitido automaticamente — você não
                 precisa configurar mais nada além do DNS. Volte aqui e clique em Verificar.
               </p>
+              {/* Item 122: checagem instantânea de propagação via DoH */}
+              <button
+                type="button"
+                onClick={checkPropagation}
+                disabled={doh.state === 'busy'}
+                className="flex items-center gap-1.5 self-start rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+              >
+                <RefreshCw className={`size-3 ${doh.state === 'busy' ? 'animate-spin' : ''}`} />
+                {doh.state === 'busy' ? 'Checando propagação…' : 'Já propagou? Checar agora'}
+              </button>
+              {doh.detail && (
+                <p
+                  className={`text-xs text-pretty ${
+                    doh.state === 'ok' ? 'font-medium text-[color:var(--success)]' : 'text-muted-foreground'
+                  }`}
+                  role="status"
+                >
+                  {doh.detail}
+                </p>
+              )}
             </div>
           </li>
         </ol>
@@ -503,7 +606,11 @@ function DomainCard({
           <div className="min-w-0">
             <p className="break-all font-mono text-sm font-semibold text-foreground">{domain.host}</p>
             <p className="text-xs text-muted-foreground">
-              {domain.verificado ? 'Verificado e ativo' : 'Aguardando verificação de DNS'}
+              {/* Item 120: data da verificação + "reconectado" quando o verify re-registrou o host */}
+              {domain.verificado
+                ? `Verificado e ativo${domain.verificadoEm ? ` desde ${new Date(domain.verificadoEm).toLocaleDateString('pt-BR')}` : ''}`
+                : 'Aguardando verificação de DNS'}
+              {result?.reconectado ? ' — reconectado à hospedagem' : ''}
             </p>
           </div>
           {/* Item 54: badge de uso do domínio (checkout / cloaker / ambos) */}
@@ -534,6 +641,17 @@ function DomainCard({
               Tutorial DNS
             </button>
           )}
+          {/* Item 124: domínio verificado → atalho que abre a criação de link
+              já com este domínio selecionado (?dominio= lido pelo links-view) */}
+          {domain.verificado && domain.uso !== 'cloaker' && (
+            <a
+              href={`/dashboard/links?novo=1&dominio=${encodeURIComponent(domain.host)}`}
+              className="flex items-center gap-1.5 rounded-lg border border-brand-cyan/40 px-3 py-1.5 text-xs font-medium text-brand-cyan transition-colors hover:bg-brand-cyan/10"
+            >
+              <Plus className="size-3.5" />
+              Usar em um link
+            </a>
+          )}
           <button
             type="button"
             onClick={onVerify}
@@ -554,7 +672,21 @@ function DomainCard({
         </div>
       </div>
 
-      {result && (
+      {/* Item 127: falha de REDE ganha estado próprio com retry — não é "DNS pendente" */}
+      {result?.networkError ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-3 py-2 text-xs">
+          <span className="text-foreground text-pretty">
+            Não conseguimos completar a verificação (falha de conexão) — o DNS pode estar certo. Tente de novo.
+          </span>
+          <button
+            type="button"
+            onClick={onVerify}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-medium text-foreground transition-colors hover:bg-secondary"
+          >
+            <RefreshCw className="size-3" /> Tentar de novo
+          </button>
+        </div>
+      ) : result ? (
         <div className="mt-3 flex flex-col gap-1.5 rounded-lg border border-border bg-secondary/40 p-3 text-xs">
           <div className="flex items-start gap-2">
             {result.dnsOk ? (
@@ -576,8 +708,25 @@ function DomainCard({
               HTTPS: {result.httpDetail || (result.httpOk ? 'ok' : 'pendente')}
             </span>
           </div>
+          {/* Item 125: diagnóstico dirigido — aponta ONDE está o problema
+              (DNS vs. HTTPS vs. proxy) e reabre o tutorial no passo certo */}
+          {!result.verified && !result.dnsOk && !result.cloudflareProxy && (
+            <button
+              type="button"
+              onClick={onTutorial}
+              className="mt-1 flex items-center gap-1.5 self-start rounded-lg border border-brand-cyan/40 px-3 py-1.5 font-medium text-brand-cyan transition-colors hover:bg-brand-cyan/10"
+            >
+              <BookOpen className="size-3" /> O DNS ainda não aponta pra cá — rever o passo a passo
+            </button>
+          )}
+          {!result.verified && result.dnsOk && !result.httpOk && (
+            <p className="mt-1 text-muted-foreground text-pretty">
+              O DNS já está certo — falta só o certificado HTTPS, que é emitido sozinho. Aguarde alguns minutos e
+              verifique de novo.
+            </p>
+          )}
         </div>
-      )}
+      ) : null}
 
       {deleting && (
         <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">

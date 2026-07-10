@@ -205,6 +205,9 @@ export interface DomainVerifyResult {
   cloudflareProxy?: boolean
   reconectado?: boolean
   dnsRecords?: DomainDnsRecords | null
+  // Item 127: marcado no CLIENTE quando o próprio fetch de verify falhou
+  // (rede/servidor fora) — a UI oferece retry em vez de "DNS pendente"
+  networkError?: boolean
 }
 
 // ── /api/pixels — pixels TikTok + CAPI (pixel-store.js) ──
