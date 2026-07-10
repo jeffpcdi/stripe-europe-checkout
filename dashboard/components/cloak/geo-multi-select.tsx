@@ -66,6 +66,31 @@ export function GeoMultiSelect({
     inputRef.current?.focus()
   }
 
+  // "Colar lista": ao colar vários códigos separados por vírgula/espaço/quebra
+  // de linha, adiciona todos os válidos de uma vez (item 75). Um token único
+  // cai no fluxo normal de digitação.
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData('text')
+    const tokens = text
+      .split(/[,;\n\r\t ]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+    if (tokens.length < 2) return
+    e.preventDefault()
+    const next = [...value]
+    const seen = new Set(next.map((v) => normalize(v)))
+    for (const t of tokens) {
+      if (!manualPattern.test(t)) continue
+      const c = normalize(t)
+      if (c && !seen.has(c)) {
+        seen.add(c)
+        next.push(c)
+      }
+    }
+    onChange(next)
+    setQuery('')
+  }
+
   function remove(code: string) {
     const c = normalize(code)
     onChange(value.filter((v) => normalize(v) !== c))
@@ -113,6 +138,7 @@ export function GeoMultiSelect({
           }}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()

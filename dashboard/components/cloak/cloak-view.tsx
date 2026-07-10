@@ -58,8 +58,10 @@ const CLOAK_STEPS: TutorialStep[] = [
 export function CloakView() {
   const [showTutorial, setShowTutorial] = useState(false)
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-2">
+    /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão.
+       flex-wrap no cabeçalho segue o padrão das outras abas no mobile. */
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground text-pretty">
           Proteja sua oferta: robôs veem a página segura, compradores veem a oferta real.
         </p>

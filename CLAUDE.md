@@ -248,7 +248,7 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 ## 6. Esquema do banco (Neon, multi-tenant)
 Todas as tabelas de dados têm `account_id text`. Tabelas keyed-by-name usam PK namespaced
 `${accountId}:${nome}`. Dados legados (`account_id IS NULL`) são atribuídos ao 1º admin via `claimLegacyData()`.
-- **accounts** — `id, email (unique), password_hash, name, role ('user'|'admin'), created_at`.
+- **accounts** — `id, email (unique), password_hash, name, role ('user'|'admin'), currency (default 'BRL'), created_at`.
 - **account_sessions** — `token (pk), account_id, created_at, expires_at` (+ índice por expiração).
 - **gateways** — `id, account_id, provider, name, webhook_token (unique), secret, config jsonb,
   last_event_at, last_event_status, created_at`.
@@ -261,11 +261,19 @@ Todas as tabelas de dados têm `account_id text`. Tabelas keyed-by-name usam PK 
 - **pixels** — `slug (pk namespaced), account_id, data jsonb, updated_at`.
 - **links** — `slug (pk namespaced), account_id, data jsonb, updated_at`.
 - **pixel_events** — `id, account_id, pixel, event, event_id, lead_id, status, response jsonb, at` (log CAPI).
+- **custom_domains** — `host (pk — unicidade global entre contas), account_id, uso
+  ('checkout'|'cloaker'|'ambos'), verificado, verificado_em, provider_id, provider_note, dns jsonb,
+  criado_em, updated_at` (itens 241–252). O cache quente continua sendo `config.customDomains`
+  (jsonb por conta); `config.set` faz write-through ASSÍNCRONO (setImmediate) para esta tabela +
+  snapshot Redis `domains:all`, e `config.hydrate()` reconcilia no boot (Neon → fallback Redis,
+  SÓ em memória via `config.seed` — leitura nunca semeia escrita).
 
 Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAccounts`, `getFirstAccountId`,
 `claimLegacyData`, sessões (`create/get/delete/pruneAuthSession`), gateways (`upsert/delete/load/getByToken/touch`),
 `upsertLead`, `insertEvent`, `upsertVariant`, `loadState` (hidrata cache no boot), `saveConfig`/`loadConfig`
-(retorna `{ok,data}`: `ok=false` = ERRO de leitura, não sobrescrever!), `reset`.
+(retorna `{ok,data}`: `ok=false` = ERRO de leitura, não sobrescrever!), `reset`,
+`upsert/delete/loadCustomDomains`, `setAccountCurrency`/`loadAccountCurrencies`,
+`migrationStatus()` (flags `customDomains`/`accountCurrency` expostas no `/api/health` como `migrations`).
 
 ## 7. Redis (Upstash) — chaves, TTLs e usos
 - **presence:<id>** — presença ao vivo (TTL 60s, renovado por heartbeat ~12s). `listPresence` faz SCAN+MGET.
@@ -275,6 +283,9 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup.
 - **dedup:<event_id>** — dedup navegador↔servidor (SET NX, TTL 2h). Em erro, deixa passar (melhor duplicar que perder).
 - **asn:<ip>** — cache do lookup BGP/ASN do bot-filter (TTL 24h), compartilhado entre instâncias.
+- **domains:all** — hash `${accountId}:${host}` → JSON do domínio (item 245): espelho durável dos
+  domínios personalizados (mesmo padrão de `pixels:all`/`gateways:all`); fallback de hidratação
+  quando o Neon falha no boot.
 - **cloakbot:<v_id>** — veredito STICKY do cloaker (só bot, TTL 6h). `/go` curto-circuita à white sem re-rodar o judge; setado no veredito bot e no beacon `/api/cloakcheck` com WebGL de software. Nunca cacheia 'real' (fail-safe).
 - **lock:<nome>** — lock distribuído (SET NX EX). Usos: `capiRetryDrain` (só 1 instância drena a fila de retry) e `convWorker` (só 1 instância drena convQ por ciclo). Sem Redis = processo único = já exclusivo.
 - **emq:<acc>:<pixel>** — rollup de EMQ por pixel/dia (`d:<data>:sum`/`:cnt`, retenção ~40d). Alimenta `GET /api/pixels/emq-trend` (série + alerta de queda) e o painel de tendência na aba Pixels.
@@ -575,17 +586,40 @@ Configurações. Cada página é um `page.tsx` fino que renderiza a view de `com
   países (`countries.geojson`), pontos de tráfego, controles de zoom e modal fullscreen.
 - **Plano de refinamento pendente:** `docs/PLANO-REFINAMENTO-VISUAL.md` — 206 alterações numeradas
 em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem** (coerência primeiro).
-- **Plano ativo (570 modificações):** `v0_plans/pragmatic-flow.md` — 7 levas cobrindo backend, as
+- **Plano ativo (570 modificações):** `PLANO-PRAGMATIC-FLOW.md` (raiz; antes `v0_plans/pragmatic-flow.md`,
+movido porque `v0_plans/` é diretório reservado do ambiente v0) — 7 levas cobrindo backend, as
 5 sub-abas da Gestão, shell, lado público e camadas transversais. **Progresso rastreado item a item
 em `PROGRESSO-PLANO.md` (raiz)** — atualizar esse arquivo a CADA item concluído, com evidência.
-**Leva 1 (backend, itens 1–10) 100% concluída.** Entregues (~52): moeda por conta+UI, uso por
+**Leva 1 (backend, itens 1–10) 100% concluída. Itens 241–252 (durabilidade de schema) 100%
+concluídos (antecipados):** tabela `custom_domains`, coluna `accounts.currency`, snapshot Redis
+`domains:all`, write-through assíncrono via `config.set` e reconciliação no boot (§8/§10).
+Entregues (~112, faixa 31–101 COMPLETA): moeda por conta+UI, uso por
 domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
 log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
 tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
-anti-SSRF + rate-limit, rate-limit no /hook, snippet base do loader. Fila e histórico no
-`PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503, o Express na 3000
-subiu antes do env ser espelhado — mate o processo e suba com
-`node --env-file-if-exists=.env.development.local server.js`.
+anti-SSRF + rate-limit, rate-limit no /hook, snippet base do loader; aba Links (itens 62–66, 68,
+69, 71–76): toggle/duplicar/busca+ordenação nos cards, receita+taxa de conversão, barra de
+performance por variante, badge do pixel (com alerta de pixel inexistente/pausado), validação de
+URL https:// no editor, aviso de troca de domínio, exclusão protegida por nome quando há tráfego,
+UTM builder no editor, países/idiomas por nome (GeoMultiSelect + presets de mercado + colar lista)
+e ações em massa (checkbox por card + barra Ativar/Pausar/Excluir com confirmação em 2 cliques);
+item 60: 5ª suíte `test/security.test.js` (anti-SSRF, normHost, dedup de webhook, edição de
+gateway, pesos A/B) com helpers extraídos do server.js para `security-helpers.js`; aba Pixels
+(itens 83–87, 89, 92–94): QR "Baixar PNG", copiar tag ou só a URL do script (GTM), cópia com
+`aria-live`, token mascarado com Revelar/Ocultar + últimos 4 dígitos, avisos de config inócua
+(sem eventos ligados; Compra sem gateway), `durability.incomplete` por pixel, duplicar pixel
+(sem token, pausado) e hint do Test Event Code; item 59: painel "Como funciona a Gestão"
+(`components/shell/gestao-help.tsx`, "?" no label da seção no sidebar → TutorialModal com o fluxo
+Link → Pixel → Gateway → Domínio → Cloaker); item 54: badge de uso no card de domínio; item 57:
+overflow horizontal da aba Gateways em mobile corrigido (grid precisa de `minmax(0,·)` +
+`flex-wrap` no cabeçalho — armadilha de `min-width:auto` em grid items); item 58: ritmo vertical
+unificado (`gap-5` na raiz das 5 abas). Próxima fila: 102–113, 120–130, 133–140.
+Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
+o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
+`node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
+`vercel env pull /tmp/env-preview --environment=preview` + `node --env-file=/tmp/env-preview server.js`
+para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
+dashboard com `next build` + `next start -p 3001`.
 
 ### 19.5 Armadilhas específicas da dashboard nova
 - Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —
@@ -595,3 +629,5 @@ subiu antes do env ser espelhado — mate o processo e suba com
 - Texto de UI em **pt-BR**; **multi-moeda com padrão BRL** (R$) e seletor de exibição
   (BRL/USD/EUR, formatação client-side); fuso de **Brasília** (`America/Sao_Paulo`).
 - Depois de mudar código do Next em produção: `npm run build` + redeploy (o Railway roda o build).
+- `next.config.mjs` fixa `turbopack.root` no diretório `dashboard/` — sem isso o Turbopack pode
+  inferir a raiz do monorepo (onde vive o Express) e o build falha por não resolver o pacote `next`.

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
+const redis = require('./redis');
 
 // ── Configuração editável pela dashboard — POR CONTA (multi-tenant) ────────
 // Cada conta tem sua própria config (pushcut, shortlinks, domínios, cloak,
@@ -125,6 +126,67 @@ async function hydrate() {
     }
   } catch (err) {
     console.error('[config] Erro ao hidratar config:', err.message);
+  }
+
+  // ── Reconciliação dos espelhos duráveis (itens 241/242/245/249) ─────────
+  // A tabela custom_domains (ou o snapshot Redis, se o Neon falhou) devolve
+  // domínios que porventura não estejam na config; accounts.currency devolve
+  // a moeda da conta. Tudo só em MEMÓRIA (seed) — leitura nunca semeia escrita.
+  try {
+    let rows = null;
+    const res = await db.loadCustomDomains(null);
+    if (res && res.ok) rows = res.data;
+    if (!rows && redis.enabled) rows = await redis.loadDomainSnapshot(); // fallback: Neon fora
+    if (rows && rows.length) {
+      const byAcc = {};
+      rows.forEach((r) => {
+        if (!r || !r.host || !r.accountId) return;
+        (byAcc[r.accountId] = byAcc[r.accountId] || []).push(r);
+      });
+      let restaurados = 0;
+      Object.keys(byAcc).forEach((accId) => {
+        const cfg = cache.has(accId) ? cache.get(accId) : defaults();
+        const atuais = Array.isArray(cfg.customDomains) ? cfg.customDomains : [];
+        const faltantes = byAcc[accId].filter((r) => !atuais.some((d) => d.host === r.host)).map((r) => {
+          const out = {
+            host: r.host,
+            verificado: r.verificado === true,
+            verificadoEm: r.verificadoEm || null,
+            criadoEm: r.criadoEm || new Date().toISOString()
+          };
+          if (['checkout', 'cloaker', 'ambos'].includes(r.uso)) out.uso = r.uso;
+          if (r.providerId) out.providerId = r.providerId;
+          if (r.dns && typeof r.dns === 'object') out.dns = r.dns;
+          return out;
+        });
+        if (faltantes.length) {
+          restaurados += faltantes.length;
+          seed(accId, { customDomains: atuais.concat(faltantes) });
+        }
+      });
+      if (restaurados) console.log('[config] ' + restaurados + ' domínio(s) restaurado(s) do espelho durável.');
+    }
+  } catch (err) {
+    console.error('[config] Erro ao reconciliar domínios duráveis:', err.message);
+  }
+
+  // Moeda por conta (accounts.currency) — só preenche quando a config ainda
+  // não tem defaultCurrency (a config, editável, tem precedência).
+  try {
+    const curRes = await db.loadAccountCurrencies();
+    if (curRes && curRes.ok) {
+      (curRes.data || []).forEach((r) => {
+        const cur = String((r && r.currency) || '').toUpperCase();
+        if (!r || !r.id || !/^[A-Z]{3}$/.test(cur)) return;
+        const cfg = cache.has(r.id) ? cache.get(r.id) : defaults();
+        const s = cfg.settings || {};
+        if (!s.defaultCurrency) {
+          seed(r.id, { settings: Object.assign({}, s, { defaultCurrency: cur }) });
+        }
+      });
+    }
+  } catch (err) {
+    console.error('[config] Erro ao hidratar moedas das contas:', err.message);
   }
 }
 
@@ -274,10 +336,43 @@ function set(accountId, patch) {
   }
 
   next.updatedAt = new Date().toISOString();
+
+  // ── Write-through DURÁVEL de domínios (itens 241/245/252) ────────────────
+  // Além do jsonb da config, cada domínio é espelhado de forma ASSÍNCRONA
+  // (padrão stats.js — nunca bloqueia o request) na tabela custom_domains do
+  // Neon e no snapshot Redis. Remoções propagam para os dois espelhos.
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'customDomains')) {
+    const before = Array.isArray(cur.customDomains) ? cur.customDomains : [];
+    const after = next.customDomains;
+    setImmediate(() => {
+      try {
+        after.forEach((d) => {
+          db.upsertCustomDomain(key, d);
+          if (redis.enabled) redis.saveDomainSnapshot(key, d.host, Object.assign({ accountId: key }, d));
+        });
+        before
+          .filter((d) => !after.some((n) => n.host === d.host))
+          .forEach((d) => {
+            db.deleteCustomDomain(key, d.host);
+            if (redis.enabled) redis.deleteDomainSnapshot(key, d.host);
+          });
+      } catch (err) { console.error('[config] write-through de domínios:', err.message); }
+    });
+  }
+
   cache.set(key, next);
   db.saveConfig(key, next);
   persistDisk();
   return Object.assign({}, next);
+}
+
+// Semeadura em memória (só boot): mescla dados dos espelhos duráveis
+// (custom_domains / accounts.currency) no cache SEM persistir — regra de ouro:
+// erro/reconciliação de LEITURA nunca dispara escrita no banco.
+function seed(accountId, patch) {
+  const key = accountId || LEGACY_KEY;
+  const cur = cache.has(key) ? cache.get(key) : defaults();
+  cache.set(key, Object.assign({}, cur, patch || {}));
 }
 
 // Resolve a conta dona de um domínio personalizado (Host → accountId).
@@ -309,4 +404,4 @@ function migrateLegacyTo(accountId) {
   persistDisk();
 }
 
-module.exports = { get, set, defaults, hydrate, accountForDomain, accountIds, migrateLegacyTo };
+module.exports = { get, set, seed, defaults, hydrate, accountForDomain, accountIds, migrateLegacyTo };

@@ -26,6 +26,10 @@ if (!enabled) {
 
 let ready = false;
 
+// Item 249: status por migração — o /api/health reporta se a tabela
+// custom_domains e a coluna accounts.currency migraram com sucesso no boot.
+const migrations = { customDomains: false, accountCurrency: false };
+
 // Chave namespaced por conta para tabelas keyed-by-name.
 function nsKey(accountId, name) {
   return (accountId || 'legacy') + ':' + String(name || '');
@@ -159,6 +163,34 @@ async function init() {
     await sql`CREATE INDEX IF NOT EXISTS links_account_idx ON links (account_id)`;
     await sql`CREATE INDEX IF NOT EXISTS pixel_events_account_idx ON pixel_events (account_id, at DESC)`;
 
+    // ── Domínios personalizados DURÁVEIS (itens 241/243/244/248) ──────────
+    // Antes viviam só no jsonb da config — sem tabela própria, sem índice de
+    // unicidade entre contas. host é PK (item 244: um domínio identifica UMA
+    // conta no /go//c/checkout); uso = 'checkout' | 'cloaker' | 'ambos'
+    // (item 243). Migração idempotente (item 248): CREATE/ALTER IF NOT EXISTS,
+    // rodada em todo boot via initWithRetry (item 249).
+    await sql`CREATE TABLE IF NOT EXISTS custom_domains (
+      host text PRIMARY KEY,
+      account_id text,
+      uso text NOT NULL DEFAULT 'ambos',
+      verificado boolean NOT NULL DEFAULT false,
+      verificado_em timestamptz,
+      provider_id text,
+      provider_note text,
+      dns jsonb,
+      criado_em timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS custom_domains_account_idx ON custom_domains (account_id, host)`;
+    migrations.customDomains = true;
+
+    // ── Moeda por conta persistida na própria conta (itens 242/248) ───────
+    // O item 147 (moeda por conta) guardava só na config; a coluna garante a
+    // persistência mesmo se a config for recriada. Default BRL não quebra
+    // contas EUR existentes: o valor efetivo vem da config e é espelhado aqui.
+    await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency text DEFAULT 'BRL'`;
+    migrations.accountCurrency = true;
+
     ready = true;
     console.log('[db] Neon pronto (tabelas multi-tenant verificadas).');
     return true;
@@ -239,6 +271,8 @@ async function claimLegacyData(accountId) {
     await sql`UPDATE events SET account_id = ${accountId} WHERE account_id IS NULL`;
     await sql`UPDATE sessions SET account_id = ${accountId} WHERE account_id IS NULL`;
     await sql`UPDATE pixel_events SET account_id = ${accountId} WHERE account_id IS NULL`;
+    // Item 247: domínios legados (sem dono) vão para o primeiro admin.
+    await sql`UPDATE custom_domains SET account_id = ${accountId} WHERE account_id IS NULL`;
     // Tabelas keyed-by-name: além do account_id, a PK ganha o namespace.
     await sql`UPDATE variants SET account_id = ${accountId}, name = ${accountId} || ':' || name
       WHERE account_id IS NULL AND position(':' in name) = 0`;
@@ -485,6 +519,95 @@ async function loadAllConfigs() {
   return { ok: false, data: null };
 }
 
+// ── Domínios personalizados duráveis (itens 241–252) ──────────────────────
+// Fonte durável dos customDomains da config: o cache quente continua no
+// config.js (jsonb por conta) e o write-through assíncrono espelha aqui
+// (item 252). No boot, config.hydrate() reconcilia a partir desta tabela.
+async function upsertCustomDomain(accountId, d) {
+  if (!enabled || !d || !d.host) return false;
+  try {
+    await sql`INSERT INTO custom_domains (host, account_id, uso, verificado, verificado_em, provider_id, provider_note, dns, criado_em, updated_at)
+      VALUES (${d.host}, ${accountId || null}, ${d.uso || 'ambos'}, ${d.verificado === true},
+              ${d.verificadoEm || null}, ${d.providerId || null}, ${d.providerNote || null},
+              ${d.dns ? JSON.stringify(d.dns) : null}::jsonb,
+              ${d.criadoEm || new Date().toISOString()}, now())
+      ON CONFLICT (host) DO UPDATE SET
+        account_id = COALESCE(custom_domains.account_id, EXCLUDED.account_id),
+        uso = EXCLUDED.uso,
+        verificado = EXCLUDED.verificado,
+        verificado_em = EXCLUDED.verificado_em,
+        provider_id = COALESCE(EXCLUDED.provider_id, custom_domains.provider_id),
+        provider_note = EXCLUDED.provider_note,
+        dns = COALESCE(EXCLUDED.dns, custom_domains.dns),
+        updated_at = now()`;
+    return true;
+  } catch (err) { console.error('[db] upsertCustomDomain:', err.message); return false; }
+}
+
+async function deleteCustomDomain(accountId, host) {
+  if (!enabled || !host) return false;
+  try {
+    // Só o dono (ou linha legada sem dono) pode remover — isolamento por conta.
+    if (accountId) {
+      await sql`DELETE FROM custom_domains WHERE host = ${host} AND (account_id = ${accountId} OR account_id IS NULL)`;
+    } else {
+      await sql`DELETE FROM custom_domains WHERE host = ${host} AND account_id IS NULL`;
+    }
+    return true;
+  } catch (err) { console.error('[db] deleteCustomDomain:', err.message); return false; }
+}
+
+// Mesmo contrato do loadConfig: { ok, data } — erro de leitura NUNCA deve
+// ser tratado como "não há domínios salvos". accountId=null lê todas as contas.
+async function loadCustomDomains(accountId) {
+  if (!enabled) return { ok: false, data: null };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const rows = accountId
+        ? await sql`SELECT * FROM custom_domains WHERE account_id = ${accountId} ORDER BY criado_em ASC`
+        : await sql`SELECT * FROM custom_domains ORDER BY criado_em ASC`;
+      return {
+        ok: true,
+        data: rows.map((r) => ({
+          host: r.host,
+          accountId: r.account_id,
+          uso: r.uso || 'ambos',
+          verificado: r.verificado === true,
+          verificadoEm: r.verificado_em ? new Date(r.verificado_em).toISOString() : null,
+          providerId: r.provider_id || null,
+          providerNote: r.provider_note || null,
+          dns: r.dns || null,
+          criadoEm: r.criado_em ? new Date(r.criado_em).toISOString() : null
+        }))
+      };
+    } catch (err) {
+      console.error('[db] loadCustomDomains (tentativa ' + attempt + '/3):', err.message);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
+  }
+  return { ok: false, data: null };
+}
+
+// ── Moeda por conta (item 242) ────────────────────────────────────────────
+async function setAccountCurrency(id, currency) {
+  if (!enabled || !id) return false;
+  const cur = String(currency || '').toUpperCase();
+  if (!/^[A-Z]{3}$/.test(cur)) return false;
+  try {
+    await sql`UPDATE accounts SET currency = ${cur} WHERE id = ${id}`;
+    return true;
+  } catch (err) { console.error('[db] setAccountCurrency:', err.message); return false; }
+}
+
+// Lê as moedas de TODAS as contas (hidratação no boot). Contrato { ok, data }.
+async function loadAccountCurrencies() {
+  if (!enabled) return { ok: false, data: null };
+  try {
+    const rows = await sql`SELECT id, currency FROM accounts WHERE currency IS NOT NULL`;
+    return { ok: true, data: rows };
+  } catch (err) { console.error('[db] loadAccountCurrencies:', err.message); return { ok: false, data: null }; }
+}
+
 // ── Pixels TikTok (por conta; PK namespaced) ──────────────────────────────
 // Retorna TRUE só quando a escrita foi confirmada pelo Postgres. Antes engolia
 // o erro e retornava void, então quem chamava (pixel-store.save) achava que o
@@ -669,5 +792,9 @@ module.exports = {
   saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels, getPixelByToken,
   upsertLink, deleteLink, loadLinks,
-  insertPixelEvent, loadPixelEvents, prunePixelEvents
+  insertPixelEvent, loadPixelEvents, prunePixelEvents,
+  // domínios personalizados duráveis + moeda por conta (itens 241–252)
+  upsertCustomDomain, deleteCustomDomain, loadCustomDomains,
+  setAccountCurrency, loadAccountCurrencies,
+  migrationStatus: () => Object.assign({}, migrations)
 };

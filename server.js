@@ -1131,7 +1131,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────���������───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────�������������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1541,17 +1541,9 @@ app.post('/api/links/validate-domain', dashboardAuth, async (req, res) => {
 // registro + verificação (DNS aponta pra cá? HTTPS chega neste app?).
 const dnsp = require('dns').promises;
 const domainProvider = require('./domain-provider');
-const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+// normHost/DOMAIN_RE extraídos para security-helpers.js (testáveis — item 60)
+const { normHost } = require('./security-helpers');
 const APP_CHECK_ID = 'roi-nados-tracker';
-
-function normHost(input) {
-  const s = String(input || '').trim().toLowerCase();
-  if (!s) return null;
-  try {
-    const h = new URL(s.includes('://') ? s : 'https://' + s).hostname;
-    return DOMAIN_RE.test(h) ? h : null;
-  } catch (_) { return null; }
-}
 
 // Marcador público que prova que o tráfego do domínio chega NESTE app
 // (usado pela verificação; sem auth de propósito — não expõe nada).
@@ -1582,6 +1574,9 @@ app.post('/api/settings', dashboardAuth, (req, res) => {
   }
   const s = Object.assign({}, config.get(req.account.id).settings || {}, { defaultCurrency: cur });
   config.set(req.account.id, { settings: s });
+  // Item 242: espelha em accounts.currency (write-through assíncrono — a
+  // moeda sobrevive mesmo se a config jsonb for recriada/perdida).
+  db.setAccountCurrency(req.account.id, cur);
   stats.logEvent('info', { acc: req.account.id, title: 'Moeda padrão da conta: ' + cur });
   res.json({ ok: true, defaultCurrency: cur });
 });
@@ -1622,7 +1617,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
       // houver capacidade, a verificação re-tenta o registro sozinha. Mensagens
       // genéricas — nunca expõem token nem detalhe interno da API.
       // Itens 8/20: linguagem NEUTRA — nunca citar provedor interno. O lojista
-      // só precisa saber que o provisionamento automático não completou agora
+      // s�� precisa saber que o provisionamento automático não completou agora
       // e que a reconexão é automática.
       const notes = {
         limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
@@ -1754,7 +1749,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       if (out.cloudflareProxy) {
         out.httpDetail = 'HTTPS 404 — o proxy da Cloudflare (nuvem laranja) está na frente. Edite o registro DNS na Cloudflare e mude para "Somente DNS" (nuvem cinza), depois clique em Verificar de novo.';
       } else if (gerenciado) {
-        out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro automático foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro autom��tico foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
       } else {
         out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o provisionamento automático ainda está completando do nosso lado. Clique em Verificar de novo em alguns minutos (a reconexão é automática).';
         stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (modo manual): ' + host });
@@ -2085,6 +2080,9 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
     dashboard:   true, // sessão obrigatória — sempre protegida
     db:          dbPing.ok,
     dbLatencyMs: dbPing.ok ? dbPing.latencyMs : null,
+    // Item 249: as migrações novas (custom_domains + accounts.currency)
+    // rodaram com sucesso no boot? false = boot com Neon degradado.
+    migrations:  require('./db').migrationStatus(),
     redis:       redisPing.ok,
     redisEnabled:rdb.enabled,
     uptimeSec:   Math.round(process.uptime()),
@@ -2569,8 +2567,8 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
   });
 });
 
-// ���─ API: zerar estatísticas ──────────────────────────────────────────
-// ═══ TikTok multi-pixel ═════════════════════════════════════════════��═
+// ���─ API: zerar estatísticas ─────���────────────────────────────────────
+// ═══ TikTok multi-pixel ══════════════════════════���══════════════════��═
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
 // editar um pixel (arquivo em pixels/ ou painel) atualiza todas as p��ginas.
@@ -2887,28 +2885,8 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
 // privados/loopback/link-local são bloqueados; redirects são seguidos
 // manualmente (máx. 3) revalidando cada destino; timeout de 8s e leitura
 // limitada a 1,5 MB. Nunca devolvemos o HTML cru ao cliente — só o veredito.
-function ipPrivado(ip) {
-  if (!ip) return true;
-  if (ip.includes(':')) { // IPv6: bloqueia loopback, link-local e ULA
-    const low = ip.toLowerCase();
-    return low === '::1' || low.startsWith('fe80') || low.startsWith('fc') || low.startsWith('fd') || low.startsWith('::ffff:127.');
-  }
-  const p = ip.split('.').map(Number);
-  if (p.length !== 4 || p.some((n) => !Number.isFinite(n))) return true;
-  return p[0] === 10 || p[0] === 127 || p[0] === 0 ||
-    (p[0] === 169 && p[1] === 254) ||
-    (p[0] === 172 && p[1] >= 16 && p[1] <= 31) ||
-    (p[0] === 192 && p[1] === 168) ||
-    (p[0] === 100 && p[1] >= 64 && p[1] <= 127);
-}
-
-async function hostSeguro(hostname) {
-  try {
-    const addrs = await dnsp.lookup(hostname, { all: true });
-    if (!addrs.length) return false;
-    return addrs.every((a) => !ipPrivado(a.address));
-  } catch (_) { return false; }
-}
+// ipPrivado/hostSeguro extraídos para security-helpers.js (testáveis — item 60)
+const { hostSeguro } = require('./security-helpers');
 
 async function buscarPaginaSegura(rawUrl) {
   let u;

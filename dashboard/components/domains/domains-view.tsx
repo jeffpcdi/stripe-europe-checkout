@@ -182,7 +182,8 @@ export function DomainsView() {
     'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring'
 
   return (
-    <div className="flex flex-col gap-4">
+    /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
+    <div className="flex flex-col gap-5">
       {/* Adicionar domínio */}
       <GlassCard className="p-5" data-tour="domains-add">
         <div className="mb-1 flex items-center justify-between gap-2">
@@ -503,9 +504,18 @@ function DomainCard({
             <p className="break-all font-mono text-sm font-semibold text-foreground">{domain.host}</p>
             <p className="text-xs text-muted-foreground">
               {domain.verificado ? 'Verificado e ativo' : 'Aguardando verificação de DNS'}
-              {domain.uso && domain.uso !== 'ambos' ? ` — só ${domain.uso}` : ''}
             </p>
           </div>
+          {/* Item 54: badge de uso do domínio (checkout / cloaker / ambos) */}
+          <span
+            className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+              !domain.uso || domain.uso === 'ambos'
+                ? 'border-border text-muted-foreground'
+                : 'border-brand-cyan/40 bg-brand-cyan/10 text-brand-cyan'
+            }`}
+          >
+            {domain.uso === 'checkout' ? 'só checkout' : domain.uso === 'cloaker' ? 'só cloaker' : 'checkout + cloaker'}
+          </span>
           {/* Badge dedicada: proxy da Cloudflare (nuvem laranja) mascara o CNAME */}
           {result?.cloudflareProxy && (
             <span className="flex shrink-0 items-center gap-1 rounded-full border border-[#f6821f]/40 bg-[#f6821f]/10 px-2 py-0.5 text-[11px] font-medium text-[#f6821f]">

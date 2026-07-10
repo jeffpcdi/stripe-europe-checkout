@@ -1,5 +1,16 @@
+import { fileURLToPath } from 'node:url'
+import { dirname } from 'node:path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Turbopack sobe procurando um workspace root e às vezes escolhe a raiz do
+  // monorepo (onde vive o Express), de onde o pacote `next` não é resolvível.
+  // Fixamos a raiz neste diretório, que tem o próprio node_modules/next.
+  turbopack: {
+    root: __dirname,
+  },
   // A dashboard vive sob /dashboard — o Express (servidor público) faz
   // proxy reverso de /dashboard/* para este app (porta interna 3001).
   // Assim tudo roda no MESMO domínio: sessão, APIs e WS sem CORS.
