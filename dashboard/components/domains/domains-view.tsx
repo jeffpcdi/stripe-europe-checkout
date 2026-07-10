@@ -182,7 +182,8 @@ export function DomainsView() {
     'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring'
 
   return (
-    <div className="flex flex-col gap-4">
+    /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
+    <div className="flex flex-col gap-5">
       {/* Adicionar domínio */}
       <GlassCard className="p-5" data-tour="domains-add">
         <div className="mb-1 flex items-center justify-between gap-2">

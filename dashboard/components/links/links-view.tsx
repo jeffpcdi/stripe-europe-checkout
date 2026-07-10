@@ -297,7 +297,8 @@ export function LinksView() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
+    <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {links.length} link{links.length === 1 ? '' : 's'} de checkout
