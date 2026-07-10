@@ -2733,7 +2733,18 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
     scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,
     scriptTag: p.token ? '<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null
   }));
-  res.json({ pixels: list, dir: 'pixels/' });
+  // Item 6: snippet BASE do loader (dispara para todos os pixels da conta) e
+  // orientação clara — eventos de pagamento exigem gateway, nunca o navegador.
+  const base = proto + '://' + host + '/px.js';
+  res.json({
+    pixels: list,
+    dir: 'pixels/',
+    meta: {
+      loaderUrl: base,
+      loaderTag: '<script src="' + base + '" defer></script>',
+      paymentNote: 'Este script cobre Visita, Carrinho e Checkout. O evento de Compra (CompletePayment) só dispara quando um gateway confirma o pagamento via webhook — conecte um gateway na aba Gateways.'
+    }
+  });
 });
 
 app.post('/api/pixels', dashboardAuth, async (req, res) => {
@@ -2926,6 +2937,12 @@ async function buscarPaginaSegura(rawUrl) {
 
 app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
   try {
+    // Item 5/9: rate-limit dedicado — verify-url faz fetch externo, então
+    // limitamos a 10 verificações por janela por conta (evita abuso de SSRF-scan
+    // e proteje nossa saída de rede). 429 com mensagem pt-BR clara.
+    if (rateLimited('verify-url|' + req.account.id, 'verifyurl', 10)) {
+      return res.status(429).json({ ok: false, error: 'Muitas verificações seguidas. Aguarde um minuto e tente de novo.' });
+    }
     const page = await buscarPaginaSegura((req.body || {}).url);
     if (page.error) return res.json({ ok: false, error: page.error });
     const html = page.html || '';

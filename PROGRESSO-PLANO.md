@@ -10,13 +10,13 @@
 
 | Leva | Escopo | Itens | Status |
 |------|--------|-------|--------|
-| 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 8/10 |
-| 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~12/20 |
+| 1 | Backend (moeda, verify-url, uso domínio, hardening, testes) | 1–10 | 10/10 ✅ |
+| 2 | UI Gestão (tutoriais, refinos, moeda UI) | 11–30 | ~14/20 |
 | 3 | Bugs reais + capacidades órfãs | 31–140 | ~24/110 |
 | 4–6 | Refinos por aba, tours, durabilidade | 141–270 | 0/130 |
 | 7 | Segurança, relatórios, API pública, perf, a11y, E2E | 271–570 | 0/300 |
 
-**Total concluído: ~44/570**
+**Total concluído: ~48/570** — Leva 1 (backend) 100% concluída
 
 ## Itens concluídos (com evidência)
 
@@ -25,15 +25,15 @@
 - ✅ 2. `buildProperties` sem fallback fixo EUR
 - ✅ 3. `/api/conversion/test` usa moeda da conta
 - ✅ 4. `testPixel` com evento escolhível + resposta mapeada
-- ⬜ 5. `POST /api/pixels/verify-url` (anti-SSRF, detecção de instalação)
-- ⬜ 6. Snippet de gateway/checkout exposto na API
+- ✅ 5. `POST /api/pixels/verify-url` (anti-SSRF: ipPrivado/hostSeguro, limite de redirect/tamanho/tempo) + rate-limit dedicado (10/janela, 429 pt-BR)
+- ✅ 6. Snippet base do loader `/px.js` + `paymentNote` no `meta` de GET /api/pixels
 - ✅ 7. Campo `uso` por domínio (checkout/cloaker/ambos) + fix sanitizador `config.js`
 - ✅ 8. Copy sem termos internos + `mode: auto|manual` na resposta de add domínio
-- 🔶 9. Hardening (mapa de erros TikTok pt-BR feito em `tiktok-errors.js`; rate-limit verify-url pende do item 5)
+- ✅ 9. Hardening (mapa de erros TikTok pt-BR em `tiktok-errors.js` + rate-limit dedicado no verify-url + limites de fetch)
 - ✅ 10. Bateria de testes de backend (4/4 passando)
 
 ### Leva 2 — UI Gestão
-- ⬜ 11. Painel "Testar por URL" (depende do item 5)
+- ✅ 11. Painel "Testar por URL" (input + diagnóstico por pixel: script ok / pixel nativo ok / não encontrado)
 - ✅ 12. Aviso "Compra só via gateway" com link para /gateways na aba Pixels
 - ✅ 13. Tutorial passo a passo dos Pixels
 - ✅ 14. "Testar disparo" com escolha de evento + resposta legível
@@ -65,7 +65,7 @@
 - ✅ 38. Mensagem do teste reflete o evento real testado
 - ✅ 39. QR code gerado localmente (lib `qrcode`)
 - ✅ 40. Auto-polling de verificação de domínio (45s)
-- ⬜ 41. `/api/pixels/test` com erro pt-BR amigável sem token
+- ✅ 41. `/api/pixels/test` com erro pt-BR amigável sem token ("Configure o Access Token...")
 - ✅ 79. Tendência de EMQ (card + sparkline + alerta) — verificado no navegador
 - ✅ 80. Fila de retry da CAPI visível no painel de saúde
 - ✅ 81. Filtro do log (pixel/evento/status)
