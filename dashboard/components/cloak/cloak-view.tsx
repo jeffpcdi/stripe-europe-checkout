@@ -66,11 +66,17 @@ export function CloakView() {
         <TutorialButton onClick={() => setShowTutorial(true)} />
       </div>
 
-      <CloakStatsPanel />
+      <div data-tour="cloak-stats">
+        <CloakStatsPanel />
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <CloakConfigPanel />
-        <CloakTestPanel />
+        <div data-tour="cloak-config">
+          <CloakConfigPanel />
+        </div>
+        <div data-tour="cloak-test">
+          <CloakTestPanel />
+        </div>
       </div>
 
       <CloakEntriesPanel />
