@@ -49,7 +49,9 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 - **Preview do v0:** usa env gerenciada (`.env.development.local` com `DATABASE_URL` do Neon gerenciado).
 - **Diagnóstico rápido:** `GET /api/status` (público, sem auth) → `{ok, db, redis, hint}`. Primeira
   parada para depurar "banco não configurado" em produção, sem expor segredos. Não confundir com
-  `GET /api/health`, que é **autenticado** e traz status detalhado.
+  `GET /api/health`, que é **autenticado** e traz status detalhado — incluindo `migrations` e, desde
+  o item 177, `cloakerLatency` (`{count,window,p50,p95,max,deadlineHits,deadlineRate}` de `getJudgeLatency()`
+  do bot-filter): `deadlineRate` alto = lookup de ASN estourando o teto (DNS lento).
 
 ## 4. Arquitetura
 Toda a lógica vive em módulos na raiz (sem subpastas de código). As views são strings
@@ -164,6 +166,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   redireciona para `/dashboard`, sem tela de login. **404 em produção** (`NODE_ENV=production`).
 
 ### 5.2 API consumida pela dashboard (auth)
+- **Contrato de erro (item 181):** rotas novas/migradas respondem `{ok:false, error, code?, hint?}`
+  via helper `apiError(res,status,error,code,hint)`. `error`=o quê, `code`=estável p/ lógica,
+  `hint`=orientação pt-BR. No front, `lib/api.ts` (`ApiError` com `code`/`hint` + getter `display`,
+  `parseApiError`) monta a mensagem. **Retrocompatível:** rotas com só `{error}` seguem funcionando.
+- **Rate-limit dos testes (item 178):** `/api/cloak/test` (30/min — faz lookup DNS),
+  `/api/pixels/test` e `/api/conversion/test` (15/min — disparam CAPI/Pushcut real) usam `rateLimited`
+  por conta e retornam 429 `{ok:false,error,code:'rate_limited'}`.
 - **Auth/conta:** `POST /login`, `POST /register`, `POST /logout`, `GET /api/me`.
 - **Métricas:** `GET /api/stats`, `GET /api/live`, `POST /api/reset-stats`, `GET /api/health`.
 - **Pixels:** `GET/POST /api/pixels`, `GET/PUT/DELETE /api/pixels/:slug`, `GET /api/pixels/health`,
@@ -282,7 +291,10 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **capiRetryQueue** — fila durável de eventos CAPI que falharam após os retries imediatos (cap 300, TTL 2d).
 - **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup.
 - **dedup:<event_id>** — dedup navegador↔servidor (SET NX, TTL 2h). Em erro, deixa passar (melhor duplicar que perder).
-- **asn:<ip>** — cache do lookup BGP/ASN do bot-filter (TTL 24h), compartilhado entre instâncias.
+- **asn:<ip>** — cache do lookup BGP/ASN do bot-filter, compartilhado entre instâncias. **TTL DUPLO
+  (item 176):** hit resolvido (asn>0) fica 24h; resultado NEGATIVO (asn:0/unknown/timeout) fica só
+  5min (`ASN_NEG_TTL`) para não congelar um datacenter como neutro após um lookup que falhou. Mesma
+  regra no cache em memória do `bot-filter.js` (`ASN_TTL_MS` × `ASN_NEG_TTL_MS`).
 - **domains:all** — hash `${accountId}:${host}` → JSON do domínio (item 245): espelho durável dos
   domínios personalizados (mesmo padrão de `pixels:all`/`gateways:all`); fallback de hidratação
   quando o Neon falha no boot.
@@ -297,7 +309,7 @@ Cada visita retorna `{ verdict:'real'|'bot', score:0-100, signals[], threshold, 
 (ms do julgamento) são consumidos SÓ pela transparência do `/api/cloak/test`/painel — não alteram a
 decisão nem o redirect. `asn=0`/`org=''` = desconhecido/privado; `asn:deadline` ⇒ `org='timeout'`.
 - **Threshold:** padrão 40; presets de sensibilidade `strict:30 / balanced:40 / loose:55` (têm prioridade
-  sobre threshold manual). Clamp final 10–90. `deadlineMs` clamp 40–500 (padrão 120).
+  sobre threshold manual). Clamp final 10–90. `deadlineMs` clamp 40��500 (padrão 120).
 - **Sinais (exemplos e pesos):** `ua:ausente` +55, `ua:headless` (SwiftShader/llvmpipe) +50,
   `ch-ua:brand-mismatch` +30, `ch-ua:safari-chrome-mix` +25, além de ASN de datacenter/ad-review,
   timezone×geo, comportamento (zero interação). Lista `DATACENTER_ASNS` cobre ByteDance (AS138699/396986/
@@ -467,7 +479,7 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── assets/                # estáticos servidos em /assets/*
 ├── pixels/                # assets do pixel do navegador
 ├── data/                  # cache local em JSON (IGNORADO no git; não é fonte de verdade)
-├── package.json / railway.json  # deps e config de deploy Railway
+���── package.json / railway.json  # deps e config de deploy Railway
 └── CLAUDE.md / README.md  # este mapa e o readme
 ```
 Nos módulos do Express não há subpastas: todo `.js` vive na raiz, um arquivo por responsabilidade.

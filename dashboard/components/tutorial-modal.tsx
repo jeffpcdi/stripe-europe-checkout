@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, CircleHelp, Lightbulb, X } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
+import { useModalA11y } from '@/lib/use-modal-a11y'
 
 export interface TutorialStep {
   title: string
@@ -41,26 +42,26 @@ export function TutorialModal({
   steps: TutorialStep[]
 }) {
   const [idx, setIdx] = useState(0)
-  const closeRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
-  // Reabrir sempre começa do passo 1; Esc fecha; foco vai para o modal.
+  // Item 189: foco preso, ESC e retorno de foco centralizados no hook.
+  useModalA11y(open, dialogRef, onClose)
+
+  // Reabrir sempre começa do passo 1.
   useEffect(() => {
-    if (open) {
-      setIdx(0)
-      closeRef.current?.focus()
-    }
+    if (open) setIdx(0)
   }, [open])
 
+  // Navegação por setas (específica deste modal, não faz parte da a11y base).
   useEffect(() => {
     if (!open) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
       if (e.key === 'ArrowRight') setIdx((i) => Math.min(i + 1, steps.length - 1))
       if (e.key === 'ArrowLeft') setIdx((i) => Math.max(i - 1, 0))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose, steps.length])
+  }, [open, steps.length])
 
   if (!open || steps.length === 0) return null
 
@@ -70,14 +71,19 @@ export function TutorialModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm md:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <GlassCard variant="thick" className="my-8 w-full max-w-lg p-6">
+      <GlassCard
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        variant="thick"
+        className="my-8 w-full max-w-lg p-6 outline-none"
+      >
         <div className="mb-1 flex items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-medium uppercase tracking-wider text-brand-cyan">
@@ -86,7 +92,6 @@ export function TutorialModal({
             <h2 className="mt-0.5 text-base font-semibold text-foreground text-balance">{title}</h2>
           </div>
           <button
-            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Fechar tutorial"
