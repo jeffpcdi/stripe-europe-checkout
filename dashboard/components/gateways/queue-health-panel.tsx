@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Activity, RefreshCw, Timer, Layers, ShieldCheck, CircleAlert } from 'lucide-react'
-import { useOps, apiSend } from '@/lib/api'
+import useSWR from 'swr'
+import { Activity, RefreshCw, Timer, Layers, ShieldCheck, CircleAlert, Trash2 } from 'lucide-react'
+import { useOps, apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import { timeAgo } from '@/lib/format'
 
@@ -17,6 +19,82 @@ function dur(ms: number): string {
   if (m < 60) return `${m} min`
   const h = Math.round(m / 60)
   return `${h} h`
+}
+
+// Item 200: retenção dos logs — mostra os limites efetivos de cada log e
+// permite limpar manualmente por aba (só os dados DESTA conta).
+interface RetentionResponse {
+  ok: boolean
+  retention: Record<string, { label: string; limite: string }>
+}
+
+export function RetentionPanel() {
+  const { data } = useSWR<RetentionResponse>('/api/ops/retention', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const [clearing, setClearing] = useState<string | null>(null)
+  const [confirmScope, setConfirmScope] = useState<string | null>(null)
+
+  async function handleClear(scope: string) {
+    setClearing(scope)
+    try {
+      const r = await apiSend<{ ok: boolean; removed: number }>('/api/ops/clear-log', 'POST', { scope })
+      toast.success(
+        r.removed > 0 ? `${r.removed} entrada(s) removida(s)` : 'Nada para limpar neste log',
+      )
+    } catch (e) {
+      toast.error('Falha ao limpar o log', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setClearing(null)
+    }
+  }
+
+  if (!data?.retention) return null
+  const entries = Object.entries(data.retention)
+  const confirmed = confirmScope ? data.retention[confirmScope] : null
+
+  return (
+    <GlassCard className="min-w-0 p-5">
+      <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Retenção dos logs</h2>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Cada log tem um limite automático — aqui você vê os limites e pode limpar manualmente os dados
+        da sua conta
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {entries.map(([scope, info]) => (
+          <li
+            key={scope}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs"
+          >
+            <span className="flex min-w-0 flex-col">
+              <span className="font-medium text-foreground">{info.label}</span>
+              <span className="text-[11px] text-muted-foreground">{info.limite}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setConfirmScope(scope)}
+              disabled={clearing !== null}
+              className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive disabled:opacity-50"
+            >
+              <Trash2 className={`size-3 ${clearing === scope ? 'animate-pulse' : ''}`} aria-hidden="true" />
+              {clearing === scope ? 'Limpando…' : 'Limpar'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <ConfirmDialog
+        open={confirmScope !== null}
+        title={confirmed ? `Limpar ${confirmed.label.toLowerCase()}?` : 'Limpar log?'}
+        description="A limpeza remove apenas os dados da sua conta e é irreversível. Os logs voltam a acumular normalmente a partir de agora."
+        confirmLabel="Limpar agora"
+        onClose={() => setConfirmScope(null)}
+        onConfirm={() => {
+          if (confirmScope) handleClear(confirmScope)
+          setConfirmScope(null)
+        }}
+      />
+    </GlassCard>
+  )
 }
 
 // Painel de saúde das filas duráveis (Leva 5, bloco I: 191–200).

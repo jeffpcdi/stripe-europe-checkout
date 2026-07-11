@@ -151,6 +151,57 @@ async function loadConversionLog(limit) {
   }
 }
 
+// Item 200: limpeza manual do log de webhooks POR CONTA. As listas são
+// globais (uma por instância), então a limpeza reescreve a lista mantendo
+// as entradas das OUTRAS contas — nunca vaza nem apaga dado alheio.
+async function clearConversionLog(accountId) {
+  const keep = (r) => !(r && (r.acc === accountId || (!r.acc && accountId == null)));
+  let removed = 0;
+  for (let i = convLogMem.length - 1; i >= 0; i--) {
+    if (!keep(convLogMem[i])) { convLogMem.splice(i, 1); removed++; }
+  }
+  if (!enabled) return removed;
+  try {
+    const raw = await redis.lrange(CONV_LOG_KEY, 0, 199);
+    const rows = raw.map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } }).filter(Boolean);
+    const kept = rows.filter(keep);
+    removed = Math.max(removed, rows.length - kept.length);
+    const pipe = redis.pipeline();
+    pipe.del(CONV_LOG_KEY);
+    if (kept.length) {
+      // reinsere preservando a ordem (lpush inverte → itera do fim pro começo)
+      for (let i = kept.length - 1; i >= 0; i--) pipe.lpush(CONV_LOG_KEY, JSON.stringify(kept[i]));
+    }
+    await pipe.exec();
+    return removed;
+  } catch (err) {
+    console.error('[redis] clearConversionLog:', err.message);
+    return removed;
+  }
+}
+
+// Item 200: idem para o log de disparos CAPI (pixelLog) — reescreve mantendo
+// as linhas das outras contas.
+async function clearPixelLog(accountId) {
+  if (!enabled) return 0;
+  try {
+    const raw = await redis.lrange(PIXEL_LOG_KEY, 0, 499);
+    const rows = raw.map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } }).filter(Boolean);
+    const kept = rows.filter((r) => !(r && (r.acc === accountId || (!r.acc && accountId == null))));
+    const removed = rows.length - kept.length;
+    const pipe = redis.pipeline();
+    pipe.del(PIXEL_LOG_KEY);
+    if (kept.length) {
+      for (let i = kept.length - 1; i >= 0; i--) pipe.lpush(PIXEL_LOG_KEY, JSON.stringify(kept[i]));
+    }
+    await pipe.exec();
+    return removed;
+  } catch (err) {
+    console.error('[redis] clearPixelLog:', err.message);
+    return 0;
+  }
+}
+
 // ── Fila de retry da CAPI (eventos que falharam após os retries imediatos) ─
 // Snapshot único em JSON: a fila é pequena (cap 300) e o snapshot evita
 // divergência entre memória e Redis. Sobrevive a restarts do servidor.
@@ -386,6 +437,29 @@ async function getCloakDecisionLog(accountId, slug) {
   } catch (err) {
     console.error('[redis] getCloakDecisionLog:', err.message);
     return [];
+  }
+}
+
+// Item 200: limpa o histórico de decisões do cloaker da conta (as chaves já
+// são escopadas por conta+slug, então basta deletar as chaves da conta).
+async function clearCloakDecisionLogs(accountId, slugs) {
+  const list = Array.isArray(slugs) ? slugs : [];
+  let removed = 0;
+  for (const slug of list) {
+    const key = cloakLogKey(accountId, slug);
+    if (cloakLogMem.has(key)) { removed += (cloakLogMem.get(key) || []).length; cloakLogMem.delete(key); }
+  }
+  if (!enabled) return removed;
+  try {
+    for (const slug of list) {
+      const key = cloakLogKey(accountId, slug);
+      const n = await redis.llen(key).catch(() => 0);
+      if (n) { removed += Number(n) || 0; await redis.del(key); }
+    }
+    return removed;
+  } catch (err) {
+    console.error('[redis] clearCloakDecisionLogs:', err.message);
+    return removed;
   }
 }
 
@@ -640,6 +714,28 @@ function normalizeEmqHash(h, days) {
   return rows.slice(-days);
 }
 
+// Item 200: limpa a série de EMQ da conta (chaves emq:<acc>:<pixel>).
+async function clearEmq(acc, pixels) {
+  const list = Array.isArray(pixels) ? pixels : [];
+  let removed = 0;
+  for (const px of list) {
+    const key = emqKey(acc, px);
+    if (emqMem.has(key)) { removed++; emqMem.delete(key); }
+  }
+  if (!enabled) return removed;
+  try {
+    for (const px of list) {
+      const key = emqKey(acc, px);
+      const n = await redis.del(key).catch(() => 0);
+      removed += Number(n) || 0;
+    }
+    return removed;
+  } catch (err) {
+    console.error('[redis] clearEmq:', err.message);
+    return removed;
+  }
+}
+
 function redisRandId() {
   try { return require('crypto').randomBytes(8).toString('hex'); }
   catch (_) { return String(Date.now()) + Math.random().toString(36).slice(2, 8); }
@@ -825,13 +921,13 @@ async function ping() {
 module.exports = {
   enabled, redis,
   touchPresence, leavePresence, listPresence,
-  pushPixelLog, loadPixelLog,
-  pushConversionLog, loadConversionLog,
+  pushPixelLog, loadPixelLog, clearPixelLog,             // Item 200
+  pushConversionLog, loadConversionLog, clearConversionLog, // Item 200
   saveCapiRetryQueue, loadCapiRetryQueue,
   seenEventId, seenWebhookOrder,
   getAsnCache, setAsnCache,
   bumpCloakDecision, getCloakStats, resetCloakStats,
-  pushCloakDecision, getCloakDecisionLog, // Item 170: log de decisões por link
+  pushCloakDecision, getCloakDecisionLog, clearCloakDecisionLogs, // Itens 170/200
   enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,
   getReclaimInfo, recordConvLatency, getConvLatency,
   heartbeatConvWorker, getConvWorkerBeat, capiRetryInfo,
@@ -839,7 +935,7 @@ module.exports = {
   setStickyBot, getStickyBot,
   checkTtclidContext, bumpVelocity,
   acquireLock, releaseLock,
-  bumpEmq, getEmqTrend,
+  bumpEmq, getEmqTrend, clearEmq, // Item 200
   savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,
   saveGatewaySnapshot, deleteGatewaySnapshot, loadGatewaySnapshot,
   saveDomainSnapshot, deleteDomainSnapshot, loadDomainSnapshot,

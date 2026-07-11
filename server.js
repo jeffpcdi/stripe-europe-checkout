@@ -1292,7 +1292,7 @@ app.get('/api/v1/summary', (req, res) => {
   res.json({ today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() });
 });
 
-// ── Relatório diário via Pushcut ──────────────���──────────────────────
+// ── Relatório diário via Pushcut ──────────────������─────────────────────
 // Sem cron confiável em serverless: verificação barata "pegando carona"
 // no tráfego (track/conversão). Na primeira request após a virada do dia
 // (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
@@ -2290,6 +2290,78 @@ app.post('/api/ops/drain-retry', dashboardAuth, async (req, res) => {
   }
 });
 
+// Item 198: reprocessar UMA conversão do log (reenfileirar manualmente).
+// Uso: o disparo CAPI falhou (erro/sem pixel) mas o pagamento é válido —
+// o admin redispara sem duplicar a venda no dashboard (registerSale off).
+app.post('/api/ops/reprocess-conversion', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('ops-reproc|' + req.account.id, 'opsdrain', 10)) {
+    return apiError(res, 429, 'Aguarde um pouco antes de reprocessar de novo.', 'rate_limited');
+  }
+  const id = String((req.body && req.body.id) || '').slice(0, 200);
+  if (!id) return apiError(res, 400, 'Informe o id do recibo a reprocessar.', 'missing_id');
+  try {
+    const log = await rdb.loadConversionLog(200);
+    // multi-tenant: só recibos da PRÓPRIA conta (legado sem acc → só admin)
+    const entry = (log || []).find((r) => r && r.id === id &&
+      (r.acc === req.account.id || (!r.acc && req.account.role === 'admin')));
+    if (!entry) return apiError(res, 404, 'Recibo não encontrado no log (só os 200 mais recentes podem ser reprocessados).', 'not_found');
+    if (entry.teste) return apiError(res, 400, 'Recibos de teste (dry-run) não podem ser reprocessados.', 'is_test');
+    // Reconstrói o envelope a partir do recibo. registerSale=false: a venda já
+    // foi contabilizada no primeiro processamento — aqui só re-dispara a CAPI.
+    const n = {
+      acc: entry.acc || req.account.id,
+      gateway: entry.gateway, event: entry.event, orderId: entry.orderId,
+      amountCents: entry.amount, currency: entry.currency,
+      leadId: entry.leadId || undefined,
+      registerSale: false,
+      _forceRedispatch: true,
+      _recvAt: Date.now()
+    };
+    const receipt = await processConversion(n); // síncrono: devolve o recibo novo
+    res.json({ ok: true, receipt });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao reprocessar a conversão.', 'reprocess_failed');
+  }
+});
+
+// Item 200: retenção dos logs — expõe os limites efetivos e permite limpar
+// manualmente por aba (sempre respeitando a fronteira da conta).
+const LOG_RETENTION = {
+  pixelLog:  { label: 'Log de disparos CAPI',  limite: '500 entradas · 14 dias no Redis' },
+  convLog:   { label: 'Log de webhooks',       limite: '200 entradas' },
+  cloakLog:  { label: 'Histórico do cloaker',  limite: '50 por link · 30 dias' },
+  emq:       { label: 'Série de EMQ',          limite: '40 dias por pixel' }
+};
+app.get('/api/ops/retention', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, retention: LOG_RETENTION });
+});
+app.post('/api/ops/clear-log', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('ops-clear|' + req.account.id, 'opsdrain', 6)) {
+    return apiError(res, 429, 'Aguarde um pouco antes de limpar de novo.', 'rate_limited');
+  }
+  const scope = String((req.body && req.body.scope) || '');
+  if (!LOG_RETENTION[scope]) return apiError(res, 400, 'Escopo inválido. Use pixelLog, convLog, cloakLog ou emq.', 'bad_scope');
+  try {
+    const acc = req.account.id;
+    let removed = 0;
+    if (scope === 'pixelLog') removed = await ttEvents.clearLog(acc);
+    else if (scope === 'convLog') removed = await rdb.clearConversionLog(acc);
+    else if (scope === 'cloakLog') {
+      const slugs = (config.get(acc).cloakLinks || []).map((l) => l.slug);
+      removed = await rdb.clearCloakDecisionLogs(acc, slugs);
+    } else if (scope === 'emq') {
+      const pixels = pixelStore.list(acc).map((p) => p.pixelCode);
+      removed = await rdb.clearEmq(acc, pixels);
+    }
+    res.json({ ok: true, removed });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao limpar o log.', 'clear_failed');
+  }
+});
+
 // ═══ Webhook UNIVERSAL de conversões (qualquer gateway) ═══════════════
 // Kiwify, Hotmart, PerfectPay, Cakto, etc.: configure a URL
 //   https://<host>/api/conversion?secret=SEU_SEGREDO[&gateway=kiwify]
@@ -2348,14 +2420,20 @@ async function processConversion(n) {
   if (n && n._recvAt) rdb.recordConvLatency(Date.now() - n._recvAt);
   const evId = n.event + '.' + n.gateway + '.' + n.orderId;
   const receipt = {
+    // Item 198: id ESTÁVEL do recibo — permite localizar a entrada no log
+    // para reprocessamento manual (evId + carimbo de recebimento)
+    id: evId + '.' + (n._recvAt || Date.now()),
     at: new Date().toISOString(),
     acc: n.acc || null,
     gateway: n.gateway, event: n.event, orderId: n.orderId,
     amount: n.amountCents, currency: n.currency
   };
+  if (n._forceRedispatch) receipt.reprocessado = true;
   try {
-    // 1. dedup — retries do gateway nunca duplicam o disparo
-    if (await seenPixelEvent(evId)) {
+    // 1. dedup — retries do gateway nunca duplicam o disparo.
+    // Item 198: reprocessamento manual PULA o dedup de propósito (o admin
+    // pediu o redisparo porque a CAPI falhou mas o pagamento é válido).
+    if (!n._forceRedispatch && await seenPixelEvent(evId)) {
       receipt.status = 'dedup';
       rdb.pushConversionLog(receipt).catch(() => {});
       return receipt;
