@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { usePersistedState } from '@/lib/use-persisted-state'
 import {
   Link2,
   Plus,
@@ -88,9 +89,10 @@ export function LinksView() {
   const [deleting, setDeleting] = useState<string | null>(null)
   // Item 76: para links com tráfego, a exclusão exige digitar o nome do link
   const [deleteText, setDeleteText] = useState('')
-  // Item 64: busca + ordenação client-side
+  // Item 64: busca + ordenação client-side (item 185: ordenação persiste
+  // entre navegações; a busca é intencional por sessão, não persiste)
   const [query, setQuery] = useState('')
-  const [sortBy, setSortBy] = useState<SortKey>('recentes')
+  const [sortBy, setSortBy] = usePersistedState<SortKey>('links:sort', 'recentes')
   // Itens 62/63: feedback de ação em andamento por card
   const [busySlug, setBusySlug] = useState<string | null>(null)
   // Item 72: ações em massa — seleção por checkbox + barra de ações

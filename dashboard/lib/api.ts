@@ -68,6 +68,11 @@ export async function fetcher<T>(path: string): Promise<T> {
 // Mesmo ritmo de polling da dashboard legada (12s)
 const POLL_MS = 12_000
 
+// Item 187: listas de gestão (links/domínios/pixels/gateways/entries) mudam
+// pouco, mas precisam refletir edições feitas em OUTRA aba do navegador sem
+// F5 — revalidação em foco + intervalo suave (30s, só com a aba visível).
+const LIST_POLL_MS = 30_000
+
 export function useStats() {
   return useSWR<StatsResponse>('/api/stats', fetcher, {
     refreshInterval: POLL_MS,
@@ -94,6 +99,7 @@ export function useHealth() {
 
 export function useLinks() {
   return useSWR<LinksResponse>('/api/links', fetcher, {
+    refreshInterval: LIST_POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
@@ -101,6 +107,7 @@ export function useLinks() {
 
 export function useDomains() {
   return useSWR<DomainsResponse>('/api/domains', fetcher, {
+    refreshInterval: LIST_POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
@@ -108,6 +115,7 @@ export function useDomains() {
 
 export function usePixels() {
   return useSWR<PixelsResponse>('/api/pixels', fetcher, {
+    refreshInterval: LIST_POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
@@ -147,6 +155,7 @@ export function useEmqTrend() {
 
 export function useGateways() {
   return useSWR<GatewaysResponse>('/api/gateways', fetcher, {
+    refreshInterval: LIST_POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
@@ -175,6 +184,7 @@ export function useCloakStats() {
 
 export function useCloakEntries() {
   return useSWR<CloakEntriesResponse>('/api/cloak/entries', fetcher, {
+    refreshInterval: LIST_POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
