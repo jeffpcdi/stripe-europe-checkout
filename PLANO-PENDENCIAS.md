@@ -48,14 +48,14 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **274.** Card "melhor dia da semana" e "melhor hora" das séries.
 - **275.** Anotações no gráfico (`chart_annotations`) marcando eventos.
 - **276.** Previsão simples de fim de mês (projeção linear) com disclaimer.
-- **277.** Alerta com CTA quando aprovação < 40% (hoje só muda cor).
+- ~~**277.** Alerta com CTA quando aprovação < 40%~~ — ✅ FEITO: banner `role="alert"` na Overview (só com volume ≥10 tentativas, para não gritar com amostra pequena) com CTA "Abrir cloaker".
 - **278.** Exportar resumo do período como imagem (canvas).
 - **279.** Drill-down: clicar num KPI abre a aba correspondente filtrada.
 - **280.** HealthCard com estado agregado (`/api/health/gestao`: db, redis, filas, snapshots).
 - **281.** Tooltip do gráfico com vendas + visitas do dia junto do valor.
 - **282.** Período customizado (date-range picker) propagado a todas as abas.
-- **283.** Persistir período escolhido em localStorage (hoje reseta a 7d).
-- **284.** Deep-link de período via query string (`?p=30d`).
+- ~~**283.** Persistir período escolhido em localStorage~~ — ✅ FEITO: chave `roi:overview:period`, sobrevive a reload.
+- ~~**284.** Deep-link de período via query string~~ — ✅ FEITO: `?p=today|7d|30d|all` (precedência: URL → localStorage → 7d), refletido via `history.replaceState` sem recarregar.
 - **285.** Card de "receita líquida estimada" (menos reembolsos/disputas).
 - **286.** Ranking "top campanhas" por UTM no overview.
 - **287.** Ranking "top links" por conversão no overview.

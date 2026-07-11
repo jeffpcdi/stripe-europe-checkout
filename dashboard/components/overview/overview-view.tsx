@@ -35,9 +35,37 @@ import { HeroGlobe } from './hero-globe'
 const NEUTRAL = '#6b7183'
 const NEUTRAL_BG = 'rgba(107,113,131,.10)'
 
+const PERIODS: Period[] = ['today', '7d', '30d', 'all']
+const PERIOD_KEY = 'roi:overview:period'
+
+// Itens 283/284: período escolhido persiste (localStorage) e aceita deep-link
+// (?p=30d). Precedência: query string → localStorage → default '7d'.
+function initialPeriod(): Period {
+  if (typeof window === 'undefined') return '7d'
+  const fromUrl = new URLSearchParams(window.location.search).get('p') as Period | null
+  if (fromUrl && PERIODS.includes(fromUrl)) return fromUrl
+  const saved = window.localStorage.getItem(PERIOD_KEY) as Period | null
+  if (saved && PERIODS.includes(saved)) return saved
+  return '7d'
+}
+
 export function OverviewView() {
-  const [period, setPeriod] = useState<Period>('7d')
+  const [period, setPeriodState] = useState<Period>(initialPeriod)
   const { data, error, isLoading } = useStats()
+
+  // Persiste no localStorage e reflete no ?p= sem recarregar (histórico limpo).
+  function setPeriod(next: Period) {
+    setPeriodState(next)
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(PERIOD_KEY, next)
+      const url = new URL(window.location.href)
+      url.searchParams.set('p', next)
+      window.history.replaceState(null, '', url)
+    } catch {
+      /* localStorage/URL indisponível (modo privado): degrada para memória */
+    }
+  }
 
   const { cur, prev } = useMemo(() => {
     if (!data) return { cur: null, prev: null }
@@ -194,6 +222,33 @@ export function OverviewView() {
       <div className="picker-sticky flex justify-end" data-tour="period">
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
+
+      {/* Item 277: aprovação crítica (<40% com volume relevante) vira alerta
+          acionável, não só uma cor. CTA leva ao cloaker (filtro de tráfego). */}
+      {attempts >= 10 && cur.approval < 40 && (
+        <GlassCard
+          role="alert"
+          className="flex flex-col gap-3 border-l-2 border-l-[#fe2c55] p-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="mt-0.5 size-5 shrink-0 text-[#fe2c55]" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Aprovação em {fmtPercent(cur.approval)} — abaixo do saudável
+              </p>
+              <p className="text-sm text-muted-foreground text-pretty">
+                {cur.failed} de {attempts} tentativas falharam neste período. Verifique o cloaker e os gateways para barrar tráfego ruim.
+              </p>
+            </div>
+          </div>
+          <a
+            href="/cloak"
+            className="shrink-0 self-start rounded-lg bg-[#fe2c55] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:self-auto"
+          >
+            Abrir cloaker
+          </a>
+        </GlassCard>
+      )}
 
       {/* KPIs principais — mesma ordem e semântica do legado.
           Item 167: carrossel horizontal com snap em <640px */}
