@@ -235,7 +235,7 @@ Lote concluído: 176–188 (todos ✅ abaixo). 189/183/184/185/187/182/188/186 �
     - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
   - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
-- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç��������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç����������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
@@ -386,6 +386,18 @@ Validação: `node --check` limpo, `tsc --noEmit` limpo, `npm test` verde (10 su
 - ✅ 449 (novo). Conversão órfã deixou de ser silenciosa: `matchExternalConversion` loga evento estruturado com `orphanReason` (`sem_chave` | `sem_match`) e `triedKeys` (leadId/email/telefone) — alimenta o toggle do item 312. +3 asserts em `persistence-flows` (18 total).
 
 Validação: `node --check` limpo (server/db/stats), `npm test` verde 2x seguidas. Query de arquivamento não exercitada contra Neon real (ambiente sem DATABASE_URL) — usa CTEs data-modifying padrão do Postgres.
+
+## Leva 7 — segurança (433–441, 444–445) — completo
+
+- ✅ 433/434/436/441. Auditados como já implementados: login com mensagem genérica (sem enumeração), cookie HttpOnly+Secure+SameSite=Lax, hash scrypt com salt por senha + timingSafeEqual, logout limpa cache e sessão no Neon.
+- ✅ 437 (novo). CSRF: middleware em /api valida Origin×Host em mutações COM cookie de sessão (2ª camada além do SameSite=Lax). Isentos por prefixo (relativos ao mount '/api'!): /track, /px/, /cloakcheck, /conversion, /pulse — webhooks e tracking continuam cross-origin. Smoke test HTTP real: painel+origin cruzado → 403; webhook/track → passam.
+- ✅ 438 (novo). Headers de segurança: nosniff + Referrer-Policy em TODA resposta; X-Frame-Options SAMEORIGIN + DNS-Prefetch off só em páginas do app (funil/domínio personalizado ficam embutíveis). Verificado via curl.
+- ✅ 440 (novo). Bloqueio suave de login: 8 falhas seguidas por e-mail (case-insensitive) → 15 min de trava em memória, zera no login correto; /login responde 429 quando travado (não 401), sem vazar se o e-mail existe.
+- ✅ 444 (novo). test/auth.test.js — 15 asserts: hashing (salt único, rejeição de malformado), cookie de sessão (HttpOnly/Secure/Lax/clear) e lockout (limiar, prazo, case-insensitive).
+- ✅ 445 (novo). test/route-auth.test.js — varredura estática das 72 rotas /api do server: cada uma OU usa dashboardAuth/adminAuth OU está numa allowlist explícita de 8 rotas públicas/auto-autenticadas (com detecção de entrada morta). Rota nova sem classificação = suíte vermelha. Ambos registrados no npm test.
+- Pendentes da faixa (menores/UI): 435 (medidor de força), 439 (trilha admin), 442 (Pushcut novo login), 443 (seção Sobre).
+
+Validação: suíte completa verde (agora 12 arquivos de teste, +25 asserts novos), smoke test HTTP real de headers e CSRF em porta isolada, preview intacto após limpeza dos processos de teste.
 
 ## Fila de execução (próximos)
 

@@ -259,6 +259,56 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Item 438: headers de segurança. Os dois primeiros são seguros em QUALQUER
+// resposta (inclusive px.gif e páginas de funil embutidas em iframe):
+//  - nosniff: impede o browser de "adivinhar" content-type (defesa XSS/MIME).
+//  - Referrer-Policy: não vaza a URL completa (com querystring/UTMs) para
+//    terceiros ao clicar em links externos.
+// X-Frame-Options só entra em páginas HTML DO APP (não-funil, não-domínio
+// personalizado): as páginas públicas de funil PRECISAM poder ser embutidas.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  const p = req.path || '';
+  const isPublicFunnel = isCustomDomain(req) ||
+    p.startsWith('/go/') || p.startsWith('/c/') || p.startsWith('/l/') ||
+    p === '/px.gif' || p === '/px.js' || p === '/t.js' || /^\/px\//.test(p);
+  if (!isPublicFunnel && !p.startsWith('/api')) {
+    // Painel/landing: nunca embutível (clickjacking) e sem preview de DNS.
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
+  }
+  next();
+});
+
+// Item 437 (CSRF): valida a origem em mutações do painel. O cookie de sessão
+// é SameSite=Lax, o que já barra POSTs cross-site na maioria dos casos; esta é
+// a segunda camada. POSTs para /api que ENVIAM cookie de sessão precisam vir do
+// próprio host. Webhooks de gateway (/hook, /api/conversion) e tracking público
+// (sem cookie) são isentos — chegam de origens externas legítimas.
+// Prefixos relativos ao mount '/api' (req.path chega sem o '/api' aqui).
+const CSRF_EXEMPT_PREFIX = ['/track', '/px/', '/cloakcheck', '/conversion', '/pulse'];
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  const p = req.path || '';
+  if (CSRF_EXEMPT_PREFIX.some((pre) => p.startsWith(pre))) return next();
+  // Só exige origem casada quando há cookie de sessão no request (é uma ação
+  // do painel autenticado). Sem cookie, não há CSRF de sessão a proteger.
+  const hasSession = /(?:^|;\s*)dash_session=/.test(req.headers.cookie || '');
+  if (!hasSession) return next();
+  const origin = req.headers.origin || '';
+  if (!origin) return next(); // same-origin server-side / sendBeacon sem Origin
+  try {
+    const originHost = new URL(origin).host.toLowerCase().replace(/:\d+$/, '');
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+    if (originHost && host && originHost !== host) {
+      return res.status(403).json({ error: 'origem não permitida' });
+    }
+  } catch (_) { /* Origin malformado: deixa passar p/ não travar clientes legítimos */ }
+  next();
+});
+
 // CORS headers para todas as rotas API (GET + POST + OPTIONS)
 app.use('/api', (req, res, next) => {
   res.set({
@@ -1483,7 +1533,8 @@ app.post('/login', async (req, res) => {
   try {
     const b = req.body || {};
     const result = await auth.login({ email: b.email, password: b.password });
-    if (result.error) return res.status(401).json({ ok: false, error: result.error });
+    // Item 440: 429 quando bloqueado por excesso de tentativas (não 401).
+    if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
     appendCookie(res, auth.sessionCookie(result.token));
     res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
   } catch (err) {

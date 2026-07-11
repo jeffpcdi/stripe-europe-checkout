@@ -63,12 +63,47 @@ async function register({ email, password, name }) {
   return { account, token };
 }
 
+// Item 440: bloqueio suave por e-mail após N falhas seguidas — freia
+// tentativa de força bruta sem travar o dono de vez. Contagem em memória
+// (reinicia com o processo, aceitável) e destrava sozinha após a janela ou
+// no primeiro login correto. Chave é o e-mail normalizado.
+const LOGIN_MAX_FAILS = 8;
+const LOGIN_LOCK_MS = 15 * 60 * 1000; // 15 min
+const loginFails = new Map(); // email → { count, until }
+
+function loginLockKey(email) { return String(email || '').trim().toLowerCase(); }
+
+function loginLockState(email) {
+  const rec = loginFails.get(loginLockKey(email));
+  if (!rec) return null;
+  if (rec.until && rec.until <= Date.now()) { loginFails.delete(loginLockKey(email)); return null; }
+  return rec;
+}
+
+function registerLoginFail(email) {
+  const key = loginLockKey(email);
+  const rec = loginFails.get(key) || { count: 0, until: 0 };
+  rec.count += 1;
+  if (rec.count >= LOGIN_MAX_FAILS) rec.until = Date.now() + LOGIN_LOCK_MS;
+  loginFails.set(key, rec);
+}
+
 async function login({ email, password }) {
   if (!db.enabled) return { error: 'Banco de dados não configurado no servidor (defina DATABASE_URL nas variáveis de ambiente). Confira /api/status.' };
+
+  // Bloqueio ativo? Não vaza se o e-mail existe — mensagem é sobre tentativas.
+  const locked = loginLockState(email);
+  if (locked && locked.until) {
+    const mins = Math.max(1, Math.ceil((locked.until - Date.now()) / 60000));
+    return { error: 'Muitas tentativas. Tente novamente em ' + mins + ' min.', locked: true };
+  }
+
   const row = await db.getAccountByEmail(email || '');
   if (!row || !verifyPassword(password, row.password_hash)) {
+    registerLoginFail(email);
     return { error: 'E-mail ou senha incorretos.' };
   }
+  loginFails.delete(loginLockKey(email)); // sucesso zera o contador
   const token = await db.createAuthSession(row.id, SESSION_TTL_DAYS);
   const account = { id: row.id, email: row.email, name: row.name, role: row.role };
   return { account, token };
@@ -160,5 +195,8 @@ module.exports = {
   register, login, logout, resolveSession,
   parseCookies, sessionCookie, clearCookie,
   requireAuth, optionalAuth,
-  hashPassword, verifyPassword
+  hashPassword, verifyPassword,
+  // Item 440/444: expostos para teste isolado do bloqueio suave.
+  _loginLockState: loginLockState, _registerLoginFail: registerLoginFail,
+  _LOGIN_MAX_FAILS: LOGIN_MAX_FAILS
 };
