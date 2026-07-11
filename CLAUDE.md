@@ -185,7 +185,7 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   **Métricas de decisão:** `GET /api/cloak/stats` (offer vs white + taxa de bloqueio + breakdown por
   motivo, por link e agregado) e `POST /api/cloak/stats/reset` (zera um link via `{key}` ou todos).
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
-- **Conversões:** `GET /api/conversion/log`, `POST /api/conversion/test`.
+- **Convers��es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
   **Mecanismo de verificação (2 passos, mas só o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
   comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
@@ -466,7 +466,7 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── conversion-normalize.js # normalização de payloads de gateway (puro, testável)
 ├── domain-provider.js     # Custom Domains na hospedagem via API (Railway; token só aqui)
 ├── presence.js / pulse-client.js   # visitantes ao vivo
-├── pushcut.js             # notificações push
+├���─ pushcut.js             # notificações push
 ├── *-view.js              # views legadas (HTML como string): dashboard, lp, legal, tracker, vision, auth
 ├── start.js               # start de produção: sobe Next (3001) + Express ($PORT) no mesmo serviço (§19)
 ├── dashboard/             # NOVA dashboard Next.js 16 + TypeScript + Tailwind v4 (§19)
@@ -645,6 +645,22 @@ o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba co
 `vercel env pull /tmp/env-preview --environment=preview` + `node --env-file=/tmp/env-preview server.js`
 para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
 dashboard com `next build` + `next start -p 3001`.
+
+### 19.4.1 Primitivos de UX compartilhados (itens 183/184/189 — REUTILIZE, não reinvente)
+Ao adicionar feedback, confirmações ou modais numa view, use SEMPRE estes três — não improvise
+`window.confirm`, `savedAt`/`copied` locais ou trap de foco caseiro:
+- **`lib/toast.ts` + `components/shell/toaster.tsx`** — toaster global montado 1× no layout. Chame
+  `toast.success/error/info(msg, { hint?, duration? })`. `aria-live` (erro=`alert`/assertivo,
+  demais=`status`/polido), erro fica 6s. NÃO monte outro `<Toaster>`.
+- **`components/confirm-dialog.tsx`** — toda ação destrutiva. Props `open/title/description/
+  confirmLabel/confirmText?/busy/onConfirm/onClose`. Passe `confirmText={nome}` quando o item tem
+  tráfego → exige digitar o nome (mesma trava do link, item 76). Padrão de uso: estado
+  `confirm:{title,description,confirmLabel,confirmText?,run}` + `confirmBusy` (ver gateways-view).
+- **`lib/use-modal-a11y.ts`** — `useModalA11y(open, ref, onClose)` dá foco preso, ESC, retorno de
+  foco e trava de scroll a QUALQUER popup. O container precisa de `tabIndex={-1}` e `role`
+  (`dialog`/`alertdialog`). `GlassCard` encaminha `ref` (ref-as-prop React 19), então serve de
+  container. Já usado por `TutorialModal` e `ConfirmDialog`.
+Pendente (próxima fatia): migrar links/pixels/domínios/cloak entries para `ConfirmDialog`+`toast`.
 
 ### 19.5 Armadilhas específicas da dashboard nova
 - Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —

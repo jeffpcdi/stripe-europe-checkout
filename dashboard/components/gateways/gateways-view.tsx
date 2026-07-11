@@ -612,6 +612,29 @@ export function GatewaysView() {
           }}
         />
       )}
+
+      {/* Item 184: confirmação destrutiva padronizada e acessível */}
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.title ?? ''}
+        description={confirm?.description}
+        confirmLabel={confirm?.confirmLabel ?? 'Confirmar'}
+        confirmText={confirm?.confirmText}
+        busy={confirmBusy}
+        onClose={() => {
+          if (!confirmBusy) setConfirm(null)
+        }}
+        onConfirm={async () => {
+          if (!confirm) return
+          setConfirmBusy(true)
+          try {
+            await confirm.run()
+            setConfirm(null)
+          } finally {
+            setConfirmBusy(false)
+          }
+        }}
+      />
     </div>
   )
 }
