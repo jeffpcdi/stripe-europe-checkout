@@ -1689,6 +1689,34 @@ function isCloudflareIp(ip) {
   });
 }
 
+// Item 175: resolução via DNS-over-HTTPS (dns.google / cloudflare-dns) para ler
+// a propagação GLOBAL do registro. O resolver local (dnsp) responde pelo cache
+// do sistema/rede, que pode estar defasado logo após o lojista criar o CNAME;
+// os resolvers públicos costumam refletir a mudança antes. Best-effort e com
+// timeout curto — nunca é fonte de verdade, só um sinal antecipado de "já vejo
+// seu registro apontando pra cá". type=5 (CNAME), type=1 (A).
+async function dohResolve(host, type) {
+  const providers = [
+    'https://dns.google/resolve?name=' + encodeURIComponent(host) + '&type=' + type,
+    'https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(host) + '&type=' + type,
+  ];
+  for (const url of providers) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2500);
+      const r = await fetch(url, { headers: { accept: 'application/dns-json' }, signal: ctrl.signal });
+      clearTimeout(t);
+      if (!r.ok) continue;
+      const j = await r.json().catch(() => null);
+      if (!j || !Array.isArray(j.Answer)) continue;
+      // Answer[].type: 5 = CNAME, 1 = A. data traz o valor resolvido.
+      const answers = j.Answer.filter((a) => a.type === type).map((a) => String(a.data || '').replace(/\.$/, ''));
+      if (answers.length) return answers;
+    } catch (_) { /* tenta o próximo provider */ }
+  }
+  return [];
+}
+
 app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   const host = normHost((req.body || {}).host);
   if (!host) return res.status(400).json({ error: 'domínio inválido' });
@@ -1731,7 +1759,24 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
         out.dnsOk = true;
         out.dnsDetail = 'A → ' + hostIps.join(', ');
       } else if (!hostIps.length && !cnames.length) {
-        out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
+        // Item 175: o resolver local não vê o registro — checar via DoH (resolvers
+        // públicos) antes de dizer "não resolve". Se o CNAME/A já aparece lá, é
+        // propagação em curso, não erro de configuração.
+        const [dohCn, dohA] = await Promise.all([
+          dohResolve(host, 5).catch(() => []),
+          dohResolve(host, 1).catch(() => []),
+        ]);
+        const dohPointsHere =
+          dohCn.some((c) => c.toLowerCase() === appHost.toLowerCase()) ||
+          (dohA.length && appIps.length && dohA.some((ip) => appIps.includes(ip)));
+        if (dohPointsHere) {
+          out.dnsPropagating = true;
+          out.dnsDetail = 'registro já visível nos resolvers públicos (dns.google/cloudflare) apontando pra cá — propagação em curso; aguarde alguns minutos e verifique de novo';
+        } else if (dohCn.length || dohA.length) {
+          out.dnsDetail = 'DNS aponta para outro destino (' + (dohCn[0] || dohA.join(', ')) + ') — corrija o registro para apontar para ' + appHost;
+        } else {
+          out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
+        }
       } else if (hostIps.length && hostIps.some(isCloudflareIp)) {
         out.cloudflareProxy = true;
         out.dnsDetail = 'proxy da Cloudflare ativo (nuvem laranja) — edite o registro na Cloudflare e mude para "Somente DNS" (nuvem cinza)';

@@ -188,6 +188,18 @@ Evidência: `node --check` limpo nos 4 módulos + 4/4 suítes de teste passando 
 
 Evidência: `node --check bot-filter.js server.js` limpo, `tsc --noEmit` limpo na dashboard, 5/5 suítes de teste passando (gateway-only, EMQ, pixel-durability, security/anti-SSRF) — julgamento do cloaker e event_id determinístico intactos.
 
+### Leva 4 — Aba Cloaker, faixa 141–150 (transparência + UX do link /c)
+
+- ✅ 141. Threshold efetivo por entry exibido no editor (`cloak-entry-editor.tsx`): a sensibilidade escolhida (Rígido/Equilibrado/Leve/Custom) espelha `SENSITIVITY_THRESHOLDS` e mostra o valor herdado vs. sobrescrito — já implementado
+- ✅ 142. Acessibilidade dos toggles do cloaker: `aria-checked` presente nos 4 switches (`cloak-entries-panel`, `cloak-entry-editor`, `cloak-config-panel` ×2) com `role="switch"`, foco e teclado — auditado, conforme
+- ✅ 143. Copiar URL do entry com anúncio acessível (`aria-live`), padronizado com os itens 55/93/110 — já implementado
+- ✅ 144. Mini-gráfico diário offer×white por link (`DailyMiniChart` no `cloak-stats-panel`): plota o `daily` que o backend já devolvia (últimas 2 semanas, barras empilhadas com as cores de offer/white) — já implementado
+- ✅ 145. Estado vazio guiado da aba Cloaker: quando não há nenhum link, um bloco explica offer × white em linguagem de negócio (oferta real para o público × página neutra para robôs/revisores) com ícone e CTA "Criar meu primeiro link". Complementa o `TutorialModal` (`CLOAK_STEPS`) já presente
+- ✅ 146. Confirmar exclusão de entry com tráfego: `ConfirmDialog` que, quando há decisões registradas (`statBySlug[slug].total > 0`), exige digitar o nome do link e avisa que os contadores se perdem (ver detalhamento no item 184)
+- ✅ 150. Token nunca exposto inteiro: a listagem (`GET /api/pixels`) já devolve só `'••••' + accessToken.slice(-4)`; o segredo completo jamais entra no payload de leitura — auditado, conforme
+
+Auditoria: itens 141–144 e 150 já estavam no código de sessões anteriores (não rastreados aqui); 145 e 146 implementados nesta sessão. `tsc --noEmit` limpo.
+
 ### Leva 4 — Robustez transversal, fatia backend/API (176–181)
 
 - ✅ 176. Cache NEGATIVO de ASN com TTL curto (5 min) em memória (`bot-filter.js`) e no Redis (`redis.js`) — lookup sem ASN resolvido (asn:0/unknown/timeout) não fica mais 4h/24h fixado como neutro; datacenter cujo 1º lookup falhou é reavaliado em minutos. Hit válido (asn>0) mantém TTL longo. IP privado continua definitivo
@@ -204,13 +216,19 @@ Pendente do lote (UI ampla, próxima fatia): 175, 182, 185–188, 190 (formato d
 - ✅ 189. Hook `useModalA11y(open, ref, onClose)` (`lib/use-modal-a11y.ts`): foco preso (focus trap com Tab/Shift+Tab), ESC para fechar, retorno de foco ao gatilho e trava de scroll do body. Base única para todos os popups; `TutorialModal` refatorado para usá-lo (removidos os efeitos de ESC/foco caseiros). `GlassCard` passou a encaminhar `ref` (React 19 ref-as-prop) para permitir o trap
 - ✅ 183. Toaster global (`lib/toast.ts` store sem dependência + `components/shell/toaster.tsx`) montado uma vez no layout da Gestão. Região `aria-live` (assertiva p/ erro `role=alert`, polida p/ sucesso/info `role=status`), no máx 4 na tela, erro fica 6s e demais 3.5s. API `toast.success/error/info(msg,{hint,duration})`
 - ✅ 184. `ConfirmDialog` reutilizável (`components/confirm-dialog.tsx`) usando o hook de a11y — substitui `window.confirm`. Quando o item tem tráfego, exige digitar o nome (mesma trava do link, item 76). Conectado ao **gateways-view**: excluir gateway (exige nome se `lastEventAt`) e rotacionar webhook agora usam o diálogo + `toast`, em vez de `window.confirm` e mensagens improvisadas
+  - **Replicado nas views restantes (fatia UI ampla):**
+    - **links-view** (itens 76/184): exclusão inline substituída pelo `ConfirmDialog`; com clique/conversão registrados exige digitar o nome do link (`confirmText`), descrição mostra os contadores; sucesso/erro por `toast`. Removido o bloco de exclusão inline e o `deleteText` local
+    - **domains-view** (item 184): `DomainCard` deixou de gerenciar exclusão inline (props `deleting/onCancelDelete/onDelete` removidas); o pai monta um `ConfirmDialog` único — domínio **verificado** exige o host digitado (links/cloaker ao vivo dependem dele); `toast` de sucesso/erro
+    - **cloak-entries-panel** (itens 146/184): remover link de cloaking via `ConfirmDialog`; com decisões registradas (`statBySlug[slug].total > 0`) exige o nome digitado e avisa que os contadores se perdem; `toast` no lugar do `window.confirm`
+    - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
+  - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
 - ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidratação). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
 - ✅ 186. Indicador global de durabilidade no cabeçalho: `DurabilityBadge` (`components/shell/durability-badge.tsx`) montado no `Header`, ao lado do `LiveBadge`. Consolida banco (Neon) + Redis do `/api/health` num só lugar e classifica: **durável** (banco no ar → badge oculto), **degradado** (banco fora + Redis no ar → âmbar, "rodando pelo snapshot, alterações seguem salvas") e **volátil** (banco e Redis fora → vermelho, "alterações podem se perder ao reiniciar"). Só aparece quando o banco cai (não polui o estado saudável, já coberto pelo `LiveBadge`); link para `/` (Visão geral) onde o `HealthCard` detalha os serviços
-Pendente: replicar `ConfirmDialog`/`toast` nas demais views (links, pixels, domínios, cloak entries) e itens 175, 190 (docs CLAUDE.md + bateria de testes 161–190) — próxima fatia.
+Pendente: itens 175, 190 (docs CLAUDE.md + bateria de testes 161–190) — próxima fatia. (`ConfirmDialog`/`toast` já replicado em links, domínios, cloak entries e cloak stats; pixels já usava desde o item 184.)
 
 Evidência: `node --check` limpo nos 3 módulos, `next build` limpo (type-check incluído, 12 rotas prerenderizadas), 5/5 suítes de teste passando, `getJudgeLatency()` conferido em runtime.
 

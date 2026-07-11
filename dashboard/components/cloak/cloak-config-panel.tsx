@@ -242,6 +242,17 @@ export function CloakConfigPanel() {
           placeholder="https://blog-inocente.com"
           className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
+        {/* Item 172: white page de fallback preenchida mas inválida (não https)
+            manda o revisor a uma página de erro e queima a conta — avisar */}
+        {(cfg.defaultWhitePage ?? '').trim() !== '' && !/^https:\/\//.test((cfg.defaultWhitePage ?? '').trim()) && (
+          <span className="flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              A white page de fallback precisa começar com <code>https://</code>. Uma página quebrada leva o revisor a
+              um erro e pode queimar a conta — corrija ou deixe vazio para usar a página neutra embutida.
+            </span>
+          </span>
+        )}
       </label>
 
       {/* Camadas de detecção */}
@@ -257,6 +268,20 @@ export function CloakConfigPanel() {
           />
         ))}
       </div>
+
+      {/* Item 173: blockZhLang barra qualquer accept-language chinês — inclui
+          chinês real fora da CN (diáspora, turistas). Nota de contexto */}
+      {(cfg.blockZhLang as boolean) && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <span>
+            <strong className="text-foreground">Bloquear zh fora da CN</strong> desvia todo visitante com idioma chinês
+            fora da China para a página branca. Isso barra revisores da ByteDance, mas também pode atingir{' '}
+            <strong className="text-foreground">público chinês legítimo</strong> (diáspora, turistas). Deixe ligado só
+            se sua campanha não mira falantes de chinês reais.
+          </span>
+        </div>
+      )}
 
       {/* Item 168: camadas D–H inertes sem o Challenge JS */}
       {!cfg.requireJsChallenge &&
