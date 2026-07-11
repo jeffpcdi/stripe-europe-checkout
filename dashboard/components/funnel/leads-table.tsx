@@ -80,7 +80,16 @@ export function LeadsTable({
       }
       return true
     })
-  }, [leads, query, stage, gateway, periodStart])
+  }, [leads, query, stage, gateway, periodStart, showOrphans])
+
+  // Item 312: quantas vendas órfãs existem no período (para o rótulo do toggle)
+  const orphanCount = useMemo(() => {
+    return leads.filter((l) => {
+      if (!l.orphan) return false
+      if (periodStart && new Date(l.at).getTime() < periodStart.getTime()) return false
+      return true
+    }).length
+  }, [leads, periodStart])
 
   // Item 150: paginação com clamp quando o filtro muda
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -106,10 +115,24 @@ export function LeadsTable({
     setPage(0)
   }
 
-  // Item 130: exporta os leads filtrados como CSV, client-side
+  // Item 130: exporta os leads filtrados como CSV, client-side.
+  // Item 310: colunas UTM + e-mail/telefone MASCARADOS (o CSV circula por
+  // planilhas e e-mails — PII completa não deve sair do painel).
   function exportCsv() {
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-    const header = ['id', 'etapa', 'pais', 'gateway', 'valor', 'quando']
+    const maskEmail = (e?: string | null) => {
+      if (!e || !e.includes('@')) return ''
+      const [user, domain] = e.split('@')
+      return (user.length <= 2 ? user[0] + '…' : user.slice(0, 2) + '…') + '@' + domain
+    }
+    const maskPhone = (p?: string | null) => {
+      const digits = String(p ?? '').replace(/\D/g, '')
+      return digits.length < 4 ? '' : '…' + digits.slice(-4)
+    }
+    const header = [
+      'id', 'etapa', 'pais', 'gateway', 'valor', 'quando',
+      'utm_source', 'utm_medium', 'utm_campaign', 'email_mascarado', 'telefone_mascarado', 'orfa',
+    ]
     const rows = filtered.map((l) =>
       [
         l.id,
@@ -118,6 +141,12 @@ export function LeadsTable({
         l.gateway ? gwLabel(l.gateway) : '',
         l.amount ? formatMoney(l.amount, l.currency) : '',
         l.at,
+        l.utm?.source || '',
+        l.utm?.medium || '',
+        l.utm?.campaign || '',
+        maskEmail(l.email),
+        maskPhone(l.phone),
+        l.orphan ? 'sim' : '',
       ].map(esc).join(','),
     )
     const blob = new Blob(['\uFEFF' + [header.join(','), ...rows].join('\n')], {
@@ -139,6 +168,26 @@ export function LeadsTable({
           {plural(filtered.length, 'lead')}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* Item 312: toggle de vendas órfãs — só aparece quando existem */}
+          {orphanCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShowOrphans((v) => !v)
+                resetPage()
+              }}
+              aria-pressed={showOrphans}
+              className={cn(
+                'flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors',
+                showOrphans
+                  ? 'border-warning/50 bg-warning/10 text-warning'
+                  : 'border-border/60 text-muted-foreground hover:bg-secondary hover:text-foreground',
+              )}
+              title="Vendas confirmadas pelo gateway sem lead rastreado (compra sem passar pelo link, ou de outro dispositivo)"
+            >
+              {plural(orphanCount, 'venda órfã', 'vendas órfãs')}
+            </button>
+          ) : null}
           {/* Item 130: exportar CSV discreto no canto do card */}
           <button
             type="button"
@@ -265,6 +314,15 @@ export function LeadsTable({
                         >
                           {STAGE_LABEL[l.stage] || l.stage}
                         </span>
+                        {/* Item 312: marca visual da venda sem rastreamento */}
+                        {l.orphan ? (
+                          <span
+                            className="ml-1.5 rounded-md bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning"
+                            title="Venda confirmada pelo gateway sem lead rastreado"
+                          >
+                            órfã
+                          </span>
+                        ) : null}
                       </td>
                       <td className="py-2.5 pr-3 text-xs">
                         {l.gateway ? (

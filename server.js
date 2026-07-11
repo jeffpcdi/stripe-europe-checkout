@@ -442,6 +442,20 @@ app.use(async (req, res, next) => {
 // até a entrada do checkout, sem depender de cookie cross-site.
 const VID_RE = /^ld_[a-z0-9]{6,30}$/i;
 
+// Itens 417/439: helper de auditoria — grava ação sensível na trilha da conta
+// com IP mascarado (último octeto/fim do IPv6 ofuscado). Fire-and-forget:
+// auditoria nunca pode quebrar a ação que está auditando.
+function maskReqIp(req) {
+  const ip = clientIp(req);
+  if (!ip) return null;
+  return ip.includes(':') ? ip.split(':').slice(0, 3).join(':') + ':…' : ip.replace(/\.\d+$/, '.xxx');
+}
+function audit(req, accId, action, detail) {
+  if (!accId) return;
+  try { db.insertAudit(accId, action, detail || null, maskReqIp(req)).catch(() => {}); }
+  catch (_) { /* melhor-esforço */ }
+}
+
 // ── Anti-abuso: rate limit por IP nos endpoints públicos ─────────────
 // Janela deslizante em memória (60s). Protege os números do funil e o
 // sinal do pixel contra bots agressivos, spy tools e cliques inflados.
@@ -1537,6 +1551,8 @@ app.post('/login', async (req, res) => {
     if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
     appendCookie(res, auth.sessionCookie(result.token));
     res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
+    // Item 417: login entra na trilha de auditoria da conta.
+    audit(req, result.account.id, 'login', 'Login no painel');
     // Item 442: aviso de novo login via Pushcut (opt-in explícito). Depois da
     // resposta — nunca atrasa o login. IP mascarado (sem PII completa).
     try {
@@ -1750,6 +1766,7 @@ app.post('/api/backup/import', dashboardAuth, async (req, res) => {
       report.cloakLinks = (patch.cloakLinks || []).length;
     }
     stats.logEvent('info', { acc, title: 'Backup importado: ' + report.links + ' links, ' + report.pixels + ' pixels, ' + report.gateways + ' gateways' });
+    audit(req, req.account.id, 'backup_importado', 'Backup restaurado no painel'); // item 417
     res.json({ ok: true, report });
   } catch (e) {
     apiError(res, 500, 'Falha ao importar o backup.', 'import_failed');
@@ -1771,6 +1788,7 @@ app.post('/api/links', dashboardAuth, async (req, res) => {
       .forEach((d) => linkStore.markDomainValidated(d.host, d.verificadoEm));
     const saved = await linkStore.save(req.account.id, req.body || {});
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
+    audit(req, req.account.id, 'link_salvo', 'Link ' + saved.slug + ' (' + saved.nome + ')'); // item 417
     res.json({ ok: true, link: saved });
   } catch (err) {
     // Item 235: conflito de edição concorrente → 409 com mensagem acionável
@@ -1782,6 +1800,7 @@ app.delete('/api/links/:slug', dashboardAuth, async (req, res) => {
   try {
     await linkStore.remove(req.account.id, req.params.slug);
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout removido', ref: req.params.slug });
+    audit(req, req.account.id, 'link_removido', 'Link ' + req.params.slug); // item 417
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3693,8 +3712,26 @@ app.get('/api/pixels/emq-trend', dashboardAuth, async (req, res) => {
   res.json({ ok: true, pixels: out, alerts: out.filter((p) => p.alert).length });
 });
 
+// Itens 417/439: trilha de auditoria da conta, visível na aba Config.
+app.get('/api/audit', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const rows = await db.listAudit(req.account.id, req.query.limit);
+  res.json({
+    ok: true,
+    enabled: db.enabled,
+    log: rows.map((r) => ({
+      id: String(r.id),
+      at: r.at,
+      action: r.action,
+      detail: r.detail || null,
+      ip: r.ip_masked || null,
+    })),
+  });
+});
+
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {
   stats.reset(req.account.id); // zera SÓ os dados da conta logada
+  audit(req, req.account.id, 'reset_stats', 'Estatísticas zeradas'); // item 417
   res.json({ ok: true });
 });
 

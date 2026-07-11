@@ -70,6 +70,8 @@ export interface Lead {
   journey?: { p: string; at: string }[]
   customer?: string
   email?: string
+  /** Item 310: telefone reportado pelo gateway (quando existe) */
+  phone?: string
   referer?: string
   checkoutHits?: { at: string }[]
   reportedAmount?: number

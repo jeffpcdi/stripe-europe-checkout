@@ -108,6 +108,19 @@ async function init() {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS events_archive_acc_at_idx ON events_archive (account_id, at DESC)`;
 
+    // Itens 417/439: trilha de auditoria da conta — ações sensíveis (login,
+    // criação/remoção de link, reset de stats, import de backup, acesso a
+    // rotas sensíveis…) com IP mascarado. Visível na aba Config.
+    await sql`CREATE TABLE IF NOT EXISTS account_audit (
+      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      account_id text NOT NULL,
+      at timestamptz NOT NULL DEFAULT now(),
+      action text NOT NULL,
+      detail text,
+      ip_masked text
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS account_audit_acc_at_idx ON account_audit (account_id, at DESC)`;
+
     await sql`CREATE TABLE IF NOT EXISTS variants (
       name text PRIMARY KEY,
       data jsonb NOT NULL,
@@ -445,6 +458,26 @@ async function archiveOldEvents(retentionDays, batch) {
     console.error('[db] archiveOldEvents:', err.message);
     return 0;
   }
+}
+
+// Itens 417/439: grava uma entrada na trilha de auditoria. Fire-and-forget —
+// auditoria nunca pode quebrar a ação que está auditando.
+async function insertAudit(accountId, action, detail, ipMasked) {
+  if (!enabled || !accountId || !action) return;
+  try {
+    await sql`INSERT INTO account_audit (account_id, action, detail, ip_masked)
+      VALUES (${accountId}, ${action}, ${detail || null}, ${ipMasked || null})`;
+  } catch (err) { console.error('[db] insertAudit:', err.message); }
+}
+
+async function listAudit(accountId, limit) {
+  if (!enabled || !accountId) return [];
+  const n = Math.max(1, Math.min(200, Number(limit) || 50));
+  try {
+    return await sql`SELECT id, at, action, detail, ip_masked
+      FROM account_audit WHERE account_id = ${accountId}
+      ORDER BY at DESC LIMIT ${n}`;
+  } catch (err) { console.error('[db] listAudit:', err.message); return []; }
 }
 
 async function upsertVariant(accountId, name, data) {
@@ -835,7 +868,7 @@ module.exports = {
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
-  upsertLead, insertEvent, archiveOldEvents, upsertVariant, loadState, reset, upsertSession,
+  upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, upsertVariant, loadState, reset, upsertSession,
   saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels, getPixelByToken,
   upsertLink, deleteLink, loadLinks,

@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react'
 import {
   User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send, SlidersHorizontal, Coins,
-  DownloadCloud, UploadCloud, Info,
+  DownloadCloud, UploadCloud, Info, ShieldCheck,
 } from 'lucide-react'
 import useSWR from 'swr'
 import { useAccount, usePushcutConfig, useHealth, apiSend, fetcher } from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
 import { usePrefs } from '@/lib/prefs'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -31,9 +32,75 @@ export function ConfigView() {
       <PushcutCard />
       <ApiTokenCard />
       <BackupCard />
+      <AuditCard />
       <AboutCard />
       <DangerCard />
     </div>
+  )
+}
+
+/* Itens 417/439: trilha de auditoria — ações sensíveis da conta com IP mascarado */
+const AUDIT_LABELS: Record<string, string> = {
+  login: 'Login no painel',
+  reset_stats: 'Estatísticas zeradas',
+  link_salvo: 'Link salvo',
+  link_removido: 'Link removido',
+  backup_importado: 'Backup importado',
+}
+
+interface AuditRow {
+  id: string
+  at: string
+  action: string
+  detail: string | null
+  ip: string | null
+}
+
+function AuditCard() {
+  const { data } = useSWR<{ ok: boolean; enabled: boolean; log: AuditRow[] }>(
+    '/api/audit?limit=30',
+    fetcher,
+    { revalidateOnFocus: false },
+  )
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <ShieldCheck className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="section-head text-sm font-semibold text-foreground">Atividade da conta</h2>
+          <p className="text-xs text-muted-foreground">
+            Ações sensíveis registradas — logins, links, resets (IP mascarado)
+          </p>
+        </div>
+      </div>
+      {!data ? (
+        <p className="py-4 text-center text-xs text-muted-foreground">Carregando…</p>
+      ) : !data.enabled ? (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          Trilha indisponível: banco de dados não configurado.
+        </p>
+      ) : data.log.length === 0 ? (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          Nenhuma atividade registrada ainda. Logins e alterações aparecem aqui.
+        </p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-border/40 border-t border-border pt-1">
+          {data.log.map((r) => (
+            <li key={r.id} className="flex items-baseline gap-3 py-2 text-xs">
+              <span className="shrink-0 font-medium text-foreground">
+                {AUDIT_LABELS[r.action] || r.action}
+              </span>
+              {r.detail ? <span className="truncate text-muted-foreground">{r.detail}</span> : null}
+              <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[11px] tabular-nums text-muted-foreground">
+                {r.ip ? <span>{r.ip}</span> : null}
+                <span>{formatDateTime(r.at)}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </GlassCard>
   )
 }
 
