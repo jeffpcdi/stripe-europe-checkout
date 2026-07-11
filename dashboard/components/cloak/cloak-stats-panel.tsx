@@ -250,6 +250,13 @@ export function CloakStatsPanel() {
                 replay(s) de link de anúncio barrados (30d)
               </span>
             )}
+            {/* Item 258: acessos barrados por velocity (device-farm suspeito) */}
+            {(agg?.reasons?.velocity ?? 0) > 0 && (
+              <span className="text-muted-foreground">
+                <span className="font-semibold text-foreground">{(agg?.reasons?.velocity ?? 0).toLocaleString('pt-BR')}</span>{' '}
+                acesso(s) suspeito(s) de automação barrado(s)
+              </span>
+            )}
           </div>
           {data?.sticky?.available && (
             <form

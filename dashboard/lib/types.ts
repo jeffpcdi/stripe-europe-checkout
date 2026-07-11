@@ -402,6 +402,9 @@ export interface CloakConfig {
   checkCoherence: boolean
   checkEntropy: boolean
   sensitivityThresholds: Record<string, number>
+  // Itens 254/261: camada de velocity (anti device-farm) configurável por conta
+  velocityLimit?: number
+  velocityWindowSec?: number
 }
 
 // ── /api/cloak/test — julgamento do request atual ──
@@ -427,6 +430,13 @@ export interface CloakTestResult {
   resolvedAt?: number
   // Item 165/208: eco do perfil simulado (null = request real do admin)
   profile?: CloakTestProfileMeta | null
+  // Item 257: previsão da camada de velocity (anti device-farm)
+  velocity?: {
+    limit: number
+    windowSec: number
+    blockedAtHit: number
+    note: string
+  }
 }
 
 // ── /api/cloak/test/profiles — catálogo do simulador (item 165/208) ──

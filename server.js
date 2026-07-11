@@ -1116,10 +1116,14 @@ app.get('/c/:slug', async (req, res) => {
           return go(white);
         }
       }
-      // 2) velocity por IP: >12 acessos/min ao mesmo link = automação/farm
-      const vip = await redis.bumpVelocity('c:' + entry.slug + ':ip', ip, 60).catch(() => 0);
-      if (vip > 12) {
-        stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/min → white', gateway: 'cloak:' + entry.slug, ref: ip });
+      // 2) velocity por IP: N acessos na janela ao mesmo link = automação/farm.
+      // Item 254: limiar e janela configuráveis por conta (preset seguro 12/60s).
+      const vcfg = config.get(acc).cloak || {};
+      const vLimit = vcfg.velocityLimit || 12;
+      const vWin = vcfg.velocityWindowSec || 60;
+      const vip = await redis.bumpVelocity('c:' + entry.slug + ':ip', ip, vWin).catch(() => 0);
+      if (vip > vLimit) {
+        stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/' + vWin + 's → white', gateway: 'cloak:' + entry.slug, ref: ip });
         bumpDecision('white', 'velocity');
         return go(white);
       }
@@ -2044,6 +2048,9 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   // White page global de fallback (a sanitização do config valida o https://).
   // String vazia limpa o valor e volta a usar a página neutra embutida /_safe.
   if (typeof b.defaultWhitePage === 'string') next.defaultWhitePage = b.defaultWhitePage.trim();
+  // Item 254: limites de velocity — clamp final fica no sanitizador do config.js
+  if (b.velocityLimit != null && !isNaN(Number(b.velocityLimit))) next.velocityLimit = Number(b.velocityLimit);
+  if (b.velocityWindowSec != null && !isNaN(Number(b.velocityWindowSec))) next.velocityWindowSec = Number(b.velocityWindowSec);
   config.set(req.account.id, { cloak: next });
   res.json({ ok: true, cloak: config.get(req.account.id).cloak });
 });
@@ -2195,12 +2202,27 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     };
   }
 
+  // Item 257: previsão da camada de velocity — mostra em quantos acessos do
+  // MESMO IP na janela o visitante (ainda que "real") seria mandado à white
+  // por parecer device-farm. Cálculo puro: NÃO toca os contadores reais.
+  const accCloak = config.get(req.account.id).cloak || {};
+  const velLimit = accCloak.velocityLimit || 12;
+  const velWindow = accCloak.velocityWindowSec || 60;
+  const velocity = {
+    limit: velLimit,
+    windowSec: velWindow,
+    // acessos permitidos antes de bloquear; o (limit+1)-ésimo vai para white
+    blockedAtHit: velLimit + 1,
+    note: `Até ${velLimit} acessos deste IP a cada ${velWindow}s passam; o acesso nº ${velLimit + 1} iria para a white page como automação.`,
+  };
+
   res.json({
     verdict: j.verdict, score: j.score, threshold: j.threshold,
     signals: j.signals, ip: clientIp(evalReq),
     ua: String(evalReq.headers['user-agent'] || '').slice(0, 120),
     slug: slug || undefined, gates,
     profile: profileMeta, // item 165/208: eco do perfil simulado (null = request real)
+    velocity, // item 257: previsão da camada anti device-farm
     // Itens 163/164/210: infraestrutura resolvida + tempo de julgamento
     asn: j.asn || 0, org: j.org || '', resolvedAt: j.resolvedAt || 0
   });
