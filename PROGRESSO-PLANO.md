@@ -270,12 +270,37 @@ Capacidades que já existiam no backend mas nenhuma UI expunha, agora visíveis 
 - ✅ 197. **Heartbeat do worker** — `heartbeatConvWorker()` a cada tick do drain; `getConvWorkerBeat()` marca "ativo" se <10s. Badge verde/âmbar na UI.
 - ✅ 199. **Latência webhook→disparo** — carimbo `_recvAt` em `submitConversion`, medido em `processConversion` via `recordConvLatency` (janela de 200 em memória); p50/p95/max em `getConvLatency()`.
 - ✅ 196. **Estado degradado sem Redis** — `redisEnabled:false` deixa o painel em aviso âmbar ("fila best-effort em memória") em vez de números enganosos.
-- ⏳ 198. **Reprocessar uma conversão individual do log** (reenfileirar manualmente) — pendente; depende de expor o `convLog` por conta com um id estável antes de reenfileirar.
-- ⏳ 200. **Retenção/limpeza manual de logs por aba** (pixelLog 14d, convLog 200, cloak 90d, emq 40d) — pendente; expor limites + botão de limpar por aba.
+- ✅ 198. **Reprocessar uma conversão individual do log** — recibos agora têm `id` estável (`evId.recvAt`); `POST /api/ops/reprocess-conversion` (rate-limit 10/janela, escopo por conta) reconstrói o envelope com `registerSale:false` + `_forceRedispatch:true` (pula o dedup de propósito) e re-dispara a CAPI sem duplicar a venda. UI: botão "Reprocessar disparo" na linha expandida do log de webhooks (`gateways-view.tsx`).
+- ✅ 200. **Retenção/limpeza manual de logs por aba** — `GET /api/ops/retention` expõe os limites efetivos; `POST /api/ops/clear-log` (scopes `pixelLog`/`convLog`/`cloakLog`/`emq`, rate-limit 6/janela) limpa **só os dados da conta** (reescreve as listas globais preservando linhas de outras contas). Helpers novos em `redis.js` (`clearConversionLog`, `clearPixelLog`, `clearCloakDecisionLogs`, `clearEmq`) e `tiktok-events.js` (`clearLog`). UI: `RetentionPanel` na aba Gestão com `ConfirmDialog`.
 
 Backend: `server.js` (`GET /api/ops`, `POST /api/ops/drain-retry`, heartbeat/latência/dedup wiring), `redis.js` (7 helpers novos + exports), `tiktok-events.js` (`drainRetryQueue` com `{force,acc}` retornando processados, `retryQueueInfo`). Front: `types.ts` (`OpsResponse`), `api.ts` (`useOps`), `queue-health-panel.tsx` + integração no `gateways-view.tsx`. Teste: `test/queue-observability.test.js` (8ª suíte — 12 asserts: percentis, heartbeat, dedup por conta, resumo da retry).
 
 Validação: `node --check` limpo (server/redis/tiktok-events), `tsc --noEmit` limpo, `next build` limpo, `npm test` 8/8. Verificação em navegador da dashboard autenticada não é possível no sandbox (o `/__dev/login` exige `DATABASE_URL`, ausente aqui).
+
+## Leva 5, bloco J (201–212) — anti-fraude do cloaker exposto
+
+- ✅ 201. **Painel do veredito sticky** — `redis.countStickyBots()` (SCAN `cloakbot:*` com teto de 25 rounds) + `clearStickyBot(vid)`; `GET /api/cloak/stats` publica `sticky:{available,count,truncated}` e `POST /api/cloak/sticky/clear` limpa um `v_id` para reteste. UI: bloco no `cloak-stats-panel` com contador e formulário de limpeza.
+- ✅ 202. **Natureza unidirecional do sticky** — card novo no tutorial do cloaker (`cloak-view.tsx`) explicando que o cache só guarda veredito de bot (6h), nunca de humano (fail-safe).
+- ✅ 203. **Replay de ttclid** — `redis.bumpTtclidReplay/getTtclidReplayCount` (durável 30d por conta) incrementado na branch `tc.reused` do `/c`; legenda `ttclid-replay` em pt-BR nos labels; contador exibido no `cloak-stats-panel`.
+- ✅ 204/205/206. Legendas G/H/F já cobertas em `signal-labels.ts` (auditado).
+- ✅ 207/211. **Fuso/idioma por país** — card no tutorial explicando `COUNTRY_TZ_PREFIXES`/`LANG_BY_COUNTRY`, os sinais `tz:mismatch`/`lang-fora-geo` e o peso reduzido (viajante/VPN são exceções legítimas).
+- ✅ 208. Simulador de perfis já feito (item 165/208).
+- ✅ 209. **Aviso de challenge JS sem coleta** — `_challengeBeacon` conta beacons do `/t.js`; `GET /api/cloak/stats` publica `challenge:{beacons,lastAt}`; banner de aviso no `cloak-stats-panel` quando há tráfego mas 0 beacons (snippet ausente → camadas D–H inertes).
+- ✅ 210. Latência do judge já feita (item 177/210).
+- ✅ 212. **Histórico de decisões com sinais** — `bumpDecision` propaga os top-5 sinais do judge; `pushCloakDecision` persiste `signals[]`; `cloak-decision-log` renderiza badges coloridos por `describeSignal`.
+
+Validação: `node --check` limpo (server/redis), `tsc --noEmit` limpo.
+
+## Leva 5, bloco K (213–219) — tendência de EMQ e qualidade de identidade
+
+- ✅ 213/214. Sparkline de EMQ por pixel + alerta de queda/baixo já existiam (item 79) — auditado.
+- ✅ 215. Card de EMQ agora explica a escala 0–10 e o impacto na otimização ("EMQ baixo = TikTok otimiza no escuro") + dica de como subir (e-mail/telefone com hash, ttclid, IP/UA).
+- ✅ 216. **EMQ por evento** no bloco "Saúde dos disparos" — o backend já calculava `events[].emq`; a UI agora mostra `EMQ x.x` colorido ao lado de cada evento, achando qual tem match ruim.
+- ✅ 217. **Volume × qualidade** — cada sparkline exibe o total de eventos do período (EMQ alto com pouco volume pesa menos).
+- ✅ 218. **Comparação entre pixels** — os cards ficam lado a lado com badge de qualidade; texto do card orienta a comparação.
+- ✅ 219. **Badge de qualidade** (bom/médio/ruim) por pixel derivado do `recentAvg` (≥7 / ≥5 / <5).
+
+Front: `pixels-view.tsx` (`EmqSparkline` com badge+volume, EMQ por evento no health, texto do card). Sem mudança de backend (dados já existiam). `tsc --noEmit` limpo.
 
 ## Fila de execução (próximos)
 

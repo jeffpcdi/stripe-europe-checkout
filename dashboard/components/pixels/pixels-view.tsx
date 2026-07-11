@@ -684,10 +684,21 @@ export function PixelsView() {
                   </span>
                 </div>
                 {health.events.map((ev) => (
-                  <div key={ev.event} className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">{ev.event}</span>
-                    <span className={`font-mono ${ev.rate >= 90 ? 'text-success' : ev.rate >= 60 ? 'text-warning' : 'text-error'}`}>
-                      {ev.ok}/{ev.total}
+                  <div key={ev.event} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate text-muted-foreground">{ev.event}</span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {/* Item 216: EMQ por evento — acha qual evento tem match ruim */}
+                      {ev.emq != null && (
+                        <span
+                          title="EMQ médio deste evento (0–10)"
+                          className={`font-mono ${ev.emq >= 7 ? 'text-success' : ev.emq >= 5 ? 'text-warning' : 'text-error'}`}
+                        >
+                          EMQ {ev.emq.toFixed(1)}
+                        </span>
+                      )}
+                      <span className={`font-mono ${ev.rate >= 90 ? 'text-success' : ev.rate >= 60 ? 'text-warning' : 'text-error'}`}>
+                        {ev.ok}/{ev.total}
+                      </span>
                     </span>
                   </div>
                 ))}
@@ -711,8 +722,13 @@ export function PixelsView() {
           {emqTrend && emqTrend.pixels.some((p) => p.trend.length > 0) && (
             <GlassCard className="p-5">
               <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Qualidade do match (EMQ)</h2>
-              <p className="mb-3 text-xs text-muted-foreground">
-                Tendência do Event Match Quality — quanto maior, melhor o TikTok casa seus eventos
+              {/* Item 215: explicação curta da escala 0–10 e do impacto na otimização.
+                  Item 218: com vários pixels, os cards ficam lado a lado para comparar. */}
+              <p className="mb-3 text-xs text-muted-foreground text-pretty">
+                O Event Match Quality vai de <strong className="text-foreground">0 a 10</strong> e mede o quão bem
+                o TikTok casa seus eventos com pessoas reais. Abaixo de ~5 o algoritmo otimiza no escuro; para
+                subir, envie e-mail/telefone com hash, <code className="rounded bg-secondary px-1 font-mono">ttclid</code>{' '}
+                e IP/User-Agent. Compare os pixels abaixo para achar o que precisa de atenção.
               </p>
               <div className="flex flex-col gap-4">
                 {emqTrend.pixels
@@ -938,10 +954,28 @@ function EmqSparkline({ pixel }: { pixel: PixelEmqTrend }) {
       : pixel.alert === 'baixo'
         ? 'EMQ baixo — melhore os dados enviados'
         : null
+  // Item 217: volume total do período ao lado da qualidade (volume × qualidade)
+  const totalEvents = pixel.trend.reduce((s, d) => s + d.count, 0)
+  // Item 219: badge de qualidade derivado do EMQ médio recente
+  const quality =
+    pixel.recentAvg == null
+      ? null
+      : pixel.recentAvg >= 7
+        ? { label: 'bom', cls: 'bg-[var(--success-light)] text-success' }
+        : pixel.recentAvg >= 5
+          ? { label: 'médio', cls: 'bg-warning/15 text-warning' }
+          : { label: 'ruim', cls: 'bg-destructive/15 text-destructive' }
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="truncate font-medium text-foreground">{pixel.pixel}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium text-foreground">{pixel.pixel}</span>
+          {quality && (
+            <span className={`shrink-0 rounded px-1.5 py-px text-[10px] font-medium ${quality.cls}`}>
+              {quality.label}
+            </span>
+          )}
+        </span>
         <span className="flex items-center gap-1.5">
           {pixel.recentAvg != null && (
             <span
@@ -978,6 +1012,11 @@ function EmqSparkline({ pixel }: { pixel: PixelEmqTrend }) {
           )
         })}
       </div>
+      {/* Item 217: volume total ao lado da qualidade — EMQ alto com pouco
+          volume importa menos que EMQ médio com muito volume */}
+      <p className="text-[10px] text-muted-foreground">
+        {totalEvents.toLocaleString('pt-BR')} evento{totalEvents === 1 ? '' : 's'} no período
+      </p>
     </div>
   )
 }

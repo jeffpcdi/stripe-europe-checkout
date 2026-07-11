@@ -124,14 +124,29 @@ async function list(accountId) {
 async function summary(accountId) {
   const rows = await list(accountId);
   const byCountry = {};
+  // Item 226: presença por entrada do funil (qual /go ou /c está com gente agora).
+  // Deriva a entrada do path da página: /go/:slug e /c/:slug; senão usa o path.
+  const byEntry = {};
   rows.forEach((r) => {
-    if (!r.country) return;
-    if (!byCountry[r.country]) byCountry[r.country] = { code: r.country, name: r.countryName || r.country, count: 0 };
-    byCountry[r.country].count++;
+    if (r.country) {
+      if (!byCountry[r.country]) byCountry[r.country] = { code: r.country, name: r.countryName || r.country, count: 0 };
+      byCountry[r.country].count++;
+    }
+    let entry = 'outros';
+    if (r.page) {
+      try {
+        const path = r.page.startsWith('http') ? new URL(r.page).pathname : r.page;
+        const m = path.match(/^\/(go|c)\/([^/?#]+)/);
+        entry = m ? '/' + m[1] + '/' + m[2] : path.split('?')[0].slice(0, 40) || 'outros';
+      } catch (_) { entry = 'outros'; }
+    }
+    if (!byEntry[entry]) byEntry[entry] = { entry, count: 0 };
+    byEntry[entry].count++;
   });
   return {
     online: rows.length,
-    countries: Object.values(byCountry).sort((a, b) => b.count - a.count)
+    countries: Object.values(byCountry).sort((a, b) => b.count - a.count),
+    byEntry: Object.values(byEntry).sort((a, b) => b.count - a.count).slice(0, 12)
   };
 }
 

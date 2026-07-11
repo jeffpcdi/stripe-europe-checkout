@@ -303,6 +303,15 @@ async function setAsnCache(ip, entry) {
   } catch (_) { return false; }
 }
 
+// Item 222: apaga o cache de ASN de um IP para forçar novo lookup no próximo /go.
+async function clearAsnCache(ip) {
+  if (!enabled || !ip) return false;
+  try {
+    const n = await redis.del('asn:' + ip);
+    return Number(n) > 0;
+  } catch (_) { return false; }
+}
+
 // ── Contadores de decisão do cloaker (offer vs white) ─────────────────────
 // Um hash por link: "cloakstats:<accountId>:<slug>". Campos:
 //   offer, white                          → totais
@@ -976,7 +985,7 @@ module.exports = {
   pushConversionLog, loadConversionLog, clearConversionLog, // Item 200
   saveCapiRetryQueue, loadCapiRetryQueue,
   seenEventId, seenWebhookOrder,
-  getAsnCache, setAsnCache,
+  getAsnCache, setAsnCache, clearAsnCache, // Item 222
   bumpCloakDecision, getCloakStats, resetCloakStats,
   pushCloakDecision, getCloakDecisionLog, clearCloakDecisionLogs, // Itens 170/200
   enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,

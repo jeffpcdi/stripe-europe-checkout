@@ -87,15 +87,22 @@ function hourKey(d) {
 // Map em memória como fallback ultra-rápido sem dependência externa.
 const rdb = require('./redis');
 const _seenPx = new Map();
+// Item 225: contador de eventos deduplicados (beacon + middleware). Deixa
+// claro que o disparo "faltando" foi na verdade evitado de propósito.
+const _dedupStats = { deduped: 0, since: Date.now() };
 async function seenPixelEvent(eventId) {
   // Redis primeiro: SET NX com TTL de 2h — garante dedup entre instâncias
-  if (rdb.enabled) return rdb.seenEventId(eventId);
+  if (rdb.enabled) {
+    const seen = await rdb.seenEventId(eventId);
+    if (seen) _dedupStats.deduped++;
+    return seen;
+  }
   // fallback memória local
   const now = Date.now();
   if (_seenPx.size > 5000) {
     for (const [k, ts] of _seenPx) { if (now - ts > 2 * 3600e3) _seenPx.delete(k); }
   }
-  if (_seenPx.has(eventId)) return true;
+  if (_seenPx.has(eventId)) { _dedupStats.deduped++; return true; }
   _seenPx.set(eventId, now);
   return false;
 }
@@ -2294,10 +2301,13 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
 app.get('/api/ops', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const acc = req.account.id;
-  const [depth, dedup] = await Promise.all([
+  const [depth, dedup, live] = await Promise.all([
     rdb.convQueueDepth(),
-    rdb.getWebhookDedupCount(acc)
+    rdb.getWebhookDedupCount(acc),
+    presence.summary(acc)   // {online, countries, byEntry} — itens 220/226
   ]);
+  // Item 220: aviso ao aproximar do teto recomendado do SCAN de presença.
+  const PRESENCE_LIMIT = 500;
   res.json({
     redisEnabled: rdb.enabled, // sem Redis a fila é best-effort em memória
     convQueue: depth,                       // {queue, processing} — item 191
@@ -2306,6 +2316,20 @@ app.get('/api/ops', dashboardAuth, async (req, res) => {
     worker: rdb.getConvWorkerBeat(),        // {at, active} — item 197
     capiRetry: ttEvents.retryQueueInfo(acc),// {count, oldestAgeMs} — item 193
     webhookDedup: dedup,                    // reentregas ignoradas — item 195
+    // Item 225: dedup de disparos CAPI (beacon + middleware) — o "faltou disparo"
+    // que na verdade foi evitado de propósito.
+    pixelDedup: { deduped: _dedupStats.deduped, sinceMs: Date.now() - _dedupStats.since },
+    // Item 220/226: presença ao vivo com teto e distribuição por entrada.
+    presence: {
+      online: live.online,
+      limit: PRESENCE_LIMIT,
+      near: live.online >= PRESENCE_LIMIT * 0.9,
+      byEntry: live.byEntry || []
+    },
+    // Item 223: cobertura do cache de ASN (hits vs lookups ao vivo).
+    asnCache: botFilter.getAsnCacheStats(),
+    // Item 224: TTLs efetivos das camadas de cache, para transparência técnica.
+    cacheTtls: botFilter.CACHE_TTLS,
     ts: new Date().toISOString()
   });
 });
