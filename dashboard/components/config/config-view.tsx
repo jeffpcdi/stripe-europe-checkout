@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react'
 import {
   User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send, SlidersHorizontal, Coins,
-  DownloadCloud, UploadCloud,
+  DownloadCloud, UploadCloud, Info,
 } from 'lucide-react'
 import useSWR from 'swr'
-import { useAccount, usePushcutConfig, apiSend, fetcher } from '@/lib/api'
+import { useAccount, usePushcutConfig, useHealth, apiSend, fetcher } from '@/lib/api'
 import { usePrefs } from '@/lib/prefs'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -18,6 +18,8 @@ const EVENT_LABELS: { key: keyof PushcutEvents; label: string; hint: string }[] 
   { key: 'dispute', label: 'Chargeback', hint: 'Disputa aberta' },
   { key: 'checkout', label: 'Checkout iniciado', hint: 'Visitante chegou ao checkout' },
   { key: 'daily', label: 'Resumo diário', hint: 'Relatório consolidado 1x/dia' },
+  /* Item 442: aviso de segurança opt-in */
+  { key: 'login', label: 'Novo login no painel', hint: 'Aviso de segurança quando alguém entra na sua conta' },
 ]
 
 export function ConfigView() {
@@ -29,8 +31,68 @@ export function ConfigView() {
       <PushcutCard />
       <ApiTokenCard />
       <BackupCard />
+      <AboutCard />
       <DangerCard />
     </div>
+  )
+}
+
+/** Item 443: seção "Sobre" — versão, uptime e atalhos de diagnóstico */
+function AboutCard() {
+  const { data: health } = useHealth()
+
+  const uptime = health?.uptimeSec
+  const uptimeLabel =
+    uptime == null
+      ? '—'
+      : uptime < 3600
+        ? `${Math.floor(uptime / 60)} min`
+        : uptime < 86400
+          ? `${Math.floor(uptime / 3600)} h ${Math.floor((uptime % 3600) / 60)} min`
+          : `${Math.floor(uptime / 86400)} d ${Math.floor((uptime % 86400) / 3600)} h`
+
+  const rows: { label: string; value: React.ReactNode }[] = [
+    { label: 'Versão', value: health?.version || '—' },
+    { label: 'No ar há', value: uptimeLabel },
+    {
+      label: 'Banco de dados',
+      value: health ? (health.db ? 'Conectado' : 'Indisponível') : '—',
+    },
+    {
+      label: 'Redis (filas e cache)',
+      value: health ? (health.redisEnabled ? (health.redis ? 'Conectado' : 'Com falha') : 'Não configurado') : '—',
+    },
+  ]
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <Info className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="section-head text-sm font-semibold text-foreground">Sobre</h2>
+          <p className="text-xs text-muted-foreground">Versão e estado geral do sistema</p>
+        </div>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 sm:grid-cols-4">
+        {rows.map((r) => (
+          <div key={r.label}>
+            <dt className="text-[11px] text-muted-foreground">{r.label}</dt>
+            <dd className="text-sm font-medium text-foreground">{r.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+        Diagnóstico completo em{' '}
+        <a href="/dashboard" className="text-[color:var(--brand-cyan)] hover:underline">
+          Visão geral
+        </a>{' '}
+        (card de saúde) e na aba{' '}
+        <a href="/dashboard/gateways" className="text-[color:var(--brand-cyan)] hover:underline">
+          Gestão
+        </a>
+        .
+      </p>
+    </GlassCard>
   )
 }
 

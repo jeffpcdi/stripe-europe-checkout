@@ -48,6 +48,9 @@ export function LeadsTable({
   const [stage, setStage] = useState('')
   const [gateway, setGateway] = useState('')
   const [page, setPage] = useState(0)
+  // Item 312: vendas órfãs (sem lead rastreado) eram filtradas em silêncio —
+  // dinheiro invisível. O toggle traz de volta com explicação.
+  const [showOrphans, setShowOrphans] = useState(false)
 
   const searching = rawQuery !== query
   useEffect(() => {
@@ -64,7 +67,7 @@ export function LeadsTable({
   const filtered = useMemo(() => {
     const q = query.toLowerCase()
     return leads.filter((l) => {
-      if (l.orphan) return false
+      if (l.orphan && !showOrphans) return false
       if (periodStart && new Date(l.at).getTime() < periodStart.getTime()) return false
       if (stage && l.stage !== stage) return false
       if (gateway && l.gateway !== gateway) return false

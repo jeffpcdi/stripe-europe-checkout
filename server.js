@@ -1537,6 +1537,19 @@ app.post('/login', async (req, res) => {
     if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
     appendCookie(res, auth.sessionCookie(result.token));
     res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
+    // Item 442: aviso de novo login via Pushcut (opt-in explícito). Depois da
+    // resposta — nunca atrasa o login. IP mascarado (sem PII completa).
+    try {
+      const pcCfg = (config.get(result.account.id).pushcut || {});
+      if (pcCfg.url && (pcCfg.events || {}).login === true) {
+        const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+        const maskedIp = ip.includes(':') ? ip.split(':').slice(0, 3).join(':') + ':…' : ip.replace(/\.\d+$/, '.xxx');
+        sendPushcut('Login', {
+          title: 'Novo login no painel',
+          text: 'Acesso à sua conta em ' + new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) + ' (IP ' + (maskedIp || 'desconhecido') + '). Se não foi você, troque a senha.'
+        }, result.account.id).catch(() => {});
+      }
+    } catch (_) { /* aviso é melhor-esforço */ }
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Erro ao entrar.' });
   }
@@ -2080,7 +2093,7 @@ app.get('/api/pushcut-config', dashboardAuth, (req, res) => {
     // mascara a URL (contém o segredo do Pushcut)
     url: pc.url ? pc.url.replace(/(https:\/\/api\.pushcut\.io\/)([^/]+)/, (m, a, b) => a + '••••' + b.slice(-4)) : '',
     hasUrl: !!pc.url,
-    events: Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false }, pc.events || {})
+    events: Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false, login: false }, pc.events || {})
   });
 });
 
@@ -2099,6 +2112,7 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
     ['sale', 'failed', 'refund', 'dispute', 'checkout'].forEach((k) => { pc.events[k] = b.events[k] !== false; });
     ['sale', 'failed', 'refund', 'dispute', 'checkout'].forEach((k) => { if (b.events[k] === false) pc.events[k] = false; });
     pc.events.daily = b.events.daily === true; // opt-in explícito (relatório diário)
+    pc.events.login = b.events.login === true; // item 442: opt-in explícito (novo login)
   }
   config.set(req.account.id, { pushcut: pc });
   res.json({ ok: true });
@@ -2386,7 +2400,7 @@ app.post('/api/cloak/velocity/clear', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const ip = String((req.body && req.body.ip) || '').trim().slice(0, 64);
   if (!ip || !/^[0-9a-fA-F.:]+$/.test(ip)) {
-    return apiError(res, 400, 'Informe um IP válido para liberar do limite de acessos.', 'bad_ip');
+    return apiError(res, 400, 'Informe um IP v��lido para liberar do limite de acessos.', 'bad_ip');
   }
   const cleared = await redis.clearVelocity(ip);
   stats.logEvent('info', { acc: req.account.id, title: '[cloak] limite de acessos liberado para IP', ref: ip });
@@ -2550,6 +2564,8 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
     // sinal de datacenter escapando com frequência.
     cloakerLatency: botFilter.getJudgeLatency(),
     uptimeSec:   Math.round(process.uptime()),
+    // Item 443: versão do app para a seção "Sobre" das Configurações.
+    version:     require('./package.json').version || null,
     ts: new Date().toISOString()
   });
 });
@@ -3762,7 +3778,7 @@ app.get('/termos', (req, res) => {
 // ── Só a pasta /assets é servida estaticamente (logo da marca) ───────
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d' }));
 
-// ── Iniciar servidor ─────────────────────────────────────────────────
+// ── Iniciar servidor ──────────────────────────────────────────���──────
 // Hidrata stats, config, pixels, links e gateways a partir do Neon ANTES
 // de escutar, para que os dados de todas as contas já estejam disponíveis
 // no primeiro request pós-deploy.

@@ -130,6 +130,8 @@ export interface HealthResponse {
   // Item 177: latência do julgamento do cloaker (p50/p95/deadlineRate)
   cloakerLatency?: { count: number; p50: number; p95: number; deadlineRate: number }
   uptimeSec: number
+  /** Item 443: versão do app (package.json) para a seção Sobre */
+  version: string | null
   ts: string
 }
 
@@ -597,6 +599,8 @@ export interface PushcutEvents {
   dispute: boolean
   checkout: boolean
   daily: boolean
+  /** Item 442: aviso de novo login no painel (opt-in) */
+  login: boolean
 }
 
 export interface PushcutConfig {
