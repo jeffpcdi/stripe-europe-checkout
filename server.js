@@ -1292,7 +1292,7 @@ app.get('/api/v1/summary', (req, res) => {
   res.json({ today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() });
 });
 
-// ── Relatório diário via Pushcut ─────────────────────────────────────
+// ── Relatório diário via Pushcut ──────────────��──────────────────────
 // Sem cron confiável em serverless: verificação barata "pegando carona"
 // no tráfego (track/conversão). Na primeira request após a virada do dia
 // (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
@@ -1664,7 +1664,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   config.set(req.account.id, { customDomains: cur.concat([entry]) });
   stats.logEvent('info', { acc: req.account.id, title: 'Domínio personalizado adicionado: ' + host });
   // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
-  // aqui contém segredo — são valores públicos de DNS. providerNote avisa quando
+  // aqui cont��m segredo — são valores públicos de DNS. providerNote avisa quando
   // caiu em modo manual (ex.: teto da hospedagem) sem bloquear o cadastro.
   // Item 8: `mode` explícito — 'auto' = provisionado automaticamente;
   // 'manual' = aguardando (a verificação re-tenta o registro sozinha).
@@ -2304,6 +2304,8 @@ function notifyPushcut(event, n) {
 // Motor: resolve o lead no backend, enriquece, dedupa e dispara a CAPI.
 // Roda SEMPRE em background (a resposta HTTP já foi enviada ao gateway).
 async function processConversion(n) {
+  // item 199: latência webhook→disparo (do recebimento até começar a processar)
+  if (n && n._recvAt) rdb.recordConvLatency(Date.now() - n._recvAt);
   const evId = n.event + '.' + n.gateway + '.' + n.orderId;
   const receipt = {
     at: new Date().toISOString(),
@@ -2442,6 +2444,7 @@ async function processConversion(n) {
 // reprocessado (idempotente via dedup). Sem Redis, cai no comportamento antigo
 // (processa inline) — funciona, só não sobrevive a restart.
 function submitConversion(n) {
+  if (n && !n._recvAt) n._recvAt = Date.now(); // item 199: carimbo de recebimento
   if (rdb.enabled) {
     rdb.enqueueConversion(n).then((ok) => {
       // se o enqueue falhar (Redis instável), processa inline como rede de segurança
@@ -2458,6 +2461,7 @@ let _convWorkerBusy = false;
 async function convWorkerTick() {
   if (!rdb.enabled || _convWorkerBusy) return;
   _convWorkerBusy = true;
+  rdb.heartbeatConvWorker(); // item 197: prova de vida do drain worker
   try {
     if (!(await rdb.acquireLock('convWorker', 25))) return; // outra instância já drena
     const batch = await rdb.reserveConversions(25);
@@ -2560,6 +2564,7 @@ app.post('/hook/:token', async (req, res) => {
   // Responde 200 mesmo assim (o gateway precisa parar de reenviar).
   const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId).catch(() => false);
   if (dup) {
+    rdb.bumpWebhookDedup(gw.accountId).catch(() => {}); // item 195
     gatewayStore.touch(gw.id, 'reentrega ignorada: ' + n.event);
     rdb.pushConversionLog({
       at: new Date().toISOString(), acc: gw.accountId,

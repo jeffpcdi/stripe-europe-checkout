@@ -445,6 +445,10 @@ async function ackConversion(raw) {
 
 // Requeue de itens presos em convQ:proc (worker morreu no meio). Só reprocessa
 // os mais velhos que `olderThanMs` — evita brigar com um processamento em curso.
+// Item 192: memória do último reclaim (worker morto no meio) — a UI usa para
+// sinalizar "houve reprocessamento recente" sem inventar métricas.
+let _lastReclaim = { at: 0, moved: 0 };
+
 async function reclaimConversions(olderThanMs) {
   if (!enabled) return 0;
   try {
@@ -465,6 +469,7 @@ async function reclaimConversions(olderThanMs) {
         moved++;
       }
     }
+    if (moved > 0) _lastReclaim = { at: Date.now(), moved };
     return moved;
   } catch (err) {
     console.error('[redis] reclaimConversions:', err.message);
@@ -472,12 +477,73 @@ async function reclaimConversions(olderThanMs) {
   }
 }
 
+function getReclaimInfo() { return { ..._lastReclaim }; }
+
 async function convQueueDepth() {
   if (!enabled) return { queue: 0, processing: 0 };
   try {
     const [q, p] = await Promise.all([redis.llen(CONV_QUEUE), redis.llen(CONV_PROC)]);
     return { queue: Number(q) || 0, processing: Number(p) || 0 };
   } catch (_) { return { queue: 0, processing: 0 }; }
+}
+
+// ── Observabilidade da fila (Leva 5, bloco I) ─────────────────────────────
+// Item 199: latência webhook→disparo (janela deslizante de 200 amostras, em
+// memória por instância — igual ao medidor do cloaker). p50/p95/max em ms.
+const _convLat = [];
+function recordConvLatency(ms) {
+  if (!(ms >= 0)) return;
+  _convLat.push(ms);
+  if (_convLat.length > 200) _convLat.shift();
+}
+function getConvLatency() {
+  const n = _convLat.length;
+  if (!n) return { count: 0, p50: 0, p95: 0, max: 0 };
+  const s = [..._convLat].sort((a, b) => a - b);
+  const q = (p) => s[Math.min(n - 1, Math.floor(p * n))];
+  return { count: n, p50: q(0.5), p95: q(0.95), max: s[n - 1] };
+}
+
+// Item 197: heartbeat do worker de drenagem — a UI mostra "worker ativo" se o
+// último tick foi há < 10s. Em memória (a instância que responde o health é a
+// mesma que roda o worker no nosso deploy single-process).
+let _workerBeat = 0;
+function heartbeatConvWorker() { _workerBeat = Date.now(); }
+function getConvWorkerBeat() {
+  return { at: _workerBeat, active: _workerBeat > 0 && Date.now() - _workerBeat < 10000 };
+}
+
+// Item 193: resumo da fila de retry da CAPI (quantos e idade do mais antigo).
+async function capiRetryInfo() {
+  const arr = await loadCapiRetryQueue();
+  if (!Array.isArray(arr) || !arr.length) return { count: 0, oldestAgeMs: 0 };
+  let oldest = 0;
+  for (const it of arr) {
+    const at = it && (it.nextAt || it.at || it.firstAt) ? (it.firstAt || it.at || it.nextAt) : 0;
+    if (at && (!oldest || at < oldest)) oldest = at;
+  }
+  return { count: arr.length, oldestAgeMs: oldest ? Math.max(0, Date.now() - oldest) : 0 };
+}
+
+// Item 195: contador de reentregas de webhook ignoradas (idempotência).
+// Durável por conta com TTL de 30d; fallback em memória sem Redis.
+const _memDedupCount = new Map();
+async function bumpWebhookDedup(accountId) {
+  const acc = accountId || 'default';
+  if (!enabled) { _memDedupCount.set(acc, (_memDedupCount.get(acc) || 0) + 1); return; }
+  try {
+    const key = 'whdedup:count:' + acc;
+    await redis.incr(key);
+    await redis.expire(key, 30 * 86400);
+  } catch (_) { _memDedupCount.set(acc, (_memDedupCount.get(acc) || 0) + 1); }
+}
+async function getWebhookDedupCount(accountId) {
+  const acc = accountId || 'default';
+  if (!enabled) return _memDedupCount.get(acc) || 0;
+  try {
+    const v = await redis.get('whdedup:count:' + acc);
+    return Number(v) || 0;
+  } catch (_) { return _memDedupCount.get(acc) || 0; }
 }
 
 // ── Veredito "sticky" do cloaker (consistência por visitante) ─────────────
@@ -745,7 +811,7 @@ async function loadDomainSnapshot() {
   } catch (err) { console.error('[redis] loadDomainSnapshot:', err.message); return null; }
 }
 
-// ── Ping de saúde ─────────────────────────────────────────────────────────
+// ─��� Ping de saúde ─────────────────────────────────────────────────────────
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
   try {
@@ -767,6 +833,9 @@ module.exports = {
   bumpCloakDecision, getCloakStats, resetCloakStats,
   pushCloakDecision, getCloakDecisionLog, // Item 170: log de decisões por link
   enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,
+  getReclaimInfo, recordConvLatency, getConvLatency,
+  heartbeatConvWorker, getConvWorkerBeat, capiRetryInfo,
+  bumpWebhookDedup, getWebhookDedupCount,
   setStickyBot, getStickyBot,
   checkTtclidContext, bumpVelocity,
   acquireLock, releaseLock,
