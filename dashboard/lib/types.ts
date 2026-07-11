@@ -185,6 +185,8 @@ export interface CheckoutLink {
   idiomas: string[]
   pixelSlug: string
   ativo: boolean
+  /** Item 531: arquivado = fora da lista padrão e do /go, histórico preservado */
+  arquivado?: boolean
   criadoEm: string
   updatedAt: string
 }

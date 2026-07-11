@@ -459,6 +459,21 @@ Validação: `node --check` limpo (pulse-client/lp-view), `tsc --noEmit` limpo, 
 
 Validação: `node --check` limpo, suíte completa verde (14 suítes).
 
+### Continuação (475, 493, 496, 497)
+
+- ✅ 475 (novo). dashboard-view.js oficialmente congelado: banner sticky âmbar injetado na hora de servir (sem tocar no arquivo legado) em `?legacy=1` ("versão antiga, congelada") e no fallback do proxy ("painel novo reiniciando"), ambos com link "Ir para o painel novo". Injeção verificada por unidade (posição logo após `<body>`, HTML preservado); o 503 do /__dev/login em porta isolada é guard ambiental, não regressão.
+- ✅ 493/496 (auditoria PASSOU). auth-view já tem identidade visual própria (dark, glass, logo) e medidor de força de senha no registro (.meter). Autofocus + mostrar/ocultar senha entraram no item 494.
+- ✅ 497 (novo). Política de privacidade ganhou seção "4. Cookies e identificadores" (cookie first-party vid com finalidade única, sem third-party/fingerprinting, cookie de sessão HttpOnly, direito de bloquear) e a seção de retenção agora tem prazos concretos (TTL ≤30d nos armazenamentos temporários, IP mascarado em auditoria/diagnóstico). Seções renumeradas (4→8). Verificado ao vivo (/privacidade renderiza a seção nova).
+
+Validação: `node --check` limpo (server/legal-view), suíte completa verde (14 suítes), /privacidade verificada via HTTP real.
+
+### Continuação (531 + auditorias 503/506/507/508/532)
+
+- Auditados como JÁ implementados: 503 (QR code local por link com download PNG — item 71), 506 (UTM builder no link-editor), 507 (variantes A/B com pesos expostas na UI), 508 (share de conversões por variante no card do link), 532 (duplicar link com um clique — item 63).
+- ✅ 531 (novo). Arquivamento de links: campo `arquivado` no normalize() do link-store (independente de `ativo`, histórico preservado), /go responde linkErrorPage para arquivado, tipo `CheckoutLink.arquivado`, e na aba Links: filtro padrão esconde arquivados, botão "Arquivados (N)" alterna a lista (só aparece quando existem), ação arquivar/desarquivar por card (ícones Archive/ArchiveRestore, merge-patch `{slug, arquivado}`).
+
+Validação: `node --check` limpo (link-store/server), `tsc --noEmit` limpo, suíte completa verde (14 suítes). Preview sem DATABASE_URL (modo degradado) impediu verificação da UI logada nesta sessão.
+
 ## Fila de execução (próximos)
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):

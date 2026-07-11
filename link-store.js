@@ -86,6 +86,9 @@ function normalize(slug, raw) {
     // Pixel que dispara nesse link (slug do pixel-store). Vazio = dispatchToAll por rota.
     pixelSlug: String(raw.pixelSlug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40),
     ativo: raw.ativo !== false,
+    // Item 531: arquivado = fora da lista padrão e do /go, mas histórico
+    // (cliques/conversões/receita) preservado. Independente de `ativo`.
+    arquivado: raw.arquivado === true,
     criadoEm: raw.criadoEm || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };

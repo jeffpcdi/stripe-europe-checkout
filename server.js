@@ -293,7 +293,9 @@ app.use((req, res, next) => {
 // próprio host. Webhooks de gateway (/hook, /api/conversion) e tracking público
 // (sem cookie) são isentos — chegam de origens externas legítimas.
 // Prefixos relativos ao mount '/api' (req.path chega sem o '/api' aqui).
-const CSRF_EXEMPT_PREFIX = ['/track', '/px/', '/cloakcheck', '/conversion', '/pulse'];
+// /client-error é write-only, rate-limited e sem efeito sensível — isento para
+// o sendBeacon de unload (que pode chegar sem Origin) nunca ser descartado.
+const CSRF_EXEMPT_PREFIX = ['/track', '/px/', '/cloakcheck', '/conversion', '/pulse', '/client-error'];
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
   const p = req.path || '';
@@ -636,6 +638,35 @@ app.get('/px.gif', (req, res) => {
 
 // Endpoint público chamado pelo snippet (sendBeacon/fetch, sem cookies).
 // A identidade vem do vid explícito — validado com regex estrita.
+// ── Item 561: erros de front visíveis no backend ────────────────────────────
+// window.onerror/unhandledrejection do dashboard reportam para cá (sendBeacon).
+// Sem isso, erro client-side é invisível para o operador. Log estruturado no
+// stdout (aparece no log da plataforma) + buffer dos últimos 50 em memória.
+const _clientErrors = [];
+app.post('/api/client-error', (req, res) => {
+  res.json({ ok: true }); // responde já; nunca bloqueia o navegador
+  try {
+    if (rateLimited(clientIp(req), 'clienterr', 10)) return; // anti-flood
+    const b = req.body || {};
+    const entry = {
+      at: new Date().toISOString(),
+      message: String(b.message || '').slice(0, 300),
+      stack: String(b.stack || '').slice(0, 800),
+      url: String(b.url || '').slice(0, 200),
+      ua: String(req.headers['user-agent'] || '').slice(0, 160)
+    };
+    if (!entry.message) return;
+    _clientErrors.push(entry);
+    if (_clientErrors.length > 50) _clientErrors.shift();
+    console.error('[client-error]', entry.message, '|', entry.url, '|', entry.stack.split('\n')[0] || '');
+  } catch (_) { /* melhor-esforço */ }
+});
+// Leitura pelo painel (admin logado) — últimos erros para diagnóstico rápido.
+app.get('/api/client-error', dashboardAuth, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ errors: _clientErrors.slice().reverse() });
+});
+
 app.post('/api/track', async (req, res) => {
   res.json({ ok: true });                          // responde já; processa depois
   try {
@@ -812,8 +843,8 @@ function linkErrorPage(res, status) {
 app.get('/go/:slug', async (req, res) => {
   // resolve por conta: domínio personalizado → conta dona; senão 1º match
   const link = linkStore.resolve(req.params.slug, publicAccountId(req));
-  if (!link || !link.ativo || !link.variantes.length) {
-    return linkErrorPage(res, 404); // itens 500/501: página amigável, não 404 seco
+  if (!link || !link.ativo || link.arquivado || !link.variantes.length) {
+    return linkErrorPage(res, 404); // itens 500/501: página amigável; 531: arquivado = indisponível
   }
   const acc = link.acc || publicAccountId(req); // conta dona do link
   const q = req.query || {};
