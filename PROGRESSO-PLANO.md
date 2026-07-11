@@ -235,7 +235,7 @@ Lote concluído: 176–188 (todos ✅ abaixo). 189/183/184/185/187/182/188/186 �
     - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
   - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
-- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç����������������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç������������������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
@@ -480,7 +480,20 @@ Validação: `node --check` limpo (link-store/server), `tsc --noEmit` limpo, su�
 
 Validação: verificado ponta a ponta ao vivo — POST retorna `{ok:true}` e o log estruturado `[client-error] ...` aparece no stdout do servidor; suíte completa verde (14 suítes, 49 marcos OK), `tsc --noEmit` limpo. Dev server reiniciado (Express não tem HMR) e saudável.
 
-## Fila de execução (próximos)
+### Continuação (547/548, 567, 568)
+
+- ✅ 547/548 (novo). Perf dos feeds que re-renderizam a cada poll de 12s: `EventRow` (activity-view) e `VisitorRow` (live-view) envoltos em `React.memo`. Como o SWR mantém a referência dos itens estável entre polls sem mudança, o memo corta o re-render das linhas antigas; só a linha nova (e as com estado local) re-renderizam. Zero mudança visual.
+- ✅ 568 (novo). `npm run doctor` (scripts/doctor.js): diagnóstico de ambiente sem efeitos colaterais — Node, env vars (presença, nunca valor), modo (durável vs degradado), presença dos artefatos de build. Saída PASS/WARN/FAIL com exit code. Rodado ao vivo: reflete corretamente o modo degradado atual.
+- ✅ 567 (novo). docs/RUNBOOK-INCIDENTES.md: procedimento por sintoma (site fora do ar, sem vendas registrando, checkout com erro, login falhando, Pushcut mudo), com comandos de diagnóstico (/healthz, /api/health, npm run doctor, /api/client-error) e a matriz "o que quebra sem cada dependência".
+
+Validação: `tsc --noEmit` limpo, suíte completa verde (14 suítes), `npm run doctor` executado com sucesso.
+
+### Continuação (566, 570)
+
+- ✅ 566 (novo). `.env.example` completado: faltavam 6 vars realmente usadas no código (cruzamento `grep process.env.* × arquivo`). Adicionadas com doc precisa a partir do uso real: `PRIMARY_HOST`/`COOKIE_DOMAIN`/`DASHBOARD_UPSTREAM_URL` (rede/domínio), `EVENT_RETENTION_DAYS` (default 90, faixa 7–3650), `TIKTOK_PIXEL_CODE`/`TIKTOK_ACCESS_TOKEN` (legado de pixel único, migração), + nota de que as `RAILWAY_*` são injetadas pela plataforma.
+- ✅ 570 (novo). CHANGELOG.md criado (Keep a Changelog + SemVer): seção "Não lançado" agrupando o trabalho de hardening (resiliência do funil, segurança de conta, watchdog, anti-fraude, DX/ops, gestão de links, durabilidade) por Adicionado/Alterado, e a linha de base 1.0.0. Fiel ao histórico de git.
+
+Validação: `npm run doctor` OK (env refletido corretamente), suíte completa verde (14 suítes).
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
