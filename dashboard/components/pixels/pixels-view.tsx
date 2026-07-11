@@ -35,8 +35,11 @@ import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
+import { toast } from '@/lib/toast'
+import { useConfirm } from '@/lib/use-confirm'
 
 // Resultado da verificação de instalação por URL (server-side)
 type UrlCheck = {
@@ -144,6 +147,9 @@ export function PixelsView() {
   // anunciamos via aria-live para leitores de tela.
   const [copyAnnounce, setCopyAnnounce] = useState('')
 
+  // Item 184: confirmação destrutiva padronizada (substitui window.confirm)
+  const { confirm, dialogProps } = useConfirm()
+
   function handleCopy(slug: string, text: string, label = 'Script') {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(slug)
@@ -152,10 +158,21 @@ export function PixelsView() {
     })
   }
 
-  async function handleDelete(p: Pixel) {
-    if (!window.confirm(`Remover o pixel "${p.name}"? Os eventos dele param de disparar.`)) return
-    await apiSend(`/api/pixels/${encodeURIComponent(p.slug)}`, 'DELETE')
-    mutate()
+  function handleDelete(p: Pixel) {
+    confirm({
+      title: `Remover o pixel "${p.name}"?`,
+      description: 'Os eventos dele param de disparar imediatamente. Esta ação não pode ser desfeita.',
+      confirmLabel: 'Remover pixel',
+      run: async () => {
+        try {
+          await apiSend(`/api/pixels/${encodeURIComponent(p.slug)}`, 'DELETE')
+          mutate()
+          toast.success(`Pixel "${p.name}" removido`)
+        } catch {
+          toast.error('Não foi possível remover o pixel', { hint: 'Tente novamente em instantes.' })
+        }
+      },
+    })
   }
 
   // Item 92: duplicar pixel — clona nome/código/eventos SEM o Access Token
@@ -905,6 +922,8 @@ export function PixelsView() {
           }}
         />
       )}
+
+      <ConfirmDialog {...dialogProps} />
     </div>
   )
 }
