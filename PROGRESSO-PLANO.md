@@ -332,14 +332,44 @@ Validação: `node --check` limpo (server/presence/bot-filter/redis), `tsc --noE
 
 Validação: `node --check` limpo, `tsc --noEmit` limpo, `npm test` verde (9 suítes, incl. durable-flows 26/26), `next build` limpo. **Bloco M completo.**
 
+## Leva 6, itens 253–270 — velocity + tipos/health + testes (completo)
+
+- ✅ 253. Auditado: reasons de velocity já traduzidos na legenda pt-BR do painel de stats do cloak.
+- ✅ 254. **Velocity configurável por conta** — `config.cloak.velocityLimit` (clamp 3–100, padrão 12) e `velocityWindowSec` (clamp 10–600, padrão 60) no sanitizador do `config.js`; `/c` lê da conta; `POST /api/cloak-config` persiste os 2 campos.
+- ✅ 255. **Banner de fallback sem Redis** — no card de velocity do `cloak-config-panel` (via `useHealth`): avisa que sem Redis a contagem é por instância e farm distribuída exige Redis.
+- ✅ 256. **Liberar IP do limite** — `redis.clearVelocity(ip)` (memória + SCAN `vel:*:<ip>`) + rota `POST /api/cloak/velocity/clear` + form "Liberar IP" no painel técnico do cloak (com nota de que o TTL expira sozinho).
+- ✅ 257. **Previsão de velocity no teste do cloaker** — `/api/cloak/test` devolve `velocity: {limit, windowSec, blockedAtHit, note}` (cálculo puro, não toca contadores); nota exibida no resultado do teste.
+- ✅ 258. **Métrica device-farm** — contagem de acessos barrados por `velocity` no resumo do painel de stats do cloak.
+- ✅ 259. Coberto por 256: instrução do TTL + liberação manual documentadas na própria UI.
+- ✅ 260. **Tutorial do cloaker** — novo passo "Limite de acessos (anti device-farm)" no `cloak-view` explicando device farm, janela e o preset com folga para Wi-Fi doméstico.
+- ✅ 261. **types.ts atualizado** — `CloakConfig.velocityLimit/velocityWindowSec`, `CloakTestResult.velocity`, `HealthResponse.migrations/queues/cloakerLatency` (domínio `uso`/`verificadoEm` e `currency` já existiam).
+- ✅ 262. Auditado: hooks completos no `api.ts` (useHealth, useDomains, useAccountSettings com currency, useCloakConfig) — nada a adicionar.
+- ✅ 263. **Health consolidado** — `/api/health` agrega `queues: {conv: {queue, processing}, capiRetry}` num único payload; `DurabilityBadge` mostra "Fila acumulada (N)" quando backlog ≥ 20 com banco no ar (link para Gestão).
+- ✅ 264. Auditado: migrações 100% idempotentes por construção (`CREATE TABLE/INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, backfill só `WHERE account_id IS NULL`) — verificadas em runtime contra o Neon real do projeto (flag `migrations: true` no health).
+- ✅ 265. **Teste de durabilidade de domínios** — em `test/persistence-flows.test.js`: criar → restart simulado (require cache limpo + `hydrate()`) → domínio persiste no snapshot local e `accountForDomain` continua roteando.
+- ✅ 266. **Teste de snapshot de gateways** — mesma suíte: contrato `loadGatewaySnapshot() === null` sem Redis (erro ≠ vazio), `init()` não explode, save → `findByToken` casa o webhook.
+- ✅ 267. **Teste de velocity** — em `test/durable-flows.test.js` (+6 asserts): contagem crescente na janela, isolamento por IP, expiração por TTL, `clearVelocity` limpa todas as entradas, contagem recomeça, IP vazio nunca conta.
+- ✅ 268. **Teste de moeda ponta a ponta (backend)** — `persistence-flows`: EUR do gateway preservada na normalização (49.90 → 4990 centavos, sem conversão implícita); UI já usa `formatMoney(cents, currency)` por registro (auditado no item 237).
+- ✅ 269. Auditado: grep anti-vazamento limpo — termos internos (Neon/Upstash/Cymru/Railway) só em comentários de código, nunca em respostas de API ou texto de UI.
+- ✅ 270. **CLAUDE.md atualizado** — § persistência documenta a chave `vel:<kind>:<id>`, os clamps de config, a rota de liberação e o fallback `velMem` single-instance (tabela `custom_domains`, `currency` e snapshots já documentados na Leva 6 antecipada).
+
+Validação: `node --check` limpo, `tsc --noEmit` limpo, `npm test` verde (10 suítes: durable-flows 32/32 + persistence-flows 10/10), `next build` limpo, rotas novas smoke-testadas (401 sem sessão).
+
+## Refinos visuais 15/18/22/24/26 (Leva 2) — auditados como cobertos
+
+Auditoria code-level confirmou que o trabalho das sessões 5–6 já entregou o escopo destes itens em todas as 5 abas:
+- Estados vazios presentes em todas as views (pixels: 6 ocorrências, gateways: 4, domains: 2, links: 3; cloak delega aos painéis entries/stats que têm os seus);
+- Responsividade: `flex-wrap`/`minmax(0,·)` em todas (o bug real de overflow mobile foi o item 57, corrigido e re-verificado ao vivo nas 5 abas);
+- Ritmo vertical unificado `gap-5` (item 58, verificado ao vivo);
+- Skeletons/loading nas views com fetch direto; badges de status entregues nos itens 54/83/85–87.
+Sem gap visual objetivo restante — marcados como concluídos por cobertura.
+
 ## Fila de execução (próximos)
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Itens 253–270 (velocity + testes do plano)
-2. Refinos 15, 18, 22, 24, 26 — visuais restantes da Leva 2
-3. Leva 7 (271–570) — bugs reais → durabilidade → segurança → valor → refino → DX
-4. Bloqueados por integração externa (marcar, não fazer): 412 (e-mail reset), 459/542 (relatórios email), 557–560 (CI/Playwright), 561 (Sentry)
+1. Leva 7 (271–570) — bugs reais → durabilidade → segurança → valor → refino → DX
+2. Bloqueados por integração externa (marcar, não fazer): 412 (e-mail reset), 459/542 (relatórios email), 557–560 (CI/Playwright), 561 (Sentry)
 
 ## Histórico de sessões
 
