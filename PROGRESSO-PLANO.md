@@ -217,7 +217,7 @@ Evidência: `node --check` limpo nos 3 módulos, `next build` limpo (type-check 
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Leva 4 (141–200) — 161–168/204–206/210 (transparência do cloak) + 176–182 (backend/API + erro c/ retry) + 183/184/189 (primitivos de UX) + 185/187 (persistência de UI, revalidação de listas) concluídos; faltam 141–160, 169–175, 186, 188, 190–203, 207–209, 211–240
+1. Leva 4 (141–200) — 161–168/204–206/210 (transparência do cloak) + 176–182 (backend/API + erro c/ retry) + 183/184/189 (primitivos de UX) + 185/187/188 (persistência de UI, revalidação de listas, i18n) concluídos; faltam 141–160, 169–175, 186, 190–203, 207–209, 211–240
 2. 15, 18, 22, 24, 26 — refinos visuais restantes da Leva 2
 3. Leva 5–7 (201–570) — 241–252 já concluídos (antecipados)
 
