@@ -124,6 +124,18 @@ export interface HealthResponse {
   ts: string
 }
 
+// ── /api/ops — observabilidade das filas duráveis (Leva 5, bloco I) ──
+export interface OpsResponse {
+  redisEnabled: boolean
+  convQueue: { queue: number; processing: number } // pendentes + em processamento
+  reclaim: { at: number; moved: number }           // último reprocessamento de itens órfãos
+  convLatency: { count: number; p50: number; p95: number; max: number } // webhook→disparo (ms)
+  worker: { at: number; active: boolean }           // heartbeat do drain worker
+  capiRetry: { count: number; oldestAgeMs: number } // fila de retry da CAPI
+  webhookDedup: number                              // reentregas de webhook ignoradas
+  ts: string
+}
+
 export type Period = 'today' | '7d' | '30d' | 'all'
 
 // ── /api/links — links de checkout (link-store.js) ──

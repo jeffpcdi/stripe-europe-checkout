@@ -1292,7 +1292,7 @@ app.get('/api/v1/summary', (req, res) => {
   res.json({ today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() });
 });
 
-// ── Relatório diário via Pushcut ──────────────��──────────────────────
+// ── Relatório diário via Pushcut ──────────────���──────────────────────
 // Sem cron confiável em serverless: verificação barata "pegando carona"
 // no tráfego (track/conversão). Na primeira request após a virada do dia
 // (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
@@ -2248,6 +2248,46 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
     uptimeSec:   Math.round(process.uptime()),
     ts: new Date().toISOString()
   });
+});
+
+// ═══ Observabilidade das filas duráveis (Leva 5, bloco I: 191–200) ════
+// Expõe o que já existia no backend mas nenhuma UI mostrava: profundidade da
+// fila de conversões (pendentes + em processamento), fila de retry da CAPI,
+// prova de vida do worker, latência webhook→disparo, reentregas ignoradas.
+// Tudo escopado por conta quando aplicável; sem PII.
+app.get('/api/ops', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const [depth, dedup] = await Promise.all([
+    rdb.convQueueDepth(),
+    rdb.getWebhookDedupCount(acc)
+  ]);
+  res.json({
+    redisEnabled: rdb.enabled, // sem Redis a fila é best-effort em memória
+    convQueue: depth,                       // {queue, processing} — item 191
+    reclaim: rdb.getReclaimInfo(),          // último reprocessamento — item 192
+    convLatency: rdb.getConvLatency(),      // p50/p95/max webhook→disparo — item 199
+    worker: rdb.getConvWorkerBeat(),        // {at, active} — item 197
+    capiRetry: ttEvents.retryQueueInfo(acc),// {count, oldestAgeMs} — item 193
+    webhookDedup: dedup,                    // reentregas ignoradas — item 195
+    ts: new Date().toISOString()
+  });
+});
+
+// Item 194/198: forçar drenagem da fila de retry da CAPI AGORA (ignora backoff),
+// só os eventos desta conta. Rate-limitado — cada disparo bate na API do TikTok.
+app.post('/api/ops/drain-retry', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('ops-drain|' + req.account.id, 'opsdrain', 6)) {
+    return res.status(429).json({ ok: false, error: 'Aguarde um pouco antes de forçar a fila de novo.', code: 'rate_limited' });
+  }
+  try {
+    const processed = await ttEvents.drainRetryQueue({ force: true, acc: req.account.id });
+    const info = ttEvents.retryQueueInfo(req.account.id);
+    res.json({ ok: true, processed: processed || 0, remaining: info.count });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'Falha ao drenar a fila.', code: 'drain_failed' });
+  }
 });
 
 // ═══ Webhook UNIVERSAL de conversões (qualquer gateway) ═══════════════

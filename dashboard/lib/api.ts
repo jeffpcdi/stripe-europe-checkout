@@ -4,6 +4,7 @@ import useSWR from 'swr'
 import type {
   StatsResponse,
   HealthResponse,
+  OpsResponse,
   LiveResponse,
   LinksResponse,
   DomainsResponse,
@@ -95,6 +96,14 @@ export function useLive() {
 export function useHealth() {
   return useSWR<HealthResponse>('/api/health', fetcher, {
     refreshInterval: 30_000,
+    keepPreviousData: true,
+  })
+}
+
+// Observabilidade das filas duráveis (item 191–200). Poll no ritmo do stats.
+export function useOps() {
+  return useSWR<OpsResponse>('/api/ops', fetcher, {
+    refreshInterval: POLL_MS,
     keepPreviousData: true,
   })
 }

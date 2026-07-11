@@ -175,6 +175,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   por conta e retornam 429 `{ok:false,error,code:'rate_limited'}`.
 - **Auth/conta:** `POST /login`, `POST /register`, `POST /logout`, `GET /api/me`.
 - **Métricas:** `GET /api/stats`, `GET /api/live`, `POST /api/reset-stats`, `GET /api/health`.
+- **Observabilidade das filas (Leva 5, bloco I):** `GET /api/ops` — profundidade da fila de
+  conversões (`convQueue`), último resgate de órfãos (`reclaim`), latência webhook→disparo
+  p50/p95/max (`convLatency`, janela de 200 em memória), heartbeat do drain worker (`worker`,
+  ativo se tick <10s), resumo da fila de retry da CAPI por conta (`capiRetry`) e contador de
+  reentregas de webhook ignoradas (`webhookDedup`, durável 30d por conta). `POST /api/ops/drain-retry`
+  força a drenagem da fila de retry AGORA (ignora backoff, escopado à conta, rate-limit 6/janela).
+  A UI vive no painel "Saúde da fila de conversões" da aba Gateways (`queue-health-panel.tsx`).
 - **Pixels:** `GET/POST /api/pixels`, `GET/PUT/DELETE /api/pixels/:slug`, `GET /api/pixels/health`,
   `GET /api/pixels/log`, `POST /api/pixels/test`.
 - **Links de checkout:** `GET/POST /api/links`, `GET/PUT/DELETE /api/links/:slug`,
@@ -306,7 +313,7 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **pixelLog** (lista, cap 500) + **pixelLogByTime** (zset) — log de disparos CAPI (TTL 14 dias).
 - **conversionWebhookLog** (lista, cap 200) — cada webhook `/api/conversion` recebido (+ ring em memória sempre).
 - **capiRetryQueue** — fila durável de eventos CAPI que falharam após os retries imediatos (cap 300, TTL 2d).
-- **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup.
+- **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup. O worker bate `heartbeatConvWorker()` a cada tick e `processConversion` registra `recordConvLatency` (webhook→disparo) — ambos expostos em `GET /api/ops`.
 - **dedup:<event_id>** — dedup navegador↔servidor (SET NX, TTL 2h). Em erro, deixa passar (melhor duplicar que perder).
 - **asn:<ip>** — cache do lookup BGP/ASN do bot-filter, compartilhado entre instâncias. **TTL DUPLO
   (item 176):** hit resolvido (asn>0) fica 24h; resultado NEGATIVO (asn:0/unknown/timeout) fica só
@@ -384,14 +391,16 @@ npm test        # roda os testes de regressão (test/*.test.js), sem rede/DB rea
 cd dashboard && npm run dev -- -p 3001   # HMR; acesse via http://localhost:3000/dashboard (proxy)
 ```
 - **Build:** só o app `dashboard/` tem build (Next). O Express continua JS puro sem transpile.
-- **Testes:** `npm test` — asserts em Node puro, sem framework (7 suítes). `test/retry-queue.test.js`
+- **Testes:** `npm test` — asserts em Node puro, sem framework (8 suítes). `test/retry-queue.test.js`
   (re-resolução da fila CAPI por token), `test/gateway-only.test.js` (trava de eventos monetários),
   `test/attribution.test.js`, `test/pixel-durability.test.js`, `test/security.test.js`,
   `test/cloak-decision-log.test.js` (item 170: mascaramento de IP sem PII, teto de 50, escopo por
-  conta+slug, reset zera o log) e `test/cloak-test-profiles.test.js` (item 165/208: catálogo coerente +
-  o motor classifica cada perfil sintético do lado esperado). Stubam `pixel-store`/`redis` no require-cache
-  e `global.fetch`; o log roda no fallback de memória do redis. Ao mexer no motor CAPI, no motor de
-  julgamento do cloaker ou no store de decisões, rode-os.
+  conta+slug, reset zera o log), `test/cloak-test-profiles.test.js` (item 165/208: catálogo coerente +
+  o motor classifica cada perfil sintético do lado esperado) e `test/queue-observability.test.js`
+  (Leva 5 bloco I: percentis de latência webhook→disparo, heartbeat do worker, dedup de webhook
+  escopado por conta, resumo da fila de retry). Stubam `pixel-store`/`redis` no require-cache e
+  `global.fetch`; rodam no fallback de memória do redis. Ao mexer no motor CAPI, no motor de
+  julgamento do cloaker, no store de decisões ou nos contadores de fila, rode-os.
 - **Migração de banco:** automática e idempotente — `db.init()` roda `CREATE TABLE/ALTER … IF NOT EXISTS` no boot.
 
 ### 11.1 Acesso rápido à dashboard em desenvolvimento (para IAs/testes)
