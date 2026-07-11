@@ -12,6 +12,7 @@ import { Loader2, RefreshCw, Target, ShieldCheck } from 'lucide-react'
 import { useCloakDecisions, apiSend } from '@/lib/api'
 import type { CloakDecisionRow, CloakTestResult } from '@/lib/types'
 import { toast } from '@/lib/toast'
+import { describeSignal } from './signal-labels'
 
 // Motivos do desvio à white em pt-BR (espelham os reasons de server.js)
 const REASON_LABEL: Record<string, string> = {
@@ -88,6 +89,30 @@ function DecisionRow({ row, entryKey }: { row: CloakDecisionRow; entryKey: strin
           {row.country && <span>{row.country}</span>}
           {row.ip && <span className="font-mono">{row.ip}</span>}
         </div>
+        {/* Item 212: top sinais que condenaram este acesso — mostram qual
+            camada mais barra e ajudam a calibrar o threshold */}
+        {Array.isArray(row.signals) && row.signals.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {row.signals.map((s, i) => {
+              const info = describeSignal(s)
+              return (
+                <span
+                  key={i}
+                  title={s}
+                  className={`inline-flex rounded px-1.5 py-px text-[9px] leading-4 ${
+                    info.kind === 'confiavel'
+                      ? 'bg-[var(--success-light)] text-success'
+                      : info.kind === 'suspeito'
+                        ? 'bg-destructive/15 text-destructive'
+                        : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  {info.label}
+                </span>
+              )
+            })}
+          </div>
+        )}
       </div>
       <button
         type="button"
@@ -110,7 +135,20 @@ export function CloakDecisionLog({ entryKey }: { entryKey: string }) {
   return (
     <div className="mt-2 rounded-lg border border-border bg-background/40 p-2.5">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[11px] font-medium text-foreground">Últimas decisões</span>
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+          Últimas decisões
+          {/* Item 221: fonte do dado — memória não sobrevive a reinícios */}
+          {data?.source && (
+            <span
+              title={data.source === 'redis' ? 'Dados duráveis (Redis)' : 'Dados em memória — se o servidor reiniciar, este histórico zera'}
+              className={`rounded px-1 py-px text-[9px] font-normal leading-4 ${
+                data.source === 'redis' ? 'bg-[var(--success-light)] text-success' : 'bg-warning/15 text-warning'
+              }`}
+            >
+              {data.source === 'redis' ? 'durável' : 'memória'}
+            </span>
+          )}
+        </span>
         <button
           type="button"
           onClick={() => mutate()}

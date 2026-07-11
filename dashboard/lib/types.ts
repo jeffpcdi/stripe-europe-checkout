@@ -70,6 +70,8 @@ export interface Lead {
   journey?: { p: string; at: string }[]
   customer?: string
   email?: string
+  /** Item 310: telefone reportado pelo gateway (quando existe) */
+  phone?: string
   referer?: string
   checkoutHits?: { at: string }[]
   reportedAmount?: number
@@ -120,7 +122,18 @@ export interface HealthResponse {
   dbLatencyMs: number | null
   redis: boolean
   redisEnabled: boolean
+  // Item 249: migrações novas rodaram no boot? false = boot com Neon degradado
+  migrations?: boolean
+  // Item 263: resumo consolidado das filas duráveis para o badge do cabeçalho
+  queues?: {
+    conv: { queue: number; processing: number } | null
+    capiRetry: number
+  }
+  // Item 177: latência do julgamento do cloaker (p50/p95/deadlineRate)
+  cloakerLatency?: { count: number; p50: number; p95: number; deadlineRate: number }
   uptimeSec: number
+  /** Item 443: versão do app (package.json) para a seção Sobre */
+  version: string | null
   ts: string
 }
 
@@ -133,6 +146,14 @@ export interface OpsResponse {
   worker: { at: number; active: boolean }           // heartbeat do drain worker
   capiRetry: { count: number; oldestAgeMs: number } // fila de retry da CAPI
   webhookDedup: number                              // reentregas de webhook ignoradas
+  // Item 225: disparos CAPI deduplicados (beacon+servidor) desde o boot
+  pixelDedup?: { deduped: number; sinceMs: number }
+  // Itens 220/226: presença ao vivo com teto + distribuição por entrada do funil
+  presence?: { online: number; limit: number; near: boolean; byEntry: { entry: string; count: number }[] }
+  // Item 223: cobertura do cache de ASN (hit-rate = mem+redis / total)
+  asnCache?: { memHits: number; redisHits: number; liveLookups: number; total: number; hitRate: number; entries: number }
+  // Item 224: TTLs efetivos das camadas de cache (segundos)
+  cacheTtls?: Record<string, number>
   ts: string
 }
 
@@ -164,6 +185,8 @@ export interface CheckoutLink {
   idiomas: string[]
   pixelSlug: string
   ativo: boolean
+  /** Item 531: arquivado = fora da lista padrão e do /go, histórico preservado */
+  arquivado?: boolean
   criadoEm: string
   updatedAt: string
 }
@@ -394,6 +417,9 @@ export interface CloakConfig {
   checkCoherence: boolean
   checkEntropy: boolean
   sensitivityThresholds: Record<string, number>
+  // Itens 254/261: camada de velocity (anti device-farm) configurável por conta
+  velocityLimit?: number
+  velocityWindowSec?: number
 }
 
 // ── /api/cloak/test — julgamento do request atual ──
@@ -419,6 +445,13 @@ export interface CloakTestResult {
   resolvedAt?: number
   // Item 165/208: eco do perfil simulado (null = request real do admin)
   profile?: CloakTestProfileMeta | null
+  // Item 257: previsão da camada de velocity (anti device-farm)
+  velocity?: {
+    limit: number
+    windowSec: number
+    blockedAtHit: number
+    note: string
+  }
 }
 
 // ── /api/cloak/test/profiles — catálogo do simulador (item 165/208) ──
@@ -453,6 +486,12 @@ export interface CloakStatsResponse {
     reasons: Record<string, number>
   }
   links: CloakStatItem[]
+  // Item 201: visitantes atualmente em cache como bot (sticky 6h)
+  sticky?: { available: boolean; count: number; truncated?: boolean }
+  // Item 203: acessos barrados por replay de ttclid (contador 30d)
+  ttclidReplays?: number
+  // Item 209: beacons do challenge JS recebidos (0 = snippet /t.js ausente)
+  challenge?: { beacons: number; lastAt: number | null }
 }
 
 // ── /api/cloak/entries — links de cloaking dedicados (/c/:slug) ──
@@ -490,6 +529,8 @@ export interface CloakDecisionRow {
   ip: string // mascarado: 1.2.3.x
   ua: string
   country: string // ISO-2
+  // Item 212: top sinais do judge nesta decisão (só quando reason='score')
+  signals?: string[]
 }
 
 export interface CloakDecisionsResponse {
@@ -562,6 +603,10 @@ export interface PushcutEvents {
   dispute: boolean
   checkout: boolean
   daily: boolean
+  /** Item 442: aviso de novo login no painel (opt-in) */
+  login: boolean
+  /** Item 464: alerta de anomalia — zero vendas em 6h com histórico ativo (opt-in) */
+  watchdog: boolean
 }
 
 export interface PushcutConfig {

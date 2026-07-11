@@ -151,6 +151,57 @@ async function loadConversionLog(limit) {
   }
 }
 
+// Item 200: limpeza manual do log de webhooks POR CONTA. As listas são
+// globais (uma por instância), então a limpeza reescreve a lista mantendo
+// as entradas das OUTRAS contas — nunca vaza nem apaga dado alheio.
+async function clearConversionLog(accountId) {
+  const keep = (r) => !(r && (r.acc === accountId || (!r.acc && accountId == null)));
+  let removed = 0;
+  for (let i = convLogMem.length - 1; i >= 0; i--) {
+    if (!keep(convLogMem[i])) { convLogMem.splice(i, 1); removed++; }
+  }
+  if (!enabled) return removed;
+  try {
+    const raw = await redis.lrange(CONV_LOG_KEY, 0, 199);
+    const rows = raw.map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } }).filter(Boolean);
+    const kept = rows.filter(keep);
+    removed = Math.max(removed, rows.length - kept.length);
+    const pipe = redis.pipeline();
+    pipe.del(CONV_LOG_KEY);
+    if (kept.length) {
+      // reinsere preservando a ordem (lpush inverte → itera do fim pro começo)
+      for (let i = kept.length - 1; i >= 0; i--) pipe.lpush(CONV_LOG_KEY, JSON.stringify(kept[i]));
+    }
+    await pipe.exec();
+    return removed;
+  } catch (err) {
+    console.error('[redis] clearConversionLog:', err.message);
+    return removed;
+  }
+}
+
+// Item 200: idem para o log de disparos CAPI (pixelLog) — reescreve mantendo
+// as linhas das outras contas.
+async function clearPixelLog(accountId) {
+  if (!enabled) return 0;
+  try {
+    const raw = await redis.lrange(PIXEL_LOG_KEY, 0, 499);
+    const rows = raw.map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } }).filter(Boolean);
+    const kept = rows.filter((r) => !(r && (r.acc === accountId || (!r.acc && accountId == null))));
+    const removed = rows.length - kept.length;
+    const pipe = redis.pipeline();
+    pipe.del(PIXEL_LOG_KEY);
+    if (kept.length) {
+      for (let i = kept.length - 1; i >= 0; i--) pipe.lpush(PIXEL_LOG_KEY, JSON.stringify(kept[i]));
+    }
+    await pipe.exec();
+    return removed;
+  } catch (err) {
+    console.error('[redis] clearPixelLog:', err.message);
+    return 0;
+  }
+}
+
 // ── Fila de retry da CAPI (eventos que falharam após os retries imediatos) ─
 // Snapshot único em JSON: a fila é pequena (cap 300) e o snapshot evita
 // divergência entre memória e Redis. Sobrevive a restarts do servidor.
@@ -252,6 +303,15 @@ async function setAsnCache(ip, entry) {
   } catch (_) { return false; }
 }
 
+// Item 222: apaga o cache de ASN de um IP para forçar novo lookup no próximo /go.
+async function clearAsnCache(ip) {
+  if (!enabled || !ip) return false;
+  try {
+    const n = await redis.del('asn:' + ip);
+    return Number(n) > 0;
+  } catch (_) { return false; }
+}
+
 // ── Contadores de decisão do cloaker (offer vs white) ─────────────────────
 // Um hash por link: "cloakstats:<accountId>:<slug>". Campos:
 //   offer, white                          → totais
@@ -318,6 +378,51 @@ function normalizeCloakHash(h) {
   return { offer, white, total, offerRate: total ? offer / total : 0, reasons, daily };
 }
 
+// Item 232: enumera os slugs que têm stats de cloak gravadas para a conta
+// (memória + SCAN no Redis). Usado pela auditoria de órfãos — slugs com stats
+// mas sem link de cloak correspondente foram apagados e podem ser limpos.
+async function listCloakStatSlugs(accountId) {
+  const prefix = 'cloakstats:' + (accountId || 'default') + ':';
+  const slugs = new Set();
+  for (const key of cloakStatsMem.keys()) {
+    if (key.startsWith(prefix)) slugs.add(key.slice(prefix.length));
+  }
+  if (!enabled) return Array.from(slugs);
+  try {
+    let cursor = '0';
+    let rounds = 0;
+    do {
+      const [next, keys] = await redis.scan(cursor, { match: prefix + '*', count: 200 });
+      cursor = String(next);
+      (keys || []).forEach((k) => slugs.add(String(k).slice(prefix.length)));
+      rounds++;
+    } while (cursor !== '0' && rounds < 25);
+  } catch (err) {
+    console.error('[redis] listCloakStatSlugs:', err.message);
+  }
+  return Array.from(slugs);
+}
+
+// Item 232: apaga as stats de cloak de slugs órfãos (hash de contadores).
+async function clearCloakStats(accountId, slugs) {
+  const list = Array.isArray(slugs) ? slugs : [];
+  let removed = 0;
+  for (const slug of list) {
+    const key = cloakKey(accountId, slug);
+    if (cloakStatsMem.has(key)) { cloakStatsMem.delete(key); removed++; }
+  }
+  if (!enabled) return removed;
+  try {
+    for (const slug of list) {
+      const n = await redis.del(cloakKey(accountId, slug)).catch(() => 0);
+      removed += Number(n) || 0;
+    }
+  } catch (err) {
+    console.error('[redis] clearCloakStats:', err.message);
+  }
+  return removed;
+}
+
 async function resetCloakStats(accountId, slug) {
   const key = cloakKey(accountId, slug);
   cloakStatsMem.delete(key);
@@ -357,6 +462,11 @@ async function pushCloakDecision(accountId, slug, entry) {
     ua: String(entry.ua || '').slice(0, 120),
     country: entry.country ? String(entry.country).slice(0, 2).toUpperCase() : '',
   };
+  // Item 212: top sinais do judge nesta decisão — permitem ao usuário ver
+  // QUAIS camadas mais barram e calibrar o threshold com base em dados.
+  if (Array.isArray(entry.signals) && entry.signals.length) {
+    row.signals = entry.signals.slice(0, 5).map((s) => String(s).slice(0, 60));
+  }
   if (!enabled) {
     const arr = cloakLogMem.get(key) || [];
     arr.unshift(row);
@@ -386,6 +496,29 @@ async function getCloakDecisionLog(accountId, slug) {
   } catch (err) {
     console.error('[redis] getCloakDecisionLog:', err.message);
     return [];
+  }
+}
+
+// Item 200: limpa o histórico de decisões do cloaker da conta (as chaves já
+// são escopadas por conta+slug, então basta deletar as chaves da conta).
+async function clearCloakDecisionLogs(accountId, slugs) {
+  const list = Array.isArray(slugs) ? slugs : [];
+  let removed = 0;
+  for (const slug of list) {
+    const key = cloakLogKey(accountId, slug);
+    if (cloakLogMem.has(key)) { removed += (cloakLogMem.get(key) || []).length; cloakLogMem.delete(key); }
+  }
+  if (!enabled) return removed;
+  try {
+    for (const slug of list) {
+      const key = cloakLogKey(accountId, slug);
+      const n = await redis.llen(key).catch(() => 0);
+      if (n) { removed += Number(n) || 0; await redis.del(key); }
+    }
+    return removed;
+  } catch (err) {
+    console.error('[redis] clearCloakDecisionLogs:', err.message);
+    return removed;
   }
 }
 
@@ -570,6 +703,52 @@ async function getStickyBot(vid) {
   } catch (_) { return null; }
 }
 
+// Item 201: painel do veredito sticky — conta quantos visitantes estão em
+// cache como bot agora (SCAN limitado) e permite limpar UM vid para reteste.
+async function countStickyBots() {
+  if (!enabled) return { available: false, count: 0 };
+  try {
+    let cursor = '0';
+    let count = 0;
+    let rounds = 0;
+    do {
+      const [next, keys] = await redis.scan(cursor, { match: 'cloakbot:*', count: 200 });
+      cursor = String(next);
+      count += (keys || []).length;
+      rounds++;
+    } while (cursor !== '0' && rounds < 25); // teto de segurança do SCAN
+    return { available: true, count, truncated: cursor !== '0' };
+  } catch (_) { return { available: false, count: 0 }; }
+}
+
+async function clearStickyBot(vid) {
+  if (!enabled || !vid) return false;
+  try {
+    const n = await redis.del('cloakbot:' + String(vid).slice(0, 80));
+    return Number(n) > 0;
+  } catch (_) { return false; }
+}
+
+// Item 203: contador durável de replays de ttclid barrados (por conta, 30d).
+const _memReplayCount = new Map();
+async function bumpTtclidReplay(accountId) {
+  const acc = accountId || 'default';
+  if (!enabled) { _memReplayCount.set(acc, (_memReplayCount.get(acc) || 0) + 1); return; }
+  try {
+    const key = 'ttreplay:count:' + acc;
+    await redis.incr(key);
+    await redis.expire(key, 30 * 86400);
+  } catch (_) { _memReplayCount.set(acc, (_memReplayCount.get(acc) || 0) + 1); }
+}
+async function getTtclidReplayCount(accountId) {
+  const acc = accountId || 'default';
+  if (!enabled) return _memReplayCount.get(acc) || 0;
+  try {
+    const v = await redis.get('ttreplay:count:' + acc);
+    return Number(v) || 0;
+  } catch (_) { return _memReplayCount.get(acc) || 0; }
+}
+
 // ── Lock distribuído (SET NX EX) ──────────────────────────────────────────
 // Garante que só UMA instância execute uma seção crítica (ex.: drenar a fila
 // de retry da CAPI) — sem isso, N instâncias disparam o MESMO evento N vezes.
@@ -640,6 +819,28 @@ function normalizeEmqHash(h, days) {
   return rows.slice(-days);
 }
 
+// Item 200: limpa a série de EMQ da conta (chaves emq:<acc>:<pixel>).
+async function clearEmq(acc, pixels) {
+  const list = Array.isArray(pixels) ? pixels : [];
+  let removed = 0;
+  for (const px of list) {
+    const key = emqKey(acc, px);
+    if (emqMem.has(key)) { removed++; emqMem.delete(key); }
+  }
+  if (!enabled) return removed;
+  try {
+    for (const px of list) {
+      const key = emqKey(acc, px);
+      const n = await redis.del(key).catch(() => 0);
+      removed += Number(n) || 0;
+    }
+    return removed;
+  } catch (err) {
+    console.error('[redis] clearEmq:', err.message);
+    return removed;
+  }
+}
+
 function redisRandId() {
   try { return require('crypto').randomBytes(8).toString('hex'); }
   catch (_) { return String(Date.now()) + Math.random().toString(36).slice(2, 8); }
@@ -704,6 +905,32 @@ async function bumpVelocity(kind, id, windowSec) {
     if (n === 1) await redis.expire(key, win);
     return Number(n) || 0;
   } catch (_) { return 0; }
+}
+
+// Item 256: limpa TODAS as chaves de velocity de um IP (todas as entradas) —
+// libera imediatamente um IP legítimo que caiu no limite (ex.: escritório
+// inteiro atrás do mesmo NAT). Memória + Redis via SCAN.
+async function clearVelocity(ip) {
+  if (!ip) return 0;
+  const suffix = ':' + String(ip).slice(0, 60);
+  let removed = 0;
+  for (const key of velMem.keys()) {
+    if (key.endsWith(suffix)) { velMem.delete(key); removed++; }
+  }
+  if (!enabled) return removed;
+  try {
+    let cursor = '0';
+    let rounds = 0;
+    do {
+      const [next, keys] = await redis.scan(cursor, { match: 'vel:*' + suffix, count: 200 });
+      cursor = String(next);
+      for (const k of keys || []) { await redis.del(k); removed++; }
+      rounds++;
+    } while (cursor !== '0' && rounds < 25);
+  } catch (err) {
+    console.error('[redis] clearVelocity:', err.message);
+  }
+  return removed;
 }
 
 // ── Fallback DURÁVEL de pixels (quando o Neon falha ou está off) ──────────
@@ -825,21 +1052,24 @@ async function ping() {
 module.exports = {
   enabled, redis,
   touchPresence, leavePresence, listPresence,
-  pushPixelLog, loadPixelLog,
-  pushConversionLog, loadConversionLog,
+  pushPixelLog, loadPixelLog, clearPixelLog,             // Item 200
+  pushConversionLog, loadConversionLog, clearConversionLog, // Item 200
   saveCapiRetryQueue, loadCapiRetryQueue,
   seenEventId, seenWebhookOrder,
-  getAsnCache, setAsnCache,
+  getAsnCache, setAsnCache, clearAsnCache, // Item 222
   bumpCloakDecision, getCloakStats, resetCloakStats,
-  pushCloakDecision, getCloakDecisionLog, // Item 170: log de decisões por link
+  pushCloakDecision, getCloakDecisionLog, clearCloakDecisionLogs, // Itens 170/200
+  listCloakStatSlugs, clearCloakStats, // Item 232
   enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,
   getReclaimInfo, recordConvLatency, getConvLatency,
   heartbeatConvWorker, getConvWorkerBeat, capiRetryInfo,
   bumpWebhookDedup, getWebhookDedupCount,
   setStickyBot, getStickyBot,
-  checkTtclidContext, bumpVelocity,
+  countStickyBots, clearStickyBot,            // Item 201
+  bumpTtclidReplay, getTtclidReplayCount,     // Item 203
+  checkTtclidContext, bumpVelocity, clearVelocity, // Item 256
   acquireLock, releaseLock,
-  bumpEmq, getEmqTrend,
+  bumpEmq, getEmqTrend, clearEmq, // Item 200
   savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,
   saveGatewaySnapshot, deleteGatewaySnapshot, loadGatewaySnapshot,
   saveDomainSnapshot, deleteDomainSnapshot, loadDomainSnapshot,

@@ -29,10 +29,23 @@ function newId(prefix) {
 // ── Estado em memória + índice de leads por id (busca O(1)) ───────────────
 let state = null;
 let leadIndex = new Map(); // id -> lead (referência ao objeto em state.leads)
+// Item 450: índices O(1) por contato normalizado, com chave `${acc}|${norm}`
+// (isolam contas). Guardam o lead MAIS RECENTE com aquele contato — mesma
+// semântica dos finds O(n) antigos (state.leads é unshift, índice 0 = novo).
+let emailIndex = new Map(); // `${acc}|${email}` -> lead
+let phoneIndex = new Map(); // `${acc}|${tail9}` -> lead
 
 function rebuildIndex() {
   leadIndex = new Map();
-  (state.leads || []).forEach((l) => { if (l && l.id) leadIndex.set(l.id, l); });
+  emailIndex = new Map();
+  phoneIndex = new Map();
+  // state.leads é do mais novo pro mais velho; newestWins=false preserva o
+  // PRIMEIRO visto (= mais recente) em cada chave de contato (item 450).
+  (state.leads || []).forEach((l) => {
+    if (!l || !l.id) return;
+    leadIndex.set(l.id, l);
+    indexLeadContacts(l, false);
+  });
 }
 
 function loadFromDisk() {
@@ -123,12 +136,54 @@ function findLead(id) {
   return leadIndex.get(id) || null;
 }
 
+// Item 450: normalizadores das chaves de match do webhook. Mesma regra dos
+// finds antigos: e-mail lowercase/trim; telefone só dígitos, sem 00, e a
+// comparação usa os ÚLTIMOS 9 dígitos (ignora DDI/formatação).
+function normEmailKey(email) {
+  const e = String(email || '').trim().toLowerCase();
+  return e || null;
+}
+function normPhoneKey(phone) {
+  const digits = String(phone || '').replace(/\D/g, '').replace(/^00/, '');
+  return digits.length >= 8 ? digits.slice(-9) : null;
+}
+function contactKey(acc, norm) { return (acc || '') + '|' + norm; }
+
+// Item 450: registra o lead nos índices de contato. newestWins=true para
+// escritas ao vivo (lead novo substitui o antigo com o mesmo contato);
+// false no rebuild, que percorre do mais novo pro mais velho.
+function indexLeadContacts(lead, newestWins) {
+  if (!lead) return;
+  const e = normEmailKey(lead.email);
+  if (e) {
+    const k = contactKey(lead.acc, e);
+    if (newestWins || !emailIndex.has(k)) emailIndex.set(k, lead);
+  }
+  const p = normPhoneKey(lead.phone);
+  if (p) {
+    const k = contactKey(lead.acc, p);
+    if (newestWins || !phoneIndex.has(k)) phoneIndex.set(k, lead);
+  }
+}
+function unindexLeadContacts(lead) {
+  if (!lead) return;
+  const e = normEmailKey(lead.email);
+  if (e) { const k = contactKey(lead.acc, e); if (emailIndex.get(k) === lead) emailIndex.delete(k); }
+  const p = normPhoneKey(lead.phone);
+  if (p) { const k = contactKey(lead.acc, p); if (phoneIndex.get(k) === lead) phoneIndex.delete(k); }
+}
+
 function addLead(lead) {
   state.leads.unshift(lead);
   leadIndex.set(lead.id, lead);
+  indexLeadContacts(lead, true); // item 450
   if (state.leads.length > MAX_LEADS) {
     const removed = state.leads.splice(MAX_LEADS);
-    removed.forEach((l) => { if (l && l.id) leadIndex.delete(l.id); });
+    removed.forEach((l) => {
+      if (!l) return;
+      if (l.id) leadIndex.delete(l.id);
+      unindexLeadContacts(l); // item 450: não deixar entrada apontando pra lead podado
+    });
   }
   return lead;
 }
@@ -269,8 +324,8 @@ function attachTracking(id, patch) {
   if (typeof patch.cloakBeh === 'number') lead.cloakBeh = patch.cloakBeh;
   // Advanced Matching: email/telefone capturados em formulários da página
   // (snippet /t.js) — sobem o Event Match Quality de TODOS os disparos futuros
-  if (patch.email && !lead.email) lead.email = String(patch.email).slice(0, 320);
-  if (patch.phone && !lead.phone) lead.phone = String(patch.phone).slice(0, 30);
+  if (patch.email && !lead.email) { lead.email = String(patch.email).slice(0, 320); indexLeadContacts(lead, true); } // item 450
+  if (patch.phone && !lead.phone) { lead.phone = String(patch.phone).slice(0, 30); indexLeadContacts(lead, true); } // item 450
   // atribuição de link de checkout (/go/:slug) — usada no webhook universal
   if (patch.linkSlug) lead.linkSlug = String(patch.linkSlug).slice(0, 80);
   if (patch.linkVariant) lead.linkVariant = String(patch.linkVariant).slice(0, 80);
@@ -285,40 +340,26 @@ function getLead(id) {
 }
 
 // Busca o lead mais recente com um e-mail — fallback de match do webhook
-// universal quando o gateway não devolve o leadId. state.leads usa unshift,
-// então o índice 0 é o mais novo: o primeiro match é o mais recente.
-// O(n), mas n ≤ MAX_LEADS e só roda em conversões (raras vs. page views).
+// universal quando o gateway não devolve o leadId.
+// Item 450: era O(n) por conta a cada webhook; agora é lookup O(1) no
+// emailIndex (chave `${acc}|${email}` normalizada, mais recente vence).
 function findLeadByEmail(email, accountId) {
-  if (!email) return null;
   ensureLoaded();
-  const needle = String(email).trim().toLowerCase();
+  const needle = normEmailKey(email);
   if (!needle) return null;
-  const leads = state.leads || [];
-  for (let i = 0; i < leads.length; i++) {
-    const l = leads[i];
-    if (!l || (accountId && l.acc !== accountId)) continue; // isola contas
-    if (l.email && String(l.email).trim().toLowerCase() === needle) return l;
-  }
-  return null;
+  return emailIndex.get(contactKey(accountId, needle)) ||
+    // fallback: leads antigos podem estar indexados sem conta (acc null)
+    (accountId ? emailIndex.get(contactKey(null, needle)) || null : null);
 }
 
 // Busca por telefone — 3º fallback do webhook (leadId → email → phone).
-// Compara só os dígitos (últimos 9+), ignorando formatação/prefixo 00/+.
+// Item 450: lookup O(1) no phoneIndex (últimos 9 dígitos, sem 00/DDI).
 function findLeadByPhone(phone, accountId) {
-  if (!phone) return null;
   ensureLoaded();
-  const digits = String(phone).replace(/\D/g, '').replace(/^00/, '');
-  if (digits.length < 8) return null;             // curto demais = match falso fácil
-  const tail = digits.slice(-9);
-  const leads = state.leads || [];
-  for (let i = 0; i < leads.length; i++) {
-    const l = leads[i];
-    if (!l || !l.phone) continue;
-    if (accountId && l.acc !== accountId) continue; // isola contas
-    const d = String(l.phone).replace(/\D/g, '').replace(/^00/, '');
-    if (d.length >= 8 && d.slice(-9) === tail) return l;
-  }
-  return null;
+  const tail = normPhoneKey(phone);
+  if (!tail) return null;
+  return phoneIndex.get(contactKey(accountId, tail)) ||
+    (accountId ? phoneIndex.get(contactKey(null, tail)) || null : null);
 }
 
 // ── Convers��o de gateway externo (Kiwify, Hotmart, PerfectPay, …) ─────────
@@ -355,9 +396,28 @@ function matchExternalConversion(data) {
     lead.customer = data.customer || lead.customer || null;
     lead.email = data.email || lead.email || null;
     lead.phone = data.phone || lead.phone || null;
+    indexLeadContacts(lead, true); // item 450: contato do gateway entra no índice
     lead.ref = data.ref || lead.ref || null;
     lead.orphan = false;
   } else {
+    // Item 449: conversão órfã não é mais silenciosa — registra POR QUE não
+    // casou (quais chaves de match o gateway mandou vs. o que faltou), para
+    // alimentar o toggle de órfãs (item 312) e o diagnóstico de atribuição.
+    const tried = [];
+    if (data.leadId) tried.push('leadId');
+    if (data.email) tried.push('email');
+    if (data.phone) tried.push('telefone');
+    const reason = tried.length === 0
+      ? 'gateway não enviou nenhuma chave de identificação (sem leadId, e-mail ou telefone)'
+      : 'nenhum lead rastreado casou com ' + tried.join(' / ') + ' (visitante não passou pelo link antes de comprar, ou comprou de outro dispositivo)';
+    logEvent('info', {
+      acc,
+      title: '[atribuição] conversão órfã: ' + reason,
+      gateway: gw,
+      ref: data.email || data.phone || data.leadId || null,
+      orphanReason: tried.length === 0 ? 'sem_chave' : 'sem_match',
+      triedKeys: tried
+    });
     lead = addLead({
       id: data.leadId || newId('orphan'),
       acc,

@@ -22,25 +22,49 @@ function baseEndpoint(accountId) {
  * @param {string} notificationName - nome da notificação no Pushcut (ex.: 'Aprovada')
  * @param {object} payload - { title, text, ...extras aceitos pela API do Pushcut }
  */
+// Item 456: falha de notificação não pode ser invisível — além do console,
+// registra um evento no feed da conta (o dono vê "notificação de venda
+// falhou" na dashboard em vez de só descobrir que o celular ficou mudo).
+function logFailure(accountId, notificationName, reason) {
+  try {
+    require('./stats').logEvent('info', {
+      acc: accountId || null,
+      title: '[pushcut] Notificação "' + notificationName + '" falhou: ' + reason,
+      ref: null
+    });
+  } catch (_) { /* stats indisponível não pode derrubar o fluxo */ }
+}
+
 async function sendPushcut(notificationName, payload, accountId) {
   try {
     const base = baseEndpoint(accountId);
     if (!base) return false; // sem webhook configurado — silenciosamente off
     const url = base + encodeURIComponent(notificationName || 'Aprovada');
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    // Item 472: timeout de 8s — o Pushcut fora do ar nunca pode pendurar o
+    // webhook/checkout que disparou a notificação.
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: ctl.signal
+      });
+    } finally { clearTimeout(timer); }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       console.error(`[pushcut] Falha (${res.status}) em "${notificationName}": ${body}`);
+      logFailure(accountId, notificationName, 'HTTP ' + res.status); // item 456
       return false;
     }
     console.log(`[pushcut] Notificação "${notificationName}" enviada.`);
     return true;
   } catch (err) {
-    console.error('[pushcut] Erro ao enviar:', err.message);
+    const reason = err.name === 'AbortError' ? 'timeout (8s)' : err.message;
+    console.error('[pushcut] Erro ao enviar:', reason);
+    logFailure(accountId, notificationName, reason); // item 456
     return false;
   }
 }

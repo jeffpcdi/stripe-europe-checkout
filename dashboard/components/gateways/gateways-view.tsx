@@ -27,7 +27,7 @@ import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
-import { QueueHealthPanel } from './queue-health-panel'
+import { QueueHealthPanel, RetentionPanel, IntegrityPanel } from './queue-health-panel'
 
 // Tutorial da aba Gateways — inclui a regra de ouro: venda só conta quando o
 // GATEWAY confirma o pagamento via webhook (nunca pelo navegador do cliente).
@@ -149,6 +149,39 @@ export function GatewaysView() {
   const [copyAnnounce, setCopyAnnounce] = useState('')
   // Item 104: linha do log expandida (detalhe do webhook)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
+  // Item 198: reprocessamento manual de uma conversão do log
+  const [reprocessing, setReprocessing] = useState<string | null>(null)
+  // Item 233: paginação incremental do log (50 por vez, não trava a UI)
+  const [logShown, setLogShown] = useState(50)
+
+  async function handleReprocess(row: { id?: string }) {
+    if (!row.id || reprocessing) return
+    setReprocessing(row.id)
+    try {
+      const r = await apiSend<{ ok: boolean; receipt?: { status?: string; dispatched?: number } }>(
+        '/api/ops/reprocess-conversion',
+        'POST',
+        { id: row.id },
+      )
+      const st = r.receipt?.status ?? 'ok'
+      if (st === 'ok' || st.startsWith('ok')) {
+        toast.success('Conversão reenviada para o TikTok', {
+          hint: r.receipt?.dispatched ? `${r.receipt.dispatched} pixel(s) receberam o evento.` : undefined,
+        })
+      } else {
+        toast.error(`Reprocessamento terminou com status: ${st}`, {
+          hint: st === 'sem pixel' ? 'Nenhum pixel ativo com Access Token para esta conta.' : undefined,
+        })
+      }
+      mutateLog()
+    } catch (e) {
+      toast.error('Falha ao reprocessar a conversão', {
+        hint: e instanceof Error ? e.message : undefined,
+      })
+    } finally {
+      setReprocessing(null)
+    }
+  }
   // Item 184: confirmação destrutiva padronizada (substitui window.confirm)
   const [confirm, setConfirm] = useState<{
     title: string
@@ -522,7 +555,9 @@ export function GatewaysView() {
             <ul className="flex max-h-[32rem] flex-col gap-1 overflow-y-auto">
               {/* Item 104/105: linha expansível — clique revela orderId, valor,
                   e-mail e se o lead casou com um clique rastreado (matched) */}
-              {convLog.log.map((row, i) => {
+              {/* Item 233: paginação incremental — renderiza 50 por vez para
+                  não travar a UI com as 200 linhas do log */}
+              {convLog.log.slice(0, logShown).map((row, i) => {
                 const rowKey = String(row.id ?? i)
                 const isOpen = expandedRow === rowKey
                 return (
@@ -585,18 +620,59 @@ export function GatewaysView() {
                             ? 'casou com um clique rastreado'
                             : 'não casou — venda sem clique rastreado (órfã) ou fora da janela'}
                         </dd>
+                        {/* Item 198: reenfileirar manualmente quando o disparo CAPI
+                            falhou mas o pagamento é válido. Não duplica a venda no
+                            painel — só re-dispara o evento para o TikTok. */}
+                        {row.id != null && !row.teste && (
+                          <>
+                            <dt className="text-muted-foreground">Ações</dt>
+                            <dd>
+                              <button
+                                type="button"
+                                onClick={() => handleReprocess(row)}
+                                disabled={reprocessing !== null}
+                                className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+                                title="Re-dispara o evento para o TikTok sem duplicar a venda no painel"
+                              >
+                                <RefreshCw
+                                  className={`size-3 ${reprocessing === row.id ? 'animate-spin' : ''}`}
+                                  aria-hidden="true"
+                                />
+                                {reprocessing === row.id ? 'Reprocessando…' : 'Reprocessar disparo'}
+                              </button>
+                            </dd>
+                          </>
+                        )}
                       </dl>
                     )}
                   </li>
                 )
               })}
+              {/* Item 233: carrega mais 50 sob demanda */}
+              {convLog.log.length > logShown && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setLogShown((n) => n + 50)}
+                    className="w-full rounded-lg border border-dashed border-border px-2 py-1.5 text-center text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    Mostrar mais ({convLog.log.length - logShown} restantes)
+                  </button>
+                </li>
+              )}
             </ul>
           )}
         </GlassCard>
       </div>
 
+      {/* Itens 230/232: integridade referencial + dados órfãos (oculto se saudável) */}
+      <IntegrityPanel />
+
       {/* Observabilidade das filas duráveis (Leva 5, bloco I: 191–200) */}
       <QueueHealthPanel />
+
+      {/* Item 200: limites de retenção + limpeza manual por log */}
+      <RetentionPanel />
 
       <TutorialModal
         open={showTutorial}

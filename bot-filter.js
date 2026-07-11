@@ -150,6 +150,34 @@ function _asnTtl(entry) {
   return (entry && entry.asn > 0) ? ASN_TTL_MS : ASN_NEG_TTL_MS;
 }
 
+// Item 223: métricas de cobertura do cache de ASN. Um hit-rate alto significa
+// que o /go quase nunca paga o custo do DNS no caminho quente.
+const _asnStats = { memHits: 0, redisHits: 0, liveLookups: 0 };
+function getAsnCacheStats() {
+  const total = _asnStats.memHits + _asnStats.redisHits + _asnStats.liveLookups;
+  const hits = _asnStats.memHits + _asnStats.redisHits;
+  return {
+    memHits: _asnStats.memHits,
+    redisHits: _asnStats.redisHits,
+    liveLookups: _asnStats.liveLookups,
+    total,
+    hitRate: total ? hits / total : 0,
+    entries: _asnCache.size,
+  };
+}
+
+// Item 222: limpar o cache de ASN de UM IP (memória + Redis) para reteste
+// imediato quando o lookup ficou errado/negativo. Devolve true se havia algo.
+async function clearAsnCache(ip) {
+  if (!ip) return false;
+  const had = _asnCache.delete(ip);
+  let redisHad = false;
+  if (_redis && _redis.enabled && typeof _redis.clearAsnCache === 'function') {
+    redisHad = await _redis.clearAsnCache(ip).catch(() => false);
+  }
+  return had || redisHad;
+}
+
 async function lookupASN(ip) {
   if (!ip) return { asn: 0, org: 'unknown' };
   // IPs privados/loopback: não são datacenters
@@ -159,7 +187,7 @@ async function lookupASN(ip) {
   // Camada 1: cache em memória (mais rápido, por processo).
   // Hit sem ASN resolvido expira em ASN_NEG_TTL_MS (cache negativo, item 176).
   const cached = _asnCache.get(ip);
-  if (cached && Date.now() - cached.ts < _asnTtl(cached)) return cached;
+  if (cached && Date.now() - cached.ts < _asnTtl(cached)) { _asnStats.memHits++; return cached; }
 
   // Camada 2: cache no Redis (compartilhado, sobrevive a restart)
   if (_redis && _redis.enabled) {
@@ -167,9 +195,12 @@ async function lookupASN(ip) {
     if (hit && typeof hit.asn === 'number') {
       const entry = { asn: hit.asn, org: hit.org || 'unknown', ts: Date.now() };
       _asnCache.set(ip, entry);
+      _asnStats.redisHits++;
       return entry;
     }
   }
+
+  _asnStats.liveLookups++; // vai pagar o custo do DNS abaixo
 
   let entry = { asn: 0, org: 'unknown', ts: Date.now() };
   try {
@@ -837,11 +868,22 @@ function challengeSnippet(visitorId, token) {
 module.exports = {
   judge,
   lookupASN,
+  getAsnCacheStats,   // Item 223
+  clearAsnCache,      // Item 222
   issueChallengeToken,
   verifyChallengeToken,
   challengeSnippet,
   resolveConfig,
   getJudgeLatency,
   DEFAULT_CONFIG,
-  SENSITIVITY_THRESHOLDS
+  SENSITIVITY_THRESHOLDS,
+  // Item 224: TTLs efetivos das camadas de cache, para o painel técnico
+  CACHE_TTLS: {
+    presence: 60,
+    dedup: 2 * 3600,
+    sticky: 6 * 3600,
+    ttclid: 12 * 3600,
+    asn: Math.round(ASN_TTL_MS / 1000),
+    asnNegative: Math.round(ASN_NEG_TTL_MS / 1000),
+  }
 };

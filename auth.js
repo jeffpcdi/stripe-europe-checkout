@@ -63,15 +63,69 @@ async function register({ email, password, name }) {
   return { account, token };
 }
 
+// Item 440: bloqueio suave por e-mail após N falhas seguidas — freia
+// tentativa de força bruta sem travar o dono de vez. Contagem em memória
+// (reinicia com o processo, aceitável) e destrava sozinha após a janela ou
+// no primeiro login correto. Chave é o e-mail normalizado.
+const LOGIN_MAX_FAILS = 8;
+const LOGIN_LOCK_MS = 15 * 60 * 1000; // 15 min
+const loginFails = new Map(); // email → { count, until }
+
+function loginLockKey(email) { return String(email || '').trim().toLowerCase(); }
+
+function loginLockState(email) {
+  const rec = loginFails.get(loginLockKey(email));
+  if (!rec) return null;
+  if (rec.until && rec.until <= Date.now()) { loginFails.delete(loginLockKey(email)); return null; }
+  return rec;
+}
+
+function registerLoginFail(email) {
+  const key = loginLockKey(email);
+  const rec = loginFails.get(key) || { count: 0, until: 0 };
+  rec.count += 1;
+  if (rec.count >= LOGIN_MAX_FAILS) rec.until = Date.now() + LOGIN_LOCK_MS;
+  loginFails.set(key, rec);
+}
+
 async function login({ email, password }) {
   if (!db.enabled) return { error: 'Banco de dados não configurado no servidor (defina DATABASE_URL nas variáveis de ambiente). Confira /api/status.' };
+
+  // Bloqueio ativo? Não vaza se o e-mail existe — mensagem é sobre tentativas.
+  const locked = loginLockState(email);
+  if (locked && locked.until) {
+    const mins = Math.max(1, Math.ceil((locked.until - Date.now()) / 60000));
+    return { error: 'Muitas tentativas. Tente novamente em ' + mins + ' min.', locked: true };
+  }
+
   const row = await db.getAccountByEmail(email || '');
   if (!row || !verifyPassword(password, row.password_hash)) {
+    registerLoginFail(email);
     return { error: 'E-mail ou senha incorretos.' };
   }
+  loginFails.delete(loginLockKey(email)); // sucesso zera o contador
   const token = await db.createAuthSession(row.id, SESSION_TTL_DAYS);
   const account = { id: row.id, email: row.email, name: row.name, role: row.role };
   return { account, token };
+}
+
+// Item 411: troca de senha com verificação da atual. Item 415: derruba as
+// outras sessões (se a senha vazou, quem estava logado com ela cai).
+async function changePassword({ accountId, currentPassword, newPassword, keepToken }) {
+  if (!db.enabled) return { error: 'Banco de dados não configurado no servidor.' };
+  if (!newPassword || String(newPassword).length < 8) {
+    return { error: 'A nova senha precisa ter pelo menos 8 caracteres.' };
+  }
+  const row = await db.getAccountById(accountId);
+  if (!row) return { error: 'Conta não encontrada.' };
+  if (!verifyPassword(currentPassword, row.password_hash)) {
+    return { error: 'Senha atual incorreta.' };
+  }
+  const ok = await db.updateAccountPassword(accountId, hashPassword(newPassword));
+  if (!ok) return { error: 'Não foi possível salvar a nova senha. Tente novamente.' };
+  const revoked = await db.deleteOtherAuthSessions(accountId, keepToken);
+  sessionCache.clear(); // cache pode ter sessões recém-revogadas
+  return { ok: true, revoked };
 }
 
 async function logout(token) {
@@ -91,6 +145,19 @@ async function resolveSession(token) {
   if (!row) { sessionCache.delete(token); return null; }
   const account = { id: row.account_id, email: row.email, name: row.name, role: row.role };
   sessionCache.set(token, { account, expiresAt: Date.now() + SESSION_CACHE_MS });
+
+  // Item 482: renovação deslizante. Se a sessão já consumiu mais da metade do
+  // TTL, estende para +30 dias a partir de agora — usuário ativo nunca é
+  // deslogado. O UPDATE só acontece nesse ponto (não a cada request: o cache
+  // de 5 min já absorve a maioria, e a janela de metade do TTL faz o resto).
+  // Fire-and-forget: renovar nunca pode atrasar nem quebrar a request.
+  try {
+    const expMs = new Date(row.expires_at).getTime();
+    const halfTtl = (SESSION_TTL_DAYS * 24 * 3600e3) / 2;
+    if (Number.isFinite(expMs) && expMs - Date.now() < halfTtl) {
+      db.touchAuthSession(token, SESSION_TTL_DAYS).catch(() => {});
+    }
+  } catch (_) { /* melhor-esforço */ }
   return account;
 }
 
@@ -157,8 +224,11 @@ setInterval(() => {
 
 module.exports = {
   COOKIE_NAME,
-  register, login, logout, resolveSession,
+  register, login, logout, resolveSession, changePassword,
   parseCookies, sessionCookie, clearCookie,
   requireAuth, optionalAuth,
-  hashPassword, verifyPassword
+  hashPassword, verifyPassword,
+  // Item 440/444: expostos para teste isolado do bloqueio suave.
+  _loginLockState: loginLockState, _registerLoginFail: registerLoginFail,
+  _LOGIN_MAX_FAILS: LOGIN_MAX_FAILS
 };

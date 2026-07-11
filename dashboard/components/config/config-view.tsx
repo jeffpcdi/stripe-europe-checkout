@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react'
 import {
   User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send, SlidersHorizontal, Coins,
+  DownloadCloud, UploadCloud, Info, ShieldCheck,
 } from 'lucide-react'
 import useSWR from 'swr'
-import { useAccount, usePushcutConfig, apiSend, fetcher } from '@/lib/api'
+import { useAccount, usePushcutConfig, useHealth, apiSend, fetcher } from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
 import { usePrefs } from '@/lib/prefs'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -17,6 +19,10 @@ const EVENT_LABELS: { key: keyof PushcutEvents; label: string; hint: string }[] 
   { key: 'dispute', label: 'Chargeback', hint: 'Disputa aberta' },
   { key: 'checkout', label: 'Checkout iniciado', hint: 'Visitante chegou ao checkout' },
   { key: 'daily', label: 'Resumo diário', hint: 'Relatório consolidado 1x/dia' },
+  /* Item 442: aviso de segurança opt-in */
+  { key: 'login', label: 'Novo login no painel', hint: 'Aviso de segurança quando alguém entra na sua conta' },
+  /* Item 464: watchdog de anomalia opt-in */
+  { key: 'watchdog', label: 'Alerta de anomalia', hint: 'Aviso se ficar 6h sem vendas quando a média diz que deveria haver' },
 ]
 
 export function ConfigView() {
@@ -27,8 +33,235 @@ export function ConfigView() {
       <PreferencesCard />
       <PushcutCard />
       <ApiTokenCard />
+      <BackupCard />
+      <AuditCard />
+      <AboutCard />
       <DangerCard />
     </div>
+  )
+}
+
+/* Itens 417/439: trilha de auditoria — ações sensíveis da conta com IP mascarado */
+const AUDIT_LABELS: Record<string, string> = {
+  login: 'Login no painel',
+  reset_stats: 'Estatísticas zeradas',
+  link_salvo: 'Link salvo',
+  link_removido: 'Link removido',
+  backup_importado: 'Backup importado',
+}
+
+interface AuditRow {
+  id: string
+  at: string
+  action: string
+  detail: string | null
+  ip: string | null
+}
+
+function AuditCard() {
+  const { data } = useSWR<{ ok: boolean; enabled: boolean; log: AuditRow[] }>(
+    '/api/audit?limit=30',
+    fetcher,
+    { revalidateOnFocus: false },
+  )
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <ShieldCheck className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="section-head text-sm font-semibold text-foreground">Atividade da conta</h2>
+          <p className="text-xs text-muted-foreground">
+            Ações sensíveis registradas — logins, links, resets (IP mascarado)
+          </p>
+        </div>
+      </div>
+      {!data ? (
+        <p className="py-4 text-center text-xs text-muted-foreground">Carregando…</p>
+      ) : !data.enabled ? (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          Trilha indisponível: banco de dados não configurado.
+        </p>
+      ) : data.log.length === 0 ? (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          Nenhuma atividade registrada ainda. Logins e alterações aparecem aqui.
+        </p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-border/40 border-t border-border pt-1">
+          {data.log.map((r) => (
+            <li key={r.id} className="flex items-baseline gap-3 py-2 text-xs">
+              <span className="shrink-0 font-medium text-foreground">
+                {AUDIT_LABELS[r.action] || r.action}
+              </span>
+              {r.detail ? <span className="truncate text-muted-foreground">{r.detail}</span> : null}
+              <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[11px] tabular-nums text-muted-foreground">
+                {r.ip ? <span>{r.ip}</span> : null}
+                <span>{formatDateTime(r.at)}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </GlassCard>
+  )
+}
+
+/** Item 443: seção "Sobre" — versão, uptime e atalhos de diagnóstico */
+function AboutCard() {
+  const { data: health } = useHealth()
+
+  const uptime = health?.uptimeSec
+  const uptimeLabel =
+    uptime == null
+      ? '—'
+      : uptime < 3600
+        ? `${Math.floor(uptime / 60)} min`
+        : uptime < 86400
+          ? `${Math.floor(uptime / 3600)} h ${Math.floor((uptime % 3600) / 60)} min`
+          : `${Math.floor(uptime / 86400)} d ${Math.floor((uptime % 86400) / 3600)} h`
+
+  const rows: { label: string; value: React.ReactNode }[] = [
+    { label: 'Versão', value: health?.version || '—' },
+    { label: 'No ar há', value: uptimeLabel },
+    {
+      label: 'Banco de dados',
+      value: health ? (health.db ? 'Conectado' : 'Indisponível') : '—',
+    },
+    {
+      label: 'Redis (filas e cache)',
+      value: health ? (health.redisEnabled ? (health.redis ? 'Conectado' : 'Com falha') : 'Não configurado') : '—',
+    },
+  ]
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <Info className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="section-head text-sm font-semibold text-foreground">Sobre</h2>
+          <p className="text-xs text-muted-foreground">Versão e estado geral do sistema</p>
+        </div>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 sm:grid-cols-4">
+        {rows.map((r) => (
+          <div key={r.label}>
+            <dt className="text-[11px] text-muted-foreground">{r.label}</dt>
+            <dd className="text-sm font-medium text-foreground">{r.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+        Diagnóstico completo em{' '}
+        <a href="/dashboard" className="text-[color:var(--brand-cyan)] hover:underline">
+          Visão geral
+        </a>{' '}
+        (card de saúde) e na aba{' '}
+        <a href="/dashboard/gateways" className="text-[color:var(--brand-cyan)] hover:underline">
+          Gestão
+        </a>
+        .
+      </p>
+    </GlassCard>
+  )
+}
+
+/** Item 231: backup self-service — exporta/importa a configuração da conta
+ *  em JSON. Segredos (access tokens, secrets de webhook) NUNCA saem no
+ *  arquivo; após importar, o usuário recoloca as credenciais. */
+function BackupCard() {
+  const [importing, setImporting] = useState(false)
+  const [report, setReport] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleImport(file: File) {
+    setImporting(true)
+    setReport(null)
+    setError(null)
+    try {
+      const text = await file.text()
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        throw new Error('O arquivo não é um JSON válido.')
+      }
+      const r = await apiSend<{
+        ok: boolean
+        report: { links: number; pixels: number; gateways: number; cloakLinks: number; erros: string[] }
+      }>('/api/backup/import', 'POST', parsed as Record<string, unknown>)
+      const rep = r.report
+      const parts = [
+        rep.links > 0 ? `${rep.links} link(s)` : null,
+        rep.pixels > 0 ? `${rep.pixels} pixel(s)` : null,
+        rep.gateways > 0 ? `${rep.gateways} gateway(s)` : null,
+        rep.cloakLinks > 0 ? `${rep.cloakLinks} link(s) de cloaking` : null,
+      ].filter(Boolean)
+      setReport(
+        parts.length > 0
+          ? `Importado: ${parts.join(', ')}.` +
+              (rep.erros.length > 0 ? ` ${rep.erros.length} item(ns) com erro.` : '') +
+              ' Recoloque os access tokens dos pixels e confira os gateways.'
+          : 'Nada foi importado — o arquivo estava vazio ou os itens falharam.',
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao importar o backup')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <DownloadCloud className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="section-head text-sm font-semibold text-foreground">Backup da configuração</h2>
+          <p className="text-xs text-muted-foreground">
+            Exporta links, pixels, gateways e cloaker em JSON — sem segredos (tokens e secrets ficam de fora)
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <a
+          href="/api/backup/export"
+          download="backup-conta.json"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
+        >
+          <DownloadCloud className="size-3.5" aria-hidden="true" />
+          Exportar backup
+        </a>
+        <label
+          className={`flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary ${importing ? 'pointer-events-none opacity-50' : ''}`}
+        >
+          {importing ? (
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <UploadCloud className="size-3.5" aria-hidden="true" />
+          )}
+          {importing ? 'Importando…' : 'Importar backup'}
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) handleImport(f)
+              e.target.value = ''
+            }}
+          />
+        </label>
+      </div>
+      {report && (
+        <p className="mt-3 text-xs text-success" role="status">
+          {report}
+        </p>
+      )}
+      {error && (
+        <p className="anim-shake mt-3 text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </GlassCard>
   )
 }
 

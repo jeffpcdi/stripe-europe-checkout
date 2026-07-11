@@ -91,6 +91,35 @@ async function init() {
       data jsonb NOT NULL
     )`;
     await sql`CREATE INDEX IF NOT EXISTS events_at_idx ON events (at DESC)`;
+    // Item 448: índice por conta+data para o arquivamento varrer barato.
+    await sql`CREATE INDEX IF NOT EXISTS events_acc_at_idx ON events (account_id, at DESC)`;
+
+    // Item 448: arquivo frio de eventos. O feed quente (tabela `events`) é
+    // limitado por retenção; o que passa da janela é MOVIDO para cá em vez de
+    // apagado — o histórico completo continua disponível para relatórios,
+    // mas sem inchar as queries do dia a dia.
+    await sql`CREATE TABLE IF NOT EXISTS events_archive (
+      id text PRIMARY KEY,
+      account_id text,
+      type text,
+      at timestamptz NOT NULL,
+      data jsonb NOT NULL,
+      archived_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS events_archive_acc_at_idx ON events_archive (account_id, at DESC)`;
+
+    // Itens 417/439: trilha de auditoria da conta — ações sensíveis (login,
+    // criação/remoção de link, reset de stats, import de backup, acesso a
+    // rotas sensíveis…) com IP mascarado. Visível na aba Config.
+    await sql`CREATE TABLE IF NOT EXISTS account_audit (
+      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      account_id text NOT NULL,
+      at timestamptz NOT NULL DEFAULT now(),
+      action text NOT NULL,
+      detail text,
+      ip_masked text
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS account_audit_acc_at_idx ON account_audit (account_id, at DESC)`;
 
     await sql`CREATE TABLE IF NOT EXISTS variants (
       name text PRIMARY KEY,
@@ -316,6 +345,38 @@ async function deleteAuthSession(token) {
   catch (err) { console.error('[db] deleteAuthSession:', err.message); }
 }
 
+// Item 482: renovação deslizante — estende o prazo da sessão para +ttlDays a
+// partir de agora. O auth só chama quando restam menos da metade do TTL,
+// então usuário ativo nunca é deslogado e o UPDATE é raro (não por request).
+async function touchAuthSession(token, ttlDays) {
+  if (!enabled || !token) return;
+  const days = Math.max(1, ttlDays || 30);
+  try {
+    await sql`UPDATE account_sessions
+      SET expires_at = now() + make_interval(days => ${days})
+      WHERE token = ${token} AND expires_at > now()`;
+  } catch (err) { console.error('[db] touchAuthSession:', err.message); }
+}
+
+// Item 411: troca de senha.
+async function updateAccountPassword(accountId, passwordHash) {
+  if (!enabled || !accountId) return false;
+  try {
+    const rows = await sql`UPDATE accounts SET password_hash = ${passwordHash} WHERE id = ${accountId} RETURNING id`;
+    return rows.length > 0;
+  } catch (err) { console.error('[db] updateAccountPassword:', err.message); return false; }
+}
+
+// Item 415: derruba todas as sessões da conta exceto a atual (logout global).
+async function deleteOtherAuthSessions(accountId, keepToken) {
+  if (!enabled || !accountId) return 0;
+  try {
+    const rows = await sql`DELETE FROM account_sessions
+      WHERE account_id = ${accountId} AND token <> ${keepToken || ''} RETURNING token`;
+    return rows.length;
+  } catch (err) { console.error('[db] deleteOtherAuthSessions:', err.message); return 0; }
+}
+
 async function pruneAuthSessions() {
   if (!enabled) return 0;
   try {
@@ -324,7 +385,7 @@ async function pruneAuthSessions() {
   } catch (err) { console.error('[db] pruneAuthSessions:', err.message); return 0; }
 }
 
-// ── Gateways (1 webhook por gateway) ──────────────────────────────────────
+// ── Gateways (1 webhook por gateway) ───────────────────────────────���──────
 async function upsertGateway(g) {
   if (!enabled || !g || !g.id || !g.accountId) return null;
   try {
@@ -400,6 +461,57 @@ async function insertEvent(accountId, evt) {
   } catch (err) { console.error('[db] insertEvent:', err.message); }
 }
 
+// Item 448: move eventos além da janela de retenção (dias) para o arquivo
+// frio, em lotes. Idempotente e barato: roda "pegando carona no tráfego".
+// Retorna quantos eventos foram arquivados nesta passada.
+async function archiveOldEvents(retentionDays, batch) {
+  if (!enabled) return 0;
+  const days = Math.max(7, Math.min(3650, Math.round(Number(retentionDays) || 90)));
+  const limit = Math.max(100, Math.min(5000, Math.round(Number(batch) || 2000)));
+  try {
+    // CTE: seleciona os IDs antigos, insere no arquivo e remove da quente —
+    // tudo numa query só (atômico por statement no Postgres).
+    const rows = await sql`
+      WITH old AS (
+        SELECT id, account_id, type, at, data FROM events
+        WHERE at < now() - (${days} || ' days')::interval
+        ORDER BY at ASC
+        LIMIT ${limit}
+      ), moved AS (
+        INSERT INTO events_archive (id, account_id, type, at, data)
+        SELECT id, account_id, type, at, data FROM old
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      )
+      DELETE FROM events WHERE id IN (SELECT id FROM old)
+      RETURNING id`;
+    return Array.isArray(rows) ? rows.length : 0;
+  } catch (err) {
+    console.error('[db] archiveOldEvents:', err.message);
+    return 0;
+  }
+}
+
+// Itens 417/439: grava uma entrada na trilha de auditoria. Fire-and-forget —
+// auditoria nunca pode quebrar a ação que está auditando.
+async function insertAudit(accountId, action, detail, ipMasked) {
+  if (!enabled || !accountId || !action) return;
+  try {
+    await sql`INSERT INTO account_audit (account_id, action, detail, ip_masked)
+      VALUES (${accountId}, ${action}, ${detail || null}, ${ipMasked || null})`;
+  } catch (err) { console.error('[db] insertAudit:', err.message); }
+}
+
+async function listAudit(accountId, limit) {
+  if (!enabled || !accountId) return [];
+  const n = Math.max(1, Math.min(200, Number(limit) || 50));
+  try {
+    return await sql`SELECT id, at, action, detail, ip_masked
+      FROM account_audit WHERE account_id = ${accountId}
+      ORDER BY at DESC LIMIT ${n}`;
+  } catch (err) { console.error('[db] listAudit:', err.message); return []; }
+}
+
 async function upsertVariant(accountId, name, data) {
   if (!enabled || !name) return;
   try {
@@ -454,7 +566,7 @@ async function reset(accountId) {
   } catch (err) { console.error('[db] reset:', err.message); }
 }
 
-// ── Sessões ao vivo (heartbeat, por conta) ────────────────────────────────
+// ── Sessões ao vivo (heartbeat, por conta) ──���─────────────────────────────
 async function upsertSession(accountId, s) {
   if (!enabled || !s || !s.visitorId) return;
   try {
@@ -788,7 +900,7 @@ module.exports = {
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
-  upsertLead, insertEvent, upsertVariant, loadState, reset, upsertSession,
+  upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
   saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels, getPixelByToken,
   upsertLink, deleteLink, loadLinks,

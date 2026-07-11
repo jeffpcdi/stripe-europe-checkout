@@ -78,6 +78,12 @@ function parseAmount(v) {
   if (typeof v === 'number') return v;
   let s = String(v).replace(/[^\d.,-]/g, '');
   if (!s) return NaN;
+  // Item 458 (bug 1000x): "1.234" com ponto de MILHAR BR (grupos de 3, sem
+  // vírgula decimal) lia como 1.234 em vez de 1234. Padrão inequívoco de
+  // milhar: 1–3 dígitos + grupos de exatamente 3 ("1.234", "12.345.678").
+  // "12.34"/"1.2345" não casam (decimal legítimo) e "0.234" é excluído
+  // porque valor monetário nunca agrupa milhar começando em zero.
+  if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(s)) return Number(s.replace(/\./g, ''));
   const lastComma = s.lastIndexOf(','), lastDot = s.lastIndexOf('.');
   if (lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');   // 1.234,56 → 1234.56
   else s = s.replace(/,/g, '');                                          // 1,234.56 → 1234.56

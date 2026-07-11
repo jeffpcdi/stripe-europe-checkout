@@ -10,6 +10,7 @@ import {
   RotateCcw,
   ShieldAlert,
   Coins,
+  CalendarDays,
 } from 'lucide-react'
 import { useStats } from '@/lib/api'
 import {
@@ -35,9 +36,37 @@ import { HeroGlobe } from './hero-globe'
 const NEUTRAL = '#6b7183'
 const NEUTRAL_BG = 'rgba(107,113,131,.10)'
 
+const PERIODS: Period[] = ['today', '7d', '30d', 'all']
+const PERIOD_KEY = 'roi:overview:period'
+
+// Itens 283/284: período escolhido persiste (localStorage) e aceita deep-link
+// (?p=30d). Precedência: query string → localStorage → default '7d'.
+function initialPeriod(): Period {
+  if (typeof window === 'undefined') return '7d'
+  const fromUrl = new URLSearchParams(window.location.search).get('p') as Period | null
+  if (fromUrl && PERIODS.includes(fromUrl)) return fromUrl
+  const saved = window.localStorage.getItem(PERIOD_KEY) as Period | null
+  if (saved && PERIODS.includes(saved)) return saved
+  return '7d'
+}
+
 export function OverviewView() {
-  const [period, setPeriod] = useState<Period>('7d')
+  const [period, setPeriodState] = useState<Period>(initialPeriod)
   const { data, error, isLoading } = useStats()
+
+  // Persiste no localStorage e reflete no ?p= sem recarregar (histórico limpo).
+  function setPeriod(next: Period) {
+    setPeriodState(next)
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(PERIOD_KEY, next)
+      const url = new URL(window.location.href)
+      url.searchParams.set('p', next)
+      window.history.replaceState(null, '', url)
+    } catch {
+      /* localStorage/URL indisponível (modo privado): degrada para memória */
+    }
+  }
 
   const { cur, prev } = useMemo(() => {
     if (!data) return { cur: null, prev: null }
@@ -156,10 +185,36 @@ export function OverviewView() {
   const revCents = cur.rev[cur.mainCur] || 0
   const prevRev = prev ? prev.rev[cur.mainCur] || 0 : 0
   const revDelta = prev ? deltaPct(revCents, prevRev) : null
+  // Item 273 (bug): vendas em OUTRAS moedas sumiam do card — o valor grande
+  // é na moeda principal, mas o breakdown das demais precisa aparecer.
+  const otherRev = Object.entries(cur.rev)
+    .filter(([c, cents]) => c !== cur.mainCur && cents > 0)
+    .sort((a, b) => b[1] - a[1])
 
   const revSeries = cur.series.map((s) => s.revenue)
   const salesSeries = cur.series.map((s) => s.sales)
   const visitSeries = cur.series.map((s) => s.visits)
+
+  // Item 274: melhor dia da semana por receita, derivado da própria série
+  // (sem tocar backend). Soma cada ponto no seu dia da semana e escolhe o
+  // maior; só vale a pena mostrar com pelo menos duas semanas de dados.
+  const bestWeekday = useMemo(() => {
+    if (cur.series.length < 14) return null
+    const names = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+    const byDow = Array.from({ length: 7 }, () => ({ revenue: 0, count: 0 }))
+    for (const p of cur.series) {
+      const dow = new Date(p.day + 'T00:00:00').getDay()
+      if (Number.isNaN(dow)) continue
+      byDow[dow].revenue += p.revenue
+      byDow[dow].count += 1
+    }
+    let best = -1
+    for (let i = 0; i < 7; i++) {
+      if (byDow[i].count > 0 && (best < 0 || byDow[i].revenue > byDow[best].revenue)) best = i
+    }
+    if (best < 0 || byDow[best].revenue <= 0) return null
+    return { name: names[best], revenue: byDow[best].revenue }
+  }, [cur.series])
 
   const attempts = cur.sales + cur.failed
   const apColor = !attempts
@@ -189,6 +244,33 @@ export function OverviewView() {
       <div className="picker-sticky flex justify-end" data-tour="period">
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
+
+      {/* Item 277: aprovação crítica (<40% com volume relevante) vira alerta
+          acionável, não só uma cor. CTA leva ao cloaker (filtro de tráfego). */}
+      {attempts >= 10 && cur.approval < 40 && (
+        <GlassCard
+          role="alert"
+          className="flex flex-col gap-3 border-l-2 border-l-[#fe2c55] p-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="mt-0.5 size-5 shrink-0 text-[#fe2c55]" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Aprovação em {fmtPercent(cur.approval)} — abaixo do saudável
+              </p>
+              <p className="text-sm text-muted-foreground text-pretty">
+                {cur.failed} de {attempts} tentativas falharam neste período. Verifique o cloaker e os gateways para barrar tráfego ruim.
+              </p>
+            </div>
+          </div>
+          <a
+            href="/cloak"
+            className="shrink-0 self-start rounded-lg bg-[#fe2c55] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:self-auto"
+          >
+            Abrir cloaker
+          </a>
+        </GlassCard>
+      )}
 
       {/* KPIs principais — mesma ordem e semântica do legado.
           Item 167: carrossel horizontal com snap em <640px */}
@@ -222,7 +304,18 @@ export function OverviewView() {
               />
             </span>
           }
-            sub="no período selecionado"
+            sub={
+              otherRev.length > 0 ? (
+                /* Item 273: receita nas demais moedas não some do card */
+                <span data-sensitive>
+                  {'+ '}
+                  {otherRev.map(([c, cents]) => money(cents, c)).join(' + ')}
+                  {' em outras moedas'}
+                </span>
+              ) : (
+                'no período selecionado'
+              )
+            }
             delta={revDelta}
             spark={<SparkLine data={revSeries} color="#25f4ee" />}
           />
@@ -275,7 +368,10 @@ export function OverviewView() {
             />
           }
           sub="visita → compra"
-          delta={d('overall')}
+          /* Item 291: conversão JÁ é % — delta correto é a diferença em
+             pontos percentuais, não % de % (2%→3% = +1 p.p., não +50%) */
+          delta={prev ? +(cur.overall - prev.overall).toFixed(1) : null}
+          deltaUnit="pp"
         />
       </section>
 
@@ -349,8 +445,26 @@ export function OverviewView() {
         className="cv-auto grid gap-4 lg:grid-cols-3"
         data-tour="chart"
       >
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 flex flex-col gap-4">
           <RevenueChart series={cur.series} currency={cur.mainCur} />
+          {/* Item 274: insight do melhor dia da semana (só com histórico suficiente) */}
+          {bestWeekday && (
+            <GlassCard className="flex items-center gap-3 p-4">
+              <div
+                className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
+              >
+                <CalendarDays className="size-5" style={{ color: '#25f4ee' }} aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Melhor dia da semana</p>
+                <p className="text-sm font-semibold text-foreground text-pretty">
+                  {bestWeekday.name} lidera com{' '}
+                  <span data-sensitive>{money(bestWeekday.revenue, cur.mainCur)}</span> em receita
+                </p>
+              </div>
+            </GlassCard>
+          )}
         </div>
         <HealthCard />
       </section>

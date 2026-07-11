@@ -209,7 +209,7 @@ html.js .reveal.in{opacity:1;transform:none}
 
 <header>
   <div class="hd">
-    <div class="logo-orbit"><span class="logo-ring"></span><img src="/assets/roi-nados-logo.jpg" alt="Logo ROI-NADOS" /></div>
+    <div class="logo-orbit"><span class="logo-ring"></span><img src="/assets/roi-nados-logo.jpg" alt="Logo ROI-NADOS" width="34" height="34" decoding="async" /></div>
     <span class="brand">ROI-NADOS</span>
     <nav aria-label="Navega&ccedil;&atilde;o principal">
       <a href="#recursos">Recursos</a>
@@ -421,7 +421,7 @@ html.js .reveal.in{opacity:1;transform:none}
   <div class="ft">
     <div style="display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;align-items:center;gap:12px">
-        <div class="logo-orbit" style="width:34px;height:34px"><span class="logo-ring"></span><img src="/assets/roi-nados-logo.jpg" alt="" style="inset:3px;width:28px;height:28px" /></div>
+        <div class="logo-orbit" style="width:34px;height:34px"><span class="logo-ring"></span><img src="/assets/roi-nados-logo.jpg" alt="" width="28" height="28" loading="lazy" decoding="async" style="inset:3px;width:28px;height:28px" /></div>
         <span class="brand">ROI-NADOS</span>
       </div>
       <p>Operado por <strong style="color:var(--muted)">PC Digital Ltda</strong> &middot; <a href="mailto:contact@roi-nados.top" style="color:var(--cyan)">contact@roi-nados.top</a></p>

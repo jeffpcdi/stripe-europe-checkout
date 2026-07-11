@@ -229,6 +229,26 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   (header `Project-Access-Token`), detectando o header certo no boot (`selfTest`).
 - **Diversos:** `GET/POST /api/pushcut-config`, `POST /api/pushcut/test`, `GET/POST /api/notes`,
   `PUT /api/notes/:d`, `GET/POST /api/shortlinks`, `DELETE /api/shortlinks/:slug`, `GET/POST /api/public-token`.
+- **Contratos da Leva 7 (itens 417/439/442/443/464/469/471/484/485):**
+  - `GET /api/audit?limit=` → `{ok, enabled, log:[{id,at,action,detail,ip}]}` — trilha de auditoria da
+    conta (tabela `account_audit` no Neon). `enabled=false` = sem banco (UI mostra aviso, não erro).
+    Ações gravadas: `login`, `link_salvo`, `link_removido`, `reset_stats`, `backup_importado`. IP sempre
+    mascarado (`maskReqIp`: último octeto IPv4 / cauda IPv6 ofuscados). Gravação via `audit(req,accId,
+    action,detail)` — fire-and-forget, nunca quebra a ação auditada.
+  - `GET /api/health` ganhou `version` (do package.json) — consumido pelo card "Sobre" da aba Config.
+  - `GET /api/stats` responde `Cache-Control: private, no-cache` (não mais `no-store`): o poll de 12s
+    revalida com `If-None-Match` e ganha 304 sem corpo quando nada mudou. NÃO trocar de volta para
+    no-store sem entender que isso desliga o 304.
+  - `GET /healthz` (SEM auth, na allowlist de domínio) → `ok` texto puro — liveness probe do Railway.
+    Zero I/O de propósito: não medir Neon/Redis aqui (para isso existe `/api/health`).
+  - `POST /api/pushcut-config` aceita `events.{sale,failed,refund,dispute,checkout,daily,login,watchdog}`.
+    `login` (item 442) = aviso de novo login; `watchdog` (item 464) = alerta se 6h sem vendas com
+    baseline ≥14 vendas/7d (carona no tráfego, máx 1 varredura/h, anti-spam 12h/conta). Ambos opt-in
+    explícito (`=== true` na sanitização).
+  - Limites de body (item 471): `express.json` global **200kb**; `/api/backup/import` tem parser
+    dedicado de **5mb** montado ANTES do global. Payload maior → 413.
+  - `/go/:slug` e `/c/:slug` inexistentes/desativados respondem `linkErrorPage()` (HTML amigável,
+    noindex, 404) — nunca mais "Link não encontrado" em texto cru (itens 500/501).
 
 ### 5.2.1 Guard de domínio personalizado (isolamento host principal × campanha)
 - Um request é "personalizado" quando `config.accountForDomain(host)` acha uma conta dona do Host
@@ -325,6 +345,12 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **cloakbot:<v_id>** — veredito STICKY do cloaker (só bot, TTL 6h). `/go` curto-circuita à white sem re-rodar o judge; setado no veredito bot e no beacon `/api/cloakcheck` com WebGL de software. Nunca cacheia 'real' (fail-safe).
 - **lock:<nome>** — lock distribuído (SET NX EX). Usos: `capiRetryDrain` (só 1 instância drena a fila de retry) e `convWorker` (só 1 instância drena convQ por ciclo). Sem Redis = processo único = já exclusivo.
 - **emq:<acc>:<pixel>** — rollup de EMQ por pixel/dia (`d:<data>:sum`/`:cnt`, retenção ~40d). Alimenta `GET /api/pixels/emq-trend` (série + alerta de queda) e o painel de tendência na aba Pixels.
+- **vel:<kind>:<id>** — camada de VELOCITY (anti device-farm, itens 253–260): contador `INCR` com TTL
+  = janela. `kind` ex.: `c:<slug>:ip`; `id` = IP. Limiar/janela configuráveis por conta em
+  `config.cloak.velocityLimit` (clamp 3–100, padrão 12) / `velocityWindowSec` (clamp 10–600, padrão
+  60) — usados no `/c`; excedente vai à white com reason `velocity`. `clearVelocity(ip)` (rota
+  `POST /api/cloak/velocity/clear`) libera um IP legítimo de TODAS as entradas antes do TTL. Fallback
+  memória: `velMem` (single-instance — banner na UI avisa que farm distribuída exige Redis).
 Sem Upstash tudo degrada para memória (perde persistência entre restarts, mas funciona).
 
 ## 8. Modelo de score do bot-filter (cloaking)
@@ -454,6 +480,14 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 - **Persistência em três camadas:** memória (rápida) → `data/*.json` (cache local, ignorado no git) → Neon (durável).
 - **Segurança:** senhas com `scrypt`; comparações timing-safe com `crypto.timingSafeEqual`.
 - **Multi-tenant:** toda query/escrita de dados passa `accountId`; nunca vazar dados entre contas.
+- **Política de Do Not Track (item 492, DECIDIDA):** o tracker NÃO condiciona a coleta ao header
+  `DNT`. Razões: (a) o produto É medição de conversão first-party contratada pelo dono do funil
+  (execução de contrato/interesse legítimo na LGPD), não ad-tech third-party; (b) o DNT foi
+  descontinuado como padrão (removido do Firefox/Chrome em 2024-25) e nunca teve valor jurídico no
+  Brasil; (c) a base de compliance do projeto é minimização (IP mascarado nos logs, e-mail/telefone
+  hasheados SHA-256 antes da CAPI, retenção com TTL) + transparência nos Termos/Privacidade — não um
+  header que os próprios navegadores abandonaram. Se um dia for preciso honrar sinal do navegador,
+  o correto é o GPC (`Sec-GPC`), como decisão de produto — não colar um `if` no tracker.
 
 ## 14. Armadilhas
 - **Views são strings frágeis:** crase ou `${}` dentro das views quebram o template silenciosamente.
@@ -553,7 +587,7 @@ Amarra §4.1 (`domain-provider.js`), §5.2 (rotas), §5.2.1 (guard) e §5.2.2 (o
 CINZA (Somente DNS)** — laranja quebra o SSL/roteamento do Railway (§5.2.2).
 
 **3. Verificação** — `POST /api/domains/verify` (botão manual ou polling de 30s no front):
-- **Auto-recuperação:** se o domínio está em manual (sem `providerId`) e a automação está ligada, tenta
+- **Auto-recuperação:** se o dom��nio está em manual (sem `providerId`) e a automação está ligada, tenta
   `register()` de novo — cobre o caso de um slot do Railway ter vagado (upgrade/remoção). Se reconectar,
   grava o `providerId`, devolve `reconectado:true`+`dnsRecords` e o popup re-renderiza com o alvo real.
 - **Decisão real (`ok = httpOk`):** só passa quando `GET https://host/__domain-check` responde 200 com a

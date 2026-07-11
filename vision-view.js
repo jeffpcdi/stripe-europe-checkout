@@ -1,4 +1,8 @@
 // Vision UI — dashboard dark servida como HTML estático em /vision.
+// ⚠️ LEGADO ÓRFÃO (item 499): nenhuma rota do server.js referencia este arquivo —
+// é um mock estático do template "Vision UI Free" (dados fake, "Mark Johnson") usado
+// como referência visual histórica. A dashboard oficial é a Next.js em dashboard/.
+// NÃO evoluir nem integrar; candidato a remoção quando o dono autorizar.
 // IMPORTANTE: este arquivo é uma template string — não usar crase nem ${ } no conteúdo.
 module.exports = `<!DOCTYPE html>
 <html lang="en" class="bg-vision">

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { ShieldCheck, Play, Loader2, AlertTriangle } from 'lucide-react'
-import { useCloakConfig, apiSend } from '@/lib/api'
+import { useCloakConfig, useHealth, apiSend } from '@/lib/api'
 import type { CloakConfig, CloakSensitivity, CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
@@ -77,6 +77,7 @@ function Toggle({
 
 export function CloakConfigPanel() {
   const { data, mutate } = useCloakConfig()
+  const { data: health } = useHealth() // item 255: velocity distribuído exige Redis
   const [draft, setDraft] = useState<CloakConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -255,6 +256,50 @@ export function CloakConfigPanel() {
         )}
       </label>
 
+      {/* Itens 254/260: camada de velocity (anti device-farm). Configurável
+          por conta com clamp seguro no servidor (3–100 acessos, 10–600s). */}
+      <div className="mb-4 flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Limite de acessos por IP (anti device-farm)</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>máximo de</span>
+          <input
+            type="number"
+            min={3}
+            max={100}
+            value={cfg.velocityLimit ?? 12}
+            onChange={(e) => patch({ velocityLimit: Number(e.target.value) })}
+            className="w-16 rounded-lg border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            aria-label="Máximo de acessos do mesmo IP na janela"
+          />
+          <span>acessos do mesmo IP a cada</span>
+          <input
+            type="number"
+            min={10}
+            max={600}
+            value={cfg.velocityWindowSec ?? 60}
+            onChange={(e) => patch({ velocityWindowSec: Number(e.target.value) })}
+            className="w-16 rounded-lg border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            aria-label="Janela de contagem em segundos"
+          />
+          <span>segundos</span>
+        </div>
+        <span className="text-[11px] leading-relaxed text-muted-foreground text-pretty">
+          Uma &quot;device farm&quot; martela o link várias vezes por minuto a partir do mesmo IP; visitantes acima
+          do limite vão para a página branca. O padrão (12 a cada 60s) tem folga para família no mesmo Wi-Fi.
+        </span>
+        {/* Item 255: sem Redis a contagem é só por instância (memória local) —
+            uma farm distribuída entre vários IPs/instâncias passa despercebida. */}
+        {health && !health.redis && (
+          <span className="flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              Sem Redis, a contagem de acessos é feita apenas nesta instância do servidor. Uma device-farm
+              distribuída entre várias máquinas só é barrada de forma confiável com o Redis ativo.
+            </span>
+          </span>
+        )}
+      </div>
+
       {/* Camadas de detecção */}
       <span className="mb-2 block text-xs font-medium text-muted-foreground">Camadas de detecção</span>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -313,6 +358,13 @@ export function CloakConfigPanel() {
           </div>
           {test.signals.length > 0 && (
             <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">{test.signals.join(' · ')}</p>
+          )}
+          {/* Item 257: previsão da camada anti device-farm — em quantos acessos
+              do mesmo IP na janela este visitante seria mandado à white */}
+          {test.velocity && (
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground text-pretty">
+              {test.velocity.note}
+            </p>
           )}
         </div>
       )}

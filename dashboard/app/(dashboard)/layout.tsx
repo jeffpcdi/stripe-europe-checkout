@@ -7,6 +7,7 @@ import { RouteProgress } from '@/components/shell/route-progress'
 import { CommandPalette } from '@/components/shell/command-palette'
 import { TourGuide } from '@/components/shell/tour'
 import { Toaster } from '@/components/shell/toaster'
+import { ClientErrorReporter } from '@/components/shell/client-error-reporter'
 
 export default function DashboardLayout({
   children,
@@ -29,6 +30,8 @@ export default function DashboardLayout({
       <TourGuide />
       {/* Item 183: toaster global de feedback (aria-live) */}
       <Toaster />
+      {/* Item 561: erros de front reportados ao backend (senão são invisíveis) */}
+      <ClientErrorReporter />
       {/* Sidebar lateral esquerda — desktop */}
       <Sidebar />
 

@@ -20,6 +20,8 @@ import {
   Power,
   Radio,
   Download,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-react'
 import QRCodeLib from 'qrcode'
 import { useLinks, useDomains, usePixels, apiSend } from '@/lib/api'
@@ -103,6 +105,8 @@ export function LinksView() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  // Item 531: alternar entre lista padrão e arquivados
+  const [showArchived, setShowArchived] = useState(false)
   // Item 71: QR code em popover glass por link — gerado LOCALMENTE (a URL do
   // link nunca sai para um serviço de terceiros)
   const [qrFor, setQrFor] = useState<string | null>(null)
@@ -130,14 +134,16 @@ export function LinksView() {
   // Item 64: filtro por nome/slug/domínio + ordenação
   const visibleLinks = useMemo(() => {
     const q = query.trim().toLowerCase()
+    // Item 531: arquivados ficam fora da lista padrão (histórico preservado)
+    const pool = showArchived ? links.filter((l) => l.arquivado) : links.filter((l) => !l.arquivado)
     const filtered = q
-      ? links.filter(
+      ? pool.filter(
           (l) =>
             l.nome.toLowerCase().includes(q) ||
             l.slug.toLowerCase().includes(q) ||
             (l.dominio ?? '').toLowerCase().includes(q),
         )
-      : links
+      : pool
     const clicksOf = (l: CheckoutLink) => l.variantes.reduce((s, v) => s + v.clicks, 0)
     const convsOf = (l: CheckoutLink) => l.variantes.reduce((s, v) => s + v.conversions, 0)
     return [...filtered].sort((a, b) => {
@@ -146,7 +152,7 @@ export function LinksView() {
       if (sortBy === 'conversoes') return convsOf(b) - convsOf(a)
       return (b.criadoEm || '').localeCompare(a.criadoEm || '') // recentes
     })
-  }, [links, query, sortBy])
+  }, [links, query, sortBy, showArchived])
 
   // Item 62: toggle ativo/pausado inline com atualização otimista.
   // O save() do Express faz merge parcial — basta enviar { slug, ativo }.
@@ -161,6 +167,20 @@ export function LinksView() {
         },
         { optimisticData: optimistic, rollbackOnError: true, revalidate: true },
       )
+    } finally {
+      setBusySlug(null)
+    }
+  }
+
+  // Item 531: contagem de arquivados (para o botão só aparecer quando existem)
+  const archivedCount = useMemo(() => links.filter((l) => l.arquivado).length, [links])
+
+  // Item 531: arquivar/desarquivar — merge-patch { slug, arquivado } no save()
+  async function toggleArquivado(l: CheckoutLink) {
+    setBusySlug(l.slug)
+    try {
+      await apiSend('/api/links', 'POST', { slug: l.slug, arquivado: !l.arquivado })
+      await mutate()
     } finally {
       setBusySlug(null)
     }
@@ -371,6 +391,23 @@ export function LinksView() {
                 ))}
               </select>
             </>
+          )}
+          {/* Item 531: alternar para a lista de arquivados (só aparece se existem) */}
+          {archivedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowArchived((v) => !v)}
+              aria-pressed={showArchived}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition-colors ${
+                showArchived
+                  ? 'border-brand-cyan/50 bg-brand-cyan/10 text-[color:var(--brand-cyan)]'
+                  : 'border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+              title="Links arquivados ficam fora da lista e do /go, com histórico preservado"
+            >
+              <Archive className="size-3.5" aria-hidden="true" />
+              Arquivados ({archivedCount})
+            </button>
           )}
           <TutorialButton onClick={() => setShowTutorial(true)} />
           <button
@@ -670,6 +707,21 @@ export function LinksView() {
                       title="Duplicar link (a cópia nasce pausada)"
                     >
                       <CopyPlus className="size-4" />
+                    </button>
+                    {/* Item 531: arquivar/desarquivar sem apagar histórico */}
+                    <button
+                      type="button"
+                      onClick={() => toggleArquivado(l)}
+                      disabled={busy}
+                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                      aria-label={l.arquivado ? `Desarquivar o link ${l.nome}` : `Arquivar o link ${l.nome}`}
+                      title={
+                        l.arquivado
+                          ? 'Desarquivar (volta para a lista e reativa o /go)'
+                          : 'Arquivar (sai da lista e desativa o /go; histórico preservado)'
+                      }
+                    >
+                      {l.arquivado ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
                     </button>
                     {/* Item 70: morph clipboard → check com rotação spring */}
                     <button

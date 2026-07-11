@@ -73,6 +73,17 @@ function recentLog(n, accountId) {
   return rows.slice(0, n || 50);
 }
 
+// Item 200: limpeza manual do log de disparos POR CONTA (memória + Redis).
+// Linhas de outras contas são preservadas — fronteira multi-tenant.
+async function clearLog(accountId) {
+  let removed = 0;
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i].acc === accountId || (!log[i].acc && accountId == null)) { log.splice(i, 1); removed++; }
+  }
+  const fromRedis = await rdb.clearPixelLog(accountId).catch(() => 0);
+  return Math.max(removed, fromRedis || 0);
+}
+
 // Versão async: usa Redis como fallback se memória local estiver vazia
 async function recentLogAsync(n, accountId) {
   let rows = log;
@@ -346,7 +357,7 @@ async function sendToPixel(pixel, p) {
       status: 'ignorado',
       response: { message: 'config incompleta — faltando: ' + (missing.join(', ') || 'credenciais') }
     });
-    return { skipped: true, reason: 'pixel sem código/token', missing };
+    return { skipped: true, reason: 'pixel sem c��digo/token', missing };
   }
   // event_id é obrigatório para dedup — gera fallback se faltar
   const eventId = p.eventId || (p.event + '.' + crypto.randomBytes(8).toString('hex'));
@@ -530,6 +541,6 @@ async function sendTikTokEvent(p) {
 module.exports = {
   hash, hashPhone, externalIdFromLead,
   sendToPixel, dispatchToAll, testPixel, sendTikTokEvent,
-  recentLog, recentLogAsync,
+  recentLog, recentLogAsync, clearLog, // Item 200
   retryQueueSize, drainRetryQueue, retryQueueInfo
 };

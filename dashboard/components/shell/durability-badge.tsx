@@ -15,8 +15,30 @@ import { cn } from '@/lib/utils'
 export function DurabilityBadge() {
   const { data: health } = useHealth()
 
-  // Sem dados ainda ou banco no ar = config durável (Neon é a fonte da verdade).
-  if (!health || health.db) return null
+  if (!health) return null
+
+  // Item 263: backlog de filas com o banco NO AR — sinal de processamento
+  // atrasado (worker parado ou pico de webhooks). Só aparece com acúmulo real.
+  const convBacklog = health.queues?.conv?.queue ?? 0
+  const capiBacklog = health.queues?.capiRetry ?? 0
+  const backlog = convBacklog + capiBacklog
+  if (health.db && backlog >= 20) {
+    const det = `${backlog} evento(s) aguardando processamento (conversões: ${convBacklog}, retries de pixel: ${capiBacklog}). Veja a aba Gestão.`
+    return (
+      <Link
+        href="/"
+        title={det}
+        aria-label={`Fila acumulada. ${det}`}
+        className="flex items-center gap-2 rounded-full bg-[var(--warning-light)] px-3 py-1.5 text-xs font-medium text-warning transition-opacity hover:opacity-80"
+      >
+        <DatabaseZap className="size-3.5 shrink-0" aria-hidden="true" />
+        <span>Fila acumulada ({backlog})</span>
+      </Link>
+    )
+  }
+
+  // Banco no ar e sem backlog = config durável (Neon é a fonte da verdade).
+  if (health.db) return null
 
   // Banco fora. O Redis ainda salva os snapshots? Então é degradado, não volátil.
   const redisCobre = health.redisEnabled && health.redis

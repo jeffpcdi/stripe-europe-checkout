@@ -87,15 +87,22 @@ function hourKey(d) {
 // Map em memória como fallback ultra-rápido sem dependência externa.
 const rdb = require('./redis');
 const _seenPx = new Map();
+// Item 225: contador de eventos deduplicados (beacon + middleware). Deixa
+// claro que o disparo "faltando" foi na verdade evitado de propósito.
+const _dedupStats = { deduped: 0, since: Date.now() };
 async function seenPixelEvent(eventId) {
   // Redis primeiro: SET NX com TTL de 2h — garante dedup entre instâncias
-  if (rdb.enabled) return rdb.seenEventId(eventId);
+  if (rdb.enabled) {
+    const seen = await rdb.seenEventId(eventId);
+    if (seen) _dedupStats.deduped++;
+    return seen;
+  }
   // fallback memória local
   const now = Date.now();
   if (_seenPx.size > 5000) {
     for (const [k, ts] of _seenPx) { if (now - ts > 2 * 3600e3) _seenPx.delete(k); }
   }
-  if (_seenPx.has(eventId)) return true;
+  if (_seenPx.has(eventId)) { _dedupStats.deduped++; return true; }
   _seenPx.set(eventId, now);
   return false;
 }
@@ -239,7 +246,13 @@ app.use(
 );
 // rawBody: necessário para verificar assinaturas HMAC de webhooks (Stripe,
 // Kiwify) — o HMAC é calculado sobre os bytes originais, não o JSON re-serializado
+// Item 471: limites de body EXPLÍCITOS contra payload bomb. O backup da conta
+// (leads + eventos) pode legitimamente passar de 100kb, então /api/backup/import
+// ganha um parser próprio de 5mb ANTES do parser global de 200kb (webhooks
+// reais de gateway têm poucos KB — 200kb já é folga generosa).
+app.use('/api/backup/import', express.json({ limit: '5mb' }));
 app.use(express.json({
+  limit: '200kb',
   verify: (req, _res, buf) => { req.rawBody = buf ? buf.toString('utf8') : ''; }
 }));
 // sendBeacon cross-origin manda JSON como text/plain (evita preflight CORS)
@@ -249,6 +262,58 @@ app.use((req, _res, next) => {
   if (typeof req.body === 'string' && req.body.length) {
     try { req.body = JSON.parse(req.body); } catch (_) { req.body = {}; }
   }
+  next();
+});
+
+// Item 438: headers de segurança. Os dois primeiros são seguros em QUALQUER
+// resposta (inclusive px.gif e páginas de funil embutidas em iframe):
+//  - nosniff: impede o browser de "adivinhar" content-type (defesa XSS/MIME).
+//  - Referrer-Policy: não vaza a URL completa (com querystring/UTMs) para
+//    terceiros ao clicar em links externos.
+// X-Frame-Options só entra em páginas HTML DO APP (não-funil, não-domínio
+// personalizado): as páginas públicas de funil PRECISAM poder ser embutidas.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  const p = req.path || '';
+  const isPublicFunnel = isCustomDomain(req) ||
+    p.startsWith('/go/') || p.startsWith('/c/') || p.startsWith('/l/') ||
+    p === '/px.gif' || p === '/px.js' || p === '/t.js' || /^\/px\//.test(p);
+  if (!isPublicFunnel && !p.startsWith('/api')) {
+    // Painel/landing: nunca embutível (clickjacking) e sem preview de DNS.
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
+  }
+  next();
+});
+
+// Item 437 (CSRF): valida a origem em mutações do painel. O cookie de sessão
+// é SameSite=Lax, o que já barra POSTs cross-site na maioria dos casos; esta é
+// a segunda camada. POSTs para /api que ENVIAM cookie de sessão precisam vir do
+// próprio host. Webhooks de gateway (/hook, /api/conversion) e tracking público
+// (sem cookie) são isentos — chegam de origens externas legítimas.
+// Prefixos relativos ao mount '/api' (req.path chega sem o '/api' aqui).
+// /client-error é write-only, rate-limited e sem efeito sensível — isento para
+// o sendBeacon de unload (que pode chegar sem Origin) nunca ser descartado.
+const CSRF_EXEMPT_PREFIX = ['/track', '/px/', '/cloakcheck', '/conversion', '/pulse', '/client-error'];
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  const p = req.path || '';
+  if (CSRF_EXEMPT_PREFIX.some((pre) => p.startsWith(pre))) return next();
+  // Só exige origem casada quando há cookie de sessão no request (é uma ação
+  // do painel autenticado). Sem cookie, não há CSRF de sessão a proteger.
+  const hasSession = /(?:^|;\s*)dash_session=/.test(req.headers.cookie || '');
+  if (!hasSession) return next();
+  const origin = req.headers.origin || '';
+  if (!origin) return next(); // same-origin server-side / sendBeacon sem Origin
+  try {
+    const originHost = new URL(origin).host.toLowerCase().replace(/:\d+$/, '');
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+    if (originHost && host && originHost !== host) {
+      return res.status(403).json({ error: 'origem não permitida' });
+    }
+  } catch (_) { /* Origin malformado: deixa passar p/ não travar clientes legítimos */ }
   next();
 });
 
@@ -272,7 +337,7 @@ app.use('/api', (req, res, next) => {
 // Allowlist (não denylist) de propósito: rota nova nasce bloqueada no domínio
 // do lojista até ser explicitamente liberada aqui.
 const CUSTOM_ALLOW_EXACT = new Set([
-  '/_safe', '/__domain-check',
+  '/_safe', '/__domain-check', '/healthz',
   '/t.js', '/px.js', '/px.gif',
   '/api/track', '/api/px/event', '/api/cloakcheck', '/api/conversion'
 ]);
@@ -385,6 +450,20 @@ app.use(async (req, res, next) => {
 // até a entrada do checkout, sem depender de cookie cross-site.
 const VID_RE = /^ld_[a-z0-9]{6,30}$/i;
 
+// Itens 417/439: helper de auditoria — grava ação sensível na trilha da conta
+// com IP mascarado (último octeto/fim do IPv6 ofuscado). Fire-and-forget:
+// auditoria nunca pode quebrar a ação que está auditando.
+function maskReqIp(req) {
+  const ip = clientIp(req);
+  if (!ip) return null;
+  return ip.includes(':') ? ip.split(':').slice(0, 3).join(':') + ':…' : ip.replace(/\.\d+$/, '.xxx');
+}
+function audit(req, accId, action, detail) {
+  if (!accId) return;
+  try { db.insertAudit(accId, action, detail || null, maskReqIp(req)).catch(() => {}); }
+  catch (_) { /* melhor-esforço */ }
+}
+
 // ── Anti-abuso: rate limit por IP nos endpoints públicos ─────────────
 // Janela deslizante em memória (60s). Protege os números do funil e o
 // sinal do pixel contra bots agressivos, spy tools e cliques inflados.
@@ -448,6 +527,10 @@ app.get('/t.js', (req, res) => {
   res.send(TRACKER_JS + (snippet ? '\n' + snippet : ''));
 });
 
+// Item 209: telemetria mínima do challenge JS — se NENHUM beacon chega, o
+// snippet /t.js não está instalado nas páginas e as camadas D–H ficam inertes.
+const _challengeBeacon = { count: 0, lastAt: 0 };
+
 // Recebe a resposta do JS challenge enviada pelo snippet do /t.js.
 // Valida o token HMAC e persiste todos os sinais do browser (WebGL renderer,
 // timezone IANA, biometria comportamental, canvas hash, timing) no lead,
@@ -486,6 +569,12 @@ app.post('/api/cloakcheck', async (req, res) => {
   if (typeof b.nt    === 'number')             patch.cloakNt    = b.nt;
 
   try { stats.attachTracking(vid, patch); } catch (_) {}
+
+  // Item 209: marca que o snippet /t.js ESTÁ instalado e devolvendo o challenge.
+  // Sem nenhum beacon, as camadas D–H (WebGL, timezone, comportamento, entropia)
+  // ficam inertes — o /api/cloak/stats usa isso para avisar o usuário.
+  _challengeBeacon.count++;
+  _challengeBeacon.lastAt = Date.now();
 
   // Beacon revelou headless (WebGL de software) mesmo tendo passado a 1ª visita
   // só por headers → grava veredito sticky de bot para a PRÓXIMA visita ir à
@@ -549,6 +638,35 @@ app.get('/px.gif', (req, res) => {
 
 // Endpoint público chamado pelo snippet (sendBeacon/fetch, sem cookies).
 // A identidade vem do vid explícito — validado com regex estrita.
+// ── Item 561: erros de front visíveis no backend ────────────────────────────
+// window.onerror/unhandledrejection do dashboard reportam para cá (sendBeacon).
+// Sem isso, erro client-side é invisível para o operador. Log estruturado no
+// stdout (aparece no log da plataforma) + buffer dos últimos 50 em memória.
+const _clientErrors = [];
+app.post('/api/client-error', (req, res) => {
+  res.json({ ok: true }); // responde já; nunca bloqueia o navegador
+  try {
+    if (rateLimited(clientIp(req), 'clienterr', 10)) return; // anti-flood
+    const b = req.body || {};
+    const entry = {
+      at: new Date().toISOString(),
+      message: String(b.message || '').slice(0, 300),
+      stack: String(b.stack || '').slice(0, 800),
+      url: String(b.url || '').slice(0, 200),
+      ua: String(req.headers['user-agent'] || '').slice(0, 160)
+    };
+    if (!entry.message) return;
+    _clientErrors.push(entry);
+    if (_clientErrors.length > 50) _clientErrors.shift();
+    console.error('[client-error]', entry.message, '|', entry.url, '|', entry.stack.split('\n')[0] || '');
+  } catch (_) { /* melhor-esforço */ }
+});
+// Leitura pelo painel (admin logado) — últimos erros para diagnóstico rápido.
+app.get('/api/client-error', dashboardAuth, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ errors: _clientErrors.slice().reverse() });
+});
+
 app.post('/api/track', async (req, res) => {
   res.json({ ok: true });                          // responde já; processa depois
   try {
@@ -557,6 +675,8 @@ app.post('/api/track', async (req, res) => {
     if (!vid) return;
     if (rateLimited(clientIp(req), 'track', 120)) return; // bot martelando: ignora
     checkDailyReport();                            // carona no tráfego (sem cron)
+    checkEventArchive();                            // item 448: arquiva eventos antigos (máx 1x/h)
+    checkSalesWatchdog();                           // item 464: alerta de zero vendas (máx 1x/h)
     const uaRaw = String(req.headers['user-agent'] || '');
     if (uaTools.isBot(uaRaw)) return;              // bots não viram lead nem CAPI
 
@@ -645,6 +765,15 @@ app.post('/api/track', async (req, res) => {
   } catch (_) { /* rastreamento nunca derruba o servidor */ }
 });
 
+// Item 484: liveness probe do Railway — sem auth, sem I/O, resposta mínima.
+// Só confirma que o PROCESSO está de pé e respondendo. O health rico (com
+// estado de Neon/Redis) continua em /api/health, autenticado. Separar evita
+// que uma dependência lenta derrube o container por "unhealthy".
+app.get('/healthz', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.status(200).type('text/plain').send('ok');
+});
+
 // ── Página neutra de segurança (/_safe) ──────────────────────────────
 // Fallback FINAL do cloaker: quando um bot/revisor é detectado e o link não
 // tem white page própria nem white page global configurada, ele cai AQUI —
@@ -680,6 +809,32 @@ app.get('/_safe', (req, res) => {
   res.status(200).send(html);
 });
 
+// Itens 500/501: página de erro amigável para links públicos inexistentes ou
+// desativados. Um 404 de texto cru numa campanha paga = abandono garantido.
+// HTML por concatenação, sem crase (convenção das views públicas).
+function linkErrorPage(res, status) {
+  res.set('Cache-Control', 'no-store');
+  var html =
+    '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta name="robots" content="noindex,nofollow">' +
+    '<title>Link indisponivel</title>' +
+    '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;' +
+    'padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;' +
+    'background:radial-gradient(1000px 500px at 50% -10%,#0b1220 0,#04050a 60%);color:#f8fafc;line-height:1.6}' +
+    '.box{max-width:420px;text-align:center}' +
+    '.icon{width:56px;height:56px;margin:0 auto 20px;border-radius:14px;display:flex;align-items:center;' +
+    'justify-content:center;background:rgba(148,163,184,.1);border:1px solid #1e2438;font-size:28px}' +
+    'h1{font-size:22px;margin:0 0 10px;font-weight:700}' +
+    'p{margin:0;color:#94a3b8;font-size:15px}</style></head><body><div class="box">' +
+    '<div class="icon" aria-hidden="true">&#128279;</div>' +
+    '<h1>Este link nao esta disponivel</h1>' +
+    '<p>O endereco pode ter expirado, sido desativado ou digitado incorretamente. ' +
+    'Se voce chegou por um anuncio, tente novamente mais tarde.</p>' +
+    '</div></body></html>';
+  res.status(status || 404).send(html);
+}
+
 // ── Links de Checkout externos (/go/:slug) ───────────────────────────
 // O checkout NÃO vive neste projeto: cada link aponta para URLs externas
 // do usuário (qualquer gateway). Este redirect é o ponto de rastreamento:
@@ -688,8 +843,8 @@ app.get('/_safe', (req, res) => {
 app.get('/go/:slug', async (req, res) => {
   // resolve por conta: domínio personalizado → conta dona; senão 1º match
   const link = linkStore.resolve(req.params.slug, publicAccountId(req));
-  if (!link || !link.ativo || !link.variantes.length) {
-    return res.status(404).send('Link não encontrado');
+  if (!link || !link.ativo || link.arquivado || !link.variantes.length) {
+    return linkErrorPage(res, 404); // itens 500/501: página amigável; 531: arquivado = indisponível
   }
   const acc = link.acc || publicAccountId(req); // conta dona do link
   const q = req.query || {};
@@ -964,7 +1119,7 @@ function resolveCloakEntry(req) {
 
 app.get('/c/:slug', async (req, res) => {
   const found = resolveCloakEntry(req);
-  if (!found || !found.entry.offerUrl) return res.status(404).send('Link não encontrado');
+  if (!found || !found.entry.offerUrl) return linkErrorPage(res, 404); // itens 500/501
   const { acc, entry } = found;
   const offer = entry.offerUrl;
   // FAIL-SAFE: white do próprio link → white global da conta → /_safe embutida.
@@ -977,11 +1132,12 @@ app.get('/c/:slug', async (req, res) => {
   // Registra a decisão (offer/white + motivo) nos contadores do painel e,
   // separadamente, no log das últimas N decisões (item 170) — IP mascarado,
   // sem PII. `score` é opcional (só o gate de score o conhece).
-  const bumpDecision = (decision, reason, score) => {
+  const bumpDecision = (decision, reason, score, signals) => {
     try { redis.bumpCloakDecision(acc, 'cloak:' + entry.slug, decision, reason); } catch (_) {}
     try {
       redis.pushCloakDecision(acc, 'cloak:' + entry.slug, {
         decision, reason, score,
+        signals, // Item 212: top sinais do judge nesta decisão (para calibrar camadas)
         ip: clientIp(req),
         ua: uaRaw,
         country: (geoFromReq(req).country || ''),
@@ -1012,7 +1168,7 @@ app.get('/c/:slug', async (req, res) => {
     return go(offer);
   }
 
-  // ── Sinais de dispositivo e de ORIGEM do clique (calculados uma vez) ──────
+  // ── Sinais de dispositivo e de ORIGEM do clique (calculados uma vez) ��─────
   const dev = uaTools.parse(uaRaw);
   const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
   const q = req.query || {};
@@ -1094,13 +1250,18 @@ app.get('/c/:slug', async (req, res) => {
         if (tc.reused) {
           stats.logEvent('info', { acc, title: '[cloak] ttclid reusado de outro contexto → white', gateway: 'cloak:' + entry.slug, ref: ip });
           bumpDecision('white', 'ttclid-replay');
+          redis.bumpTtclidReplay(acc).catch(() => {}); // Item 203: contador durável de replays barrados
           return go(white);
         }
       }
-      // 2) velocity por IP: >12 acessos/min ao mesmo link = automação/farm
-      const vip = await redis.bumpVelocity('c:' + entry.slug + ':ip', ip, 60).catch(() => 0);
-      if (vip > 12) {
-        stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/min → white', gateway: 'cloak:' + entry.slug, ref: ip });
+      // 2) velocity por IP: N acessos na janela ao mesmo link = automação/farm.
+      // Item 254: limiar e janela configuráveis por conta (preset seguro 12/60s).
+      const vcfg = config.get(acc).cloak || {};
+      const vLimit = vcfg.velocityLimit || 12;
+      const vWin = vcfg.velocityWindowSec || 60;
+      const vip = await redis.bumpVelocity('c:' + entry.slug + ':ip', ip, vWin).catch(() => 0);
+      if (vip > vLimit) {
+        stats.logEvent('info', { acc, title: '[cloak] velocity IP=' + vip + '/' + vWin + 's → white', gateway: 'cloak:' + entry.slug, ref: ip });
         bumpDecision('white', 'velocity');
         return go(white);
       }
@@ -1138,7 +1299,7 @@ app.get('/c/:slug', async (req, res) => {
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
     if (j.verdict === 'bot') {
       stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
-      bumpDecision('white', 'score', j.score);
+      bumpDecision('white', 'score', j.score, (j.signals || []).slice(0, 5));
       // Memoriza o veredito por visitante (só score alto/forte): próximas visitas
       // curto-circuitam no gate sticky acima, sem re-rodar o judge.
       if (cloakVid && j.score >= (j.threshold || 40)) {
@@ -1292,7 +1453,7 @@ app.get('/api/v1/summary', (req, res) => {
   res.json({ today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() });
 });
 
-// ── Relatório diário via Pushcut ──────────────���──────────────────────
+// ── Relatório diário via Pushcut ──────────────�������─────────────────────
 // Sem cron confiável em serverless: verificação barata "pegando carona"
 // no tráfego (track/conversão). Na primeira request após a virada do dia
 // (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
@@ -1305,23 +1466,89 @@ function checkDailyReport() {
     for (const accId of config.accountIds()) checkDailyReportFor(accId);
   } finally { dailyCheckBusy = false; }
 }
+
+// Item 464: watchdog de anomalia — "zero vendas em X horas" quando o histórico
+// diz que deveria haver. Detecta gateway quebrado/webhook caído ANTES do dono
+// perceber no extrato. Opt-in (events.watchdog), roda de carona no tráfego
+// (máx 1 verificação/h por processo) e avisa no máximo 1x por 12h por conta.
+const WATCHDOG_WINDOW_H = 6;      // janela sem vendas que dispara o alerta
+const WATCHDOG_MIN_WEEK = 14;     // mínimo de vendas nos últimos 7d p/ ter baseline (≥2/dia)
+let lastWatchdogSweep = 0;
+const watchdogNotified = new Map(); // accId → ts do último alerta
+function checkSalesWatchdog() {
+  const now = Date.now();
+  if (now - lastWatchdogSweep < 3600e3) return;
+  lastWatchdogSweep = now;
+  for (const accId of config.accountIds()) {
+    try {
+      const pc = (config.get(accId).pushcut || {});
+      if (!pc.url || (pc.events || {}).watchdog !== true) continue;
+      if (now - (watchdogNotified.get(accId) || 0) < 12 * 3600e3) continue; // anti-spam
+      const s = stats.getStats(accId);
+      const sales = (s.events || []).filter((e) => e.type === 'sale');
+      const weekSales = sales.filter((e) => now - new Date(e.at).getTime() < 7 * 86400e3);
+      if (weekSales.length < WATCHDOG_MIN_WEEK) continue; // sem baseline, sem alarme falso
+      const recent = sales.some((e) => now - new Date(e.at).getTime() < WATCHDOG_WINDOW_H * 3600e3);
+      if (recent) continue;
+      watchdogNotified.set(accId, now);
+      stats.logEvent('info', {
+        acc: accId,
+        title: '[watchdog] Nenhuma venda nas últimas ' + WATCHDOG_WINDOW_H + 'h (média recente: ' +
+          Math.round(weekSales.length / 7) + '/dia) — verifique gateway e webhook'
+      });
+      sendPushcut('Aprovada', {
+        title: 'Algo pode estar quebrado',
+        text: 'Nenhuma venda nas últimas ' + WATCHDOG_WINDOW_H + 'h, mas a média da semana é ~' +
+          Math.round(weekSales.length / 7) + '/dia. Vale conferir o gateway e o webhook.',
+        sound: 'system'
+      }, accId).catch(() => {});
+    } catch (_) { /* watchdog nunca derruba a request que pegou a carona */ }
+  }
+}
+
+// Item 448: arquivamento de eventos antigos "pegando carona no tráfego"
+// (mesmo padrão do relatório diário, sem cron). No máximo 1x/hora, move um
+// lote de eventos além da retenção (padrão 90 dias) para events_archive.
+// Não bloqueia o request: dispara async e ignora o resultado.
+const EVENT_RETENTION_DAYS = Math.max(7, Math.min(3650, Number(process.env.EVENT_RETENTION_DAYS) || 90));
+let lastArchiveSweep = 0;
+let archiveSweepBusy = false;
+function checkEventArchive() {
+  const now = Date.now();
+  if (archiveSweepBusy || (now - lastArchiveSweep) < 3600e3) return;
+  archiveSweepBusy = true;
+  lastArchiveSweep = now;
+  db.archiveOldEvents(EVENT_RETENTION_DAYS, 2000)
+    .then((n) => { if (n > 0) console.log('[stats] arquivados ' + n + ' evento(s) antigos (> ' + EVENT_RETENTION_DAYS + 'd)'); })
+    .catch(() => {})
+    .finally(() => { archiveSweepBusy = false; });
+}
+// Item 295 (bug): o relatório diário cortava o dia em UTC — vendas das 21h à
+// meia-noite de Brasília caíam no dia "seguinte" e o resumo vinha errado.
+// brDay converte qualquer timestamp para o dia calendário de Brasília.
+const BR_DAY_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+});
+function brDay(d) {
+  const t = d instanceof Date ? d : new Date(d);
+  return isNaN(t.getTime()) ? String(d).slice(0, 10) : BR_DAY_FMT.format(t);
+}
 function checkDailyReportFor(accId) {
   const cfg = config.get(accId);
   const pc = cfg.pushcut || {};
   if (!pc.url || !(pc.events || {}).daily) return;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = brDay(new Date());
   if (cfg.lastDailyReport === today) return;
   try {
-    const y = new Date(Date.now() - 86400e3);
-    const yKey = y.toISOString().slice(0, 10);
+    const yKey = brDay(new Date(Date.now() - 86400e3));
     const s = stats.getStats(accId);
-    const dayLeads = (s.leads || []).filter((l) => !l.orphan && String(l.at || '').slice(0, 10) === yKey);
-    const sales = (s.events || []).filter((e) => e.type === 'sale' && String(e.at || '').slice(0, 10) === yKey);
+    const dayLeads = (s.leads || []).filter((l) => !l.orphan && brDay(l.at) === yKey);
+    const sales = (s.events || []).filter((e) => e.type === 'sale' && brDay(e.at) === yKey);
     const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
     const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
     // anteontem, para comparação
-    const y2Key = new Date(Date.now() - 2 * 86400e3).toISOString().slice(0, 10);
-    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && String(e.at || '').slice(0, 10) === y2Key);
+    const y2Key = brDay(new Date(Date.now() - 2 * 86400e3));
+    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && brDay(e.at) === y2Key);
     const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
     const cur = (sales[0] && sales[0].currency) || 'EUR';
     const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
@@ -1432,12 +1659,46 @@ app.post('/login', async (req, res) => {
   try {
     const b = req.body || {};
     const result = await auth.login({ email: b.email, password: b.password });
-    if (result.error) return res.status(401).json({ ok: false, error: result.error });
+    // Item 440: 429 quando bloqueado por excesso de tentativas (não 401).
+    if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
     appendCookie(res, auth.sessionCookie(result.token));
     res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
+    // Item 417: login entra na trilha de auditoria da conta.
+    audit(req, result.account.id, 'login', 'Login no painel');
+    // Item 442: aviso de novo login via Pushcut (opt-in explícito). Depois da
+    // resposta — nunca atrasa o login. IP mascarado (sem PII completa).
+    try {
+      const pcCfg = (config.get(result.account.id).pushcut || {});
+      if (pcCfg.url && (pcCfg.events || {}).login === true) {
+        const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+        const maskedIp = ip.includes(':') ? ip.split(':').slice(0, 3).join(':') + ':…' : ip.replace(/\.\d+$/, '.xxx');
+        sendPushcut('Login', {
+          title: 'Novo login no painel',
+          text: 'Acesso à sua conta em ' + new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) + ' (IP ' + (maskedIp || 'desconhecido') + '). Se não foi você, troque a senha.'
+        }, result.account.id).catch(() => {});
+      }
+    } catch (_) { /* aviso é melhor-esforço */ }
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Erro ao entrar.' });
   }
+});
+
+// Item 411/415: trocar senha (verifica a atual) e derrubar as outras sessões.
+app.post('/api/account/password', dashboardAuth, async (req, res) => {
+  if (rateLimited('pwchange|' + req.account.id, 'pwchange', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitas tentativas. Aguarde um minuto.' });
+  }
+  const b = req.body || {};
+  const keepToken = auth.parseCookies(req)[auth.COOKIE_NAME];
+  const result = await auth.changePassword({
+    accountId: req.account.id,
+    currentPassword: b.currentPassword,
+    newPassword: b.newPassword,
+    keepToken
+  });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  audit(req, req.account.id, 'senha_alterada', 'Senha da conta alterada' + (result.revoked ? ' (' + result.revoked + ' sessão(ões) encerrada(s))' : ''));
+  res.json({ ok: true, revoked: result.revoked });
 });
 
 app.post('/logout', async (req, res) => {
@@ -1457,7 +1718,11 @@ app.get('/api/me', dashboardAuth, (req, res) => {
 
 // ── API: estatísticas (escopadas à conta logada) ─────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
-  res.set('Cache-Control', 'no-store'); // dados ao vivo — nunca cachear em proxies
+  // Item 469: `private, no-cache` em vez de `no-store` — o navegador PODE
+  // guardar a resposta só para revalidar com If-None-Match no próximo poll
+  // (12s). O ETag automático do Express casa → 304 sem corpo, poupando a
+  // banda do payload inteiro quando nada mudou. `private` barra proxies.
+  res.set('Cache-Control', 'private, no-cache');
   res.json(stats.getStats(req.account.id));
   checkDailyReport(); // dashboard aberta também dispara o resumo pendente
   });
@@ -1519,6 +1784,129 @@ app.get('/api/live', dashboardAuth, async (req, res) => {
 });
 
 // ���═����� Links de Checkout — CRUD + validação de domínio (por conta) ══════
+// Itens 230/232: auditoria de integridade referencial + dados órfãos.
+// Reporta (sem alterar nada): links apontando para pixel/domínio inexistente
+// e stats de cloak de slugs que não existem mais. O modo ?fix=1 limpa os
+// órfãos seguros (somente referências, nunca dados de venda).
+app.get('/api/ops/integrity', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const cfg = config.get(acc);
+  const pixels = new Set(pixelStore.list(acc).map((p) => p.slug));
+  const domains = new Set((cfg.customDomains || []).map((d) => d.host));
+  const cloakSlugs = new Set((cfg.cloakLinks || []).map((c) => c.slug));
+  const problemas = [];
+  for (const l of linkStore.list(acc)) {
+    // pixel referenciado que não existe mais
+    if (l.pixelSlug && !pixels.has(l.pixelSlug)) {
+      problemas.push({ tipo: 'link-pixel', slug: l.slug, ref: l.pixelSlug,
+        msg: 'Link "' + l.nome + '" aponta para o pixel "' + l.pixelSlug + '", que não existe mais.' });
+    }
+    // domínio personalizado que sumiu da lista global
+    if (l.dominio && domains.size > 0 && !domains.has(l.dominio)) {
+      problemas.push({ tipo: 'link-dominio', slug: l.slug, ref: l.dominio,
+        msg: 'Link "' + l.nome + '" usa o domínio "' + l.dominio + '", que não está mais cadastrado.' });
+    }
+  }
+  // stats de cloak de slugs apagados (órfãos no Redis). O prefixo 'cloak:'
+  // vem do bumpDecision ('cloak:' + slug) — remove antes de comparar.
+  let orfaosCloak = [];
+  try {
+    const statSlugs = await redis.listCloakStatSlugs(acc);
+    orfaosCloak = statSlugs
+      .map((s) => s.replace(/^cloak:/, ''))
+      .filter((slug) => !cloakSlugs.has(slug));
+  } catch (_) {}
+  const fix = req.query.fix === '1';
+  let corrigidos = 0;
+  if (fix) {
+    // limpar referência de pixel fantasma nos links (ação segura e reversível)
+    for (const p of problemas.filter((x) => x.tipo === 'link-pixel')) {
+      try { await linkStore.save(acc, { slug: p.slug, pixelSlug: '' }); corrigidos++; } catch (_) {}
+    }
+    // apagar contadores e histórico de decisões de slugs de cloak apagados
+    if (orfaosCloak.length) {
+      const prefixed = orfaosCloak.map((s) => 'cloak:' + s);
+      try {
+        corrigidos += await redis.clearCloakStats(acc, prefixed);
+        await redis.clearCloakDecisionLogs(acc, prefixed);
+      } catch (_) {}
+    }
+  }
+  res.json({ ok: true, problemas, orfaosCloak, corrigidos: fix ? corrigidos : undefined });
+});
+
+// Item 231: backup self-service da configuração da conta em JSON.
+// SEGREDOS NUNCA SAEM: accessToken de pixel e secret de gateway são omitidos —
+// o import recria a estrutura e o usuário recoloca as credenciais.
+app.get('/api/backup/export', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const cfg = config.get(acc);
+  const payload = {
+    formato: 'pragmatic-flow-backup',
+    versao: 1,
+    exportadoEm: new Date().toISOString(),
+    links: linkStore.list(acc),
+    pixels: pixelStore.list(acc).map((p) => {
+      const { accessToken, token, ...rest } = p; // token público também sai (regenerado no import)
+      return rest;
+    }),
+    gateways: gatewayStore.list(acc).map((g) => {
+      const { secret, webhookToken, ...rest } = g;
+      return rest;
+    }),
+    dominios: (cfg.customDomains || []).map((d) => ({ host: d.host, uso: d.uso || 'ambos' })),
+    cloakLinks: cfg.cloakLinks || [],
+    cloak: cfg.cloak || null
+  };
+  res.setHeader('Content-Disposition', 'attachment; filename="backup-conta.json"');
+  res.json(payload);
+});
+
+// Item 231 (import): recria links/pixels/gateways/cloak a partir do backup.
+// Cada item passa pelo MESMO sanitizador do save normal — nada entra cru.
+// Itens que já existem (mesmo slug/nome) são atualizados, não duplicados.
+app.post('/api/backup/import', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('backup-import|' + req.account.id, 'opsdrain', 3)) {
+    return apiError(res, 429, 'Aguarde um pouco antes de importar de novo.', 'rate_limited');
+  }
+  const b = req.body || {};
+  if (b.formato !== 'pragmatic-flow-backup') {
+    return apiError(res, 400, 'Arquivo não reconhecido — exporte o backup pela própria dashboard.', 'bad_format');
+  }
+  const acc = req.account.id;
+  const report = { links: 0, pixels: 0, gateways: 0, cloakLinks: 0, erros: [] };
+  try {
+    for (const l of (Array.isArray(b.links) ? b.links : []).slice(0, 100)) {
+      try { await linkStore.save(acc, l); report.links++; }
+      catch (e) { report.erros.push('link ' + (l && l.slug) + ': ' + e.message); }
+    }
+    for (const p of (Array.isArray(b.pixels) ? b.pixels : []).slice(0, 50)) {
+      try { await pixelStore.save(acc, p); report.pixels++; } // sem accessToken: usuário recoloca
+      catch (e) { report.erros.push('pixel ' + (p && p.slug) + ': ' + e.message); }
+    }
+    for (const g of (Array.isArray(b.gateways) ? b.gateways : []).slice(0, 30)) {
+      try { await gatewayStore.save(acc, g); report.gateways++; } // token/secret novos são gerados
+      catch (e) { report.erros.push('gateway ' + (g && g.name) + ': ' + e.message); }
+    }
+    // cloak entries + config global passam pela sanitização do config.set
+    const patch = {};
+    if (Array.isArray(b.cloakLinks) && b.cloakLinks.length) patch.cloakLinks = b.cloakLinks.slice(0, 100);
+    if (b.cloak && typeof b.cloak === 'object') patch.cloak = b.cloak;
+    if (Object.keys(patch).length) {
+      config.set(acc, patch);
+      report.cloakLinks = (patch.cloakLinks || []).length;
+    }
+    stats.logEvent('info', { acc, title: 'Backup importado: ' + report.links + ' links, ' + report.pixels + ' pixels, ' + report.gateways + ' gateways' });
+    audit(req, req.account.id, 'backup_importado', 'Backup restaurado no painel'); // item 417
+    res.json({ ok: true, report });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao importar o backup.', 'import_failed');
+  }
+});
+
 app.get('/api/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ links: linkStore.list(req.account.id) });
@@ -1534,9 +1922,11 @@ app.post('/api/links', dashboardAuth, async (req, res) => {
       .forEach((d) => linkStore.markDomainValidated(d.host, d.verificadoEm));
     const saved = await linkStore.save(req.account.id, req.body || {});
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
+    audit(req, req.account.id, 'link_salvo', 'Link ' + saved.slug + ' (' + saved.nome + ')'); // item 417
     res.json({ ok: true, link: saved });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    // Item 235: conflito de edição concorrente → 409 com mensagem acionável
+    res.status(err.code === 'conflict' ? 409 : 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -1544,6 +1934,7 @@ app.delete('/api/links/:slug', dashboardAuth, async (req, res) => {
   try {
     await linkStore.remove(req.account.id, req.params.slug);
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout removido', ref: req.params.slug });
+    audit(req, req.account.id, 'link_removido', 'Link ' + req.params.slug); // item 417
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1574,7 +1965,7 @@ app.get('/__domain-check', (_req, res) => {
   res.json({ app: APP_CHECK_ID, ok: true });
 });
 
-// ── Configurações da conta (moeda padrão etc.) ────────────────────────────
+// ── Configurações da conta (moeda padrão etc.) ���───────────────────────────
 // A moeda escolhida aqui alimenta TODOS os disparos/testes que não trazem
 // moeda própria no payload (fallback era EUR fixo; agora é por conta, BRL).
 function accountCurrency(accId) {
@@ -1855,7 +2246,7 @@ app.get('/api/pushcut-config', dashboardAuth, (req, res) => {
     // mascara a URL (contém o segredo do Pushcut)
     url: pc.url ? pc.url.replace(/(https:\/\/api\.pushcut\.io\/)([^/]+)/, (m, a, b) => a + '••••' + b.slice(-4)) : '',
     hasUrl: !!pc.url,
-    events: Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false }, pc.events || {})
+    events: Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false, login: false, watchdog: false }, pc.events || {})
   });
 });
 
@@ -1874,6 +2265,8 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
     ['sale', 'failed', 'refund', 'dispute', 'checkout'].forEach((k) => { pc.events[k] = b.events[k] !== false; });
     ['sale', 'failed', 'refund', 'dispute', 'checkout'].forEach((k) => { if (b.events[k] === false) pc.events[k] = false; });
     pc.events.daily = b.events.daily === true; // opt-in explícito (relatório diário)
+    pc.events.login = b.events.login === true; // item 442: opt-in explícito (novo login)
+    pc.events.watchdog = b.events.watchdog === true; // item 464: opt-in explícito (alerta de anomalia)
   }
   config.set(req.account.id, { pushcut: pc });
   res.json({ ok: true });
@@ -1902,11 +2295,14 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   // White page global de fallback (a sanitização do config valida o https://).
   // String vazia limpa o valor e volta a usar a página neutra embutida /_safe.
   if (typeof b.defaultWhitePage === 'string') next.defaultWhitePage = b.defaultWhitePage.trim();
+  // Item 254: limites de velocity — clamp final fica no sanitizador do config.js
+  if (b.velocityLimit != null && !isNaN(Number(b.velocityLimit))) next.velocityLimit = Number(b.velocityLimit);
+  if (b.velocityWindowSec != null && !isNaN(Number(b.velocityWindowSec))) next.velocityWindowSec = Number(b.velocityWindowSec);
   config.set(req.account.id, { cloak: next });
   res.json({ ok: true, cloak: config.get(req.account.id).cloak });
 });
 
-// ── Regras de cloaking POR LINK (offer/white/países/pixel) ─────────────────
+// ── Regras de cloaking POR LINK (offer/white/pa��ses/pixel) ─────────────────
 // Lista os links com suas regras + os pixels disponíveis para o dropdown.
 app.get('/api/cloak/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -1999,7 +2395,7 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   let entry = null;
   if (slug) {
     entry = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === slug) || null;
-    if (!entry) return res.status(404).json({ error: 'link de cloaking não encontrado' });
+    if (!entry) return res.status(404).json({ error: 'link de cloaking n��o encontrado' });
     cloakCfg = entry; // o /c/:slug passa o próprio entry como cloakCfg ao judge
   }
 
@@ -2053,12 +2449,27 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     };
   }
 
+  // Item 257: previsão da camada de velocity — mostra em quantos acessos do
+  // MESMO IP na janela o visitante (ainda que "real") seria mandado à white
+  // por parecer device-farm. Cálculo puro: NÃO toca os contadores reais.
+  const accCloak = config.get(req.account.id).cloak || {};
+  const velLimit = accCloak.velocityLimit || 12;
+  const velWindow = accCloak.velocityWindowSec || 60;
+  const velocity = {
+    limit: velLimit,
+    windowSec: velWindow,
+    // acessos permitidos antes de bloquear; o (limit+1)-ésimo vai para white
+    blockedAtHit: velLimit + 1,
+    note: `Até ${velLimit} acessos deste IP a cada ${velWindow}s passam; o acesso nº ${velLimit + 1} iria para a white page como automação.`,
+  };
+
   res.json({
     verdict: j.verdict, score: j.score, threshold: j.threshold,
     signals: j.signals, ip: clientIp(evalReq),
     ua: String(evalReq.headers['user-agent'] || '').slice(0, 120),
     slug: slug || undefined, gates,
     profile: profileMeta, // item 165/208: eco do perfil simulado (null = request real)
+    velocity, // item 257: previsão da camada anti device-farm
     // Itens 163/164/210: infraestrutura resolvida + tempo de julgamento
     asn: j.asn || 0, org: j.org || '', resolvedAt: j.resolvedAt || 0
   });
@@ -2096,7 +2507,58 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
   }, { offer: 0, white: 0, total: 0, reasons: {} });
   agg.blockRate = agg.total ? agg.white / agg.total : 0;
 
-  res.json({ ok: true, redis: redis.enabled, aggregate: agg, links: items });
+  // Item 201: quantos visitantes estão em cache como bot AGORA (sticky 6h).
+  // Item 203: quantos acessos foram barrados por replay de ttclid (30d).
+  const [sticky, ttclidReplays] = await Promise.all([
+    redis.countStickyBots().catch(() => ({ available: false, count: 0 })),
+    redis.getTtclidReplayCount(acc).catch(() => 0)
+  ]);
+
+  res.json({
+    ok: true, redis: redis.enabled, aggregate: agg, links: items, sticky, ttclidReplays,
+    // Item 209: se nunca chegou beacon do challenge, o snippet /t.js não está
+    // instalado nas páginas — as camadas D–H do julgamento ficam inertes.
+    challenge: { beacons: _challengeBeacon.count, lastAt: _challengeBeacon.lastAt || null }
+  });
+});
+
+// Item 201: limpar o veredito sticky de UM visitante (vid) para reteste.
+// O sticky é unidirecional (só cacheia BOT) — limpar força o judge a re-rodar
+// na próxima visita daquele v_id. Útil quando um humano real caiu no cache.
+app.post('/api/cloak/sticky/clear', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const vid = String((req.body && req.body.vid) || '').trim().slice(0, 80);
+  if (!vid) return apiError(res, 400, 'Informe o v_id do visitante para limpar o veredito.', 'missing_vid');
+  if (!redis.enabled) return apiError(res, 400, 'O veredito sticky só existe com Redis configurado.', 'no_redis');
+  const cleared = await redis.clearStickyBot(vid);
+  res.json({ ok: true, cleared });
+});
+
+// Item 222: limpar o cache de ASN de UM IP (memória + Redis) para reteste
+// imediato quando o lookup ficou errado ou negativo (asn:0 por timeout).
+app.post('/api/cloak/asn/clear', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const ip = String((req.body && req.body.ip) || '').trim().slice(0, 64);
+  // valida formato básico de IPv4/IPv6 antes de mexer no cache
+  if (!ip || !/^[0-9a-fA-F.:]+$/.test(ip)) {
+    return apiError(res, 400, 'Informe um IP válido para limpar o cache de infraestrutura.', 'bad_ip');
+  }
+  const cleared = await botFilter.clearAsnCache(ip);
+  res.json({ ok: true, cleared });
+});
+
+// Item 256: libera um IP que caiu no limite de acessos (velocity) — ex.: um
+// escritório inteiro atrás do mesmo NAT. Apaga as chaves de contagem do IP em
+// todas as entradas; o próximo acesso recomeça do zero.
+app.post('/api/cloak/velocity/clear', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const ip = String((req.body && req.body.ip) || '').trim().slice(0, 64);
+  if (!ip || !/^[0-9a-fA-F.:]+$/.test(ip)) {
+    return apiError(res, 400, 'Informe um IP v��lido para liberar do limite de acessos.', 'bad_ip');
+  }
+  const cleared = await redis.clearVelocity(ip);
+  stats.logEvent('info', { acc: req.account.id, title: '[cloak] limite de acessos liberado para IP', ref: ip });
+  res.json({ ok: true, cleared });
 });
 
 // Zera os contadores de um link (ou de todos, se slug ausente).
@@ -2224,12 +2686,22 @@ app.post('/api/pushcut/test', dashboardAuth, async (req, res) => {
 
 // ── API: health-check — variáveis críticas + ping REAL no banco ─────
 app.get('/api/health', dashboardAuth, async (req, res) => {
-  const [dbPing, redisPing] = await Promise.all([
+  // Item 263: health consolidado — além de db/redis, agrega a profundidade
+  // das filas duráveis num único payload para o cabeçalho de durabilidade
+  // (evita um segundo polling de /api/ops só para o badge).
+  const [dbPing, redisPing, queueDepth] = await Promise.all([
     require('./db').ping(),
-    rdb.ping()
+    rdb.ping(),
+    rdb.convQueueDepth().catch(() => null)
   ]);
   res.set('Cache-Control', 'no-store');
   res.json({
+    // Item 263: resumo das filas — {queue, processing} da fila de conversões
+    // + tamanho da fila de retry da CAPI da conta. null = indisponível.
+    queues: {
+      conv: queueDepth,
+      capiRetry: (ttEvents.retryQueueInfo(req.account.id) || {}).count ?? 0
+    },
     conversionWebhook: !!process.env.CONVERSION_WEBHOOK_SECRET,
     tiktok:      pixelStore.list(req.account.id).some((p) => p.active && p.accessToken),
     pushcut:     !!((config.get(req.account.id).pushcut || {}).url || process.env.PUSHCUT_WEBHOOK_URL),
@@ -2246,6 +2718,8 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
     // sinal de datacenter escapando com frequência.
     cloakerLatency: botFilter.getJudgeLatency(),
     uptimeSec:   Math.round(process.uptime()),
+    // Item 443: versão do app para a seção "Sobre" das Configurações.
+    version:     require('./package.json').version || null,
     ts: new Date().toISOString()
   });
 });
@@ -2258,10 +2732,13 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
 app.get('/api/ops', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const acc = req.account.id;
-  const [depth, dedup] = await Promise.all([
+  const [depth, dedup, live] = await Promise.all([
     rdb.convQueueDepth(),
-    rdb.getWebhookDedupCount(acc)
+    rdb.getWebhookDedupCount(acc),
+    presence.summary(acc)   // {online, countries, byEntry} — itens 220/226
   ]);
+  // Item 220: aviso ao aproximar do teto recomendado do SCAN de presença.
+  const PRESENCE_LIMIT = 500;
   res.json({
     redisEnabled: rdb.enabled, // sem Redis a fila é best-effort em memória
     convQueue: depth,                       // {queue, processing} — item 191
@@ -2270,6 +2747,20 @@ app.get('/api/ops', dashboardAuth, async (req, res) => {
     worker: rdb.getConvWorkerBeat(),        // {at, active} — item 197
     capiRetry: ttEvents.retryQueueInfo(acc),// {count, oldestAgeMs} — item 193
     webhookDedup: dedup,                    // reentregas ignoradas — item 195
+    // Item 225: dedup de disparos CAPI (beacon + middleware) — o "faltou disparo"
+    // que na verdade foi evitado de propósito.
+    pixelDedup: { deduped: _dedupStats.deduped, sinceMs: Date.now() - _dedupStats.since },
+    // Item 220/226: presença ao vivo com teto e distribuição por entrada.
+    presence: {
+      online: live.online,
+      limit: PRESENCE_LIMIT,
+      near: live.online >= PRESENCE_LIMIT * 0.9,
+      byEntry: live.byEntry || []
+    },
+    // Item 223: cobertura do cache de ASN (hits vs lookups ao vivo).
+    asnCache: botFilter.getAsnCacheStats(),
+    // Item 224: TTLs efetivos das camadas de cache, para transparência técnica.
+    cacheTtls: botFilter.CACHE_TTLS,
     ts: new Date().toISOString()
   });
 });
@@ -2287,6 +2778,80 @@ app.post('/api/ops/drain-retry', dashboardAuth, async (req, res) => {
     res.json({ ok: true, processed: processed || 0, remaining: info.count });
   } catch (e) {
     res.status(500).json({ ok: false, error: 'Falha ao drenar a fila.', code: 'drain_failed' });
+  }
+});
+
+// Item 198: reprocessar UMA conversão do log (reenfileirar manualmente).
+// Uso: o disparo CAPI falhou (erro/sem pixel) mas o pagamento é válido —
+// o admin redispara sem duplicar a venda no dashboard (registerSale off).
+app.post('/api/ops/reprocess-conversion', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('ops-reproc|' + req.account.id, 'opsdrain', 10)) {
+    return apiError(res, 429, 'Aguarde um pouco antes de reprocessar de novo.', 'rate_limited');
+  }
+  const id = String((req.body && req.body.id) || '').slice(0, 200);
+  if (!id) return apiError(res, 400, 'Informe o id do recibo a reprocessar.', 'missing_id');
+  try {
+    const log = await rdb.loadConversionLog(200);
+    // multi-tenant: só recibos da PRÓPRIA conta (legado sem acc → só admin)
+    const entry = (log || []).find((r) => r && r.id === id &&
+      (r.acc === req.account.id || (!r.acc && req.account.role === 'admin')));
+    if (!entry) return apiError(res, 404, 'Recibo não encontrado no log (só os 200 mais recentes podem ser reprocessados).', 'not_found');
+    if (entry.teste) return apiError(res, 400, 'Recibos de teste (dry-run) não podem ser reprocessados.', 'is_test');
+    // Reconstrói o envelope a partir do recibo. registerSale=false: a venda já
+    // foi contabilizada no primeiro processamento — aqui só re-dispara a CAPI.
+    const n = {
+      acc: entry.acc || req.account.id,
+      gateway: entry.gateway, event: entry.event, orderId: entry.orderId,
+      amountCents: entry.amount, currency: entry.currency,
+      leadId: entry.leadId || undefined,
+      registerSale: false,
+      _forceRedispatch: true,
+      _recvAt: Date.now()
+    };
+    const receipt = await processConversion(n); // síncrono: devolve o recibo novo
+    res.json({ ok: true, receipt });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao reprocessar a conversão.', 'reprocess_failed');
+  }
+});
+
+// Item 200: retenção dos logs — expõe os limites efetivos e permite limpar
+// manualmente por aba (sempre respeitando a fronteira da conta).
+const LOG_RETENTION = {
+  pixelLog:  { label: 'Log de disparos CAPI',  limite: '500 entradas · 14 dias no Redis' },
+  convLog:   { label: 'Log de webhooks',       limite: '200 entradas' },
+  cloakLog:  { label: 'Histórico do cloaker',  limite: '50 por link · 30 dias' },
+  emq:       { label: 'Série de EMQ',          limite: '40 dias por pixel' },
+  // Itens 349/448: o feed de eventos é arquivado (não apagado) após a janela.
+  events:    { label: 'Feed de eventos',       limite: EVENT_RETENTION_DAYS + ' dias no feed quente · histórico completo arquivado' }
+};
+app.get('/api/ops/retention', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, retention: LOG_RETENTION });
+});
+app.post('/api/ops/clear-log', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('ops-clear|' + req.account.id, 'opsdrain', 6)) {
+    return apiError(res, 429, 'Aguarde um pouco antes de limpar de novo.', 'rate_limited');
+  }
+  const scope = String((req.body && req.body.scope) || '');
+  if (!LOG_RETENTION[scope]) return apiError(res, 400, 'Escopo inválido. Use pixelLog, convLog, cloakLog ou emq.', 'bad_scope');
+  try {
+    const acc = req.account.id;
+    let removed = 0;
+    if (scope === 'pixelLog') removed = await ttEvents.clearLog(acc);
+    else if (scope === 'convLog') removed = await rdb.clearConversionLog(acc);
+    else if (scope === 'cloakLog') {
+      const slugs = (config.get(acc).cloakLinks || []).map((l) => l.slug);
+      removed = await rdb.clearCloakDecisionLogs(acc, slugs);
+    } else if (scope === 'emq') {
+      const pixels = pixelStore.list(acc).map((p) => p.pixelCode);
+      removed = await rdb.clearEmq(acc, pixels);
+    }
+    res.json({ ok: true, removed });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao limpar o log.', 'clear_failed');
   }
 });
 
@@ -2348,14 +2913,20 @@ async function processConversion(n) {
   if (n && n._recvAt) rdb.recordConvLatency(Date.now() - n._recvAt);
   const evId = n.event + '.' + n.gateway + '.' + n.orderId;
   const receipt = {
+    // Item 198: id ESTÁVEL do recibo — permite localizar a entrada no log
+    // para reprocessamento manual (evId + carimbo de recebimento)
+    id: evId + '.' + (n._recvAt || Date.now()),
     at: new Date().toISOString(),
     acc: n.acc || null,
     gateway: n.gateway, event: n.event, orderId: n.orderId,
     amount: n.amountCents, currency: n.currency
   };
+  if (n._forceRedispatch) receipt.reprocessado = true;
   try {
-    // 1. dedup — retries do gateway nunca duplicam o disparo
-    if (await seenPixelEvent(evId)) {
+    // 1. dedup — retries do gateway nunca duplicam o disparo.
+    // Item 198: reprocessamento manual PULA o dedup de propósito (o admin
+    // pediu o redisparo porque a CAPI falhou mas o pagamento é válido).
+    if (!n._forceRedispatch && await seenPixelEvent(evId)) {
       receipt.status = 'dedup';
       rdb.pushConversionLog(receipt).catch(() => {});
       return receipt;
@@ -3276,8 +3847,26 @@ app.get('/api/pixels/emq-trend', dashboardAuth, async (req, res) => {
   res.json({ ok: true, pixels: out, alerts: out.filter((p) => p.alert).length });
 });
 
+// Itens 417/439: trilha de auditoria da conta, visível na aba Config.
+app.get('/api/audit', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const rows = await db.listAudit(req.account.id, req.query.limit);
+  res.json({
+    ok: true,
+    enabled: db.enabled,
+    log: rows.map((r) => ({
+      id: String(r.id),
+      at: r.at,
+      action: r.action,
+      detail: r.detail || null,
+      ip: r.ip_masked || null,
+    })),
+  });
+});
+
 app.post('/api/reset-stats', dashboardAuth, (req, res) => {
   stats.reset(req.account.id); // zera SÓ os dados da conta logada
+  audit(req, req.account.id, 'reset_stats', 'Estatísticas zeradas'); // item 417
   res.json({ ok: true });
 });
 
@@ -3322,18 +3911,39 @@ function proxyToNextDashboard(req, res) {
   proxyReq.on('error', () => {
     // Next fora do ar → fallback para a dashboard legada (nunca tela branca)
     if (!res.headersSent) {
-      res.set('Content-Type', 'text/html; charset=utf-8');
-      res.send(DASHBOARD_HTML);
+      sendLegacyDashboard(res, 'fallback'); // item 475: com banner "vá para o novo"
     }
   });
   if (req.readable) req.pipe(proxyReq);
   else proxyReq.end();
 }
 
+// Item 475: dashboard-view.js (5680 linhas) está CONGELADO — não evoluir.
+// Quem cair nele (via ?legacy=1 ou fallback com Next fora do ar) vê um banner
+// fixo apontando para o novo painel. Injetado na hora de servir para não tocar
+// no arquivo legado (que não aceita crase/${} e tem risco alto de regressão).
+function legacyBanner(reason) {
+  var msg = reason === 'fallback'
+    ? 'O painel novo est\u00e1 reiniciando \u2014 esta \u00e9 a vers\u00e3o antiga (somente leitura de refer\u00eancia). '
+    : 'Voc\u00ea est\u00e1 na vers\u00e3o antiga do painel (congelada, sem novidades). ';
+  return '<div style="position:sticky;top:0;z-index:9999;background:#1a1206;border-bottom:1px solid #7c5a12;' +
+    'color:#fbbf24;font:600 13px/1.5 system-ui,sans-serif;padding:9px 16px;text-align:center">' +
+    msg + '<a href="/dashboard" style="color:#6cb4ff;text-decoration:underline">Ir para o painel novo</a></div>';
+}
+function sendLegacyDashboard(res, reason) {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  var html = DASHBOARD_HTML;
+  var i = html.indexOf('<body');
+  if (i !== -1) {
+    var close = html.indexOf('>', i);
+    if (close !== -1) html = html.slice(0, close + 1) + legacyBanner(reason) + html.slice(close + 1);
+  }
+  res.send(html);
+}
+
 app.get('/dashboard', pageAuth, (req, res) => {
   if (req.query.legacy === '1') {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.send(DASHBOARD_HTML);
+    return sendLegacyDashboard(res, 'manual');
   }
   proxyToNextDashboard(req, res);
 });
@@ -3361,7 +3971,7 @@ app.get('/termos', (req, res) => {
 // ── Só a pasta /assets é servida estaticamente (logo da marca) ───────
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d' }));
 
-// ── Iniciar servidor ─────────────────────────────────────────────────
+// ── Iniciar servidor ──────────────────────────────────────────���──────
 // Hidrata stats, config, pixels, links e gateways a partir do Neon ANTES
 // de escutar, para que os dados de todas as contas já estejam disponíveis
 // no primeiro request pós-deploy.

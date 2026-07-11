@@ -45,7 +45,12 @@ function defaults() {
       // White page GLOBAL de fallback: usada quando um link protegido não tem
       // white page própria. Se vazia, o sistema serve uma página neutra embutida
       // (/_safe) — assim NENHUM bot chega à offer, mesmo sem white configurada.
-      defaultWhitePage: ''
+      defaultWhitePage: '',
+      // Item 254: camada de velocity (anti device-farm). N acessos do MESMO IP
+      // ao MESMO link dentro da janela → white. Preset seguro: 12 acessos/60s
+      // (folga para família no mesmo Wi-Fi; barra rajada de automação).
+      velocityLimit: 12,     // acessos permitidos na janela (3–100)
+      velocityWindowSec: 60  // janela em segundos (10–600)
     },
     // Links de cloaking (entidade própria, servidos em /c/:slug). Cada link
     // carrega SUA própria configuração de proteção (interruptor, sensibilidade,
@@ -278,7 +283,11 @@ function set(accountId, patch) {
       checkTimezone:      boolOr(c.checkTimezone, true),
       checkBehavior:      boolOr(c.checkBehavior, true),
       blockZhLang:        boolOr(c.blockZhLang, true),
-      defaultWhitePage:   validHttps(c.defaultWhitePage) ? String(c.defaultWhitePage).trim().slice(0, 500) : ''
+      defaultWhitePage:   validHttps(c.defaultWhitePage) ? String(c.defaultWhitePage).trim().slice(0, 500) : '',
+      // Item 254: limites de velocity com clamp seguro — nunca deixa o usuário
+      // se auto-bloquear (mínimo 3) nem desligar a proteção por engano (máx 100).
+      velocityLimit:      Math.max(3, Math.min(100, Math.round(Number(c.velocityLimit) || 12))),
+      velocityWindowSec:  Math.max(10, Math.min(600, Math.round(Number(c.velocityWindowSec) || 60)))
     };
   }
 

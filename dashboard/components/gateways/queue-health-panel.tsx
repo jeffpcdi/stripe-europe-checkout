@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Activity, RefreshCw, Timer, Layers, ShieldCheck, CircleAlert } from 'lucide-react'
-import { useOps, apiSend } from '@/lib/api'
+import useSWR from 'swr'
+import { Activity, RefreshCw, Timer, Layers, ShieldCheck, CircleAlert, Trash2 } from 'lucide-react'
+import { useOps, apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import { timeAgo } from '@/lib/format'
 
@@ -17,6 +19,170 @@ function dur(ms: number): string {
   if (m < 60) return `${m} min`
   const h = Math.round(m / 60)
   return `${h} h`
+}
+
+// Item 200: retenção dos logs — mostra os limites efetivos de cada log e
+// permite limpar manualmente por aba (só os dados DESTA conta).
+interface RetentionResponse {
+  ok: boolean
+  retention: Record<string, { label: string; limite: string }>
+}
+
+export function RetentionPanel() {
+  const { data } = useSWR<RetentionResponse>('/api/ops/retention', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const [clearing, setClearing] = useState<string | null>(null)
+  const [confirmScope, setConfirmScope] = useState<string | null>(null)
+
+  async function handleClear(scope: string) {
+    setClearing(scope)
+    try {
+      const r = await apiSend<{ ok: boolean; removed: number }>('/api/ops/clear-log', 'POST', { scope })
+      toast.success(
+        r.removed > 0 ? `${r.removed} entrada(s) removida(s)` : 'Nada para limpar neste log',
+      )
+    } catch (e) {
+      toast.error('Falha ao limpar o log', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setClearing(null)
+    }
+  }
+
+  if (!data?.retention) return null
+  const entries = Object.entries(data.retention)
+  const confirmed = confirmScope ? data.retention[confirmScope] : null
+
+  return (
+    <GlassCard className="min-w-0 p-5">
+      <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Retenção dos logs</h2>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Cada log tem um limite automático — aqui você vê os limites e pode limpar manualmente os dados
+        da sua conta
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {entries.map(([scope, info]) => (
+          <li
+            key={scope}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs"
+          >
+            <span className="flex min-w-0 flex-col">
+              <span className="font-medium text-foreground">{info.label}</span>
+              <span className="text-[11px] text-muted-foreground">{info.limite}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setConfirmScope(scope)}
+              disabled={clearing !== null}
+              className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive disabled:opacity-50"
+            >
+              <Trash2 className={`size-3 ${clearing === scope ? 'animate-pulse' : ''}`} aria-hidden="true" />
+              {clearing === scope ? 'Limpando…' : 'Limpar'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <ConfirmDialog
+        open={confirmScope !== null}
+        title={confirmed ? `Limpar ${confirmed.label.toLowerCase()}?` : 'Limpar log?'}
+        description="A limpeza remove apenas os dados da sua conta e é irreversível. Os logs voltam a acumular normalmente a partir de agora."
+        confirmLabel="Limpar agora"
+        onClose={() => setConfirmScope(null)}
+        onConfirm={() => {
+          if (confirmScope) handleClear(confirmScope)
+          setConfirmScope(null)
+        }}
+      />
+    </GlassCard>
+  )
+}
+
+// Itens 230/232: integridade referencial + dados órfãos. Mostra links com
+// referências quebradas (pixel/domínio apagado) e stats de cloak de slugs que
+// não existem mais, com ação de corrigir os órfãos seguros. Painel OCULTO no
+// caminho saudável — só aparece quando há algo a corrigir.
+interface IntegrityResponse {
+  ok: boolean
+  problemas: { tipo: string; slug: string; ref: string; msg: string }[]
+  orfaosCloak: string[]
+  corrigidos?: number
+}
+
+export function IntegrityPanel() {
+  const { data, mutate } = useSWR<IntegrityResponse>('/api/ops/integrity', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const [fixing, setFixing] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const total = (data?.problemas?.length ?? 0) + (data?.orfaosCloak?.length ?? 0)
+  if (!data || total === 0) return null
+
+  async function handleFix() {
+    setFixing(true)
+    try {
+      const r = await fetcher<IntegrityResponse>('/api/ops/integrity?fix=1')
+      toast.success(
+        r.corrigidos && r.corrigidos > 0
+          ? `${r.corrigidos} problema(s) corrigido(s)`
+          : 'Nada para corrigir automaticamente',
+      )
+      mutate()
+    } catch (e) {
+      toast.error('Falha ao corrigir os problemas', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setFixing(false)
+    }
+  }
+
+  return (
+    <GlassCard className="min-w-0 p-5">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CircleAlert className="size-4 text-[color:var(--warning)]" aria-hidden="true" />
+          <h2 className="section-head text-sm font-semibold text-foreground">Integridade da configuração</h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => setConfirmOpen(true)}
+          disabled={fixing}
+          className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+        >
+          {fixing ? 'Corrigindo…' : 'Corrigir automaticamente'}
+        </button>
+      </div>
+      <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
+        {data.problemas.map((p, i) => (
+          <li key={`${p.tipo}-${p.slug}-${i}`} className="flex items-start gap-1.5">
+            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
+            <span className="text-pretty">{p.msg}</span>
+          </li>
+        ))}
+        {data.orfaosCloak.length > 0 && (
+          <li className="flex items-start gap-1.5">
+            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
+            <span className="text-pretty">
+              {data.orfaosCloak.length} estatística(s) de cloaker de link(s) já apagado(s) ocupando espaço.
+            </span>
+          </li>
+        )}
+      </ul>
+      <p className="mt-2 text-[11px] leading-snug text-muted-foreground text-pretty">
+        A correção automática limpa apenas referências quebradas e estatísticas órfãs — nunca dados de venda.
+      </p>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Corrigir problemas de integridade?"
+        description="Referências de pixel apagado serão removidas dos links e as estatísticas de cloaker órfãs serão limpas. Dados de venda não são tocados."
+        confirmLabel="Corrigir agora"
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false)
+          handleFix()
+        }}
+      />
+    </GlassCard>
+  )
 }
 
 // Painel de saúde das filas duráveis (Leva 5, bloco I: 191–200).
@@ -144,12 +310,73 @@ export function QueueHealthPanel() {
           <ShieldCheck className="size-3.5 text-success" />
           {data ? `${data.webhookDedup} reentrega(s) ignorada(s)` : 'idempotência ativa'}
         </span>
+        {/* Item 225: dedup de disparos — o "faltou disparo" evitado de propósito */}
+        {data?.pixelDedup && data.pixelDedup.deduped > 0 && (
+          <span>{data.pixelDedup.deduped} disparo(s) deduplicado(s) (navegador × servidor)</span>
+        )}
         {data && data.reclaim.at > 0 && (
           <span>
             Último resgate de órfãos: {data.reclaim.moved} item(ns) {timeAgo(new Date(data.reclaim.at).toISOString())}
           </span>
         )}
       </div>
+
+      {/* Itens 220/223/224/226: métricas técnicas de presença e caches */}
+      {data && (data.presence || data.asnCache) && (
+        <div className="mt-3 border-t border-border pt-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            {data.presence && (
+              <span>
+                <span className="font-medium text-foreground">{data.presence.online}</span> online agora
+                {/* Item 220: aviso ao encostar no teto do SCAN de presença */}
+                {data.presence.near && (
+                  <span className="ml-1 text-warning">
+                    (perto do teto de {data.presence.limit} — contagem pode ficar truncada)
+                  </span>
+                )}
+              </span>
+            )}
+            {data.asnCache && data.asnCache.total > 0 && (
+              <span title={`${data.asnCache.memHits} hits memória · ${data.asnCache.redisHits} hits Redis · ${data.asnCache.liveLookups} lookups DNS`}>
+                cache de infraestrutura (ASN):{' '}
+                <span className="font-medium text-foreground">
+                  {Math.round(data.asnCache.hitRate * 100)}% de acerto
+                </span>{' '}
+                · {data.asnCache.entries} IPs em memória
+              </span>
+            )}
+            {/* Item 224: TTLs efetivos das camadas de cache */}
+            {data.cacheTtls && (
+              <span title="Tempo que cada camada lembra do visitante antes de re-julgar">
+                TTLs: presença {fmtTtl(data.cacheTtls.presence)} · dedup {fmtTtl(data.cacheTtls.dedup)} · bot (sticky){' '}
+                {fmtTtl(data.cacheTtls.sticky)} · ttclid {fmtTtl(data.cacheTtls.ttclid)} · ASN {fmtTtl(data.cacheTtls.asn)}
+              </span>
+            )}
+          </div>
+          {/* Item 226: presença por entrada do funil (qual /go ou /c está com gente) */}
+          {data.presence && data.presence.byEntry.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {data.presence.byEntry.map((e) => (
+                <span
+                  key={e.entry}
+                  className="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-px font-mono text-[10px] text-muted-foreground"
+                >
+                  {e.entry} <span className="font-semibold text-foreground">{e.count}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </GlassCard>
   )
+}
+
+// Item 224: formata TTL em segundos para leitura humana (pt-BR)
+function fmtTtl(sec: number | undefined): string {
+  if (!sec) return '—'
+  if (sec < 60) return `${sec}s`
+  if (sec < 3600) return `${Math.round(sec / 60)}min`
+  if (sec % 3600 === 0) return `${sec / 3600}h`
+  return `${(sec / 3600).toFixed(1)}h`
 }

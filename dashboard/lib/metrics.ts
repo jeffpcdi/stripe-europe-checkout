@@ -69,9 +69,21 @@ export function aggregate(
   let refunds = 0
   let disputes = 0
 
-  // Série diária para sparklines/gráfico
+  // Série diária para sparklines/gráfico.
+  // Item 295 (bug): at.slice(0,10) cortava o dia em UTC — venda às 22h de
+  // Brasília (01h UTC do dia seguinte) caía no dia errado do gráfico.
+  // O corte diário agora é no fuso de Brasília ('en-CA' → YYYY-MM-DD).
   const dayMap = new Map<string, { revenue: number; sales: number; visits: number }>()
-  const dayOf = (at: string) => at.slice(0, 10)
+  const dayFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const dayOf = (at: string) => {
+    const t = new Date(at)
+    return Number.isNaN(t.getTime()) ? at.slice(0, 10) : dayFmt.format(t)
+  }
   const bump = (at: string, key: 'revenue' | 'sales' | 'visits', v: number) => {
     const d = dayOf(at)
     const cur = dayMap.get(d) ?? { revenue: 0, sales: 0, visits: 0 }
