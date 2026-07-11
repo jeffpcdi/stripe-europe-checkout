@@ -55,6 +55,12 @@ function page(opts) {
   .msg{padding:10px 13px;border-radius:9px;font-size:13.5px;margin-bottom:18px}
   .err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#fca5a5}
   .note{font-size:12.5px;color:var(--text-muted);margin:0 0 20px}
+  .pw-wrap{position:relative;display:block}
+  .pw-wrap input{padding-right:76px}
+  .pw-wrap button{position:absolute;right:6px;top:50%;transform:translateY(calc(-50% + 3px));width:auto;margin:0;
+    padding:5px 10px;background:transparent;border:1px solid var(--border);border-radius:7px;
+    color:var(--text-muted);font-size:12px;font-weight:500;cursor:pointer}
+  .pw-wrap button:hover{color:var(--text-sub);background:rgba(148,163,184,.08)}
   .meter{margin:-6px 0 14px}
   .meter-bar{height:4px;border-radius:2px;background:var(--border);overflow:hidden}
   .meter-bar i{display:block;height:100%;width:0;border-radius:2px;transition:width .2s,background .2s}
@@ -71,9 +77,12 @@ function page(opts) {
     <form id="f" method="POST" action="/${isRegister ? 'register' : 'login'}">
       ${nameField}
       <label>E-mail
-        <input name="email" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
+        <input name="email" type="email" autocomplete="email" required placeholder="voce@email.com" autofocus></label>
       <label>Senha
-        <input name="password" id="pw" type="password" autocomplete="${isRegister ? 'new-password' : 'current-password'}" required minlength="8" placeholder="${isRegister ? 'Mínimo 8 caracteres' : '••••••••'}"></label>
+        <span class="pw-wrap">
+          <input name="password" id="pw" type="password" autocomplete="${isRegister ? 'new-password' : 'current-password'}" required minlength="8" placeholder="${isRegister ? 'Mínimo 8 caracteres' : '••••••••'}">
+          <button type="button" id="pw-toggle" aria-label="Mostrar senha" aria-pressed="false">mostrar</button>
+        </span></label>
       ${isRegister ? '<div class="meter" id="meter" hidden><div class="meter-bar"><i id="meter-fill"></i></div><span class="meter-label" id="meter-label"></span></div>' : ''}
       <button type="submit" id="btn">${title}</button>
     </form>
@@ -81,6 +90,19 @@ function page(opts) {
   </div>
 <script>
   var f=document.getElementById('f'),btn=document.getElementById('btn');
+  // Item 494: mostrar/ocultar senha (acessível: aria-pressed + label dinâmico)
+  var pwT=document.getElementById('pw-toggle');
+  if(pwT){
+    pwT.addEventListener('click',function(){
+      var el=document.getElementById('pw');
+      var show=el.type==='password';
+      el.type=show?'text':'password';
+      pwT.textContent=show?'ocultar':'mostrar';
+      pwT.setAttribute('aria-pressed',String(show));
+      pwT.setAttribute('aria-label',(show?'Ocultar':'Mostrar')+' senha');
+      el.focus();
+    });
+  }
   // Item 435: medidor de força da senha (só no registro). Heurística local,
   // sem lib: comprimento + variedade de tipos de caractere.
   var pw=document.getElementById('pw'),meter=document.getElementById('meter');

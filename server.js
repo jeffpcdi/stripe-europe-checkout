@@ -335,7 +335,7 @@ app.use('/api', (req, res, next) => {
 // Allowlist (não denylist) de propósito: rota nova nasce bloqueada no domínio
 // do lojista até ser explicitamente liberada aqui.
 const CUSTOM_ALLOW_EXACT = new Set([
-  '/_safe', '/__domain-check',
+  '/_safe', '/__domain-check', '/healthz',
   '/t.js', '/px.js', '/px.gif',
   '/api/track', '/api/px/event', '/api/cloakcheck', '/api/conversion'
 ]);
@@ -734,6 +734,15 @@ app.post('/api/track', async (req, res) => {
   } catch (_) { /* rastreamento nunca derruba o servidor */ }
 });
 
+// Item 484: liveness probe do Railway — sem auth, sem I/O, resposta mínima.
+// Só confirma que o PROCESSO está de pé e respondendo. O health rico (com
+// estado de Neon/Redis) continua em /api/health, autenticado. Separar evita
+// que uma dependência lenta derrube o container por "unhealthy".
+app.get('/healthz', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.status(200).type('text/plain').send('ok');
+});
+
 // ── Página neutra de segurança (/_safe) ──────────────────────────────
 // Fallback FINAL do cloaker: quando um bot/revisor é detectado e o link não
 // tem white page própria nem white page global configurada, ele cai AQUI —
@@ -769,6 +778,32 @@ app.get('/_safe', (req, res) => {
   res.status(200).send(html);
 });
 
+// Itens 500/501: página de erro amigável para links públicos inexistentes ou
+// desativados. Um 404 de texto cru numa campanha paga = abandono garantido.
+// HTML por concatenação, sem crase (convenção das views públicas).
+function linkErrorPage(res, status) {
+  res.set('Cache-Control', 'no-store');
+  var html =
+    '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta name="robots" content="noindex,nofollow">' +
+    '<title>Link indisponivel</title>' +
+    '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;' +
+    'padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;' +
+    'background:radial-gradient(1000px 500px at 50% -10%,#0b1220 0,#04050a 60%);color:#f8fafc;line-height:1.6}' +
+    '.box{max-width:420px;text-align:center}' +
+    '.icon{width:56px;height:56px;margin:0 auto 20px;border-radius:14px;display:flex;align-items:center;' +
+    'justify-content:center;background:rgba(148,163,184,.1);border:1px solid #1e2438;font-size:28px}' +
+    'h1{font-size:22px;margin:0 0 10px;font-weight:700}' +
+    'p{margin:0;color:#94a3b8;font-size:15px}</style></head><body><div class="box">' +
+    '<div class="icon" aria-hidden="true">&#128279;</div>' +
+    '<h1>Este link nao esta disponivel</h1>' +
+    '<p>O endereco pode ter expirado, sido desativado ou digitado incorretamente. ' +
+    'Se voce chegou por um anuncio, tente novamente mais tarde.</p>' +
+    '</div></body></html>';
+  res.status(status || 404).send(html);
+}
+
 // ── Links de Checkout externos (/go/:slug) ───────────────────────────
 // O checkout NÃO vive neste projeto: cada link aponta para URLs externas
 // do usuário (qualquer gateway). Este redirect é o ponto de rastreamento:
@@ -778,7 +813,7 @@ app.get('/go/:slug', async (req, res) => {
   // resolve por conta: domínio personalizado → conta dona; senão 1º match
   const link = linkStore.resolve(req.params.slug, publicAccountId(req));
   if (!link || !link.ativo || !link.variantes.length) {
-    return res.status(404).send('Link não encontrado');
+    return linkErrorPage(res, 404); // itens 500/501: página amigável, não 404 seco
   }
   const acc = link.acc || publicAccountId(req); // conta dona do link
   const q = req.query || {};
@@ -1053,7 +1088,7 @@ function resolveCloakEntry(req) {
 
 app.get('/c/:slug', async (req, res) => {
   const found = resolveCloakEntry(req);
-  if (!found || !found.entry.offerUrl) return res.status(404).send('Link não encontrado');
+  if (!found || !found.entry.offerUrl) return linkErrorPage(res, 404); // itens 500/501
   const { acc, entry } = found;
   const offer = entry.offerUrl;
   // FAIL-SAFE: white do próprio link → white global da conta → /_safe embutida.
@@ -2218,7 +2253,7 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   res.json({ ok: true, cloak: config.get(req.account.id).cloak });
 });
 
-// ── Regras de cloaking POR LINK (offer/white/países/pixel) ─────────────────
+// ── Regras de cloaking POR LINK (offer/white/pa��ses/pixel) ─────────────────
 // Lista os links com suas regras + os pixels disponíveis para o dropdown.
 app.get('/api/cloak/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -2311,7 +2346,7 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   let entry = null;
   if (slug) {
     entry = (config.get(req.account.id).cloakLinks || []).find((l) => l.slug === slug) || null;
-    if (!entry) return res.status(404).json({ error: 'link de cloaking não encontrado' });
+    if (!entry) return res.status(404).json({ error: 'link de cloaking n��o encontrado' });
     cloakCfg = entry; // o /c/:slug passa o próprio entry como cloakCfg ao judge
   }
 

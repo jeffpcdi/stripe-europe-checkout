@@ -15,7 +15,14 @@ const BOT_RE = new RegExp([
   'lighthouse', 'pagespeed', 'gtmetrix', 'pingdom', 'uptimerobot', 'statuscake',
   'curl/', 'wget/', 'python-requests', 'python-urllib', 'aiohttp', 'httpx',
   'go-http-client', 'okhttp', 'java/', 'libwww-perl', 'node-fetch', 'undici',
-  'axios/', 'postmanruntime', 'insomnia', 'vercel-screenshot', 'checkly'
+  'axios/', 'postmanruntime', 'insomnia', 'vercel-screenshot', 'checkly',
+  // Item 466: safra 2026 — crawlers de IA e scanners de rede que não caem
+  // no genérico "bot\b" (alguns nem levam "bot" no nome).
+  'oai-searchbot', 'chatgpt-user', 'perplexitybot', 'anthropic-ai', 'claude-web',
+  'meta-externalagent', 'meta-externalfetcher', 'amazonbot', 'applebot',
+  'ccbot', 'diffbot', 'timpibot', 'omgili', 'cohere-ai', 'youbot', 'bravebot',
+  'dataforseo', 'serpapi', 'screaming frog', 'siteauditbot',
+  'zgrab', 'masscan', 'nuclei/', 'nmap', 'censysinspect', 'expanse,', 'paloaltonetworks'
 ].join('|'), 'i');
 
 // Navegador in-app da TikTok/ByteDance — é ONDE VIVE O USUÁRIO REAL do anúncio.

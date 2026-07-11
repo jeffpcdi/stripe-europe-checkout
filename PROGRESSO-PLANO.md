@@ -235,7 +235,7 @@ Lote concluído: 176–188 (todos ✅ abaixo). 189/183/184/185/187/182/188/186 �
     - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
   - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
-- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç������������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç��������������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
@@ -332,7 +332,7 @@ Validação: `node --check` limpo (server/presence/bot-filter/redis), `tsc --noE
 
 Validação: `node --check` limpo, `tsc --noEmit` limpo, `npm test` verde (9 suítes, incl. durable-flows 26/26), `next build` limpo. **Bloco M completo.**
 
-## Leva 6, itens 253–270 — velocity + tipos/health + testes (completo)
+## Leva 6, itens 253���270 — velocity + tipos/health + testes (completo)
 
 - ✅ 253. Auditado: reasons de velocity já traduzidos na legenda pt-BR do painel de stats do cloak.
 - ✅ 254. **Velocity configurável por conta** — `config.cloak.velocityLimit` (clamp 3–100, padrão 12) e `velocityWindowSec` (clamp 10–600, padrão 60) no sanitizador do `config.js`; `/c` lê da conta; `POST /api/cloak-config` persiste os 2 campos.
@@ -419,6 +419,29 @@ Validação: `node --check` limpo (stats/server/db), `tsc --noEmit` limpo, `npm 
 - ✅ 473 (novo). Varredura de vazamento em logs: auditados os 27 módulos do backend (nenhum console.* loga cookie/authorization/password/process.env) + guard estático permanente na security.test.js (cenário F) que falha a suíte se algum log sensível for introduzido.
 
 Validação: suíte completa verde (13 suítes), 304/413 verificados via HTTP real em porta isolada, preview intacto.
+
+### Continuação (456, 464, 472, 482)
+
+- ✅ 456 (novo). Falha de Pushcut deixou de ser invisível: `logFailure()` registra evento no feed da conta ("Notificação X falhou: motivo") além do console — o dono vê na dashboard em vez de só descobrir o celular mudo.
+- ✅ 464 (novo). Watchdog de anomalia opt-in (`events.watchdog`): de carona no tráfego (máx 1 varredura/h), alerta via Pushcut + evento no feed se a conta ficar 6h sem vendas TENDO baseline (≥14 vendas nos últimos 7d), anti-spam de 12h por conta. Toggle "Alerta de anomalia" na aba Config; tipo `PushcutEvents.watchdog` atualizado.
+- ✅ 472 (novo). Timeout de 8s (AbortController) no fetch do Pushcut — endpoint fora do ar nunca pendura o webhook/checkout que disparou a notificação; timeout também vira logFailure.
+- ✅ 482 (novo). Sessão deslizante: `db.touchAuthSession()` (UPDATE expires_at = now()+30d, só se ainda válida) chamado pelo `resolveSession` apenas quando a sessão já consumiu mais da metade do TTL — usuário ativo nunca é deslogado, e o UPDATE é raro (cache de 5 min + janela de metade do TTL). Fire-and-forget.
+
+Validação: `node --check` limpo (server/db/auth/pushcut), `tsc --noEmit` limpo, suíte completa verde (13 suítes / 15 marcos OK).
+
+### Continuação (484, 494, 495, 500/501) + auditorias
+
+- Auditados como JÁ implementados: 468 (compression gzip/brotli no Express), 490 (sendBeacon no pagehide do tracker), 495 (anti-duplo-submit + loading no submit do auth-view).
+- ✅ 484 (novo). `/healthz` sem auth, sem I/O ("ok" 200) para o liveness probe do Railway, liberado na allowlist de domínio personalizado; health rico segue em /api/health autenticado. Separar evita container "unhealthy" por dependência lenta.
+- ✅ 494 (novo). UX do login/registro: autofocus no e-mail, botão mostrar/ocultar senha acessível (aria-pressed + aria-label dinâmico). Submit-com-Enter já era nativo do form.
+- ✅ 500/501 (novo). `linkErrorPage()` — página HTML amigável (identidade dark, noindex) no lugar do "Link não encontrado" cru, aplicada em /go e /c para link inexistente/desativado/expirado. Verificado ao vivo.
+
+Validação: `node --check` limpo, suíte verde, `tsc --noEmit` limpo; healthz/go/c/login verificados via HTTP real em porta isolada.
+
+## Leva 7 — refino UX/DX — em andamento
+
+- ✅ 466 (novo). ua.js atualizado com a safra 2026 de crawlers (OAI-SearchBot, ChatGPT-User, PerplexityBot, ClaudeBot, meta-externalagent, Amazonbot, Applebot, CCBot, Screaming Frog, zgrab/masscan/nuclei/Expanse etc.) + nova suíte test/ua.test.js (14ª): 3 UAs REAIS do TikTok in-app garantidas como humanas (o contrato mais caro do funil), 17 crawlers detectados, 4 navegadores humanos sem falso-positivo, parse de device/OS validado. Registrada no npm test.
+- ✅ 465 (novo). README.md reescrito (era boilerplate obsoleto do AI Studio): matriz de graceful degradation (com/sem Neon/Redis — o caminho do dinheiro funciona sempre; sem Neon perde durabilidade e login), env vars, estrutura de módulos e convenções do projeto.
 
 ## Fila de execução (próximos)
 
