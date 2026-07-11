@@ -184,8 +184,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `POST /api/cloak/link/:slug`, `POST /api/cloak/test`, `GET /api/cloakcheck`.
   **Métricas de decisão:** `GET /api/cloak/stats` (offer vs white + taxa de bloqueio + breakdown por
   motivo, por link e agregado) e `POST /api/cloak/stats/reset` (zera um link via `{key}` ou todos).
+  **Histórico de decisões (item 170):** `GET /api/cloak/decisions?key=` devolve as últimas ~50 decisões
+  do link (mesma convenção de `key`: `slug` no `/go`, `'cloak:'+slug` no `/c`), com **IP mascarado** (sem
+  PII). Store `pushCloakDecision`/`getCloakDecisionLog` no `redis.js` (lista LTRIM 50 + TTL 30d, fallback
+  em memória), alimentado pelo funil `bumpDecision` do `/c`. `stats/reset` também limpa esse log. O front
+  reexecuta o julgamento (item 171) reusando `POST /api/cloak/test` — não há replay do visitante histórico.
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
-- **Convers��������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
+- **Convers����������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
   **Mecanismo de verificaç��o (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
   comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
@@ -194,6 +199,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   DNS apontado NÃO basta — sem o domínio roteado na hospedagem (Custom Domain + SSL), `/go` daria 404.
   `dnsPronto=true` = DNS ok mas app ainda não atende. Sem cache: cada verify re-checa do zero. O front
   (dashboard-view.js) tem polling de 30s (só com pendentes + aba visível).
+  **Sinal de propagação via DoH (item 175):** quando o resolver LOCAL (`dnsp`) não vê registro nenhum,
+  o verify consulta `dohResolve()` (DNS-over-HTTPS: dns.google + cloudflare-dns, timeout 2.5s, best-effort).
+  Se o CNAME/A já aparece nos resolvers públicos apontando pra cá, devolve `dnsPropagating=true` (a
+  dashboard mostra "já visível na rede global — propagação em curso" em vez de "não resolve" e some o CTA
+  de erro). É só um sinal antecipado — nunca fonte de verdade; `ok` continua sendo `httpOk`.
   **Registro automático na hospedagem:** `POST /api/domains` chama `domain-provider.js` (Railway GraphQL
   `customDomainCreate`) quando `RAILWAY_API_TOKEN` está setado; devolve `dnsRecords` (CNAME + eventual TXT
   de verificação) que o popup exibe. `DELETE` remove também na Railway (`customDomainDelete` via
@@ -367,9 +377,12 @@ npm test        # roda os testes de regressão (test/*.test.js), sem rede/DB rea
 cd dashboard && npm run dev -- -p 3001   # HMR; acesse via http://localhost:3000/dashboard (proxy)
 ```
 - **Build:** só o app `dashboard/` tem build (Next). O Express continua JS puro sem transpile.
-- **Testes:** `npm test` — asserts em Node puro, sem framework. `test/retry-queue.test.js` (re-resolução
-  da fila CAPI por token) e `test/gateway-only.test.js` (trava de eventos monetários). Stubam
-  `pixel-store`/`redis` no require-cache e `global.fetch`. Ao mexer no motor CAPI, rode-os.
+- **Testes:** `npm test` — asserts em Node puro, sem framework (6 suítes). `test/retry-queue.test.js`
+  (re-resolução da fila CAPI por token), `test/gateway-only.test.js` (trava de eventos monetários),
+  `test/attribution.test.js`, `test/pixel-durability.test.js`, `test/security.test.js` e
+  `test/cloak-decision-log.test.js` (item 170: mascaramento de IP sem PII, teto de 50, escopo por
+  conta+slug, reset zera o log). Stubam `pixel-store`/`redis` no require-cache e `global.fetch`; o log
+  roda no fallback de memória do redis. Ao mexer no motor CAPI ou no store de decisões do cloaker, rode-os.
 - **Migração de banco:** automática e idempotente — `db.init()` roda `CREATE TABLE/ALTER … IF NOT EXISTS` no boot.
 
 ### 11.1 Acesso rápido à dashboard em desenvolvimento (para IAs/testes)
