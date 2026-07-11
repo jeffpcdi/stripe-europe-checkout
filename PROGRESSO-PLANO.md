@@ -209,7 +209,8 @@ Pendente do lote (UI ampla, próxima fatia): 175, 182, 185–188, 190 (formato d
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
-Pendente: replicar `ConfirmDialog`/`toast` nas demais views (links, pixels, domínios, cloak entries) e itens 175, 186, 190 (docs CLAUDE.md + bateria de testes 161–190) — próxima fatia.
+- ✅ 186. Indicador global de durabilidade no cabeçalho: `DurabilityBadge` (`components/shell/durability-badge.tsx`) montado no `Header`, ao lado do `LiveBadge`. Consolida banco (Neon) + Redis do `/api/health` num só lugar e classifica: **durável** (banco no ar → badge oculto), **degradado** (banco fora + Redis no ar → âmbar, "rodando pelo snapshot, alterações seguem salvas") e **volátil** (banco e Redis fora → vermelho, "alterações podem se perder ao reiniciar"). Só aparece quando o banco cai (não polui o estado saudável, já coberto pelo `LiveBadge`); link para `/` (Visão geral) onde o `HealthCard` detalha os serviços
+Pendente: replicar `ConfirmDialog`/`toast` nas demais views (links, pixels, domínios, cloak entries) e itens 175, 190 (docs CLAUDE.md + bateria de testes 161–190) — próxima fatia.
 
 Evidência: `node --check` limpo nos 3 módulos, `next build` limpo (type-check incluído, 12 rotas prerenderizadas), 5/5 suítes de teste passando, `getJudgeLatency()` conferido em runtime.
 
@@ -217,7 +218,7 @@ Evidência: `node --check` limpo nos 3 módulos, `next build` limpo (type-check 
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Leva 4 (141–200) — 161–168/204–206/210 (transparência do cloak) + 176–182 (backend/API + erro c/ retry) + 183/184/189 (primitivos de UX) + 185/187/188 (persistência de UI, revalidação de listas, i18n) concluídos; faltam 141–160, 169–175, 186, 190–203, 207–209, 211–240
+1. Leva 4 (141–200) — 161–168/204–206/210 (transparência do cloak) + 176–182 (backend/API + erro c/ retry) + 183/184/186/189 (primitivos de UX + durabilidade global) + 185/187/188 (persistência de UI, revalidação de listas, i18n) concluídos; faltam 141–160, 169–175, 190–203, 207–209, 211–240
 2. 15, 18, 22, 24, 26 — refinos visuais restantes da Leva 2
 3. Leva 5–7 (201–570) — 241–252 já concluídos (antecipados)
 

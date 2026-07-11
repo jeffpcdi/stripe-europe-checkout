@@ -185,9 +185,9 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   **Métricas de decisão:** `GET /api/cloak/stats` (offer vs white + taxa de bloqueio + breakdown por
   motivo, por link e agregado) e `POST /api/cloak/stats/reset` (zera um link via `{key}` ou todos).
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
-- **Convers������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
+- **Convers��������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
-  **Mecanismo de verificação (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
+  **Mecanismo de verificaç��o (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
   comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
   → `cloudflareProxy=true` (nuvem laranja mascara o CNAME real). (2) HTTP — `GET https://host/__domain-check`
   precisa responder 200 com `{app:'roi-nados-tracker'}` (assinatura `APP_CHECK_ID`). **`ok = httpOk`**:
@@ -672,6 +672,11 @@ improvise `window.confirm`, `savedAt`/`copied` locais, trap de foco caseiro ou b
   title="…" onRetry={() => mutate()} />` ANTES do branch de skeleton — só quando não há cache (com
   dados, deixe o SWR revalidar em silêncio). Já em links/pixels/gateways/domínios. Se a view já tem
   um `error` local (ex.: domains), renomeie o do SWR para `loadError` no destructure.
+- **`components/shell/durability-badge.tsx`** — `DurabilityBadge` (item 186), montado no `Header`.
+  Lê `/api/health` (`useHealth`) e classifica: banco no ar → OCULTO (não polui; `LiveBadge` cobre a
+  saúde geral); banco fora + Redis no ar → âmbar "Persistência degradada"; banco e Redis fora →
+  vermelho "Config volátil". É o lugar canônico do estado de durabilidade — NÃO recrie esse alerta
+  em views individuais.
 Pendente (próxima fatia): migrar links/pixels/domínios/cloak entries para `ConfirmDialog`+`toast`.
 
 ### 19.5 Armadilhas específicas da dashboard nova

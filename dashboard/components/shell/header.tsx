@@ -7,6 +7,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { RefreshCw, LogOut, UserRound, Eye, EyeOff } from 'lucide-react'
 import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
 import { useAccount, useHealth } from '@/lib/api'
+import { DurabilityBadge } from '@/components/shell/durability-badge'
 import { usePrefs } from '@/lib/prefs'
 import { cn } from '@/lib/utils'
 
@@ -257,6 +258,8 @@ export function Header() {
             <LiveClock />
           </span>
           <div className="flex items-center gap-2">
+            {/* Item 186: alerta global de durabilidade (só aparece se o banco cair) */}
+            <DurabilityBadge />
             <PrivacyButton />
             <RefreshButton />
             <LiveBadge />
