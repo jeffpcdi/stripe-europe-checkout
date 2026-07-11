@@ -10,6 +10,7 @@ import {
   RotateCcw,
   ShieldAlert,
   Coins,
+  CalendarDays,
 } from 'lucide-react'
 import { useStats } from '@/lib/api'
 import {
@@ -193,6 +194,27 @@ export function OverviewView() {
   const revSeries = cur.series.map((s) => s.revenue)
   const salesSeries = cur.series.map((s) => s.sales)
   const visitSeries = cur.series.map((s) => s.visits)
+
+  // Item 274: melhor dia da semana por receita, derivado da própria série
+  // (sem tocar backend). Soma cada ponto no seu dia da semana e escolhe o
+  // maior; só vale a pena mostrar com pelo menos duas semanas de dados.
+  const bestWeekday = useMemo(() => {
+    if (cur.series.length < 14) return null
+    const names = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+    const byDow = Array.from({ length: 7 }, () => ({ revenue: 0, count: 0 }))
+    for (const p of cur.series) {
+      const dow = new Date(p.day + 'T00:00:00').getDay()
+      if (Number.isNaN(dow)) continue
+      byDow[dow].revenue += p.revenue
+      byDow[dow].count += 1
+    }
+    let best = -1
+    for (let i = 0; i < 7; i++) {
+      if (byDow[i].count > 0 && (best < 0 || byDow[i].revenue > byDow[best].revenue)) best = i
+    }
+    if (best < 0 || byDow[best].revenue <= 0) return null
+    return { name: names[best], revenue: byDow[best].revenue }
+  }, [cur.series])
 
   const attempts = cur.sales + cur.failed
   const apColor = !attempts
@@ -423,8 +445,26 @@ export function OverviewView() {
         className="cv-auto grid gap-4 lg:grid-cols-3"
         data-tour="chart"
       >
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 flex flex-col gap-4">
           <RevenueChart series={cur.series} currency={cur.mainCur} />
+          {/* Item 274: insight do melhor dia da semana (só com histórico suficiente) */}
+          {bestWeekday && (
+            <GlassCard className="flex items-center gap-3 p-4">
+              <div
+                className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
+              >
+                <CalendarDays className="size-5" style={{ color: '#25f4ee' }} aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Melhor dia da semana</p>
+                <p className="text-sm font-semibold text-foreground text-pretty">
+                  {bestWeekday.name} lidera com{' '}
+                  <span data-sensitive>{money(bestWeekday.revenue, cur.mainCur)}</span> em receita
+                </p>
+              </div>
+            </GlassCard>
+          )}
         </div>
         <HealthCard />
       </section>

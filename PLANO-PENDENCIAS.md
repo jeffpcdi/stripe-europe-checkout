@@ -45,7 +45,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 ### B1. Overview / Dashboard principal (271–299)
 - **271.** Meta de receita mensal por conta com barra de progresso (`revenue_goal`).
 - **272.** Comparativo "período atual vs anterior" no gráfico (linha fantasma).
-- **274.** Card "melhor dia da semana" e "melhor hora" das séries.
+- **274.** Card "melhor dia da semana" e "melhor hora" das séries. — ⚠️ PARCIAL: "melhor dia da semana" FEITO (card de insight abaixo do gráfico, derivado da série, aparece só com ≥14 dias). "Melhor hora" ainda falta (a série é diária; exigiria granularidade horária do backend).
 - **275.** Anotações no gráfico (`chart_annotations`) marcando eventos.
 - **276.** Previsão simples de fim de mês (projeção linear) com disclaimer.
 - ~~**277.** Alerta com CTA quando aprovação < 40%~~ — ✅ FEITO: banner `role="alert"` na Overview (só com volume ≥10 tentativas, para não gritar com amostra pequena) com CTA "Abrir cloaker".
