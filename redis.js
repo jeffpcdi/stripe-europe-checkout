@@ -408,6 +408,11 @@ async function pushCloakDecision(accountId, slug, entry) {
     ua: String(entry.ua || '').slice(0, 120),
     country: entry.country ? String(entry.country).slice(0, 2).toUpperCase() : '',
   };
+  // Item 212: top sinais do judge nesta decisão — permitem ao usuário ver
+  // QUAIS camadas mais barram e calibrar o threshold com base em dados.
+  if (Array.isArray(entry.signals) && entry.signals.length) {
+    row.signals = entry.signals.slice(0, 5).map((s) => String(s).slice(0, 60));
+  }
   if (!enabled) {
     const arr = cloakLogMem.get(key) || [];
     arr.unshift(row);
@@ -642,6 +647,52 @@ async function getStickyBot(vid) {
     if (!raw) return null;
     return typeof raw === 'string' ? JSON.parse(raw) : raw;
   } catch (_) { return null; }
+}
+
+// Item 201: painel do veredito sticky — conta quantos visitantes estão em
+// cache como bot agora (SCAN limitado) e permite limpar UM vid para reteste.
+async function countStickyBots() {
+  if (!enabled) return { available: false, count: 0 };
+  try {
+    let cursor = '0';
+    let count = 0;
+    let rounds = 0;
+    do {
+      const [next, keys] = await redis.scan(cursor, { match: 'cloakbot:*', count: 200 });
+      cursor = String(next);
+      count += (keys || []).length;
+      rounds++;
+    } while (cursor !== '0' && rounds < 25); // teto de segurança do SCAN
+    return { available: true, count, truncated: cursor !== '0' };
+  } catch (_) { return { available: false, count: 0 }; }
+}
+
+async function clearStickyBot(vid) {
+  if (!enabled || !vid) return false;
+  try {
+    const n = await redis.del('cloakbot:' + String(vid).slice(0, 80));
+    return Number(n) > 0;
+  } catch (_) { return false; }
+}
+
+// Item 203: contador durável de replays de ttclid barrados (por conta, 30d).
+const _memReplayCount = new Map();
+async function bumpTtclidReplay(accountId) {
+  const acc = accountId || 'default';
+  if (!enabled) { _memReplayCount.set(acc, (_memReplayCount.get(acc) || 0) + 1); return; }
+  try {
+    const key = 'ttreplay:count:' + acc;
+    await redis.incr(key);
+    await redis.expire(key, 30 * 86400);
+  } catch (_) { _memReplayCount.set(acc, (_memReplayCount.get(acc) || 0) + 1); }
+}
+async function getTtclidReplayCount(accountId) {
+  const acc = accountId || 'default';
+  if (!enabled) return _memReplayCount.get(acc) || 0;
+  try {
+    const v = await redis.get('ttreplay:count:' + acc);
+    return Number(v) || 0;
+  } catch (_) { return _memReplayCount.get(acc) || 0; }
 }
 
 // ── Lock distribuído (SET NX EX) ──────────────────────────────────────────
@@ -933,6 +984,8 @@ module.exports = {
   heartbeatConvWorker, getConvWorkerBeat, capiRetryInfo,
   bumpWebhookDedup, getWebhookDedupCount,
   setStickyBot, getStickyBot,
+  countStickyBots, clearStickyBot,            // Item 201
+  bumpTtclidReplay, getTtclidReplayCount,     // Item 203
   checkTtclidContext, bumpVelocity,
   acquireLock, releaseLock,
   bumpEmq, getEmqTrend, clearEmq, // Item 200

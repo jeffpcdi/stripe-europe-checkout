@@ -448,6 +448,10 @@ app.get('/t.js', (req, res) => {
   res.send(TRACKER_JS + (snippet ? '\n' + snippet : ''));
 });
 
+// Item 209: telemetria mínima do challenge JS — se NENHUM beacon chega, o
+// snippet /t.js não está instalado nas páginas e as camadas D–H ficam inertes.
+const _challengeBeacon = { count: 0, lastAt: 0 };
+
 // Recebe a resposta do JS challenge enviada pelo snippet do /t.js.
 // Valida o token HMAC e persiste todos os sinais do browser (WebGL renderer,
 // timezone IANA, biometria comportamental, canvas hash, timing) no lead,
@@ -486,6 +490,12 @@ app.post('/api/cloakcheck', async (req, res) => {
   if (typeof b.nt    === 'number')             patch.cloakNt    = b.nt;
 
   try { stats.attachTracking(vid, patch); } catch (_) {}
+
+  // Item 209: marca que o snippet /t.js ESTÁ instalado e devolvendo o challenge.
+  // Sem nenhum beacon, as camadas D–H (WebGL, timezone, comportamento, entropia)
+  // ficam inertes — o /api/cloak/stats usa isso para avisar o usuário.
+  _challengeBeacon.count++;
+  _challengeBeacon.lastAt = Date.now();
 
   // Beacon revelou headless (WebGL de software) mesmo tendo passado a 1ª visita
   // só por headers → grava veredito sticky de bot para a PRÓXIMA visita ir à
@@ -977,11 +987,12 @@ app.get('/c/:slug', async (req, res) => {
   // Registra a decisão (offer/white + motivo) nos contadores do painel e,
   // separadamente, no log das últimas N decisões (item 170) — IP mascarado,
   // sem PII. `score` é opcional (só o gate de score o conhece).
-  const bumpDecision = (decision, reason, score) => {
+  const bumpDecision = (decision, reason, score, signals) => {
     try { redis.bumpCloakDecision(acc, 'cloak:' + entry.slug, decision, reason); } catch (_) {}
     try {
       redis.pushCloakDecision(acc, 'cloak:' + entry.slug, {
         decision, reason, score,
+        signals, // Item 212: top sinais do judge nesta decisão (para calibrar camadas)
         ip: clientIp(req),
         ua: uaRaw,
         country: (geoFromReq(req).country || ''),
@@ -1094,6 +1105,7 @@ app.get('/c/:slug', async (req, res) => {
         if (tc.reused) {
           stats.logEvent('info', { acc, title: '[cloak] ttclid reusado de outro contexto → white', gateway: 'cloak:' + entry.slug, ref: ip });
           bumpDecision('white', 'ttclid-replay');
+          redis.bumpTtclidReplay(acc).catch(() => {}); // Item 203: contador durável de replays barrados
           return go(white);
         }
       }
@@ -1138,7 +1150,7 @@ app.get('/c/:slug', async (req, res) => {
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
     if (j.verdict === 'bot') {
       stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
-      bumpDecision('white', 'score', j.score);
+      bumpDecision('white', 'score', j.score, (j.signals || []).slice(0, 5));
       // Memoriza o veredito por visitante (só score alto/forte): próximas visitas
       // curto-circuitam no gate sticky acima, sem re-rodar o judge.
       if (cloakVid && j.score >= (j.threshold || 40)) {
@@ -1292,7 +1304,7 @@ app.get('/api/v1/summary', (req, res) => {
   res.json({ today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() });
 });
 
-// ── Relatório diário via Pushcut ──────────────������─────────────────────
+// ── Relatório diário via Pushcut ──────────────�������─────────────────────
 // Sem cron confiável em serverless: verificação barata "pegando carona"
 // no tráfego (track/conversão). Na primeira request após a virada do dia
 // (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
@@ -2096,7 +2108,31 @@ app.get('/api/cloak/stats', dashboardAuth, async (req, res) => {
   }, { offer: 0, white: 0, total: 0, reasons: {} });
   agg.blockRate = agg.total ? agg.white / agg.total : 0;
 
-  res.json({ ok: true, redis: redis.enabled, aggregate: agg, links: items });
+  // Item 201: quantos visitantes estão em cache como bot AGORA (sticky 6h).
+  // Item 203: quantos acessos foram barrados por replay de ttclid (30d).
+  const [sticky, ttclidReplays] = await Promise.all([
+    redis.countStickyBots().catch(() => ({ available: false, count: 0 })),
+    redis.getTtclidReplayCount(acc).catch(() => 0)
+  ]);
+
+  res.json({
+    ok: true, redis: redis.enabled, aggregate: agg, links: items, sticky, ttclidReplays,
+    // Item 209: se nunca chegou beacon do challenge, o snippet /t.js não está
+    // instalado nas páginas — as camadas D–H do julgamento ficam inertes.
+    challenge: { beacons: _challengeBeacon.count, lastAt: _challengeBeacon.lastAt || null }
+  });
+});
+
+// Item 201: limpar o veredito sticky de UM visitante (vid) para reteste.
+// O sticky é unidirecional (só cacheia BOT) — limpar força o judge a re-rodar
+// na próxima visita daquele v_id. Útil quando um humano real caiu no cache.
+app.post('/api/cloak/sticky/clear', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const vid = String((req.body && req.body.vid) || '').trim().slice(0, 80);
+  if (!vid) return apiError(res, 400, 'Informe o v_id do visitante para limpar o veredito.', 'missing_vid');
+  if (!redis.enabled) return apiError(res, 400, 'O veredito sticky só existe com Redis configurado.', 'no_redis');
+  const cleared = await redis.clearStickyBot(vid);
+  res.json({ ok: true, cleared });
 });
 
 // Zera os contadores de um link (ou de todos, se slug ausente).

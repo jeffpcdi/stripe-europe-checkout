@@ -18,6 +18,14 @@ const REASON_LABELS: Record<string, string> = {
   datacenter: 'datacenter',
   headless: 'headless',
   webview: 'webview',
+  // Item 203: replay de ttclid — revisor copiou uma URL capturada e o clique
+  // reapareceu com contexto divergente (IP/UA diferente do primeiro uso)
+  'ttclid-replay': 'link de anúncio reusado (replay)',
+  // Itens 201/202: veredito sticky — visitante já marcado como bot nas últimas 6h
+  sticky: 'já marcado como bot (cache 6h)',
+  velocity: 'muitos acessos do mesmo IP',
+  mobile: 'exigia celular',
+  anuncio: 'exigia clique de anúncio',
 }
 
 // Item 144: mini-gráfico diário offer×white por link (o backend já devolve
@@ -184,6 +192,85 @@ export function CloakStatsPanel() {
         <p className="py-6 text-center text-sm text-muted-foreground">
           Sem decisões registradas ainda. Os contadores aparecem quando o tráfego chega nos links protegidos.
         </p>
+      )}
+
+      {/* Item 209: challenge JS nunca coletado — se há tráfego mas nenhum
+          beacon chegou, o snippet /t.js não está instalado nas páginas e as
+          camadas D–H (WebGL, fuso, comportamento, entropia) ficam inertes. */}
+      {agg && agg.total > 0 && data?.challenge && data.challenge.beacons === 0 && (
+        <div className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
+          <p className="font-medium text-warning">Desafio JavaScript sem coleta</p>
+          <p className="mt-1 leading-snug text-muted-foreground text-pretty">
+            Seus links recebem tráfego, mas nenhuma página devolveu o desafio JS — provavelmente o
+            snippet <code className="rounded bg-secondary px-1 font-mono">/t.js</code> não está
+            instalado. Sem ele, as camadas de WebGL, fuso horário, comportamento e entropia ficam
+            desligadas e o julgamento usa só rede e cabeçalhos. Instale{' '}
+            <code className="rounded bg-secondary px-1 font-mono">{'<script src="https://SEU-DOMINIO/t.js"></script>'}</code>{' '}
+            no <code className="rounded bg-secondary px-1 font-mono">{'<head>'}</code> das suas páginas
+            de destino.
+          </p>
+        </div>
+      )}
+
+      {/* Itens 201/202/203: veredito sticky + anti-replay de ttclid.
+          O sticky é UNIDIRECIONAL: só cacheia BOT (6h), nunca "real" — um bot
+          jamais fica preso como humano (fail-safe). Limpar um vid força o
+          judge a re-rodar na próxima visita daquele visitante. */}
+      {(data?.sticky?.available || (data?.ttclidReplays ?? 0) > 0) && (
+        <div className="mb-4 rounded-lg border border-border bg-secondary/40 p-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            {data?.sticky?.available && (
+              <span className="text-muted-foreground">
+                <span className="font-semibold text-foreground">{data.sticky.count.toLocaleString('pt-BR')}{data.sticky.truncated ? '+' : ''}</span>{' '}
+                visitante(s) em cache como bot (6h)
+              </span>
+            )}
+            {(data?.ttclidReplays ?? 0) > 0 && (
+              <span className="text-muted-foreground">
+                <span className="font-semibold text-foreground">{(data?.ttclidReplays ?? 0).toLocaleString('pt-BR')}</span>{' '}
+                replay(s) de link de anúncio barrados (30d)
+              </span>
+            )}
+          </div>
+          {data?.sticky?.available && (
+            <form
+              className="mt-2 flex items-center gap-1.5"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const form = e.currentTarget
+                const input = form.elements.namedItem('vid') as HTMLInputElement
+                const vid = input.value.trim()
+                if (!vid) return
+                apiSend('/api/cloak/sticky/clear', 'POST', { vid })
+                  .then((r: unknown) => {
+                    const ok = (r as { cleared?: boolean }).cleared
+                    toast[ok ? 'success' : 'info'](ok ? 'Veredito limpo — o próximo acesso deste visitante será julgado de novo.' : 'Nenhum veredito em cache para este v_id.')
+                    input.value = ''
+                    mutate()
+                  })
+                  .catch((err: unknown) => toast.error('Falha ao limpar o veredito.', { hint: err instanceof Error ? err.message : undefined }))
+              }}
+            >
+              <input
+                name="vid"
+                type="text"
+                placeholder="v_id do visitante para reteste"
+                className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                aria-label="v_id do visitante para limpar o veredito de bot"
+              />
+              <button
+                type="submit"
+                className="h-7 shrink-0 rounded-md border border-border px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
+              >
+                Limpar veredito
+              </button>
+            </form>
+          )}
+          <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
+            O cache é unidirecional: só guarda veredito de bot, nunca de humano — um robô jamais fica
+            &quot;preso&quot; como real. Limpe um v_id apenas quando um visitante legítimo caiu no cache.
+          </p>
+        </div>
       )}
 
       {/* Por link */}

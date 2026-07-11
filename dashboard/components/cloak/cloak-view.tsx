@@ -55,6 +55,32 @@ const CLOAK_STEPS: TutorialStep[] = [
       </>
     ),
   },
+  // Item 202: natureza unidirecional do veredito sticky
+  {
+    title: 'Memória de bot (sticky)',
+    body: (
+      <>
+        Quando um visitante é condenado como robô, o veredito fica <strong>guardado por 6 horas</strong>:
+        as próximas visitas dele vão direto para a página segura, sem re-julgar. Esse cache é{' '}
+        <strong>unidirecional</strong> — só guarda veredito de <em>bot</em>, nunca de humano. Um robô que
+        passou uma vez não fica &quot;preso&quot; como real: ele é re-julgado a cada visita.
+      </>
+    ),
+    tip: 'Isso evita que um revisor alterne entre offer e white recarregando a página — e é um fail-safe: errar para o lado seguro.',
+  },
+  // Itens 207/211: regras de fuso/idioma por país e exceções legítimas
+  {
+    title: 'Fuso horário e idioma por país',
+    body: (
+      <>
+        Para os principais países (BR, PT, ES, IT, FR, DE, US, MX…), o cloaker sabe qual{' '}
+        <strong>fuso horário</strong> e quais <strong>idiomas</strong> são esperados. Um acesso com IP do
+        Brasil e navegador em chinês, ou fuso da Europa, gera os sinais{' '}
+        <strong>&quot;idioma fora do país&quot;</strong> e <strong>&quot;fuso não bate&quot;</strong>.
+      </>
+    ),
+    tip: 'Esses sinais têm peso REDUZIDO de propósito: viajantes e VPNs pessoais são exceções legítimas. Não aperte demais o limiar por causa deles — sozinhos, nunca bloqueiam ninguém.',
+  },
 ]
 
 export function CloakView() {

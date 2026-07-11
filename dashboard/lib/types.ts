@@ -453,6 +453,12 @@ export interface CloakStatsResponse {
     reasons: Record<string, number>
   }
   links: CloakStatItem[]
+  // Item 201: visitantes atualmente em cache como bot (sticky 6h)
+  sticky?: { available: boolean; count: number; truncated?: boolean }
+  // Item 203: acessos barrados por replay de ttclid (contador 30d)
+  ttclidReplays?: number
+  // Item 209: beacons do challenge JS recebidos (0 = snippet /t.js ausente)
+  challenge?: { beacons: number; lastAt: number | null }
 }
 
 // ── /api/cloak/entries — links de cloaking dedicados (/c/:slug) ──
@@ -490,6 +496,8 @@ export interface CloakDecisionRow {
   ip: string // mascarado: 1.2.3.x
   ua: string
   country: string // ISO-2
+  // Item 212: top sinais do judge nesta decisão (só quando reason='score')
+  signals?: string[]
 }
 
 export interface CloakDecisionsResponse {
