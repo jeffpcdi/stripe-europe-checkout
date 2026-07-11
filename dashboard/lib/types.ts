@@ -398,6 +398,10 @@ export interface CloakTestResult {
     pais: CloakGateState
     idioma: CloakGateState
   } | null
+  // Itens 163/164/210: infraestrutura resolvida (ASN/org) e tempo do julgamento
+  asn?: number
+  org?: string
+  resolvedAt?: number
 }
 
 // ── /api/cloak/stats — offer vs white por link ──

@@ -49,7 +49,9 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 - **Preview do v0:** usa env gerenciada (`.env.development.local` com `DATABASE_URL` do Neon gerenciado).
 - **Diagnóstico rápido:** `GET /api/status` (público, sem auth) → `{ok, db, redis, hint}`. Primeira
   parada para depurar "banco não configurado" em produção, sem expor segredos. Não confundir com
-  `GET /api/health`, que é **autenticado** e traz status detalhado.
+  `GET /api/health`, que é **autenticado** e traz status detalhado — incluindo `migrations` e, desde
+  o item 177, `cloakerLatency` (`{count,window,p50,p95,max,deadlineHits,deadlineRate}` de `getJudgeLatency()`
+  do bot-filter): `deadlineRate` alto = lookup de ASN estourando o teto (DNS lento).
 
 ## 4. Arquitetura
 Toda a lógica vive em módulos na raiz (sem subpastas de código). As views são strings
@@ -164,6 +166,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   redireciona para `/dashboard`, sem tela de login. **404 em produção** (`NODE_ENV=production`).
 
 ### 5.2 API consumida pela dashboard (auth)
+- **Contrato de erro (item 181):** rotas novas/migradas respondem `{ok:false, error, code?, hint?}`
+  via helper `apiError(res,status,error,code,hint)`. `error`=o quê, `code`=estável p/ lógica,
+  `hint`=orientação pt-BR. No front, `lib/api.ts` (`ApiError` com `code`/`hint` + getter `display`,
+  `parseApiError`) monta a mensagem. **Retrocompatível:** rotas com só `{error}` seguem funcionando.
+- **Rate-limit dos testes (item 178):** `/api/cloak/test` (30/min — faz lookup DNS),
+  `/api/pixels/test` e `/api/conversion/test` (15/min — disparam CAPI/Pushcut real) usam `rateLimited`
+  por conta e retornam 429 `{ok:false,error,code:'rate_limited'}`.
 - **Auth/conta:** `POST /login`, `POST /register`, `POST /logout`, `GET /api/me`.
 - **Métricas:** `GET /api/stats`, `GET /api/live`, `POST /api/reset-stats`, `GET /api/health`.
 - **Pixels:** `GET/POST /api/pixels`, `GET/PUT/DELETE /api/pixels/:slug`, `GET /api/pixels/health`,
@@ -176,9 +185,9 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   **Métricas de decisão:** `GET /api/cloak/stats` (offer vs white + taxa de bloqueio + breakdown por
   motivo, por link e agregado) e `POST /api/cloak/stats/reset` (zera um link via `{key}` ou todos).
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
-- **Conversões:** `GET /api/conversion/log`, `POST /api/conversion/test`.
+- **Convers��������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
-  **Mecanismo de verificação (2 passos, mas só o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
+  **Mecanismo de verificaç��o (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
   comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
   → `cloudflareProxy=true` (nuvem laranja mascara o CNAME real). (2) HTTP — `GET https://host/__domain-check`
   precisa responder 200 com `{app:'roi-nados-tracker'}` (assinatura `APP_CHECK_ID`). **`ok = httpOk`**:
@@ -282,7 +291,10 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **capiRetryQueue** — fila durável de eventos CAPI que falharam após os retries imediatos (cap 300, TTL 2d).
 - **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup.
 - **dedup:<event_id>** — dedup navegador↔servidor (SET NX, TTL 2h). Em erro, deixa passar (melhor duplicar que perder).
-- **asn:<ip>** — cache do lookup BGP/ASN do bot-filter (TTL 24h), compartilhado entre instâncias.
+- **asn:<ip>** — cache do lookup BGP/ASN do bot-filter, compartilhado entre instâncias. **TTL DUPLO
+  (item 176):** hit resolvido (asn>0) fica 24h; resultado NEGATIVO (asn:0/unknown/timeout) fica só
+  5min (`ASN_NEG_TTL`) para não congelar um datacenter como neutro após um lookup que falhou. Mesma
+  regra no cache em memória do `bot-filter.js` (`ASN_TTL_MS` × `ASN_NEG_TTL_MS`).
 - **domains:all** — hash `${accountId}:${host}` → JSON do domínio (item 245): espelho durável dos
   domínios personalizados (mesmo padrão de `pixels:all`/`gateways:all`); fallback de hidratação
   quando o Neon falha no boot.
@@ -292,9 +304,12 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 Sem Upstash tudo degrada para memória (perde persistência entre restarts, mas funciona).
 
 ## 8. Modelo de score do bot-filter (cloaking)
-Cada visita retorna `{ verdict:'real'|'bot', score:0-100, signals[] }`. **`score >= threshold` ⇒ bot ⇒ white page.**
+Cada visita retorna `{ verdict:'real'|'bot', score:0-100, signals[], threshold, resolvedAt, asn, org }`.
+**`score >= threshold` ⇒ bot ⇒ white page.** Os campos `asn`/`org` (infra resolvida) e `resolvedAt`
+(ms do julgamento) são consumidos SÓ pela transparência do `/api/cloak/test`/painel — não alteram a
+decisão nem o redirect. `asn=0`/`org=''` = desconhecido/privado; `asn:deadline` ⇒ `org='timeout'`.
 - **Threshold:** padrão 40; presets de sensibilidade `strict:30 / balanced:40 / loose:55` (têm prioridade
-  sobre threshold manual). Clamp final 10–90. `deadlineMs` clamp 40–500 (padrão 120).
+  sobre threshold manual). Clamp final 10–90. `deadlineMs` clamp 40��500 (padrão 120).
 - **Sinais (exemplos e pesos):** `ua:ausente` +55, `ua:headless` (SwiftShader/llvmpipe) +50,
   `ch-ua:brand-mismatch` +30, `ch-ua:safari-chrome-mix` +25, além de ASN de datacenter/ad-review,
   timezone×geo, comportamento (zero interação). Lista `DATACENTER_ASNS` cobre ByteDance (AS138699/396986/
@@ -451,7 +466,7 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── conversion-normalize.js # normalização de payloads de gateway (puro, testável)
 ├── domain-provider.js     # Custom Domains na hospedagem via API (Railway; token só aqui)
 ├── presence.js / pulse-client.js   # visitantes ao vivo
-├── pushcut.js             # notificações push
+├���─ pushcut.js             # notificações push
 ├── *-view.js              # views legadas (HTML como string): dashboard, lp, legal, tracker, vision, auth
 ├── start.js               # start de produção: sobe Next (3001) + Express ($PORT) no mesmo serviço (§19)
 ├── dashboard/             # NOVA dashboard Next.js 16 + TypeScript + Tailwind v4 (§19)
@@ -464,7 +479,7 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── assets/                # estáticos servidos em /assets/*
 ├── pixels/                # assets do pixel do navegador
 ├── data/                  # cache local em JSON (IGNORADO no git; não é fonte de verdade)
-├── package.json / railway.json  # deps e config de deploy Railway
+���── package.json / railway.json  # deps e config de deploy Railway
 └── CLAUDE.md / README.md  # este mapa e o readme
 ```
 Nos módulos do Express não há subpastas: todo `.js` vive na raiz, um arquivo por responsabilidade.
@@ -630,6 +645,39 @@ o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba co
 `vercel env pull /tmp/env-preview --environment=preview` + `node --env-file=/tmp/env-preview server.js`
 para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
 dashboard com `next build` + `next start -p 3001`.
+
+### 19.4.1 Primitivos de UX compartilhados (itens 182/183/184/185/187/189 — REUTILIZE, não reinvente)
+Ao adicionar feedback, confirmações, modais ou estados de erro numa view, use SEMPRE estes — não
+improvise `window.confirm`, `savedAt`/`copied` locais, trap de foco caseiro ou branch de erro solto:
+- **`lib/toast.ts` + `components/shell/toaster.tsx`** — toaster global montado 1× no layout. Chame
+  `toast.success/error/info(msg, { hint?, duration? })`. `aria-live` (erro=`alert`/assertivo,
+  demais=`status`/polido), erro fica 6s. NÃO monte outro `<Toaster>`.
+- **`components/confirm-dialog.tsx`** — toda ação destrutiva. Props `open/title/description/
+  confirmLabel/confirmText?/busy/onConfirm/onClose`. Passe `confirmText={nome}` quando o item tem
+  tráfego → exige digitar o nome (mesma trava do link, item 76). Padrão de uso: estado
+  `confirm:{title,description,confirmLabel,confirmText?,run}` + `confirmBusy` (ver gateways-view).
+- **`lib/use-modal-a11y.ts`** — `useModalA11y(open, ref, onClose)` dá foco preso, ESC, retorno de
+  foco e trava de scroll a QUALQUER popup. O container precisa de `tabIndex={-1}` e `role`
+  (`dialog`/`alertdialog`). `GlassCard` encaminha `ref` (ref-as-prop React 19), então serve de
+  container. Já usado por `TutorialModal` e `ConfirmDialog`.
+- **`lib/use-persisted-state.ts`** — `usePersistedState(key, default)` (item 185): drop-in de
+  `useState` que espelha PREFERÊNCIAS DE EXIBIÇÃO (filtro, ordenação, aba) em `localStorage`
+  (prefixo `roi:ui:`). SSR-safe. NUNCA para dados de negócio — só UI. Busca textual fica em
+  `useState` normal (por sessão).
+- **`LIST_POLL_MS` (30s) em `lib/api.ts`** (item 187) — hooks de LISTA de gestão
+  (`useLinks/useDomains/usePixels/useGateways/useCloakEntries`) usam esse intervalo + `revalidateOnFocus`.
+  NÃO use o `POLL_MS` (12s) das métricas para listas.
+- **`components/error-state.tsx`** — `ErrorState` (item 182): falha de fetch de uma aba. Props
+  `title?/description?/onRetry?/retrying?`. Padrão: `if (error && !data) return <ErrorState
+  title="…" onRetry={() => mutate()} />` ANTES do branch de skeleton — só quando não há cache (com
+  dados, deixe o SWR revalidar em silêncio). Já em links/pixels/gateways/domínios. Se a view já tem
+  um `error` local (ex.: domains), renomeie o do SWR para `loadError` no destructure.
+- **`components/shell/durability-badge.tsx`** — `DurabilityBadge` (item 186), montado no `Header`.
+  Lê `/api/health` (`useHealth`) e classifica: banco no ar → OCULTO (não polui; `LiveBadge` cobre a
+  saúde geral); banco fora + Redis no ar → âmbar "Persistência degradada"; banco e Redis fora →
+  vermelho "Config volátil". É o lugar canônico do estado de durabilidade — NÃO recrie esse alerta
+  em views individuais.
+Pendente (próxima fatia): migrar links/pixels/domínios/cloak entries para `ConfirmDialog`+`toast`.
 
 ### 19.5 Armadilhas específicas da dashboard nova
 - Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —

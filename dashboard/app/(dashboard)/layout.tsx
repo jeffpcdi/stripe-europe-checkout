@@ -6,6 +6,7 @@ import { TabNotifier } from '@/components/shell/tab-notifier'
 import { RouteProgress } from '@/components/shell/route-progress'
 import { CommandPalette } from '@/components/shell/command-palette'
 import { TourGuide } from '@/components/shell/tour'
+import { Toaster } from '@/components/shell/toaster'
 
 export default function DashboardLayout({
   children,
@@ -26,6 +27,8 @@ export default function DashboardLayout({
       <CommandPalette />
       {/* Bloco H: tours interativos por página + botão "?" flutuante */}
       <TourGuide />
+      {/* Item 183: toaster global de feedback (aria-live) */}
+      <Toaster />
       {/* Sidebar lateral esquerda — desktop */}
       <Sidebar />
 

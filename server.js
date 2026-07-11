@@ -404,6 +404,17 @@ const rlSweep = setInterval(() => {
 }, 120e3);
 if (rlSweep.unref) rlSweep.unref();
 
+// ── Item 181: contrato unificado de erro da API ─────────────────────────────
+// Todas as rotas de Gestão devem responder erros como
+//   { ok:false, error, code, hint }
+// onde `error` é o quê aconteceu, `code` é estável para lógica no front e
+// `hint` é a orientação pt-BR do que fazer. O helper de front (lib/api) lê
+// esses campos e monta a mensagem. Mantém retrocompatibilidade: quem ainda
+// responde só { error } continua funcionando.
+function apiError(res, status, error, code, hint) {
+  return res.status(status).json({ ok: false, error, code: code || undefined, hint: hint || undefined });
+}
+
 // Reconstrói o objeto de sinais do browser a partir do lead persistido pelo
 // /api/cloakcheck, para alimentar botFilter.judge() no /go/ e no /c/ sem repetir
 // o mapeamento em dois lugares. Inclui os sinais 2026 (webview, coerência, entropia).
@@ -1131,7 +1142,7 @@ app.get('/c/:slug', async (req, res) => {
   return goWithVid(offer, cloakVid);
 });
 
-// ── Encurtador rastreável (/l/:slug) ─────���������������───────────────────────────
+// ── Encurtador rastreável (/l/:slug) ─────�����������������───────────────────────────
 // Substitui bit.ly nos criativos: o clique vira lead no funil (landing
 // "l:slug"), o vid viaja para o destino e o funil começa no clique do
 // anúncio — não na primeira página com snippet.
@@ -1620,7 +1631,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
       // s�� precisa saber que o provisionamento automático não completou agora
       // e que a reconexão é automática.
       const notes = {
-        limite: 'limite de domínios simultâneos atingido — domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
+        limite: 'limite de domínios simultâneos atingido ��� domínio salvo; o provisionamento automático reconecta sozinho quando houver espaço (ou remova um domínio não usado)',
         duplicado: 'este domínio já está provisionado (possivelmente em outra conta) — domínio salvo; verifique em alguns minutos',
         auth: 'o provisionamento automático está indisponível no momento — domínio salvo; tentamos de novo sozinhos na próxima verificação',
         offline: 'não foi possível completar o provisionamento agora — domínio salvo; tentamos de novo sozinhos na próxima verificação'
@@ -1910,6 +1921,11 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
 // mostra na dashboard como o próprio admin seria classificado (deve dar 'real').
 app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
+  // Item 178: rate-limit por conta — o judge faz lookup de ASN (DNS), então
+  // limitamos a 30 testes/min para evitar abuso e custo de resolução.
+  if (rateLimited('cloak-test|' + req.account.id, 'cloaktest', 30)) {
+    return res.status(429).json({ ok: false, error: 'Muitos testes seguidos. Aguarde um minuto e tente de novo.', code: 'rate_limited' });
+  }
   // Item 134: quando vem `slug`, simula o julgamento DAQUELE link /c/:slug —
   // usa a config do próprio entry no motor de score E reporta os gates extras
   // (mobile, ad-click, país, idioma) que decidem ANTES do score na rota real.
@@ -1953,7 +1969,9 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     verdict: j.verdict, score: j.score, threshold: j.threshold,
     signals: j.signals, ip: clientIp(req),
     ua: String(req.headers['user-agent'] || '').slice(0, 120),
-    slug: slug || undefined, gates
+    slug: slug || undefined, gates,
+    // Itens 163/164/210: infraestrutura resolvida + tempo de julgamento
+    asn: j.asn || 0, org: j.org || '', resolvedAt: j.resolvedAt || 0
   });
 });
 
@@ -2121,6 +2139,10 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
     migrations:  require('./db').migrationStatus(),
     redis:       redisPing.ok,
     redisEnabled:rdb.enabled,
+    // Item 177: latência do julgamento do cloaker (p50/p95/deadlineRate).
+    // deadlineRate alto = lookup de ASN estourando o teto (DNS lento) e o
+    // sinal de datacenter escapando com frequência.
+    cloakerLatency: botFilter.getJudgeLatency(),
     uptimeSec:   Math.round(process.uptime()),
     ts: new Date().toISOString()
   });
@@ -2567,6 +2589,10 @@ app.post('/api/gateways/:id/test', dashboardAuth, async (req, res) => {
 // hora — confere status/match sem sair da tela e sem depender do gateway.
 app.post('/api/conversion/test', dashboardAuth, async (req, res) => {
   try {
+    // Item 178: rate-limit por conta — dispara CAPI + Pushcut reais.
+    if (rateLimited('conv-test|' + req.account.id, 'convtest', 15)) {
+      return res.status(429).json({ ok: false, error: 'Muitos disparos de teste seguidos. Aguarde um minuto e tente de novo.', code: 'rate_limited' });
+    }
     const bodyCur = String((req.body || {}).currency || '').toUpperCase();
     const cur = /^[A-Z]{3}$/.test(bodyCur) ? bodyCur : accountCurrency(req.account.id);
     const n = normalizeConversion({
@@ -2890,6 +2916,10 @@ app.get('/api/pixels/durability', dashboardAuth, (req, res) => {
 // do TikTok — valida pixel code + access token na hora.
 app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
   try {
+    // Item 178: rate-limit por conta — cada teste chama a Events API do TikTok.
+    if (rateLimited('pixel-test|' + req.account.id, 'pixeltest', 15)) {
+      return res.status(429).json({ ok: false, error: 'Muitos testes de pixel seguidos. Aguarde um minuto e tente de novo.', code: 'rate_limited' });
+    }
     const slug = pixelStore.slugify(req.body.slug || '');
     const pixel = pixelStore.get(req.account.id, slug);
     if (!pixel) return res.status(404).json({ error: 'pixel não encontrado' });
@@ -2924,14 +2954,21 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
 // ipPrivado/hostSeguro extraídos para security-helpers.js (testáveis — item 60)
 const { hostSeguro } = require('./security-helpers');
 
+// Item 179 (estende 148): tetos rígidos para o fetch externo do verify-url.
+// N segundos, M bytes, no máximo 1 redirect e NUNCA baixar corpo não-HTML —
+// cada hop ainda passa por hostSeguro (anti-SSRF). Constantes nomeadas para
+// facilitar ajuste sem caçar números mágicos no corpo da função.
+const VERIFY_TIMEOUT_MS   = 8000;
+const VERIFY_MAX_BYTES    = 1.5 * 1024 * 1024; // 1.5 MB de HTML basta p/ achar o pixel
+const VERIFY_MAX_REDIRECTS = 1;                // segue no máximo 1 salto
 async function buscarPaginaSegura(rawUrl) {
   let u;
   try { u = new URL(String(rawUrl || '').trim()); } catch (_) { return { error: 'URL inválida — use o endereço completo, ex.: https://minhapagina.com/oferta' }; }
-  for (let hop = 0; hop <= 3; hop++) {
+  for (let hop = 0; hop <= VERIFY_MAX_REDIRECTS; hop++) {
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return { error: 'só endereços http(s) são aceitos' };
     if (!(await hostSeguro(u.hostname))) return { error: 'este endereço não pode ser verificado (host bloqueado ou não resolve)' };
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 8000);
+    const t = setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS);
     let r;
     try {
       r = await fetch(u.href, {
@@ -2946,22 +2983,29 @@ async function buscarPaginaSegura(rawUrl) {
     clearTimeout(t);
     if (r.status >= 300 && r.status < 400) {
       const loc = r.headers.get('location');
-      if (!loc || hop === 3) return { error: 'a página redirecionou demais — verifique a URL final' };
+      if (!loc || hop === VERIFY_MAX_REDIRECTS) return { error: 'a página redirecionou demais — informe a URL final (após os redirecionamentos)' };
       try { u = new URL(loc, u); continue; } catch (_) { return { error: 'redirecionamento inválido' }; }
     }
     if (!r.ok) return { error: 'a página respondeu com erro HTTP ' + r.status };
+    // Item 179: nunca baixar corpo não-HTML (PDF, imagem, binário) — evita
+    // gastar rede/memória com conteúdo que não pode conter o snippet do pixel.
+    const ctype = (r.headers.get('content-type') || '').toLowerCase();
+    if (ctype && !/(text\/html|application\/xhtml)/.test(ctype)) {
+      try { if (r.body && r.body.cancel) r.body.cancel(); } catch (_) {}
+      return { error: 'a URL não retornou uma página HTML (tipo: ' + ctype.split(';')[0] + '). Informe o endereço da página de vendas.' };
+    }
     const reader = r.body && r.body.getReader ? r.body.getReader() : null;
     let html = '';
     if (reader) {
       const dec = new TextDecoder();
-      while (html.length < 1.5 * 1024 * 1024) {
+      while (html.length < VERIFY_MAX_BYTES) {
         const { done, value } = await reader.read();
         if (done) break;
         html += dec.decode(value, { stream: true });
       }
       try { reader.cancel(); } catch (_) {}
     } else {
-      html = (await r.text()).slice(0, 1.5 * 1024 * 1024);
+      html = (await r.text()).slice(0, VERIFY_MAX_BYTES);
     }
     return { html, finalUrl: u.href };
   }

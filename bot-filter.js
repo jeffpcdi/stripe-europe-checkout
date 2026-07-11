@@ -139,7 +139,16 @@ const LEGIT_BRANDS_RE = /Chromium|Chrome|Safari|Firefox|Edge|Opera|CriOS|FxiOS/i
 
 // ─── 3. Cache ASN (DNS Cymru) ───────────────────────────────────────────────
 const _asnCache  = new Map();
-const ASN_TTL_MS = 4 * 3600e3; // 4 horas
+const ASN_TTL_MS = 4 * 3600e3; // 4 horas (hit válido: asn > 0)
+// Item 176: cache NEGATIVO curto. Um lookup que falhou (asn:0/unknown/timeout)
+// não pode congelar o IP como "neutro" por 4h — senão um datacenter cujo
+// primeiro lookup deu timeout passaria despercebido a tarde toda. TTL curto
+// força nova tentativa em minutos, mantendo o benefício de não repetir DNS a
+// cada request. IP privado continua definitivo (não usa esse caminho).
+const ASN_NEG_TTL_MS = 5 * 60e3; // 5 minutos para resultados sem ASN resolvido
+function _asnTtl(entry) {
+  return (entry && entry.asn > 0) ? ASN_TTL_MS : ASN_NEG_TTL_MS;
+}
 
 async function lookupASN(ip) {
   if (!ip) return { asn: 0, org: 'unknown' };
@@ -147,9 +156,10 @@ async function lookupASN(ip) {
   if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|^$)/.test(ip)) {
     return { asn: 0, org: 'private' };
   }
-  // Camada 1: cache em memória (mais rápido, por processo)
+  // Camada 1: cache em memória (mais rápido, por processo).
+  // Hit sem ASN resolvido expira em ASN_NEG_TTL_MS (cache negativo, item 176).
   const cached = _asnCache.get(ip);
-  if (cached && Date.now() - cached.ts < ASN_TTL_MS) return cached;
+  if (cached && Date.now() - cached.ts < _asnTtl(cached)) return cached;
 
   // Camada 2: cache no Redis (compartilhado, sobrevive a restart)
   if (_redis && _redis.enabled) {
@@ -171,7 +181,15 @@ async function lookupASN(ip) {
       const m = line.match(/^\s*(\d+)\s*\|/);
       if (m) {
         const parts = line.split('|');
-        entry = { asn: Number(m[1]), org: (parts[4] || parts[3] || '').trim().slice(0, 40), ts: Date.now() };
+        // Item 180: o org vem de um TXT de terceiros (Cymru). Sanitiza na ORIGEM
+        // removendo <>&"' e caracteres de controle antes de qualquer UI (nova em
+        // React OU views legadas concatenadas), evitando XSS/quebra de layout.
+        const org = (parts[4] || parts[3] || '')
+          .replace(/[<>&"'\x00-\x1f\x7f]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 40);
+        entry = { asn: Number(m[1]), org, ts: Date.now() };
         break;
       }
     }
@@ -185,7 +203,7 @@ async function lookupASN(ip) {
   return entry;
 }
 
-// ─── 4. Tokens de challenge ─────────────────────────────────────────────────
+// ─── 4. Tokens de challenge ────────────────────���────────────────────────────
 function _secret() {
   return (process.env.CONVERSION_WEBHOOK_SECRET || 'roi-nados-cloak-dev') + '-cloak-v2';
 }
@@ -278,6 +296,8 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
   const t0      = Date.now();
   const signals = [];
   let score     = 0;
+  let infraAsn  = 0;   // Item 163: ASN resolvido (0 = desconhecido/privado)
+  let infraOrg  = '';  // Item 163: organização/operadora do IP
 
   const ua = String(req.headers['user-agent'] || '');
   const ip = String((req.headers['x-forwarded-for'] || '').split(',')[0].trim()
@@ -389,6 +409,10 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
     if (ip && !signals.includes('ip:bytedance-cidr')) {
       const r = await lookupASNDeadline(ip, cfg.deadlineMs).catch(() => ({ asn: 0, org: '' }));
       const asn = r.asn;
+      // Item 163: guarda o ASN/org resolvidos para o painel de teste mostrar
+      // "operadora móvel (real)" x "datacenter/ByteDance (bot)".
+      infraAsn = asn || 0;
+      infraOrg = r.org || (r._timedOut ? 'timeout' : '');
       if (r._timedOut) {
         signals.push('asn:deadline');
       } else if (asn > 0) {
@@ -594,7 +618,38 @@ async function judge(req, visitorId, challengeToken, challengeData, config) {
   // 55 (loose) = conservador — só pega bots muito óbvios
   const verdict = score >= cfg.threshold ? 'bot' : 'real';
 
-  return { verdict, score, signals, threshold: cfg.threshold, resolvedAt: Date.now() - t0 };
+  const resolvedAt = Date.now() - t0;
+  // Item 177: alimenta o medidor de latência exposto no /api/health para
+  // detectar quando o lookup de ASN está estourando o deadline (DNS lento).
+  _recordJudgeLatency(resolvedAt, signals.includes('asn:deadline'));
+  return { verdict, score, signals, threshold: cfg.threshold, resolvedAt, asn: infraAsn, org: infraOrg };
+}
+
+// ─── Métrica de latência do julgamento (item 177) ───────────────────────────
+// Janela deslizante em memória (por processo). Barata e sem dependência — o
+// health lê getJudgeLatency() para mostrar p50/p95 e a taxa de deadline.
+const _judgeLat = { samples: [], deadlineHits: 0, total: 0, max: 200 };
+function _recordJudgeLatency(ms, hitDeadline) {
+  if (typeof ms !== 'number' || !isFinite(ms)) return;
+  _judgeLat.total++;
+  if (hitDeadline) _judgeLat.deadlineHits++;
+  const s = _judgeLat.samples;
+  s.push(ms);
+  if (s.length > _judgeLat.max) s.shift(); // mantém só as últimas N amostras
+}
+function getJudgeLatency() {
+  const s = _judgeLat.samples.slice().sort((a, b) => a - b);
+  const pct = (p) => (s.length ? s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))] : 0);
+  return {
+    count: _judgeLat.total,
+    window: s.length,
+    p50: pct(50),
+    p95: pct(95),
+    max: s.length ? s[s.length - 1] : 0,
+    deadlineHits: _judgeLat.deadlineHits,
+    // fração de julgamentos que estouraram o deadline do lookup de ASN
+    deadlineRate: _judgeLat.total ? Number((_judgeLat.deadlineHits / _judgeLat.total).toFixed(3)) : 0,
+  };
 }
 
 // ─── Detecção de inconsistência timezone vs país ─────────────────────────────
@@ -786,6 +841,7 @@ module.exports = {
   verifyChallengeToken,
   challengeSnippet,
   resolveConfig,
+  getJudgeLatency,
   DEFAULT_CONFIG,
   SENSITIVITY_THRESHOLDS
 };

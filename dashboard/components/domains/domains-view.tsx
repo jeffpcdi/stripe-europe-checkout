@@ -18,6 +18,7 @@ import { useDomains, apiSend } from '@/lib/api'
 import type { CustomDomain, DomainVerifyResult, DomainAddResponse, DomainDnsRecords, DomainUso } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+import { ErrorState } from '@/components/error-state'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 
 // Tutorial conceitual da aba (o "porquê"); o passo a passo de DNS por domínio
@@ -84,7 +85,7 @@ function hostInvalidReason(raw: string): string | null {
 }
 
 export function DomainsView() {
-  const { data, isLoading, mutate } = useDomains()
+  const { data, isLoading, mutate, error: loadError } = useDomains()
   const [host, setHost] = useState('')
   const [uso, setUso] = useState<DomainUso>('ambos')
   const [adding, setAdding] = useState(false)
@@ -256,7 +257,10 @@ export function DomainsView() {
       </GlassCard>
 
       {/* Lista de domínios */}
-      {isLoading && !data ? (
+      {loadError && !data ? (
+        /* Item 182: erro de carregamento com retry consistente */
+        <ErrorState title="Não foi possível carregar seus domínios." onRetry={() => mutate()} />
+      ) : isLoading && !data ? (
         <Skeleton className="h-40" />
       ) : domains.length === 0 ? (
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">

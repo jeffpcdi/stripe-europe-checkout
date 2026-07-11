@@ -15,14 +15,18 @@ export function GlassCard({
   sheen = false,
   className,
   children,
+  ref,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
   variant?: GlassVariant
   hover?: boolean
   sheen?: boolean
+  // React 19 ref-as-prop: permite que modais (item 189) prendam o foco no card.
+  ref?: React.Ref<HTMLDivElement>
 }) {
   return (
     <div
+      ref={ref}
       className={cn(
         'glass surface',
         variantClass[variant],

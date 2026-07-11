@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { usePersistedState } from '@/lib/use-persisted-state'
+import { ErrorState } from '@/components/error-state'
 import {
   Link2,
   Plus,
@@ -79,7 +81,7 @@ const LINK_STEPS: TutorialStep[] = [
 ]
 
 export function LinksView() {
-  const { data, isLoading, mutate } = useLinks()
+  const { data, isLoading, error, mutate } = useLinks()
   const { data: domainsData } = useDomains()
   const { data: pixelsData } = usePixels()
   const [editing, setEditing] = useState<CheckoutLink | null>(null)
@@ -88,9 +90,10 @@ export function LinksView() {
   const [deleting, setDeleting] = useState<string | null>(null)
   // Item 76: para links com tráfego, a exclusão exige digitar o nome do link
   const [deleteText, setDeleteText] = useState('')
-  // Item 64: busca + ordenação client-side
+  // Item 64: busca + ordenação client-side (item 185: ordenação persiste
+  // entre navegações; a busca é intencional por sessão, não persiste)
   const [query, setQuery] = useState('')
-  const [sortBy, setSortBy] = useState<SortKey>('recentes')
+  const [sortBy, setSortBy] = usePersistedState<SortKey>('links:sort', 'recentes')
   // Itens 62/63: feedback de ação em andamento por card
   const [busySlug, setBusySlug] = useState<string | null>(null)
   // Item 72: ações em massa — seleção por checkbox + barra de ações
@@ -296,6 +299,12 @@ export function LinksView() {
     setDeleting(null)
     setDeleteText('')
     mutate()
+  }
+
+  // Item 182: erro de carregamento com retry consistente (só quando não há
+  // nenhum dado em cache — se já temos dados, o SWR revalida em silêncio)
+  if (error && !data) {
+    return <ErrorState title="Não foi possível carregar seus links de checkout." onRetry={() => mutate()} />
   }
 
   if (isLoading && !data) {

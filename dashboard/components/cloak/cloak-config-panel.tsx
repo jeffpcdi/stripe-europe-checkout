@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ShieldCheck, Play, Loader2 } from 'lucide-react'
+import { ShieldCheck, Play, Loader2, AlertTriangle } from 'lucide-react'
 import { useCloakConfig, apiSend } from '@/lib/api'
 import type { CloakConfig, CloakSensitivity, CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -22,11 +22,20 @@ const LAYERS: { key: keyof CloakConfig; label: string; hint: string }[] = [
   { key: 'checkEntropy', label: 'Entropia de ação', hint: 'movimento e ação sem trilha' },
 ]
 
-const SENSITIVITY: { id: CloakSensitivity; label: string; hint: string }[] = [
-  { id: 'strict', label: 'Rígido', hint: 'bloqueia mais (threshold 30)' },
-  { id: 'balanced', label: 'Equilibrado', hint: 'padrão (threshold 40)' },
-  { id: 'loose', label: 'Leve', hint: 'bloqueia menos (threshold 55)' },
-  { id: 'custom', label: 'Custom', hint: 'threshold manual' },
+const SENSITIVITY: { id: CloakSensitivity; label: string; hint: string; tradeoff: string }[] = [
+  { id: 'strict', label: 'Rígido', hint: 'bloqueia mais (threshold 30)', tradeoff: 'Barra quase todo revisor, mas pode desviar alguns compradores reais.' },
+  { id: 'balanced', label: 'Equilibrado', hint: 'padrão (threshold 40)', tradeoff: 'Equilíbrio recomendado entre proteger a conta e não perder venda.' },
+  { id: 'loose', label: 'Leve', hint: 'bloqueia menos (threshold 55)', tradeoff: 'Deixa passar quase todo comprador, mas arrisca deixar um revisor ver a offer.' },
+  { id: 'custom', label: 'Custom', hint: 'threshold manual', tradeoff: 'Você define o limiar exato (10–90).' },
+]
+
+// Item 168: camadas D–H só têm efeito quando o Challenge JS está ligado — elas
+// dependem do challengeData coletado pelo snippet /t.js.
+const CHALLENGE_DEPENDENT: { key: keyof CloakConfig; label: string }[] = [
+  { key: 'checkWebgl', label: 'WebGL renderer' },
+  { key: 'checkTimezone', label: 'Timezone vs IP' },
+  { key: 'checkBehavior', label: 'Biometria' },
+  { key: 'checkEntropy', label: 'Entropia de ação' },
 ]
 
 function Toggle({
@@ -204,6 +213,10 @@ export function CloakConfigPanel() {
             )
           })}
         </div>
+        {/* Item 167: trade-off do preset selecionado, em linguagem de negócio */}
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          {(SENSITIVITY.find((s) => s.id === (cfg.sensitivity ?? 'balanced')) ?? SENSITIVITY[1]).tradeoff}
+        </p>
         {cfg.sensitivity === 'custom' && (
           <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
             Threshold manual
@@ -244,6 +257,25 @@ export function CloakConfigPanel() {
           />
         ))}
       </div>
+
+      {/* Item 168: camadas D–H inertes sem o Challenge JS */}
+      {!cfg.requireJsChallenge &&
+        (() => {
+          const inertes = CHALLENGE_DEPENDENT.filter((l) => cfg[l.key] as boolean)
+          if (!inertes.length) return null
+          return (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-[11px] leading-relaxed text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                <strong>{inertes.map((l) => l.label).join(', ')}</strong>{' '}
+                {inertes.length > 1 ? 'dependem' : 'depende'} do <strong>Challenge JS</strong>, que está desligado.
+                Sem ele o snippet não coleta os dados do navegador e{' '}
+                {inertes.length > 1 ? 'essas camadas ficam sem efeito' : 'essa camada fica sem efeito'}. Ligue o
+                Challenge JS ou desative {inertes.length > 1 ? 'essas camadas' : 'essa camada'} para evitar configuração inócua.
+              </span>
+            </div>
+          )
+        })()}
 
       {/* Teste ao vivo do request atual */}
       {test && (

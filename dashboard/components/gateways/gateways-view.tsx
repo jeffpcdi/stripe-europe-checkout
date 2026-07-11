@@ -18,10 +18,13 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { useGateways, useConversionLog, apiSend } from '@/lib/api'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { toast } from '@/lib/toast'
 import type { Gateway, GatewayProvider, GatewayTestResult, GatewayRotateResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
+import { ErrorState } from '@/components/error-state'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
 
@@ -128,7 +131,7 @@ function ProviderIcon({ provider, label }: { provider: string; label: string }) 
 }
 
 export function GatewaysView() {
-  const { data, mutate, isLoading } = useGateways()
+  const { data, mutate, isLoading, error } = useGateways()
   const { data: convLog, mutate: mutateLog } = useConversionLog()
 
   const [creating, setCreating] = useState(false)
@@ -145,6 +148,15 @@ export function GatewaysView() {
   const [copyAnnounce, setCopyAnnounce] = useState('')
   // Item 104: linha do log expandida (detalhe do webhook)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
+  // Item 184: confirmação destrutiva padronizada (substitui window.confirm)
+  const [confirm, setConfirm] = useState<{
+    title: string
+    description: React.ReactNode
+    confirmLabel: string
+    confirmText?: string
+    run: () => Promise<void>
+  } | null>(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
 
   const providers = data?.providers ?? []
   const gateways = data?.gateways ?? []
@@ -157,10 +169,31 @@ export function GatewaysView() {
     })
   }
 
-  async function handleDelete(g: Gateway) {
-    if (!window.confirm(`Remover o gateway "${g.name}"? Os webhooks dele deixam de ser processados.`)) return
-    await apiSend(`/api/gateways/${encodeURIComponent(g.id)}`, 'DELETE')
-    mutate()
+  function handleDelete(g: Gateway) {
+    // Item 184: gateway com tráfego exige digitar o nome (mesma trava do link, item 76)
+    const hasTraffic = Boolean(g.lastEventAt)
+    setConfirm({
+      title: `Remover o gateway "${g.name}"?`,
+      description: (
+        <>
+          Os webhooks dele deixam de ser processados imediatamente. Esta ação não pode ser desfeita.
+          {hasTraffic && ' Este gateway já recebeu eventos.'}
+        </>
+      ),
+      confirmLabel: 'Remover gateway',
+      confirmText: hasTraffic ? g.name : undefined,
+      run: async () => {
+        try {
+          await apiSend(`/api/gateways/${encodeURIComponent(g.id)}`, 'DELETE')
+          mutate()
+          toast.success(`Gateway "${g.name}" removido`)
+        } catch (e) {
+          toast.error('Falha ao remover o gateway', {
+            hint: e instanceof Error ? e.message : undefined,
+          })
+        }
+      },
+    })
   }
 
   // Teste POR gateway: usa o token real daquele gateway e mostra a nota de assinatura
@@ -187,26 +220,34 @@ export function GatewaysView() {
   }
 
   // Rotação do webhook: a URL antiga para de funcionar imediatamente
-  async function handleRotate(g: Gateway) {
-    if (
-      !window.confirm(
-        `Rotacionar o webhook de "${g.name}"? A URL atual PARA de funcionar na hora — você precisará colar a nova no painel do checkout.`,
-      )
-    )
-      return
-    setRotating(g.id)
-    try {
-      const r = await apiSend<GatewayRotateResult>(`/api/gateways/${encodeURIComponent(g.id)}/rotate`, 'POST')
-      if (r.ok) {
-        await navigator.clipboard.writeText(r.webhookUrl).catch(() => {})
-        setCardTest({ id: g.id, ok: true, msg: 'Novo webhook gerado e copiado. Cole no painel do seu gateway.' })
-        mutate()
-      }
-    } catch (e) {
-      setCardTest({ id: g.id, ok: false, msg: e instanceof Error ? e.message : 'Falha ao rotacionar' })
-    } finally {
-      setRotating(null)
-    }
+  function handleRotate(g: Gateway) {
+    setConfirm({
+      title: `Rotacionar o webhook de "${g.name}"?`,
+      description: (
+        <>
+          A URL atual <strong>para de funcionar na hora</strong> — você precisará colar a nova no painel
+          do checkout. A nova URL é copiada automaticamente.
+        </>
+      ),
+      confirmLabel: 'Rotacionar webhook',
+      run: async () => {
+        setRotating(g.id)
+        try {
+          const r = await apiSend<GatewayRotateResult>(`/api/gateways/${encodeURIComponent(g.id)}/rotate`, 'POST')
+          if (r.ok) {
+            await navigator.clipboard.writeText(r.webhookUrl).catch(() => {})
+            mutate()
+            toast.success('Novo webhook gerado e copiado', { hint: 'Cole no painel do seu gateway.' })
+          }
+        } catch (e) {
+          toast.error('Falha ao rotacionar o webhook', {
+            hint: e instanceof Error ? e.message : undefined,
+          })
+        } finally {
+          setRotating(null)
+        }
+      },
+    })
   }
 
   async function handleTest() {
@@ -296,7 +337,10 @@ export function GatewaysView() {
             </p>
           )}
 
-          {isLoading ? (
+          {error && !data ? (
+            /* Item 182: erro de carregamento com retry consistente */
+            <ErrorState title="Não foi possível carregar seus gateways." onRetry={() => mutate()} />
+          ) : isLoading ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-24" />
               <Skeleton className="h-24" />
@@ -572,6 +616,29 @@ export function GatewaysView() {
           }}
         />
       )}
+
+      {/* Item 184: confirmação destrutiva padronizada e acessível */}
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.title ?? ''}
+        description={confirm?.description}
+        confirmLabel={confirm?.confirmLabel ?? 'Confirmar'}
+        confirmText={confirm?.confirmText}
+        busy={confirmBusy}
+        onClose={() => {
+          if (!confirmBusy) setConfirm(null)
+        }}
+        onConfirm={async () => {
+          if (!confirm) return
+          setConfirmBusy(true)
+          try {
+            await confirm.run()
+            setConfirm(null)
+          } finally {
+            setConfirmBusy(false)
+          }
+        }}
+      />
     </div>
   )
 }
