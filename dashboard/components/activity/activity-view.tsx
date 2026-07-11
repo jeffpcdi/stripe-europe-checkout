@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useStats } from '@/lib/api'
 import { usePersistedState } from '@/lib/use-persisted-state'
 import { GlassCard } from '@/components/glass-card'
@@ -67,7 +67,11 @@ function copyEventDetails(e: StatsEvent): Promise<boolean> {
   return copyText(JSON.stringify(detail, null, 2))
 }
 
-function EventRow({ e, isNew }: { e: StatsEvent; isNew?: boolean }) {
+// Item 547: memoizado — o feed re-renderiza a cada poll de 12s; sem isso,
+// TODAS as linhas re-renderizam mesmo quando nada mudou. SWR mantém a
+// referência do evento estável quando os dados não mudam, então o memo corta
+// o re-render das linhas antigas (só a nova e as com estado local mudam).
+const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: boolean }) {
   const style = EVENT_STYLE[e.type] || EVENT_STYLE.info
   const Icon = style.icon
   // Item 155: expansão inline com detalhes
@@ -193,7 +197,7 @@ function EventRow({ e, isNew }: { e: StatsEvent; isNew?: boolean }) {
       </div>
     </div>
   )
-}
+})
 
 export function ActivityView() {
   const { data, isLoading, error } = useStats()

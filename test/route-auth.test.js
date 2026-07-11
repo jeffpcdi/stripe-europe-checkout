@@ -26,6 +26,7 @@ const PUBLIC_API = new Set([
   '/api/conversion',     // webhook de gateway (autentica por HMAC/token no corpo)
   '/api/v1/summary',     // API pública read-only (autentica por ?token= via safeEqual)
   '/api/status',         // health público (sem dados sensíveis)
+  '/api/client-error',   // item 561: write-only, rate-limited, sem eco de dados (GET é dashboardAuth)
 ]);
 
 const re = /app\.(get|post|put|delete)\(\s*'(\/api\/[^']*)'\s*(?:,\s*([a-zA-Z_$][\w$]*))?/g;

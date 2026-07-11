@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { useLive } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
@@ -91,7 +91,9 @@ function ConnectionDot({ state }: { state: 'ok' | 'reconnecting' | 'down' }) {
   )
 }
 
-function VisitorRow({ v, isNew }: { v: LiveVisitor; isNew?: boolean }) {
+// Item 547: memoizado — a lista "ao vivo" re-renderiza a cada poll; o memo
+// evita re-render das linhas cujo visitante não mudou entre polls.
+const VisitorRow = memo(function VisitorRow({ v, isNew }: { v: LiveVisitor; isNew?: boolean }) {
   const idle = (v.idleMs || 0) > 20_000
   const inCheckout = isCheckoutVisitor(v.page)
   return (
@@ -147,7 +149,7 @@ function VisitorRow({ v, isNew }: { v: LiveVisitor; isNew?: boolean }) {
       </div>
     </div>
   )
-}
+})
 
 export function LiveView() {
   const { data, isLoading, error, isValidating } = useLive()
