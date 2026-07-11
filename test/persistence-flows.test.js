@@ -77,6 +77,18 @@ function ok(cond, msg) {
   ok(evt && evt.currency === 'eur', 'moeda: EUR do gateway preservada na normalização (não força BRL)');
   ok(evt.amountCents === 4990, 'moeda: 49.90 → 4990 centavos, sem conversão implícita');
 
+  // ── Item 458 (bug 1000x): ponto de MILHAR BR sem casa decimal ────────────
+  const cents = (v) =>
+    norm.normalizeConversion(
+      { event: 'PURCHASE_APPROVED', data: { purchase: { transaction: 'T-' + v, price: { value: v, currency_value: 'BRL' } } } },
+      { gateway: 'hotmart' },
+    ).amountCents;
+  ok(cents('1.234') === 123400, 'valor: "1.234" é milhar BR → R$ 1.234,00 (não R$ 1,23)');
+  ok(cents('1.234,56') === 123456, 'valor: "1.234,56" (BR completo) intacto');
+  ok(cents('12.34') === 1234, 'valor: "12.34" continua decimal legítimo');
+  ok(cents('R$ 1.500') === 150000, 'valor: "R$ 1.500" com prefixo → 150000 centavos');
+  ok(cents('1,234.56') === 123456, 'valor: "1,234.56" (US) intacto');
+
   // Limpeza: remove o domínio de teste do snapshot local compartilhado
   // (mesmo debounce de 500ms do persistDisk).
   config.set(ACC, { customDomains: [] });

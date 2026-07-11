@@ -30,7 +30,16 @@ const tintGlow: Record<KpiTint, string> = {
   neutral: 'none',
 }
 
-export function DeltaChip({ delta, invert = false }: { delta: number | null; invert?: boolean }) {
+export function DeltaChip({
+  delta,
+  invert = false,
+  unit = 'pct',
+}: {
+  delta: number | null
+  invert?: boolean
+  /* Item 291: 'pp' = pontos percentuais (delta de métricas que JÁ são %) */
+  unit?: 'pct' | 'pp'
+}) {
   if (delta === null) return null
   const good = invert ? delta < 0 : delta > 0
   const Icon = delta >= 0 ? TrendingUp : TrendingDown
@@ -47,7 +56,11 @@ export function DeltaChip({ delta, invert = false }: { delta: number | null; inv
     >
       {/* Item 21: seta entra com spring */}
       <Icon className="delta-icon size-3" aria-hidden="true" />
-      <span className="font-mono tabular-nums">{fmtDelta(delta)}</span>
+      <span className="font-mono tabular-nums">
+        {unit === 'pp'
+          ? `${delta > 0 ? '+' : ''}${delta.toFixed(1).replace('.', ',')} p.p.`
+          : fmtDelta(delta)}
+      </span>
     </span>
   )
 }
@@ -60,6 +73,7 @@ export function KpiCard({
   sub,
   delta,
   deltaInvert,
+  deltaUnit,
   spark,
   hero = false,
   index = 0,
@@ -71,6 +85,7 @@ export function KpiCard({
   sub: React.ReactNode
   delta?: number | null
   deltaInvert?: boolean
+  deltaUnit?: 'pct' | 'pp'
   spark?: React.ReactNode
   hero?: boolean
   index?: number
@@ -103,7 +118,7 @@ export function KpiCard({
           </span>
           <span className="label-mono">{label}</span>
         </div>
-        {delta !== undefined ? <DeltaChip delta={delta} invert={deltaInvert} /> : null}
+        {delta !== undefined ? <DeltaChip delta={delta} invert={deltaInvert} unit={deltaUnit} /> : null}
       </div>
 
       <div className="mt-4 flex items-end justify-between gap-3">

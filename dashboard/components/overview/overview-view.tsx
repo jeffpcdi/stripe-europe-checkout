@@ -156,6 +156,11 @@ export function OverviewView() {
   const revCents = cur.rev[cur.mainCur] || 0
   const prevRev = prev ? prev.rev[cur.mainCur] || 0 : 0
   const revDelta = prev ? deltaPct(revCents, prevRev) : null
+  // Item 273 (bug): vendas em OUTRAS moedas sumiam do card — o valor grande
+  // é na moeda principal, mas o breakdown das demais precisa aparecer.
+  const otherRev = Object.entries(cur.rev)
+    .filter(([c, cents]) => c !== cur.mainCur && cents > 0)
+    .sort((a, b) => b[1] - a[1])
 
   const revSeries = cur.series.map((s) => s.revenue)
   const salesSeries = cur.series.map((s) => s.sales)
@@ -222,7 +227,18 @@ export function OverviewView() {
               />
             </span>
           }
-            sub="no período selecionado"
+            sub={
+              otherRev.length > 0 ? (
+                /* Item 273: receita nas demais moedas não some do card */
+                <span data-sensitive>
+                  {'+ '}
+                  {otherRev.map(([c, cents]) => money(cents, c)).join(' + ')}
+                  {' em outras moedas'}
+                </span>
+              ) : (
+                'no período selecionado'
+              )
+            }
             delta={revDelta}
             spark={<SparkLine data={revSeries} color="#25f4ee" />}
           />
@@ -275,7 +291,10 @@ export function OverviewView() {
             />
           }
           sub="visita → compra"
-          delta={d('overall')}
+          /* Item 291: conversão JÁ é % — delta correto é a diferença em
+             pontos percentuais, não % de % (2%→3% = +1 p.p., não +50%) */
+          delta={prev ? +(cur.overall - prev.overall).toFixed(1) : null}
+          deltaUnit="pp"
         />
       </section>
 

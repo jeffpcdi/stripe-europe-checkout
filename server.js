@@ -1328,23 +1328,32 @@ function checkDailyReport() {
     for (const accId of config.accountIds()) checkDailyReportFor(accId);
   } finally { dailyCheckBusy = false; }
 }
+// Item 295 (bug): o relatório diário cortava o dia em UTC — vendas das 21h à
+// meia-noite de Brasília caíam no dia "seguinte" e o resumo vinha errado.
+// brDay converte qualquer timestamp para o dia calendário de Brasília.
+const BR_DAY_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+});
+function brDay(d) {
+  const t = d instanceof Date ? d : new Date(d);
+  return isNaN(t.getTime()) ? String(d).slice(0, 10) : BR_DAY_FMT.format(t);
+}
 function checkDailyReportFor(accId) {
   const cfg = config.get(accId);
   const pc = cfg.pushcut || {};
   if (!pc.url || !(pc.events || {}).daily) return;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = brDay(new Date());
   if (cfg.lastDailyReport === today) return;
   try {
-    const y = new Date(Date.now() - 86400e3);
-    const yKey = y.toISOString().slice(0, 10);
+    const yKey = brDay(new Date(Date.now() - 86400e3));
     const s = stats.getStats(accId);
-    const dayLeads = (s.leads || []).filter((l) => !l.orphan && String(l.at || '').slice(0, 10) === yKey);
-    const sales = (s.events || []).filter((e) => e.type === 'sale' && String(e.at || '').slice(0, 10) === yKey);
+    const dayLeads = (s.leads || []).filter((l) => !l.orphan && brDay(l.at) === yKey);
+    const sales = (s.events || []).filter((e) => e.type === 'sale' && brDay(e.at) === yKey);
     const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
     const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
     // anteontem, para comparação
-    const y2Key = new Date(Date.now() - 2 * 86400e3).toISOString().slice(0, 10);
-    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && String(e.at || '').slice(0, 10) === y2Key);
+    const y2Key = brDay(new Date(Date.now() - 2 * 86400e3));
+    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && brDay(e.at) === y2Key);
     const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
     const cur = (sales[0] && sales[0].currency) || 'EUR';
     const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;

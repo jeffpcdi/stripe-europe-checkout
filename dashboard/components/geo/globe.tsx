@@ -116,6 +116,26 @@ function GlobeCanvas({
 }) {
   const entered = useRef(false)
 
+  // Item 369: libera o contexto WebGL ao desmontar. O navegador limita a
+  // ~8-16 contextos simultâneos — sem dispose, navegar entre abas (e abrir/
+  // fechar a tela cheia, que monta um SEGUNDO canvas) vaza contextos até o
+  // navegador começar a matar os mais antigos ("context lost" no globo).
+  useEffect(() => {
+    const ref = globeRef
+    return () => {
+      const g = ref.current
+      if (!g) return
+      try {
+        const renderer = g.renderer?.()
+        renderer?.dispose?.()
+        renderer?.forceContextLoss?.()
+      } catch {
+        /* renderer já liberado */
+      }
+      ref.current = null
+    }
+  }, [globeRef])
+
   useEffect(() => {
     const g = globeRef.current
     if (!g) return

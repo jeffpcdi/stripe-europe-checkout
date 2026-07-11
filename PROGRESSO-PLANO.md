@@ -235,7 +235,7 @@ Lote concluído: 176–188 (todos ✅ abaixo). 189/183/184/185/187/182/188/186 �
     - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
   - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
-- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç��������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
@@ -364,11 +364,25 @@ Auditoria code-level confirmou que o trabalho das sessões 5–6 já entregou o 
 - Skeletons/loading nas views com fetch direto; badges de status entregues nos itens 54/83/85–87.
 Sem gap visual objetivo restante — marcados como concluídos por cobertura.
 
+## Leva 7 — bugs reais (273, 291, 295, 346, 347, 367, 369, 455, 458) — completo
+
+- ✅ 458 (**bug 1000x**). `parseAmount`: "1.234" com ponto de MILHAR BR lia como R$ 1,23 — regex de milhar inequívoco (`1–3 dígitos + grupos de 3`) agora resolve para 1234 antes do parse decimal; "12.34"/"0.99" continuam decimais. +5 asserts de regressão em `persistence-flows`.
+- ✅ 273. Receita em outras moedas não some mais: card "Receita total" mostra breakdown "+ €X em outras moedas" no sub quando `cur.rev` tem mais de uma moeda (com `data-sensitive`).
+- ✅ 291. Delta de conversão agora é em **p.p.** (2%→3% = +1,0 p.p., não +50%): `DeltaChip` ganhou `unit='pp'` e o KPI Conversão usa `cur.overall - prev.overall`.
+- ✅ 295. Corte diário no fuso de Brasília: `metrics.ts` (série do gráfico) e `checkDailyReportFor` no server (relatório Pushcut) usam `Intl.DateTimeFormat('en-CA', {timeZone:'America/Sao_Paulo'})` — venda às 22h BRT não cai mais no dia seguinte. Linha 539 (salt de fingerprint) auditada como irrelevante.
+- ✅ 346. `seenIds` do live-view com cap de 2000 ids (reseta para os visitantes atuais); o do activity-view auditado — é criado uma vez e nunca cresce, sem vazamento.
+- ✅ 347. `copyText` em `lib/clipboard.ts` (novo): clipboard API só em contexto seguro + fallback textarea/execCommand p/ HTTP/iframe; `copyEventDetails` retorna sucesso real e o botão só mostra "Copiado" quando copiou de fato.
+- ✅ 367. Dedupe do live com chave estável: fallback sem id era `country-page-durationMs` (durationMs muda a cada poll → duplicava visitante); agora `country-page`.
+- ✅ 369. Globo: dispose do renderer three.js + `forceContextLoss()` ao desmontar o `GlobeCanvas` (o fullscreen monta um 2º canvas; sem dispose, navegação repetida estourava o limite de contextos WebGL do navegador).
+- ✅ 455. Auditado: idempotência de webhooks já é completa — `orderId` é obrigatório no normalizador (400 sem ele) e `seenWebhookOrder` usa SETNX com TTL 24h por conta+evento+orderId. Não há caminho sem dedupe.
+
+Validação: `node --check` limpo, `tsc --noEmit` limpo, `npm test` verde (10 suítes, persistence-flows 15/15), `next build` limpo.
+
 ## Fila de execução (próximos)
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Leva 7 (271–570) — bugs reais → durabilidade → segurança → valor → refino → DX
+1. Leva 7 (271–570) — durabilidade → segurança → valor → refino → DX (bugs reais concluídos)
 2. Bloqueados por integração externa (marcar, não fazer): 412 (e-mail reset), 459/542 (relatórios email), 557–560 (CI/Playwright), 561 (Sentry)
 
 ## Histórico de sessões

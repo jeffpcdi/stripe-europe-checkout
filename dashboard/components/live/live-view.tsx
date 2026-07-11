@@ -157,10 +157,13 @@ export function LiveView() {
   const newIds = useRef<Set<string>>(new Set())
 
   const visitors = data?.visitors ?? []
-  // dedupe defensivo por id (mesma lógica do legado)
+  // Dedupe defensivo por id. Item 367 (bug): o fallback antigo incluía
+  // durationMs, que muda a cada poll — o MESMO visitante sem id aparecia
+  // 2x quando o backend o listava com durações diferentes. A chave de
+  // fallback precisa ser estável entre amostras: país + página.
   const seen = new Set<string>()
   const unique = visitors.filter((v) => {
-    const id = v.id || `${v.country}-${v.page}-${v.durationMs}`
+    const id = v.id || `${v.country}-${v.page}`
     if (seen.has(id)) return false
     seen.add(id)
     return true
@@ -179,6 +182,12 @@ export function LiveView() {
       newIds.current.add(id)
       // remove o realce depois da animação
       window.setTimeout(() => newIds.current.delete(id), 4000)
+    }
+    // Item 346 (vazamento leve): em sessões longas o Set cresceria sem limite.
+    // Acima de 2000 ids, mantém só os visitantes atuais — quem saiu da lista
+    // não volta a "piscar" mesmo se reaparecer, custo aceitável.
+    if (seenIds.current.size > 2000) {
+      seenIds.current = new Set(ids)
     }
   }, [data])
 
