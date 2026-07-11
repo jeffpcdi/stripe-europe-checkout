@@ -183,6 +183,9 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
     try {
       await apiSend('/api/links', 'POST', {
         slug: slug || nome,
+        // Item 235: concorrência otimista — envia o updatedAt visto ao abrir
+        // o formulário; o backend devolve 409 se o link mudou nesse meio-tempo
+        _baseUpdatedAt: link?.updatedAt || undefined,
         nome,
         dominio: dominio || null,
         urlWhitePage: urlWhitePage || null,

@@ -27,7 +27,7 @@ import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
-import { QueueHealthPanel, RetentionPanel } from './queue-health-panel'
+import { QueueHealthPanel, RetentionPanel, IntegrityPanel } from './queue-health-panel'
 
 // Tutorial da aba Gateways — inclui a regra de ouro: venda só conta quando o
 // GATEWAY confirma o pagamento via webhook (nunca pelo navegador do cliente).
@@ -664,6 +664,9 @@ export function GatewaysView() {
           )}
         </GlassCard>
       </div>
+
+      {/* Itens 230/232: integridade referencial + dados órfãos (oculto se saudável) */}
+      <IntegrityPanel />
 
       {/* Observabilidade das filas duráveis (Leva 5, bloco I: 191–200) */}
       <QueueHealthPanel />

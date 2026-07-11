@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import {
   User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send, SlidersHorizontal, Coins,
+  DownloadCloud, UploadCloud,
 } from 'lucide-react'
 import useSWR from 'swr'
 import { useAccount, usePushcutConfig, apiSend, fetcher } from '@/lib/api'
@@ -27,8 +28,109 @@ export function ConfigView() {
       <PreferencesCard />
       <PushcutCard />
       <ApiTokenCard />
+      <BackupCard />
       <DangerCard />
     </div>
+  )
+}
+
+/** Item 231: backup self-service — exporta/importa a configuração da conta
+ *  em JSON. Segredos (access tokens, secrets de webhook) NUNCA saem no
+ *  arquivo; após importar, o usuário recoloca as credenciais. */
+function BackupCard() {
+  const [importing, setImporting] = useState(false)
+  const [report, setReport] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleImport(file: File) {
+    setImporting(true)
+    setReport(null)
+    setError(null)
+    try {
+      const text = await file.text()
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        throw new Error('O arquivo não é um JSON válido.')
+      }
+      const r = await apiSend<{
+        ok: boolean
+        report: { links: number; pixels: number; gateways: number; cloakLinks: number; erros: string[] }
+      }>('/api/backup/import', 'POST', parsed as Record<string, unknown>)
+      const rep = r.report
+      const parts = [
+        rep.links > 0 ? `${rep.links} link(s)` : null,
+        rep.pixels > 0 ? `${rep.pixels} pixel(s)` : null,
+        rep.gateways > 0 ? `${rep.gateways} gateway(s)` : null,
+        rep.cloakLinks > 0 ? `${rep.cloakLinks} link(s) de cloaking` : null,
+      ].filter(Boolean)
+      setReport(
+        parts.length > 0
+          ? `Importado: ${parts.join(', ')}.` +
+              (rep.erros.length > 0 ? ` ${rep.erros.length} item(ns) com erro.` : '') +
+              ' Recoloque os access tokens dos pixels e confira os gateways.'
+          : 'Nada foi importado — o arquivo estava vazio ou os itens falharam.',
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao importar o backup')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <GlassCard className="p-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <DownloadCloud className="size-4 text-[color:var(--brand-cyan)]" />
+        <div>
+          <h2 className="section-head text-sm font-semibold text-foreground">Backup da configuração</h2>
+          <p className="text-xs text-muted-foreground">
+            Exporta links, pixels, gateways e cloaker em JSON — sem segredos (tokens e secrets ficam de fora)
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <a
+          href="/api/backup/export"
+          download="backup-conta.json"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
+        >
+          <DownloadCloud className="size-3.5" aria-hidden="true" />
+          Exportar backup
+        </a>
+        <label
+          className={`flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary ${importing ? 'pointer-events-none opacity-50' : ''}`}
+        >
+          {importing ? (
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <UploadCloud className="size-3.5" aria-hidden="true" />
+          )}
+          {importing ? 'Importando…' : 'Importar backup'}
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) handleImport(f)
+              e.target.value = ''
+            }}
+          />
+        </label>
+      </div>
+      {report && (
+        <p className="mt-3 text-xs text-success" role="status">
+          {report}
+        </p>
+      )}
+      {error && (
+        <p className="anim-shake mt-3 text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </GlassCard>
   )
 }
 

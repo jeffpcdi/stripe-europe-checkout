@@ -97,6 +97,94 @@ export function RetentionPanel() {
   )
 }
 
+// Itens 230/232: integridade referencial + dados órfãos. Mostra links com
+// referências quebradas (pixel/domínio apagado) e stats de cloak de slugs que
+// não existem mais, com ação de corrigir os órfãos seguros. Painel OCULTO no
+// caminho saudável — só aparece quando há algo a corrigir.
+interface IntegrityResponse {
+  ok: boolean
+  problemas: { tipo: string; slug: string; ref: string; msg: string }[]
+  orfaosCloak: string[]
+  corrigidos?: number
+}
+
+export function IntegrityPanel() {
+  const { data, mutate } = useSWR<IntegrityResponse>('/api/ops/integrity', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const [fixing, setFixing] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const total = (data?.problemas?.length ?? 0) + (data?.orfaosCloak?.length ?? 0)
+  if (!data || total === 0) return null
+
+  async function handleFix() {
+    setFixing(true)
+    try {
+      const r = await fetcher<IntegrityResponse>('/api/ops/integrity?fix=1')
+      toast.success(
+        r.corrigidos && r.corrigidos > 0
+          ? `${r.corrigidos} problema(s) corrigido(s)`
+          : 'Nada para corrigir automaticamente',
+      )
+      mutate()
+    } catch (e) {
+      toast.error('Falha ao corrigir os problemas', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setFixing(false)
+    }
+  }
+
+  return (
+    <GlassCard className="min-w-0 p-5">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CircleAlert className="size-4 text-[color:var(--warning)]" aria-hidden="true" />
+          <h2 className="section-head text-sm font-semibold text-foreground">Integridade da configuração</h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => setConfirmOpen(true)}
+          disabled={fixing}
+          className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+        >
+          {fixing ? 'Corrigindo…' : 'Corrigir automaticamente'}
+        </button>
+      </div>
+      <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
+        {data.problemas.map((p, i) => (
+          <li key={`${p.tipo}-${p.slug}-${i}`} className="flex items-start gap-1.5">
+            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
+            <span className="text-pretty">{p.msg}</span>
+          </li>
+        ))}
+        {data.orfaosCloak.length > 0 && (
+          <li className="flex items-start gap-1.5">
+            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
+            <span className="text-pretty">
+              {data.orfaosCloak.length} estatística(s) de cloaker de link(s) já apagado(s) ocupando espaço.
+            </span>
+          </li>
+        )}
+      </ul>
+      <p className="mt-2 text-[11px] leading-snug text-muted-foreground text-pretty">
+        A correção automática limpa apenas referências quebradas e estatísticas órfãs — nunca dados de venda.
+      </p>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Corrigir problemas de integridade?"
+        description="Referências de pixel apagado serão removidas dos links e as estatísticas de cloaker órfãs serão limpas. Dados de venda não são tocados."
+        confirmLabel="Corrigir agora"
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false)
+          handleFix()
+        }}
+      />
+    </GlassCard>
+  )
+}
+
 // Painel de saúde das filas duráveis (Leva 5, bloco I: 191–200).
 // Traduz contadores internos do backend em linguagem operacional: quantas
 // conversões aguardam disparo, se o worker está vivo, quão rápido o webhook

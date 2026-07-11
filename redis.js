@@ -378,6 +378,51 @@ function normalizeCloakHash(h) {
   return { offer, white, total, offerRate: total ? offer / total : 0, reasons, daily };
 }
 
+// Item 232: enumera os slugs que têm stats de cloak gravadas para a conta
+// (memória + SCAN no Redis). Usado pela auditoria de órfãos — slugs com stats
+// mas sem link de cloak correspondente foram apagados e podem ser limpos.
+async function listCloakStatSlugs(accountId) {
+  const prefix = 'cloakstats:' + (accountId || 'default') + ':';
+  const slugs = new Set();
+  for (const key of cloakStatsMem.keys()) {
+    if (key.startsWith(prefix)) slugs.add(key.slice(prefix.length));
+  }
+  if (!enabled) return Array.from(slugs);
+  try {
+    let cursor = '0';
+    let rounds = 0;
+    do {
+      const [next, keys] = await redis.scan(cursor, { match: prefix + '*', count: 200 });
+      cursor = String(next);
+      (keys || []).forEach((k) => slugs.add(String(k).slice(prefix.length)));
+      rounds++;
+    } while (cursor !== '0' && rounds < 25);
+  } catch (err) {
+    console.error('[redis] listCloakStatSlugs:', err.message);
+  }
+  return Array.from(slugs);
+}
+
+// Item 232: apaga as stats de cloak de slugs órfãos (hash de contadores).
+async function clearCloakStats(accountId, slugs) {
+  const list = Array.isArray(slugs) ? slugs : [];
+  let removed = 0;
+  for (const slug of list) {
+    const key = cloakKey(accountId, slug);
+    if (cloakStatsMem.has(key)) { cloakStatsMem.delete(key); removed++; }
+  }
+  if (!enabled) return removed;
+  try {
+    for (const slug of list) {
+      const n = await redis.del(cloakKey(accountId, slug)).catch(() => 0);
+      removed += Number(n) || 0;
+    }
+  } catch (err) {
+    console.error('[redis] clearCloakStats:', err.message);
+  }
+  return removed;
+}
+
 async function resetCloakStats(accountId, slug) {
   const key = cloakKey(accountId, slug);
   cloakStatsMem.delete(key);
@@ -988,6 +1033,7 @@ module.exports = {
   getAsnCache, setAsnCache, clearAsnCache, // Item 222
   bumpCloakDecision, getCloakStats, resetCloakStats,
   pushCloakDecision, getCloakDecisionLog, clearCloakDecisionLogs, // Itens 170/200
+  listCloakStatSlugs, clearCloakStats, // Item 232
   enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,
   getReclaimInfo, recordConvLatency, getConvLatency,
   heartbeatConvWorker, getConvWorkerBeat, capiRetryInfo,

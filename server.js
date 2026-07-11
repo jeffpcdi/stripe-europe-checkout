@@ -1538,6 +1538,58 @@ app.get('/api/live', dashboardAuth, async (req, res) => {
 });
 
 // ���═����� Links de Checkout — CRUD + validação de domínio (por conta) ══════
+// Itens 230/232: auditoria de integridade referencial + dados órfãos.
+// Reporta (sem alterar nada): links apontando para pixel/domínio inexistente
+// e stats de cloak de slugs que não existem mais. O modo ?fix=1 limpa os
+// órfãos seguros (somente referências, nunca dados de venda).
+app.get('/api/ops/integrity', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const cfg = config.get(acc);
+  const pixels = new Set(pixelStore.list(acc).map((p) => p.slug));
+  const domains = new Set((cfg.customDomains || []).map((d) => d.host));
+  const cloakSlugs = new Set((cfg.cloakLinks || []).map((c) => c.slug));
+  const problemas = [];
+  for (const l of linkStore.list(acc)) {
+    // pixel referenciado que não existe mais
+    if (l.pixelSlug && !pixels.has(l.pixelSlug)) {
+      problemas.push({ tipo: 'link-pixel', slug: l.slug, ref: l.pixelSlug,
+        msg: 'Link "' + l.nome + '" aponta para o pixel "' + l.pixelSlug + '", que não existe mais.' });
+    }
+    // domínio personalizado que sumiu da lista global
+    if (l.dominio && domains.size > 0 && !domains.has(l.dominio)) {
+      problemas.push({ tipo: 'link-dominio', slug: l.slug, ref: l.dominio,
+        msg: 'Link "' + l.nome + '" usa o domínio "' + l.dominio + '", que não está mais cadastrado.' });
+    }
+  }
+  // stats de cloak de slugs apagados (órfãos no Redis). O prefixo 'cloak:'
+  // vem do bumpDecision ('cloak:' + slug) — remove antes de comparar.
+  let orfaosCloak = [];
+  try {
+    const statSlugs = await redis.listCloakStatSlugs(acc);
+    orfaosCloak = statSlugs
+      .map((s) => s.replace(/^cloak:/, ''))
+      .filter((slug) => !cloakSlugs.has(slug));
+  } catch (_) {}
+  const fix = req.query.fix === '1';
+  let corrigidos = 0;
+  if (fix) {
+    // limpar referência de pixel fantasma nos links (ação segura e reversível)
+    for (const p of problemas.filter((x) => x.tipo === 'link-pixel')) {
+      try { await linkStore.save(acc, { slug: p.slug, pixelSlug: '' }); corrigidos++; } catch (_) {}
+    }
+    // apagar contadores e histórico de decisões de slugs de cloak apagados
+    if (orfaosCloak.length) {
+      const prefixed = orfaosCloak.map((s) => 'cloak:' + s);
+      try {
+        corrigidos += await redis.clearCloakStats(acc, prefixed);
+        await redis.clearCloakDecisionLogs(acc, prefixed);
+      } catch (_) {}
+    }
+  }
+  res.json({ ok: true, problemas, orfaosCloak, corrigidos: fix ? corrigidos : undefined });
+});
+
 // Item 231: backup self-service da configuração da conta em JSON.
 // SEGREDOS NUNCA SAEM: accessToken de pixel e secret de gateway são omitidos —
 // o import recria a estrutura e o usuário recoloca as credenciais.
@@ -1625,7 +1677,8 @@ app.post('/api/links', dashboardAuth, async (req, res) => {
     stats.logEvent('info', { acc: req.account.id, title: 'Link de checkout salvo: ' + saved.nome, ref: saved.slug });
     res.json({ ok: true, link: saved });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    // Item 235: conflito de edição concorrente → 409 com mensagem acionável
+    res.status(err.code === 'conflict' ? 409 : 400).json({ error: err.message, code: err.code });
   }
 });
 

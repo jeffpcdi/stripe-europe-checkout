@@ -130,6 +130,16 @@ async function save(accountId, input) {
   const slug = slugify(input.slug || input.nome);
   if (!slug) throw new Error('nome é obrigatório');
   const existing = get(accountId, slug);
+  // Item 235: concorrência otimista — se o cliente informou o updatedAt que
+  // viu ao abrir o formulário e o registro mudou nesse meio-tempo (outra aba,
+  // outro usuário da conta), avisa em vez de sobrescrever silenciosamente.
+  if (existing && input._baseUpdatedAt && existing.updatedAt &&
+      input._baseUpdatedAt !== existing.updatedAt) {
+    const err = new Error('Este link foi alterado em outra aba ou por outro usuário. Recarregue a página para ver a versão atual antes de salvar.');
+    err.code = 'conflict';
+    throw err;
+  }
+  delete input._baseUpdatedAt; // campo de controle: não persiste
   const merged = normalize(slug, Object.assign({}, existing || {}, input, { slug, acc: accountId }));
   if (!merged.variantes.length) throw new Error('pelo menos 1 variante com URL https:// válida é obrigatória');
   // preserva contadores existentes por id de variante (edição não zera stats)
