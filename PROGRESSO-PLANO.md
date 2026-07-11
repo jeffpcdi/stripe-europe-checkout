@@ -235,7 +235,7 @@ Lote concluído: 176–188 (todos ✅ abaixo). 189/183/184/185/187/182/188/186 �
     - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
   - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
-- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidratação). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç��o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
@@ -258,14 +258,34 @@ Validação desta fatia: `tsc --noEmit` limpo, `next build` limpo (rotas /cloak,
 
 Evidência: `node --check` limpo, `next build` limpo (type-check incluído), 7/7 suítes de teste passando, `getJudgeLatency()` conferido em runtime.
 
+## Leva 5, bloco I (191–200) — observabilidade das filas duráveis
+
+Capacidades que já existiam no backend mas nenhuma UI expunha, agora visíveis na aba Gateways (painel "Saúde da fila de conversões", `queue-health-panel.tsx`).
+
+- ✅ 191. **Profundidade da fila de conversões** — `convQueueDepth()` (pendentes + em processamento) exposto em `GET /api/ops` (`convQueue`).
+- ✅ 192. **Resgate de órfãos** — `reclaimConversions` passou a registrar `_lastReclaim`; `getReclaimInfo()` alimenta o card "último reprocessamento".
+- ✅ 193. **Fila de retry da CAPI** — `ttEvents.retryQueueInfo(acc)` retorna `{count, oldestAgeMs}` por conta (usa `firstAt`/`acc` já presentes nos itens).
+- ✅ 194. **Forçar drenagem** — `drainRetryQueue({force, acc})` ignora o backoff e processa só a conta, com lock distribuído; exposto por `POST /api/ops/drain-retry` (rate-limit 6/janela) + botão na UI com toast.
+- ✅ 195. **Dedup de webhook** — `bumpWebhookDedup`/`getWebhookDedupCount` (durável 30d por conta, fallback em memória) incrementado na branch de reentrega ignorada; card na UI.
+- ✅ 197. **Heartbeat do worker** — `heartbeatConvWorker()` a cada tick do drain; `getConvWorkerBeat()` marca "ativo" se <10s. Badge verde/âmbar na UI.
+- ✅ 199. **Latência webhook→disparo** — carimbo `_recvAt` em `submitConversion`, medido em `processConversion` via `recordConvLatency` (janela de 200 em memória); p50/p95/max em `getConvLatency()`.
+- ✅ 196. **Estado degradado sem Redis** — `redisEnabled:false` deixa o painel em aviso âmbar ("fila best-effort em memória") em vez de números enganosos.
+- ⏳ 198. **Reprocessar uma conversão individual do log** (reenfileirar manualmente) — pendente; depende de expor o `convLog` por conta com um id estável antes de reenfileirar.
+- ⏳ 200. **Retenção/limpeza manual de logs por aba** (pixelLog 14d, convLog 200, cloak 90d, emq 40d) — pendente; expor limites + botão de limpar por aba.
+
+Backend: `server.js` (`GET /api/ops`, `POST /api/ops/drain-retry`, heartbeat/latência/dedup wiring), `redis.js` (7 helpers novos + exports), `tiktok-events.js` (`drainRetryQueue` com `{force,acc}` retornando processados, `retryQueueInfo`). Front: `types.ts` (`OpsResponse`), `api.ts` (`useOps`), `queue-health-panel.tsx` + integração no `gateways-view.tsx`. Teste: `test/queue-observability.test.js` (8ª suíte — 12 asserts: percentis, heartbeat, dedup por conta, resumo da retry).
+
+Validação: `node --check` limpo (server/redis/tiktok-events), `tsc --noEmit` limpo, `next build` limpo, `npm test` 8/8. Verificação em navegador da dashboard autenticada não é possível no sandbox (o `/__dev/login` exige `DATABASE_URL`, ausente aqui).
+
 ## Fila de execução (próximos)
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Leva 4 (141–190) — **100% concluída** (161–190 + 204–206/210 dentro da faixa). Faltam as faixas 141–160 (não iniciadas) e a Leva 5 (191–240)
-2. Leva 5 (191–240) — próxima: observabilidade da fila de conversões (191–200), anti-fraude exposto (201–212), etc.
-3. 15, 18, 22, 24, 26 — refinos visuais restantes da Leva 2
-4. Leva 6–7 (241–570) — 241–252 já concluídos (antecipados)
+1. Leva 5 bloco I (191–200) — **quase completo**; faltam os itens 198 (reprocessar conversão individual) e 200 (retenção/limpeza manual de logs por aba)
+2. Leva 5 blocos seguintes (201–240) — anti-fraude exposto (201–212), etc.
+3. Faixa 141–160 da Leva 4 — não iniciada
+4. 15, 18, 22, 24, 26 — refinos visuais restantes da Leva 2
+5. Leva 6–7 (241–570) — 241–252 já concluídos (antecipados)
 
 ## Histórico de sessões
 
