@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStats } from '@/lib/api'
+import { usePersistedState } from '@/lib/use-persisted-state'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { formatMoney, formatDateTime, timeAgo, dayLabel, plural, gwLabel } from '@/lib/format'
@@ -191,7 +192,8 @@ function EventRow({ e, isNew }: { e: StatsEvent; isNew?: boolean }) {
 
 export function ActivityView() {
   const { data, isLoading, error } = useStats()
-  const [filter, setFilter] = useState<string | null>(null)
+  // Item 185: o filtro de tipo de evento persiste entre navegações
+  const [filter, setFilter] = usePersistedState<string | null>('activity:filter', null)
   // Item 157: paginação incremental com "carregar mais"
   const [limit, setLimit] = useState(PAGE_SIZE)
   // Item 152: re-renderiza a cada minuto para atualizar tempos relativos

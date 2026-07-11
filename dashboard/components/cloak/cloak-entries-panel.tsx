@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { usePersistedState } from '@/lib/use-persisted-state'
 import {
   Plus,
   Link2,
@@ -48,8 +49,9 @@ export function CloakEntriesPanel() {
   const [testing, setTesting] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<Record<string, CloakTestResult>>({})
   // Item 136: busca + ordenação (só aparecem com 2+ links)
+  // Item 185: a ordenação persiste entre navegações; a busca é por sessão
   const [query, setQuery] = useState('')
-  const [sort, setSort] = useState<SortKey>('recentes')
+  const [sort, setSort] = usePersistedState<SortKey>('cloak-entries:sort', 'recentes')
   // Item 137: seleção para ações em massa
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)

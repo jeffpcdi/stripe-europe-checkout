@@ -185,9 +185,9 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   **Métricas de decisão:** `GET /api/cloak/stats` (offer vs white + taxa de bloqueio + breakdown por
   motivo, por link e agregado) e `POST /api/cloak/stats/reset` (zera um link via `{key}` ou todos).
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
-- **Convers��es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
+- **Convers����es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
-  **Mecanismo de verificação (2 passos, mas só o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
+  **Mecanismo de verificação (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
   comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
   → `cloudflareProxy=true` (nuvem laranja mascara o CNAME real). (2) HTTP — `GET https://host/__domain-check`
   precisa responder 200 com `{app:'roi-nados-tracker'}` (assinatura `APP_CHECK_ID`). **`ok = httpOk`**:
@@ -646,7 +646,7 @@ o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba co
 para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
 dashboard com `next build` + `next start -p 3001`.
 
-### 19.4.1 Primitivos de UX compartilhados (itens 183/184/189 — REUTILIZE, não reinvente)
+### 19.4.1 Primitivos de UX compartilhados (itens 183/184/185/187/189 — REUTILIZE, não reinvente)
 Ao adicionar feedback, confirmações ou modais numa view, use SEMPRE estes três — não improvise
 `window.confirm`, `savedAt`/`copied` locais ou trap de foco caseiro:
 - **`lib/toast.ts` + `components/shell/toaster.tsx`** — toaster global montado 1× no layout. Chame
@@ -660,6 +660,13 @@ Ao adicionar feedback, confirmações ou modais numa view, use SEMPRE estes trê
   foco e trava de scroll a QUALQUER popup. O container precisa de `tabIndex={-1}` e `role`
   (`dialog`/`alertdialog`). `GlassCard` encaminha `ref` (ref-as-prop React 19), então serve de
   container. Já usado por `TutorialModal` e `ConfirmDialog`.
+- **`lib/use-persisted-state.ts`** — `usePersistedState(key, default)` (item 185): drop-in de
+  `useState` que espelha PREFERÊNCIAS DE EXIBIÇÃO (filtro, ordenação, aba) em `localStorage`
+  (prefixo `roi:ui:`). SSR-safe. NUNCA para dados de negócio — só UI. Busca textual fica em
+  `useState` normal (por sessão).
+- **`LIST_POLL_MS` (30s) em `lib/api.ts`** (item 187) — hooks de LISTA de gestão
+  (`useLinks/useDomains/usePixels/useGateways/useCloakEntries`) usam esse intervalo + `revalidateOnFocus`.
+  NÃO use o `POLL_MS` (12s) das métricas para listas.
 Pendente (próxima fatia): migrar links/pixels/domínios/cloak entries para `ConfirmDialog`+`toast`.
 
 ### 19.5 Armadilhas específicas da dashboard nova

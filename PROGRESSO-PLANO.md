@@ -205,7 +205,11 @@ Pendente do lote (UI ampla, próxima fatia): 175, 182, 185–188, 190 (formato d
 - ✅ 183. Toaster global (`lib/toast.ts` store sem dependência + `components/shell/toaster.tsx`) montado uma vez no layout da Gestão. Região `aria-live` (assertiva p/ erro `role=alert`, polida p/ sucesso/info `role=status`), no máx 4 na tela, erro fica 6s e demais 3.5s. API `toast.success/error/info(msg,{hint,duration})`
 - ✅ 184. `ConfirmDialog` reutilizável (`components/confirm-dialog.tsx`) usando o hook de a11y — substitui `window.confirm`. Quando o item tem tráfego, exige digitar o nome (mesma trava do link, item 76). Conectado ao **gateways-view**: excluir gateway (exige nome se `lastEventAt`) e rotacionar webhook agora usam o diálogo + `toast`, em vez de `window.confirm` e mensagens improvisadas
 
-Pendente: replicar `ConfirmDialog`/`toast` nas demais views (links, pixels, domínios, cloak entries) — próxima fatia.
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidratação). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
+- ✅ 190. Empty states com CTA — verificado que já existem em todas as views (links, pixels, gateways, domínios, cloak, activity, funnel); nada a fazer
+
+Pendente: replicar `ConfirmDialog`/`toast` nas demais views (links, pixels, domínios, cloak entries) e itens 175, 182, 186, 188 — próxima fatia.
 
 Evidência: `node --check` limpo nos 3 módulos, `next build` limpo (type-check incluído, 12 rotas prerenderizadas), 5/5 suítes de teste passando, `getJudgeLatency()` conferido em runtime.
 
@@ -213,7 +217,7 @@ Evidência: `node --check` limpo nos 3 módulos, `next build` limpo (type-check 
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Leva 4 (141–200) — 161–168/204–206/210 (transparência do cloak) + 176–181 (backend/API) + 183/184/189 (primitivos de UX: toaster, confirm dialog, a11y de modal) concluídos; faltam 141–160, 169–175, 182, 185–188, 190–203, 207–209, 211–240
+1. Leva 4 (141–200) — 161–168/204–206/210 (transparência do cloak) + 176–181 (backend/API) + 183/184/189 (primitivos de UX) + 185/187/190 (persistência de UI, revalidação de listas, empty states) concluídos; faltam 141–160, 169–175, 182, 186, 188, 191–203, 207–209, 211–240
 2. 15, 18, 22, 24, 26 — refinos visuais restantes da Leva 2
 3. Leva 5–7 (201–570) — 241–252 já concluídos (antecipados)
 
