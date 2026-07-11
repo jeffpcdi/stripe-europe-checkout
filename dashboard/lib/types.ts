@@ -133,6 +133,14 @@ export interface OpsResponse {
   worker: { at: number; active: boolean }           // heartbeat do drain worker
   capiRetry: { count: number; oldestAgeMs: number } // fila de retry da CAPI
   webhookDedup: number                              // reentregas de webhook ignoradas
+  // Item 225: disparos CAPI deduplicados (beacon+servidor) desde o boot
+  pixelDedup?: { deduped: number; sinceMs: number }
+  // Itens 220/226: presença ao vivo com teto + distribuição por entrada do funil
+  presence?: { online: number; limit: number; near: boolean; byEntry: { entry: string; count: number }[] }
+  // Item 223: cobertura do cache de ASN (hit-rate = mem+redis / total)
+  asnCache?: { memHits: number; redisHits: number; liveLookups: number; total: number; hitRate: number; entries: number }
+  // Item 224: TTLs efetivos das camadas de cache (segundos)
+  cacheTtls?: Record<string, number>
   ts: string
 }
 

@@ -235,7 +235,7 @@ Lote concluído: 176–188 (todos ✅ abaixo). 189/183/184/185/187/182/188/186 �
     - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
   - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
-- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç��o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç����o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
@@ -301,6 +301,18 @@ Validação: `node --check` limpo (server/redis), `tsc --noEmit` limpo.
 - ✅ 219. **Badge de qualidade** (bom/médio/ruim) por pixel derivado do `recentAvg` (≥7 / ≥5 / <5).
 
 Front: `pixels-view.tsx` (`EmqSparkline` com badge+volume, EMQ por evento no health, texto do card). Sem mudança de backend (dados já existiam). `tsc --noEmit` limpo.
+
+## Leva 5, bloco L (220–226) — presença, caches e transparência técnica
+
+- ✅ 220. **Aviso de teto de presença** — `/api/ops` publica `presence:{online,limit:500,near}`; o `QueueHealthPanel` avisa quando ≥90% do teto (SCAN pode truncar).
+- ✅ 221. **Indicador de fonte (durável × memória)** — badge "durável"/"memória" no header do `CloakDecisionLog` (usa `data.source`) e do `cloak-stats-panel` (usa `data.redis`), com tooltip explicando que memória zera em reinícios.
+- ✅ 222. **Limpar cache de ASN de um IP** — `botFilter.clearAsnCache(ip)` (memória+Redis via `redis.clearAsnCache`), rota `POST /api/cloak/asn/clear` (valida IPv4/IPv6) e formulário "Limpar ASN" no bloco anti-fraude do `cloak-stats-panel`.
+- ✅ 223. **Cobertura do cache de ASN** — `_asnStats` em `bot-filter.js` conta memHits/redisHits/liveLookups; `getAsnCacheStats()` exposto em `/api/ops.asnCache`; UI mostra "% de acerto · N IPs em memória" com tooltip detalhado.
+- ✅ 224. **TTLs efetivos** — `botFilter.CACHE_TTLS` (presence 60s, dedup 2h, sticky 6h, ttclid 12h, asn 24h, asnNegativo 5min) publicado em `/api/ops.cacheTtls` e formatado (`fmtTtl`) no rodapé técnico do painel de Gestão.
+- ✅ 225. **Dedup de disparos visível** — `_dedupStats` em `server.js` conta `seenPixelEvent` positivos (Redis e memória); `/api/ops.pixelDedup`; rodapé mostra "N disparo(s) deduplicado(s) (navegador × servidor)".
+- ✅ 226. **Presença por entrada do funil** — `presence.summary()` agora agrupa `byEntry` (regex `/go/:slug` e `/c/:slug`, top-12); chips no rodapé do `QueueHealthPanel`.
+
+Validação: `node --check` limpo (server/presence/bot-filter/redis), `tsc --noEmit` limpo, `npm test` verde (7 suítes).
 
 ## Fila de execução (próximos)
 

@@ -151,6 +151,8 @@ export function GatewaysView() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   // Item 198: reprocessamento manual de uma conversão do log
   const [reprocessing, setReprocessing] = useState<string | null>(null)
+  // Item 233: paginação incremental do log (50 por vez, não trava a UI)
+  const [logShown, setLogShown] = useState(50)
 
   async function handleReprocess(row: { id?: string }) {
     if (!row.id || reprocessing) return
@@ -553,7 +555,9 @@ export function GatewaysView() {
             <ul className="flex max-h-[32rem] flex-col gap-1 overflow-y-auto">
               {/* Item 104/105: linha expansível — clique revela orderId, valor,
                   e-mail e se o lead casou com um clique rastreado (matched) */}
-              {convLog.log.map((row, i) => {
+              {/* Item 233: paginação incremental — renderiza 50 por vez para
+                  não travar a UI com as 200 linhas do log */}
+              {convLog.log.slice(0, logShown).map((row, i) => {
                 const rowKey = String(row.id ?? i)
                 const isOpen = expandedRow === rowKey
                 return (
@@ -644,6 +648,18 @@ export function GatewaysView() {
                   </li>
                 )
               })}
+              {/* Item 233: carrega mais 50 sob demanda */}
+              {convLog.log.length > logShown && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setLogShown((n) => n + 50)}
+                    className="w-full rounded-lg border border-dashed border-border px-2 py-1.5 text-center text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    Mostrar mais ({convLog.log.length - logShown} restantes)
+                  </button>
+                </li>
+              )}
             </ul>
           )}
         </GlassCard>

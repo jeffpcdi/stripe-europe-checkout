@@ -1538,6 +1538,76 @@ app.get('/api/live', dashboardAuth, async (req, res) => {
 });
 
 // ���═����� Links de Checkout — CRUD + validação de domínio (por conta) ══════
+// Item 231: backup self-service da configuração da conta em JSON.
+// SEGREDOS NUNCA SAEM: accessToken de pixel e secret de gateway são omitidos —
+// o import recria a estrutura e o usuário recoloca as credenciais.
+app.get('/api/backup/export', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const cfg = config.get(acc);
+  const payload = {
+    formato: 'pragmatic-flow-backup',
+    versao: 1,
+    exportadoEm: new Date().toISOString(),
+    links: linkStore.list(acc),
+    pixels: pixelStore.list(acc).map((p) => {
+      const { accessToken, token, ...rest } = p; // token público também sai (regenerado no import)
+      return rest;
+    }),
+    gateways: gatewayStore.list(acc).map((g) => {
+      const { secret, webhookToken, ...rest } = g;
+      return rest;
+    }),
+    dominios: (cfg.customDomains || []).map((d) => ({ host: d.host, uso: d.uso || 'ambos' })),
+    cloakLinks: cfg.cloakLinks || [],
+    cloak: cfg.cloak || null
+  };
+  res.setHeader('Content-Disposition', 'attachment; filename="backup-conta.json"');
+  res.json(payload);
+});
+
+// Item 231 (import): recria links/pixels/gateways/cloak a partir do backup.
+// Cada item passa pelo MESMO sanitizador do save normal — nada entra cru.
+// Itens que já existem (mesmo slug/nome) são atualizados, não duplicados.
+app.post('/api/backup/import', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('backup-import|' + req.account.id, 'opsdrain', 3)) {
+    return apiError(res, 429, 'Aguarde um pouco antes de importar de novo.', 'rate_limited');
+  }
+  const b = req.body || {};
+  if (b.formato !== 'pragmatic-flow-backup') {
+    return apiError(res, 400, 'Arquivo não reconhecido — exporte o backup pela própria dashboard.', 'bad_format');
+  }
+  const acc = req.account.id;
+  const report = { links: 0, pixels: 0, gateways: 0, cloakLinks: 0, erros: [] };
+  try {
+    for (const l of (Array.isArray(b.links) ? b.links : []).slice(0, 100)) {
+      try { await linkStore.save(acc, l); report.links++; }
+      catch (e) { report.erros.push('link ' + (l && l.slug) + ': ' + e.message); }
+    }
+    for (const p of (Array.isArray(b.pixels) ? b.pixels : []).slice(0, 50)) {
+      try { await pixelStore.save(acc, p); report.pixels++; } // sem accessToken: usuário recoloca
+      catch (e) { report.erros.push('pixel ' + (p && p.slug) + ': ' + e.message); }
+    }
+    for (const g of (Array.isArray(b.gateways) ? b.gateways : []).slice(0, 30)) {
+      try { await gatewayStore.save(acc, g); report.gateways++; } // token/secret novos são gerados
+      catch (e) { report.erros.push('gateway ' + (g && g.name) + ': ' + e.message); }
+    }
+    // cloak entries + config global passam pela sanitização do config.set
+    const patch = {};
+    if (Array.isArray(b.cloakLinks) && b.cloakLinks.length) patch.cloakLinks = b.cloakLinks.slice(0, 100);
+    if (b.cloak && typeof b.cloak === 'object') patch.cloak = b.cloak;
+    if (Object.keys(patch).length) {
+      config.set(acc, patch);
+      report.cloakLinks = (patch.cloakLinks || []).length;
+    }
+    stats.logEvent('info', { acc, title: 'Backup importado: ' + report.links + ' links, ' + report.pixels + ' pixels, ' + report.gateways + ' gateways' });
+    res.json({ ok: true, report });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao importar o backup.', 'import_failed');
+  }
+});
+
 app.get('/api/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ links: linkStore.list(req.account.id) });
@@ -2139,6 +2209,19 @@ app.post('/api/cloak/sticky/clear', dashboardAuth, async (req, res) => {
   if (!vid) return apiError(res, 400, 'Informe o v_id do visitante para limpar o veredito.', 'missing_vid');
   if (!redis.enabled) return apiError(res, 400, 'O veredito sticky só existe com Redis configurado.', 'no_redis');
   const cleared = await redis.clearStickyBot(vid);
+  res.json({ ok: true, cleared });
+});
+
+// Item 222: limpar o cache de ASN de UM IP (memória + Redis) para reteste
+// imediato quando o lookup ficou errado ou negativo (asn:0 por timeout).
+app.post('/api/cloak/asn/clear', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const ip = String((req.body && req.body.ip) || '').trim().slice(0, 64);
+  // valida formato básico de IPv4/IPv6 antes de mexer no cache
+  if (!ip || !/^[0-9a-fA-F.:]+$/.test(ip)) {
+    return apiError(res, 400, 'Informe um IP válido para limpar o cache de infraestrutura.', 'bad_ip');
+  }
+  const cleared = await botFilter.clearAsnCache(ip);
   res.json({ ok: true, cleared });
 });
 

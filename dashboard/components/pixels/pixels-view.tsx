@@ -127,6 +127,8 @@ export function PixelsView() {
   const [logEvent, setLogEvent] = useState('')
   const [logStatus, setLogStatus] = useState('')
   const [expandedLog, setExpandedLog] = useState<string | null>(null)
+  // Item 233: paginação incremental do log (50 por vez — o log pode ter 500 linhas)
+  const [logShown, setLogShown] = useState(50)
   const [copiedEventId, setCopiedEventId] = useState<string | null>(null)
 
   const [editing, setEditing] = useState<Pixel | null>(null)
@@ -806,7 +808,8 @@ export function PixelsView() {
                       </p>
                     ) : (
                       <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
-                        {rows.map((row, i) => {
+                        {/* Item 233: renderiza 50 por vez (o log pode ter 500 linhas) */}
+                        {rows.slice(0, logShown).map((row, i) => {
                           const key = row.id ?? String(i)
                           const open = expandedLog === key
                           return (
@@ -906,6 +909,18 @@ export function PixelsView() {
                             </li>
                           )
                         })}
+                        {/* Item 233: carrega mais 50 sob demanda */}
+                        {rows.length > logShown && (
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => setLogShown((n) => n + 50)}
+                              className="w-full rounded-lg border border-dashed border-border px-2 py-1.5 text-center text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            >
+                              Mostrar mais ({rows.length - logShown} restantes)
+                            </button>
+                          </li>
+                        )}
                       </ul>
                     )}
                   </>

@@ -117,7 +117,20 @@ export function CloakStatsPanel() {
             <Filter className="size-4" />
           </span>
           <div>
-            <h2 className="section-head text-sm font-semibold text-foreground">Offer vs White</h2>
+            <h2 className="section-head flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              Offer vs White
+              {/* Item 221: fonte do dado — memória zera em reinícios */}
+              {data && (
+                <span
+                  title={data.redis ? 'Contadores duráveis (Redis)' : 'Contadores em memória — zeram se o servidor reiniciar'}
+                  className={`rounded px-1 py-px text-[9px] font-normal leading-4 ${
+                    data.redis ? 'bg-[var(--success-light)] text-success' : 'bg-warning/15 text-warning'
+                  }`}
+                >
+                  {data.redis ? 'durável' : 'memória'}
+                </span>
+              )}
+            </h2>
             <p className="text-xs text-muted-foreground">Decisões do cloaker por link</p>
           </div>
         </div>
@@ -270,6 +283,47 @@ export function CloakStatsPanel() {
             O cache é unidirecional: só guarda veredito de bot, nunca de humano — um robô jamais fica
             &quot;preso&quot; como real. Limpe um v_id apenas quando um visitante legítimo caiu no cache.
           </p>
+          {/* Item 222: limpar o cache de infraestrutura (ASN) de um IP —
+              reteste imediato quando o lookup ficou errado/negativo */}
+          <form
+            className="mt-2 flex items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const form = e.currentTarget
+              const input = form.elements.namedItem('ip') as HTMLInputElement
+              const ip = input.value.trim()
+              if (!ip) return
+              apiSend('/api/cloak/asn/clear', 'POST', { ip })
+                .then((r: unknown) => {
+                  const ok = (r as { cleared?: boolean }).cleared
+                  toast[ok ? 'success' : 'info'](
+                    ok
+                      ? 'Cache de infraestrutura limpo — o próximo acesso deste IP refaz o lookup.'
+                      : 'Nenhum cache de infraestrutura para este IP.',
+                  )
+                  input.value = ''
+                })
+                .catch((err: unknown) =>
+                  toast.error('Falha ao limpar o cache de infraestrutura.', {
+                    hint: err instanceof Error ? err.message : undefined,
+                  }),
+                )
+            }}
+          >
+            <input
+              name="ip"
+              type="text"
+              placeholder="IP para refazer lookup de infraestrutura"
+              className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              aria-label="IP para limpar o cache de ASN"
+            />
+            <button
+              type="submit"
+              className="h-7 shrink-0 rounded-md border border-border px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
+            >
+              Limpar ASN
+            </button>
+          </form>
         </div>
       )}
 

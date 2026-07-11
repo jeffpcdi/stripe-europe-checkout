@@ -222,12 +222,73 @@ export function QueueHealthPanel() {
           <ShieldCheck className="size-3.5 text-success" />
           {data ? `${data.webhookDedup} reentrega(s) ignorada(s)` : 'idempotência ativa'}
         </span>
+        {/* Item 225: dedup de disparos — o "faltou disparo" evitado de propósito */}
+        {data?.pixelDedup && data.pixelDedup.deduped > 0 && (
+          <span>{data.pixelDedup.deduped} disparo(s) deduplicado(s) (navegador × servidor)</span>
+        )}
         {data && data.reclaim.at > 0 && (
           <span>
             Último resgate de órfãos: {data.reclaim.moved} item(ns) {timeAgo(new Date(data.reclaim.at).toISOString())}
           </span>
         )}
       </div>
+
+      {/* Itens 220/223/224/226: métricas técnicas de presença e caches */}
+      {data && (data.presence || data.asnCache) && (
+        <div className="mt-3 border-t border-border pt-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            {data.presence && (
+              <span>
+                <span className="font-medium text-foreground">{data.presence.online}</span> online agora
+                {/* Item 220: aviso ao encostar no teto do SCAN de presença */}
+                {data.presence.near && (
+                  <span className="ml-1 text-warning">
+                    (perto do teto de {data.presence.limit} — contagem pode ficar truncada)
+                  </span>
+                )}
+              </span>
+            )}
+            {data.asnCache && data.asnCache.total > 0 && (
+              <span title={`${data.asnCache.memHits} hits memória · ${data.asnCache.redisHits} hits Redis · ${data.asnCache.liveLookups} lookups DNS`}>
+                cache de infraestrutura (ASN):{' '}
+                <span className="font-medium text-foreground">
+                  {Math.round(data.asnCache.hitRate * 100)}% de acerto
+                </span>{' '}
+                · {data.asnCache.entries} IPs em memória
+              </span>
+            )}
+            {/* Item 224: TTLs efetivos das camadas de cache */}
+            {data.cacheTtls && (
+              <span title="Tempo que cada camada lembra do visitante antes de re-julgar">
+                TTLs: presença {fmtTtl(data.cacheTtls.presence)} · dedup {fmtTtl(data.cacheTtls.dedup)} · bot (sticky){' '}
+                {fmtTtl(data.cacheTtls.sticky)} · ttclid {fmtTtl(data.cacheTtls.ttclid)} · ASN {fmtTtl(data.cacheTtls.asn)}
+              </span>
+            )}
+          </div>
+          {/* Item 226: presença por entrada do funil (qual /go ou /c está com gente) */}
+          {data.presence && data.presence.byEntry.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {data.presence.byEntry.map((e) => (
+                <span
+                  key={e.entry}
+                  className="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-px font-mono text-[10px] text-muted-foreground"
+                >
+                  {e.entry} <span className="font-semibold text-foreground">{e.count}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </GlassCard>
   )
+}
+
+// Item 224: formata TTL em segundos para leitura humana (pt-BR)
+function fmtTtl(sec: number | undefined): string {
+  if (!sec) return '—'
+  if (sec < 60) return `${sec}s`
+  if (sec < 3600) return `${Math.round(sec / 60)}min`
+  if (sec % 3600 === 0) return `${sec / 3600}h`
+  return `${(sec / 3600).toFixed(1)}h`
 }

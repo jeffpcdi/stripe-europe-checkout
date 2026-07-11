@@ -135,7 +135,20 @@ export function CloakDecisionLog({ entryKey }: { entryKey: string }) {
   return (
     <div className="mt-2 rounded-lg border border-border bg-background/40 p-2.5">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[11px] font-medium text-foreground">Últimas decisões</span>
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+          Últimas decisões
+          {/* Item 221: fonte do dado — memória não sobrevive a reinícios */}
+          {data?.source && (
+            <span
+              title={data.source === 'redis' ? 'Dados duráveis (Redis)' : 'Dados em memória — se o servidor reiniciar, este histórico zera'}
+              className={`rounded px-1 py-px text-[9px] font-normal leading-4 ${
+                data.source === 'redis' ? 'bg-[var(--success-light)] text-success' : 'bg-warning/15 text-warning'
+              }`}
+            >
+              {data.source === 'redis' ? 'durável' : 'memória'}
+            </span>
+          )}
+        </span>
         <button
           type="button"
           onClick={() => mutate()}
