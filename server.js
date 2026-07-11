@@ -37,6 +37,7 @@ const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
 const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
+const cloakTestProfiles = require('./cloak-test-profiles'); // item 165/208: simulador de perfis
 const TRACKER_JS = require('./tracker-view');
 const auth = require('./auth');
  const gatewayStore = require('./gateway-store');
@@ -1972,8 +1973,17 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
   });
 });
 
-// Testa o motor de julgamento com o request ATUAL do navegador do usuário —
-// mostra na dashboard como o próprio admin seria classificado (deve dar 'real').
+// Item 165/208: lista os perfis de simulação disponíveis (metadados leves —
+// não expõe headers/IPs sintéticos, só o rótulo e o veredito esperado).
+app.get('/api/cloak/test/profiles', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, profiles: cloakTestProfiles.listProfilesMeta() });
+});
+
+// Testa o motor de julgamento. Por padrão usa o request ATUAL do navegador do
+// admin (deve dar 'real'). Item 165/208: quando vem `profile`, roda o mesmo
+// motor sobre um visitante SINTÉTICO (revisor ByteDance, headless, usuário do
+// anúncio no webview, etc.) para o operador ver como cada perfil seria tratado.
 app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   // Item 178: rate-limit por conta — o judge faz lookup de ASN (DNS), então
@@ -1992,26 +2002,49 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     if (!entry) return res.status(404).json({ error: 'link de cloaking não encontrado' });
     cloakCfg = entry; // o /c/:slug passa o próprio entry como cloakCfg ao judge
   }
-  const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
-  const j = await botFilter.judge(filterReq, 'admin-test', null, {}, cloakCfg)
+
+  // Modo simulação: monta um request sintético a partir do perfil escolhido.
+  // O `evalReq` substitui o `req` em TODA leitura derivada do visitante (headers,
+  // query, IP, geo, fingerprint), mantendo req.account/req.body do admin real.
+  const profileId = req.body && req.body.profile ? String(req.body.profile).slice(0, 40) : '';
+  let evalReq = req;
+  let challengeData = {};
+  let profileMeta = null;
+  if (profileId) {
+    const prof = cloakTestProfiles.getProfile(profileId);
+    if (!prof) return res.status(404).json({ ok: false, error: 'Perfil de simulação desconhecido.', code: 'bad_profile' });
+    const headers = Object.assign({}, prof.headers);
+    if (prof.country) headers['x-vercel-ip-country'] = prof.country;
+    if (prof.ip) headers['x-forwarded-for'] = prof.ip;
+    evalReq = Object.assign(Object.create(req), {
+      headers,
+      query: Object.assign({}, prof.query || {}),
+      socket: { remoteAddress: prof.ip || '' },
+    });
+    challengeData = prof.challengeData || {};
+    profileMeta = { id: prof.id, label: prof.label, expected: prof.expected, hint: prof.hint };
+  }
+
+  const filterReq = Object.assign(Object.create(evalReq), { geoCountry: geoFromReq(evalReq).country || '' });
+  const j = await botFilter.judge(filterReq, 'admin-test', null, challengeData, cloakCfg)
     .catch((e) => ({ verdict: 'erro', score: 0, signals: ['erro:' + e.message] }));
 
-  // Avalia os gates pré-score do /c/:slug com o request atual do admin (mesma
-  // lógica da rota real) para o painel mostrar o que barraria além do score.
+  // Avalia os gates pré-score do /c/:slug com o mesmo request avaliado (real ou
+  // sintético) para o painel mostrar o que barraria além do score.
   let gates = null;
   if (entry) {
-    const uaRaw = String(req.headers['user-agent'] || '');
+    const uaRaw = String(evalReq.headers['user-agent'] || '');
     const dev = uaTools.parse(uaRaw);
     const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
-    const ref = String(req.headers['referer'] || req.headers['referrer'] || '');
-    const q = req.query || {};
+    const ref = String(evalReq.headers['referer'] || evalReq.headers['referrer'] || '');
+    const q = evalReq.query || {};
     const ttclidRaw = typeof q.ttclid === 'string' ? q.ttclid.trim() : '';
     const validTtclid = /^[A-Za-z0-9._-]{20,}$/.test(ttclidRaw);
     const isWebview = uaTools.isInAppTikTok(uaRaw);
     const fromTikTok = isWebview || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
     const adClickOk = entry.sensitivity === 'strict' ? isWebview : (fromTikTok || validTtclid);
-    const cc = String(geoFromReq(req).country || '').toUpperCase();
-    const lang = String(req.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
+    const cc = String(geoFromReq(evalReq).country || '').toUpperCase();
+    const lang = String(evalReq.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
     gates = {
       mobile: entry.mobileOnly === false ? 'off' : (isMobile ? 'pass' : 'block'),
       adClick: entry.requireAdClick === false ? 'off' : (adClickOk ? 'pass' : 'block'),
@@ -2022,9 +2055,10 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
 
   res.json({
     verdict: j.verdict, score: j.score, threshold: j.threshold,
-    signals: j.signals, ip: clientIp(req),
-    ua: String(req.headers['user-agent'] || '').slice(0, 120),
+    signals: j.signals, ip: clientIp(evalReq),
+    ua: String(evalReq.headers['user-agent'] || '').slice(0, 120),
     slug: slug || undefined, gates,
+    profile: profileMeta, // item 165/208: eco do perfil simulado (null = request real)
     // Itens 163/164/210: infraestrutura resolvida + tempo de julgamento
     asn: j.asn || 0, org: j.org || '', resolvedAt: j.resolvedAt || 0
   });
@@ -3125,7 +3159,7 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
 });
 
 // Saúde da CAPI: taxa de sucesso, EMQ médio por evento, últimos erros e o
-// tamanho da fila de retry — visão imediata de "está tudo disparando?"
+// tamanho da fila de retry ��� visão imediata de "está tudo disparando?"
 app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const rows = await ttEvents.recentLogAsync(200, req.account.id);

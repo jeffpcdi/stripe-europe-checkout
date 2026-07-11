@@ -405,6 +405,16 @@ export interface CloakTestResult {
   asn?: number
   org?: string
   resolvedAt?: number
+  // Item 165/208: eco do perfil simulado (null = request real do admin)
+  profile?: CloakTestProfileMeta | null
+}
+
+// ── /api/cloak/test/profiles — catálogo do simulador (item 165/208) ──
+export interface CloakTestProfileMeta {
+  id: string
+  label: string
+  expected: 'real' | 'bot'
+  hint: string
 }
 
 // ── /api/cloak/stats — offer vs white por link ──
