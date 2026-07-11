@@ -358,6 +358,25 @@ async function touchAuthSession(token, ttlDays) {
   } catch (err) { console.error('[db] touchAuthSession:', err.message); }
 }
 
+// Item 411: troca de senha.
+async function updateAccountPassword(accountId, passwordHash) {
+  if (!enabled || !accountId) return false;
+  try {
+    const rows = await sql`UPDATE accounts SET password_hash = ${passwordHash} WHERE id = ${accountId} RETURNING id`;
+    return rows.length > 0;
+  } catch (err) { console.error('[db] updateAccountPassword:', err.message); return false; }
+}
+
+// Item 415: derruba todas as sessões da conta exceto a atual (logout global).
+async function deleteOtherAuthSessions(accountId, keepToken) {
+  if (!enabled || !accountId) return 0;
+  try {
+    const rows = await sql`DELETE FROM account_sessions
+      WHERE account_id = ${accountId} AND token <> ${keepToken || ''} RETURNING token`;
+    return rows.length;
+  } catch (err) { console.error('[db] deleteOtherAuthSessions:', err.message); return 0; }
+}
+
 async function pruneAuthSessions() {
   if (!enabled) return 0;
   try {
@@ -881,7 +900,7 @@ module.exports = {
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
-  upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, upsertVariant, loadState, reset, upsertSession,
+  upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
   saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels, getPixelByToken,
   upsertLink, deleteLink, loadLinks,

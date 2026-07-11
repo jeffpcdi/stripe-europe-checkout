@@ -109,6 +109,25 @@ async function login({ email, password }) {
   return { account, token };
 }
 
+// Item 411: troca de senha com verificação da atual. Item 415: derruba as
+// outras sessões (se a senha vazou, quem estava logado com ela cai).
+async function changePassword({ accountId, currentPassword, newPassword, keepToken }) {
+  if (!db.enabled) return { error: 'Banco de dados não configurado no servidor.' };
+  if (!newPassword || String(newPassword).length < 8) {
+    return { error: 'A nova senha precisa ter pelo menos 8 caracteres.' };
+  }
+  const row = await db.getAccountById(accountId);
+  if (!row) return { error: 'Conta não encontrada.' };
+  if (!verifyPassword(currentPassword, row.password_hash)) {
+    return { error: 'Senha atual incorreta.' };
+  }
+  const ok = await db.updateAccountPassword(accountId, hashPassword(newPassword));
+  if (!ok) return { error: 'Não foi possível salvar a nova senha. Tente novamente.' };
+  const revoked = await db.deleteOtherAuthSessions(accountId, keepToken);
+  sessionCache.clear(); // cache pode ter sessões recém-revogadas
+  return { ok: true, revoked };
+}
+
 async function logout(token) {
   if (token) {
     sessionCache.delete(token);
@@ -205,7 +224,7 @@ setInterval(() => {
 
 module.exports = {
   COOKIE_NAME,
-  register, login, logout, resolveSession,
+  register, login, logout, resolveSession, changePassword,
   parseCookies, sessionCookie, clearCookie,
   requireAuth, optionalAuth,
   hashPassword, verifyPassword,

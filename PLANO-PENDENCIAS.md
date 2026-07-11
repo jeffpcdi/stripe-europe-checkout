@@ -182,12 +182,12 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **410.** Testes de navegação (palette, atalhos, deep-links, error boundary).
 
 ### B7. Config / Segurança / Conta (411–432)
-- **411.** Trocar senha na Config (`POST /api/account/password`) — **lacuna real, não existe**.
+- ~~**411.** Trocar senha na Config~~ — ✅ FEITO (backend): `POST /api/account/password` com verificação da atual, rate-limit 5/min, auditoria. **Falta a UI na aba Config.**
 - **412.** Recuperação de senha por e-mail (token de reset + provedor de e-mail).
 - **413.** Editar nome da conta.
 - **414.** Sessões ativas: listar dispositivos com "encerrar sessão".
-- **415.** "Encerrar todas as outras sessões" (logout global).
-- **416.** Rate-limit no login (auditar `auth.js`; brute-force). **Segurança.**
+- ~~**415.** "Encerrar todas as outras sessões"~~ — ✅ FEITO: a troca de senha derruba todas as outras sessões automaticamente (`db.deleteOtherAuthSessions`).
+- ~~**416.** Rate-limit no login~~ — ✅ JÁ EXISTIA (item 440): bloqueio por e-mail após 8 falhas, 15 min, resposta 429.
 - **418.** Rotação do token da API pública ("revogar e gerar novo").
 - **419.** Escopos do token público (stats vs stats+leads).
 - **420.** 2FA TOTP opcional (otplib).

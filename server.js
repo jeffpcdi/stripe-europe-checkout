@@ -1683,6 +1683,24 @@ app.post('/login', async (req, res) => {
   }
 });
 
+// Item 411/415: trocar senha (verifica a atual) e derrubar as outras sessões.
+app.post('/api/account/password', dashboardAuth, async (req, res) => {
+  if (rateLimited('pwchange|' + req.account.id, 'pwchange', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitas tentativas. Aguarde um minuto.' });
+  }
+  const b = req.body || {};
+  const keepToken = auth.parseCookies(req)[auth.COOKIE_NAME];
+  const result = await auth.changePassword({
+    accountId: req.account.id,
+    currentPassword: b.currentPassword,
+    newPassword: b.newPassword,
+    keepToken
+  });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  audit(req, req.account.id, 'senha_alterada', 'Senha da conta alterada' + (result.revoked ? ' (' + result.revoked + ' sessão(ões) encerrada(s))' : ''));
+  res.json({ ok: true, revoked: result.revoked });
+});
+
 app.post('/logout', async (req, res) => {
   try {
     const token = auth.parseCookies(req)[auth.COOKIE_NAME];
