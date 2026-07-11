@@ -1,0 +1,296 @@
+# Plano de Pendências — o que NÃO foi feito
+
+> Gerado por reconciliação item-a-item entre `PLANO-PRAGMATIC-FLOW.md` (570 itens, numerados 1–570 sem saltos) e `PROGRESSO-PLANO.md` (tracker de execução).
+> Última reconciliação: 2026-07-11.
+
+## Resumo honesto
+
+- O plano tem **570 itens**. **Não foram todos feitos.**
+- O tracker cita ~336 números como concluídos ou auditados, mas isso mistura dois casos: (a) implementados de fato e (b) apenas auditados como já existentes. Além disso, faixas inteiras (Levas 1–6) foram declaradas concluídas **em bloco**, sem linha por item.
+- Esta lista contém **236 itens sem confirmação individual de conclusão**, divididos em:
+  - **16 itens em faixas declaradas concluídas em bloco (1–270)** → provavelmente feitos, mas **precisam de verificação** (não têm evidência linha-a-linha).
+  - **220 itens em 271–570** → **lacunas reais**: território da "Leva 7", que foi trabalhada pinçando itens específicos, deixando a maioria sem implementação.
+
+### Método e limitações
+- "Mencionado no tracker" = número aparece após `✅` ou em linha de auditoria. É um proxy imperfeito: pode haver item feito cujo número não foi citado, e item "auditado" que na prática ainda precisa de trabalho.
+- Para ter certeza absoluta de qualquer item abaixo, é preciso abrir o código e verificar. Os itens marcados **[VERIFICAR]** têm maior chance de já estarem prontos.
+
+---
+
+## A. Faixas concluídas em bloco — verificar individualmente (16 itens) [VERIFICAR]
+
+Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm linha própria confirmando:
+
+- **96.** Toggle ativo/pausado inline no card do pixel (estende 49).
+- **97.** Cabeçalho de saúde da aba Pixels (durável vs. memória) consolidando `health()` (estende 51).
+- **115.** Provisionamento automático self-service de domínio para qualquer usuário; fallback CNAME manual; `POST /api/domains` sem exigir admin.
+- **147.** Moeda configurável por conta (`accounts.currency`, GET/PUT, uso em buildProperties/testPixel/conversion, UI em Config).
+- **148.** `verify-url` server-side com anti-SSRF (bloquear IP privado/loopback/metadata, limites, 1 redirect; detectar token/ttq.load/sdkid).
+- **149.** Mapa de erros TikTok → pt-BR (`tiktok-errors.js`) reusado em teste de pixel, log e verify-url.
+- **151.** Rota de edição/rotação de gateway preservando/regenerando `webhookToken`.
+- **152.** Rota de teste por gateway com retorno estruturado da assinatura.
+- **153.** Persistir uso do domínio no schema e em `/api/domains*`.
+- **154.** Persistir daily/reasons e expor `verdict` em `/api/cloak/test`.
+- **155.** Componente `TutorialModal` reutilizável (base dos tutoriais 78/98/107/129/145).
+- **156.** Sistema de tour por página nas 5 abas (lib/tour + tour.tsx).
+- **157.** Atualizar `lib/types.ts` e `lib/api.ts` para todos os novos endpoints/campos.
+- **158.** Padronizar layout/cabeçalho das 5 abas e responsividade de tabelas/listas.
+- **159.** Painel "Como funciona a Gestão" (pré-requisitos entre módulos).
+- **160.** Ampliar bateria de testes (verify-url+SSRF, idempotência de webhook, etc.).
+
+---
+
+## B. Lacunas reais (271–570) — 220 itens
+
+### B1. Overview / Dashboard principal (271–299)
+- **271.** Meta de receita mensal por conta com barra de progresso (`revenue_goal`).
+- **272.** Comparativo "período atual vs anterior" no gráfico (linha fantasma).
+- **274.** Card "melhor dia da semana" e "melhor hora" das séries.
+- **275.** Anotações no gráfico (`chart_annotations`) marcando eventos.
+- **276.** Previsão simples de fim de mês (projeção linear) com disclaimer.
+- **277.** Alerta com CTA quando aprovação < 40% (hoje só muda cor).
+- **278.** Exportar resumo do período como imagem (canvas).
+- **279.** Drill-down: clicar num KPI abre a aba correspondente filtrada.
+- **280.** HealthCard com estado agregado (`/api/health/gestao`: db, redis, filas, snapshots).
+- **281.** Tooltip do gráfico com vendas + visitas do dia junto do valor.
+- **282.** Período customizado (date-range picker) propagado a todas as abas.
+- **283.** Persistir período escolhido em localStorage (hoje reseta a 7d).
+- **284.** Deep-link de período via query string (`?p=30d`).
+- **285.** Card de "receita líquida estimada" (menos reembolsos/disputas).
+- **286.** Ranking "top campanhas" por UTM no overview.
+- **287.** Ranking "top links" por conversão no overview.
+- **288.** Estado vazio guiado (checklist de onboarding com progresso real).
+- **289.** HeroGlobe respeita `prefers-reduced-motion` e pausa sem foco.
+- **290.** Skeleton do globo com silhueta esférica (evitar salto de layout).
+- **292.** MiniStat de reembolsos clicável → Atividade filtrada em refund.
+- **293.** Contador "próxima atualização em Xs" junto ao badge Ao vivo.
+- **294.** Modo TV/fullscreen do overview para telão.
+- **296.** Card "tempo médio até a compra" (visita → purchase).
+- **297.** Badge de tendência de EMQ no overview.
+- **298.** Receita por gateway em donut compacto.
+- **299.** Acessibilidade dos KPIs (aria-label com valor + delta + período).
+
+### B2. Tabela de Leads / Funil (301–330)
+- **301.** Funil filtrável por link/campanha (hoje global).
+- **302.** Etapa "iniciou pagamento vs aprovado" separada no funil.
+- **303.** Benchmark interno: conversão atual vs média 30d por etapa.
+- **304.** Perfil do lead em drawer (`lead.journey` já existe, nunca renderizado).
+- **305.** Coluna "UTM campaign" opcional na tabela.
+- **306.** Filtro por país na tabela de leads.
+- **307.** Filtro por data (range) na tabela, independente do período global.
+- **308.** Ordenação clicável nos cabeçalhos.
+- **309.** Coluna de e-mail mascarado com "revelar" no hover.
+- **311.** Busca da tabela também por telefone.
+- **313.** Badge "lead quente" (`checkoutHits > 2`).
+- **314.** Ação "reenviar conversão à CAPI" por lead (replay com dedupe).
+- **315.** Densidade compacta obedece `prefs.density`.
+- **316.** Funil com valores monetários por etapa.
+- **317.** Tempo médio por etapa entre as barras.
+- **318.** Gargalo (146) vira link com sugestão de ação.
+- **319.** Cards por gateway com `last_event_status` + link à aba Gateways.
+- **320.** Paginação com "ir para página N".
+- **321.** Virtualização da tabela acima de 500 leads.
+- **322.** Estado vazio do funil diferenciado (sem dados vs conta nova).
+- **323.** `STAGE_LABEL`/cores centralizados em `lib/format.ts`.
+- **324.** Anonimização automática de leads antigos (LGPD, config por conta).
+- **325.** Webhook de saída por lead comprado (integração CRM/planilha).
+- **326.** Endpoint `/api/leads/:id` (detalhe com jornada) para o drawer do 304.
+- **327.** Rate-limit e cache do `/api/stats` por conta.
+- **328.** Coluna "dispositivo" (mobile/desktop de ua.js).
+- **329.** Realce de leads que chegaram após o load.
+- **330.** Testes do filtro/paginação/CSV e do cálculo de gargalo.
+
+### B3. Feed de Atividade (331–350)
+- **331.** Busca textual no feed (cliente, e-mail, gateway).
+- **332.** Filtro por gateway no feed.
+- **333.** Filtro por período no feed.
+- **334.** Agrupar "N visitas em sequência" em linha expansível.
+- **335.** Som opcional de "venda" (toggle, off por padrão).
+- **336.** Notificação nativa do navegador para vendas em segundo plano.
+- **337.** Exportar feed filtrado como CSV.
+- **338.** Virtualização do feed acima de 300 eventos.
+- **339.** Auto-scroll "seguir ao vivo" com pausa ao hover.
+- **340.** Linha de resumo por dia no separador ("12 vendas · R$ 340 · 2 recusadas").
+- **341.** Ícone de replay: reprocessar evento failed direto do feed.
+- **342.** Detalhe expandido com raw do webhook (JSON colapsável).
+- **343.** Permalink de evento (`/activity?e=<id>`).
+- **344.** Marco visual "melhor venda do dia" (destaque dourado).
+- **345.** Densidade compacta obedece `prefs.density` no feed.
+- **348.** Acessibilidade: `role="feed"` e `aria-busy` na revalidação.
+- **349.** Retenção configurável de eventos (auditar `logEvent`; cap + arquivamento).
+- **350.** Testes do agrupamento, filtros e permalink.
+
+### B4. Ao Vivo / Presence (351–360)
+- **351.** Trilha de navegação do visitante ao vivo (sequência de páginas).
+- **352.** Alerta "visitante no checkout há mais de 3min".
+- **353.** Mini-mapa inline na aba Ao Vivo (projeção 2D leve).
+- **354.** Origem por visitante (UTM/referer) na linha.
+- **355.** Sparkline "online nas últimas 24h" no card Online agora.
+- **356.** Contador de "checkouts abandonados hoje" com link ao funil.
+- **357.** Filtro por país na lista de visitantes.
+- **358.** `ConnectionDot` reusado em TODAS as abas com polling.
+- **360.** TTL/prune do presence configurável e exposto no painel técnico.
+
+### B5. Geo / Globo (361–380)
+- **361.** Pontos com tamanho por métrica e cor por conversão.
+- **362.** Clicar num país no globo filtra o ranking (bidirecional).
+- **363.** Coluna de conversão (% visita→venda por país) na tabela.
+- **364.** Comparativo geo entre períodos (país que mais cresceu/caiu).
+- **365.** Export CSV do ranking de países.
+- **366.** Ranking secundário por cidade quando país focado.
+- **368.** `newIds/seenIds` do live com limpeza (mesmo vazamento do 346).
+- **370.** Fallback 2D do globo para GPU fraca/WebGL indisponível.
+- **371.** Tour das abas Geo e Ao Vivo.
+- **372.** "Horário local do visitante" na linha.
+- **373.** Badge de visitante recorrente no live.
+- **374.** Métrica "tempo médio de sessão" no resumo.
+- **376.** `checkout.externalEst` explicado em tooltip.
+- **377.** Acessibilidade do globo (alternativa textual com `aria-describedby`).
+- **378.** Polling do live com backoff quando aba oculta (5s → 30s).
+- **379.** `/api/live` com `Cache-Control: no-store` e payload enxuto.
+- **380.** Testes do dedupe do live, prune do presence e agregação por cidade.
+
+### B6. Shell / Navegação / Command palette (381–410)
+- **381.** Command palette com ações ("zerar estatísticas", "copiar link X", etc.).
+- **382.** Command palette com busca federada de leads/links/gateways (`/api/search`).
+- **383.** Atalhos de teclado globais (`g+letra`) com folha de atalhos em `?`.
+- **384.** Histórico de páginas recentes no palette.
+- **385.** Breadcrumb clicável no header.
+- **386.** Notificações in-app (sino no header com dropdown).
+- **387.** Barra de busca global no header (atalho `/`).
+- **388.** Tema claro opcional (`[data-theme=light]` + toggle).
+- **389.** Acento de cor configurável por conta.
+- **390.** `LiveClock` com segundos opcionais.
+- **391.** Sidebar colapsável com persistência.
+- **392.** Mobile: bottom-nav com badge + swipe entre abas.
+- **393.** PWA: manifest + service worker instalável.
+- **394.** Título da aba dinâmico com contagem de vendas não vistas.
+- **395.** Favicon dinâmico com dot de saúde.
+- **396.** Toast global unificado (`use-toast` padrão).
+- **397.** Error boundary por rota com tela de erro na identidade.
+- **398.** Página 404 do dashboard na identidade.
+- **399.** `RefreshButton` com feedback de erro real.
+- **401.** Prefetch das rotas do grupo ativo no hover.
+- **402.** `UserMenu` com "copiar token da API" + link aos tutoriais.
+- **403.** Tour global "conheça o dashboard" para primeiro login.
+- **404.** Indicador de versão clicável → changelog interno.
+- **405.** Sincronizar logout entre abas (storage event).
+- **406.** Guard de sessão expirada com modal (em vez de redirect seco).
+- **407.** Reduzir polling quando `document.hidden` em todos os hooks.
+- **408.** Auditoria de z-index com escala única de camadas.
+- **409.** Skip-link "pular para conteúdo".
+- **410.** Testes de navegação (palette, atalhos, deep-links, error boundary).
+
+### B7. Config / Segurança / Conta (411–432)
+- **411.** Trocar senha na Config (`POST /api/account/password`) — **lacuna real, não existe**.
+- **412.** Recuperação de senha por e-mail (token de reset + provedor de e-mail).
+- **413.** Editar nome da conta.
+- **414.** Sessões ativas: listar dispositivos com "encerrar sessão".
+- **415.** "Encerrar todas as outras sessões" (logout global).
+- **416.** Rate-limit no login (auditar `auth.js`; brute-force). **Segurança.**
+- **418.** Rotação do token da API pública ("revogar e gerar novo").
+- **419.** Escopos do token público (stats vs stats+leads).
+- **420.** 2FA TOTP opcional (otplib).
+- **422.** Seletor de fuso da conta aplicado a séries e relógio.
+- **423.** UI da meta de receita (item 271).
+- **424.** UI do webhook de saída (item 325) com teste de disparo.
+- **425.** UI de retenção/anonimização LGPD (item 324).
+- **426.** Exportar todos os dados da conta (JSON zip) — portabilidade LGPD.
+- **427.** Excluir conta com confirmação forte + cascata no banco.
+- **428.** Zona de perigo: pré-visualização do que será apagado ao zerar.
+- **429.** Pushcut: presets de mensagem com variáveis (`{{valor}}`, `{{pais}}`).
+- **430.** Notificação de resumo diário com horário configurável.
+- **431.** Convites multi-usuário (papel viewer/editor).
+- **432.** Página de permissões por papel.
+
+### B8. API pública / Ops / Infra (451–481)
+- **451.** `getStats` com cache TTL por conta + invalidação por evento; medir tempo.
+- **452.** API pública v1: `/api/v1/summary` com período e formato (json/csv).
+- **453.** Nova `/api/v1/events` (paginada, read-only) para BI externo.
+- **454.** OpenAPI/Swagger mínimo (`/api/docs`).
+- **457.** `conversion-normalize.js`: mapeamento por provedor documentado + testes.
+- **459.** Relatório diário automático por e-mail.
+- **460.** Cron interno resiliente (guard de instância única via Redis lock).
+- **461.** `/api/backup/export` e `/api/backup/import` (admin-only).
+- **462.** Logs estruturados JSON (account_id/rota/latência).
+- **463.** Métricas Prometheus-style em `/api/metrics`.
+- **470.** Paginação real de `/api/stats` (separar summary de leads/events).
+- **474.** `server.js`: extrair rotas em módulos (routes/*.js) sem mudar comportamento.
+- **476.** Feature flag por conta (`accounts.flags`).
+- **477.** Seed de demonstração (`npm run seed:demo`).
+- **478.** Ambiente de teste (`NODE_ENV=test` com Neon/Redis in-memory).
+- **479.** Suíte de integração dos webhooks (payload por gateway → lead/evento/CAPI/Pushcut).
+- **480.** Teste de carga leve (autocannon) com baseline.
+- **481.** Validação de payload com schema (zod) nas rotas de mutação.
+
+### B9. Páginas públicas / Tracker / Links (487–538)
+- **487.** LP: preconnect aos domínios de checkout/analytics.
+- **491.** Tracker: retry local (localStorage queue) para eventos offline.
+- **498.** Página de status pública opcional (`/status`).
+- **505.** Detecção de link quebrado (HEAD periódico) com alerta.
+- **509.** Agendamento de link (ativar/desativar por data).
+- **510.** Link com limite de cliques + contagem regressiva na LP.
+- **511.** Aviso de manutenção programável (banner via flag).
+- **513.** Teste de compatibilidade in-app TikTok (UA real, cookies bloqueados).
+- **514.** Lighthouse budget nas páginas públicas (LCP < 2s) no CI.
+- **515.** Lint custom: NENHUMA view legada usa template strings.
+- **516.** Relatórios semanais comparativos (`/reports`).
+- **517.** Insights automáticos regrados (sem IA) no topo do overview.
+- **518.** Metas por métrica com confete discreto (reduced-motion).
+- **519.** Comparador de campanhas UTM lado a lado (pivot).
+- **520.** Calculadora de ROI (custo de mídia → ROI real).
+- **521.** Custo por campanha persistido (`campaign_costs`) alimentando o 520.
+- **522.** Modo comparação de gateways (aprovação/latência/custo + recomendação).
+- **523.** Heatmap hora × dia da semana de vendas.
+- **524.** Alertas configuráveis por regra ("se vendas < N até 12h, avise").
+- **525.** Biblioteca de templates de LP (2–3 variações).
+- **526.** Editor de texto da LP por link (headline, bullets, CTA em JSON).
+- **527.** Prova social configurável na LP.
+- **528.** Cronômetro de escassez opcional na LP.
+- **529.** Arquitetura multi-plataforma de pixel (`capi-provider`; Meta/Kwai depois).
+- **530.** Multi-pixel por link (2 pixels TikTok simultâneos).
+- **533.** Notas por entidade (link/gateway/pixel).
+- **534.** Tags coloridas por link + filtro por tag.
+- **535.** Busca global federada (`/api/search`) cobrindo tudo.
+- **536.** Recycle bin (soft delete + restauração em 7 dias).
+- **537.** Undo via toast "Desfazer" (10s) usando soft delete.
+- **538.** Snapshot diário das configs em Redis ("restaurar como ontem").
+
+### B10. Compartilhamento / Ajuda / Qualidade de front / CI (540–569)
+- **540.** Widget embeddable read-only (iframe com token do 419).
+- **541.** Modo espectador com senha simples (token de convite).
+- **542.** Exportação agendada (CSV semanal por e-mail).
+- **543.** Importação de leads históricos por CSV (com dry-run).
+- **544.** Central de ajuda `/help` (tutoriais agregados e buscáveis).
+- **545.** Changelog automático visível alimentado por `CHANGELOG.md`.
+- **546.** Bundle analysis do Next (code splitting do three.js).
+- **549.** Imagens: `next/image` com tamanhos corretos (auditar usos).
+- **550.** Fontes: `next/font` com subset latin e `display: swap`.
+- **551.** CSS: purgar classes órfãs e consolidar keyframes duplicados.
+- **552.** Lint proibindo template strings em `*-view.js` + eslint no backend.
+- **553.** TypeScript strict no dashboard (`noUncheckedIndexedAccess`).
+- **554.** `lib/types.ts` verificado contra respostas reais do Express (teste de contrato).
+- **555.** Storybook leve OU `/dev/ui` com componentes base.
+- **556.** Testes de componente (Vitest + Testing Library) dos 10 críticos.
+- **557.** Testes E2E (Playwright) dos 5 fluxos principais.
+- **558.** CI GitHub Actions (lint + typecheck + testes + build nos PRs).
+- **559.** Pre-commit hooks (husky + lint-staged).
+- **560.** Renovate/dependabot (update semanal).
+- **562.** Web Vitals do dashboard reportados ao backend (LCP/INP/CLS reais).
+- **563.** Orçamento de performance interno (TTI < 3s em 3G rápido) no CI.
+- **564.** Varredura axe automatizada nas 12 rotas (zero violações críticas).
+- **565.** Contraste AA verificado nos tokens.
+- **569.** Versionamento semântico + tag de release ao deploy.
+
+---
+
+## Priorização sugerida (quando retomar)
+
+1. **Segurança primeiro (411, 416, 414, 415, 418):** trocar senha, rate-limit de login, gestão de sessões, rotação de token. São lacunas de segurança reais, não features.
+2. **LGPD / portabilidade (324/425, 426, 427):** obrigações legais.
+3. **Valor de negócio direto (271/423, 520/521, 516/517, 524):** metas, ROI, relatórios e alertas por regra — o que o dono usa para ganhar dinheiro.
+4. **Robustez de front (396, 397, 398, 405, 406):** toast/error boundary/404/logout entre abas — evitam "tela quebrada".
+5. **DX/CI (558, 557, 556, 478):** CI, E2E e ambiente de teste — sustentam todo o resto.
+6. **Resto:** refinamentos de UX por aba, conforme demanda.
+
+> Nota: vários itens dependem de integrações externas que exigem decisão/credencial do dono (provedor de e-mail para 412/459/542; possível 2FA no 420). Esses ficam bloqueados até a integração ser conectada.
