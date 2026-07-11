@@ -321,9 +321,72 @@ function normalizeCloakHash(h) {
 async function resetCloakStats(accountId, slug) {
   const key = cloakKey(accountId, slug);
   cloakStatsMem.delete(key);
+  cloakLogMem.delete(cloakLogKey(accountId, slug)); // Item 170: zera o log junto
   if (!enabled) return true;
-  try { await redis.del(key); return true; }
+  try { await redis.del(key); await redis.del(cloakLogKey(accountId, slug)); return true; }
   catch (err) { console.error('[redis] resetCloakStats:', err.message); return false; }
+}
+
+// ── Item 170: histórico das últimas N decisões por link (observabilidade) ──
+// Lista limitada "cloaklog:<accountId>:<slug>" (mais recente à frente). Guarda
+// só o necessário para depurar SEM expor PII: IP com último octeto mascarado,
+// UA truncado, decisão, score, motivo e timestamp. LTRIM mantém o teto e um
+// TTL evita acúmulo. Fallback em memória (array) quando não há Redis.
+const CLOAK_LOG_MAX = 50;
+const cloakLogMem = new Map(); // key -> [entry, ...] (mais recente à frente)
+function cloakLogKey(accountId, slug) { return 'cloaklog:' + (accountId || 'default') + ':' + slug; }
+
+// Mascara o último octeto de IPv4 e o sufixo de IPv6 — observabilidade sem PII
+function maskIp(ip) {
+  const s = String(ip || '').trim();
+  if (!s) return '';
+  if (s.includes('.')) return s.replace(/\.\d+$/, '.x'); // 1.2.3.4 → 1.2.3.x
+  if (s.includes(':')) { const p = s.split(':'); return p.slice(0, 3).join(':') + '::x'; }
+  return s;
+}
+
+async function pushCloakDecision(accountId, slug, entry) {
+  if (!slug || !entry) return false;
+  const key = cloakLogKey(accountId, slug);
+  const row = {
+    at: Date.now(),
+    decision: entry.decision === 'offer' ? 'offer' : 'white',
+    reason: entry.reason ? String(entry.reason).slice(0, 40) : '',
+    score: typeof entry.score === 'number' ? entry.score : null,
+    ip: maskIp(entry.ip),
+    ua: String(entry.ua || '').slice(0, 120),
+    country: entry.country ? String(entry.country).slice(0, 2).toUpperCase() : '',
+  };
+  if (!enabled) {
+    const arr = cloakLogMem.get(key) || [];
+    arr.unshift(row);
+    if (arr.length > CLOAK_LOG_MAX) arr.length = CLOAK_LOG_MAX;
+    cloakLogMem.set(key, arr);
+    return true;
+  }
+  try {
+    const pipe = redis.pipeline();
+    pipe.lpush(key, JSON.stringify(row));
+    pipe.ltrim(key, 0, CLOAK_LOG_MAX - 1);
+    pipe.expire(key, 30 * 86400); // 30 dias
+    await pipe.exec();
+    return true;
+  } catch (err) {
+    console.error('[redis] pushCloakDecision:', err.message);
+    return false;
+  }
+}
+
+async function getCloakDecisionLog(accountId, slug) {
+  const key = cloakLogKey(accountId, slug);
+  if (!enabled) return (cloakLogMem.get(key) || []).slice(0, CLOAK_LOG_MAX);
+  try {
+    const rows = await redis.lrange(key, 0, CLOAK_LOG_MAX - 1);
+    return (rows || []).map((r) => { try { return JSON.parse(r); } catch (_) { return null; } }).filter(Boolean);
+  } catch (err) {
+    console.error('[redis] getCloakDecisionLog:', err.message);
+    return [];
+  }
 }
 
 // ── Fila DURÁVEL de conversões (webhook → processamento) ──────────────────
@@ -702,6 +765,7 @@ module.exports = {
   seenEventId, seenWebhookOrder,
   getAsnCache, setAsnCache,
   bumpCloakDecision, getCloakStats, resetCloakStats,
+  pushCloakDecision, getCloakDecisionLog, // Item 170: log de decisões por link
   enqueueConversion, reserveConversions, ackConversion, reclaimConversions, convQueueDepth,
   setStickyBot, getStickyBot,
   checkTtclidContext, bumpVelocity,

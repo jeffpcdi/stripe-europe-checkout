@@ -973,9 +973,19 @@ app.get('/c/:slug', async (req, res) => {
   // Interruptor do link liga/desliga o cloaking; o destino seguro sempre existe.
   const cloakOn = entry.enabled !== false;
 
-  // Registra a decisão (offer/white + motivo) nos contadores do painel.
-  const bumpDecision = (decision, reason) => {
+  // Registra a decisão (offer/white + motivo) nos contadores do painel e,
+  // separadamente, no log das últimas N decisões (item 170) — IP mascarado,
+  // sem PII. `score` é opcional (só o gate de score o conhece).
+  const bumpDecision = (decision, reason, score) => {
     try { redis.bumpCloakDecision(acc, 'cloak:' + entry.slug, decision, reason); } catch (_) {}
+    try {
+      redis.pushCloakDecision(acc, 'cloak:' + entry.slug, {
+        decision, reason, score,
+        ip: clientIp(req),
+        ua: uaRaw,
+        country: (geoFromReq(req).country || ''),
+      });
+    } catch (_) {}
   };
 
   // preserva a query original (UTMs/ttclid) no destino final
@@ -1127,7 +1137,7 @@ app.get('/c/:slug', async (req, res) => {
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
     if (j.verdict === 'bot') {
       stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
-      bumpDecision('white', 'score');
+      bumpDecision('white', 'score', j.score);
       // Memoriza o veredito por visitante (só score alto/forte): próximas visitas
       // curto-circuitam no gate sticky acima, sem re-rodar o judge.
       if (cloakVid && j.score >= (j.threshold || 40)) {
@@ -2067,6 +2077,19 @@ app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
     await Promise.all(keys.map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
   }
   res.json({ ok: true });
+});
+
+// Item 170: histórico das últimas N decisões de um link de cloaking (observa-
+// bilidade). Multi-tenant: só o dono lê (a key sempre carrega o account_id).
+// IP já vem mascarado do store — nunca expõe PII. `key` = slug do /go ou
+// "cloak:<slug>" do /c (mesma convenção do /api/cloak/stats/reset).
+app.get('/api/cloak/decisions', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const key = req.query && req.query.key ? String(req.query.key).slice(0, 60) : '';
+  if (!key) return res.status(400).json({ ok: false, error: 'informe key' });
+  const log = await redis.getCloakDecisionLog(acc, key).catch(() => []);
+  res.json({ ok: true, key, log, source: redis.enabled ? 'redis' : 'memory' });
 });
 
 // ── Links de cloaking (entidade própria, servidos em /c/:slug) ─────────────

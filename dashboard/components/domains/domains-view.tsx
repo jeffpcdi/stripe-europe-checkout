@@ -734,6 +734,14 @@ function DomainCard({
               DNS: {result.dnsDetail || (result.dnsOk ? 'ok' : 'pendente')}
             </span>
           </div>
+          {/* Item 175: registro já visível nos resolvers públicos (DoH), só falta
+              o cache local propagar — sinal positivo, não erro de config */}
+          {!result.dnsOk && result.dnsPropagating && (
+            <div className="ml-5 flex items-center gap-1.5 text-[11px] text-[color:var(--brand-cyan)]">
+              <RefreshCw className="size-3 shrink-0" aria-hidden="true" />
+              <span className="text-pretty">Já visível na rede global — propagação em curso, verifique de novo em alguns minutos.</span>
+            </div>
+          )}
           <div className="flex items-start gap-2">
             {result.httpOk ? (
               <CheckCircle2 className="check-draw mt-0.5 size-3.5 shrink-0 text-[color:var(--success)]" />
@@ -746,7 +754,7 @@ function DomainCard({
           </div>
           {/* Item 125: diagnóstico dirigido — aponta ONDE está o problema
               (DNS vs. HTTPS vs. proxy) e reabre o tutorial no passo certo */}
-          {!result.verified && !result.dnsOk && !result.cloudflareProxy && (
+          {!result.verified && !result.dnsOk && !result.cloudflareProxy && !result.dnsPropagating && (
             <button
               type="button"
               onClick={onTutorial}

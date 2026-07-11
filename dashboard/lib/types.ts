@@ -199,6 +199,9 @@ export interface DomainVerifyResult {
   appHost: string
   dnsOk: boolean
   dnsDetail: string
+  // Item 175: registro já visível nos resolvers públicos (DoH) mas não no
+  // resolver local = propagação em curso, não erro de configuração
+  dnsPropagating?: boolean
   httpOk: boolean
   httpDetail: string
   verified?: boolean
@@ -453,6 +456,25 @@ export interface CloakEntry {
 export interface CloakEntriesResponse {
   entries: CloakEntry[]
   baseUrl: string
+}
+
+// ── /api/cloak/decisions — histórico das últimas N decisões por link (item 170) ──
+// IP já vem MASCARADO do backend (último octeto → x); nunca há PII aqui.
+export interface CloakDecisionRow {
+  at: number // epoch ms
+  decision: 'offer' | 'white'
+  reason: string // '' para offer; motivo do desvio para white (mobile, score…)
+  score: number | null
+  ip: string // mascarado: 1.2.3.x
+  ua: string
+  country: string // ISO-2
+}
+
+export interface CloakDecisionsResponse {
+  ok: boolean
+  key: string
+  log: CloakDecisionRow[]
+  source: 'redis' | 'memory'
 }
 
 // ── /api/me — conta logada ──

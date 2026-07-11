@@ -17,6 +17,7 @@ import type {
   CloakConfig,
   CloakStatsResponse,
   CloakEntriesResponse,
+  CloakDecisionsResponse,
   Account,
   PushcutConfig,
   AccountSettings,
@@ -188,6 +189,16 @@ export function useCloakEntries() {
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
+}
+
+// Item 170: log das últimas decisões de um link. `key` nulo = hook inativo
+// (SWR não dispara com chave null), usado quando nenhum link está expandido.
+export function useCloakDecisions(key: string | null) {
+  return useSWR<CloakDecisionsResponse>(
+    key ? '/api/cloak/decisions?key=' + encodeURIComponent(key) : null,
+    fetcher,
+    { refreshInterval: POLL_MS, keepPreviousData: true },
+  )
 }
 
 export function useAccount() {

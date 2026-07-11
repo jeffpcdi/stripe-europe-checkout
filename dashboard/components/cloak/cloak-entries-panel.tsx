@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Scale,
   ShieldOff,
+  History,
 } from 'lucide-react'
 import { useCloakEntries, useCloakStats, apiSend } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity, CloakTestResult } from '@/lib/types'
@@ -27,6 +28,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import { CloakEntryEditor } from './cloak-entry-editor'
+import { CloakDecisionLog } from './cloak-decision-log'
 
 // Item 136: threshold efetivo por sensibilidade (espelha bot-filter.js) para o
 // badge do card — 'custom' usa o threshold gravado no próprio entry.
@@ -63,6 +65,9 @@ export function CloakEntriesPanel() {
   // exige digitar o nome antes de excluir (contadores se perdem junto)
   const [deleting, setDeleting] = useState<CloakEntry | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  // Item 170: qual link está com o histórico de decisões expandido (um por vez,
+  // pra manter só um SWR de decisões ativo)
+  const [logOpen, setLogOpen] = useState<string | null>(null)
 
   const entries = data?.entries ?? []
   const baseUrl = data?.baseUrl ?? ''
@@ -471,6 +476,17 @@ export function CloakEntriesPanel() {
                     {testing === e.slug ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
                     Testar
                   </button>
+                  {/* Itens 170/171: histórico das últimas decisões deste link */}
+                  <button
+                    type="button"
+                    onClick={() => setLogOpen((cur) => (cur === 'cloak:' + e.slug ? null : 'cloak:' + e.slug))}
+                    aria-expanded={logOpen === 'cloak:' + e.slug}
+                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors hover:bg-secondary hover:text-foreground ${
+                      logOpen === 'cloak:' + e.slug ? 'text-foreground' : 'text-muted-foreground'
+                    }`}
+                  >
+                    <History className="size-3.5" /> Histórico
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleCopy(e)}
@@ -505,6 +521,9 @@ export function CloakEntriesPanel() {
                     <Trash2 className="size-3.5" /> Remover
                   </button>
                 </div>
+
+                {/* Itens 170/171: histórico de decisões expandível deste link */}
+                {logOpen === 'cloak:' + e.slug && <CloakDecisionLog entryKey={'cloak:' + e.slug} />}
               </li>
             )
           })}
