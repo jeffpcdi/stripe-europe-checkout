@@ -28,6 +28,8 @@ import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { toast } from '@/lib/toast'
 import { LinkEditor } from './link-editor'
 
 // Item 64: opções de ordenação da lista de links
@@ -87,9 +89,10 @@ export function LinksView() {
   const [editing, setEditing] = useState<CheckoutLink | null>(null)
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  // Itens 76/184: exclusão via ConfirmDialog padronizado — com tráfego, exige
+  // digitar o nome do link para confirmar
   const [deleting, setDeleting] = useState<string | null>(null)
-  // Item 76: para links com tráfego, a exclusão exige digitar o nome do link
-  const [deleteText, setDeleteText] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
   // Item 64: busca + ordenação client-side (item 185: ordenação persiste
   // entre navegações; a busca é intencional por sessão, não persiste)
   const [query, setQuery] = useState('')
@@ -295,10 +298,20 @@ export function LinksView() {
   }
 
   async function handleDelete(slug: string) {
-    await apiSend(`/api/links/${encodeURIComponent(slug)}`, 'DELETE')
-    setDeleting(null)
-    setDeleteText('')
-    mutate()
+    const link = links.find((l) => l.slug === slug)
+    setDeleteBusy(true)
+    try {
+      await apiSend(`/api/links/${encodeURIComponent(slug)}`, 'DELETE')
+      toast.success(`Link "${link?.nome ?? slug}" excluído.`)
+      setDeleting(null)
+      mutate()
+    } catch (err) {
+      toast.error('Falha ao excluir o link.', {
+        hint: err instanceof Error ? err.message : undefined,
+      })
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   // Item 182: erro de carregamento com retry consistente (só quando não há
@@ -477,8 +490,6 @@ export function LinksView() {
             const pixel = l.pixelSlug ? pixelBySlug.get(l.pixelSlug) : undefined
             const pixelMissing = !!l.pixelSlug && !pixel
             const pixelPaused = !!pixel && !pixel.active
-            // Item 76: link com tráfego exige confirmação digitada para excluir
-            const hasTraffic = clicks > 0 || convs > 0
             const busy = busySlug === l.slug
             return (
               /* Item 69: hover eleva com sheen; slug em mono ciano */
@@ -720,10 +731,7 @@ export function LinksView() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setDeleting(l.slug)
-                        setDeleteText('')
-                      }}
+                      onClick={() => setDeleting(l.slug)}
                       className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
                       aria-label="Excluir link"
                     >
@@ -732,55 +740,44 @@ export function LinksView() {
                   </div>
                 </div>
 
-                {deleting === l.slug && (
-                  <div className="mt-3 flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">
-                    <p className="text-sm text-foreground">
-                      Excluir <strong>{l.nome}</strong>? A URL /go/{l.slug} deixa de funcionar.
-                      {hasTraffic && (
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          {/* Item 76: proteção extra — este link já tem tráfego real */}
-                          Este link já registrou {clicks} clique{clicks === 1 ? '' : 's'} e {convs}{' '}
-                          conversõ{convs === 1 ? 'ão' : 'es'}. Digite o nome do link para confirmar.
-                        </span>
-                      )}
-                    </p>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {hasTraffic && (
-                        <input
-                          type="text"
-                          value={deleteText}
-                          onChange={(e) => setDeleteText(e.target.value)}
-                          placeholder={l.nome}
-                          aria-label={`Digite "${l.nome}" para confirmar a exclusão`}
-                          className="w-full flex-1 rounded-md border border-border bg-input px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-destructive sm:w-auto"
-                        />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeleting(null)
-                          setDeleteText('')
-                        }}
-                        className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-secondary"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(l.slug)}
-                        disabled={hasTraffic && deleteText.trim() !== l.nome}
-                        className="rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Excluir
-                      </button>
-                    </div>
-                  </div>
-                )}
               </GlassCard>
             )
           })}
         </div>
       )}
+
+      {/* Itens 76/184: exclusão padronizada — com tráfego exige o nome digitado */}
+      {(() => {
+        const dl = deleting ? links.find((l) => l.slug === deleting) : undefined
+        const dlClicks = dl ? dl.variantes.reduce((s, v) => s + v.clicks, 0) : 0
+        const dlConvs = dl ? dl.variantes.reduce((s, v) => s + v.conversions, 0) : 0
+        const dlTraffic = dlClicks > 0 || dlConvs > 0
+        return (
+          <ConfirmDialog
+            open={Boolean(dl)}
+            title={dl ? `Excluir "${dl.nome}"?` : ''}
+            description={
+              dl && (
+                <>
+                  A URL /go/{dl.slug} deixa de funcionar imediatamente.
+                  {dlTraffic && (
+                    <>
+                      {' '}
+                      Este link já registrou <strong className="text-foreground">{dlClicks} clique{dlClicks === 1 ? '' : 's'}</strong>{' '}
+                      e <strong className="text-foreground">{dlConvs} convers{dlConvs === 1 ? 'ão' : 'ões'}</strong>.
+                    </>
+                  )}
+                </>
+              )
+            }
+            confirmLabel="Excluir"
+            confirmText={dl && dlTraffic ? dl.nome : undefined}
+            busy={deleteBusy}
+            onConfirm={() => deleting && handleDelete(deleting)}
+            onClose={() => setDeleting(null)}
+          />
+        )
+      })()}
 
       {(creating || editing) && (
         <LinkEditor

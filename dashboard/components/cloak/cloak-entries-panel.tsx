@@ -23,6 +23,8 @@ import { useCloakEntries, useCloakStats, apiSend } from '@/lib/api'
 import type { CloakEntry, CloakSensitivity, CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { toast } from '@/lib/toast'
 import { CloakEntryEditor } from './cloak-entry-editor'
 
 // Item 136: threshold efetivo por sensibilidade (espelha bot-filter.js) para o
@@ -56,6 +58,10 @@ export function CloakEntriesPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false)
+  // Itens 146/184: confirmação destrutiva padronizada — entry com tráfego
+  // exige digitar o nome antes de excluir (contadores se perdem junto)
+  const [deleting, setDeleting] = useState<CloakEntry | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const entries = data?.entries ?? []
   const baseUrl = data?.baseUrl ?? ''
@@ -88,10 +94,22 @@ export function CloakEntriesPanel() {
     })
   }
 
-  async function handleDelete(e: CloakEntry) {
-    if (!window.confirm(`Remover o link de cloaking "${e.nome}"?`)) return
-    await apiSend(`/api/cloak/entries/${encodeURIComponent(e.slug)}`, 'DELETE')
-    mutate()
+  // Itens 146/184: exclusão via ConfirmDialog; com tráfego, exige o nome digitado
+  async function confirmDelete() {
+    if (!deleting) return
+    setDeleteBusy(true)
+    try {
+      await apiSend(`/api/cloak/entries/${encodeURIComponent(deleting.slug)}`, 'DELETE')
+      toast.success(`Link de cloaking "${deleting.nome}" removido.`)
+      setDeleting(null)
+      mutate()
+    } catch (err) {
+      toast.error('Falha ao remover o link.', {
+        hint: err instanceof Error ? err.message : undefined,
+      })
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   // Item 134: simula o julgamento DESTE /c/:slug com o request atual do admin
@@ -460,7 +478,7 @@ export function CloakEntriesPanel() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDelete(e)}
+                    onClick={() => setDeleting(e)}
                     className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
                   >
                     <Trash2 className="size-3.5" /> Remover
@@ -471,6 +489,27 @@ export function CloakEntriesPanel() {
           })}
         </ul>
       )}
+
+      {/* Itens 146/184: confirmação destrutiva; tráfego → digitar o nome */}
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        title={deleting ? `Remover "${deleting.nome}"?` : ''}
+        description={
+          deleting && (statBySlug[deleting.slug]?.total ?? 0) > 0 ? (
+            <>
+              Este link já tem <strong className="text-foreground">{statBySlug[deleting.slug].total} decisões registradas</strong>{' '}
+              (offer/white). Ao remover, a URL /c/{deleting.slug} para de funcionar e os contadores se perdem.
+            </>
+          ) : (
+            <>A URL /c/{deleting?.slug} deixa de funcionar imediatamente. Esta ação não pode ser desfeita.</>
+          )
+        }
+        confirmLabel="Remover"
+        confirmText={deleting && (statBySlug[deleting.slug]?.total ?? 0) > 0 ? deleting.nome : undefined}
+        busy={deleteBusy}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleting(null)}
+      />
 
       {(creating || editing) && (
         <CloakEntryEditor

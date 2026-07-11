@@ -1,9 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import { Filter, RotateCcw } from 'lucide-react'
 import { useCloakStats, apiSend } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { toast } from '@/lib/toast'
 
 // Rótulos amigáveis para os motivos de bloqueio do motor
 const REASON_LABELS: Record<string, string> = {
@@ -64,16 +67,30 @@ function DailyMiniChart({ daily }: { daily: { day: string; offer: number; white:
 
 export function CloakStatsPanel() {
   const { data, mutate } = useCloakStats()
+  // Item 184: confirmação destrutiva padronizada (substitui window.confirm).
+  // `key: null` = zerar tudo; string = zerar um link específico.
+  const [resetting, setResetting] = useState<{ key: string | null; nome: string } | null>(null)
+  const [resetBusy, setResetBusy] = useState(false)
 
   const agg = data?.aggregate
   const links = data?.links ?? []
   const blockPct = agg && agg.total ? Math.round(agg.blockRate * 100) : 0
 
-  async function handleReset(key?: string) {
-    const msg = key ? 'Zerar os contadores deste link?' : 'Zerar TODOS os contadores de cloaking?'
-    if (!window.confirm(msg)) return
-    await apiSend('/api/cloak/stats/reset', 'POST', key ? { key } : {})
-    mutate()
+  async function confirmReset() {
+    if (!resetting) return
+    setResetBusy(true)
+    try {
+      await apiSend('/api/cloak/stats/reset', 'POST', resetting.key ? { key: resetting.key } : {})
+      toast.success(resetting.key ? `Contadores de "${resetting.nome}" zerados.` : 'Todos os contadores zerados.')
+      setResetting(null)
+      mutate()
+    } catch (err) {
+      toast.error('Falha ao zerar os contadores.', {
+        hint: err instanceof Error ? err.message : undefined,
+      })
+    } finally {
+      setResetBusy(false)
+    }
   }
 
   const reasonsSorted = agg
@@ -99,7 +116,7 @@ export function CloakStatsPanel() {
         {agg && agg.total > 0 && (
           <button
             type="button"
-            onClick={() => handleReset()}
+            onClick={() => setResetting({ key: null, nome: 'todos os links' })}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <RotateCcw className="size-3.5" /> Zerar tudo
@@ -160,7 +177,9 @@ export function CloakStatsPanel() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => handleReset(l.tipo === 'cloak' ? 'cloak:' + l.slug : l.slug)}
+                      onClick={() =>
+                        setResetting({ key: l.tipo === 'cloak' ? 'cloak:' + l.slug : l.slug, nome: l.nome })
+                      }
                       className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                       aria-label={`Zerar ${l.nome}`}
                     >
@@ -183,6 +202,23 @@ export function CloakStatsPanel() {
             })}
         </ul>
       )}
+
+      {/* Item 184: confirmação antes de zerar contadores (ação irreversível) */}
+      <ConfirmDialog
+        open={Boolean(resetting)}
+        title={resetting?.key ? `Zerar contadores de "${resetting.nome}"?` : 'Zerar TODOS os contadores?'}
+        description={
+          resetting?.key ? (
+            <>As decisões offer/white registradas deste link serão apagadas. Esta ação não pode ser desfeita.</>
+          ) : (
+            <>Todos os contadores de cloaking (todos os links) serão apagados. Esta ação não pode ser desfeita.</>
+          )
+        }
+        confirmLabel="Zerar"
+        busy={resetBusy}
+        onConfirm={confirmReset}
+        onClose={() => setResetting(null)}
+      />
     </GlassCard>
   )
 }
