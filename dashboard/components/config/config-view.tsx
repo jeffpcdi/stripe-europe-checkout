@@ -21,6 +21,8 @@ const EVENT_LABELS: { key: keyof PushcutEvents; label: string; hint: string }[] 
   { key: 'daily', label: 'Resumo diário', hint: 'Relatório consolidado 1x/dia' },
   /* Item 442: aviso de segurança opt-in */
   { key: 'login', label: 'Novo login no painel', hint: 'Aviso de segurança quando alguém entra na sua conta' },
+  /* Item 464: watchdog de anomalia opt-in */
+  { key: 'watchdog', label: 'Alerta de anomalia', hint: 'Aviso se ficar 6h sem vendas quando a média diz que deveria haver' },
 ]
 
 export function ConfigView() {

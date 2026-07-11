@@ -345,6 +345,19 @@ async function deleteAuthSession(token) {
   catch (err) { console.error('[db] deleteAuthSession:', err.message); }
 }
 
+// Item 482: renovação deslizante — estende o prazo da sessão para +ttlDays a
+// partir de agora. O auth só chama quando restam menos da metade do TTL,
+// então usuário ativo nunca é deslogado e o UPDATE é raro (não por request).
+async function touchAuthSession(token, ttlDays) {
+  if (!enabled || !token) return;
+  const days = Math.max(1, ttlDays || 30);
+  try {
+    await sql`UPDATE account_sessions
+      SET expires_at = now() + make_interval(days => ${days})
+      WHERE token = ${token} AND expires_at > now()`;
+  } catch (err) { console.error('[db] touchAuthSession:', err.message); }
+}
+
 async function pruneAuthSessions() {
   if (!enabled) return 0;
   try {
@@ -353,7 +366,7 @@ async function pruneAuthSessions() {
   } catch (err) { console.error('[db] pruneAuthSessions:', err.message); return 0; }
 }
 
-// ── Gateways (1 webhook por gateway) ──────────────────────────────────────
+// ── Gateways (1 webhook por gateway) ───────────────────────────────���──────
 async function upsertGateway(g) {
   if (!enabled || !g || !g.id || !g.accountId) return null;
   try {
@@ -534,7 +547,7 @@ async function reset(accountId) {
   } catch (err) { console.error('[db] reset:', err.message); }
 }
 
-// ── Sessões ao vivo (heartbeat, por conta) ────────────────────────────────
+// ── Sessões ao vivo (heartbeat, por conta) ──���─────────────────────────────
 async function upsertSession(accountId, s) {
   if (!enabled || !s || !s.visitorId) return;
   try {
@@ -868,7 +881,7 @@ module.exports = {
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
-  upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, upsertVariant, loadState, reset, upsertSession,
+  upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, upsertVariant, loadState, reset, upsertSession,
   saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels, getPixelByToken,
   upsertLink, deleteLink, loadLinks,

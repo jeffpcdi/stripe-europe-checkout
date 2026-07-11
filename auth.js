@@ -126,6 +126,19 @@ async function resolveSession(token) {
   if (!row) { sessionCache.delete(token); return null; }
   const account = { id: row.account_id, email: row.email, name: row.name, role: row.role };
   sessionCache.set(token, { account, expiresAt: Date.now() + SESSION_CACHE_MS });
+
+  // Item 482: renovação deslizante. Se a sessão já consumiu mais da metade do
+  // TTL, estende para +30 dias a partir de agora — usuário ativo nunca é
+  // deslogado. O UPDATE só acontece nesse ponto (não a cada request: o cache
+  // de 5 min já absorve a maioria, e a janela de metade do TTL faz o resto).
+  // Fire-and-forget: renovar nunca pode atrasar nem quebrar a request.
+  try {
+    const expMs = new Date(row.expires_at).getTime();
+    const halfTtl = (SESSION_TTL_DAYS * 24 * 3600e3) / 2;
+    if (Number.isFinite(expMs) && expMs - Date.now() < halfTtl) {
+      db.touchAuthSession(token, SESSION_TTL_DAYS).catch(() => {});
+    }
+  } catch (_) { /* melhor-esforço */ }
   return account;
 }
 

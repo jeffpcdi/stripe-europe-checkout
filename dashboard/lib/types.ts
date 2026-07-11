@@ -603,6 +603,8 @@ export interface PushcutEvents {
   daily: boolean
   /** Item 442: aviso de novo login no painel (opt-in) */
   login: boolean
+  /** Item 464: alerta de anomalia — zero vendas em 6h com histórico ativo (opt-in) */
+  watchdog: boolean
 }
 
 export interface PushcutConfig {

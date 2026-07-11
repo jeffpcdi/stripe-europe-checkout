@@ -246,7 +246,13 @@ app.use(
 );
 // rawBody: necessário para verificar assinaturas HMAC de webhooks (Stripe,
 // Kiwify) — o HMAC é calculado sobre os bytes originais, não o JSON re-serializado
+// Item 471: limites de body EXPLÍCITOS contra payload bomb. O backup da conta
+// (leads + eventos) pode legitimamente passar de 100kb, então /api/backup/import
+// ganha um parser próprio de 5mb ANTES do parser global de 200kb (webhooks
+// reais de gateway têm poucos KB — 200kb já é folga generosa).
+app.use('/api/backup/import', express.json({ limit: '5mb' }));
 app.use(express.json({
+  limit: '200kb',
   verify: (req, _res, buf) => { req.rawBody = buf ? buf.toString('utf8') : ''; }
 }));
 // sendBeacon cross-origin manda JSON como text/plain (evita preflight CORS)
@@ -639,6 +645,7 @@ app.post('/api/track', async (req, res) => {
     if (rateLimited(clientIp(req), 'track', 120)) return; // bot martelando: ignora
     checkDailyReport();                            // carona no tráfego (sem cron)
     checkEventArchive();                            // item 448: arquiva eventos antigos (máx 1x/h)
+    checkSalesWatchdog();                           // item 464: alerta de zero vendas (máx 1x/h)
     const uaRaw = String(req.headers['user-agent'] || '');
     if (uaTools.isBot(uaRaw)) return;              // bots não viram lead nem CAPI
 
@@ -1394,6 +1401,45 @@ function checkDailyReport() {
   } finally { dailyCheckBusy = false; }
 }
 
+// Item 464: watchdog de anomalia — "zero vendas em X horas" quando o histórico
+// diz que deveria haver. Detecta gateway quebrado/webhook caído ANTES do dono
+// perceber no extrato. Opt-in (events.watchdog), roda de carona no tráfego
+// (máx 1 verificação/h por processo) e avisa no máximo 1x por 12h por conta.
+const WATCHDOG_WINDOW_H = 6;      // janela sem vendas que dispara o alerta
+const WATCHDOG_MIN_WEEK = 14;     // mínimo de vendas nos últimos 7d p/ ter baseline (≥2/dia)
+let lastWatchdogSweep = 0;
+const watchdogNotified = new Map(); // accId → ts do último alerta
+function checkSalesWatchdog() {
+  const now = Date.now();
+  if (now - lastWatchdogSweep < 3600e3) return;
+  lastWatchdogSweep = now;
+  for (const accId of config.accountIds()) {
+    try {
+      const pc = (config.get(accId).pushcut || {});
+      if (!pc.url || (pc.events || {}).watchdog !== true) continue;
+      if (now - (watchdogNotified.get(accId) || 0) < 12 * 3600e3) continue; // anti-spam
+      const s = stats.getStats(accId);
+      const sales = (s.events || []).filter((e) => e.type === 'sale');
+      const weekSales = sales.filter((e) => now - new Date(e.at).getTime() < 7 * 86400e3);
+      if (weekSales.length < WATCHDOG_MIN_WEEK) continue; // sem baseline, sem alarme falso
+      const recent = sales.some((e) => now - new Date(e.at).getTime() < WATCHDOG_WINDOW_H * 3600e3);
+      if (recent) continue;
+      watchdogNotified.set(accId, now);
+      stats.logEvent('info', {
+        acc: accId,
+        title: '[watchdog] Nenhuma venda nas últimas ' + WATCHDOG_WINDOW_H + 'h (média recente: ' +
+          Math.round(weekSales.length / 7) + '/dia) — verifique gateway e webhook'
+      });
+      sendPushcut('Aprovada', {
+        title: 'Algo pode estar quebrado',
+        text: 'Nenhuma venda nas últimas ' + WATCHDOG_WINDOW_H + 'h, mas a média da semana é ~' +
+          Math.round(weekSales.length / 7) + '/dia. Vale conferir o gateway e o webhook.',
+        sound: 'system'
+      }, accId).catch(() => {});
+    } catch (_) { /* watchdog nunca derruba a request que pegou a carona */ }
+  }
+}
+
 // Item 448: arquivamento de eventos antigos "pegando carona no tráfego"
 // (mesmo padrão do relatório diário, sem cron). No máximo 1x/hora, move um
 // lote de eventos além da retenção (padrão 90 dias) para events_archive.
@@ -1588,7 +1634,11 @@ app.get('/api/me', dashboardAuth, (req, res) => {
 
 // ── API: estatísticas (escopadas à conta logada) ─────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
-  res.set('Cache-Control', 'no-store'); // dados ao vivo — nunca cachear em proxies
+  // Item 469: `private, no-cache` em vez de `no-store` — o navegador PODE
+  // guardar a resposta só para revalidar com If-None-Match no próximo poll
+  // (12s). O ETag automático do Express casa → 304 sem corpo, poupando a
+  // banda do payload inteiro quando nada mudou. `private` barra proxies.
+  res.set('Cache-Control', 'private, no-cache');
   res.json(stats.getStats(req.account.id));
   checkDailyReport(); // dashboard aberta também dispara o resumo pendente
   });
@@ -2112,7 +2162,7 @@ app.get('/api/pushcut-config', dashboardAuth, (req, res) => {
     // mascara a URL (contém o segredo do Pushcut)
     url: pc.url ? pc.url.replace(/(https:\/\/api\.pushcut\.io\/)([^/]+)/, (m, a, b) => a + '••••' + b.slice(-4)) : '',
     hasUrl: !!pc.url,
-    events: Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false, login: false }, pc.events || {})
+    events: Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false, login: false, watchdog: false }, pc.events || {})
   });
 });
 
@@ -2132,6 +2182,7 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
     ['sale', 'failed', 'refund', 'dispute', 'checkout'].forEach((k) => { if (b.events[k] === false) pc.events[k] = false; });
     pc.events.daily = b.events.daily === true; // opt-in explícito (relatório diário)
     pc.events.login = b.events.login === true; // item 442: opt-in explícito (novo login)
+    pc.events.watchdog = b.events.watchdog === true; // item 464: opt-in explícito (alerta de anomalia)
   }
   config.set(req.account.id, { pushcut: pc });
   res.json({ ok: true });

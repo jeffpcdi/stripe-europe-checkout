@@ -122,5 +122,26 @@ const linkStore = require('../link-store');
   );
   console.log('E. normalização de pesos + preservação de contadores OK');
 
+  // ── F. item 473: nenhum console.* pode logar material sensível ────────────
+  // Varredura estática dos módulos do backend: um console.log que concatene
+  // req.headers.cookie, req.headers.authorization, password/secret do body ou
+  // process.env inteiro é vazamento de credencial nos logs da plataforma.
+  {
+    const fs = require('fs');
+    const files = fs.readdirSync(path.resolve(__dirname, '..'))
+      .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
+    const LEAK = /console\.[a-z]+\([^)]*(req\.headers\.(cookie|authorization)|req\.headers\[['"](cookie|authorization)['"]\]|\bpassword\b|\bpassword_hash\b|process\.env\b(?!\.[A-Z]))/;
+    const leaks = [];
+    for (const f of files) {
+      const src = fs.readFileSync(path.resolve(__dirname, '..', f), 'utf8');
+      const lines = src.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (LEAK.test(lines[i])) leaks.push(f + ':' + (i + 1) + ' → ' + lines[i].trim().slice(0, 100));
+      }
+    }
+    assert.deepStrictEqual(leaks, [], 'console.* logando material sensível:\n' + leaks.join('\n'));
+    console.log('F. varredura de vazamento em logs (' + files.length + ' módulos limpos) OK');
+  }
+
   console.log('\nsecurity.test.js: todos os cenários passaram.');
 })().catch((err) => { console.error(err); process.exit(1); });

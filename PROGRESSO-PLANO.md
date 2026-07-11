@@ -235,7 +235,7 @@ Lote concluído: 176–188 (todos ✅ abaixo). 189/183/184/185/187/182/188/186 �
     - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
   - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
-- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç����������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç������������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
@@ -401,6 +401,24 @@ Validação: `node --check` limpo (server/db/stats), `npm test` verde 2x seguida
 - Pendente da faixa: 439 (log de acesso admin) — depende da trilha de auditoria do item 417, que pertence ao bloco de valor; será feito junto.
 
 Validação: suíte completa verde (12 arquivos de teste, +25 asserts novos), smoke test HTTP real de headers/CSRF/medidor em porta isolada, `tsc --noEmit` limpo, screenshot do /register confirmando o medidor, preview intacto após limpeza dos processos de teste.
+
+## Leva 7 — valor (310, 312, 417/439, 450) — em andamento
+
+- ✅ 312 (novo). Toggle "vendas órfãs" na tabela de leads: botão com contagem do período (só aparece quando existem), badge "órfã" âmbar na linha com tooltip explicativo; filtro `l.orphan && !showOrphans` + deps do useMemo corrigidas.
+- ✅ 310 (novo). CSV de leads enriquecido: colunas utm_source/medium/campaign, e-mail e telefone MASCARADOS (u…@dominio / …4dígitos — PII completa não sai do painel) e flag "orfa". Tipo `Lead.phone` adicionado.
+- ✅ 417/439 (novo). Trilha de auditoria: tabela `account_audit` (id identity, account_id, at, action, detail, ip_masked) + índice; `db.insertAudit/listAudit` fire-and-forget; helper `audit()` + `maskReqIp()` no server; instrumentados login, link salvo/removido, reset de stats e import de backup; rota `GET /api/audit` (dashboardAuth, no-store); card "Atividade da conta" na aba Config com labels pt-BR, IP mascarado e estados vazio/sem-banco.
+- ✅ 450 (novo). Match de webhook O(1): `emailIndex`/`phoneIndex` (chave `acc|contato` normalizado, mais recente vence) substituem os scans O(n) de `findLeadByEmail/Phone`; mantidos em addLead/touchLead/conversão, reconstruídos no `rebuildIndex()` (hydrate/reset/import) e limpos na poda de MAX_LEADS. Semântica preservada: e-mail lowercase, telefone últimos 9 dígitos sem 00/DDI.
+
+Validação: `node --check` limpo (stats/server/db), `tsc --noEmit` limpo, `npm test` verde (12 suítes).
+
+### Continuação (458, 469, 471, 473)
+
+- ✅ 458 (novo). test/parse-amount.test.js — 29 asserts sobre parseAmount/pickAmountCents: formatos BR/EU/US ("49,90", "R$", "1.234,56"), o caso perigoso do milhar sem decimal ("1.234"→1234, "12.34"→decimal), objetos de gateway ({value}), lixo→NaN, prioridade centavos>unitário, tetos e negativos. Registrado no npm test (13ª suíte).
+- ✅ 469 (novo). /api/stats: `Cache-Control: private, no-cache` (em vez de no-store) habilita a revalidação If-None-Match com o ETag automático do Express → 304 sem corpo no poll de 12s quando nada mudou. Verificado ao vivo (304 real).
+- ✅ 471 (novo). Limites de body explícitos: express.json global 200kb (webhooks têm poucos KB) + parser dedicado de 5mb só em /api/backup/import (backup legítimo pode passar de 100kb). Verificado ao vivo: payload de 300kb → 413.
+- ✅ 473 (novo). Varredura de vazamento em logs: auditados os 27 módulos do backend (nenhum console.* loga cookie/authorization/password/process.env) + guard estático permanente na security.test.js (cenário F) que falha a suíte se algum log sensível for introduzido.
+
+Validação: suíte completa verde (13 suítes), 304/413 verificados via HTTP real em porta isolada, preview intacto.
 
 ## Fila de execução (próximos)
 
