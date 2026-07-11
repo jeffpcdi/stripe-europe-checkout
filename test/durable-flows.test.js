@@ -111,6 +111,30 @@ function ok(cond, msg) { assert.ok(cond, msg); console.log('  ok  ' + msg); pass
   const cleared = await rdb.clearCloakStats('acc-c', ['cloak:promo']);
   ok(cleared === 1, 'cloak: limpeza de stats órfãs remove o hash');
 
+  // ── Invariante 6 (item 267): velocity — contagem crescente na janela,
+  // expiração por TTL e liberação manual de IP (clearVelocity, item 256) ──
+  const n1 = await rdb.bumpVelocity('c:promo:ip', '9.9.9.9', 1); // janela de 1s
+  const n2 = await rdb.bumpVelocity('c:promo:ip', '9.9.9.9', 1);
+  const n3 = await rdb.bumpVelocity('c:promo:ip', '9.9.9.9', 1);
+  ok(n1 === 1 && n2 === 2 && n3 === 3, 'velocity: contagem cresce dentro da janela');
+  // IP diferente não compartilha contador
+  const other = await rdb.bumpVelocity('c:promo:ip', '8.8.8.8', 1);
+  ok(other === 1, 'velocity: contadores isolados por IP');
+  // expiração: após a janela, a contagem recomeça do 1
+  await new Promise((r) => setTimeout(r, 1100));
+  const n4 = await rdb.bumpVelocity('c:promo:ip', '9.9.9.9', 1);
+  ok(n4 === 1, 'velocity: contagem expira ao fim da janela (TTL)');
+  // liberação manual: clearVelocity zera TODAS as entradas do IP
+  await rdb.bumpVelocity('c:promo:ip', '7.7.7.7', 60);
+  await rdb.bumpVelocity('c:outra:ip', '7.7.7.7', 60);
+  const freed = await rdb.clearVelocity('7.7.7.7');
+  ok(freed === 2, 'velocity: liberar IP limpa as chaves de todas as entradas');
+  const pos = await rdb.bumpVelocity('c:promo:ip', '7.7.7.7', 60);
+  ok(pos === 1, 'velocity: após liberar, a contagem recomeça do zero');
+  // id vazio nunca conta (fail-open explícito)
+  const zero = await rdb.bumpVelocity('c:promo:ip', '', 60);
+  ok(zero === 0, 'velocity: sem IP identificável não há contagem (nunca bloqueia)');
+
   console.log('\n[durable-flows] ' + pass + ' asserts OK');
 })().catch((err) => {
   console.error('\n[durable-flows] FALHOU:', err.message);

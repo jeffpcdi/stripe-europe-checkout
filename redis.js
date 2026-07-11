@@ -907,6 +907,32 @@ async function bumpVelocity(kind, id, windowSec) {
   } catch (_) { return 0; }
 }
 
+// Item 256: limpa TODAS as chaves de velocity de um IP (todas as entradas) —
+// libera imediatamente um IP legítimo que caiu no limite (ex.: escritório
+// inteiro atrás do mesmo NAT). Memória + Redis via SCAN.
+async function clearVelocity(ip) {
+  if (!ip) return 0;
+  const suffix = ':' + String(ip).slice(0, 60);
+  let removed = 0;
+  for (const key of velMem.keys()) {
+    if (key.endsWith(suffix)) { velMem.delete(key); removed++; }
+  }
+  if (!enabled) return removed;
+  try {
+    let cursor = '0';
+    let rounds = 0;
+    do {
+      const [next, keys] = await redis.scan(cursor, { match: 'vel:*' + suffix, count: 200 });
+      cursor = String(next);
+      for (const k of keys || []) { await redis.del(k); removed++; }
+      rounds++;
+    } while (cursor !== '0' && rounds < 25);
+  } catch (err) {
+    console.error('[redis] clearVelocity:', err.message);
+  }
+  return removed;
+}
+
 // ── Fallback DURÁVEL de pixels (quando o Neon falha ou está off) ──────────
 // A config do pixel é a fonte de verdade da monetização; perdê-la num restart
 // zera o rastreamento. O Neon é a fonte primária, mas quando ele falha (ou não
@@ -1041,7 +1067,7 @@ module.exports = {
   setStickyBot, getStickyBot,
   countStickyBots, clearStickyBot,            // Item 201
   bumpTtclidReplay, getTtclidReplayCount,     // Item 203
-  checkTtclidContext, bumpVelocity,
+  checkTtclidContext, bumpVelocity, clearVelocity, // Item 256
   acquireLock, releaseLock,
   bumpEmq, getEmqTrend, clearEmq, // Item 200
   savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,

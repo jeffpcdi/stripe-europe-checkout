@@ -337,6 +337,52 @@ export function CloakStatsPanel() {
               Limpar ASN
             </button>
           </form>
+          {/* Itens 256/259: liberar um IP legítimo do limite de acessos (velocity).
+              As chaves de contagem expiram sozinhas no fim da janela (TTL); esta
+              ação só serve para liberar ANTES — ex.: escritório no mesmo NAT. */}
+          <form
+            className="mt-2 flex items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const form = e.currentTarget
+              const input = form.elements.namedItem('velip') as HTMLInputElement
+              const ip = input.value.trim()
+              if (!ip) return
+              apiSend('/api/cloak/velocity/clear', 'POST', { ip })
+                .then((r: unknown) => {
+                  const n = (r as { cleared?: number }).cleared ?? 0
+                  toast[n > 0 ? 'success' : 'info'](
+                    n > 0
+                      ? 'IP liberado do limite de acessos — a contagem recomeça do zero.'
+                      : 'Este IP não está em nenhuma contagem de acessos no momento.',
+                  )
+                  input.value = ''
+                })
+                .catch((err: unknown) =>
+                  toast.error('Falha ao liberar o IP do limite de acessos.', {
+                    hint: err instanceof Error ? err.message : undefined,
+                  }),
+                )
+            }}
+          >
+            <input
+              name="velip"
+              type="text"
+              placeholder="IP para liberar do limite de acessos"
+              className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              aria-label="IP para liberar do limite de acessos por velocity"
+            />
+            <button
+              type="submit"
+              className="h-7 shrink-0 rounded-md border border-border px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
+            >
+              Liberar IP
+            </button>
+          </form>
+          <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
+            A contagem de acessos expira sozinha ao fim da janela configurada — liberar um IP só é
+            necessário quando visitantes legítimos (mesmo Wi-Fi/NAT) caíram no limite agora.
+          </p>
         </div>
       )}
 

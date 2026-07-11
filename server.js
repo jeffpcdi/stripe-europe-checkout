@@ -2300,6 +2300,20 @@ app.post('/api/cloak/asn/clear', dashboardAuth, async (req, res) => {
   res.json({ ok: true, cleared });
 });
 
+// Item 256: libera um IP que caiu no limite de acessos (velocity) — ex.: um
+// escritório inteiro atrás do mesmo NAT. Apaga as chaves de contagem do IP em
+// todas as entradas; o próximo acesso recomeça do zero.
+app.post('/api/cloak/velocity/clear', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const ip = String((req.body && req.body.ip) || '').trim().slice(0, 64);
+  if (!ip || !/^[0-9a-fA-F.:]+$/.test(ip)) {
+    return apiError(res, 400, 'Informe um IP válido para liberar do limite de acessos.', 'bad_ip');
+  }
+  const cleared = await redis.clearVelocity(ip);
+  stats.logEvent('info', { acc: req.account.id, title: '[cloak] limite de acessos liberado para IP', ref: ip });
+  res.json({ ok: true, cleared });
+});
+
 // Zera os contadores de um link (ou de todos, se slug ausente).
 app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
   const acc = req.account.id;
@@ -2425,12 +2439,22 @@ app.post('/api/pushcut/test', dashboardAuth, async (req, res) => {
 
 // ── API: health-check — variáveis críticas + ping REAL no banco ─────
 app.get('/api/health', dashboardAuth, async (req, res) => {
-  const [dbPing, redisPing] = await Promise.all([
+  // Item 263: health consolidado — além de db/redis, agrega a profundidade
+  // das filas duráveis num único payload para o cabeçalho de durabilidade
+  // (evita um segundo polling de /api/ops só para o badge).
+  const [dbPing, redisPing, queueDepth] = await Promise.all([
     require('./db').ping(),
-    rdb.ping()
+    rdb.ping(),
+    rdb.convQueueDepth().catch(() => null)
   ]);
   res.set('Cache-Control', 'no-store');
   res.json({
+    // Item 263: resumo das filas — {queue, processing} da fila de conversões
+    // + tamanho da fila de retry da CAPI da conta. null = indisponível.
+    queues: {
+      conv: queueDepth,
+      capiRetry: (ttEvents.retryQueueInfo(req.account.id) || {}).count ?? 0
+    },
     conversionWebhook: !!process.env.CONVERSION_WEBHOOK_SECRET,
     tiktok:      pixelStore.list(req.account.id).some((p) => p.active && p.accessToken),
     pushcut:     !!((config.get(req.account.id).pushcut || {}).url || process.env.PUSHCUT_WEBHOOK_URL),

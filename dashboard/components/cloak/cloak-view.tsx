@@ -81,6 +81,19 @@ const CLOAK_STEPS: TutorialStep[] = [
     ),
     tip: 'Esses sinais têm peso REDUZIDO de propósito: viajantes e VPNs pessoais são exceções legítimas. Não aperte demais o limiar por causa deles — sozinhos, nunca bloqueiam ninguém.',
   },
+  // Item 260: camada de velocity (anti device-farm)
+  {
+    title: 'Limite de acessos (anti device-farm)',
+    body: (
+      <>
+        Uma <strong>device farm</strong> é uma bancada de celulares/emuladores que martela o seu link
+        dezenas de vezes por minuto — normalmente a partir do <strong>mesmo IP</strong> — para gastar seu
+        orçamento ou espionar a oferta. O cloaker conta os acessos de cada IP numa janela de tempo e, ao
+        passar do limite, manda o excedente para a <strong>página branca</strong>.
+      </>
+    ),
+    tip: 'O padrão (12 acessos a cada 60s) tem folga para uma família no mesmo Wi-Fi. Se um escritório inteiro cair no limite, use "Liberar IP" no painel técnico — a contagem também expira sozinha ao fim da janela.',
+  },
 ]
 
 export function CloakView() {

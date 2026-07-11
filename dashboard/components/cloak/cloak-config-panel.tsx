@@ -359,6 +359,13 @@ export function CloakConfigPanel() {
           {test.signals.length > 0 && (
             <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">{test.signals.join(' · ')}</p>
           )}
+          {/* Item 257: previsão da camada anti device-farm — em quantos acessos
+              do mesmo IP na janela este visitante seria mandado à white */}
+          {test.velocity && (
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground text-pretty">
+              {test.velocity.note}
+            </p>
+          )}
         </div>
       )}
 

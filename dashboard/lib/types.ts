@@ -120,6 +120,15 @@ export interface HealthResponse {
   dbLatencyMs: number | null
   redis: boolean
   redisEnabled: boolean
+  // Item 249: migrações novas rodaram no boot? false = boot com Neon degradado
+  migrations?: boolean
+  // Item 263: resumo consolidado das filas duráveis para o badge do cabeçalho
+  queues?: {
+    conv: { queue: number; processing: number } | null
+    capiRetry: number
+  }
+  // Item 177: latência do julgamento do cloaker (p50/p95/deadlineRate)
+  cloakerLatency?: { count: number; p50: number; p95: number; deadlineRate: number }
   uptimeSec: number
   ts: string
 }

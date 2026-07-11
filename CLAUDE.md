@@ -325,6 +325,12 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **cloakbot:<v_id>** — veredito STICKY do cloaker (só bot, TTL 6h). `/go` curto-circuita à white sem re-rodar o judge; setado no veredito bot e no beacon `/api/cloakcheck` com WebGL de software. Nunca cacheia 'real' (fail-safe).
 - **lock:<nome>** — lock distribuído (SET NX EX). Usos: `capiRetryDrain` (só 1 instância drena a fila de retry) e `convWorker` (só 1 instância drena convQ por ciclo). Sem Redis = processo único = já exclusivo.
 - **emq:<acc>:<pixel>** — rollup de EMQ por pixel/dia (`d:<data>:sum`/`:cnt`, retenção ~40d). Alimenta `GET /api/pixels/emq-trend` (série + alerta de queda) e o painel de tendência na aba Pixels.
+- **vel:<kind>:<id>** — camada de VELOCITY (anti device-farm, itens 253–260): contador `INCR` com TTL
+  = janela. `kind` ex.: `c:<slug>:ip`; `id` = IP. Limiar/janela configuráveis por conta em
+  `config.cloak.velocityLimit` (clamp 3–100, padrão 12) / `velocityWindowSec` (clamp 10–600, padrão
+  60) — usados no `/c`; excedente vai à white com reason `velocity`. `clearVelocity(ip)` (rota
+  `POST /api/cloak/velocity/clear`) libera um IP legítimo de TODAS as entradas antes do TTL. Fallback
+  memória: `velMem` (single-instance — banner na UI avisa que farm distribuída exige Redis).
 Sem Upstash tudo degrada para memória (perde persistência entre restarts, mas funciona).
 
 ## 8. Modelo de score do bot-filter (cloaking)
@@ -553,7 +559,7 @@ Amarra §4.1 (`domain-provider.js`), §5.2 (rotas), §5.2.1 (guard) e §5.2.2 (o
 CINZA (Somente DNS)** — laranja quebra o SSL/roteamento do Railway (§5.2.2).
 
 **3. Verificação** — `POST /api/domains/verify` (botão manual ou polling de 30s no front):
-- **Auto-recuperação:** se o domínio está em manual (sem `providerId`) e a automação está ligada, tenta
+- **Auto-recuperação:** se o dom��nio está em manual (sem `providerId`) e a automação está ligada, tenta
   `register()` de novo — cobre o caso de um slot do Railway ter vagado (upgrade/remoção). Se reconectar,
   grava o `providerId`, devolve `reconectado:true`+`dnsRecords` e o popup re-renderiza com o alvo real.
 - **Decisão real (`ok = httpOk`):** só passa quando `GET https://host/__domain-check` responde 200 com a
