@@ -242,9 +242,19 @@ Pendente do lote (UI ampla, próxima fatia): 182, 185–188, 190 (formato de err
 - ✅ 186. Indicador global de durabilidade no cabeçalho: `DurabilityBadge` (`components/shell/durability-badge.tsx`) montado no `Header`, ao lado do `LiveBadge`. Consolida banco (Neon) + Redis do `/api/health` num só lugar e classifica: **durável** (banco no ar → badge oculto), **degradado** (banco fora + Redis no ar → âmbar, "rodando pelo snapshot, alterações seguem salvas") e **volátil** (banco e Redis fora → vermelho, "alterações podem se perder ao reiniciar"). Só aparece quando o banco cai (não polui o estado saudável, já coberto pelo `LiveBadge`); link para `/` (Visão geral) onde o `HealthCard` detalha os serviços
 - ✅ 190 (parcial). **Docs:** CLAUDE.md atualizado com a rota `GET /api/cloak/decisions` + store de log (§ rotas de cloak), o sinal de propagação DoH no verify de domínio (§ domínios) e a 6ª suíte de testes. **Testes:** nova suíte `test/cloak-decision-log.test.js` (5 cenários: mascaramento de IP IPv4/IPv6/vazio sem PII, teto de 50 + ordenação, escopo por conta+slug sem vazamento, reset zera o log, normalização/fail-safe da decisão) registrada no `npm test` — 6/6 suítes passando.
 
-Validação desta fatia: `tsc --noEmit` limpo, `next build` limpo (rotas /cloak, /domains, /links), `node --check server.js/redis.js` OK, `npm test` 6/6. Verificação em navegador da dashboard autenticada não é possível no sandbox (o `/__dev/login` exige `DATABASE_URL`, ausente aqui).
+- ✅ 165/208. **Simulador de perfis de bot** na aba Cloaker → Teste ao vivo. Catálogo `cloak-test-profiles.js`
+  com visitantes sintéticos (usuário real do anúncio no webview TikTok, comprador mobile orgânico, revisor
+  ByteDance em CIDR de data center, navegador headless, crawler declarado, acesso fora do país-alvo).
+  **Backend:** `GET /api/cloak/test/profiles` (só metadados, nunca headers/IP sintéticos) e `POST /api/cloak/test`
+  com `{profile}` monta um `evalReq` sintético que substitui o request do admin em TODA leitura do visitante
+  (headers, query, IP, geo, `challengeData`) e roda o MESMO `judge` + gates pré-score. **Front:** dropdown
+  "Simular visitante" no `cloak-view` (hook `useCloakTestProfiles`) que dispara o teste ao trocar e mostra um
+  banner **esperado × real** (verde bateu / âmbar divergiu), reaproveitando todo o painel de score/sinais/infra
+  já existente. **Teste:** `test/cloak-test-profiles.test.js` trava que o motor classifica cada perfil do lado certo.
 
-Pendente: itens 161–164, 166, 167 (bateria de testes 161–190 restante) e o simulador de perfis de bot (165/208). `ConfirmDialog`/`toast` já replicado em links, domínios, cloak entries e cloak stats; pixels já usava desde o item 184.
+Validação desta fatia: `tsc --noEmit` limpo, `next build` limpo (rotas /cloak, /domains, /links), `node --check server.js/redis.js/cloak-test-profiles.js` OK, `npm test` 7/7. Verificação em navegador da dashboard autenticada não é possível no sandbox (o `/__dev/login` exige `DATABASE_URL`, ausente aqui).
+
+Pendente: itens 161–164, 166, 167 (bateria de testes 161–190 restante). `ConfirmDialog`/`toast` já replicado em links, domínios, cloak entries e cloak stats; pixels já usava desde o item 184.
 
 Evidência: `node --check` limpo nos 3 módulos, `next build` limpo (type-check incluído, 12 rotas prerenderizadas), 5/5 suítes de teste passando, `getJudgeLatency()` conferido em runtime.
 

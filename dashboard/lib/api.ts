@@ -18,6 +18,7 @@ import type {
   CloakStatsResponse,
   CloakEntriesResponse,
   CloakDecisionsResponse,
+  CloakTestProfileMeta,
   Account,
   PushcutConfig,
   AccountSettings,
@@ -199,6 +200,15 @@ export function useCloakDecisions(key: string | null) {
     fetcher,
     { refreshInterval: POLL_MS, keepPreviousData: true },
   )
+}
+
+// Item 165/208: catálogo de perfis do simulador de bots. Estático na prática —
+// revalida só ao focar, sem polling.
+export function useCloakTestProfiles() {
+  return useSWR<{ ok: boolean; profiles: CloakTestProfileMeta[] }>('/api/cloak/test/profiles', fetcher, {
+    revalidateOnFocus: false,
+    revalidateIfStale: false,
+  })
 }
 
 export function useAccount() {

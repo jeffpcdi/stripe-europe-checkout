@@ -189,6 +189,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   PII). Store `pushCloakDecision`/`getCloakDecisionLog` no `redis.js` (lista LTRIM 50 + TTL 30d, fallback
   em memória), alimentado pelo funil `bumpDecision` do `/c`. `stats/reset` também limpa esse log. O front
   reexecuta o julgamento (item 171) reusando `POST /api/cloak/test` — não há replay do visitante histórico.
+  **Simulador de perfis (item 165/208):** `GET /api/cloak/test/profiles` lista o catálogo (`cloak-test-profiles.js`)
+  só com metadados (`id`/`label`/`expected`/`hint` — nunca os headers/IPs sintéticos). `POST /api/cloak/test`
+  com `{profile}` monta um `evalReq` sintético (headers, query, IP, geo, `challengeData`) e roda o MESMO
+  `botFilter.judge` + os gates pré-score, substituindo o request do admin em TODA leitura derivada do
+  visitante (mantém `req.account`/`req.body`). Sem `profile` = julga o acesso real do admin (deve dar `real`).
+  O eco `profile` na resposta permite à UI confrontar veredito real × esperado. Cobertura em
+  `test/cloak-test-profiles.test.js` (o motor precisa classificar cada perfil do lado certo).
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
 - **Convers����������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
@@ -377,12 +384,14 @@ npm test        # roda os testes de regressão (test/*.test.js), sem rede/DB rea
 cd dashboard && npm run dev -- -p 3001   # HMR; acesse via http://localhost:3000/dashboard (proxy)
 ```
 - **Build:** só o app `dashboard/` tem build (Next). O Express continua JS puro sem transpile.
-- **Testes:** `npm test` — asserts em Node puro, sem framework (6 suítes). `test/retry-queue.test.js`
+- **Testes:** `npm test` — asserts em Node puro, sem framework (7 suítes). `test/retry-queue.test.js`
   (re-resolução da fila CAPI por token), `test/gateway-only.test.js` (trava de eventos monetários),
-  `test/attribution.test.js`, `test/pixel-durability.test.js`, `test/security.test.js` e
+  `test/attribution.test.js`, `test/pixel-durability.test.js`, `test/security.test.js`,
   `test/cloak-decision-log.test.js` (item 170: mascaramento de IP sem PII, teto de 50, escopo por
-  conta+slug, reset zera o log). Stubam `pixel-store`/`redis` no require-cache e `global.fetch`; o log
-  roda no fallback de memória do redis. Ao mexer no motor CAPI ou no store de decisões do cloaker, rode-os.
+  conta+slug, reset zera o log) e `test/cloak-test-profiles.test.js` (item 165/208: catálogo coerente +
+  o motor classifica cada perfil sintético do lado esperado). Stubam `pixel-store`/`redis` no require-cache
+  e `global.fetch`; o log roda no fallback de memória do redis. Ao mexer no motor CAPI, no motor de
+  julgamento do cloaker ou no store de decisões, rode-os.
 - **Migração de banco:** automática e idempotente — `db.init()` roda `CREATE TABLE/ALTER … IF NOT EXISTS` no boot.
 
 ### 11.1 Acesso rápido à dashboard em desenvolvimento (para IAs/testes)
