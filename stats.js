@@ -358,6 +358,24 @@ function matchExternalConversion(data) {
     lead.ref = data.ref || lead.ref || null;
     lead.orphan = false;
   } else {
+    // Item 449: conversão órfã não é mais silenciosa — registra POR QUE não
+    // casou (quais chaves de match o gateway mandou vs. o que faltou), para
+    // alimentar o toggle de órfãs (item 312) e o diagnóstico de atribuição.
+    const tried = [];
+    if (data.leadId) tried.push('leadId');
+    if (data.email) tried.push('email');
+    if (data.phone) tried.push('telefone');
+    const reason = tried.length === 0
+      ? 'gateway não enviou nenhuma chave de identificação (sem leadId, e-mail ou telefone)'
+      : 'nenhum lead rastreado casou com ' + tried.join(' / ') + ' (visitante não passou pelo link antes de comprar, ou comprou de outro dispositivo)';
+    logEvent('info', {
+      acc,
+      title: '[atribuição] conversão órfã: ' + reason,
+      gateway: gw,
+      ref: data.email || data.phone || data.leadId || null,
+      orphanReason: tried.length === 0 ? 'sem_chave' : 'sem_match',
+      triedKeys: tried
+    });
     lead = addLead({
       id: data.leadId || newId('orphan'),
       acc,

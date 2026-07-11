@@ -378,11 +378,20 @@ Sem gap visual objetivo restante — marcados como concluídos por cobertura.
 
 Validação: `node --check` limpo, `tsc --noEmit` limpo, `npm test` verde (10 suítes, persistence-flows 15/15), `next build` limpo.
 
+## Leva 7 — durabilidade crítica (446–449, 359/483) — completo
+
+- ✅ 446/447. Auditados como já implementados: stats.js opera memória-primeiro com write-through async ao Neon (`db.insertEvent`/`db.upsertLead` em todo caminho de escrita), snapshot em disco é só fallback/diagnóstico (debounced, rename atômico), e `flushSync` está preso em SIGTERM/SIGINT/beforeExit.
+- ✅ 359/483. Auditados como já implementados: presence.js tem camada dupla — Upstash Redis com TTL 60s renovado por heartbeat (sobrevive a restart; multi-instância via `listPresence` mesclado ao mapa local) + Neon para histórico de sessões. API touch/leave/list/summary preservada.
+- ✅ 448 (novo). Arquivamento de eventos: tabela `events_archive` + índice `events_acc_at_idx` no init; `db.archiveOldEvents(days, batch)` move eventos além da retenção com CTE atômica (INSERT…SELECT + DELETE numa única statement, idempotente por ON CONFLICT); `checkEventArchive()` no server roda "pegando carona no tráfego" (máx 1x/h, lote 2000); retenção configurável via `EVENT_RETENTION_DAYS` (padrão 90d, clamp 7–3650); exposto em `/api/ops/retention` (fecha também o 349).
+- ✅ 449 (novo). Conversão órfã deixou de ser silenciosa: `matchExternalConversion` loga evento estruturado com `orphanReason` (`sem_chave` | `sem_match`) e `triedKeys` (leadId/email/telefone) — alimenta o toggle do item 312. +3 asserts em `persistence-flows` (18 total).
+
+Validação: `node --check` limpo (server/db/stats), `npm test` verde 2x seguidas. Query de arquivamento não exercitada contra Neon real (ambiente sem DATABASE_URL) — usa CTEs data-modifying padrão do Postgres.
+
 ## Fila de execução (próximos)
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Leva 7 (271–570) — durabilidade → segurança → valor → refino → DX (bugs reais concluídos)
+1. Leva 7 (271–570) — segurança → valor → refino → DX (bugs reais e durabilidade crítica concluídos)
 2. Bloqueados por integração externa (marcar, não fazer): 412 (e-mail reset), 459/542 (relatórios email), 557–560 (CI/Playwright), 561 (Sentry)
 
 ## Histórico de sessões

@@ -91,6 +91,22 @@ async function init() {
       data jsonb NOT NULL
     )`;
     await sql`CREATE INDEX IF NOT EXISTS events_at_idx ON events (at DESC)`;
+    // Item 448: índice por conta+data para o arquivamento varrer barato.
+    await sql`CREATE INDEX IF NOT EXISTS events_acc_at_idx ON events (account_id, at DESC)`;
+
+    // Item 448: arquivo frio de eventos. O feed quente (tabela `events`) é
+    // limitado por retenção; o que passa da janela é MOVIDO para cá em vez de
+    // apagado — o histórico completo continua disponível para relatórios,
+    // mas sem inchar as queries do dia a dia.
+    await sql`CREATE TABLE IF NOT EXISTS events_archive (
+      id text PRIMARY KEY,
+      account_id text,
+      type text,
+      at timestamptz NOT NULL,
+      data jsonb NOT NULL,
+      archived_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS events_archive_acc_at_idx ON events_archive (account_id, at DESC)`;
 
     await sql`CREATE TABLE IF NOT EXISTS variants (
       name text PRIMARY KEY,
@@ -398,6 +414,37 @@ async function insertEvent(accountId, evt) {
       VALUES (${evt.id}, ${accountId || null}, ${evt.type || 'info'}, ${evt.at || new Date().toISOString()}, ${JSON.stringify(evt)}::jsonb)
       ON CONFLICT (id) DO NOTHING`;
   } catch (err) { console.error('[db] insertEvent:', err.message); }
+}
+
+// Item 448: move eventos além da janela de retenção (dias) para o arquivo
+// frio, em lotes. Idempotente e barato: roda "pegando carona no tráfego".
+// Retorna quantos eventos foram arquivados nesta passada.
+async function archiveOldEvents(retentionDays, batch) {
+  if (!enabled) return 0;
+  const days = Math.max(7, Math.min(3650, Math.round(Number(retentionDays) || 90)));
+  const limit = Math.max(100, Math.min(5000, Math.round(Number(batch) || 2000)));
+  try {
+    // CTE: seleciona os IDs antigos, insere no arquivo e remove da quente —
+    // tudo numa query só (atômico por statement no Postgres).
+    const rows = await sql`
+      WITH old AS (
+        SELECT id, account_id, type, at, data FROM events
+        WHERE at < now() - (${days} || ' days')::interval
+        ORDER BY at ASC
+        LIMIT ${limit}
+      ), moved AS (
+        INSERT INTO events_archive (id, account_id, type, at, data)
+        SELECT id, account_id, type, at, data FROM old
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      )
+      DELETE FROM events WHERE id IN (SELECT id FROM old)
+      RETURNING id`;
+    return Array.isArray(rows) ? rows.length : 0;
+  } catch (err) {
+    console.error('[db] archiveOldEvents:', err.message);
+    return 0;
+  }
 }
 
 async function upsertVariant(accountId, name, data) {
@@ -788,7 +835,7 @@ module.exports = {
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
-  upsertLead, insertEvent, upsertVariant, loadState, reset, upsertSession,
+  upsertLead, insertEvent, archiveOldEvents, upsertVariant, loadState, reset, upsertSession,
   saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels, getPixelByToken,
   upsertLink, deleteLink, loadLinks,

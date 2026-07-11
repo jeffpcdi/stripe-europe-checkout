@@ -89,6 +89,21 @@ function ok(cond, msg) {
   ok(cents('R$ 1.500') === 150000, 'valor: "R$ 1.500" com prefixo → 150000 centavos');
   ok(cents('1,234.56') === 123456, 'valor: "1,234.56" (US) intacto');
 
+  // ── Item 449: conversão órfã deixa rastro estruturado do porquê ──────────
+  const stats = require('../stats');
+  // e-mail único por rodada: o lead órfão persiste no snapshot local e numa
+  // segunda execução casaria por e-mail (deixando de ser órfão).
+  const orphanLead = stats.matchExternalConversion({
+    acc: ACC, gateway: 'kiwify', amountCents: 9900, currency: 'brl',
+    email: 'nunca-rastreado-' + Date.now() + '@example.com'
+  });
+  ok(orphanLead && orphanLead.orphan === true, 'órfã: conversão sem lead rastreado vira lead órfão');
+  const feed = stats.getStats(ACC);
+  const orphanEvt = (feed.events || []).find((e) => e.orphanReason);
+  ok(!!orphanEvt, 'órfã: evento estruturado explica por que não casou (item 449)');
+  ok(orphanEvt.orphanReason === 'sem_match' && orphanEvt.triedKeys.includes('email'),
+    'órfã: registra as chaves tentadas (email) e o motivo sem_match');
+
   // Limpeza: remove o domínio de teste do snapshot local compartilhado
   // (mesmo debounce de 500ms do persistDisk).
   config.set(ACC, { customDomains: [] });

@@ -574,6 +574,7 @@ app.post('/api/track', async (req, res) => {
     if (!vid) return;
     if (rateLimited(clientIp(req), 'track', 120)) return; // bot martelando: ignora
     checkDailyReport();                            // carona no tráfego (sem cron)
+    checkEventArchive();                            // item 448: arquiva eventos antigos (máx 1x/h)
     const uaRaw = String(req.headers['user-agent'] || '');
     if (uaTools.isBot(uaRaw)) return;              // bots não viram lead nem CAPI
 
@@ -1327,6 +1328,24 @@ function checkDailyReport() {
     // Uma verificação por conta: cada usuário tem seu Pushcut e seu resumo.
     for (const accId of config.accountIds()) checkDailyReportFor(accId);
   } finally { dailyCheckBusy = false; }
+}
+
+// Item 448: arquivamento de eventos antigos "pegando carona no tráfego"
+// (mesmo padrão do relatório diário, sem cron). No máximo 1x/hora, move um
+// lote de eventos além da retenção (padrão 90 dias) para events_archive.
+// Não bloqueia o request: dispara async e ignora o resultado.
+const EVENT_RETENTION_DAYS = Math.max(7, Math.min(3650, Number(process.env.EVENT_RETENTION_DAYS) || 90));
+let lastArchiveSweep = 0;
+let archiveSweepBusy = false;
+function checkEventArchive() {
+  const now = Date.now();
+  if (archiveSweepBusy || (now - lastArchiveSweep) < 3600e3) return;
+  archiveSweepBusy = true;
+  lastArchiveSweep = now;
+  db.archiveOldEvents(EVENT_RETENTION_DAYS, 2000)
+    .then((n) => { if (n > 0) console.log('[stats] arquivados ' + n + ' evento(s) antigos (> ' + EVENT_RETENTION_DAYS + 'd)'); })
+    .catch(() => {})
+    .finally(() => { archiveSweepBusy = false; });
 }
 // Item 295 (bug): o relatório diário cortava o dia em UTC — vendas das 21h à
 // meia-noite de Brasília caíam no dia "seguinte" e o resumo vinha errado.
@@ -2582,7 +2601,9 @@ const LOG_RETENTION = {
   pixelLog:  { label: 'Log de disparos CAPI',  limite: '500 entradas · 14 dias no Redis' },
   convLog:   { label: 'Log de webhooks',       limite: '200 entradas' },
   cloakLog:  { label: 'Histórico do cloaker',  limite: '50 por link · 30 dias' },
-  emq:       { label: 'Série de EMQ',          limite: '40 dias por pixel' }
+  emq:       { label: 'Série de EMQ',          limite: '40 dias por pixel' },
+  // Itens 349/448: o feed de eventos é arquivado (não apagado) após a janela.
+  events:    { label: 'Feed de eventos',       limite: EVENT_RETENTION_DAYS + ' dias no feed quente · histórico completo arquivado' }
 };
 app.get('/api/ops/retention', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
