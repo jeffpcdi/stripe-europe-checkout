@@ -185,7 +185,7 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   **Métricas de decisão:** `GET /api/cloak/stats` (offer vs white + taxa de bloqueio + breakdown por
   motivo, por link e agregado) e `POST /api/cloak/stats/reset` (zera um link via `{key}` ou todos).
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
-- **Convers����es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
+- **Convers������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
   **Mecanismo de verificação (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
   comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
@@ -646,9 +646,9 @@ o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba co
 para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
 dashboard com `next build` + `next start -p 3001`.
 
-### 19.4.1 Primitivos de UX compartilhados (itens 183/184/185/187/189 — REUTILIZE, não reinvente)
-Ao adicionar feedback, confirmações ou modais numa view, use SEMPRE estes três — não improvise
-`window.confirm`, `savedAt`/`copied` locais ou trap de foco caseiro:
+### 19.4.1 Primitivos de UX compartilhados (itens 182/183/184/185/187/189 — REUTILIZE, não reinvente)
+Ao adicionar feedback, confirmações, modais ou estados de erro numa view, use SEMPRE estes — não
+improvise `window.confirm`, `savedAt`/`copied` locais, trap de foco caseiro ou branch de erro solto:
 - **`lib/toast.ts` + `components/shell/toaster.tsx`** — toaster global montado 1× no layout. Chame
   `toast.success/error/info(msg, { hint?, duration? })`. `aria-live` (erro=`alert`/assertivo,
   demais=`status`/polido), erro fica 6s. NÃO monte outro `<Toaster>`.
@@ -667,6 +667,11 @@ Ao adicionar feedback, confirmações ou modais numa view, use SEMPRE estes trê
 - **`LIST_POLL_MS` (30s) em `lib/api.ts`** (item 187) — hooks de LISTA de gestão
   (`useLinks/useDomains/usePixels/useGateways/useCloakEntries`) usam esse intervalo + `revalidateOnFocus`.
   NÃO use o `POLL_MS` (12s) das métricas para listas.
+- **`components/error-state.tsx`** — `ErrorState` (item 182): falha de fetch de uma aba. Props
+  `title?/description?/onRetry?/retrying?`. Padrão: `if (error && !data) return <ErrorState
+  title="…" onRetry={() => mutate()} />` ANTES do branch de skeleton — só quando não há cache (com
+  dados, deixe o SWR revalidar em silêncio). Já em links/pixels/gateways/domínios. Se a view já tem
+  um `error` local (ex.: domains), renomeie o do SWR para `loadError` no destructure.
 Pendente (próxima fatia): migrar links/pixels/domínios/cloak entries para `ConfirmDialog`+`toast`.
 
 ### 19.5 Armadilhas específicas da dashboard nova

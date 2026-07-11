@@ -35,7 +35,7 @@ export function ErrorState({
           type="button"
           onClick={onRetry}
           disabled={retrying}
-          className="mt-1 inline-flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-60"
+          className="mt-1 inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary/70 disabled:opacity-60"
         >
           <RotateCw className={retrying ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} aria-hidden="true" />
           {retrying ? 'Recarregando…' : 'Tentar novamente'}

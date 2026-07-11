@@ -24,6 +24,7 @@ import type { Gateway, GatewayProvider, GatewayTestResult, GatewayRotateResult }
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
+import { ErrorState } from '@/components/error-state'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
 
@@ -130,7 +131,7 @@ function ProviderIcon({ provider, label }: { provider: string; label: string }) 
 }
 
 export function GatewaysView() {
-  const { data, mutate, isLoading } = useGateways()
+  const { data, mutate, isLoading, error } = useGateways()
   const { data: convLog, mutate: mutateLog } = useConversionLog()
 
   const [creating, setCreating] = useState(false)
@@ -336,7 +337,10 @@ export function GatewaysView() {
             </p>
           )}
 
-          {isLoading ? (
+          {error && !data ? (
+            /* Item 182: erro de carregamento com retry consistente */
+            <ErrorState title="Não foi possível carregar seus gateways." onRetry={() => mutate()} />
+          ) : isLoading ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-24" />
               <Skeleton className="h-24" />

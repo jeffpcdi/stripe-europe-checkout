@@ -34,6 +34,7 @@ import type { Pixel, PixelEvents, PixelTestResult, PixelEmqTrend } from '@/lib/t
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
+import { ErrorState } from '@/components/error-state'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
 
@@ -112,7 +113,7 @@ const EVENT_LABELS: { key: keyof PixelEvents; label: string }[] = [
 ]
 
 export function PixelsView() {
-  const { data, mutate, isLoading } = usePixels()
+  const { data, mutate, isLoading, error } = usePixels()
   const { data: health } = usePixelHealth()
   const { data: log, mutate: mutateLog } = usePixelLog()
   const { data: durability } = usePixelDurability()
@@ -344,7 +345,10 @@ export function PixelsView() {
             .
           </p>
 
-          {isLoading ? (
+          {error && !data ? (
+            /* Item 182: erro de carregamento com retry consistente */
+            <ErrorState title="Não foi possível carregar seus pixels." onRetry={() => mutate()} />
+          ) : isLoading ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-28" />
               <Skeleton className="h-28" />
