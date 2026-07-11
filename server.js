@@ -37,6 +37,7 @@ const LP_HTML = require('./lp-view');
 const linkStore = require('./link-store');
 const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
+const cloakTestProfiles = require('./cloak-test-profiles'); // item 165/208: simulador de perfis
 const TRACKER_JS = require('./tracker-view');
 const auth = require('./auth');
  const gatewayStore = require('./gateway-store');
@@ -973,9 +974,19 @@ app.get('/c/:slug', async (req, res) => {
   // Interruptor do link liga/desliga o cloaking; o destino seguro sempre existe.
   const cloakOn = entry.enabled !== false;
 
-  // Registra a decisão (offer/white + motivo) nos contadores do painel.
-  const bumpDecision = (decision, reason) => {
+  // Registra a decisão (offer/white + motivo) nos contadores do painel e,
+  // separadamente, no log das últimas N decisões (item 170) — IP mascarado,
+  // sem PII. `score` é opcional (só o gate de score o conhece).
+  const bumpDecision = (decision, reason, score) => {
     try { redis.bumpCloakDecision(acc, 'cloak:' + entry.slug, decision, reason); } catch (_) {}
+    try {
+      redis.pushCloakDecision(acc, 'cloak:' + entry.slug, {
+        decision, reason, score,
+        ip: clientIp(req),
+        ua: uaRaw,
+        country: (geoFromReq(req).country || ''),
+      });
+    } catch (_) {}
   };
 
   // preserva a query original (UTMs/ttclid) no destino final
@@ -1127,7 +1138,7 @@ app.get('/c/:slug', async (req, res) => {
       .catch(() => ({ verdict: 'real', score: 0, signals: [] }));
     if (j.verdict === 'bot') {
       stats.logEvent('info', { acc, title: '[cloak] score=' + j.score + ' → white | ' + (j.signals || []).slice(0, 4).join(', '), gateway: 'cloak:' + entry.slug, ref: clientIp(req) });
-      bumpDecision('white', 'score');
+      bumpDecision('white', 'score', j.score);
       // Memoriza o veredito por visitante (só score alto/forte): próximas visitas
       // curto-circuitam no gate sticky acima, sem re-rodar o judge.
       if (cloakVid && j.score >= (j.threshold || 40)) {
@@ -1281,7 +1292,7 @@ app.get('/api/v1/summary', (req, res) => {
   res.json({ today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() });
 });
 
-// ── Relatório diário via Pushcut ─────────────────────────────────────
+// ── Relatório diário via Pushcut ──────────────���──────────────────────
 // Sem cron confiável em serverless: verificação barata "pegando carona"
 // no tráfego (track/conversão). Na primeira request após a virada do dia
 // (UTC), envia o resumo de ONTEM — no máximo 1x, guardado na config.
@@ -1653,7 +1664,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   config.set(req.account.id, { customDomains: cur.concat([entry]) });
   stats.logEvent('info', { acc: req.account.id, title: 'Domínio personalizado adicionado: ' + host });
   // Devolve os registros DNS que o lojista precisa criar (CNAME + TXT). Nada
-  // aqui contém segredo — são valores públicos de DNS. providerNote avisa quando
+  // aqui cont��m segredo — são valores públicos de DNS. providerNote avisa quando
   // caiu em modo manual (ex.: teto da hospedagem) sem bloquear o cadastro.
   // Item 8: `mode` explícito — 'auto' = provisionado automaticamente;
   // 'manual' = aguardando (a verificação re-tenta o registro sozinha).
@@ -1687,6 +1698,34 @@ function isCloudflareIp(ip) {
     const mask = bits === '0' ? 0 : (~((1 << (32 - parseInt(bits, 10))) - 1)) >>> 0;
     return (ipn & mask) === (toInt(net) & mask);
   });
+}
+
+// Item 175: resolução via DNS-over-HTTPS (dns.google / cloudflare-dns) para ler
+// a propagação GLOBAL do registro. O resolver local (dnsp) responde pelo cache
+// do sistema/rede, que pode estar defasado logo após o lojista criar o CNAME;
+// os resolvers públicos costumam refletir a mudança antes. Best-effort e com
+// timeout curto — nunca é fonte de verdade, só um sinal antecipado de "já vejo
+// seu registro apontando pra cá". type=5 (CNAME), type=1 (A).
+async function dohResolve(host, type) {
+  const providers = [
+    'https://dns.google/resolve?name=' + encodeURIComponent(host) + '&type=' + type,
+    'https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(host) + '&type=' + type,
+  ];
+  for (const url of providers) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2500);
+      const r = await fetch(url, { headers: { accept: 'application/dns-json' }, signal: ctrl.signal });
+      clearTimeout(t);
+      if (!r.ok) continue;
+      const j = await r.json().catch(() => null);
+      if (!j || !Array.isArray(j.Answer)) continue;
+      // Answer[].type: 5 = CNAME, 1 = A. data traz o valor resolvido.
+      const answers = j.Answer.filter((a) => a.type === type).map((a) => String(a.data || '').replace(/\.$/, ''));
+      if (answers.length) return answers;
+    } catch (_) { /* tenta o próximo provider */ }
+  }
+  return [];
 }
 
 app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
@@ -1731,7 +1770,24 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
         out.dnsOk = true;
         out.dnsDetail = 'A → ' + hostIps.join(', ');
       } else if (!hostIps.length && !cnames.length) {
-        out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
+        // Item 175: o resolver local não vê o registro — checar via DoH (resolvers
+        // públicos) antes de dizer "não resolve". Se o CNAME/A já aparece lá, é
+        // propagação em curso, não erro de configuração.
+        const [dohCn, dohA] = await Promise.all([
+          dohResolve(host, 5).catch(() => []),
+          dohResolve(host, 1).catch(() => []),
+        ]);
+        const dohPointsHere =
+          dohCn.some((c) => c.toLowerCase() === appHost.toLowerCase()) ||
+          (dohA.length && appIps.length && dohA.some((ip) => appIps.includes(ip)));
+        if (dohPointsHere) {
+          out.dnsPropagating = true;
+          out.dnsDetail = 'registro já visível nos resolvers públicos (dns.google/cloudflare) apontando pra cá — propagação em curso; aguarde alguns minutos e verifique de novo';
+        } else if (dohCn.length || dohA.length) {
+          out.dnsDetail = 'DNS aponta para outro destino (' + (dohCn[0] || dohA.join(', ')) + ') — corrija o registro para apontar para ' + appHost;
+        } else {
+          out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
+        }
       } else if (hostIps.length && hostIps.some(isCloudflareIp)) {
         out.cloudflareProxy = true;
         out.dnsDetail = 'proxy da Cloudflare ativo (nuvem laranja) — edite o registro na Cloudflare e mude para "Somente DNS" (nuvem cinza)';
@@ -1917,8 +1973,17 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
   });
 });
 
-// Testa o motor de julgamento com o request ATUAL do navegador do usuário —
-// mostra na dashboard como o próprio admin seria classificado (deve dar 'real').
+// Item 165/208: lista os perfis de simulação disponíveis (metadados leves —
+// não expõe headers/IPs sintéticos, só o rótulo e o veredito esperado).
+app.get('/api/cloak/test/profiles', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, profiles: cloakTestProfiles.listProfilesMeta() });
+});
+
+// Testa o motor de julgamento. Por padrão usa o request ATUAL do navegador do
+// admin (deve dar 'real'). Item 165/208: quando vem `profile`, roda o mesmo
+// motor sobre um visitante SINTÉTICO (revisor ByteDance, headless, usuário do
+// anúncio no webview, etc.) para o operador ver como cada perfil seria tratado.
 app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   // Item 178: rate-limit por conta — o judge faz lookup de ASN (DNS), então
@@ -1937,26 +2002,49 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
     if (!entry) return res.status(404).json({ error: 'link de cloaking não encontrado' });
     cloakCfg = entry; // o /c/:slug passa o próprio entry como cloakCfg ao judge
   }
-  const filterReq = Object.assign(Object.create(req), { geoCountry: geoFromReq(req).country || '' });
-  const j = await botFilter.judge(filterReq, 'admin-test', null, {}, cloakCfg)
+
+  // Modo simulação: monta um request sintético a partir do perfil escolhido.
+  // O `evalReq` substitui o `req` em TODA leitura derivada do visitante (headers,
+  // query, IP, geo, fingerprint), mantendo req.account/req.body do admin real.
+  const profileId = req.body && req.body.profile ? String(req.body.profile).slice(0, 40) : '';
+  let evalReq = req;
+  let challengeData = {};
+  let profileMeta = null;
+  if (profileId) {
+    const prof = cloakTestProfiles.getProfile(profileId);
+    if (!prof) return res.status(404).json({ ok: false, error: 'Perfil de simulação desconhecido.', code: 'bad_profile' });
+    const headers = Object.assign({}, prof.headers);
+    if (prof.country) headers['x-vercel-ip-country'] = prof.country;
+    if (prof.ip) headers['x-forwarded-for'] = prof.ip;
+    evalReq = Object.assign(Object.create(req), {
+      headers,
+      query: Object.assign({}, prof.query || {}),
+      socket: { remoteAddress: prof.ip || '' },
+    });
+    challengeData = prof.challengeData || {};
+    profileMeta = { id: prof.id, label: prof.label, expected: prof.expected, hint: prof.hint };
+  }
+
+  const filterReq = Object.assign(Object.create(evalReq), { geoCountry: geoFromReq(evalReq).country || '' });
+  const j = await botFilter.judge(filterReq, 'admin-test', null, challengeData, cloakCfg)
     .catch((e) => ({ verdict: 'erro', score: 0, signals: ['erro:' + e.message] }));
 
-  // Avalia os gates pré-score do /c/:slug com o request atual do admin (mesma
-  // lógica da rota real) para o painel mostrar o que barraria além do score.
+  // Avalia os gates pré-score do /c/:slug com o mesmo request avaliado (real ou
+  // sintético) para o painel mostrar o que barraria além do score.
   let gates = null;
   if (entry) {
-    const uaRaw = String(req.headers['user-agent'] || '');
+    const uaRaw = String(evalReq.headers['user-agent'] || '');
     const dev = uaTools.parse(uaRaw);
     const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
-    const ref = String(req.headers['referer'] || req.headers['referrer'] || '');
-    const q = req.query || {};
+    const ref = String(evalReq.headers['referer'] || evalReq.headers['referrer'] || '');
+    const q = evalReq.query || {};
     const ttclidRaw = typeof q.ttclid === 'string' ? q.ttclid.trim() : '';
     const validTtclid = /^[A-Za-z0-9._-]{20,}$/.test(ttclidRaw);
     const isWebview = uaTools.isInAppTikTok(uaRaw);
     const fromTikTok = isWebview || /tiktok|ttwebview|musical_ly|bytedance|tiktokcdn/i.test(ref);
     const adClickOk = entry.sensitivity === 'strict' ? isWebview : (fromTikTok || validTtclid);
-    const cc = String(geoFromReq(req).country || '').toUpperCase();
-    const lang = String(req.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
+    const cc = String(geoFromReq(evalReq).country || '').toUpperCase();
+    const lang = String(evalReq.headers['accept-language'] || '').split(',')[0].split('-')[0].trim().toLowerCase();
     gates = {
       mobile: entry.mobileOnly === false ? 'off' : (isMobile ? 'pass' : 'block'),
       adClick: entry.requireAdClick === false ? 'off' : (adClickOk ? 'pass' : 'block'),
@@ -1967,9 +2055,10 @@ app.post('/api/cloak/test', dashboardAuth, async (req, res) => {
 
   res.json({
     verdict: j.verdict, score: j.score, threshold: j.threshold,
-    signals: j.signals, ip: clientIp(req),
-    ua: String(req.headers['user-agent'] || '').slice(0, 120),
+    signals: j.signals, ip: clientIp(evalReq),
+    ua: String(evalReq.headers['user-agent'] || '').slice(0, 120),
     slug: slug || undefined, gates,
+    profile: profileMeta, // item 165/208: eco do perfil simulado (null = request real)
     // Itens 163/164/210: infraestrutura resolvida + tempo de julgamento
     asn: j.asn || 0, org: j.org || '', resolvedAt: j.resolvedAt || 0
   });
@@ -2022,6 +2111,19 @@ app.post('/api/cloak/stats/reset', dashboardAuth, async (req, res) => {
     await Promise.all(keys.map((k) => redis.resetCloakStats(acc, k).catch(() => {})));
   }
   res.json({ ok: true });
+});
+
+// Item 170: histórico das últimas N decisões de um link de cloaking (observa-
+// bilidade). Multi-tenant: só o dono lê (a key sempre carrega o account_id).
+// IP já vem mascarado do store — nunca expõe PII. `key` = slug do /go ou
+// "cloak:<slug>" do /c (mesma convenção do /api/cloak/stats/reset).
+app.get('/api/cloak/decisions', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const key = req.query && req.query.key ? String(req.query.key).slice(0, 60) : '';
+  if (!key) return res.status(400).json({ ok: false, error: 'informe key' });
+  const log = await redis.getCloakDecisionLog(acc, key).catch(() => []);
+  res.json({ ok: true, key, log, source: redis.enabled ? 'redis' : 'memory' });
 });
 
 // ── Links de cloaking (entidade própria, servidos em /c/:slug) ─────────────
@@ -2148,6 +2250,46 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
   });
 });
 
+// ═══ Observabilidade das filas duráveis (Leva 5, bloco I: 191–200) ════
+// Expõe o que já existia no backend mas nenhuma UI mostrava: profundidade da
+// fila de conversões (pendentes + em processamento), fila de retry da CAPI,
+// prova de vida do worker, latência webhook→disparo, reentregas ignoradas.
+// Tudo escopado por conta quando aplicável; sem PII.
+app.get('/api/ops', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const acc = req.account.id;
+  const [depth, dedup] = await Promise.all([
+    rdb.convQueueDepth(),
+    rdb.getWebhookDedupCount(acc)
+  ]);
+  res.json({
+    redisEnabled: rdb.enabled, // sem Redis a fila é best-effort em memória
+    convQueue: depth,                       // {queue, processing} — item 191
+    reclaim: rdb.getReclaimInfo(),          // último reprocessamento — item 192
+    convLatency: rdb.getConvLatency(),      // p50/p95/max webhook→disparo — item 199
+    worker: rdb.getConvWorkerBeat(),        // {at, active} — item 197
+    capiRetry: ttEvents.retryQueueInfo(acc),// {count, oldestAgeMs} — item 193
+    webhookDedup: dedup,                    // reentregas ignoradas — item 195
+    ts: new Date().toISOString()
+  });
+});
+
+// Item 194/198: forçar drenagem da fila de retry da CAPI AGORA (ignora backoff),
+// só os eventos desta conta. Rate-limitado — cada disparo bate na API do TikTok.
+app.post('/api/ops/drain-retry', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('ops-drain|' + req.account.id, 'opsdrain', 6)) {
+    return res.status(429).json({ ok: false, error: 'Aguarde um pouco antes de forçar a fila de novo.', code: 'rate_limited' });
+  }
+  try {
+    const processed = await ttEvents.drainRetryQueue({ force: true, acc: req.account.id });
+    const info = ttEvents.retryQueueInfo(req.account.id);
+    res.json({ ok: true, processed: processed || 0, remaining: info.count });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'Falha ao drenar a fila.', code: 'drain_failed' });
+  }
+});
+
 // ═══ Webhook UNIVERSAL de conversões (qualquer gateway) ═══════════════
 // Kiwify, Hotmart, PerfectPay, Cakto, etc.: configure a URL
 //   https://<host>/api/conversion?secret=SEU_SEGREDO[&gateway=kiwify]
@@ -2202,6 +2344,8 @@ function notifyPushcut(event, n) {
 // Motor: resolve o lead no backend, enriquece, dedupa e dispara a CAPI.
 // Roda SEMPRE em background (a resposta HTTP já foi enviada ao gateway).
 async function processConversion(n) {
+  // item 199: latência webhook→disparo (do recebimento até começar a processar)
+  if (n && n._recvAt) rdb.recordConvLatency(Date.now() - n._recvAt);
   const evId = n.event + '.' + n.gateway + '.' + n.orderId;
   const receipt = {
     at: new Date().toISOString(),
@@ -2340,6 +2484,7 @@ async function processConversion(n) {
 // reprocessado (idempotente via dedup). Sem Redis, cai no comportamento antigo
 // (processa inline) — funciona, só não sobrevive a restart.
 function submitConversion(n) {
+  if (n && !n._recvAt) n._recvAt = Date.now(); // item 199: carimbo de recebimento
   if (rdb.enabled) {
     rdb.enqueueConversion(n).then((ok) => {
       // se o enqueue falhar (Redis instável), processa inline como rede de segurança
@@ -2356,6 +2501,7 @@ let _convWorkerBusy = false;
 async function convWorkerTick() {
   if (!rdb.enabled || _convWorkerBusy) return;
   _convWorkerBusy = true;
+  rdb.heartbeatConvWorker(); // item 197: prova de vida do drain worker
   try {
     if (!(await rdb.acquireLock('convWorker', 25))) return; // outra instância já drena
     const batch = await rdb.reserveConversions(25);
@@ -2458,6 +2604,7 @@ app.post('/hook/:token', async (req, res) => {
   // Responde 200 mesmo assim (o gateway precisa parar de reenviar).
   const dup = await rdb.seenWebhookOrder(gw.accountId, n.event, n.orderId).catch(() => false);
   if (dup) {
+    rdb.bumpWebhookDedup(gw.accountId).catch(() => {}); // item 195
     gatewayStore.touch(gw.id, 'reentrega ignorada: ' + n.event);
     rdb.pushConversionLog({
       at: new Date().toISOString(), acc: gw.accountId,
@@ -3057,7 +3204,7 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
 });
 
 // Saúde da CAPI: taxa de sucesso, EMQ médio por evento, últimos erros e o
-// tamanho da fila de retry — visão imediata de "está tudo disparando?"
+// tamanho da fila de retry ��� visão imediata de "está tudo disparando?"
 app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const rows = await ttEvents.recentLogAsync(200, req.account.id);

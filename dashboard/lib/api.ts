@@ -4,6 +4,7 @@ import useSWR from 'swr'
 import type {
   StatsResponse,
   HealthResponse,
+  OpsResponse,
   LiveResponse,
   LinksResponse,
   DomainsResponse,
@@ -17,6 +18,8 @@ import type {
   CloakConfig,
   CloakStatsResponse,
   CloakEntriesResponse,
+  CloakDecisionsResponse,
+  CloakTestProfileMeta,
   Account,
   PushcutConfig,
   AccountSettings,
@@ -93,6 +96,14 @@ export function useLive() {
 export function useHealth() {
   return useSWR<HealthResponse>('/api/health', fetcher, {
     refreshInterval: 30_000,
+    keepPreviousData: true,
+  })
+}
+
+// Observabilidade das filas duráveis (item 191–200). Poll no ritmo do stats.
+export function useOps() {
+  return useSWR<OpsResponse>('/api/ops', fetcher, {
+    refreshInterval: POLL_MS,
     keepPreviousData: true,
   })
 }
@@ -187,6 +198,25 @@ export function useCloakEntries() {
     refreshInterval: LIST_POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,
+  })
+}
+
+// Item 170: log das últimas decisões de um link. `key` nulo = hook inativo
+// (SWR não dispara com chave null), usado quando nenhum link está expandido.
+export function useCloakDecisions(key: string | null) {
+  return useSWR<CloakDecisionsResponse>(
+    key ? '/api/cloak/decisions?key=' + encodeURIComponent(key) : null,
+    fetcher,
+    { refreshInterval: POLL_MS, keepPreviousData: true },
+  )
+}
+
+// Item 165/208: catálogo de perfis do simulador de bots. Estático na prática —
+// revalida só ao focar, sem polling.
+export function useCloakTestProfiles() {
+  return useSWR<{ ok: boolean; profiles: CloakTestProfileMeta[] }>('/api/cloak/test/profiles', fetcher, {
+    revalidateOnFocus: false,
+    revalidateIfStale: false,
   })
 }
 

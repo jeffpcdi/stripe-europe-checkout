@@ -20,6 +20,8 @@ import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { toast } from '@/lib/toast'
 
 // Tutorial conceitual da aba (o "porquê"); o passo a passo de DNS por domínio
 // continua no DnsTutorialModal, que já traz os valores exatos para copiar.
@@ -92,7 +94,10 @@ export function DomainsView() {
   const [error, setError] = useState<string | null>(null)
   const [verifying, setVerifying] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, DomainVerifyResult>>({})
+  // Item 184: exclusão via ConfirmDialog padronizado; domínio verificado
+  // exige digitar o host (links/entries ao vivo dependem dele)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   // Tutorial de DNS: abre sozinho após adicionar e pode ser reaberto no card
   const [tutorial, setTutorial] = useState<{ host: string; dns: DomainDnsRecords | null; note?: string | null } | null>(
     null,
@@ -177,9 +182,19 @@ export function DomainsView() {
   }
 
   async function handleDelete(h: string) {
-    await apiSend(`/api/domains/${encodeURIComponent(h)}`, 'DELETE')
-    setDeleting(null)
-    mutate()
+    setDeleteBusy(true)
+    try {
+      await apiSend(`/api/domains/${encodeURIComponent(h)}`, 'DELETE')
+      toast.success(`Domínio ${h} removido.`)
+      setDeleting(null)
+      mutate()
+    } catch (err) {
+      toast.error('Falha ao remover o domínio.', {
+        hint: err instanceof Error ? err.message : undefined,
+      })
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   const inputCls =
@@ -287,11 +302,8 @@ export function DomainsView() {
               domain={d}
               result={results[d.host]}
               verifying={verifying === d.host}
-              deleting={deleting === d.host}
               onVerify={() => handleVerify(d.host)}
               onAskDelete={() => setDeleting(d.host)}
-              onCancelDelete={() => setDeleting(null)}
-              onDelete={() => handleDelete(d.host)}
               onTutorial={() => setTutorial({ host: d.host, dns: d.dns ?? null })}
             />
           ))}
@@ -304,6 +316,32 @@ export function DomainsView() {
         title="Domínio personalizado nos seus links"
         steps={DOMAIN_STEPS}
       />
+
+      {/* Item 184: confirmação padronizada — domínio verificado exige o host digitado */}
+      {(() => {
+        const dd = deleting ? domains.find((d) => d.host === deleting) : undefined
+        return (
+          <ConfirmDialog
+            open={Boolean(dd)}
+            title={dd ? `Remover ${dd.host}?` : ''}
+            description={
+              dd?.verificado ? (
+                <>
+                  Este domínio está <strong className="text-foreground">verificado e em uso</strong> — links e rotas de
+                  cloaker que apontam para ele param de funcionar na hora.
+                </>
+              ) : (
+                <>O domínio sai da lista e o provisionamento é desfeito. Você pode adicioná-lo de novo depois.</>
+              )
+            }
+            confirmLabel="Remover"
+            confirmText={dd?.verificado ? dd.host : undefined}
+            busy={deleteBusy}
+            onConfirm={() => deleting && handleDelete(deleting)}
+            onClose={() => setDeleting(null)}
+          />
+        )
+      })()}
 
       {tutorial && (
         <DnsTutorialModal
@@ -580,21 +618,15 @@ function DomainCard({
   domain,
   result,
   verifying,
-  deleting,
   onVerify,
   onAskDelete,
-  onCancelDelete,
-  onDelete,
   onTutorial,
 }: {
   domain: CustomDomain
   result?: DomainVerifyResult
   verifying: boolean
-  deleting: boolean
   onVerify: () => void
   onAskDelete: () => void
-  onCancelDelete: () => void
-  onDelete: () => void
   onTutorial: () => void
 }) {
   return (
@@ -702,6 +734,14 @@ function DomainCard({
               DNS: {result.dnsDetail || (result.dnsOk ? 'ok' : 'pendente')}
             </span>
           </div>
+          {/* Item 175: registro já visível nos resolvers públicos (DoH), só falta
+              o cache local propagar — sinal positivo, não erro de config */}
+          {!result.dnsOk && result.dnsPropagating && (
+            <div className="ml-5 flex items-center gap-1.5 text-[11px] text-[color:var(--brand-cyan)]">
+              <RefreshCw className="size-3 shrink-0" aria-hidden="true" />
+              <span className="text-pretty">Já visível na rede global — propagação em curso, verifique de novo em alguns minutos.</span>
+            </div>
+          )}
           <div className="flex items-start gap-2">
             {result.httpOk ? (
               <CheckCircle2 className="check-draw mt-0.5 size-3.5 shrink-0 text-[color:var(--success)]" />
@@ -714,7 +754,7 @@ function DomainCard({
           </div>
           {/* Item 125: diagnóstico dirigido — aponta ONDE está o problema
               (DNS vs. HTTPS vs. proxy) e reabre o tutorial no passo certo */}
-          {!result.verified && !result.dnsOk && !result.cloudflareProxy && (
+          {!result.verified && !result.dnsOk && !result.cloudflareProxy && !result.dnsPropagating && (
             <button
               type="button"
               onClick={onTutorial}
@@ -732,29 +772,6 @@ function DomainCard({
         </div>
       ) : null}
 
-      {deleting && (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">
-          <p className="text-sm text-foreground">
-            Remover <strong>{domain.host}</strong>?
-          </p>
-          <div className="flex shrink-0 gap-2">
-            <button
-              type="button"
-              onClick={onCancelDelete}
-              className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-secondary"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={onDelete}
-              className="rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-            >
-              Remover
-            </button>
-          </div>
-        </div>
-      )}
     </GlassCard>
   )
 }

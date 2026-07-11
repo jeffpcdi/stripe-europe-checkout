@@ -257,16 +257,23 @@ function resolvePixelForRetry(item) {
   return null;
 }
 
-async function drainRetryQueue() {
+// opts.force (item 194/198): ignora o backoff e tenta AGORA todos os itens
+// (opcionalmente só os de uma conta via opts.acc). Retorna quantos foram
+// processados — usado pela ação manual de "forçar drenagem" na dashboard.
+async function drainRetryQueue(opts) {
+  const force = !!(opts && opts.force);
+  const onlyAcc = opts && opts.acc ? opts.acc : null;
   await ensureRetryLoaded();
-  if (!retryQueue.length) return;
+  if (!retryQueue.length) return 0;
   const now = Date.now();
-  const due = retryQueue.filter((it) => it.nextAt <= now);
-  if (!due.length) return;
+  let due = retryQueue.filter((it) => force || it.nextAt <= now);
+  if (onlyAcc) due = due.filter((it) => (it.acc || null) === onlyAcc);
+  if (!due.length) return 0;
   // Lock distribuído: com várias instâncias, todas carregam o MESMO snapshot
   // do Redis e drenariam em paralelo → o mesmo evento seria disparado N vezes.
   // Só a instância que adquire o lock drena neste ciclo (as demais esperam 60s).
-  if (!(await rdb.acquireLock('capiRetryDrain', 55))) return;
+  if (!(await rdb.acquireLock('capiRetryDrain', 55))) return 0;
+  let processed = 0;
   try {
   for (const item of due) {
     // expirou (24h) ou esgotou o backoff → descarta de vez
@@ -279,6 +286,7 @@ async function drainRetryQueue() {
     const pixel = resolvePixelForRetry(item);
     if (!pixel || !pixel.active) { retryQueue = retryQueue.filter((x) => x !== item); continue; }
     const json = await sendToPixel(pixel, { ...item.p, _fromRetryQueue: true });
+    processed++;
     if (json && json.code === 0) {
       retryQueue = retryQueue.filter((x) => x !== item);          // sucesso
     } else if (json && json.code != null && json.code !== 0) {
@@ -292,6 +300,7 @@ async function drainRetryQueue() {
   } finally {
     rdb.releaseLock('capiRetryDrain').catch(() => {});
   }
+  return processed;
 }
 
 // varre a cada 60s; unref() para não segurar o processo vivo no shutdown
@@ -299,6 +308,19 @@ const retryTimer = setInterval(() => { drainRetryQueue().catch(() => {}); }, 60e
 if (retryTimer.unref) retryTimer.unref();
 
 function retryQueueSize() { return retryQueue.length; }
+
+// Item 193: resumo da fila de retry para a UI (por conta ou global).
+// count = quantos eventos aguardam reenvio; oldestAgeMs = idade do mais antigo.
+function retryQueueInfo(acc) {
+  const list = acc ? retryQueue.filter((it) => (it.acc || null) === acc) : retryQueue;
+  if (!list.length) return { count: 0, oldestAgeMs: 0 };
+  let oldest = 0;
+  for (const it of list) {
+    const at = it.firstAt || 0;
+    if (at && (!oldest || at < oldest)) oldest = at;
+  }
+  return { count: list.length, oldestAgeMs: oldest ? Math.max(0, Date.now() - oldest) : 0 };
+}
 
 /**
  * Envia UM evento para UM pixel específico.
@@ -509,5 +531,5 @@ module.exports = {
   hash, hashPhone, externalIdFromLead,
   sendToPixel, dispatchToAll, testPixel, sendTikTokEvent,
   recentLog, recentLogAsync,
-  retryQueueSize, drainRetryQueue
+  retryQueueSize, drainRetryQueue, retryQueueInfo
 };

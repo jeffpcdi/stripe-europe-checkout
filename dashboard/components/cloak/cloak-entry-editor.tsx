@@ -151,7 +151,20 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
             <div>
               <label className={labelCls} htmlFor="ck-offer">Offer (página real, https)</label>
               <input id="ck-offer" className={inputCls} value={offerUrl} onChange={(e) => setOfferUrl(e.target.value)} placeholder="https://minha-oferta.com" />
-              <p className="mt-1 text-[11px] text-muted-foreground">Para onde o usuário real é levado.</p>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">Para onde o usuário real é levado.</p>
+                {/* Item 174: abrir a offer em nova aba direto do editor */}
+                {/^https:\/\//.test(offerUrl.trim()) && (
+                  <a
+                    href={offerUrl.trim()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
+                  >
+                    <ExternalLink className="size-3" /> Ver
+                  </a>
+                )}
+              </div>
             </div>
 
             <div>
@@ -171,6 +184,30 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
                   </a>
                 )}
               </div>
+              {/* Item 172: white page preenchida mas inválida (não https) queima a
+                  conta — o revisor cai numa página de erro. Avisar antes de salvar */}
+              {whitePageUrl.trim() !== '' && !/^https:\/\//.test(whitePageUrl.trim()) && (
+                <p className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-3 py-2 text-[11px] text-foreground">
+                  <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
+                  <span>
+                    A página branca precisa começar com <code>https://</code>. Uma white page quebrada leva o revisor a
+                    um erro e pode queimar a conta — corrija ou deixe vazio para usar a página neutra embutida.
+                  </span>
+                </p>
+              )}
+              {/* Item 174: comparar offer × white lado a lado (abre as duas em abas) */}
+              {/^https:\/\//.test(offerUrl.trim()) && /^https:\/\//.test(whitePageUrl.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.open(offerUrl.trim(), '_blank', 'noopener,noreferrer')
+                    window.open(whitePageUrl.trim(), '_blank', 'noopener,noreferrer')
+                  }}
+                  className="mt-1.5 flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
+                >
+                  <ExternalLink className="size-3" /> Comparar offer × white lado a lado
+                </button>
+              )}
             </div>
 
             <div>

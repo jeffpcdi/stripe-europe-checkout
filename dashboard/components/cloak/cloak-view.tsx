@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { FlaskConical, Loader2, Server, Timer, SlidersHorizontal } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import { FlaskConical, Loader2, Server, Timer, SlidersHorizontal, Bot, Check, X } from 'lucide-react'
+import { apiSend, useCloakTestProfiles } from '@/lib/api'
 import type { CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
@@ -49,7 +49,9 @@ const CLOAK_STEPS: TutorialStep[] = [
     body: (
       <>
         Use o <strong>Teste ao vivo</strong> para ver como o cloaker classificaria o seu próprio acesso,
-        com o score e os sinais detectados. Assim você valida a regra sem gastar clique de anúncio.
+        com o score e os sinais detectados. Em <strong>Simular visitante</strong> você ainda roda perfis
+        prontos — revisor da ByteDance, navegador headless, usuário real do anúncio — e confere se cada
+        um cai no lado certo. Tudo sem gastar clique de anúncio.
       </>
     ),
   },
@@ -101,12 +103,16 @@ function CloakTestPanel() {
   const [error, setError] = useState<string | null>(null)
   // Item 166: preview de threshold — recalcula o veredito localmente sem novo request
   const [previewThreshold, setPreviewThreshold] = useState<number | null>(null)
+  // Item 165/208: perfil de visitante simulado ('' = meu acesso real)
+  const [profile, setProfile] = useState<string>('')
+  const { data: profilesData } = useCloakTestProfiles()
+  const profiles = profilesData?.profiles ?? []
 
-  async function runTest() {
+  async function runTest(profileId = profile) {
     setLoading(true)
     setError(null)
     try {
-      const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST', {})
+      const r = await apiSend<CloakTestResult>('/api/cloak/test', 'POST', profileId ? { profile: profileId } : {})
       setResult(r)
       setPreviewThreshold(r.threshold)
     } catch (e) {
@@ -150,17 +156,49 @@ function CloakTestPanel() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="section-head text-sm font-semibold text-foreground">Teste ao vivo</h2>
-          <p className="text-xs text-muted-foreground">Julga a requisição atual deste navegador</p>
+          <p className="text-xs text-muted-foreground">
+            {profile ? 'Simula um visitante escolhido' : 'Julga a requisição atual deste navegador'}
+          </p>
         </div>
         <button
           type="button"
-          onClick={runTest}
+          onClick={() => runTest()}
           disabled={loading}
           className="flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-secondary/70 disabled:opacity-50"
         >
           {loading ? <Loader2 className="size-3.5 animate-spin" /> : <FlaskConical className="size-3.5" />}
           Rodar teste
         </button>
+      </div>
+
+      {/* Item 165/208: simulador de perfis — julga visitantes sintéticos
+          (revisor ByteDance, headless, usuário do anúncio…) com o MESMO motor */}
+      <div className="mb-4">
+        <label htmlFor="ck-profile" className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Bot className="size-3.5" /> Simular visitante
+        </label>
+        <select
+          id="ck-profile"
+          value={profile}
+          onChange={(e) => {
+            setProfile(e.target.value)
+            runTest(e.target.value)
+          }}
+          disabled={loading}
+          className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        >
+          <option value="">Meu acesso real (este navegador)</option>
+          {profiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {(p.expected === 'bot' ? '[bloqueia] ' : '[libera] ') + p.label}
+            </option>
+          ))}
+        </select>
+        {profile && (
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            {profiles.find((p) => p.id === profile)?.hint}
+          </p>
+        )}
       </div>
 
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -184,6 +222,31 @@ function CloakTestPanel() {
               score {result.score} / {effectiveThreshold}
             </StatusBadge>
           </div>
+
+          {/* Item 165/208: quando é um perfil simulado, confronta o veredito real
+              do motor com o esperado — verde se bateu, âmbar se divergiu */}
+          {result.profile && (() => {
+            const gotBot = result.score >= (result.threshold ?? 40)
+            const matched = (result.profile.expected === 'bot') === gotBot
+            return (
+              <div
+                className={`flex items-start gap-2 rounded-lg border p-3 text-xs ${
+                  matched
+                    ? 'border-success/30 bg-success/10 text-success'
+                    : 'border-warning/40 bg-warning/10 text-warning'
+                }`}
+              >
+                {matched ? <Check className="mt-0.5 size-3.5 shrink-0" /> : <X className="mt-0.5 size-3.5 shrink-0" />}
+                <span className="text-pretty">
+                  <strong className="text-foreground">{result.profile.label}</strong> —{' '}
+                  {result.profile.expected === 'bot' ? 'deveria ir para a white page' : 'deveria passar para a offer'}.{' '}
+                  {matched
+                    ? 'O motor classificou como esperado.'
+                    : 'O motor divergiu do esperado — revise threshold e regras antes de subir a campanha.'}
+                </span>
+              </div>
+            )
+          })()}
 
           {/* Item 166: slider de threshold com preview ao vivo do mesmo score */}
           <div className="rounded-lg border border-border bg-secondary/40 p-3">

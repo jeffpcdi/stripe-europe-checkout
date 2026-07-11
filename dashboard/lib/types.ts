@@ -124,6 +124,18 @@ export interface HealthResponse {
   ts: string
 }
 
+// ── /api/ops — observabilidade das filas duráveis (Leva 5, bloco I) ──
+export interface OpsResponse {
+  redisEnabled: boolean
+  convQueue: { queue: number; processing: number } // pendentes + em processamento
+  reclaim: { at: number; moved: number }           // último reprocessamento de itens órfãos
+  convLatency: { count: number; p50: number; p95: number; max: number } // webhook→disparo (ms)
+  worker: { at: number; active: boolean }           // heartbeat do drain worker
+  capiRetry: { count: number; oldestAgeMs: number } // fila de retry da CAPI
+  webhookDedup: number                              // reentregas de webhook ignoradas
+  ts: string
+}
+
 export type Period = 'today' | '7d' | '30d' | 'all'
 
 // ── /api/links — links de checkout (link-store.js) ──
@@ -199,6 +211,9 @@ export interface DomainVerifyResult {
   appHost: string
   dnsOk: boolean
   dnsDetail: string
+  // Item 175: registro já visível nos resolvers públicos (DoH) mas não no
+  // resolver local = propagação em curso, não erro de configuração
+  dnsPropagating?: boolean
   httpOk: boolean
   httpDetail: string
   verified?: boolean
@@ -402,6 +417,16 @@ export interface CloakTestResult {
   asn?: number
   org?: string
   resolvedAt?: number
+  // Item 165/208: eco do perfil simulado (null = request real do admin)
+  profile?: CloakTestProfileMeta | null
+}
+
+// ── /api/cloak/test/profiles — catálogo do simulador (item 165/208) ──
+export interface CloakTestProfileMeta {
+  id: string
+  label: string
+  expected: 'real' | 'bot'
+  hint: string
 }
 
 // ── /api/cloak/stats — offer vs white por link ──
@@ -453,6 +478,25 @@ export interface CloakEntry {
 export interface CloakEntriesResponse {
   entries: CloakEntry[]
   baseUrl: string
+}
+
+// ── /api/cloak/decisions — histórico das últimas N decisões por link (item 170) ──
+// IP já vem MASCARADO do backend (último octeto → x); nunca há PII aqui.
+export interface CloakDecisionRow {
+  at: number // epoch ms
+  decision: 'offer' | 'white'
+  reason: string // '' para offer; motivo do desvio para white (mobile, score…)
+  score: number | null
+  ip: string // mascarado: 1.2.3.x
+  ua: string
+  country: string // ISO-2
+}
+
+export interface CloakDecisionsResponse {
+  ok: boolean
+  key: string
+  log: CloakDecisionRow[]
+  source: 'redis' | 'memory'
 }
 
 // ── /api/me — conta logada ──

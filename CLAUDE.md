@@ -175,6 +175,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   por conta e retornam 429 `{ok:false,error,code:'rate_limited'}`.
 - **Auth/conta:** `POST /login`, `POST /register`, `POST /logout`, `GET /api/me`.
 - **Métricas:** `GET /api/stats`, `GET /api/live`, `POST /api/reset-stats`, `GET /api/health`.
+- **Observabilidade das filas (Leva 5, bloco I):** `GET /api/ops` — profundidade da fila de
+  conversões (`convQueue`), último resgate de órfãos (`reclaim`), latência webhook→disparo
+  p50/p95/max (`convLatency`, janela de 200 em memória), heartbeat do drain worker (`worker`,
+  ativo se tick <10s), resumo da fila de retry da CAPI por conta (`capiRetry`) e contador de
+  reentregas de webhook ignoradas (`webhookDedup`, durável 30d por conta). `POST /api/ops/drain-retry`
+  força a drenagem da fila de retry AGORA (ignora backoff, escopado à conta, rate-limit 6/janela).
+  A UI vive no painel "Saúde da fila de conversões" da aba Gateways (`queue-health-panel.tsx`).
 - **Pixels:** `GET/POST /api/pixels`, `GET/PUT/DELETE /api/pixels/:slug`, `GET /api/pixels/health`,
   `GET /api/pixels/log`, `POST /api/pixels/test`.
 - **Links de checkout:** `GET/POST /api/links`, `GET/PUT/DELETE /api/links/:slug`,
@@ -184,8 +191,20 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `POST /api/cloak/link/:slug`, `POST /api/cloak/test`, `GET /api/cloakcheck`.
   **Métricas de decisão:** `GET /api/cloak/stats` (offer vs white + taxa de bloqueio + breakdown por
   motivo, por link e agregado) e `POST /api/cloak/stats/reset` (zera um link via `{key}` ou todos).
+  **Histórico de decisões (item 170):** `GET /api/cloak/decisions?key=` devolve as últimas ~50 decisões
+  do link (mesma convenção de `key`: `slug` no `/go`, `'cloak:'+slug` no `/c`), com **IP mascarado** (sem
+  PII). Store `pushCloakDecision`/`getCloakDecisionLog` no `redis.js` (lista LTRIM 50 + TTL 30d, fallback
+  em memória), alimentado pelo funil `bumpDecision` do `/c`. `stats/reset` também limpa esse log. O front
+  reexecuta o julgamento (item 171) reusando `POST /api/cloak/test` — não há replay do visitante histórico.
+  **Simulador de perfis (item 165/208):** `GET /api/cloak/test/profiles` lista o catálogo (`cloak-test-profiles.js`)
+  só com metadados (`id`/`label`/`expected`/`hint` — nunca os headers/IPs sintéticos). `POST /api/cloak/test`
+  com `{profile}` monta um `evalReq` sintético (headers, query, IP, geo, `challengeData`) e roda o MESMO
+  `botFilter.judge` + os gates pré-score, substituindo o request do admin em TODA leitura derivada do
+  visitante (mantém `req.account`/`req.body`). Sem `profile` = julga o acesso real do admin (deve dar `real`).
+  O eco `profile` na resposta permite à UI confrontar veredito real × esperado. Cobertura em
+  `test/cloak-test-profiles.test.js` (o motor precisa classificar cada perfil do lado certo).
 - **Gateways:** `GET/POST /api/gateways`, `GET/PUT/DELETE /api/gateways/:id`.
-- **Convers��������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
+- **Convers����������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
   **Mecanismo de verificaç��o (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
   comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
@@ -194,6 +213,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   DNS apontado NÃO basta — sem o domínio roteado na hospedagem (Custom Domain + SSL), `/go` daria 404.
   `dnsPronto=true` = DNS ok mas app ainda não atende. Sem cache: cada verify re-checa do zero. O front
   (dashboard-view.js) tem polling de 30s (só com pendentes + aba visível).
+  **Sinal de propagação via DoH (item 175):** quando o resolver LOCAL (`dnsp`) não vê registro nenhum,
+  o verify consulta `dohResolve()` (DNS-over-HTTPS: dns.google + cloudflare-dns, timeout 2.5s, best-effort).
+  Se o CNAME/A já aparece nos resolvers públicos apontando pra cá, devolve `dnsPropagating=true` (a
+  dashboard mostra "já visível na rede global — propagação em curso" em vez de "não resolve" e some o CTA
+  de erro). É só um sinal antecipado — nunca fonte de verdade; `ok` continua sendo `httpOk`.
   **Registro automático na hospedagem:** `POST /api/domains` chama `domain-provider.js` (Railway GraphQL
   `customDomainCreate`) quando `RAILWAY_API_TOKEN` está setado; devolve `dnsRecords` (CNAME + eventual TXT
   de verificação) que o popup exibe. `DELETE` remove também na Railway (`customDomainDelete` via
@@ -289,7 +313,7 @@ Funções db.js notáveis: `createAccount`, `getAccountByEmail/ById`, `countAcco
 - **pixelLog** (lista, cap 500) + **pixelLogByTime** (zset) — log de disparos CAPI (TTL 14 dias).
 - **conversionWebhookLog** (lista, cap 200) — cada webhook `/api/conversion` recebido (+ ring em memória sempre).
 - **capiRetryQueue** — fila durável de eventos CAPI que falharam após os retries imediatos (cap 300, TTL 2d).
-- **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup.
+- **convQ** + **convQ:proc** — fila DURÁVEL de conversões do webhook (cap 5000). O webhook grava aqui ANTES do 200; um worker (2s) consome via `LMOVE` para `convQ:proc`, processa e dá ack (`LREM`). `reclaimConversions` (60s, idade>120s) requeue itens presos por crash. Idempotente via dedup. O worker bate `heartbeatConvWorker()` a cada tick e `processConversion` registra `recordConvLatency` (webhook→disparo) — ambos expostos em `GET /api/ops`.
 - **dedup:<event_id>** — dedup navegador↔servidor (SET NX, TTL 2h). Em erro, deixa passar (melhor duplicar que perder).
 - **asn:<ip>** — cache do lookup BGP/ASN do bot-filter, compartilhado entre instâncias. **TTL DUPLO
   (item 176):** hit resolvido (asn>0) fica 24h; resultado NEGATIVO (asn:0/unknown/timeout) fica só
@@ -367,9 +391,16 @@ npm test        # roda os testes de regressão (test/*.test.js), sem rede/DB rea
 cd dashboard && npm run dev -- -p 3001   # HMR; acesse via http://localhost:3000/dashboard (proxy)
 ```
 - **Build:** só o app `dashboard/` tem build (Next). O Express continua JS puro sem transpile.
-- **Testes:** `npm test` — asserts em Node puro, sem framework. `test/retry-queue.test.js` (re-resolução
-  da fila CAPI por token) e `test/gateway-only.test.js` (trava de eventos monetários). Stubam
-  `pixel-store`/`redis` no require-cache e `global.fetch`. Ao mexer no motor CAPI, rode-os.
+- **Testes:** `npm test` — asserts em Node puro, sem framework (8 suítes). `test/retry-queue.test.js`
+  (re-resolução da fila CAPI por token), `test/gateway-only.test.js` (trava de eventos monetários),
+  `test/attribution.test.js`, `test/pixel-durability.test.js`, `test/security.test.js`,
+  `test/cloak-decision-log.test.js` (item 170: mascaramento de IP sem PII, teto de 50, escopo por
+  conta+slug, reset zera o log), `test/cloak-test-profiles.test.js` (item 165/208: catálogo coerente +
+  o motor classifica cada perfil sintético do lado esperado) e `test/queue-observability.test.js`
+  (Leva 5 bloco I: percentis de latência webhook→disparo, heartbeat do worker, dedup de webhook
+  escopado por conta, resumo da fila de retry). Stubam `pixel-store`/`redis` no require-cache e
+  `global.fetch`; rodam no fallback de memória do redis. Ao mexer no motor CAPI, no motor de
+  julgamento do cloaker, no store de decisões ou nos contadores de fila, rode-os.
 - **Migração de banco:** automática e idempotente — `db.init()` roda `CREATE TABLE/ALTER … IF NOT EXISTS` no boot.
 
 ### 11.1 Acesso rápido à dashboard em desenvolvimento (para IAs/testes)
