@@ -53,7 +53,13 @@ function DailyMiniChart({ daily }: { daily: { day: string; offer: number; white:
           const total = d.offer + d.white
           const h = total ? Math.max(6, Math.round((total / max) * 100)) : 2
           const offerPct = total ? (d.offer / total) * 100 : 0
-          const label = new Date(d.day).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+          // Item 236: fuso fixo de Brasília — d.day é 'YYYY-MM-DD' (UTC-naive);
+          // sem timeZone o navegador do usuário poderia deslocar o dia.
+          const label = new Date(d.day + 'T12:00:00Z').toLocaleDateString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+            day: '2-digit',
+            month: '2-digit',
+          })
           return (
             <div
               key={d.day}

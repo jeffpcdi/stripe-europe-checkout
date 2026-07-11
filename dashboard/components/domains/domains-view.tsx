@@ -644,7 +644,7 @@ function DomainCard({
             <p className="text-xs text-muted-foreground">
               {/* Item 120: data da verificação + "reconectado" quando o verify re-registrou o host */}
               {domain.verificado
-                ? `Verificado e ativo${domain.verificadoEm ? ` desde ${new Date(domain.verificadoEm).toLocaleDateString('pt-BR')}` : ''}`
+                ? `Verificado e ativo${domain.verificadoEm ? ` desde ${new Date(domain.verificadoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}`
                 : 'Aguardando verificação de DNS'}
               {result?.reconectado ? ' — reconectado à hospedagem' : ''}
             </p>

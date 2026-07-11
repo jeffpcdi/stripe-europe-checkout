@@ -235,7 +235,7 @@ Lote concluído: 176–188 (todos ✅ abaixo). 189/183/184/185/187/182/188/186 �
     - **cloak-stats-panel** (item 184): zerar contadores (um link ou todos) agora passa pelo `ConfirmDialog` com aviso de irreversibilidade + `toast`, substituindo os dois `window.confirm`
   - Evidência: `tsc --noEmit` limpo na dashboard após a migração; nenhum `window.confirm` restante nas views
 
-- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç����o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
+- ✅ 185. Hook `usePersistedState(key, default)` (`lib/use-persisted-state.ts`) — drop-in de `useState` que espelha preferências de exibição em `localStorage` (prefixo `roi:ui:`), SSR-safe (default no 1º render, valor salvo entra pós-hidrataç������o). Aplicado: ordenação de **links** (`links:sort`), ordenação do **cloak entries** (`cloak-entries:sort`) e filtro de tipo do **activity** (`activity:filter`). Busca textual segue por sessão (intencional)
 - ✅ 187. Revalidação suave das listas de gestão: `LIST_POLL_MS` (30s) aplicado aos hooks `useLinks/useDomains/usePixels/useGateways/useCloakEntries` (`refreshInterval` + `revalidateOnFocus`) — edições feitas em outra aba refletem sem F5, sem o polling agressivo de 12s das métricas
 - ✅ 182. Estado de erro consistente com retry: `ErrorState` (`components/error-state.tsx`) — mesmo visual (`role=alert`) + botão "Tentar novamente" que dispara `mutate()` do SWR. Aplicado às 4 views de lista (**links, pixels, gateways, domínios**) que antes ignoravam `error` do SWR e ficavam presas no skeleton/vazio quando o fetch falhava. Só aparece quando não há dado em cache (`error && !data`); com dados, SWR revalida em silêncio. No domains o `error` do SWR virou `loadError` para não colidir com o `error` local do formulário
 - ✅ 188. Auditoria de i18n das 5 abas + componentes: varredura de atributos (`aria-label`/`placeholder`/`title`) e conteúdo JSX por termos em inglês (Delete/Edit/Save/Loading/etc.) — **zero ocorrências**. Toda a UI já em pt-BR; os únicos termos em inglês são jargão técnico do domínio (offer/white page, token, gateway, threshold, EMQ, UTM, QR code, Event ID, pixel). Nada a corrigir
@@ -314,15 +314,32 @@ Front: `pixels-view.tsx` (`EmqSparkline` com badge+volume, EMQ por evento no hea
 
 Validação: `node --check` limpo (server/presence/bot-filter/redis), `tsc --noEmit` limpo, `npm test` verde (7 suítes).
 
+## Leva 5, bloco M (227–240) — dados, backup e integridade (em andamento)
+
+- ✅ 230/232. **Auditoria de integridade referencial + dados órfãos** — `GET /api/ops/integrity` reporta links apontando para pixel/domínio inexistente e stats de cloak de slugs apagados (via `redis.listCloakStatSlugs` com SCAN + `clearCloakStats`); `?fix=1` limpa só referências e stats órfãs (nunca dados de venda). UI: `IntegrityPanel` na aba Gestão (oculto quando saudável) com `ConfirmDialog`.
+- ✅ 231. **Backup self-service** — rotas `/api/backup/export|import` já existiam no backend (sem segredos; sanitização no import); adicionado o `BackupCard` na aba Config com exportar (download JSON) e importar (upload + relatório do que entrou + aviso para recolocar tokens).
+- ✅ 233. **Paginação incremental dos logs grandes** — log de webhooks (200 linhas) e log de disparos CAPI (500) renderizam 50 por vez com botão "Mostrar mais (N restantes)".
+- ✅ 234. Auditado: salvamento do cloak-config é explícito (botão), sem autosave que cause writes desnecessários — nada a fazer.
+- ✅ 235. **Concorrência otimista na edição de links** — `link-store.save` compara `_baseUpdatedAt` (enviado pelo `link-editor` a partir do `updatedAt` visto ao abrir) e lança `code:'conflict'`; rota devolve **409** com mensagem acionável em pt-BR.
+- ✅ 227. Auditado: `pixel-store.normalize` já aplica defaults consistentes a TODOS os eventos (`!== false`, alinhado ao editor — item 37); qualquer pixel salvo re-passa pela migração. Nada a fazer.
+- ✅ 228. Auditado: `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency text DEFAULT 'BRL'` já faz o backfill idempotente no boot (item 242); `setAccountCurrency` valida ISO-4217 e não toca contas com valor.
+- ✅ 229. Auditado: índices quentes já existem — `links_account_idx`, `gateways_account_idx` + `webhook_token UNIQUE` (índice implícito), `custom_domains_account_idx (account_id, host)`. Nada a criar.
+- ✅ 236. **Fuso de Brasília em todas as datas** — corrigidos os 2 pontos sem `timeZone` fixo: gráfico daily do cloak (`d.day` ancorado em `T12:00:00Z` + `America/Sao_Paulo`) e data de verificação do domínio. Demais formatações já usam `TIMEZONE` do `lib/format.ts` ou `toLocaleString('pt-BR')` sem componente de data/hora.
+- ✅ 237. Auditado: `formatMoney(cents, currency)` já formata pela moeda DO REGISTRO (webhook/lead/link) em activity, leads-table e links-view; backend `fmtMoney` idem. Nada a fazer.
+- ✅ 238. Auditado: `durability-badge.tsx` já degrada com banner ("Config volátil"/"Persistência degradada") em runtime via `/api/health`; stores caem para memória sem quebrar página. Nada a fazer.
+- ✅ 239. N/A por definição — telemetria `console.log("[v0] ...")` é ferramenta de desenvolvimento; nenhum log residual no código (verificado).
+- ✅ 240. **Suíte `test/durable-flows.test.js`** (26 asserts, registrada no `npm test`) — cobre os 5 invariantes documentados no topo do arquivo: fila durável degrada para no-op explícito sem Redis (idempotência preservada), sticky-bot unidirecional fail-safe, anti-replay de ttclid (mesmo contexto ok / contexto diferente barrado / vazio nunca punido / contador por conta), rollup de EMQ (média diária, NaN ignorado, isolamento entre contas, clear) e cloak stats normalizadas (reasons/daily + enumeração/limpeza de órfãos do item 232).
+
+Validação: `node --check` limpo, `tsc --noEmit` limpo, `npm test` verde (9 suítes, incl. durable-flows 26/26), `next build` limpo. **Bloco M completo.**
+
 ## Fila de execução (próximos)
 
 Ordem recomendada pelo plano (bugs → durabilidade → segurança → valor → refino → DX):
 
-1. Leva 5 bloco I (191–200) — **quase completo**; faltam os itens 198 (reprocessar conversão individual) e 200 (retenção/limpeza manual de logs por aba)
-2. Leva 5 blocos seguintes (201–240) — anti-fraude exposto (201–212), etc.
-3. Faixa 141–160 da Leva 4 — não iniciada
-4. 15, 18, 22, 24, 26 — refinos visuais restantes da Leva 2
-5. Leva 6–7 (241–570) — 241–252 já concluídos (antecipados)
+1. Itens 253–270 (velocity + testes do plano)
+2. Refinos 15, 18, 22, 24, 26 — visuais restantes da Leva 2
+3. Leva 7 (271–570) — bugs reais → durabilidade → segurança → valor → refino → DX
+4. Bloqueados por integração externa (marcar, não fazer): 412 (e-mail reset), 459/542 (relatórios email), 557–560 (CI/Playwright), 561 (Sentry)
 
 ## Histórico de sessões
 
