@@ -1137,7 +1137,7 @@ app.get('/c/:slug', async (req, res) => {
     return go(offer);
   }
 
-  // ── Sinais de dispositivo e de ORIGEM do clique (calculados uma vez) ──────
+  // ── Sinais de dispositivo e de ORIGEM do clique (calculados uma vez) ��─────
   const dev = uaTools.parse(uaRaw);
   const isMobile = dev.device === 'mobile' || dev.device === 'tablet';
   const q = req.query || {};
@@ -1916,7 +1916,7 @@ app.get('/__domain-check', (_req, res) => {
   res.json({ app: APP_CHECK_ID, ok: true });
 });
 
-// ── Configurações da conta (moeda padrão etc.) ────────────────────────────
+// ── Configurações da conta (moeda padrão etc.) ���───────────────────────────
 // A moeda escolhida aqui alimenta TODOS os disparos/testes que não trazem
 // moeda própria no payload (fallback era EUR fixo; agora é por conta, BRL).
 function accountCurrency(accId) {
@@ -3862,18 +3862,39 @@ function proxyToNextDashboard(req, res) {
   proxyReq.on('error', () => {
     // Next fora do ar → fallback para a dashboard legada (nunca tela branca)
     if (!res.headersSent) {
-      res.set('Content-Type', 'text/html; charset=utf-8');
-      res.send(DASHBOARD_HTML);
+      sendLegacyDashboard(res, 'fallback'); // item 475: com banner "vá para o novo"
     }
   });
   if (req.readable) req.pipe(proxyReq);
   else proxyReq.end();
 }
 
+// Item 475: dashboard-view.js (5680 linhas) está CONGELADO — não evoluir.
+// Quem cair nele (via ?legacy=1 ou fallback com Next fora do ar) vê um banner
+// fixo apontando para o novo painel. Injetado na hora de servir para não tocar
+// no arquivo legado (que não aceita crase/${} e tem risco alto de regressão).
+function legacyBanner(reason) {
+  var msg = reason === 'fallback'
+    ? 'O painel novo est\u00e1 reiniciando \u2014 esta \u00e9 a vers\u00e3o antiga (somente leitura de refer\u00eancia). '
+    : 'Voc\u00ea est\u00e1 na vers\u00e3o antiga do painel (congelada, sem novidades). ';
+  return '<div style="position:sticky;top:0;z-index:9999;background:#1a1206;border-bottom:1px solid #7c5a12;' +
+    'color:#fbbf24;font:600 13px/1.5 system-ui,sans-serif;padding:9px 16px;text-align:center">' +
+    msg + '<a href="/dashboard" style="color:#6cb4ff;text-decoration:underline">Ir para o painel novo</a></div>';
+}
+function sendLegacyDashboard(res, reason) {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  var html = DASHBOARD_HTML;
+  var i = html.indexOf('<body');
+  if (i !== -1) {
+    var close = html.indexOf('>', i);
+    if (close !== -1) html = html.slice(0, close + 1) + legacyBanner(reason) + html.slice(close + 1);
+  }
+  res.send(html);
+}
+
 app.get('/dashboard', pageAuth, (req, res) => {
   if (req.query.legacy === '1') {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    return res.send(DASHBOARD_HTML);
+    return sendLegacyDashboard(res, 'manual');
   }
   proxyToNextDashboard(req, res);
 });

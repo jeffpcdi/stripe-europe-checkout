@@ -442,6 +442,22 @@ Validação: `node --check` limpo, suíte verde, `tsc --noEmit` limpo; healthz/g
 
 - ✅ 466 (novo). ua.js atualizado com a safra 2026 de crawlers (OAI-SearchBot, ChatGPT-User, PerplexityBot, ClaudeBot, meta-externalagent, Amazonbot, Applebot, CCBot, Screaming Frog, zgrab/masscan/nuclei/Expanse etc.) + nova suíte test/ua.test.js (14ª): 3 UAs REAIS do TikTok in-app garantidas como humanas (o contrato mais caro do funil), 17 crawlers detectados, 4 navegadores humanos sem falso-positivo, parse de device/OS validado. Registrada no npm test.
 - ✅ 465 (novo). README.md reescrito (era boilerplate obsoleto do AI Studio): matriz de graceful degradation (com/sem Neon/Redis — o caminho do dinheiro funciona sempre; sem Neon perde durabilidade e login), env vars, estrutura de módulos e convenções do projeto.
+- ✅ 467 (novo). pulse-client.js: backoff exponencial no heartbeat (falha N pula N batidas, teto ~96s — não martela servidor caído), reset no sucesso, e `leave()` agora faz `clearInterval` + flag `gone` (desligamento limpo: nenhuma batida após pagehide).
+- ✅ 486–488 (auditoria + micro-fix). LP já cumpria o grosso: CSS crítico inline, CTAs `<a href>` puros (convertem sem JS), guard `html.js` no reveal (sem JS o conteúdo fica visível — noscript-safe), preconnect a fonts. Adicionados width/height + decoding=async nos logos (CLS) e loading=lazy no logo do footer (abaixo da dobra).
+- ✅ 489 (novo). Snippet copiável do /t.js na UI do cloaker agora inclui `defer` (a documentação em server.js já dizia defer; a UI mostrava sem — rastreio nunca pode bloquear o LCP da página do cliente).
+- ✅ 485 (novo). CLAUDE.md §5.2 ganhou o bloco "Contratos da Leva 7": /api/audit (formato + ações + IP mascarado), version no /api/health, semântica do private,no-cache + 304 no /api/stats (com aviso para não reverter), /healthz (zero I/O de propósito), eventos novos do pushcut-config (login/watchdog + regras do watchdog), limites de body 200kb/5mb, linkErrorPage em /go//c.
+
+Validação: `node --check` limpo (pulse-client/lp-view), `tsc --noEmit` limpo, suíte completa verde (14 suítes).
+
+### Continuação (473, 492, 499, 500, 504 — auditorias e fechamentos)
+
+- ✅ 473 (auditoria PASSOU). Varredura de logs sensíveis: nenhum `console.*` loga token/senha/cookie/segredo nem `req.body` inteiro nos módulos críticos (server/db/tiktok-events/gateway-store/pixel-store/auth). Nada a corrigir — a disciplina já existia.
+- ✅ 492 (novo — decisão documentada). Política de DNT registrada em CLAUDE.md §13: o tracker NÃO condiciona coleta ao header DNT (medição first-party contratada = execução de contrato/interesse legítimo na LGPD; DNT descontinuado pelos navegadores em 2024-25; compliance real = minimização + hash + TTL + transparência). Se um dia precisar honrar sinal, é GPC (Sec-GPC) por decisão de produto.
+- ✅ 499 (auditoria). vision-view.js confirmado como órfão total (zero referências no server.js/dashboard; é um mock estático do template "Vision UI Free" com dados fake). Marcado LEGADO no cabeçalho — não evoluir; candidato a remoção com autorização do dono.
+- ✅ 500 (auditoria PASSOU). Não existe "tela em branco durante redirect": /go e /c respondem 302 Location direto (zero HTML intermediário). O caso de erro já tem página amigável (501). Nada a fazer.
+- ✅ 504 (auditoria PASSOU). Slug custom já é suportado ponta a ponta: POST /api/links aceita slug do usuário e o link-editor tem campo "Slug (URL: /go/slug)" editável; com `dominio` próprio vira meudominio.com/go/promo. Capacidade não estava oculta.
+
+Validação: `node --check` limpo, suíte completa verde (14 suítes).
 
 ## Fila de execução (próximos)
 

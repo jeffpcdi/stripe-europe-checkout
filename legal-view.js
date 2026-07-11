@@ -70,16 +70,19 @@ const privacyPage = legalShell('Pol\u00edtica de Privacidade',
 
 '<div class="box"><p><strong>N\u00e3o vendemos, alugamos nem compartilhamos dados pessoais com terceiros.</strong> Os dados obtidos pela TikTok Marketing API s\u00e3o usados exclusivamente para operar as contas da pr\u00f3pria PC Digital Ltda e nunca s\u00e3o expostos publicamente.</p></div>' +
 
-'<h2>4. Base legal e reten\u00e7\u00e3o</h2>' +
-'<p>Tratamos dados com base em leg\u00edtimo interesse (mensura\u00e7\u00e3o das pr\u00f3prias campanhas) e consentimento (autoriza\u00e7\u00e3o OAuth). Dados de navega\u00e7\u00e3o e convers\u00e3o s\u00e3o retidos pelo per\u00edodo necess\u00e1rio \u00e0 an\u00e1lise das campanhas; tokens de acesso s\u00e3o armazenados de forma segura e podem ser revogados a qualquer momento pelo titular da conta no TikTok for Business.</p>' +
+'<h2>4. Cookies e identificadores</h2>' +
+'<p>Utilizamos um <strong>cookie primeiro-partido de identifica\u00e7\u00e3o de visitante</strong> (vid) nas p\u00e1ginas do funil, com a \u00fanica finalidade de costurar a jornada visita &rarr; checkout &rarr; compra para atribui\u00e7\u00e3o de convers\u00f5es. N\u00e3o usamos cookies de terceiros, cookies de publicidade cruzada entre sites nem fingerprinting para rastreamento entre dom\u00ednios. Par\u00e2metros de campanha (UTM, ttclid) s\u00e3o lidos da URL do pr\u00f3prio an\u00fancio. O painel administrativo usa um cookie de sess\u00e3o (HttpOnly, Secure, SameSite) exclusivamente para autentica\u00e7\u00e3o. Voc\u00ea pode bloquear ou apagar cookies no navegador; isso n\u00e3o impede a navega\u00e7\u00e3o, apenas a mensura\u00e7\u00e3o.</p>' +
 
-'<h2>5. Seguran\u00e7a</h2>' +
+'<h2>5. Base legal e reten\u00e7\u00e3o</h2>' +
+'<p>Tratamos dados com base em leg\u00edtimo interesse (mensura\u00e7\u00e3o das pr\u00f3prias campanhas) e consentimento (autoriza\u00e7\u00e3o OAuth). <strong>Prazos:</strong> eventos de navega\u00e7\u00e3o e registros operacionais expiram automaticamente em at\u00e9 <strong>30 dias</strong> nos armazenamentos tempor\u00e1rios; dados de convers\u00e3o (pedido, valor, e-mail hasheado) s\u00e3o mantidos pelo per\u00edodo necess\u00e1rio \u00e0 an\u00e1lise e concilia\u00e7\u00e3o das campanhas. Endere\u00e7os IP s\u00e3o <strong>mascarados</strong> nos registros de auditoria e diagn\u00f3stico. Tokens de acesso s\u00e3o armazenados de forma segura e podem ser revogados a qualquer momento pelo titular da conta no TikTok for Business.</p>' +
+
+'<h2>6. Seguran\u00e7a</h2>' +
 '<p>Utilizamos comunica\u00e7\u00e3o HTTPS, segredos de webhook com compara\u00e7\u00e3o em tempo constante, hashing de dados pessoais antes de envio \u00e0 Events API e acesso ao painel restrito por senha.</p>' +
 
-'<h2>6. Seus direitos</h2>' +
+'<h2>7. Seus direitos</h2>' +
 '<p>Voc\u00ea pode solicitar acesso, corre\u00e7\u00e3o ou exclus\u00e3o de dados pessoais escrevendo para <a href="mailto:contact@roi-nados.top">contact@roi-nados.top</a>. Responderemos em at\u00e9 15 dias \u00fateis.</p>' +
 
-'<h2>7. Altera\u00e7\u00f5es</h2>' +
+'<h2>8. Altera\u00e7\u00f5es</h2>' +
 '<p>Podemos atualizar esta pol\u00edtica periodicamente. A vers\u00e3o vigente estar\u00e1 sempre dispon\u00edvel em <strong>roi-nados.top/privacidade</strong>.</p>');
 
 const termsPage = legalShell('Termos de Servi\u00e7o',

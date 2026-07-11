@@ -229,6 +229,26 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   (header `Project-Access-Token`), detectando o header certo no boot (`selfTest`).
 - **Diversos:** `GET/POST /api/pushcut-config`, `POST /api/pushcut/test`, `GET/POST /api/notes`,
   `PUT /api/notes/:d`, `GET/POST /api/shortlinks`, `DELETE /api/shortlinks/:slug`, `GET/POST /api/public-token`.
+- **Contratos da Leva 7 (itens 417/439/442/443/464/469/471/484/485):**
+  - `GET /api/audit?limit=` → `{ok, enabled, log:[{id,at,action,detail,ip}]}` — trilha de auditoria da
+    conta (tabela `account_audit` no Neon). `enabled=false` = sem banco (UI mostra aviso, não erro).
+    Ações gravadas: `login`, `link_salvo`, `link_removido`, `reset_stats`, `backup_importado`. IP sempre
+    mascarado (`maskReqIp`: último octeto IPv4 / cauda IPv6 ofuscados). Gravação via `audit(req,accId,
+    action,detail)` — fire-and-forget, nunca quebra a ação auditada.
+  - `GET /api/health` ganhou `version` (do package.json) — consumido pelo card "Sobre" da aba Config.
+  - `GET /api/stats` responde `Cache-Control: private, no-cache` (não mais `no-store`): o poll de 12s
+    revalida com `If-None-Match` e ganha 304 sem corpo quando nada mudou. NÃO trocar de volta para
+    no-store sem entender que isso desliga o 304.
+  - `GET /healthz` (SEM auth, na allowlist de domínio) → `ok` texto puro — liveness probe do Railway.
+    Zero I/O de propósito: não medir Neon/Redis aqui (para isso existe `/api/health`).
+  - `POST /api/pushcut-config` aceita `events.{sale,failed,refund,dispute,checkout,daily,login,watchdog}`.
+    `login` (item 442) = aviso de novo login; `watchdog` (item 464) = alerta se 6h sem vendas com
+    baseline ≥14 vendas/7d (carona no tráfego, máx 1 varredura/h, anti-spam 12h/conta). Ambos opt-in
+    explícito (`=== true` na sanitização).
+  - Limites de body (item 471): `express.json` global **200kb**; `/api/backup/import` tem parser
+    dedicado de **5mb** montado ANTES do global. Payload maior → 413.
+  - `/go/:slug` e `/c/:slug` inexistentes/desativados respondem `linkErrorPage()` (HTML amigável,
+    noindex, 404) — nunca mais "Link não encontrado" em texto cru (itens 500/501).
 
 ### 5.2.1 Guard de domínio personalizado (isolamento host principal × campanha)
 - Um request é "personalizado" quando `config.accountForDomain(host)` acha uma conta dona do Host
@@ -460,6 +480,14 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 - **Persistência em três camadas:** memória (rápida) → `data/*.json` (cache local, ignorado no git) → Neon (durável).
 - **Segurança:** senhas com `scrypt`; comparações timing-safe com `crypto.timingSafeEqual`.
 - **Multi-tenant:** toda query/escrita de dados passa `accountId`; nunca vazar dados entre contas.
+- **Política de Do Not Track (item 492, DECIDIDA):** o tracker NÃO condiciona a coleta ao header
+  `DNT`. Razões: (a) o produto É medição de conversão first-party contratada pelo dono do funil
+  (execução de contrato/interesse legítimo na LGPD), não ad-tech third-party; (b) o DNT foi
+  descontinuado como padrão (removido do Firefox/Chrome em 2024-25) e nunca teve valor jurídico no
+  Brasil; (c) a base de compliance do projeto é minimização (IP mascarado nos logs, e-mail/telefone
+  hasheados SHA-256 antes da CAPI, retenção com TTL) + transparência nos Termos/Privacidade — não um
+  header que os próprios navegadores abandonaram. Se um dia for preciso honrar sinal do navegador,
+  o correto é o GPC (`Sec-GPC`), como decisão de produto — não colar um `if` no tracker.
 
 ## 14. Armadilhas
 - **Views são strings frágeis:** crase ou `${}` dentro das views quebram o template silenciosamente.

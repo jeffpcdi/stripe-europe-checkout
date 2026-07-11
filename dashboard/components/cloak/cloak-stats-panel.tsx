@@ -224,7 +224,8 @@ export function CloakStatsPanel() {
             snippet <code className="rounded bg-secondary px-1 font-mono">/t.js</code> não está
             instalado. Sem ele, as camadas de WebGL, fuso horário, comportamento e entropia ficam
             desligadas e o julgamento usa só rede e cabeçalhos. Instale{' '}
-            <code className="rounded bg-secondary px-1 font-mono">{'<script src="https://SEU-DOMINIO/t.js"></script>'}</code>{' '}
+            {/* Item 489: defer — o rastreio nunca pode bloquear o LCP da página do cliente */}
+            <code className="rounded bg-secondary px-1 font-mono">{'<script src="https://SEU-DOMINIO/t.js" defer></script>'}</code>{' '}
             no <code className="rounded bg-secondary px-1 font-mono">{'<head>'}</code> das suas páginas
             de destino.
           </p>
