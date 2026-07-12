@@ -2,8 +2,9 @@
 
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
-import { useHealth } from '@/lib/api'
+import { useHealth, useEmqTrend } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { TrendingDown, TrendingUp, Minus } from 'lucide-react'
 
 const CHECKS: { key: 'db' | 'redis' | 'conversionWebhook' | 'tiktok' | 'pushcut'; label: string }[] = [
   { key: 'db', label: 'Banco de dados' },
@@ -50,6 +51,22 @@ const AGG_STYLE = {
 export function HealthCard() {
   const { data, error, isLoading } = useHealth()
   const agg = data ? aggregateHealth(data) : null
+
+  // Item 297: tendência de EMQ dos pixels — média recente vs. base e alerta
+  // de queda/baixo já calculados pela rota /api/pixels/emq-trend.
+  const { data: emqData } = useEmqTrend()
+  const emq = (() => {
+    const pixels = emqData?.pixels?.filter((p) => p.recentAvg != null) ?? []
+    if (pixels.length === 0) return null
+    const recent = pixels.reduce((s, p) => s + (p.recentAvg ?? 0), 0) / pixels.length
+    const withBase = pixels.filter((p) => p.baseAvg != null)
+    const base = withBase.length
+      ? withBase.reduce((s, p) => s + (p.baseAvg ?? 0), 0) / withBase.length
+      : null
+    const dir: 'up' | 'down' | 'flat' =
+      base == null || Math.abs(recent - base) < 0.15 ? 'flat' : recent > base ? 'up' : 'down'
+    return { recent, dir, alerts: emqData?.alerts ?? 0 }
+  })()
 
   return (
     <GlassCard className="anim-kpi-in p-5" style={{ animationDelay: '340ms' }}>
@@ -113,6 +130,41 @@ export function HealthCard() {
               </li>
             )
           })}
+          {/* Item 297: qualidade de correspondência (EMQ) com tendência —
+              queda de EMQ encarece o CPA sem nenhum outro sinal visível */}
+          {emq ? (
+            <li className="flex items-center justify-between gap-3 border-t border-border/40 pt-2.5">
+              <a
+                href="/dashboard/pixels"
+                className="text-sm text-sub underline-offset-2 hover:text-foreground hover:underline"
+                title="Ver tendência completa na aba Pixels"
+              >
+                EMQ dos pixels
+              </a>
+              <span className="flex items-center gap-1.5">
+                {emq.dir === 'down' ? (
+                  <TrendingDown className="size-3.5 text-warning" aria-hidden="true" />
+                ) : emq.dir === 'up' ? (
+                  <TrendingUp className="size-3.5 text-success" aria-hidden="true" />
+                ) : (
+                  <Minus className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                )}
+                <span
+                  className={cn(
+                    'font-mono text-[11px] tabular-nums',
+                    emq.alerts > 0 || emq.dir === 'down'
+                      ? 'text-warning'
+                      : emq.dir === 'up'
+                        ? 'text-success'
+                        : 'text-muted-foreground',
+                  )}
+                >
+                  {emq.recent.toFixed(1)}
+                  {emq.alerts > 0 ? ` · ${emq.alerts} em alerta` : ''}
+                </span>
+              </span>
+            </li>
+          ) : null}
         </ul>
       ) : null}
     </GlassCard>

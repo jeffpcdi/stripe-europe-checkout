@@ -105,8 +105,8 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - ~~**332.** Filtro por gateway no feed~~ — ✅ FEITO: select derivado dos gateways realmente presentes nos eventos (só aparece com 2+), compõe com busca/tipo/período.
 - ~~**333.** Filtro por período no feed~~ — ✅ FEITO: chips Tudo/Hoje/7 dias/30 dias locais do feed (não mexem no período global da Overview — quem audita o feed recorta sem afetar o resto).
 - ~~**334.** Agrupar "N visitas em sequência" em linha expansível~~ — ✅ FEITO: sequências de 4+ leads no MESMO dia viram linha "N visitas em sequência" com faixa de tempo e chevron; expande com borda lateral mostrando cada lead (badges novo/permalink preservados). Vendas/recusas nunca são agrupadas. Grupo quebra na virada de dia (separador continua correto). Separador extraído para `DaySeparator` (reuso com resumo do dia). Verificado no browser: "12 visitas em sequência" expandindo 45 → 57 linhas.
-- **335.** Som opcional de "venda" (toggle, off por padrão).
-- **336.** Notificação nativa do navegador para vendas em segundo plano.
+- ~~**335.** Som opcional de "venda" (toggle, off por padrão)~~ — ✅ FEITO: toggle de alto-falante no cabeçalho do feed (persiste, off por padrão); "cha-ching" de dois tons em WebAudio puro (sem asset, sem rede); toca ao ligar como teste. Primeiro load nunca alerta — só vendas que chegam depois. Verificado no browser (aria-pressed + persistência).
+- ~~**336.** Notificação nativa do navegador para vendas em segundo plano~~ — ✅ FEITO: toggle de sino que pede permissão ao ligar (só liga se concedida); notifica apenas com `document.hidden` (aba visível já mostra a venda no feed), com `tag` para não empilhar e clique focando a aba. Agrupa múltiplas vendas ("3 novas vendas").
 - ~~**337.** Exportar feed filtrado como CSV~~ — ✅ FEITO: botão "CSV" ao lado do contador exporta o recorte ATUAL (todos os filtros aplicados), client-side com BOM UTF-8; e-mail mascarado (o arquivo circula fora do painel). Mesmo padrão do CSV de leads (item 130/310).
 - **338.** Virtualização do feed acima de 300 eventos.
 - **339.** Auto-scroll "seguir ao vivo" com pausa ao hover.

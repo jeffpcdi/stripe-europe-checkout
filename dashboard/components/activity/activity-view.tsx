@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/skeleton'
 import { formatMoney, formatDateTime, timeAgo, dayLabel, plural, gwLabel } from '@/lib/format'
 import { countryLabel } from '@/lib/countries'
 import { copyText } from '@/lib/clipboard'
+import { playSaleSound, ensureNotifyPermission, notifySale } from '@/lib/sale-alerts'
 import { cn } from '@/lib/utils'
 import {
   CheckCircle2,
@@ -27,6 +28,10 @@ import {
   Trophy,
   Download,
   Users,
+  Volume2,
+  VolumeX,
+  Bell,
+  BellOff,
   type LucideIcon,
 } from 'lucide-react'
 import type { StatsEvent } from '@/lib/types'
@@ -355,6 +360,31 @@ export function ActivityView() {
     }
   }, [all])
 
+  // Itens 335/336: som e notificação nativa em vendas novas — off por
+  // padrão (som em escritório aberto irrita; notificação exige permissão).
+  const [soundOn, setSoundOn] = usePersistedState<boolean>('activity:sound', false)
+  const [notifyOn, setNotifyOn] = usePersistedState<boolean>('activity:notify', false)
+  const alertIds = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (all.length === 0) return
+    if (alertIds.current === null) {
+      // primeiro load nunca alerta — só o que chegar depois
+      alertIds.current = new Set(all.map((e) => e.id))
+      return
+    }
+    const fresh = all.filter((e) => e.type === 'sale' && !alertIds.current!.has(e.id))
+    for (const e of all) alertIds.current.add(e.id)
+    if (fresh.length === 0) return
+    if (soundOn) playSaleSound()
+    if (notifyOn) {
+      const top = fresh[0]
+      notifySale(
+        fresh.length === 1 ? 'Nova venda' : `${fresh.length} novas vendas`,
+        top.amount ? formatMoney(top.amount, top.currency) : (top.title ?? ''),
+      )
+    }
+  }, [all, soundOn, notifyOn])
+
   // Item 154: contagem por tipo para os chips
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
@@ -558,6 +588,59 @@ export function ActivityView() {
         <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
           {plural(events.length, 'evento')}
         </span>
+        {/* Item 335: som de venda (off por padrão; toca ao ligar p/ testar) */}
+        <button
+          type="button"
+          aria-pressed={soundOn}
+          onClick={() => {
+            const next = !soundOn
+            setSoundOn(next)
+            if (next) playSaleSound()
+          }}
+          className={cn(
+            'btn-ghost !px-2 !py-1',
+            soundOn && '!border-primary/40 !text-primary',
+          )}
+          title={soundOn ? 'Desligar som de venda' : 'Ligar som de venda'}
+        >
+          {soundOn ? (
+            <Volume2 className="size-3.5" aria-hidden />
+          ) : (
+            <VolumeX className="size-3.5" aria-hidden />
+          )}
+          <span className="sr-only">{soundOn ? 'Desligar som de venda' : 'Ligar som de venda'}</span>
+        </button>
+        {/* Item 336: notificação nativa com a aba em segundo plano */}
+        <button
+          type="button"
+          aria-pressed={notifyOn}
+          onClick={async () => {
+            if (notifyOn) {
+              setNotifyOn(false)
+              return
+            }
+            const ok = await ensureNotifyPermission()
+            if (ok) setNotifyOn(true)
+          }}
+          className={cn(
+            'btn-ghost !px-2 !py-1',
+            notifyOn && '!border-primary/40 !text-primary',
+          )}
+          title={
+            notifyOn
+              ? 'Desligar notificações de venda'
+              : 'Notificar vendas com a aba em segundo plano'
+          }
+        >
+          {notifyOn ? (
+            <Bell className="size-3.5" aria-hidden />
+          ) : (
+            <BellOff className="size-3.5" aria-hidden />
+          )}
+          <span className="sr-only">
+            {notifyOn ? 'Desligar notificações de venda' : 'Ligar notificações de venda'}
+          </span>
+        </button>
         {/* Item 337: exporta o recorte atual (filtros aplicados) */}
         {events.length > 0 ? (
           <button type="button" onClick={exportCsv} className="btn-ghost !px-2.5 !py-1 text-[11px]">
