@@ -1,6 +1,7 @@
 'use client'
 
 import type { LucideIcon } from 'lucide-react'
+import Link from 'next/link'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
 import { fmtDelta } from '@/lib/format'

@@ -4,13 +4,32 @@ import dynamic from 'next/dynamic'
 import { useMemo } from 'react'
 import { Radio, ShoppingCart, Globe2 } from 'lucide-react'
 import { useLive } from '@/lib/api'
-import { Skeleton } from '@/components/skeleton'
 import { CountUp } from '@/components/count-up'
+
+/* Item 290: skeleton com silhueta esférica — o placeholder já tem a forma
+   do globo (círculo com halo ciano), então a chegada do three.js não causa
+   salto de layout nem troca brusca de forma. */
+function GlobeSkeleton() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--globe-bg,#05060a)]">
+      <div
+        className="relative aspect-square w-[52%] max-w-[380px] animate-pulse rounded-full"
+        style={{
+          background:
+            'radial-gradient(circle at 38% 32%, rgba(37,244,238,.14), rgba(10,14,22,.9) 60%)',
+          boxShadow: '0 0 60px 12px rgba(37,244,238,.08)',
+        }}
+        aria-hidden="true"
+      />
+      <span className="sr-only">Carregando globo…</span>
+    </div>
+  )
+}
 
 // Globo 3D (three.js) é pesado — carrega sob demanda, sem SSR.
 const GlobePanel = dynamic(() => import('@/components/geo/globe'), {
   ssr: false,
-  loading: () => <div className="absolute inset-0 animate-pulse bg-[color:var(--globe-bg,#05060a)]" />,
+  loading: () => <GlobeSkeleton />,
 })
 
 // Pílula compacta sobreposta ao globo (item do print: Online / Checkout / Países).
@@ -65,7 +84,7 @@ export function HeroGlobe() {
           faixa vazia; o globo é coadjuvante dos KPIs, não o herói. */}
       <div className="relative h-[340px] w-full sm:h-[400px] lg:h-[440px]">
         {isLoading && !data ? (
-          <Skeleton className="absolute inset-0 rounded-2xl" />
+          <GlobeSkeleton />
         ) : (
           <GlobePanel countries={countries} metric="visits" />
         )}
