@@ -203,6 +203,28 @@ export function ActivityView() {
   const { data, isLoading, error } = useStats()
   // Item 185: o filtro de tipo de evento persiste entre navegações
   const [filter, setFilter] = usePersistedState<string | null>('activity:filter', null)
+
+  // Item 292: deep-link ?f=refund vindo do drill-down do overview tem
+  // precedência sobre o filtro persistido. Limpa o param depois de aplicar
+  // para o usuário poder trocar de filtro sem a URL "grudar".
+  useEffect(() => {
+    const f = new URLSearchParams(window.location.search).get('f')
+    if (f && FILTERS.some((x) => x.value === f)) {
+      setFilter(f)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('f')
+      window.history.replaceState(null, '', url)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Item 292: deep-link ?f=refund|purchase|... vindo do drill-down da
+  // Overview sobrepõe o filtro persistido (uma vez, na chegada).
+  useEffect(() => {
+    const f = new URLSearchParams(window.location.search).get('f')
+    if (f && FILTERS.some((x) => x.value === f)) setFilter(f)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Item 157: paginação incremental com "carregar mais"
   const [limit, setLimit] = useState(PAGE_SIZE)
   // Item 152: re-renderiza a cada minuto para atualizar tempos relativos

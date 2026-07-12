@@ -77,6 +77,7 @@ export function KpiCard({
   spark,
   hero = false,
   index = 0,
+  ariaLabel,
 }: {
   icon: LucideIcon
   tint: KpiTint
@@ -89,11 +90,16 @@ export function KpiCard({
   spark?: React.ReactNode
   hero?: boolean
   index?: number
+  /* Item 299: frase única para leitores de tela (valor + delta + período),
+     em vez de o leitor soletrar CountUp, chip e sparkline separadamente. */
+  ariaLabel?: string
 }) {
   return (
     <GlassCard
       hover
       sheen
+      role="group"
+      aria-label={ariaLabel}
       className={cn('anim-kpi-in relative overflow-hidden p-5', hero && 'kpi-hero')}
       style={{ animationDelay: `${index * 70}ms` }}
     >

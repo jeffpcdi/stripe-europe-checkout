@@ -32,6 +32,7 @@ import { PeriodPicker } from './period-picker'
 import { RevenueChart } from './revenue-chart'
 import { HealthCard } from './health-card'
 import { HeroGlobe } from './hero-globe'
+import { GoalCard } from './goal-card'
 
 const NEUTRAL = '#6b7183'
 const NEUTRAL_BG = 'rgba(107,113,131,.10)'
@@ -76,6 +77,27 @@ export function OverviewView() {
       prev: w ? aggregate(data, w.prevFrom, w.prevTo) : null,
     }
   }, [data, period])
+
+  // Item 274: melhor dia da semana por receita, derivado da própria série.
+  // Fica ANTES dos early returns (regra dos hooks): quando `cur` ainda não
+  // existe, devolve null sem custo.
+  const bestWeekday = useMemo(() => {
+    if (!cur || cur.series.length < 14) return null
+    const names = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+    const byDow = Array.from({ length: 7 }, () => ({ revenue: 0, count: 0 }))
+    for (const p of cur.series) {
+      const dow = new Date(p.day + 'T00:00:00').getDay()
+      if (Number.isNaN(dow)) continue
+      byDow[dow].revenue += p.revenue
+      byDow[dow].count += 1
+    }
+    let best = -1
+    for (let i = 0; i < 7; i++) {
+      if (byDow[i].count > 0 && (best < 0 || byDow[i].revenue > byDow[best].revenue)) best = i
+    }
+    if (best < 0 || byDow[best].revenue <= 0) return null
+    return { name: names[best], revenue: byDow[best].revenue }
+  }, [cur])
 
   if (error) {
     return (
@@ -195,27 +217,6 @@ export function OverviewView() {
   const salesSeries = cur.series.map((s) => s.sales)
   const visitSeries = cur.series.map((s) => s.visits)
 
-  // Item 274: melhor dia da semana por receita, derivado da própria série
-  // (sem tocar backend). Soma cada ponto no seu dia da semana e escolhe o
-  // maior; só vale a pena mostrar com pelo menos duas semanas de dados.
-  const bestWeekday = useMemo(() => {
-    if (cur.series.length < 14) return null
-    const names = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
-    const byDow = Array.from({ length: 7 }, () => ({ revenue: 0, count: 0 }))
-    for (const p of cur.series) {
-      const dow = new Date(p.day + 'T00:00:00').getDay()
-      if (Number.isNaN(dow)) continue
-      byDow[dow].revenue += p.revenue
-      byDow[dow].count += 1
-    }
-    let best = -1
-    for (let i = 0; i < 7; i++) {
-      if (byDow[i].count > 0 && (best < 0 || byDow[i].revenue > byDow[best].revenue)) best = i
-    }
-    if (best < 0 || byDow[best].revenue <= 0) return null
-    return { name: names[best], revenue: byDow[best].revenue }
-  }, [cur.series])
-
   const attempts = cur.sales + cur.failed
   const apColor = !attempts
     ? NEUTRAL
@@ -294,6 +295,7 @@ export function OverviewView() {
             icon={Banknote}
             tint="green"
             label="Receita total"
+            ariaLabel={`Receita total: ${money(revCents, cur.mainCur)}${revDelta !== null ? `, ${revDelta > 0 ? 'alta' : revDelta < 0 ? 'queda' : 'estável'} de ${Math.abs(revDelta).toFixed(1)}% vs período anterior` : ''}`}
           value={
             /* Item 125: borrado no modo apresentação */
             <span data-sensitive>
@@ -325,6 +327,7 @@ export function OverviewView() {
           icon={CircleCheck}
           tint="green"
           label="Vendas aprovadas"
+          ariaLabel={`Vendas aprovadas: ${cur.sales}, ${cur.failed} recusadas`}
           value={
             <CountUp
               value={cur.sales}
@@ -345,6 +348,7 @@ export function OverviewView() {
           icon={Users}
           tint="cyan"
           label="Novos leads"
+          ariaLabel={`Novos leads: ${cur.visits} no período`}
           value={
             <CountUp
               value={cur.visits}
@@ -360,6 +364,7 @@ export function OverviewView() {
           icon={Percent}
           tint="amber"
           label="Conversão"
+          ariaLabel={`Conversão: ${fmtPercent(cur.overall)} de visita para compra${prev ? `, ${cur.overall - prev.overall >= 0 ? 'mais' : 'menos'} ${Math.abs(cur.overall - prev.overall).toFixed(1)} pontos percentuais que o período anterior` : ''}`}
           value={
             <CountUp
               value={cur.overall}
@@ -374,6 +379,10 @@ export function OverviewView() {
           deltaUnit="pp"
         />
       </section>
+
+      {/* Itens 271+276: meta mensal com progresso e projeção de fim de mês.
+          Só aparece quando há meta configurada em Config. */}
+      <GoalCard />
 
       {/* Ministats — réplica dos chips do legado */}
       <section
@@ -415,6 +424,7 @@ export function OverviewView() {
               : 'aguardando leads'
           }
         />
+        {/* Item 292: chips de risco viram drill-down para a Atividade filtrada */}
         <MiniStat
           index={3}
           icon={RotateCcw}
@@ -422,7 +432,8 @@ export function OverviewView() {
           bg={cur.refunds ? 'rgba(251,191,36,.12)' : NEUTRAL_BG}
           label="Reembolsos"
           value={cur.refunds}
-          sub={cur.refunds ? 'exige atenção' : 'nenhum no período'}
+          sub={cur.refunds ? 'exige atenção — ver na Atividade' : 'nenhum no período'}
+          href={cur.refunds ? '/activity?f=refund' : undefined}
         />
         <MiniStat
           index={4}
@@ -432,6 +443,7 @@ export function OverviewView() {
           label="Disputas"
           value={cur.disputes}
           sub={cur.disputes ? 'responda o quanto antes' : 'nenhuma aberta'}
+          href={cur.disputes ? '/activity?f=dispute' : undefined}
         />
       </section>
 

@@ -43,11 +43,11 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 ## B. Lacunas reais (271–570) — 220 itens
 
 ### B1. Overview / Dashboard principal (271–299)
-- **271.** Meta de receita mensal por conta com barra de progresso (`revenue_goal`).
+- ~~**271.** Meta de receita mensal por conta com barra de progresso (`revenue_goal`)~~ — ✅ FEITO: `GoalCard` na Overview do painel Novo. Meta vem de `/api/settings` (revenueGoal, configurada em Config); card só aparece com meta > 0. Barra com progressbar acessível e cor por estado (verde ≥100%, ciano no ritmo, âmbar abaixo).
 - **272.** Comparativo "período atual vs anterior" no gráfico (linha fantasma).
 - **274.** Card "melhor dia da semana" e "melhor hora" das séries. — ⚠️ PARCIAL: "melhor dia da semana" FEITO (card de insight abaixo do gráfico, derivado da série, aparece só com ≥14 dias). "Melhor hora" ainda falta (a série é diária; exigiria granularidade horária do backend).
 - **275.** Anotações no gráfico (`chart_annotations`) marcando eventos.
-- **276.** Previsão simples de fim de mês (projeção linear) com disclaimer.
+- ~~**276.** Previsão simples de fim de mês (projeção linear) com disclaimer~~ — ✅ FEITO: dentro do `GoalCard` — ritmo médio diário × dias do mês, marcador fantasma na barra até a projeção, texto "Estimativa linear — não é garantia".
 - ~~**277.** Alerta com CTA quando aprovação < 40%~~ — ✅ FEITO: banner `role="alert"` na Overview (só com volume ≥10 tentativas, para não gritar com amostra pequena) com CTA "Abrir cloaker".
 - **278.** Exportar resumo do período como imagem (canvas).
 - **279.** Drill-down: clicar num KPI abre a aba correspondente filtrada.
@@ -62,7 +62,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **288.** Estado vazio guiado (checklist de onboarding com progresso real).
 - **289.** HeroGlobe respeita `prefers-reduced-motion` e pausa sem foco.
 - **290.** Skeleton do globo com silhueta esférica (evitar salto de layout).
-- **292.** MiniStat de reembolsos clicável → Atividade filtrada em refund.
+- ~~**292.** MiniStat de reembolsos clicável → Atividade filtrada em refund~~ — ✅ FEITO: chips de Reembolsos e Disputas viram `<Link>` (só quando há ocorrências) para `/activity?f=refund|dispute`; a Atividade lê `?f=` na chegada e sobrepõe o filtro persistido.
 - **293.** Contador "próxima atualização em Xs" junto ao badge Ao vivo.
 - **294.** Modo TV/fullscreen do overview para telão.
 - **296.** Card "tempo médio até a compra" (visita → purchase).
