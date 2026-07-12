@@ -160,7 +160,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **387.** Barra de busca global no header (atalho `/`).
 - **388.** Tema claro opcional (`[data-theme=light]` + toggle).
 - **389.** Acento de cor configurável por conta.
-- **390.** `LiveClock` com segundos opcionais.
+- ~~**390.** `LiveClock` com segundos opcionais~~ — ✅ FEITO: clique no relógio do header alterna segundos on/off (aria-pressed + title), persistido em `prefs.clockSeconds`. Padrão sem segundos (menos ruído). Verificado no browser.
 - **391.** Sidebar colapsável com persistência.
 - **392.** Mobile: bottom-nav com badge + swipe entre abas.
 - **393.** PWA: manifest + service worker instalável.
@@ -174,7 +174,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **402.** `UserMenu` com "copiar token da API" + link aos tutoriais.
 - **403.** Tour global "conheça o dashboard" para primeiro login.
 - **404.** Indicador de versão clicável → changelog interno.
-- **405.** Sincronizar logout entre abas (storage event).
+- ~~**405.** Sincronizar logout entre abas (storage event)~~ — ✅ FEITO: "Sair" grava `roi:logout` no localStorage; as demais abas do painel escutam `storage` e redirecionam ao login imediatamente (a sessão já morreu no servidor). Fallback: sem storage, o guard de 401 pega no próximo poll.
 - **406.** Guard de sessão expirada com modal (em vez de redirect seco).
 - **407.** Reduzir polling quando `document.hidden` em todos os hooks.
 - **408.** Auditoria de z-index com escala única de camadas.

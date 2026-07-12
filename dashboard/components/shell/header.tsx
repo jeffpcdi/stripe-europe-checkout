@@ -20,10 +20,11 @@ const DATE_FMT = new Intl.DateTimeFormat('pt-BR', {
   timeZone: 'America/Sao_Paulo',
 })
 
+// Item 390: sem segundos por padrão (menos ruído visual); o clique no relógio
+// alterna para o formatador com segundos abaixo.
 const TIME_FMT = new Intl.DateTimeFormat('pt-BR', {
   hour: '2-digit',
   minute: '2-digit',
-  second: '2-digit',
   timeZone: 'America/Sao_Paulo',
 })
 
@@ -39,7 +40,18 @@ function greeting(): string {
 }
 
 /** Item 14: relógio ao vivo HH:MM:SS mono (atualiza a cada segundo) */
+// Item 390: formatador com segundos, ativado por clique no relógio (pref
+// persistida). Sem segundos o intervalo continua 1s — barato e simples.
+const TIME_FMT_SECONDS = new Intl.DateTimeFormat('pt-BR', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  timeZone: 'America/Sao_Paulo',
+})
+
 function LiveClock() {
+  const { prefs, update } = usePrefs()
+  const withSeconds = prefs.clockSeconds === 'on'
   const [now, setNow] = useState<Date | null>(null)
   useEffect(() => {
     setNow(new Date())
@@ -47,10 +59,17 @@ function LiveClock() {
     return () => clearInterval(id)
   }, [])
   return (
-    <span className="label-mono tabular-nums" suppressHydrationWarning>
+    <button
+      type="button"
+      onClick={() => update({ clockSeconds: withSeconds ? 'off' : 'on' })}
+      className="label-mono cursor-pointer tabular-nums transition-colors hover:text-foreground"
+      title={withSeconds ? 'Ocultar segundos' : 'Mostrar segundos'}
+      aria-pressed={withSeconds}
+      suppressHydrationWarning
+    >
       {DATE_FMT.format(now ?? new Date())}
-      {now ? ` · ${TIME_FMT.format(now)}` : ''}
-    </span>
+      {now ? ` · ${(withSeconds ? TIME_FMT_SECONDS : TIME_FMT).format(now)}` : ''}
+    </button>
   )
 }
 
