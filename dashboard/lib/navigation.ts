@@ -1,9 +1,7 @@
 import {
   LayoutDashboard,
-  Radio,
   ListChecks,
   Filter,
-  Globe2,
   Link2,
   Target,
   CreditCard,
@@ -55,14 +53,12 @@ export const NAV_GROUPS: NavGroup[] = [
     routes: ['/'],
   },
   {
-    id: 'live',
-    label: 'Ao Vivo',
-    icon: Radio,
-    href: '/live',
-    routes: ['/live', '/geo', '/activity', '/funnel'],
+    id: 'analytics',
+    label: 'Análises',
+    icon: Filter,
+    href: '/funnel',
+    routes: ['/activity', '/funnel'],
     tabs: [
-      { label: 'Ao Vivo', href: '/live' },
-      { label: 'Geografia', href: '/geo' },
       { label: 'Funil', href: '/funnel' },
       { label: 'Atividade', href: '/activity' },
     ],
@@ -102,11 +98,9 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Métricas',
     items: [
-      { id: 'overview', label: 'Visão Geral', description: 'KPIs e gráficos', icon: LayoutDashboard, href: '/' },
-      { id: 'live', label: 'Ao Vivo', description: 'Eventos em tempo real', icon: Radio, href: '/live' },
+      { id: 'overview', label: 'Visão Geral', description: 'KPIs, presença ao vivo e geografia', icon: LayoutDashboard, href: '/' },
       { id: 'activity', label: 'Atividade', description: 'Log de conversões e pixels', icon: ListChecks, href: '/activity' },
       { id: 'funnel', label: 'Funil', description: 'Visita, checkout, compra', icon: Filter, href: '/funnel' },
-      { id: 'geo', label: 'Geografia', description: 'Globo de eventos', icon: Globe2, href: '/geo' },
     ],
   },
   {
