@@ -543,7 +543,7 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── start.js               # start de produção: sobe Next (3001) + Express ($PORT) no mesmo serviço (§19)
 ├── dashboard/             # NOVA dashboard Next.js 16 + TypeScript + Tailwind v4 (§19)
 │   ├── app/               #   rotas App Router sob basePath /dashboard
-│   ├── components/        #   componentes por página (shell/, overview/, live/, geo/, funnel/, …)
+│   ├── components/        #   componentes por página (shell/, overview/, live/, geo/, funnel/, ���)
 │   ├── lib/               #   api.ts (SWR), types.ts, navigation.ts, format.ts, metrics.ts
 │   ├── proxy.ts           #   guard de sessão (cookie dash_session do Express)
 │   └── next.config.mjs    #   basePath /dashboard + rewrites /api → Express
@@ -699,7 +699,8 @@ white page em nova aba, explicação do threshold (mapa sensibilidade→número)
 verificado no editor. Entregues (faixa 31–140 COMPLETA): moeda por conta+UI, uso por
 domínio, idempotência de webhook, edição/teste/rotação de gateways, EMQ trend + filtro/expansão do
 log de pixels, QR local, validação+normalização de pesos A/B, legendas pt-BR do cloaker, tutoriais,
-tours guiados das 5 abas (tour.ts + data-tour), copy neutra sem jargão interno, verify-url
+tours guiados das 5 abas (tour.ts + data-tour; decisão de produto: SEM auto-start na primeira
+visita — só abrem pelo botão "?" flutuante), copy neutra sem jargão interno, verify-url
 anti-SSRF + rate-limit, rate-limit no /hook, snippet base do loader; aba Links (itens 62–66, 68,
 69, 71–76): toggle/duplicar/busca+ordenação nos cards, receita+taxa de conversão, barra de
 performance por variante, badge do pixel (com alerta de pixel inexistente/pausado), validação de
