@@ -49,7 +49,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **275.** Anotações no gráfico (`chart_annotations`) marcando eventos.
 - ~~**276.** Previsão simples de fim de mês (projeção linear) com disclaimer~~ — ✅ FEITO: dentro do `GoalCard` — ritmo médio diário × dias do mês, marcador fantasma na barra até a projeção, texto "Estimativa linear — não é garantia".
 - ~~**277.** Alerta com CTA quando aprovação < 40%~~ — ✅ FEITO: banner `role="alert"` na Overview (só com volume ≥10 tentativas, para não gritar com amostra pequena) com CTA "Abrir cloaker".
-- **278.** Exportar resumo do período como imagem (canvas).
+- ~~**278.** Exportar resumo do período como imagem (canvas)~~ — ✅ FEITO: `ExportSummaryButton` ao lado do PeriodPicker desenha um card 1200×630 (proporção social) em canvas puro — fundo escuro da marca, receita em destaque, KPIs (vendas, leads, conversão, aprovação), sparkline da série e rodapé com data — e baixa como `resumo-<período>-<data>.png`. Sem dependências novas. Clique verificado no browser sem erros de runtime.
 - ~~**279.** Drill-down: clicar num KPI abre a aba correspondente filtrada~~ — ✅ FEITO: os 4 KPIs viram links (Receita/Vendas → Atividade filtrada em vendas; Leads/Conversão → Funil), com aria-label "— ver detalhes" e focus ring. Verificado no browser: clique aplica o filtro na chegada.
 - **280.** HealthCard com estado agregado (`/api/health/gestao`: db, redis, filas, snapshots).
 - ~~**281.** Tooltip do gráfico com vendas + visitas do dia junto do valor~~ — ✅ FEITO: rodapé do tooltip com "N vendas · M leads" (singular/plural correto) separado por borda, qualquer que seja a métrica ativa.
