@@ -1930,7 +1930,7 @@ app.get('/api/me', dashboardAuth, (req, res) => {
   res.json({ email: req.account.email, name: req.account.name, role: req.account.role });
 });
 
-// ── API: estatísticas (escopadas à conta logada) ─────────────────────
+// ── API: estatísticas (escopadas à conta logada) ���────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
   // Item 469: `private, no-cache` em vez de `no-store` — o navegador PODE
   // guardar a resposta só para revalidar com If-None-Match no próximo poll
@@ -2199,6 +2199,8 @@ app.get('/api/settings', dashboardAuth, (req, res) => {
     lgpdDays: s.lgpdDays || 0,
     dailyReportHour: Number.isFinite(s.dailyReportHour) ? s.dailyReportHour : 0,
     pushcutTemplate: s.pushcutTemplate || '',
+    // Item 419: escopo atual do token público (para a UI refletir o valor)
+    apiScope: (config.get(req.account.id).api || {}).scope || 'stats',
     raw: { defaultCurrency: s.defaultCurrency || null }
   });
 });
@@ -2232,6 +2234,35 @@ app.post('/api/settings', dashboardAuth, (req, res) => {
   db.setAccountCurrency(req.account.id, cur);
   stats.logEvent('info', { acc: req.account.id, title: 'Moeda padrão da conta: ' + cur });
   res.json({ ok: true, defaultCurrency: cur });
+});
+
+// Item 424: teste de disparo do webhook de saída — envia uma venda fictícia
+// para a URL configurada e devolve o status HTTP que o destino respondeu.
+app.post('/api/settings/webhook-test', dashboardAuth, async (req, res) => {
+  if (rateLimited('whtest|' + req.account.id, 'tokrot', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitos testes. Aguarde um minuto.' });
+  }
+  const url = (config.get(req.account.id).settings || {}).outboundWebhook;
+  if (!url) return res.status(400).json({ ok: false, error: 'Nenhum webhook configurado — salve a URL primeiro.' });
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Source': 'pragmatic-flow' },
+      body: JSON.stringify({
+        type: 'sale', test: true, at: new Date().toISOString(),
+        orderId: 'TESTE-' + Date.now(), gateway: 'teste',
+        amountCents: 12345, currency: accountCurrency(req.account.id),
+        product: 'Disparo de teste', customer: 'Cliente Teste', email: 'teste@exemplo.com', country: 'BR'
+      }),
+      signal: ctl.signal
+    });
+    clearTimeout(timer);
+    res.json({ ok: r.ok, status: r.status });
+  } catch (e) {
+    res.json({ ok: false, error: e.name === 'AbortError' ? 'timeout (8s) — o destino não respondeu' : e.message });
+  }
 });
 
 app.get('/api/domains', dashboardAuth, (req, res) => {

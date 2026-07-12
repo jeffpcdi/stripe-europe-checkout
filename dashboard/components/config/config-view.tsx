@@ -11,6 +11,7 @@ import { formatDateTime } from '@/lib/format'
 import { usePrefs } from '@/lib/prefs'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
+import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
 
 const EVENT_LABELS: { key: keyof PushcutEvents; label: string; hint: string }[] = [
   { key: 'sale', label: 'Venda aprovada', hint: 'Cada pagamento confirmado' },

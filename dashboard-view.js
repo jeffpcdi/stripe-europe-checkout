@@ -2084,6 +2084,62 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
         </div>
 
+        <!-- 3b. Preferências da conta (itens 422/423/424/425/429/430) -->
+        <div class="set-sec">
+          <div class="set-sec-head"><h3>Prefer&ecirc;ncias</h3><p>Fuso, meta de receita, resumo di&aacute;rio, webhook e reten&ccedil;&atilde;o de dados</p></div>
+          <div class="card">
+            <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">
+              <div class="form-row">
+                <label>Fuso hor&aacute;rio <span class="hint">&mdash; corte do dia e resumo</span></label>
+                <select class="inp" id="pref-tz">
+                  <option value="America/Sao_Paulo">Bras&iacute;lia (America/Sao_Paulo)</option>
+                  <option value="America/Manaus">Manaus (America/Manaus)</option>
+                  <option value="America/Rio_Branco">Rio Branco (America/Rio_Branco)</option>
+                  <option value="America/Noronha">Noronha (America/Noronha)</option>
+                  <option value="America/New_York">Nova York (America/New_York)</option>
+                  <option value="America/Los_Angeles">Los Angeles (America/Los_Angeles)</option>
+                  <option value="Europe/Lisbon">Lisboa (Europe/Lisbon)</option>
+                  <option value="Europe/Madrid">Madri (Europe/Madrid)</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>Meta de receita mensal <span class="hint">&mdash; 0 = sem meta</span></label>
+                <input class="inp" id="pref-goal" type="number" min="0" step="100" placeholder="ex.: 50000 (R$ 500,00)" />
+              </div>
+              <div class="form-row">
+                <label>Resumo di&aacute;rio a partir das <span class="hint">&mdash; hora local</span></label>
+                <select class="inp" id="pref-drh"></select>
+              </div>
+              <div class="form-row">
+                <label>Reten&ccedil;&atilde;o LGPD <span class="hint">&mdash; anonimiza leads antigos</span></label>
+                <select class="inp" id="pref-lgpd">
+                  <option value="0">Desligado (padr&atilde;o)</option>
+                  <option value="30">30 dias</option>
+                  <option value="90">90 dias</option>
+                  <option value="180">180 dias</option>
+                  <option value="365">1 ano</option>
+                  <option value="730">2 anos</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row" style="margin-top:12px">
+              <label>Mensagem da venda no Pushcut <span class="hint">&mdash; vari&aacute;veis: {{valor}} {{pais}} {{produto}} {{gateway}} {{cliente}} {{pedido}}</span></label>
+              <input class="inp" id="pref-pctpl" maxlength="300" placeholder="ex.: Cha-ching! {{valor}} de {{pais}} no {{gateway}}" style="font-family:'Geist Mono',monospace;font-size:12px" />
+            </div>
+            <div class="form-row" style="margin-top:12px">
+              <label>Webhook de sa&iacute;da <span class="hint">&mdash; POST JSON a cada venda aprovada (CRM, Zapier, planilha)</span></label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <input class="inp" id="pref-webhook" placeholder="https://seu-endpoint.com/webhook" style="flex:1;min-width:220px;font-family:'Geist Mono',monospace;font-size:12px" />
+                <button class="btn btn-sm" id="pref-webhook-test">Testar disparo</button>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:14px">
+              <button class="btn primary" id="pref-save">Salvar prefer&ecirc;ncias</button>
+            </div>
+          </div>
+        </div>
+
         <!-- 4. Avançado recolhido: ferramentas usadas raramente ficam fora do caminho -->
         <details class="ck-adv" style="margin-top:0">
           <summary>
@@ -2116,6 +2172,13 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
                   <button class="btn" id="api-copy" hidden>Copiar</button>
                   <button class="btn" id="api-rotate" title="Revoga o token atual e gera um novo">Gerar novo</button>
                 </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+                  <label class="hint" for="api-scope" style="white-space:nowrap">Escopo do token:</label>
+                  <select class="inp" id="api-scope" style="max-width:260px">
+                    <option value="stats">S&oacute; m&eacute;tricas agregadas</option>
+                    <option value="stats+leads">M&eacute;tricas + leads (e-mail mascarado)</option>
+                  </select>
+                </div>
                 <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Como funciona</summary><p class="hint" style="margin-top:6px">Retorna JSON com leads, vendas, receita e convers&atilde;o (hoje, 7 dias e total). No Google Sheets: <span style="font-family:'Geist Mono',monospace">=IMPORTDATA(url)</span></p></details>
               </div>
             </div>
@@ -2124,10 +2187,34 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
         <!-- 4. Zona de perigo -->
         <div class="set-sec">
           <div class="set-sec-head"><h3 style="color:var(--red)">Zona de perigo</h3><p>A&ccedil;&otilde;es irrevers&iacute;veis &mdash; use com cuidado</p></div>
-          <div class="card danger-card">
+          <div class="card" style="margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span class="cfg-ico" style="--cc:var(--cyan)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
+            <div style="flex:1;min-width:200px"><b style="font-size:13.5px">Exportar todos os dados (LGPD)</b><p style="color:var(--muted2);margin:3px 0 0;font-size:12px">Baixa um JSON com perfil, links, pixels, leads, eventos e auditoria &mdash; sem chaves secretas.</p></div>
+            <a class="btn" id="acc-export" href="/api/account/export" download>Baixar meus dados</a>
+          </div>
+          <div class="card danger-card" style="margin-bottom:12px">
             <span class="cfg-ico" style="--cc:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6"/></svg></span>
-            <div style="flex:1;min-width:200px"><b style="font-size:13.5px">Zerar todas as estatísticas</b><p style="color:var(--muted2);margin:3px 0 0;font-size:12px">Apaga leads, eventos e contadores. Não afeta configurações ou chaves.</p></div>
+            <div style="flex:1;min-width:200px"><b style="font-size:13.5px">Zerar todas as estatísticas</b><p style="color:var(--muted2);margin:3px 0 0;font-size:12px">Apaga leads, eventos e contadores. Não afeta configurações ou chaves.</p><p class="hint" id="reset-preview" style="margin:4px 0 0"></p></div>
             <button class="btn danger" id="reset-btn">Zerar estatísticas</button>
+          </div>
+          <div class="card danger-card">
+            <span class="cfg-ico" style="--cc:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></span>
+            <div style="flex:1;min-width:200px"><b style="font-size:13.5px">Excluir a conta permanentemente</b><p style="color:var(--muted2);margin:3px 0 0;font-size:12px">Apaga TUDO &mdash; conta, links, pixels, gateways, dom&iacute;nios, leads e eventos. Sem volta.</p></div>
+            <button class="btn danger" id="acc-delete-btn">Excluir conta</button>
+          </div>
+        </div>
+
+        <!-- Modal de exclusão de conta (item 427): confirmação forte -->
+        <div class="pop-bg" id="del-bg" role="presentation">
+          <div class="pop" role="dialog" aria-modal="true" aria-labelledby="del-title">
+            <h3 id="del-title" style="color:var(--red)">Excluir a conta &mdash; sem volta</h3>
+            <p id="del-preview" class="hint" style="margin:6px 0 10px">Carregando o que ser&aacute; apagado&hellip;</p>
+            <div class="form-row"><label>Sua senha</label><input class="inp" type="password" id="del-pw" autocomplete="current-password" /></div>
+            <div class="form-row" style="margin-top:10px"><label>Digite <b>EXCLUIR MINHA CONTA</b> para confirmar</label><input class="inp" id="del-phrase" autocomplete="off" /></div>
+            <div class="pop-actions" style="margin-top:14px">
+              <button class="btn ghost" id="del-cancel">Cancelar</button>
+              <button class="btn danger" id="del-go" disabled>Excluir permanentemente</button>
+            </div>
           </div>
         </div>
 
@@ -4592,6 +4679,64 @@ function bindPublicApi(){
       }).catch(function(){ toast('Erro ao gerar novo token',false); });
     });
   });
+  // Item 419: escopo do token público — salva ao trocar o select.
+  var scope=document.getElementById('api-scope');
+  if(scope) scope.addEventListener('change',function(){
+    fetch('/api/public-token/scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:scope.value})})
+      .then(function(r){return r.json();})
+      .then(function(d){ toast(d&&d.ok?'Escopo do token: '+(d.scope==='stats+leads'?'m\u00e9tricas + leads':'s\u00f3 m\u00e9tricas'):(d&&d.error)||'Erro ao salvar escopo',!!(d&&d.ok)); })
+      .catch(function(){ toast('Erro ao salvar escopo',false); });
+  });
+}
+
+/* ── Preferências da conta (itens 422/423/424/425/429/430) ── */
+function loadPreferences(){
+  var tz=document.getElementById('pref-tz'); if(!tz) return;
+  // popula as horas do resumo (0h–23h) uma única vez
+  var drh=document.getElementById('pref-drh');
+  if(drh && !drh.options.length){
+    for(var h=0;h<24;h++){ var o=document.createElement('option'); o.value=h; o.textContent=(h<10?'0':'')+h+':00'; drh.appendChild(o); }
+  }
+  fetch('/api/settings',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    if(!d) return;
+    tz.value=d.timezone||'America/Sao_Paulo';
+    if(tz.selectedIndex<0){ var o2=document.createElement('option'); o2.value=d.timezone; o2.textContent=d.timezone; tz.appendChild(o2); tz.value=d.timezone; }
+    document.getElementById('pref-goal').value=d.revenueGoal?Math.round(d.revenueGoal/100):'';
+    if(drh) drh.value=String(d.dailyReportHour||0);
+    var lg=document.getElementById('pref-lgpd'); lg.value=String(d.lgpdDays||0);
+    if(lg.selectedIndex<0) lg.value='0';
+    document.getElementById('pref-pctpl').value=d.pushcutTemplate||'';
+    document.getElementById('pref-webhook').value=d.outboundWebhook||'';
+    // Item 419: reflete o escopo atual do token público
+    var sc=document.getElementById('api-scope'); if(sc && d.apiScope) sc.value=d.apiScope;
+  }).catch(function(){});
+}
+function bindPreferences(){
+  var save=document.getElementById('pref-save'); if(!save) return;
+  save.addEventListener('click',function(){
+    var goalReais=parseFloat(document.getElementById('pref-goal').value)||0;
+    var body={
+      timezone:document.getElementById('pref-tz').value,
+      revenueGoal:goalReais>0?Math.round(goalReais*100):0,
+      dailyReportHour:parseInt(document.getElementById('pref-drh').value,10)||0,
+      lgpdDays:parseInt(document.getElementById('pref-lgpd').value,10)||0,
+      pushcutTemplate:document.getElementById('pref-pctpl').value.trim(),
+      outboundWebhook:document.getElementById('pref-webhook').value.trim()
+    };
+    fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();})
+      .then(function(d){ toast(d&&d.ok?'Prefer\u00eancias salvas':(d&&d.error)||'Erro ao salvar',!!(d&&d.ok)); })
+      .catch(function(){ toast('Erro ao salvar',false); });
+  });
+  // Item 424: teste de disparo do webhook.
+  document.getElementById('pref-webhook-test').addEventListener('click',function(){
+    var btn=this; btn.disabled=true;
+    fetch('/api/settings/webhook-test',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      btn.disabled=false;
+      if(d&&d.ok) toast('Webhook respondeu HTTP '+d.status);
+      else toast((d&&(d.error||('destino respondeu HTTP '+d.status)))||'Falha no teste',false);
+    }).catch(function(){ btn.disabled=false; toast('Falha no teste',false); });
+  });
 }
 
 /* ── Conta e segurança (itens 411/413/414/415) ── */
@@ -4633,6 +4778,39 @@ function loadAccountSecurity(){
     }).catch(function(){});
   }
   loadAccountSessions();
+  loadDangerPreview();
+}
+
+/* ── Zona de perigo (itens 427/428) ── */
+// Item 428: pré-visualização do que existe na conta hoje.
+function loadDangerPreview(){
+  var el=document.getElementById('reset-preview'); if(!el) return;
+  fetch('/api/account/data-counts',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    if(!d||!d.ok||!d.counts) return;
+    var c=d.counts;
+    el.textContent='Hoje: '+(c.leads||0)+' lead(s), '+(c.events||0)+' evento(s)'+(c.events_arquivados?' (+'+c.events_arquivados+' arquivados)':'');
+    var dp=document.getElementById('del-preview');
+    if(dp) dp.textContent='Ser\u00e1 apagado: '+(c.leads||0)+' lead(s), '+(c.events||0)+' evento(s), '+(c.links||0)+' link(s), '+(c.pixels||0)+' pixel(s), '+(c.gateways||0)+' gateway(s), '+(c.dominios||0)+' dom\u00ednio(s) e toda a configura\u00e7\u00e3o. N\u00e3o h\u00e1 como desfazer.';
+  }).catch(function(){});
+}
+// Item 427: modal de exclusão com confirmação forte (senha + frase exata).
+function bindAccountDelete(){
+  var btn=document.getElementById('acc-delete-btn'); if(!btn) return;
+  var bg=document.getElementById('del-bg'), pw=document.getElementById('del-pw'), ph=document.getElementById('del-phrase'), go=document.getElementById('del-go');
+  function sync(){ go.disabled=!(pw.value && ph.value==='EXCLUIR MINHA CONTA'); }
+  pw.addEventListener('input',sync); ph.addEventListener('input',sync);
+  btn.addEventListener('click',function(){ pw.value='';ph.value='';sync(); bg.classList.add('show'); loadDangerPreview(); });
+  document.getElementById('del-cancel').addEventListener('click',function(){ bg.classList.remove('show'); });
+  bg.addEventListener('click',function(e){ if(e.target===bg) bg.classList.remove('show'); });
+  go.addEventListener('click',function(){
+    go.disabled=true;
+    fetch('/api/account/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw.value,confirm:ph.value})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d&&d.ok){ location.href='/login?deleted=1'; }
+        else { go.disabled=false; toast((d&&d.error)||'Erro ao excluir',false); }
+      }).catch(function(){ go.disabled=false; toast('Erro ao excluir',false); });
+  });
 }
 function bindAccountSecurity(){
   var nameSave=document.getElementById('acc-name-save');
@@ -5556,7 +5734,7 @@ function applySetView(v){
     if(globoHero) globeEntrance(globoHero); // giro de entrada no globo hero
   }
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
-  if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); loadAccountSecurity(); }
+  if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); loadAccountSecurity(); loadPreferences(); }
   if(g==='tracking'){
     if(trackingTab==='pixels') loadPixels();
     else if(trackingTab==='cloak'){ loadCloakConfig(); loadDomains(); }
@@ -5727,6 +5905,8 @@ if(pcUrl) pcUrl.addEventListener('change',savePushcutConfig);
   bindShortlinks();
   bindPublicApi();
   bindAccountSecurity();
+  bindPreferences();
+  bindAccountDelete();
   bindCloak();
   document.getElementById('pc-test').addEventListener('click',testPushcut);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });
