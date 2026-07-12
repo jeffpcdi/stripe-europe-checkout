@@ -101,19 +101,19 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **330.** Testes do filtro/paginação/CSV e do cálculo de gargalo.
 
 ### B3. Feed de Atividade (331–350)
-- **331.** Busca textual no feed (cliente, e-mail, gateway).
-- **332.** Filtro por gateway no feed.
-- **333.** Filtro por período no feed.
+- ~~**331.** Busca textual no feed (cliente, e-mail, gateway)~~ — ✅ FEITO: input com ícone, botão limpar e placeholder; busca em cliente/e-mail/gateway/título (efêmera — busca é da sessão, não persiste); estado vazio distingue "sem eventos" de "filtros sem resultado" com botão "Limpar filtros". Verificado: "stripe" filtra 1391 → 134 eventos.
+- ~~**332.** Filtro por gateway no feed~~ — ✅ FEITO: select derivado dos gateways realmente presentes nos eventos (só aparece com 2+), compõe com busca/tipo/período.
+- ~~**333.** Filtro por período no feed~~ — ✅ FEITO: chips Tudo/Hoje/7 dias/30 dias locais do feed (não mexem no período global da Overview — quem audita o feed recorta sem afetar o resto).
 - **334.** Agrupar "N visitas em sequência" em linha expansível.
 - **335.** Som opcional de "venda" (toggle, off por padrão).
 - **336.** Notificação nativa do navegador para vendas em segundo plano.
 - **337.** Exportar feed filtrado como CSV.
 - **338.** Virtualização do feed acima de 300 eventos.
 - **339.** Auto-scroll "seguir ao vivo" com pausa ao hover.
-- **340.** Linha de resumo por dia no separador ("12 vendas · R$ 340 · 2 recusadas").
+- ~~**340.** Linha de resumo por dia no separador ("12 vendas · R$ 340 · 2 recusadas")~~ — ✅ FEITO: separador de dia ganhou resumo do dia INTEIRO filtrado (não só das linhas visíveis): "N vendas · R$ X" + "M recusadas" quando houver. Verificado no browser ("8 vendas · R$ 327,47").
 - **341.** Ícone de replay: reprocessar evento failed direto do feed.
 - **342.** Detalhe expandido com raw do webhook (JSON colapsável).
-- **343.** Permalink de evento (`/activity?e=<id>`).
+- ~~**343.** Permalink de evento (`/activity?e=<id>`)~~ — ✅ FEITO: botão "Copiar link" na expansão do evento; na chegada com `?e=`, garante o evento na página (ajusta o limit da paginação), zera filtros se ele estiver fora deles, rola até a linha (scrollIntoView center) e destaca com outline+flash; limpa o param da URL depois. Verificado no browser: `?e=evt_seed_0_0` → achou, destacou, URL limpa.
 - **344.** Marco visual "melhor venda do dia" (destaque dourado).
 - **345.** Densidade compacta obedece `prefs.density` no feed.
 - **348.** Acessibilidade: `role="feed"` e `aria-busy` na revalidação.
