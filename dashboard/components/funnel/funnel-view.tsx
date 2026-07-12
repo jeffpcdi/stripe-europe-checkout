@@ -9,8 +9,16 @@ import { Skeleton } from '@/components/skeleton'
 import { CountUp } from '@/components/count-up'
 import { PeriodPicker } from '@/components/overview/period-picker'
 import { LeadsTable } from './leads-table'
-import { fmtPercent, gwLabel } from '@/lib/format'
+import { fmtPercent, gwLabel, formatMoney, fmtDurationShort } from '@/lib/format'
 import type { Period } from '@/lib/types'
+
+/** Mediana simples; null com amostra < 3 (pouca base para afirmar algo). */
+function median(values: number[]): number | null {
+  if (values.length < 3) return null
+  const s = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
 
 // Cores de gateway dentro da paleta da identidade (sem azul fora da paleta)
 const GW_COLORS = ['#25f4ee', '#fe2c55', '#22c55e', '#fbbf24', '#0ec2bd', '#f4f4f5']
@@ -23,6 +31,43 @@ export function FunnelView() {
     if (!data) return null
     return aggregate(data, periodStart(period))
   }, [data, period])
+
+  // Itens 316/317: valores monetários e tempos medianos por etapa,
+  // derivados dos leads do período (só o que os dados sustentam).
+  const stageExtras = useMemo(() => {
+    if (!data?.leads) return null
+    const from = periodStart(period)
+    let checkoutValue = 0
+    const v2cDeltas: number[] = []
+    const c2pDeltas: number[] = []
+    for (const l of data.leads) {
+      if (from && new Date(l.at).getTime() < from.getTime()) continue
+      // 316: valor esperado dos que chegaram ao checkout e não compraram ainda
+      if (l.stage === 'checkout' && l.expectedAmount) checkoutValue += l.expectedAmount
+      // 317: visita → 1º checkout
+      const firstHit = l.checkoutHits?.[0]?.at
+      if (firstHit) {
+        const d = new Date(firstHit).getTime() - new Date(l.at).getTime()
+        if (d > 0) v2cDeltas.push(d)
+      }
+      // 317: último checkout → compra
+      const lastHit = l.checkoutHits?.length
+        ? l.checkoutHits[l.checkoutHits.length - 1].at
+        : null
+      if (l.stage === 'purchased' && l.purchasedAt && lastHit) {
+        const d = new Date(l.purchasedAt).getTime() - new Date(lastHit).getTime()
+        if (d > 0) c2pDeltas.push(d)
+      }
+    }
+    return {
+      checkoutValue,
+      v2cMedian: median(v2cDeltas),
+      c2pMedian: median(c2pDeltas),
+    }
+  }, [data, period])
+
+  // 316: receita real da etapa final (moeda dominante do período)
+  const purchasedValue = m ? (m.revenue[m.mainCur] ?? 0) : 0
 
   if (isLoading && !data) {
     return (
@@ -60,6 +105,8 @@ export function FunnelView() {
       rate: fmtPercent(100),
       stepRate: null as string | null,
       isBottleneck: false,
+      money: null as string | null,
+      elapsed: null as string | null,
     },
     {
       label: 'Checkout',
@@ -70,6 +117,16 @@ export function FunnelView() {
       rate: fmtPercent(v2c),
       stepRate: `${fmtPercent(v2c)} das visitas`,
       isBottleneck: bottleneck === 1,
+      // Item 316: dinheiro parado no checkout (esperado, ainda não pago)
+      money:
+        stageExtras && stageExtras.checkoutValue > 0
+          ? `${formatMoney(stageExtras.checkoutValue, m?.mainCur)} em aberto`
+          : null,
+      // Item 317: mediana visita → 1º checkout
+      elapsed:
+        stageExtras?.v2cMedian != null
+          ? `~${fmtDurationShort(stageExtras.v2cMedian)} após a visita`
+          : null,
     },
     {
       label: 'Compraram',
@@ -80,8 +137,23 @@ export function FunnelView() {
       rate: fmtPercent(m?.overall ?? 0),
       stepRate: `${fmtPercent(c2p)} do checkout`,
       isBottleneck: bottleneck === 2,
+      // Item 316: receita real na moeda dominante
+      money: purchasedValue > 0 ? `${formatMoney(purchasedValue, m?.mainCur)} em receita` : null,
+      // Item 317: mediana último checkout → compra
+      elapsed:
+        stageExtras?.c2pMedian != null
+          ? `~${fmtDurationShort(stageExtras.c2pMedian)} após o checkout`
+          : null,
     },
   ]
+
+  // Item 318: sugestão de ação atrelada ao gargalo identificado
+  const bottleneckHint =
+    bottleneck === 1
+      ? 'A maior perda é entre a visita e o checkout: revise a oferta e o carregamento da página.'
+      : bottleneck === 2
+        ? 'A maior perda é no pagamento: confira recusas por gateway e ofereça outro meio de pagamento.'
+        : null
 
   return (
     <div className="flex flex-col gap-4">
@@ -145,16 +217,35 @@ export function FunnelView() {
                     {st.rate}
                   </span>
                 </div>
-                {/* Item 145: taxa de conversão da etapa anterior */}
-                {st.stepRate ? (
+                {/* Itens 145/316/317: taxa, dinheiro e tempo mediano da etapa */}
+                {st.stepRate || st.money || st.elapsed ? (
                   <p className="pl-[152px] font-mono text-[10.5px] tabular-nums text-faint">
-                    {st.stepRate}
+                    {[st.stepRate, st.money, st.elapsed].filter(Boolean).map((part, j) => (
+                      <span key={String(part)}>
+                        {j > 0 ? ' · ' : ''}
+                        {st.money === part ? <span data-sensitive>{part}</span> : part}
+                      </span>
+                    ))}
                   </p>
                 ) : null}
               </div>
             )
           })}
         </div>
+        {/* Item 318: o gargalo deixa de ser só um ícone e ganha ação */}
+        {bottleneckHint ? (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+            <p className="text-pretty text-xs leading-relaxed text-muted-foreground">
+              {bottleneckHint}{' '}
+              {bottleneck === 2 ? (
+                <a href="/dashboard/activity?f=failed" className="text-warning underline-offset-2 hover:underline">
+                  Ver recusas na Atividade
+                </a>
+              ) : null}
+            </p>
+          </div>
+        ) : null}
       </GlassCard>
 
       {/* Cards por gateway */}
