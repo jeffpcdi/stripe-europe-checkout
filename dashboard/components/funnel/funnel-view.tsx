@@ -97,7 +97,7 @@ export function FunnelView() {
       v2cMedian: median(v2cDeltas),
       c2pMedian: median(c2pDeltas),
     }
-  }, [data, period])
+  }, [filteredData, period])
 
   // 316: receita real da etapa final (moeda dominante do período)
   const purchasedValue = m ? (m.rev[m.mainCur] ?? 0) : 0
@@ -190,8 +190,54 @@ export function FunnelView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-end">
-        <PeriodPicker value={period} onChange={setPeriod} />
+      {/* Item 301: filtros de link/campanha — o funil INTEIRO reage (barras,
+          taxas, gargalo, gateways e tabela), não só a listagem. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {filterOptions.links.length > 0 ? (
+          <select
+            value={linkFilter}
+            onChange={(e) => setLinkFilter(e.target.value)}
+            aria-label="Filtrar funil por link"
+            className="glass h-8 rounded-lg border border-border/50 bg-transparent px-2.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            <option value="">Todos os links</option>
+            {filterOptions.links.map((s) => (
+              <option key={s} value={s}>
+                /{s}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {filterOptions.campaigns.length > 0 ? (
+          <select
+            value={campaignFilter}
+            onChange={(e) => setCampaignFilter(e.target.value)}
+            aria-label="Filtrar funil por campanha"
+            className="glass h-8 rounded-lg border border-border/50 bg-transparent px-2.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            <option value="">Todas as campanhas</option>
+            {filterOptions.campaigns.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {hasFilter ? (
+          <button
+            type="button"
+            onClick={() => {
+              setLinkFilter('')
+              setCampaignFilter('')
+            }}
+            className="h-8 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Limpar filtros
+          </button>
+        ) : null}
+        <div className="ml-auto">
+          <PeriodPicker value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       {/* Funil */}
@@ -329,8 +375,8 @@ export function FunnelView() {
         )}
       </div>
 
-      {/* Tabela de leads */}
-      <LeadsTable leads={data?.leads ?? []} periodStart={periodStart(period)} />
+      {/* Tabela de leads — também respeita os filtros do item 301 */}
+      <LeadsTable leads={filteredData?.leads ?? []} periodStart={periodStart(period)} />
     </div>
   )
 }
