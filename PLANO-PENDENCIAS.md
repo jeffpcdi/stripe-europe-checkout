@@ -78,7 +78,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **305.** Coluna "UTM campaign" opcional na tabela.
 - **306.** Filtro por país na tabela de leads.
 - **307.** Filtro por data (range) na tabela, independente do período global.
-- **308.** Ordenação clicável nos cabeçalhos.
+- ~~**308.** Ordenação clicável nos cabeçalhos~~ — ✅ FEITO: Etapa/País/Valor/Quando ordenáveis via `SortableTh` (botão real, teclado-acessível, `aria-sort`, seta de direção). Ciclo por clique: desc → asc → ordem natural. Valor usa reportado (dinheiro real) com fallback no esperado; sem valor vai para o fim. Verificado no browser (desc = Comprou 1º, asc = Visita 1º).
 - **309.** Coluna de e-mail mascarado com "revelar" no hover.
 - **311.** Busca da tabela também por telefone.
 - **313.** Badge "lead quente" (`checkoutHits > 2`).
@@ -91,12 +91,12 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **320.** Paginação com "ir para página N".
 - **321.** Virtualização da tabela acima de 500 leads.
 - **322.** Estado vazio do funil diferenciado (sem dados vs conta nova).
-- **323.** `STAGE_LABEL`/cores centralizados em `lib/format.ts`.
+- ~~**323.** `STAGE_LABEL`/cores centralizados em `lib/format.ts`~~ — ✅ FEITO: `STAGE_LABEL` e `STAGE_CLASS` exportados de `lib/format.ts`; `leads-table.tsx` consome de lá (antes duplicava localmente, com risco de divergência).
 - **324.** Anonimização automática de leads antigos (LGPD, config por conta).
 - **325.** Webhook de saída por lead comprado (integração CRM/planilha).
 - **326.** Endpoint `/api/leads/:id` (detalhe com jornada) para o drawer do 304.
 - **327.** Rate-limit e cache do `/api/stats` por conta.
-- **328.** Coluna "dispositivo" (mobile/desktop de ua.js).
+- **328.** Coluna "dispositivo" (mobile/desktop de ua.js). ⚠️ BLOQUEADO no front: os leads do `/api/stats` não expõem `ua` (chaves atuais: at, id, acc, utm, stage, orphan, country, gateway, linkSlug, countryName). Exige o backend gravar/projetar o user-agent primeiro.
 - **329.** Realce de leads que chegaram após o load.
 - **330.** Testes do filtro/paginação/CSV e do cálculo de gargalo.
 
