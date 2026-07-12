@@ -26,6 +26,7 @@ import {
   X,
   Trophy,
   Download,
+  Users,
   type LucideIcon,
 } from 'lucide-react'
 import type { StatsEvent } from '@/lib/types'
@@ -271,6 +272,41 @@ const EventRow = memo(function EventRow({
   )
 })
 
+/* Itens 151/340: separador de dia com resumo do dia inteiro filtrado —
+   extraído para reuso entre linhas soltas e grupos de visitas (item 334). */
+function DaySeparator({
+  label,
+  summary,
+}: {
+  label: string
+  summary?: { sales: number; revenue: number; cur: string; failed: number }
+}) {
+  return (
+    <div className="flex items-center gap-3 px-1 pb-1 pt-4 first:pt-1">
+      <span className="label-mono text-[10px]">{label}</span>
+      <span
+        className="h-px flex-1"
+        style={{
+          background: 'linear-gradient(90deg, rgba(37,244,238,.2), transparent 70%)',
+        }}
+        aria-hidden="true"
+      />
+      {summary && (summary.sales > 0 || summary.failed > 0) ? (
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+          {summary.sales > 0 ? (
+            <>
+              {plural(summary.sales, 'venda')} ·{' '}
+              <span data-sensitive>{formatMoney(summary.revenue, summary.cur)}</span>
+            </>
+          ) : null}
+          {summary.sales > 0 && summary.failed > 0 ? ' · ' : null}
+          {summary.failed > 0 ? `${summary.failed} recusadas` : null}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 export function ActivityView() {
   // isValidating alimenta o aria-busy do feed (item 348)
   const { data, isLoading, error, isValidating } = useStats()
@@ -351,6 +387,39 @@ export function ActivityView() {
 
   const visible = events.slice(0, limit)
   const hasMore = events.length > limit
+
+  // Item 334: sequências de 4+ leads (visitas) seguidos no MESMO dia viram
+  // uma linha "N visitas em sequência" expansível — vendas e recusas nunca
+  // são agrupadas (são o que importa ver uma a uma).
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
+  const GROUP_MIN = 4
+  type FeedRow =
+    | { kind: 'event'; e: StatsEvent }
+    | { kind: 'group'; key: string; items: StatsEvent[] }
+  const rows = useMemo<FeedRow[]>(() => {
+    const out: FeedRow[] = []
+    let run: StatsEvent[] = []
+    const flush = () => {
+      if (run.length >= GROUP_MIN) {
+        out.push({ kind: 'group', key: run[0].id, items: run })
+      } else {
+        for (const e of run) out.push({ kind: 'event', e })
+      }
+      run = []
+    }
+    for (const e of visible) {
+      if (e.type === 'lead') {
+        // quebra o grupo na virada de dia (o separador de dia fica correto)
+        if (run.length > 0 && dayLabel(run[0].at) !== dayLabel(e.at)) flush()
+        run.push(e)
+      } else {
+        flush()
+        out.push({ kind: 'event', e })
+      }
+    }
+    flush()
+    return out
+  }, [visible])
 
   // Item 340: resumo por dia no separador — vendas, receita e recusadas do
   // dia INTEIRO filtrado (não só das linhas visíveis na página atual)
@@ -597,43 +666,76 @@ export function ActivityView() {
             aria-label="Eventos de conversão"
             aria-busy={isValidating}
           >
-            {visible.map((e, i) => {
+            {rows.map((row, i) => {
+              const first = row.kind === 'event' ? row.e : row.items[0]
               // Item 151: separador de dia quando o dia muda
-              const label = dayLabel(e.at)
-              const prevLabel = i > 0 ? dayLabel(visible[i - 1].at) : null
+              const label = dayLabel(first.at)
+              const prev = i > 0 ? rows[i - 1] : null
+              const prevLabel = prev
+                ? dayLabel(prev.kind === 'event' ? prev.e.at : prev.items[0].at)
+                : null
+
+              // Item 334: grupo de visitas em sequência
+              if (row.kind === 'group') {
+                const isOpen = openGroups.has(row.key)
+                return (
+                  <div key={row.key}>
+                    {label && label !== prevLabel ? (
+                      <DaySeparator label={label} summary={daySummary.get(label)} />
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenGroups((s) => {
+                          const n = new Set(s)
+                          if (n.has(row.key)) n.delete(row.key)
+                          else n.add(row.key)
+                          return n
+                        })
+                      }
+                      aria-expanded={isOpen}
+                      className="feed-row flex w-full items-center gap-3 px-2.5 py-3 text-left transition-colors hover:bg-[var(--hover)]"
+                    >
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <Users className="size-3.5" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0 flex-1 text-sm text-foreground">
+                        {row.items.length} visitas em sequência
+                      </span>
+                      <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                        {timeAgo(row.items[row.items.length - 1].at)} – {timeAgo(row.items[0].at)}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'size-3.5 shrink-0 text-muted-foreground transition-transform',
+                          isOpen && 'rotate-180',
+                        )}
+                        aria-hidden="true"
+                      />
+                    </button>
+                    {isOpen ? (
+                      <div className="border-l border-primary/20 pl-4">
+                        {row.items.map((e) => (
+                          <EventRow
+                            key={e.id}
+                            e={e}
+                            isNew={seenIds.current !== null && !seenIds.current.has(e.id)}
+                            highlight={e.id === highlightId}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              }
+
+              const e = row.e
               const isNew =
                 seenIds.current !== null && !seenIds.current.has(e.id)
               return (
                 <div key={e.id}>
                   {label && label !== prevLabel ? (
-                    <div className="flex items-center gap-3 px-1 pb-1 pt-4 first:pt-1">
-                      <span className="label-mono text-[10px]">{label}</span>
-                      <span
-                        className="h-px flex-1"
-                        style={{
-                          background:
-                            'linear-gradient(90deg, rgba(37,244,238,.2), transparent 70%)',
-                        }}
-                        aria-hidden="true"
-                      />
-                      {/* Item 340: resumo do dia inteiro filtrado no separador */}
-                      {(() => {
-                        const s = daySummary.get(label)
-                        if (!s || (s.sales === 0 && s.failed === 0)) return null
-                        return (
-                          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                            {s.sales > 0 ? (
-                              <>
-                                {plural(s.sales, 'venda')} ·{' '}
-                                <span data-sensitive>{formatMoney(s.revenue, s.cur)}</span>
-                              </>
-                            ) : null}
-                            {s.sales > 0 && s.failed > 0 ? ' · ' : null}
-                            {s.failed > 0 ? `${s.failed} recusadas` : null}
-                          </span>
-                        )
-                      })()}
-                    </div>
+                    <DaySeparator label={label} summary={daySummary.get(label)} />
                   ) : null}
                   <EventRow
                     e={e}
