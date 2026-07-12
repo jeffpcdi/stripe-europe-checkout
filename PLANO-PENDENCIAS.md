@@ -75,12 +75,12 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **302.** Etapa "iniciou pagamento vs aprovado" separada no funil.
 - **303.** Benchmark interno: conversão atual vs média 30d por etapa.
 - **304.** Perfil do lead em drawer (`lead.journey` já existe, nunca renderizado).
-- **305.** Coluna "UTM campaign" opcional na tabela.
-- **306.** Filtro por país na tabela de leads.
+- ~~**305.** Coluna "UTM campaign" opcional na tabela~~ — ✅ FEITO: toggle "Campanha" (persiste em localStorage via `usePersistedState`) adiciona a coluna com `utm.campaign` e highlight da busca. Verificado no browser.
+- ~~**306.** Filtro por país na tabela de leads~~ — ✅ FEITO: select derivado dos países presentes nos leads (só aparece com 2+), com chip removível e compondo com etapa/gateway/busca. Verificado: US → 7 linhas.
 - **307.** Filtro por data (range) na tabela, independente do período global.
 - ~~**308.** Ordenação clicável nos cabeçalhos~~ — ✅ FEITO: Etapa/País/Valor/Quando ordenáveis via `SortableTh` (botão real, teclado-acessível, `aria-sort`, seta de direção). Ciclo por clique: desc → asc → ordem natural. Valor usa reportado (dinheiro real) com fallback no esperado; sem valor vai para o fim. Verificado no browser (desc = Comprou 1º, asc = Visita 1º).
-- **309.** Coluna de e-mail mascarado com "revelar" no hover.
-- **311.** Busca da tabela também por telefone.
+- ~~**309.** Coluna de e-mail mascarado com "revelar" no hover~~ — ✅ FEITO: toggle "E-mail" (persiste) mostra coluna com e-mail mascarado ("cl…@gmail.com"); o completo aparece só no hover/focus (tabIndex para teclado) e a célula é `data-sensitive` (respeita o modo privacidade). Verificado no browser.
+- ~~**311.** Busca da tabela também por telefone~~ — ✅ FEITO: a busca compara dígitos (mín. 4) contra o telefone normalizado — "55119" acha leads com +55 11 9…. Verificado: 14 linhas.
 - ~~**313.** Badge "lead quente" (`checkoutHits > 2`)~~ — ✅ FEITO: badge laranja com chama em leads NÃO comprados com 3+ idas ao checkout (quem comprou não é mais "quente"), tooltip sugere contato. Verificado no browser com seeds de checkoutHits.
 - **314.** Ação "reenviar conversão à CAPI" por lead (replay com dedupe).
 - ~~**315.** Densidade compacta obedece `prefs.density`~~ — ✅ VERIFICADO: a regra global `html[data-density='compact'] table td/th` já cobre a tabela de leads (padding 10px → 5.6px, medido no browser). Nada a mudar.
