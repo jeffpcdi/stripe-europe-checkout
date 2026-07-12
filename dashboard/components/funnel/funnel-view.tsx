@@ -67,7 +67,7 @@ export function FunnelView() {
   }, [data, period])
 
   // 316: receita real da etapa final (moeda dominante do período)
-  const purchasedValue = m ? (m.revenue[m.mainCur] ?? 0) : 0
+  const purchasedValue = m ? (m.rev[m.mainCur] ?? 0) : 0
 
   if (isLoading && !data) {
     return (
