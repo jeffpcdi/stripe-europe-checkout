@@ -2027,6 +2027,39 @@ const statsCacheSweep = setInterval(() => {
 }, 120e3);
 if (statsCacheSweep.unref) statsCacheSweep.unref();
 
+// ── API: detalhe de um lead com jornada (item 326 — alimenta o drawer) ──
+// Escopo por conta: lead de outra conta responde 404 (não 403 — não
+// confirmamos a existência do id a quem não é dono).
+app.get('/api/leads/:id', dashboardAuth, (req, res) => {
+  const lead = stats.getLead(String(req.params.id || '').slice(0, 64));
+  if (!lead || (lead.acc || _defaultAccountId) !== req.account.id) {
+    return apiError(res, 404, 'Lead não encontrado.', 'not_found');
+  }
+  res.set('Cache-Control', 'private, no-cache');
+  // projeção explícita — nada de vazar campos internos por acidente
+  res.json({
+    ok: true,
+    lead: {
+      id: lead.id, at: lead.at, stage: lead.stage,
+      lastSeen: lead.lastSeen || null,
+      purchasedAt: lead.purchasedAt || lead.convertedAt || null,
+      country: lead.country || null, countryName: lead.countryName || null,
+      city: lead.city || null,
+      device: lead.device || null, os: lead.os || null, browser: lead.browser || null,
+      gateway: lead.gateway || null, linkSlug: lead.linkSlug || null,
+      utm: lead.utm || null, referer: lead.referer || lead.ref || null,
+      customer: lead.customer || null, email: lead.email || null,
+      phone: lead.phone || null,
+      expectedAmount: lead.expectedAmount || null,
+      reportedAmount: lead.reportedAmount || null,
+      currency: lead.currency || lead.reportedCurrency || null,
+      orphan: !!lead.orphan,
+      checkoutHits: Array.isArray(lead.checkoutHits) ? lead.checkoutHits : [],
+      journey: Array.isArray(lead.journey) ? lead.journey : [],
+    },
+  });
+});
+
 // ── API: heartbeat de presença (chamado por todas as páginas do funil) ─
 app.post('/api/pulse', (req, res) => {
   try {
