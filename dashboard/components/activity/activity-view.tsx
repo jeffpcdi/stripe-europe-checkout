@@ -131,7 +131,11 @@ const EventRow = memo(function EventRow({
   if (e.reason) details.push({ label: 'Motivo', value: e.reason })
   if (e.gateway) details.push({ label: 'Gateway', value: gwLabel(e.gateway) })
 
-  const hasDetails = details.length > 0
+  // Item 342: conversão normalizada do webhook para auditoria
+  const [showRaw, setShowRaw] = useState(false)
+  const hasRaw = e.raw != null && Object.keys(e.raw).length > 0
+
+  const hasDetails = details.length > 0 || hasRaw
 
   return (
     <div
@@ -221,6 +225,32 @@ const EventRow = memo(function EventRow({
                 <span className="truncate font-mono text-foreground">{d.value}</span>
               </p>
             ))}
+            {/* Item 342: dados do webhook sob demanda — auditoria de
+                divergência de valor/moeda sem ir ao painel do gateway */}
+            {hasRaw ? (
+              <div className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowRaw(!showRaw)}
+                  aria-expanded={showRaw}
+                  className="flex items-center gap-1 font-mono text-[10.5px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={cn('size-3 transition-transform', showRaw && 'rotate-180')}
+                    aria-hidden
+                  />
+                  dados do webhook
+                </button>
+                {showRaw ? (
+                  <pre
+                    data-sensitive
+                    className="mt-1.5 max-h-48 overflow-auto rounded-md border border-border/40 bg-background/60 p-2 font-mono text-[10.5px] leading-relaxed text-muted-foreground"
+                  >
+                    {JSON.stringify(e.raw, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+            ) : null}
             <div className="mt-1 flex items-center justify-end gap-1.5">
               {/* Item 343: permalink do evento (?e=<id>) para compartilhar */}
               <button
