@@ -56,7 +56,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **282.** Período customizado (date-range picker) propagado a todas as abas.
 - ~~**283.** Persistir período escolhido em localStorage~~ — ✅ FEITO: chave `roi:overview:period`, sobrevive a reload.
 - ~~**284.** Deep-link de período via query string~~ — ✅ FEITO: `?p=today|7d|30d|all` (precedência: URL → localStorage → 7d), refletido via `history.replaceState` sem recarregar.
-- **285.** Card de "receita líquida estimada" (menos reembolsos/disputas).
+- ~~**285.** Card de "receita líquida estimada" (menos reembolsos/disputas)~~ — ✅ FEITO: `aggregate` acumula `refundRev` (valor devolvido por moeda, em centavos) e a Overview ganhou o MiniStat "Receita líquida" = bruta − devoluções, com subtítulo "− R$ X devolvidos" (ou "sem devoluções no período"). Grid ampliado para 6 colunas no xl. Verificado no browser com dados semeados.
 - **286.** Ranking "top campanhas" por UTM no overview.
 - **287.** Ranking "top links" por conversão no overview.
 - **288.** Estado vazio guiado (checklist de onboarding com progresso real).
@@ -182,7 +182,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **410.** Testes de navegação (palette, atalhos, deep-links, error boundary).
 
 ### B7. Config / Segurança / Conta (411–432)
-- ~~**411.** Trocar senha na Config~~ — ✅ FEITO (backend + UI): formulário na seção "Conta e segurança" da Config; validação de confirmação no cliente; backend verifica a atual, rate-limit 5/min, auditoria, derruba outras sessões. De quebra corrigiu bug: `getAccountById` não trazia `password_hash` e a troca SEMPRE respondia "senha atual incorreta".
+- ~~**411.** Trocar senha na Config~~ — ��� FEITO (backend + UI): formulário na seção "Conta e segurança" da Config; validação de confirmação no cliente; backend verifica a atual, rate-limit 5/min, auditoria, derruba outras sessões. De quebra corrigiu bug: `getAccountById` não trazia `password_hash` e a troca SEMPRE respondia "senha atual incorreta".
 - **412.** Recuperação de senha por e-mail (token de reset + provedor de e-mail).
 - ~~**413.** Editar nome da conta~~ — ✅ FEITO: campo na Config (pré-preenchido via `/api/me`) + `POST /api/account/name` (trim, máx. 80, auditoria `nome_alterado`, limpa cache de sessões).
 - ~~**414.** Sessões ativas~~ — ✅ FEITO: `GET /api/account/sessions` lista dispositivos (UA resumido + IP mascarado + data, gravados no login/registro), sessão atual marcada; `DELETE /api/account/sessions/:sid` encerra uma (sid = md5 do token, nunca expõe o token; a atual não pode ser encerrada por aí); `POST .../revoke-others` encerra todas as outras. Tudo auditado. Verificado no browser: sessão encerrada perde acesso na hora (401).

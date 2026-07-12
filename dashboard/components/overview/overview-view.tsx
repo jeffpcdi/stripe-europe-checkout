@@ -449,7 +449,7 @@ export function OverviewView() {
         />
         {/* Item 292: chips de risco viram drill-down para a Atividade filtrada */}
         <MiniStat
-          index={3}
+          index={4}
           icon={RotateCcw}
           color={refColor}
           bg={cur.refunds ? 'rgba(251,191,36,.12)' : NEUTRAL_BG}
@@ -459,7 +459,7 @@ export function OverviewView() {
           href={cur.refunds ? '/activity?f=refund' : undefined}
         />
         <MiniStat
-          index={4}
+          index={5}
           icon={ShieldAlert}
           color={dispColor}
           bg={cur.disputes ? 'rgba(254,44,85,.12)' : NEUTRAL_BG}
