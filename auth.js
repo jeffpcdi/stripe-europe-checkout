@@ -34,7 +34,7 @@ function validEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
 }
 
-async function register({ email, password, name }) {
+async function register({ email, password, name, meta }) {
   if (!db.enabled) return { error: 'Banco de dados não configurado no servidor (defina DATABASE_URL nas variáveis de ambiente). Confira /api/status.' };
   if (!validEmail(email)) return { error: 'E-mail inválido.' };
   if (!password || String(password).length < 8) return { error: 'A senha precisa ter pelo menos 8 caracteres.' };
@@ -59,7 +59,7 @@ async function register({ email, password, name }) {
     console.log('[auth] Primeiro usuário (' + email + ') registrado como admin — dados legados migrados.');
   }
 
-  const token = await db.createAuthSession(id, SESSION_TTL_DAYS);
+  const token = await db.createAuthSession(id, SESSION_TTL_DAYS, meta);
   return { account, token };
 }
 
@@ -88,7 +88,7 @@ function registerLoginFail(email) {
   loginFails.set(key, rec);
 }
 
-async function login({ email, password }) {
+async function login({ email, password, meta }) {
   if (!db.enabled) return { error: 'Banco de dados não configurado no servidor (defina DATABASE_URL nas variáveis de ambiente). Confira /api/status.' };
 
   // Bloqueio ativo? Não vaza se o e-mail existe — mensagem é sobre tentativas.
@@ -104,7 +104,7 @@ async function login({ email, password }) {
     return { error: 'E-mail ou senha incorretos.' };
   }
   loginFails.delete(loginLockKey(email)); // sucesso zera o contador
-  const token = await db.createAuthSession(row.id, SESSION_TTL_DAYS);
+  const token = await db.createAuthSession(row.id, SESSION_TTL_DAYS, meta);
   const account = { id: row.id, email: row.email, name: row.name, role: row.role };
   return { account, token };
 }
@@ -125,6 +125,34 @@ async function changePassword({ accountId, currentPassword, newPassword, keepTok
   if (!ok) return { error: 'Não foi possível salvar a nova senha. Tente novamente.' };
   const revoked = await db.deleteOtherAuthSessions(accountId, keepToken);
   sessionCache.clear(); // cache pode ter sessões recém-revogadas
+  return { ok: true, revoked };
+}
+
+// Item 413: edição do nome da conta. Limpa o cache de sessões para o novo
+// nome aparecer no cabeçalho já na próxima request (o cache guarda o account).
+async function changeName({ accountId, name }) {
+  if (!db.enabled) return { error: 'Banco de dados não configurado no servidor.' };
+  const clean = String(name || '').trim().slice(0, 80);
+  if (!clean) return { error: 'Informe um nome.' };
+  const ok = await db.updateAccountName(accountId, clean);
+  if (!ok) return { error: 'Não foi possível salvar o nome. Tente novamente.' };
+  sessionCache.clear();
+  return { ok: true, name: clean };
+}
+
+// Item 414: encerra UMA sessão pelo sid (md5 do token), escopada à conta.
+// Recebe o token real de volta do banco só para tirá-lo do cache em memória.
+async function revokeSessionBySid(accountId, sid) {
+  const token = await db.deleteAuthSessionBySid(accountId, sid);
+  if (!token) return { error: 'Sessão não encontrada (pode já ter sido encerrada).' };
+  sessionCache.delete(token);
+  return { ok: true };
+}
+
+// Item 415 (reuso no 414): derruba todas as outras sessões da conta.
+async function revokeOtherSessions(accountId, keepToken) {
+  const revoked = await db.deleteOtherAuthSessions(accountId, keepToken);
+  sessionCache.clear();
   return { ok: true, revoked };
 }
 
@@ -225,6 +253,7 @@ setInterval(() => {
 module.exports = {
   COOKIE_NAME,
   register, login, logout, resolveSession, changePassword,
+  changeName, revokeSessionBySid, revokeOtherSessions,
   parseCookies, sessionCookie, clearCookie,
   requireAuth, optionalAuth,
   hashPassword, verifyPassword,

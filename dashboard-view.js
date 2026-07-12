@@ -2054,7 +2054,37 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
           </div>
         </div>
 
-        <!-- 3. Avançado recolhido: ferramentas usadas raramente ficam fora do caminho -->
+        <!-- 3. Conta e segurança (itens 411/413/414/415) -->
+        <div class="set-sec">
+          <div class="set-sec-head"><h3>Conta e seguran&ccedil;a</h3><p>Nome, senha e sess&otilde;es ativas desta conta</p></div>
+          <div class="card">
+            <div class="form-row">
+              <label>Nome da conta <span class="hint">&mdash; aparece no cabe&ccedil;alho do painel</span></label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input class="inp" id="acc-name" placeholder="Seu nome" maxlength="80" style="flex:1" autocomplete="name" />
+                <button class="btn btn-sm" id="acc-name-save">Salvar</button>
+              </div>
+            </div>
+            <div class="form-row" style="margin-top:14px">
+              <label>Trocar senha <span class="hint">&mdash; as outras sess&otilde;es s&atilde;o encerradas por seguran&ccedil;a</span></label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <input class="inp" type="password" id="pw-cur" placeholder="Senha atual" style="flex:1;min-width:150px" autocomplete="current-password" />
+                <input class="inp" type="password" id="pw-new" placeholder="Nova senha (m&iacute;n. 8)" style="flex:1;min-width:150px" autocomplete="new-password" />
+                <input class="inp" type="password" id="pw-new2" placeholder="Repita a nova senha" style="flex:1;min-width:150px" autocomplete="new-password" />
+                <button class="btn" id="pw-save">Trocar senha</button>
+              </div>
+            </div>
+            <div class="form-row" style="margin-top:14px">
+              <label style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span>Sess&otilde;es ativas <span class="hint">&mdash; onde sua conta est&aacute; logada agora</span></span>
+                <button class="btn btn-sm" id="sess-revoke-all">Encerrar todas as outras</button>
+              </label>
+              <div id="sess-list" style="margin-top:6px"><p class="hint" style="margin:0">Carregando sess&otilde;es&hellip;</p></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Avançado recolhido: ferramentas usadas raramente ficam fora do caminho -->
         <details class="ck-adv" style="margin-top:0">
           <summary>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:var(--muted)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 010-4h.09A1.65 1.65 0 003.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -2084,6 +2114,7 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
                   <input class="inp" id="api-url" readonly placeholder="Clique em Gerar para criar o endpoint" style="flex:1;min-width:220px;font-family:'Geist Mono',monospace;font-size:11.5px" />
                   <button class="btn" id="api-gen">Gerar</button>
                   <button class="btn" id="api-copy" hidden>Copiar</button>
+                  <button class="btn" id="api-rotate" title="Revoga o token atual e gera um novo">Gerar novo</button>
                 </div>
                 <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Como funciona</summary><p class="hint" style="margin-top:6px">Retorna JSON com leads, vendas, receita e convers&atilde;o (hoje, 7 dias e total). No Google Sheets: <span style="font-family:'Geist Mono',monospace">=IMPORTDATA(url)</span></p></details>
               </div>
@@ -4549,6 +4580,106 @@ function bindPublicApi(){
   copy.addEventListener('click',function(){
     navigator.clipboard.writeText(inp.value).then(function(){ toast('URL copiada'); });
   });
+  // Item 418: rotação — revoga o token atual e gera um novo (com confirmação).
+  var rot=document.getElementById('api-rotate');
+  if(rot) rot.addEventListener('click',function(){
+    uiConfirm({title:'Gerar um novo token?',msg:'O token atual \u00e9 revogado na hora \u2014 planilhas e integra\u00e7\u00f5es que usam a URL antiga param de funcionar at\u00e9 voc\u00ea atualizar.',okLabel:'Gerar novo',danger:true},function(){
+      fetch('/api/public-token/rotate',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+        if(!d.ok||!d.token) return toast(d.error||'Erro ao gerar novo token',false);
+        inp.value=location.origin+'/api/v1/summary?token='+d.token;
+        copy.hidden=false;
+        toast('Novo token gerado \u2014 o antigo foi revogado');
+      }).catch(function(){ toast('Erro ao gerar novo token',false); });
+    });
+  });
+}
+
+/* ── Conta e segurança (itens 411/413/414/415) ── */
+// UA resumido: "Chrome · Windows" em vez do user-agent gigante.
+function shortUa(ua){
+  if(!ua) return 'Dispositivo desconhecido';
+  var b='Navegador';
+  if(/edg\//i.test(ua)) b='Edge'; else if(/opr\//i.test(ua)) b='Opera';
+  else if(/chrome\//i.test(ua)) b='Chrome'; else if(/firefox\//i.test(ua)) b='Firefox';
+  else if(/safari\//i.test(ua)) b='Safari';
+  var os='';
+  if(/windows/i.test(ua)) os='Windows'; else if(/iphone|ipad/i.test(ua)) os='iOS';
+  else if(/android/i.test(ua)) os='Android'; else if(/mac os/i.test(ua)) os='macOS';
+  else if(/linux/i.test(ua)) os='Linux';
+  return b+(os?' \u00b7 '+os:'');
+}
+function loadAccountSessions(){
+  var el=document.getElementById('sess-list'); if(!el) return;
+  fetch('/api/account/sessions',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var list=(d&&d.sessions)||[];
+    if(!list.length){ el.innerHTML='<p class="hint" style="margin:0">Nenhuma sess\u00e3o ativa encontrada.</p>'; return; }
+    el.innerHTML=list.map(function(s){
+      var when=s.createdAt?new Date(s.createdAt).toLocaleString('pt-BR'):'--';
+      var chip=s.current?'<span class="chip grn" style="margin-left:8px">esta sess\u00e3o</span>':'';
+      var btn=s.current?'':'<button class="btn-icon" data-sid="'+esc(s.sid)+'" title="Encerrar esta sess\u00e3o">Encerrar</button>';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line,rgba(255,255,255,.05));font-size:12.5px">'+
+        '<div style="flex:1;min-width:0"><b>'+esc(shortUa(s.ua))+'</b>'+chip+
+        '<div class="muted" style="font-size:11px;margin-top:2px">entrou em '+esc(when)+(s.ip?' \u00b7 IP '+esc(s.ip):'')+'</div></div>'+btn+'</div>';
+    }).join('');
+  }).catch(function(){ el.innerHTML='<p class="hint" style="margin:0">Erro ao carregar sess\u00f5es.</p>'; });
+}
+function loadAccountSecurity(){
+  var nameInp=document.getElementById('acc-name');
+  if(nameInp && !nameInp.value){
+    fetch('/api/me',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      if(d && d.name && !nameInp.value) nameInp.value=d.name;
+    }).catch(function(){});
+  }
+  loadAccountSessions();
+}
+function bindAccountSecurity(){
+  var nameSave=document.getElementById('acc-name-save');
+  if(!nameSave) return;
+  // Item 413: salvar nome.
+  nameSave.addEventListener('click',function(){
+    var v=(document.getElementById('acc-name').value||'').trim();
+    if(!v){ toast('Informe um nome',false); return; }
+    fetch('/api/account/name',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v})})
+      .then(function(r){return r.json();})
+      .then(function(d){ toast(d&&d.ok?'Nome salvo':(d&&d.error)||'Erro ao salvar',!!(d&&d.ok)); })
+      .catch(function(){ toast('Erro ao salvar',false); });
+  });
+  // Item 411: trocar senha (o backend verifica a atual e derruba as outras sessões).
+  document.getElementById('pw-save').addEventListener('click',function(){
+    var cur=document.getElementById('pw-cur').value, nv=document.getElementById('pw-new').value, nv2=document.getElementById('pw-new2').value;
+    if(!cur||!nv){ toast('Preencha a senha atual e a nova',false); return; }
+    if(nv.length<8){ toast('A nova senha precisa ter pelo menos 8 caracteres',false); return; }
+    if(nv!==nv2){ toast('A confirma\u00e7\u00e3o n\u00e3o confere com a nova senha',false); return; }
+    fetch('/api/account/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword:cur,newPassword:nv})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d&&d.ok){
+          toast('Senha alterada'+(d.revoked?' \u2014 '+d.revoked+' outra(s) sess\u00e3o(\u00f5es) encerrada(s)':''));
+          document.getElementById('pw-cur').value='';document.getElementById('pw-new').value='';document.getElementById('pw-new2').value='';
+          loadAccountSessions();
+        } else toast((d&&d.error)||'Erro ao trocar a senha',false);
+      }).catch(function(){ toast('Erro ao trocar a senha',false); });
+  });
+  // Item 414/415: encerrar todas as outras sessões.
+  document.getElementById('sess-revoke-all').addEventListener('click',function(){
+    uiConfirm({title:'Encerrar as outras sess\u00f5es?',msg:'Todos os outros dispositivos logados nesta conta ser\u00e3o desconectados na hora. Esta sess\u00e3o continua ativa.',okLabel:'Encerrar todas',danger:true},function(){
+      fetch('/api/account/sessions/revoke-others',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+        toast(d&&d.ok?((d.revoked||0)+' sess\u00e3o(\u00f5es) encerrada(s)'):'Erro ao encerrar sess\u00f5es',!!(d&&d.ok));
+        loadAccountSessions();
+      }).catch(function(){ toast('Erro ao encerrar sess\u00f5es',false); });
+    });
+  });
+  // Item 414: encerrar UMA sessão específica.
+  document.getElementById('sess-list').addEventListener('click',function(e){
+    var b=e.target.closest?e.target.closest('[data-sid]'):null; if(!b) return;
+    var sid=b.getAttribute('data-sid');
+    uiConfirm({title:'Encerrar esta sess\u00e3o?',msg:'O dispositivo \u00e9 desconectado na hora e precisa fazer login de novo.',okLabel:'Encerrar',danger:true},function(){
+      fetch('/api/account/sessions/'+sid,{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){
+        toast(d&&d.ok?'Sess\u00e3o encerrada':(d&&d.error)||'Erro ao encerrar',!!(d&&d.ok));
+        loadAccountSessions();
+      }).catch(function(){ toast('Erro ao encerrar',false); });
+    });
+  });
 }
 /* ── Pixel TikTok ───────────────────────────────────��─────────────── */
 var PX_LIST=[];
@@ -5423,7 +5554,7 @@ function applySetView(v){
     if(globoHero) globeEntrance(globoHero); // giro de entrada no globo hero
   }
   setupLivePoll(g==='live'); // polling mais rápido quando a aba Ao Vivo está aberta
-  if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); }
+  if(g==='config'){ loadHealth().then(function(){renderHealth();renderSetupCard();}); loadPushcutConfig(); loadShortlinks(); loadAccountSecurity(); }
   if(g==='tracking'){
     if(trackingTab==='pixels') loadPixels();
     else if(trackingTab==='cloak'){ loadCloakConfig(); loadDomains(); }
@@ -5593,6 +5724,7 @@ var pcUrl=document.getElementById('pc-url');
 if(pcUrl) pcUrl.addEventListener('change',savePushcutConfig);
   bindShortlinks();
   bindPublicApi();
+  bindAccountSecurity();
   bindCloak();
   document.getElementById('pc-test').addEventListener('click',testPushcut);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });

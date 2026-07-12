@@ -15,8 +15,9 @@
 const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
-const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || null;
-// Aceita DATABASE_URL (padrão) ou POSTGRES_URL como fonte da connection string.
+const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
+// Aceita DATABASE_URL (padrão), POSTGRES_URL ou NEON_DATABASE_URL (prefixo usado
+// pela integração Neon do v0/Vercel) como fonte da connection string.
 const enabled = !!URL;
 const sql = enabled ? neon(URL) : null;
 
@@ -91,8 +92,11 @@ async function init() {
       data jsonb NOT NULL
     )`;
     await sql`CREATE INDEX IF NOT EXISTS events_at_idx ON events (at DESC)`;
-    // Item 448: índice por conta+data para o arquivamento varrer barato.
-    await sql`CREATE INDEX IF NOT EXISTS events_acc_at_idx ON events (account_id, at DESC)`;
+    // Item 448: o índice por conta+data (para o arquivamento varrer barato) é
+    // criado mais abaixo como events_account_idx — DEPOIS do ALTER TABLE que
+    // garante a coluna account_id. Criá-lo aqui quebrava o init em bancos
+    // legados onde events ainda não tinha a coluna (erro "column account_id
+    // does not exist" abortava TODAS as migrações seguintes).
 
     // Item 448: arquivo frio de eventos. O feed quente (tabela `events`) é
     // limitado por retenção; o que passa da janela é MOVIDO para cá em vez de
@@ -220,6 +224,13 @@ async function init() {
     await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency text DEFAULT 'BRL'`;
     migrations.accountCurrency = true;
 
+    // ── Item 414: metadados de dispositivo nas sessões de login ───────────
+    // ua + IP mascarado gravados no login permitem listar "sessões ativas"
+    // na aba Config com contexto suficiente para reconhecer cada dispositivo
+    // (sem guardar o IP completo — mesma máscara da auditoria do item 417).
+    await sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ua text`;
+    await sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ip_masked text`;
+
     ready = true;
     console.log('[db] Neon pronto (tabelas multi-tenant verificadas).');
     return true;
@@ -318,15 +329,43 @@ async function claimLegacyData(accountId) {
 }
 
 // ── Sessões de login ──────────────────────────────────────────────────────
-async function createAuthSession(accountId, ttlDays) {
+// Item 414: meta opcional { ua, ipMasked } identifica o dispositivo na lista
+// de sessões ativas da aba Config.
+async function createAuthSession(accountId, ttlDays, meta) {
   if (!enabled || !accountId) return null;
   const token = crypto.randomBytes(32).toString('hex');
   const days = Math.max(1, ttlDays || 30);
+  const ua = meta && meta.ua ? String(meta.ua).slice(0, 300) : null;
+  const ipMasked = meta && meta.ipMasked ? String(meta.ipMasked).slice(0, 60) : null;
   try {
-    await sql`INSERT INTO account_sessions (token, account_id, expires_at)
-      VALUES (${token}, ${accountId}, now() + make_interval(days => ${days}))`;
+    await sql`INSERT INTO account_sessions (token, account_id, expires_at, ua, ip_masked)
+      VALUES (${token}, ${accountId}, now() + make_interval(days => ${days}), ${ua}, ${ipMasked})`;
     return token;
   } catch (err) { console.error('[db] createAuthSession:', err.message); return null; }
+}
+
+// Item 414: lista as sessões ativas da conta SEM expor o token — cada sessão
+// é identificada pelo md5(token) ("sid"), suficiente para encerrar uma
+// específica sem que a resposta sirva para sequestrar a sessão.
+async function listAuthSessions(accountId) {
+  if (!enabled || !accountId) return [];
+  try {
+    return await sql`SELECT md5(token) AS sid, created_at, expires_at, ua, ip_masked
+      FROM account_sessions
+      WHERE account_id = ${accountId} AND expires_at > now()
+      ORDER BY created_at DESC`;
+  } catch (err) { console.error('[db] listAuthSessions:', err.message); return []; }
+}
+
+// Item 414: encerra UMA sessão pelo sid (md5 do token), escopada à conta.
+// Retorna o token real apagado para o auth limpar o cache em memória.
+async function deleteAuthSessionBySid(accountId, sid) {
+  if (!enabled || !accountId || !sid) return null;
+  try {
+    const rows = await sql`DELETE FROM account_sessions
+      WHERE account_id = ${accountId} AND md5(token) = ${sid} RETURNING token`;
+    return rows.length ? rows[0].token : null;
+  } catch (err) { console.error('[db] deleteAuthSessionBySid:', err.message); return null; }
 }
 
 async function getAuthSession(token) {
@@ -365,6 +404,15 @@ async function updateAccountPassword(accountId, passwordHash) {
     const rows = await sql`UPDATE accounts SET password_hash = ${passwordHash} WHERE id = ${accountId} RETURNING id`;
     return rows.length > 0;
   } catch (err) { console.error('[db] updateAccountPassword:', err.message); return false; }
+}
+
+// Item 413: edição do nome da conta (exibido no cabeçalho da dashboard).
+async function updateAccountName(accountId, name) {
+  if (!enabled || !accountId) return false;
+  try {
+    const rows = await sql`UPDATE accounts SET name = ${name} WHERE id = ${accountId} RETURNING id`;
+    return rows.length > 0;
+  } catch (err) { console.error('[db] updateAccountName:', err.message); return false; }
 }
 
 // Item 415: derruba todas as sessões da conta exceto a atual (logout global).
@@ -700,7 +748,7 @@ async function loadCustomDomains(accountId) {
   return { ok: false, data: null };
 }
 
-// ── Moeda por conta (item 242) ────────────────────────────────────────────
+// ── Moeda por conta (item 242) ───────────────────��────────────────────────
 async function setAccountCurrency(id, currency) {
   if (!enabled || !id) return false;
   const cur = String(currency || '').toUpperCase();
@@ -897,6 +945,7 @@ module.exports = {
   // contas / auth / migração
   createAccount, getAccountByEmail, getAccountById, countAccounts, getFirstAccountId, claimLegacyData,
   createAuthSession, getAuthSession, deleteAuthSession, pruneAuthSessions,
+  listAuthSessions, deleteAuthSessionBySid, updateAccountName,
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta

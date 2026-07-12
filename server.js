@@ -1413,6 +1413,19 @@ app.delete('/api/notes/:d', dashboardAuth, (req, res) => {
 
 // ── API pública read-only (token, por conta) ─────────────────────────
 // Para planilhas (IMPORTDATA), widgets e BI externo — sem expor a dash.
+// Item 418: rotação do token da API pública — revoga o atual e gera um novo.
+// Quem usava a URL antiga (planilha, BI…) para de funcionar na hora; a UI
+// avisa antes com confirmação. Auditado como ação sensível.
+app.post('/api/public-token/rotate', dashboardAuth, (req, res) => {
+  if (rateLimited('tokrot|' + req.account.id, 'tokrot', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitas rotações. Aguarde um minuto.' });
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  config.set(req.account.id, { api: { token } });
+  audit(req, req.account.id, 'token_api_rotacionado', 'Token da API pública revogado e regenerado');
+  res.json({ ok: true, token });
+});
+
 app.get('/api/public-token', dashboardAuth, (req, res) => {
   let cfg = config.get(req.account.id);
   let token = (cfg.api || {}).token;
@@ -1643,7 +1656,10 @@ if (DEV_LOGIN_ENABLED) {
 app.post('/register', async (req, res) => {
   try {
     const b = req.body || {};
-    const result = await auth.register({ email: b.email, password: b.password, name: b.name });
+    const result = await auth.register({
+      email: b.email, password: b.password, name: b.name,
+      meta: { ua: req.headers['user-agent'], ipMasked: maskReqIp(req) } // item 414
+    });
     if (result.error) return res.status(400).json({ ok: false, error: result.error });
     // primeiro usuário virou admin e herdou dados legados → migra config em memória
     try { config.migrateLegacyTo(result.account.id); } catch (_) {}
@@ -1658,7 +1674,10 @@ app.post('/register', async (req, res) => {
 app.post('/login', async (req, res) => {
   try {
     const b = req.body || {};
-    const result = await auth.login({ email: b.email, password: b.password });
+    const result = await auth.login({
+      email: b.email, password: b.password,
+      meta: { ua: req.headers['user-agent'], ipMasked: maskReqIp(req) } // item 414
+    });
     // Item 440: 429 quando bloqueado por excesso de tentativas (não 401).
     if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
     appendCookie(res, auth.sessionCookie(result.token));
@@ -1699,6 +1718,53 @@ app.post('/api/account/password', dashboardAuth, async (req, res) => {
   if (result.error) return res.status(400).json({ ok: false, error: result.error });
   audit(req, req.account.id, 'senha_alterada', 'Senha da conta alterada' + (result.revoked ? ' (' + result.revoked + ' sessão(ões) encerrada(s))' : ''));
   res.json({ ok: true, revoked: result.revoked });
+});
+
+// Item 413: editar o nome da conta (exibido no cabeçalho da dashboard).
+app.post('/api/account/name', dashboardAuth, async (req, res) => {
+  const result = await auth.changeName({ accountId: req.account.id, name: (req.body || {}).name });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  audit(req, req.account.id, 'nome_alterado', 'Nome da conta alterado para "' + result.name + '"');
+  res.json({ ok: true, name: result.name });
+});
+
+// Item 414: sessões ativas da conta. Cada sessão vira um "sid" (md5 do token)
+// — nunca devolvemos o token real. A sessão atual vem marcada para a UI.
+app.get('/api/account/sessions', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const rows = await db.listAuthSessions(req.account.id);
+  const currentSid = crypto.createHash('md5').update(String(req.sessionToken || '')).digest('hex');
+  res.json({
+    ok: true,
+    sessions: rows.map((s) => ({
+      sid: s.sid,
+      current: s.sid === currentSid,
+      createdAt: s.created_at,
+      expiresAt: s.expires_at,
+      ua: s.ua || null,
+      ip: s.ip_masked || null
+    }))
+  });
+});
+
+// Item 414/415: encerrar todas as OUTRAS sessões (mantém a atual).
+app.post('/api/account/sessions/revoke-others', dashboardAuth, async (req, res) => {
+  const result = await auth.revokeOtherSessions(req.account.id, req.sessionToken);
+  audit(req, req.account.id, 'sessoes_encerradas', (result.revoked || 0) + ' outra(s) sessão(ões) encerrada(s)');
+  res.json({ ok: true, revoked: result.revoked });
+});
+
+// Item 414: encerrar UMA sessão específica pelo sid. A sessão atual não pode
+// ser encerrada por aqui (use Sair/logout) — evita se trancar sem querer.
+app.delete('/api/account/sessions/:sid', dashboardAuth, async (req, res) => {
+  const sid = String(req.params.sid || '');
+  if (!/^[a-f0-9]{32}$/.test(sid)) return res.status(400).json({ ok: false, error: 'Identificador de sessão inválido.' });
+  const currentSid = crypto.createHash('md5').update(String(req.sessionToken || '')).digest('hex');
+  if (sid === currentSid) return res.status(400).json({ ok: false, error: 'Esta é a sessão atual — use "Sair" para encerrá-la.' });
+  const result = await auth.revokeSessionBySid(req.account.id, sid);
+  if (result.error) return res.status(404).json({ ok: false, error: result.error });
+  audit(req, req.account.id, 'sessao_encerrada', 'Sessão encerrada manualmente pela aba Config');
+  res.json({ ok: true });
 });
 
 app.post('/logout', async (req, res) => {
@@ -2855,7 +2921,7 @@ app.post('/api/ops/clear-log', dashboardAuth, async (req, res) => {
   }
 });
 
-// ═══ Webhook UNIVERSAL de conversões (qualquer gateway) ═══════════════
+// ═══ Webhook UNIVERSAL de conversões (qualquer gateway) ════��══════════
 // Kiwify, Hotmart, PerfectPay, Cakto, etc.: configure a URL
 //   https://<host>/api/conversion?secret=SEU_SEGREDO[&gateway=kiwify]
 // no painel do gateway. O corpo é normalizado por aliases — não importa o
@@ -2883,7 +2949,7 @@ function notifyPushcut(event, n) {
   const titles = {
     sale: `Venda aprovada — ${valor}`,
     failed: `Pagamento recusado — ${valor}`,
-    refund: `Reembolso — ${valor}`,
+    refund: `Reembolso �� ${valor}`,
     dispute: `Disputa aberta — ${valor}`,
     checkout: `Checkout iniciado — ${n.gateway}`
   };
@@ -3347,7 +3413,7 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
   });
 });
 
-// ���─ API: zerar estatísticas ─────���───────���────────────────────────────
+// ���─ API: zerar estatísticas ─────���───────���──────────────────────���─────
 // ═══ TikTok multi-pixel ══════════════════════════���══════════════════��═
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
