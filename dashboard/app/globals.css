@@ -325,7 +325,9 @@ table,
   );
 }
 
-/* Aurora: dois orbes ciano/rosa em deriva lenta */
+/* Aurora: dois orbes ciano/rosa em deriva lenta.
+   Fluidez: blur reduzido 130px→70px (o custo de composição do blur cresce
+   com o raio) e o próprio radial-gradient já entrega a suavidade. */
 .app-bg__aurora::before,
 .app-bg__aurora::after {
   content: '';
@@ -333,7 +335,7 @@ table,
   width: 60vmax;
   height: 60vmax;
   border-radius: 50%;
-  filter: blur(130px);
+  filter: blur(70px);
   opacity: 0.07;
   will-change: transform;
 }
@@ -363,20 +365,9 @@ table,
   );
 }
 
-/* Item 2: orbe terciário âmbar-fraco atrás da área de gráficos/globo */
-.app-bg__amber {
-  position: absolute;
-  width: 44vmax;
-  height: 44vmax;
-  border-radius: 50%;
-  filter: blur(140px);
-  opacity: 0.04;
-  top: 30%;
-  left: 50%;
-  background: radial-gradient(circle, #fbbf24, transparent 65%);
-  animation: auroraDrift 44s var(--ease) infinite alternate-reverse;
-  will-change: transform;
-}
+/* Item 2 (removido por performance): o orbe terciário âmbar era um terceiro
+   layer de blur(140px) animado permanentemente — custo alto de GPU para um
+   efeito quase imperceptível (opacity .04). */
 
 /* Item 5: cor do orbe primário muda levemente por seção */
 html[data-section='live'] .app-bg__aurora::before {
@@ -493,10 +484,10 @@ html[data-tv] main {
    Globo — contraste, controles e tela cheia
    ============================================================ */
 
-/* O globo é o elemento principal: realce de contraste e saturação */
-.globe-stage canvas {
-  filter: contrast(1.18) saturate(1.3) brightness(1.08);
-}
+/* O globo é o elemento principal. NÃO aplicamos filter CSS aqui: o canvas
+   WebGL repinta a 60fps e um filter forçaria uma passada de composição por
+   frame (principal causa de travamento). O contraste/brilho vem das luzes
+   do three.js (ajustadas em globe.tsx). */
 
 /* Botão de controle flutuante (zoom / tela cheia / fechar) */
 .globe-ctl {
@@ -526,15 +517,10 @@ html[data-tv] main {
   transform: scale(0.94);
 }
 
-/* Item 93: borda "energia" — gradiente ciano-rosa percorrendo o perímetro */
-@property --energy-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-@keyframes energyRotate {
-  to { --energy-angle: 360deg; }
-}
+/* Item 93: borda "energia" — gradiente ciano-rosa no perímetro.
+   ESTÁTICA por fluidez: animar o ângulo do conic-gradient (via @property)
+   dispara repaint completo do painel a cada frame — junto com o canvas do
+   globo era uma das principais causas de travamento. */
 .energy-border {
   position: relative;
 }
@@ -545,7 +531,7 @@ html[data-tv] main {
   border-radius: inherit;
   padding: 1px;
   background: conic-gradient(
-    from var(--energy-angle),
+    from 210deg,
     rgba(37, 244, 238, 0.6),
     transparent 20%,
     transparent 45%,
@@ -558,7 +544,6 @@ html[data-tv] main {
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  animation: energyRotate 12s linear infinite;
   pointer-events: none;
 }
 
@@ -587,10 +572,8 @@ html[data-tv] main {
   z-index: 1;
 }
 
-/* Item 36: contraste extra no fullscreen */
-.globe-modal__panel.globe-stage canvas {
-  filter: contrast(1.25) saturate(1.4) brightness(1.1);
-}
+/* Item 36: fullscreen usa as mesmas luzes do three.js — sem filter CSS
+   (custo de composição por frame; ver nota em .globe-stage acima). */
 
 /* Item 166: pontos fantasma no estado sem dados */
 .globe-empty-note {
@@ -1064,15 +1047,9 @@ a:active,
   .anim-drawer-in { animation: none; }
 }
 
-/* Item 17: borda gradiente cônica girando lentamente no KPI hero */
-@property --kpi-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-@keyframes kpiBorderSpin {
-  to { --kpi-angle: 360deg; }
-}
+/* Item 17: borda gradiente cônica no KPI hero.
+   ESTÁTICA por fluidez: girar o conic-gradient via @property repintava o
+   card inteiro a cada frame (ver nota em .energy-border). */
 .kpi-hero {
   isolation: isolate;
 }
@@ -1083,7 +1060,7 @@ a:active,
   border-radius: inherit;
   padding: 1px;
   background: conic-gradient(
-    from var(--kpi-angle),
+    from 320deg,
     rgba(37, 244, 238, 0.55),
     rgba(254, 44, 85, 0.3) 25%,
     transparent 45%,
@@ -1094,7 +1071,6 @@ a:active,
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  animation: kpiBorderSpin 9s linear infinite;
   pointer-events: none;
 }
 

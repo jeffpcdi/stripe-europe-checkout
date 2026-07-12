@@ -40,7 +40,6 @@ export default function RootLayout({
         <div className="app-bg" aria-hidden="true">
           <div className="app-bg__dots" />
           <div className="app-bg__aurora" />
-          <div className="app-bg__amber" />
           <div className="app-bg__vignette" />
           <div className="app-bg__grain" />
         </div>

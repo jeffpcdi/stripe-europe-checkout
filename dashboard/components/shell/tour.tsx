@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { HelpCircle, X } from 'lucide-react'
-import { tourForPath, isTourDone, markTourDone, type Tour } from '@/lib/tour'
+import { tourForPath, markTourDone, type Tour } from '@/lib/tour'
 
 interface Rect {
   top: number
@@ -56,14 +56,9 @@ export function TourGuide() {
     setTour(t)
   }, [])
 
-  // Auto-inicia o tour da página na primeira visita (com atraso para a UI montar)
-  useEffect(() => {
-    if (!currentTour) return
-    if (isTourDone(currentTour.key)) return
-    const t = window.setTimeout(() => start(currentTour), 1200)
-    return () => window.clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname])
+  // Decisão de produto: o tour NÃO inicia mais sozinho na primeira visita —
+  // interrompia o usuário em toda aba nova. Ele fica disponível apenas sob
+  // demanda, pelo botão "?" flutuante abaixo.
 
   // Mede o alvo do passo atual; refaz em scroll/resize
   useEffect(() => {

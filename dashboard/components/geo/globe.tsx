@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import GlobeGL from 'react-globe.gl'
 import { Crosshair, Maximize2, Minus, Plus, X } from 'lucide-react'
@@ -147,6 +147,17 @@ function GlobeCanvas({
     g.controls().autoRotate = !reducedMotion
     g.controls().enableZoom = false
 
+    // Fluidez: limita o pixelRatio a 1.5. Em telas Retina (DPR 2–3) o three.js
+    // renderizava em resolução cheia, dobrando/triplicando o trabalho de
+    // fragmento por frame — principal causa do globo "travado". 1.5 mantém
+    // nitidez e corta o custo pela metade.
+    try {
+      const renderer = g.renderer?.()
+      renderer?.setPixelRatio?.(Math.min(1.5, window.devicePixelRatio || 1))
+    } catch {
+      /* renderer indisponível nesta versão */
+    }
+
     if (reducedMotion) {
       entered.current = true
       g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 0)
@@ -171,20 +182,54 @@ function GlobeCanvas({
     }
     document.addEventListener('visibilitychange', onVisibility)
 
-    // Mais contraste: luzes mais fortes que os padrões suaves do three-globe
+    // Fluidez: pausa o render loop quando o globo sai do viewport (scroll).
+    // Sem isso o three.js segue renderizando a 60fps invisível, roubando GPU
+    // dos cards e gráficos visíveis.
+    let io: IntersectionObserver | null = null
     try {
-      for (const light of g.lights()) {
-        if (light.type === 'DirectionalLight') light.intensity = 1.6
-        if (light.type === 'AmbientLight') light.intensity = 0.9
+      const canvasEl = g.renderer?.()?.domElement as HTMLCanvasElement | undefined
+      if (canvasEl && typeof IntersectionObserver !== 'undefined') {
+        io = new IntersectionObserver(
+          (entries) => {
+            const globe = globeRef.current
+            if (!globe || document.hidden) return
+            try {
+              if (entries[0]?.isIntersecting) globe.resumeAnimation()
+              else globe.pauseAnimation()
+            } catch {
+              /* método indisponível na versão instalada */
+            }
+          },
+          { threshold: 0.05 },
+        )
+        io.observe(canvasEl)
       }
     } catch {
-      /* API de luzes indisponível — o filtro CSS já garante o contraste */
+      /* renderer indisponível — segue sem pausa por viewport */
     }
 
-    return () => document.removeEventListener('visibilitychange', onVisibility)
+    // Mais contraste: luzes mais fortes que os padrões suaves do three-globe.
+    // Intensidades compensam a remoção do filter CSS no canvas (que custava
+    // uma passada de composição por frame).
+    try {
+      for (const light of g.lights()) {
+        if (light.type === 'DirectionalLight') light.intensity = 2.1
+        if (light.type === 'AmbientLight') light.intensity = 1.15
+      }
+    } catch {
+      /* API de luzes indisponível nesta versão */
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      io?.disconnect()
+    }
   }, [width, globeRef, reducedMotion])
 
-  const { points, rings, arcs } = buildPoints(countries, metric)
+  // Fluidez: memoizado — antes recalculava (e recriava os arrays) a cada
+  // render do pai (poll do /api/live a cada 5s), forçando o three-globe a
+  // reconstruir pontos/anéis/arcos mesmo sem mudança real nos dados.
+  const { points, rings, arcs } = useMemo(() => buildPoints(countries, metric), [countries, metric])
 
   return (
     <GlobeGL
