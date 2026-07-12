@@ -514,17 +514,6 @@ export function LeadsTable({
                             órfã
                           </span>
                         ) : null}
-                        {/* Item 313: lead quente — voltou ao checkout 3+ vezes
-                            sem comprar. É quem está a um empurrão da venda. */}
-                        {l.stage !== 'purchased' && (l.checkoutHits?.length ?? 0) > 2 ? (
-                          <span
-                            className="ml-1.5 inline-flex items-center gap-0.5 rounded-md bg-[rgba(245,158,11,.12)] px-1.5 py-0.5 text-[10px] font-semibold text-[#f59e0b]"
-                            title={`Voltou ao checkout ${l.checkoutHits?.length}x sem comprar`}
-                          >
-                            <Flame className="size-2.5" aria-hidden="true" />
-                            quente
-                          </span>
-                        ) : null}
                       </td>
                       <td className="py-2.5 pr-3 text-xs">
                         {l.gateway ? (

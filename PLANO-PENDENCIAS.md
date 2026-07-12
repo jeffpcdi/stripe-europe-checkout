@@ -84,9 +84,9 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - ~~**313.** Badge "lead quente" (`checkoutHits > 2`)~~ — ✅ FEITO: badge laranja com chama em leads NÃO comprados com 3+ idas ao checkout (quem comprou não é mais "quente"), tooltip sugere contato. Verificado no browser com seeds de checkoutHits.
 - **314.** Ação "reenviar conversão à CAPI" por lead (replay com dedupe).
 - ~~**315.** Densidade compacta obedece `prefs.density`~~ — ✅ VERIFICADO: a regra global `html[data-density='compact'] table td/th` já cobre a tabela de leads (padding 10px → 5.6px, medido no browser). Nada a mudar.
-- **316.** Funil com valores monetários por etapa.
-- **317.** Tempo médio por etapa entre as barras.
-- **318.** Gargalo (146) vira link com sugestão de ação.
+- ~~**316.** Funil com valores monetários por etapa~~ — ✅ FEITO: barra Checkout mostra valor esperado em aberto (leads em checkout com `expectedAmount`; some quando não há dado); barra Compraram mostra a receita real da moeda dominante (`m.rev[mainCur]`). Valores com `data-sensitive` (modo privacidade). Verificado: "R$ 4.578,84 em receita".
+- ~~**317.** Tempo médio por etapa entre as barras~~ — ✅ FEITO: MEDIANA (não média — outliers de dias distorceriam) visita → 1º checkout e último checkout → compra, derivada de `checkoutHits`/`purchasedAt`; exige 3+ amostras para exibir. Verificado: "~5h 42min após a visita", "~8h 34min após o checkout".
+- ~~**318.** Gargalo (146) vira link com sugestão de ação~~ — ✅ FEITO: faixa âmbar sob o funil com diagnóstico e ação — perda visita→checkout sugere revisar oferta/carregamento; perda no pagamento sugere conferir recusas com link direto para `/dashboard/activity?f=failed` (deep-link do item 292). Verificado no browser. Também corrigido de passagem: badge "quente" estava duplicado na tabela de leads (duas implementações do item 313 coexistiam) — removida a redundante.
 - **319.** Cards por gateway com `last_event_status` + link à aba Gateways.
 - ~~**320.** Paginação com "ir para página N"~~ — ✅ FEITO: input numérico no lugar do contador estático ("3/12"), com clamp em 1..N e aria-label. Verificado no browser (digitei 3 → "21–27 de 27").
 - **321.** Virtualização da tabela acima de 500 leads.
