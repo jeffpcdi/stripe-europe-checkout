@@ -258,7 +258,7 @@ const EventRow = memo(function EventRow({
 })
 
 export function ActivityView() {
-  const { data, isLoading, error, isValidating } = useStats()
+  const { data, isLoading, error } = useStats()
   // Item 185: o filtro de tipo de evento persiste entre navegações
   const [filter, setFilter] = usePersistedState<string | null>('activity:filter', null)
   // Item 331: busca textual efêmera (não persiste — busca é da sessão)
@@ -419,6 +419,78 @@ export function ActivityView() {
         </span>
       </div>
 
+      {/* Itens 331/332/333: busca + gateway + período do feed */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(ev) => {
+              setQuery(ev.target.value)
+              setLimit(PAGE_SIZE)
+            }}
+            placeholder="Buscar por cliente, e-mail ou gateway…"
+            aria-label="Buscar eventos"
+            className="w-full rounded-lg border border-border/60 bg-transparent py-1.5 pl-9 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Limpar busca"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+
+        {gateways.length > 1 ? (
+          <select
+            value={gwFilter ?? ''}
+            onChange={(ev) => {
+              setGwFilter(ev.target.value || null)
+              setLimit(PAGE_SIZE)
+            }}
+            aria-label="Filtrar por gateway"
+            className="rounded-lg border border-border/60 bg-transparent px-2.5 py-1.5 text-xs text-foreground focus:border-primary/40 focus:outline-none [&>option]:bg-background"
+          >
+            <option value="">Todos os gateways</option>
+            {gateways.map((g) => (
+              <option key={g} value={g}>
+                {gwLabel(g)}
+              </option>
+            ))}
+          </select>
+        ) : null}
+
+        <div className="flex items-center gap-1" role="group" aria-label="Período do feed">
+          {FEED_PERIODS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              aria-pressed={feedPeriod === p.value}
+              onClick={() => {
+                setFeedPeriod(p.value)
+                setLimit(PAGE_SIZE)
+              }}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                feedPeriod === p.value
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Feed */}
       <GlassCard className="p-4">
         {isLoading && !data ? (
@@ -459,9 +531,26 @@ export function ActivityView() {
                         }}
                         aria-hidden="true"
                       />
+                      {/* Item 340: resumo do dia inteiro filtrado no separador */}
+                      {(() => {
+                        const s = daySummary.get(label)
+                        if (!s || (s.sales === 0 && s.failed === 0)) return null
+                        return (
+                          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                            {s.sales > 0 ? (
+                              <>
+                                {plural(s.sales, 'venda')} ·{' '}
+                                <span data-sensitive>{formatMoney(s.revenue, s.cur)}</span>
+                              </>
+                            ) : null}
+                            {s.sales > 0 && s.failed > 0 ? ' · ' : null}
+                            {s.failed > 0 ? `${s.failed} recusadas` : null}
+                          </span>
+                        )
+                      })()}
                     </div>
                   ) : null}
-                  <EventRow e={e} isNew={isNew} />
+                  <EventRow e={e} isNew={isNew} highlight={e.id === highlightId} />
                 </div>
               )
             })}
@@ -475,6 +564,26 @@ export function ActivityView() {
                 Carregar mais ({events.length - limit} restantes)
               </button>
             ) : null}
+          </div>
+        ) : all.length > 0 ? (
+          /* Item 331: distinção entre "sem eventos" e "filtros sem resultado" */
+          <div className="flex flex-col items-center gap-3 py-12">
+            <p className="text-sm text-muted-foreground">
+              Nenhum evento corresponde aos filtros ativos.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setFilter(null)
+                setGwFilter(null)
+                setFeedPeriod(null)
+                setQuery('')
+                setLimit(PAGE_SIZE)
+              }}
+              className="btn-ghost !px-4"
+            >
+              Limpar filtros
+            </button>
           </div>
         ) : (
           <p className="py-12 text-center text-sm text-muted-foreground">Nenhum evento ainda.</p>

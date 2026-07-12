@@ -272,7 +272,20 @@ export function OverviewView() {
   return (
     <div className="flex flex-col gap-4">
       {/* Item 171: sticky no topo em mobile ao rolar */}
-      <div className="picker-sticky flex justify-end" data-tour="period">
+      <div className="picker-sticky flex items-center justify-end gap-2" data-tour="period">
+        {/* Item 278: baixa o resumo do período como PNG (canvas) */}
+        <ExportSummaryButton
+          period={period}
+          summary={{
+            revenue: revCents,
+            mainCur: cur.mainCur,
+            sales: cur.sales,
+            visits: cur.visits,
+            overall: cur.overall,
+            approval: cur.approval,
+            series: revSeries,
+          }}
+        />
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
