@@ -65,7 +65,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - ~~**292.** MiniStat de reembolsos clicável → Atividade filtrada em refund~~ — ✅ FEITO: chips de Reembolsos e Disputas viram `<Link>` (só quando há ocorrências) para `/activity?f=refund|dispute`; a Atividade lê `?f=` na chegada e sobrepõe o filtro persistido.
 - ~~**293.** Contador "próxima atualização em Xs" junto ao badge Ao vivo~~ — ✅ FEITO: o badge do header mostra "atualiza em Xs" no hover (junto da latência), reancorado a cada resposta nova do `/api/stats` (ciclo de 12s do SWR).
 - **294.** Modo TV/fullscreen do overview para telão.
-- **296.** Card "tempo médio até a compra" (visita → purchase).
+- ~~**296.** Card "tempo médio até a compra" (visita → purchase)~~ — ✅ FEITO: card de insight ao lado do "melhor dia" — mediana (não média, robusta a outliers) de `purchasedAt − at` dos leads comprados no período, com contagem da amostra; exige ≥3 vendas para aparecer. `fmtDurationShort` novo em `lib/format.ts` ("14h 16min", "3d 4h"). Verificado no browser.
 - **297.** Badge de tendência de EMQ no overview.
 - **298.** Receita por gateway em donut compacto.
 - ~~**299.** Acessibilidade dos KPIs (aria-label com valor + delta + período)~~ — ✅ FEITO: `KpiCard` aceita `ariaLabel` (vira `role="group"` + `aria-label`); a Overview passa leitura completa nos 4 KPIs (ex.: "Receita total: R$ X, alta de Y% vs período anterior"). Verificado no snapshot de acessibilidade do browser.

@@ -22,6 +22,18 @@ export interface PeriodMetrics {
   countries: { code: string; name: string; count: number; purchased: number }[]
   series: { day: string; revenue: number; sales: number; visits: number }[]
   byGateway: { name: string; checkout: number; purchased: number }[]
+  /** Item 286: ranking de campanhas (utm_campaign) por leads e conversões */
+  topCampaigns: SourceRank[]
+  /** Item 287: ranking de links rastreados (linkSlug) por conversão */
+  topLinks: SourceRank[]
+}
+
+export interface SourceRank {
+  name: string
+  leads: number
+  purchased: number
+  /** conversão lead → compra em % (1 casa) */
+  conv: number
 }
 
 export function periodStart(period: Period, now = new Date()): Date | null {
@@ -147,6 +159,26 @@ export function aggregate(
     gwMap.set(l.gateway, g)
   }
 
+  // Itens 286/287: rankings por origem — campanha (utm_campaign) e link
+  // rastreado (linkSlug). Ordena por conversões e, em empate, por leads.
+  function rankBy(key: (l: Lead) => string | null | undefined): SourceRank[] {
+    const map = new Map<string, { name: string; leads: number; purchased: number }>()
+    for (const l of leads) {
+      const name = key(l)
+      if (!name) continue
+      const r = map.get(name) ?? { name, leads: 0, purchased: 0 }
+      r.leads++
+      if (l.stage === 'purchased') r.purchased++
+      map.set(name, r)
+    }
+    return [...map.values()]
+      .map((r) => ({ ...r, conv: r.leads ? +((r.purchased / r.leads) * 100).toFixed(1) : 0 }))
+      .sort((a, b) => b.purchased - a.purchased || b.leads - a.leads)
+      .slice(0, 5)
+  }
+  const topCampaigns = rankBy((l) => l.utm?.campaign)
+  const topLinks = rankBy((l) => l.linkSlug)
+
   const attempts = sales + failed
   const mainCur =
     Object.entries(rev).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'BRL'
@@ -173,6 +205,8 @@ export function aggregate(
     countries: [...countryMap.values()].sort((a, b) => b.count - a.count),
     series,
     byGateway: [...gwMap.values()].sort((a, b) => b.checkout - a.checkout),
+    topCampaigns,
+    topLinks,
   }
 }
 

@@ -203,6 +203,22 @@ export function liveDuration(ms?: number): string {
   return `${Math.floor(s / 3600)}h`
 }
 
+/** Item 296: duração legível em até 2 unidades: "4min", "2h 15min", "3d 4h" */
+export function fmtDurationShort(ms: number): string {
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  const min = Math.floor(s / 60)
+  if (min < 60) return `${min}min`
+  const h = Math.floor(min / 60)
+  if (h < 24) {
+    const restMin = min % 60
+    return restMin > 0 ? `${h}h ${restMin}min` : `${h}h`
+  }
+  const d = Math.floor(h / 24)
+  const restH = h % 24
+  return restH > 0 ? `${d}d ${restH}h` : `${d}d`
+}
+
 /** Visitante no checkout (isCheckoutLead legado) */
 export function isCheckoutVisitor(page?: string): boolean {
   return !!(page && page.includes('checkout'))

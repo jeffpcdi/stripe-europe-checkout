@@ -67,6 +67,9 @@ export interface Lead {
   amount?: number
   currency?: string
   utm?: Record<string, string>
+  /** Itens 286/287: página de entrada e link rastreado que originou o lead */
+  landing?: string
+  linkSlug?: string
   journey?: { p: string; at: string }[]
   customer?: string
   email?: string

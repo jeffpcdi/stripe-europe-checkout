@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Coins,
   CalendarDays,
+  Timer,
 } from 'lucide-react'
 import { useStats } from '@/lib/api'
 import {
@@ -20,7 +21,7 @@ import {
   periodStart,
   prevWindow,
 } from '@/lib/metrics'
-import { countryFlag, fmtPercent } from '@/lib/format'
+import { countryFlag, fmtDurationShort, fmtPercent } from '@/lib/format'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { SparkBars, SparkLine } from '@/components/sparkline'
@@ -28,6 +29,7 @@ import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { KpiCard } from './kpi-card'
 import { MiniStat } from './mini-stat'
+import { TopSources } from './top-sources'
 import { PeriodPicker } from './period-picker'
 import { RevenueChart } from './revenue-chart'
 import { HealthCard } from './health-card'
@@ -98,6 +100,27 @@ export function OverviewView() {
     if (best < 0 || byDow[best].revenue <= 0) return null
     return { name: names[best], revenue: byDow[best].revenue }
   }, [cur])
+
+  // Item 296: tempo médio da primeira visita até a compra, mediana dos leads
+  // comprados no período (mediana > média: um outlier de dias não distorce).
+  const timeToBuy = useMemo(() => {
+    if (!data?.leads) return null
+    const from = periodStart(period)
+    const deltas: number[] = []
+    for (const l of data.leads) {
+      if (l.stage !== 'purchased' || !l.purchasedAt || !l.at) continue
+      const bought = new Date(l.purchasedAt).getTime()
+      const first = new Date(l.at).getTime()
+      if (Number.isNaN(bought) || Number.isNaN(first) || bought <= first) continue
+      if (from && bought < from.getTime()) continue
+      deltas.push(bought - first)
+    }
+    if (deltas.length < 3) return null // amostra pequena demais para afirmar algo
+    deltas.sort((a, b) => a - b)
+    const mid = Math.floor(deltas.length / 2)
+    const median = deltas.length % 2 ? deltas[mid] : (deltas[mid - 1] + deltas[mid]) / 2
+    return { median, count: deltas.length }
+  }, [data, period])
 
   if (error) {
     return (
@@ -470,6 +493,10 @@ export function OverviewView() {
         />
       </section>
 
+      {/* Itens 286/287: de onde vêm os leads que convertem — só aparece
+          quando o período tem campanhas UTM ou links rastreados */}
+      <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />
+
       {/* Globo — presença global ao vivo. Fica na página inicial, mas depois
           dos números: primeiro o usuário vê o dinheiro, depois o mundo. */}
       <HeroGlobe />
@@ -483,23 +510,51 @@ export function OverviewView() {
         <div className="lg:col-span-2 flex flex-col gap-4">
           {/* Item 272: série anterior vira linha fantasma de comparação */}
           <RevenueChart series={cur.series} currency={cur.mainCur} prevSeries={prev?.series} />
-          {/* Item 274: insight do melhor dia da semana (só com histórico suficiente) */}
-          {bestWeekday && (
-            <GlassCard className="flex items-center gap-3 p-4">
-              <div
-                className="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
-              >
-                <CalendarDays className="size-5" style={{ color: '#25f4ee' }} aria-hidden="true" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Melhor dia da semana</p>
-                <p className="text-sm font-semibold text-foreground text-pretty">
-                  {bestWeekday.name} lidera com{' '}
-                  <span data-sensitive>{money(bestWeekday.revenue, cur.mainCur)}</span> em receita
-                </p>
-              </div>
-            </GlassCard>
+          {/* Itens 274 + 296: insights derivados (melhor dia + tempo até compra) */}
+          {(bestWeekday || timeToBuy) && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {bestWeekday && (
+                <GlassCard className="flex items-center gap-3 p-4">
+                  <div
+                    className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
+                  >
+                    <CalendarDays
+                      className="size-5"
+                      style={{ color: '#25f4ee' }}
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Melhor dia da semana</p>
+                    <p className="text-sm font-semibold text-foreground text-pretty">
+                      {bestWeekday.name} lidera com{' '}
+                      <span data-sensitive>{money(bestWeekday.revenue, cur.mainCur)}</span> em
+                      receita
+                    </p>
+                  </div>
+                </GlassCard>
+              )}
+              {timeToBuy && (
+                <GlassCard className="flex items-center gap-3 p-4">
+                  <div
+                    className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: 'rgba(34,197,94,.1)' }}
+                  >
+                    <Timer className="size-5" style={{ color: '#22c55e' }} aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Tempo até a compra</p>
+                    <p className="text-sm font-semibold text-foreground text-pretty">
+                      {fmtDurationShort(timeToBuy.median)} da visita ao pagamento{' '}
+                      <span className="font-normal text-muted-foreground">
+                        (mediana de {timeToBuy.count} vendas)
+                      </span>
+                    </p>
+                  </div>
+                </GlassCard>
+              )}
+            </div>
           )}
         </div>
         <HealthCard />
