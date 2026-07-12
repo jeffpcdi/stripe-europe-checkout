@@ -231,6 +231,11 @@ async function init() {
     await sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ua text`;
     await sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ip_masked text`;
 
+    // ── Item 420: 2FA TOTP opcional ───────────────────────────────────────
+    // Secret base32 do autenticador (Google Authenticator etc.). NULL = 2FA
+    // desligado. O secret nunca sai do servidor depois de confirmado.
+    await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_secret text`;
+
     ready = true;
     console.log('[db] Neon pronto (tabelas multi-tenant verificadas).');
     return true;
@@ -269,7 +274,7 @@ async function createAccount(acc) {
 async function getAccountByEmail(email) {
   if (!enabled || !email) return null;
   try {
-    const rows = await sql`SELECT id, email, password_hash, name, role, created_at
+    const rows = await sql`SELECT id, email, password_hash, name, role, created_at, totp_secret
       FROM accounts WHERE email = ${email.toLowerCase()} LIMIT 1`;
     return rows.length ? rows[0] : null;
   } catch (err) { console.error('[db] getAccountByEmail:', err.message); return null; }
@@ -282,7 +287,7 @@ async function getAccountById(id) {
     // senha usa esta função para conferir a senha atual e SEMPRE respondia
     // "Senha atual incorreta" (verifyPassword contra undefined). O único
     // consumidor é auth.changePassword; nada serializa o objeto inteiro.
-    const rows = await sql`SELECT id, email, password_hash, name, role, created_at
+    const rows = await sql`SELECT id, email, password_hash, name, role, created_at, totp_secret
       FROM accounts WHERE id = ${id} LIMIT 1`;
     return rows.length ? rows[0] : null;
   } catch (err) { console.error('[db] getAccountById:', err.message); return null; }
@@ -417,6 +422,15 @@ async function updateAccountName(accountId, name) {
     const rows = await sql`UPDATE accounts SET name = ${name} WHERE id = ${accountId} RETURNING id`;
     return rows.length > 0;
   } catch (err) { console.error('[db] updateAccountName:', err.message); return false; }
+}
+
+// Item 420: liga/desliga o 2FA — secret base32 ou NULL para desativar.
+async function setAccountTotp(accountId, secret) {
+  if (!enabled || !accountId) return false;
+  try {
+    const rows = await sql`UPDATE accounts SET totp_secret = ${secret || null} WHERE id = ${accountId} RETURNING id`;
+    return rows.length > 0;
+  } catch (err) { console.error('[db] setAccountTotp:', err.message); return false; }
 }
 
 // Item 324/425 (LGPD): anonimiza leads mais antigos que N dias — remove
@@ -1012,7 +1026,7 @@ module.exports = {
   // contas / auth / migração
   createAccount, getAccountByEmail, getAccountById, countAccounts, getFirstAccountId, claimLegacyData,
   createAuthSession, getAuthSession, deleteAuthSession, pruneAuthSessions,
-  listAuthSessions, deleteAuthSessionBySid, updateAccountName,
+  listAuthSessions, deleteAuthSessionBySid, updateAccountName, setAccountTotp,
   anonymizeOldLeads, accountDataCounts, deleteAccountCascade,
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,

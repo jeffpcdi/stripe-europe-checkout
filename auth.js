@@ -104,7 +104,108 @@ async function login({ email, password, meta }) {
     return { error: 'E-mail ou senha incorretos.' };
   }
   loginFails.delete(loginLockKey(email)); // sucesso zera o contador
+
+  // Item 420: conta com 2FA ativo NÃO ganha sessão ainda — devolve um ticket
+  // de curta duração que só o segundo passo (código do autenticador) troca
+  // por sessão de verdade. O ticket é opaco e vive em memória (5 min).
+  if (row.totp_secret) {
+    const pending = crypto.randomBytes(24).toString('hex');
+    pending2fa.set(pending, { accountId: row.id, meta, expiresAt: Date.now() + PENDING_2FA_MS });
+    return { requires2fa: true, pending };
+  }
+
   const token = await db.createAuthSession(row.id, SESSION_TTL_DAYS, meta);
+  const account = { id: row.id, email: row.email, name: row.name, role: row.role };
+  return { account, token };
+}
+
+// ── Item 420: 2FA TOTP opcional (otplib) ──────────────────────────────────
+const { authenticator } = require('otplib');
+authenticator.options = { window: 1 }; // tolera ±30s de deriva de relógio
+
+// Tickets do segundo passo do login: pending → { accountId, meta, expiresAt }
+const PENDING_2FA_MS = 5 * 60 * 1000;
+const pending2fa = new Map();
+
+// Secrets em configuração (gerados no setup mas ainda não confirmados):
+// accountId → { secret, expiresAt }. Só viram definitivos no confirm2fa.
+const setup2faPending = new Map();
+
+// Freio de força bruta no código de 6 dígitos: 5 erros → 5 min de espera.
+const twofaFails = new Map(); // accountId → { count, until }
+function twofaLocked(accountId) {
+  const rec = twofaFails.get(accountId);
+  if (!rec) return false;
+  if (rec.until && rec.until <= Date.now()) { twofaFails.delete(accountId); return false; }
+  return rec.until > 0;
+}
+function registerTwofaFail(accountId) {
+  const rec = twofaFails.get(accountId) || { count: 0, until: 0 };
+  rec.count += 1;
+  if (rec.count >= 5) rec.until = Date.now() + 5 * 60 * 1000;
+  twofaFails.set(accountId, rec);
+}
+
+// Passo 1 da ativação: gera o secret e devolve a URI otpauth (vira QR na UI).
+// Nada é persistido ainda — se o usuário abandonar, expira em 10 min.
+async function setup2fa({ accountId, email }) {
+  const row = await db.getAccountById(accountId);
+  if (!row) return { error: 'Conta não encontrada.' };
+  if (row.totp_secret) return { error: 'O 2FA já está ativo. Desative antes de reconfigurar.' };
+  const secret = authenticator.generateSecret();
+  setup2faPending.set(accountId, { secret, expiresAt: Date.now() + 10 * 60 * 1000 });
+  const otpauth = authenticator.keyuri(email || row.email, 'ROI-NADOS', secret);
+  return { ok: true, secret, otpauth };
+}
+
+// Passo 2 da ativação: confirma com um código válido e persiste o secret.
+async function confirm2fa({ accountId, code }) {
+  const pending = setup2faPending.get(accountId);
+  if (!pending || pending.expiresAt <= Date.now()) {
+    setup2faPending.delete(accountId);
+    return { error: 'Configuração expirada — gere o QR de novo.' };
+  }
+  if (!authenticator.verify({ token: String(code || '').trim(), secret: pending.secret })) {
+    return { error: 'Código incorreto. Confira o app autenticador.' };
+  }
+  const ok = await db.setAccountTotp(accountId, pending.secret);
+  if (!ok) return { error: 'Não foi possível salvar. Tente novamente.' };
+  setup2faPending.delete(accountId);
+  return { ok: true };
+}
+
+// Desativação: exige um código válido (prova de posse do autenticador).
+async function disable2fa({ accountId, code }) {
+  const row = await db.getAccountById(accountId);
+  if (!row || !row.totp_secret) return { error: 'O 2FA não está ativo.' };
+  if (twofaLocked(accountId)) return { error: 'Muitas tentativas. Aguarde alguns minutos.' };
+  if (!authenticator.verify({ token: String(code || '').trim(), secret: row.totp_secret })) {
+    registerTwofaFail(accountId);
+    return { error: 'Código incorreto.' };
+  }
+  twofaFails.delete(accountId);
+  const ok = await db.setAccountTotp(accountId, null);
+  if (!ok) return { error: 'Não foi possível desativar. Tente novamente.' };
+  return { ok: true };
+}
+
+// Segundo passo do login: troca o ticket + código por uma sessão de verdade.
+async function complete2faLogin({ pending, code }) {
+  const ticket = pending2fa.get(String(pending || ''));
+  if (!ticket || ticket.expiresAt <= Date.now()) {
+    pending2fa.delete(String(pending || ''));
+    return { error: 'Sessão de verificação expirada — entre de novo.' };
+  }
+  if (twofaLocked(ticket.accountId)) return { error: 'Muitas tentativas. Aguarde alguns minutos.', locked: true };
+  const row = await db.getAccountById(ticket.accountId);
+  if (!row || !row.totp_secret) { pending2fa.delete(String(pending)); return { error: 'Estado inválido — entre de novo.' }; }
+  if (!authenticator.verify({ token: String(code || '').trim(), secret: row.totp_secret })) {
+    registerTwofaFail(ticket.accountId);
+    return { error: 'Código incorreto.' };
+  }
+  twofaFails.delete(ticket.accountId);
+  pending2fa.delete(String(pending));
+  const token = await db.createAuthSession(row.id, SESSION_TTL_DAYS, ticket.meta);
   const account = { id: row.id, email: row.email, name: row.name, role: row.role };
   return { account, token };
 }
