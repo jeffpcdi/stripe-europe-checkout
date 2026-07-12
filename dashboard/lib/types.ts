@@ -66,6 +66,8 @@ export interface Lead {
   os?: string
   browser?: string
   checkoutAt?: string
+  /** Item 302: quando o gateway registrou a 1ª tentativa de pagamento (aprovada ou não) */
+  paymentStartedAt?: string
   purchasedAt?: string
   amount?: number
   currency?: string
