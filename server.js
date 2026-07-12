@@ -3428,6 +3428,11 @@ async function processConversion(n) {
           raw: rawForFeed()
         });
       } catch (_) {}
+      // Item 302: recusa = cliente SUBMETEU o pagamento — conta como
+      // "iniciou pagamento" no funil (se conseguimos identificar o lead)
+      if (n.event === 'Failed' && lead) {
+        try { stats.markPaymentStarted(lead.id); } catch (_) {}
+      }
       notifyPushcut(n.event, n);
       receipt.status = 'ok (sem CAPI)';
       rdb.pushConversionLog(receipt).catch(() => {});
@@ -3471,7 +3476,8 @@ async function processConversion(n) {
             acc: n.acc || lead.acc || undefined,
             email: n.email || undefined,
             phone: n.phone || undefined,
-            customer: n.name || undefined
+            customer: n.name || undefined,
+            paymentStarted: true // item 302: veio do GATEWAY, não do hit de página
           });
         } catch (_) {}
       }
