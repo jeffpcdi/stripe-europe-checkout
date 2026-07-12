@@ -126,6 +126,20 @@ export function FunnelView() {
         ? 1
         : 2
 
+  // ── Item 303: benchmark interno — taxa atual vs média 30d por etapa ────
+  // Mesmo recorte de link/campanha do funil (comparar filtrado com global
+  // seria maçã vs banana). Sem sentido em '30d'/'all': o período é a base.
+  const bench = useMemo(() => {
+    if (!filteredData || period === '30d' || period === 'all') return null
+    const b = aggregate(filteredData, periodStart('30d'))
+    // amostra mínima: com menos de 20 visitas em 30d a "média" é ruído
+    if (b.visits < 20) return null
+    return {
+      v2c: +((b.reachedCheckout / b.visits) * 100).toFixed(1),
+      c2p: b.reachedCheckout ? +((b.purchased / b.reachedCheckout) * 100).toFixed(1) : 0,
+    }
+  }, [filteredData, period])
+
   // ── Item 302: "iniciou pagamento" ≠ "aprovado" ─────────────────────────
   // Tentativas = eventos do gateway (vendas + recusas) no período. Eventos
   // não carregam link/campanha, então com filtro ativo a etapa É OCULTADA
@@ -148,6 +162,7 @@ export function FunnelView() {
       isBottleneck: false,
       money: null as string | null,
       elapsed: null as string | null,
+      bench: null as { delta: number; base: number } | null,
     },
     {
       // Item 302: sub corrigido — chegar ao checkout não é iniciar pagamento
@@ -169,6 +184,8 @@ export function FunnelView() {
         stageExtras?.v2cMedian != null
           ? `~${fmtDurationShort(stageExtras.v2cMedian)} após a visita`
           : null,
+      // Item 303: desvio da taxa atual vs média 30d (pontos percentuais)
+      bench: bench ? { delta: +(v2c - bench.v2c).toFixed(1), base: bench.v2c } : null,
     },
     // Item 302: etapa intermediária — o gateway registrou uma tentativa
     // (aprovada ou recusada). Pode passar do checkout: retentativas e vendas
@@ -186,6 +203,7 @@ export function FunnelView() {
             isBottleneck: false,
             money: null as string | null,
             elapsed: null as string | null,
+            bench: null as { delta: number; base: number } | null,
           },
         ]
       : []),
@@ -209,6 +227,8 @@ export function FunnelView() {
         stageExtras?.c2pMedian != null
           ? `~${fmtDurationShort(stageExtras.c2pMedian)} após o checkout`
           : null,
+      // Item 303: checkout→compra atual vs média 30d
+      bench: bench ? { delta: +(c2p - bench.c2p).toFixed(1), base: bench.c2p } : null,
     },
   ]
 
@@ -329,7 +349,7 @@ export function FunnelView() {
                   </span>
                 </div>
                 {/* Itens 145/316/317: taxa, dinheiro e tempo mediano da etapa */}
-                {st.stepRate || st.money || st.elapsed ? (
+                {st.stepRate || st.money || st.elapsed || st.bench ? (
                   <p className="pl-[152px] font-mono text-[10.5px] tabular-nums text-faint">
                     {[st.stepRate, st.money, st.elapsed].filter(Boolean).map((part, j) => (
                       <span key={String(part)}>
@@ -337,6 +357,26 @@ export function FunnelView() {
                         {st.money === part ? <span data-sensitive>{part}</span> : part}
                       </span>
                     ))}
+                    {/* Item 303: desvio vs média 30d — verde acima, âmbar abaixo,
+                        neutro quando empata (delta 0 não é nem bom nem ruim) */}
+                    {st.bench ? (
+                      <span
+                        className={
+                          st.bench.delta > 0
+                            ? 'text-success'
+                            : st.bench.delta < 0
+                              ? 'text-warning'
+                              : undefined
+                        }
+                        title={`Média dos últimos 30 dias: ${fmtPercent(st.bench.base)}`}
+                      >
+                        {' · '}
+                        {st.bench.delta > 0 ? '▲' : st.bench.delta < 0 ? '▼' : '='}{' '}
+                        {st.bench.delta === 0
+                          ? 'na média 30d'
+                          : `${Math.abs(st.bench.delta).toLocaleString('pt-BR')} pp vs média 30d`}
+                      </span>
+                    ) : null}
                   </p>
                 ) : null}
               </div>

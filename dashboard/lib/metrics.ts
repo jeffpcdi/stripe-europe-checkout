@@ -16,6 +16,8 @@ export interface PeriodMetrics {
   approval: number
   visits: number
   reachedCheckout: number
+  /** Item 302: leads que SUBMETERAM pagamento no gateway (aprovado ou não) */
+  paymentStarted: number
   purchased: number
   overall: number
   avgTicket: number
@@ -140,6 +142,11 @@ export function aggregate(
   const reachedCheckout = leads.filter(
     (l) => l.stage === 'checkout' || l.stage === 'purchased',
   ).length
+  // Item 302: submeteu o pagamento no gateway (PIX gerado/cartão enviado,
+  // aprovado OU recusado) — separa "olhou o checkout" de "tentou pagar"
+  const paymentStarted = leads.filter(
+    (l) => l.paymentStartedAt || l.stage === 'purchased',
+  ).length
   const purchased = leads.filter((l) => l.stage === 'purchased').length
 
   for (const l of leads) bump(l.at, 'visits', 1)
@@ -212,6 +219,7 @@ export function aggregate(
     approval: attempts ? +((sales / attempts) * 100).toFixed(1) : 0,
     visits,
     reachedCheckout,
+    paymentStarted,
     purchased,
     overall: visits ? +((purchased / visits) * 100).toFixed(1) : 0,
     avgTicket: sales ? Math.round(totalRev / sales) : 0,
