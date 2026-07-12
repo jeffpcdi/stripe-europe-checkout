@@ -32,13 +32,19 @@ export default function DashboardLayout({
       <Toaster />
       {/* Item 561: erros de front reportados ao backend (senão são invisíveis) */}
       <ClientErrorReporter />
-      {/* Sidebar lateral esquerda — desktop */}
-      <Sidebar />
+      {/* Sidebar lateral esquerda — desktop.
+          Item 294: wrappers display:contents (não afetam o flex) permitem ao
+          modo TV esconder o chrome via html[data-tv] [data-tv-hide]. */}
+      <div data-tv-hide className="contents">
+        <Sidebar />
+      </div>
 
       <div className="min-w-0 flex-1">
         {/* Barra superior — apenas mobile (logo + menu) */}
-        <TopNav />
-        <Header />
+        <div data-tv-hide className="contents">
+          <TopNav />
+          <Header />
+        </div>
         <main
           id="conteudo"
           className="mx-auto w-full max-w-[1100px] px-4 pb-16 pt-2 lg:px-6"

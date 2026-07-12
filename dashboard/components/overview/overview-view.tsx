@@ -32,6 +32,7 @@ import { MiniStat } from './mini-stat'
 import { TopSources } from './top-sources'
 import { GatewayDonut } from './gateway-donut'
 import { ExportSummaryButton } from './export-summary'
+import { TvModeButton } from './tv-mode'
 import { OnboardingChecklist } from './onboarding-checklist'
 import { PeriodPicker } from './period-picker'
 import { RevenueChart } from './revenue-chart'
@@ -274,6 +275,8 @@ export function OverviewView() {
     <div className="flex flex-col gap-4">
       {/* Item 171: sticky no topo em mobile ao rolar */}
       <div className="picker-sticky flex items-center justify-end gap-2" data-tour="period">
+        {/* Item 294: fullscreen para telão — esconde o chrome via data-tv */}
+        <TvModeButton />
         {/* Item 278: baixa o resumo do período como PNG (canvas) */}
         <ExportSummaryButton
           period={period}

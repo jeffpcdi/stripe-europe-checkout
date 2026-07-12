@@ -24,6 +24,8 @@ import {
   Search,
   Link2,
   X,
+  Trophy,
+  Download,
   type LucideIcon,
 } from 'lucide-react'
 import type { StatsEvent } from '@/lib/types'
@@ -95,11 +97,14 @@ const EventRow = memo(function EventRow({
   e,
   isNew,
   highlight,
+  bestOfDay,
 }: {
   e: StatsEvent
   isNew?: boolean
   /* Item 343: evento alvo do permalink chega destacado */
   highlight?: boolean
+  /* Item 344: maior venda do dia ganha marco dourado */
+  bestOfDay?: boolean
 }) {
   const style = EVENT_STYLE[e.type] || EVENT_STYLE.info
   const Icon = style.icon
@@ -136,7 +141,7 @@ const EventRow = memo(function EventRow({
         type="button"
         onClick={() => hasDetails && setOpen(!open)}
         className={cn(
-          'flex w-full items-start gap-3 px-2.5 py-3 text-left',
+          'feed-row flex w-full items-start gap-3 px-2.5 py-3 text-left',
           hasDetails && 'cursor-pointer transition-colors hover:bg-[var(--hover)]',
         )}
         aria-expanded={hasDetails ? open : undefined}
@@ -156,6 +161,15 @@ const EventRow = memo(function EventRow({
             {isNew ? (
               <span className="rounded-full bg-[var(--accent-light)] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-wider text-[var(--accent)]">
                 novo
+              </span>
+            ) : null}
+            {/* Item 344: marco dourado na maior venda do dia */}
+            {bestOfDay ? (
+              <span
+                className="flex items-center gap-1 rounded-full bg-[rgba(245,158,11,.12)] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-wider text-[#f59e0b]"
+                title="Maior venda do dia"
+              >
+                <Trophy className="size-2.5" aria-hidden="true" /> top do dia
               </span>
             ) : null}
           </p>
@@ -258,7 +272,8 @@ const EventRow = memo(function EventRow({
 })
 
 export function ActivityView() {
-  const { data, isLoading, error } = useStats()
+  // isValidating alimenta o aria-busy do feed (item 348)
+  const { data, isLoading, error, isValidating } = useStats()
   // Item 185: o filtro de tipo de evento persiste entre navegações
   const [filter, setFilter] = usePersistedState<string | null>('activity:filter', null)
   // Item 331: busca textual efêmera (não persiste — busca é da sessão)
@@ -355,6 +370,63 @@ export function ActivityView() {
     return map
   }, [events])
 
+  // Item 344: id da maior venda de cada dia (mín. 2 vendas no dia — com uma
+  // só, "top do dia" não informa nada)
+  const bestOfDayIds = useMemo(() => {
+    const byDay = new Map<string, { id: string; amount: number; count: number }>()
+    for (const e of events) {
+      if (e.type !== 'sale' || !e.amount) continue
+      const label = dayLabel(e.at)
+      if (!label) continue
+      const r = byDay.get(label)
+      if (!r) byDay.set(label, { id: e.id, amount: e.amount, count: 1 })
+      else {
+        r.count++
+        if (e.amount > r.amount) {
+          r.amount = e.amount
+          r.id = e.id
+        }
+      }
+    }
+    const ids = new Set<string>()
+    for (const r of byDay.values()) if (r.count >= 2) ids.add(r.id)
+    return ids
+  }, [events])
+
+  // Item 337: exporta o feed FILTRADO como CSV (e-mail mascarado — o arquivo
+  // circula fora do painel, PII completa não deve sair)
+  function exportCsv() {
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const maskEmail = (em?: string | null) => {
+      if (!em || !em.includes('@')) return ''
+      const [user, domain] = em.split('@')
+      return (user.length <= 2 ? user[0] + '…' : user.slice(0, 2) + '…') + '@' + domain
+    }
+    const header = ['id', 'tipo', 'titulo', 'cliente', 'email_mascarado', 'gateway', 'valor', 'moeda', 'quando']
+    const rows = events.map((e) =>
+      [
+        e.id,
+        e.type,
+        e.title || '',
+        e.customer || '',
+        maskEmail(e.email),
+        e.gateway ? gwLabel(e.gateway) : '',
+        e.amount ? (e.amount / 100).toFixed(2) : '',
+        e.amount ? e.currency || 'BRL' : '',
+        e.at,
+      ].map(esc).join(','),
+    )
+    const blob = new Blob(['\uFEFF' + [header.join(','), ...rows].join('\n')], {
+      type: 'text/csv;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `eventos-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // Item 343: permalink ?e=<id> — garante o evento na página, rola até ele
   // e destaca. Limpa o param depois para o destaque não "grudar".
   const targetId = searchParams.get('e')
@@ -417,6 +489,12 @@ export function ActivityView() {
         <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
           {plural(events.length, 'evento')}
         </span>
+        {/* Item 337: exporta o recorte atual (filtros aplicados) */}
+        {events.length > 0 ? (
+          <button type="button" onClick={exportCsv} className="btn-ghost !px-2.5 !py-1 text-[11px]">
+            <Download className="size-3" aria-hidden /> CSV
+          </button>
+        ) : null}
       </div>
 
       {/* Itens 331/332/333: busca + gateway + período do feed */}
@@ -511,7 +589,14 @@ export function ActivityView() {
             Não foi possível carregar os eventos.
           </p>
         ) : visible.length > 0 ? (
-          <div className="anim-content-in flex flex-col">
+          /* Item 348: role="feed" + aria-busy sinalizam a leitores de tela
+             que é um fluxo vivo e quando está revalidando */
+          <div
+            className="anim-content-in flex flex-col"
+            role="feed"
+            aria-label="Eventos de conversão"
+            aria-busy={isValidating}
+          >
             {visible.map((e, i) => {
               // Item 151: separador de dia quando o dia muda
               const label = dayLabel(e.at)
@@ -550,7 +635,12 @@ export function ActivityView() {
                       })()}
                     </div>
                   ) : null}
-                  <EventRow e={e} isNew={isNew} highlight={e.id === highlightId} />
+                  <EventRow
+                    e={e}
+                    isNew={isNew}
+                    highlight={e.id === highlightId}
+                    bestOfDay={bestOfDayIds.has(e.id)}
+                  />
                 </div>
               )
             })}
