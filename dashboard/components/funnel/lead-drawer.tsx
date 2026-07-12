@@ -5,9 +5,19 @@
 // Consome /api/leads/:id (item 326), que revalida no ritmo padrão (12s),
 // então um lead "ao vivo" atualiza a jornada com o drawer aberto.
 
-import { useEffect, useRef } from 'react'
-import { X, MapPin, Monitor, Smartphone, Tablet, CreditCard, LinkIcon } from 'lucide-react'
-import { useLead } from '@/lib/api'
+import { useEffect, useRef, useState } from 'react'
+import {
+  X,
+  MapPin,
+  Monitor,
+  Smartphone,
+  Tablet,
+  CreditCard,
+  LinkIcon,
+  RotateCw,
+  Check,
+} from 'lucide-react'
+import { useLead, apiSend } from '@/lib/api'
 import {
   countryFlag,
   fmtCurrencyOrDash,
@@ -21,6 +31,70 @@ import {
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/skeleton'
+
+// Item 314: reenviar a conversão deste lead à CAPI. O backend acha o recibo
+// MAIS RECENTE do lead no log e re-dispara com registerSale=false + dedupe
+// (mesmo event_id) — a venda não é recontabilizada nem duplicada no TikTok.
+function CapiReplayButton({ leadId }: { leadId: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle')
+  const [msg, setMsg] = useState('')
+
+  async function handleReplay() {
+    if (state === 'busy') return
+    setState('busy')
+    try {
+      const r = await apiSend<{ ok: boolean; receipt?: { status?: string; dispatched?: number } }>(
+        '/api/ops/reprocess-conversion',
+        'POST',
+        { leadId },
+      )
+      const st = r.receipt?.status ?? 'ok'
+      if (st === 'ok' || st.startsWith('ok')) {
+        setState('ok')
+        setMsg(r.receipt?.dispatched ? `${r.receipt.dispatched} pixel(s) receberam` : 'reenviado')
+      } else {
+        setState('err')
+        setMsg(st === 'sem pixel' ? 'nenhum pixel ativo' : st)
+      }
+    } catch (err) {
+      setState('err')
+      setMsg(err instanceof Error ? err.message : 'falha ao reprocessar')
+    }
+    setTimeout(() => setState('idle'), 4000)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleReplay}
+      disabled={state === 'busy'}
+      className={cn(
+        'btn-ghost mt-1 self-start !px-2.5 !py-1 text-[11px]',
+        state === 'ok' && '!text-success',
+        state === 'err' && '!text-warning',
+      )}
+      title="Reenviar a conversão deste lead à CAPI do TikTok (não recontabiliza a venda)"
+    >
+      {state === 'busy' ? (
+        <>
+          <RotateCw className="size-3 animate-spin" aria-hidden /> Reenviando…
+        </>
+      ) : state === 'ok' ? (
+        <>
+          <Check className="size-3" aria-hidden /> {msg}
+        </>
+      ) : state === 'err' ? (
+        <>
+          <X className="size-3" aria-hidden /> {msg}
+        </>
+      ) : (
+        <>
+          <RotateCw className="size-3" aria-hidden /> Reenviar CAPI
+        </>
+      )}
+    </button>
+  )
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -192,6 +266,8 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
                     </span>
                   </Field>
                 ) : null}
+                {/* Item 314: só leads que COMPRARAM têm recibo para reprocessar */}
+                {lead.stage === 'purchased' ? <CapiReplayButton leadId={lead.id} /> : null}
               </section>
 
               {/* jornada página a página */}

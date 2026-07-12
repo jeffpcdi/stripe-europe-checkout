@@ -3186,14 +3186,19 @@ app.post('/api/ops/reprocess-conversion', dashboardAuth, async (req, res) => {
   // Item 341: replay direto do feed — o feed só conhece o orderId (ref),
   // então aceitamos os dois; por orderId pegamos o recibo MAIS RECENTE.
   const orderId = String((req.body && req.body.orderId) || '').slice(0, 200);
-  if (!id && !orderId) return apiError(res, 400, 'Informe o id do recibo (ou orderId) a reprocessar.', 'missing_id');
+  // Item 314: replay a partir do drawer do lead — lá só existe o leadId.
+  // Mesmo princípio: recibo MAIS RECENTE daquele lead, escopado à conta.
+  const leadId = String((req.body && req.body.leadId) || '').slice(0, 200);
+  if (!id && !orderId && !leadId) return apiError(res, 400, 'Informe o id do recibo (ou orderId/leadId) a reprocessar.', 'missing_id');
   try {
     const log = await rdb.loadConversionLog(200);
     // multi-tenant: só recibos da PRÓPRIA conta (legado sem acc → só admin)
     const mine = (r) => r && (r.acc === req.account.id || (!r.acc && req.account.role === 'admin'));
     const entry = id
       ? (log || []).find((r) => mine(r) && r.id === id)
-      : (log || []).find((r) => mine(r) && r.orderId === orderId); // log é recente→antigo
+      : orderId
+        ? (log || []).find((r) => mine(r) && r.orderId === orderId) // log é recente→antigo
+        : (log || []).find((r) => mine(r) && r.leadId === leadId);
     if (!entry) return apiError(res, 404, 'Recibo não encontrado no log (só os 200 mais recentes podem ser reprocessados).', 'not_found');
     if (entry.teste) return apiError(res, 400, 'Recibos de teste (dry-run) não podem ser reprocessados.', 'is_test');
     // Reconstrói o envelope a partir do recibo. registerSale=false: a venda já

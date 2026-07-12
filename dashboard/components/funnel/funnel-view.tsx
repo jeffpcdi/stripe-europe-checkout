@@ -126,6 +126,14 @@ export function FunnelView() {
         ? 1
         : 2
 
+  // ── Item 302: "iniciou pagamento" ≠ "aprovado" ─────────────────────────
+  // Tentativas = eventos do gateway (vendas + recusas) no período. Eventos
+  // não carregam link/campanha, então com filtro ativo a etapa É OCULTADA
+  // — mostrar um número global num funil recortado seria mentir.
+  const attempts = m ? m.sales + m.failed : 0
+  const showAttempts = !hasFilter && attempts > 0
+  const a2p = m && attempts ? +((m.sales / attempts) * 100).toFixed(1) : 0
+
   // Itens 107–109: barras na identidade (gradiente na 1ª etapa, ciano com
   // opacidade decrescente nas seguintes); rótulos nunca truncados.
   const steps = [
@@ -142,8 +150,9 @@ export function FunnelView() {
       elapsed: null as string | null,
     },
     {
+      // Item 302: sub corrigido — chegar ao checkout não é iniciar pagamento
       label: 'Checkout',
-      sub: 'iniciaram pagamento',
+      sub: 'entraram no checkout',
       value: m?.reachedCheckout ?? 0,
       bar: 'color-mix(in oklab, var(--accent) 72%, transparent)',
       color: 'var(--accent)',
@@ -161,6 +170,25 @@ export function FunnelView() {
           ? `~${fmtDurationShort(stageExtras.v2cMedian)} após a visita`
           : null,
     },
+    // Item 302: etapa intermediária — o gateway registrou uma tentativa
+    // (aprovada ou recusada). Pode passar do checkout: retentativas e vendas
+    // órfãs também contam, por isso o sub explica a origem do número.
+    ...(showAttempts
+      ? [
+          {
+            label: 'Tentaram pagar',
+            sub: 'tentativas registradas pelo gateway',
+            value: attempts,
+            bar: 'color-mix(in oklab, var(--accent) 58%, transparent)',
+            color: 'var(--accent)',
+            rate: fmtPercent(m && m.visits ? +((attempts / m.visits) * 100).toFixed(1) : 0),
+            stepRate: `${m?.failed ?? 0} recusada${(m?.failed ?? 0) === 1 ? '' : 's'}`,
+            isBottleneck: false,
+            money: null as string | null,
+            elapsed: null as string | null,
+          },
+        ]
+      : []),
     {
       label: 'Compraram',
       sub: 'pagamento aprovado',
@@ -168,7 +196,11 @@ export function FunnelView() {
       bar: 'color-mix(in oklab, var(--accent) 44%, transparent)',
       color: 'var(--accent)',
       rate: fmtPercent(m?.overall ?? 0),
-      stepRate: `${fmtPercent(c2p)} do checkout`,
+      // Item 302: com a etapa de tentativas visível, a taxa que importa é
+      // a aprovação do gateway; sem ela, mantém a taxa sobre o checkout
+      stepRate: showAttempts
+        ? `${fmtPercent(a2p)} de aprovação`
+        : `${fmtPercent(c2p)} do checkout`,
       isBottleneck: bottleneck === 2,
       // Item 316: receita real na moeda dominante
       money: purchasedValue > 0 ? `${formatMoney(purchasedValue, m?.mainCur)} em receita` : null,
