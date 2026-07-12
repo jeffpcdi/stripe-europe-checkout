@@ -104,7 +104,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - ~~**331.** Busca textual no feed (cliente, e-mail, gateway)~~ — ✅ FEITO: input com ícone, botão limpar e placeholder; busca em cliente/e-mail/gateway/título (efêmera — busca é da sessão, não persiste); estado vazio distingue "sem eventos" de "filtros sem resultado" com botão "Limpar filtros". Verificado: "stripe" filtra 1391 → 134 eventos.
 - ~~**332.** Filtro por gateway no feed~~ — ✅ FEITO: select derivado dos gateways realmente presentes nos eventos (só aparece com 2+), compõe com busca/tipo/período.
 - ~~**333.** Filtro por período no feed~~ — ✅ FEITO: chips Tudo/Hoje/7 dias/30 dias locais do feed (não mexem no período global da Overview — quem audita o feed recorta sem afetar o resto).
-- **334.** Agrupar "N visitas em sequência" em linha expansível.
+- ~~**334.** Agrupar "N visitas em sequência" em linha expansível~~ — ✅ FEITO: sequências de 4+ leads no MESMO dia viram linha "N visitas em sequência" com faixa de tempo e chevron; expande com borda lateral mostrando cada lead (badges novo/permalink preservados). Vendas/recusas nunca são agrupadas. Grupo quebra na virada de dia (separador continua correto). Separador extraído para `DaySeparator` (reuso com resumo do dia). Verificado no browser: "12 visitas em sequência" expandindo 45 → 57 linhas.
 - **335.** Som opcional de "venda" (toggle, off por padrão).
 - **336.** Notificação nativa do navegador para vendas em segundo plano.
 - ~~**337.** Exportar feed filtrado como CSV~~ — ✅ FEITO: botão "CSV" ao lado do contador exporta o recorte ATUAL (todos os filtros aplicados), client-side com BOM UTF-8; e-mail mascarado (o arquivo circula fora do painel). Mesmo padrão do CSV de leads (item 130/310).
