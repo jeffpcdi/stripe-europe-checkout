@@ -3121,12 +3121,17 @@ app.post('/api/ops/reprocess-conversion', dashboardAuth, async (req, res) => {
     return apiError(res, 429, 'Aguarde um pouco antes de reprocessar de novo.', 'rate_limited');
   }
   const id = String((req.body && req.body.id) || '').slice(0, 200);
-  if (!id) return apiError(res, 400, 'Informe o id do recibo a reprocessar.', 'missing_id');
+  // Item 341: replay direto do feed — o feed só conhece o orderId (ref),
+  // então aceitamos os dois; por orderId pegamos o recibo MAIS RECENTE.
+  const orderId = String((req.body && req.body.orderId) || '').slice(0, 200);
+  if (!id && !orderId) return apiError(res, 400, 'Informe o id do recibo (ou orderId) a reprocessar.', 'missing_id');
   try {
     const log = await rdb.loadConversionLog(200);
     // multi-tenant: só recibos da PRÓPRIA conta (legado sem acc → só admin)
-    const entry = (log || []).find((r) => r && r.id === id &&
-      (r.acc === req.account.id || (!r.acc && req.account.role === 'admin')));
+    const mine = (r) => r && (r.acc === req.account.id || (!r.acc && req.account.role === 'admin'));
+    const entry = id
+      ? (log || []).find((r) => mine(r) && r.id === id)
+      : (log || []).find((r) => mine(r) && r.orderId === orderId); // log é recente→antigo
     if (!entry) return apiError(res, 404, 'Recibo não encontrado no log (só os 200 mais recentes podem ser reprocessados).', 'not_found');
     if (entry.teste) return apiError(res, 400, 'Recibos de teste (dry-run) não podem ser reprocessados.', 'is_test');
     // Reconstrói o envelope a partir do recibo. registerSale=false: a venda já
@@ -3906,7 +3911,7 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
   // mascara o token na listagem (só mostra últimos 4 chars)
   const list = pixelStore.list(req.account.id).map((p) => ({
     ...p,
-    accessToken: p.accessToken ? '•��••' + p.accessToken.slice(-4) : '',
+    accessToken: p.accessToken ? '�����••' + p.accessToken.slice(-4) : '',
     hasToken: !!p.accessToken,
     // script individual deste pixel (estilo Xtracky): cole em qualquer página
     scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,
