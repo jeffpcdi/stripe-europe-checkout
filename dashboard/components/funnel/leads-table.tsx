@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { LeadDrawer } from './lead-drawer'
 import { GlassCard } from '@/components/glass-card'
 // Item 323: STAGE_LABEL/STAGE_CLASS agora vêm centralizados de lib/format
 import {
@@ -121,6 +122,8 @@ export function LeadsTable({
   const [showCampaign, setShowCampaign] = usePersistedState<boolean>('leads:col-campaign', false)
   const [showEmail, setShowEmail] = usePersistedState<boolean>('leads:col-email', false)
   const [page, setPage] = useState(0)
+  // Item 304: drawer de perfil — clique na linha abre o painel lateral
+  const [openLeadId, setOpenLeadId] = useState<string | null>(null)
 
   // Item 329: realce dos leads que chegaram DEPOIS do load (mesmo padrão
   // seenIds do feed de Atividade) — o snapshot inicial nunca pisca.
@@ -500,8 +503,18 @@ export function LeadsTable({
                   return (
                     <tr
                       key={l.id}
+                      onClick={() => setOpenLeadId(l.id)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === 'Enter' || ev.key === ' ') {
+                          ev.preventDefault()
+                          setOpenLeadId(l.id)
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`Abrir perfil do lead ${l.id.slice(0, 12)}`}
                       className={cn(
-                        'tr-hover border-b border-border/30 last:border-b-0',
+                        'tr-hover cursor-pointer border-b border-border/30 last:border-b-0',
                         isNew && 'anim-cell-flash',
                       )}
                     >
@@ -715,6 +728,8 @@ export function LeadsTable({
           ) : null}
         </div>
       )}
+      {/* Item 304: perfil completo do lead com jornada (dados do item 326) */}
+      <LeadDrawer leadId={openLeadId} onClose={() => setOpenLeadId(null)} />
     </GlassCard>
   )
 }

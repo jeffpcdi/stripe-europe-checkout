@@ -1052,6 +1052,18 @@ a:active,
   animation: contentIn 220ms var(--ease) both;
 }
 
+/* Item 304: drawer lateral desliza da direita */
+@keyframes drawerIn {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.anim-drawer-in {
+  animation: drawerIn 200ms var(--ease) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-drawer-in { animation: none; }
+}
+
 /* Item 17: borda gradiente cônica girando lentamente no KPI hero */
 @property --kpi-angle {
   syntax: '<angle>';

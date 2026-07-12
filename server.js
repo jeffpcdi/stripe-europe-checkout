@@ -2050,6 +2050,7 @@ app.get('/api/leads/:id', dashboardAuth, (req, res) => {
       utm: lead.utm || null, referer: lead.referer || lead.ref || null,
       customer: lead.customer || null, email: lead.email || null,
       phone: lead.phone || null,
+      amount: lead.amount ?? null,
       expectedAmount: lead.expectedAmount || null,
       reportedAmount: lead.reportedAmount || null,
       currency: lead.currency || lead.reportedCurrency || null,

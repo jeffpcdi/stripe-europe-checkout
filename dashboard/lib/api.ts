@@ -6,6 +6,7 @@ import type {
   HealthResponse,
   OpsResponse,
   LiveResponse,
+  LeadDetailResponse,
   LinksResponse,
   DomainsResponse,
   PixelsResponse,
@@ -101,6 +102,17 @@ export function useLive() {
 export function useHealth() {
   return useSWR<HealthResponse>('/api/health', fetcher, {
     refreshInterval: 30_000,
+    keepPreviousData: true,
+  })
+}
+
+// Item 326: detalhe de um lead para o drawer de perfil. Condicional — só
+// busca com o drawer aberto (id nulo = sem request). Poll no ritmo do stats
+// para o "visto por último" acompanhar enquanto o drawer está aberto.
+export function useLead(id: string | null) {
+  return useSWR<LeadDetailResponse>(id ? `/api/leads/${encodeURIComponent(id)}` : null, fetcher, {
+    refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
     keepPreviousData: true,
   })
 }
@@ -223,16 +235,6 @@ export function useCloakTestProfiles() {
     revalidateOnFocus: false,
     revalidateIfStale: false,
   })
-}
-
-// Item 326: detalhe de um lead com jornada completa — alimenta o drawer de
-// perfil (item 304). `id` nulo = drawer fechado, hook inativo.
-export function useLead(id: string | null) {
-  return useSWR<import('./types').LeadDetailResponse>(
-    id ? '/api/leads/' + encodeURIComponent(id) : null,
-    fetcher,
-    { refreshInterval: POLL_MS, keepPreviousData: true },
-  )
 }
 
 export function useAccount() {
