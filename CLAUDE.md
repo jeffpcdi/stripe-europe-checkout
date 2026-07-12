@@ -109,14 +109,15 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 - **tracker-view.js** — snippet `/t.js` injetado em páginas externas (envia pageview/eventos).
 - **ua.js** — parse de User-Agent + detecção de bots (usado no middleware de lead).
 - **pushcut.js** — notificações push (venda, etc.) via webhook Pushcut.
-- **domain-provider.js** — automação de Custom Domains na hospedagem (hoje Railway GraphQL). Interface
-  única (`enabled`/`register`/`status`/`remove`) que isola o provedor — trocar p/ outro (ex.: Cloudflare
-  for SaaS) é mexer só aqui. Lê `RAILWAY_API_TOKEN` + IDs de `process.env` e **nunca** vaza o token
-  (erros da API viram mensagens genéricas: `auth`/`duplicado`/`limite`/`offline`/`falha na hospedagem`).
-  Detecta sozinho o tipo de token (Bearer p/ account/workspace × `Project-Access-Token` p/ project token)
-  via `selfTest()` no boot + fallback na 1ª chamada; `register()` **adota** domínio já existente
-  (`findByDomain`) quando a criação dá `duplicado`. Degrada gracioso: sem token/IDs, `enabled=false` e o
-  app segue em modo manual sem quebrar nada. Detalhes de operação em §5.2.2 e ciclo completo em §18.
+- **cloudflare-domain-provider.js** — provedor principal de domínios via Cloudflare for SaaS / Custom
+  Hostnames. Lê `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` e `CLOUDFLARE_FALLBACK_ORIGIN`; cria/adota,
+  consulta SSL + hostname separadamente e remove hostnames sem consumir os slots limitados da Railway.
+  Nunca expõe token; erros viram `auth`/`duplicado`/`limite`/`offline`/`falha`. O fallback origin DEVE ser
+  hostname público (normalmente `*.up.railway.app`), nunca `*.railway.internal`. Domínios antigos são
+  adotados idempotentemente quando o verify detecta `provider` diferente.
+- **domain-provider.js** — fallback legado Railway GraphQL quando as variáveis `CLOUDFLARE_*` não estão
+  completas. Mantém a mesma interface (`enabled`/`register`/`status`/`remove`) e suporta account token ou
+  project token. Detalhes de operação em §5.2.2 e ciclo completo em §18.
 - **lp-view.js / legal-view.js** — landing page em `/` e páginas legais (`/termos`, `/privacidade`).
 - **vision-view.js** — dashboard alternativa "Vision UI" (HTML estático) em rota interna.
 
@@ -543,7 +544,7 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── start.js               # start de produção: sobe Next (3001) + Express ($PORT) no mesmo serviço (§19)
 ├── dashboard/             # NOVA dashboard Next.js 16 + TypeScript + Tailwind v4 (§19)
 │   ├── app/               #   rotas App Router sob basePath /dashboard
-│   ├── components/        #   componentes por página (shell/, overview/, live/, geo/, funnel/, ���)
+│   ├── components/        #   componentes por página (shell/, overview/, live/, geo/, funnel/, �����)
 │   ├── lib/               #   api.ts (SWR), types.ts, navigation.ts, format.ts, metrics.ts
 │   ├── proxy.ts           #   guard de sessão (cookie dash_session do Express)
 │   └── next.config.mjs    #   basePath /dashboard + rewrites /api → Express

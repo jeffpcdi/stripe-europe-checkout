@@ -217,8 +217,12 @@ export interface LinksResponse {
 // Registros DNS que o lojista cria no registrador do domínio dele. Shape vem
 // do domain-provider (pickCname): CNAME principal + TXT opcional de verificação.
 export interface DomainDnsRecords {
-  cname: { host: string; target: string } | null
-  txt: { host: string; value: string } | null
+  // Railway legado usa host; Cloudflare for SaaS usa name. Aceitamos ambos
+  // durante a migração para manter os domínios já salvos reabrindo o tutorial.
+  cname: { host?: string; name?: string; target: string } | null
+  txt?: { host: string; value: string } | null
+  ownership?: { type: string; name: string; value: string } | null
+  certificate?: { type: string; name: string; value: string } | null
 }
 
 // Uso do domínio: onde ele vale — links de checkout, cloaker ou ambos
@@ -231,6 +235,7 @@ export interface CustomDomain {
   verificadoEm?: string | null
   criadoEm: string
   providerId?: string
+  provider?: 'cloudflare' | 'railway' | string
   dns?: DomainDnsRecords | null
 }
 
@@ -240,6 +245,7 @@ export interface DomainsResponse {
   // Provisionamento automático na hospedagem ativo? Quando false, cada domínio
   // exige adição manual no painel da hospedagem — a UI mostra um aviso.
   autoProvision?: boolean
+  domainProvider?: string | null
 }
 
 export interface DomainAddResponse {

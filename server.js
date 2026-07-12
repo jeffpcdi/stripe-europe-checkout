@@ -2289,7 +2289,11 @@ app.post('/api/links/validate-domain', dashboardAuth, async (req, res) => {
 // servidor atende o domínio personalizado automaticamente. Aqui fica o
 // registro + verificação (DNS aponta pra cá? HTTPS chega neste app?).
 const dnsp = require('dns').promises;
-const domainProvider = require('./domain-provider');
+// Cloudflare for SaaS remove o limite de domínios customizados da Railway.
+// Mantemos Railway como fallback para instalações antigas sem CLOUDFLARE_*.
+const railwayDomainProvider = require('./domain-provider');
+const cloudflareDomainProvider = require('./cloudflare-domain-provider');
+const domainProvider = cloudflareDomainProvider.enabled ? cloudflareDomainProvider : railwayDomainProvider;
 // normHost/DOMAIN_RE extraídos para security-helpers.js (testáveis — item 60)
 const { normHost } = require('./security-helpers');
 const APP_CHECK_ID = 'roi-nados-tracker';
@@ -2391,12 +2395,15 @@ app.get('/api/domains', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({
     domains: config.get(req.account.id).customDomains || [],
-    // host principal do app — alvo do CNAME nas instruções de DNS (sem porta,
-    // igual à rota de verificação: porta não entra em registro CNAME)
-    appHost: String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, ''),
+    // Alvo amigável do CNAME. Com Cloudflare for SaaS, o fallback origin é o
+    // Managed CNAME target; sem ele, mantém o host principal legado.
+    appHost: cloudflareDomainProvider.enabled
+      ? String(process.env.CLOUDFLARE_FALLBACK_ORIGIN || '').replace(/^https?:\/\//, '').replace(/\/$/, '')
+      : String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, ''),
     // Provisionamento automático na hospedagem ativo? Quando false, cada domínio
     // precisa ser adicionado manualmente no painel da hospedagem — a UI avisa.
-    autoProvision: domainProvider.enabled
+    autoProvision: domainProvider.enabled,
+    domainProvider: domainProvider.enabled ? (domainProvider.name || 'hosting') : null
   });
 });
 
@@ -2414,11 +2421,12 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   // Registra o domínio na hospedagem (Railway) para ele ser roteado + ganhar
   // SSL. Se o provider estiver em modo manual (sem token), segue o fluxo antigo:
   // o lojista aponta o CNAME e adiciona o domínio na hospedagem na mão.
-  let dnsRecords = null, providerId = null, providerNote = null;
+  let dnsRecords = null, providerId = null, providerNote = null, providerName = null;
   if (domainProvider.enabled) {
     try {
       const reg = await domainProvider.register(host);
       providerId = reg.providerId || null;
+      providerName = reg.provider || domainProvider.name || null;
       dnsRecords = reg.dns || null;
     } catch (e) {
       // NENHUM erro da hospedagem bloqueia o cadastro: tudo degrada para modo
@@ -2444,6 +2452,7 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   const uso = ['checkout', 'cloaker', 'ambos'].includes(usoRaw) ? usoRaw : 'ambos';
   const entry = { host, uso, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() };
   if (providerId) entry.providerId = providerId;
+  if (providerName) entry.provider = providerName;
   // Guarda os registros DNS junto do domínio: o tutorial da dashboard precisa
   // deles a qualquer momento (não só na resposta do cadastro), para o lojista
   // reabrir as instruções sem depender de acesso à hospedagem.
@@ -2465,7 +2474,7 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   const found = cur.find((d) => d.host === host);
   // Remove tamb��m na hospedagem, para não acumular contra o teto do provedor.
   if (found && found.providerId && domainProvider.enabled) {
-    try { await domainProvider.remove(found.providerId); }
+    try { await domainProvider.remove(found.providerId, found.host); }
     catch (_) { /* best-effort — segue removendo localmente */ }
   }
   config.set(req.account.id, { customDomains: cur.filter((d) => d.host !== host) });
@@ -2531,11 +2540,15 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   if (domainProvider.enabled) {
     const cur0 = config.get(req.account.id).customDomains || [];
     const d0 = cur0.find((d) => d.host === host);
-    if (d0 && !d0.providerId) {
+    // Ao trocar Railway → Cloudflare, domínios antigos têm providerId da
+    // Railway. Eles precisam ser adotados pelo Cloudflare, não consultados com
+    // o ID incompatível do provedor anterior.
+    const needsAdoption = d0 && (!d0.providerId || (domainProvider.name && d0.provider !== domainProvider.name));
+    if (needsAdoption) {
       try {
         const reg = await domainProvider.register(host);
         if (reg && reg.providerId) {
-          const patch = { providerId: reg.providerId };
+          const patch = { providerId: reg.providerId, provider: reg.provider || domainProvider.name || null };
           if (reg.dns) patch.dns = reg.dns; // instruções ficam disponíveis no tutorial
           const next = cur0.map((d) => d.host === host ? Object.assign({}, d, patch) : d);
           config.set(req.account.id, { customDomains: next });
@@ -2564,9 +2577,9 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   // domínio, ele está certo — mesmo que os resolvers daqui ainda não reflitam
   // (apex com CNAME flattening da Cloudflare "esconde" o CNAME; vira registro A).
   // Também sincroniza os registros do tutorial com o que a hospedagem exige hoje.
-  if (domainProvider.enabled && entry2 && entry2.providerId) {
-    try {
-      const st = await domainProvider.status(entry2.providerId);
+  if (domainProvider.enabled && entry2 && entry2.providerId && (!entry2.provider || entry2.provider === domainProvider.name)) {
+  try {
+      const st = await domainProvider.status(entry2.providerId, host);
       if (st) {
         out.providerVerified = !!st.verified;
         if (st.certificateStatus) out.certificateStatus = st.certificateStatus;
@@ -2575,7 +2588,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
           if (t && !targets.includes(t)) targets.push(t);
           if (JSON.stringify(entry2.dns || null) !== JSON.stringify(st.dns)) {
             const cur1 = config.get(req.account.id).customDomains || [];
-            config.set(req.account.id, { customDomains: cur1.map((d) => d.host === host ? Object.assign({}, d, { dns: st.dns }) : d) });
+            config.set(req.account.id, { customDomains: cur1.map((d) => d.host === host ? Object.assign({}, d, { dns: st.dns, provider: st.provider || domainProvider.name || d.provider }) : d) });
           }
         }
       }

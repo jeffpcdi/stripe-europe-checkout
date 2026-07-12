@@ -423,16 +423,22 @@ function DnsTutorialModal({
   onVerify: () => void
 }) {
   // Sem registros do provedor (modo manual), o CNAME aponta para o host do app.
-  const cnameHost = dns?.cname?.host || host
+  const cnameHost = dns?.cname?.host || dns?.cname?.name || host
   const cnameTarget = dns?.cname?.target || appHost
-  const txt = dns?.txt ?? null
+  // Cloudflare for SaaS pode devolver validação de posse e de certificado.
+  // Unificamos com o TXT legado sem esconder registros adicionais necessários.
+  const validationRecords = [
+    ...(dns?.txt ? [{ type: 'TXT', name: dns.txt.host, value: dns.txt.value }] : []),
+    ...(dns?.ownership ? [dns.ownership] : []),
+    ...(dns?.certificate ? [dns.certificate] : []),
+  ].filter((record, index, all) => record.name && record.value && all.findIndex((r) => r.name === record.name && r.value === record.value) === index)
 
   // Item 121: bloco completo em formato de zona — cola tudo de uma vez em
   // registradores que aceitam edição em texto (ou serve de "colinha" completa)
   const [blockCopied, setBlockCopied] = useState(false)
   const dnsBlock = [
     `${cnameHost}  CNAME  ${cnameTarget}`,
-    ...(txt ? [`${txt.host}  TXT  "${txt.value}"`] : []),
+    ...validationRecords.map((record) => `${record.name}  ${record.type}  "${record.value}"`),
   ].join('\n')
   async function copyBlock() {
     await navigator.clipboard.writeText(dnsBlock)
@@ -535,7 +541,7 @@ function DnsTutorialModal({
                 ) : (
                   <Copy className="size-3.5" />
                 )}
-                {blockCopied ? 'Bloco copiado!' : txt ? 'Copiar tudo (CNAME + TXT)' : 'Copiar registro completo'}
+                {blockCopied ? 'Bloco copiado!' : validationRecords.length ? 'Copiar todos os registros' : 'Copiar registro completo'}
               </button>
               <p className="text-xs text-muted-foreground text-pretty">
                 Na Cloudflare, deixe o proxy <strong>desligado</strong> (nuvem cinza, &quot;Somente DNS&quot;) — com a
@@ -556,21 +562,26 @@ function DnsTutorialModal({
             </div>
           </li>
 
-          {txt && (
+          {validationRecords.length > 0 && (
             <li className="flex gap-3">
               <StepNumber n={3} />
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <div className="flex min-w-0 flex-1 flex-col gap-3">
                 <p className="text-sm font-medium text-foreground">
-                  Crie também um registro <span className="font-mono">TXT</span> (verificação)
+                  Crie também {validationRecords.length > 1 ? 'os registros de verificação' : 'o registro de verificação'}
                 </p>
-                <CopyField label="Nome / Host" value={txt.host} />
-                <CopyField label="Valor" value={txt.value} />
+                {validationRecords.map((record) => (
+                  <div key={`${record.name}-${record.value}`} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                    <p className="font-mono text-xs text-brand-cyan">{record.type}</p>
+                    <CopyField label="Nome / Host" value={record.name} />
+                    <CopyField label="Valor" value={record.value} />
+                  </div>
+                ))}
               </div>
             </li>
           )}
 
           <li className="flex gap-3">
-            <StepNumber n={txt ? 4 : 3} />
+            <StepNumber n={validationRecords.length ? 4 : 3} />
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               <p className="text-sm font-medium text-foreground">Aguarde e verifique</p>
               <p className="text-xs text-muted-foreground text-pretty">
