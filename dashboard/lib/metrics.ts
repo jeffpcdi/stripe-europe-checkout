@@ -22,6 +22,8 @@ export interface PeriodMetrics {
   countries: { code: string; name: string; count: number; purchased: number }[]
   series: { day: string; revenue: number; sales: number; visits: number }[]
   byGateway: { name: string; checkout: number; purchased: number }[]
+  /** Item 298: receita (na moeda principal) por gateway, para o donut */
+  revByGateway: { name: string; revenue: number; sales: number }[]
   /** Item 286: ranking de campanhas (utm_campaign) por leads e conversões */
   topCampaigns: SourceRank[]
   /** Item 287: ranking de links rastreados (linkSlug) por conversão */
@@ -106,6 +108,10 @@ export function aggregate(
     dayMap.set(d, cur)
   }
 
+  // Item 298: receita por gateway (só vendas na moeda dominante — misturar
+  // moedas num donut somaria valores incomparáveis)
+  const revGwMap = new Map<string, { name: string; revenue: number; sales: number; cur: string }>()
+
   for (const e of events) {
     if (e.type === 'sale') {
       sales++
@@ -113,6 +119,13 @@ export function aggregate(
       rev[cur] = (rev[cur] || 0) + (e.amount || 0)
       bump(e.at, 'revenue', e.amount || 0)
       bump(e.at, 'sales', 1)
+      const gwName = e.gateway || 'outro'
+      const g = revGwMap.get(gwName) ?? { name: gwName, revenue: 0, sales: 0, cur }
+      if (g.cur === cur) {
+        g.revenue += e.amount || 0
+        g.sales++
+        revGwMap.set(gwName, g)
+      }
     } else if (e.type === 'failed') failed++
     else if (e.type === 'refund' || e.type === 'dispute') {
       if (e.type === 'refund') refunds++
@@ -205,6 +218,10 @@ export function aggregate(
     countries: [...countryMap.values()].sort((a, b) => b.count - a.count),
     series,
     byGateway: [...gwMap.values()].sort((a, b) => b.checkout - a.checkout),
+    revByGateway: [...revGwMap.values()]
+      .filter((g) => g.cur === mainCur && g.revenue > 0)
+      .map(({ name, revenue, sales: s }) => ({ name, revenue, sales: s }))
+      .sort((a, b) => b.revenue - a.revenue),
     topCampaigns,
     topLinks,
   }

@@ -30,6 +30,8 @@ import { GlassCard } from '@/components/glass-card'
 import { KpiCard } from './kpi-card'
 import { MiniStat } from './mini-stat'
 import { TopSources } from './top-sources'
+import { GatewayDonut } from './gateway-donut'
+import { OnboardingChecklist } from './onboarding-checklist'
 import { PeriodPicker } from './period-picker'
 import { RevenueChart } from './revenue-chart'
 import { HealthCard } from './health-card'
@@ -258,6 +260,11 @@ export function OverviewView() {
 
   const hasSales = cur.sales > 0
   const hasGeo = cur.countries.length > 0
+  // Item 288: onboarding usa o HISTÓRICO TODO (não o período filtrado) —
+  // trocar para "hoje" numa conta ativa não pode ressuscitar o checklist.
+  const everVisited = (data?.leads?.length ?? 0) > 0
+  const everSold = (data?.events ?? []).some((e) => e.type === 'sale')
+  const isOnboarding = !everVisited || !everSold
   // Item 111: sistema fixo — ciano = métrica, verde = sucesso, âmbar = atenção, rosa = risco
   const refColor = cur.refunds ? '#fbbf24' : NEUTRAL
   const dispColor = cur.disputes ? '#fe2c55' : NEUTRAL
@@ -268,6 +275,10 @@ export function OverviewView() {
       <div className="picker-sticky flex justify-end" data-tour="period">
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
+
+      {/* Item 288: conta que ainda não fechou o ciclo (visita + venda) vê o
+          checklist guiado no topo, com progresso derivado de dados reais */}
+      {isOnboarding && <OnboardingChecklist hasVisits={everVisited} hasSales={everSold} />}
 
       {/* Item 277: aprovação crítica (<40% com volume relevante) vira alerta
           acionável, não só uma cor. CTA leva ao cloaker (filtro de tráfego). */}
@@ -557,7 +568,11 @@ export function OverviewView() {
             </div>
           )}
         </div>
-        <HealthCard />
+        <div className="flex flex-col gap-4">
+          <HealthCard />
+          {/* Item 298: donut de receita por gateway (só com 2+ gateways) */}
+          <GatewayDonut data={cur.revByGateway} mainCur={cur.mainCur} />
+        </div>
       </section>
     </div>
   )
