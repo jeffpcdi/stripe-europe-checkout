@@ -769,6 +769,20 @@ export function ActivityView() {
             aria-label="Eventos de conversão"
             aria-busy={isValidating}
           >
+            {/* Item 339: aviso flutuante quando eventos chegam com o usuário
+                rolado para baixo — clique volta ao topo (onde eles entram) */}
+            {pendingNew > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingNew(0)
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+                className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full border border-primary/40 bg-background/95 px-4 py-1.5 text-xs font-semibold text-primary shadow-lg backdrop-blur transition-transform hover:scale-105"
+              >
+                {plural(pendingNew, 'novo evento', 'novos eventos')} — ver no topo
+              </button>
+            ) : null}
             {rows.map((row, i) => {
               const first = row.kind === 'event' ? row.e : row.items[0]
               // Item 151: separador de dia quando o dia muda
