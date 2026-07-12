@@ -21,6 +21,7 @@ import {
   CopyPlus,
   Eye,
   EyeOff,
+  ClipboardPaste,
 } from 'lucide-react'
 import {
   usePixels,
@@ -39,6 +40,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
 import { toast } from '@/lib/toast'
+import { readClipboardText } from '@/lib/clipboard'
 import { useConfirm } from '@/lib/use-confirm'
 
 // Resultado da verificação de instalação por URL (server-side)
@@ -1036,6 +1038,35 @@ function EmqSparkline({ pixel }: { pixel: PixelEmqTrend }) {
   )
 }
 
+// Botão "Colar" explícito — dentro de iframes (preview do v0, embeds) o
+// Ctrl+V / menu de contexto nem sempre chega ao input, então os campos de
+// código/token oferecem colagem via clipboard API, que pede permissão ao
+// usuário na primeira vez. Fora de iframe continua funcionando igual.
+function PasteButton({ label, onPaste }: { label: string; onPaste: (text: string) => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={`Colar ${label} da área de transferência`}
+      title={`Colar ${label} da área de transferência`}
+      onClick={async () => {
+        const text = await readClipboardText()
+        if (text && text.trim()) {
+          onPaste(text.trim())
+          toast.info('Colado')
+        } else {
+          toast.error('Não consegui ler a área de transferência', {
+            hint: 'Permita o acesso quando o navegador pedir, ou cole com Ctrl+V no campo.',
+          })
+        }
+      }}
+      className="absolute inset-y-0 right-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+    >
+      <ClipboardPaste className="size-3.5" aria-hidden="true" />
+      Colar
+    </button>
+  )
+}
+
 // ── Editor inline (modal) — cria ou edita um pixel ────────────────────
 function PixelEditor({
   pixel,
@@ -1117,13 +1148,16 @@ function PixelEditor({
 
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Pixel Code</span>
-            <input
-              className={inputCls}
-              value={pixelCode}
-              onChange={(e) => setPixelCode(e.target.value)}
-              placeholder="C0ABC123DEF456"
-              autoComplete="off"
-            />
+            <div className="relative">
+              <input
+                className={`${inputCls} pr-16`}
+                value={pixelCode}
+                onChange={(e) => setPixelCode(e.target.value)}
+                placeholder="C0ABC123DEF456"
+                autoComplete="off"
+              />
+              <PasteButton label="Pixel Code" onPaste={setPixelCode} />
+            </div>
           </label>
 
           <label className="flex flex-col gap-1.5">
@@ -1135,22 +1169,44 @@ function PixelEditor({
             <div className="relative">
               <input
                 type={showToken ? 'text' : 'password'}
-                className={`${inputCls} w-full pr-16`}
+                className={`${inputCls} w-full pr-32`}
                 value={accessToken}
                 onChange={(e) => setAccessToken(e.target.value)}
                 placeholder={pixel?.hasToken ? 'mantém o atual se não alterar' : 'cole o token do TikTok'}
                 autoComplete="off"
               />
-              <button
-                type="button"
-                onClick={() => setShowToken((v) => !v)}
-                aria-label={showToken ? 'Ocultar token' : 'Revelar token'}
-                aria-pressed={showToken}
-                className="absolute inset-y-0 right-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-              >
-                {showToken ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
-                {showToken ? 'Ocultar' : 'Revelar'}
-              </button>
+              <div className="absolute inset-y-0 right-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  aria-label="Colar Access Token da área de transferência"
+                  title="Colar Access Token da área de transferência"
+                  onClick={async () => {
+                    const text = await readClipboardText()
+                    if (text && text.trim()) {
+                      setAccessToken(text.trim())
+                      toast.info('Colado')
+                    } else {
+                      toast.error('Não consegui ler a área de transferência', {
+                        hint: 'Permita o acesso quando o navegador pedir, ou cole com Ctrl+V no campo.',
+                      })
+                    }
+                  }}
+                  className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  <ClipboardPaste className="size-3.5" aria-hidden="true" />
+                  Colar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowToken((v) => !v)}
+                  aria-label={showToken ? 'Ocultar token' : 'Revelar token'}
+                  aria-pressed={showToken}
+                  className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  {showToken ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
+                  {showToken ? 'Ocultar' : 'Revelar'}
+                </button>
+              </div>
             </div>
             {pixel?.hasToken && pixel.accessToken && (
               <span className="text-[11px] text-muted-foreground">
@@ -1170,13 +1226,16 @@ function PixelEditor({
 
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Test Event Code (opcional)</span>
-            <input
-              className={inputCls}
-              value={testEventCode}
-              onChange={(e) => setTestEventCode(e.target.value)}
-              placeholder="TEST12345"
-              autoComplete="off"
-            />
+            <div className="relative">
+              <input
+                className={`${inputCls} pr-16`}
+                value={testEventCode}
+                onChange={(e) => setTestEventCode(e.target.value)}
+                placeholder="TEST12345"
+                autoComplete="off"
+              />
+              <PasteButton label="Test Event Code" onPaste={setTestEventCode} />
+            </div>
             {/* Item 94: o que é o testEventCode e onde encontrá-lo */}
             <span className="text-[11px] text-muted-foreground text-pretty">
               Com esse código, os disparos aparecem na aba{' '}

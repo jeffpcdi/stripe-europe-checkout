@@ -207,7 +207,14 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 - **Convers����������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
   **Mecanismo de verificaç��o (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`
-  comparados com o `appHost` da requisição; detecta proxy Cloudflare por faixa de IP (`isCloudflareIp`)
+  comparados com os **alvos aceitos**: o `appHost` da requisição E o alvo de CNAME gerado pela hospedagem
+  para o domínio (`entry.dns.cname.target` — é o valor que o Tutorial DNS mostra; aceitar só o `appHost`
+  travava quem seguia o tutorial). A comparação de A/AAAA usa os IPs de TODOS os alvos (round-robin de IPs
+  quebrava a comparação 1:1). Antes da checagem local, se o domínio tem `providerId`, o verify consulta
+  `domainProvider.status()` — se a hospedagem já validou o DNS (`providerVerified=true`), `dnsOk=true`
+  mesmo que os resolvers locais não reflitam (cobre apex com CNAME flattening da Cloudflare) e os
+  `dns` do config são sincronizados com o que a hospedagem exige hoje. Detecta proxy Cloudflare por faixa
+  de IP (`isCloudflareIp`, só quando os alvos NÃO estão atrás da Cloudflare)
   → `cloudflareProxy=true` (nuvem laranja mascara o CNAME real). (2) HTTP — `GET https://host/__domain-check`
   precisa responder 200 com `{app:'roi-nados-tracker'}` (assinatura `APP_CHECK_ID`). **`ok = httpOk`**:
   DNS apontado NÃO basta — sem o domínio roteado na hospedagem (Custom Domain + SSL), `/go` daria 404.
@@ -587,9 +594,15 @@ Amarra §4.1 (`domain-provider.js`), §5.2 (rotas), §5.2.1 (guard) e §5.2.2 (o
 CINZA (Somente DNS)** — laranja quebra o SSL/roteamento do Railway (§5.2.2).
 
 **3. Verificação** — `POST /api/domains/verify` (botão manual ou polling de 30s no front):
-- **Auto-recuperação:** se o dom��nio está em manual (sem `providerId`) e a automação está ligada, tenta
+  - **Auto-recuperação:** se o dom��nio está em manual (sem `providerId`) e a automação está ligada, tenta
   `register()` de novo — cobre o caso de um slot do Railway ter vagado (upgrade/remoção). Se reconectar,
   grava o `providerId`, devolve `reconectado:true`+`dnsRecords` e o popup re-renderiza com o alvo real.
+  - **Status do provedor:** com `providerId`, consulta `domainProvider.status()` antes da checagem local;
+  `verified` do Railway ⇒ `dnsOk=true` + `providerVerified:true` na resposta (e `certificateStatus`), e o
+  `entry.dns` do config é sincronizado. O CNAME do lojista pode apontar tanto pro `appHost` quanto pro
+  alvo gerado pela hospedagem (`entry.dns.cname.target`) — ambos contam como DNS ok.
+  `GET /api/domains` também expõe `autoProvision` (=`domain-provider.enabled`); quando `false`, a aba
+  Domínios mostra um aviso de que o registro automático está desligado (configurar `RAILWAY_*` uma vez).
 - **Decisão real (`ok = httpOk`):** só passa quando `GET https://host/__domain-check` responde 200 com a
   assinatura do app. DNS apontado sozinho não basta (sem roteamento na hospedagem, `/go` daria 404 do
   Railway). `dnsPronto=true` = DNS ok mas app ainda não atende (aguardando SSL/roteamento).

@@ -28,3 +28,20 @@ export async function copyText(text: string): Promise<boolean> {
     return false
   }
 }
+
+// Leitura da área de transferência com pedido de permissão embutido.
+// Em iframes (preview do v0, embeds) o Ctrl+V nem sempre chega ao app,
+// então os campos sensíveis (Pixel Code, Access Token…) oferecem um botão
+// "Colar" explícito que usa esta função. Retorna null quando o navegador
+// nega o acesso — o chamador decide a mensagem de fallback.
+export async function readClipboardText(): Promise<string | null> {
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+      const text = await navigator.clipboard.readText()
+      return typeof text === 'string' ? text : null
+    }
+  } catch {
+    // permissão negada / contexto inseguro — sem fallback confiável p/ leitura
+  }
+  return null
+}
