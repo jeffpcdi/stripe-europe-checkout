@@ -15,8 +15,9 @@
 const { neon } = require('@neondatabase/serverless');
 const crypto = require('crypto');
 
-const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || null;
-// Aceita DATABASE_URL (padrão) ou POSTGRES_URL como fonte da connection string.
+const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
+// Aceita DATABASE_URL (padrão), POSTGRES_URL ou NEON_DATABASE_URL (prefixo usado
+// pela integração Neon do v0/Vercel) como fonte da connection string.
 const enabled = !!URL;
 const sql = enabled ? neon(URL) : null;
 
@@ -91,8 +92,11 @@ async function init() {
       data jsonb NOT NULL
     )`;
     await sql`CREATE INDEX IF NOT EXISTS events_at_idx ON events (at DESC)`;
-    // Item 448: índice por conta+data para o arquivamento varrer barato.
-    await sql`CREATE INDEX IF NOT EXISTS events_acc_at_idx ON events (account_id, at DESC)`;
+    // Item 448: o índice por conta+data (para o arquivamento varrer barato) é
+    // criado mais abaixo como events_account_idx — DEPOIS do ALTER TABLE que
+    // garante a coluna account_id. Criá-lo aqui quebrava o init em bancos
+    // legados onde events ainda não tinha a coluna (erro "column account_id
+    // does not exist" abortava TODAS as migrações seguintes).
 
     // Item 448: arquivo frio de eventos. O feed quente (tabela `events`) é
     // limitado por retenção; o que passa da janela é MOVIDO para cá em vez de
@@ -220,6 +224,13 @@ async function init() {
     await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency text DEFAULT 'BRL'`;
     migrations.accountCurrency = true;
 
+    // ── Item 414: metadados de dispositivo nas sessões de login ───────────
+    // ua + IP mascarado gravados no login permitem listar "sessões ativas"
+    // na aba Config com contexto suficiente para reconhecer cada dispositivo
+    // (sem guardar o IP completo — mesma máscara da auditoria do item 417).
+    await sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ua text`;
+    await sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ip_masked text`;
+
     ready = true;
     console.log('[db] Neon pronto (tabelas multi-tenant verificadas).');
     return true;
@@ -267,7 +278,11 @@ async function getAccountByEmail(email) {
 async function getAccountById(id) {
   if (!enabled || !id) return null;
   try {
-    const rows = await sql`SELECT id, email, name, role, created_at
+    // BUG corrigido (item 411): faltava password_hash no SELECT — a troca de
+    // senha usa esta função para conferir a senha atual e SEMPRE respondia
+    // "Senha atual incorreta" (verifyPassword contra undefined). O único
+    // consumidor é auth.changePassword; nada serializa o objeto inteiro.
+    const rows = await sql`SELECT id, email, password_hash, name, role, created_at
       FROM accounts WHERE id = ${id} LIMIT 1`;
     return rows.length ? rows[0] : null;
   } catch (err) { console.error('[db] getAccountById:', err.message); return null; }
@@ -318,15 +333,43 @@ async function claimLegacyData(accountId) {
 }
 
 // ── Sessões de login ──────────────────────────────────────────────────────
-async function createAuthSession(accountId, ttlDays) {
+// Item 414: meta opcional { ua, ipMasked } identifica o dispositivo na lista
+// de sessões ativas da aba Config.
+async function createAuthSession(accountId, ttlDays, meta) {
   if (!enabled || !accountId) return null;
   const token = crypto.randomBytes(32).toString('hex');
   const days = Math.max(1, ttlDays || 30);
+  const ua = meta && meta.ua ? String(meta.ua).slice(0, 300) : null;
+  const ipMasked = meta && meta.ipMasked ? String(meta.ipMasked).slice(0, 60) : null;
   try {
-    await sql`INSERT INTO account_sessions (token, account_id, expires_at)
-      VALUES (${token}, ${accountId}, now() + make_interval(days => ${days}))`;
+    await sql`INSERT INTO account_sessions (token, account_id, expires_at, ua, ip_masked)
+      VALUES (${token}, ${accountId}, now() + make_interval(days => ${days}), ${ua}, ${ipMasked})`;
     return token;
   } catch (err) { console.error('[db] createAuthSession:', err.message); return null; }
+}
+
+// Item 414: lista as sessões ativas da conta SEM expor o token — cada sessão
+// é identificada pelo md5(token) ("sid"), suficiente para encerrar uma
+// específica sem que a resposta sirva para sequestrar a sessão.
+async function listAuthSessions(accountId) {
+  if (!enabled || !accountId) return [];
+  try {
+    return await sql`SELECT md5(token) AS sid, created_at, expires_at, ua, ip_masked
+      FROM account_sessions
+      WHERE account_id = ${accountId} AND expires_at > now()
+      ORDER BY created_at DESC`;
+  } catch (err) { console.error('[db] listAuthSessions:', err.message); return []; }
+}
+
+// Item 414: encerra UMA sessão pelo sid (md5 do token), escopada à conta.
+// Retorna o token real apagado para o auth limpar o cache em memória.
+async function deleteAuthSessionBySid(accountId, sid) {
+  if (!enabled || !accountId || !sid) return null;
+  try {
+    const rows = await sql`DELETE FROM account_sessions
+      WHERE account_id = ${accountId} AND md5(token) = ${sid} RETURNING token`;
+    return rows.length ? rows[0].token : null;
+  } catch (err) { console.error('[db] deleteAuthSessionBySid:', err.message); return null; }
 }
 
 async function getAuthSession(token) {
@@ -365,6 +408,78 @@ async function updateAccountPassword(accountId, passwordHash) {
     const rows = await sql`UPDATE accounts SET password_hash = ${passwordHash} WHERE id = ${accountId} RETURNING id`;
     return rows.length > 0;
   } catch (err) { console.error('[db] updateAccountPassword:', err.message); return false; }
+}
+
+// Item 413: edição do nome da conta (exibido no cabeçalho da dashboard).
+async function updateAccountName(accountId, name) {
+  if (!enabled || !accountId) return false;
+  try {
+    const rows = await sql`UPDATE accounts SET name = ${name} WHERE id = ${accountId} RETURNING id`;
+    return rows.length > 0;
+  } catch (err) { console.error('[db] updateAccountName:', err.message); return false; }
+}
+
+// Item 324/425 (LGPD): anonimiza leads mais antigos que N dias — remove
+// e-mail, telefone e nome do jsonb, mantendo os agregados (país, valor,
+// estágio) intactos para não quebrar relatórios. Retorna quantos anonimizou.
+async function anonymizeOldLeads(accountId, days, limit) {
+  if (!enabled || !accountId || !days) return 0;
+  const lim = Math.max(1, Math.min(limit || 500, 2000));
+  try {
+    const rows = await sql`UPDATE leads
+      SET data = (data - 'email' - 'phone' - 'customer') || '{"anonymized":true}'::jsonb,
+          updated_at = now()
+      WHERE account_id = ${accountId}
+        AND created_at < now() - make_interval(days => ${Math.round(days)})
+        AND NOT (data ? 'anonymized')
+        AND (data ? 'email' OR data ? 'phone' OR data ? 'customer')
+        AND id IN (SELECT id FROM leads WHERE account_id = ${accountId}
+                   AND created_at < now() - make_interval(days => ${Math.round(days)})
+                   AND NOT (data ? 'anonymized') LIMIT ${lim})
+      RETURNING id`;
+    return rows.length;
+  } catch (err) { console.error('[db] anonymizeOldLeads:', err.message); return 0; }
+}
+
+// Item 428: pré-visualização da zona de perigo — o que existe hoje na conta.
+async function accountDataCounts(accountId) {
+  if (!enabled || !accountId) return null;
+  try {
+    const [r] = await sql`SELECT
+      (SELECT count(*) FROM leads WHERE account_id = ${accountId}) AS leads,
+      (SELECT count(*) FROM events WHERE account_id = ${accountId}) AS events,
+      (SELECT count(*) FROM events_archive WHERE account_id = ${accountId}) AS events_arquivados,
+      (SELECT count(*) FROM links WHERE account_id = ${accountId}) AS links,
+      (SELECT count(*) FROM pixels WHERE account_id = ${accountId}) AS pixels,
+      (SELECT count(*) FROM gateways WHERE account_id = ${accountId}) AS gateways,
+      (SELECT count(*) FROM custom_domains WHERE account_id = ${accountId}) AS dominios,
+      (SELECT count(*) FROM account_sessions WHERE account_id = ${accountId} AND expires_at > now()) AS sessoes,
+      (SELECT count(*) FROM account_audit WHERE account_id = ${accountId}) AS auditoria`;
+    return r || null;
+  } catch (err) { console.error('[db] accountDataCounts:', err.message); return null; }
+}
+
+// Item 427: exclusão da conta com cascata TOTAL — apaga tudo que pertence à
+// conta em todas as tabelas. Irreversível por design; a rota exige senha.
+async function deleteAccountCascade(accountId) {
+  if (!enabled || !accountId) return false;
+  try {
+    await sql`DELETE FROM account_sessions WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM account_audit   WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM leads           WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM events          WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM events_archive  WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM sessions        WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM variants        WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM pixel_events    WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM pixels          WHERE account_id = ${accountId} OR slug LIKE ${accountId + ':%'}`;
+    await sql`DELETE FROM links           WHERE account_id = ${accountId} OR slug LIKE ${accountId + ':%'}`;
+    await sql`DELETE FROM gateways        WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM custom_domains  WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM config          WHERE key = ${accountId}`;
+    await sql`DELETE FROM accounts        WHERE id = ${accountId}`;
+    return true;
+  } catch (err) { console.error('[db] deleteAccountCascade:', err.message); return false; }
 }
 
 // Item 415: derruba todas as sessões da conta exceto a atual (logout global).
@@ -700,7 +815,7 @@ async function loadCustomDomains(accountId) {
   return { ok: false, data: null };
 }
 
-// ── Moeda por conta (item 242) ────────────────────────────────────────────
+// ── Moeda por conta (item 242) ───────────────────��────────────────────────
 async function setAccountCurrency(id, currency) {
   if (!enabled || !id) return false;
   const cur = String(currency || '').toUpperCase();
@@ -897,6 +1012,8 @@ module.exports = {
   // contas / auth / migração
   createAccount, getAccountByEmail, getAccountById, countAccounts, getFirstAccountId, claimLegacyData,
   createAuthSession, getAuthSession, deleteAuthSession, pruneAuthSessions,
+  listAuthSessions, deleteAuthSessionBySid, updateAccountName,
+  anonymizeOldLeads, accountDataCounts, deleteAccountCascade,
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
