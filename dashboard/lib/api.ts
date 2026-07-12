@@ -225,6 +225,16 @@ export function useCloakTestProfiles() {
   })
 }
 
+// Item 326: detalhe de um lead com jornada completa — alimenta o drawer de
+// perfil (item 304). `id` nulo = drawer fechado, hook inativo.
+export function useLead(id: string | null) {
+  return useSWR<import('./types').LeadDetailResponse>(
+    id ? '/api/leads/' + encodeURIComponent(id) : null,
+    fetcher,
+    { refreshInterval: POLL_MS, keepPreviousData: true },
+  )
+}
+
 export function useAccount() {
   return useSWR<Account>('/api/me', fetcher, {
     revalidateOnFocus: false,

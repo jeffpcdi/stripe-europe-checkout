@@ -79,11 +79,21 @@ export interface Lead {
   /** Item 310: telefone reportado pelo gateway (quando existe) */
   phone?: string
   referer?: string
-  checkoutHits?: { at: string }[]
+  checkoutHits?: { at: string; gateway?: string }[]
   reportedAmount?: number
   reportedCurrency?: string
   expectedAmount?: number
   expectedCurrency?: string
+}
+
+// ── /api/leads/:id — detalhe de um lead com jornada (item 326) ──
+export interface LeadDetail extends Lead {
+  lastSeen?: string | null
+}
+
+export interface LeadDetailResponse {
+  ok: boolean
+  lead: LeadDetail
 }
 
 export interface CountryStat {
