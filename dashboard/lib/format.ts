@@ -203,6 +203,20 @@ export function liveDuration(ms?: number): string {
   return `${Math.floor(s / 3600)}h`
 }
 
+/* Item 323: etiquetas e cores das etapas do funil centralizadas — antes
+   viviam duplicadas por componente, com risco de divergirem. */
+export const STAGE_LABEL: Record<string, string> = {
+  visit: 'Visita',
+  checkout: 'Checkout',
+  purchased: 'Comprou',
+}
+
+export const STAGE_CLASS: Record<string, string> = {
+  visit: 'bg-primary/10 text-primary',
+  checkout: 'bg-warning/10 text-warning',
+  purchased: 'bg-success/10 text-success',
+}
+
 /** Item 296: duração legível em até 2 unidades: "4min", "2h 15min", "3d 4h" */
 export function fmtDurationShort(ms: number): string {
   const s = Math.floor(ms / 1000)
