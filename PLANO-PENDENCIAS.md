@@ -44,7 +44,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 
 ### B1. Overview / Dashboard principal (271–299)
 - ~~**271.** Meta de receita mensal por conta com barra de progresso (`revenue_goal`)~~ — ✅ FEITO: `GoalCard` na Overview do painel Novo. Meta vem de `/api/settings` (revenueGoal, configurada em Config); card só aparece com meta > 0. Barra com progressbar acessível e cor por estado (verde ≥100%, ciano no ritmo, âmbar abaixo).
-- **272.** Comparativo "período atual vs anterior" no gráfico (linha fantasma).
+- ~~**272.** Comparativo "período atual vs anterior" no gráfico (linha fantasma)~~ — ✅ FEITO: `RevenueChart` recebe `prevSeries` e desenha curva tracejada cinza (sem fill) atrás da principal, alinhada por posição (dia N vs dia N); legenda "período anterior" no cabeçalho. Some no modo "Tudo" (sem período anterior) e na métrica de barras. Verificado com screenshot.
 - **274.** Card "melhor dia da semana" e "melhor hora" das séries. — ⚠️ PARCIAL: "melhor dia da semana" FEITO (card de insight abaixo do gráfico, derivado da série, aparece só com ≥14 dias). "Melhor hora" ainda falta (a série é diária; exigiria granularidade horária do backend).
 - **275.** Anotações no gráfico (`chart_annotations`) marcando eventos.
 - ~~**276.** Previsão simples de fim de mês (projeção linear) com disclaimer~~ — ✅ FEITO: dentro do `GoalCard` — ritmo médio diário × dias do mês, marcador fantasma na barra até a projeção, texto "Estimativa linear — não é garantia".
@@ -52,7 +52,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **278.** Exportar resumo do período como imagem (canvas).
 - **279.** Drill-down: clicar num KPI abre a aba correspondente filtrada.
 - **280.** HealthCard com estado agregado (`/api/health/gestao`: db, redis, filas, snapshots).
-- **281.** Tooltip do gráfico com vendas + visitas do dia junto do valor.
+- ~~**281.** Tooltip do gráfico com vendas + visitas do dia junto do valor~~ — ✅ FEITO: rodapé do tooltip com "N vendas · M leads" (singular/plural correto) separado por borda, qualquer que seja a métrica ativa.
 - **282.** Período customizado (date-range picker) propagado a todas as abas.
 - ~~**283.** Persistir período escolhido em localStorage~~ — ✅ FEITO: chave `roi:overview:period`, sobrevive a reload.
 - ~~**284.** Deep-link de período via query string~~ — ✅ FEITO: `?p=today|7d|30d|all` (precedência: URL → localStorage → 7d), refletido via `history.replaceState` sem recarregar.
@@ -63,7 +63,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **289.** HeroGlobe respeita `prefers-reduced-motion` e pausa sem foco.
 - **290.** Skeleton do globo com silhueta esférica (evitar salto de layout).
 - ~~**292.** MiniStat de reembolsos clicável → Atividade filtrada em refund~~ — ✅ FEITO: chips de Reembolsos e Disputas viram `<Link>` (só quando há ocorrências) para `/activity?f=refund|dispute`; a Atividade lê `?f=` na chegada e sobrepõe o filtro persistido.
-- **293.** Contador "próxima atualização em Xs" junto ao badge Ao vivo.
+- ~~**293.** Contador "próxima atualização em Xs" junto ao badge Ao vivo~~ — ✅ FEITO: o badge do header mostra "atualiza em Xs" no hover (junto da latência), reancorado a cada resposta nova do `/api/stats` (ciclo de 12s do SWR).
 - **294.** Modo TV/fullscreen do overview para telão.
 - **296.** Card "tempo médio até a compra" (visita → purchase).
 - **297.** Badge de tendência de EMQ no overview.
