@@ -4598,10 +4598,12 @@ function bindPublicApi(){
 // UA resumido: "Chrome · Windows" em vez do user-agent gigante.
 function shortUa(ua){
   if(!ua) return 'Dispositivo desconhecido';
-  var b='Navegador';
-  if(/edg\//i.test(ua)) b='Edge'; else if(/opr\//i.test(ua)) b='Opera';
-  else if(/chrome\//i.test(ua)) b='Chrome'; else if(/firefox\//i.test(ua)) b='Firefox';
-  else if(/safari\//i.test(ua)) b='Safari';
+  // Sem "\\/" nas regexes: este código vive num template literal do servidor,
+  // que come a barra invertida e quebraria a regex na página servida.
+  var u=ua.toLowerCase(), b='Navegador';
+  if(u.indexOf('edg')>-1) b='Edge'; else if(u.indexOf('opr')>-1) b='Opera';
+  else if(u.indexOf('chrome')>-1) b='Chrome'; else if(u.indexOf('firefox')>-1) b='Firefox';
+  else if(u.indexOf('safari')>-1) b='Safari';
   var os='';
   if(/windows/i.test(ua)) os='Windows'; else if(/iphone|ipad/i.test(ua)) os='iOS';
   else if(/android/i.test(ua)) os='Android'; else if(/mac os/i.test(ua)) os='macOS';

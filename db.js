@@ -278,7 +278,11 @@ async function getAccountByEmail(email) {
 async function getAccountById(id) {
   if (!enabled || !id) return null;
   try {
-    const rows = await sql`SELECT id, email, name, role, created_at
+    // BUG corrigido (item 411): faltava password_hash no SELECT — a troca de
+    // senha usa esta função para conferir a senha atual e SEMPRE respondia
+    // "Senha atual incorreta" (verifyPassword contra undefined). O único
+    // consumidor é auth.changePassword; nada serializa o objeto inteiro.
+    const rows = await sql`SELECT id, email, password_hash, name, role, created_at
       FROM accounts WHERE id = ${id} LIMIT 1`;
     return rows.length ? rows[0] : null;
   } catch (err) { console.error('[db] getAccountById:', err.message); return null; }
