@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { NAV_SECTIONS } from '@/lib/navigation'
-import { useLive, useHealth } from '@/lib/api'
+import { useHealth } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { GestaoHelp } from '@/components/shell/gestao-help'
 
@@ -23,11 +23,7 @@ function SidebarFooter() {
 
   return (
     <div className="mt-auto px-3 pb-5 pt-3">
-      <div
-        className="mb-3 h-px"
-        style={{ background: 'linear-gradient(90deg, rgba(37,244,238,.25), transparent 80%)' }}
-        aria-hidden="true"
-      />
+      <div className="mb-3 h-px bg-border" aria-hidden="true" />
       <div className="flex items-center gap-2 px-3">
         <span
           className={cn('size-1.5 shrink-0 rounded-full', ok ? 'bg-success' : 'bg-error')}
@@ -44,22 +40,6 @@ function SidebarFooter() {
   )
 }
 
-/** Item 9: badge com visitantes ativos no item "Ao Vivo" (pulsa quando muda) */
-function LiveBadge() {
-  const { data } = useLive()
-  const online = data?.summary?.online ?? 0
-  const prev = useRef(online)
-  const changed = prev.current !== online
-  prev.current = online
-
-  if (!online) return null
-  return (
-    <span className={cn('side-badge', changed && 'side-badge--pulse')} aria-label={`${online} visitantes ativos`}>
-      {online}
-    </span>
-  )
-}
-
 /**
  * Sidebar lateral esquerda — identidade do dashboard legado:
  * logo neon no topo, seções (Métricas / Gestão / Sistema) e
@@ -67,9 +47,7 @@ function LiveBadge() {
  */
 export function Sidebar() {
   const pathname = usePathname()
-  // Item 207: clique duplo na logo dispara a onda ripple do anel
-  const [rippling, setRippling] = useState(false)
-  // Item 206: stagger só no primeiro load (não repete em navegação).
+  // Stagger discreto só no primeiro load (não repete em navegação).
   // Estado (não ref mutada no render) para SSR e hidratação renderizarem
   // igual; um timeout remove a classe após a animação terminar.
   const [enterAnim, setEnterAnim] = useState(true)
@@ -91,21 +69,9 @@ export function Sidebar() {
           href="/"
           className="group"
           aria-label="ROI-NADOS — Visão Geral"
-          onDoubleClick={() => {
-            setRippling(true)
-            setTimeout(() => setRippling(false), 950)
-          }}
         >
-          {/* Item 94: pulso de onda automático a cada 30s */}
-          <span
-            className={cn(
-              'brand-logo brand-logo--lg logo-ripple',
-              rippling && 'brand-logo--rippling',
-            )}
-            aria-hidden="true"
-          >
+          <span className="brand-logo brand-logo--lg" aria-hidden="true">
             <span className="brand-logo__ring" />
-            <span className="brand-logo__ripple" />
             <Image
               src="/dashboard/roi-nados-logo.jpg"
               alt="ROI-NADOS"
@@ -166,8 +132,7 @@ export function Sidebar() {
                           aria-hidden="true"
                         />
                         {item.label}
-                        {item.id === 'live' ? <LiveBadge /> : null}
-                        {/* Item 7: tooltip com nome + descrição */}
+                        {/* Tooltip com nome + descrição */}
                         <span className="side-item__tip" role="presentation" aria-hidden="true">
                           <span className="block text-xs font-semibold text-foreground">
                             {item.label}

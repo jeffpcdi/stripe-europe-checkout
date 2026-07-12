@@ -1,9 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import GlobeGL from 'react-globe.gl'
-import { Crosshair, Maximize2, Minus, Plus, X } from 'lucide-react'
+import { Crosshair, Minus, Plus } from 'lucide-react'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
 
 interface GeoPoint {
@@ -37,9 +36,6 @@ const ALT_MIN = 1.2
 const ALT_MAX = 3.5
 const ALT_DEFAULT = 2.2
 const ALT_STEP = 0.45
-// Item 30: reentrada cinematográfica — começa distante e faz zoom-in
-const ALT_ENTRY = 4.5
-const ENTRY_MS = 1600
 
 function buildPoints(
   countries: GlobePanelProps['countries'],
@@ -56,7 +52,7 @@ function buildPoints(
       {
         lat: coords[0],
         lng: coords[1],
-        size: 0.25 + (value / max) * 0.85,
+        size: 0.28 + (Math.log1p(value) / Math.log1p(max)) * 0.72,
         color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
         label: `${c.name}: ${c.count} visitas${c.purchased ? ` · ${c.purchased} vendas` : ''}`,
       },
@@ -72,7 +68,7 @@ function buildPoints(
   const leader = countries[0]
   const leaderCoords = leader ? COUNTRY_COORDS[leader.code?.toUpperCase() ?? ''] : null
   const arcs: GeoArc[] = leaderCoords
-    ? countries.slice(1, 9).flatMap((c) => {
+    ? countries.slice(1, 6).flatMap((c) => {
         const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
         if (!coords) return []
         return [
@@ -88,20 +84,6 @@ function buildPoints(
   return { points, rings, arcs }
 }
 
-/** Item 30/37: anima a chegada da órbita — zoom-in distante → próximo */
-function playEntry(globeRef: React.MutableRefObject<any>) {
-  const g = globeRef.current
-  if (!g) return
-  g.pointOfView({ lat: 20, lng: -30, altitude: ALT_ENTRY }, 0)
-  g.controls().autoRotateSpeed = 2.4
-  window.setTimeout(() => {
-    g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, ENTRY_MS)
-  }, 60)
-  window.setTimeout(() => {
-    if (globeRef.current) globeRef.current.controls().autoRotateSpeed = 0.6
-  }, ENTRY_MS + 120)
-}
-
 /** Canvas do globo — reutilizado no painel e na tela cheia */
 function GlobeCanvas({
   countries,
@@ -114,9 +96,7 @@ function GlobeCanvas({
   height: number
   globeRef: React.MutableRefObject<any>
 }) {
-  const entered = useRef(false)
-
-  // Item 369: libera o contexto WebGL ao desmontar. O navegador limita a
+  // Libera o contexto WebGL ao desmontar. O navegador limita a
   // ~8-16 contextos simultâneos — sem dispose, navegar entre abas (e abrir/
   // fechar a tela cheia, que monta um SEGUNDO canvas) vaza contextos até o
   // navegador começar a matar os mais antigos ("context lost" no globo).
@@ -158,15 +138,8 @@ function GlobeCanvas({
       /* renderer indisponível nesta versão */
     }
 
-    if (reducedMotion) {
-      entered.current = true
-      g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 0)
-    } else if (!entered.current) {
-      entered.current = true
-      playEntry(globeRef)
-    } else {
-      g.controls().autoRotateSpeed = 0.6
-    }
+    g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 0)
+    g.controls().autoRotateSpeed = 0.35
 
     // Item 289: pausa o render loop com a aba oculta — three.js continuaria
     // gastando GPU em segundo plano sem isso.
@@ -237,7 +210,6 @@ function GlobeCanvas({
       width={width}
       height={height}
       backgroundColor="rgba(0,0,0,0)"
-      backgroundImageUrl="//unpkg.com/three-globe/example/img/night-sky.png"
       globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
       bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
       atmosphereColor={CYAN}
@@ -276,12 +248,10 @@ function GlobeControls({
   onZoomIn,
   onZoomOut,
   onRecenter,
-  onFullscreen,
 }: {
   onZoomIn: () => void
   onZoomOut: () => void
   onRecenter: () => void
-  onFullscreen?: () => void
 }) {
   return (
     <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5" data-tour="globe-controls">
@@ -295,59 +265,20 @@ function GlobeControls({
       <button type="button" onClick={onRecenter} className="globe-ctl" aria-label="Recentrar globo">
         <Crosshair className="size-4" aria-hidden="true" />
       </button>
-      {onFullscreen && (
-        <button
-          type="button"
-          onClick={onFullscreen}
-          className="globe-ctl"
-          aria-label="Tela cheia"
-        >
-          <Maximize2 className="size-4" aria-hidden="true" />
-        </button>
-      )}
+
     </div>
   )
 }
 
 /* Item 35: HUD orbital — corner brackets + legenda mono */
 function GlobeHud({ empty }: { empty?: boolean }) {
-  return (
-    <>
-      <span className="hud-corner hud-corner--tl" aria-hidden="true" />
-      <span className="hud-corner hud-corner--tr" aria-hidden="true" />
-      <span className="hud-corner hud-corner--bl" aria-hidden="true" />
-      <span className="hud-corner hud-corner--br" aria-hidden="true" />
-      {/* Alinhado à esquerda para nunca colidir com a legenda de intensidade à direita */}
-      <span
-        className="label-mono pointer-events-none absolute bottom-3 left-8 z-10 whitespace-nowrap text-[9.5px] opacity-70"
-        aria-hidden="true"
-      >
-        ROI-NADOS · TRÁFEGO GLOBAL
+  return empty ? (
+    <span className="globe-empty-note">
+      <span className="rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
+        Aguardando tráfego
       </span>
-      {/* Item 165: mini-legenda de intensidade */}
-      <span
-        className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-1.5"
-        aria-hidden="true"
-      >
-        <span className="font-mono text-[9px] uppercase tracking-wider text-faint">fraco</span>
-        <span
-          className="h-1 w-12 rounded-full"
-          style={{ background: 'linear-gradient(90deg, rgba(37,244,238,.15), #25f4ee, #fe2c55)' }}
-        />
-        <span className="font-mono text-[9px] uppercase tracking-wider text-faint">forte</span>
-      </span>
-      {/* Item 166: estado sem dados */}
-      {empty ? (
-        <span className="globe-empty-note">
-          <span className="glass rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            aguardando tráfego
-          </span>
-        </span>
-      ) : null}
-      {/* Item 98: reflexo de chão ciano na base */}
-      <span className="globe-floor" aria-hidden="true" />
-    </>
-  )
+    </span>
+  ) : null
 }
 
 function zoomBy(globeRef: React.MutableRefObject<any>, delta: number) {
@@ -368,11 +299,7 @@ function hoverSpeed(globeRef: React.MutableRefObject<any>, hovering: boolean) {
 export default function GlobePanel({ countries, focusCode, metric = 'visits' }: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
-  const fsGlobeRef = useRef<any>(null)
-  const [size, setSize] = useState({ w: 0, h: 420 })
-  const [fsSize, setFsSize] = useState({ w: 0, h: 0 })
-  const [fullscreen, setFullscreen] = useState(false)
-  const [closing, setClosing] = useState(false)
+  const [size, setSize] = useState({ w: 0, h: 320 })
 
   const empty = countries.length === 0
 
@@ -399,107 +326,30 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
     return () => ro.disconnect()
   }, [])
 
-  // Fecha com animação de saída antes de desmontar
-  const closeFullscreen = useCallback(() => {
-    setClosing(true)
-    window.setTimeout(() => {
-      setFullscreen(false)
-      setClosing(false)
-    }, 220)
-  }, [])
-
-  // Tamanho + Escape enquanto a tela cheia está aberta
-  useEffect(() => {
-    if (!fullscreen) return
-    const measure = () =>
-      setFsSize({ w: window.innerWidth - 32, h: window.innerHeight - 96 })
-    measure()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeFullscreen()
-    }
-    window.addEventListener('resize', measure)
-    window.addEventListener('keydown', onKey)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      window.removeEventListener('resize', measure)
-      window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = ''
-    }
-  }, [fullscreen, closeFullscreen])
 
   return (
-    <>
-      <div
-        ref={containerRef}
-        className="globe-stage energy-border relative h-[55vh] w-full overflow-hidden rounded-xl md:h-[420px]"
-        data-tour="globe"
-        onPointerEnter={() => hoverSpeed(globeRef, true)}
-        onPointerLeave={() => hoverSpeed(globeRef, false)}
-      >
-        {size.w > 0 && (
-          <GlobeCanvas
-            countries={countries}
-            width={size.w}
-            height={size.h}
-            globeRef={globeRef}
-            metric={metric}
-          />
-        )}
-        <GlobeHud empty={empty} />
-        <GlobeControls
-          onZoomIn={() => zoomBy(globeRef, -ALT_STEP)}
-          onZoomOut={() => zoomBy(globeRef, ALT_STEP)}
-          onRecenter={() => playEntry(globeRef)}
-          onFullscreen={() => setFullscreen(true)}
+    <div
+      ref={containerRef}
+      className="globe-stage relative h-full w-full overflow-hidden"
+      data-tour="globe"
+      onPointerEnter={() => hoverSpeed(globeRef, true)}
+      onPointerLeave={() => hoverSpeed(globeRef, false)}
+    >
+      {size.w > 0 && (
+        <GlobeCanvas
+          countries={countries}
+          width={size.w}
+          height={size.h}
+          globeRef={globeRef}
+          metric={metric}
         />
-      </div>
-
-      {fullscreen &&
-        createPortal(
-          <div
-            className={`globe-modal ${closing ? 'globe-modal--closing' : ''}`}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Globo em tela cheia"
-          >
-            <button
-              type="button"
-              className="globe-modal__backdrop"
-              aria-label="Fechar tela cheia"
-              onClick={closeFullscreen}
-            />
-            <div
-              className="globe-modal__panel globe-stage"
-              onPointerEnter={() => hoverSpeed(fsGlobeRef, true)}
-              onPointerLeave={() => hoverSpeed(fsGlobeRef, false)}
-            >
-              <button
-                type="button"
-                onClick={closeFullscreen}
-                className="globe-ctl absolute left-3 top-3 z-10"
-                aria-label="Fechar"
-              >
-                <X className="size-4" aria-hidden="true" />
-              </button>
-              {fsSize.w > 0 && (
-                <GlobeCanvas
-                  countries={countries}
-                  width={fsSize.w}
-                  height={fsSize.h}
-                  globeRef={fsGlobeRef}
-                  metric={metric}
-                />
-              )}
-              <GlobeHud empty={empty} />
-              <GlobeControls
-                onZoomIn={() => zoomBy(fsGlobeRef, -ALT_STEP)}
-                onZoomOut={() => zoomBy(fsGlobeRef, ALT_STEP)}
-                onRecenter={() => playEntry(fsGlobeRef)}
-              />
-            </div>
-          </div>,
-          document.body,
-        )}
-    </>
+      )}
+      <GlobeHud empty={empty} />
+      <GlobeControls
+        onZoomIn={() => zoomBy(globeRef, -ALT_STEP)}
+        onZoomOut={() => zoomBy(globeRef, ALT_STEP)}
+        onRecenter={() => globeRef.current?.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 500)}
+      />
+    </div>
   )
 }
