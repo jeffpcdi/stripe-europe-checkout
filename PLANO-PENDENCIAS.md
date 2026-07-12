@@ -67,7 +67,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **294.** Modo TV/fullscreen do overview para telão.
 - ~~**296.** Card "tempo médio até a compra" (visita → purchase)~~ — ✅ FEITO: card de insight ao lado do "melhor dia" — mediana (não média, robusta a outliers) de `purchasedAt − at` dos leads comprados no período, com contagem da amostra; exige ≥3 vendas para aparecer. `fmtDurationShort` novo em `lib/format.ts` ("14h 16min", "3d 4h"). Verificado no browser.
 - **297.** Badge de tendência de EMQ no overview.
-- **298.** Receita por gateway em donut compacto.
+- ~~**298.** Receita por gateway em donut compacto~~ — ✅ FEITO: `aggregate` expõe `revByGateway` (receita/vendas por gateway, só na moeda dominante — misturar moedas somaria valores incomparáveis); componente `GatewayDonut` (Recharts Pie) ao lado da Saúde do sistema, com total no centro e legenda nome + valor + %. Só aparece com 2+ gateways (com um único seria um círculo cheio sem informação). Verificado no browser.
 - ~~**299.** Acessibilidade dos KPIs (aria-label com valor + delta + período)~~ — ✅ FEITO: `KpiCard` aceita `ariaLabel` (vira `role="group"` + `aria-label`); a Overview passa leitura completa nos 4 KPIs (ex.: "Receita total: R$ X, alta de Y% vs período anterior"). Verificado no snapshot de acessibilidade do browser.
 
 ### B2. Tabela de Leads / Funil (301–330)
