@@ -16,25 +16,45 @@ import { GlassCard } from '@/components/glass-card'
  * estimativa. O card só existe quando há meta (> 0): sem meta, sem ruído.
  */
 export function GoalCard() {
-  const { data: settings } = useSWR<{ revenueGoal?: number }>('/api/settings', fetcher, {
-    revalidateOnFocus: false,
-  })
+  const { data: settings } = useSWR<{ revenueGoal?: number; timezone?: string }>(
+    '/api/settings',
+    fetcher,
+    { revalidateOnFocus: false },
+  )
   const { data } = useStats()
 
   const goal = settings?.revenueGoal || 0
+  const tz = settings?.timezone || 'America/Sao_Paulo'
 
   const month = useMemo(() => {
     if (!data || !goal) return null
-    const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    // "Hoje" no fuso da CONTA (não do browser) — evita o card pular de dia à
+    // meia-noite UTC enquanto o resto do painel ainda mostra o dia anterior.
+    let y: number
+    let m: number
+    let dayOfMonth: number
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date())
+      ;[y, m, dayOfMonth] = parts.split('-').map(Number)
+    } catch {
+      const now = new Date()
+      y = now.getFullYear()
+      m = now.getMonth() + 1
+      dayOfMonth = now.getDate()
+    }
+    const monthStart = new Date(y, m - 1, 1)
     const agg = aggregate(data, monthStart)
     const mtd = agg.rev[agg.mainCur] || 0
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-    const dayOfMonth = now.getDate()
+    const daysInMonth = new Date(y, m, 0).getDate()
     // Projeção linear: ritmo médio até agora estendido ao mês inteiro.
     const projected = dayOfMonth > 0 ? Math.round((mtd / dayOfMonth) * daysInMonth) : 0
     return { mtd, projected, cur: agg.mainCur, dayOfMonth, daysInMonth }
-  }, [data, goal])
+  }, [data, goal, tz])
 
   if (!goal || !month) return null
 

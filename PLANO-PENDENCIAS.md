@@ -146,8 +146,8 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **374.** Métrica "tempo médio de sessão" no resumo.
 - **376.** `checkout.externalEst` explicado em tooltip.
 - **377.** Acessibilidade do globo (alternativa textual com `aria-describedby`).
-- **378.** Polling do live com backoff quando aba oculta (5s → 30s).
-- **379.** `/api/live` com `Cache-Control: no-store` e payload enxuto.
+- ~~**378.** Polling do live com backoff quando aba oculta (5s → 30s)~~ — ✅ FEITO (superado): o SWR já suspende TODO o polling com a aba oculta (`refreshWhenHidden: false` por padrão) e revalida na volta (`revalidateOnFocus`) — zero requests em segundo plano, melhor que o backoff pedido. Documentado em `lib/api.ts` para ninguém regredir com `refreshWhenHidden: true`.
+- ~~**379.** `/api/live` com `Cache-Control: no-store` e payload enxuto~~ — ✅ FEITO: header `no-store` adicionado à rota (payload já era enxuto: visitors + summary + checkoutEst). Verificado via curl.
 - **380.** Testes do dedupe do live, prune do presence e agregação por cidade.
 
 ### B6. Shell / Navegação / Command palette (381–410)
@@ -167,8 +167,8 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **394.** Título da aba dinâmico com contagem de vendas não vistas.
 - **395.** Favicon dinâmico com dot de saúde.
 - **396.** Toast global unificado (`use-toast` padrão).
-- **397.** Error boundary por rota com tela de erro na identidade.
-- **398.** Página 404 do dashboard na identidade.
+- ~~**397.** Error boundary por rota com tela de erro na identidade~~ — ✅ FEITO: `app/(dashboard)/error.tsx` — erro de render cai num card glass com `role="alert"`, digest de referência e botão "Tentar de novo" (`reset()`); o shell (sidebar/header) continua vivo. Erro vai ao coletor do item 561 via console.
+- ~~**398.** Página 404 do dashboard na identidade~~ — ✅ FEITO: `app/not-found.tsx` (server component, dark + glass, CTA para a visão geral). Verificado no browser em rota inexistente.
 - **399.** `RefreshButton` com feedback de erro real.
 - **401.** Prefetch das rotas do grupo ativo no hover.
 - **402.** `UserMenu` com "copiar token da API" + link aos tutoriais.
@@ -178,7 +178,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **406.** Guard de sessão expirada com modal (em vez de redirect seco).
 - **407.** Reduzir polling quando `document.hidden` em todos os hooks.
 - **408.** Auditoria de z-index com escala única de camadas.
-- **409.** Skip-link "pular para conteúdo".
+- ~~**409.** Skip-link "pular para conteúdo"~~ — ✅ JÁ EXISTIA (item 102): `<a href="#conteudo" class="skip-link">` no layout do grupo (dashboard), aparece no primeiro Tab.
 - **410.** Testes de navegação (palette, atalhos, deep-links, error boundary).
 
 ### B7. Config / Segurança / Conta (411–432)

@@ -2033,6 +2033,8 @@ app.post('/api/pulse/leave', (req, res) => {
 
 // ── API: visitantes navegando AGORA (dashboard) ────────────────────────
 app.get('/api/live', dashboardAuth, async (req, res) => {
+  // Item 379: dados ao vivo nunca podem ser cacheados por proxy/navegador.
+  res.set('Cache-Control', 'no-store');
   try {
     // presence.list() e summary() são agora async (mescla memória + Redis)
     const accId = req.account.id;
