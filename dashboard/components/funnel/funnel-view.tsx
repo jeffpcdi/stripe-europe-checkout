@@ -27,20 +27,53 @@ export function FunnelView() {
   const { data, isLoading } = useStats()
   const [period, setPeriod] = useState<Period>('7d')
 
+  // ── Item 301: funil filtrável por link e campanha ─────────────────────
+  // '' = tudo. Filtramos os LEADS antes de agregar: visitas/checkout/compra
+  // vêm deles, então o funil inteiro (barras, taxas, gargalo) reage junto.
+  const [linkFilter, setLinkFilter] = useState('')
+  const [campaignFilter, setCampaignFilter] = useState('')
+
+  // Opções derivadas dos próprios leads (só o que existe de fato nos dados)
+  const filterOptions = useMemo(() => {
+    const links = new Set<string>()
+    const campaigns = new Set<string>()
+    for (const l of data?.leads ?? []) {
+      if (l.linkSlug) links.add(l.linkSlug)
+      if (l.utm?.campaign) campaigns.add(l.utm.campaign)
+    }
+    return {
+      links: [...links].sort(),
+      campaigns: [...campaigns].sort(),
+    }
+  }, [data])
+
+  const hasFilter = !!(linkFilter || campaignFilter)
+  const filteredData = useMemo(() => {
+    if (!data || !hasFilter) return data
+    return {
+      ...data,
+      leads: data.leads.filter(
+        (l) =>
+          (!linkFilter || l.linkSlug === linkFilter) &&
+          (!campaignFilter || l.utm?.campaign === campaignFilter),
+      ),
+    }
+  }, [data, hasFilter, linkFilter, campaignFilter])
+
   const m = useMemo(() => {
-    if (!data) return null
-    return aggregate(data, periodStart(period))
-  }, [data, period])
+    if (!filteredData) return null
+    return aggregate(filteredData, periodStart(period))
+  }, [filteredData, period])
 
   // Itens 316/317: valores monetários e tempos medianos por etapa,
   // derivados dos leads do período (só o que os dados sustentam).
   const stageExtras = useMemo(() => {
-    if (!data?.leads) return null
+    if (!filteredData?.leads) return null
     const from = periodStart(period)
     let checkoutValue = 0
     const v2cDeltas: number[] = []
     const c2pDeltas: number[] = []
-    for (const l of data.leads) {
+    for (const l of filteredData.leads) {
       if (from && new Date(l.at).getTime() < from.getTime()) continue
       // 316: valor esperado dos que chegaram ao checkout e não compraram ainda
       if (l.stage === 'checkout' && l.expectedAmount) checkoutValue += l.expectedAmount
