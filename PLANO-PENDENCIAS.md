@@ -81,16 +81,16 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - ~~**308.** Ordenação clicável nos cabeçalhos~~ — ✅ FEITO: Etapa/País/Valor/Quando ordenáveis via `SortableTh` (botão real, teclado-acessível, `aria-sort`, seta de direção). Ciclo por clique: desc → asc → ordem natural. Valor usa reportado (dinheiro real) com fallback no esperado; sem valor vai para o fim. Verificado no browser (desc = Comprou 1º, asc = Visita 1º).
 - **309.** Coluna de e-mail mascarado com "revelar" no hover.
 - **311.** Busca da tabela também por telefone.
-- **313.** Badge "lead quente" (`checkoutHits > 2`).
+- ~~**313.** Badge "lead quente" (`checkoutHits > 2`)~~ — ✅ FEITO: badge laranja com chama em leads NÃO comprados com 3+ idas ao checkout (quem comprou não é mais "quente"), tooltip sugere contato. Verificado no browser com seeds de checkoutHits.
 - **314.** Ação "reenviar conversão à CAPI" por lead (replay com dedupe).
-- **315.** Densidade compacta obedece `prefs.density`.
+- ~~**315.** Densidade compacta obedece `prefs.density`~~ — ✅ VERIFICADO: a regra global `html[data-density='compact'] table td/th` já cobre a tabela de leads (padding 10px → 5.6px, medido no browser). Nada a mudar.
 - **316.** Funil com valores monetários por etapa.
 - **317.** Tempo médio por etapa entre as barras.
 - **318.** Gargalo (146) vira link com sugestão de ação.
 - **319.** Cards por gateway com `last_event_status` + link à aba Gateways.
-- **320.** Paginação com "ir para página N".
+- ~~**320.** Paginação com "ir para página N"~~ — ✅ FEITO: input numérico no lugar do contador estático ("3/12"), com clamp em 1..N e aria-label. Verificado no browser (digitei 3 → "21–27 de 27").
 - **321.** Virtualização da tabela acima de 500 leads.
-- **322.** Estado vazio do funil diferenciado (sem dados vs conta nova).
+- ~~**322.** Estado vazio do funil diferenciado (sem dados vs conta nova)~~ — ✅ FEITO: conta sem NENHUM lead vê orientação de instalação (pixel + links); conta com leads mas recorte vazio vê "Nenhum lead corresponde" com botão "Limpar filtros". Verificado no browser.
 - ~~**323.** `STAGE_LABEL`/cores centralizados em `lib/format.ts`~~ — ✅ FEITO: `STAGE_LABEL` e `STAGE_CLASS` exportados de `lib/format.ts`; `leads-table.tsx` consome de lá (antes duplicava localmente, com risco de divergência).
 - **324.** Anonimização automática de leads antigos (LGPD, config por conta).
 - **325.** Webhook de saída por lead comprado (integração CRM/planilha).

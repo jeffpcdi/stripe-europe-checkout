@@ -21,10 +21,20 @@ import {
   Download,
   Search,
   X,
+  Flame,
 } from 'lucide-react'
 import type { Lead } from '@/lib/types'
+import { usePersistedState } from '@/lib/use-persisted-state'
 
 const PAGE_SIZE = 20
+
+/* Item 309: e-mail mascarado por padrão; o completo só no hover/focus —
+   a tabela fica aberta em tela cheia em escritórios, PII não deve vazar. */
+function maskEmailCell(e?: string | null) {
+  if (!e || !e.includes('@')) return ''
+  const [user, domain] = e.split('@')
+  return (user.length <= 2 ? user[0] + '…' : user.slice(0, 2) + '…') + '@' + domain
+}
 
 /* Item 308: colunas ordenáveis. `null` = ordem natural (mais recente 1º). */
 type SortKey = 'stage' | 'amount' | 'at' | 'country'
@@ -102,6 +112,11 @@ export function LeadsTable({
   const [query, setQuery] = useState('')
   const [stage, setStage] = useState('')
   const [gateway, setGateway] = useState('')
+  // Item 306: filtro por país, derivado dos leads presentes
+  const [country, setCountry] = useState('')
+  // Itens 305/309: colunas opcionais (persistem — preferência de layout)
+  const [showCampaign, setShowCampaign] = usePersistedState<boolean>('leads:col-campaign', false)
+  const [showEmail, setShowEmail] = usePersistedState<boolean>('leads:col-email', false)
   const [page, setPage] = useState(0)
   // Item 312: vendas órfãs (sem lead rastreado) eram filtradas em silêncio —
   // dinheiro invisível. O toggle traz de volta com explicação.
@@ -135,6 +150,13 @@ export function LeadsTable({
     return [...seen].sort()
   }, [leads])
 
+  // Item 306: países presentes nos leads, ordenados pelo nome legível
+  const countries = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const l of leads) if (l.country) seen.set(l.country, l.countryName || l.country)
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [leads])
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase()
     return leads.filter((l) => {
@@ -142,16 +164,20 @@ export function LeadsTable({
       if (periodStart && new Date(l.at).getTime() < periodStart.getTime()) return false
       if (stage && l.stage !== stage) return false
       if (gateway && l.gateway !== gateway) return false
+      if (country && l.country !== country) return false
       if (q) {
+        // Item 311: telefone entra na busca (só dígitos, para "11 9..." achar)
         const hay = [l.id, l.country, l.countryName, l.customer, l.email, l.utm?.source, l.utm?.campaign]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
-        if (!hay.includes(q)) return false
+        const phoneDigits = String(l.phone ?? '').replace(/\D/g, '')
+        const qDigits = q.replace(/\D/g, '')
+        if (!hay.includes(q) && !(qDigits.length >= 4 && phoneDigits.includes(qDigits))) return false
       }
       return true
     })
-  }, [leads, query, stage, gateway, periodStart, showOrphans])
+  }, [leads, query, stage, gateway, country, periodStart, showOrphans])
 
   // Item 312: quantas vendas órfãs existem no período (para o rótulo do toggle)
   const orphanCount = useMemo(() => {
@@ -198,6 +224,11 @@ export function LeadsTable({
   const chips: { label: string; clear: () => void }[] = []
   if (stage) chips.push({ label: `Etapa: ${STAGE_LABEL[stage] ?? stage}`, clear: () => setStage('') })
   if (gateway) chips.push({ label: `Gateway: ${gwLabel(gateway)}`, clear: () => setGateway('') })
+  if (country)
+    chips.push({
+      label: `País: ${countries.find(([c]) => c === country)?.[1] ?? country}`,
+      clear: () => setCountry(''),
+    })
   if (query)
     chips.push({
       label: `Busca: "${query}"`,
@@ -348,6 +379,56 @@ export function LeadsTable({
               </option>
             ))}
           </select>
+          {/* Item 306: filtro por país (só quando há 2+ países) */}
+          {countries.length > 1 ? (
+            <select
+              value={country}
+              onChange={(e) => {
+                setCountry(e.target.value)
+                resetPage()
+              }}
+              aria-label="Filtrar por país"
+              className="h-8 rounded-md border border-border/60 bg-muted/20 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            >
+              <option value="">Todos países</option>
+              {countries.map(([code, name]) => (
+                <option key={code} value={code}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {/* Itens 305/309: colunas opcionais (persistem entre sessões) */}
+          <div className="flex items-center gap-1" role="group" aria-label="Colunas opcionais">
+            <button
+              type="button"
+              aria-pressed={showCampaign}
+              onClick={() => setShowCampaign(!showCampaign)}
+              className={cn(
+                'h-8 rounded-md border px-2 text-[11px] transition-colors',
+                showCampaign
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground',
+              )}
+              title="Mostrar/ocultar coluna de campanha (UTM)"
+            >
+              Campanha
+            </button>
+            <button
+              type="button"
+              aria-pressed={showEmail}
+              onClick={() => setShowEmail(!showEmail)}
+              className={cn(
+                'h-8 rounded-md border px-2 text-[11px] transition-colors',
+                showEmail
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground',
+              )}
+              title="Mostrar/ocultar coluna de e-mail (mascarado)"
+            >
+              E-mail
+            </button>
+          </div>
         </div>
       </div>
 
@@ -385,6 +466,10 @@ export function LeadsTable({
                   <th className="label-mono pb-2 pr-3">Gateway</th>
                   <SortableTh label="País" k="country" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="label-mono pb-2 pr-3">Origem</th>
+                  {/* Item 305: coluna de campanha opcional */}
+                  {showCampaign ? <th className="label-mono pb-2 pr-3">Campanha</th> : null}
+                  {/* Item 309: coluna de e-mail mascarado opcional */}
+                  {showEmail ? <th className="label-mono pb-2 pr-3">E-mail</th> : null}
                   <SortableTh label="Valor" k="amount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <SortableTh label="Quando" k="at" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} last />
                 </tr>
@@ -410,6 +495,16 @@ export function LeadsTable({
                         >
                           {STAGE_LABEL[l.stage] || l.stage}
                         </span>
+                        {/* Item 313: 3+ idas ao checkout sem comprar = lead
+                            quente que está travando em algo (preço, cartão) */}
+                        {l.stage !== 'purchased' && (l.checkoutHits?.length || 0) > 2 ? (
+                          <span
+                            className="ml-1.5 inline-flex items-center gap-0.5 rounded-md bg-[rgba(249,115,22,.12)] px-1.5 py-0.5 text-[10px] font-semibold text-[#f97316]"
+                            title={`Voltou ao checkout ${l.checkoutHits!.length} vezes sem concluir — vale um contato`}
+                          >
+                            <Flame className="size-2.5" aria-hidden="true" /> quente
+                          </span>
+                        ) : null}
                         {/* Item 312: marca visual da venda sem rastreamento */}
                         {l.orphan ? (
                           <span
@@ -417,6 +512,17 @@ export function LeadsTable({
                             title="Venda confirmada pelo gateway sem lead rastreado"
                           >
                             órfã
+                          </span>
+                        ) : null}
+                        {/* Item 313: lead quente — voltou ao checkout 3+ vezes
+                            sem comprar. É quem está a um empurrão da venda. */}
+                        {l.stage !== 'purchased' && (l.checkoutHits?.length ?? 0) > 2 ? (
+                          <span
+                            className="ml-1.5 inline-flex items-center gap-0.5 rounded-md bg-[rgba(245,158,11,.12)] px-1.5 py-0.5 text-[10px] font-semibold text-[#f59e0b]"
+                            title={`Voltou ao checkout ${l.checkoutHits?.length}x sem comprar`}
+                          >
+                            <Flame className="size-2.5" aria-hidden="true" />
+                            quente
                           </span>
                         ) : null}
                       </td>
@@ -443,6 +549,38 @@ export function LeadsTable({
                       <td className="py-2.5 pr-3 text-xs text-muted-foreground">
                         <Highlight text={origin} query={query} />
                       </td>
+                      {/* Item 305: campanha (UTM) opcional */}
+                      {showCampaign ? (
+                        <td className="py-2.5 pr-3 text-xs text-muted-foreground">
+                          {l.utm?.campaign ? (
+                            <Highlight text={l.utm.campaign} query={query} />
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      ) : null}
+                      {/* Item 309: e-mail mascarado; completo no hover/focus */}
+                      {showEmail ? (
+                        <td className="py-2.5 pr-3 text-xs">
+                          {l.email ? (
+                            <span
+                              data-sensitive
+                              tabIndex={0}
+                              className="group/em cursor-default text-muted-foreground"
+                              title={l.email}
+                            >
+                              <span className="group-hover/em:hidden group-focus/em:hidden">
+                                {maskEmailCell(l.email)}
+                              </span>
+                              <span className="hidden text-foreground group-hover/em:inline group-focus/em:inline">
+                                {l.email}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      ) : null}
                       <td className="py-2.5 pr-3 text-xs tabular-nums">
                         {l.reportedAmount ? (
                           <span className="font-semibold text-success">
@@ -481,9 +619,23 @@ export function LeadsTable({
                 >
                   <ChevronLeft className="size-3.5" aria-hidden="true" />
                 </button>
-                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                  {safePage + 1}/{pageCount}
-                </span>
+                {/* Item 320: pular direto para uma página (útil com 50+ páginas) */}
+                <label className="flex items-center gap-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+                  <span className="sr-only">Ir para página</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={pageCount}
+                    value={safePage + 1}
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n)) setPage(Math.min(pageCount - 1, Math.max(0, n - 1)))
+                    }}
+                    className="h-6 w-12 rounded border border-border/60 bg-transparent text-center text-[11px] tabular-nums text-foreground focus:border-primary/40 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    aria-label={`Página atual, de 1 a ${pageCount}`}
+                  />
+                  /{pageCount}
+                </label>
                 <button
                   type="button"
                   className="btn-ghost !px-2"
@@ -500,10 +652,37 @@ export function LeadsTable({
             </div>
           ) : null}
         </>
+      ) : leads.length === 0 ? (
+        /* Item 322: conta sem NENHUM lead — problema de instalação, não de filtro */
+        <div className="flex flex-col items-center gap-2 py-10 text-center">
+          <p className="text-sm font-medium text-foreground">Nenhum lead rastreado ainda</p>
+          <p className="max-w-sm text-pretty text-xs text-muted-foreground">
+            Os leads aparecem aqui quando alguém abre um link rastreado com o pixel instalado.
+            Confira a instalação em Links e Pixels.
+          </p>
+        </div>
       ) : (
-        <p className="py-10 text-center text-sm text-muted-foreground">
-          Nenhum lead encontrado neste período/filtro.
-        </p>
+        /* Item 322: há leads, mas o recorte atual não retorna nada */
+        <div className="flex flex-col items-center gap-3 py-10">
+          <p className="text-sm text-muted-foreground">
+            Nenhum lead corresponde ao período/filtros ativos.
+          </p>
+          {chips.length > 0 || stage || gateway || query ? (
+            <button
+              type="button"
+              onClick={() => {
+                setStage('')
+                setGateway('')
+                setRawQuery('')
+                setQuery('')
+                resetPage()
+              }}
+              className="btn-ghost !px-4"
+            >
+              Limpar filtros
+            </button>
+          ) : null}
+        </div>
       )}
     </GlassCard>
   )
