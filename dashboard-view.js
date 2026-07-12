@@ -2074,6 +2074,35 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
                 <button class="btn" id="pw-save">Trocar senha</button>
               </div>
             </div>
+            <!-- Item 420: verificação em duas etapas (TOTP) -->
+            <div class="form-row" style="margin-top:14px">
+              <label style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span>Verifica&ccedil;&atilde;o em duas etapas <span class="hint">&mdash; c&oacute;digo do app autenticador no login</span></span>
+                <span id="tfa-state" class="hint">Verificando&hellip;</span>
+              </label>
+              <div id="tfa-off" hidden style="margin-top:6px">
+                <button class="btn btn-sm" id="tfa-setup">Ativar 2FA</button>
+              </div>
+              <div id="tfa-setup-box" hidden style="margin-top:10px;padding:12px;border:1px solid var(--border);border-radius:10px">
+                <p class="hint" style="margin:0 0 8px">1. Escaneie o QR no Google Authenticator, 1Password ou similar (ou digite o c&oacute;digo manual). 2. Informe o c&oacute;digo de 6 d&iacute;gitos para confirmar.</p>
+                <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+                  <img id="tfa-qr" alt="QR code do 2FA" width="160" height="160" style="border-radius:8px;background:#fff" />
+                  <div style="flex:1;min-width:200px">
+                    <label class="hint">C&oacute;digo manual</label>
+                    <code id="tfa-secret" style="display:block;word-break:break-all;font-size:12px;margin:4px 0 10px"></code>
+                    <div style="display:flex;gap:8px">
+                      <input class="inp" id="tfa-code" inputmode="numeric" maxlength="6" placeholder="000000" style="max-width:120px;text-align:center;letter-spacing:4px" autocomplete="one-time-code" />
+                      <button class="btn btn-sm primary" id="tfa-confirm">Confirmar</button>
+                      <button class="btn btn-sm ghost" id="tfa-cancel">Cancelar</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="tfa-on" hidden style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input class="inp" id="tfa-dis-code" inputmode="numeric" maxlength="6" placeholder="C&oacute;digo atual" style="max-width:130px;text-align:center" autocomplete="one-time-code" />
+                <button class="btn btn-sm danger" id="tfa-disable">Desativar 2FA</button>
+              </div>
+            </div>
             <div class="form-row" style="margin-top:14px">
               <label style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                 <span>Sess&otilde;es ativas <span class="hint">&mdash; onde sua conta est&aacute; logada agora</span></span>
@@ -4779,6 +4808,60 @@ function loadAccountSecurity(){
   }
   loadAccountSessions();
   loadDangerPreview();
+  loadTwofa();
+}
+
+/* ── Item 420: verificação em duas etapas (TOTP) ── */
+function loadTwofa(){
+  var st=document.getElementById('tfa-state'); if(!st) return;
+  fetch('/api/account/2fa',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var on=!!(d&&d.enabled);
+    st.textContent=on?'Ativo':'Desligado';
+    st.style.color=on?'var(--green)':'';
+    document.getElementById('tfa-on').hidden=!on;
+    document.getElementById('tfa-off').hidden=on;
+    document.getElementById('tfa-setup-box').hidden=true;
+  }).catch(function(){ st.textContent='Erro ao consultar'; });
+}
+function bindTwofa(){
+  var setup=document.getElementById('tfa-setup'); if(!setup) return;
+  setup.addEventListener('click',function(){
+    setup.disabled=true;
+    fetch('/api/account/2fa/setup',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      setup.disabled=false;
+      if(!(d&&d.ok)) return toast((d&&d.error)||'Erro ao gerar o QR',false);
+      var img=document.getElementById('tfa-qr');
+      if(d.qr){ img.src=d.qr; img.hidden=false; } else { img.hidden=true; }
+      document.getElementById('tfa-secret').textContent=d.secret;
+      document.getElementById('tfa-setup-box').hidden=false;
+      document.getElementById('tfa-off').hidden=true;
+      document.getElementById('tfa-code').focus();
+    }).catch(function(){ setup.disabled=false; toast('Erro ao gerar o QR',false); });
+  });
+  document.getElementById('tfa-cancel').addEventListener('click',function(){
+    document.getElementById('tfa-setup-box').hidden=true;
+    document.getElementById('tfa-off').hidden=false;
+  });
+  document.getElementById('tfa-confirm').addEventListener('click',function(){
+    var code=document.getElementById('tfa-code').value.trim();
+    if(code.length!==6) return toast('Digite os 6 d\u00edgitos do app',false);
+    fetch('/api/account/2fa/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d&&d.ok){ toast('2FA ativado \u2014 o pr\u00f3ximo login pedir\u00e1 o c\u00f3digo'); loadTwofa(); }
+        else toast((d&&d.error)||'C\u00f3digo incorreto',false);
+      }).catch(function(){ toast('Erro ao confirmar',false); });
+  });
+  document.getElementById('tfa-disable').addEventListener('click',function(){
+    var code=document.getElementById('tfa-dis-code').value.trim();
+    if(code.length!==6) return toast('Digite o c\u00f3digo atual do app',false);
+    fetch('/api/account/2fa/disable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d&&d.ok){ toast('2FA desativado'); document.getElementById('tfa-dis-code').value=''; loadTwofa(); }
+        else toast((d&&d.error)||'C\u00f3digo incorreto',false);
+      }).catch(function(){ toast('Erro ao desativar',false); });
+  });
 }
 
 /* ── Zona de perigo (itens 427/428) ── */
@@ -5615,7 +5698,7 @@ function refresh(force){
     .catch(function(e){ refreshing=false; console.warn('[pulse] refresh error',e); });
 }
 
-/* ── Navegação ──
+/* ─��� Navegação ──
    Menu consolidado em 4 grupos. Cada item do menu ativa um GRUPO de
    sections empilhadas — menos opções, tudo relacionado junto na mesma tela. */
 var VIEW_GROUPS={
@@ -5907,6 +5990,7 @@ if(pcUrl) pcUrl.addEventListener('change',savePushcutConfig);
   bindAccountSecurity();
   bindPreferences();
   bindAccountDelete();
+  bindTwofa();
   bindCloak();
   document.getElementById('pc-test').addEventListener('click',testPushcut);
 document.getElementById('px-new').addEventListener('click',function(){ showPxForm(null); });

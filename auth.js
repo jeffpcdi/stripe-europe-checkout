@@ -119,9 +119,15 @@ async function login({ email, password, meta }) {
   return { account, token };
 }
 
-// ── Item 420: 2FA TOTP opcional (otplib) ──────────────────────────────────
-const { authenticator } = require('otplib');
-authenticator.options = { window: 1 }; // tolera ±30s de deriva de relógio
+// ── Item 420: 2FA TOTP opcional (otplib v13, API funcional) ───────────────
+const otp = require('otplib');
+// Verificação com tolerância de ±1 passo (30s) para deriva de relógio.
+function totpVerify(token, secret) {
+  try {
+    const r = otp.verifySync({ token: String(token || '').trim(), secret, epochTolerance: 1 });
+    return !!(r && r.valid);
+  } catch (_) { return false; }
+}
 
 // Tickets do segundo passo do login: pending → { accountId, meta, expiresAt }
 const PENDING_2FA_MS = 5 * 60 * 1000;
@@ -152,9 +158,9 @@ async function setup2fa({ accountId, email }) {
   const row = await db.getAccountById(accountId);
   if (!row) return { error: 'Conta não encontrada.' };
   if (row.totp_secret) return { error: 'O 2FA já está ativo. Desative antes de reconfigurar.' };
-  const secret = authenticator.generateSecret();
+  const secret = otp.generateSecret();
   setup2faPending.set(accountId, { secret, expiresAt: Date.now() + 10 * 60 * 1000 });
-  const otpauth = authenticator.keyuri(email || row.email, 'ROI-NADOS', secret);
+  const otpauth = otp.generateURI({ secret, issuer: 'ROI-NADOS', label: email || row.email });
   return { ok: true, secret, otpauth };
 }
 
@@ -165,7 +171,7 @@ async function confirm2fa({ accountId, code }) {
     setup2faPending.delete(accountId);
     return { error: 'Configuração expirada — gere o QR de novo.' };
   }
-  if (!authenticator.verify({ token: String(code || '').trim(), secret: pending.secret })) {
+  if (!totpVerify(code, pending.secret)) {
     return { error: 'Código incorreto. Confira o app autenticador.' };
   }
   const ok = await db.setAccountTotp(accountId, pending.secret);
@@ -179,7 +185,7 @@ async function disable2fa({ accountId, code }) {
   const row = await db.getAccountById(accountId);
   if (!row || !row.totp_secret) return { error: 'O 2FA não está ativo.' };
   if (twofaLocked(accountId)) return { error: 'Muitas tentativas. Aguarde alguns minutos.' };
-  if (!authenticator.verify({ token: String(code || '').trim(), secret: row.totp_secret })) {
+  if (!totpVerify(code, row.totp_secret)) {
     registerTwofaFail(accountId);
     return { error: 'Código incorreto.' };
   }
@@ -199,7 +205,7 @@ async function complete2faLogin({ pending, code }) {
   if (twofaLocked(ticket.accountId)) return { error: 'Muitas tentativas. Aguarde alguns minutos.', locked: true };
   const row = await db.getAccountById(ticket.accountId);
   if (!row || !row.totp_secret) { pending2fa.delete(String(pending)); return { error: 'Estado inválido — entre de novo.' }; }
-  if (!authenticator.verify({ token: String(code || '').trim(), secret: row.totp_secret })) {
+  if (!totpVerify(code, row.totp_secret)) {
     registerTwofaFail(ticket.accountId);
     return { error: 'Código incorreto.' };
   }
@@ -355,6 +361,8 @@ module.exports = {
   COOKIE_NAME,
   register, login, logout, resolveSession, changePassword,
   changeName, revokeSessionBySid, revokeOtherSessions,
+  // Item 420: 2FA TOTP opcional (setup → confirm → login em 2 passos → disable)
+  setup2fa, confirm2fa, disable2fa, complete2faLogin,
   // Item 427: exclusão de conta precisa esvaziar o cache de sessões inteiro.
   clearSessionCache: function () { sessionCache.clear(); },
   parseCookies, sessionCookie, clearCookie,

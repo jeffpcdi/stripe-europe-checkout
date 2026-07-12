@@ -128,13 +128,40 @@ function page(opts) {
       lab.textContent=conf.t;lab.style.color=conf.c;
     });
   }
+  // Item 420: segundo passo do login para contas com 2FA. Guarda o ticket
+  // devolvido pelo /login e troca o formulário pelo campo do código.
+  var pending2fa=null;
+  function show2faStep(){
+    f.querySelectorAll('label,.meter').forEach(function(el){el.hidden=true});
+    var ex=document.querySelector('.msg.err');if(ex)ex.remove();
+    var lab=document.createElement('label');
+    lab.id='l-2fa';
+    lab.innerHTML='C\u00f3digo do autenticador<input name="code" id="code-2fa" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="000000" style="letter-spacing:6px;text-align:center;font-size:20px">';
+    f.insertBefore(lab,btn);
+    btn.disabled=false;btn.textContent='Verificar';
+    document.getElementById('code-2fa').focus();
+  }
   f.addEventListener('submit',function(e){
     e.preventDefault();
     btn.disabled=true;btn.textContent='Aguarde...';
+    if(pending2fa){
+      var code=(document.getElementById('code-2fa')||{}).value||'';
+      fetch('/login/2fa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pending:pending2fa,code:code})})
+        .then(function(r){return r.json()})
+        .then(function(j){
+          if(j&&j.ok){location.href='/dashboard';return}
+          showErr((j&&j.error)||'C\u00f3digo incorreto.');
+          btn.textContent='Verificar';
+          var ci=document.getElementById('code-2fa');if(ci){ci.value='';ci.focus()}
+        })
+        .catch(function(){showErr('Erro de conex\u00e3o. Tente novamente.');btn.textContent='Verificar'});
+      return;
+    }
     var data={};new FormData(f).forEach(function(v,k){data[k]=v});
     fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
       .then(function(r){return r.json()})
       .then(function(j){
+        if(j&&j.ok&&j.requires2fa){pending2fa=j.pending;show2faStep();return}
         if(j&&j.ok){location.href='/dashboard';return}
         showErr((j&&j.error)||'Não foi possível continuar.');
       })

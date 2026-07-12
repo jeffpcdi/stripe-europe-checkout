@@ -1756,6 +1756,9 @@ app.post('/login', async (req, res) => {
     });
     // Item 440: 429 quando bloqueado por excesso de tentativas (não 401).
     if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
+    // Item 420: conta com 2FA ativo — sem sessão ainda; devolve o ticket do
+    // segundo passo para o cliente pedir o código do autenticador.
+    if (result.requires2fa) return res.json({ ok: true, requires2fa: true, pending: result.pending });
     appendCookie(res, auth.sessionCookie(result.token));
     res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
     // Item 417: login entra na trilha de auditoria da conta.
@@ -1776,6 +1779,61 @@ app.post('/login', async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Erro ao entrar.' });
   }
+});
+
+// ── Item 420: 2FA TOTP opcional ───────────────────────────────────────────
+// Segundo passo do login: ticket + código de 6 dígitos → sessão de verdade.
+app.post('/login/2fa', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = await auth.complete2faLogin({ pending: b.pending, code: b.code });
+    if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
+    appendCookie(res, auth.sessionCookie(result.token));
+    res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
+    audit(req, result.account.id, 'login', 'Login no painel (com 2FA)');
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Erro ao verificar o código.' });
+  }
+});
+
+// Status do 2FA da conta logada (para a UI mostrar ativo/inativo).
+app.get('/api/account/2fa', dashboardAuth, async (req, res) => {
+  try {
+    const row = await db.getAccountById(req.account.id);
+    res.json({ ok: true, enabled: !!(row && row.totp_secret) });
+  } catch (_) { res.status(500).json({ ok: false, error: 'Erro ao consultar.' }); }
+});
+
+// Passo 1 da ativação: gera secret + QR (data URL). Nada persiste ainda.
+app.post('/api/account/2fa/setup', dashboardAuth, async (req, res) => {
+  if (rateLimited('2fasetup|' + req.account.id, 'tokrot', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitas tentativas. Aguarde um minuto.' });
+  }
+  const result = await auth.setup2fa({ accountId: req.account.id, email: req.account.email });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  try {
+    const qrDataUrl = await require('qrcode').toDataURL(result.otpauth, { margin: 1, width: 220 });
+    res.json({ ok: true, secret: result.secret, qr: qrDataUrl });
+  } catch (_) {
+    // Sem QR ainda dá para digitar o secret manualmente no app.
+    res.json({ ok: true, secret: result.secret, qr: null });
+  }
+});
+
+// Passo 2 da ativação: confirma o código e liga o 2FA de vez.
+app.post('/api/account/2fa/confirm', dashboardAuth, async (req, res) => {
+  const result = await auth.confirm2fa({ accountId: req.account.id, code: (req.body || {}).code });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  audit(req, req.account.id, '2fa_ativado', 'Verificação em duas etapas ativada');
+  res.json({ ok: true });
+});
+
+// Desativação: exige um código válido do autenticador.
+app.post('/api/account/2fa/disable', dashboardAuth, async (req, res) => {
+  const result = await auth.disable2fa({ accountId: req.account.id, code: (req.body || {}).code });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  audit(req, req.account.id, '2fa_desativado', 'Verificação em duas etapas desativada');
+  res.json({ ok: true });
 });
 
 // Item 411/415: trocar senha (verifica a atual) e derrubar as outras sessões.
@@ -1930,7 +1988,7 @@ app.get('/api/me', dashboardAuth, (req, res) => {
   res.json({ email: req.account.email, name: req.account.name, role: req.account.role });
 });
 
-// ── API: estatísticas (escopadas à conta logada) ���────────────────────
+// ── API: estatísticas (escopadas à conta logada) ����────────────────────
 app.get('/api/stats', dashboardAuth, (req, res) => {
   // Item 469: `private, no-cache` em vez de `no-store` — o navegador PODE
   // guardar a resposta só para revalidar com If-None-Match no próximo poll
