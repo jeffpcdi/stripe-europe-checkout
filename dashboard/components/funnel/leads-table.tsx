@@ -1,25 +1,45 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { GlassCard } from '@/components/glass-card'
-import { countryFlag, gwLabel, timeAgo, formatMoney, plural } from '@/lib/format'
+// Item 323: STAGE_LABEL/STAGE_CLASS agora vêm centralizados de lib/format
+import {
+  countryFlag,
+  gwLabel,
+  timeAgo,
+  formatMoney,
+  plural,
+  STAGE_LABEL,
+  STAGE_CLASS,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { ChevronLeft, ChevronRight, Download, Search, X } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  Download,
+  Search,
+  X,
+  Flame,
+  Smartphone,
+  Monitor,
+} from 'lucide-react'
 import type { Lead } from '@/lib/types'
 
-const STAGE_LABEL: Record<string, string> = {
-  visit: 'Visita',
-  checkout: 'Checkout',
-  purchased: 'Comprou',
-}
-
-const STAGE_CLASS: Record<string, string> = {
-  visit: 'bg-primary/10 text-primary',
-  checkout: 'bg-warning/10 text-warning',
-  purchased: 'bg-success/10 text-success',
-}
-
 const PAGE_SIZE = 20
+
+/* Item 308: colunas ordenáveis. `null` = ordem natural (mais recente 1º). */
+type SortKey = 'stage' | 'amount' | 'at' | 'country' | null
+
+const STAGE_ORDER: Record<string, number> = { visit: 0, checkout: 1, purchased: 2 }
+
+/* Item 328: dispositivo derivado do user-agent do lead (heurística leve —
+   mobile é o que importa para mídia paga; o resto é desktop). */
+function deviceOf(ua?: string): 'mobile' | 'desktop' | null {
+  if (!ua) return null
+  return /mobi|android|iphone|ipad|ipod/i.test(ua) ? 'mobile' : 'desktop'
+}
 
 /** Item 149: destaca o termo buscado em ciano dentro do texto. */
 function Highlight({ text, query }: { text: string; query: string }) {
