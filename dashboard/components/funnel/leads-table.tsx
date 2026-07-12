@@ -474,6 +474,11 @@ export function LeadsTable({
                   <SortableTh label="Etapa" k="stage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="label-mono pb-2 pr-3">Gateway</th>
                   <SortableTh label="País" k="country" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  {/* Item 328: dispositivo (ua.js já parseia na entrada) */}
+                  <th className="label-mono pb-2 pr-3">
+                    <span className="sr-only">Dispositivo</span>
+                    <Smartphone className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  </th>
                   <th className="label-mono pb-2 pr-3">Origem</th>
                   {/* Item 305: coluna de campanha opcional */}
                   {showCampaign ? <th className="label-mono pb-2 pr-3">Campanha</th> : null}

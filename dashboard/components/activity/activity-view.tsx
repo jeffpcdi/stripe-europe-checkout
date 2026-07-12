@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useStats } from '@/lib/api'
+import { useStats, apiSend } from '@/lib/api'
 import { usePersistedState } from '@/lib/use-persisted-state'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
@@ -17,6 +17,7 @@ import {
   UserPlus,
   Eye,
   RotateCcw,
+  RotateCw,
   ShieldAlert,
   Zap,
   Copy,
@@ -135,7 +136,45 @@ const EventRow = memo(function EventRow({
   const [showRaw, setShowRaw] = useState(false)
   const hasRaw = e.raw != null && Object.keys(e.raw).length > 0
 
-  const hasDetails = details.length > 0 || hasRaw
+  // Item 341: replay de conversão direto do feed. Só para eventos de
+  // conversão com ref (orderId) — 'failed' é o caso de ouro (recusa que o
+  // gateway aprovou depois), mas venda também pode precisar re-disparar CAPI.
+  const [replay, setReplay] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle')
+  const [replayMsg, setReplayMsg] = useState('')
+  const canReplay =
+    (e.type === 'failed' || e.type === 'sale' || e.type === 'refund' || e.type === 'dispute') &&
+    !!e.ref
+
+  async function handleReplay() {
+    if (replay === 'busy' || !e.ref) return
+    setReplay('busy')
+    try {
+      const r = await apiSend<{ ok: boolean; receipt?: { status?: string; dispatched?: number } }>(
+        '/api/ops/reprocess-conversion',
+        'POST',
+        { orderId: e.ref },
+      )
+      const st = r.receipt?.status ?? 'ok'
+      if (st === 'ok' || st.startsWith('ok')) {
+        setReplay('ok')
+        setReplayMsg(
+          r.receipt?.dispatched ? `${r.receipt.dispatched} pixel(s) receberam` : 'reenviado',
+        )
+      } else {
+        setReplay('err')
+        setReplayMsg(st === 'sem pixel' ? 'nenhum pixel ativo' : st)
+      }
+    } catch (err) {
+      setReplay('err')
+      setReplayMsg(err instanceof Error ? err.message : 'falha ao reprocessar')
+    }
+    window.setTimeout(() => {
+      setReplay('idle')
+      setReplayMsg('')
+    }, 4000)
+  }
+
+  const hasDetails = details.length > 0 || hasRaw || canReplay
 
   return (
     <div
@@ -252,6 +291,39 @@ const EventRow = memo(function EventRow({
               </div>
             ) : null}
             <div className="mt-1 flex items-center justify-end gap-1.5">
+              {/* Item 341: re-dispara a CAPI a partir do recibo do webhook —
+                  útil quando o pixel estava sem token na hora do evento */}
+              {canReplay ? (
+                <button
+                  type="button"
+                  onClick={handleReplay}
+                  disabled={replay === 'busy'}
+                  className={cn(
+                    'btn-ghost !px-2.5 !py-1 text-[11px]',
+                    replay === 'ok' && '!text-success',
+                    replay === 'err' && '!text-warning',
+                  )}
+                  title="Reenviar esta conversão à CAPI do TikTok (não recontabiliza a venda)"
+                >
+                  {replay === 'busy' ? (
+                    <>
+                      <RotateCw className="size-3 animate-spin" aria-hidden /> Reenviando…
+                    </>
+                  ) : replay === 'ok' ? (
+                    <>
+                      <Check className="size-3" aria-hidden /> {replayMsg}
+                    </>
+                  ) : replay === 'err' ? (
+                    <>
+                      <X className="size-3" aria-hidden /> {replayMsg}
+                    </>
+                  ) : (
+                    <>
+                      <RotateCw className="size-3" aria-hidden /> Reenviar CAPI
+                    </>
+                  )}
+                </button>
+              ) : null}
               {/* Item 343: permalink do evento (?e=<id>) para compartilhar */}
               <button
                 type="button"
