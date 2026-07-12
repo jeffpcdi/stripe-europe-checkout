@@ -289,11 +289,13 @@ export function OverviewView() {
             ),
           }}
         >
+          {/* Item 279: cada KPI vira drill-down para a aba correspondente */}
           <KpiCard
             hero
             index={0}
             icon={Banknote}
             tint="green"
+            href="/activity?f=sale"
             label="Receita total"
             ariaLabel={`Receita total: ${money(revCents, cur.mainCur)}${revDelta !== null ? `, ${revDelta > 0 ? 'alta' : revDelta < 0 ? 'queda' : 'estável'} de ${Math.abs(revDelta).toFixed(1)}% vs período anterior` : ''}`}
           value={
@@ -326,6 +328,7 @@ export function OverviewView() {
           index={1}
           icon={CircleCheck}
           tint="green"
+          href="/activity?f=sale"
           label="Vendas aprovadas"
           ariaLabel={`Vendas aprovadas: ${cur.sales}, ${cur.failed} recusadas`}
           value={
@@ -347,6 +350,7 @@ export function OverviewView() {
           index={2}
           icon={Users}
           tint="cyan"
+          href="/funnel"
           label="Novos leads"
           ariaLabel={`Novos leads: ${cur.visits} no período`}
           value={
@@ -363,6 +367,7 @@ export function OverviewView() {
           index={3}
           icon={Percent}
           tint="amber"
+          href="/funnel"
           label="Conversão"
           ariaLabel={`Conversão: ${fmtPercent(cur.overall)} de visita para compra${prev ? `, ${cur.overall - prev.overall >= 0 ? 'mais' : 'menos'} ${Math.abs(cur.overall - prev.overall).toFixed(1).replace('.', ',')} pontos percentuais que o período anterior` : ''}`}
           value={
@@ -387,7 +392,7 @@ export function OverviewView() {
       {/* Ministats — réplica dos chips do legado */}
       <section
         aria-label="Métricas secundárias"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6"
       >
         <MiniStat
           index={0}
@@ -399,8 +404,26 @@ export function OverviewView() {
           sub={`${cur.sales} de ${attempts} transações`}
           extra={attempts ? <SparkBars data={salesSeries} color={apColor} width={64} height={22} /> : undefined}
         />
+        {/* Item 285: receita líquida estimada = bruta − reembolsos/disputas */}
         <MiniStat
           index={1}
+          icon={Banknote}
+          color={hasSales ? '#22c55e' : NEUTRAL}
+          bg={hasSales ? 'rgba(34,197,94,.1)' : NEUTRAL_BG}
+          label="Receita líquida"
+          value={
+            <span data-sensitive>
+              {money(Math.max(0, revCents - (cur.refundRev[cur.mainCur] || 0)), cur.mainCur)}
+            </span>
+          }
+          sub={
+            (cur.refundRev[cur.mainCur] || 0) > 0
+              ? `− ${money(cur.refundRev[cur.mainCur], cur.mainCur)} devolvidos`
+              : 'sem devoluções no período'
+          }
+        />
+        <MiniStat
+          index={2}
           icon={Coins}
           color={hasSales ? '#25f4ee' : NEUTRAL}
           bg={hasSales ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
@@ -409,7 +432,7 @@ export function OverviewView() {
           sub="por venda aprovada"
         />
         <MiniStat
-          index={2}
+          index={3}
           icon={Globe2}
           color={hasGeo ? '#25f4ee' : NEUTRAL}
           bg={hasGeo ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}

@@ -11,6 +11,8 @@ export interface PeriodMetrics {
   failed: number
   refunds: number
   disputes: number
+  /** Item 285: valor devolvido (reembolsos + disputas) por moeda, em centavos */
+  refundRev: Record<string, number>
   approval: number
   visits: number
   reachedCheckout: number
@@ -64,6 +66,7 @@ export function aggregate(
   )
 
   const rev: Record<string, number> = {}
+  const refundRev: Record<string, number> = {}
   let sales = 0
   let failed = 0
   let refunds = 0
@@ -99,8 +102,13 @@ export function aggregate(
       bump(e.at, 'revenue', e.amount || 0)
       bump(e.at, 'sales', 1)
     } else if (e.type === 'failed') failed++
-    else if (e.type === 'refund') refunds++
-    else if (e.type === 'dispute') disputes++
+    else if (e.type === 'refund' || e.type === 'dispute') {
+      if (e.type === 'refund') refunds++
+      else disputes++
+      // Item 285: dinheiro que saiu — alimenta a receita líquida estimada
+      const cur = (e.currency || 'BRL').toUpperCase()
+      refundRev[cur] = (refundRev[cur] || 0) + (e.amount || 0)
+    }
   }
 
   const visits = leads.length
@@ -155,6 +163,7 @@ export function aggregate(
     failed,
     refunds,
     disputes,
+    refundRev,
     approval: attempts ? +((sales / attempts) * 100).toFixed(1) : 0,
     visits,
     reachedCheckout,

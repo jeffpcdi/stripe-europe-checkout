@@ -50,7 +50,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - ~~**276.** Previsão simples de fim de mês (projeção linear) com disclaimer~~ — ✅ FEITO: dentro do `GoalCard` — ritmo médio diário × dias do mês, marcador fantasma na barra até a projeção, texto "Estimativa linear — não é garantia".
 - ~~**277.** Alerta com CTA quando aprovação < 40%~~ — ✅ FEITO: banner `role="alert"` na Overview (só com volume ≥10 tentativas, para não gritar com amostra pequena) com CTA "Abrir cloaker".
 - **278.** Exportar resumo do período como imagem (canvas).
-- **279.** Drill-down: clicar num KPI abre a aba correspondente filtrada.
+- ~~**279.** Drill-down: clicar num KPI abre a aba correspondente filtrada~~ — ✅ FEITO: os 4 KPIs viram links (Receita/Vendas → Atividade filtrada em vendas; Leads/Conversão → Funil), com aria-label "— ver detalhes" e focus ring. Verificado no browser: clique aplica o filtro na chegada.
 - **280.** HealthCard com estado agregado (`/api/health/gestao`: db, redis, filas, snapshots).
 - ~~**281.** Tooltip do gráfico com vendas + visitas do dia junto do valor~~ — ✅ FEITO: rodapé do tooltip com "N vendas · M leads" (singular/plural correto) separado por borda, qualquer que seja a métrica ativa.
 - **282.** Período customizado (date-range picker) propagado a todas as abas.
@@ -60,8 +60,8 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **286.** Ranking "top campanhas" por UTM no overview.
 - **287.** Ranking "top links" por conversão no overview.
 - **288.** Estado vazio guiado (checklist de onboarding com progresso real).
-- **289.** HeroGlobe respeita `prefers-reduced-motion` e pausa sem foco.
-- **290.** Skeleton do globo com silhueta esférica (evitar salto de layout).
+- ~~**289.** HeroGlobe respeita `prefers-reduced-motion` e pausa sem foco~~ — ✅ FEITO: com reduced-motion o globo abre estático (sem auto-rotação nem zoom de entrada; interação manual livre); `visibilitychange` pausa/retoma o render loop do three.js com a aba oculta (zero GPU em segundo plano).
+- ~~**290.** Skeleton do globo com silhueta esférica (evitar salto de layout)~~ — ✅ FEITO: `GlobeSkeleton` — círculo com gradiente radial ciano + halo pulsando no lugar do retângulo plano; a chegada do three.js não muda a forma percebida.
 - ~~**292.** MiniStat de reembolsos clicável → Atividade filtrada em refund~~ — ✅ FEITO: chips de Reembolsos e Disputas viram `<Link>` (só quando há ocorrências) para `/activity?f=refund|dispute`; a Atividade lê `?f=` na chegada e sobrepõe o filtro persistido.
 - ~~**293.** Contador "próxima atualização em Xs" junto ao badge Ao vivo~~ — ✅ FEITO: o badge do header mostra "atualiza em Xs" no hover (junto da latência), reancorado a cada resposta nova do `/api/stats` (ciclo de 12s do SWR).
 - **294.** Modo TV/fullscreen do overview para telão.
