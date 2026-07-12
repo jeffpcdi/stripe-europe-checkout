@@ -364,7 +364,7 @@ export function OverviewView() {
           icon={Percent}
           tint="amber"
           label="Conversão"
-          ariaLabel={`Conversão: ${fmtPercent(cur.overall)} de visita para compra${prev ? `, ${cur.overall - prev.overall >= 0 ? 'mais' : 'menos'} ${Math.abs(cur.overall - prev.overall).toFixed(1)} pontos percentuais que o período anterior` : ''}`}
+          ariaLabel={`Conversão: ${fmtPercent(cur.overall)} de visita para compra${prev ? `, ${cur.overall - prev.overall >= 0 ? 'mais' : 'menos'} ${Math.abs(cur.overall - prev.overall).toFixed(1).replace('.', ',')} pontos percentuais que o período anterior` : ''}`}
           value={
             <CountUp
               value={cur.overall}

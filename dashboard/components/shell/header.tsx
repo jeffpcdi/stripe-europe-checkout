@@ -137,9 +137,28 @@ function UserMenu() {
   const { data: account } = useAccount()
   const initial = (account?.name || account?.email || '?').charAt(0).toUpperCase()
 
+  // Item 405: logout sincronizado entre abas. localStorage dispara `storage`
+  // em TODAS as outras abas do mesmo origin — quem receber vai pro login
+  // (a sessão já morreu no servidor; ficar na tela só geraria 401 confusos).
+  const loginUrl = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
+
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === 'roi:logout' && e.newValue) window.location.href = loginUrl
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function logout() {
     await fetch('/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-    window.location.href = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
+    try {
+      localStorage.setItem('roi:logout', String(Date.now()))
+    } catch {
+      /* storage cheio/bloqueado: as outras abas caem no guard de 401 */
+    }
+    window.location.href = loginUrl
   }
 
   return (
