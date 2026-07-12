@@ -443,7 +443,7 @@ export function OverviewView() {
       {/* Ministats — réplica dos chips do legado */}
       <section
         aria-label="Métricas secundárias"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6"
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
       >
         <MiniStat
           index={0}
@@ -499,26 +499,30 @@ export function OverviewView() {
           }
         />
         {/* Item 292: chips de risco viram drill-down para a Atividade filtrada */}
-        <MiniStat
-          index={4}
-          icon={RotateCcw}
-          color={refColor}
-          bg={cur.refunds ? 'rgba(251,191,36,.12)' : NEUTRAL_BG}
-          label="Reembolsos"
-          value={cur.refunds}
-          sub={cur.refunds ? 'exige atenção — ver na Atividade' : 'nenhum no período'}
-          href={cur.refunds ? '/activity?f=refund' : undefined}
-        />
-        <MiniStat
-          index={5}
-          icon={ShieldAlert}
-          color={dispColor}
-          bg={cur.disputes ? 'rgba(254,44,85,.12)' : NEUTRAL_BG}
-          label="Disputas"
-          value={cur.disputes}
-          sub={cur.disputes ? 'responda o quanto antes' : 'nenhuma aberta'}
-          href={cur.disputes ? '/activity?f=dispute' : undefined}
-        />
+        {cur.refunds > 0 && (
+          <MiniStat
+            index={4}
+            icon={RotateCcw}
+            color={refColor}
+            bg="rgba(251,191,36,.12)"
+            label="Reembolsos"
+            value={cur.refunds}
+            sub="exige atenção — ver na Atividade"
+            href="/activity?f=refund"
+          />
+        )}
+        {cur.disputes > 0 && (
+          <MiniStat
+            index={5}
+            icon={ShieldAlert}
+            color={dispColor}
+            bg="rgba(254,44,85,.12)"
+            label="Disputas"
+            value={cur.disputes}
+            sub="responda o quanto antes"
+            href="/activity?f=dispute"
+          />
+        )}
       </section>
 
       {/* Itens 286/287: de onde vêm os leads que convertem — só aparece
