@@ -63,6 +63,7 @@ export interface Lead {
   countryName?: string
   city?: string
   device?: string
+  os?: string
   browser?: string
   checkoutAt?: string
   purchasedAt?: string

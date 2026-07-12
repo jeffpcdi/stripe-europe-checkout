@@ -22,6 +22,9 @@ import {
   Search,
   X,
   Flame,
+  Smartphone,
+  Tablet,
+  Monitor,
 } from 'lucide-react'
 import type { Lead } from '@/lib/types'
 import { usePersistedState } from '@/lib/use-persisted-state'
