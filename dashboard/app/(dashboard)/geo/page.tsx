@@ -1,5 +1,5 @@
-import { GeoView } from '@/components/geo/geo-view'
+import { redirect } from 'next/navigation'
 
 export default function GeoPage() {
-  return <GeoView />
+  redirect('/')
 }

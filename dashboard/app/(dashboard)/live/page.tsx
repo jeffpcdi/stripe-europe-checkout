@@ -1,5 +1,5 @@
-import { LiveView } from '@/components/live/live-view'
+import { redirect } from 'next/navigation'
 
 export default function LivePage() {
-  return <LiveView />
+  redirect('/')
 }
