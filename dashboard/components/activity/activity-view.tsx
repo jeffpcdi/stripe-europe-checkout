@@ -21,6 +21,9 @@ import {
   Copy,
   Check,
   ChevronDown,
+  Search,
+  Link2,
+  X,
   type LucideIcon,
 } from 'lucide-react'
 import type { StatsEvent } from '@/lib/types'
@@ -52,6 +55,22 @@ const FILTERS: { value: string | null; label: string }[] = [
 
 const PAGE_SIZE = 60
 
+// Item 333: filtro de período local do feed (independente do período global
+// da Overview — quem audita o feed quer recortar sem mexer no resto).
+const FEED_PERIODS: { value: 'today' | '7d' | '30d' | null; label: string }[] = [
+  { value: null, label: 'Tudo' },
+  { value: 'today', label: 'Hoje' },
+  { value: '7d', label: '7 dias' },
+  { value: '30d', label: '30 dias' },
+]
+
+function feedPeriodStart(p: 'today' | '7d' | '30d' | null): number | null {
+  if (!p) return null
+  const now = new Date()
+  if (p === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  return now.getTime() - (p === '7d' ? 7 : 30) * 86400e3
+}
+
 /* Item 158: copia um resumo JSON do evento.
    Item 347: via copyText (fallback p/ HTTP/iframe) e reporta sucesso real. */
 function copyEventDetails(e: StatsEvent): Promise<boolean> {
@@ -72,12 +91,22 @@ function copyEventDetails(e: StatsEvent): Promise<boolean> {
 // TODAS as linhas re-renderizam mesmo quando nada mudou. SWR mantém a
 // referência do evento estável quando os dados não mudam, então o memo corta
 // o re-render das linhas antigas (só a nova e as com estado local mudam).
-const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: boolean }) {
+const EventRow = memo(function EventRow({
+  e,
+  isNew,
+  highlight,
+}: {
+  e: StatsEvent
+  isNew?: boolean
+  /* Item 343: evento alvo do permalink chega destacado */
+  highlight?: boolean
+}) {
   const style = EVENT_STYLE[e.type] || EVENT_STYLE.info
   const Icon = style.icon
   // Item 155: expansão inline com detalhes
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const meta: string[] = []
   if (e.customer) meta.push(e.customer)
@@ -95,9 +124,11 @@ const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: b
 
   return (
     <div
+      id={`evt-${e.id}`}
       className={cn(
         'border-b border-border/40 last:border-b-0',
         isNew && 'anim-cell-flash',
+        highlight && 'anim-cell-flash rounded-lg outline outline-1 outline-[var(--accent)]/50',
       )}
       style={{ boxShadow: `inset 2px 0 0 ${style.edge}` }}
     >
@@ -170,29 +201,55 @@ const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: b
                 <span className="truncate font-mono text-foreground">{d.value}</span>
               </p>
             ))}
-            {/* Item 158: copiar resumo do evento */}
-            <button
-              type="button"
-              onClick={() => {
-                // Item 347: só mostra "Copiado" se a cópia de fato aconteceu
-                void copyEventDetails(e).then((ok) => {
-                  if (!ok) return
-                  setCopied(true)
-                  window.setTimeout(() => setCopied(false), 1600)
-                })
-              }}
-              className="btn-ghost mt-1 self-end !px-2.5 !py-1 text-[11px]"
-            >
-              {copied ? (
-                <>
-                  <Check className="size-3 text-success" aria-hidden /> Copiado
-                </>
-              ) : (
-                <>
-                  <Copy className="size-3" aria-hidden /> Copiar detalhes
-                </>
-              )}
-            </button>
+            <div className="mt-1 flex items-center justify-end gap-1.5">
+              {/* Item 343: permalink do evento (?e=<id>) para compartilhar */}
+              <button
+                type="button"
+                onClick={() => {
+                  const url = new URL(window.location.href)
+                  url.searchParams.set('e', e.id)
+                  void copyText(url.toString()).then((ok) => {
+                    if (!ok) return
+                    setLinkCopied(true)
+                    window.setTimeout(() => setLinkCopied(false), 1600)
+                  })
+                }}
+                className="btn-ghost !px-2.5 !py-1 text-[11px]"
+              >
+                {linkCopied ? (
+                  <>
+                    <Check className="size-3 text-success" aria-hidden /> Copiado
+                  </>
+                ) : (
+                  <>
+                    <Link2 className="size-3" aria-hidden /> Copiar link
+                  </>
+                )}
+              </button>
+              {/* Item 158: copiar resumo do evento */}
+              <button
+                type="button"
+                onClick={() => {
+                  // Item 347: só mostra "Copiado" se a cópia de fato aconteceu
+                  void copyEventDetails(e).then((ok) => {
+                    if (!ok) return
+                    setCopied(true)
+                    window.setTimeout(() => setCopied(false), 1600)
+                  })
+                }}
+                className="btn-ghost !px-2.5 !py-1 text-[11px]"
+              >
+                {copied ? (
+                  <>
+                    <Check className="size-3 text-success" aria-hidden /> Copiado
+                  </>
+                ) : (
+                  <>
+                    <Copy className="size-3" aria-hidden /> Copiar detalhes
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -201,9 +258,15 @@ const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: b
 })
 
 export function ActivityView() {
-  const { data, isLoading, error } = useStats()
+  const { data, isLoading, error, isValidating } = useStats()
   // Item 185: o filtro de tipo de evento persiste entre navegações
   const [filter, setFilter] = usePersistedState<string | null>('activity:filter', null)
+  // Item 331: busca textual efêmera (não persiste — busca é da sessão)
+  const [query, setQuery] = useState('')
+  // Item 332: filtro por gateway, derivado dos eventos presentes
+  const [gwFilter, setGwFilter] = useState<string | null>(null)
+  // Item 333: recorte de período local do feed
+  const [feedPeriod, setFeedPeriod] = useState<'today' | '7d' | '30d' | null>(null)
 
   // Item 292: deep-link ?f=refund vindo do drill-down da Overview tem
   // precedência sobre o filtro persistido. useSearchParams (e não
@@ -248,9 +311,78 @@ export function ActivityView() {
     return c
   }, [all])
 
-  const events = filter ? all.filter((e) => e.type === filter) : all
+  // Item 332: gateways presentes nos eventos (para o seletor)
+  const gateways = useMemo(() => {
+    const s = new Set<string>()
+    for (const e of all) if (e.gateway) s.add(e.gateway)
+    return [...s].sort()
+  }, [all])
+
+  // Itens 331/332/333: busca + gateway + período compõem com o filtro de tipo
+  const events = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const from = feedPeriodStart(feedPeriod)
+    return all.filter((e) => {
+      if (filter && e.type !== filter) return false
+      if (gwFilter && e.gateway !== gwFilter) return false
+      if (from && new Date(e.at).getTime() < from) return false
+      if (q) {
+        const hay = `${e.customer || ''} ${e.email || ''} ${e.gateway || ''} ${e.title || ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [all, filter, gwFilter, feedPeriod, query])
+
   const visible = events.slice(0, limit)
   const hasMore = events.length > limit
+
+  // Item 340: resumo por dia no separador — vendas, receita e recusadas do
+  // dia INTEIRO filtrado (não só das linhas visíveis na página atual)
+  const daySummary = useMemo(() => {
+    const map = new Map<string, { sales: number; revenue: number; cur: string; failed: number }>()
+    for (const e of events) {
+      const label = dayLabel(e.at)
+      if (!label) continue
+      const r = map.get(label) ?? { sales: 0, revenue: 0, cur: e.currency || 'BRL', failed: 0 }
+      if (e.type === 'sale') {
+        r.sales++
+        r.revenue += e.amount || 0
+        if (e.currency) r.cur = e.currency
+      } else if (e.type === 'failed') r.failed++
+      map.set(label, r)
+    }
+    return map
+  }, [events])
+
+  // Item 343: permalink ?e=<id> — garante o evento na página, rola até ele
+  // e destaca. Limpa o param depois para o destaque não "grudar".
+  const targetId = searchParams.get('e')
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!targetId || all.length === 0) return
+    const idx = events.findIndex((e) => e.id === targetId)
+    if (idx < 0) {
+      // evento fora dos filtros ativos: zera filtros para ele aparecer
+      if (filter || gwFilter || feedPeriod || query) {
+        setFilter(null)
+        setGwFilter(null)
+        setFeedPeriod(null)
+        setQuery('')
+      }
+      return
+    }
+    if (idx >= limit) setLimit(Math.ceil((idx + 1) / PAGE_SIZE) * PAGE_SIZE)
+    setHighlightId(targetId)
+    const t = window.setTimeout(() => {
+      document.getElementById(`evt-${targetId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      const url = new URL(window.location.href)
+      url.searchParams.delete('e')
+      window.history.replaceState(null, '', url)
+    }, 120)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetId, all.length, events, limit])
 
   return (
     <div className="flex flex-col gap-4">

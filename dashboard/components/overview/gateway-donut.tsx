@@ -55,20 +55,22 @@ export function GatewayDonut({
             </span>
           </div>
         </div>
-        <ul className="min-w-0 flex-1 space-y-1.5" aria-label="Receita por gateway">
+        <ul className="min-w-0 flex-1 space-y-2" aria-label="Receita por gateway">
           {data.map((g, i) => (
-            <li key={g.name} className="flex items-center gap-2 text-sm">
+            <li key={g.name} className="flex items-start gap-2">
               <span
-                className="size-2.5 shrink-0 rounded-full"
+                className="mt-1 size-2.5 shrink-0 rounded-full"
                 style={{ backgroundColor: COLORS[i % COLORS.length] }}
                 aria-hidden="true"
               />
-              <span className="truncate font-medium capitalize text-foreground">{g.name}</span>
-              <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
-                <span data-sensitive>{money(g.revenue, mainCur)}</span>
-                {' · '}
-                {fmtPercent((g.revenue / total) * 100)}
-              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium capitalize text-foreground">{g.name}</p>
+                <p className="text-xs tabular-nums text-muted-foreground">
+                  <span data-sensitive>{money(g.revenue, mainCur)}</span>
+                  {' · '}
+                  {fmtPercent((g.revenue / total) * 100)}
+                </p>
+              </div>
             </li>
           ))}
         </ul>
