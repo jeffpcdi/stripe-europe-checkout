@@ -182,13 +182,13 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **410.** Testes de navegação (palette, atalhos, deep-links, error boundary).
 
 ### B7. Config / Segurança / Conta (411–432)
-- ~~**411.** Trocar senha na Config~~ — ✅ FEITO (backend): `POST /api/account/password` com verificação da atual, rate-limit 5/min, auditoria. **Falta a UI na aba Config.**
+- ~~**411.** Trocar senha na Config~~ — ✅ FEITO (backend + UI): formulário na seção "Conta e segurança" da Config; validação de confirmação no cliente; backend verifica a atual, rate-limit 5/min, auditoria, derruba outras sessões. De quebra corrigiu bug: `getAccountById` não trazia `password_hash` e a troca SEMPRE respondia "senha atual incorreta".
 - **412.** Recuperação de senha por e-mail (token de reset + provedor de e-mail).
-- **413.** Editar nome da conta.
-- **414.** Sessões ativas: listar dispositivos com "encerrar sessão".
-- ~~**415.** "Encerrar todas as outras sessões"~~ — ✅ FEITO: a troca de senha derruba todas as outras sessões automaticamente (`db.deleteOtherAuthSessions`).
+- ~~**413.** Editar nome da conta~~ — ✅ FEITO: campo na Config (pré-preenchido via `/api/me`) + `POST /api/account/name` (trim, máx. 80, auditoria `nome_alterado`, limpa cache de sessões).
+- ~~**414.** Sessões ativas~~ — ✅ FEITO: `GET /api/account/sessions` lista dispositivos (UA resumido + IP mascarado + data, gravados no login/registro), sessão atual marcada; `DELETE /api/account/sessions/:sid` encerra uma (sid = md5 do token, nunca expõe o token; a atual não pode ser encerrada por aí); `POST .../revoke-others` encerra todas as outras. Tudo auditado. Verificado no browser: sessão encerrada perde acesso na hora (401).
+- ~~**415.** "Encerrar todas as outras sessões"~~ — ✅ FEITO: a troca de senha derruba todas as outras sessões automaticamente (`db.deleteOtherAuthSessions`); agora também tem botão dedicado na Config (item 414).
 - ~~**416.** Rate-limit no login~~ — ✅ JÁ EXISTIA (item 440): bloqueio por e-mail após 8 falhas, 15 min, resposta 429.
-- **418.** Rotação do token da API pública ("revogar e gerar novo").
+- ~~**418.** Rotação do token da API pública~~ — ✅ FEITO: `POST /api/public-token/rotate` (rate-limit 5/min, auditoria) + botão "Gerar novo" com confirmação avisando que integrações antigas param. Verificado: token antigo → 401 na API pública, novo → 200.
 - **419.** Escopos do token público (stats vs stats+leads).
 - **420.** 2FA TOTP opcional (otplib).
 - **422.** Seletor de fuso da conta aplicado a séries e relógio.
