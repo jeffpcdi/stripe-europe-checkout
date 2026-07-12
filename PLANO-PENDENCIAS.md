@@ -68,7 +68,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **296.** Card "tempo médio até a compra" (visita → purchase).
 - **297.** Badge de tendência de EMQ no overview.
 - **298.** Receita por gateway em donut compacto.
-- **299.** Acessibilidade dos KPIs (aria-label com valor + delta + período).
+- ~~**299.** Acessibilidade dos KPIs (aria-label com valor + delta + período)~~ — ✅ FEITO: `KpiCard` aceita `ariaLabel` (vira `role="group"` + `aria-label`); a Overview passa leitura completa nos 4 KPIs (ex.: "Receita total: R$ X, alta de Y% vs período anterior"). Verificado no snapshot de acessibilidade do browser.
 
 ### B2. Tabela de Leads / Funil (301–330)
 - **301.** Funil filtrável por link/campanha (hoje global).
