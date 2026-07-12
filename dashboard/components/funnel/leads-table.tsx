@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { GlassCard } from '@/components/glass-card'
 // Item 323: STAGE_LABEL/STAGE_CLASS agora vêm centralizados de lib/format
 import {
@@ -21,24 +21,59 @@ import {
   Download,
   Search,
   X,
-  Flame,
-  Smartphone,
-  Monitor,
 } from 'lucide-react'
 import type { Lead } from '@/lib/types'
 
 const PAGE_SIZE = 20
 
 /* Item 308: colunas ordenáveis. `null` = ordem natural (mais recente 1º). */
-type SortKey = 'stage' | 'amount' | 'at' | 'country' | null
+type SortKey = 'stage' | 'amount' | 'at' | 'country'
 
 const STAGE_ORDER: Record<string, number> = { visit: 0, checkout: 1, purchased: 2 }
 
-/* Item 328: dispositivo derivado do user-agent do lead (heurística leve —
-   mobile é o que importa para mídia paga; o resto é desktop). */
-function deviceOf(ua?: string): 'mobile' | 'desktop' | null {
-  if (!ua) return null
-  return /mobi|android|iphone|ipad|ipod/i.test(ua) ? 'mobile' : 'desktop'
+/* Item 308: cabeçalho ordenável — botão real (acessível por teclado) com
+   aria-sort e seta indicando a direção ativa. */
+function SortableTh({
+  label,
+  k,
+  sortKey,
+  sortDir,
+  onSort,
+  last,
+}: {
+  label: string
+  k: SortKey
+  sortKey: SortKey | null
+  sortDir: 'asc' | 'desc'
+  onSort: (k: SortKey) => void
+  last?: boolean
+}) {
+  const active = sortKey === k
+  return (
+    <th
+      className={cn('label-mono pb-2', !last && 'pr-3')}
+      aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={cn(
+          'flex items-center gap-0.5 transition-colors hover:text-foreground',
+          active && 'text-primary',
+        )}
+        title={active ? 'Clique para inverter/limpar a ordenação' : `Ordenar por ${label.toLowerCase()}`}
+      >
+        {label}
+        {active ? (
+          sortDir === 'asc' ? (
+            <ChevronUp className="size-3" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="size-3" aria-hidden="true" />
+          )
+        ) : null}
+      </button>
+    </th>
+  )
 }
 
 /** Item 149: destaca o termo buscado em ciano dentro do texto. */
@@ -71,6 +106,22 @@ export function LeadsTable({
   // Item 312: vendas órfãs (sem lead rastreado) eram filtradas em silêncio —
   // dinheiro invisível. O toggle traz de volta com explicação.
   const [showOrphans, setShowOrphans] = useState(false)
+  // Item 308: ordenação por coluna. null = ordem natural (mais recente 1º).
+  // Ciclo por clique: desc → asc → natural (3º clique limpa).
+  const [sortKey, setSortKey] = useState<SortKey | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  function toggleSort(key: SortKey) {
+    if (sortKey !== key) {
+      setSortKey(key)
+      setSortDir('desc')
+    } else if (sortDir === 'desc') {
+      setSortDir('asc')
+    } else {
+      setSortKey(null)
+    }
+    resetPage()
+  }
 
   const searching = rawQuery !== query
   useEffect(() => {
@@ -111,10 +162,35 @@ export function LeadsTable({
     }).length
   }, [leads, periodStart])
 
+  // Item 308: ordenação aplicada sobre o filtrado. "Valor" usa o reportado
+  // (dinheiro real) e cai para o esperado; leads sem valor vão para o fim.
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered
+    const dir = sortDir === 'asc' ? 1 : -1
+    const val = (l: Lead): number | string => {
+      switch (sortKey) {
+        case 'stage':
+          return STAGE_ORDER[l.stage] ?? -1
+        case 'amount':
+          return l.reportedAmount ?? l.expectedAmount ?? (sortDir === 'asc' ? Infinity : -Infinity)
+        case 'at':
+          return new Date(l.at).getTime()
+        case 'country':
+          return (l.countryName || l.country || '\uffff').toLowerCase()
+      }
+    }
+    return [...filtered].sort((a, b) => {
+      const va = val(a)
+      const vb = val(b)
+      if (va === vb) return 0
+      return (va < vb ? -1 : 1) * dir
+    })
+  }, [filtered, sortKey, sortDir])
+
   // Item 150: paginação com clamp quando o filtro muda
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount - 1)
-  const pageRows = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
+  const pageRows = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
   const from = filtered.length === 0 ? 0 : safePage * PAGE_SIZE + 1
   const to = Math.min(filtered.length, (safePage + 1) * PAGE_SIZE)
 
@@ -305,12 +381,12 @@ export function LeadsTable({
               <thead>
                 <tr className="border-b border-border/60">
                   <th className="label-mono pb-2 pr-3">ID</th>
-                  <th className="label-mono pb-2 pr-3">Etapa</th>
+                  <SortableTh label="Etapa" k="stage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="label-mono pb-2 pr-3">Gateway</th>
-                  <th className="label-mono pb-2 pr-3">País</th>
+                  <SortableTh label="País" k="country" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="label-mono pb-2 pr-3">Origem</th>
-                  <th className="label-mono pb-2 pr-3">Valor</th>
-                  <th className="label-mono pb-2">Quando</th>
+                  <SortableTh label="Valor" k="amount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <SortableTh label="Quando" k="at" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} last />
                 </tr>
               </thead>
               <tbody>
