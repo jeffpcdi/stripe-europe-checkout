@@ -3300,6 +3300,20 @@ async function processConversion(n) {
     amount: n.amountCents, currency: n.currency
   };
   if (n._forceRedispatch) receipt.reprocessado = true;
+  // Item 342: cópia auditável da conversão normalizada para o feed.
+  // Whitelist (nada de flags internas) + cap de tamanho: MAX_EVENTS eventos
+  // ficam em memória e no JSON persistido — raw gigante estouraria o estado.
+  const rawForFeed = () => {
+    try {
+      const skip = { acc: 1, dryRun: 1, registerSale: 1 };
+      const out = {};
+      for (const k of Object.keys(n)) {
+        if (k[0] === '_' || skip[k] || n[k] == null || typeof n[k] === 'function') continue;
+        out[k] = n[k];
+      }
+      return JSON.stringify(out).length <= 2000 ? out : { orderId: n.orderId, gateway: n.gateway, event: n.event, truncado: true };
+    } catch (_) { return undefined; }
+  };
   try {
     // 1. dedup — retries do gateway nunca duplicam o disparo.
     // Item 198: reprocessamento manual PULA o dedup de propósito (o admin
@@ -3338,7 +3352,8 @@ async function processConversion(n) {
           title: titleMap[n.event] + ' (' + n.gateway + ')',
           amount: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email,
-          gateway: n.gateway, ref: n.orderId
+          gateway: n.gateway, ref: n.orderId,
+          raw: rawForFeed()
         });
       } catch (_) {}
       notifyPushcut(n.event, n);
@@ -3362,7 +3377,8 @@ async function processConversion(n) {
           title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
           amount: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email,
-          gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id
+          gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id,
+          raw: rawForFeed()
         });
       } catch (_) {}
       // Atribuição ao link/variante que originou o clique (teste A/B)

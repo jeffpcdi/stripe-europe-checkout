@@ -18,6 +18,8 @@ export interface StatsEvent {
   landing?: string
   practice?: string
   reason?: string
+  /** Item 342: conversão normalizada do webhook (auditoria no feed) */
+  raw?: Record<string, unknown>
 }
 
 // ── /api/live — presença em tempo real (presence.js) ──

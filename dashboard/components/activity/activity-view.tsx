@@ -360,6 +360,21 @@ export function ActivityView() {
     }
   }, [all])
 
+  // Item 339: "seguir ao vivo" — eventos novos entram no TOPO do feed; se o
+  // usuário está rolado para baixo (lendo o histórico), não puxamos o scroll
+  // (seria hostil). Em vez disso um aviso flutuante conta os que chegaram e
+  // leva ao topo com um clique. Perto do topo, o feed acompanha sozinho.
+  const [pendingNew, setPendingNew] = useState(0)
+  const isAwayRef = useRef(false)
+  useEffect(() => {
+    const onScroll = () => {
+      isAwayRef.current = window.scrollY > 400
+      if (!isAwayRef.current) setPendingNew(0)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   // Itens 335/336: som e notificação nativa em vendas novas — off por
   // padrão (som em escritório aberto irrita; notificação exige permissão).
   const [soundOn, setSoundOn] = usePersistedState<boolean>('activity:sound', false)
@@ -372,8 +387,13 @@ export function ActivityView() {
       alertIds.current = new Set(all.map((e) => e.id))
       return
     }
-    const fresh = all.filter((e) => e.type === 'sale' && !alertIds.current!.has(e.id))
+    const freshAll = all.filter((e) => !alertIds.current!.has(e.id))
+    const fresh = freshAll.filter((e) => e.type === 'sale')
     for (const e of all) alertIds.current.add(e.id)
+    // Item 339: usuário longe do topo → acumula aviso em vez de puxar o scroll
+    if (freshAll.length > 0 && isAwayRef.current) {
+      setPendingNew((n) => n + freshAll.length)
+    }
     if (fresh.length === 0) return
     if (soundOn) playSaleSound()
     if (notifyOn) {
