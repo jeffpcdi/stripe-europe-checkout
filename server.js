@@ -2523,7 +2523,11 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
 
   // 0. Auto-recuperação: se o domínio está em modo manual (sem providerId) e a
   // automação está ligada, tenta registrar agora — cobre o caso de um slot da
-  // hospedagem ter vagado desde o cadastro. Best-effort: nunca derruba a verificação.
+  // hospedagem ter vagado desde o cadastro. Best-effort: nunca derruba a
+  // verificação, mas o MOTIVO da falha não é mais silencioso (registroErro) —
+  // antes um token inválido deixava o lojista preso em "reconexão automática"
+  // que nunca acontecia, sem nenhuma pista.
+  let registroErro = null; // 'auth' | 'limite' | 'offline' | 'falha' | null
   if (domainProvider.enabled) {
     const cur0 = config.get(req.account.id).customDomains || [];
     const d0 = cur0.find((d) => d.host === host);
@@ -2538,7 +2542,10 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
           out.reconectado = true;
           out.dnsRecords = reg.dns || null;
         }
-      } catch (_) { /* segue a verificação normal em modo manual */ }
+      } catch (e) {
+        registroErro = ['auth', 'limite', 'offline', 'duplicado'].includes(e.message) ? e.message : 'falha';
+        stats.logEvent('warn', { acc: req.account.id, title: 'Re-registro do domínio falhou (' + registroErro + '): ' + host });
+      }
     }
   }
 
@@ -2640,6 +2647,23 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
         out.httpDetail = 'HTTPS 404 — o proxy da Cloudflare (nuvem laranja) está na frente. Edite o registro DNS na Cloudflare e mude para "Somente DNS" (nuvem cinza), depois clique em Verificar de novo.';
       } else if (gerenciado) {
         out.httpDetail = 'HTTPS respondeu 404 — o DNS já chega até nós e o registro autom��tico foi feito; a ativação/SSL costuma levar alguns minutos. Aguarde e clique em Verificar de novo.';
+      } else if (!domainProvider.enabled) {
+        // HONESTIDADE: sem automação configurada NÃO existe "reconexão
+        // automática" — dizer isso deixava o lojista clicando em Verificar
+        // para sempre. out.autoProvision=false permite à UI destacar o aviso.
+        out.autoProvision = false;
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o registro automático de domínios está desligado neste servidor, então este domínio precisa ser ativado manualmente na hospedagem. Veja o aviso no topo desta aba para ligar o registro automático de vez.';
+        stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok mas registro automático DESLIGADO (exige ação manual na hospedagem): ' + host });
+      } else if (registroErro) {
+        const motivos = {
+          auth: 'a autenticação com a hospedagem está falhando (token inválido ou expirado) — o administrador precisa gerar um novo token e atualizar a variável no servidor',
+          limite: 'o limite de domínios simultâneos da hospedagem foi atingido — remova um domínio não usado e clique em Verificar de novo',
+          duplicado: 'este domínio já está provisionado em outro projeto/conta da hospedagem — remova-o de lá primeiro',
+          offline: 'a hospedagem não respondeu agora — clique em Verificar de novo em instantes',
+          falha: 'a hospedagem recusou o registro agora — clique em Verificar de novo em instantes'
+        };
+        out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o registro automático falhou: ' + (motivos[registroErro] || motivos.falha) + '.';
+        stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (' + registroErro + '): ' + host });
       } else {
         out.httpDetail = 'HTTPS respondeu 404 — o DNS está certo, mas o provisionamento automático ainda está completando do nosso lado. Clique em Verificar de novo em alguns minutos (a reconexão é automática).';
         stats.logEvent('warn', { acc: req.account.id, title: 'Domínio com DNS ok aguardando registro na hospedagem (modo manual): ' + host });
