@@ -97,7 +97,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **326.** Endpoint `/api/leads/:id` (detalhe com jornada) para o drawer do 304.
 - **327.** Rate-limit e cache do `/api/stats` por conta.
 - **328.** Coluna "dispositivo" (mobile/desktop de ua.js). ⚠️ BLOQUEADO no front: os leads do `/api/stats` não expõem `ua` (chaves atuais: at, id, acc, utm, stage, orphan, country, gateway, linkSlug, countryName). Exige o backend gravar/projetar o user-agent primeiro.
-- **329.** Realce de leads que chegaram após o load.
+- ~~**329.** Realce de leads que chegaram após o load~~ — ✅ FEITO: mesmo padrão `seenIds` (ref) do feed de Atividade — snapshot inicial registrado uma vez, leads que chegam depois via polling ganham `anim-cell-flash` (flash âmbar já existente do item 29). Verificado que o load inicial não pisca (0 flashes).
 - **330.** Testes do filtro/paginação/CSV e do cálculo de gargalo.
 
 ### B3. Feed de Atividade (331–350)

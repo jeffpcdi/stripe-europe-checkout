@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { GlassCard } from '@/components/glass-card'
 // Item 323: STAGE_LABEL/STAGE_CLASS agora vêm centralizados de lib/format
 import {
@@ -118,6 +118,15 @@ export function LeadsTable({
   const [showCampaign, setShowCampaign] = usePersistedState<boolean>('leads:col-campaign', false)
   const [showEmail, setShowEmail] = usePersistedState<boolean>('leads:col-email', false)
   const [page, setPage] = useState(0)
+
+  // Item 329: realce dos leads que chegaram DEPOIS do load (mesmo padrão
+  // seenIds do feed de Atividade) — o snapshot inicial nunca pisca.
+  const seenIds = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (leads.length > 0 && seenIds.current === null) {
+      seenIds.current = new Set(leads.map((l) => l.id))
+    }
+  }, [leads])
   // Item 312: vendas órfãs (sem lead rastreado) eram filtradas em silêncio —
   // dinheiro invisível. O toggle traz de volta com explicação.
   const [showOrphans, setShowOrphans] = useState(false)
@@ -478,10 +487,15 @@ export function LeadsTable({
                 {pageRows.map((l) => {
                   const origin = l.utm?.source || (l.referer ? 'ref' : 'direto')
                   const hits = l.checkoutHits?.length ? `${l.checkoutHits.length}x` : null
+                  // Item 329: lead que não estava no snapshot inicial pisca
+                  const isNew = seenIds.current !== null && !seenIds.current.has(l.id)
                   return (
                     <tr
                       key={l.id}
-                      className="tr-hover border-b border-border/30 last:border-b-0"
+                      className={cn(
+                        'tr-hover border-b border-border/30 last:border-b-0',
+                        isNew && 'anim-cell-flash',
+                      )}
                     >
                       <td className="py-2.5 pr-3 font-mono text-xs text-muted-foreground">
                         <Highlight text={l.id.slice(0, 12)} query={query} />
