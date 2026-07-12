@@ -554,6 +554,26 @@ export function LeadsTable({
                           <span className="text-muted-foreground">—</span>
                         )}
                       </td>
+                      {/* Item 328: dispositivo — ícone com os detalhes no title */}
+                      <td className="py-2.5 pr-3">
+                        {l.device ? (
+                          <span
+                            className="text-muted-foreground"
+                            title={[l.device, l.os, l.browser].filter(Boolean).join(' · ')}
+                          >
+                            {l.device === 'mobile' ? (
+                              <Smartphone className="size-3.5" aria-hidden="true" />
+                            ) : l.device === 'tablet' ? (
+                              <Tablet className="size-3.5" aria-hidden="true" />
+                            ) : (
+                              <Monitor className="size-3.5" aria-hidden="true" />
+                            )}
+                            <span className="sr-only">{l.device}</span>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="py-2.5 pr-3 text-xs text-muted-foreground">
                         <Highlight text={origin} query={query} />
                       </td>
