@@ -419,6 +419,69 @@ async function updateAccountName(accountId, name) {
   } catch (err) { console.error('[db] updateAccountName:', err.message); return false; }
 }
 
+// Item 324/425 (LGPD): anonimiza leads mais antigos que N dias — remove
+// e-mail, telefone e nome do jsonb, mantendo os agregados (país, valor,
+// estágio) intactos para não quebrar relatórios. Retorna quantos anonimizou.
+async function anonymizeOldLeads(accountId, days, limit) {
+  if (!enabled || !accountId || !days) return 0;
+  const lim = Math.max(1, Math.min(limit || 500, 2000));
+  try {
+    const rows = await sql`UPDATE leads
+      SET data = (data - 'email' - 'phone' - 'customer') || '{"anonymized":true}'::jsonb,
+          updated_at = now()
+      WHERE account_id = ${accountId}
+        AND created_at < now() - make_interval(days => ${Math.round(days)})
+        AND NOT (data ? 'anonymized')
+        AND (data ? 'email' OR data ? 'phone' OR data ? 'customer')
+        AND id IN (SELECT id FROM leads WHERE account_id = ${accountId}
+                   AND created_at < now() - make_interval(days => ${Math.round(days)})
+                   AND NOT (data ? 'anonymized') LIMIT ${lim})
+      RETURNING id`;
+    return rows.length;
+  } catch (err) { console.error('[db] anonymizeOldLeads:', err.message); return 0; }
+}
+
+// Item 428: pré-visualização da zona de perigo — o que existe hoje na conta.
+async function accountDataCounts(accountId) {
+  if (!enabled || !accountId) return null;
+  try {
+    const [r] = await sql`SELECT
+      (SELECT count(*) FROM leads WHERE account_id = ${accountId}) AS leads,
+      (SELECT count(*) FROM events WHERE account_id = ${accountId}) AS events,
+      (SELECT count(*) FROM events_archive WHERE account_id = ${accountId}) AS events_arquivados,
+      (SELECT count(*) FROM links WHERE account_id = ${accountId}) AS links,
+      (SELECT count(*) FROM pixels WHERE account_id = ${accountId}) AS pixels,
+      (SELECT count(*) FROM gateways WHERE account_id = ${accountId}) AS gateways,
+      (SELECT count(*) FROM custom_domains WHERE account_id = ${accountId}) AS dominios,
+      (SELECT count(*) FROM account_sessions WHERE account_id = ${accountId} AND expires_at > now()) AS sessoes,
+      (SELECT count(*) FROM account_audit WHERE account_id = ${accountId}) AS auditoria`;
+    return r || null;
+  } catch (err) { console.error('[db] accountDataCounts:', err.message); return null; }
+}
+
+// Item 427: exclusão da conta com cascata TOTAL — apaga tudo que pertence à
+// conta em todas as tabelas. Irreversível por design; a rota exige senha.
+async function deleteAccountCascade(accountId) {
+  if (!enabled || !accountId) return false;
+  try {
+    await sql`DELETE FROM account_sessions WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM account_audit   WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM leads           WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM events          WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM events_archive  WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM sessions        WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM variants        WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM pixel_events    WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM pixels          WHERE account_id = ${accountId} OR slug LIKE ${accountId + ':%'}`;
+    await sql`DELETE FROM links           WHERE account_id = ${accountId} OR slug LIKE ${accountId + ':%'}`;
+    await sql`DELETE FROM gateways        WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM custom_domains  WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM config          WHERE key = ${accountId}`;
+    await sql`DELETE FROM accounts        WHERE id = ${accountId}`;
+    return true;
+  } catch (err) { console.error('[db] deleteAccountCascade:', err.message); return false; }
+}
+
 // Item 415: derruba todas as sessões da conta exceto a atual (logout global).
 async function deleteOtherAuthSessions(accountId, keepToken) {
   if (!enabled || !accountId) return 0;
@@ -950,6 +1013,7 @@ module.exports = {
   createAccount, getAccountByEmail, getAccountById, countAccounts, getFirstAccountId, claimLegacyData,
   createAuthSession, getAuthSession, deleteAuthSession, pruneAuthSessions,
   listAuthSessions, deleteAuthSessionBySid, updateAccountName,
+  anonymizeOldLeads, accountDataCounts, deleteAccountCascade,
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta

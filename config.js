@@ -59,7 +59,9 @@ function defaults() {
     //    deadlineMs, blockDatacenter, ..., paises, idiomas, criadoEm, updatedAt }]
     cloakLinks: [],
     // API pública read-only (/api/v1/summary?token=...)
-    api: { token: '' },
+    // Item 419: scope controla o que o token expõe — 'stats' (só agregados)
+    // ou 'stats+leads' (agregados + lista de leads mascarada).
+    api: { token: '', scope: 'stats' },
     lastDailyReport: '',
     updatedAt: null
   };
@@ -258,8 +260,47 @@ function set(accountId, patch) {
     d: String(n.d || '').slice(0, 10),
     text: String(n.text || '').slice(0, 200)
   })).filter((n) => /^\d{4}-\d{2}-\d{2}$/.test(n.d) && n.text);
-  next.api = { token: String((next.api || {}).token || '').slice(0, 64) };
+  next.api = {
+    token: String((next.api || {}).token || '').slice(0, 64),
+    // Item 419: escopo do token público — default conservador ('stats').
+    scope: ['stats', 'stats+leads'].includes((next.api || {}).scope) ? next.api.scope : 'stats'
+  };
   next.lastDailyReport = String(next.lastDailyReport || '').slice(0, 10);
+
+  // ── Sanitização do bloco settings (itens 422/423/424/425/429/430) ────────
+  {
+    const s = Object.assign({}, next.settings || {});
+    const out = {};
+    // moeda (item 147, preservada)
+    if (/^[A-Z]{3}$/.test(String(s.defaultCurrency || '').toUpperCase())) {
+      out.defaultCurrency = String(s.defaultCurrency).toUpperCase();
+    }
+    // Item 422: fuso da conta (IANA válido; vazio = America/Sao_Paulo)
+    if (s.timezone) {
+      try { new Intl.DateTimeFormat('en', { timeZone: String(s.timezone) }); out.timezone = String(s.timezone).slice(0, 60); }
+      catch (_) { /* fuso inválido é descartado */ }
+    }
+    // Item 423/271: meta de receita mensal em centavos (0 = sem meta)
+    const goal = Math.round(Number(s.revenueGoal) || 0);
+    if (goal > 0) out.revenueGoal = Math.min(goal, 100000000000); // teto 1 bi de centavos
+    // Item 424/325: webhook de saída por venda aprovada (https obrigatório)
+    if (/^https:\/\/[^\s]+\.[^\s]+/i.test(String(s.outboundWebhook || '').trim())) {
+      out.outboundWebhook = String(s.outboundWebhook).trim().slice(0, 500);
+    }
+    // Item 425/324: retenção LGPD em dias (0 = desligado; mínimo 30 para
+    // ninguém anonimizar leads de ontem por engano)
+    const lgpd = Math.round(Number(s.lgpdDays) || 0);
+    if (lgpd >= 30) out.lgpdDays = Math.min(lgpd, 3650);
+    // Item 430: hora (0–23, fuso da conta) a partir da qual o resumo diário
+    // pode ser enviado
+    const drh = Math.round(Number(s.dailyReportHour));
+    if (Number.isFinite(drh) && drh >= 0 && drh <= 23) out.dailyReportHour = drh;
+    // Item 429: preset de mensagem do Pushcut com variáveis ({{valor}} etc.)
+    if (typeof s.pushcutTemplate === 'string' && s.pushcutTemplate.trim()) {
+      out.pushcutTemplate = s.pushcutTemplate.trim().slice(0, 300);
+    }
+    next.settings = out;
+  }
 
   // Sanitização do bloco Cloak (filtro de revisores TikTok)
   {

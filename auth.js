@@ -254,6 +254,8 @@ module.exports = {
   COOKIE_NAME,
   register, login, logout, resolveSession, changePassword,
   changeName, revokeSessionBySid, revokeOtherSessions,
+  // Item 427: exclusão de conta precisa esvaziar o cache de sessões inteiro.
+  clearSessionCache: function () { sessionCache.clear(); },
   parseCookies, sessionCookie, clearCookie,
   requireAuth, optionalAuth,
   hashPassword, verifyPassword,

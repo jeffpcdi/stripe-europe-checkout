@@ -677,6 +677,7 @@ app.post('/api/track', async (req, res) => {
     checkDailyReport();                            // carona no tráfego (sem cron)
     checkEventArchive();                            // item 448: arquiva eventos antigos (máx 1x/h)
     checkSalesWatchdog();                           // item 464: alerta de zero vendas (máx 1x/h)
+    checkLgpdSweep();                               // item 324/425: anonimização LGPD (máx 1x/h)
     const uaRaw = String(req.headers['user-agent'] || '');
     if (uaTools.isBot(uaRaw)) return;              // bots não viram lead nem CAPI
 
@@ -1463,7 +1464,33 @@ app.get('/api/v1/summary', (req, res) => {
       conversion: leads.length ? Math.round(bought.length / leads.length * 1000) / 10 : 0
     };
   }
-  res.json({ today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() });
+  const out = { today: agg(24 * 3600e3), last7d: agg(7 * 86400e3), total: agg(null), ts: new Date().toISOString() };
+  // Item 419: com escopo 'stats+leads' o token também recebe os últimos
+  // leads — SEMPRE mascarados (nunca e-mail/telefone completos).
+  if ((config.get(tokenAcc).api || {}).scope === 'stats+leads') {
+    const maskEmail = (e) => {
+      const s = String(e || ''); const i = s.indexOf('@');
+      return i > 1 ? s[0] + '***' + s.slice(i) : (s ? s[0] + '***' : null);
+    };
+    out.leads = (s.leads || []).filter((l) => !l.orphan).slice(-100).reverse().map((l) => ({
+      at: l.at, stage: l.stage || null, country: l.country || null,
+      amountCents: l.reportedAmount || l.expectedAmount || 0,
+      email: maskEmail(l.email), gateway: l.gateway || null
+    }));
+  }
+  res.json(out);
+});
+
+// Item 419: alternar o escopo do token público (stats | stats+leads).
+app.post('/api/public-token/scope', dashboardAuth, (req, res) => {
+  const scope = String((req.body || {}).scope || '');
+  if (!['stats', 'stats+leads'].includes(scope)) {
+    return res.status(400).json({ ok: false, error: "Escopo inválido — use 'stats' ou 'stats+leads'." });
+  }
+  const api = Object.assign({}, config.get(req.account.id).api || {}, { scope });
+  config.set(req.account.id, { api });
+  audit(req, req.account.id, 'token_api_escopo', 'Escopo do token público: ' + scope);
+  res.json({ ok: true, scope });
 });
 
 // ── Relatório diário via Pushcut ──────────────�������─────────────────────
@@ -1536,6 +1563,32 @@ function checkEventArchive() {
     .catch(() => {})
     .finally(() => { archiveSweepBusy = false; });
 }
+// Item 324/425 (LGPD): anonimização automática de leads antigos, pegando
+// carona no tráfego (padrão do arquivamento — sem cron). Máx. 1 varredura/h
+// por processo; cada conta com lgpdDays configurado tem os leads além da
+// janela anonimizados (e-mail/telefone/nome removidos) no banco e na memória.
+let lastLgpdSweep = 0;
+let lgpdSweepBusy = false;
+function checkLgpdSweep() {
+  const now = Date.now();
+  if (lgpdSweepBusy || (now - lastLgpdSweep) < 3600e3) return;
+  lgpdSweepBusy = true;
+  lastLgpdSweep = now;
+  (async () => {
+    for (const accId of config.accountIds()) {
+      try {
+        const days = Number((config.get(accId).settings || {}).lgpdDays) || 0;
+        if (days < 30) continue;
+        const n = await db.anonymizeOldLeads(accId, days, 500);
+        const m = stats.anonymizeOldLeads(accId, days); // espelho em memória
+        if (n > 0 || m > 0) {
+          stats.logEvent('info', { acc: accId, title: '[lgpd] ' + Math.max(n, m) + ' lead(s) além de ' + days + ' dias anonimizado(s)' });
+        }
+      } catch (_) { /* LGPD nunca derruba a request que pegou a carona */ }
+    }
+  })().finally(() => { lgpdSweepBusy = false; });
+}
+
 // Item 295 (bug): o relatório diário cortava o dia em UTC — vendas das 21h à
 // meia-noite de Brasília caíam no dia "seguinte" e o resumo vinha errado.
 // brDay converte qualquer timestamp para o dia calendário de Brasília.
@@ -1546,22 +1599,45 @@ function brDay(d) {
   const t = d instanceof Date ? d : new Date(d);
   return isNaN(t.getTime()) ? String(d).slice(0, 10) : BR_DAY_FMT.format(t);
 }
+// Item 422: fuso configurável por conta — o corte de dia e o horário do
+// resumo passam a respeitar settings.timezone (fallback: Brasília).
+function accountTz(accId) {
+  const tz = (config.get(accId).settings || {}).timezone;
+  return tz || 'America/Sao_Paulo';
+}
+function accDay(accId, d) {
+  const t = d instanceof Date ? d : new Date(d);
+  if (isNaN(t.getTime())) return String(d).slice(0, 10);
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: accountTz(accId), year: 'numeric', month: '2-digit', day: '2-digit' }).format(t);
+  } catch (_) { return BR_DAY_FMT.format(t); }
+}
+function accHour(accId) {
+  try {
+    return parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: accountTz(accId), hour: '2-digit', hour12: false }).format(new Date()), 10);
+  } catch (_) { return new Date().getUTCHours(); }
+}
 function checkDailyReportFor(accId) {
   const cfg = config.get(accId);
   const pc = cfg.pushcut || {};
   if (!pc.url || !(pc.events || {}).daily) return;
-  const today = brDay(new Date());
+  const today = accDay(accId, new Date());
   if (cfg.lastDailyReport === today) return;
+  // Item 430: hora mínima configurável — o resumo só sai depois da hora
+  // escolhida (no fuso da conta). Default 0h = comportamento antigo.
+  const minHour = Math.max(0, Math.min(23, Number((cfg.settings || {}).dailyReportHour) || 0));
+  if (accHour(accId) < minHour) return;
   try {
-    const yKey = brDay(new Date(Date.now() - 86400e3));
+    // Item 422: o corte de "ontem" também respeita o fuso da conta.
+    const yKey = accDay(accId, new Date(Date.now() - 86400e3));
     const s = stats.getStats(accId);
-    const dayLeads = (s.leads || []).filter((l) => !l.orphan && brDay(l.at) === yKey);
-    const sales = (s.events || []).filter((e) => e.type === 'sale' && brDay(e.at) === yKey);
+    const dayLeads = (s.leads || []).filter((l) => !l.orphan && accDay(accId, l.at) === yKey);
+    const sales = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === yKey);
     const rev = sales.reduce((a, e) => a + (e.amount || 0), 0);
     const conv = dayLeads.length ? Math.round(sales.length / dayLeads.length * 1000) / 10 : 0;
     // anteontem, para comparação
-    const y2Key = brDay(new Date(Date.now() - 2 * 86400e3));
-    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && brDay(e.at) === y2Key);
+    const y2Key = accDay(accId, new Date(Date.now() - 2 * 86400e3));
+    const sales2 = (s.events || []).filter((e) => e.type === 'sale' && accDay(accId, e.at) === y2Key);
     const rev2 = sales2.reduce((a, e) => a + (e.amount || 0), 0);
     const cur = (sales[0] && sales[0].currency) || 'EUR';
     const delta = rev2 > 0 ? Math.round((rev - rev2) / rev2 * 100) : null;
@@ -1609,7 +1685,7 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// ── Rotas de autenticação (registro / login / logout) ─────────────────────
+// ── Rotas de autenticação (registro / login / logout) ───────────────���─────
 app.get('/login', auth.optionalAuth(), (req, res) => {
   if (req.account) return res.redirect('/dashboard');
   res.set('Content-Type', 'text/html; charset=utf-8');
@@ -1752,6 +1828,78 @@ app.post('/api/account/sessions/revoke-others', dashboardAuth, async (req, res) 
   const result = await auth.revokeOtherSessions(req.account.id, req.sessionToken);
   audit(req, req.account.id, 'sessoes_encerradas', (result.revoked || 0) + ' outra(s) sessão(ões) encerrada(s)');
   res.json({ ok: true, revoked: result.revoked });
+});
+
+// Item 426 (LGPD/portabilidade): exporta TODOS os dados da conta em um JSON
+// único — perfil, config (sem token), links, pixels (sem accessToken),
+// gateways (sem secrets), leads, eventos e trilha de auditoria.
+app.get('/api/account/export', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (rateLimited('accexport|' + req.account.id, 'opsdrain', 3)) {
+    return res.status(429).json({ ok: false, error: 'Aguarde um pouco antes de exportar de novo.' });
+  }
+  const acc = req.account.id;
+  const cfg = config.get(acc);
+  const s = stats.getStats(acc);
+  const auditRows = await db.listAudit(acc, 500).catch(() => []);
+  const payload = {
+    formato: 'pragmatic-flow-conta-completa',
+    versao: 1,
+    exportadoEm: new Date().toISOString(),
+    conta: { id: acc, email: req.account.email, name: req.account.name, criadaEm: req.account.created_at || null },
+    settings: cfg.settings || {},
+    pushcut: { configurado: !!(cfg.pushcut || {}).url, events: (cfg.pushcut || {}).events || {} },
+    links: linkStore.list(acc),
+    pixels: pixelStore.list(acc).map((p) => { const { accessToken, token, ...rest } = p; return rest; }),
+    gateways: gatewayStore.list(acc).map((g) => { const { secret, webhookToken, ...rest } = g; return rest; }),
+    dominios: cfg.customDomains || [],
+    cloakLinks: cfg.cloakLinks || [],
+    shortlinks: cfg.shortlinks || [],
+    leads: (s.leads || []),
+    eventos: (s.events || []),
+    auditoria: auditRows
+  };
+  audit(req, acc, 'dados_exportados', 'Exportação completa da conta (LGPD)');
+  res.setHeader('Content-Disposition', 'attachment; filename="minha-conta-completa.json"');
+  res.json(payload);
+});
+
+// Item 428: pré-visualização da zona de perigo — o que existe na conta hoje
+// (alimenta os modais de "zerar estatísticas" e "excluir conta").
+app.get('/api/account/data-counts', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const counts = await db.accountDataCounts(req.account.id);
+  if (!counts) {
+    // fallback sem banco: conta pelo estado em memória
+    const s = stats.getStats(req.account.id);
+    return res.json({ ok: true, counts: { leads: (s.leads || []).length, events: (s.events || []).length } });
+  }
+  res.json({ ok: true, counts });
+});
+
+// Item 427: exclusão da conta — confirmação forte (senha + frase exata) e
+// cascata total no banco. A resposta limpa o cookie; não há volta.
+app.post('/api/account/delete', dashboardAuth, async (req, res) => {
+  const b = req.body || {};
+  if (rateLimited('accdel|' + req.account.id, 'pwchange', 3)) {
+    return res.status(429).json({ ok: false, error: 'Muitas tentativas. Aguarde um minuto.' });
+  }
+  if (String(b.confirm || '') !== 'EXCLUIR MINHA CONTA') {
+    return res.status(400).json({ ok: false, error: 'Digite exatamente "EXCLUIR MINHA CONTA" para confirmar.' });
+  }
+  // reusa a checagem de senha do changePassword sem trocar nada
+  const row = await db.getAccountById(req.account.id);
+  if (!row || !(await auth.verifyPassword(String(b.password || ''), row.password_hash))) {
+    return res.status(403).json({ ok: false, error: 'Senha incorreta.' });
+  }
+  const acc = req.account.id;
+  console.log('[account] EXCLUSÃO da conta ' + acc + ' (' + req.account.email + ') solicitada e confirmada');
+  const ok = await db.deleteAccountCascade(acc);
+  if (!ok) return res.status(500).json({ ok: false, error: 'Falha ao excluir. Tente novamente.' });
+  stats.reset(acc);            // limpa o espelho em memória
+  auth.clearSessionCache();    // nenhuma sessão da conta sobrevive
+  appendCookie(res, auth.clearCookie());
+  res.json({ ok: true });
 });
 
 // Item 414: encerrar UMA sessão específica pelo sid. A sessão atual não pode
@@ -2042,11 +2190,37 @@ function accountCurrency(accId) {
 app.get('/api/settings', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
   const s = config.get(req.account.id).settings || {};
-  res.json({ defaultCurrency: accountCurrency(req.account.id), raw: { defaultCurrency: s.defaultCurrency || null } });
+  res.json({
+    defaultCurrency: accountCurrency(req.account.id),
+    // Itens 422/423/424/425/429/430: preferências avançadas da conta
+    timezone: s.timezone || 'America/Sao_Paulo',
+    revenueGoal: s.revenueGoal || 0,
+    outboundWebhook: s.outboundWebhook || '',
+    lgpdDays: s.lgpdDays || 0,
+    dailyReportHour: Number.isFinite(s.dailyReportHour) ? s.dailyReportHour : 0,
+    pushcutTemplate: s.pushcutTemplate || '',
+    raw: { defaultCurrency: s.defaultCurrency || null }
+  });
 });
 
 app.post('/api/settings', dashboardAuth, (req, res) => {
   const body = req.body || {};
+  // Itens 422/423/424/425/429/430: campos opcionais — só sobrescreve o que
+  // veio no body; a sanitização final é do config.set (fonte única de regras).
+  const patchable = ['timezone', 'revenueGoal', 'outboundWebhook', 'lgpdDays', 'dailyReportHour', 'pushcutTemplate'];
+  const hasExtra = patchable.some((k) => Object.prototype.hasOwnProperty.call(body, k));
+  if (hasExtra && !body.defaultCurrency) {
+    const s = Object.assign({}, config.get(req.account.id).settings || {});
+    patchable.forEach((k) => {
+      if (!Object.prototype.hasOwnProperty.call(body, k)) return;
+      // string vazia / 0 = "limpar o campo" (o sanitizador descarta)
+      if (body[k] === '' || body[k] === 0 || body[k] === null) delete s[k];
+      else s[k] = body[k];
+    });
+    const saved = (config.set(req.account.id, { settings: s }).settings || {});
+    audit(req, req.account.id, 'settings_alterados', 'Preferências da conta atualizadas');
+    return res.json({ ok: true, settings: saved });
+  }
   const cur = String(body.defaultCurrency || '').toUpperCase();
   if (!/^[A-Z]{3}$/.test(cur)) {
     return res.status(400).json({ error: 'moeda inválida — use um código de 3 letras (BRL, USD, EUR…)' });
@@ -2368,7 +2542,7 @@ app.post('/api/cloak-config', dashboardAuth, (req, res) => {
   res.json({ ok: true, cloak: config.get(req.account.id).cloak });
 });
 
-// ── Regras de cloaking POR LINK (offer/white/pa��ses/pixel) ─────────────────
+// ── Regras de cloaking POR LINK (offer/white/pa��ses/pixel) ��────────────────
 // Lista os links com suas regras + os pixels disponíveis para o dropdown.
 app.get('/api/cloak/links', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -2939,17 +3113,64 @@ const PUSHCUT_EVENT_MAP = {
   InitiateCheckout:{ key: 'checkout', name: 'Checkout' },
   AddPaymentInfo:  { key: 'checkout', name: 'Checkout' }
 };
+// Item 429: preset de mensagem com variáveis — o dono escreve o próprio
+// título de venda ("{{valor}} no {{gateway}}!") e o sistema preenche.
+function applyPushcutTemplate(tpl, n, valor) {
+  const vars = {
+    valor,
+    pais: n.countryName || n.country || '',
+    produto: n.product || '',
+    gateway: n.gateway || '',
+    cliente: n.customer || '',
+    pedido: n.orderId || ''
+  };
+  return String(tpl).replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : '')).trim();
+}
+
+// Item 325/424: webhook de saída — cada venda aprovada é POSTada na URL que
+// o dono configurou (CRM, planilha, Zapier…). Assíncrono com timeout de 8s;
+// falha vira evento no feed (nunca derruba o processamento da conversão).
+function fireOutboundWebhook(n) {
+  try {
+    const url = (config.get(n.acc).settings || {}).outboundWebhook;
+    if (!url) return;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Source': 'pragmatic-flow' },
+      body: JSON.stringify({
+        type: 'sale', at: new Date().toISOString(),
+        orderId: n.orderId, gateway: n.gateway,
+        amountCents: n.amountCents, currency: n.currency,
+        product: n.product || null, customer: n.customer || null,
+        email: n.email || null, country: n.country || null
+      }),
+      signal: ctl.signal
+    }).then((r) => {
+      if (!r.ok) stats.logEvent('info', { acc: n.acc, title: '[webhook-saida] HTTP ' + r.status + ' ao entregar venda ' + n.orderId });
+    }).catch((e) => {
+      stats.logEvent('info', { acc: n.acc, title: '[webhook-saida] Falha ao entregar venda ' + n.orderId + ': ' + (e.name === 'AbortError' ? 'timeout' : e.message) });
+    }).finally(() => clearTimeout(timer));
+  } catch (_) { /* webhook de saída nunca derruba a conversão */ }
+}
+
 function notifyPushcut(event, n) {
+  // Item 325/424: venda aprovada também dispara o webhook de saída da conta
+  // (independe dos toggles do Pushcut — é outro canal).
+  if (event === 'CompletePayment') fireOutboundWebhook(n);
   const map = PUSHCUT_EVENT_MAP[event];
   if (!map) return;
   const cfg = config.get(n.acc).pushcut || {};
   const events = Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false }, cfg.events || {});
   if (!events[map.key]) return;
   const valor = fmtMoney(n.amountCents, n.currency);
+  // Item 429: preset custom só para VENDA (o caso que o dono personaliza).
+  const tpl = (config.get(n.acc).settings || {}).pushcutTemplate;
   const titles = {
-    sale: `Venda aprovada — ${valor}`,
+    sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada — ${valor}`) : `Venda aprovada — ${valor}`,
     failed: `Pagamento recusado — ${valor}`,
-    refund: `Reembolso �� ${valor}`,
+    refund: `Reembolso — ${valor}`,
     dispute: `Disputa aberta — ${valor}`,
     checkout: `Checkout iniciado — ${n.gateway}`
   };

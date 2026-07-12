@@ -544,6 +544,31 @@ function getStats(accountId) {
 
 function invalidateStatsCache() { statsCacheMap.clear(); }
 
+// Item 324/425 (LGPD): espelho em memória da anonimização — remove
+// e-mail/telefone/nome dos leads além da janela e refaz os índices de
+// contato (leads anonimizados saem do match por e-mail/telefone).
+function anonymizeOldLeads(accountId, days) {
+  ensureLoaded();
+  if (!accountId || !days) return 0;
+  const cutoff = Date.now() - days * 86400e3;
+  let n = 0;
+  (state.leads || []).forEach((l) => {
+    if (!l || l.acc !== accountId || l.anonymized) return;
+    const t = new Date(l.at).getTime();
+    if (!isFinite(t) || t >= cutoff) return;
+    if (l.email == null && l.phone == null && l.customer == null) return;
+    unindexLeadContacts(l); // sai do match ANTES de perder as chaves
+    delete l.email; delete l.phone; delete l.customer;
+    l.anonymized = true;
+    n++;
+  });
+  if (n > 0) {
+    invalidateStatsCache();
+    markDirty();
+  }
+  return n;
+}
+
 // Zera SOMENTE os dados da conta informada (ou tudo, se accountId omitido).
 function reset(accountId) {
   ensureLoaded();
@@ -612,5 +637,5 @@ process.once('beforeExit', flushSync);
 module.exports = {
   logEvent, recordVisit, recordCheckoutEntry, recordClickStep,
   attachTracking, getLead, findLeadByEmail, findLeadByPhone, matchExternalConversion, getStats, reset, hydrate,
-  inCheckoutNow
+  inCheckoutNow, anonymizeOldLeads
   };
