@@ -57,8 +57,8 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - ~~**283.** Persistir período escolhido em localStorage~~ — ✅ FEITO: chave `roi:overview:period`, sobrevive a reload.
 - ~~**284.** Deep-link de período via query string~~ — ✅ FEITO: `?p=today|7d|30d|all` (precedência: URL → localStorage → 7d), refletido via `history.replaceState` sem recarregar.
 - ~~**285.** Card de "receita líquida estimada" (menos reembolsos/disputas)~~ — ✅ FEITO: `aggregate` acumula `refundRev` (valor devolvido por moeda, em centavos) e a Overview ganhou o MiniStat "Receita líquida" = bruta − devoluções, com subtítulo "− R$ X devolvidos" (ou "sem devoluções no período"). Grid ampliado para 6 colunas no xl. Verificado no browser com dados semeados.
-- **286.** Ranking "top campanhas" por UTM no overview.
-- **287.** Ranking "top links" por conversão no overview.
+- ~~**286.** Ranking "top campanhas" por UTM no overview~~ — ✅ FEITO: `aggregate` expõe `topCampaigns` (top 5 por `utm.campaign`, ordenado por conversões e leads); componente `TopSources` na Overview mostra posição, nome, leads e conversão com barra proporcional. Some quando não há UTMs no período. Verificado no browser.
+- ~~**287.** Ranking "top links" por conversão no overview~~ — ✅ FEITO: mesmo mecanismo com `topLinks` (por `linkSlug`), no card gêmeo "Top links" com atalho "gerenciar links". Tipos `landing`/`linkSlug` adicionados ao `Lead`.
 - **288.** Estado vazio guiado (checklist de onboarding com progresso real).
 - ~~**289.** HeroGlobe respeita `prefers-reduced-motion` e pausa sem foco~~ — ✅ FEITO: com reduced-motion o globo abre estático (sem auto-rotação nem zoom de entrada; interação manual livre); `visibilitychange` pausa/retoma o render loop do three.js com a aba oculta (zero GPU em segundo plano).
 - ~~**290.** Skeleton do globo com silhueta esférica (evitar salto de layout)~~ — ✅ FEITO: `GlobeSkeleton` — círculo com gradiente radial ciano + halo pulsando no lugar do retângulo plano; a chegada do three.js não muda a forma percebida.
