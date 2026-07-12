@@ -96,7 +96,7 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **325.** Webhook de saída por lead comprado (integração CRM/planilha).
 - **326.** Endpoint `/api/leads/:id` (detalhe com jornada) para o drawer do 304.
 - **327.** Rate-limit e cache do `/api/stats` por conta.
-- **328.** Coluna "dispositivo" (mobile/desktop de ua.js). ⚠️ BLOQUEADO no front: os leads do `/api/stats` não expõem `ua` (chaves atuais: at, id, acc, utm, stage, orphan, country, gateway, linkSlug, countryName). Exige o backend gravar/projetar o user-agent primeiro.
+- ~~**328.** Coluna "dispositivo" (mobile/desktop de ua.js)~~ — ✅ FEITO (bloqueio resolvido): o backend já gravava `device/os/browser` no lead (ua.js na entrada) e o `/api/stats` já os projetava; leads antigos do seed sem o campo receberam device coerente (~70% mobile / 25% desktop / 5% tablet via hashtext determinístico). Na tabela do funil: coluna compacta com ícone (Smartphone/Monitor/Tablet), detalhes em title ("desktop · Windows · Chrome") e texto sr-only. Verificado no browser: 9 mobile / 8 desktop / 3 tablet na primeira página.
 - ~~**329.** Realce de leads que chegaram após o load~~ — ✅ FEITO: mesmo padrão `seenIds` (ref) do feed de Atividade — snapshot inicial registrado uma vez, leads que chegam depois via polling ganham `anim-cell-flash` (flash âmbar já existente do item 29). Verificado que o load inicial não pisca (0 flashes).
 - **330.** Testes do filtro/paginação/CSV e do cálculo de gargalo.
 
