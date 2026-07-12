@@ -188,6 +188,9 @@ export function SecurityCard() {
         )}
       </div>
 
+      {/* item 420 — verificação em duas etapas (TOTP) */}
+      <TwofaSection />
+
       {/* item 414 — sessões ativas */}
       <div className="mt-4 border-t border-border pt-4">
         <div className="mb-2 flex items-center justify-between gap-3">
@@ -243,6 +246,156 @@ export function SecurityCard() {
         )}
       </div>
     </GlassCard>
+  )
+}
+
+/* ── Item 420: verificação em duas etapas (TOTP) ─────────────────────────
+ * Fluxo: POST /api/account/2fa/setup → QR + secret (nada persiste) →
+ * POST /api/account/2fa/confirm com o código do app → ativo.
+ * Desativar exige um código válido (POST /api/account/2fa/disable). */
+function TwofaSection() {
+  const { data: status, mutate } = useSWR<{ ok: boolean; enabled: boolean }>('/api/account/2fa', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const [setup, setSetup] = useState<{ secret: string; qr: string | null } | null>(null)
+  const [code, setCode] = useState('')
+  const [disableCode, setDisableCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  function flash(ok: boolean, text: string) {
+    setMsg({ ok, text })
+    setTimeout(() => setMsg(null), 4000)
+  }
+
+  async function startSetup() {
+    setBusy(true)
+    try {
+      const r = await apiSend<{ ok: boolean; secret: string; qr: string | null }>('/api/account/2fa/setup', 'POST', {})
+      setSetup({ secret: r.secret, qr: r.qr })
+      setCode('')
+    } catch (e) {
+      flash(false, e instanceof Error ? e.message : 'Erro ao gerar o QR')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirm() {
+    if (code.trim().length !== 6) return flash(false, 'Digite os 6 dígitos do app')
+    setBusy(true)
+    try {
+      await apiSend('/api/account/2fa/confirm', 'POST', { code: code.trim() })
+      setSetup(null)
+      await mutate()
+      flash(true, '2FA ativado — o próximo login pedirá o código')
+    } catch (e) {
+      flash(false, e instanceof Error ? e.message : 'Código incorreto')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function disable() {
+    if (disableCode.trim().length !== 6) return flash(false, 'Digite o código atual do app')
+    setBusy(true)
+    try {
+      await apiSend('/api/account/2fa/disable', 'POST', { code: disableCode.trim() })
+      setDisableCode('')
+      await mutate()
+      flash(true, '2FA desativado')
+    } catch (e) {
+      flash(false, e instanceof Error ? e.message : 'Código incorreto')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const enabled = status?.enabled ?? false
+
+  return (
+    <div className="mt-4 border-t border-border pt-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-xs font-medium text-muted-foreground">
+          Verificação em duas etapas <span className="font-normal">— código do app autenticador no login</span>
+        </p>
+        <span className={`text-xs font-semibold ${!status ? 'text-muted-foreground' : enabled ? 'text-success' : 'text-muted-foreground'}`}>
+          {!status ? 'Verificando…' : enabled ? 'Ativo' : 'Desligado'}
+        </span>
+      </div>
+
+      {status && !enabled && !setup && (
+        <button type="button" onClick={startSetup} disabled={busy} className={btnGhost}>
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <ShieldCheck className="size-3.5" />}
+          Ativar 2FA
+        </button>
+      )}
+
+      {setup && (
+        <div className="rounded-lg border border-border p-3">
+          <p className="mb-2 text-xs text-muted-foreground">
+            1. Escaneie o QR no Google Authenticator, 1Password ou similar (ou digite o código manual). 2. Informe o
+            código de 6 dígitos para confirmar.
+          </p>
+          <div className="flex flex-wrap items-start gap-4">
+            {setup.qr && (
+              <img src={setup.qr || "/placeholder.svg"} alt="QR code do 2FA" width={150} height={150} className="rounded-lg bg-white" />
+            )}
+            <div className="min-w-48 flex-1">
+              <p className="text-[11px] text-muted-foreground">Código manual</p>
+              <code className="mb-2 mt-1 block break-all font-mono text-xs text-foreground">{setup.secret}</code>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  className={`${inputCls} max-w-28 text-center tracking-[4px]`}
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="000000"
+                  autoComplete="one-time-code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                />
+                <button type="button" onClick={confirm} disabled={busy || code.length !== 6} className={btnPrimary}>
+                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  Confirmar
+                </button>
+                <button type="button" onClick={() => setSetup(null)} disabled={busy} className={btnGhost}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {status && enabled && (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className={`${inputCls} max-w-32 text-center`}
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="Código atual"
+            autoComplete="one-time-code"
+            value={disableCode}
+            onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ''))}
+          />
+          <button
+            type="button"
+            onClick={disable}
+            disabled={busy || disableCode.length !== 6}
+            className="flex items-center gap-1.5 rounded-lg border border-destructive/50 px-3 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Desativar 2FA
+          </button>
+        </div>
+      )}
+
+      {msg && (
+        <p className={`mt-2 text-xs ${msg.ok ? 'text-success' : 'anim-shake text-destructive'}`} role="status">
+          {msg.text}
+        </p>
+      )}
+    </div>
   )
 }
 

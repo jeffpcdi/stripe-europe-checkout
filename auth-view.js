@@ -132,7 +132,8 @@ function page(opts) {
   // devolvido pelo /login e troca o formulário pelo campo do código.
   var pending2fa=null;
   function show2faStep(){
-    f.querySelectorAll('label,.meter').forEach(function(el){el.hidden=true});
+    // display:none direto — o CSS "label{display:block}" vence o atributo hidden
+    f.querySelectorAll('label,.meter').forEach(function(el){el.style.display='none'});
     var ex=document.querySelector('.msg.err');if(ex)ex.remove();
     var lab=document.createElement('label');
     lab.id='l-2fa';

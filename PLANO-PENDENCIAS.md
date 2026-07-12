@@ -189,17 +189,17 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - ~~**415.** "Encerrar todas as outras sessões"~~ — ✅ FEITO: a troca de senha derruba todas as outras sessões automaticamente (`db.deleteOtherAuthSessions`); agora também tem botão dedicado na Config (item 414).
 - ~~**416.** Rate-limit no login~~ — ✅ JÁ EXISTIA (item 440): bloqueio por e-mail após 8 falhas, 15 min, resposta 429.
 - ~~**418.** Rotação do token da API pública~~ — ✅ FEITO: `POST /api/public-token/rotate` (rate-limit 5/min, auditoria) + botão "Gerar novo" com confirmação avisando que integrações antigas param. Verificado: token antigo → 401 na API pública, novo → 200.
-- **419.** Escopos do token público (stats vs stats+leads).
-- **420.** 2FA TOTP opcional (otplib).
-- **422.** Seletor de fuso da conta aplicado a séries e relógio.
-- **423.** UI da meta de receita (item 271).
-- **424.** UI do webhook de saída (item 325) com teste de disparo.
-- **425.** UI de retenção/anonimização LGPD (item 324).
-- **426.** Exportar todos os dados da conta (JSON zip) — portabilidade LGPD.
-- **427.** Excluir conta com confirmação forte + cascata no banco.
-- **428.** Zona de perigo: pré-visualização do que será apagado ao zerar.
-- **429.** Pushcut: presets de mensagem com variáveis (`{{valor}}`, `{{pais}}`).
-- **430.** Notificação de resumo diário com horário configurável.
+- ~~**419.** Escopos do token público~~ — ✅ FEITO: `POST /api/public-token/scope` (`stats` | `stats+leads`) + seletor na Config dos dois painéis; escopo atual exposto em `/api/settings` (`apiScope`).
+- ~~**420.** 2FA TOTP opcional~~ — ✅ FEITO: otplib v13 + qrcode. Ativação em 2 passos (QR/secret → confirmar código; nada persiste até confirmar), login em 2 etapas (ticket opaco de 5 min em memória, sem sessão até o código), desativação exige código válido, freio de força bruta (5 erros → 5 min). Coluna `accounts.totp_secret`. UI nos dois painéis + campo de código no /login. Ciclo completo verificado no browser.
+- ~~**422.** Seletor de fuso da conta~~ — ✅ FEITO: select na Config (persistido via `/api/settings`, validado com `Intl` no servidor).
+- ~~**423.** UI da meta de receita~~ — ✅ FEITO: campo em reais na Config (salvo em centavos).
+- ~~**424.** UI do webhook de saída~~ — ✅ FEITO: campo de URL + botão "Testar disparo" (`POST /api/settings/webhook-test` envia venda fictícia, timeout 8s, rate-limit, devolve o HTTP do destino).
+- ~~**425.** UI de retenção LGPD~~ — ✅ FEITO: select de retenção (desligado/30/90/180/365/730 dias) na Config.
+- ~~**426.** Exportar todos os dados~~ — ✅ FEITO: `GET /api/account/export` (JSON com perfil, settings, links, pixels, leads, eventos e auditoria — sem chaves secretas) + botão "Baixar meus dados" nos dois painéis.
+- ~~**427.** Excluir conta~~ — ✅ FEITO: `POST /api/account/delete` (senha + frase exata "EXCLUIR MINHA CONTA", cascata no banco, sessões derrubadas) + modal de confirmação forte nos dois painéis. Verificado: login pós-exclusão falha.
+- ~~**428.** Pré-visualização da zona de perigo~~ — ✅ FEITO: `GET /api/account/data-counts` (contagens de leads/eventos/links/pixels/gateways/domínios) exibido no card de zerar e no modal de exclusão.
+- ~~**429.** Template de mensagem do Pushcut~~ — ✅ FEITO: campo de template com variáveis (`{{valor}}`, `{{pais}}`, `{{produto}}`, `{{gateway}}`, `{{cliente}}`, `{{pedido}}`) na Config.
+- ~~**430.** Resumo diário com horário configurável~~ — ✅ FEITO: seletor de hora local (0–23h) na Config, persistido em `dailyReportHour`.
 - **431.** Convites multi-usuário (papel viewer/editor).
 - **432.** Página de permissões por papel.
 
