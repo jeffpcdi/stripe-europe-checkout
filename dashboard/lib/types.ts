@@ -237,6 +237,9 @@ export interface CustomDomain {
 export interface DomainsResponse {
   domains: CustomDomain[]
   appHost: string
+  // Provisionamento automático na hospedagem ativo? Quando false, cada domínio
+  // exige adição manual no painel da hospedagem — a UI mostra um aviso.
+  autoProvision?: boolean
 }
 
 export interface DomainAddResponse {
@@ -260,6 +263,9 @@ export interface DomainVerifyResult {
   verified?: boolean
   cloudflareProxy?: boolean
   reconectado?: boolean
+  // A hospedagem já validou o DNS deste domínio (fonte da verdade do roteamento)
+  providerVerified?: boolean
+  certificateStatus?: string | null
   dnsRecords?: DomainDnsRecords | null
   // Item 127: marcado no CLIENTE quando o próprio fetch de verify falhou
   // (rede/servidor fora) — a UI oferece retry em vez de "DNS pendente"

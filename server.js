@@ -2393,7 +2393,10 @@ app.get('/api/domains', dashboardAuth, (req, res) => {
     domains: config.get(req.account.id).customDomains || [],
     // host principal do app — alvo do CNAME nas instruções de DNS (sem porta,
     // igual à rota de verificação: porta não entra em registro CNAME)
-    appHost: String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, '')
+    appHost: String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, ''),
+    // Provisionamento automático na hospedagem ativo? Quando false, cada domínio
+    // precisa ser adicionado manualmente no painel da hospedagem — a UI avisa.
+    autoProvision: domainProvider.enabled
   });
 });
 
@@ -2539,20 +2542,57 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
     }
   }
 
-  // 1. DNS: CNAME direto ou IPs coincidentes
+  // 1. DNS. O CNAME do lojista pode apontar para DOIS alvos válidos:
+  //   (a) o host do app (appHost) — fluxo manual antigo;
+  //   (b) o alvo que a hospedagem gerou para ESTE domínio (entry.dns.cname.target)
+  //       — é ESSE valor que o Tutorial DNS mostra ao lojista.
+  // Antes só (a) era aceito, então quem seguia o tutorial ficava preso em
+  // "DNS aponta para outro destino" para sempre. Agora aceitamos ambos.
+  const entry2 = (config.get(req.account.id).customDomains || []).find((d) => d.host === host);
+  const providerTarget = (entry2 && entry2.dns && entry2.dns.cname && entry2.dns.cname.target)
+    ? String(entry2.dns.cname.target).toLowerCase().replace(/\.$/, '') : '';
+  const targets = Array.from(new Set([appHost.toLowerCase(), providerTarget].filter(Boolean)));
+
+  // 1a. Fonte de verdade da hospedagem: se o provedor já validou o DNS deste
+  // domínio, ele está certo — mesmo que os resolvers daqui ainda não reflitam
+  // (apex com CNAME flattening da Cloudflare "esconde" o CNAME; vira registro A).
+  // Também sincroniza os registros do tutorial com o que a hospedagem exige hoje.
+  if (domainProvider.enabled && entry2 && entry2.providerId) {
+    try {
+      const st = await domainProvider.status(entry2.providerId);
+      if (st) {
+        out.providerVerified = !!st.verified;
+        if (st.certificateStatus) out.certificateStatus = st.certificateStatus;
+        if (st.dns && st.dns.cname && st.dns.cname.target) {
+          const t = String(st.dns.cname.target).toLowerCase().replace(/\.$/, '');
+          if (t && !targets.includes(t)) targets.push(t);
+          if (JSON.stringify(entry2.dns || null) !== JSON.stringify(st.dns)) {
+            const cur1 = config.get(req.account.id).customDomains || [];
+            config.set(req.account.id, { customDomains: cur1.map((d) => d.host === host ? Object.assign({}, d, { dns: st.dns }) : d) });
+          }
+        }
+      }
+    } catch (_) { /* best-effort — segue com a checagem local */ }
+  }
+
   try {
-    const cnames = await dnsp.resolveCname(host).catch(() => []);
-    if (cnames.some((c) => c.toLowerCase().replace(/\.$/, '') === appHost.toLowerCase())) {
+    const cnames = (await dnsp.resolveCname(host).catch(() => [])).map((c) => c.toLowerCase().replace(/\.$/, ''));
+    const matched = cnames.find((c) => targets.includes(c));
+    // IPs de TODOS os alvos aceitos — apex com CNAME flattening resolve como A,
+    // e provedores com round-robin de IPs quebravam a comparação contra um só alvo.
+    const targetIps = (await Promise.all(targets.map((t) => dnsp.resolve4(t).catch(() => [])))).flat();
+    if (matched) {
       out.dnsOk = true;
-      out.dnsDetail = 'CNAME → ' + appHost;
+      out.dnsDetail = 'CNAME → ' + matched;
     } else {
-      const [hostIps, appIps] = await Promise.all([
-        dnsp.resolve4(host).catch(() => []),
-        dnsp.resolve4(appHost).catch(() => [])
-      ]);
-      if (hostIps.length && appIps.length && hostIps.some((ip) => appIps.includes(ip))) {
+      const hostIps = await dnsp.resolve4(host).catch(() => []);
+      if (hostIps.length && targetIps.length && hostIps.some((ip) => targetIps.includes(ip))) {
         out.dnsOk = true;
         out.dnsDetail = 'A → ' + hostIps.join(', ');
+      } else if (out.providerVerified) {
+        // a hospedagem já validou o apontamento; resolvers daqui só não refletem ainda
+        out.dnsOk = true;
+        out.dnsDetail = 'DNS validado pela hospedagem — propagação/flattening em curso nos resolvers públicos';
       } else if (!hostIps.length && !cnames.length) {
         // Item 175: o resolver local não vê o registro — checar via DoH (resolvers
         // públicos) antes de dizer "não resolve". Se o CNAME/A já aparece lá, é
@@ -2562,21 +2602,21 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
           dohResolve(host, 1).catch(() => []),
         ]);
         const dohPointsHere =
-          dohCn.some((c) => c.toLowerCase() === appHost.toLowerCase()) ||
-          (dohA.length && appIps.length && dohA.some((ip) => appIps.includes(ip)));
+          dohCn.some((c) => targets.includes(c.toLowerCase())) ||
+          (dohA.length && targetIps.length && dohA.some((ip) => targetIps.includes(ip)));
         if (dohPointsHere) {
           out.dnsPropagating = true;
           out.dnsDetail = 'registro já visível nos resolvers públicos (dns.google/cloudflare) apontando pra cá — propagação em curso; aguarde alguns minutos e verifique de novo';
         } else if (dohCn.length || dohA.length) {
-          out.dnsDetail = 'DNS aponta para outro destino (' + (dohCn[0] || dohA.join(', ')) + ') — corrija o registro para apontar para ' + appHost;
+          out.dnsDetail = 'DNS aponta para outro destino (' + (dohCn[0] || dohA.join(', ')) + ') — corrija o registro para apontar para ' + (providerTarget || appHost);
         } else {
           out.dnsDetail = 'domínio não resolve — crie o registro DNS e aguarde propagar';
         }
-      } else if (hostIps.length && hostIps.some(isCloudflareIp)) {
+      } else if (hostIps.length && hostIps.some(isCloudflareIp) && !targetIps.some(isCloudflareIp)) {
         out.cloudflareProxy = true;
         out.dnsDetail = 'proxy da Cloudflare ativo (nuvem laranja) — edite o registro na Cloudflare e mude para "Somente DNS" (nuvem cinza)';
       } else {
-        out.dnsDetail = 'DNS aponta para outro destino (' + (cnames[0] || hostIps.join(', ')) + ')';
+        out.dnsDetail = 'DNS aponta para outro destino (' + (cnames[0] || hostIps.join(', ')) + ') — aponte para ' + (providerTarget || appHost);
       }
     }
   } catch (e) { out.dnsDetail = 'erro na consulta DNS: ' + e.message; }
@@ -2585,7 +2625,6 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   // As mensagens são escritas para o LOJISTA, que só controla o DNS do domínio
   // dele — nunca citam a hospedagem interna (Railway) nem pedem ação lá. Quando
   // a ativação na hospedagem está pendente, o texto diz o que fazer NA dashboard.
-  const entry2 = (config.get(req.account.id).customDomains || []).find((d) => d.host === host);
   const gerenciado = !!(entry2 && entry2.providerId); // registro automático já feito
   try {
     const ctrl = new AbortController();
