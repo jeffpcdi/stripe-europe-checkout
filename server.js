@@ -1989,15 +1989,43 @@ app.get('/api/me', dashboardAuth, (req, res) => {
 });
 
 // ── API: estatísticas (escopadas à conta logada) ����────────────────────
+// ── Item 327: cache curtinho do getStats por conta ──────────────────────────
+// getStats() varre TODOS os leads/eventos da conta a cada chamada. Com o poll
+// de 12s isso é ok para 1 aba, mas várias abas (ou uma automação martelando)
+// multiplicam o custo sem os dados mudarem. Cache de 3s por conta: colapsa
+// rajadas em 1 cômputo, e 3s << 12s do poll — o usuário nunca percebe.
+const STATS_CACHE = new Map(); // accId -> { at, body }
+const STATS_CACHE_TTL = 3e3;
+
 app.get('/api/stats', dashboardAuth, (req, res) => {
+  // Item 327: autenticado ≠ ilimitado — 60/min por conta segura scripts
+  // rodados com um token de sessão vazado ou automações mal configuradas.
+  // O poll legítimo (12s = 5/min por aba) fica a uma ordem de grandeza.
+  if (rateLimited('acc|' + req.account.id, 'stats', 60)) {
+    res.set('Retry-After', '30');
+    return apiError(res, 429, 'Muitas consultas ao painel. Aguarde alguns segundos.', 'rate_limited');
+  }
   // Item 469: `private, no-cache` em vez de `no-store` — o navegador PODE
   // guardar a resposta só para revalidar com If-None-Match no próximo poll
   // (12s). O ETag automático do Express casa → 304 sem corpo, poupando a
   // banda do payload inteiro quando nada mudou. `private` barra proxies.
   res.set('Cache-Control', 'private, no-cache');
-  res.json(stats.getStats(req.account.id));
+  const hit = STATS_CACHE.get(req.account.id);
+  if (hit && Date.now() - hit.at < STATS_CACHE_TTL) {
+    return res.json(hit.body); // ETag do Express continua funcionando (304)
+  }
+  const body = stats.getStats(req.account.id);
+  STATS_CACHE.set(req.account.id, { at: Date.now(), body });
+  res.json(body);
   checkDailyReport(); // dashboard aberta também dispara o resumo pendente
   });
+
+// varredura para o cache não reter contas que pararam de olhar o painel
+const statsCacheSweep = setInterval(() => {
+  const now = Date.now();
+  STATS_CACHE.forEach((v, k) => { if (now - v.at > 60e3) STATS_CACHE.delete(k); });
+}, 120e3);
+if (statsCacheSweep.unref) statsCacheSweep.unref();
 
 // ── API: heartbeat de presença (chamado por todas as páginas do funil) ─
 app.post('/api/pulse', (req, res) => {
