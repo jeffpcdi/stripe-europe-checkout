@@ -17,9 +17,11 @@ export interface Prefs {
   anim: 'on' | 'off'
   /** Item 125: modo apresentação — borra valores sensíveis */
   privacy: 'off' | 'on'
+  /** Item 390: relógio do header com segundos (clique no relógio alterna) */
+  clockSeconds: 'off' | 'on'
 }
 
-const DEFAULTS: Prefs = { density: 'comfortable', anim: 'on', privacy: 'off' }
+const DEFAULTS: Prefs = { density: 'comfortable', anim: 'on', privacy: 'off', clockSeconds: 'off' }
 
 function load(): Prefs {
   if (typeof window === 'undefined') return DEFAULTS

@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Coins,
   CalendarDays,
+  Timer,
 } from 'lucide-react'
 import { useStats } from '@/lib/api'
 import {
@@ -20,7 +21,7 @@ import {
   periodStart,
   prevWindow,
 } from '@/lib/metrics'
-import { countryFlag, fmtPercent } from '@/lib/format'
+import { countryFlag, fmtDurationShort, fmtPercent } from '@/lib/format'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { SparkBars, SparkLine } from '@/components/sparkline'
@@ -28,10 +29,16 @@ import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { KpiCard } from './kpi-card'
 import { MiniStat } from './mini-stat'
+import { TopSources } from './top-sources'
+import { GatewayDonut } from './gateway-donut'
+import { ExportSummaryButton } from './export-summary'
+import { TvModeButton } from './tv-mode'
+import { OnboardingChecklist } from './onboarding-checklist'
 import { PeriodPicker } from './period-picker'
 import { RevenueChart } from './revenue-chart'
 import { HealthCard } from './health-card'
 import { HeroGlobe } from './hero-globe'
+import { GoalCard } from './goal-card'
 
 const NEUTRAL = '#6b7183'
 const NEUTRAL_BG = 'rgba(107,113,131,.10)'
@@ -75,6 +82,48 @@ export function OverviewView() {
       cur: aggregate(data, periodStart(period)),
       prev: w ? aggregate(data, w.prevFrom, w.prevTo) : null,
     }
+  }, [data, period])
+
+  // Item 274: melhor dia da semana por receita, derivado da própria série.
+  // Fica ANTES dos early returns (regra dos hooks): quando `cur` ainda não
+  // existe, devolve null sem custo.
+  const bestWeekday = useMemo(() => {
+    if (!cur || cur.series.length < 14) return null
+    const names = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+    const byDow = Array.from({ length: 7 }, () => ({ revenue: 0, count: 0 }))
+    for (const p of cur.series) {
+      const dow = new Date(p.day + 'T00:00:00').getDay()
+      if (Number.isNaN(dow)) continue
+      byDow[dow].revenue += p.revenue
+      byDow[dow].count += 1
+    }
+    let best = -1
+    for (let i = 0; i < 7; i++) {
+      if (byDow[i].count > 0 && (best < 0 || byDow[i].revenue > byDow[best].revenue)) best = i
+    }
+    if (best < 0 || byDow[best].revenue <= 0) return null
+    return { name: names[best], revenue: byDow[best].revenue }
+  }, [cur])
+
+  // Item 296: tempo médio da primeira visita até a compra, mediana dos leads
+  // comprados no período (mediana > média: um outlier de dias não distorce).
+  const timeToBuy = useMemo(() => {
+    if (!data?.leads) return null
+    const from = periodStart(period)
+    const deltas: number[] = []
+    for (const l of data.leads) {
+      if (l.stage !== 'purchased' || !l.purchasedAt || !l.at) continue
+      const bought = new Date(l.purchasedAt).getTime()
+      const first = new Date(l.at).getTime()
+      if (Number.isNaN(bought) || Number.isNaN(first) || bought <= first) continue
+      if (from && bought < from.getTime()) continue
+      deltas.push(bought - first)
+    }
+    if (deltas.length < 3) return null // amostra pequena demais para afirmar algo
+    deltas.sort((a, b) => a - b)
+    const mid = Math.floor(deltas.length / 2)
+    const median = deltas.length % 2 ? deltas[mid] : (deltas[mid - 1] + deltas[mid]) / 2
+    return { median, count: deltas.length }
   }, [data, period])
 
   if (error) {
@@ -195,27 +244,6 @@ export function OverviewView() {
   const salesSeries = cur.series.map((s) => s.sales)
   const visitSeries = cur.series.map((s) => s.visits)
 
-  // Item 274: melhor dia da semana por receita, derivado da própria série
-  // (sem tocar backend). Soma cada ponto no seu dia da semana e escolhe o
-  // maior; só vale a pena mostrar com pelo menos duas semanas de dados.
-  const bestWeekday = useMemo(() => {
-    if (cur.series.length < 14) return null
-    const names = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
-    const byDow = Array.from({ length: 7 }, () => ({ revenue: 0, count: 0 }))
-    for (const p of cur.series) {
-      const dow = new Date(p.day + 'T00:00:00').getDay()
-      if (Number.isNaN(dow)) continue
-      byDow[dow].revenue += p.revenue
-      byDow[dow].count += 1
-    }
-    let best = -1
-    for (let i = 0; i < 7; i++) {
-      if (byDow[i].count > 0 && (best < 0 || byDow[i].revenue > byDow[best].revenue)) best = i
-    }
-    if (best < 0 || byDow[best].revenue <= 0) return null
-    return { name: names[best], revenue: byDow[best].revenue }
-  }, [cur.series])
-
   const attempts = cur.sales + cur.failed
   const apColor = !attempts
     ? NEUTRAL
@@ -234,6 +262,11 @@ export function OverviewView() {
 
   const hasSales = cur.sales > 0
   const hasGeo = cur.countries.length > 0
+  // Item 288: onboarding usa o HISTÓRICO TODO (não o período filtrado) —
+  // trocar para "hoje" numa conta ativa não pode ressuscitar o checklist.
+  const everVisited = (data?.leads?.length ?? 0) > 0
+  const everSold = (data?.events ?? []).some((e) => e.type === 'sale')
+  const isOnboarding = !everVisited || !everSold
   // Item 111: sistema fixo — ciano = métrica, verde = sucesso, âmbar = atenção, rosa = risco
   const refColor = cur.refunds ? '#fbbf24' : NEUTRAL
   const dispColor = cur.disputes ? '#fe2c55' : NEUTRAL
@@ -241,9 +274,28 @@ export function OverviewView() {
   return (
     <div className="flex flex-col gap-4">
       {/* Item 171: sticky no topo em mobile ao rolar */}
-      <div className="picker-sticky flex justify-end" data-tour="period">
+      <div className="picker-sticky flex items-center justify-end gap-2" data-tour="period">
+        {/* Item 294: fullscreen para telão — esconde o chrome via data-tv */}
+        <TvModeButton />
+        {/* Item 278: baixa o resumo do período como PNG (canvas) */}
+        <ExportSummaryButton
+          period={period}
+          summary={{
+            revenue: revCents,
+            mainCur: cur.mainCur,
+            sales: cur.sales,
+            visits: cur.visits,
+            overall: cur.overall,
+            approval: cur.approval,
+            series: revSeries,
+          }}
+        />
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
+
+      {/* Item 288: conta que ainda não fechou o ciclo (visita + venda) vê o
+          checklist guiado no topo, com progresso derivado de dados reais */}
+      {isOnboarding && <OnboardingChecklist hasVisits={everVisited} hasSales={everSold} />}
 
       {/* Item 277: aprovação crítica (<40% com volume relevante) vira alerta
           acionável, não só uma cor. CTA leva ao cloaker (filtro de tráfego). */}
@@ -288,12 +340,15 @@ export function OverviewView() {
             ),
           }}
         >
+          {/* Item 279: cada KPI vira drill-down para a aba correspondente */}
           <KpiCard
             hero
             index={0}
             icon={Banknote}
             tint="green"
+            href="/activity?f=sale"
             label="Receita total"
+            ariaLabel={`Receita total: ${money(revCents, cur.mainCur)}${revDelta !== null ? `, ${revDelta > 0 ? 'alta' : revDelta < 0 ? 'queda' : 'estável'} de ${Math.abs(revDelta).toFixed(1)}% vs período anterior` : ''}`}
           value={
             /* Item 125: borrado no modo apresentação */
             <span data-sensitive>
@@ -324,7 +379,9 @@ export function OverviewView() {
           index={1}
           icon={CircleCheck}
           tint="green"
+          href="/activity?f=sale"
           label="Vendas aprovadas"
+          ariaLabel={`Vendas aprovadas: ${cur.sales}, ${cur.failed} recusadas`}
           value={
             <CountUp
               value={cur.sales}
@@ -344,7 +401,9 @@ export function OverviewView() {
           index={2}
           icon={Users}
           tint="cyan"
+          href="/funnel"
           label="Novos leads"
+          ariaLabel={`Novos leads: ${cur.visits} no período`}
           value={
             <CountUp
               value={cur.visits}
@@ -359,7 +418,9 @@ export function OverviewView() {
           index={3}
           icon={Percent}
           tint="amber"
+          href="/funnel"
           label="Conversão"
+          ariaLabel={`Conversão: ${fmtPercent(cur.overall)} de visita para compra${prev ? `, ${cur.overall - prev.overall >= 0 ? 'mais' : 'menos'} ${Math.abs(cur.overall - prev.overall).toFixed(1).replace('.', ',')} pontos percentuais que o período anterior` : ''}`}
           value={
             <CountUp
               value={cur.overall}
@@ -375,10 +436,14 @@ export function OverviewView() {
         />
       </section>
 
+      {/* Itens 271+276: meta mensal com progresso e projeção de fim de mês.
+          Só aparece quando há meta configurada em Config. */}
+      <GoalCard />
+
       {/* Ministats — réplica dos chips do legado */}
       <section
         aria-label="Métricas secundárias"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6"
       >
         <MiniStat
           index={0}
@@ -390,8 +455,26 @@ export function OverviewView() {
           sub={`${cur.sales} de ${attempts} transações`}
           extra={attempts ? <SparkBars data={salesSeries} color={apColor} width={64} height={22} /> : undefined}
         />
+        {/* Item 285: receita líquida estimada = bruta − reembolsos/disputas */}
         <MiniStat
           index={1}
+          icon={Banknote}
+          color={hasSales ? '#22c55e' : NEUTRAL}
+          bg={hasSales ? 'rgba(34,197,94,.1)' : NEUTRAL_BG}
+          label="Receita líquida"
+          value={
+            <span data-sensitive>
+              {money(Math.max(0, revCents - (cur.refundRev[cur.mainCur] || 0)), cur.mainCur)}
+            </span>
+          }
+          sub={
+            (cur.refundRev[cur.mainCur] || 0) > 0
+              ? `− ${money(cur.refundRev[cur.mainCur], cur.mainCur)} devolvidos`
+              : 'sem devoluções no período'
+          }
+        />
+        <MiniStat
+          index={2}
           icon={Coins}
           color={hasSales ? '#25f4ee' : NEUTRAL}
           bg={hasSales ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
@@ -400,7 +483,7 @@ export function OverviewView() {
           sub="por venda aprovada"
         />
         <MiniStat
-          index={2}
+          index={3}
           icon={Globe2}
           color={hasGeo ? '#25f4ee' : NEUTRAL}
           bg={hasGeo ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
@@ -415,25 +498,32 @@ export function OverviewView() {
               : 'aguardando leads'
           }
         />
+        {/* Item 292: chips de risco viram drill-down para a Atividade filtrada */}
         <MiniStat
-          index={3}
+          index={4}
           icon={RotateCcw}
           color={refColor}
           bg={cur.refunds ? 'rgba(251,191,36,.12)' : NEUTRAL_BG}
           label="Reembolsos"
           value={cur.refunds}
-          sub={cur.refunds ? 'exige atenção' : 'nenhum no período'}
+          sub={cur.refunds ? 'exige atenção — ver na Atividade' : 'nenhum no período'}
+          href={cur.refunds ? '/activity?f=refund' : undefined}
         />
         <MiniStat
-          index={4}
+          index={5}
           icon={ShieldAlert}
           color={dispColor}
           bg={cur.disputes ? 'rgba(254,44,85,.12)' : NEUTRAL_BG}
           label="Disputas"
           value={cur.disputes}
           sub={cur.disputes ? 'responda o quanto antes' : 'nenhuma aberta'}
+          href={cur.disputes ? '/activity?f=dispute' : undefined}
         />
       </section>
+
+      {/* Itens 286/287: de onde vêm os leads que convertem — só aparece
+          quando o período tem campanhas UTM ou links rastreados */}
+      <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />
 
       {/* Globo — presença global ao vivo. Fica na página inicial, mas depois
           dos números: primeiro o usuário vê o dinheiro, depois o mundo. */}
@@ -446,27 +536,60 @@ export function OverviewView() {
         data-tour="chart"
       >
         <div className="lg:col-span-2 flex flex-col gap-4">
-          <RevenueChart series={cur.series} currency={cur.mainCur} />
-          {/* Item 274: insight do melhor dia da semana (só com histórico suficiente) */}
-          {bestWeekday && (
-            <GlassCard className="flex items-center gap-3 p-4">
-              <div
-                className="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
-              >
-                <CalendarDays className="size-5" style={{ color: '#25f4ee' }} aria-hidden="true" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Melhor dia da semana</p>
-                <p className="text-sm font-semibold text-foreground text-pretty">
-                  {bestWeekday.name} lidera com{' '}
-                  <span data-sensitive>{money(bestWeekday.revenue, cur.mainCur)}</span> em receita
-                </p>
-              </div>
-            </GlassCard>
+          {/* Item 272: série anterior vira linha fantasma de comparação */}
+          <RevenueChart series={cur.series} currency={cur.mainCur} prevSeries={prev?.series} />
+          {/* Itens 274 + 296: insights derivados (melhor dia + tempo até compra) */}
+          {(bestWeekday || timeToBuy) && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {bestWeekday && (
+                <GlassCard className="flex items-center gap-3 p-4">
+                  <div
+                    className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
+                  >
+                    <CalendarDays
+                      className="size-5"
+                      style={{ color: '#25f4ee' }}
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Melhor dia da semana</p>
+                    <p className="text-sm font-semibold text-foreground text-pretty">
+                      {bestWeekday.name} lidera com{' '}
+                      <span data-sensitive>{money(bestWeekday.revenue, cur.mainCur)}</span> em
+                      receita
+                    </p>
+                  </div>
+                </GlassCard>
+              )}
+              {timeToBuy && (
+                <GlassCard className="flex items-center gap-3 p-4">
+                  <div
+                    className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: 'rgba(34,197,94,.1)' }}
+                  >
+                    <Timer className="size-5" style={{ color: '#22c55e' }} aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Tempo até a compra</p>
+                    <p className="text-sm font-semibold text-foreground text-pretty">
+                      {fmtDurationShort(timeToBuy.median)} da visita ao pagamento{' '}
+                      <span className="font-normal text-muted-foreground">
+                        (mediana de {timeToBuy.count} vendas)
+                      </span>
+                    </p>
+                  </div>
+                </GlassCard>
+              )}
+            </div>
           )}
         </div>
-        <HealthCard />
+        <div className="flex flex-col gap-4">
+          <HealthCard />
+          {/* Item 298: donut de receita por gateway (só com 2+ gateways) */}
+          <GatewayDonut data={cur.revByGateway} mainCur={cur.mainCur} />
+        </div>
       </section>
     </div>
   )

@@ -474,6 +474,22 @@ html[data-section='geo'] .app-bg__aurora::before {
 }
 
 /* ============================================================
+   Item 294: modo TV (fullscreen para telão)
+   Ativado por html[data-tv] (TvModeButton). Esconde o chrome de
+   navegação e solta a largura — números legíveis de longe.
+   ============================================================ */
+
+html[data-tv] [data-tv-hide] {
+  display: none !important;
+}
+html[data-tv] main {
+  max-width: none;
+  padding-left: clamp(24px, 4vw, 64px);
+  padding-right: clamp(24px, 4vw, 64px);
+  padding-top: 24px;
+}
+
+/* ============================================================
    Globo — contraste, controles e tela cheia
    ============================================================ */
 
@@ -816,6 +832,10 @@ html[data-density='compact'] table td,
 html[data-density='compact'] table th {
   padding-block: 0.35rem;
 }
+/* Item 345: modo compacto também aperta as linhas do feed de Atividade */
+html[data-density='compact'] .feed-row {
+  padding-block: 0.45rem;
+}
 
 /* Item 122: reduzir animações por preferência do usuário (além do SO) */
 html[data-anim='off'] *,
@@ -1030,6 +1050,18 @@ a:active,
 }
 .anim-content-in {
   animation: contentIn 220ms var(--ease) both;
+}
+
+/* Item 304: drawer lateral desliza da direita */
+@keyframes drawerIn {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.anim-drawer-in {
+  animation: drawerIn 200ms var(--ease) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-drawer-in { animation: none; }
 }
 
 /* Item 17: borda gradiente cônica girando lentamente no KPI hero */

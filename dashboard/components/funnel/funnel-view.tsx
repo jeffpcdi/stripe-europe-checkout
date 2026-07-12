@@ -9,8 +9,16 @@ import { Skeleton } from '@/components/skeleton'
 import { CountUp } from '@/components/count-up'
 import { PeriodPicker } from '@/components/overview/period-picker'
 import { LeadsTable } from './leads-table'
-import { fmtPercent, gwLabel } from '@/lib/format'
+import { fmtPercent, gwLabel, formatMoney, fmtDurationShort } from '@/lib/format'
 import type { Period } from '@/lib/types'
+
+/** Mediana simples; null com amostra < 3 (pouca base para afirmar algo). */
+function median(values: number[]): number | null {
+  if (values.length < 3) return null
+  const s = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
 
 // Cores de gateway dentro da paleta da identidade (sem azul fora da paleta)
 const GW_COLORS = ['#25f4ee', '#fe2c55', '#22c55e', '#fbbf24', '#0ec2bd', '#f4f4f5']
@@ -19,10 +27,80 @@ export function FunnelView() {
   const { data, isLoading } = useStats()
   const [period, setPeriod] = useState<Period>('7d')
 
+  // ── Item 301: funil filtrável por link e campanha ─────────────────────
+  // '' = tudo. Filtramos os LEADS antes de agregar: visitas/checkout/compra
+  // vêm deles, então o funil inteiro (barras, taxas, gargalo) reage junto.
+  const [linkFilter, setLinkFilter] = useState('')
+  const [campaignFilter, setCampaignFilter] = useState('')
+
+  // Opções derivadas dos próprios leads (só o que existe de fato nos dados)
+  const filterOptions = useMemo(() => {
+    const links = new Set<string>()
+    const campaigns = new Set<string>()
+    for (const l of data?.leads ?? []) {
+      if (l.linkSlug) links.add(l.linkSlug)
+      if (l.utm?.campaign) campaigns.add(l.utm.campaign)
+    }
+    return {
+      links: [...links].sort(),
+      campaigns: [...campaigns].sort(),
+    }
+  }, [data])
+
+  const hasFilter = !!(linkFilter || campaignFilter)
+  const filteredData = useMemo(() => {
+    if (!data || !hasFilter) return data
+    return {
+      ...data,
+      leads: data.leads.filter(
+        (l) =>
+          (!linkFilter || l.linkSlug === linkFilter) &&
+          (!campaignFilter || l.utm?.campaign === campaignFilter),
+      ),
+    }
+  }, [data, hasFilter, linkFilter, campaignFilter])
+
   const m = useMemo(() => {
-    if (!data) return null
-    return aggregate(data, periodStart(period))
-  }, [data, period])
+    if (!filteredData) return null
+    return aggregate(filteredData, periodStart(period))
+  }, [filteredData, period])
+
+  // Itens 316/317: valores monetários e tempos medianos por etapa,
+  // derivados dos leads do período (só o que os dados sustentam).
+  const stageExtras = useMemo(() => {
+    if (!filteredData?.leads) return null
+    const from = periodStart(period)
+    let checkoutValue = 0
+    const v2cDeltas: number[] = []
+    const c2pDeltas: number[] = []
+    for (const l of filteredData.leads) {
+      if (from && new Date(l.at).getTime() < from.getTime()) continue
+      // 316: valor esperado dos que chegaram ao checkout e não compraram ainda
+      if (l.stage === 'checkout' && l.expectedAmount) checkoutValue += l.expectedAmount
+      // 317: visita → 1º checkout
+      const firstHit = l.checkoutHits?.[0]?.at
+      if (firstHit) {
+        const d = new Date(firstHit).getTime() - new Date(l.at).getTime()
+        if (d > 0) v2cDeltas.push(d)
+      }
+      // 317: último checkout → compra
+      const lastHit = l.checkoutHits?.length
+        ? l.checkoutHits[l.checkoutHits.length - 1].at
+        : null
+      if (l.stage === 'purchased' && l.purchasedAt && lastHit) {
+        const d = new Date(l.purchasedAt).getTime() - new Date(lastHit).getTime()
+        if (d > 0) c2pDeltas.push(d)
+      }
+    }
+    return {
+      checkoutValue,
+      v2cMedian: median(v2cDeltas),
+      c2pMedian: median(c2pDeltas),
+    }
+  }, [filteredData, period])
+
+  // 316: receita real da etapa final (moeda dominante do período)
+  const purchasedValue = m ? (m.rev[m.mainCur] ?? 0) : 0
 
   if (isLoading && !data) {
     return (
@@ -48,6 +126,28 @@ export function FunnelView() {
         ? 1
         : 2
 
+  // ── Item 303: benchmark interno — taxa atual vs média 30d por etapa ────
+  // Mesmo recorte de link/campanha do funil (comparar filtrado com global
+  // seria maçã vs banana). Sem sentido em '30d'/'all': o período é a base.
+  const bench = useMemo(() => {
+    if (!filteredData || period === '30d' || period === 'all') return null
+    const b = aggregate(filteredData, periodStart('30d'))
+    // amostra mínima: com menos de 20 visitas em 30d a "média" é ruído
+    if (b.visits < 20) return null
+    return {
+      v2c: +((b.reachedCheckout / b.visits) * 100).toFixed(1),
+      c2p: b.reachedCheckout ? +((b.purchased / b.reachedCheckout) * 100).toFixed(1) : 0,
+    }
+  }, [filteredData, period])
+
+  // ── Item 302: "iniciou pagamento" ≠ "aprovado" ─────────────────────────
+  // Tentativas = eventos do gateway (vendas + recusas) no período. Eventos
+  // não carregam link/campanha, então com filtro ativo a etapa É OCULTADA
+  // — mostrar um número global num funil recortado seria mentir.
+  const attempts = m ? m.sales + m.failed : 0
+  const showAttempts = !hasFilter && attempts > 0
+  const a2p = m && attempts ? +((m.sales / attempts) * 100).toFixed(1) : 0
+
   // Itens 107–109: barras na identidade (gradiente na 1ª etapa, ciano com
   // opacidade decrescente nas seguintes); rótulos nunca truncados.
   const steps = [
@@ -60,17 +160,53 @@ export function FunnelView() {
       rate: fmtPercent(100),
       stepRate: null as string | null,
       isBottleneck: false,
+      money: null as string | null,
+      elapsed: null as string | null,
+      bench: null as { delta: number; base: number } | null,
     },
     {
+      // Item 302: sub corrigido — chegar ao checkout não é iniciar pagamento
       label: 'Checkout',
-      sub: 'iniciaram pagamento',
+      sub: 'entraram no checkout',
       value: m?.reachedCheckout ?? 0,
       bar: 'color-mix(in oklab, var(--accent) 72%, transparent)',
       color: 'var(--accent)',
       rate: fmtPercent(v2c),
       stepRate: `${fmtPercent(v2c)} das visitas`,
       isBottleneck: bottleneck === 1,
+      // Item 316: dinheiro parado no checkout (esperado, ainda não pago)
+      money:
+        stageExtras && stageExtras.checkoutValue > 0
+          ? `${formatMoney(stageExtras.checkoutValue, m?.mainCur)} em aberto`
+          : null,
+      // Item 317: mediana visita → 1º checkout
+      elapsed:
+        stageExtras?.v2cMedian != null
+          ? `~${fmtDurationShort(stageExtras.v2cMedian)} após a visita`
+          : null,
+      // Item 303: desvio da taxa atual vs média 30d (pontos percentuais)
+      bench: bench ? { delta: +(v2c - bench.v2c).toFixed(1), base: bench.v2c } : null,
     },
+    // Item 302: etapa intermediária — o gateway registrou uma tentativa
+    // (aprovada ou recusada). Pode passar do checkout: retentativas e vendas
+    // órfãs também contam, por isso o sub explica a origem do número.
+    ...(showAttempts
+      ? [
+          {
+            label: 'Tentaram pagar',
+            sub: 'tentativas registradas pelo gateway',
+            value: attempts,
+            bar: 'color-mix(in oklab, var(--accent) 58%, transparent)',
+            color: 'var(--accent)',
+            rate: fmtPercent(m && m.visits ? +((attempts / m.visits) * 100).toFixed(1) : 0),
+            stepRate: `${m?.failed ?? 0} recusada${(m?.failed ?? 0) === 1 ? '' : 's'}`,
+            isBottleneck: false,
+            money: null as string | null,
+            elapsed: null as string | null,
+            bench: null as { delta: number; base: number } | null,
+          },
+        ]
+      : []),
     {
       label: 'Compraram',
       sub: 'pagamento aprovado',
@@ -78,15 +214,82 @@ export function FunnelView() {
       bar: 'color-mix(in oklab, var(--accent) 44%, transparent)',
       color: 'var(--accent)',
       rate: fmtPercent(m?.overall ?? 0),
-      stepRate: `${fmtPercent(c2p)} do checkout`,
+      // Item 302: com a etapa de tentativas visível, a taxa que importa é
+      // a aprovação do gateway; sem ela, mantém a taxa sobre o checkout
+      stepRate: showAttempts
+        ? `${fmtPercent(a2p)} de aprovação`
+        : `${fmtPercent(c2p)} do checkout`,
       isBottleneck: bottleneck === 2,
+      // Item 316: receita real na moeda dominante
+      money: purchasedValue > 0 ? `${formatMoney(purchasedValue, m?.mainCur)} em receita` : null,
+      // Item 317: mediana último checkout → compra
+      elapsed:
+        stageExtras?.c2pMedian != null
+          ? `~${fmtDurationShort(stageExtras.c2pMedian)} após o checkout`
+          : null,
+      // Item 303: checkout→compra atual vs média 30d
+      bench: bench ? { delta: +(c2p - bench.c2p).toFixed(1), base: bench.c2p } : null,
     },
   ]
 
+  // Item 318: sugestão de ação atrelada ao gargalo identificado
+  const bottleneckHint =
+    bottleneck === 1
+      ? 'A maior perda é entre a visita e o checkout: revise a oferta e o carregamento da página.'
+      : bottleneck === 2
+        ? 'A maior perda é no pagamento: confira recusas por gateway e ofereça outro meio de pagamento.'
+        : null
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-end">
-        <PeriodPicker value={period} onChange={setPeriod} />
+      {/* Item 301: filtros de link/campanha — o funil INTEIRO reage (barras,
+          taxas, gargalo, gateways e tabela), não só a listagem. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {filterOptions.links.length > 0 ? (
+          <select
+            value={linkFilter}
+            onChange={(e) => setLinkFilter(e.target.value)}
+            aria-label="Filtrar funil por link"
+            className="glass h-8 rounded-lg border border-border/50 bg-transparent px-2.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            <option value="">Todos os links</option>
+            {filterOptions.links.map((s) => (
+              <option key={s} value={s}>
+                /{s}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {filterOptions.campaigns.length > 0 ? (
+          <select
+            value={campaignFilter}
+            onChange={(e) => setCampaignFilter(e.target.value)}
+            aria-label="Filtrar funil por campanha"
+            className="glass h-8 rounded-lg border border-border/50 bg-transparent px-2.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            <option value="">Todas as campanhas</option>
+            {filterOptions.campaigns.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {hasFilter ? (
+          <button
+            type="button"
+            onClick={() => {
+              setLinkFilter('')
+              setCampaignFilter('')
+            }}
+            className="h-8 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Limpar filtros
+          </button>
+        ) : null}
+        <div className="ml-auto">
+          <PeriodPicker value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       {/* Funil */}
@@ -145,16 +348,55 @@ export function FunnelView() {
                     {st.rate}
                   </span>
                 </div>
-                {/* Item 145: taxa de conversão da etapa anterior */}
-                {st.stepRate ? (
+                {/* Itens 145/316/317: taxa, dinheiro e tempo mediano da etapa */}
+                {st.stepRate || st.money || st.elapsed || st.bench ? (
                   <p className="pl-[152px] font-mono text-[10.5px] tabular-nums text-faint">
-                    {st.stepRate}
+                    {[st.stepRate, st.money, st.elapsed].filter(Boolean).map((part, j) => (
+                      <span key={String(part)}>
+                        {j > 0 ? ' · ' : ''}
+                        {st.money === part ? <span data-sensitive>{part}</span> : part}
+                      </span>
+                    ))}
+                    {/* Item 303: desvio vs média 30d — verde acima, âmbar abaixo,
+                        neutro quando empata (delta 0 não é nem bom nem ruim) */}
+                    {st.bench ? (
+                      <span
+                        className={
+                          st.bench.delta > 0
+                            ? 'text-success'
+                            : st.bench.delta < 0
+                              ? 'text-warning'
+                              : undefined
+                        }
+                        title={`Média dos últimos 30 dias: ${fmtPercent(st.bench.base)}`}
+                      >
+                        {' · '}
+                        {st.bench.delta > 0 ? '▲' : st.bench.delta < 0 ? '▼' : '='}{' '}
+                        {st.bench.delta === 0
+                          ? 'na média 30d'
+                          : `${Math.abs(st.bench.delta).toLocaleString('pt-BR')} pp vs média 30d`}
+                      </span>
+                    ) : null}
                   </p>
                 ) : null}
               </div>
             )
           })}
         </div>
+        {/* Item 318: o gargalo deixa de ser só um ícone e ganha ação */}
+        {bottleneckHint ? (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+            <p className="text-pretty text-xs leading-relaxed text-muted-foreground">
+              {bottleneckHint}{' '}
+              {bottleneck === 2 ? (
+                <a href="/dashboard/activity?f=failed" className="text-warning underline-offset-2 hover:underline">
+                  Ver recusas na Atividade
+                </a>
+              ) : null}
+            </p>
+          </div>
+        ) : null}
       </GlassCard>
 
       {/* Cards por gateway */}
@@ -205,8 +447,8 @@ export function FunnelView() {
         )}
       </div>
 
-      {/* Tabela de leads */}
-      <LeadsTable leads={data?.leads ?? []} periodStart={periodStart(period)} />
+      {/* Tabela de leads — também respeita os filtros do item 301 */}
+      <LeadsTable leads={filteredData?.leads ?? []} periodStart={periodStart(period)} />
     </div>
   )
 }

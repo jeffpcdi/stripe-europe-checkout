@@ -53,7 +53,8 @@ function ChartTooltip({
 }) {
   if (!active || !payload?.length) return null
   const idx = series.findIndex((s) => s.day === label)
-  const val = Number(payload[0]?.value ?? 0)
+  const row = idx >= 0 ? series[idx] : null
+  const val = Number(row?.[metric] ?? payload[0]?.value ?? 0)
   const prev = idx > 0 ? Number(series[idx - 1][metric] ?? 0) : null
   const delta = prev !== null && prev > 0 ? ((val - prev) / prev) * 100 : null
   const isMoney = metric === 'revenue'
@@ -79,6 +80,13 @@ function ChartTooltip({
           {`${up ? '+' : ''}${delta.toFixed(1).replace('.', ',')}% vs. dia anterior`}
         </p>
       ) : null}
+      {/* Item 281: contexto completo do dia — vendas e leads junto do valor */}
+      {row ? (
+        <p className="mt-1 border-t border-border/50 pt-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+          {row.sales} {row.sales === 1 ? 'venda' : 'vendas'} · {row.visits}{' '}
+          {row.visits === 1 ? 'lead' : 'leads'}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -86,13 +94,24 @@ function ChartTooltip({
 export function RevenueChart({
   series,
   currency,
+  prevSeries,
 }: {
   series: Row[]
   currency: string
+  /* Item 272: série do período anterior — vira linha fantasma alinhada por posição */
+  prevSeries?: Row[]
 }) {
   const [metric, setMetric] = useState<Metric>('revenue')
   const conf = METRICS.find((m) => m.id === metric) ?? METRICS[0]
   const isMoney = metric === 'revenue'
+
+  // Item 272: alinha o dia N do período anterior com o dia N do atual (por
+  // índice, não por data) para comparar as curvas na mesma escala de tempo.
+  const rows = series.map((s, i) => ({
+    ...s,
+    ghost: prevSeries && prevSeries[i] ? Number(prevSeries[i][metric] ?? 0) : undefined,
+  }))
+  const hasGhost = metric !== 'sales' && rows.some((r) => r.ghost !== undefined)
 
   // Item 135: melhor dia do período (maior valor da métrica ativa)
   const bestIdx = series.reduce(
@@ -127,7 +146,18 @@ export function RevenueChart({
   return (
     <GlassCard className="anim-kpi-in p-5" style={{ animationDelay: '280ms' }}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="section-head text-sm font-semibold text-foreground">Desempenho no período</h3>
+        <div className="flex items-baseline gap-3">
+          <h3 className="section-head text-sm font-semibold text-foreground">Desempenho no período</h3>
+          {hasGhost && (
+            <span className="hidden items-center gap-1.5 text-[10px] text-faint sm:inline-flex">
+              <span
+                className="inline-block h-0 w-5 border-t border-dashed border-muted-foreground/60"
+                aria-hidden="true"
+              />
+              período anterior
+            </span>
+          )}
+        </div>
         <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="tablist" aria-label="Métrica do gráfico">
           {METRICS.map((m) => (
             <button
@@ -179,7 +209,7 @@ export function RevenueChart({
                 <Bar dataKey="sales" name="Vendas" fill={conf.color} radius={[3, 3, 0, 0]} />
               </BarChart>
             ) : (
-              <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+              <AreaChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
                 <defs>
                   {/* Item 24: gradiente duplo — cor da métrica no topo, ciano fraco no meio, transparente */}
                   <linearGradient id={`grad-${metric}`} x1="0" y1="0" x2="0" y2="1">
@@ -205,6 +235,22 @@ export function RevenueChart({
                   allowDecimals={false}
                 />
                 {tooltip}
+                {/* Item 272: curva fantasma do período anterior — tracejada,
+                    sem preenchimento, atrás da curva principal */}
+                {hasGhost && (
+                  <Area
+                    type="monotone"
+                    dataKey="ghost"
+                    name="Período anterior"
+                    stroke="rgba(161,161,170,0.45)"
+                    strokeWidth={1.5}
+                    strokeDasharray="5 4"
+                    fill="none"
+                    dot={false}
+                    activeDot={false}
+                    animationDuration={500}
+                  />
+                )}
                 <Area
                   type="monotone"
                   dataKey={metric}

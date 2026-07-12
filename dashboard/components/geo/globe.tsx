@@ -136,18 +136,40 @@ function GlobeCanvas({
     }
   }, [globeRef])
 
+  // Item 289: com prefers-reduced-motion o globo fica estático (sem
+  // auto-rotação nem zoom de entrada) — a interação manual continua livre.
+  const reducedMotion =
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
   useEffect(() => {
     const g = globeRef.current
     if (!g) return
-    g.controls().autoRotate = true
+    g.controls().autoRotate = !reducedMotion
     g.controls().enableZoom = false
 
-    if (!entered.current) {
+    if (reducedMotion) {
+      entered.current = true
+      g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 0)
+    } else if (!entered.current) {
       entered.current = true
       playEntry(globeRef)
     } else {
       g.controls().autoRotateSpeed = 0.6
     }
+
+    // Item 289: pausa o render loop com a aba oculta — three.js continuaria
+    // gastando GPU em segundo plano sem isso.
+    function onVisibility() {
+      const globe = globeRef.current
+      if (!globe) return
+      try {
+        if (document.hidden) globe.pauseAnimation()
+        else globe.resumeAnimation()
+      } catch {
+        /* método indisponível na versão instalada */
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     // Mais contraste: luzes mais fortes que os padrões suaves do three-globe
     try {
@@ -158,7 +180,9 @@ function GlobeCanvas({
     } catch {
       /* API de luzes indisponível — o filtro CSS já garante o contraste */
     }
-  }, [width, globeRef])
+
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [width, globeRef, reducedMotion])
 
   const { points, rings, arcs } = buildPoints(countries, metric)
 

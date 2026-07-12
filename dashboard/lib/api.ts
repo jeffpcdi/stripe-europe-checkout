@@ -6,6 +6,7 @@ import type {
   HealthResponse,
   OpsResponse,
   LiveResponse,
+  LeadDetailResponse,
   LinksResponse,
   DomainsResponse,
   PixelsResponse,
@@ -71,6 +72,11 @@ export async function fetcher<T>(path: string): Promise<T> {
 // Mesmo ritmo de polling da dashboard legada (12s)
 const POLL_MS = 12_000
 
+// Itens 378/407: com a aba OCULTA o SWR já suspende TODO o polling por padrão
+// (`refreshWhenHidden: false`) e revalida na volta via `revalidateOnFocus`.
+// Isso supera o backoff 5s→30s pedido no plano (zero requests em segundo
+// plano). Os hooks abaixo NÃO devem definir `refreshWhenHidden: true`.
+
 // Item 187: listas de gestão (links/domínios/pixels/gateways/entries) mudam
 // pouco, mas precisam refletir edições feitas em OUTRA aba do navegador sem
 // F5 — revalidação em foco + intervalo suave (30s, só com a aba visível).
@@ -96,6 +102,17 @@ export function useLive() {
 export function useHealth() {
   return useSWR<HealthResponse>('/api/health', fetcher, {
     refreshInterval: 30_000,
+    keepPreviousData: true,
+  })
+}
+
+// Item 326: detalhe de um lead para o drawer de perfil. Condicional — só
+// busca com o drawer aberto (id nulo = sem request). Poll no ritmo do stats
+// para o "visto por último" acompanhar enquanto o drawer está aberto.
+export function useLead(id: string | null) {
+  return useSWR<LeadDetailResponse>(id ? `/api/leads/${encodeURIComponent(id)}` : null, fetcher, {
+    refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
     keepPreviousData: true,
   })
 }

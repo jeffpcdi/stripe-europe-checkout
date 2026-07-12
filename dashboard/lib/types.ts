@@ -18,6 +18,8 @@ export interface StatsEvent {
   landing?: string
   practice?: string
   reason?: string
+  /** Item 342: conversão normalizada do webhook (auditoria no feed) */
+  raw?: Record<string, unknown>
 }
 
 // ── /api/live — presença em tempo real (presence.js) ──
@@ -61,23 +63,39 @@ export interface Lead {
   countryName?: string
   city?: string
   device?: string
+  os?: string
   browser?: string
   checkoutAt?: string
+  /** Item 302: quando o gateway registrou a 1ª tentativa de pagamento (aprovada ou não) */
+  paymentStartedAt?: string
   purchasedAt?: string
   amount?: number
   currency?: string
   utm?: Record<string, string>
+  /** Itens 286/287: página de entrada e link rastreado que originou o lead */
+  landing?: string
+  linkSlug?: string
   journey?: { p: string; at: string }[]
   customer?: string
   email?: string
   /** Item 310: telefone reportado pelo gateway (quando existe) */
   phone?: string
   referer?: string
-  checkoutHits?: { at: string }[]
+  checkoutHits?: { at: string; gateway?: string }[]
   reportedAmount?: number
   reportedCurrency?: string
   expectedAmount?: number
   expectedCurrency?: string
+}
+
+// ── /api/leads/:id — detalhe de um lead com jornada (item 326) ──
+export interface LeadDetail extends Lead {
+  lastSeen?: string | null
+}
+
+export interface LeadDetailResponse {
+  ok: boolean
+  lead: LeadDetail
 }
 
 export interface CountryStat {

@@ -289,6 +289,10 @@ function recordCheckoutEntry(id, gateway, data) {
     if (data.utm && data.utm.source && (!lead.utm || !lead.utm.source)) lead.utm = data.utm;
   }
   lead.checkoutAt = nowIso;
+  // Item 302: "iniciou pagamento" ≠ "visitou o checkout". Só o webhook do
+  // gateway (InitiateCheckout/AddPaymentInfo = PIX gerado / cartão digitado)
+  // passa paymentStarted:true — o hit de página no /go/:slug NÃO marca.
+  if (data.paymentStarted && !lead.paymentStartedAt) lead.paymentStartedAt = nowIso;
   if (data.expectedAmount) { lead.expectedAmount = data.expectedAmount; lead.expectedCurrency = data.expectedCurrency; }
   // histórico de checkouts que o lead entrou
   lead.checkoutHits = (lead.checkoutHits || []);
@@ -337,6 +341,20 @@ function attachTracking(id, patch) {
 // Recupera um lead por id (usado no webhook para obter a tt_url real).
 function getLead(id) {
   return findLead(id);
+}
+
+// Item 302: pagamento recusado também é "iniciou pagamento" — o cliente
+// chegou a submeter o cartão/PIX. Chamado pelo webhook Failed quando o
+// lead foi identificado (leadId/e-mail/telefone).
+function markPaymentStarted(id) {
+  ensureLoaded();
+  const lead = findLead(id);
+  if (!lead || lead.paymentStartedAt) return lead;
+  lead.paymentStartedAt = new Date().toISOString();
+  markDirty();
+  invalidateStatsCache();
+  db.upsertLead(lead.acc || null, lead);
+  return lead;
 }
 
 // Busca o lead mais recente com um e-mail — fallback de match do webhook
@@ -390,6 +408,9 @@ function matchExternalConversion(data) {
     lead.stage = 'purchased';
     lead.gateway = gw;
     if (acc && !lead.acc) lead.acc = acc;
+    // Item 302: compra aprovada implica pagamento iniciado (se o gateway
+    // não mandou InitiateCheckout antes, marcamos retroativamente aqui)
+    if (!lead.paymentStartedAt) lead.paymentStartedAt = nowIso;
     lead.convertedAt = nowIso;
     lead.reportedAmount = amount;
     lead.reportedCurrency = cur;
@@ -426,6 +447,7 @@ function matchExternalConversion(data) {
       stage: 'purchased',
       status: 'converted',
       orphan: true,
+      paymentStartedAt: nowIso, // item 302: venda implica pagamento iniciado
       convertedAt: nowIso,
       reportedAmount: amount,
       reportedCurrency: cur,
@@ -637,5 +659,5 @@ process.once('beforeExit', flushSync);
 module.exports = {
   logEvent, recordVisit, recordCheckoutEntry, recordClickStep,
   attachTracking, getLead, findLeadByEmail, findLeadByPhone, matchExternalConversion, getStats, reset, hydrate,
-  inCheckoutNow, anonymizeOldLeads
+  inCheckoutNow, anonymizeOldLeads, markPaymentStarted
   };

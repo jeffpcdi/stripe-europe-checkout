@@ -6,7 +6,7 @@ import { useSWRConfig } from 'swr'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { RefreshCw, LogOut, UserRound, Eye, EyeOff } from 'lucide-react'
 import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
-import { useAccount, useHealth } from '@/lib/api'
+import { useAccount, useHealth, useStats } from '@/lib/api'
 import { DurabilityBadge } from '@/components/shell/durability-badge'
 import { usePrefs } from '@/lib/prefs'
 import { cn } from '@/lib/utils'
@@ -20,10 +20,11 @@ const DATE_FMT = new Intl.DateTimeFormat('pt-BR', {
   timeZone: 'America/Sao_Paulo',
 })
 
+// Item 390: sem segundos por padrão (menos ruído visual); o clique no relógio
+// alterna para o formatador com segundos abaixo.
 const TIME_FMT = new Intl.DateTimeFormat('pt-BR', {
   hour: '2-digit',
   minute: '2-digit',
-  second: '2-digit',
   timeZone: 'America/Sao_Paulo',
 })
 
@@ -39,7 +40,18 @@ function greeting(): string {
 }
 
 /** Item 14: relógio ao vivo HH:MM:SS mono (atualiza a cada segundo) */
+// Item 390: formatador com segundos, ativado por clique no relógio (pref
+// persistida). Sem segundos o intervalo continua 1s — barato e simples.
+const TIME_FMT_SECONDS = new Intl.DateTimeFormat('pt-BR', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  timeZone: 'America/Sao_Paulo',
+})
+
 function LiveClock() {
+  const { prefs, update } = usePrefs()
+  const withSeconds = prefs.clockSeconds === 'on'
   const [now, setNow] = useState<Date | null>(null)
   useEffect(() => {
     setNow(new Date())
@@ -47,10 +59,17 @@ function LiveClock() {
     return () => clearInterval(id)
   }, [])
   return (
-    <span className="label-mono tabular-nums" suppressHydrationWarning>
+    <button
+      type="button"
+      onClick={() => update({ clockSeconds: withSeconds ? 'off' : 'on' })}
+      className="label-mono cursor-pointer tabular-nums transition-colors hover:text-foreground"
+      title={withSeconds ? 'Ocultar segundos' : 'Mostrar segundos'}
+      aria-pressed={withSeconds}
+      suppressHydrationWarning
+    >
       {DATE_FMT.format(now ?? new Date())}
-      {now ? ` · ${TIME_FMT.format(now)}` : ''}
-    </span>
+      {now ? ` · ${(withSeconds ? TIME_FMT_SECONDS : TIME_FMT).format(now)}` : ''}
+    </button>
   )
 }
 
@@ -60,6 +79,22 @@ function LiveBadge() {
   const latency = health?.dbLatencyMs
   const ok = health ? health.db : true
   const slow = ok && typeof latency === 'number' && latency > 500
+
+  // Item 293: contador "próxima atualização em Xs" (hover). O /api/stats
+  // atualiza a cada 12s (POLL_MS); reancoramos o ciclo quando chega resposta
+  // nova e um tick de 1s (só com hover ativo? não — é barato) mostra o resto.
+  const { data: stats } = useStats()
+  const anchorRef = useRef(Date.now())
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    anchorRef.current = Date.now()
+  }, [stats])
+  useEffect(() => {
+    const id = setInterval(() => forceTick((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const nextIn = Math.max(0, Math.ceil((12_000 - (Date.now() - anchorRef.current)) / 1000))
+
   return (
     <div
       className="group/badge glass hidden items-center gap-2 rounded-full px-3.5 py-1.5 md:flex"
@@ -73,11 +108,10 @@ function LiveBadge() {
       <span className="text-xs font-medium text-sub">
         {ok ? 'Ao vivo' : 'Reconectando'}
       </span>
-      {typeof latency === 'number' ? (
-        <span className="hidden font-mono text-[10px] tabular-nums text-faint group-hover/badge:inline">
-          {latency}ms
-        </span>
-      ) : null}
+      <span className="hidden font-mono text-[10px] tabular-nums text-faint group-hover/badge:inline">
+        {typeof latency === 'number' ? `${latency}ms · ` : ''}
+        {ok ? `atualiza em ${nextIn}s` : ''}
+      </span>
     </div>
   )
 }
@@ -137,9 +171,28 @@ function UserMenu() {
   const { data: account } = useAccount()
   const initial = (account?.name || account?.email || '?').charAt(0).toUpperCase()
 
+  // Item 405: logout sincronizado entre abas. localStorage dispara `storage`
+  // em TODAS as outras abas do mesmo origin — quem receber vai pro login
+  // (a sessão já morreu no servidor; ficar na tela só geraria 401 confusos).
+  const loginUrl = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
+
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === 'roi:logout' && e.newValue) window.location.href = loginUrl
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function logout() {
     await fetch('/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-    window.location.href = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
+    try {
+      localStorage.setItem('roi:logout', String(Date.now()))
+    } catch {
+      /* storage cheio/bloqueado: as outras abas caem no guard de 401 */
+    }
+    window.location.href = loginUrl
   }
 
   return (

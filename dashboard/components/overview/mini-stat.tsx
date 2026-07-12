@@ -1,9 +1,11 @@
 'use client'
 
 import type { LucideIcon } from 'lucide-react'
+import Link from 'next/link'
 import { GlassCard } from '@/components/glass-card'
 
 // Réplica do mstat() legado: chip compacto com ícone tintado, valor e contexto.
+// Item 292: com `href`, o chip inteiro vira link (drill-down para a aba filtrada).
 export function MiniStat({
   icon: Icon,
   color,
@@ -13,6 +15,7 @@ export function MiniStat({
   sub,
   extra,
   index = 0,
+  href,
 }: {
   icon: LucideIcon
   color: string
@@ -22,13 +25,10 @@ export function MiniStat({
   sub: string
   extra?: React.ReactNode
   index?: number
+  href?: string
 }) {
-  return (
-    <GlassCard
-      variant="clear"
-      className="anim-kpi-in flex items-center justify-between gap-3 p-4"
-      style={{ animationDelay: `${index * 60}ms` }}
-    >
+  const body = (
+    <>
       <div className="flex min-w-0 items-center gap-3">
         <span
           className="flex size-8 shrink-0 items-center justify-center rounded-[10px]"
@@ -46,6 +46,35 @@ export function MiniStat({
         </div>
       </div>
       {extra}
+    </>
+  )
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        aria-label={`${label}: ${typeof value === 'string' || typeof value === 'number' ? value : ''} — ver detalhes`}
+        className="rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        <GlassCard
+          variant="clear"
+          hover
+          className="anim-kpi-in flex h-full items-center justify-between gap-3 p-4"
+          style={{ animationDelay: `${index * 60}ms` }}
+        >
+          {body}
+        </GlassCard>
+      </Link>
+    )
+  }
+
+  return (
+    <GlassCard
+      variant="clear"
+      className="anim-kpi-in flex items-center justify-between gap-3 p-4"
+      style={{ animationDelay: `${index * 60}ms` }}
+    >
+      {body}
     </GlassCard>
   )
 }

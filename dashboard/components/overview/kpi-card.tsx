@@ -1,6 +1,7 @@
 'use client'
 
 import type { LucideIcon } from 'lucide-react'
+import Link from 'next/link'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
 import { fmtDelta } from '@/lib/format'
@@ -77,6 +78,8 @@ export function KpiCard({
   spark,
   hero = false,
   index = 0,
+  ariaLabel,
+  href,
 }: {
   icon: LucideIcon
   tint: KpiTint
@@ -89,12 +92,19 @@ export function KpiCard({
   spark?: React.ReactNode
   hero?: boolean
   index?: number
+  /* Item 299: frase única para leitores de tela (valor + delta + período),
+     em vez de o leitor soletrar CountUp, chip e sparkline separadamente. */
+  ariaLabel?: string
+  /* Item 279: com href o card inteiro vira drill-down para a aba filtrada */
+  href?: string
 }) {
-  return (
+  const card = (
     <GlassCard
       hover
       sheen
-      className={cn('anim-kpi-in relative overflow-hidden p-5', hero && 'kpi-hero')}
+      role="group"
+      aria-label={ariaLabel}
+      className={cn('anim-kpi-in relative h-full overflow-hidden p-5', hero && 'kpi-hero')}
       style={{ animationDelay: `${index * 70}ms` }}
     >
       {/* Item 117: hairline gradiente padronizada em todos os KPIs (mais forte no hero) */}
@@ -138,4 +148,18 @@ export function KpiCard({
       </div>
     </GlassCard>
   )
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        aria-label={ariaLabel ? `${ariaLabel} — ver detalhes` : `${label} — ver detalhes`}
+        className="block h-full rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        {card}
+      </Link>
+    )
+  }
+
+  return card
 }

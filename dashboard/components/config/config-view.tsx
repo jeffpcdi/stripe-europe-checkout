@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import {
   User, Bell, LogOut, Loader2, Check, KeyRound, Copy, Trash2, Send, SlidersHorizontal, Coins,
-  DownloadCloud, UploadCloud, Info, ShieldCheck,
+  DownloadCloud, UploadCloud, Info, ShieldCheck, Download,
 } from 'lucide-react'
 import useSWR from 'swr'
 import { useAccount, usePushcutConfig, useHealth, apiSend, fetcher } from '@/lib/api'
@@ -11,6 +11,7 @@ import { formatDateTime } from '@/lib/format'
 import { usePrefs } from '@/lib/prefs'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
+import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
 
 const EVENT_LABELS: { key: keyof PushcutEvents; label: string; hint: string }[] = [
   { key: 'sale', label: 'Venda aprovada', hint: 'Cada pagamento confirmado' },
@@ -29,7 +30,9 @@ export function ConfigView() {
   return (
     <div className="flex flex-col gap-6">
       <AccountCard />
+      <SecurityCard />
       <CurrencyCard />
+      <AccountPrefsCard />
       <PreferencesCard />
       <PushcutCard />
       <ApiTokenCard />
@@ -426,10 +429,17 @@ function PreferencesCard() {
 }
 
 function ApiTokenCard() {
-  const { data } = useSWR<{ token: string }>('/api/public-token', fetcher, {
+  const { data, mutate } = useSWR<{ token: string }>('/api/public-token', fetcher, {
+    revalidateOnFocus: false,
+  })
+  /* Item 419: escopo do token (stats | stats+leads) vem do /api/settings */
+  const { data: settings, mutate: mutateSettings } = useSWR<{ apiScope?: string }>('/api/settings', fetcher, {
     revalidateOnFocus: false,
   })
   const [copied, setCopied] = useState(false)
+  const [rotating, setRotating] = useState(false)
+  const [confirmRotate, setConfirmRotate] = useState(false)
+  const [rotated, setRotated] = useState(false)
 
   const summaryUrl = data?.token
     ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/v1/summary?token=${data.token}`
@@ -440,6 +450,30 @@ function ApiTokenCard() {
     await navigator.clipboard.writeText(summaryUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  /* Item 418: rotação — revoga o token atual e gera um novo (2 cliques) */
+  async function rotate() {
+    if (!confirmRotate) {
+      setConfirmRotate(true)
+      return
+    }
+    setRotating(true)
+    try {
+      await apiSend('/api/public-token/rotate', 'POST', {})
+      await mutate()
+      setRotated(true)
+      setTimeout(() => setRotated(false), 3000)
+    } finally {
+      setRotating(false)
+      setConfirmRotate(false)
+    }
+  }
+
+  /* Item 419: alternar escopo */
+  async function changeScope(scope: string) {
+    await apiSend('/api/public-token/scope', 'POST', { scope })
+    mutateSettings()
   }
 
   return (
@@ -467,14 +501,82 @@ function ApiTokenCard() {
           {copied ? 'Copiado' : 'Copiar'}
         </button>
       </div>
+      {/* Itens 418/419: rotação + escopo */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground" htmlFor="api-scope">
+            Escopo:
+          </label>
+          <select
+            id="api-scope"
+            className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+            value={settings?.apiScope ?? 'stats'}
+            disabled={!settings}
+            onChange={(e) => changeScope(e.target.value)}
+          >
+            <option value="stats">Só métricas agregadas</option>
+            <option value="stats+leads">Métricas + leads (e-mail mascarado)</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          {confirmRotate && (
+            <button
+              type="button"
+              onClick={() => setConfirmRotate(false)}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary"
+            >
+              Cancelar
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={rotate}
+            disabled={rotating || !data}
+            title="Revoga o token atual — integrações com a URL antiga param de funcionar"
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+              confirmRotate
+                ? 'bg-destructive text-white hover:opacity-90'
+                : 'border border-border text-foreground hover:bg-secondary'
+            }`}
+          >
+            {rotating ? <Loader2 className="size-3.5 animate-spin" /> : rotated ? <Check className="size-3.5" /> : null}
+            {rotated ? 'Token novo gerado' : confirmRotate ? 'Confirmar — revogar o atual' : 'Gerar novo token'}
+          </button>
+        </div>
+      </div>
     </GlassCard>
   )
+}
+
+/* Item 428: contagens da zona de perigo (o que será apagado) */
+interface DataCounts {
+  leads?: number
+  events?: number
+  events_arquivados?: number
+  links?: number
+  pixels?: number
+  gateways?: number
+  dominios?: number
 }
 
 function DangerCard() {
   const [confirming, setConfirming] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [done, setDone] = useState(false)
+
+  /* Item 428: pré-visualização do que existe hoje na conta */
+  const { data: countsData } = useSWR<{ ok: boolean; counts: DataCounts }>('/api/account/data-counts', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const counts = countsData?.counts
+
+  /* Item 427: modal de exclusão da conta com confirmação forte */
+  const [delOpen, setDelOpen] = useState(false)
+  const [delPw, setDelPw] = useState('')
+  const [delPhrase, setDelPhrase] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [delError, setDelError] = useState<string | null>(null)
+  const delReady = delPw.length > 0 && delPhrase === 'EXCLUIR MINHA CONTA'
 
   async function handleReset() {
     if (!confirming) {
@@ -492,10 +594,45 @@ function DangerCard() {
     }
   }
 
+  async function handleDelete() {
+    if (!delReady) return
+    setDeleting(true)
+    setDelError(null)
+    try {
+      await apiSend('/api/account/delete', 'POST', { password: delPw, confirm: delPhrase })
+      // Conta apagada — sessão morreu junto; volta para o login do Express
+      window.location.href = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
+    } catch (e) {
+      setDelError(e instanceof Error ? e.message : 'Erro ao excluir a conta')
+      setDeleting(false)
+    }
+  }
+
   return (
     /* Item 82: zona de perigo demarcada — hairline rosa + fundo rosa 3% */
     <GlassCard className="danger-zone p-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      {/* Item 426 (LGPD): exportação completa dos dados da conta */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
+        <div className="flex items-center gap-2.5">
+          <Download className="size-4 text-[color:var(--brand-cyan)]" />
+          <div>
+            <h2 className="section-head text-sm font-semibold text-foreground">Exportar todos os dados (LGPD)</h2>
+            <p className="text-xs text-muted-foreground">
+              JSON com perfil, links, pixels, leads, eventos e auditoria — sem chaves secretas
+            </p>
+          </div>
+        </div>
+        <a
+          href="/api/account/export"
+          download
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
+        >
+          <Download className="size-3.5" />
+          Baixar meus dados
+        </a>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4">
         <div className="flex items-center gap-2.5">
           <Trash2 className="size-4 text-destructive" />
           <div>
@@ -503,6 +640,13 @@ function DangerCard() {
             <p className="text-xs text-muted-foreground">
               Apaga leads, eventos e séries da sua conta. Links, pixels e domínios são mantidos.
             </p>
+            {/* Item 428: o que será apagado */}
+            {counts && (
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Hoje: {counts.leads ?? 0} lead(s), {counts.events ?? 0} evento(s)
+                {counts.events_arquivados ? ` (+${counts.events_arquivados} arquivados)` : ''}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -534,6 +678,98 @@ function DangerCard() {
           </button>
         </div>
       </div>
+
+      {/* Item 427: exclusão permanente da conta */}
+      <div className="flex flex-wrap items-center justify-between gap-4 pt-4">
+        <div className="flex items-center gap-2.5">
+          <Trash2 className="size-4 text-destructive" />
+          <div>
+            <h2 className="section-head text-sm font-semibold text-foreground">Excluir a conta permanentemente</h2>
+            <p className="text-xs text-muted-foreground">
+              Apaga TUDO — conta, links, pixels, gateways, domínios, leads e eventos. Sem volta.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setDelOpen(true); setDelPw(''); setDelPhrase(''); setDelError(null) }}
+          className="rounded-lg border border-destructive/50 px-3 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10"
+        >
+          Excluir conta
+        </button>
+      </div>
+
+      {/* Modal de confirmação forte (item 427) */}
+      {delOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="presentation"
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) setDelOpen(false) }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-destructive/40 bg-card p-5 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="del-title"
+          >
+            <h3 id="del-title" className="text-sm font-semibold text-destructive">
+              Excluir a conta — sem volta
+            </h3>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {counts
+                ? `Será apagado: ${counts.leads ?? 0} lead(s), ${counts.events ?? 0} evento(s), ${counts.links ?? 0} link(s), ${counts.pixels ?? 0} pixel(s), ${counts.gateways ?? 0} gateway(s), ${counts.dominios ?? 0} domínio(s) e toda a configuração. Não há como desfazer.`
+                : 'Todos os dados da conta serão apagados permanentemente. Não há como desfazer.'}
+            </p>
+            <div className="mt-4">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="del-pw">
+                Sua senha
+              </label>
+              <input
+                id="del-pw"
+                type="password"
+                autoComplete="current-password"
+                className="input-neon w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground focus:border-destructive focus:outline-none"
+                value={delPw}
+                onChange={(e) => setDelPw(e.target.value)}
+              />
+            </div>
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="del-phrase">
+                Digite <b className="text-foreground">EXCLUIR MINHA CONTA</b> para confirmar
+              </label>
+              <input
+                id="del-phrase"
+                autoComplete="off"
+                className="input-neon w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground focus:border-destructive focus:outline-none"
+                value={delPhrase}
+                onChange={(e) => setDelPhrase(e.target.value)}
+              />
+            </div>
+            {delError && (
+              <p className="anim-shake mt-2 text-xs text-destructive" role="alert">{delError}</p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDelOpen(false)}
+                disabled={deleting}
+                className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={!delReady || deleting}
+                className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-40"
+              >
+                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Excluir permanentemente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </GlassCard>
   )
 }

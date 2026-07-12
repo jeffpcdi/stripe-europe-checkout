@@ -1,13 +1,15 @@
 'use client'
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { useStats } from '@/lib/api'
+import { useSearchParams } from 'next/navigation'
+import { useStats, apiSend } from '@/lib/api'
 import { usePersistedState } from '@/lib/use-persisted-state'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { formatMoney, formatDateTime, timeAgo, dayLabel, plural, gwLabel } from '@/lib/format'
 import { countryLabel } from '@/lib/countries'
 import { copyText } from '@/lib/clipboard'
+import { playSaleSound, ensureNotifyPermission, notifySale } from '@/lib/sale-alerts'
 import { cn } from '@/lib/utils'
 import {
   CheckCircle2,
@@ -15,11 +17,22 @@ import {
   UserPlus,
   Eye,
   RotateCcw,
+  RotateCw,
   ShieldAlert,
   Zap,
   Copy,
   Check,
   ChevronDown,
+  Search,
+  Link2,
+  X,
+  Trophy,
+  Download,
+  Users,
+  Volume2,
+  VolumeX,
+  Bell,
+  BellOff,
   type LucideIcon,
 } from 'lucide-react'
 import type { StatsEvent } from '@/lib/types'
@@ -51,6 +64,22 @@ const FILTERS: { value: string | null; label: string }[] = [
 
 const PAGE_SIZE = 60
 
+// Item 333: filtro de período local do feed (independente do período global
+// da Overview — quem audita o feed quer recortar sem mexer no resto).
+const FEED_PERIODS: { value: 'today' | '7d' | '30d' | null; label: string }[] = [
+  { value: null, label: 'Tudo' },
+  { value: 'today', label: 'Hoje' },
+  { value: '7d', label: '7 dias' },
+  { value: '30d', label: '30 dias' },
+]
+
+function feedPeriodStart(p: 'today' | '7d' | '30d' | null): number | null {
+  if (!p) return null
+  const now = new Date()
+  if (p === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  return now.getTime() - (p === '7d' ? 7 : 30) * 86400e3
+}
+
 /* Item 158: copia um resumo JSON do evento.
    Item 347: via copyText (fallback p/ HTTP/iframe) e reporta sucesso real. */
 function copyEventDetails(e: StatsEvent): Promise<boolean> {
@@ -71,12 +100,25 @@ function copyEventDetails(e: StatsEvent): Promise<boolean> {
 // TODAS as linhas re-renderizam mesmo quando nada mudou. SWR mantém a
 // referência do evento estável quando os dados não mudam, então o memo corta
 // o re-render das linhas antigas (só a nova e as com estado local mudam).
-const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: boolean }) {
+const EventRow = memo(function EventRow({
+  e,
+  isNew,
+  highlight,
+  bestOfDay,
+}: {
+  e: StatsEvent
+  isNew?: boolean
+  /* Item 343: evento alvo do permalink chega destacado */
+  highlight?: boolean
+  /* Item 344: maior venda do dia ganha marco dourado */
+  bestOfDay?: boolean
+}) {
   const style = EVENT_STYLE[e.type] || EVENT_STYLE.info
   const Icon = style.icon
   // Item 155: expansão inline com detalhes
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const meta: string[] = []
   if (e.customer) meta.push(e.customer)
@@ -90,13 +132,57 @@ const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: b
   if (e.reason) details.push({ label: 'Motivo', value: e.reason })
   if (e.gateway) details.push({ label: 'Gateway', value: gwLabel(e.gateway) })
 
-  const hasDetails = details.length > 0
+  // Item 342: conversão normalizada do webhook para auditoria
+  const [showRaw, setShowRaw] = useState(false)
+  const hasRaw = e.raw != null && Object.keys(e.raw).length > 0
+
+  // Item 341: replay de conversão direto do feed. Só para eventos de
+  // conversão com ref (orderId) — 'failed' é o caso de ouro (recusa que o
+  // gateway aprovou depois), mas venda também pode precisar re-disparar CAPI.
+  const [replay, setReplay] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle')
+  const [replayMsg, setReplayMsg] = useState('')
+  const canReplay =
+    (e.type === 'failed' || e.type === 'sale' || e.type === 'refund' || e.type === 'dispute') &&
+    !!e.ref
+
+  async function handleReplay() {
+    if (replay === 'busy' || !e.ref) return
+    setReplay('busy')
+    try {
+      const r = await apiSend<{ ok: boolean; receipt?: { status?: string; dispatched?: number } }>(
+        '/api/ops/reprocess-conversion',
+        'POST',
+        { orderId: e.ref },
+      )
+      const st = r.receipt?.status ?? 'ok'
+      if (st === 'ok' || st.startsWith('ok')) {
+        setReplay('ok')
+        setReplayMsg(
+          r.receipt?.dispatched ? `${r.receipt.dispatched} pixel(s) receberam` : 'reenviado',
+        )
+      } else {
+        setReplay('err')
+        setReplayMsg(st === 'sem pixel' ? 'nenhum pixel ativo' : st)
+      }
+    } catch (err) {
+      setReplay('err')
+      setReplayMsg(err instanceof Error ? err.message : 'falha ao reprocessar')
+    }
+    window.setTimeout(() => {
+      setReplay('idle')
+      setReplayMsg('')
+    }, 4000)
+  }
+
+  const hasDetails = details.length > 0 || hasRaw || canReplay
 
   return (
     <div
+      id={`evt-${e.id}`}
       className={cn(
         'border-b border-border/40 last:border-b-0',
         isNew && 'anim-cell-flash',
+        highlight && 'anim-cell-flash rounded-lg outline outline-1 outline-[var(--accent)]/50',
       )}
       style={{ boxShadow: `inset 2px 0 0 ${style.edge}` }}
     >
@@ -104,7 +190,7 @@ const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: b
         type="button"
         onClick={() => hasDetails && setOpen(!open)}
         className={cn(
-          'flex w-full items-start gap-3 px-2.5 py-3 text-left',
+          'feed-row flex w-full items-start gap-3 px-2.5 py-3 text-left',
           hasDetails && 'cursor-pointer transition-colors hover:bg-[var(--hover)]',
         )}
         aria-expanded={hasDetails ? open : undefined}
@@ -124,6 +210,15 @@ const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: b
             {isNew ? (
               <span className="rounded-full bg-[var(--accent-light)] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-wider text-[var(--accent)]">
                 novo
+              </span>
+            ) : null}
+            {/* Item 344: marco dourado na maior venda do dia */}
+            {bestOfDay ? (
+              <span
+                className="flex items-center gap-1 rounded-full bg-[rgba(245,158,11,.12)] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-wider text-[#f59e0b]"
+                title="Maior venda do dia"
+              >
+                <Trophy className="size-2.5" aria-hidden="true" /> top do dia
               </span>
             ) : null}
           </p>
@@ -169,29 +264,114 @@ const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: b
                 <span className="truncate font-mono text-foreground">{d.value}</span>
               </p>
             ))}
-            {/* Item 158: copiar resumo do evento */}
-            <button
-              type="button"
-              onClick={() => {
-                // Item 347: só mostra "Copiado" se a cópia de fato aconteceu
-                void copyEventDetails(e).then((ok) => {
-                  if (!ok) return
-                  setCopied(true)
-                  window.setTimeout(() => setCopied(false), 1600)
-                })
-              }}
-              className="btn-ghost mt-1 self-end !px-2.5 !py-1 text-[11px]"
-            >
-              {copied ? (
-                <>
-                  <Check className="size-3 text-success" aria-hidden /> Copiado
-                </>
-              ) : (
-                <>
-                  <Copy className="size-3" aria-hidden /> Copiar detalhes
-                </>
-              )}
-            </button>
+            {/* Item 342: dados do webhook sob demanda — auditoria de
+                divergência de valor/moeda sem ir ao painel do gateway */}
+            {hasRaw ? (
+              <div className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowRaw(!showRaw)}
+                  aria-expanded={showRaw}
+                  className="flex items-center gap-1 font-mono text-[10.5px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={cn('size-3 transition-transform', showRaw && 'rotate-180')}
+                    aria-hidden
+                  />
+                  dados do webhook
+                </button>
+                {showRaw ? (
+                  <pre
+                    data-sensitive
+                    className="mt-1.5 max-h-48 overflow-auto rounded-md border border-border/40 bg-background/60 p-2 font-mono text-[10.5px] leading-relaxed text-muted-foreground"
+                  >
+                    {JSON.stringify(e.raw, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="mt-1 flex items-center justify-end gap-1.5">
+              {/* Item 341: re-dispara a CAPI a partir do recibo do webhook —
+                  útil quando o pixel estava sem token na hora do evento */}
+              {canReplay ? (
+                <button
+                  type="button"
+                  onClick={handleReplay}
+                  disabled={replay === 'busy'}
+                  className={cn(
+                    'btn-ghost !px-2.5 !py-1 text-[11px]',
+                    replay === 'ok' && '!text-success',
+                    replay === 'err' && '!text-warning',
+                  )}
+                  title="Reenviar esta conversão à CAPI do TikTok (não recontabiliza a venda)"
+                >
+                  {replay === 'busy' ? (
+                    <>
+                      <RotateCw className="size-3 animate-spin" aria-hidden /> Reenviando…
+                    </>
+                  ) : replay === 'ok' ? (
+                    <>
+                      <Check className="size-3" aria-hidden /> {replayMsg}
+                    </>
+                  ) : replay === 'err' ? (
+                    <>
+                      <X className="size-3" aria-hidden /> {replayMsg}
+                    </>
+                  ) : (
+                    <>
+                      <RotateCw className="size-3" aria-hidden /> Reenviar CAPI
+                    </>
+                  )}
+                </button>
+              ) : null}
+              {/* Item 343: permalink do evento (?e=<id>) para compartilhar */}
+              <button
+                type="button"
+                onClick={() => {
+                  const url = new URL(window.location.href)
+                  url.searchParams.set('e', e.id)
+                  void copyText(url.toString()).then((ok) => {
+                    if (!ok) return
+                    setLinkCopied(true)
+                    window.setTimeout(() => setLinkCopied(false), 1600)
+                  })
+                }}
+                className="btn-ghost !px-2.5 !py-1 text-[11px]"
+              >
+                {linkCopied ? (
+                  <>
+                    <Check className="size-3 text-success" aria-hidden /> Copiado
+                  </>
+                ) : (
+                  <>
+                    <Link2 className="size-3" aria-hidden /> Copiar link
+                  </>
+                )}
+              </button>
+              {/* Item 158: copiar resumo do evento */}
+              <button
+                type="button"
+                onClick={() => {
+                  // Item 347: só mostra "Copiado" se a cópia de fato aconteceu
+                  void copyEventDetails(e).then((ok) => {
+                    if (!ok) return
+                    setCopied(true)
+                    window.setTimeout(() => setCopied(false), 1600)
+                  })
+                }}
+                className="btn-ghost !px-2.5 !py-1 text-[11px]"
+              >
+                {copied ? (
+                  <>
+                    <Check className="size-3 text-success" aria-hidden /> Copiado
+                  </>
+                ) : (
+                  <>
+                    <Copy className="size-3" aria-hidden /> Copiar detalhes
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -199,10 +379,69 @@ const EventRow = memo(function EventRow({ e, isNew }: { e: StatsEvent; isNew?: b
   )
 })
 
+/* Itens 151/340: separador de dia com resumo do dia inteiro filtrado —
+   extraído para reuso entre linhas soltas e grupos de visitas (item 334). */
+function DaySeparator({
+  label,
+  summary,
+}: {
+  label: string
+  summary?: { sales: number; revenue: number; cur: string; failed: number }
+}) {
+  return (
+    <div className="flex items-center gap-3 px-1 pb-1 pt-4 first:pt-1">
+      <span className="label-mono text-[10px]">{label}</span>
+      <span
+        className="h-px flex-1"
+        style={{
+          background: 'linear-gradient(90deg, rgba(37,244,238,.2), transparent 70%)',
+        }}
+        aria-hidden="true"
+      />
+      {summary && (summary.sales > 0 || summary.failed > 0) ? (
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+          {summary.sales > 0 ? (
+            <>
+              {plural(summary.sales, 'venda')} ·{' '}
+              <span data-sensitive>{formatMoney(summary.revenue, summary.cur)}</span>
+            </>
+          ) : null}
+          {summary.sales > 0 && summary.failed > 0 ? ' · ' : null}
+          {summary.failed > 0 ? `${summary.failed} recusadas` : null}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 export function ActivityView() {
-  const { data, isLoading, error } = useStats()
+  // isValidating alimenta o aria-busy do feed (item 348)
+  const { data, isLoading, error, isValidating } = useStats()
   // Item 185: o filtro de tipo de evento persiste entre navegações
   const [filter, setFilter] = usePersistedState<string | null>('activity:filter', null)
+  // Item 331: busca textual efêmera (não persiste — busca é da sessão)
+  const [query, setQuery] = useState('')
+  // Item 332: filtro por gateway, derivado dos eventos presentes
+  const [gwFilter, setGwFilter] = useState<string | null>(null)
+  // Item 333: recorte de período local do feed
+  const [feedPeriod, setFeedPeriod] = useState<'today' | '7d' | '30d' | null>(null)
+
+  // Item 292: deep-link ?f=refund vindo do drill-down da Overview tem
+  // precedência sobre o filtro persistido. useSearchParams (e não
+  // window.location) porque na navegação client-side do Next a URL do
+  // history só é atualizada depois do commit — o hook é a fonte confiável.
+  // Depois de aplicar, limpa o ?f para o filtro não "grudar" na URL.
+  const searchParams = useSearchParams()
+  const deepLink = searchParams.get('f')
+  useEffect(() => {
+    if (deepLink && FILTERS.some((x) => x.value === deepLink)) {
+      setFilter(deepLink)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('f')
+      window.history.replaceState(null, '', url)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLink])
   // Item 157: paginação incremental com "carregar mais"
   const [limit, setLimit] = useState(PAGE_SIZE)
   // Item 152: re-renderiza a cada minuto para atualizar tempos relativos
@@ -223,6 +462,51 @@ export function ActivityView() {
     }
   }, [all])
 
+  // Item 339: "seguir ao vivo" — eventos novos entram no TOPO do feed; se o
+  // usuário está rolado para baixo (lendo o histórico), não puxamos o scroll
+  // (seria hostil). Em vez disso um aviso flutuante conta os que chegaram e
+  // leva ao topo com um clique. Perto do topo, o feed acompanha sozinho.
+  const [pendingNew, setPendingNew] = useState(0)
+  const isAwayRef = useRef(false)
+  useEffect(() => {
+    const onScroll = () => {
+      isAwayRef.current = window.scrollY > 400
+      if (!isAwayRef.current) setPendingNew(0)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // Itens 335/336: som e notificação nativa em vendas novas — off por
+  // padrão (som em escritório aberto irrita; notificação exige permissão).
+  const [soundOn, setSoundOn] = usePersistedState<boolean>('activity:sound', false)
+  const [notifyOn, setNotifyOn] = usePersistedState<boolean>('activity:notify', false)
+  const alertIds = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (all.length === 0) return
+    if (alertIds.current === null) {
+      // primeiro load nunca alerta — só o que chegar depois
+      alertIds.current = new Set(all.map((e) => e.id))
+      return
+    }
+    const freshAll = all.filter((e) => !alertIds.current!.has(e.id))
+    const fresh = freshAll.filter((e) => e.type === 'sale')
+    for (const e of all) alertIds.current.add(e.id)
+    // Item 339: usuário longe do topo → acumula aviso em vez de puxar o scroll
+    if (freshAll.length > 0 && isAwayRef.current) {
+      setPendingNew((n) => n + freshAll.length)
+    }
+    if (fresh.length === 0) return
+    if (soundOn) playSaleSound()
+    if (notifyOn) {
+      const top = fresh[0]
+      notifySale(
+        fresh.length === 1 ? 'Nova venda' : `${fresh.length} novas vendas`,
+        top.amount ? formatMoney(top.amount, top.currency) : (top.title ?? ''),
+      )
+    }
+  }, [all, soundOn, notifyOn])
+
   // Item 154: contagem por tipo para os chips
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
@@ -230,9 +514,168 @@ export function ActivityView() {
     return c
   }, [all])
 
-  const events = filter ? all.filter((e) => e.type === filter) : all
+  // Item 332: gateways presentes nos eventos (para o seletor)
+  const gateways = useMemo(() => {
+    const s = new Set<string>()
+    for (const e of all) if (e.gateway) s.add(e.gateway)
+    return [...s].sort()
+  }, [all])
+
+  // Itens 331/332/333: busca + gateway + período compõem com o filtro de tipo
+  const events = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const from = feedPeriodStart(feedPeriod)
+    return all.filter((e) => {
+      if (filter && e.type !== filter) return false
+      if (gwFilter && e.gateway !== gwFilter) return false
+      if (from && new Date(e.at).getTime() < from) return false
+      if (q) {
+        const hay = `${e.customer || ''} ${e.email || ''} ${e.gateway || ''} ${e.title || ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [all, filter, gwFilter, feedPeriod, query])
+
   const visible = events.slice(0, limit)
   const hasMore = events.length > limit
+
+  // Item 334: sequências de 4+ leads (visitas) seguidos no MESMO dia viram
+  // uma linha "N visitas em sequência" expansível — vendas e recusas nunca
+  // são agrupadas (são o que importa ver uma a uma).
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
+  const GROUP_MIN = 4
+  type FeedRow =
+    | { kind: 'event'; e: StatsEvent }
+    | { kind: 'group'; key: string; items: StatsEvent[] }
+  const rows = useMemo<FeedRow[]>(() => {
+    const out: FeedRow[] = []
+    let run: StatsEvent[] = []
+    const flush = () => {
+      if (run.length >= GROUP_MIN) {
+        out.push({ kind: 'group', key: run[0].id, items: run })
+      } else {
+        for (const e of run) out.push({ kind: 'event', e })
+      }
+      run = []
+    }
+    for (const e of visible) {
+      if (e.type === 'lead') {
+        // quebra o grupo na virada de dia (o separador de dia fica correto)
+        if (run.length > 0 && dayLabel(run[0].at) !== dayLabel(e.at)) flush()
+        run.push(e)
+      } else {
+        flush()
+        out.push({ kind: 'event', e })
+      }
+    }
+    flush()
+    return out
+  }, [visible])
+
+  // Item 340: resumo por dia no separador — vendas, receita e recusadas do
+  // dia INTEIRO filtrado (não só das linhas visíveis na página atual)
+  const daySummary = useMemo(() => {
+    const map = new Map<string, { sales: number; revenue: number; cur: string; failed: number }>()
+    for (const e of events) {
+      const label = dayLabel(e.at)
+      if (!label) continue
+      const r = map.get(label) ?? { sales: 0, revenue: 0, cur: e.currency || 'BRL', failed: 0 }
+      if (e.type === 'sale') {
+        r.sales++
+        r.revenue += e.amount || 0
+        if (e.currency) r.cur = e.currency
+      } else if (e.type === 'failed') r.failed++
+      map.set(label, r)
+    }
+    return map
+  }, [events])
+
+  // Item 344: id da maior venda de cada dia (mín. 2 vendas no dia — com uma
+  // só, "top do dia" não informa nada)
+  const bestOfDayIds = useMemo(() => {
+    const byDay = new Map<string, { id: string; amount: number; count: number }>()
+    for (const e of events) {
+      if (e.type !== 'sale' || !e.amount) continue
+      const label = dayLabel(e.at)
+      if (!label) continue
+      const r = byDay.get(label)
+      if (!r) byDay.set(label, { id: e.id, amount: e.amount, count: 1 })
+      else {
+        r.count++
+        if (e.amount > r.amount) {
+          r.amount = e.amount
+          r.id = e.id
+        }
+      }
+    }
+    const ids = new Set<string>()
+    for (const r of byDay.values()) if (r.count >= 2) ids.add(r.id)
+    return ids
+  }, [events])
+
+  // Item 337: exporta o feed FILTRADO como CSV (e-mail mascarado — o arquivo
+  // circula fora do painel, PII completa não deve sair)
+  function exportCsv() {
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const maskEmail = (em?: string | null) => {
+      if (!em || !em.includes('@')) return ''
+      const [user, domain] = em.split('@')
+      return (user.length <= 2 ? user[0] + '…' : user.slice(0, 2) + '…') + '@' + domain
+    }
+    const header = ['id', 'tipo', 'titulo', 'cliente', 'email_mascarado', 'gateway', 'valor', 'moeda', 'quando']
+    const rows = events.map((e) =>
+      [
+        e.id,
+        e.type,
+        e.title || '',
+        e.customer || '',
+        maskEmail(e.email),
+        e.gateway ? gwLabel(e.gateway) : '',
+        e.amount ? (e.amount / 100).toFixed(2) : '',
+        e.amount ? e.currency || 'BRL' : '',
+        e.at,
+      ].map(esc).join(','),
+    )
+    const blob = new Blob(['\uFEFF' + [header.join(','), ...rows].join('\n')], {
+      type: 'text/csv;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `eventos-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Item 343: permalink ?e=<id> — garante o evento na página, rola até ele
+  // e destaca. Limpa o param depois para o destaque não "grudar".
+  const targetId = searchParams.get('e')
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!targetId || all.length === 0) return
+    const idx = events.findIndex((e) => e.id === targetId)
+    if (idx < 0) {
+      // evento fora dos filtros ativos: zera filtros para ele aparecer
+      if (filter || gwFilter || feedPeriod || query) {
+        setFilter(null)
+        setGwFilter(null)
+        setFeedPeriod(null)
+        setQuery('')
+      }
+      return
+    }
+    if (idx >= limit) setLimit(Math.ceil((idx + 1) / PAGE_SIZE) * PAGE_SIZE)
+    setHighlightId(targetId)
+    const t = window.setTimeout(() => {
+      document.getElementById(`evt-${targetId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      const url = new URL(window.location.href)
+      url.searchParams.delete('e')
+      window.history.replaceState(null, '', url)
+    }, 120)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetId, all.length, events, limit])
 
   return (
     <div className="flex flex-col gap-4">
@@ -267,6 +710,137 @@ export function ActivityView() {
         <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
           {plural(events.length, 'evento')}
         </span>
+        {/* Item 335: som de venda (off por padrão; toca ao ligar p/ testar) */}
+        <button
+          type="button"
+          aria-pressed={soundOn}
+          onClick={() => {
+            const next = !soundOn
+            setSoundOn(next)
+            if (next) playSaleSound()
+          }}
+          className={cn(
+            'btn-ghost !px-2 !py-1',
+            soundOn && '!border-primary/40 !text-primary',
+          )}
+          title={soundOn ? 'Desligar som de venda' : 'Ligar som de venda'}
+        >
+          {soundOn ? (
+            <Volume2 className="size-3.5" aria-hidden />
+          ) : (
+            <VolumeX className="size-3.5" aria-hidden />
+          )}
+          <span className="sr-only">{soundOn ? 'Desligar som de venda' : 'Ligar som de venda'}</span>
+        </button>
+        {/* Item 336: notificação nativa com a aba em segundo plano */}
+        <button
+          type="button"
+          aria-pressed={notifyOn}
+          onClick={async () => {
+            if (notifyOn) {
+              setNotifyOn(false)
+              return
+            }
+            const ok = await ensureNotifyPermission()
+            if (ok) setNotifyOn(true)
+          }}
+          className={cn(
+            'btn-ghost !px-2 !py-1',
+            notifyOn && '!border-primary/40 !text-primary',
+          )}
+          title={
+            notifyOn
+              ? 'Desligar notificações de venda'
+              : 'Notificar vendas com a aba em segundo plano'
+          }
+        >
+          {notifyOn ? (
+            <Bell className="size-3.5" aria-hidden />
+          ) : (
+            <BellOff className="size-3.5" aria-hidden />
+          )}
+          <span className="sr-only">
+            {notifyOn ? 'Desligar notificações de venda' : 'Ligar notificações de venda'}
+          </span>
+        </button>
+        {/* Item 337: exporta o recorte atual (filtros aplicados) */}
+        {events.length > 0 ? (
+          <button type="button" onClick={exportCsv} className="btn-ghost !px-2.5 !py-1 text-[11px]">
+            <Download className="size-3" aria-hidden /> CSV
+          </button>
+        ) : null}
+      </div>
+
+      {/* Itens 331/332/333: busca + gateway + período do feed */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(ev) => {
+              setQuery(ev.target.value)
+              setLimit(PAGE_SIZE)
+            }}
+            placeholder="Buscar por cliente, e-mail ou gateway…"
+            aria-label="Buscar eventos"
+            className="w-full rounded-lg border border-border/60 bg-transparent py-1.5 pl-9 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Limpar busca"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+
+        {gateways.length > 1 ? (
+          <select
+            value={gwFilter ?? ''}
+            onChange={(ev) => {
+              setGwFilter(ev.target.value || null)
+              setLimit(PAGE_SIZE)
+            }}
+            aria-label="Filtrar por gateway"
+            className="rounded-lg border border-border/60 bg-transparent px-2.5 py-1.5 text-xs text-foreground focus:border-primary/40 focus:outline-none [&>option]:bg-background"
+          >
+            <option value="">Todos os gateways</option>
+            {gateways.map((g) => (
+              <option key={g} value={g}>
+                {gwLabel(g)}
+              </option>
+            ))}
+          </select>
+        ) : null}
+
+        <div className="flex items-center gap-1" role="group" aria-label="Período do feed">
+          {FEED_PERIODS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              aria-pressed={feedPeriod === p.value}
+              onClick={() => {
+                setFeedPeriod(p.value)
+                setLimit(PAGE_SIZE)
+              }}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                feedPeriod === p.value
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Feed */}
@@ -289,29 +863,105 @@ export function ActivityView() {
             Não foi possível carregar os eventos.
           </p>
         ) : visible.length > 0 ? (
-          <div className="anim-content-in flex flex-col">
-            {visible.map((e, i) => {
+          /* Item 348: role="feed" + aria-busy sinalizam a leitores de tela
+             que é um fluxo vivo e quando está revalidando */
+          <div
+            className="anim-content-in flex flex-col"
+            role="feed"
+            aria-label="Eventos de conversão"
+            aria-busy={isValidating}
+          >
+            {/* Item 339: aviso flutuante quando eventos chegam com o usuário
+                rolado para baixo — clique volta ao topo (onde eles entram) */}
+            {pendingNew > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingNew(0)
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+                className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full border border-primary/40 bg-background/95 px-4 py-1.5 text-xs font-semibold text-primary shadow-lg backdrop-blur transition-transform hover:scale-105"
+              >
+                {plural(pendingNew, 'novo evento', 'novos eventos')} — ver no topo
+              </button>
+            ) : null}
+            {rows.map((row, i) => {
+              const first = row.kind === 'event' ? row.e : row.items[0]
               // Item 151: separador de dia quando o dia muda
-              const label = dayLabel(e.at)
-              const prevLabel = i > 0 ? dayLabel(visible[i - 1].at) : null
+              const label = dayLabel(first.at)
+              const prev = i > 0 ? rows[i - 1] : null
+              const prevLabel = prev
+                ? dayLabel(prev.kind === 'event' ? prev.e.at : prev.items[0].at)
+                : null
+
+              // Item 334: grupo de visitas em sequência
+              if (row.kind === 'group') {
+                const isOpen = openGroups.has(row.key)
+                return (
+                  <div key={row.key}>
+                    {label && label !== prevLabel ? (
+                      <DaySeparator label={label} summary={daySummary.get(label)} />
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenGroups((s) => {
+                          const n = new Set(s)
+                          if (n.has(row.key)) n.delete(row.key)
+                          else n.add(row.key)
+                          return n
+                        })
+                      }
+                      aria-expanded={isOpen}
+                      className="feed-row flex w-full items-center gap-3 px-2.5 py-3 text-left transition-colors hover:bg-[var(--hover)]"
+                    >
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <Users className="size-3.5" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0 flex-1 text-sm text-foreground">
+                        {row.items.length} visitas em sequência
+                      </span>
+                      <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                        {timeAgo(row.items[row.items.length - 1].at)} – {timeAgo(row.items[0].at)}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'size-3.5 shrink-0 text-muted-foreground transition-transform',
+                          isOpen && 'rotate-180',
+                        )}
+                        aria-hidden="true"
+                      />
+                    </button>
+                    {isOpen ? (
+                      <div className="border-l border-primary/20 pl-4">
+                        {row.items.map((e) => (
+                          <EventRow
+                            key={e.id}
+                            e={e}
+                            isNew={seenIds.current !== null && !seenIds.current.has(e.id)}
+                            highlight={e.id === highlightId}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              }
+
+              const e = row.e
               const isNew =
                 seenIds.current !== null && !seenIds.current.has(e.id)
               return (
                 <div key={e.id}>
                   {label && label !== prevLabel ? (
-                    <div className="flex items-center gap-3 px-1 pb-1 pt-4 first:pt-1">
-                      <span className="label-mono text-[10px]">{label}</span>
-                      <span
-                        className="h-px flex-1"
-                        style={{
-                          background:
-                            'linear-gradient(90deg, rgba(37,244,238,.2), transparent 70%)',
-                        }}
-                        aria-hidden="true"
-                      />
-                    </div>
+                    <DaySeparator label={label} summary={daySummary.get(label)} />
                   ) : null}
-                  <EventRow e={e} isNew={isNew} />
+                  <EventRow
+                    e={e}
+                    isNew={isNew}
+                    highlight={e.id === highlightId}
+                    bestOfDay={bestOfDayIds.has(e.id)}
+                  />
                 </div>
               )
             })}
@@ -325,6 +975,26 @@ export function ActivityView() {
                 Carregar mais ({events.length - limit} restantes)
               </button>
             ) : null}
+          </div>
+        ) : all.length > 0 ? (
+          /* Item 331: distinção entre "sem eventos" e "filtros sem resultado" */
+          <div className="flex flex-col items-center gap-3 py-12">
+            <p className="text-sm text-muted-foreground">
+              Nenhum evento corresponde aos filtros ativos.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setFilter(null)
+                setGwFilter(null)
+                setFeedPeriod(null)
+                setQuery('')
+                setLimit(PAGE_SIZE)
+              }}
+              className="btn-ghost !px-4"
+            >
+              Limpar filtros
+            </button>
           </div>
         ) : (
           <p className="py-12 text-center text-sm text-muted-foreground">Nenhum evento ainda.</p>

@@ -1756,6 +1756,9 @@ app.post('/login', async (req, res) => {
     });
     // Item 440: 429 quando bloqueado por excesso de tentativas (não 401).
     if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
+    // Item 420: conta com 2FA ativo — sem sessão ainda; devolve o ticket do
+    // segundo passo para o cliente pedir o código do autenticador.
+    if (result.requires2fa) return res.json({ ok: true, requires2fa: true, pending: result.pending });
     appendCookie(res, auth.sessionCookie(result.token));
     res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
     // Item 417: login entra na trilha de auditoria da conta.
@@ -1776,6 +1779,61 @@ app.post('/login', async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Erro ao entrar.' });
   }
+});
+
+// ── Item 420: 2FA TOTP opcional ───────────────────────────────────────────
+// Segundo passo do login: ticket + código de 6 dígitos → sessão de verdade.
+app.post('/login/2fa', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = await auth.complete2faLogin({ pending: b.pending, code: b.code });
+    if (result.error) return res.status(result.locked ? 429 : 401).json({ ok: false, error: result.error });
+    appendCookie(res, auth.sessionCookie(result.token));
+    res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
+    audit(req, result.account.id, 'login', 'Login no painel (com 2FA)');
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Erro ao verificar o código.' });
+  }
+});
+
+// Status do 2FA da conta logada (para a UI mostrar ativo/inativo).
+app.get('/api/account/2fa', dashboardAuth, async (req, res) => {
+  try {
+    const row = await db.getAccountById(req.account.id);
+    res.json({ ok: true, enabled: !!(row && row.totp_secret) });
+  } catch (_) { res.status(500).json({ ok: false, error: 'Erro ao consultar.' }); }
+});
+
+// Passo 1 da ativação: gera secret + QR (data URL). Nada persiste ainda.
+app.post('/api/account/2fa/setup', dashboardAuth, async (req, res) => {
+  if (rateLimited('2fasetup|' + req.account.id, 'tokrot', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitas tentativas. Aguarde um minuto.' });
+  }
+  const result = await auth.setup2fa({ accountId: req.account.id, email: req.account.email });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  try {
+    const qrDataUrl = await require('qrcode').toDataURL(result.otpauth, { margin: 1, width: 220 });
+    res.json({ ok: true, secret: result.secret, qr: qrDataUrl });
+  } catch (_) {
+    // Sem QR ainda dá para digitar o secret manualmente no app.
+    res.json({ ok: true, secret: result.secret, qr: null });
+  }
+});
+
+// Passo 2 da ativação: confirma o código e liga o 2FA de vez.
+app.post('/api/account/2fa/confirm', dashboardAuth, async (req, res) => {
+  const result = await auth.confirm2fa({ accountId: req.account.id, code: (req.body || {}).code });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  audit(req, req.account.id, '2fa_ativado', 'Verificação em duas etapas ativada');
+  res.json({ ok: true });
+});
+
+// Desativação: exige um código válido do autenticador.
+app.post('/api/account/2fa/disable', dashboardAuth, async (req, res) => {
+  const result = await auth.disable2fa({ accountId: req.account.id, code: (req.body || {}).code });
+  if (result.error) return res.status(400).json({ ok: false, error: result.error });
+  audit(req, req.account.id, '2fa_desativado', 'Verificação em duas etapas desativada');
+  res.json({ ok: true });
 });
 
 // Item 411/415: trocar senha (verifica a atual) e derrubar as outras sessões.
@@ -1930,16 +1988,78 @@ app.get('/api/me', dashboardAuth, (req, res) => {
   res.json({ email: req.account.email, name: req.account.name, role: req.account.role });
 });
 
-// ── API: estatísticas (escopadas à conta logada) ─────────────────────
+// ── API: estatísticas (escopadas à conta logada) ����────────────────────
+// ── Item 327: cache curtinho do getStats por conta ──────────────────────────
+// getStats() varre TODOS os leads/eventos da conta a cada chamada. Com o poll
+// de 12s isso é ok para 1 aba, mas várias abas (ou uma automação martelando)
+// multiplicam o custo sem os dados mudarem. Cache de 3s por conta: colapsa
+// rajadas em 1 cômputo, e 3s << 12s do poll — o usuário nunca percebe.
+const STATS_CACHE = new Map(); // accId -> { at, body }
+const STATS_CACHE_TTL = 3e3;
+
 app.get('/api/stats', dashboardAuth, (req, res) => {
+  // Item 327: autenticado ≠ ilimitado — 60/min por conta segura scripts
+  // rodados com um token de sessão vazado ou automações mal configuradas.
+  // O poll legítimo (12s = 5/min por aba) fica a uma ordem de grandeza.
+  if (rateLimited('acc|' + req.account.id, 'stats', 60)) {
+    res.set('Retry-After', '30');
+    return apiError(res, 429, 'Muitas consultas ao painel. Aguarde alguns segundos.', 'rate_limited');
+  }
   // Item 469: `private, no-cache` em vez de `no-store` — o navegador PODE
   // guardar a resposta só para revalidar com If-None-Match no próximo poll
   // (12s). O ETag automático do Express casa → 304 sem corpo, poupando a
   // banda do payload inteiro quando nada mudou. `private` barra proxies.
   res.set('Cache-Control', 'private, no-cache');
-  res.json(stats.getStats(req.account.id));
+  const hit = STATS_CACHE.get(req.account.id);
+  if (hit && Date.now() - hit.at < STATS_CACHE_TTL) {
+    return res.json(hit.body); // ETag do Express continua funcionando (304)
+  }
+  const body = stats.getStats(req.account.id);
+  STATS_CACHE.set(req.account.id, { at: Date.now(), body });
+  res.json(body);
   checkDailyReport(); // dashboard aberta também dispara o resumo pendente
   });
+
+// varredura para o cache não reter contas que pararam de olhar o painel
+const statsCacheSweep = setInterval(() => {
+  const now = Date.now();
+  STATS_CACHE.forEach((v, k) => { if (now - v.at > 60e3) STATS_CACHE.delete(k); });
+}, 120e3);
+if (statsCacheSweep.unref) statsCacheSweep.unref();
+
+// ── API: detalhe de um lead com jornada (item 326 — alimenta o drawer) ──
+// Escopo por conta: lead de outra conta responde 404 (não 403 — não
+// confirmamos a existência do id a quem não é dono).
+app.get('/api/leads/:id', dashboardAuth, (req, res) => {
+  const lead = stats.getLead(String(req.params.id || '').slice(0, 64));
+  if (!lead || (lead.acc || _defaultAccountId) !== req.account.id) {
+    return apiError(res, 404, 'Lead não encontrado.', 'not_found');
+  }
+  res.set('Cache-Control', 'private, no-cache');
+  // projeção explícita — nada de vazar campos internos por acidente
+  res.json({
+    ok: true,
+    lead: {
+      id: lead.id, at: lead.at, stage: lead.stage,
+      lastSeen: lead.lastSeen || null,
+      purchasedAt: lead.purchasedAt || lead.convertedAt || null,
+      country: lead.country || null, countryName: lead.countryName || null,
+      city: lead.city || null,
+      device: lead.device || null, os: lead.os || null, browser: lead.browser || null,
+      gateway: lead.gateway || null, linkSlug: lead.linkSlug || null,
+      utm: lead.utm || null, referer: lead.referer || lead.ref || null,
+      customer: lead.customer || null, email: lead.email || null,
+      phone: lead.phone || null,
+      amount: lead.amount ?? null,
+      expectedAmount: lead.expectedAmount || null,
+      reportedAmount: lead.reportedAmount || null,
+      currency: lead.currency || lead.reportedCurrency || null,
+      orphan: !!lead.orphan,
+      checkoutHits: Array.isArray(lead.checkoutHits) ? lead.checkoutHits : [],
+      journey: Array.isArray(lead.journey) ? lead.journey : [],
+    },
+  });
+});
 
 // ── API: heartbeat de presença (chamado por todas as páginas do funil) ─
 app.post('/api/pulse', (req, res) => {
@@ -1975,6 +2095,8 @@ app.post('/api/pulse/leave', (req, res) => {
 
 // ── API: visitantes navegando AGORA (dashboard) ────────────────────────
 app.get('/api/live', dashboardAuth, async (req, res) => {
+  // Item 379: dados ao vivo nunca podem ser cacheados por proxy/navegador.
+  res.set('Cache-Control', 'no-store');
   try {
     // presence.list() e summary() são agora async (mescla memória + Redis)
     const accId = req.account.id;
@@ -2199,6 +2321,8 @@ app.get('/api/settings', dashboardAuth, (req, res) => {
     lgpdDays: s.lgpdDays || 0,
     dailyReportHour: Number.isFinite(s.dailyReportHour) ? s.dailyReportHour : 0,
     pushcutTemplate: s.pushcutTemplate || '',
+    // Item 419: escopo atual do token público (para a UI refletir o valor)
+    apiScope: (config.get(req.account.id).api || {}).scope || 'stats',
     raw: { defaultCurrency: s.defaultCurrency || null }
   });
 });
@@ -2232,6 +2356,35 @@ app.post('/api/settings', dashboardAuth, (req, res) => {
   db.setAccountCurrency(req.account.id, cur);
   stats.logEvent('info', { acc: req.account.id, title: 'Moeda padrão da conta: ' + cur });
   res.json({ ok: true, defaultCurrency: cur });
+});
+
+// Item 424: teste de disparo do webhook de saída — envia uma venda fictícia
+// para a URL configurada e devolve o status HTTP que o destino respondeu.
+app.post('/api/settings/webhook-test', dashboardAuth, async (req, res) => {
+  if (rateLimited('whtest|' + req.account.id, 'tokrot', 5)) {
+    return res.status(429).json({ ok: false, error: 'Muitos testes. Aguarde um minuto.' });
+  }
+  const url = (config.get(req.account.id).settings || {}).outboundWebhook;
+  if (!url) return res.status(400).json({ ok: false, error: 'Nenhum webhook configurado — salve a URL primeiro.' });
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Source': 'pragmatic-flow' },
+      body: JSON.stringify({
+        type: 'sale', test: true, at: new Date().toISOString(),
+        orderId: 'TESTE-' + Date.now(), gateway: 'teste',
+        amountCents: 12345, currency: accountCurrency(req.account.id),
+        product: 'Disparo de teste', customer: 'Cliente Teste', email: 'teste@exemplo.com', country: 'BR'
+      }),
+      signal: ctl.signal
+    });
+    clearTimeout(timer);
+    res.json({ ok: r.ok, status: r.status });
+  } catch (e) {
+    res.json({ ok: false, error: e.name === 'AbortError' ? 'timeout (8s) — o destino não respondeu' : e.message });
+  }
 });
 
 app.get('/api/domains', dashboardAuth, (req, res) => {
@@ -3030,12 +3183,22 @@ app.post('/api/ops/reprocess-conversion', dashboardAuth, async (req, res) => {
     return apiError(res, 429, 'Aguarde um pouco antes de reprocessar de novo.', 'rate_limited');
   }
   const id = String((req.body && req.body.id) || '').slice(0, 200);
-  if (!id) return apiError(res, 400, 'Informe o id do recibo a reprocessar.', 'missing_id');
+  // Item 341: replay direto do feed — o feed só conhece o orderId (ref),
+  // então aceitamos os dois; por orderId pegamos o recibo MAIS RECENTE.
+  const orderId = String((req.body && req.body.orderId) || '').slice(0, 200);
+  // Item 314: replay a partir do drawer do lead — lá só existe o leadId.
+  // Mesmo princípio: recibo MAIS RECENTE daquele lead, escopado à conta.
+  const leadId = String((req.body && req.body.leadId) || '').slice(0, 200);
+  if (!id && !orderId && !leadId) return apiError(res, 400, 'Informe o id do recibo (ou orderId/leadId) a reprocessar.', 'missing_id');
   try {
     const log = await rdb.loadConversionLog(200);
     // multi-tenant: só recibos da PRÓPRIA conta (legado sem acc → só admin)
-    const entry = (log || []).find((r) => r && r.id === id &&
-      (r.acc === req.account.id || (!r.acc && req.account.role === 'admin')));
+    const mine = (r) => r && (r.acc === req.account.id || (!r.acc && req.account.role === 'admin'));
+    const entry = id
+      ? (log || []).find((r) => mine(r) && r.id === id)
+      : orderId
+        ? (log || []).find((r) => mine(r) && r.orderId === orderId) // log é recente→antigo
+        : (log || []).find((r) => mine(r) && r.leadId === leadId);
     if (!entry) return apiError(res, 404, 'Recibo não encontrado no log (só os 200 mais recentes podem ser reprocessados).', 'not_found');
     if (entry.teste) return apiError(res, 400, 'Recibos de teste (dry-run) não podem ser reprocessados.', 'is_test');
     // Reconstrói o envelope a partir do recibo. registerSale=false: a venda já
@@ -3209,6 +3372,20 @@ async function processConversion(n) {
     amount: n.amountCents, currency: n.currency
   };
   if (n._forceRedispatch) receipt.reprocessado = true;
+  // Item 342: cópia auditável da conversão normalizada para o feed.
+  // Whitelist (nada de flags internas) + cap de tamanho: MAX_EVENTS eventos
+  // ficam em memória e no JSON persistido — raw gigante estouraria o estado.
+  const rawForFeed = () => {
+    try {
+      const skip = { acc: 1, dryRun: 1, registerSale: 1 };
+      const out = {};
+      for (const k of Object.keys(n)) {
+        if (k[0] === '_' || skip[k] || n[k] == null || typeof n[k] === 'function') continue;
+        out[k] = n[k];
+      }
+      return JSON.stringify(out).length <= 2000 ? out : { orderId: n.orderId, gateway: n.gateway, event: n.event, truncado: true };
+    } catch (_) { return undefined; }
+  };
   try {
     // 1. dedup — retries do gateway nunca duplicam o disparo.
     // Item 198: reprocessamento manual PULA o dedup de propósito (o admin
@@ -3247,9 +3424,15 @@ async function processConversion(n) {
           title: titleMap[n.event] + ' (' + n.gateway + ')',
           amount: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email,
-          gateway: n.gateway, ref: n.orderId
+          gateway: n.gateway, ref: n.orderId,
+          raw: rawForFeed()
         });
       } catch (_) {}
+      // Item 302: recusa = cliente SUBMETEU o pagamento — conta como
+      // "iniciou pagamento" no funil (se conseguimos identificar o lead)
+      if (n.event === 'Failed' && lead) {
+        try { stats.markPaymentStarted(lead.id); } catch (_) {}
+      }
       notifyPushcut(n.event, n);
       receipt.status = 'ok (sem CAPI)';
       rdb.pushConversionLog(receipt).catch(() => {});
@@ -3271,7 +3454,8 @@ async function processConversion(n) {
           title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
           amount: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email,
-          gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id
+          gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id,
+          raw: rawForFeed()
         });
       } catch (_) {}
       // Atribuição ao link/variante que originou o clique (teste A/B)
@@ -3292,7 +3476,8 @@ async function processConversion(n) {
             acc: n.acc || lead.acc || undefined,
             email: n.email || undefined,
             phone: n.phone || undefined,
-            customer: n.name || undefined
+            customer: n.name || undefined,
+            paymentStarted: true // item 302: veio do GATEWAY, não do hit de página
           });
         } catch (_) {}
       }
@@ -3799,7 +3984,7 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
   // mascara o token na listagem (só mostra últimos 4 chars)
   const list = pixelStore.list(req.account.id).map((p) => ({
     ...p,
-    accessToken: p.accessToken ? '•��••' + p.accessToken.slice(-4) : '',
+    accessToken: p.accessToken ? '�����••' + p.accessToken.slice(-4) : '',
     hasToken: !!p.accessToken,
     // script individual deste pixel (estilo Xtracky): cole em qualquer página
     scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,
