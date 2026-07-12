@@ -79,6 +79,22 @@ function LiveBadge() {
   const latency = health?.dbLatencyMs
   const ok = health ? health.db : true
   const slow = ok && typeof latency === 'number' && latency > 500
+
+  // Item 293: contador "próxima atualização em Xs" (hover). O /api/stats
+  // atualiza a cada 12s (POLL_MS); reancoramos o ciclo quando chega resposta
+  // nova e um tick de 1s (só com hover ativo? não — é barato) mostra o resto.
+  const { data: stats } = useStats()
+  const anchorRef = useRef(Date.now())
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    anchorRef.current = Date.now()
+  }, [stats])
+  useEffect(() => {
+    const id = setInterval(() => forceTick((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const nextIn = Math.max(0, Math.ceil((12_000 - (Date.now() - anchorRef.current)) / 1000))
+
   return (
     <div
       className="group/badge glass hidden items-center gap-2 rounded-full px-3.5 py-1.5 md:flex"
@@ -92,11 +108,10 @@ function LiveBadge() {
       <span className="text-xs font-medium text-sub">
         {ok ? 'Ao vivo' : 'Reconectando'}
       </span>
-      {typeof latency === 'number' ? (
-        <span className="hidden font-mono text-[10px] tabular-nums text-faint group-hover/badge:inline">
-          {latency}ms
-        </span>
-      ) : null}
+      <span className="hidden font-mono text-[10px] tabular-nums text-faint group-hover/badge:inline">
+        {typeof latency === 'number' ? `${latency}ms · ` : ''}
+        {ok ? `atualiza em ${nextIn}s` : ''}
+      </span>
     </div>
   )
 }

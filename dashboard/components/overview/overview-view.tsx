@@ -458,7 +458,8 @@ export function OverviewView() {
         data-tour="chart"
       >
         <div className="lg:col-span-2 flex flex-col gap-4">
-          <RevenueChart series={cur.series} currency={cur.mainCur} />
+          {/* Item 272: série anterior vira linha fantasma de comparação */}
+          <RevenueChart series={cur.series} currency={cur.mainCur} prevSeries={prev?.series} />
           {/* Item 274: insight do melhor dia da semana (só com histórico suficiente) */}
           {bestWeekday && (
             <GlassCard className="flex items-center gap-3 p-4">

@@ -146,7 +146,18 @@ export function RevenueChart({
   return (
     <GlassCard className="anim-kpi-in p-5" style={{ animationDelay: '280ms' }}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="section-head text-sm font-semibold text-foreground">Desempenho no período</h3>
+        <div className="flex items-baseline gap-3">
+          <h3 className="section-head text-sm font-semibold text-foreground">Desempenho no período</h3>
+          {hasGhost && (
+            <span className="hidden items-center gap-1.5 text-[10px] text-faint sm:inline-flex">
+              <span
+                className="inline-block h-0 w-5 border-t border-dashed border-muted-foreground/60"
+                aria-hidden="true"
+              />
+              período anterior
+            </span>
+          )}
+        </div>
         <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="tablist" aria-label="Métrica do gráfico">
           {METRICS.map((m) => (
             <button
@@ -224,6 +235,22 @@ export function RevenueChart({
                   allowDecimals={false}
                 />
                 {tooltip}
+                {/* Item 272: curva fantasma do período anterior — tracejada,
+                    sem preenchimento, atrás da curva principal */}
+                {hasGhost && (
+                  <Area
+                    type="monotone"
+                    dataKey="ghost"
+                    name="Período anterior"
+                    stroke="rgba(161,161,170,0.45)"
+                    strokeWidth={1.5}
+                    strokeDasharray="5 4"
+                    fill="none"
+                    dot={false}
+                    activeDot={false}
+                    animationDuration={500}
+                  />
+                )}
                 <Area
                   type="monotone"
                   dataKey={metric}
