@@ -107,16 +107,16 @@ Estes caem em Levas 3/4 que o tracker marcou "100% / COMPLETA", mas não têm li
 - **334.** Agrupar "N visitas em sequência" em linha expansível.
 - **335.** Som opcional de "venda" (toggle, off por padrão).
 - **336.** Notificação nativa do navegador para vendas em segundo plano.
-- **337.** Exportar feed filtrado como CSV.
+- ~~**337.** Exportar feed filtrado como CSV~~ — ✅ FEITO: botão "CSV" ao lado do contador exporta o recorte ATUAL (todos os filtros aplicados), client-side com BOM UTF-8; e-mail mascarado (o arquivo circula fora do painel). Mesmo padrão do CSV de leads (item 130/310).
 - **338.** Virtualização do feed acima de 300 eventos.
 - **339.** Auto-scroll "seguir ao vivo" com pausa ao hover.
 - ~~**340.** Linha de resumo por dia no separador ("12 vendas · R$ 340 · 2 recusadas")~~ — ✅ FEITO: separador de dia ganhou resumo do dia INTEIRO filtrado (não só das linhas visíveis): "N vendas · R$ X" + "M recusadas" quando houver. Verificado no browser ("8 vendas · R$ 327,47").
 - **341.** Ícone de replay: reprocessar evento failed direto do feed.
 - **342.** Detalhe expandido com raw do webhook (JSON colapsável).
 - ~~**343.** Permalink de evento (`/activity?e=<id>`)~~ — ✅ FEITO: botão "Copiar link" na expansão do evento; na chegada com `?e=`, garante o evento na página (ajusta o limit da paginação), zera filtros se ele estiver fora deles, rola até a linha (scrollIntoView center) e destaca com outline+flash; limpa o param da URL depois. Verificado no browser: `?e=evt_seed_0_0` → achou, destacou, URL limpa.
-- **344.** Marco visual "melhor venda do dia" (destaque dourado).
-- **345.** Densidade compacta obedece `prefs.density` no feed.
-- **348.** Acessibilidade: `role="feed"` e `aria-busy` na revalidação.
+- ~~**344.** Marco visual "melhor venda do dia" (destaque dourado)~~ — ✅ FEITO: badge âmbar "top do dia" com troféu na maior venda de cada dia (só com 2+ vendas no dia — com uma única, o marco não informa nada). Verificado com screenshot (R$ 183,09 hoje, R$ 203,62 ontem).
+- ~~**345.** Densidade compacta obedece `prefs.density` no feed~~ — ✅ FEITO: classe `.feed-row` nas linhas + regra `html[data-density='compact'] .feed-row { padding-block: .45rem }` (12px → 7.2px, medido no browser).
+- ~~**348.** Acessibilidade: `role="feed"` e `aria-busy` na revalidação~~ — ✅ FEITO: container do feed com `role="feed"`, `aria-label` e `aria-busy={isValidating}` (SWR). Verificado no browser.
 - **349.** Retenção configurável de eventos (auditar `logEvent`; cap + arquivamento).
 - **350.** Testes do agrupamento, filtros e permalink.
 
