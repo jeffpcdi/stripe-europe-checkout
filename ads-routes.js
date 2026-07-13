@@ -97,11 +97,27 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // ── OAuth: gera a URL de autorização do TikTok Business ───────────────────
   // Aceita GET e POST: o painel chama via POST (ação), mas mantemos GET
   // para compatibilidade com integrações antigas.
+  //
+  // FIX: o endpoint canônico da Zernio é GET /connect/{platform}/ads →
+  // /connect/tiktok/ads (docs: "Connect ads for a platform"). O caminho
+  // antigo /connect/tiktok-ads não é a rota de OAuth (só existe como PATCH,
+  // para Brand Identity) e levava o usuário ao dashboard/login da Zernio em
+  // vez da tela de autorização do TikTok for Business.
+  //
+  // Escopo da BC: o TikTok escolhe os advertisers NA TELA DE CONSENTIMENTO
+  // do OAuth ("tiktok scopes advertisers at OAuth"). Se o usuário marcar a
+  // Business Center inteira, a Zernio enumera todos os advertisers da BC
+  // automaticamente em GET /ads/accounts (sem cap por chamada).
   async function startConnect(req, res) {
     try {
       const profileId = await zernio.ensureProfile(req.account.id);
       // Modo ads-only (sem accountId de posting): anúncios usam Brand Identity.
-      const data = await zernio.api('GET', '/connect/tiktok-ads', { query: { profileId } });
+      const data = await zernio.api('GET', '/connect/tiktok/ads', { query: { profileId } });
+      // Já conectado nesta profile → devolve como sucesso imediato (o front
+      // confirma via POST /api/ads/connected, que resolve a SocialAccount).
+      if (data && data.alreadyConnected) {
+        return res.json({ alreadyConnected: true, authUrl: '' });
+      }
       if (!data || !data.authUrl) return res.status(502).json({ error: 'Zernio não retornou a URL de autorização' });
       res.json({ authUrl: data.authUrl });
     } catch (err) { fail(res, err); }
