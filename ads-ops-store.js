@@ -45,9 +45,134 @@ function assertMutationAllowed(policy, context) {
   return { allowed: true, dryRun: p.dryRun };
 }
 
+// Autocura de schema: as tabelas ads_* precisam existir sempre que o app
+// conectar (qualquer branch/banco). Sem isto, uma conexão a um banco sem essas
+// tabelas quebrava com `relation "ads_safety_policies" does not exist`. Roda no
+// boot (server.js) e é idempotente — CREATE TABLE IF NOT EXISTS nunca destrói
+// dados existentes.
+let schemaReady = null;
+async function ensureSchema() {
+  if (!enabled) return false;
+  if (schemaReady) return schemaReady;
+  schemaReady = (async () => {
+    await sql`CREATE TABLE IF NOT EXISTS ads_safety_policies (
+      id text PRIMARY KEY,
+      account_id text NOT NULL UNIQUE,
+      enabled boolean NOT NULL DEFAULT true,
+      dry_run boolean NOT NULL DEFAULT true,
+      kill_switch boolean NOT NULL DEFAULT false,
+      daily_spend_cap numeric,
+      max_budget_change_pct numeric NOT NULL DEFAULT 20,
+      cooldown_minutes integer NOT NULL DEFAULT 60,
+      allowed_hours jsonb NOT NULL DEFAULT '{}'::jsonb,
+      blocked_advertiser_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+      circuit_breaker_error_pct numeric NOT NULL DEFAULT 25,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_jobs (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      kind text NOT NULL,
+      status text NOT NULL DEFAULT 'queued',
+      idempotency_key text NOT NULL,
+      advertiser_id text,
+      payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+      progress jsonb NOT NULL DEFAULT '{}'::jsonb,
+      error text,
+      attempts integer NOT NULL DEFAULT 0,
+      next_attempt_at timestamptz,
+      locked_at timestamptz,
+      locked_by text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      completed_at timestamptz,
+      UNIQUE (account_id, idempotency_key)
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_jobs_account_created_idx ON ads_jobs (account_id, created_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_jobs_claim_idx ON ads_jobs (status, next_attempt_at)`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_job_items (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      job_id text NOT NULL,
+      item_index integer NOT NULL,
+      status text NOT NULL DEFAULT 'queued',
+      idempotency_key text NOT NULL,
+      payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+      result jsonb,
+      error text,
+      attempts integer NOT NULL DEFAULT 0,
+      next_attempt_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (account_id, job_id, item_index),
+      UNIQUE (account_id, idempotency_key)
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_job_items_job_idx ON ads_job_items (job_id)`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_audit_events (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      actor_type text NOT NULL,
+      actor_id text,
+      action text NOT NULL,
+      target_type text,
+      target_id text,
+      advertiser_id text,
+      job_id text,
+      before_state jsonb,
+      after_state jsonb,
+      reason text,
+      metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_audit_events_account_created_idx ON ads_audit_events (account_id, created_at DESC)`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_account_health (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      advertiser_id text NOT NULL,
+      advertiser_name text,
+      status text NOT NULL DEFAULT 'unknown',
+      raw_status text,
+      status_reason text,
+      first_seen_banned_at timestamptz,
+      last_checked_at timestamptz NOT NULL DEFAULT now(),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (account_id, advertiser_id)
+    )`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_unban_tickets (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      advertiser_id text NOT NULL,
+      advertiser_name text,
+      status text NOT NULL DEFAULT 'open',
+      appeal_text text,
+      appeal_url text,
+      notes text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      submitted_at timestamptz,
+      resolved_at timestamptz
+    )`;
+    // Índice único parcial: no máximo 1 ticket ativo (open/submitted) por
+    // advertiser. É a garantia de idempotência de createUnbanTicketIfAbsent.
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_unban_tickets_open ON ads_unban_tickets (account_id, advertiser_id) WHERE status IN ('open', 'submitted')`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_ads_unban_tickets_account ON ads_unban_tickets (account_id, status, created_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_ads_account_health_account ON ads_account_health (account_id, status)`;
+    console.log('[ads-ops] schema verificado/criado');
+    return true;
+  })().catch((err) => {
+    // Não deixa uma falha transitória "gravar" um schema pronto — permite retry.
+    schemaReady = null;
+    throw err;
+  });
+  return schemaReady;
+}
+
 async function getSafetyPolicy(accountId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return normalizePolicy({});
+  await ensureSchema();
   const rows = await sql`SELECT enabled, dry_run, kill_switch, daily_spend_cap, max_budget_change_pct, cooldown_minutes, allowed_hours, blocked_advertiser_ids, circuit_breaker_error_pct FROM ads_safety_policies WHERE account_id = ${accountId} LIMIT 1`;
   if (!rows.length) return normalizePolicy({});
   const row = rows[0];
@@ -57,6 +182,7 @@ async function getSafetyPolicy(accountId) {
 async function saveSafetyPolicy(accountId, input) {
   accountId = cleanAccountId(accountId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
   const p = normalizePolicy(input);
   await sql`INSERT INTO ads_safety_policies (id, account_id, enabled, dry_run, kill_switch, daily_spend_cap, max_budget_change_pct, cooldown_minutes, allowed_hours, blocked_advertiser_ids, circuit_breaker_error_pct) VALUES (${id('sp_')}, ${accountId}, ${p.enabled}, ${p.dryRun}, ${p.killSwitch}, ${p.dailySpendCap}, ${p.maxBudgetChangePct}, ${p.cooldownMinutes}, ${JSON.stringify(p.allowedHours)}, ${JSON.stringify(p.blockedAdvertiserIds)}, ${p.circuitBreakerErrorPct}) ON CONFLICT (account_id) DO UPDATE SET enabled = EXCLUDED.enabled, dry_run = EXCLUDED.dry_run, kill_switch = EXCLUDED.kill_switch, daily_spend_cap = EXCLUDED.daily_spend_cap, max_budget_change_pct = EXCLUDED.max_budget_change_pct, cooldown_minutes = EXCLUDED.cooldown_minutes, allowed_hours = EXCLUDED.allowed_hours, blocked_advertiser_ids = EXCLUDED.blocked_advertiser_ids, circuit_breaker_error_pct = EXCLUDED.circuit_breaker_error_pct, updated_at = now()`;
   // Contrato único (camelCase normalizado) para GET e PUT — a UI nunca vê a row crua.
@@ -80,6 +206,7 @@ async function findJobByIdempotencyKey(accountId, key) {
   if (!enabled) return null;
   const value = String(key || '').trim().slice(0, 200);
   if (!value) return null;
+  await ensureSchema();
   const rows = await sql`SELECT id, status FROM ads_jobs WHERE account_id = ${accountId} AND idempotency_key = ${value} LIMIT 1`;
   return rows[0] || null;
 }
@@ -87,6 +214,7 @@ async function findJobByIdempotencyKey(accountId, key) {
 async function listJobs(accountId, limit) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
+  await ensureSchema();
   const size = Math.min(100, Math.max(1, Number(limit) || 30));
   return sql`SELECT id, kind, status, advertiser_id, progress, error, attempts, created_at, updated_at, completed_at FROM ads_jobs WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${size}`;
 }
@@ -94,6 +222,7 @@ async function listJobs(accountId, limit) {
 async function persistBulkSnapshot(job) {
   const accountId = cleanAccountId(job && job.accountId);
   if (!enabled) return false;
+  await ensureSchema();
   const status = job.status === 'done' ? (job.failed > 0 ? (job.done > 0 ? 'partial' : 'failed') : 'completed') : (job.status === 'running' ? 'running' : 'queued');
   const idempotencyKey = String((job.meta && job.meta.idempotencyKey) || ('bulk:' + job.id)).slice(0, 200);
   await sql`INSERT INTO ads_jobs (id, account_id, kind, status, idempotency_key, advertiser_id, payload, progress, error, completed_at) VALUES (${job.id}, ${accountId}, ${String(job.kind || 'bulk_create').slice(0, 80)}, ${status}, ${idempotencyKey}, ${String(job.adAccountId || '').slice(0, 120) || null}, ${JSON.stringify({ meta: job.meta || {}, createdAt: job.createdAt })}, ${JSON.stringify({ total: job.total || 0, completed: job.done || 0, failed: job.failed || 0 })}, ${null}, ${status === 'completed' || status === 'partial' || status === 'failed' ? new Date().toISOString() : null}) ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, progress = EXCLUDED.progress, completed_at = EXCLUDED.completed_at, updated_at = now()`;
@@ -108,6 +237,7 @@ async function persistBulkSnapshot(job) {
 async function getBulkSnapshot(accountId, jobId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return null;
+  await ensureSchema();
   const rows = await sql`SELECT id, kind, status, advertiser_id, payload, progress, created_at FROM ads_jobs WHERE account_id = ${accountId} AND id = ${String(jobId || '')} LIMIT 1`;
   if (!rows.length) return null;
   const itemRows = await sql`SELECT item_index, status, payload, result, error FROM ads_job_items WHERE account_id = ${accountId} AND job_id = ${String(jobId || '')} ORDER BY item_index ASC`;
@@ -133,6 +263,7 @@ function circuitBreakerOpen(samples, thresholdPct, minimumSamples) {
 async function appendAuditEvent(accountId, input) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return null;
+  await ensureSchema();
   const value = input || {};
   const rows = await sql`INSERT INTO ads_audit_events (id, account_id, actor_type, actor_id, action, target_type, target_id, advertiser_id, job_id, before_state, after_state, reason, metadata) VALUES (${id('audit_')}, ${accountId}, ${String(value.actorType || 'system').slice(0, 40)}, ${value.actorId ? String(value.actorId).slice(0, 120) : null}, ${String(value.action || 'unknown').slice(0, 100)}, ${value.targetType ? String(value.targetType).slice(0, 60) : null}, ${value.targetId ? String(value.targetId).slice(0, 160) : null}, ${value.advertiserId ? String(value.advertiserId).slice(0, 120) : null}, ${value.jobId ? String(value.jobId).slice(0, 160) : null}, ${value.beforeState ? JSON.stringify(value.beforeState) : null}, ${value.afterState ? JSON.stringify(value.afterState) : null}, ${value.reason ? String(value.reason).slice(0, 500) : null}, ${JSON.stringify(value.metadata || {})}) RETURNING *`;
   return rows[0];
@@ -209,6 +340,7 @@ function normalizeAccountStatus(rawStatus) {
 async function upsertAccountHealth(accountId, advertisers) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
+  await ensureSchema();
   const transitions = [];
   for (const adv of Array.isArray(advertisers) ? advertisers : []) {
     const advertiserId = String(adv.advertiserId || '').trim().slice(0, 120);
@@ -231,6 +363,7 @@ async function upsertAccountHealth(accountId, advertisers) {
 async function listAccountHealth(accountId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
+  await ensureSchema();
   return sql`SELECT advertiser_id, advertiser_name, status, raw_status, status_reason, first_seen_banned_at, last_checked_at FROM ads_account_health WHERE account_id = ${accountId} ORDER BY CASE status WHEN 'banned' THEN 0 WHEN 'limited' THEN 1 WHEN 'in_review' THEN 2 WHEN 'approved' THEN 3 ELSE 4 END, advertiser_name ASC NULLS LAST`;
 }
 
@@ -241,6 +374,7 @@ const TICKET_STATUSES = new Set(['open', 'submitted', 'resolved', 'dismissed']);
 async function createUnbanTicketIfAbsent(accountId, input) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return null;
+  await ensureSchema();
   const value = input || {};
   const advertiserId = String(value.advertiserId || '').trim().slice(0, 120);
   if (!advertiserId) throw new Error('advertiserId obrigatório');
@@ -257,6 +391,7 @@ async function createUnbanTicketIfAbsent(accountId, input) {
 async function listUnbanTickets(accountId, limit) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
+  await ensureSchema();
   const size = Math.min(100, Math.max(1, Number(limit) || 50));
   return sql`SELECT id, advertiser_id, advertiser_name, status, appeal_text, appeal_url, notes, created_at, updated_at, submitted_at, resolved_at FROM ads_unban_tickets WHERE account_id = ${accountId} ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'submitted' THEN 1 ELSE 2 END, created_at DESC LIMIT ${size}`;
 }
@@ -277,4 +412,4 @@ async function resolveTicketsForAdvertiser(accountId, advertiserId) {
   return sql`UPDATE ads_unban_tickets SET status = 'resolved', resolved_at = now(), notes = COALESCE(notes || ' | ', '') || 'Conta reativada — resolvido automaticamente', updated_at = now() WHERE account_id = ${accountId} AND advertiser_id = ${String(advertiserId || '')} AND status IN ('open','submitted') RETURNING id, advertiser_id`;
 }
 
-module.exports = { enabled, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };
