@@ -72,9 +72,13 @@ export function RoasCard({ active, delay = 0 }: { active: boolean; delay?: numbe
   const profitable = data.roas !== null && data.roas >= 1
 
   return (
-    <GlassCard className="anim-kpi-in p-4" style={{ animationDelay: `${delay}ms` }}>
+    /* V2-93: card ROAS com hover-glow + borda verde-lucro quando profitable */
+    <GlassCard
+      className={cn('anim-kpi-in hover-glow p-4', profitable && 'shadow-[var(--glow-money)]')}
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div className="flex items-center justify-between gap-2">
-        <p className="label-mono text-[10px] text-muted-foreground">ROAS real · últimos 7 dias</p>
+        <p className="label-mono label-mono--gradient text-[10px]">ROAS real · últimos 7 dias</p>
         <HandCoins className="size-4 text-muted-foreground" aria-hidden="true" />
       </div>
 

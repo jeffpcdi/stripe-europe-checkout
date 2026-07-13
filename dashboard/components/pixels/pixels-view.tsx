@@ -355,7 +355,7 @@ export function PixelsView() {
                 type="button"
                 data-tour="pixels-new"
                 onClick={() => setCreating(true)}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
+                className="btn-shine flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
               >
                 <Plus className="size-3.5" /> Novo pixel
               </button>
@@ -843,8 +843,9 @@ export function PixelsView() {
             </GlassCard>
           )}
 
-          <GlassCard className="p-5">
-            <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Disparos recentes</h2>
+      {/* V2-91: log de disparos com scanline ciano "ao vivo" */}
+      <GlassCard className="scan-live p-5">
+        <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Disparos recentes</h2>
             <p className="mb-3 text-xs text-muted-foreground">Log da Events API — inclui descartes e o motivo</p>
             {!log || log.log.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Nenhum disparo registrado ainda.</p>

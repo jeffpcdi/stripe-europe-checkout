@@ -307,8 +307,9 @@ export function FunnelView() {
         </div>
       </div>
 
-      {/* Funil */}
-      <GlassCard className="p-5">
+      {/* V2-85: card do funil vira peça central com borda energia + hairline;
+          o selo "gargalo" agora pulsa a borda para puxar o olho */}
+      <GlassCard className="energy-border top-hairline p-5">
         <h2 className="section-head mb-4 text-sm font-semibold text-foreground">Funil de conversão</h2>
         <div className="flex flex-col gap-4">
           {steps.map((st, i) => {
@@ -322,7 +323,8 @@ export function FunnelView() {
                     <ChevronDown className="size-3" aria-hidden="true" />
                     <span>{st.stepRate}</span>
                     {st.isBottleneck ? (
-                      <span className="rounded-full bg-[rgba(254,44,85,.12)] px-1.5 py-px font-semibold uppercase tracking-wider text-[#fe2c55]">
+                      /* V2-86: selo com anel pulsante — o gargalo grita */
+                      <span className="badge-new rounded-full bg-[rgba(254,44,85,.12)] px-1.5 py-px font-semibold uppercase tracking-wider text-[#fe2c55]">
                         gargalo
                       </span>
                     ) : null}

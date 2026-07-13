@@ -587,8 +587,8 @@ export function GatewaysView() {
           )}
         </GlassCard>
 
-        {/* Log de webhooks recebidos */}
-        <GlassCard className="min-w-0 p-5" data-tour="gateways-webhooks">
+        {/* V2-88: painel do log com scanline ciano — sinaliza "ao vivo" */}
+        <GlassCard className="scan-live min-w-0 p-5" data-tour="gateways-webhooks">
           <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Webhooks recebidos</h2>
           <p className="mb-3 text-xs text-muted-foreground">Últimas conversões processadas dos seus gateways</p>
           {!convLog || convLog.log.length === 0 ? (

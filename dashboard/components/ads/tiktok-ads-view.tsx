@@ -262,8 +262,12 @@ export function TikTokAdsView() {
       />
 
       {!effectiveAdvertiser ? (
+        /* V2-94: empty state do Ads com ícone flutuante + sombra que respira */
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
-          <Megaphone className="size-8 text-muted-foreground" aria-hidden="true" />
+          <span className="empty-icon flex size-12 items-center justify-center rounded-xl bg-[var(--accent-light)] text-brand-cyan">
+            <Megaphone className="size-6" aria-hidden="true" />
+          </span>
+          <span className="empty-icon-shadow -mt-2" aria-hidden="true" />
           <p className="text-sm font-medium text-foreground">Selecione um advertiser</p>
           <p className="max-w-md text-pretty text-xs text-muted-foreground">
             Escolha acima qual conta de anúncio do TikTok você quer gerenciar. As campanhas, métricas e a

@@ -105,10 +105,11 @@ export function KpiCard({
 }) {
   const flashing = useValueFlash(watch, 400)
   const card = (
-    /* V2-59: KPIs ganham hover-glow (lift + halo ciano) e o hero um tilt 3D */
+    /* V2-59: hover-glow + tilt 3D no hero; V2-83: spotlight segue o cursor */
     <GlassCard
       hover
       sheen
+      spotlight
       role="group"
       aria-label={ariaLabel}
       className={cn(

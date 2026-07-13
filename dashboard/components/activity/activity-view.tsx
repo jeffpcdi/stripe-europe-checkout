@@ -1056,7 +1056,16 @@ export function ActivityView() {
             </button>
           </div>
         ) : (
-          <p className="py-12 text-center text-sm text-muted-foreground">Nenhum evento ainda.</p>
+          /* V2-89: empty state com ícone flutuante + sombra que respira,
+             substituindo a linha de texto seca */
+          <div className="flex flex-col items-center gap-1 py-12">
+            <span className="empty-icon flex size-11 items-center justify-center rounded-xl bg-[var(--accent-light)] text-brand-cyan">
+              <Eye className="size-5" aria-hidden="true" />
+            </span>
+            <span className="empty-icon-shadow" aria-hidden="true" />
+            <p className="mt-2 text-sm text-muted-foreground">Nenhum evento ainda.</p>
+            <p className="text-xs text-faint">As visitas e vendas aparecem aqui em tempo real.</p>
+          </div>
         )}
       </GlassCard>
     </div>

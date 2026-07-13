@@ -154,24 +154,26 @@ export function CloakStatsPanel() {
       {/* Item 169: leitura de impacto em linguagem de negócio — traduz os
           contadores crus em "público real que viu a oferta" x "robôs/revisores
           barrados na white page", em vez de só offer/white numérico */}
+      {/* V2-90: cards offer/white com números mono grandes + entrada em
+          stagger + hover que intensifica o tint da própria cor */}
       {agg && agg.total > 0 && (
         <div className="mb-4 grid grid-cols-2 gap-2">
-          <div className="rounded-lg border border-success/30 bg-success/10 p-3">
+          <div className="anim-row-in rounded-lg border border-success/30 bg-success/10 p-3 transition-colors hover:bg-success/15">
             <div className="flex items-center gap-1.5 text-success">
               <Target className="size-3.5" aria-hidden="true" />
-              <span className="text-[11px] font-medium uppercase tracking-wide">Público real na oferta</span>
+              <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Público real na oferta</span>
             </div>
-            <p className="mt-1 text-xl font-semibold text-foreground">{agg.offer.toLocaleString('pt-BR')}</p>
+            <p className="mt-1 font-mono text-xl font-bold tabular-nums text-foreground">{agg.offer.toLocaleString('pt-BR')}</p>
             <p className="text-[11px] leading-snug text-muted-foreground">
               acessos que passaram no filtro e viram a offer
             </p>
           </div>
-          <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
+          <div className="anim-row-in rounded-lg border border-warning/30 bg-warning/10 p-3 transition-colors hover:bg-warning/15" style={{ animationDelay: '70ms' }}>
             <div className="flex items-center gap-1.5 text-warning">
               <ShieldCheck className="size-3.5" aria-hidden="true" />
-              <span className="text-[11px] font-medium uppercase tracking-wide">Robôs/revisores barrados</span>
+              <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Robôs/revisores barrados</span>
             </div>
-            <p className="mt-1 text-xl font-semibold text-foreground">{agg.white.toLocaleString('pt-BR')}</p>
+            <p className="mt-1 font-mono text-xl font-bold tabular-nums text-foreground">{agg.white.toLocaleString('pt-BR')}</p>
             <p className="text-[11px] leading-snug text-muted-foreground">
               enviados à white page e longe da sua oferta
             </p>

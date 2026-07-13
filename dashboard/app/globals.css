@@ -2208,6 +2208,67 @@ kbd {
   display: inline-block;
 }
 
+/* V2-95: seleção de texto rosa em zonas de perigo (contraste semântico) */
+.danger-zone ::selection {
+  background: rgba(254, 44, 85, 0.35);
+  color: #fff;
+}
+
+/* V2-96: skeleton com onda dupla — segunda passada rosa fraca defasada */
+.skeleton {
+  position: relative;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--pink-6), transparent);
+  background-size: 200% 100%;
+  animation: shimmerNeon 2.4s linear infinite;
+  animation-delay: 600ms;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* V2-97: botão primário com brilho que atravessa no hover */
+.btn-shine {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.35) 50%, transparent 60%);
+  transform: translateX(-120%);
+  transition: transform 500ms var(--ease);
+  pointer-events: none;
+}
+.btn-shine:hover::after {
+  transform: translateX(120%);
+}
+
+/* V2-98: caret dos inputs na cor da marca */
+input,
+textarea {
+  caret-color: var(--accent);
+}
+
+/* V2-99: âncoras de scroll suaves com folga para o header sticky */
+html {
+  scroll-behavior: smooth;
+}
+[id] {
+  scroll-margin-top: 88px;
+}
+
+/* V2-100: marca d'água HUD — grade de pontos ciano ultra-sutil em painéis
+   especiais (assinatura final da identidade visual) */
+.dot-matrix {
+  background-image: radial-gradient(rgba(37, 244, 238, 0.05) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
 /* ============================================================
    Acessibilidade — reduced motion
    ============================================================ */

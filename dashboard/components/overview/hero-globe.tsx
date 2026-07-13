@@ -104,7 +104,8 @@ export function HeroGlobe() {
         <LiveStat icon={Globe2} value={countries.length} label="Países ativos" active={countries.length > 0} />
       </div>
 
-      <div className="relative h-[400px] w-full sm:h-[500px]">
+      {/* V2-100: grade de pontos ciano ultra-sutil atrás do globo */}
+      <div className="dot-matrix relative h-[400px] w-full sm:h-[500px]">
         {isLoading && !data ? <GlobeSkeleton /> : <GlobePanel countries={countries} metric="visits" />}
       </div>
 

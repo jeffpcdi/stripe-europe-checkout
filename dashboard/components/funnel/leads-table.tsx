@@ -472,8 +472,9 @@ export function LeadsTable({
 
       {filtered.length > 0 ? (
         <>
+          {/* V2-84: zebra sutil nas linhas pares — leitura de tabela longa */}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
+            <table className="table-zebra w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-border/60">
                   <th className="label-mono pb-2 pr-3">ID</th>
