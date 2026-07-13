@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Timer, X } from 'lucide-react'
 import { useStats } from '@/lib/api'
 import { aggregate, periodStart } from '@/lib/metrics'
 import { GlassCard } from '@/components/glass-card'
@@ -275,17 +275,32 @@ export function FunnelView() {
             ))}
           </select>
         ) : null}
-        {hasFilter ? (
-          <button
-            type="button"
-            onClick={() => {
-              setLinkFilter('')
-              setCampaignFilter('')
-            }}
-            className="h-8 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Limpar filtros
-          </button>
+        {/* A4.5: filtro ativo vira pill removível com X */}
+        {linkFilter ? (
+          <span className="flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 py-1 pl-2.5 pr-1 font-mono text-[11px] text-accent">
+            /{linkFilter}
+            <button
+              type="button"
+              onClick={() => setLinkFilter('')}
+              aria-label={`Remover filtro do link ${linkFilter}`}
+              className="rounded-full p-0.5 transition-colors hover:bg-accent/20"
+            >
+              <X className="size-3" aria-hidden="true" />
+            </button>
+          </span>
+        ) : null}
+        {campaignFilter ? (
+          <span className="flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 py-1 pl-2.5 pr-1 font-mono text-[11px] text-accent">
+            {campaignFilter}
+            <button
+              type="button"
+              onClick={() => setCampaignFilter('')}
+              aria-label={`Remover filtro da campanha ${campaignFilter}`}
+              className="rounded-full p-0.5 transition-colors hover:bg-accent/20"
+            >
+              <X className="size-3" aria-hidden="true" />
+            </button>
+          </span>
         ) : null}
         <div className="ml-auto">
           <PeriodPicker value={period} onChange={setPeriod} />
@@ -300,6 +315,19 @@ export function FunnelView() {
             const w = Math.max(5, (st.value / max) * 100)
             return (
               <div key={st.label} className="flex flex-col gap-1">
+                {/* A4.2: conector entre etapas com a taxa de passagem; o maior
+                    ponto de queda ganha o selo "gargalo" em vermelho */}
+                {i > 0 && st.stepRate ? (
+                  <div className="flex items-center gap-1.5 pl-[152px] pb-1 font-mono text-[10px] tabular-nums text-faint">
+                    <ChevronDown className="size-3" aria-hidden="true" />
+                    <span>{st.stepRate}</span>
+                    {st.isBottleneck ? (
+                      <span className="rounded-full bg-[rgba(254,44,85,.12)] px-1.5 py-px font-semibold uppercase tracking-wider text-[#fe2c55]">
+                        gargalo
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-[140px_1fr_60px] items-center gap-3">
                   <div className="flex min-w-0 items-center gap-1.5">
                     <div className="min-w-0">
@@ -325,16 +353,19 @@ export function FunnelView() {
                           : 'h-8 flex-1 overflow-hidden rounded-md bg-muted/30'
                       }
                     >
-                      {/* Item 143: preenchimento da esquerda com stagger de 300ms */}
+                      {/* Item 143: preenchimento da esquerda com stagger de 300ms.
+                          A4.3: partículas ciano fluem pela barra preenchida. */}
                       <div
                         key={`${period}-${st.value}`}
-                        className="funnel-bar h-full rounded-md"
+                        className="funnel-bar relative h-full rounded-md"
                         style={{
                           width: `${w}%`,
                           background: st.bar,
                           animationDelay: `${i * 300}ms`,
                         }}
-                      />
+                      >
+                        {st.value > 0 ? <span className="funnel-flow" aria-hidden="true" /> : null}
+                      </div>
                     </div>
                     {/* Itens 108/147: cápsula glass com CountUp mono */}
                     <span
@@ -398,6 +429,69 @@ export function FunnelView() {
           </div>
         ) : null}
       </GlassCard>
+
+      {/* A4.5: estado vazio filtrado ganha CTA para limpar os filtros */}
+      {hasFilter && (m?.visits ?? 0) === 0 ? (
+        <GlassCard className="flex flex-col items-center gap-3 p-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            Nenhuma visita corresponde aos filtros ativos neste período.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setLinkFilter('')
+              setCampaignFilter('')
+            }}
+            className="btn-ghost !px-4"
+          >
+            Limpar filtros
+          </button>
+        </GlassCard>
+      ) : null}
+
+      {/* A4.4: tempos medianos entre etapas em cards compactos com count-up */}
+      {stageExtras && (stageExtras.v2cMedian != null || stageExtras.c2pMedian != null) ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {stageExtras.v2cMedian != null ? (
+            <GlassCard className="flex items-center gap-3 p-4">
+              <span
+                className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
+              >
+                <Timer className="size-5" style={{ color: '#25f4ee' }} aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-sm text-muted-foreground">Visita → checkout</p>
+                <p className="font-mono text-lg font-semibold tabular-nums text-foreground">
+                  <CountUp
+                    value={stageExtras.v2cMedian}
+                    format={(v) => fmtDurationShort(v)}
+                  />
+                </p>
+              </div>
+            </GlassCard>
+          ) : null}
+          {stageExtras.c2pMedian != null ? (
+            <GlassCard className="flex items-center gap-3 p-4">
+              <span
+                className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                style={{ backgroundColor: 'rgba(34,197,94,.1)' }}
+              >
+                <Timer className="size-5" style={{ color: '#22c55e' }} aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-sm text-muted-foreground">Checkout → compra</p>
+                <p className="font-mono text-lg font-semibold tabular-nums text-foreground">
+                  <CountUp
+                    value={stageExtras.c2pMedian}
+                    format={(v) => fmtDurationShort(v)}
+                  />
+                </p>
+              </div>
+            </GlassCard>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Cards por gateway */}
       <div>

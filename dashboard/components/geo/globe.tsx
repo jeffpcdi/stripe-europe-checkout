@@ -20,6 +20,20 @@ interface GeoArc {
   endLng: number
 }
 
+interface GeoRing {
+  lat: number
+  lng: number
+  /** intensidade 0–1 proporcional ao tráfego — modula o raio da onda */
+  intensity: number
+}
+
+interface GeoLabel {
+  lat: number
+  lng: number
+  text: string
+  size: number
+}
+
 interface GlobePanelProps {
   countries: { code: string; name: string; count: number; purchased: number }[]
   /* Item 161: código do país em foco (hover na tabela) — gira o globo até ele */
@@ -36,6 +50,14 @@ const ALT_MIN = 1.2
 const ALT_MAX = 3.5
 const ALT_DEFAULT = 2.2
 const ALT_STEP = 0.45
+// Refino 8: entrada cinematográfica — altitude inicial e duração
+const ALT_ENTRY = 4.0
+const ENTRY_MS = 1200
+
+// Refino 9: velocidades da interação magnética
+const SPIN_IDLE = 0.35
+const SPIN_HOVER = 0.9
+const RESUME_AFTER_MS = 3000
 
 function buildPoints(
   countries: GlobePanelProps['countries'],
@@ -58,13 +80,33 @@ function buildPoints(
       },
     ]
   })
-  // Anéis pulsantes apenas onde houve vendas — chamam atenção para conversões
-  const rings = countries.flatMap((c) => {
+
+  // Refino 5: anéis de pulso nos 3 países com mais tráfego, intensidade
+  // proporcional (raio da onda cresce com o tráfego). Vendas continuam
+  // pulsando em rosa via cor no ringColor.
+  const top3 = countries.slice(0, 3)
+  const topMax = Math.max(1, ...top3.map((c) => c.count))
+  const rings: GeoRing[] = top3.flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
-    if (!coords || c.purchased <= 0) return []
-    return [{ lat: coords[0], lng: coords[1] }]
+    if (!coords) return []
+    return [{ lat: coords[0], lng: coords[1], intensity: c.count / topMax }]
   })
-  // Item 32: arcos de tráfego — dos demais países ativos para o país líder
+
+  // Refino 7: labels dos 3 maiores — nome + contagem em mono pequeno
+  const labels: GeoLabel[] = top3.flatMap((c) => {
+    const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
+    if (!coords) return []
+    return [
+      {
+        lat: coords[0],
+        lng: coords[1],
+        text: `${c.name} · ${c.count}`,
+        size: 0.85,
+      },
+    ]
+  })
+
+  // Item 32 / Refino 6: arcos de tráfego — dos demais países ativos para o líder
   const leader = countries[0]
   const leaderCoords = leader ? COUNTRY_COORDS[leader.code?.toUpperCase() ?? ''] : null
   const arcs: GeoArc[] = leaderCoords
@@ -81,10 +123,21 @@ function buildPoints(
         ]
       })
     : []
-  return { points, rings, arcs }
+  return { points, rings, arcs, labels }
 }
 
-/** Canvas do globo — reutilizado no painel e na tela cheia */
+/** True apenas na primeira montagem do globo nesta sessão do navegador. */
+function firstGlobeEntryThisSession(): boolean {
+  try {
+    if (sessionStorage.getItem('v0-once:globe-entry')) return false
+    sessionStorage.setItem('v0-once:globe-entry', '1')
+    return true
+  } catch {
+    return true
+  }
+}
+
+/** Canvas do globo — único contexto WebGL da aplicação */
 function GlobeCanvas({
   countries,
   width,
@@ -97,9 +150,8 @@ function GlobeCanvas({
   globeRef: React.MutableRefObject<any>
 }) {
   // Libera o contexto WebGL ao desmontar. O navegador limita a
-  // ~8-16 contextos simultâneos — sem dispose, navegar entre abas (e abrir/
-  // fechar a tela cheia, que monta um SEGUNDO canvas) vaza contextos até o
-  // navegador começar a matar os mais antigos ("context lost" no globo).
+  // ~8-16 contextos simultâneos — sem dispose, navegar entre abas
+  // vaza contextos até o navegador matar os mais antigos ("context lost").
   useEffect(() => {
     const ref = globeRef
     return () => {
@@ -138,8 +190,18 @@ function GlobeCanvas({
       /* renderer indisponível nesta versão */
     }
 
-    g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 0)
-    g.controls().autoRotateSpeed = 0.35
+    // Refino 8: entrada cinematográfica única por sessão — altitude 4.0→2.2
+    // com ease-out do próprio pointOfView. Reduced-motion e navegações
+    // seguintes pulam direto para o enquadramento final.
+    if (!reducedMotion && firstGlobeEntryThisSession()) {
+      g.pointOfView({ lat: 20, lng: -30, altitude: ALT_ENTRY }, 0)
+      window.setTimeout(() => {
+        globeRef.current?.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, ENTRY_MS)
+      }, 60)
+    } else {
+      g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 0)
+    }
+    g.controls().autoRotateSpeed = SPIN_IDLE
 
     // Item 289: pausa o render loop com a aba oculta — three.js continuaria
     // gastando GPU em segundo plano sem isso.
@@ -156,8 +218,6 @@ function GlobeCanvas({
     document.addEventListener('visibilitychange', onVisibility)
 
     // Fluidez: pausa o render loop quando o globo sai do viewport (scroll).
-    // Sem isso o three.js segue renderizando a 60fps invisível, roubando GPU
-    // dos cards e gráficos visíveis.
     let io: IntersectionObserver | null = null
     try {
       const canvasEl = g.renderer?.()?.domElement as HTMLCanvasElement | undefined
@@ -181,9 +241,19 @@ function GlobeCanvas({
       /* renderer indisponível — segue sem pausa por viewport */
     }
 
+    // Refino 3: emissive baixo no material do globo — massas de terra ganham
+    // contraste no tema dark sem estourar o brilho.
+    try {
+      const mat = g.globeMaterial?.()
+      if (mat) {
+        mat.emissive?.set?.('#0a2a2e')
+        mat.emissiveIntensity = 0.18
+      }
+    } catch {
+      /* material indisponível nesta versão */
+    }
+
     // Mais contraste: luzes mais fortes que os padrões suaves do three-globe.
-    // Intensidades compensam a remoção do filter CSS no canvas (que custava
-    // uma passada de composição por frame).
     try {
       for (const light of g.lights()) {
         if (light.type === 'DirectionalLight') light.intensity = 2.1
@@ -199,10 +269,12 @@ function GlobeCanvas({
     }
   }, [width, globeRef, reducedMotion])
 
-  // Fluidez: memoizado — antes recalculava (e recriava os arrays) a cada
-  // render do pai (poll do /api/live a cada 5s), forçando o three-globe a
-  // reconstruir pontos/anéis/arcos mesmo sem mudança real nos dados.
-  const { points, rings, arcs } = useMemo(() => buildPoints(countries, metric), [countries, metric])
+  // Fluidez: memoizado — antes recalculava a cada render do pai (poll do
+  // /api/live a cada 5s), forçando o three-globe a reconstruir tudo.
+  const { points, rings, arcs, labels } = useMemo(
+    () => buildPoints(countries, metric),
+    [countries, metric],
+  )
 
   return (
     <GlobeGL
@@ -210,10 +282,15 @@ function GlobeCanvas({
       width={width}
       height={height}
       backgroundColor="rgba(0,0,0,0)"
-      globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
-      bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
+      /* Refino 1: céu estrelado LOCAL — resolve o fundo vazio sem unpkg */
+      backgroundImageUrl="/textures/night-sky.png"
+      /* Refino 3: texturas locais — terra noturna + relevo topográfico */
+      globeImageUrl="/textures/earth-night.jpg"
+      bumpImageUrl="/textures/earth-topology.png"
+      /* Refino 2: atmosfera ciano da marca */
+      showAtmosphere
       atmosphereColor={CYAN}
-      atmosphereAltitude={0.22}
+      atmosphereAltitude={0.18}
       pointsData={points}
       pointLat="lat"
       pointLng="lng"
@@ -222,12 +299,23 @@ function GlobeCanvas({
       pointRadius={(d: object) => (d as GeoPoint).size}
       pointLabel="label"
       pointsMerge={false}
+      /* Refino 5: ondas concêntricas ciano nos hotspots, raio ∝ tráfego */
       ringsData={rings}
-      ringColor={() => (t: number) => `rgba(254,44,85,${1 - t})`}
-      ringMaxRadius={4}
+      ringColor={() => (t: number) => `rgba(37,244,238,${(1 - t) * 0.75})`}
+      ringMaxRadius={(d: object) => 1.5 + (d as GeoRing).intensity * 1.5}
       ringPropagationSpeed={2}
-      ringRepeatPeriod={900}
-      /* Item 32: arcos ciano→rosa com dash animado rumo ao país líder */
+      ringRepeatPeriod={1400}
+      /* Refino 7: labels mono dos top países */
+      labelsData={labels}
+      labelLat="lat"
+      labelLng="lng"
+      labelText="text"
+      labelSize="size"
+      labelColor={() => 'rgba(255,255,255,0.85)'}
+      labelDotRadius={0.28}
+      labelAltitude={0.012}
+      labelResolution={2}
+      /* Item 32 / Refino 6: arcos ciano→rosa com dash fluindo rumo ao líder */
       arcsData={arcs}
       arcStartLat="startLat"
       arcStartLng="startLng"
@@ -236,14 +324,14 @@ function GlobeCanvas({
       arcColor={() => [CYAN, PINK]}
       arcAltitudeAutoScale={0.35}
       arcStroke={0.4}
-      arcDashLength={0.45}
+      arcDashLength={0.4}
       arcDashGap={0.6}
-      arcDashAnimateTime={2400}
+      arcDashAnimateTime={2000}
     />
   )
 }
 
-/** Controles flutuantes: zoom + / − / recentrar / tela cheia */
+/** Controles flutuantes: zoom + / − / recentrar */
 function GlobeControls({
   onZoomIn,
   onZoomOut,
@@ -261,24 +349,46 @@ function GlobeControls({
       <button type="button" onClick={onZoomOut} className="globe-ctl" aria-label="Afastar">
         <Minus className="size-4" aria-hidden="true" />
       </button>
-      {/* Item 37: recentrar refaz a animação de reentrada */}
       <button type="button" onClick={onRecenter} className="globe-ctl" aria-label="Recentrar globo">
         <Crosshair className="size-4" aria-hidden="true" />
       </button>
-
     </div>
   )
 }
 
-/* Item 35: HUD orbital — corner brackets + legenda mono */
+/* Refino 10: HUD fino — 4 cantos de mira + legenda de intensidade;
+   estado vazio mantém o selo "aguardando tráfego" */
 function GlobeHud({ empty }: { empty?: boolean }) {
-  return empty ? (
-    <span className="globe-empty-note">
-      <span className="rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
-        Aguardando tráfego
-      </span>
-    </span>
-  ) : null
+  return (
+    <>
+      <span className="hud-corner hud-corner--tl" aria-hidden="true" />
+      <span className="hud-corner hud-corner--tr" aria-hidden="true" />
+      <span className="hud-corner hud-corner--bl" aria-hidden="true" />
+      <span className="hud-corner hud-corner--br" aria-hidden="true" />
+      {!empty && (
+        <span
+          className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-1.5"
+          aria-hidden="true"
+        >
+          <span className="font-mono text-[9px] uppercase tracking-wider text-faint">fraco</span>
+          <span
+            className="h-1 w-12 rounded-full"
+            style={{ background: 'linear-gradient(90deg, rgba(37,244,238,.15), #25f4ee, #fe2c55)' }}
+          />
+          <span className="font-mono text-[9px] uppercase tracking-wider text-faint">forte</span>
+        </span>
+      )}
+      {empty ? (
+        <span className="globe-empty-note">
+          <span className="rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
+            Aguardando tráfego
+          </span>
+        </span>
+      ) : null}
+      {/* Refino 4: reflexo de chão ciano ancora o globo ao card */}
+      <span className="globe-floor" aria-hidden="true" />
+    </>
+  )
 }
 
 function zoomBy(globeRef: React.MutableRefObject<any>, delta: number) {
@@ -289,17 +399,11 @@ function zoomBy(globeRef: React.MutableRefObject<any>, delta: number) {
   g.pointOfView({ ...pov, altitude }, 320)
 }
 
-/* Item 34: rotação desacelera no hover e retoma ao sair */
-function hoverSpeed(globeRef: React.MutableRefObject<any>, hovering: boolean) {
-  const g = globeRef.current
-  if (!g) return
-  g.controls().autoRotateSpeed = hovering ? 0.15 : 0.6
-}
-
 export default function GlobePanel({ countries, focusCode, metric = 'visits' }: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
   const [size, setSize] = useState({ w: 0, h: 320 })
+  const resumeTimer = useRef<number | null>(null)
 
   const empty = countries.length === 0
 
@@ -317,7 +421,6 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
     const el = containerRef.current
     if (!el) return
     const ro = new ResizeObserver((entries) => {
-      // Item 172: mede também a altura — 55vh em mobile, 420px em desktop
       const w = entries[0].contentRect.width
       const h = entries[0].contentRect.height || 420
       setSize({ w, h })
@@ -326,14 +429,38 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
     return () => ro.disconnect()
   }, [])
 
+  useEffect(() => () => {
+    if (resumeTimer.current) window.clearTimeout(resumeTimer.current)
+  }, [])
+
+  // Refino 9: interação magnética — hover acelera a rotação; arrastar pausa;
+  // retoma sozinho após 3s de inatividade.
+  function setSpin(speed: number) {
+    const g = globeRef.current
+    if (!g) return
+    g.controls().autoRotateSpeed = speed
+  }
+  function pauseSpin() {
+    const g = globeRef.current
+    if (!g) return
+    g.controls().autoRotate = false
+    if (resumeTimer.current) window.clearTimeout(resumeTimer.current)
+    resumeTimer.current = window.setTimeout(() => {
+      const g2 = globeRef.current
+      if (!g2) return
+      g2.controls().autoRotate = true
+      g2.controls().autoRotateSpeed = SPIN_IDLE
+    }, RESUME_AFTER_MS)
+  }
 
   return (
     <div
       ref={containerRef}
       className="globe-stage relative h-full w-full overflow-hidden"
       data-tour="globe"
-      onPointerEnter={() => hoverSpeed(globeRef, true)}
-      onPointerLeave={() => hoverSpeed(globeRef, false)}
+      onPointerEnter={() => setSpin(SPIN_HOVER)}
+      onPointerLeave={() => setSpin(SPIN_IDLE)}
+      onPointerDown={pauseSpin}
     >
       {size.w > 0 && (
         <GlobeCanvas
@@ -348,7 +475,9 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
       <GlobeControls
         onZoomIn={() => zoomBy(globeRef, -ALT_STEP)}
         onZoomOut={() => zoomBy(globeRef, ALT_STEP)}
-        onRecenter={() => globeRef.current?.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 500)}
+        onRecenter={() =>
+          globeRef.current?.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 500)
+        }
       />
     </div>
   )

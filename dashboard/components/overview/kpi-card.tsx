@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
 import { fmtDelta } from '@/lib/format'
+import { useValueFlash } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
 export type KpiTint = 'green' | 'cyan' | 'amber' | 'neutral'
@@ -80,6 +81,7 @@ export function KpiCard({
   index = 0,
   ariaLabel,
   href,
+  watch,
 }: {
   icon: LucideIcon
   tint: KpiTint
@@ -97,14 +99,22 @@ export function KpiCard({
   ariaLabel?: string
   /* Item 279: com href o card inteiro vira drill-down para a aba filtrada */
   href?: string
+  /* A1.2: valor numérico observado — quando muda entre polls, a borda do
+     card dá um tick de brilho ciano (400ms) sinalizando dado vivo. */
+  watch?: number
 }) {
+  const flashing = useValueFlash(watch, 400)
   const card = (
     <GlassCard
       hover
       sheen
       role="group"
       aria-label={ariaLabel}
-      className={cn('anim-kpi-in relative h-full overflow-hidden p-5', hero && 'kpi-hero')}
+      className={cn(
+        'anim-kpi-in relative h-full overflow-hidden p-5',
+        hero && 'kpi-hero',
+        flashing && 'kpi-tick',
+      )}
       style={{ animationDelay: `${index * 70}ms` }}
     >
       {/* Item 117: hairline gradiente padronizada em todos os KPIs (mais forte no hero) */}

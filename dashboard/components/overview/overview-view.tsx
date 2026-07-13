@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useOncePerSession, useValueFlash } from '@/lib/motion'
 import {
   Banknote,
   CircleCheck,
@@ -60,6 +61,17 @@ function initialPeriod(): Period {
 export function OverviewView() {
   const [period, setPeriodState] = useState<Period>(initialPeriod)
   const { data, error, isLoading } = useStats()
+  // A1.1: entrada orquestrada roda UMA vez por sessão — navegações seguintes
+  // pulam a cascata (os cards aparecem direto, sem re-animar).
+  const firstEnter = useOncePerSession('overview-enter')
+  // A1.4: nova venda detectada no poll → varredura de glow verde no card de
+  // receita (800ms). Observa a contagem de vendas de TODO o histórico para o
+  // flash não disparar ao trocar de período.
+  const totalSales = useMemo(
+    () => (data?.events ?? []).filter((e) => e.type === 'sale').length,
+    [data],
+  )
+  const saleFlash = useValueFlash(totalSales, 800)
 
   // Persiste no localStorage e reflete no ?p= sem recarregar (histórico limpo).
   function setPeriod(next: Period) {
@@ -272,9 +284,15 @@ export function OverviewView() {
   const dispColor = cur.disputes ? '#fe2c55' : NEUTRAL
 
   return (
-    <div className="flex flex-col gap-4">
+    /* A1.5: fundo com profundidade (radial ciano + grid de pontos) atrás do
+       hero. A1.1: cascata só na primeira entrada da sessão. */
+    <div className={`overview-depth flex flex-col gap-4 ${firstEnter ? 'stagger-fade' : ''}`}>
       {/* Item 171: sticky no topo em mobile ao rolar */}
-      <div className="picker-sticky flex items-center justify-end gap-2" data-tour="period">
+      <div
+        className="picker-sticky flex items-center justify-end gap-2"
+        data-tour="period"
+        style={{ ['--i' as string]: 0 }}
+      >
         {/* Item 294: fullscreen para telão — esconde o chrome via data-tv */}
         <TvModeButton />
         {/* Item 278: baixa o resumo do período como PNG (canvas) */}
@@ -330,10 +348,12 @@ export function OverviewView() {
         aria-label="Indicadores principais"
         className="kpi-carousel grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         data-tour="kpis"
+        style={{ ['--i' as string]: 1 }}
       >
-        {/* Item 96: glow do card de receita cresce com o delta do período */}
+        {/* Item 96: glow do card de receita cresce com o delta do período.
+            A1.4: venda nova no poll → varredura verde na borda (800ms). */}
         <div
-          className="kpi-glow rounded-[var(--radius)]"
+          className={`kpi-glow rounded-[var(--radius)] ${saleFlash ? 'sale-flash' : ''}`}
           style={{
             ['--glow' as string]: String(
               revDelta && revDelta > 0 ? Math.min(1, revDelta / 100) : 0,
@@ -347,6 +367,7 @@ export function OverviewView() {
             icon={Banknote}
             tint="green"
             href="/activity?f=sale"
+            watch={revCents}
             label="Receita total"
             ariaLabel={`Receita total: ${money(revCents, cur.mainCur)}${revDelta !== null ? `, ${revDelta > 0 ? 'alta' : revDelta < 0 ? 'queda' : 'estável'} de ${Math.abs(revDelta).toFixed(1)}% vs período anterior` : ''}`}
           value={
@@ -380,6 +401,7 @@ export function OverviewView() {
           icon={CircleCheck}
           tint="green"
           href="/activity?f=sale"
+          watch={cur.sales}
           label="Vendas aprovadas"
           ariaLabel={`Vendas aprovadas: ${cur.sales}, ${cur.failed} recusadas`}
           value={
@@ -402,6 +424,7 @@ export function OverviewView() {
           icon={Users}
           tint="cyan"
           href="/funnel"
+          watch={cur.visits}
           label="Novos leads"
           ariaLabel={`Novos leads: ${cur.visits} no período`}
           value={
@@ -444,6 +467,7 @@ export function OverviewView() {
       <section
         aria-label="Métricas secundárias"
         className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        style={{ ['--i' as string]: 2 }}
       >
         <MiniStat
           index={0}
@@ -531,13 +555,16 @@ export function OverviewView() {
 
       {/* Globo — presença global ao vivo. Fica na página inicial, mas depois
           dos números: primeiro o usuário vê o dinheiro, depois o mundo. */}
-      <HeroGlobe />
+      <div style={{ ['--i' as string]: 3 }}>
+        <HeroGlobe />
+      </div>
 
       {/* Gráfico + saúde — item 177: só renderiza quando visível */}
       <section
         aria-label="Gráficos e saúde"
         className="cv-auto grid gap-4 lg:grid-cols-3"
         data-tour="chart"
+        style={{ ['--i' as string]: 4 }}
       >
         <div className="lg:col-span-2 flex flex-col gap-4">
           {/* Item 272: série anterior vira linha fantasma de comparação */}
