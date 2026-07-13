@@ -23,7 +23,9 @@ function normalizePolicy(input) {
     enabled: value.enabled !== false,
     dryRun: value.dryRun !== false,
     killSwitch: value.killSwitch === true,
-    dailySpendCap: Number.isFinite(Number(value.dailySpendCap)) && Number(value.dailySpendCap) >= 0 ? Number(value.dailySpendCap) : null,
+    // null/undefined/'' = "sem teto". Só vira número quando o valor é explícito;
+    // Number(null) === 0 transformaria "sem teto" em "teto zero" (bloqueia tudo).
+    dailySpendCap: value.dailySpendCap != null && value.dailySpendCap !== '' && Number.isFinite(Number(value.dailySpendCap)) && Number(value.dailySpendCap) >= 0 ? Number(value.dailySpendCap) : null,
     maxBudgetChangePct: Math.min(100, Math.max(0, Number(value.maxBudgetChangePct) || 20)),
     cooldownMinutes: Math.min(10080, Math.max(0, Math.floor(Number(value.cooldownMinutes) || 60))),
     allowedHours: value.allowedHours && typeof value.allowedHours === 'object' ? value.allowedHours : {},
@@ -56,8 +58,9 @@ async function saveSafetyPolicy(accountId, input) {
   accountId = cleanAccountId(accountId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   const p = normalizePolicy(input);
-  const rows = await sql`INSERT INTO ads_safety_policies (id, account_id, enabled, dry_run, kill_switch, daily_spend_cap, max_budget_change_pct, cooldown_minutes, allowed_hours, blocked_advertiser_ids, circuit_breaker_error_pct) VALUES (${id('sp_')}, ${accountId}, ${p.enabled}, ${p.dryRun}, ${p.killSwitch}, ${p.dailySpendCap}, ${p.maxBudgetChangePct}, ${p.cooldownMinutes}, ${JSON.stringify(p.allowedHours)}, ${JSON.stringify(p.blockedAdvertiserIds)}, ${p.circuitBreakerErrorPct}) ON CONFLICT (account_id) DO UPDATE SET enabled = EXCLUDED.enabled, dry_run = EXCLUDED.dry_run, kill_switch = EXCLUDED.kill_switch, daily_spend_cap = EXCLUDED.daily_spend_cap, max_budget_change_pct = EXCLUDED.max_budget_change_pct, cooldown_minutes = EXCLUDED.cooldown_minutes, allowed_hours = EXCLUDED.allowed_hours, blocked_advertiser_ids = EXCLUDED.blocked_advertiser_ids, circuit_breaker_error_pct = EXCLUDED.circuit_breaker_error_pct, updated_at = now() RETURNING *`;
-  return rows[0];
+  await sql`INSERT INTO ads_safety_policies (id, account_id, enabled, dry_run, kill_switch, daily_spend_cap, max_budget_change_pct, cooldown_minutes, allowed_hours, blocked_advertiser_ids, circuit_breaker_error_pct) VALUES (${id('sp_')}, ${accountId}, ${p.enabled}, ${p.dryRun}, ${p.killSwitch}, ${p.dailySpendCap}, ${p.maxBudgetChangePct}, ${p.cooldownMinutes}, ${JSON.stringify(p.allowedHours)}, ${JSON.stringify(p.blockedAdvertiserIds)}, ${p.circuitBreakerErrorPct}) ON CONFLICT (account_id) DO UPDATE SET enabled = EXCLUDED.enabled, dry_run = EXCLUDED.dry_run, kill_switch = EXCLUDED.kill_switch, daily_spend_cap = EXCLUDED.daily_spend_cap, max_budget_change_pct = EXCLUDED.max_budget_change_pct, cooldown_minutes = EXCLUDED.cooldown_minutes, allowed_hours = EXCLUDED.allowed_hours, blocked_advertiser_ids = EXCLUDED.blocked_advertiser_ids, circuit_breaker_error_pct = EXCLUDED.circuit_breaker_error_pct, updated_at = now()`;
+  // Contrato único (camelCase normalizado) para GET e PUT — a UI nunca vê a row crua.
+  return p;
 }
 
 async function createJob(accountId, input) {
