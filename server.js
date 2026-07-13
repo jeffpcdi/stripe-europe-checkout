@@ -4667,6 +4667,11 @@ stats.hydrate()
   .then(() => linkStore.init())
   .then(() => gatewayStore.init())
   .then(() => refreshDefaultAccount())
+  // Jobs de Ads presos em running/queued de ANTES do reinício nunca continuam
+  // (rodam in-process) — marca como failed/partial para o usuário reprocessar.
+  .then(() => require('./ads-ops-store').reconcileOrphanJobs().catch((e) => {
+    console.warn('[ads-ops] reconciliação de jobs órfãos falhou:', e.message);
+  }))
   .finally(() => {
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);

@@ -164,4 +164,18 @@ async function setJobStatus(accountId, jobId, status, patch) {
   return rows[0] || null;
 }
 
-module.exports = { enabled, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, setJobStatus };
+// Reinício do servidor: jobs bulk rodam in-process, então qualquer job preso
+// em 'running'/'queued'/'retrying' que não voltou à memória nunca continuará.
+// Marca como 'partial' (se algo concluiu) ou 'failed', com erro claro — o
+// usuário vê o motivo no painel de Operações e pode reprocessar.
+async function reconcileOrphanJobs() {
+  if (!enabled) return 0;
+  const rows = await sql`UPDATE ads_jobs SET status = CASE WHEN COALESCE((progress->>'completed')::int, 0) > 0 THEN 'partial' ELSE 'failed' END, error = 'Interrompido por reinício do servidor — reprocesse as falhas', locked_at = null, locked_by = null, updated_at = now(), completed_at = now() WHERE status IN ('running', 'queued', 'retrying') AND updated_at < now() - interval '2 minutes' RETURNING id, account_id`;
+  for (const row of rows) {
+    await sql`UPDATE ads_job_items SET status = 'failed', error = 'Interrompido por reinício do servidor', updated_at = now() WHERE job_id = ${row.id} AND status IN ('queued', 'running')`;
+  }
+  if (rows.length > 0) console.log('[ads-ops] ' + rows.length + ' job(s) órfão(s) reconciliado(s) após reinício');
+  return rows.length;
+}
+
+module.exports = { enabled, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus };

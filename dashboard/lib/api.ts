@@ -36,6 +36,8 @@ import type {
   AdsAttributionResponse,
   AdsRulesResponse,
   AdsTemplatesResponse,
+  AdsOpsJobsResponse,
+  AdsSafetyPolicyResponse,
 } from './types'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
@@ -409,6 +411,25 @@ export function useAdsRules(active: boolean) {
 export function useAdsTemplates(active: boolean) {
   return useSWR<AdsTemplatesResponse>(active ? '/api/ads/templates' : null, fetcher, {
     revalidateOnFocus: false,
+  })
+}
+
+// Jobs duráveis (bulk/duplicação) persistidos no Neon — histórico com
+// progresso e erros por job. Poll no ritmo padrão só com o painel aberto.
+export function useAdsOpsJobs(active: boolean) {
+  return useSWR<AdsOpsJobsResponse>(active ? '/api/ads/ops/jobs' : null, fetcher, {
+    refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Política de segurança da conta (dry-run, kill switch, tetos). Ativa na
+// view inteira: alimenta o badge "modo simulação" e o editor.
+export function useAdsSafetyPolicy(active: boolean) {
+  return useSWR<AdsSafetyPolicyResponse>(active ? '/api/ads/ops/safety-policy' : null, fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
   })
 }
 
