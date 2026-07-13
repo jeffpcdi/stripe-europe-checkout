@@ -657,3 +657,149 @@ export interface PushcutConfig {
   hasUrl: boolean
   events: PushcutEvents
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TikTok Ads (via Zernio) — contratos de /api/ads/* (ads-routes.js)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── /api/ads/status — estado da integração ──
+export interface AdsStatusResponse {
+  enabled: boolean // ZERNIO_API_KEY presente e válida no servidor
+  connected: boolean
+  account?: { id: string; username: string; displayName: string }
+  advertiserId?: string
+  identity?: AdsIdentity | null
+}
+
+export interface AdsIdentity {
+  identityId: string
+  displayName: string
+  imageUrl: string
+}
+
+// ── /api/ads/accounts — advertisers (contas de anúncio) do token ──
+export interface AdsAdvertiser {
+  id: string // advertiser_id do TikTok
+  name: string
+  currency?: string
+  status?: string
+}
+
+export interface AdsAccountsResponse {
+  accounts: AdsAdvertiser[]
+  selected: string
+}
+
+// ── Métricas roladas em cada nível da árvore ──
+export interface AdsMetrics {
+  impressions?: number
+  clicks?: number
+  spend?: number
+  ctr?: number
+  cpm?: number
+  cpc?: number
+  conversions?: number
+  videoViews?: number
+  reach?: number
+}
+
+export type AdsNodeStatus =
+  | 'active'
+  | 'paused'
+  | 'pending_review'
+  | 'error'
+  | 'completed'
+  | 'cancelled'
+  | 'rejected'
+  | string
+
+export interface AdsBudget {
+  amount?: number
+  type?: 'daily' | 'lifetime' | string
+}
+
+// ── /api/ads/tree — campanha → ad group → ad ──
+export interface AdsTreeAd {
+  _id?: string
+  platformAdId?: string
+  name?: string
+  status?: AdsNodeStatus
+  adType?: 'boost' | 'standalone' | string
+  goal?: string
+  isExternal?: boolean
+  budget?: AdsBudget | null
+  metrics?: AdsMetrics
+  creative?: { body?: string; linkUrl?: string; videoUrl?: string; imageUrl?: string } | null
+  rejectionReason?: string
+  createdAt?: string
+}
+
+export interface AdsTreeAdSet {
+  platformAdSetId?: string
+  adSetName?: string
+  name?: string
+  status?: AdsNodeStatus
+  budget?: AdsBudget | null
+  metrics?: AdsMetrics
+  ads?: AdsTreeAd[]
+}
+
+export interface AdsTreeCampaign {
+  platformCampaignId: string
+  campaignName?: string
+  status?: AdsNodeStatus
+  reviewStatus?: 'in_review' | 'approved' | 'rejected' | 'with_issues' | null
+  adCount?: number
+  adSetCount?: number
+  budget?: AdsBudget | null
+  currency?: string | null
+  metrics?: AdsMetrics
+  platformAdAccountId?: string
+  platformAdAccountName?: string | null
+  adSets?: AdsTreeAdSet[]
+  daily?: AdsMetrics[] // presente quando timeIncrement=1
+}
+
+export interface AdsTreeResponse {
+  campaigns: AdsTreeCampaign[]
+  backfillPending?: boolean
+  pagination?: { page: number; limit: number; total: number; pages: number }
+}
+
+// ── /api/ads/campaigns/:id/analytics ──
+export interface AdsCampaignAnalyticsResponse {
+  summary?: AdsMetrics
+  daily?: ({ date?: string } & AdsMetrics)[]
+  backfillPending?: boolean
+}
+
+// ── POST /api/ads/create / boost — resposta ──
+export interface AdsCreateResponse {
+  ads?: { _id?: string; platformAdId?: string; status?: string }[]
+  platformCampaignId?: string
+  platformAdSetId?: string
+  message?: string
+}
+
+// ── POST /api/ads/campaigns/bulk-status ──
+export interface AdsBulkStatusResponse {
+  status: 'active' | 'paused'
+  totals?: { updated: number; skipped: number; failed: number }
+  results?: { platformCampaignId: string; updated?: number; skipped?: number; error?: string }[]
+}
+
+// ── POST /api/ads/upload — criativo → Vercel Blob ──
+export interface AdsUploadResponse {
+  ok: boolean
+  url: string
+}
+
+// Objetivos suportados no TikTok (o backend valida a mesma lista)
+export type AdsGoal =
+  | 'engagement'
+  | 'traffic'
+  | 'awareness'
+  | 'video_views'
+  | 'lead_generation'
+  | 'conversions'
+  | 'app_promotion'

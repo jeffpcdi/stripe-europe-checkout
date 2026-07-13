@@ -24,6 +24,10 @@ import type {
   Account,
   PushcutConfig,
   AccountSettings,
+  AdsStatusResponse,
+  AdsAccountsResponse,
+  AdsTreeResponse,
+  AdsCampaignAnalyticsResponse,
 } from './types'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
@@ -257,10 +261,84 @@ export function usePushcutConfig() {
   })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TikTok Ads (via Zernio) — /api/ads/*
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Estado da integração (conectado? advertiser? identity?). Sem polling — a
+// view revalida via mutate() após conectar/desconectar.
+export function useAdsStatus() {
+  return useSWR<AdsStatusResponse>('/api/ads/status', fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Advertisers do token — só busca depois de conectado (connected = true).
+export function useAdsAccounts(connected: boolean) {
+  return useSWR<AdsAccountsResponse>(connected ? '/api/ads/accounts' : null, fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Árvore campanha → ad group → ad. A chave inclui os filtros; `active` = false
+// suspende o hook (aba desconectada). Métricas do TikTok mudam devagar → 60s.
+export function useAdsTree(
+  active: boolean,
+  filters: { adAccountId?: string; status?: string; fromDate?: string; toDate?: string; sort?: string; page?: number },
+) {
+  const params = new URLSearchParams()
+  if (filters.adAccountId) params.set('adAccountId', filters.adAccountId)
+  if (filters.status) params.set('status', filters.status)
+  if (filters.fromDate) params.set('fromDate', filters.fromDate)
+  if (filters.toDate) params.set('toDate', filters.toDate)
+  if (filters.sort) params.set('sort', filters.sort)
+  if (filters.page && filters.page > 1) params.set('page', String(filters.page))
+  params.set('daily', '1') // sparkline de tendência por campanha
+  const qs = params.toString()
+  return useSWR<AdsTreeResponse>(active ? `/api/ads/tree${qs ? `?${qs}` : ''}` : null, fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Analytics de uma campanha (drawer de detalhe). id nulo = hook inativo.
+export function useAdsCampaignAnalytics(id: string | null, range?: { fromDate?: string; toDate?: string }) {
+  const params = new URLSearchParams()
+  if (range?.fromDate) params.set('fromDate', range.fromDate)
+  if (range?.toDate) params.set('toDate', range.toDate)
+  const qs = params.toString()
+  return useSWR<AdsCampaignAnalyticsResponse>(
+    id ? `/api/ads/campaigns/${encodeURIComponent(id)}/analytics${qs ? `?${qs}` : ''}` : null,
+    fetcher,
+    { refreshInterval: 60_000, keepPreviousData: true },
+  )
+}
+
+// Upload de criativo (vídeo/imagem) → Vercel Blob. Binário puro no corpo,
+// metadados na querystring (o Express usa express.raw nesta rota).
+export async function adsUpload(file: File, kind: 'video' | 'image'): Promise<{ ok: boolean; url: string }> {
+  const qs = new URLSearchParams({ kind, filename: file.name }).toString()
+  const res = await fetch(`/api/ads/upload?${qs}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    if (res.status === 401) handleUnauthorized()
+    throw parseApiError(res.status, data)
+  }
+  return data as { ok: boolean; url: string }
+}
+
 // ── Mutações — POST/DELETE com o mesmo contrato de erro do Express ──
 export async function apiSend<T = unknown>(
   path: string,
-  method: 'POST' | 'DELETE' | 'PUT',
+  method: 'POST' | 'DELETE' | 'PUT' | 'PATCH',
   body?: unknown,
 ): Promise<T> {
   const res = await fetch(path, {
