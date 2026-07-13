@@ -94,7 +94,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   // ── OAuth: gera a URL de autorização do TikTok Business ───────────────────
-  app.get('/api/ads/connect', dashboardAuth, async (req, res) => {
+  // Aceita GET e POST: o painel chama via POST (ação), mas mantemos GET
+  // para compatibilidade com integrações antigas.
+  async function startConnect(req, res) {
     try {
       const profileId = await zernio.ensureProfile(req.account.id);
       // Modo ads-only (sem accountId de posting): anúncios usam Brand Identity.
@@ -102,7 +104,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!data || !data.authUrl) return res.status(502).json({ error: 'Zernio não retornou a URL de autorização' });
       res.json({ authUrl: data.authUrl });
     } catch (err) { fail(res, err); }
-  });
+  }
+  app.get('/api/ads/connect', dashboardAuth, startConnect);
+  app.post('/api/ads/connect', dashboardAuth, startConnect);
 
   // ── Callback do painel: após o OAuth, descobre a SocialAccount criada ─────
   app.post('/api/ads/connected', dashboardAuth, async (req, res) => {
