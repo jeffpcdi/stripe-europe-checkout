@@ -33,6 +33,8 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
+      // V2-99: informa o Next que o smooth scroll é intencional (evita warning)
+      data-scroll-behavior="smooth"
       className={`bg-background ${inter.variable} ${geistMono.variable}`}
     >
       <body className="font-sans antialiased">

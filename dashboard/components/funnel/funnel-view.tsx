@@ -102,6 +102,22 @@ export function FunnelView() {
   // 316: receita real da etapa final (moeda dominante do período)
   const purchasedValue = m ? (m.rev[m.mainCur] ?? 0) : 0
 
+  // ── Item 303: benchmark interno — taxa atual vs média 30d por etapa ────
+  // Mesmo recorte de link/campanha do funil (comparar filtrado com global
+  // seria maçã vs banana). Sem sentido em '30d'/'all': o período é a base.
+  // FIX: precisa vir ANTES do early return de loading — hook depois de
+  // return condicional viola as Rules of Hooks ("Rendered more hooks...").
+  const bench = useMemo(() => {
+    if (!filteredData || period === '30d' || period === 'all') return null
+    const b = aggregate(filteredData, periodStart('30d'))
+    // amostra mínima: com menos de 20 visitas em 30d a "média" é ruído
+    if (b.visits < 20) return null
+    return {
+      v2c: +((b.reachedCheckout / b.visits) * 100).toFixed(1),
+      c2p: b.reachedCheckout ? +((b.purchased / b.reachedCheckout) * 100).toFixed(1) : 0,
+    }
+  }, [filteredData, period])
+
   if (isLoading && !data) {
     return (
       <div className="flex flex-col gap-4">
@@ -125,20 +141,6 @@ export function FunnelView() {
       : dropV2C >= dropC2P
         ? 1
         : 2
-
-  // ── Item 303: benchmark interno — taxa atual vs média 30d por etapa ────
-  // Mesmo recorte de link/campanha do funil (comparar filtrado com global
-  // seria maçã vs banana). Sem sentido em '30d'/'all': o período é a base.
-  const bench = useMemo(() => {
-    if (!filteredData || period === '30d' || period === 'all') return null
-    const b = aggregate(filteredData, periodStart('30d'))
-    // amostra mínima: com menos de 20 visitas em 30d a "média" é ruído
-    if (b.visits < 20) return null
-    return {
-      v2c: +((b.reachedCheckout / b.visits) * 100).toFixed(1),
-      c2p: b.reachedCheckout ? +((b.purchased / b.reachedCheckout) * 100).toFixed(1) : 0,
-    }
-  }, [filteredData, period])
 
   // ── Item 302: "iniciou pagamento" ≠ "aprovado" ─────────────────────────
   // Tentativas = eventos do gateway (vendas + recusas) no período. Eventos
