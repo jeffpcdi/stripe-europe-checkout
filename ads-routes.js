@@ -591,7 +591,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Spark Ads (impulsionar vídeo orgânico) ────────────────────────────────
+  // ── Spark Ads (impulsionar vídeo orgânico) ───────────────────────────���────
   app.post('/api/ads/boost', dashboardAuth, async (req, res) => {
     try {
       const st = zernio.getState(req.account.id);
@@ -1236,16 +1236,22 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (_) { /* nunca bloqueia a rota */ }
   };
 
-  // Painel "Saúde das contas": roda a varredura na hora (dados frescos) e
-  // devolve status de todas as contas + tickets.
+  // Painel "Saúde das contas": responde LENDO só o estado já persistido no
+  // Neon (barato, sem tocar na Zernio). A varredura fresca (runHealthSweep,
+  // que chama a Zernio + faz upserts) roda FORA do caminho da resposta via
+  // adsSweepHook.fn, com throttle de 30min por conta — a rota nunca a aguarda.
+  // Antes, o sweep inline segurava a conexão por segundos a cada poll de 12s,
+  // estourando o limite de 6 conexões do navegador e enfileirando o /tree.
   app.get('/api/ads/health', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
-      healthLastRun.set(req.account.id, Date.now());
-      const { health } = await runHealthSweep(req.account.id);
-      const tickets = await adsOps.listUnbanTickets(req.account.id);
+      if (adsSweepHook.fn) adsSweepHook.fn(req.account.id); // varredura pega carona (throttled, sem await)
+      const [health, tickets] = await Promise.all([
+        adsOps.listAccountHealth(req.account.id),
+        adsOps.listUnbanTickets(req.account.id),
+      ]);
       res.json({ enabled: adsOps.enabled, health, tickets, appealUrl: APPEAL_URL });
     } catch (err) { fail(res, err); }
   });
