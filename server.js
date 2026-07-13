@@ -4600,6 +4600,10 @@ function proxyDashboardUpgrade(req, socket, head) {
   proxyReq.end();
 }
 
+// ── Integração TikTok Ads (via Zernio) ────────────────────────────────────
+// Rotas /api/ads/* — escopadas à conta logada pelo mesmo dashboardAuth.
+require('./ads-routes')(app, dashboardAuth, { stats });
+
 // Item 475: dashboard-view.js (5680 linhas) está CONGELADO — não evoluir.
 // Quem cair nele (via ?legacy=1 ou fallback com Next fora do ar) vê um banner
 // fixo apontando para o novo painel. Injetado na hora de servir para não tocar

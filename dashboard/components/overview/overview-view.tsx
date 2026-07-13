@@ -40,6 +40,7 @@ import { RevenueChart } from './revenue-chart'
 import { HealthCard } from './health-card'
 import { HeroGlobe } from './hero-globe'
 import { GoalCard } from './goal-card'
+import { AdsOverviewCard } from './ads-card'
 
 const NEUTRAL = '#6b7183'
 const NEUTRAL_BG = 'rgba(107,113,131,.10)'
@@ -462,6 +463,10 @@ export function OverviewView() {
       {/* Itens 271+276: meta mensal com progresso e projeção de fim de mês.
           Só aparece quando há meta configurada em Config. */}
       <GoalCard />
+
+      {/* TikTok Ads: gasto × vendas atribuídas × ROAS (últimos 7 dias).
+          Só aparece com a conta conectada — some para quem não usa Ads. */}
+      <AdsOverviewCard />
 
       {/* Ministats — réplica dos chips do legado */}
       <section

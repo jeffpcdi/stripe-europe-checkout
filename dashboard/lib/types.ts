@@ -657,3 +657,286 @@ export interface PushcutConfig {
   hasUrl: boolean
   events: PushcutEvents
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TikTok Ads (via Zernio) — contratos de /api/ads/* (ads-routes.js)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── /api/ads/status — estado da integração ──
+export interface AdsStatusResponse {
+  enabled: boolean // ZERNIO_API_KEY presente e válida no servidor
+  connected: boolean
+  account?: { id: string; username: string; displayName: string }
+  advertiserId?: string
+  identity?: AdsIdentity | null
+}
+
+export interface AdsIdentity {
+  identityId: string
+  displayName: string
+  imageUrl: string
+}
+
+// ── /api/ads/accounts — advertisers (contas de anúncio) do token ──
+export interface AdsAdvertiser {
+  id: string // advertiser_id do TikTok
+  name: string
+  currency?: string
+  status?: string
+}
+
+export interface AdsAccountsResponse {
+  accounts: AdsAdvertiser[]
+  selected: string
+}
+
+// ── Métricas roladas em cada nível da árvore ──
+export interface AdsMetrics {
+  impressions?: number
+  clicks?: number
+  spend?: number
+  ctr?: number
+  cpm?: number
+  cpc?: number
+  conversions?: number
+  videoViews?: number
+  reach?: number
+}
+
+export type AdsNodeStatus =
+  | 'active'
+  | 'paused'
+  | 'pending_review'
+  | 'error'
+  | 'completed'
+  | 'cancelled'
+  | 'rejected'
+  | string
+
+export interface AdsBudget {
+  amount?: number
+  type?: 'daily' | 'lifetime' | string
+}
+
+// ── /api/ads/tree — campanha → ad group → ad ──
+export interface AdsTreeAd {
+  _id?: string
+  platformAdId?: string
+  name?: string
+  status?: AdsNodeStatus
+  adType?: 'boost' | 'standalone' | string
+  goal?: string
+  isExternal?: boolean
+  budget?: AdsBudget | null
+  metrics?: AdsMetrics
+  creative?: { body?: string; linkUrl?: string; videoUrl?: string; imageUrl?: string } | null
+  rejectionReason?: string
+  createdAt?: string
+}
+
+export interface AdsTreeAdSet {
+  platformAdSetId?: string
+  adSetName?: string
+  name?: string
+  status?: AdsNodeStatus
+  budget?: AdsBudget | null
+  metrics?: AdsMetrics
+  ads?: AdsTreeAd[]
+}
+
+export interface AdsTreeCampaign {
+  platformCampaignId: string
+  campaignName?: string
+  status?: AdsNodeStatus
+  reviewStatus?: 'in_review' | 'approved' | 'rejected' | 'with_issues' | null
+  adCount?: number
+  adSetCount?: number
+  budget?: AdsBudget | null
+  currency?: string | null
+  metrics?: AdsMetrics
+  platformAdAccountId?: string
+  platformAdAccountName?: string | null
+  adSets?: AdsTreeAdSet[]
+  daily?: AdsMetrics[] // presente quando timeIncrement=1
+}
+
+export interface AdsTreeResponse {
+  campaigns: AdsTreeCampaign[]
+  backfillPending?: boolean
+  pagination?: { page: number; limit: number; total: number; pages: number }
+}
+
+// ── /api/ads/campaigns/:id/analytics ──
+export interface AdsCampaignAnalyticsResponse {
+  summary?: AdsMetrics
+  daily?: ({ date?: string } & AdsMetrics)[]
+  backfillPending?: boolean
+}
+
+// ── POST /api/ads/create / boost — resposta ──
+export interface AdsCreateResponse {
+  ads?: { _id?: string; platformAdId?: string; status?: string }[]
+  platformCampaignId?: string
+  platformAdSetId?: string
+  message?: string
+}
+
+// ── POST /api/ads/campaigns/bulk-status ──
+export interface AdsBulkStatusResponse {
+  status: 'active' | 'paused'
+  totals?: { updated: number; skipped: number; failed: number }
+  results?: { platformCampaignId: string; updated?: number; skipped?: number; error?: string }[]
+}
+
+// ── POST /api/ads/upload — criativo → Vercel Blob ──
+export interface AdsUploadResponse {
+  ok: boolean
+  url: string
+}
+
+// Objetivos suportados no TikTok (o backend valida a mesma lista)
+export type AdsGoal =
+  | 'engagement'
+  | 'traffic'
+  | 'awareness'
+  | 'video_views'
+  | 'lead_generation'
+  | 'conversions'
+  | 'app_promotion'
+
+// ── GET /api/ads/roas — gasto TikTok × vendas reais dos gateways ──
+export interface AdsRoasDaily {
+  date: string // YYYY-MM-DD
+  spend: number // moeda do advertiser
+  revenueCents: number // centavos (fonte: leads convertidos)
+  sales: number
+}
+
+export interface AdsRoasResponse {
+  fromDate: string
+  toDate: string
+  currency: string
+  spend: number
+  conversions: number
+  revenueCents: number
+  sales: number
+  roas: number | null // receita/gasto — null sem gasto
+  cpa: number | null // gasto/vendas — null sem vendas
+  daily: AdsRoasDaily[]
+}
+
+// ── GET /api/ads/library — criativos já enviados ao Blob ──
+export interface AdsLibraryItem {
+  url: string
+  name: string
+  size: number
+  uploadedAt: string | null
+}
+
+export interface AdsLibraryResponse {
+  items: AdsLibraryItem[]
+}
+
+// ── GET/PUT /api/ads/alerts — regras de alerta de performance ──
+export interface AdsAlertsConfig {
+  enabled: boolean
+  spendNoConv: number // gasto mínimo sem conversão que dispara (0 = off)
+  cpaMax: number // teto de CPA (0 = off)
+  lookbackDays: number
+}
+
+export interface AdsAlertFinding {
+  rule: 'spend_no_conv' | 'cpa_max'
+  campaignId: string
+  campaignName: string
+  spend: number
+  conversions: number
+  cpa?: number
+  text: string
+  muted?: boolean // em cooldown — detectado mas sem notificação nova
+}
+
+export interface AdsAlertCheckResponse {
+  findings: AdsAlertFinding[]
+  checkedAt?: string
+  skipped?: boolean
+}
+
+// ── GET /api/ads/attribution — vendas reais POR CAMPANHA ──
+// utm_campaign=__CAMPAIGN_ID__ (macro do TikTok) liga o lead à campanha.
+export interface AdsAttributionEntry {
+  revenueCents: number
+  sales: number
+}
+
+export interface AdsAttributionResponse {
+  fromDate: string
+  toDate: string
+  byCampaign: Record<string, AdsAttributionEntry>
+  unattributed: AdsAttributionEntry // veio do TikTok mas sem ID de campanha
+}
+
+// ── GET/PUT /api/ads/rules — regras automáticas de otimização ──
+export type AdsRuleMetric = 'cpa_max' | 'spend_no_conv' | 'roas_min'
+export type AdsRuleAction = 'pause' | 'budget_down' | 'budget_up'
+
+export interface AdsRule {
+  id: string
+  enabled: boolean
+  metric: AdsRuleMetric
+  threshold: number
+  lookbackDays: number
+  action: AdsRuleAction
+  pct: number // % de ajuste de orçamento (budget_up/down)
+}
+
+export interface AdsRuleLogEntry {
+  at: string
+  ruleId: string
+  metric: AdsRuleMetric
+  action: AdsRuleAction
+  campaignId: string
+  campaignName: string
+  detail: string
+  ok: boolean
+  result?: string
+}
+
+export interface AdsRulesResponse {
+  rules: AdsRule[]
+  log: AdsRuleLogEntry[]
+}
+
+export interface AdsRulesRunResponse {
+  executed: AdsRuleLogEntry[]
+  checkedAt?: string
+  skipped?: boolean
+}
+
+// ── /api/ads/templates — configurações de campanha reutilizáveis ──
+export interface AdsTemplatePayload {
+  goal?: string
+  budgetAmount?: number
+  budgetType?: 'daily' | 'lifetime'
+  body?: string
+  linkUrl?: string
+  callToAction?: string
+  countries?: string[]
+  languages?: string[]
+  ageMin?: number
+  ageMax?: number
+  pixelId?: string
+  customEventType?: string
+  identityType?: string
+}
+
+export interface AdsTemplate {
+  id: string
+  name: string
+  payload: AdsTemplatePayload
+  createdAt: string
+}
+
+export interface AdsTemplatesResponse {
+  items: AdsTemplate[]
+}
