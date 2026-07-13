@@ -336,6 +336,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
                 emptyLabel="Todos os países"
                 placeholder="Buscar país ou colar lista (ex.: BR, PT)"
                 manualPattern={/^[A-Za-z]{2}$/}
+                flags
               />
             </div>
             <div className="flex flex-col gap-1.5">

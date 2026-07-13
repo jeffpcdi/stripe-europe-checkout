@@ -137,6 +137,8 @@ export function PixelsView() {
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
+  // A6.4: etapa atual do teste de disparo — 'send' (enviando) → 'wait' (TikTok processando)
+  const [testStage, setTestStage] = useState<'send' | 'wait'>('send')
   const [testResult, setTestResult] = useState<{ slug: string; ok: boolean; msg: string } | null>(null)
   // Evento escolhido para o teste, por pixel (default ViewContent)
   const [testEvent, setTestEvent] = useState<Record<string, keyof PixelEvents>>({})
@@ -219,7 +221,10 @@ export function PixelsView() {
   async function handleTest(p: Pixel) {
     const event = testEvent[p.slug] || 'ViewContent'
     setTesting(p.slug)
+    setTestStage('send')
     setTestResult(null)
+    // A6.4: após o envio sair, a etapa vira "aguardando resposta do TikTok"
+    const stageTimer = setTimeout(() => setTestStage('wait'), 500)
     try {
       const r = await apiSend<PixelTestResult>('/api/pixels/test', 'POST', { slug: p.slug, event })
       const ok = r.ok !== false && !r.error
@@ -235,6 +240,7 @@ export function PixelsView() {
     } catch (e) {
       setTestResult({ slug: p.slug, ok: false, msg: e instanceof Error ? e.message : 'Falha no teste' })
     } finally {
+      clearTimeout(stageTimer)
       setTesting(null)
     }
   }
@@ -399,15 +405,48 @@ export function PixelsView() {
             </div>
           ) : (
             <ul className="flex flex-col gap-2" data-tour="pixels-list">
-              {pixels.map((p) => (
+              {pixels.map((p) => {
+                // A6.1/A6.2: disparos deste pixel no log (para o anel de saúde
+                // e a timeline de dots) — o log identifica por nome/slug/código
+                const pixelRows = (log?.log ?? []).filter(
+                  (r) => r.pixel === p.name || r.pixel === p.slug || r.pixel === p.pixelCode,
+                )
+                const pixelRate =
+                  pixelRows.length > 0
+                    ? (pixelRows.filter((r) => r.status === 'ok').length / pixelRows.length) * 100
+                    : null
+                return (
                 <li key={p.slug} className="rounded-xl border border-border bg-secondary/40 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2.5">
-                      <span
-                        className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-brand-cyan/15 text-brand-cyan"
-                        aria-hidden="true"
-                      >
-                        <Target className="size-4" />
+                      {/* A6.1: anel SVG de saúde (verde/âmbar/vermelho) em volta
+                          do ícone, proporcional à taxa de sucesso dos disparos */}
+                      <span className="relative flex size-9 shrink-0 items-center justify-center" aria-hidden="true">
+                        <svg viewBox="0 0 36 36" className="absolute inset-0 -rotate-90">
+                          <circle cx="18" cy="18" r="16" fill="none" stroke="var(--border)" strokeWidth="2.5" />
+                          {pixelRate != null && (
+                            <circle
+                              cx="18"
+                              cy="18"
+                              r="16"
+                              fill="none"
+                              stroke={
+                                pixelRate >= 90
+                                  ? 'var(--success)'
+                                  : pixelRate >= 60
+                                    ? 'var(--warning)'
+                                    : 'var(--error)'
+                              }
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeDasharray={`${(pixelRate / 100) * 100.5} 100.5`}
+                              className="transition-[stroke-dasharray] duration-600 ease-out"
+                            />
+                          )}
+                        </svg>
+                        <span className="flex size-6 items-center justify-center rounded-full bg-brand-cyan/15 text-brand-cyan">
+                          <Target className="size-3.5" />
+                        </span>
                       </span>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-foreground">{p.name}</p>
@@ -461,6 +500,38 @@ export function PixelsView() {
                     ))}
                   </div>
 
+                  {/* A6.2: timeline dos últimos 5 disparos como dots coloridos
+                      com tooltip (evento + hora) — leitura rápida sem abrir o log */}
+                  {pixelRows.length > 0 && (
+                    <div className="mt-2.5 flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-wider text-faint">Últimos disparos</span>
+                      <div className="flex items-center gap-1.5">
+                        {pixelRows.slice(0, 5).map((r) => (
+                          <span
+                            key={r.id}
+                            className={`size-2 rounded-full ${
+                              r.status === 'ok'
+                                ? 'bg-[color:var(--success)]'
+                                : r.status === 'error'
+                                  ? 'bg-[color:var(--error)]'
+                                  : 'bg-[color:var(--warning)]'
+                            }`}
+                            title={`${r.event} · ${timeAgo(r.at)} · ${
+                              r.status === 'ok' ? 'aceito' : r.status === 'error' ? 'erro' : 'descartado'
+                            }`}
+                            role="img"
+                            aria-label={`${r.event}, ${r.status === 'ok' ? 'aceito' : r.status === 'error' ? 'erro' : 'descartado'}, ${timeAgo(r.at)}`}
+                          />
+                        ))}
+                      </div>
+                      {pixelRate != null && (
+                        <span className="font-mono text-[10px] tabular-nums text-faint">
+                          {pixelRate.toFixed(0)}% ok
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Item 85: pixel ativo mas sem nenhum evento ligado = config
                       inócua (nunca dispara nada). Aviso direto no card. */}
                   {p.active && !EVENT_LABELS.some(({ key }) => p.events?.[key]) && (
@@ -505,7 +576,10 @@ export function PixelsView() {
                         onClick={() => handleCopy(`${p.slug}:tag`, p.scriptTag!, 'Tag do script')}
                         className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-brand-cyan transition-colors hover:bg-secondary"
                       >
-                        {copied === `${p.slug}:tag` ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                        <span className="copy-morph" data-copied={copied === `${p.slug}:tag`}>
+                          <Copy className="size-3.5" aria-hidden="true" />
+                          <Check className="size-3.5" aria-hidden="true" />
+                        </span>
                         {copied === `${p.slug}:tag` ? 'Copiado' : 'Copiar tag'}
                       </button>
                       {p.scriptUrl && (
@@ -515,10 +589,41 @@ export function PixelsView() {
                           title="Copiar só a URL (para GTM)"
                           className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         >
-                          {copied === `${p.slug}:url` ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                          <span className="copy-morph" data-copied={copied === `${p.slug}:url`}>
+                            <Copy className="size-3.5" aria-hidden="true" />
+                            <Check className="size-3.5" aria-hidden="true" />
+                          </span>
                           {copied === `${p.slug}:url` ? 'Copiado' : 'Só URL'}
                         </button>
                       )}
+                    </div>
+                  )}
+
+                  {/* A6.4: progresso do teste em etapas — Enviando → TikTok
+                      respondendo, com check por etapa concluída */}
+                  {testing === p.slug && (
+                    <div
+                      className="mt-2 flex items-center gap-3 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-muted-foreground"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        {testStage === 'send' ? (
+                          <Loader2 className="size-3.5 animate-spin text-brand-cyan" aria-hidden="true" />
+                        ) : (
+                          <CircleCheck className="size-3.5 text-success" aria-hidden="true" />
+                        )}
+                        Enviando evento
+                      </span>
+                      <span className="text-faint" aria-hidden="true">→</span>
+                      <span className={`flex items-center gap-1.5 ${testStage === 'send' ? 'opacity-40' : ''}`}>
+                        {testStage === 'wait' ? (
+                          <Loader2 className="size-3.5 animate-spin text-brand-cyan" aria-hidden="true" />
+                        ) : (
+                          <span className="size-3.5 rounded-full border border-border" aria-hidden="true" />
+                        )}
+                        TikTok respondendo…
+                      </span>
                     </div>
                   )}
 
@@ -586,7 +691,8 @@ export function PixelsView() {
                     </button>
                   </div>
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
         </GlassCard>
@@ -674,18 +780,21 @@ export function PixelsView() {
               <p className="py-4 text-center text-sm text-muted-foreground">Nenhum disparo nas últimas 24h.</p>
             ) : (
               <div className="flex flex-col gap-2">
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className={`font-mono text-2xl font-bold ${
-                      (health.rate ?? 0) >= 90 ? 'text-success' : (health.rate ?? 0) >= 60 ? 'text-warning' : 'text-error'
-                    }`}
-                  >
-                    {health.rate != null ? `${health.rate.toFixed(0)}%` : '—'}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {health.success} de {health.total} eventos aceitos
-                    {health.emq != null && ` · EMQ ${health.emq.toFixed(1)}`}
-                  </span>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className={`font-mono text-2xl font-bold ${
+                        (health.rate ?? 0) >= 90 ? 'text-success' : (health.rate ?? 0) >= 60 ? 'text-warning' : 'text-error'
+                      }`}
+                    >
+                      {health.rate != null ? `${health.rate.toFixed(0)}%` : '—'}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {health.success} de {health.total} eventos aceitos
+                    </span>
+                  </div>
+                  {/* A6.3: EMQ como gauge semicircular 0–10 com faixa de cor */}
+                  {health.emq != null && <EmqGauge value={health.emq} />}
                 </div>
                 {health.events.map((ev) => (
                   <div key={ev.event} className="flex items-center justify-between gap-2 text-xs">
@@ -957,6 +1066,53 @@ export function PixelsView() {
       )}
 
       <ConfirmDialog {...dialogProps} />
+    </div>
+  )
+}
+
+// ── A6.3: gauge semicircular de EMQ (escala 0–10) ─────────────────────
+// Arco de fundo + arco de valor com cor semântica (verde ≥7, âmbar ≥5,
+// vermelho abaixo). O arco anima via transição de stroke-dasharray.
+function EmqGauge({ value }: { value: number }) {
+  const clamped = Math.max(0, Math.min(10, value))
+  // Semicírculo r=20: comprimento do arco = π·r ≈ 62.8
+  const arcLen = Math.PI * 20
+  const filled = (clamped / 10) * arcLen
+  const color = clamped >= 7 ? 'var(--success)' : clamped >= 5 ? 'var(--warning)' : 'var(--error)'
+  return (
+    <div
+      className="flex flex-col items-center"
+      role="img"
+      aria-label={`EMQ ${clamped.toFixed(1)} de 10`}
+      title="Event Match Quality médio (0–10)"
+    >
+      <svg viewBox="0 0 48 28" className="h-7 w-12">
+        <path
+          d="M 4 24 A 20 20 0 0 1 44 24"
+          fill="none"
+          stroke="var(--border)"
+          strokeWidth="3.5"
+          strokeLinecap="round"
+        />
+        <path
+          d="M 4 24 A 20 20 0 0 1 44 24"
+          fill="none"
+          stroke={color}
+          strokeWidth="3.5"
+          strokeLinecap="round"
+          strokeDasharray={`${filled} ${arcLen}`}
+          className="transition-[stroke-dasharray] duration-600 ease-out"
+        />
+        <text
+          x="24"
+          y="24"
+          textAnchor="middle"
+          className="fill-foreground font-mono text-[9px] font-bold tabular-nums"
+        >
+          {clamped.toFixed(1)}
+        </text>
+      </svg>
+      <span className="text-[9px] uppercase tracking-wider text-faint">EMQ</span>
     </div>
   )
 }

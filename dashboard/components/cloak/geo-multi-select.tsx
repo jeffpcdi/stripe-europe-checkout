@@ -19,6 +19,17 @@ interface Props {
   /** Regex do formato aceito ao adicionar um código manual. */
   manualPattern: RegExp
   id?: string
+  /** A8.5: mostra bandeira do país nos chips e no dropdown (só para ISO-2). */
+  flags?: boolean
+}
+
+// Converte código ISO-2 (BR, PT…) em emoji de bandeira via Regional
+// Indicator Symbols. Códigos fora do padrão retornam string vazia.
+function flagEmoji(code: string): string {
+  if (!/^[A-Za-z]{2}$/.test(code)) return ''
+  return code
+    .toUpperCase()
+    .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
 }
 
 // Seletor por NOME com busca. O usuário não precisa saber a sigla — digita o
@@ -35,6 +46,7 @@ export function GeoMultiSelect({
   placeholder,
   manualPattern,
   id,
+  flags = false,
 }: Props) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -110,6 +122,9 @@ export function GeoMultiSelect({
               key={code}
               className="flex items-center gap-1 rounded-md border border-[color:var(--brand-cyan)]/40 bg-[var(--accent-light)] px-2 py-1 text-xs font-medium text-foreground"
             >
+              {flags && flagEmoji(code) ? (
+                <span aria-hidden="true">{flagEmoji(code)}</span>
+              ) : null}
               {labelFor(code)}
               <span className="font-mono text-[10px] text-muted-foreground">{code}</span>
               <button
@@ -162,7 +177,12 @@ export function GeoMultiSelect({
               onClick={() => add(o.code)}
               className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
             >
-              <span>{o.name}</span>
+              <span>
+                {flags && flagEmoji(o.code) ? (
+                  <span className="mr-1.5" aria-hidden="true">{flagEmoji(o.code)}</span>
+                ) : null}
+                {o.name}
+              </span>
               <span className="font-mono text-[10px] text-muted-foreground">{o.code}</span>
             </button>
           ))}

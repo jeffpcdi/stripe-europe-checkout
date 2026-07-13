@@ -143,11 +143,20 @@ export function CloakConfigPanel() {
         </StatusBadge>
       </div>
 
-      {/* Item 76: interruptor mestre dramático — switch grande com glow rosa */}
+      {/* Item 76 + A8.1: interruptor mestre em destaque — o painel do switch
+          muda a cor de fundo conforme o estado (proteção ativa/inativa) */}
       <div className="mb-4">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-secondary/40 px-4 py-3">
+        <div
+          className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 transition-colors duration-240 ${
+            cfg.enabled
+              ? 'border-[color:var(--pink)]/30 bg-[color:var(--pink)]/8'
+              : 'border-[color:var(--warning)]/30 bg-[color:var(--warning)]/8'
+          }`}
+        >
           <span className="min-w-0">
-            <span className="block text-sm font-semibold text-foreground">Cloaking ativado</span>
+            <span className="block text-sm font-semibold text-foreground">
+              {cfg.enabled ? 'Proteção ativa' : 'Proteção inativa'}
+            </span>
             <span className="block text-[11px] text-muted-foreground">
               interruptor mestre — desliga toda a proteção
             </span>
@@ -163,11 +172,19 @@ export function CloakConfigPanel() {
             <span className="cloak-switch__knob" />
           </button>
         </div>
-        {cfg.enabled && (
+        {cfg.enabled ? (
           <div className="cloak-banner anim-pop-in mt-2 flex items-center gap-2 rounded-lg px-3 py-2">
             <ShieldCheck className="size-3.5 text-[color:var(--pink)]" aria-hidden="true" />
             <span className="text-[11px] font-medium text-[color:var(--pink)]">
               Cloaker ativo — tráfego suspeito será desviado
+            </span>
+          </div>
+        ) : (
+          /* A8.1: estado inativo com aviso claro — todo mundo vê a offer */
+          <div className="anim-pop-in mt-2 flex items-center gap-2 rounded-lg bg-[color:var(--warning)]/10 px-3 py-2">
+            <AlertTriangle className="size-3.5 text-[color:var(--warning)]" aria-hidden="true" />
+            <span className="text-[11px] font-medium text-[color:var(--warning)]">
+              Proteção desligada — todos os acessos (inclusive revisores) veem a oferta real
             </span>
           </div>
         )}

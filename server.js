@@ -2293,7 +2293,12 @@ const dnsp = require('dns').promises;
 // Mantemos Railway como fallback para instalações antigas sem CLOUDFLARE_*.
 const railwayDomainProvider = require('./domain-provider');
 const cloudflareDomainProvider = require('./cloudflare-domain-provider');
-const domainProvider = cloudflareDomainProvider.enabled ? cloudflareDomainProvider : railwayDomainProvider;
+// Seleção DINÂMICA: o preflight do Cloudflare roda assíncrono no boot e pode
+// desabilitar o provider (token inválido / origem privada / origem offline).
+// Capturar o valor uma única vez no boot congelava a decisão errada.
+function activeDomainProvider() {
+  return cloudflareDomainProvider.enabled ? cloudflareDomainProvider : railwayDomainProvider;
+}
 // normHost/DOMAIN_RE extraídos para security-helpers.js (testáveis — item 60)
 const { normHost } = require('./security-helpers');
 const APP_CHECK_ID = 'roi-nados-tracker';
@@ -2393,17 +2398,21 @@ app.post('/api/settings/webhook-test', dashboardAuth, async (req, res) => {
 
 app.get('/api/domains', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
+  const domainProvider = activeDomainProvider();
   res.json({
     domains: config.get(req.account.id).customDomains || [],
-    // Alvo amigável do CNAME. Com Cloudflare for SaaS, o fallback origin é o
-    // Managed CNAME target; sem ele, mantém o host principal legado.
+    // Alvo amigável do CNAME. Com Cloudflare for SaaS, o alvo é o Managed CNAME
+    // target (CLOUDFLARE_CNAME_TARGET) — NUNCA a origem Railway, que serve o
+    // certificado errado. Sem Cloudflare, mantém o host principal legado.
     appHost: cloudflareDomainProvider.enabled
-      ? String(process.env.CLOUDFLARE_FALLBACK_ORIGIN || '').replace(/^https?:\/\//, '').replace(/\/$/, '')
+      ? cloudflareDomainProvider.cnameTarget()
       : String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().replace(/:\d+$/, ''),
     // Provisionamento automático na hospedagem ativo? Quando false, cada domínio
     // precisa ser adicionado manualmente no painel da hospedagem — a UI avisa.
     autoProvision: domainProvider.enabled,
-    domainProvider: domainProvider.enabled ? (domainProvider.name || 'hosting') : null
+    domainProvider: domainProvider.enabled ? (domainProvider.name || 'hosting') : null,
+    // Modo degradado (sem CLOUDFLARE_CNAME_TARGET) — a UI mostra o aviso.
+    providerDegraded: cloudflareDomainProvider.enabled ? cloudflareDomainProvider.preflightState.degraded : false
   });
 });
 
@@ -2421,13 +2430,15 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   // Registra o domínio na hospedagem (Railway) para ele ser roteado + ganhar
   // SSL. Se o provider estiver em modo manual (sem token), segue o fluxo antigo:
   // o lojista aponta o CNAME e adiciona o domínio na hospedagem na mão.
-  let dnsRecords = null, providerId = null, providerNote = null, providerName = null;
+  const domainProvider = activeDomainProvider();
+  let dnsRecords = null, providerId = null, providerNote = null, providerName = null, providerStatus = null;
   if (domainProvider.enabled) {
     try {
       const reg = await domainProvider.register(host);
       providerId = reg.providerId || null;
       providerName = reg.provider || domainProvider.name || null;
       dnsRecords = reg.dns || null;
+      providerStatus = reg.status || null;
     } catch (e) {
       // NENHUM erro da hospedagem bloqueia o cadastro: tudo degrada para modo
       // manual (o lojista aponta o CNAME/adiciona o domínio depois). Assim que
@@ -2450,7 +2461,10 @@ app.post('/api/domains', dashboardAuth, async (req, res) => {
   // Uso do domínio: onde ele vale — links de checkout, cloaker ou ambos.
   const usoRaw = String((req.body || {}).uso || 'ambos');
   const uso = ['checkout', 'cloaker', 'ambos'].includes(usoRaw) ? usoRaw : 'ambos';
-  const entry = { host, uso, verificado: false, verificadoEm: null, criadoEm: new Date().toISOString() };
+  // status: 'pending_dns' | 'pending_ssl' | 'active' | 'error' — estado
+  // explícito do provisionamento (substitui o booleano cru na origem; o campo
+  // legado `verificado` continua espelhado para compatibilidade da UI antiga).
+  const entry = { host, uso, verificado: false, verificadoEm: null, status: providerStatus || 'pending_dns', lastCheckedAt: null, lastError: null, criadoEm: new Date().toISOString() };
   if (providerId) entry.providerId = providerId;
   if (providerName) entry.provider = providerName;
   // Guarda os registros DNS junto do domínio: o tutorial da dashboard precisa
@@ -2472,7 +2486,8 @@ app.delete('/api/domains/:host', dashboardAuth, async (req, res) => {
   const host = normHost(req.params.host);
   const cur = config.get(req.account.id).customDomains || [];
   const found = cur.find((d) => d.host === host);
-  // Remove tamb��m na hospedagem, para não acumular contra o teto do provedor.
+  // Remove também na hospedagem, para não acumular contra o teto do provedor.
+  const domainProvider = activeDomainProvider();
   if (found && found.providerId && domainProvider.enabled) {
     try { await domainProvider.remove(found.providerId, found.host); }
     catch (_) { /* best-effort — segue removendo localmente */ }
@@ -2536,6 +2551,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
   // verificação, mas o MOTIVO da falha não é mais silencioso (registroErro) —
   // antes um token inválido deixava o lojista preso em "reconexão automática"
   // que nunca acontecia, sem nenhuma pista.
+  const domainProvider = activeDomainProvider();
   let registroErro = null; // 'auth' | 'limite' | 'offline' | 'falha' | null
   if (domainProvider.enabled) {
     const cur0 = config.get(req.account.id).customDomains || [];
@@ -2583,13 +2599,27 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
       if (st) {
         out.providerVerified = !!st.verified;
         if (st.certificateStatus) out.certificateStatus = st.certificateStatus;
+        if (st.status) out.providerStatus = st.status;
+        // Persiste o estado de provisionamento a cada verificação — transições
+        // explícitas (pending_dns → pending_ssl → active). Nunca regride um
+        // 'active' persistido por causa de uma leitura transitória: só regride
+        // se a Cloudflare reportar 'error' explícito.
+        const prevStatus = entry2.status || null;
+        const nextStatus = (prevStatus === 'active' && st.status !== 'active' && st.status !== 'error') ? 'active' : (st.status || prevStatus);
+        const statusPatch = {
+          status: nextStatus,
+          sslStatus: st.sslStatus || st.certificateStatus || null,
+          lastCheckedAt: new Date().toISOString(),
+          lastError: st.status === 'error' ? ((st.verificationErrors || []).concat(st.sslErrors || []).join('; ') || 'erro reportado pela Cloudflare') : null,
+        };
+        const needsDnsSync = st.dns && JSON.stringify(entry2.dns || null) !== JSON.stringify(st.dns);
+        if (needsDnsSync || nextStatus !== prevStatus || statusPatch.lastError) {
+          const cur1 = config.get(req.account.id).customDomains || [];
+          config.set(req.account.id, { customDomains: cur1.map((d) => d.host === host ? Object.assign({}, d, statusPatch, needsDnsSync ? { dns: st.dns, provider: st.provider || domainProvider.name || d.provider } : {}) : d) });
+        }
         if (st.dns && st.dns.cname && st.dns.cname.target) {
           const t = String(st.dns.cname.target).toLowerCase().replace(/\.$/, '');
           if (t && !targets.includes(t)) targets.push(t);
-          if (JSON.stringify(entry2.dns || null) !== JSON.stringify(st.dns)) {
-            const cur1 = config.get(req.account.id).customDomains || [];
-            config.set(req.account.id, { customDomains: cur1.map((d) => d.host === host ? Object.assign({}, d, { dns: st.dns, provider: st.provider || domainProvider.name || d.provider }) : d) });
-          }
         }
       }
     } catch (_) { /* best-effort — segue com a checagem local */ }
@@ -2698,10 +2728,84 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
     const now = new Date().toISOString();
     const cur = config.get(req.account.id).customDomains || [];
     const has = cur.some((d) => d.host === host);
+    // Prova forte confirmada (HTTPS + marcador) → status 'active' persistido,
+    // além do espelho legado `verificado` para a UI antiga.
     const next = has
-      ? cur.map((d) => d.host === host ? Object.assign({}, d, { verificado: true, verificadoEm: now }) : d)
-      : cur.concat([{ host, verificado: true, verificadoEm: now, criadoEm: now }]);
+      ? cur.map((d) => d.host === host ? Object.assign({}, d, { verificado: true, verificadoEm: now, status: 'active', lastCheckedAt: now, lastError: null }) : d)
+      : cur.concat([{ host, verificado: true, verificadoEm: now, status: 'active', lastCheckedAt: now, lastError: null, criadoEm: now }]);
     config.set(req.account.id, { customDomains: next });
+  }
+  res.json(out);
+});
+
+// Diagnóstico consolidado de um domínio: preflight do provider + status
+// Cloudflare + DNS público + certificado apresentado via SNI + marcador HTTP —
+// tudo em um JSON. Alimenta o badge de erro da aba Domínios e o suporte.
+// Nunca expõe token/segredo: só estados e mensagens legíveis.
+app.get('/api/custom-domains/:host/diagnostics', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const host = normHost(req.params.host);
+  if (!host) return res.status(400).json({ error: 'domínio inválido' });
+  const entry = (config.get(req.account.id).customDomains || []).find((d) => d.host === host);
+  if (!entry) return res.status(404).json({ error: 'domínio não cadastrado nesta conta' });
+
+  const out = { host, checkedAt: new Date().toISOString() };
+
+  // 1. Provider (preflight + status Cloudflare do hostname)
+  try {
+    out.provider = await cloudflareDomainProvider.health();
+  } catch (e) { out.provider = { enabled: false, reason: e.message }; }
+  if (out.provider && out.provider.enabled) {
+    try {
+      const st = await cloudflareDomainProvider.status(entry.providerId || null, host);
+      out.cloudflare = st ? { status: st.status, sslStatus: st.sslStatus, verificationErrors: st.verificationErrors, sslErrors: st.sslErrors } : { status: 'not_found' };
+    } catch (e) { out.cloudflare = { error: e.message }; }
+  }
+
+  // 2. DNS público
+  try {
+    const [cn, a] = await Promise.all([
+      dnsp.resolveCname(host).catch(() => []),
+      dnsp.resolve4(host).catch(() => []),
+    ]);
+    out.dns = { cname: cn, a, resolves: !!(cn.length || a.length) };
+  } catch (e) { out.dns = { error: e.message }; }
+
+  // 3. Certificado apresentado via SNI (o sintoma clássico do bug era o
+  // certificado *.up.railway.app aparecendo no domínio do cliente)
+  out.tls = await new Promise((resolve) => {
+    try {
+      const tls = require('tls');
+      const socket = tls.connect({ host, port: 443, servername: host, timeout: 8000, rejectUnauthorized: false }, () => {
+        const cert = socket.getPeerCertificate();
+        const san = String((cert && cert.subjectaltname) || '');
+        const covers = san.split(/,\s*/).some((s) => {
+          const v = s.replace(/^DNS:/i, '').toLowerCase();
+          return v === host || (v.startsWith('*.') && host.endsWith(v.slice(1)) && host.split('.').length === v.split('.').length);
+        });
+        socket.destroy();
+        resolve({ ok: covers, subject: cert && cert.subject ? cert.subject.CN : null, san: san || null, covers });
+      });
+      socket.on('error', (e) => resolve({ ok: false, error: e.code || e.message }));
+      socket.on('timeout', () => { socket.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    } catch (e) { resolve({ ok: false, error: e.message }); }
+  });
+
+  // 4. Marcador do app via HTTPS
+  try {
+    const r = await fetch('https://' + host + '/__domain-check', { redirect: 'manual', signal: AbortSignal.timeout(8000) });
+    const j = r.status === 200 ? await r.json().catch(() => null) : null;
+    out.http = { status: r.status, servedByThisApp: !!(j && j.app === APP_CHECK_ID) };
+  } catch (e) { out.http = { error: e.name === 'TimeoutError' ? 'timeout' : e.message }; }
+
+  // Veredito consolidado + causa mais provável (para o badge da UI)
+  out.healthy = !!(out.tls && out.tls.ok && out.http && out.http.servedByThisApp);
+  if (!out.healthy) {
+    if (out.provider && !out.provider.enabled) out.likelyCause = 'provider: ' + (out.provider.detail || out.provider.reason || 'desativado');
+    else if (out.dns && !out.dns.resolves) out.likelyCause = 'DNS não resolve — crie o registro CNAME';
+    else if (out.tls && !out.tls.ok) out.likelyCause = 'certificado TLS não cobre o domínio — emissão pendente ou CNAME apontando direto para a origem';
+    else if (out.http && !out.http.servedByThisApp) out.likelyCause = 'HTTPS responde mas não é este app — roteamento pendente';
+    else out.likelyCause = 'verificação parcial — tente de novo em instantes';
   }
   res.json(out);
 });

@@ -6,6 +6,7 @@ import { useStats, apiSend } from '@/lib/api'
 import { usePersistedState } from '@/lib/use-persisted-state'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+import { CountUp } from '@/components/count-up'
 import { formatMoney, formatDateTime, timeAgo, dayLabel, plural, gwLabel } from '@/lib/format'
 import { countryLabel } from '@/lib/countries'
 import { copyText } from '@/lib/clipboard'
@@ -120,10 +121,10 @@ const EventRow = memo(function EventRow({
   const [copied, setCopied] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
 
+  // A3.4: densidade reduzida — a linha mostra só o cliente; país e gateway
+  // (metadados secundários) descem para a expansão.
   const meta: string[] = []
   if (e.customer) meta.push(e.customer)
-  if (e.gateway) meta.push(gwLabel(e.gateway))
-  if (e.country) meta.push(countryLabel(e.country))
 
   const details: { label: string; value: string }[] = []
   if (e.email) details.push({ label: 'E-mail', value: e.email })
@@ -131,6 +132,7 @@ const EventRow = memo(function EventRow({
   if (e.landing) details.push({ label: 'Página', value: e.landing })
   if (e.reason) details.push({ label: 'Motivo', value: e.reason })
   if (e.gateway) details.push({ label: 'Gateway', value: gwLabel(e.gateway) })
+  if (e.country) details.push({ label: 'País', value: countryLabel(e.country) })
 
   // Item 342: conversão normalizada do webhook para auditoria
   const [showRaw, setShowRaw] = useState(false)
@@ -181,7 +183,8 @@ const EventRow = memo(function EventRow({
       id={`evt-${e.id}`}
       className={cn(
         'border-b border-border/40 last:border-b-0',
-        isNew && 'anim-cell-flash',
+        /* A3.2: novo evento desliza de cima + flash único na cor do tipo */
+        isNew && 'feed-row-new anim-cell-flash',
         highlight && 'anim-cell-flash rounded-lg outline outline-1 outline-[var(--accent)]/50',
       )}
       style={{ boxShadow: `inset 2px 0 0 ${style.edge}` }}
@@ -190,7 +193,7 @@ const EventRow = memo(function EventRow({
         type="button"
         onClick={() => hasDetails && setOpen(!open)}
         className={cn(
-          'feed-row flex w-full items-start gap-3 px-2.5 py-3 text-left',
+          'feed-row flex w-full items-start gap-3 px-2.5 py-2 text-left',
           hasDetails && 'cursor-pointer transition-colors hover:bg-[var(--hover)]',
         )}
         aria-expanded={hasDetails ? open : undefined}
@@ -389,7 +392,8 @@ function DaySeparator({
   summary?: { sales: number; revenue: number; cur: string; failed: number }
 }) {
   return (
-    <div className="flex items-center gap-3 px-1 pb-1 pt-4 first:pt-1">
+    /* A3.1: header de dia fixa no topo durante o scroll do feed */
+    <div className="day-sticky flex items-center gap-3 px-1 pb-1 pt-4 first:pt-1">
       <span className="label-mono text-[10px]">{label}</span>
       <span
         className="h-px flex-1"
@@ -540,6 +544,22 @@ export function ActivityView() {
   const visible = events.slice(0, limit)
   const hasMore = events.length > limit
 
+  // A3.5: resumo do recorte ativo (todos os eventos filtrados, não só a página)
+  const cutSummary = useMemo(() => {
+    let revenue = 0
+    let sales = 0
+    let failed = 0
+    let cur = 'BRL'
+    for (const e of events) {
+      if (e.type === 'sale') {
+        sales++
+        revenue += e.amount || 0
+        if (e.currency) cur = e.currency
+      } else if (e.type === 'failed') failed++
+    }
+    return { revenue, sales, failed, attempts: sales + failed, cur }
+  }, [events])
+
   // Item 334: sequências de 4+ leads (visitas) seguidos no MESMO dia viram
   // uma linha "N visitas em sequência" expansível — vendas e recusas nunca
   // são agrupadas (são o que importa ver uma a uma).
@@ -679,34 +699,40 @@ export function ActivityView() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Item 154: filtros com contagem */}
-      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Filtrar eventos">
-        {FILTERS.map((f) => {
-          const count = f.value === null ? all.length : (counts[f.value] ?? 0)
-          return (
-            <button
-              key={f.label}
-              type="button"
-              role="tab"
-              aria-selected={filter === f.value}
-              onClick={() => {
-                setFilter(f.value)
-                setLimit(PAGE_SIZE)
-              }}
-              className={cn(
-                'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-                filter === f.value
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/60 bg-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {f.label}
-              {count > 0 ? (
-                <span className="font-mono text-[10px] tabular-nums opacity-70">{count}</span>
-              ) : null}
-            </button>
-          )
-        })}
+      {/* A3.3: controle segmentado compacto com contagens (substitui os chips) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div
+          className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-[var(--hover)] p-0.5"
+          role="tablist"
+          aria-label="Filtrar eventos"
+        >
+          {FILTERS.map((f) => {
+            const count = f.value === null ? all.length : (counts[f.value] ?? 0)
+            return (
+              <button
+                key={f.label}
+                type="button"
+                role="tab"
+                aria-selected={filter === f.value}
+                onClick={() => {
+                  setFilter(f.value)
+                  setLimit(PAGE_SIZE)
+                }}
+                className={cn(
+                  'flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                  filter === f.value
+                    ? 'bg-[var(--active)] text-foreground'
+                    : 'text-muted-foreground hover:text-sub',
+                )}
+              >
+                {f.label}
+                {count > 0 ? (
+                  <span className="font-mono text-[10px] tabular-nums opacity-70">{count}</span>
+                ) : null}
+              </button>
+            )
+          })}
+        </div>
         <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
           {plural(events.length, 'evento')}
         </span>
@@ -842,6 +868,39 @@ export function ActivityView() {
           ))}
         </div>
       </div>
+
+      {/* A3.5: barra de resumo do recorte ativo — eventos, receita e taxa de
+          recusa refletindo filtro/busca/período, com count-up */}
+      {events.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border/60 bg-[var(--hover)] px-3 py-2 font-mono text-xs tabular-nums text-muted-foreground">
+          <span>
+            <CountUp value={events.length} className="font-semibold text-foreground" /> eventos
+          </span>
+          {cutSummary.revenue > 0 ? (
+            <span data-sensitive>
+              <CountUp
+                value={cutSummary.revenue}
+                format={(v) => formatMoney(Math.round(v), cutSummary.cur)}
+                className="font-semibold text-success"
+              />{' '}
+              em vendas
+            </span>
+          ) : null}
+          {cutSummary.attempts > 0 ? (
+            <span>
+              <CountUp
+                value={(cutSummary.failed / cutSummary.attempts) * 100}
+                format={(v) => `${v.toFixed(0)}%`}
+                className={cn(
+                  'font-semibold',
+                  cutSummary.failed / cutSummary.attempts > 0.4 ? 'text-error' : 'text-foreground',
+                )}
+              />{' '}
+              recusadas
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Feed */}
       <GlassCard className="p-4">

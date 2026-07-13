@@ -117,12 +117,17 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
   if (!mounted) return null
 
   return createPortal(
+    /* A8.4: slide-over lateral no lugar do modal central — overlay leve (sem
+       blur) mantém o log de decisões visível atrás durante a edição */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex justify-end bg-black/40"
       onClick={onClose}
     >
       <div
-        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label={entry ? 'Editar link de cloaking' : 'Novo link de cloaking'}
+        className="drawer-in h-full w-full max-w-lg overflow-y-auto border-l border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho fixo */}
@@ -319,6 +324,7 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
                 emptyLabel="Todos os países"
                 placeholder="Buscar país (ex.: Brasil)"
                 manualPattern={/^[A-Za-z]{2}$/}
+                flags
               />
             </div>
 

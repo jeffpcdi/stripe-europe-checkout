@@ -110,11 +110,19 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 - **ua.js** — parse de User-Agent + detecção de bots (usado no middleware de lead).
 - **pushcut.js** — notificações push (venda, etc.) via webhook Pushcut.
 - **cloudflare-domain-provider.js** — provedor principal de domínios via Cloudflare for SaaS / Custom
-  Hostnames. Lê `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` e `CLOUDFLARE_FALLBACK_ORIGIN`; cria/adota,
-  consulta SSL + hostname separadamente e remove hostnames sem consumir os slots limitados da Railway.
-  Nunca expõe token; erros viram `auth`/`duplicado`/`limite`/`offline`/`falha`. O fallback origin DEVE ser
-  hostname público (normalmente `*.up.railway.app`), nunca `*.railway.internal`. Domínios antigos são
-  adotados idempotentemente quando o verify detecta `provider` diferente.
+  Hostnames. Lê `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_FALLBACK_ORIGIN` (origem
+  Railway pública — registrada na ZONA via API, nunca mostrada ao lojista) e `CLOUDFLARE_CNAME_TARGET`
+  (Managed CNAME target — o alvo que o LOJISTA aponta; sem ele o provider opera em modo degradado).
+  Preflight rígido no boot: token autentica na zona + origem é hostname público (rejeita
+  `*.railway.internal`/IPs privados) + origem responde `/__domain-check`; qualquer falha desabilita o
+  provider com causa exata (`auth`/`origem privada`/`origem offline`) e o server cai para o legado via
+  `activeDomainProvider()` (seleção dinâmica, nunca congelada no boot). Estados explícitos por domínio:
+  `pending_dns → pending_ssl → active | error` (+ `sslStatus`/`lastCheckedAt`/`lastError` persistidos;
+  `active` nunca regride por leitura transitória). Diagnóstico consolidado em
+  `GET /api/custom-domains/:host/diagnostics` (preflight + Cloudflare + DNS + TLS via SNI + marcador).
+  Bateria E2E real: `npm run check:domains` (scripts/check-domains.mjs). Nunca expõe token; erros viram
+  `auth`/`duplicado`/`limite`/`offline`/`falha`. Domínios antigos são adotados idempotentemente quando o
+  verify detecta `provider` diferente.
 - **domain-provider.js** — fallback legado Railway GraphQL quando as variáveis `CLOUDFLARE_*` não estão
   completas. Mantém a mesma interface (`enabled`/`register`/`status`/`remove`) e suporta account token ou
   project token. Detalhes de operação em §5.2.2 e ciclo completo em §18.

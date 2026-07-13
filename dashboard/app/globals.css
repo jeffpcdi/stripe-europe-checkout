@@ -674,6 +674,16 @@ html[data-tv] main {
   to { transform: rotate(360deg); }
 }
 
+/* A8.4 — editor do cloaker em slide-over lateral: painel desliza da direita
+   e o overlay é leve (sem blur) para o log de decisões continuar visível. */
+@keyframes drawerIn {
+  from { transform: translateX(48px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.drawer-in {
+  animation: drawerIn var(--dur) var(--ease) both;
+}
+
 /* Item 143: barras do funil preenchem da esquerda com stagger */
 @keyframes barFill {
   from { transform: scaleX(0); }
@@ -1586,6 +1596,146 @@ a:active,
     rgba(37, 244, 238, 0.5),
     transparent
   );
+}
+
+/* ============================================================
+   Utilitários compartilhados do plano de refinamento
+   ============================================================ */
+
+/* Entrada em cascata — fade + translateY(12px), delay incremental via --i.
+   Complementa .stagger (que usa kpiIn/spring) com uma variante mais calma. */
+@keyframes fadeRise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.stagger-fade > * {
+  animation: fadeRise var(--dur-slow) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+/* Copy→Check reutilizável: os dois ícones ocupam a mesma célula;
+   [data-copied="true"] faz o morph com spring. */
+.copy-morph {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+.copy-morph > svg {
+  grid-area: 1 / 1;
+  transition: opacity var(--dur-fast) var(--ease), transform var(--dur) var(--spring);
+}
+.copy-morph > svg:last-child {
+  opacity: 0;
+  transform: scale(0.5) rotate(-12deg);
+  color: var(--success);
+}
+.copy-morph[data-copied='true'] > svg:first-child {
+  opacity: 0;
+  transform: scale(0.5);
+}
+.copy-morph[data-copied='true'] > svg:last-child {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+/* Dot de status semântico com pulso opcional */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot--ok { background: var(--success); }
+.status-dot--warn { background: var(--warning, #fbbf24); }
+.status-dot--err { background: var(--danger, #fe2c55); }
+.status-dot--pulse {
+  animation: dotPulse 2.2s var(--ease) infinite;
+}
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.45); }
+  50% { box-shadow: 0 0 0 5px rgba(52, 211, 153, 0); }
+}
+.status-dot--err.status-dot--pulse {
+  animation-name: dotPulseErr;
+}
+@keyframes dotPulseErr {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(254, 44, 85, 0.45); }
+  50% { box-shadow: 0 0 0 5px rgba(254, 44, 85, 0); }
+}
+
+/* A1.2 — tick de brilho ciano na borda quando o valor do KPI muda */
+@keyframes kpiTick {
+  0% { box-shadow: 0 0 0 1px rgba(37, 244, 238, 0.55), 0 0 18px rgba(37, 244, 238, 0.25); }
+  100% { box-shadow: 0 0 0 1px rgba(37, 244, 238, 0), 0 0 0 rgba(37, 244, 238, 0); }
+}
+.kpi-tick {
+  animation: kpiTick 400ms var(--ease);
+  border-radius: var(--radius);
+}
+
+/* A1.4 — flash de venda: varredura de glow verde na borda do card de receita */
+@keyframes saleSweep {
+  0% { box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.6), 0 0 24px rgba(34, 197, 94, 0.35); }
+  100% { box-shadow: 0 0 0 1px rgba(34, 197, 94, 0), 0 0 0 rgba(34, 197, 94, 0); }
+}
+.sale-flash {
+  animation: saleSweep 800ms var(--ease);
+  border-radius: var(--radius);
+}
+
+/* A1.5 — fundo com profundidade atrás do hero: radial ciano 4% + grid de
+   pontos esmaecido. CSS puro, zero JS, some em reduced-motion não (é estático). */
+.overview-depth {
+  position: relative;
+}
+.overview-depth::before {
+  content: '';
+  position: absolute;
+  inset: -24px -16px auto -16px;
+  height: 560px;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(37, 244, 238, 0.04), transparent 70%),
+    radial-gradient(circle 1px at 8px 8px, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 100% 100%, 28px 28px;
+  -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent);
+  mask-image: linear-gradient(180deg, #000 60%, transparent);
+}
+
+/* A4.3 — partículas de fluxo: pontos ciano atravessam a barra do funil.
+   CSS puro (background animado), desligado em reduced-motion pelo bloco global. */
+@keyframes flowDots {
+  from { background-position: 0 0; }
+  to { background-position: 56px 0; }
+}
+.funnel-flow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle 1.5px at 8px 50%, rgba(255, 255, 255, 0.55) 1.5px, transparent 2px);
+  background-size: 56px 100%;
+  animation: flowDots 1.6s linear infinite;
+  mix-blend-mode: screen;
+}
+
+/* A3.1 — separador de dia fixa no topo durante o scroll do feed */
+.day-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+/* A3.2 — evento novo desliza de cima com flash na borda esquerda */
+@keyframes rowSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.feed-row-new {
+  animation: rowSlideIn var(--dur) var(--ease) both;
 }
 
 /* ============================================================
