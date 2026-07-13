@@ -667,8 +667,22 @@ export interface AdsStatusResponse {
   enabled: boolean // ZERNIO_API_KEY presente e válida no servidor
   connected: boolean
   account?: { id: string; username: string; displayName: string }
+  businessCenterId?: string
   advertiserId?: string
   identity?: AdsIdentity | null
+}
+
+// ── GET /api/ads/business-centers — camada acima dos advertisers ──
+export interface AdsBusinessCenter {
+  id: string
+  name: string
+  type?: string
+}
+
+export interface AdsBusinessCentersResponse {
+  businessCenters: AdsBusinessCenter[]
+  selected: string
+  unsupported?: boolean // Zernio sem o endpoint — a UI esconde o seletor
 }
 
 export interface AdsIdentity {
@@ -939,4 +953,29 @@ export interface AdsTemplate {
 
 export interface AdsTemplatesResponse {
   items: AdsTemplate[]
+}
+
+// ── POST /api/ads/bulk + GET /api/ads/bulk/:jobId — fila com progresso ──
+export interface AdsBulkItem {
+  idx: number
+  ref: string // nome do anúncio / rótulo da cópia
+  status: 'queued' | 'running' | 'done' | 'failed'
+  error?: string
+  resultId?: string // platformCampaignId criado
+}
+
+export interface AdsBulkJob {
+  jobId: string
+  kind: 'bulk_create' | 'duplicate'
+  status: 'queued' | 'running' | 'done'
+  total: number
+  done: number
+  failed: number
+  createdAt: string
+  items: AdsBulkItem[]
+}
+
+export interface AdsBulkStartResponse {
+  jobId: string
+  total: number
 }
