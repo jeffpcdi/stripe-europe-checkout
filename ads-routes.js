@@ -394,12 +394,25 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Aplica o status da plataforma em cada campanha, preservando o derivado
   // em `childStatus` (a UI mostra "anúncios pausados" quando divergem).
+  // Quando a Zernio não popula `platformCampaignStatus` (comum no TikTok — o
+  // campo é documentado em termos do effective_status da Meta), cai no
+  // `reviewStatus`: campanha com anúncios em revisão/rejeitados não é
+  // "pausada" — é "em revisão"/"rejeitada", igual ao TikTok Ads Manager.
   function reconcileTreeStatuses(data) {
     if (!data || !Array.isArray(data.campaigns)) return data;
     const campaigns = data.campaigns.map((c) => {
       const platform = normalizeCampaignStatus(c.platformCampaignStatus);
-      if (!platform || platform === c.status) return c;
-      return { ...c, status: platform, childStatus: c.status };
+      if (platform && platform !== c.status) return { ...c, status: platform, childStatus: c.status };
+      if (platform) return c;
+      // fallback: sem status cru da plataforma, o reviewStatus desambigua os
+      // "pausados" que na verdade nunca entregaram porque estão em análise
+      if ((c.status === 'paused' || !c.status) && c.reviewStatus === 'in_review') {
+        return { ...c, status: 'pending_review', childStatus: c.status };
+      }
+      if ((c.status === 'paused' || !c.status) && c.reviewStatus === 'rejected') {
+        return { ...c, status: 'rejected', childStatus: c.status };
+      }
+      return c;
     });
     return { ...data, campaigns };
   }
