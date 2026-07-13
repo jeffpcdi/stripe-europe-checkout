@@ -131,6 +131,25 @@ export function AdsConnectCard({ onConnected }: { onConnected: () => void }) {
           ))}
         </ul>
 
+        {/* Guia em passos — o usuário sabe exatamente o que vem depois do OAuth */}
+        <ol className="flex flex-col gap-2 sm:flex-row sm:gap-3" aria-label="Como conectar">
+          {[
+            'Clique em "Conectar" e autorize no TikTok for Business',
+            'De volta ao painel, escolha o Business Center',
+            'Selecione a conta de anúncio e gerencie tudo daqui',
+          ].map((step, i) => (
+            <li key={step} className="flex flex-1 items-start gap-2.5 rounded-xl border border-border bg-card/50 p-3">
+              <span
+                className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-bold text-primary"
+                aria-hidden="true"
+              >
+                {i + 1}
+              </span>
+              <span className="text-pretty text-xs leading-relaxed text-muted-foreground">{step}</span>
+            </li>
+          ))}
+        </ol>
+
         {/* O TikTok define QUAIS contas o token acessa na tela de consentimento
             do OAuth. Sem esse aviso, o usuário autoriza só 1 conta e acha que
             a integração está quebrada. */}

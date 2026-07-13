@@ -5,13 +5,14 @@
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
 import { useMemo, useState } from 'react'
-import { Megaphone, Plus, Zap, UserRound, BellRing, Bot, Layers } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, BellRing, Bot, Layers, ListChecks, FlaskConical, OctagonAlert } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
   useAdsBusinessCenters,
   useAdsTree,
   useAdsAttribution,
+  useAdsSafetyPolicy,
   apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -35,6 +36,7 @@ import { DuplicateDialog } from './duplicate-dialog'
 import { RoasCard } from './roas-card'
 import { AlertsDialog } from './alerts-dialog'
 import { AutomationDialog } from './automation-dialog'
+import { OpsDialog } from './ops-dialog'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 // Moeda dos advertisers TikTok (spend vem em unidades inteiras da moeda)
@@ -100,6 +102,12 @@ export function TikTokAdsView() {
   const [identityOpen, setIdentityOpen] = useState(false)
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
+  const [opsOpen, setOpsOpen] = useState(false)
+
+  // Política de segurança — alimenta o badge de simulação/kill switch
+  const { data: safety, mutate: mutateSafety } = useAdsSafetyPolicy(connected)
+  const dryRunActive = Boolean(safety?.policy?.dryRun)
+  const killSwitchActive = Boolean(safety?.policy?.killSwitch)
   const [detailCampaign, setDetailCampaign] = useState<AdsTreeCampaign | null>(null)
   const [duplicateCampaign, setDuplicateCampaign] = useState<AdsTreeCampaign | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
@@ -224,8 +232,36 @@ export function TikTokAdsView() {
     <div className="flex flex-col gap-5">
       {/* Cabeçalho: título + conta conectada + ações principais */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
+          {/* Badge de guardrail ativo — o usuário entende por que nada publica */}
+          {killSwitchActive ? (
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-full border border-error/40 bg-error/10 px-2.5 py-1 text-[11px] font-semibold text-error"
+              onClick={() => setOpsOpen(true)}
+              title="Kill switch ativo: todas as ações de escrita estão bloqueadas. Clique para gerenciar."
+            >
+              <OctagonAlert className="size-3" aria-hidden="true" />
+              Kill switch ativo
+            </button>
+          ) : dryRunActive ? (
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning"
+              onClick={() => setOpsOpen(true)}
+              title="Modo simulação: operações rodam mas nada é publicado no TikTok. Clique para gerenciar."
+            >
+              <FlaskConical className="size-3" aria-hidden="true" />
+              Modo simulação
+            </button>
+          ) : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-ghost text-xs" onClick={() => setOpsOpen(true)}>
+            <ListChecks className="size-3.5" aria-hidden="true" />
+            Operações
+          </button>
           <button type="button" className="btn-ghost text-xs" onClick={() => setRulesOpen(true)}>
             <Bot className="size-3.5" aria-hidden="true" />
             Automação
@@ -410,6 +446,12 @@ export function TikTokAdsView() {
         }}
       />
       <AlertsDialog open={alertsOpen} onClose={() => setAlertsOpen(false)} currency={currency} />
+      <OpsDialog
+        open={opsOpen}
+        onClose={() => setOpsOpen(false)}
+        currency={currency}
+        onPolicyChanged={() => mutateSafety()}
+      />
       <AutomationDialog
         open={rulesOpen}
         onClose={() => setRulesOpen(false)}

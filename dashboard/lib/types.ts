@@ -981,3 +981,42 @@ export interface AdsBulkStartResponse {
   dryRun?: boolean
   reused?: boolean
 }
+
+// ── Fundação operacional (jobs duráveis + guardrails) ──────────────────────
+
+// Job durável persistido no Neon (linha de /api/ads/ops/jobs)
+export interface AdsOpsJob {
+  id: string
+  kind: string
+  status: 'queued' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  advertiser_id: string | null
+  progress: { total?: number; completed?: number; failed?: number }
+  error: string | null
+  attempts: number
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+}
+
+export interface AdsOpsJobsResponse {
+  enabled: boolean
+  jobs: AdsOpsJob[]
+}
+
+// Política de segurança normalizada (contrato camelCase de GET e PUT)
+export interface AdsSafetyPolicy {
+  enabled: boolean
+  dryRun: boolean
+  killSwitch: boolean
+  dailySpendCap: number | null
+  maxBudgetChangePct: number
+  cooldownMinutes: number
+  allowedHours: Record<string, unknown>
+  blockedAdvertiserIds: string[]
+  circuitBreakerErrorPct: number
+}
+
+export interface AdsSafetyPolicyResponse {
+  enabled: boolean
+  policy: AdsSafetyPolicy
+}
