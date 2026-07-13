@@ -360,8 +360,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
+  // capturar (Express casa na ordem de registro; alerts/library vêm depois).
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect']);
+
   // ── Atualizar um anúncio (status/budget/creative) ─────────────────────────
-  app.put('/api/ads/:adId', dashboardAuth, async (req, res) => {
+  app.put('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
+    if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
@@ -387,7 +392,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   // ── Cancelar um anúncio (preservado para histórico) ───────────────────────
-  app.delete('/api/ads/:adId', dashboardAuth, async (req, res) => {
+  app.delete('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
+    if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });

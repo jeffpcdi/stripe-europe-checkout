@@ -24,6 +24,7 @@ import { apiSend, adsUpload } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsGoal, AdsIdentity } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
+import { CreativeLibrary } from './creative-library'
 
 const GOALS: { value: AdsGoal; label: string; hint: string }[] = [
   { value: 'traffic', label: 'Tráfego', hint: 'Levar cliques para sua página' },
@@ -112,6 +113,7 @@ export function CreateAdPanel({
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadPct, setUploadPct] = useState(0)
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const idemKey = useMemo(() => (open ? `ttads-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` : ''), [open])
 
   useModalA11y(open, ref, submitting ? () => {} : onClose)
@@ -507,6 +509,28 @@ export function CreateAdPanel({
                     </div>
                   )}
                 </div>
+
+                {/* Biblioteca: reaproveitar vídeos já enviados ao Blob */}
+                {libraryOpen ? (
+                  <CreativeLibrary
+                    open={libraryOpen}
+                    onClose={() => setLibraryOpen(false)}
+                    selectedUrl={form.videoUrl}
+                    onPick={(item) => {
+                      set('videoUrl', item.url)
+                      toast.success('Criativo selecionado', { hint: item.name })
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-ghost self-start text-[11px]"
+                    onClick={() => setLibraryOpen(true)}
+                  >
+                    <Clapperboard className="size-3.5" aria-hidden="true" />
+                    Escolher da biblioteca
+                  </button>
+                )}
               </div>
 
               <label className="flex flex-col gap-1.5">

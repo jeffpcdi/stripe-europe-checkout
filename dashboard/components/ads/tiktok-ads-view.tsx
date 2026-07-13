@@ -5,10 +5,10 @@
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
 import { useMemo, useState } from 'react'
-import { Megaphone, Plus, Zap, UserRound, RefreshCw, Unplug } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, RefreshCw, Unplug, BellRing } from 'lucide-react'
 import { useAdsStatus, useAdsAccounts, useAdsTree, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsMetrics } from '@/lib/types'
+import type { AdsMetrics, AdsTreeCampaign } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { SectionTitle } from '@/components/section-title'
 import { Skeleton } from '@/components/skeleton'
@@ -21,6 +21,9 @@ import { CampaignTree } from './campaign-tree'
 import { CreateAdPanel } from './create-ad-panel'
 import { SparkAdDialog } from './spark-ad-dialog'
 import { IdentityDialog } from './identity-dialog'
+import { CampaignDrawer } from './campaign-drawer'
+import { RoasCard } from './roas-card'
+import { AlertsDialog } from './alerts-dialog'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 // Moeda dos advertisers TikTok (spend vem em unidades inteiras da moeda)
@@ -64,6 +67,8 @@ export function TikTokAdsView() {
   const [createOpen, setCreateOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [identityOpen, setIdentityOpen] = useState(false)
+  const [alertsOpen, setAlertsOpen] = useState(false)
+  const [detailCampaign, setDetailCampaign] = useState<AdsTreeCampaign | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
@@ -187,6 +192,10 @@ export function TikTokAdsView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-ghost text-xs" onClick={() => setAlertsOpen(true)}>
+            <BellRing className="size-3.5" aria-hidden="true" />
+            Alertas
+          </button>
           <button type="button" className="btn-ghost text-xs" onClick={() => setIdentityOpen(true)}>
             <UserRound className="size-3.5" aria-hidden="true" />
             {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
@@ -304,6 +313,9 @@ export function TikTokAdsView() {
             </GlassCard>
           </div>
 
+          {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
+          <RoasCard active={treeActive} />
+
           {/* Árvore de campanhas */}
           <CampaignTree
             tree={tree}
@@ -324,6 +336,7 @@ export function TikTokAdsView() {
             onPage={setPage}
             onMutate={() => mutateTree()}
             onRetry={() => mutateTree()}
+            onOpenDetail={setDetailCampaign}
           />
         </>
       )}
@@ -359,6 +372,8 @@ export function TikTokAdsView() {
           mutateStatus()
         }}
       />
+      <AlertsDialog open={alertsOpen} onClose={() => setAlertsOpen(false)} currency={currency} />
+      <CampaignDrawer campaign={detailCampaign} currency={currency} onClose={() => setDetailCampaign(null)} />
       <ConfirmDialog
         open={confirmDisconnect}
         title="Desconectar a conta TikTok Ads?"
