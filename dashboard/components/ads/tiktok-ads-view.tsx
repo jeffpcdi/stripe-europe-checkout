@@ -197,6 +197,10 @@ export function TikTokAdsView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-ghost text-xs" onClick={() => setRulesOpen(true)}>
+            <Bot className="size-3.5" aria-hidden="true" />
+            Automação
+          </button>
           <button type="button" className="btn-ghost text-xs" onClick={() => setAlertsOpen(true)}>
             <BellRing className="size-3.5" aria-hidden="true" />
             Alertas
@@ -379,6 +383,12 @@ export function TikTokAdsView() {
         }}
       />
       <AlertsDialog open={alertsOpen} onClose={() => setAlertsOpen(false)} currency={currency} />
+      <AutomationDialog
+        open={rulesOpen}
+        onClose={() => setRulesOpen(false)}
+        currency={currency}
+        onExecuted={() => mutateTree()}
+      />
       <CampaignDrawer
         campaign={detailCampaign}
         currency={currency}

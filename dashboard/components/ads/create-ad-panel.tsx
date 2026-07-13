@@ -19,10 +19,13 @@ import {
   CheckCircle2,
   UploadCloud,
   Link2,
+  BookmarkPlus,
+  FlaskConical,
+  Trash2,
 } from 'lucide-react'
-import { apiSend, adsUpload } from '@/lib/api'
+import { apiSend, adsUpload, useAdsTemplates } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsGoal, AdsIdentity } from '@/lib/types'
+import type { AdsGoal, AdsIdentity, AdsTemplate } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { CreativeLibrary } from './creative-library'
 
@@ -114,6 +117,12 @@ export function CreateAdPanel({
   const [uploading, setUploading] = useState(false)
   const [uploadPct, setUploadPct] = useState(0)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  // Templates: configurações salvas (sem vídeo) para pré-preencher o wizard
+  const { data: templatesData, mutate: mutateTemplates } = useAdsTemplates(open)
+  const [savingTemplate, setSavingTemplate] = useState(false)
+  // Variações A/B: vídeos EXTRAS além do principal → 1 campanha por vídeo
+  const [variantUrls, setVariantUrls] = useState<string[]>([])
+  const [variantsOpen, setVariantsOpen] = useState(false)
   const idemKey = useMemo(() => (open ? `ttads-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` : ''), [open])
 
   useModalA11y(open, ref, submitting ? () => {} : onClose)
@@ -124,6 +133,8 @@ export function CreateAdPanel({
       setStep(0)
       setForm(INITIAL)
       setUploadPct(0)
+      setVariantUrls([])
+      setVariantsOpen(false)
     }
   }, [open])
 
@@ -179,6 +190,67 @@ export function CreateAdPanel({
     }
   }
 
+  // Preenche o wizard com um template salvo (mantém o vídeo em branco)
+  function applyTemplate(t: AdsTemplate) {
+    const p = t.payload
+    setForm((f) => ({
+      ...f,
+      goal: (p.goal as AdsGoal) || f.goal,
+      budgetAmount: p.budgetAmount ? String(p.budgetAmount) : f.budgetAmount,
+      budgetType: p.budgetType || f.budgetType,
+      body: p.body ?? f.body,
+      linkUrl: p.linkUrl ?? f.linkUrl,
+      callToAction: p.callToAction ?? f.callToAction,
+      countries: p.countries?.join(', ') || f.countries,
+      languages: p.languages?.join(', ') || f.languages,
+      ageMin: p.ageMin ? String(p.ageMin) : f.ageMin,
+      ageMax: p.ageMax ? String(p.ageMax) : f.ageMax,
+      pixelId: p.pixelId ?? f.pixelId,
+      customEventType: p.customEventType ?? f.customEventType,
+    }))
+    toast.success('Template aplicado', { hint: `"${t.name}" — só falta o vídeo e o nome.` })
+  }
+
+  async function handleSaveTemplate() {
+    const name = window.prompt('Nome do template (ex.: "Conversões BR 50/dia"):', form.name || '')
+    if (!name?.trim()) return
+    setSavingTemplate(true)
+    try {
+      await apiSend('/api/ads/templates', 'POST', {
+        name: name.trim(),
+        payload: {
+          goal: form.goal,
+          budgetAmount: Number(form.budgetAmount) || undefined,
+          budgetType: form.budgetType,
+          body: form.body.trim() || undefined,
+          linkUrl: form.linkUrl.trim() || undefined,
+          callToAction: form.callToAction || undefined,
+          countries: form.countries.split(/[,\s]+/).filter(Boolean),
+          languages: form.languages.split(/[,\s]+/).filter(Boolean),
+          ageMin: Number(form.ageMin) || undefined,
+          ageMax: Number(form.ageMax) || undefined,
+          pixelId: form.pixelId.trim() || undefined,
+          customEventType: form.customEventType.trim() || undefined,
+        },
+      })
+      mutateTemplates()
+      toast.success('Template salvo', { hint: 'Disponível na próxima campanha.' })
+    } catch (e) {
+      toast.error('Falha ao salvar template', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  async function handleDeleteTemplate(id: string) {
+    try {
+      await apiSend(`/api/ads/templates?id=${encodeURIComponent(id)}`, 'DELETE')
+      mutateTemplates()
+    } catch {
+      // silencioso: lista revalida sozinha
+    }
+  }
+
   async function handleSubmit() {
     setSubmitting(true)
     try {
@@ -190,39 +262,65 @@ export function CreateAdPanel({
         .split(/[,\s]+/)
         .map((c) => c.trim().toLowerCase())
         .filter((c) => /^[a-z]{2}$/.test(c))
-      const payload: Record<string, unknown> = {
+      const basePayload: Record<string, unknown> = {
         adAccountId: advertiserId,
-        name: form.name.trim(),
         goal: form.goal,
         budgetAmount: Number(form.budgetAmount),
         budgetType: form.budgetType,
-        videoUrl: form.videoUrl.trim(),
-        idempotencyKey: idemKey,
       }
-      if (form.budgetType === 'lifetime') payload.endDate = form.endDate
-      if (countries.length) payload.countries = countries
-      if (languages.length) payload.languages = languages
-      if (Number(form.ageMin) >= 13) payload.ageMin = Number(form.ageMin)
-      if (Number(form.ageMax) >= 13) payload.ageMax = Number(form.ageMax)
-      if (form.body.trim()) payload.body = form.body.trim()
-      if (/^https?:\/\//.test(form.linkUrl.trim())) payload.linkUrl = form.linkUrl.trim()
-      if (form.callToAction) payload.callToAction = form.callToAction
+      if (form.budgetType === 'lifetime') basePayload.endDate = form.endDate
+      if (countries.length) basePayload.countries = countries
+      if (languages.length) basePayload.languages = languages
+      if (Number(form.ageMin) >= 13) basePayload.ageMin = Number(form.ageMin)
+      if (Number(form.ageMax) >= 13) basePayload.ageMax = Number(form.ageMax)
+      if (form.body.trim()) basePayload.body = form.body.trim()
+      if (/^https?:\/\//.test(form.linkUrl.trim())) basePayload.linkUrl = form.linkUrl.trim()
+      if (form.callToAction) basePayload.callToAction = form.callToAction
       if (form.goal === 'conversions') {
-        payload.promotedObject = {
+        basePayload.promotedObject = {
           pixelId: form.pixelId.trim(),
           ...(form.customEventType.trim() ? { customEventType: form.customEventType.trim().toUpperCase() } : {}),
         }
       }
       if (form.useIdentity && identity) {
-        payload.identityType = 'CUSTOMIZED_USER'
-        payload.brandIdentity = { displayName: identity.displayName, imageUrl: identity.imageUrl }
+        basePayload.identityType = 'CUSTOMIZED_USER'
+        basePayload.brandIdentity = { displayName: identity.displayName, imageUrl: identity.imageUrl }
       }
 
-      await apiSend('/api/ads/create', 'POST', payload)
-      toast.success('Campanha criada no TikTok Ads', {
-        hint: 'Ela entra em revisão do TikTok antes de veicular.',
-      })
-      onCreated()
+      // Variações A/B: vídeo principal + extras = 1 campanha por vídeo
+      // (sufixo A/B/C… no nome). Sequencial para respeitar rate limits.
+      const videos = [form.videoUrl.trim(), ...variantUrls.filter((u) => /^https:\/\/\S+/.test(u))]
+      const results: { ok: boolean; label: string; error?: string }[] = []
+      for (let i = 0; i < videos.length; i++) {
+        const label = videos.length > 1 ? String.fromCharCode(65 + i) : ''
+        const name = label ? `${form.name.trim()} — ${label}` : form.name.trim()
+        try {
+          await apiSend('/api/ads/create', 'POST', {
+            ...basePayload,
+            name,
+            videoUrl: videos[i],
+            idempotencyKey: `${idemKey}-${i}`,
+          })
+          results.push({ ok: true, label: name })
+        } catch (e) {
+          results.push({ ok: false, label: name, error: e instanceof Error ? e.message : 'erro' })
+        }
+      }
+
+      const okCount = results.filter((r) => r.ok).length
+      const failed = results.filter((r) => !r.ok)
+      if (okCount === results.length) {
+        toast.success(
+          results.length > 1 ? `${okCount} campanhas criadas (teste A/B)` : 'Campanha criada no TikTok Ads',
+          { hint: 'Elas entram em revisão do TikTok antes de veicular.' },
+        )
+        onCreated()
+      } else if (okCount > 0) {
+        toast.error(`${okCount} de ${results.length} criadas`, { hint: failed[0]?.error })
+        onCreated()
+      } else {
+        throw new Error(failed[0]?.error || 'Falha ao criar')
+      }
     } catch (e) {
       toast.error('Falha ao criar a campanha', { hint: e instanceof Error ? e.message : undefined })
     } finally {
@@ -297,6 +395,38 @@ export function CreateAdPanel({
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {step === 0 && (
             <div className="anim-content-in flex flex-col gap-4">
+              {/* Templates salvos: pré-preenche tudo menos nome e vídeo */}
+              {(templatesData?.items?.length ?? 0) > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-foreground">Começar de um template</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {templatesData!.items.map((t) => (
+                      <span
+                        key={t.id}
+                        className="inline-flex items-center gap-0.5 rounded-full border border-border bg-secondary/40 pl-2.5 pr-1 py-0.5"
+                      >
+                        <button
+                          type="button"
+                          className="text-[11px] font-medium text-foreground transition-colors hover:text-primary"
+                          onClick={() => applyTemplate(t)}
+                          title={`Aplicar "${t.name}"`}
+                        >
+                          {t.name}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost !p-0.5 text-muted-foreground"
+                          onClick={() => handleDeleteTemplate(t.id)}
+                          aria-label={`Excluir template ${t.name}`}
+                          title="Excluir template"
+                        >
+                          <Trash2 className="size-3" aria-hidden="true" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium text-foreground">Nome da campanha</span>
                 <input
@@ -533,6 +663,67 @@ export function CreateAdPanel({
                 )}
               </div>
 
+              {/* Variações A/B: vídeos extras → 1 campanha idêntica por vídeo */}
+              <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/20 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                    <FlaskConical className="size-3.5 text-primary" aria-hidden="true" />
+                    Teste A/B de criativos
+                    {variantUrls.length > 0 && (
+                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+                        {variantUrls.length + 1} campanhas
+                      </span>
+                    )}
+                  </span>
+                  {!variantsOpen && variantUrls.length === 0 && (
+                    <button type="button" className="btn-ghost !py-1 text-[11px]" onClick={() => setVariantsOpen(true)}>
+                      Adicionar variações
+                    </button>
+                  )}
+                </div>
+                {(variantsOpen || variantUrls.length > 0) && (
+                  <>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      Cada vídeo extra cria uma campanha idêntica (sufixo A/B/C…) — mesma verba, público e
+                      destino. Compare o desempenho e pause as perdedoras.
+                    </p>
+                    {variantUrls.map((u, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="w-5 shrink-0 text-center text-[11px] font-bold text-primary">
+                          {String.fromCharCode(66 + i)}
+                        </span>
+                        <input
+                          className="input-neon w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground"
+                          value={u}
+                          onChange={(e) =>
+                            setVariantUrls((prev) => prev.map((x, xi) => (xi === i ? e.target.value : x)))
+                          }
+                          placeholder="https://…/video-b.mp4"
+                          aria-label={`URL do vídeo da variação ${String.fromCharCode(66 + i)}`}
+                        />
+                        <button
+                          type="button"
+                          className="btn-ghost !p-1.5 text-muted-foreground"
+                          onClick={() => setVariantUrls((prev) => prev.filter((_, xi) => xi !== i))}
+                          aria-label={`Remover variação ${String.fromCharCode(66 + i)}`}
+                        >
+                          <X className="size-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
+                    {variantUrls.length < 2 && (
+                      <button
+                        type="button"
+                        className="btn-ghost self-start text-[11px]"
+                        onClick={() => setVariantUrls((prev) => [...prev, ''])}
+                      >
+                        + Vídeo {String.fromCharCode(66 + variantUrls.length)}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium text-foreground">Legenda (até 100 caracteres)</span>
                 <textarea
@@ -594,7 +785,29 @@ export function CreateAdPanel({
 
           {step === 4 && (
             <div className="anim-content-in flex flex-col gap-3">
-              <p className="text-xs text-muted-foreground">Confira tudo antes de publicar:</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">Confira tudo antes de publicar:</p>
+                <button
+                  type="button"
+                  className="btn-ghost !py-1 text-[11px]"
+                  onClick={handleSaveTemplate}
+                  disabled={savingTemplate}
+                >
+                  {savingTemplate ? (
+                    <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <BookmarkPlus className="size-3" aria-hidden="true" />
+                  )}
+                  Salvar como template
+                </button>
+              </div>
+              {variantUrls.filter((u) => /^https:\/\/\S+/.test(u)).length > 0 && (
+                <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[11px] font-medium leading-relaxed text-primary">
+                  Teste A/B: serão criadas{' '}
+                  {variantUrls.filter((u) => /^https:\/\/\S+/.test(u)).length + 1} campanhas idênticas, uma
+                  por vídeo (sufixos A, B{variantUrls.length > 1 ? ', C' : ''}).
+                </p>
+              )}
               <dl className="flex flex-col divide-y divide-border rounded-xl border border-border bg-background text-xs">
                 {[
                   ['Campanha', form.name],

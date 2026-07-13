@@ -47,10 +47,13 @@ export function AutomationDialog({
   open,
   onClose,
   currency,
+  onExecuted,
 }: {
   open: boolean
   onClose: () => void
   currency: string
+  // chamado quando regras executam ações (revalida a árvore de campanhas)
+  onExecuted?: () => void
 }) {
   const { data, mutate } = useAdsRules(open)
 
@@ -100,6 +103,7 @@ export function AutomationDialog({
       if (r.executed?.length) {
         toast.success(`${r.executed.length} ação(ões) executada(s)`, { hint: 'Veja o histórico para detalhes.' })
         setTab('log')
+        onExecuted?.()
       } else {
         toast.success('Nenhuma campanha disparou as regras')
       }
