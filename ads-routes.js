@@ -27,6 +27,7 @@
 //   POST   /api/ads/upload               → vídeo/imagem → Vercel Blob (URL pública)
 // ─────────────────────────────────────────────────────────────────────────────
 const zernio = require('./zernio-ads');
+const adsOps = require('./ads-ops-store');
 
 // Repassa erros da Zernio com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
@@ -61,6 +62,37 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       return u.toString().replace(/%5F%5FCAMPAIGN%5FID%5F%5F/gi, '__CAMPAIGN_ID__');
     } catch (_) { return url; }
   }
+
+  // ── Fundação operacional: jobs e guardrails por conta ─────────────────────
+  app.get('/api/ads/ops/jobs', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const jobs = await adsOps.listJobs(req.account.id, req.query.limit);
+      res.json({ enabled: adsOps.enabled, jobs });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/ops/safety-policy', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ enabled: adsOps.enabled, policy: await adsOps.getSafetyPolicy(req.account.id) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.put('/api/ads/ops/safety-policy', dashboardAuth, async (req, res) => {
+    try {
+      const before = await adsOps.getSafetyPolicy(req.account.id);
+      const policy = await adsOps.saveSafetyPolicy(req.account.id, req.body || {});
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'safety_policy.updated',
+        targetType: 'safety_policy', targetId: req.account.id, beforeState: before,
+        afterState: adsOps.normalizePolicy(req.body || {}),
+        reason: policy.kill_switch ? 'Kill switch acionado manualmente' : 'Guardrails atualizados manualmente'
+      });
+      stats.logEvent('warn', { acc: req.account.id, title: policy.kill_switch ? 'Kill switch de Ads ativado' : 'Política de segurança de Ads atualizada' });
+      res.json({ policy });
+    } catch (err) { fail(res, err); }
+  });
 
   // ── Status da integração ──────────────────────────────────────────────────
   app.get('/api/ads/status', dashboardAuth, async (req, res) => {
@@ -891,7 +923,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Atribuição por campanha ────────────────────────────────────────────────
+  // ── Atribuição por campanha ──────────────────��─────────────────────────────
   // Os anúncios criados aqui saem com utm_campaign=__CAMPAIGN_ID__ (macro que
   // o TikTok troca pelo ID real). O /api/track grava utm.campaign no lead, e
   // este endpoint casa os leads COMPRADOS com o platformCampaignId — dando
