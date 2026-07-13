@@ -43,10 +43,15 @@ function fail(res, err) {
 module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   const stats = (deps && deps.stats) || { logEvent() {} };
 
+  // Hook da varredura de alertas — preenchido no fim do arquivo (as regras
+  // vivem lá); as rotas de polling chamam via adsSweepHook.fn(accId).
+  const adsSweepHook = { fn: null };
+
   // ── Status da integração ──────────────────────────────────────────────────
   app.get('/api/ads/status', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
+      if (adsSweepHook.fn) adsSweepHook.fn(req.account.id); // alertas pegam carona
       if (!zernio.enabled) return res.json({ enabled: false, connected: false });
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.json({ enabled: true, connected: false });
@@ -150,6 +155,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/tree', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
+      if (adsSweepHook.fn) adsSweepHook.fn(req.account.id); // alertas pegam carona
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
       const q = req.query || {};
@@ -434,6 +440,234 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         contentType: kind === 'image' ? (safe.endsWith('.png') ? 'image/png' : 'image/jpeg') : 'video/mp4'
       });
       res.json({ ok: true, url: blob.url });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── ROAS/CPA — cruza o gasto do TikTok com as VENDAS REAIS dos gateways ───
+  // Gasto: /ads/tree com timeIncrement=1 (série diária somada entre campanhas).
+  // Receita: leads convertidos (stage=purchased) da própria conta no período —
+  // a mesma fonte da aba Visão Geral, então os números batem entre abas.
+  app.get('/api/ads/roas', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const st = zernio.getState(req.account.id);
+      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      const q = req.query || {};
+      const today = new Date();
+      const defFrom = new Date(today.getTime() - 6 * 864e5);
+      const iso = (d) => d.toISOString().slice(0, 10);
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(defFrom);
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
+
+      const ck = 'roas:' + req.account.id + ':' + fromDate + ':' + toDate;
+      let out = zernio.cacheGet(ck);
+      if (!out) {
+        // 1) Gasto do TikTok por dia (todas as campanhas do advertiser)
+        const tree = await zernio.api('GET', '/ads/tree', {
+          query: {
+            accountId: st.accountId, platform: 'tiktok',
+            adAccountId: st.advertiserId || undefined,
+            fromDate, toDate, timeIncrement: 1, limit: 50
+          }
+        });
+        const spendByDay = {}; // 'YYYY-MM-DD' → gasto (moeda do advertiser)
+        let spend = 0, conversions = 0, currency = null;
+        (tree.campaigns || []).forEach((c) => {
+          if (!currency && c.currency) currency = c.currency;
+          const m = c.metrics || {};
+          spend += Number(m.spend) || 0;
+          conversions += Number(m.conversions) || 0;
+          (c.daily || []).forEach((d) => {
+            const day = String(d.date || d.dateStart || d.date_start || d.day || '').slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+            spendByDay[day] = (spendByDay[day] || 0) + (Number(d.spend) || 0);
+          });
+        });
+
+        // 2) Vendas reais da conta no mesmo intervalo (fonte: stats/leads)
+        const revByDay = {}; const salesByDay = {};
+        let revenueCents = 0, sales = 0;
+        if (typeof stats.getStats === 'function') {
+          const snap = stats.getStats(req.account.id) || {};
+          (snap.leads || []).forEach((l) => {
+            if (l.stage !== 'purchased' || !l.convertedAt) return;
+            const day = String(l.convertedAt).slice(0, 10);
+            if (day < fromDate || day > toDate) return;
+            const cents = Number(l.reportedAmount) || 0;
+            revenueCents += cents; sales += 1;
+            revByDay[day] = (revByDay[day] || 0) + cents;
+            salesByDay[day] = (salesByDay[day] || 0) + 1;
+          });
+        }
+
+        // 3) Série contínua dia a dia (mesmo sem dado — o gráfico não pula datas)
+        const daily = [];
+        for (let t = new Date(fromDate + 'T00:00:00Z'); iso(t) <= toDate; t = new Date(t.getTime() + 864e5)) {
+          const day = iso(t);
+          daily.push({
+            date: day,
+            spend: +(spendByDay[day] || 0).toFixed(2),
+            revenueCents: revByDay[day] || 0,
+            sales: salesByDay[day] || 0
+          });
+        }
+
+        const revenue = revenueCents / 100;
+        out = {
+          fromDate, toDate, currency: currency || 'EUR',
+          spend: +spend.toFixed(2), conversions,
+          revenueCents, sales,
+          roas: spend > 0 ? +(revenue / spend).toFixed(2) : null,
+          cpa: sales > 0 && spend > 0 ? +(spend / sales).toFixed(2) : null,
+          daily
+        };
+        zernio.cacheSet(ck, out, 60 * 1000);
+      }
+      res.json(out);
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Biblioteca de criativos — vídeos já enviados ao Vercel Blob ────────────
+  app.get('/api/ads/library', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!process.env.BLOB_READ_WRITE_TOKEN) return res.json({ items: [] });
+      const { list } = require('@vercel/blob');
+      // prefixo POR CONTA: uma conta nunca enxerga criativos da outra
+      const { blobs } = await list({ prefix: 'tiktok-ads/' + req.account.id + '/', limit: 200 });
+      const items = (blobs || [])
+        .filter((b) => /\.(mp4|mov)$/i.test(b.pathname))
+        .sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0))
+        .map((b) => ({
+          url: b.url,
+          name: b.pathname.split('/').pop().replace(/^[a-z0-9]+-/, ''),
+          size: b.size || 0,
+          uploadedAt: b.uploadedAt || null
+        }));
+      res.json({ items });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.delete('/api/ads/library', dashboardAuth, async (req, res) => {
+    try {
+      const url = String((req.query || {}).url || '');
+      // só deleta blobs DO PRÓPRIO diretório da conta (o path é verificável na URL)
+      if (!url.includes('/tiktok-ads/' + req.account.id + '/')) {
+        return res.status(403).json({ error: 'Criativo não pertence a esta conta' });
+      }
+      const { del } = require('@vercel/blob');
+      await del(url);
+      res.json({ ok: true });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Alertas de performance ─────────────────────────────────────────────────
+  // Config por conta (junto do estado zernioAds). Regras:
+  //  • gasto sem conversão: campanha ativa gastou ≥ X no período sem converter
+  //  • CPA estourado: gasto/conversões > teto definido
+  // A varredura pega carona nas chamadas do painel (throttle 30min por conta) e
+  // notifica via Pushcut (mesmo canal "Aprovada" já configurado pelo usuário).
+  const ALERT_DEFAULTS = { enabled: false, spendNoConv: 20, cpaMax: 0, lookbackDays: 2 };
+  const alertLastRun = new Map();   // accId → timestamp da última varredura
+  const alertCooldown = new Map();  // accId:campanha:regra → timestamp do último aviso
+
+  function getAlertCfg(accId) {
+    return Object.assign({}, ALERT_DEFAULTS, zernio.getState(accId).alerts || {});
+  }
+
+  async function runAlertSweep(accId, { force } = {}) {
+    const cfg = getAlertCfg(accId);
+    if (!cfg.enabled && !force) return { findings: [], skipped: true };
+    const st = zernio.getState(accId);
+    if (!st.accountId) return { findings: [], skipped: true };
+
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const to = new Date();
+    const from = new Date(to.getTime() - Math.max(1, cfg.lookbackDays) * 864e5);
+    const tree = await zernio.api('GET', '/ads/tree', {
+      query: {
+        accountId: st.accountId, platform: 'tiktok',
+        adAccountId: st.advertiserId || undefined,
+        status: 'active', fromDate: iso(from), toDate: iso(to), limit: 50
+      }
+    });
+
+    const findings = [];
+    (tree.campaigns || []).forEach((c) => {
+      const m = c.metrics || {};
+      const spend = Number(m.spend) || 0;
+      const conv = Number(m.conversions) || 0;
+      const name = c.campaignName || c.platformCampaignId;
+      if (cfg.spendNoConv > 0 && conv === 0 && spend >= cfg.spendNoConv) {
+        findings.push({
+          rule: 'spend_no_conv', campaignId: c.platformCampaignId, campaignName: name,
+          spend: +spend.toFixed(2), conversions: 0,
+          text: '"' + name + '" gastou ' + spend.toFixed(2) + ' ' + (c.currency || '') + ' nos últimos ' + cfg.lookbackDays + 'd sem nenhuma conversão.'
+        });
+      }
+      if (cfg.cpaMax > 0 && conv > 0 && spend / conv > cfg.cpaMax) {
+        findings.push({
+          rule: 'cpa_max', campaignId: c.platformCampaignId, campaignName: name,
+          spend: +spend.toFixed(2), conversions: conv, cpa: +(spend / conv).toFixed(2),
+          text: '"' + name + '" está com CPA de ' + (spend / conv).toFixed(2) + ' ' + (c.currency || '') + ' (teto: ' + cfg.cpaMax + ').'
+        });
+      }
+    });
+
+    // notifica com cooldown de 6h por campanha+regra (não vira spam)
+    const { sendPushcut } = require('./pushcut');
+    for (const f of findings) {
+      const key = accId + ':' + f.campaignId + ':' + f.rule;
+      const last = alertCooldown.get(key) || 0;
+      if (Date.now() - last < 6 * 3600e3) { f.muted = true; continue; }
+      alertCooldown.set(key, Date.now());
+      stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] ' + f.text });
+      sendPushcut('Aprovada', { title: 'TikTok Ads: atenção', text: f.text, sound: 'system' }, accId).catch(() => {});
+    }
+    return { findings, checkedAt: new Date().toISOString() };
+  }
+
+  // varredura oportunista: pega carona no polling do painel (nunca derruba a
+  // request). Chamada explicitamente pelas rotas de leitura mais frequentes —
+  // um app.use registrado aqui não funcionaria (Express roda na ordem de
+  // registro e as rotas acima já terminaram a resposta).
+  function maybeSweep(accId) {
+    try {
+      if (!accId || !getAlertCfg(accId).enabled) return;
+      const last = alertLastRun.get(accId) || 0;
+      if (Date.now() - last > 30 * 60e3) {
+        alertLastRun.set(accId, Date.now());
+        runAlertSweep(accId).catch(() => {});
+      }
+    } catch (_) { /* nunca bloqueia a rota que pegou a carona */ }
+  }
+  adsSweepHook.fn = maybeSweep;
+
+  app.get('/api/ads/alerts', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(getAlertCfg(req.account.id));
+  });
+
+  app.put('/api/ads/alerts', dashboardAuth, (req, res) => {
+    try {
+      const b = req.body || {};
+      const cfg = {
+        enabled: !!b.enabled,
+        spendNoConv: Math.max(0, Math.min(100000, Number(b.spendNoConv) || 0)),
+        cpaMax: Math.max(0, Math.min(100000, Number(b.cpaMax) || 0)),
+        lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2))
+      };
+      zernio.setState(req.account.id, { alerts: cfg });
+      res.json(cfg);
+    } catch (err) { fail(res, err); }
+  });
+
+  // “verificar agora” — roda a varredura na hora e devolve o que encontrou
+  app.post('/api/ads/alerts/check', dashboardAuth, async (req, res) => {
+    try {
+      alertLastRun.set(req.account.id, Date.now());
+      const result = await runAlertSweep(req.account.id, { force: true });
+      res.json(result);
     } catch (err) { fail(res, err); }
   });
 };

@@ -18,6 +18,10 @@ import {
   Clapperboard,
   ExternalLink,
   AlertTriangle,
+  BarChart3,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -49,7 +53,7 @@ const STATUS_META: Record<string, { label: string; cls: string; dot: string; pul
   cancelled: { label: 'Cancelada', cls: 'text-muted-foreground', dot: 'bg-muted-foreground' },
 }
 
-function StatusPill({ status }: { status?: AdsNodeStatus }) {
+export function StatusPill({ status }: { status?: AdsNodeStatus }) {
   const meta = STATUS_META[status ?? ''] ?? {
     label: status || '—',
     cls: 'text-muted-foreground',
@@ -117,6 +121,7 @@ export function CampaignTree({
   onPage,
   onMutate,
   onRetry,
+  onOpenDetail,
 }: {
   tree?: AdsTreeResponse
   loading: boolean
@@ -130,11 +135,72 @@ export function CampaignTree({
   onPage: (p: number) => void
   onMutate: () => void
   onRetry: () => void
+  onOpenDetail?: (c: AdsTreeCampaign) => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [busyId, setBusyId] = useState<string | null>(null)
   const [deleteAd, setDeleteAd] = useState<AdsTreeAd | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // Ações em lote: seleção por checkbox → barra flutuante pausa/ativa tudo
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  // Edição inline de orçamento: chave do grupo em edição + valor digitado
+  const [editingBudget, setEditingBudget] = useState<string | null>(null)
+  const [budgetValue, setBudgetValue] = useState('')
+  const [budgetBusy, setBudgetBusy] = useState(false)
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function bulkStatus(status: 'active' | 'paused') {
+    if (selected.size === 0 || bulkBusy) return
+    setBulkBusy(true)
+    try {
+      const r = await apiSend<{ totals?: { updated: number; skipped: number; failed: number } }>(
+        '/api/ads/campaigns/bulk-status',
+        'POST',
+        { campaigns: Array.from(selected).map((id) => ({ platformCampaignId: id })), status },
+      )
+      const t = r.totals
+      toast.success(
+        status === 'paused' ? 'Campanhas pausadas' : 'Campanhas ativadas',
+        t ? { hint: `${t.updated} atualizada(s) · ${t.skipped} ignorada(s) · ${t.failed} falha(s)` } : undefined,
+      )
+      setSelected(new Set())
+      onMutate()
+    } catch (e) {
+      toast.error('Falha na ação em lote', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  // Salva o orçamento do grupo via 1º anúncio do grupo (a Zernio aplica o
+  // budget no ad group dono do anúncio — não existe PUT direto de grupo).
+  async function saveBudget(groupKey: string, adId: string, type: 'daily' | 'lifetime') {
+    const amount = Number(budgetValue.replace(',', '.'))
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Informe um valor de orçamento válido')
+      return
+    }
+    setBudgetBusy(true)
+    try {
+      await apiSend(`/api/ads/${encodeURIComponent(adId)}`, 'PUT', { budget: { amount, type } })
+      toast.success('Orçamento atualizado')
+      setEditingBudget(null)
+      onMutate()
+    } catch (e) {
+      toast.error('Falha ao atualizar orçamento', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setBudgetBusy(false)
+    }
+  }
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -233,6 +299,44 @@ export function CampaignTree({
         </label>
       </div>
 
+      {/* Barra de ações em lote — aparece com ≥1 campanha selecionada */}
+      {selected.size > 0 && (
+        <div className="anim-content-in flex flex-wrap items-center gap-2 border-b border-border bg-primary/5 px-4 py-2">
+          <span className="text-xs font-medium text-foreground">
+            {selected.size} selecionada{selected.size === 1 ? '' : 's'}
+          </span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              className="btn-ghost !px-2.5 !py-1 text-[11px]"
+              onClick={() => bulkStatus('active')}
+              disabled={bulkBusy}
+            >
+              {bulkBusy ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Play className="size-3" aria-hidden="true" />}
+              Ativar
+            </button>
+            <button
+              type="button"
+              className="btn-ghost !px-2.5 !py-1 text-[11px]"
+              onClick={() => bulkStatus('paused')}
+              disabled={bulkBusy}
+            >
+              <Pause className="size-3" aria-hidden="true" />
+              Pausar
+            </button>
+            <button
+              type="button"
+              className="btn-ghost !px-2.5 !py-1 text-[11px] text-muted-foreground"
+              onClick={() => setSelected(new Set())}
+              disabled={bulkBusy}
+            >
+              <X className="size-3" aria-hidden="true" />
+              Limpar
+            </button>
+          </div>
+        </div>
+      )}
+
       {tree?.backfillPending && (
         <p className="flex items-center gap-2 border-b border-border bg-warning/5 px-4 py-2 text-[11px] text-warning">
           <Loader2 className="size-3 animate-spin" aria-hidden="true" />
@@ -276,6 +380,13 @@ export function CampaignTree({
               <li key={id} className="anim-row-in">
                 {/* Linha da campanha */}
                 <div className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-secondary/40">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(id)}
+                    onChange={() => toggleSelect(id)}
+                    aria-label={`Selecionar campanha ${c.campaignName || id}`}
+                    className="size-3.5 shrink-0 accent-[color:var(--primary)]"
+                  />
                   <button
                     type="button"
                     onClick={() => toggle(id)}
@@ -320,6 +431,17 @@ export function CampaignTree({
 
                   {/* Ações da campanha */}
                   <div className="flex shrink-0 items-center gap-1">
+                    {onOpenDetail && (
+                      <button
+                        type="button"
+                        className="btn-ghost px-2 py-1"
+                        onClick={() => onOpenDetail(c)}
+                        aria-label={`Ver métricas da campanha ${c.campaignName || id}`}
+                        title="Métricas e gráficos"
+                      >
+                        <BarChart3 className="size-3.5" aria-hidden="true" />
+                      </button>
+                    )}
                     {busy ? (
                       <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
                     ) : (
@@ -378,11 +500,75 @@ export function CampaignTree({
                               {s.adSetName || s.name || s.platformAdSetId || `Grupo ${si + 1}`}
                             </span>
                             <StatusPill status={s.status} />
-                            {s.budget?.amount != null && (
-                              <span className="text-[11px] text-muted-foreground">
-                                {fmtMoney(s.budget.amount, currency)}/{s.budget.type === 'lifetime' ? 'total' : 'dia'}
-                              </span>
-                            )}
+                            {(() => {
+                              const groupKey = String(s.platformAdSetId ?? `${id}-${si}`)
+                              const firstAdId = s.ads?.[0]?.platformAdId || s.ads?.[0]?._id
+                              const budgetType: 'daily' | 'lifetime' = s.budget?.type === 'lifetime' ? 'lifetime' : 'daily'
+                              if (editingBudget === groupKey && firstAdId) {
+                                return (
+                                  <span className="inline-flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      inputMode="decimal"
+                                      min={1}
+                                      step="0.01"
+                                      value={budgetValue}
+                                      onChange={(e) => setBudgetValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') saveBudget(groupKey, firstAdId, budgetType)
+                                        if (e.key === 'Escape') setEditingBudget(null)
+                                      }}
+                                      autoFocus
+                                      disabled={budgetBusy}
+                                      aria-label="Novo orçamento do grupo"
+                                      className="input-neon w-20 rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums text-foreground"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="btn-ghost !p-1 text-success"
+                                      onClick={() => saveBudget(groupKey, firstAdId, budgetType)}
+                                      disabled={budgetBusy}
+                                      aria-label="Salvar orçamento"
+                                    >
+                                      {budgetBusy ? (
+                                        <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                                      ) : (
+                                        <Check className="size-3" aria-hidden="true" />
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn-ghost !p-1 text-muted-foreground"
+                                      onClick={() => setEditingBudget(null)}
+                                      disabled={budgetBusy}
+                                      aria-label="Cancelar edição"
+                                    >
+                                      <X className="size-3" aria-hidden="true" />
+                                    </button>
+                                  </span>
+                                )
+                              }
+                              return (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                                  {s.budget?.amount != null &&
+                                    `${fmtMoney(s.budget.amount, currency)}/${budgetType === 'lifetime' ? 'total' : 'dia'}`}
+                                  {firstAdId && (
+                                    <button
+                                      type="button"
+                                      className="btn-ghost !p-1"
+                                      onClick={() => {
+                                        setEditingBudget(groupKey)
+                                        setBudgetValue(s.budget?.amount != null ? String(s.budget.amount) : '')
+                                      }}
+                                      aria-label={`Editar orçamento do grupo ${s.adSetName || s.name || groupKey}`}
+                                      title="Editar orçamento"
+                                    >
+                                      <Pencil className="size-3" aria-hidden="true" />
+                                    </button>
+                                  )}
+                                </span>
+                              )
+                            })()}
                           </div>
                           <ul className="mt-1 flex flex-col">
                             {(s.ads ?? []).map((ad, ai) => {

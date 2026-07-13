@@ -28,6 +28,9 @@ import type {
   AdsAccountsResponse,
   AdsTreeResponse,
   AdsCampaignAnalyticsResponse,
+  AdsRoasResponse,
+  AdsLibraryResponse,
+  AdsAlertsConfig,
 } from './types'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
@@ -315,6 +318,32 @@ export function useAdsCampaignAnalytics(id: string | null, range?: { fromDate?: 
     fetcher,
     { refreshInterval: 60_000, keepPreviousData: true },
   )
+}
+
+// ROAS/CPA — gasto do TikTok cruzado com as vendas reais dos gateways.
+export function useAdsRoas(active: boolean, range?: { fromDate?: string; toDate?: string }) {
+  const params = new URLSearchParams()
+  if (range?.fromDate) params.set('fromDate', range.fromDate)
+  if (range?.toDate) params.set('toDate', range.toDate)
+  const qs = params.toString()
+  return useSWR<AdsRoasResponse>(active ? `/api/ads/roas${qs ? `?${qs}` : ''}` : null, fetcher, {
+    refreshInterval: 60_000,
+    keepPreviousData: true,
+  })
+}
+
+// Biblioteca de criativos — vídeos já enviados ao Blob desta conta.
+export function useAdsLibrary(active: boolean) {
+  return useSWR<AdsLibraryResponse>(active ? '/api/ads/library' : null, fetcher, {
+    revalidateOnFocus: false,
+  })
+}
+
+// Config de alertas de performance da conta.
+export function useAdsAlerts(active: boolean) {
+  return useSWR<AdsAlertsConfig>(active ? '/api/ads/alerts' : null, fetcher, {
+    revalidateOnFocus: false,
+  })
 }
 
 // Upload de criativo (vídeo/imagem) → Vercel Blob. Binário puro no corpo,

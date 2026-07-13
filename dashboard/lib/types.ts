@@ -803,3 +803,61 @@ export type AdsGoal =
   | 'lead_generation'
   | 'conversions'
   | 'app_promotion'
+
+// ── GET /api/ads/roas — gasto TikTok × vendas reais dos gateways ──
+export interface AdsRoasDaily {
+  date: string // YYYY-MM-DD
+  spend: number // moeda do advertiser
+  revenueCents: number // centavos (fonte: leads convertidos)
+  sales: number
+}
+
+export interface AdsRoasResponse {
+  fromDate: string
+  toDate: string
+  currency: string
+  spend: number
+  conversions: number
+  revenueCents: number
+  sales: number
+  roas: number | null // receita/gasto — null sem gasto
+  cpa: number | null // gasto/vendas — null sem vendas
+  daily: AdsRoasDaily[]
+}
+
+// ── GET /api/ads/library — criativos já enviados ao Blob ──
+export interface AdsLibraryItem {
+  url: string
+  name: string
+  size: number
+  uploadedAt: string | null
+}
+
+export interface AdsLibraryResponse {
+  items: AdsLibraryItem[]
+}
+
+// ── GET/PUT /api/ads/alerts — regras de alerta de performance ──
+export interface AdsAlertsConfig {
+  enabled: boolean
+  spendNoConv: number // gasto mínimo sem conversão que dispara (0 = off)
+  cpaMax: number // teto de CPA (0 = off)
+  lookbackDays: number
+}
+
+export interface AdsAlertFinding {
+  rule: 'spend_no_conv' | 'cpa_max'
+  campaignId: string
+  campaignName: string
+  spend: number
+  conversions: number
+  cpa?: number
+  text: string
+  muted?: boolean // em cooldown — detectado mas sem notificação nova
+}
+
+export interface AdsAlertCheckResponse {
+  findings: AdsAlertFinding[]
+  checkedAt?: string
+  skipped?: boolean
+}
