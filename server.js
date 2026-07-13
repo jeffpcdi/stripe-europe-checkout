@@ -4673,6 +4673,10 @@ stats.hydrate()
   .then(() => require('./ads-ops-store').ensureSchema().catch((e) => {
     console.warn('[ads-ops] ensureSchema falhou:', e.message);
   }))
+  // Tabelas de catálogo de produtos (ads_catalogs / ads_catalog_products).
+  .then(() => require('./ads-catalog-store').ensureSchema().catch((e) => {
+    console.warn('[ads-catalog] ensureSchema falhou:', e.message);
+  }))
   // Jobs de Ads presos em running/queued de ANTES do reinício nunca continuam
   // (rodam in-process) — marca como failed/partial para o usuário reprocessar.
   .then(() => require('./ads-ops-store').reconcileOrphanJobs().catch((e) => {

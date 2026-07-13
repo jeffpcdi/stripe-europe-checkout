@@ -1063,3 +1063,72 @@ export interface AdsSafetyPolicyResponse {
   enabled: boolean
   policy: AdsSafetyPolicy
 }
+
+// ── Catálogos de produtos (TikTok Shopping/Catalog) ────────────────────────
+// A Zernio não publica campanhas de catálogo; gerimos produtos + feed aqui e
+// publicamos um CSV TikTok-ready numa URL pública (Blob) para feed agendado.
+export interface AdsCatalog {
+  id: string
+  accountId: string
+  name: string
+  currency: string
+  feedUrl: string | null
+  feedPublishedAt: string | null
+  productCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdsCatalogProductError {
+  field: string
+  message: string
+}
+
+export interface AdsCatalogProduct {
+  id: string
+  catalogId: string
+  skuId: string
+  data: Record<string, string>
+  valid: boolean
+  errors: AdsCatalogProductError[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdsCatalogsResponse {
+  enabled: boolean
+  catalogs: AdsCatalog[]
+}
+
+export interface AdsCatalogDetailResponse {
+  catalog: AdsCatalog
+  products: AdsCatalogProduct[]
+}
+
+export interface AdsCatalogFieldMeta {
+  key: string
+  label: string
+  required: boolean
+  enum: string[] | null
+}
+
+export interface AdsCatalogSpecResponse {
+  columns: string[]
+  required: string[]
+  enums: Record<string, string[]>
+  fields: AdsCatalogFieldMeta[]
+}
+
+export interface AdsCatalogImportSummary {
+  imported: number
+  valid: number
+  invalid: number
+  skipped: { reason?: string }[]
+}
+
+export interface AdsCatalogPublishResponse {
+  catalog: AdsCatalog
+  feedUrl: string
+  published: number
+  skipped: number
+}
