@@ -82,7 +82,17 @@ export function AdsConnectCard({ onConnected }: { onConnected: () => void }) {
   async function handleConnect() {
     setStarting(true)
     try {
-      const r = await apiSend<{ authUrl: string }>('/api/ads/connect', 'POST')
+      const r = await apiSend<{ authUrl: string; alreadyConnected?: boolean }>('/api/ads/connect', 'POST')
+      // Zernio pode responder que a profile já tem a conta conectada — nesse
+      // caso pulamos o OAuth e confirmamos direto no backend.
+      if (r.alreadyConnected) {
+        const c = await apiSend<{ connected: boolean }>('/api/ads/connected', 'POST')
+        if (c.connected) {
+          toast.success('Conta TikTok Ads já estava conectada')
+          onConnected()
+          return
+        }
+      }
       // abre em nova aba (o OAuth do TikTok não funciona bem em iframe)
       window.open(r.authUrl, '_blank', 'noopener')
       setWaiting(true)
@@ -120,6 +130,15 @@ export function AdsConnectCard({ onConnected }: { onConnected: () => void }) {
             </li>
           ))}
         </ul>
+
+        {/* O TikTok define QUAIS contas o token acessa na tela de consentimento
+            do OAuth. Sem esse aviso, o usuário autoriza só 1 conta e acha que
+            a integração está quebrada. */}
+        <p className="rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-pretty text-xs leading-relaxed text-warning">
+          Importante: na tela de autorização do TikTok, marque a sua Business Center inteira (ou todas
+          as contas de anúncio que quer gerenciar). O TikTok só libera acesso ao que for selecionado
+          nessa etapa — para adicionar contas depois, é preciso reconectar.
+        </p>
 
         <div className="flex flex-wrap items-center gap-3">
           {!waiting ? (
