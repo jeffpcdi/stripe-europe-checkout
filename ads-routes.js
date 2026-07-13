@@ -380,7 +380,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // individual idêntica à deste endpoint).
   function buildCreatePayload(st, b) {
     const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
-    if (!adAccountId) return { error: 'Selecione um advertiser (adAccountId)' };
+    if (!adAccountId || adAccountId === '__all__') return { error: 'Selecione um advertiser específico (adAccountId)' };
     const name = String(b.name || '').trim().slice(0, 120);
     if (!name) return { error: 'Nome da campanha é obrigatório' };
     const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';
@@ -468,7 +468,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
       const b = req.body || {};
       const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
-      if (!adAccountId) return res.status(400).json({ error: 'Selecione um advertiser (adAccountId)' });
+      if (!adAccountId || adAccountId === '__all__') return res.status(400).json({ error: 'Selecione um advertiser específico (adAccountId)' });
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
       const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';

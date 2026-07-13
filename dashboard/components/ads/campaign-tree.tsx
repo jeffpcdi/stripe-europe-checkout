@@ -5,7 +5,7 @@
 // (pausar/ativar, duplicar, excluir anúncio). Segue o padrão visual das
 // tabelas do dashboard (linhas com stagger, status dots, ações no hover).
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ChevronRight,
   Play,
@@ -163,6 +163,12 @@ export function CampaignTree({
   const [editingBudget, setEditingBudget] = useState<string | null>(null)
   const [budgetValue, setBudgetValue] = useState('')
   const [budgetBusy, setBudgetBusy] = useState(false)
+
+  // Uma seleção de lote não pode sobreviver à troca de página/filtro/período;
+  // do contrário, ações poderiam atingir campanhas que já não estão visíveis.
+  useEffect(() => {
+    setSelected(new Set())
+  }, [page, statusFilter, sort, rangeDays, tree?.aggregated])
 
   function toggleSelect(id: string) {
     setSelected((prev) => {

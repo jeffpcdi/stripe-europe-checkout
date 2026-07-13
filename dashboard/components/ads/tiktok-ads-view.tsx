@@ -105,10 +105,18 @@ export function TikTokAdsView() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
-  // Modo agregado ("__all__"): não há UM advertiser — criação de anúncio e
-  // moeda usam o primeiro do BC como fallback concreto.
+  // Modo agregado ("__all__") serve apenas para leitura. Escritas exigem uma
+  // conta explícita para nunca publicar silenciosamente no primeiro advertiser.
   const isAllMode = effectiveAdvertiser === '__all__'
-  const concreteAdvertiser = isAllMode ? (accounts?.accounts?.[0]?.id ?? '') : effectiveAdvertiser
+  const concreteAdvertiser = isAllMode ? '' : effectiveAdvertiser
+
+  function openWriteFlow(setOpen: (open: boolean) => void) {
+    if (isAllMode) {
+      toast.info('Selecione uma conta de anúncio específica antes de criar ou publicar.')
+      return
+    }
+    setOpen(true)
+  }
 
   const currency = useMemo(() => {
     const adv = accounts?.accounts.find((a) => a.id === concreteAdvertiser)
@@ -202,7 +210,7 @@ export function TikTokAdsView() {
     )
   }
 
-  // ── Estado: não conectado → card de conexão OAuth ────────────────────────
+  // ── Estado: n��o conectado → card de conexão OAuth ────────────────────────
   if (!connected) {
     return (
       <div className="flex flex-col gap-5">
@@ -232,15 +240,15 @@ export function TikTokAdsView() {
             <UserRound className="size-3.5" aria-hidden="true" />
             {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
           </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => setSparkOpen(true)}>
+          <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setSparkOpen)}>
             <Zap className="size-3.5" aria-hidden="true" />
             Spark Ads
           </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => setBulkOpen(true)}>
+          <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setBulkOpen)}>
             <Layers className="size-3.5" aria-hidden="true" />
             Subir em massa
           </button>
-          <button type="button" className="btn-primary text-xs" onClick={() => setCreateOpen(true)}>
+          <button type="button" className="btn-primary text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
             <Plus className="size-3.5" aria-hidden="true" />
             Nova campanha
           </button>
@@ -380,14 +388,14 @@ export function TikTokAdsView() {
       <BulkUploadDialog
         open={bulkOpen}
         onClose={() => setBulkOpen(false)}
-        advertiserId={effectiveAdvertiser}
+        advertiserId={concreteAdvertiser}
         currency={currency}
         onFinished={() => mutateTree()}
       />
       <SparkAdDialog
         open={sparkOpen}
         onClose={() => setSparkOpen(false)}
-        advertiserId={effectiveAdvertiser}
+        advertiserId={concreteAdvertiser}
         currency={currency}
         onCreated={() => {
           setSparkOpen(false)
@@ -414,7 +422,7 @@ export function TikTokAdsView() {
         campaign={duplicateCampaign}
         onClose={() => setDuplicateCampaign(null)}
         advertisers={advertisers}
-        currentAdvertiserId={effectiveAdvertiser}
+        currentAdvertiserId={duplicateCampaign?.platformAdAccountId || concreteAdvertiser}
         onFinished={() => mutateTree()}
       />
       <CampaignDrawer
