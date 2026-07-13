@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Filter, RotateCcw, ShieldCheck, Target } from 'lucide-react'
+import { ChevronDown, Filter, RotateCcw, ShieldCheck, Target } from 'lucide-react'
 import { useCloakStats, apiSend } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
@@ -179,71 +179,19 @@ export function CloakStatsPanel() {
         </div>
       )}
 
-      {/* A8.3: donut compacto permitido × bloqueado com legenda inline
-          (substitui a barra horizontal — mesma informação, leitura imediata) */}
+      {/* Simplificação: os dois cards acima já mostram offer × white — o
+          donut era redundante. Fica só a linha de % + motivos de bloqueio. */}
       {agg && agg.total > 0 ? (
-        <>
-          <div className="mb-4 flex items-center gap-4">
-            {(() => {
-              const r = 15.9155 // raio para circunferência = 100
-              const offerPct = 100 - blockPct
-              return (
-                <svg
-                  viewBox="0 0 42 42"
-                  className="size-16 shrink-0 -rotate-90"
-                  role="img"
-                  aria-label={`${offerPct}% dos acessos liberados na offer, ${blockPct}% bloqueados na white page`}
-                >
-                  <circle cx="21" cy="21" r={r} fill="none" stroke="var(--warning)" strokeWidth="5" opacity="0.85" />
-                  <circle
-                    cx="21"
-                    cy="21"
-                    r={r}
-                    fill="none"
-                    stroke="var(--success)"
-                    strokeWidth="5"
-                    strokeDasharray={`${offerPct} ${100 - offerPct}`}
-                    className="transition-[stroke-dasharray] duration-600 ease-out"
-                  />
-                  <text
-                    x="21"
-                    y="21"
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    className="fill-foreground font-mono text-[8px] font-bold tabular-nums"
-                    transform="rotate(90 21 21)"
-                  >
-                    {blockPct}%
-                  </text>
-                </svg>
-              )
-            })()}
-            <div className="flex flex-col gap-1 text-xs">
-              <span className="flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-success" aria-hidden="true" />
-                <span className="text-success">Offer</span>
-                <span className="font-mono tabular-nums text-foreground">{agg.offer.toLocaleString('pt-BR')}</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-warning" aria-hidden="true" />
-                <span className="text-warning">White</span>
-                <span className="font-mono tabular-nums text-foreground">{agg.white.toLocaleString('pt-BR')}</span>
-              </span>
-              <span className="text-[11px] text-muted-foreground">{blockPct}% do tráfego bloqueado</span>
-            </div>
+        reasonsSorted.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] text-muted-foreground">{blockPct}% bloqueado ·</span>
+            {reasonsSorted.map(([reason, count]) => (
+              <StatusBadge key={reason} status="neutral">
+                {REASON_LABELS[reason] ?? reason}: {count}
+              </StatusBadge>
+            ))}
           </div>
-
-          {/* Motivos de bloqueio */}
-          {reasonsSorted.length > 0 && (
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {reasonsSorted.map(([reason, count]) => (
-                <StatusBadge key={reason} status="neutral">
-                  {REASON_LABELS[reason] ?? reason}: {count}
-                </StatusBadge>
-              ))}
-            </div>
-          )}
-        </>
+        )
       ) : (
         <p className="py-6 text-center text-sm text-muted-foreground">
           Sem decisões registradas ainda. Os contadores aparecem quando o tráfego chega nos links protegidos.
@@ -254,19 +202,13 @@ export function CloakStatsPanel() {
           beacon chegou, o snippet /t.js não está instalado nas páginas e as
           camadas D–H (WebGL, fuso, comportamento, entropia) ficam inertes. */}
       {agg && agg.total > 0 && data?.challenge && data.challenge.beacons === 0 && (
-        <div className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
-          <p className="font-medium text-warning">Desafio JavaScript sem coleta</p>
-          <p className="mt-1 leading-snug text-muted-foreground text-pretty">
-            Seus links recebem tráfego, mas nenhuma página devolveu o desafio JS — provavelmente o
-            snippet <code className="rounded bg-secondary px-1 font-mono">/t.js</code> não está
-            instalado. Sem ele, as camadas de WebGL, fuso horário, comportamento e entropia ficam
-            desligadas e o julgamento usa só rede e cabeçalhos. Instale{' '}
-            {/* Item 489: defer — o rastreio nunca pode bloquear o LCP da página do cliente */}
-            <code className="rounded bg-secondary px-1 font-mono">{'<script src="https://SEU-DOMINIO/t.js" defer></script>'}</code>{' '}
-            no <code className="rounded bg-secondary px-1 font-mono">{'<head>'}</code> das suas páginas
-            de destino.
-          </p>
-        </div>
+        <p
+          className="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-warning"
+          title={'Sem o snippet, as camadas de WebGL, fuso horário, comportamento e entropia ficam desligadas e o julgamento usa só rede e cabeçalhos. Instale <script src="https://SEU-DOMINIO/t.js" defer></script> no <head> das páginas de destino.'}
+        >
+          Snippet <code className="rounded bg-secondary px-1 font-mono">/t.js</code> não detectado nas
+          páginas de destino — proteção operando em modo reduzido.
+        </p>
       )}
 
       {/* Itens 201/202/203: veredito sticky + anti-replay de ttclid.
@@ -274,28 +216,34 @@ export function CloakStatsPanel() {
           jamais fica preso como humano (fail-safe). Limpar um vid força o
           judge a re-rodar na próxima visita daquele visitante. */}
       {(data?.sticky?.available || (data?.ttclidReplays ?? 0) > 0) && (
-        <div className="mb-4 rounded-lg border border-border bg-secondary/40 p-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-            {data?.sticky?.available && (
-              <span className="text-muted-foreground">
-                <span className="font-semibold text-foreground">{data.sticky.count.toLocaleString('pt-BR')}{data.sticky.truncated ? '+' : ''}</span>{' '}
-                visitante(s) em cache como bot (6h)
-              </span>
-            )}
-            {(data?.ttclidReplays ?? 0) > 0 && (
-              <span className="text-muted-foreground">
-                <span className="font-semibold text-foreground">{(data?.ttclidReplays ?? 0).toLocaleString('pt-BR')}</span>{' '}
-                replay(s) de link de anúncio barrados (30d)
-              </span>
-            )}
-            {/* Item 258: acessos barrados por velocity (device-farm suspeito) */}
-            {(agg?.reasons?.velocity ?? 0) > 0 && (
-              <span className="text-muted-foreground">
-                <span className="font-semibold text-foreground">{(agg?.reasons?.velocity ?? 0).toLocaleString('pt-BR')}</span>{' '}
-                acesso(s) suspeito(s) de automação barrado(s)
-              </span>
-            )}
-          </div>
+        <details className="group mb-4 rounded-lg border border-border bg-secondary/40">
+          <summary className="flex cursor-pointer select-none items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              {data?.sticky?.available && (
+                <span>
+                  <span className="font-semibold text-foreground">{data.sticky.count.toLocaleString('pt-BR')}{data.sticky.truncated ? '+' : ''}</span>{' '}
+                  em cache como bot
+                </span>
+              )}
+              {(data?.ttclidReplays ?? 0) > 0 && (
+                <span>
+                  <span className="font-semibold text-foreground">{(data?.ttclidReplays ?? 0).toLocaleString('pt-BR')}</span>{' '}
+                  replay(s) barrados
+                </span>
+              )}
+              {(agg?.reasons?.velocity ?? 0) > 0 && (
+                <span>
+                  <span className="font-semibold text-foreground">{(agg?.reasons?.velocity ?? 0).toLocaleString('pt-BR')}</span>{' '}
+                  automação barrada
+                </span>
+              )}
+            </span>
+            <span className="flex shrink-0 items-center gap-1 font-medium">
+              Ferramentas
+              <ChevronDown className="size-3 transition-transform group-open:rotate-180" aria-hidden="true" />
+            </span>
+          </summary>
+          <div className="border-t border-border px-3 pb-3">
           {data?.sticky?.available && (
             <form
               className="mt-2 flex items-center gap-1.5"
@@ -421,7 +369,8 @@ export function CloakStatsPanel() {
             A contagem de acessos expira sozinha ao fim da janela configurada — liberar um IP só é
             necessário quando visitantes legítimos (mesmo Wi-Fi/NAT) caíram no limite agora.
           </p>
-        </div>
+          </div>
+        </details>
       )}
 
       {/* Por link */}

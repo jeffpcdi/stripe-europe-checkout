@@ -12,7 +12,6 @@ import {
   Info,
   Pencil,
   RefreshCw,
-  TriangleAlert,
   ChevronDown,
   Eye,
   EyeOff,
@@ -358,15 +357,8 @@ export function GatewaysView() {
             </div>
           </div>
 
-          {/* Item 17: regra de ouro sempre visível — venda só conta via webhook */}
-          <p className="mb-3 flex items-start gap-2 rounded-lg border border-[color:var(--warning)]/25 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-muted-foreground text-pretty">
-            <Info className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
-            <span>
-              Eventos de pagamento (<strong className="text-foreground">Compra / CompletePayment</strong>) só
-              disparam quando um gateway conectado confirma via webhook — nunca pelo navegador do cliente.
-            </span>
-          </p>
-
+          {/* Regra de ouro (venda só conta via webhook) vive no tutorial
+              "Como funciona" — fora da tela para reduzir poluição visual */}
           {testResult && (
             <p
               className={`mb-3 flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
@@ -485,18 +477,8 @@ export function GatewaysView() {
                       </div>
                     </div>
 
-                    {/* Item 52: motivo do último evento quando não foi 'ok' —
-                        ajuda a debugar assinatura/payload sem abrir logs */}
-                    {g.lastEventAt && g.lastEventStatus && g.lastEventStatus !== 'ok' && (
-                      <p className="mt-2 flex items-start gap-1.5 rounded-md bg-[color:var(--warning)]/10 px-2.5 py-1.5 text-[11px] text-[color:var(--warning)] text-pretty">
-                        <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-                        <span>
-                          Último webhook falhou: <strong>{g.lastEventStatus}</strong> — veja o
-                          detalhe no painel "Webhooks recebidos" abaixo.
-                        </span>
-                      </p>
-                    )}
-
+                    {/* Motivo do erro fica no tooltip do badge "erro" acima —
+                        sem caixa amarela extra poluindo cada card */}
                     {/* Webhook URL para colar no gateway */}
                     <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">
                       <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
@@ -546,13 +528,8 @@ export function GatewaysView() {
                       )
                     })()}
 
-                    {prov?.docs && (
-                      <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                        <Info className="mt-0.5 size-3 shrink-0" />
-                        {prov.docs}
-                      </p>
-                    )}
-
+                    {/* Instruções do provedor (prov.docs) só no editor —
+                        menos texto repetido em cada card */}
                     {/* Resultado do teste/rotação POR card */}
                     {cardTest?.id === g.id && (
                       <div
@@ -730,14 +707,22 @@ export function GatewaysView() {
         </GlassCard>
       </div>
 
-      {/* Itens 230/232: integridade referencial + dados órfãos (oculto se saudável) */}
-      <IntegrityPanel />
-
-      {/* Observabilidade das filas duráveis (Leva 5, bloco I: 191–200) */}
-      <QueueHealthPanel />
-
-      {/* Item 200: limites de retenção + limpeza manual por log */}
-      <RetentionPanel />
+      {/* Painéis técnicos (integridade, fila, retenção) recolhidos por padrão —
+          quem precisa expande; o resto da página fica limpo */}
+      <details className="group rounded-xl border border-border">
+        <summary className="flex cursor-pointer select-none items-center justify-between gap-2 rounded-xl px-4 py-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center gap-2">
+            <Info className="size-3.5" aria-hidden="true" />
+            Diagnóstico avançado — integridade, fila de conversões e retenção
+          </span>
+          <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        <div className="flex flex-col gap-5 border-t border-border p-4">
+          <IntegrityPanel />
+          <QueueHealthPanel />
+          <RetentionPanel />
+        </div>
+      </details>
 
       <TutorialModal
         open={showTutorial}

@@ -242,24 +242,23 @@ function GlobeCanvas({
       /* renderer indisponível — segue sem pausa por viewport */
     }
 
-    // Refino 3: emissive no material do globo — massas de terra visíveis no
-    // tema dark. Valores altos: a textura earth-night é escura por natureza
-    // e sem esse reforço o globo parecia uma bola preta.
+    // Emissive leve: a blue-marble já é clara — só um toque ciano de marca
+    // para o lado noturno do globo não sumir no tema dark.
     try {
       const mat = g.globeMaterial?.()
       if (mat) {
-        mat.emissive?.set?.('#134e54')
-        mat.emissiveIntensity = 0.42
+        mat.emissive?.set?.('#0b3a40')
+        mat.emissiveIntensity = 0.22
       }
     } catch {
       /* material indisponível nesta versão */
     }
 
-    // Mais contraste: luzes bem mais fortes que os padrões suaves do three-globe.
+    // Luzes reforçadas: iluminação uniforme, sem hemisfério apagado.
     try {
       for (const light of g.lights()) {
-        if (light.type === 'DirectionalLight') light.intensity = 3.0
-        if (light.type === 'AmbientLight') light.intensity = 1.9
+        if (light.type === 'DirectionalLight') light.intensity = 2.4
+        if (light.type === 'AmbientLight') light.intensity = 1.6
       }
     } catch {
       /* API de luzes indisponível nesta versão */
@@ -288,8 +287,9 @@ function GlobeCanvas({
          URLs precisam do basePath /dashboard: o Next só o injeta em
          next/image e next/link, nunca em strings passadas a libs. */
       backgroundImageUrl="/dashboard/textures/night-sky.png"
-      /* Refino 3: texturas locais — terra noturna + relevo topográfico */
-      globeImageUrl="/dashboard/textures/earth-night.jpg"
+      /* Textura blue-marble (dia): continentes visíveis de longe — a
+         earth-night deixava o globo escuro demais no card do overview */
+      globeImageUrl="/dashboard/textures/earth-blue-marble.jpg"
       bumpImageUrl="/dashboard/textures/earth-topology.png"
       /* Refino 2: atmosfera ciano da marca */
       showAtmosphere
