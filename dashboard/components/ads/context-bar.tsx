@@ -12,7 +12,24 @@ import { useState } from 'react'
 import { Building2, ExternalLink, RefreshCw, Unplug } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsAdvertiser, AdsBusinessCenter } from '@/lib/types'
+import type { AdsAdvertiser, AdsBusinessCenter, AdsHealthStatus } from '@/lib/types'
+
+// Sufixo textual no <option> (options não renderizam markup) + ponto colorido
+// ao lado do seletor para a conta selecionada.
+const STATUS_SUFFIX: Record<AdsHealthStatus, string> = {
+  approved: '',
+  banned: ' — BANIDA',
+  limited: ' — limitada',
+  in_review: ' — em revisão',
+  unknown: '',
+}
+
+const STATUS_DOT: Partial<Record<AdsHealthStatus, { className: string; label: string }>> = {
+  approved: { className: 'bg-[color:var(--success)]', label: 'aprovada' },
+  banned: { className: 'bg-[color:var(--error)]', label: 'banida' },
+  limited: { className: 'bg-[color:var(--warning)]', label: 'limitada' },
+  in_review: { className: 'bg-[color:var(--warning)]', label: 'em revisão' },
+}
 
 export function AdsContextBar({
   accountLabel,
@@ -148,9 +165,24 @@ export function AdsContextBar({
             <option key={a.id} value={a.id}>
               {a.name || a.id}
               {a.currency ? ` · ${a.currency}` : ''}
+              {STATUS_SUFFIX[a.healthStatus ?? 'unknown']}
             </option>
           ))}
         </select>
+        {/* Ponto de status da conta selecionada (options não aceitam cor) */}
+        {(() => {
+          const sel = advertisers.find((a) => a.id === selectedAdvertiser)
+          if (!sel?.healthStatus || sel.healthStatus === 'unknown') return null
+          const dot = STATUS_DOT[sel.healthStatus]
+          if (!dot) return null
+          return (
+            <span
+              className={`size-2 shrink-0 rounded-full ${dot.className}`}
+              title={dot.label}
+              aria-label={`Status da conta: ${dot.label}`}
+            />
+          )
+        })()}
       </label>
 
       <button

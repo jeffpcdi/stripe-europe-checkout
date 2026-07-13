@@ -38,6 +38,7 @@ import type {
   AdsTemplatesResponse,
   AdsOpsJobsResponse,
   AdsSafetyPolicyResponse,
+  AdsHealthResponse,
 } from './types'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
@@ -418,6 +419,17 @@ export function useAdsTemplates(active: boolean) {
 // progresso e erros por job. Poll no ritmo padrão só com o painel aberto.
 export function useAdsOpsJobs(active: boolean) {
   return useSWR<AdsOpsJobsResponse>(active ? '/api/ads/ops/jobs' : null, fetcher, {
+    refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Saúde das contas de anúncio + tickets de desbanimento. O GET já roda a
+// varredura no backend (dados frescos) — poll no ritmo padrão alimenta o
+// badge "conta banida" do cabeçalho mesmo com o diálogo fechado.
+export function useAdsHealth(active: boolean) {
+  return useSWR<AdsHealthResponse>(active ? '/api/ads/health' : null, fetcher, {
     refreshInterval: POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,

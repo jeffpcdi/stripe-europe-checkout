@@ -5,7 +5,7 @@
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
 import { useMemo, useState } from 'react'
-import { Megaphone, Plus, Zap, UserRound, BellRing, Bot, Layers, ListChecks, FlaskConical, OctagonAlert } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, BellRing, Bot, Layers, ListChecks, FlaskConical, OctagonAlert, HeartPulse, Ban } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -13,6 +13,7 @@ import {
   useAdsTree,
   useAdsAttribution,
   useAdsSafetyPolicy,
+  useAdsHealth,
   apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -37,6 +38,7 @@ import { RoasCard } from './roas-card'
 import { AlertsDialog } from './alerts-dialog'
 import { AutomationDialog } from './automation-dialog'
 import { OpsDialog } from './ops-dialog'
+import { HealthDialog } from './health-dialog'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 // Moeda dos advertisers TikTok (spend vem em unidades inteiras da moeda)
@@ -103,11 +105,18 @@ export function TikTokAdsView() {
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [opsOpen, setOpsOpen] = useState(false)
+  const [healthOpen, setHealthOpen] = useState(false)
 
   // Política de segurança — alimenta o badge de simulação/kill switch
   const { data: safety, mutate: mutateSafety } = useAdsSafetyPolicy(connected)
   const dryRunActive = Boolean(safety?.policy?.dryRun)
   const killSwitchActive = Boolean(safety?.policy?.killSwitch)
+
+  // Saúde das contas — o GET roda a varredura no backend (detecção de
+  // banimento + criação automática de tickets); aqui alimenta o badge.
+  const { data: adsHealth } = useAdsHealth(connected)
+  const bannedAccounts = (adsHealth?.health ?? []).filter((h) => h.status === 'banned')
+  const openTickets = (adsHealth?.tickets ?? []).filter((t) => t.status === 'open' || t.status === 'submitted')
   const [detailCampaign, setDetailCampaign] = useState<AdsTreeCampaign | null>(null)
   const [duplicateCampaign, setDuplicateCampaign] = useState<AdsTreeCampaign | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
@@ -256,8 +265,29 @@ export function TikTokAdsView() {
               Modo simulação
             </button>
           ) : null}
+          {/* Badge de conta banida — clica e abre o painel de saúde/tickets */}
+          {bannedAccounts.length > 0 && (
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-full border border-error/40 bg-error/10 px-2.5 py-1 text-[11px] font-semibold text-error"
+              onClick={() => setHealthOpen(true)}
+              title={`${bannedAccounts.length} conta(s) banida(s)${openTickets.length ? ` · ${openTickets.length} ticket(s) de desbanimento` : ''}. Clique para ver.`}
+            >
+              <Ban className="size-3" aria-hidden="true" />
+              {bannedAccounts.length === 1 ? 'Conta banida' : `${bannedAccounts.length} contas banidas`}
+            </button>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-ghost text-xs" onClick={() => setHealthOpen(true)}>
+            <HeartPulse className="size-3.5" aria-hidden="true" />
+            Saúde
+            {openTickets.length > 0 && (
+              <span className="ml-0.5 rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
+                {openTickets.length}
+              </span>
+            )}
+          </button>
           <button type="button" className="btn-ghost text-xs" onClick={() => setOpsOpen(true)}>
             <ListChecks className="size-3.5" aria-hidden="true" />
             Operações
@@ -452,6 +482,7 @@ export function TikTokAdsView() {
         currency={currency}
         onPolicyChanged={() => mutateSafety()}
       />
+      <HealthDialog open={healthOpen} onClose={() => setHealthOpen(false)} />
       <AutomationDialog
         open={rulesOpen}
         onClose={() => setRulesOpen(false)}

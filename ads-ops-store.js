@@ -178,4 +178,103 @@ async function reconcileOrphanJobs() {
   return rows.length;
 }
 
-module.exports = { enabled, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus };
+// ── Saúde das contas de anúncio + tickets de desbanimento ──────────────────
+
+// Códigos de status do advertiser TikTok → status normalizado do painel.
+// O TikTok não tem API de appeal: o ticket é interno, com link pro formulário.
+const ACCOUNT_STATUS_MAP = {
+  STATUS_ENABLE: 'approved',
+  STATUS_DISABLE: 'banned',
+  STATUS_PENALTY: 'banned',
+  STATUS_LIMIT: 'limited',
+  STATUS_WAIT_FOR_BPM_AUDIT: 'in_review',
+  STATUS_WAIT_FOR_PUBLIC_AUTH: 'in_review',
+  STATUS_SELF_SERVICE_UNAUDITED: 'in_review',
+  STATUS_CONTRACT_PENDING: 'in_review',
+  STATUS_PENDING_CONFIRM: 'in_review',
+  STATUS_PENDING_CONFIRM_MODIFY: 'in_review',
+  STATUS_CONFIRM_FAIL: 'banned',
+  STATUS_CONFIRM_FAIL_END: 'banned',
+  STATUS_CONFIRM_MODIFY_FAIL: 'limited'
+};
+
+function normalizeAccountStatus(rawStatus) {
+  const raw = String(rawStatus || '').trim().toUpperCase();
+  if (!raw) return 'unknown';
+  return ACCOUNT_STATUS_MAP[raw] || 'unknown';
+}
+
+// Grava o snapshot de status de cada advertiser e devolve as TRANSIÇÕES
+// (ex.: approved → banned) — é isso que dispara a automação de tickets.
+async function upsertAccountHealth(accountId, advertisers) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  const transitions = [];
+  for (const adv of Array.isArray(advertisers) ? advertisers : []) {
+    const advertiserId = String(adv.advertiserId || '').trim().slice(0, 120);
+    if (!advertiserId) continue;
+    const status = normalizeAccountStatus(adv.rawStatus);
+    const name = String(adv.name || '').slice(0, 200) || null;
+    const rawStatus = String(adv.rawStatus || '').slice(0, 80) || null;
+    const reason = String(adv.statusReason || '').slice(0, 500) || null;
+    const prev = await sql`SELECT status FROM ads_account_health WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} LIMIT 1`;
+    const previousStatus = prev.length ? prev[0].status : null;
+    await sql`INSERT INTO ads_account_health (id, account_id, advertiser_id, advertiser_name, status, raw_status, status_reason, first_seen_banned_at, last_checked_at) VALUES (${id('ah_')}, ${accountId}, ${advertiserId}, ${name}, ${status}, ${rawStatus}, ${reason}, ${status === 'banned' ? new Date().toISOString() : null}, now()) ON CONFLICT (account_id, advertiser_id) DO UPDATE SET advertiser_name = COALESCE(EXCLUDED.advertiser_name, ads_account_health.advertiser_name), status = EXCLUDED.status, raw_status = EXCLUDED.raw_status, status_reason = EXCLUDED.status_reason, first_seen_banned_at = CASE WHEN EXCLUDED.status = 'banned' AND ads_account_health.status != 'banned' THEN now() WHEN EXCLUDED.status != 'banned' THEN null ELSE ads_account_health.first_seen_banned_at END, last_checked_at = now(), updated_at = now()`;
+    // 'unknown' anterior não conta como transição real (primeiro contato)
+    if (previousStatus && previousStatus !== status) {
+      transitions.push({ advertiserId, advertiserName: name, from: previousStatus, to: status });
+    }
+  }
+  return transitions;
+}
+
+async function listAccountHealth(accountId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  return sql`SELECT advertiser_id, advertiser_name, status, raw_status, status_reason, first_seen_banned_at, last_checked_at FROM ads_account_health WHERE account_id = ${accountId} ORDER BY CASE status WHEN 'banned' THEN 0 WHEN 'limited' THEN 1 WHEN 'in_review' THEN 2 WHEN 'approved' THEN 3 ELSE 4 END, advertiser_name ASC NULLS LAST`;
+}
+
+const TICKET_STATUSES = new Set(['open', 'submitted', 'resolved', 'dismissed']);
+
+// Cria ticket de desbanimento se não houver um ativo (open/submitted) para o
+// advertiser — o índice único parcial garante isso mesmo em corrida.
+async function createUnbanTicketIfAbsent(accountId, input) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  const value = input || {};
+  const advertiserId = String(value.advertiserId || '').trim().slice(0, 120);
+  if (!advertiserId) throw new Error('advertiserId obrigatório');
+  try {
+    const rows = await sql`INSERT INTO ads_unban_tickets (id, account_id, advertiser_id, advertiser_name, status, appeal_text, appeal_url) VALUES (${id('ut_')}, ${accountId}, ${advertiserId}, ${String(value.advertiserName || '').slice(0, 200) || null}, 'open', ${String(value.appealText || '').slice(0, 4000) || null}, ${String(value.appealUrl || '').slice(0, 500) || null}) RETURNING *`;
+    return rows[0];
+  } catch (error) {
+    // Violação do índice único parcial = já existe ticket ativo → idempotente
+    if (String(error && error.message || '').includes('idx_ads_unban_tickets_open')) return null;
+    throw error;
+  }
+}
+
+async function listUnbanTickets(accountId, limit) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  const size = Math.min(100, Math.max(1, Number(limit) || 50));
+  return sql`SELECT id, advertiser_id, advertiser_name, status, appeal_text, appeal_url, notes, created_at, updated_at, submitted_at, resolved_at FROM ads_unban_tickets WHERE account_id = ${accountId} ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'submitted' THEN 1 ELSE 2 END, created_at DESC LIMIT ${size}`;
+}
+
+async function updateUnbanTicket(accountId, ticketId, patch) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  const value = patch || {};
+  if (value.status && !TICKET_STATUSES.has(value.status)) throw new Error('Status de ticket inválido');
+  const rows = await sql`UPDATE ads_unban_tickets SET status = COALESCE(${value.status || null}, status), appeal_text = COALESCE(${value.appealText != null ? String(value.appealText).slice(0, 4000) : null}, appeal_text), notes = COALESCE(${value.notes != null ? String(value.notes).slice(0, 1000) : null}, notes), submitted_at = CASE WHEN ${value.status || ''} = 'submitted' THEN now() ELSE submitted_at END, resolved_at = CASE WHEN ${value.status || ''} IN ('resolved','dismissed') THEN now() ELSE resolved_at END, updated_at = now() WHERE account_id = ${accountId} AND id = ${String(ticketId || '')} RETURNING *`;
+  return rows[0] || null;
+}
+
+// Reativação detectada → resolve automaticamente os tickets ativos da conta.
+async function resolveTicketsForAdvertiser(accountId, advertiserId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  return sql`UPDATE ads_unban_tickets SET status = 'resolved', resolved_at = now(), notes = COALESCE(notes || ' | ', '') || 'Conta reativada — resolvido automaticamente', updated_at = now() WHERE account_id = ${accountId} AND advertiser_id = ${String(advertiserId || '')} AND status IN ('open','submitted') RETURNING id, advertiser_id`;
+}
+
+module.exports = { enabled, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };
