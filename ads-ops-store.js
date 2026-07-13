@@ -72,6 +72,15 @@ async function createJob(accountId, input) {
   return rows[0];
 }
 
+async function findJobByIdempotencyKey(accountId, key) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  const value = String(key || '').trim().slice(0, 200);
+  if (!value) return null;
+  const rows = await sql`SELECT id, status FROM ads_jobs WHERE account_id = ${accountId} AND idempotency_key = ${value} LIMIT 1`;
+  return rows[0] || null;
+}
+
 async function listJobs(accountId, limit) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
@@ -88,7 +97,7 @@ async function persistBulkSnapshot(job) {
   for (const item of job.items || []) {
     const itemStatus = item.status === 'done' ? 'completed' : item.status;
     const itemKey = idempotencyKey + ':' + item.idx;
-    await sql`INSERT INTO ads_job_items (id, account_id, job_id, item_index, status, idempotency_key, payload, result, error) VALUES (${job.id + ':' + item.idx}, ${accountId}, ${job.id}, ${item.idx}, ${itemStatus}, ${itemKey}, ${JSON.stringify({ ref: item.ref })}, ${item.resultId ? JSON.stringify({ resultId: item.resultId }) : null}, ${item.error || null}) ON CONFLICT (account_id, job_id, item_index) DO UPDATE SET status = EXCLUDED.status, result = EXCLUDED.result, error = EXCLUDED.error, updated_at = now()`;
+    await sql`INSERT INTO ads_job_items (id, account_id, job_id, item_index, status, idempotency_key, payload, result, error) VALUES (${job.id + ':' + item.idx}, ${accountId}, ${job.id}, ${item.idx}, ${itemStatus}, ${itemKey}, ${JSON.stringify({ ref: item.ref, task: item.task || null })}, ${item.resultId ? JSON.stringify({ resultId: item.resultId }) : null}, ${item.error || null}) ON CONFLICT (account_id, job_id, item_index) DO UPDATE SET status = EXCLUDED.status, payload = EXCLUDED.payload, result = EXCLUDED.result, error = EXCLUDED.error, updated_at = now()`;
   }
   return true;
 }
@@ -100,7 +109,7 @@ async function getBulkSnapshot(accountId, jobId) {
   if (!rows.length) return null;
   const itemRows = await sql`SELECT item_index, status, payload, result, error FROM ads_job_items WHERE account_id = ${accountId} AND job_id = ${String(jobId || '')} ORDER BY item_index ASC`;
   const row = rows[0];
-  const items = itemRows.map((item) => ({ idx: item.item_index, ref: item.payload && item.payload.ref, status: item.status === 'completed' ? 'done' : item.status, error: item.error || null, resultId: item.result && item.result.resultId ? item.result.resultId : null }));
+  const items = itemRows.map((item) => ({ idx: item.item_index, ref: item.payload && item.payload.ref, task: item.payload && item.payload.task ? item.payload.task : null, status: item.status === 'completed' ? 'done' : item.status, error: item.error || null, resultId: item.result && item.result.resultId ? item.result.resultId : null }));
   const progress = row.progress || {};
   return { id: row.id, accountId, kind: row.kind, adAccountId: row.advertiser_id || '', createdAt: row.created_at, status: ['completed', 'partial', 'failed'].includes(row.status) ? 'done' : row.status, total: Number(progress.total) || items.length, done: Number(progress.completed) || 0, failed: Number(progress.failed) || 0, meta: (row.payload && row.payload.meta) || {}, items };
 }
@@ -152,4 +161,4 @@ async function setJobStatus(accountId, jobId, status, patch) {
   return rows[0] || null;
 }
 
-module.exports = { enabled, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, setJobStatus };
+module.exports = { enabled, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, setJobStatus };

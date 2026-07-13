@@ -189,6 +189,14 @@ async function persistJob(job) {
 }
 
 async function createBulkJob(accountId, { kind, adAccountId, items, meta }) {
+  const idempotencyKey = String(meta && meta.idempotencyKey || '').trim().slice(0, 200);
+  if (idempotencyKey && adsOps.enabled) {
+    const existing = await adsOps.findJobByIdempotencyKey(accountId, idempotencyKey);
+    if (existing) {
+      const restored = await getBulkJob(accountId, existing.id);
+      if (restored) return restored;
+    }
+  }
   const job = {
     id: 'bj' + randId(),
     accountId,

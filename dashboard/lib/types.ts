@@ -978,4 +978,6 @@ export interface AdsBulkJob {
 export interface AdsBulkStartResponse {
   jobId: string
   total: number
+  dryRun?: boolean
+  reused?: boolean
 }

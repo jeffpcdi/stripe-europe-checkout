@@ -77,8 +77,10 @@ export function DuplicateDialog({
     if (!campaign) return
     setSubmitting(true)
     try {
+      const idempotencyKey = `duplicate:${campaign.platformCampaignId}:${target}:${count}:${Date.now()}`
       const res = await apiSend<AdsBulkStartResponse>('/api/ads/duplicate', 'POST', {
         sourceType: 'campaign',
+        idempotencyKey,
         sourceId: campaign.platformCampaignId,
         sourceAdAccountId: currentAdvertiserId,
         targetAdAccountId: target,
