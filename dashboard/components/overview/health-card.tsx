@@ -80,12 +80,26 @@ export function HealthCard() {
         ) : null}
       </div>
 
-      {/* Item 280: linha de veredito agregado no topo do card */}
+      {/* V2-69: veredito com fundo tintado pela severidade (verde/âmbar/rosa 4%) */}
       {agg && (
         <div
           className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2"
           role="status"
           aria-label={`Estado geral: ${agg.label}`}
+          style={{
+            background:
+              agg.level === 'ok'
+                ? 'rgba(34,197,94,0.04)'
+                : agg.level === 'warn'
+                  ? 'rgba(251,191,36,0.05)'
+                  : 'rgba(254,44,85,0.06)',
+            borderColor:
+              agg.level === 'ok'
+                ? 'rgba(34,197,94,0.2)'
+                : agg.level === 'warn'
+                  ? 'rgba(251,191,36,0.25)'
+                  : 'rgba(254,44,85,0.3)',
+          }}
         >
           <span className="text-sm font-medium text-foreground">Estado geral</span>
           <span className="flex items-center gap-2">

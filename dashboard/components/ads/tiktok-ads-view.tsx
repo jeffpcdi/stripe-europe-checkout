@@ -5,8 +5,15 @@
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
 import { useMemo, useState } from 'react'
-import { Megaphone, Plus, Zap, UserRound, RefreshCw, Unplug, BellRing, Bot } from 'lucide-react'
-import { useAdsStatus, useAdsAccounts, useAdsTree, useAdsAttribution, apiSend } from '@/lib/api'
+import { Megaphone, Plus, Zap, UserRound, BellRing, Bot, Layers } from 'lucide-react'
+import {
+  useAdsStatus,
+  useAdsAccounts,
+  useAdsBusinessCenters,
+  useAdsTree,
+  useAdsAttribution,
+  apiSend,
+} from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsMetrics, AdsTreeCampaign } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -17,11 +24,14 @@ import { CountUp } from '@/components/count-up'
 import { SparkLine } from '@/components/sparkline'
 import { fmtCompact, fmtPercent } from '@/lib/format'
 import { AdsConnectCard } from './connect-card'
+import { AdsContextBar } from './context-bar'
+import { BulkUploadDialog } from './bulk-upload-dialog'
 import { CampaignTree } from './campaign-tree'
 import { CreateAdPanel } from './create-ad-panel'
 import { SparkAdDialog } from './spark-ad-dialog'
 import { IdentityDialog } from './identity-dialog'
 import { CampaignDrawer } from './campaign-drawer'
+import { DuplicateDialog } from './duplicate-dialog'
 import { RoasCard } from './roas-card'
 import { AlertsDialog } from './alerts-dialog'
 import { AutomationDialog } from './automation-dialog'
@@ -43,7 +53,13 @@ function fmtSpend(v: number, currency?: string | null): string {
 export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
   const connected = Boolean(status?.connected)
-  const { data: accounts, mutate: mutateAccounts } = useAdsAccounts(connected)
+
+  // Business Center selecionado (camada acima do advertiser). null = usa o salvo.
+  const { data: bcs, mutate: mutateBcs } = useAdsBusinessCenters(connected)
+  const [bcId, setBcId] = useState<string | null>(null)
+  const effectiveBc = bcId ?? bcs?.selected ?? ''
+
+  const { data: accounts, mutate: mutateAccounts } = useAdsAccounts(connected, effectiveBc || undefined)
 
   const [advertiserId, setAdvertiserId] = useState<string | null>(null) // null = usa o salvo
   const effectiveAdvertiser = advertiserId ?? accounts?.selected ?? ''
@@ -69,11 +85,13 @@ export function TikTokAdsView() {
   const { data: attribution } = useAdsAttribution(treeActive)
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [identityOpen, setIdentityOpen] = useState(false)
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [detailCampaign, setDetailCampaign] = useState<AdsTreeCampaign | null>(null)
+  const [duplicateCampaign, setDuplicateCampaign] = useState<AdsTreeCampaign | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
@@ -122,23 +140,13 @@ export function TikTokAdsView() {
       await apiSend('/api/ads/disconnect', 'POST')
       toast.success('Conta TikTok Ads desconectada')
       setAdvertiserId(null)
+      setBcId(null)
       mutateStatus()
     } catch (e) {
       toast.error('Falha ao desconectar', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setDisconnecting(false)
       setConfirmDisconnect(false)
-    }
-  }
-
-  async function handleSelectAdvertiser(id: string) {
-    setAdvertiserId(id)
-    setPage(1)
-    try {
-      await apiSend('/api/ads/accounts/select', 'POST', { advertiserId: id })
-      mutateAccounts()
-    } catch {
-      // seleção local continua valendo; o backend só perde o default salvo
     }
   }
 
@@ -213,6 +221,10 @@ export function TikTokAdsView() {
             <Zap className="size-3.5" aria-hidden="true" />
             Spark Ads
           </button>
+          <button type="button" className="btn-ghost text-xs" onClick={() => setBulkOpen(true)}>
+            <Layers className="size-3.5" aria-hidden="true" />
+            Subir em massa
+          </button>
           <button type="button" className="btn-primary text-xs" onClick={() => setCreateOpen(true)}>
             <Plus className="size-3.5" aria-hidden="true" />
             Nova campanha
@@ -220,61 +232,42 @@ export function TikTokAdsView() {
         </div>
       </div>
 
-      {/* Barra de conexão: conta + advertiser + desconectar */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs">
-        <span className="flex items-center gap-1.5 font-semibold text-success">
-          <span className="size-2 animate-pulse rounded-full bg-[color:var(--success)]" aria-hidden="true" />
-          Conectado
-        </span>
-        <span className="text-muted-foreground">
-          Conta:{' '}
-          <strong className="text-foreground">
-            {status?.account?.displayName || status?.account?.username || status?.account?.id}
-          </strong>
-        </span>
-        <label className="flex items-center gap-2 text-muted-foreground">
-          Advertiser:
-          <select
-            className="input-neon rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
-            value={effectiveAdvertiser}
-            onChange={(e) => handleSelectAdvertiser(e.target.value)}
-            aria-label="Selecionar conta de anúncio (advertiser)"
-          >
-            {!effectiveAdvertiser && <option value="">Selecione…</option>}
-            {advertisers.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name || a.id}
-                {a.currency ? ` · ${a.currency}` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            className="btn-ghost px-2 py-1 text-xs"
-            onClick={() => {
-              mutateTree()
-              mutateAccounts()
-            }}
-            aria-label="Atualizar dados"
-          >
-            <RefreshCw className={`size-3.5 ${treeValidating ? 'animate-spin' : ''}`} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="btn-ghost px-2 py-1 text-xs text-muted-foreground"
-            onClick={() => setConfirmDisconnect(true)}
-          >
-            <Unplug className="size-3.5" aria-hidden="true" />
-            Desconectar
-          </button>
-        </div>
-      </div>
+      {/* Barra de contexto: BC → conta de anúncio + deep-link + desconectar */}
+      <AdsContextBar
+        accountLabel={status?.account?.displayName || status?.account?.username || status?.account?.id || ''}
+        businessCenters={bcs?.businessCenters ?? []}
+        bcUnsupported={Boolean(bcs?.unsupported)}
+        selectedBc={effectiveBc}
+        advertisers={advertisers}
+        selectedAdvertiser={effectiveAdvertiser}
+        refreshing={treeValidating}
+        onBcChanged={(newBc, newAdvertiser) => {
+          setBcId(newBc)
+          setAdvertiserId(newAdvertiser || '')
+          setPage(1)
+          mutateBcs()
+          mutateAccounts()
+        }}
+        onAdvertiserChanged={(id) => {
+          setAdvertiserId(id)
+          setPage(1)
+          mutateAccounts()
+        }}
+        onRefresh={() => {
+          mutateTree()
+          mutateAccounts()
+          mutateBcs()
+        }}
+        onDisconnect={() => setConfirmDisconnect(true)}
+      />
 
       {!effectiveAdvertiser ? (
+        /* V2-94: empty state do Ads com ícone flutuante + sombra que respira */
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
-          <Megaphone className="size-8 text-muted-foreground" aria-hidden="true" />
+          <span className="empty-icon flex size-12 items-center justify-center rounded-xl bg-[var(--accent-light)] text-brand-cyan">
+            <Megaphone className="size-6" aria-hidden="true" />
+          </span>
+          <span className="empty-icon-shadow -mt-2" aria-hidden="true" />
           <p className="text-sm font-medium text-foreground">Selecione um advertiser</p>
           <p className="max-w-md text-pretty text-xs text-muted-foreground">
             Escolha acima qual conta de anúncio do TikTok você quer gerenciar. As campanhas, métricas e a
@@ -346,6 +339,7 @@ export function TikTokAdsView() {
             onMutate={() => mutateTree()}
             onRetry={() => mutateTree()}
             onOpenDetail={setDetailCampaign}
+            onDuplicate={setDuplicateCampaign}
             attribution={attribution?.byCampaign}
           />
         </>
@@ -362,6 +356,13 @@ export function TikTokAdsView() {
           setCreateOpen(false)
           mutateTree()
         }}
+      />
+      <BulkUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        advertiserId={effectiveAdvertiser}
+        currency={currency}
+        onFinished={() => mutateTree()}
       />
       <SparkAdDialog
         open={sparkOpen}
@@ -388,6 +389,13 @@ export function TikTokAdsView() {
         onClose={() => setRulesOpen(false)}
         currency={currency}
         onExecuted={() => mutateTree()}
+      />
+      <DuplicateDialog
+        campaign={duplicateCampaign}
+        onClose={() => setDuplicateCampaign(null)}
+        advertisers={advertisers}
+        currentAdvertiserId={effectiveAdvertiser}
+        onFinished={() => mutateTree()}
       />
       <CampaignDrawer
         campaign={detailCampaign}

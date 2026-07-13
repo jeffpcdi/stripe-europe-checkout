@@ -24,6 +24,7 @@ export function PeriodPicker({
       aria-label="Período das métricas"
     >
       {PERIODS.map((p) => (
+        /* V2-71: pílula ativa com anel ciano interno + glow — antes só mudava o fundo */
         <button
           key={p.id}
           type="button"
@@ -31,9 +32,9 @@ export function PeriodPicker({
           aria-selected={value === p.id}
           onClick={() => onChange(p.id)}
           className={cn(
-            'rounded-full px-3 py-1 text-xs font-medium transition-colors duration-150',
+            'rounded-full px-3 py-1 text-xs font-medium transition-all duration-150',
             value === p.id
-              ? 'bg-[var(--active)] text-foreground'
+              ? 'bg-[var(--active)] text-foreground shadow-[inset_0_0_0_1px_rgba(37,244,238,0.35),0_0_10px_rgba(37,244,238,0.12)]'
               : 'text-muted-foreground hover:text-sub',
           )}
         >

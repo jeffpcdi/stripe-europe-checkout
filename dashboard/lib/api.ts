@@ -26,6 +26,8 @@ import type {
   AccountSettings,
   AdsStatusResponse,
   AdsAccountsResponse,
+  AdsBusinessCentersResponse,
+  AdsBulkJob,
   AdsTreeResponse,
   AdsCampaignAnalyticsResponse,
   AdsRoasResponse,
@@ -280,9 +282,30 @@ export function useAdsStatus() {
   })
 }
 
+// Business Centers do token — camada acima dos advertisers. Só busca depois
+// de conectado. `unsupported: true` na resposta = Zernio sem o endpoint.
+export function useAdsBusinessCenters(connected: boolean) {
+  return useSWR<AdsBusinessCentersResponse>(connected ? '/api/ads/business-centers' : null, fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
 // Advertisers do token — só busca depois de conectado (connected = true).
-export function useAdsAccounts(connected: boolean) {
-  return useSWR<AdsAccountsResponse>(connected ? '/api/ads/accounts' : null, fetcher, {
+// `businessCenterId` entra na CHAVE do SWR: trocar de BC recarrega a lista.
+export function useAdsAccounts(connected: boolean, businessCenterId?: string) {
+  const qs = businessCenterId ? `?businessCenterId=${encodeURIComponent(businessCenterId)}` : ''
+  return useSWR<AdsAccountsResponse>(connected ? `/api/ads/accounts${qs}` : null, fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Progresso do job de bulk/duplicação — polling curto que PARA sozinho
+// quando o job termina (refreshInterval devolve 0).
+export function useAdsBulkJob(jobId: string | null) {
+  return useSWR<AdsBulkJob>(jobId ? `/api/ads/bulk/${encodeURIComponent(jobId)}` : null, fetcher, {
+    refreshInterval: (data) => (data && data.status === 'done' ? 0 : 2_500),
     revalidateOnFocus: true,
     keepPreviousData: true,
   })

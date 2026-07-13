@@ -87,6 +87,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         enabled: true,
         connected: true,
         account: { id: acct._id, username: acct.username || '', displayName: acct.displayName || '' },
+        businessCenterId: st.businessCenterId || '',
         advertiserId: st.advertiserId || '',
         identity: st.identity || null
       });
@@ -134,28 +135,129 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         // tenta remover a SocialAccount na Zernio (melhor esforço)
         try { await zernio.api('DELETE', '/accounts/' + st.accountId); } catch (_) { /* já removida */ }
       }
-      zernio.setState(req.account.id, { accountId: '', advertiserId: '', identity: null });
+      zernio.setState(req.account.id, { accountId: '', businessCenterId: '', advertiserId: '', identity: null });
       zernio.cacheBust('status:' + req.account.id);
       zernio.cacheBust('accounts:' + req.account.id);
+      zernio.cacheBust('bcs:' + req.account.id);
       zernio.cacheBust('tree:' + req.account.id);
       stats.logEvent('warn', { acc: req.account.id, title: 'TikTok Ads desconectado' });
       res.json({ ok: true });
     } catch (err) { fail(res, err); }
   });
 
+  // ── Business Centers (camada acima dos advertisers) ──────────────────────
+  // A Zernio expõe GET /ads/business-centers; a criação de BC/conta de anúncio
+  // NÃO tem API (só a UI do TikTok) — por isso o deep-link mais abaixo.
+  // Se a Zernio não suportar o endpoint (404), devolvemos lista vazia com
+  // `unsupported: true` e a UI esconde o seletor de BC (nunca prometer o que
+  // a API não faz).
+  async function listBusinessCenters(accId, st) {
+    const ck = 'bcs:' + accId;
+    let data = zernio.cacheGet(ck);
+    if (!data) {
+      try {
+        data = await zernio.api('GET', '/ads/business-centers', { query: { accountId: st.accountId } });
+      } catch (err) {
+        if (err.status === 404) data = { businessCenters: [], unsupported: true };
+        else throw err;
+      }
+      zernio.cacheSet(ck, data, 5 * 60 * 1000);
+    }
+    const list = data.businessCenters || data.items || [];
+    return {
+      businessCenters: list.map((b) => ({
+        id: String(b.id || b.bcId || b._id || ''),
+        name: String(b.name || b.bcName || '') || String(b.id || b.bcId || b._id || ''),
+        type: b.type || b.company || undefined
+      })).filter((b) => b.id),
+      unsupported: !!data.unsupported
+    };
+  }
+
+  // Lista advertisers direto da Zernio (com cache), opcionalmente filtrados
+  // pelo BC — usado pelo /accounts e pela re-seleção ao trocar de BC.
+  async function listAdvertisers(accId, st, businessCenterId) {
+    const ck = 'accounts:' + accId + ':' + (businessCenterId || 'all');
+    let data = zernio.cacheGet(ck);
+    if (!data) {
+      data = await zernio.api('GET', '/ads/accounts', {
+        query: { accountId: st.accountId, businessCenterId: businessCenterId || undefined }
+      });
+      zernio.cacheSet(ck, data, 5 * 60 * 1000);
+    }
+    return data.accounts || [];
+  }
+
+  app.get('/api/ads/business-centers', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const st = zernio.getState(req.account.id);
+      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      const out = await listBusinessCenters(req.account.id, st);
+      // default: sem BC selecionado ainda → assume o primeiro da lista
+      let selected = st.businessCenterId || '';
+      if (!selected && out.businessCenters.length) {
+        selected = out.businessCenters[0].id;
+        zernio.setState(req.account.id, { businessCenterId: selected });
+      }
+      // BC salvo sumiu (removido no TikTok) → re-seleciona o primeiro válido
+      if (selected && out.businessCenters.length && !out.businessCenters.some((b) => b.id === selected)) {
+        selected = out.businessCenters[0].id;
+        zernio.setState(req.account.id, { businessCenterId: selected });
+      }
+      res.json({ businessCenters: out.businessCenters, selected, unsupported: out.unsupported });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/business-centers/select', dashboardAuth, async (req, res) => {
+    try {
+      const st = zernio.getState(req.account.id);
+      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      const id = String((req.body || {}).businessCenterId || '').trim().slice(0, 60);
+      if (!id) return res.status(400).json({ error: 'businessCenterId obrigatório' });
+      zernio.setState(req.account.id, { businessCenterId: id });
+      zernio.cacheBust('accounts:' + req.account.id);
+      zernio.cacheBust('tree:' + req.account.id);
+      // Re-seleciona um advertiser VÁLIDO do novo BC — senão a árvore consulta
+      // uma conta que não pertence ao BC escolhido.
+      let advertiserId = st.advertiserId || '';
+      try {
+        const accounts = await listAdvertisers(req.account.id, st, id);
+        if (!accounts.some((a) => String(a.id || a._id) === advertiserId)) {
+          advertiserId = accounts.length ? String(accounts[0].id || accounts[0]._id || '') : '';
+        }
+      } catch (_) { advertiserId = ''; /* lista indisponível — força re-seleção manual */ }
+      zernio.setState(req.account.id, { advertiserId });
+      zernio.cacheBust('tree:' + req.account.id);
+      res.json({ ok: true, businessCenterId: id, advertiserId });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Deep-link: criar conta de anúncio (NÃO há API — só a UI do TikTok) ────
+  // Devolve a URL do TikTok Business Center para o front abrir em nova aba.
+  // Ao voltar, o painel re-sincroniza (/accounts com cache-bust) e a conta
+  // nova aparece na lista.
+  app.get('/api/ads/deeplink/create-account', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const st = zernio.getState(req.account.id);
+    const bcId = String(req.query.businessCenterId || st.businessCenterId || '').trim().slice(0, 60);
+    const url = bcId
+      ? 'https://business.tiktok.com/manage/overview?org_id=' + encodeURIComponent(bcId)
+      : 'https://business.tiktok.com/';
+    res.json({ url, businessCenterId: bcId || '' });
+  });
+
   // ── Advertisers (contas de anúncio do token) ──────────────────────────────
+  // Aceita ?businessCenterId= para filtrar as contas de um BC (default: o BC
+  // selecionado no estado). Sem BC (ou Zernio sem suporte), lista todas.
   app.get('/api/ads/accounts', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
-      const ck = 'accounts:' + req.account.id;
-      let data = zernio.cacheGet(ck);
-      if (!data) {
-        data = await zernio.api('GET', '/ads/accounts', { query: { accountId: st.accountId } });
-        zernio.cacheSet(ck, data, 5 * 60 * 1000);
-      }
-      res.json({ accounts: data.accounts || [], selected: st.advertiserId || '' });
+      const bcId = String(req.query.businessCenterId || st.businessCenterId || '').trim().slice(0, 60);
+      const accounts = await listAdvertisers(req.account.id, st, bcId);
+      res.json({ accounts, selected: st.advertiserId || '', businessCenterId: bcId || '' });
     } catch (err) { fail(res, err); }
   });
 
@@ -225,67 +327,78 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   // ── Criação de campanha completa (vídeo obrigatório no TikTok) ────────────
+  // A montagem+validação do payload vive numa função própria para ser
+  // REUTILIZADA pelo worker de bulk (cada item do lote vira uma criação
+  // individual idêntica à deste endpoint).
+  function buildCreatePayload(st, b) {
+    const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
+    if (!adAccountId) return { error: 'Selecione um advertiser (adAccountId)' };
+    const name = String(b.name || '').trim().slice(0, 120);
+    if (!name) return { error: 'Nome da campanha é obrigatório' };
+    const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';
+    if (!goal) return { error: 'Objetivo (goal) inválido' };
+    const videoUrl = String(b.videoUrl || '').trim();
+    if (!/^https:\/\/[^\s]+/.test(videoUrl)) return { error: 'URL do vídeo é obrigatória (MP4 9:16, 5–60s, até 500 MB)' };
+    const budgetAmount = Number(b.budgetAmount);
+    if (!(budgetAmount > 0)) return { error: 'Orçamento inválido' };
+    const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
+
+    const payload = {
+      accountId: st.accountId,
+      adAccountId,
+      name,
+      goal,
+      budgetAmount,
+      budgetType,
+      // No TikTok, o campo imageUrl carrega a URL do VÍDEO (API é video-only).
+      imageUrl: videoUrl,
+      body: String(b.body || '').trim().slice(0, 100) || undefined,
+      linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
+      callToAction: /^[A-Z_]{3,30}$/.test(String(b.callToAction || '')) ? b.callToAction : undefined,
+      countries: Array.isArray(b.countries)
+        ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30)
+        : undefined,
+      languages: Array.isArray(b.languages)
+        ? b.languages.map((c) => String(c || '').trim().toLowerCase().split('-')[0]).filter((c) => /^[a-z]{2}$/.test(c)).slice(0, 10)
+        : undefined
+    };
+    const ageMin = parseInt(b.ageMin, 10); const ageMax = parseInt(b.ageMax, 10);
+    if (ageMin >= 13) payload.ageMin = Math.min(ageMin, 65);
+    if (ageMax >= 13) payload.ageMax = Math.min(ageMax, 65);
+    if (budgetType === 'lifetime') {
+      if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return { error: 'Orçamento lifetime exige data de término (endDate)' };
+      payload.endDate = String(b.endDate).slice(0, 24);
+    }
+    // Conversões: pixel numérico do TikTok obrigatório
+    if (goal === 'conversions') {
+      const pixelId = String((b.promotedObject || {}).pixelId || b.pixelId || '').trim();
+      if (!/^\d{5,30}$/.test(pixelId)) {
+        return { error: 'Objetivo Conversões exige o Pixel ID NUMÉRICO do TikTok (não o código alfanumérico do Events Manager)' };
+      }
+      payload.promotedObject = { pixelId };
+      const evt = String((b.promotedObject || {}).customEventType || b.customEventType || '').trim().toUpperCase();
+      if (/^[A-Z_]{3,40}$/.test(evt)) payload.promotedObject.customEventType = evt;
+    }
+    // Identidade do anúncio: TT_USER (conta de posting) ou CUSTOMIZED_USER (Brand Identity)
+    if (['TT_USER', 'CUSTOMIZED_USER'].includes(b.identityType)) payload.identityType = b.identityType;
+    if (b.brandIdentity && b.brandIdentity.displayName && b.brandIdentity.imageUrl) {
+      payload.brandIdentity = {
+        displayName: String(b.brandIdentity.displayName).trim().slice(0, 100),
+        imageUrl: String(b.brandIdentity.imageUrl).trim().slice(0, 500)
+      };
+    }
+    return { payload };
+  }
+
   app.post('/api/ads/create', dashboardAuth, async (req, res) => {
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
       const b = req.body || {};
-      const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
-      if (!adAccountId) return res.status(400).json({ error: 'Selecione um advertiser (adAccountId)' });
-      const name = String(b.name || '').trim().slice(0, 120);
-      if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
-      const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';
-      if (!goal) return res.status(400).json({ error: 'Objetivo (goal) inválido' });
-      const videoUrl = String(b.videoUrl || '').trim();
-      if (!/^https:\/\/[^\s]+/.test(videoUrl)) return res.status(400).json({ error: 'URL do vídeo é obrigatória (MP4 9:16, 5–60s, até 500 MB)' });
-      const budgetAmount = Number(b.budgetAmount);
-      if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento inválido' });
-      const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
-
-      const payload = {
-        accountId: st.accountId,
-        adAccountId,
-        name,
-        goal,
-        budgetAmount,
-        budgetType,
-        // No TikTok, o campo imageUrl carrega a URL do VÍDEO (API é video-only).
-        imageUrl: videoUrl,
-        body: String(b.body || '').trim().slice(0, 100) || undefined,
-        linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
-        callToAction: /^[A-Z_]{3,30}$/.test(String(b.callToAction || '')) ? b.callToAction : undefined,
-        countries: Array.isArray(b.countries)
-          ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30)
-          : undefined,
-        languages: Array.isArray(b.languages)
-          ? b.languages.map((c) => String(c || '').trim().toLowerCase().split('-')[0]).filter((c) => /^[a-z]{2}$/.test(c)).slice(0, 10)
-          : undefined
-      };
-      const ageMin = parseInt(b.ageMin, 10); const ageMax = parseInt(b.ageMax, 10);
-      if (ageMin >= 13) payload.ageMin = Math.min(ageMin, 65);
-      if (ageMax >= 13) payload.ageMax = Math.min(ageMax, 65);
-      if (budgetType === 'lifetime') {
-        if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return res.status(400).json({ error: 'Orçamento lifetime exige data de término (endDate)' });
-        payload.endDate = String(b.endDate).slice(0, 24);
-      }
-      // Conversões: pixel numérico do TikTok obrigatório
-      if (goal === 'conversions') {
-        const pixelId = String((b.promotedObject || {}).pixelId || b.pixelId || '').trim();
-        if (!/^\d{5,30}$/.test(pixelId)) {
-          return res.status(400).json({ error: 'Objetivo Conversões exige o Pixel ID NUMÉRICO do TikTok (não o código alfanumérico do Events Manager)' });
-        }
-        payload.promotedObject = { pixelId };
-        const evt = String((b.promotedObject || {}).customEventType || b.customEventType || '').trim().toUpperCase();
-        if (/^[A-Z_]{3,40}$/.test(evt)) payload.promotedObject.customEventType = evt;
-      }
-      // Identidade do anúncio: TT_USER (conta de posting) ou CUSTOMIZED_USER (Brand Identity)
-      if (['TT_USER', 'CUSTOMIZED_USER'].includes(b.identityType)) payload.identityType = b.identityType;
-      if (b.brandIdentity && b.brandIdentity.displayName && b.brandIdentity.imageUrl) {
-        payload.brandIdentity = {
-          displayName: String(b.brandIdentity.displayName).trim().slice(0, 100),
-          imageUrl: String(b.brandIdentity.imageUrl).trim().slice(0, 500)
-        };
-      }
+      const built = buildCreatePayload(st, b);
+      if (built.error) return res.status(400).json({ error: built.error });
+      const payload = built.payload;
+      const name = payload.name;
 
       // Idempotency-Key evita campanha duplicada em retry de rede
       const idem = String(b.idempotencyKey || '').slice(0, 80) || undefined;
@@ -381,7 +494,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate']);
 
   // ── Atualizar um anúncio (status/budget/creative) ─────────────────────────
   app.put('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
@@ -552,7 +665,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Biblioteca de criativos — vídeos já enviados ao Vercel Blob ────────────
+  // ── Biblioteca de criativos — vídeos já enviados ao Vercel Blob ────────��───
   app.get('/api/ads/library', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -948,6 +1061,209 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const items = (Array.isArray(st.templates) ? st.templates : []).filter((t) => t.id !== id);
       zernio.setState(req.account.id, { templates: items });
       res.json({ ok: true });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Bulk upload — subir N anúncios numa fila durável com progresso ────────
+  // O TikTok NÃO tem bulk nativo de criação: o backend enfileira N criações
+  // individuais (padrão enqueue/reserve/ack/reclaim do redis.js, ver
+  // ads-bulk.js) e processa UMA POR VEZ com backoff — respeitando o rate
+  // limit da Zernio. A UI faz polling em GET /api/ads/bulk/:jobId.
+  const bulk = require('./ads-bulk');
+
+  // Processador de UM item da fila. Tipos de task:
+  //   create          — criação individual (payload já validado no POST /bulk)
+  //   duplicate_same  — duplica campanha na MESMA conta (endpoint da Zernio)
+  //   duplicate_cross — duplica para OUTRA conta (reconstrói + /ads/create)
+  async function processBulkItem(env) {
+    const task = env.task || {};
+    if (task.kind === 'create') {
+      const data = await zernio.api('POST', '/ads/create', {
+        body: task.payload,
+        timeoutMs: 120000,
+        // Idempotency-Key por item: retry/reclaim nunca duplica a campanha
+        headers: { 'Idempotency-Key': 'bulk:' + env.jobId + ':' + env.idx }
+      });
+      zernio.cacheBust('tree:' + env.accountId);
+      return { resultId: (data && data.platformCampaignId) || null };
+    }
+    if (task.kind === 'duplicate_same') {
+      const id = encodeURIComponent(String(task.sourceId || ''));
+      const data = await zernio.api('POST', '/ads/campaigns/' + id + '/duplicate', {
+        body: {
+          platform: 'tiktok', deepCopy: true, statusOption: 'PAUSED',
+          renameStrategy: 'ONLY_TOP_LEVEL_RENAME',
+          renameSuffix: String(task.renameSuffix || ' (cópia)').slice(0, 60)
+        },
+        timeoutMs: 120000
+      });
+      zernio.cacheBust('tree:' + env.accountId);
+      return { resultId: (data && data.platformCampaignId) || null };
+    }
+    if (task.kind === 'duplicate_cross') {
+      // Não há "duplicate para outra conta" na Zernio: lê a campanha de origem
+      // na árvore e RECRIA na conta destino com os dados disponíveis.
+      const st = zernio.getState(env.accountId);
+      const tree = await zernio.api('GET', '/ads/tree', {
+        query: { accountId: st.accountId, platform: 'tiktok', adAccountId: task.sourceAdAccountId || undefined, limit: 50 }
+      });
+      const src = (tree.campaigns || []).find((c) => c.platformCampaignId === task.sourceId);
+      if (!src) throw new Error('Campanha de origem não encontrada na conta de origem');
+      const firstAd = ((src.adSets || [])[0] || {}).ads && src.adSets[0].ads[0];
+      const creative = (firstAd && firstAd.creative) || {};
+      const videoUrl = String(creative.videoUrl || creative.imageUrl || '');
+      if (!/^https:\/\//.test(videoUrl)) {
+        throw new Error('A campanha de origem não expõe a URL do criativo — duplicação entre contas exige recriar com o vídeo. Use "Subir em massa" com o vídeo da biblioteca.');
+      }
+      const goal = String((firstAd && firstAd.goal) || 'traffic');
+      const built = buildCreatePayload(st, {
+        adAccountId: task.targetAdAccountId,
+        name: String(task.newName || ((src.campaignName || task.sourceId) + (task.renameSuffix || ' (cópia)'))).slice(0, 120),
+        goal: ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(goal) ? goal : 'traffic',
+        videoUrl,
+        budgetAmount: Number((src.budget || {}).amount) || Number(((src.adSets || [])[0] || {}).budget && src.adSets[0].budget.amount) || 0,
+        // lifetime exigiria endDate (não disponível na árvore) — recria como daily
+        budgetType: 'daily',
+        body: creative.body || undefined,
+        linkUrl: creative.linkUrl || undefined
+      });
+      if (built.error) throw new Error('Não foi possível reconstruir a campanha: ' + built.error);
+      const data = await zernio.api('POST', '/ads/create', {
+        body: built.payload,
+        timeoutMs: 120000,
+        headers: { 'Idempotency-Key': 'dup:' + env.jobId + ':' + env.idx }
+      });
+      zernio.cacheBust('tree:' + env.accountId);
+      return { resultId: (data && data.platformCampaignId) || null };
+    }
+    throw new Error('Tipo de tarefa desconhecido: ' + String(task.kind || ''));
+  }
+
+  bulk.startBulkWorker(processBulkItem);
+
+  // Nunca expor a task interna (payloads) no polling da UI
+  function publicJob(job) {
+    return {
+      jobId: job.id,
+      kind: job.kind,
+      status: job.status,
+      total: job.total,
+      done: job.done,
+      failed: job.failed,
+      createdAt: job.createdAt,
+      items: job.items.map((it) => ({ idx: it.idx, ref: it.ref, status: it.status, error: it.error || undefined, resultId: it.resultId || undefined }))
+    };
+  }
+
+  app.post('/api/ads/bulk', dashboardAuth, async (req, res) => {
+    try {
+      const st = zernio.getState(req.account.id);
+      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      const b = req.body || {};
+      const adAccountId = String(b.adAccountId || st.advertiserId || '').trim().slice(0, 60);
+      if (!adAccountId) return res.status(400).json({ error: 'Selecione a conta de anúncio destino (adAccountId)' });
+      const common = (b.common && typeof b.common === 'object') ? b.common : {};
+      const rawItems = Array.isArray(b.items) ? b.items.slice(0, 20) : [];
+      if (!rawItems.length) return res.status(400).json({ error: 'Adicione pelo menos 1 item (vídeo + nome)' });
+
+      // valida TODOS os itens ANTES de enfileirar — o job nasce consistente
+      const tasks = [];
+      for (let i = 0; i < rawItems.length; i++) {
+        const it = rawItems[i] || {};
+        const built = buildCreatePayload(st, Object.assign({}, common, {
+          adAccountId,
+          name: it.name,
+          videoUrl: it.videoUrl,
+          body: it.body !== undefined ? it.body : common.body,
+          linkUrl: it.linkUrl !== undefined ? it.linkUrl : common.linkUrl
+        }));
+        if (built.error) return res.status(400).json({ error: 'Item ' + (i + 1) + ': ' + built.error });
+        tasks.push({ ref: String(it.name || 'item ' + (i + 1)).slice(0, 120), task: { kind: 'create', payload: built.payload } });
+      }
+
+      const job = await bulk.createBulkJob(req.account.id, {
+        kind: 'bulk_create', adAccountId,
+        items: tasks.map((t) => ({ ref: t.ref })),
+        meta: { goal: common.goal || '' }
+      });
+      // guarda a task em cada item (permite reprocessar falhas sem re-enviar)
+      for (let i = 0; i < tasks.length; i++) {
+        await bulk.updateBulkItem(req.account.id, job.id, i, { task: tasks[i].task });
+        await bulk.enqueueBulkItem({ accountId: req.account.id, jobId: job.id, idx: i, task: tasks[i].task });
+      }
+      stats.logEvent('info', { acc: req.account.id, title: 'Bulk TikTok iniciado: ' + tasks.length + ' anúncio(s)' });
+      res.status(202).json({ jobId: job.id, total: tasks.length });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Progresso do job (polling da UI)
+  app.get('/api/ads/bulk/:jobId', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const job = await bulk.getBulkJob(req.account.id, String(req.params.jobId || ''));
+      if (!job) return res.status(404).json({ error: 'Job não encontrado (expira em 24h)' });
+      res.json(publicJob(job));
+    } catch (err) { fail(res, err); }
+  });
+
+  // Reprocessa os itens que FALHARAM (todos, ou só os índices informados)
+  app.post('/api/ads/bulk/:jobId/retry', dashboardAuth, async (req, res) => {
+    try {
+      const job = await bulk.getBulkJob(req.account.id, String(req.params.jobId || ''));
+      if (!job) return res.status(404).json({ error: 'Job não encontrado (expira em 24h)' });
+      const wanted = Array.isArray((req.body || {}).indexes) ? req.body.indexes.map(Number) : null;
+      let requeued = 0;
+      for (const it of job.items) {
+        if (it.status !== 'failed') continue;
+        if (wanted && !wanted.includes(it.idx)) continue;
+        if (!it.task) continue;
+        await bulk.updateBulkItem(req.account.id, job.id, it.idx, { status: 'queued', error: null });
+        await bulk.enqueueBulkItem({ accountId: req.account.id, jobId: job.id, idx: it.idx, task: it.task });
+        requeued++;
+      }
+      res.json({ ok: true, requeued });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Duplicação (1 ou N cópias; mesma conta ou outra conta do BC) ──────────
+  // Mesma conta → endpoint de duplicate da Zernio. Outra conta → reconstrução
+  // (lê a origem e recria via /ads/create). Tudo passa pela MESMA fila do bulk.
+  app.post('/api/ads/duplicate', dashboardAuth, async (req, res) => {
+    try {
+      const st = zernio.getState(req.account.id);
+      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      const b = req.body || {};
+      const sourceType = b.sourceType === 'campaign' ? 'campaign' : '';
+      if (!sourceType) return res.status(400).json({ error: 'sourceType deve ser "campaign"' });
+      const sourceId = String(b.sourceId || '').trim().slice(0, 60);
+      if (!sourceId) return res.status(400).json({ error: 'sourceId obrigatório' });
+      const sourceAdAccountId = String(b.sourceAdAccountId || st.advertiserId || '').trim().slice(0, 60);
+      const targetAdAccountId = String(b.targetAdAccountId || sourceAdAccountId).trim().slice(0, 60);
+      const count = Math.max(1, Math.min(10, parseInt(b.count, 10) || 1));
+      const nameSuffix = String(b.nameSuffix || ' (cópia)').slice(0, 60);
+      const crossAccount = targetAdAccountId && targetAdAccountId !== sourceAdAccountId;
+
+      const items = [];
+      for (let i = 0; i < count; i++) {
+        const suffix = count > 1 ? nameSuffix + ' ' + (i + 1) : nameSuffix;
+        items.push({
+          ref: 'Cópia ' + (i + 1) + ' de ' + sourceId,
+          task: crossAccount
+            ? { kind: 'duplicate_cross', sourceId, sourceAdAccountId, targetAdAccountId, renameSuffix: suffix }
+            : { kind: 'duplicate_same', sourceId, renameSuffix: suffix }
+        });
+      }
+      const job = await bulk.createBulkJob(req.account.id, {
+        kind: 'duplicate', adAccountId: targetAdAccountId,
+        items: items.map((t) => ({ ref: t.ref })),
+        meta: { sourceId, crossAccount }
+      });
+      for (let i = 0; i < items.length; i++) {
+        await bulk.updateBulkItem(req.account.id, job.id, i, { task: items[i].task });
+        await bulk.enqueueBulkItem({ accountId: req.account.id, jobId: job.id, idx: i, task: items[i].task });
+      }
+      stats.logEvent('info', { acc: req.account.id, title: 'Duplicação TikTok enfileirada: ' + count + ' cópia(s) de ' + sourceId });
+      res.status(202).json({ jobId: job.id, total: count });
     } catch (err) { fail(res, err); }
   });
 };

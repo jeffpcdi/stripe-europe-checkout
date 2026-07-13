@@ -79,13 +79,18 @@ export function CommandPalette() {
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]"
           style={{ animation: 'popBgIn var(--dur-fast) var(--ease) both' }}
         />
+        {/* V2-79: palette com contorno gradiente ciano→rosa (border-gradient)
+            + V2-80: ícone de busca respira enquanto aguarda digitação */}
         <Dialog.Content
-          className="glass glass-thick anim-pop-in fixed left-1/2 top-[12%] z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 overflow-hidden p-0 focus:outline-none"
+          className="glass glass-thick anim-pop-in border-gradient fixed left-1/2 top-[12%] z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 overflow-hidden p-0 focus:outline-none"
           aria-describedby={undefined}
         >
           <Dialog.Title className="sr-only">Busca rápida</Dialog.Title>
           <div className="flex items-center gap-2.5 border-b border-border/60 px-4 py-3">
-            <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <Search
+              className={cn('size-4 shrink-0 text-muted-foreground', !query && 'anim-breathe')}
+              aria-hidden="true"
+            />
             <input
               ref={inputRef}
               autoFocus

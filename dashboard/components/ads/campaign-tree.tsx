@@ -122,6 +122,7 @@ export function CampaignTree({
   onMutate,
   onRetry,
   onOpenDetail,
+  onDuplicate,
   attribution,
 }: {
   tree?: AdsTreeResponse
@@ -137,6 +138,9 @@ export function CampaignTree({
   onMutate: () => void
   onRetry: () => void
   onOpenDetail?: (c: AdsTreeCampaign) => void
+  // Abre o dialog de duplicação (N cópias, mesma conta ou outra conta do BC).
+  // Sem a prop, cai no comportamento antigo: 1 cópia rápida na mesma conta.
+  onDuplicate?: (c: AdsTreeCampaign) => void
   // Vendas reais por campanha (utm_campaign=__CAMPAIGN_ID__ → lead comprado)
   attribution?: Record<string, { revenueCents: number; sales: number }>
 }) {
@@ -490,9 +494,9 @@ export function CampaignTree({
                         <button
                           type="button"
                           className="btn-ghost px-2 py-1"
-                          onClick={() => duplicateCampaign(c)}
+                          onClick={() => (onDuplicate ? onDuplicate(c) : duplicateCampaign(c))}
                           aria-label={`Duplicar campanha ${c.campaignName || id}`}
-                          title="Duplicar"
+                          title="Duplicar (N cópias, mesma conta ou outra)"
                         >
                           <Copy className="size-3.5" aria-hidden="true" />
                         </button>

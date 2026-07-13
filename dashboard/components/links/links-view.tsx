@@ -533,8 +533,10 @@ export function LinksView() {
               /* A5.2: hover eleva com borda ciano 40% + shadow-lg; ações do
                  card aparecem no hover em desktop (sempre visíveis no mobile,
                  e também com foco de teclado via focus-within) */
+              /* V2-87: spotlight que segue o cursor nos cards de link */
               <GlassCard
                 key={l.slug}
+                spotlight
                 className="group sheen p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-[color:var(--brand-cyan)]/40 hover:shadow-lg"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">

@@ -24,8 +24,9 @@ export function GatewayDonut({
   if (data.length < 2 || total <= 0) return null
 
   return (
-    <GlassCard className="p-5">
-      <h3 className="text-sm font-semibold text-foreground">Receita por gateway</h3>
+    /* V2-67: donut anima na entrada + hover no card levanta com glow */
+    <GlassCard className="hover-glow p-5">
+      <h3 className="section-head text-sm font-semibold text-foreground">Receita por gateway</h3>
       <div className="mt-3 flex items-center gap-4">
         <div className="relative size-28 shrink-0" aria-hidden="true">
           <ResponsiveContainer width="100%" height="100%">
@@ -38,7 +39,8 @@ export function GatewayDonut({
                 outerRadius="100%"
                 paddingAngle={2}
                 stroke="none"
-                isAnimationActive={false}
+                isAnimationActive
+                animationDuration={800}
               >
                 {data.map((g, i) => (
                   <Cell key={g.name} fill={COLORS[i % COLORS.length]} />
@@ -47,20 +49,19 @@ export function GatewayDonut({
             </PieChart>
           </ResponsiveContainer>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              total
-            </span>
+            <span className="label-mono">total</span>
             <span className="text-xs font-semibold text-foreground" data-sensitive>
               {money(total, mainCur)}
             </span>
           </div>
         </div>
+        {/* V2-68: dots da legenda com anel da própria cor (dot-ring) */}
         <ul className="min-w-0 flex-1 space-y-2" aria-label="Receita por gateway">
           {data.map((g, i) => (
-            <li key={g.name} className="flex items-start gap-2">
+            <li key={g.name} className="anim-row-in flex items-start gap-2" style={{ animationDelay: `${i * 60}ms` }}>
               <span
-                className="mt-1 size-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: COLORS[i % COLORS.length] }}
+                className="dot-ring mt-1 size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: COLORS[i % COLORS.length], color: COLORS[i % COLORS.length] }}
                 aria-hidden="true"
               />
               <div className="min-w-0 flex-1">

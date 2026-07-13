@@ -89,7 +89,8 @@ export function GoalCard() {
         </p>
       </div>
 
-      {/* Barra de progresso — marcador fantasma indica onde a projeção chega */}
+      {/* V2-63: barra com glow na ponta + preenchimento gradiente — o
+          marcador fantasma da projeção continua atrás */}
       <div
         className="relative h-2 overflow-hidden rounded-full bg-secondary"
         role="progressbar"
@@ -99,8 +100,11 @@ export function GoalCard() {
         aria-label="Progresso da meta mensal"
       >
         <div
-          className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-700"
-          style={{ width: `${pct}%`, background: barColor }}
+          className={pct > 3 && pct < 100 ? 'progress-glow absolute inset-y-0 left-0 rounded-full transition-[width] duration-700' : 'absolute inset-y-0 left-0 rounded-full transition-[width] duration-700'}
+          style={{
+            width: `${pct}%`,
+            background: `linear-gradient(90deg, ${barColor}88, ${barColor})`,
+          }}
         />
         {projPct > pct && (
           <div

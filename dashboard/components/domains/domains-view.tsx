@@ -297,8 +297,12 @@ export function DomainsView() {
       ) : isLoading && !data ? (
         <Skeleton className="h-40" />
       ) : domains.length === 0 ? (
+        /* V2-92: empty state com ícone flutuante em tile ciano + sombra viva */
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
-          <Globe className="size-8 text-muted-foreground" />
+          <span className="empty-icon flex size-12 items-center justify-center rounded-xl bg-[var(--accent-light)] text-brand-cyan">
+            <Globe className="size-6" aria-hidden="true" />
+          </span>
+          <span className="empty-icon-shadow -mt-2" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">Nenhum domínio personalizado ainda.</p>
           {/* Item 129: estado vazio guiado — explica o benefício e abre o tutorial */}
           <p className="max-w-sm text-xs text-muted-foreground text-pretty">
