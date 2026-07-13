@@ -26,6 +26,7 @@ import type { CloakEntry, CloakSensitivity, CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { Switch } from '@/components/ui/switch'
 import { toast } from '@/lib/toast'
 import { CloakEntryEditor } from './cloak-entry-editor'
 import { CloakDecisionLog } from './cloak-decision-log'
@@ -445,27 +446,15 @@ export function CloakEntriesPanel() {
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
                   {/* Item 137: liga/desliga inline */}
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={e.enabled}
-                    aria-label={`${e.enabled ? 'Pausar' : 'Ativar'} ${e.nome}`}
-                    onClick={() => toggleEnabled(e)}
-                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  >
-                    <span
-                      className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
-                        e.enabled ? 'bg-[color:var(--brand-cyan)]' : 'bg-muted'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 size-3 rounded-full bg-white transition-transform ${
-                          e.enabled ? 'translate-x-3.5' : 'translate-x-0.5'
-                        }`}
-                      />
-                    </span>
+                  <span className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground">
+                    <Switch
+                      checked={e.enabled}
+                      onChange={() => toggleEnabled(e)}
+                      label={`${e.enabled ? 'Pausar' : 'Ativar'} ${e.nome}`}
+                      size="sm"
+                    />
                     {e.enabled ? 'Ativo' : 'Pausado'}
-                  </button>
+                  </span>
                   {/* Item 134: testar este link */}
                   <button
                     type="button"

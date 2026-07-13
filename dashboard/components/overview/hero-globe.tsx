@@ -20,13 +20,32 @@ const GlobePanel = dynamic(() => import('@/components/geo/globe'), {
   loading: () => <GlobeSkeleton />,
 })
 
-function LiveStat({ icon: Icon, value, label }: { icon: typeof Radio; value: number; label: string }) {
+function LiveStat({
+  icon: Icon,
+  value,
+  label,
+  active,
+}: {
+  icon: typeof Radio
+  value: number
+  label: string
+  /** destaque ciano quando há atividade */
+  active?: boolean
+}) {
   return (
-    <div className="flex min-w-0 items-center gap-2.5 px-3 py-2">
-      <Icon className="size-4 shrink-0 text-brand-cyan" aria-hidden="true" />
+    <div className="flex min-w-0 items-center gap-3 px-4 py-3.5">
+      <span
+        className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+          active ? 'bg-brand-cyan/15 text-brand-cyan' : 'bg-secondary/60 text-muted-foreground'
+        }`}
+      >
+        <Icon className="size-4" aria-hidden="true" />
+      </span>
       <div className="min-w-0">
-        <p className="font-mono text-sm font-semibold tabular-nums text-foreground"><CountUp value={value} /></p>
-        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="font-mono text-xl font-bold leading-none tabular-nums text-foreground">
+          <CountUp value={value} />
+        </p>
+        <p className="mt-1 truncate text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
       </div>
     </div>
   )
@@ -57,12 +76,12 @@ export function HeroGlobe() {
       </header>
 
       <div className="grid grid-cols-3 divide-x divide-border border-b border-border bg-background/30">
-        <LiveStat icon={Radio} value={online} label="Online agora" />
-        <LiveStat icon={ShoppingCart} value={checkout} label="No checkout" />
-        <LiveStat icon={Globe2} value={countries.length} label="Países ativos" />
+        <LiveStat icon={Radio} value={online} label="Online agora" active={online > 0} />
+        <LiveStat icon={ShoppingCart} value={checkout} label="No checkout" active={checkout > 0} />
+        <LiveStat icon={Globe2} value={countries.length} label="Países ativos" active={countries.length > 0} />
       </div>
 
-      <div className="relative h-[280px] w-full sm:h-[320px]">
+      <div className="relative h-[400px] w-full sm:h-[500px]">
         {isLoading && !data ? <GlobeSkeleton /> : <GlobePanel countries={countries} metric="visits" />}
       </div>
 

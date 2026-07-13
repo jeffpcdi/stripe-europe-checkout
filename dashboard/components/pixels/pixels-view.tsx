@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { Switch } from '@/components/ui/switch'
 import {
   Plus,
   Target,
@@ -457,22 +458,11 @@ export function PixelsView() {
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {/* Item 49: toggle inline ativo/pausado (otimista) */}
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={p.active}
-                        aria-label={p.active ? `Pausar pixel ${p.name}` : `Ativar pixel ${p.name}`}
-                        onClick={() => handleToggleActive(p)}
-                        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                          p.active ? 'bg-brand-cyan' : 'bg-secondary'
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-0.5 size-4 rounded-full bg-background shadow transition-transform ${
-                            p.active ? 'translate-x-4' : 'translate-x-0.5'
-                          }`}
-                        />
-                      </button>
+                      <Switch
+                        checked={p.active}
+                        onChange={() => handleToggleActive(p)}
+                        label={p.active ? `Pausar pixel ${p.name}` : `Ativar pixel ${p.name}`}
+                      />
                       <StatusBadge status={p.active ? 'success' : 'neutral'}>
                         {p.active ? 'ativo' : 'pausado'}
                       </StatusBadge>

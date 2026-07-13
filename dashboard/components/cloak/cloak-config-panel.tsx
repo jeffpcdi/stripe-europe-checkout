@@ -6,6 +6,7 @@ import { useCloakConfig, useHealth, apiSend } from '@/lib/api'
 import type { CloakConfig, CloakSensitivity, CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
+import { Switch } from '@/components/ui/switch'
 
 // Camadas de detecção expostas na UI — rótulo + descrição curta.
 const LAYERS: { key: keyof CloakConfig; label: string; hint: string }[] = [
@@ -55,22 +56,7 @@ function Toggle({
         <span className="block text-sm text-foreground">{label}</span>
         <span className="block text-[11px] text-muted-foreground">{hint}</span>
       </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-          checked ? 'bg-[color:var(--brand-cyan)]' : 'bg-muted'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${
-            checked ? 'translate-x-4' : 'translate-x-0.5'
-          }`}
-        />
-      </button>
+      <Switch checked={checked} onChange={onChange} label={label} />
     </label>
   )
 }
