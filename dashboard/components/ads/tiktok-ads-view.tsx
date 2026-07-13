@@ -177,7 +177,8 @@ export function TikTokAdsView() {
         <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <ErrorState
           title="Integração não configurada no servidor"
-          description="A variável ZERNIO_API_KEY não está definida (ou é inválida). Adicione a chave sk_… da Zernio nas variáveis de ambiente do servidor e reinicie."
+          description="A variável ZERNIO_API_KEY não está definida (ou é inválida). Adicione a chave sk_… da Zernio nas variáveis de ambiente do servidor, reinicie e tente novamente."
+          onRetry={() => mutateStatus()}
         />
       </div>
     )

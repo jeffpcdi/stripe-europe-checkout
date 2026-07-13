@@ -5,6 +5,7 @@
 // só renderiza quando a conta TikTok Ads está conectada (some do overview
 // de quem não usa a integração, sem custo de layout).
 
+import Link from 'next/link'
 import { Megaphone, ArrowUpRight } from 'lucide-react'
 import { useAdsStatus, useAdsRoas } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
@@ -46,13 +47,14 @@ export function AdsOverviewCard() {
           </span>
           TikTok Ads · últimos 7 dias
         </span>
-        <a
+        {/* Link do Next aplica o basePath /dashboard — <a> cru caía em 404 */}
+        <Link
           href="/ads/tiktok"
           className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           Ver campanhas
           <ArrowUpRight className="size-3" aria-hidden="true" />
-        </a>
+        </Link>
       </div>
 
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
