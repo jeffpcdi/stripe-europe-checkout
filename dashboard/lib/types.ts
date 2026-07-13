@@ -228,6 +228,10 @@ export interface DomainDnsRecords {
 // Uso do domínio: onde ele vale — links de checkout, cloaker ou ambos
 export type DomainUso = 'checkout' | 'cloaker' | 'ambos'
 
+// Estado de provisionamento persistido pelo backend (B1.4):
+// pending_dns → pending_ssl → active | error
+export type DomainStatus = 'pending_dns' | 'pending_ssl' | 'active' | 'error'
+
 export interface CustomDomain {
   host: string
   uso?: DomainUso
@@ -237,6 +241,11 @@ export interface CustomDomain {
   providerId?: string
   provider?: 'cloudflare' | 'railway' | string
   dns?: DomainDnsRecords | null
+  // B1.4: estados explícitos de provisionamento (alimentam o stepper A9.1)
+  status?: DomainStatus
+  sslStatus?: string | null
+  lastCheckedAt?: string | null
+  lastError?: string | null
 }
 
 export interface DomainsResponse {
@@ -246,6 +255,8 @@ export interface DomainsResponse {
   // exige adição manual no painel da hospedagem — a UI mostra um aviso.
   autoProvision?: boolean
   domainProvider?: string | null
+  // Modo degradado do provider Cloudflare (sem CLOUDFLARE_CNAME_TARGET)
+  providerDegraded?: boolean
 }
 
 export interface DomainAddResponse {
@@ -272,6 +283,8 @@ export interface DomainVerifyResult {
   // A hospedagem já validou o DNS deste domínio (fonte da verdade do roteamento)
   providerVerified?: boolean
   certificateStatus?: string | null
+  // B1.4: estado de provisionamento reportado pela Cloudflare neste verify
+  providerStatus?: DomainStatus
   dnsRecords?: DomainDnsRecords | null
   // Item 127: marcado no CLIENTE quando o próprio fetch de verify falhou
   // (rede/servidor fora) — a UI oferece retry em vez de "DNS pendente"

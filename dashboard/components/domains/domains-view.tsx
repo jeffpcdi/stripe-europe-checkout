@@ -13,9 +13,10 @@ import {
   BookOpen,
   X,
   CloudOff,
+  Loader2,
 } from 'lucide-react'
 import { useDomains, apiSend } from '@/lib/api'
-import type { CustomDomain, DomainVerifyResult, DomainAddResponse, DomainDnsRecords, DomainUso } from '@/lib/types'
+import type { CustomDomain, DomainStatus, DomainVerifyResult, DomainAddResponse, DomainDnsRecords, DomainUso } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
@@ -108,8 +109,8 @@ export function DomainsView() {
   const appHost = data?.appHost ?? ''
   const domains = data?.domains ?? []
 
-  // Polling automático: enquanto houver domínio pendente, re-verifica a cada
-  // 45s — o lojista não precisa ficar clicando em Verificar durante a propagação
+  // A9.3: polling automático — enquanto houver domínio pendente, re-verifica a
+  // cada 30s; o lojista não precisa ficar clicando em Verificar na propagação
   const pendingHosts = domains.filter((d) => !d.verificado).map((d) => d.host)
   const pendingKey = pendingHosts.join(',')
   const pollBusy = useRef(false)
@@ -129,7 +130,7 @@ export function DomainsView() {
       } finally {
         pollBusy.current = false
       }
-    }, 45_000)
+    }, 30_000)
     return () => clearInterval(id)
   }, [pendingKey, mutate])
 
@@ -641,6 +642,102 @@ function StepNumber({ n }: { n: number }) {
   )
 }
 
+/* ── A9.1: stepper de provisionamento — Registrado → DNS → SSL → Ativo ── */
+
+// Deriva o estado efetivo do domínio a partir do status persistido (B1.4) ou,
+// na ausência dele, dos flags legados (verificado / resultado do último verify).
+function effectiveStatus(domain: CustomDomain, result?: DomainVerifyResult): DomainStatus {
+  if (domain.status) return domain.status
+  if (result?.providerStatus) return result.providerStatus
+  if (domain.verificado) return 'active'
+  if (result?.dnsOk && !result?.httpOk) return 'pending_ssl'
+  return 'pending_dns'
+}
+
+const STEP_ORDER: DomainStatus[] = ['pending_dns', 'pending_ssl', 'active']
+const STEP_LABELS: { key: DomainStatus | 'registered'; label: string }[] = [
+  { key: 'registered', label: 'Registrado' },
+  { key: 'pending_dns', label: 'DNS' },
+  { key: 'pending_ssl', label: 'SSL' },
+  { key: 'active', label: 'Ativo' },
+]
+
+function ProvisioningStepper({ status }: { status: DomainStatus }) {
+  // Índice da etapa corrente. "Registrado" é sempre concluído (o domínio existe).
+  // Erro trava no ponto onde parou mas destaca em vermelho.
+  const isError = status === 'error'
+  const currentIdx = isError ? 1 : STEP_ORDER.indexOf(status) + 1
+
+  return (
+    <ol className="mt-3 flex items-center gap-1" aria-label="Progresso do provisionamento">
+      {STEP_LABELS.map((step, i) => {
+        const done = i < currentIdx
+        const active = i === currentIdx && !isError && status !== 'active'
+        const errored = isError && i === currentIdx
+        return (
+          <li key={step.key} className="flex flex-1 items-center gap-1">
+            <span
+              className={`flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold transition-colors ${
+                errored
+                  ? 'border-destructive bg-destructive/15 text-destructive'
+                  : done
+                    ? 'border-[color:var(--success)] bg-[color:var(--success)]/15 text-[color:var(--success)]'
+                    : active
+                      ? 'border-brand-cyan bg-brand-cyan/15 text-brand-cyan'
+                      : 'border-border text-muted-foreground'
+              }`}
+            >
+              {errored ? (
+                <AlertCircle className="size-3" />
+              ) : done ? (
+                <Check className="size-3" />
+              ) : active ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                i + 1
+              )}
+            </span>
+            <span
+              className={`whitespace-nowrap text-[11px] font-medium ${
+                errored
+                  ? 'text-destructive'
+                  : done || active
+                    ? 'text-foreground'
+                    : 'text-muted-foreground'
+              }`}
+            >
+              {step.label}
+            </span>
+            {i < STEP_LABELS.length - 1 && (
+              <span
+                className={`mx-1 h-px flex-1 ${done ? 'bg-[color:var(--success)]/50' : 'bg-border'}`}
+                aria-hidden="true"
+              />
+            )}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+// A9.4: badge de saúde legível — Ativo / Propagando / Erro
+function HealthBadge({ status }: { status: DomainStatus }) {
+  const map: Record<DomainStatus, { label: string; cls: string; pulse?: boolean }> = {
+    active: { label: 'Ativo', cls: 'border-[color:var(--success)]/40 bg-[color:var(--success)]/10 text-[color:var(--success)]' },
+    pending_dns: { label: 'Propagando', cls: 'border-[color:var(--warning)]/40 bg-[color:var(--warning)]/10 text-[color:var(--warning)]', pulse: true },
+    pending_ssl: { label: 'Emitindo SSL', cls: 'border-[color:var(--warning)]/40 bg-[color:var(--warning)]/10 text-[color:var(--warning)]', pulse: true },
+    error: { label: 'Erro', cls: 'border-destructive/40 bg-destructive/10 text-destructive' },
+  }
+  const s = map[status]
+  return (
+    <span className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${s.cls}`}>
+      <span className={`size-1.5 rounded-full bg-current ${s.pulse ? 'animate-pulse' : ''}`} aria-hidden="true" />
+      {s.label}
+    </span>
+  )
+}
+
 /* ── Card de domínio ── */
 
 function DomainCard({
@@ -658,6 +755,7 @@ function DomainCard({
   onAskDelete: () => void
   onTutorial: () => void
 }) {
+  const status = effectiveStatus(domain, result)
   return (
     <GlassCard className="p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -678,6 +776,8 @@ function DomainCard({
               {result?.reconectado ? ' — reconectado à hospedagem' : ''}
             </p>
           </div>
+          {/* A9.4: badge de saúde legível (Ativo / Propagando / Erro) */}
+          <HealthBadge status={status} />
           {/* Item 54: badge de uso do domínio (checkout / cloaker / ambos) */}
           <span
             className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
@@ -736,6 +836,18 @@ function DomainCard({
           </button>
         </div>
       </div>
+
+      {/* A9.1: stepper de provisionamento — só enquanto não estiver ativo, para
+          não poluir o card de um domínio que já está funcionando */}
+      {status !== 'active' && <ProvisioningStepper status={status} />}
+
+      {/* A9.4: causa legível do erro (diagnóstico do backend B1.5) */}
+      {status === 'error' && domain.lastError && (
+        <p className="mt-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive text-pretty" role="alert">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {domain.lastError}
+        </p>
+      )}
 
       {/* Item 127: falha de REDE ganha estado próprio com retry — não é "DNS pendente" */}
       {result?.networkError ? (

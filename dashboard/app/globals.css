@@ -674,6 +674,16 @@ html[data-tv] main {
   to { transform: rotate(360deg); }
 }
 
+/* A8.4 — editor do cloaker em slide-over lateral: painel desliza da direita
+   e o overlay é leve (sem blur) para o log de decisões continuar visível. */
+@keyframes drawerIn {
+  from { transform: translateX(48px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.drawer-in {
+  animation: drawerIn var(--dur) var(--ease) both;
+}
+
 /* Item 143: barras do funil preenchem da esquerda com stagger */
 @keyframes barFill {
   from { transform: scaleX(0); }
