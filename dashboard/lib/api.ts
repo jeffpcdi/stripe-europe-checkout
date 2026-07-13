@@ -31,6 +31,9 @@ import type {
   AdsRoasResponse,
   AdsLibraryResponse,
   AdsAlertsConfig,
+  AdsAttributionResponse,
+  AdsRulesResponse,
+  AdsTemplatesResponse,
 } from './types'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
@@ -342,6 +345,34 @@ export function useAdsLibrary(active: boolean) {
 // Config de alertas de performance da conta.
 export function useAdsAlerts(active: boolean) {
   return useSWR<AdsAlertsConfig>(active ? '/api/ads/alerts' : null, fetcher, {
+    revalidateOnFocus: false,
+  })
+}
+
+// Atribuição por campanha — vendas reais casadas com o platformCampaignId
+// (via macro utm_campaign=__CAMPAIGN_ID__ que o TikTok substitui na entrega).
+export function useAdsAttribution(active: boolean, range?: { fromDate?: string; toDate?: string }) {
+  const params = new URLSearchParams()
+  if (range?.fromDate) params.set('fromDate', range.fromDate)
+  if (range?.toDate) params.set('toDate', range.toDate)
+  const qs = params.toString()
+  return useSWR<AdsAttributionResponse>(
+    active ? `/api/ads/attribution${qs ? `?${qs}` : ''}` : null,
+    fetcher,
+    { refreshInterval: 60_000, keepPreviousData: true },
+  )
+}
+
+// Regras automáticas de otimização (config + histórico de execuções).
+export function useAdsRules(active: boolean) {
+  return useSWR<AdsRulesResponse>(active ? '/api/ads/rules' : null, fetcher, {
+    revalidateOnFocus: false,
+  })
+}
+
+// Templates de campanha salvos da conta.
+export function useAdsTemplates(active: boolean) {
+  return useSWR<AdsTemplatesResponse>(active ? '/api/ads/templates' : null, fetcher, {
     revalidateOnFocus: false,
   })
 }

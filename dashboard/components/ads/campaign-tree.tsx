@@ -122,6 +122,7 @@ export function CampaignTree({
   onMutate,
   onRetry,
   onOpenDetail,
+  attribution,
 }: {
   tree?: AdsTreeResponse
   loading: boolean
@@ -136,6 +137,8 @@ export function CampaignTree({
   onMutate: () => void
   onRetry: () => void
   onOpenDetail?: (c: AdsTreeCampaign) => void
+  // Vendas reais por campanha (utm_campaign=__CAMPAIGN_ID__ → lead comprado)
+  attribution?: Record<string, { revenueCents: number; sales: number }>
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -417,6 +420,23 @@ export function CampaignTree({
                           {c.adSetCount ?? c.adSets?.length ?? 0} grupo{(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? '' : 's'} ·{' '}
                           {c.adCount ?? 0} anúncio{(c.adCount ?? 0) === 1 ? '' : 's'}
                         </span>
+                        {(() => {
+                          // vendas REAIS atribuídas a esta campanha (gateways)
+                          const attr = attribution?.[id]
+                          if (!attr || attr.sales === 0) return null
+                          const spend = Number(c.metrics?.spend) || 0
+                          const roas = spend > 0 ? attr.revenueCents / 100 / spend : null
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium tabular-nums text-success"
+                              title={`${attr.sales} venda(s) reais atribuídas · ${fmtMoney(attr.revenueCents / 100, currency)}${roas !== null ? ` · ROAS ${roas.toFixed(2)}` : ''}`}
+                            >
+                              {attr.sales} venda{attr.sales === 1 ? '' : 's'} ·{' '}
+                              {fmtMoney(attr.revenueCents / 100, currency)}
+                              {roas !== null && ` · ROAS ${roas.toFixed(2)}`}
+                            </span>
+                          )
+                        })()}
                       </span>
                     </span>
                   </button>

@@ -5,8 +5,8 @@
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
 import { useMemo, useState } from 'react'
-import { Megaphone, Plus, Zap, UserRound, RefreshCw, Unplug, BellRing } from 'lucide-react'
-import { useAdsStatus, useAdsAccounts, useAdsTree, apiSend } from '@/lib/api'
+import { Megaphone, Plus, Zap, UserRound, RefreshCw, Unplug, BellRing, Bot } from 'lucide-react'
+import { useAdsStatus, useAdsAccounts, useAdsTree, useAdsAttribution, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsMetrics, AdsTreeCampaign } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -24,6 +24,7 @@ import { IdentityDialog } from './identity-dialog'
 import { CampaignDrawer } from './campaign-drawer'
 import { RoasCard } from './roas-card'
 import { AlertsDialog } from './alerts-dialog'
+import { AutomationDialog } from './automation-dialog'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 // Moeda dos advertisers TikTok (spend vem em unidades inteiras da moeda)
@@ -64,10 +65,14 @@ export function TikTokAdsView() {
     page,
   })
 
+  // Vendas reais por campanha — mesmo lookback padrão da árvore (7 dias)
+  const { data: attribution } = useAdsAttribution(treeActive)
+
   const [createOpen, setCreateOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [identityOpen, setIdentityOpen] = useState(false)
   const [alertsOpen, setAlertsOpen] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [detailCampaign, setDetailCampaign] = useState<AdsTreeCampaign | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
@@ -337,6 +342,7 @@ export function TikTokAdsView() {
             onMutate={() => mutateTree()}
             onRetry={() => mutateTree()}
             onOpenDetail={setDetailCampaign}
+            attribution={attribution?.byCampaign}
           />
         </>
       )}
@@ -373,7 +379,12 @@ export function TikTokAdsView() {
         }}
       />
       <AlertsDialog open={alertsOpen} onClose={() => setAlertsOpen(false)} currency={currency} />
-      <CampaignDrawer campaign={detailCampaign} currency={currency} onClose={() => setDetailCampaign(null)} />
+      <CampaignDrawer
+        campaign={detailCampaign}
+        currency={currency}
+        onClose={() => setDetailCampaign(null)}
+        attribution={detailCampaign ? attribution?.byCampaign?.[detailCampaign.platformCampaignId] : undefined}
+      />
       <ConfirmDialog
         open={confirmDisconnect}
         title="Desconectar a conta TikTok Ads?"

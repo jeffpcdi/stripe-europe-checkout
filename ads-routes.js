@@ -47,6 +47,21 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // vivem lá); as rotas de polling chamam via adsSweepHook.fn(accId).
   const adsSweepHook = { fn: null };
 
+  // Atribuição por campanha: anexa UTMs ao link de destino dos anúncios.
+  // __CAMPAIGN_ID__ é um macro que o PRÓPRIO TikTok substitui na entrega pelo
+  // ID real da campanha — o lead chega com utm_campaign=<id> e o /api/track
+  // já grava utm.campaign no lead. Não sobrescreve UTMs que o usuário já pôs.
+  function withAdsTracking(url) {
+    try {
+      const u = new URL(url);
+      if (!u.searchParams.has('utm_source')) u.searchParams.set('utm_source', 'tiktok');
+      if (!u.searchParams.has('utm_medium')) u.searchParams.set('utm_medium', 'paid');
+      if (!u.searchParams.has('utm_campaign')) u.searchParams.set('utm_campaign', '__CAMPAIGN_ID__');
+      // decodeURIComponent: o TikTok exige o macro cru (__X__), não %5F%5FX...
+      return u.toString().replace(/%5F%5FCAMPAIGN%5FID%5F%5F/gi, '__CAMPAIGN_ID__');
+    } catch (_) { return url; }
+  }
+
   // ── Status da integração ──────────────────────────────────────────────────
   app.get('/api/ads/status', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -233,7 +248,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         // No TikTok, o campo imageUrl carrega a URL do VÍDEO (API é video-only).
         imageUrl: videoUrl,
         body: String(b.body || '').trim().slice(0, 100) || undefined,
-        linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? String(b.linkUrl).trim().slice(0, 500) : undefined,
+        linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
         callToAction: /^[A-Z_]{3,30}$/.test(String(b.callToAction || '')) ? b.callToAction : undefined,
         countries: Array.isArray(b.countries)
           ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30)
@@ -312,7 +327,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!platformPostId && !sparkAuthCode) {
         return res.status(400).json({ error: 'Informe o ID do vídeo (platformPostId) ou um Spark Code do criador' });
       }
-      if (/^https?:\/\//.test(String(b.linkUrl || ''))) payload.linkUrl = String(b.linkUrl).trim().slice(0, 500);
+      if (/^https?:\/\//.test(String(b.linkUrl || ''))) payload.linkUrl = withAdsTracking(String(b.linkUrl).trim().slice(0, 500));
       if (/^[A-Z_]{3,30}$/.test(String(b.callToAction || ''))) payload.callToAction = b.callToAction;
       const countries = Array.isArray(b.countries)
         ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30) : [];
@@ -362,7 +377,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates']);
 
   // ── Atualizar um anúncio (status/budget/creative) ─────────────────────────
   app.put('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
@@ -674,6 +689,261 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       alertLastRun.set(req.account.id, Date.now());
       const result = await runAlertSweep(req.account.id, { force: true });
       res.json(result);
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Atribuição por campanha ────────────────────────────────────────────────
+  // Os anúncios criados aqui saem com utm_campaign=__CAMPAIGN_ID__ (macro que
+  // o TikTok troca pelo ID real). O /api/track grava utm.campaign no lead, e
+  // este endpoint casa os leads COMPRADOS com o platformCampaignId — dando
+  // receita, vendas e ROAS POR CAMPANHA (não só o agregado do /roas).
+  function computeAttribution(accId, fromDate, toDate) {
+    const byCampaign = {}; // campaignId → { revenueCents, sales }
+    const unattributed = { revenueCents: 0, sales: 0 }; // tiktok sem campanha
+    if (typeof stats.getStats !== 'function') return { byCampaign, unattributed };
+    const snap = stats.getStats(accId) || {};
+    (snap.leads || []).forEach((l) => {
+      if (l.stage !== 'purchased' || !l.convertedAt) return;
+      const day = String(l.convertedAt).slice(0, 10);
+      if (day < fromDate || day > toDate) return;
+      const src = String((l.utm || {}).source || '').toLowerCase();
+      const isTikTok = src === 'tiktok' || !!l.ttclid; // ttclid só existe vindo do TikTok
+      if (!isTikTok) return;
+      const cents = Number(l.reportedAmount) || 0;
+      // utm.campaign carrega o ID numérico da campanha (macro substituído)
+      const camp = String((l.utm || {}).campaign || '').trim();
+      if (/^\d{5,30}$/.test(camp)) {
+        if (!byCampaign[camp]) byCampaign[camp] = { revenueCents: 0, sales: 0 };
+        byCampaign[camp].revenueCents += cents;
+        byCampaign[camp].sales += 1;
+      } else {
+        unattributed.revenueCents += cents;
+        unattributed.sales += 1;
+      }
+    });
+    return { byCampaign, unattributed };
+  }
+
+  app.get('/api/ads/attribution', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const q = req.query || {};
+      const iso = (d) => d.toISOString().slice(0, 10);
+      const today = new Date();
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(new Date(today.getTime() - 6 * 864e5));
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
+      const data = computeAttribution(req.account.id, fromDate, toDate);
+      res.json({ fromDate, toDate, byCampaign: data.byCampaign, unattributed: data.unattributed });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Regras automáticas — além de alertar, AGE ─────────────────────────────
+  // Cada regra: métrica observada + limite + ação. Métricas:
+  //  • cpa_max        — gasto/conversões acima do teto
+  //  • spend_no_conv  — gastou ≥ X sem nenhuma conversão
+  //  • roas_min       — ROAS atribuído (vendas reais) abaixo do piso
+  // Ações: pause (bulk-status) | budget_down | budget_up (± pct% no orçamento
+  // de cada grupo da campanha, via PUT no 1º anúncio do grupo).
+  const RULE_METRICS = ['cpa_max', 'spend_no_conv', 'roas_min'];
+  const RULE_ACTIONS = ['pause', 'budget_down', 'budget_up'];
+  const rulesLastRun = new Map();  // accId → ts da última execução
+  const rulesCooldown = new Map(); // accId:campanha:regra → ts da última ação
+
+  function getRules(accId) {
+    const st = zernio.getState(accId);
+    return Array.isArray(st.rules) ? st.rules : [];
+  }
+  function getRulesLog(accId) {
+    const st = zernio.getState(accId);
+    return Array.isArray(st.rulesLog) ? st.rulesLog : [];
+  }
+  function appendRulesLog(accId, entries) {
+    if (!entries.length) return;
+    const log = [...entries, ...getRulesLog(accId)].slice(0, 50);
+    zernio.setState(accId, { rulesLog: log });
+  }
+
+  async function runRulesSweep(accId, { force } = {}) {
+    const rules = getRules(accId).filter((r) => r.enabled);
+    if (!rules.length && !force) return { executed: [], skipped: true };
+    const st = zernio.getState(accId);
+    if (!st.accountId || !rules.length) return { executed: [], skipped: true };
+
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const to = new Date();
+    const maxLookback = Math.max(...rules.map((r) => r.lookbackDays || 2), 1);
+    const fromDate = iso(new Date(to.getTime() - maxLookback * 864e5));
+    const toDate = iso(to);
+    const tree = await zernio.api('GET', '/ads/tree', {
+      query: {
+        accountId: st.accountId, platform: 'tiktok',
+        adAccountId: st.advertiserId || undefined,
+        status: 'active', fromDate, toDate, limit: 50
+      }
+    });
+    const attribution = computeAttribution(accId, fromDate, toDate);
+
+    const executed = [];
+    for (const c of tree.campaigns || []) {
+      const m = c.metrics || {};
+      const spend = Number(m.spend) || 0;
+      const conv = Number(m.conversions) || 0;
+      const name = c.campaignName || c.platformCampaignId;
+      const attr = attribution.byCampaign[c.platformCampaignId] || { revenueCents: 0, sales: 0 };
+      const roas = spend > 0 ? (attr.revenueCents / 100) / spend : null;
+
+      for (const r of rules) {
+        let hit = false; let detail = '';
+        if (r.metric === 'cpa_max' && r.threshold > 0 && conv > 0 && spend / conv > r.threshold) {
+          hit = true; detail = 'CPA ' + (spend / conv).toFixed(2) + ' > teto ' + r.threshold;
+        } else if (r.metric === 'spend_no_conv' && r.threshold > 0 && conv === 0 && spend >= r.threshold) {
+          hit = true; detail = 'gastou ' + spend.toFixed(2) + ' sem conversão';
+        } else if (r.metric === 'roas_min' && r.threshold > 0 && spend > 0 && roas !== null && roas < r.threshold) {
+          hit = true; detail = 'ROAS ' + roas.toFixed(2) + ' < piso ' + r.threshold;
+        }
+        if (!hit) continue;
+
+        // cooldown de 12h por campanha+regra: uma ação por “episódio”
+        const key = accId + ':' + c.platformCampaignId + ':' + r.id;
+        if (Date.now() - (rulesCooldown.get(key) || 0) < 12 * 3600e3) continue;
+        rulesCooldown.set(key, Date.now());
+
+        const entry = {
+          at: new Date().toISOString(), ruleId: r.id, metric: r.metric,
+          action: r.action, campaignId: c.platformCampaignId, campaignName: name,
+          detail, ok: false
+        };
+        try {
+          if (r.action === 'pause') {
+            await zernio.api('POST', '/ads/campaigns/bulk-status', {
+              body: { status: 'paused', campaigns: [{ platformCampaignId: c.platformCampaignId, platform: 'tiktok' }] }
+            });
+            entry.ok = true;
+            entry.result = 'campanha pausada';
+          } else {
+            // ± pct% no orçamento de cada grupo (via 1º anúncio do grupo)
+            const pct = Math.max(5, Math.min(50, Number(r.pct) || 20));
+            const factor = r.action === 'budget_up' ? 1 + pct / 100 : 1 - pct / 100;
+            let changed = 0;
+            for (const s of (c.adSets || []).slice(0, 10)) {
+              const cur = Number((s.budget || {}).amount) || 0;
+              const adId = (s.ads || [])[0] && ((s.ads[0].platformAdId) || (s.ads[0]._id));
+              if (!(cur > 0) || !adId) continue;
+              const amount = Math.max(1, +(cur * factor).toFixed(2));
+              await zernio.api('PUT', '/ads/' + encodeURIComponent(adId), {
+                body: { budget: { amount, type: (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily' } },
+                timeoutMs: 60000
+              });
+              changed += 1;
+            }
+            entry.ok = changed > 0;
+            entry.result = 'orçamento ' + (r.action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' grupo(s)';
+          }
+        } catch (e) {
+          entry.result = 'falhou: ' + (e && e.message ? e.message.slice(0, 120) : 'erro');
+        }
+        executed.push(entry);
+        const emoji = entry.ok ? 'executada' : 'FALHOU';
+        stats.logEvent(entry.ok ? 'info' : 'warn', { acc: accId, title: '[tiktok-ads] Regra ' + emoji + ': ' + entry.result + ' — "' + name + '" (' + detail + ')' });
+        const { sendPushcut } = require('./pushcut');
+        sendPushcut('Aprovada', { title: 'TikTok Ads: regra automática', text: entry.result + ' — "' + name + '" (' + detail + ')', sound: 'system' }, accId).catch(() => {});
+      }
+    }
+    if (executed.length) zernio.cacheBust('tree:' + accId);
+    appendRulesLog(accId, executed);
+    return { executed, checkedAt: new Date().toISOString() };
+  }
+
+  // as regras pegam carona na MESMA varredura oportunista dos alertas
+  const prevSweep = adsSweepHook.fn;
+  adsSweepHook.fn = function (accId) {
+    if (prevSweep) prevSweep(accId);
+    try {
+      if (!accId || !getRules(accId).some((r) => r.enabled)) return;
+      const last = rulesLastRun.get(accId) || 0;
+      if (Date.now() - last > 30 * 60e3) {
+        rulesLastRun.set(accId, Date.now());
+        runRulesSweep(accId).catch(() => {});
+      }
+    } catch (_) { /* nunca bloqueia a rota */ }
+  };
+
+  app.get('/api/ads/rules', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ rules: getRules(req.account.id), log: getRulesLog(req.account.id) });
+  });
+
+  app.put('/api/ads/rules', dashboardAuth, (req, res) => {
+    try {
+      const raw = Array.isArray((req.body || {}).rules) ? req.body.rules : [];
+      const rules = raw.slice(0, 10).map((r, i) => ({
+        id: String(r.id || 'r' + Date.now().toString(36) + i).slice(0, 24),
+        enabled: !!r.enabled,
+        metric: RULE_METRICS.includes(r.metric) ? r.metric : 'cpa_max',
+        threshold: Math.max(0, Math.min(100000, Number(r.threshold) || 0)),
+        lookbackDays: Math.max(1, Math.min(30, parseInt(r.lookbackDays, 10) || 2)),
+        action: RULE_ACTIONS.includes(r.action) ? r.action : 'pause',
+        pct: Math.max(5, Math.min(50, Number(r.pct) || 20))
+      })).filter((r) => r.threshold > 0);
+      zernio.setState(req.account.id, { rules });
+      res.json({ rules, log: getRulesLog(req.account.id) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/rules/run', dashboardAuth, async (req, res) => {
+    try {
+      rulesLastRun.set(req.account.id, Date.now());
+      const result = await runRulesSweep(req.account.id, { force: true });
+      res.json(result);
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Templates de campanha ──────────────────────────────────────────────────
+  // Guarda a CONFIGURAÇÃO (objetivo, orçamento, público, CTA, link, pixel…) —
+  // nunca o vídeo. Criar do template = wizard pré-preenchido, só troca o vídeo.
+  app.get('/api/ads/templates', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const st = zernio.getState(req.account.id);
+    res.json({ items: Array.isArray(st.templates) ? st.templates : [] });
+  });
+
+  app.post('/api/ads/templates', dashboardAuth, (req, res) => {
+    try {
+      const b = req.body || {};
+      const name = String(b.name || '').trim().slice(0, 60);
+      if (!name) return res.status(400).json({ error: 'Nome do template é obrigatório' });
+      const p = (b.payload && typeof b.payload === 'object') ? b.payload : {};
+      // whitelist estrita — nada além da config do wizard entra no template
+      const payload = {};
+      if (typeof p.goal === 'string') payload.goal = p.goal.slice(0, 30);
+      if (Number(p.budgetAmount) > 0) payload.budgetAmount = Number(p.budgetAmount);
+      if (['daily', 'lifetime'].includes(p.budgetType)) payload.budgetType = p.budgetType;
+      if (typeof p.body === 'string') payload.body = p.body.slice(0, 100);
+      if (typeof p.linkUrl === 'string') payload.linkUrl = p.linkUrl.slice(0, 500);
+      if (typeof p.callToAction === 'string') payload.callToAction = p.callToAction.slice(0, 30);
+      if (Array.isArray(p.countries)) payload.countries = p.countries.slice(0, 30);
+      if (Array.isArray(p.languages)) payload.languages = p.languages.slice(0, 10);
+      if (p.ageMin) payload.ageMin = parseInt(p.ageMin, 10) || undefined;
+      if (p.ageMax) payload.ageMax = parseInt(p.ageMax, 10) || undefined;
+      if (typeof p.pixelId === 'string') payload.pixelId = p.pixelId.slice(0, 30);
+      if (typeof p.customEventType === 'string') payload.customEventType = p.customEventType.slice(0, 40);
+      if (typeof p.identityType === 'string') payload.identityType = p.identityType.slice(0, 30);
+
+      const st = zernio.getState(req.account.id);
+      const items = Array.isArray(st.templates) ? st.templates.slice(0, 19) : [];
+      const item = { id: 't' + Date.now().toString(36), name, payload, createdAt: new Date().toISOString() };
+      zernio.setState(req.account.id, { templates: [item, ...items] });
+      res.status(201).json(item);
+    } catch (err) { fail(res, err); }
+  });
+
+  app.delete('/api/ads/templates', dashboardAuth, (req, res) => {
+    try {
+      const id = String((req.query || {}).id || '');
+      const st = zernio.getState(req.account.id);
+      const items = (Array.isArray(st.templates) ? st.templates : []).filter((t) => t.id !== id);
+      zernio.setState(req.account.id, { templates: items });
+      res.json({ ok: true });
     } catch (err) { fail(res, err); }
   });
 };

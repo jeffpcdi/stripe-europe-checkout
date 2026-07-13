@@ -861,3 +861,82 @@ export interface AdsAlertCheckResponse {
   checkedAt?: string
   skipped?: boolean
 }
+
+// ── GET /api/ads/attribution — vendas reais POR CAMPANHA ──
+// utm_campaign=__CAMPAIGN_ID__ (macro do TikTok) liga o lead à campanha.
+export interface AdsAttributionEntry {
+  revenueCents: number
+  sales: number
+}
+
+export interface AdsAttributionResponse {
+  fromDate: string
+  toDate: string
+  byCampaign: Record<string, AdsAttributionEntry>
+  unattributed: AdsAttributionEntry // veio do TikTok mas sem ID de campanha
+}
+
+// ── GET/PUT /api/ads/rules — regras automáticas de otimização ──
+export type AdsRuleMetric = 'cpa_max' | 'spend_no_conv' | 'roas_min'
+export type AdsRuleAction = 'pause' | 'budget_down' | 'budget_up'
+
+export interface AdsRule {
+  id: string
+  enabled: boolean
+  metric: AdsRuleMetric
+  threshold: number
+  lookbackDays: number
+  action: AdsRuleAction
+  pct: number // % de ajuste de orçamento (budget_up/down)
+}
+
+export interface AdsRuleLogEntry {
+  at: string
+  ruleId: string
+  metric: AdsRuleMetric
+  action: AdsRuleAction
+  campaignId: string
+  campaignName: string
+  detail: string
+  ok: boolean
+  result?: string
+}
+
+export interface AdsRulesResponse {
+  rules: AdsRule[]
+  log: AdsRuleLogEntry[]
+}
+
+export interface AdsRulesRunResponse {
+  executed: AdsRuleLogEntry[]
+  checkedAt?: string
+  skipped?: boolean
+}
+
+// ── /api/ads/templates — configurações de campanha reutilizáveis ──
+export interface AdsTemplatePayload {
+  goal?: string
+  budgetAmount?: number
+  budgetType?: 'daily' | 'lifetime'
+  body?: string
+  linkUrl?: string
+  callToAction?: string
+  countries?: string[]
+  languages?: string[]
+  ageMin?: number
+  ageMax?: number
+  pixelId?: string
+  customEventType?: string
+  identityType?: string
+}
+
+export interface AdsTemplate {
+  id: string
+  name: string
+  payload: AdsTemplatePayload
+  createdAt: string
+}
+
+export interface AdsTemplatesResponse {
+  items: AdsTemplate[]
+}

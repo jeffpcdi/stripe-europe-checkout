@@ -138,10 +138,13 @@ export function CampaignDrawer({
   campaign,
   currency,
   onClose,
+  attribution,
 }: {
   campaign: AdsTreeCampaign | null
   currency: string
   onClose: () => void
+  // vendas reais desta campanha (leads convertidos com utm_campaign = ID)
+  attribution?: { revenueCents: number; sales: number }
 }) {
   const [metric, setMetric] = useState<Metric>('spend')
   const [days, setDays] = useState<number>(7)
@@ -291,6 +294,29 @@ export function CampaignDrawer({
             </p>
           ) : (
             <>
+              {/* Vendas REAIS atribuídas (gateways → utm_campaign) */}
+              {attribution && attribution.sales > 0 && (
+                <div className="flex items-center justify-between gap-3 rounded-[10px] border border-success/25 bg-success/10 px-4 py-3">
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-success">
+                      Vendas reais atribuídas
+                    </p>
+                    <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">
+                      {attribution.sales} venda{attribution.sales === 1 ? '' : 's'} ·{' '}
+                      {(attribution.revenueCents / 100).toFixed(2).replace('.', ',')} {ccy}
+                    </p>
+                  </div>
+                  {tot.spend > 0 && (
+                    <div className="text-right">
+                      <p className="text-[11px] text-muted-foreground">ROAS real</p>
+                      <p className="text-lg font-bold tabular-nums text-success">
+                        {(attribution.revenueCents / 100 / tot.spend).toFixed(2).replace('.', ',')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* KPIs com delta vs. período anterior */}
               <div className="grid grid-cols-2 gap-2">
                 <DeltaKpi
