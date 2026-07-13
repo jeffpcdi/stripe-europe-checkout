@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSWRConfig } from 'swr'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
@@ -222,10 +223,11 @@ function UserMenu() {
             className="mt-1 flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
             asChild
           >
-            <a href="/config">
+            {/* Link do Next aplica o basePath /dashboard — <a> cru caía em 404 */}
+            <Link href="/config">
               <UserRound className="size-3.5" aria-hidden="true" />
               Configurações
-            </a>
+            </Link>
           </DropdownMenu.Item>
           <DropdownMenu.Item
             className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-error outline-none transition-colors data-[highlighted]:bg-[var(--error-light)]"

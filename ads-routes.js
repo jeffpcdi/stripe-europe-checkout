@@ -87,9 +87,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         actorType: 'user', actorId: req.account.id, action: 'safety_policy.updated',
         targetType: 'safety_policy', targetId: req.account.id, beforeState: before,
         afterState: adsOps.normalizePolicy(req.body || {}),
-        reason: policy.kill_switch ? 'Kill switch acionado manualmente' : 'Guardrails atualizados manualmente'
+        reason: policy.killSwitch ? 'Kill switch acionado manualmente' : 'Guardrails atualizados manualmente'
       });
-      stats.logEvent('warn', { acc: req.account.id, title: policy.kill_switch ? 'Kill switch de Ads ativado' : 'Política de segurança de Ads atualizada' });
+      stats.logEvent('warn', { acc: req.account.id, title: policy.killSwitch ? 'Kill switch de Ads ativado' : 'Política de segurança de Ads atualizada' });
       res.json({ policy });
     } catch (err) { fail(res, err); }
   });
