@@ -147,16 +147,11 @@ export function CloakConfigPanel() {
               interruptor mestre — desliga toda a proteção
             </span>
           </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={cfg.enabled}
-            aria-label="Cloaking ativado"
-            onClick={() => patch({ enabled: !cfg.enabled })}
-            className={cfg.enabled ? 'cloak-switch cloak-switch--on' : 'cloak-switch cloak-switch--off'}
-          >
-            <span className="cloak-switch__knob" />
-          </button>
+          <Switch
+            checked={cfg.enabled}
+            onChange={(v) => patch({ enabled: v })}
+            label="Cloaking ativado"
+          />
         </div>
         {cfg.enabled ? (
           <div className="cloak-banner anim-pop-in mt-2 flex items-center gap-2 rounded-lg px-3 py-2">
@@ -179,21 +174,12 @@ export function CloakConfigPanel() {
       {/* Sensibilidade */}
       <div className="mb-4">
         <span className="mb-1 block text-xs font-medium text-muted-foreground">Sensibilidade</span>
-        {/* Item 139: explica o que o threshold significa e o mapa sensibilidade→número */}
-        <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
-          Cada acesso recebe um <strong className="text-foreground">score</strong> de suspeita (0–100). Quando o score
-          atinge o <strong className="text-foreground">threshold</strong>, o visitante vai para a página branca.
-          Threshold mais baixo = protege mais, mas arrisca desviar alguns usuários reais.
-          {cfg.sensitivityThresholds && (
-            <>
-              {' '}
-              Efetivo:{' '}
-              {Object.entries(cfg.sensitivityThresholds)
-                .map(([k, v]) => `${SENSITIVITY.find((s) => s.id === k)?.label ?? k} ≥${v}`)
-                .join(' · ')}
-              .
-            </>
-          )}
+        {/* Explicação completa no tooltip — menos texto na tela */}
+        <p
+          className="mb-2 text-[11px] text-muted-foreground"
+          title="Cada acesso recebe um score de suspeita (0–100). Quando o score atinge o threshold, o visitante vai para a página branca. Threshold mais baixo = protege mais, mas arrisca desviar alguns usuários reais."
+        >
+          Mais sensível = protege mais, mas pode desviar usuários reais.
         </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {SENSITIVITY.map((s) => {
@@ -286,19 +272,18 @@ export function CloakConfigPanel() {
           />
           <span>segundos</span>
         </div>
-        <span className="text-[11px] leading-relaxed text-muted-foreground text-pretty">
-          Uma &quot;device farm&quot; martela o link várias vezes por minuto a partir do mesmo IP; visitantes acima
-          do limite vão para a página branca. O padrão (12 a cada 60s) tem folga para família no mesmo Wi-Fi.
+        <span
+          className="text-[11px] text-muted-foreground"
+          title="Uma device farm martela o link várias vezes por minuto a partir do mesmo IP; visitantes acima do limite vão para a página branca. O padrão (12 a cada 60s) tem folga para família no mesmo Wi-Fi."
+        >
+          Acima do limite, o visitante vê a página branca.
         </span>
-        {/* Item 255: sem Redis a contagem é só por instância (memória local) —
-            uma farm distribuída entre vários IPs/instâncias passa despercebida. */}
         {health && !health.redis && (
-          <span className="flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-            <span>
-              Sem Redis, a contagem de acessos é feita apenas nesta instância do servidor. Uma device-farm
-              distribuída entre várias máquinas só é barrada de forma confiável com o Redis ativo.
-            </span>
+          <span
+            className="text-[11px] text-warning"
+            title="Sem Redis, a contagem de acessos é feita apenas nesta instância do servidor. Uma device-farm distribuída entre várias máquinas só é barrada de forma confiável com o Redis ativo."
+          >
+            Sem Redis, a contagem vale só para esta instância.
           </span>
         )}
       </div>
@@ -317,36 +302,29 @@ export function CloakConfigPanel() {
         ))}
       </div>
 
-      {/* Item 173: blockZhLang barra qualquer accept-language chinês — inclui
-          chinês real fora da CN (diáspora, turistas). Nota de contexto */}
+      {/* Notas de contexto compactas — detalhe completo no tooltip */}
       {(cfg.blockZhLang as boolean) && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
-          <span>
-            <strong className="text-foreground">Bloquear zh fora da CN</strong> desvia todo visitante com idioma chinês
-            fora da China para a página branca. Isso barra revisores da ByteDance, mas também pode atingir{' '}
-            <strong className="text-foreground">público chinês legítimo</strong> (diáspora, turistas). Deixe ligado só
-            se sua campanha não mira falantes de chinês reais.
-          </span>
-        </div>
+        <p
+          className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground"
+          title="Bloquear zh fora da CN desvia todo visitante com idioma chinês fora da China para a página branca. Barra revisores da ByteDance, mas também pode atingir público chinês legítimo (diáspora, turistas). Deixe ligado só se sua campanha não mira falantes de chinês reais."
+        >
+          <AlertTriangle className="size-3 shrink-0 text-warning" aria-hidden="true" />
+          &quot;Bloquear zh fora da CN&quot; também pode atingir público chinês legítimo.
+        </p>
       )}
 
-      {/* Item 168: camadas D–H inertes sem o Challenge JS */}
       {!cfg.requireJsChallenge &&
         (() => {
           const inertes = CHALLENGE_DEPENDENT.filter((l) => cfg[l.key] as boolean)
           if (!inertes.length) return null
           return (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-[11px] leading-relaxed text-warning">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              <span>
-                <strong>{inertes.map((l) => l.label).join(', ')}</strong>{' '}
-                {inertes.length > 1 ? 'dependem' : 'depende'} do <strong>Challenge JS</strong>, que está desligado.
-                Sem ele o snippet não coleta os dados do navegador e{' '}
-                {inertes.length > 1 ? 'essas camadas ficam sem efeito' : 'essa camada fica sem efeito'}. Ligue o
-                Challenge JS ou desative {inertes.length > 1 ? 'essas camadas' : 'essa camada'} para evitar configuração inócua.
-              </span>
-            </div>
+            <p
+              className="mt-3 flex items-center gap-1.5 text-[11px] text-warning"
+              title={`${inertes.map((l) => l.label).join(', ')} ${inertes.length > 1 ? 'dependem' : 'depende'} do Challenge JS, que está desligado — sem ele ${inertes.length > 1 ? 'essas camadas ficam' : 'essa camada fica'} sem efeito. Ligue o Challenge JS ou desative para evitar configuração inócua.`}
+            >
+              <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
+              {inertes.length} camada(s) sem efeito com o Challenge JS desligado.
+            </p>
           )
         })()}
 
