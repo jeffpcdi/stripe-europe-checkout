@@ -267,7 +267,7 @@ export function TikTokAdsView() {
         <>
           {/* Linha de KPIs agregados (página atual da árvore) */}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <GlassCard hover className="kpi-in p-4" style={{ animationDelay: '0ms' }}>
+            <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '0ms' }}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="label-mono">Investimento</p>
@@ -280,20 +280,20 @@ export function TikTokAdsView() {
                 )}
               </div>
             </GlassCard>
-            <GlassCard hover className="kpi-in p-4" style={{ animationDelay: '40ms' }}>
+            <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '40ms' }}>
               <p className="label-mono">Impressões</p>
               <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
                 <CountUp value={kpi.impressions} format={fmtCompact} />
               </p>
             </GlassCard>
-            <GlassCard hover className="kpi-in p-4" style={{ animationDelay: '80ms' }}>
+            <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '80ms' }}>
               <p className="label-mono">CTR</p>
               <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
                 <CountUp value={kpi.ctr} format={(v) => fmtPercent(v)} />
               </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">{fmtCompact(kpi.clicks)} cliques</p>
             </GlassCard>
-            <GlassCard hover className="kpi-in p-4" style={{ animationDelay: '120ms' }}>
+            <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '120ms' }}>
               <p className="label-mono">CPM</p>
               <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
                 <CountUp value={kpi.cpm} format={(v) => fmtSpend(v, currency)} />
