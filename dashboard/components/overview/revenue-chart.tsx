@@ -158,6 +158,7 @@ export function RevenueChart({
             </span>
           )}
         </div>
+        {/* V2-66: tab ativa ganha a cor da métrica na borda + glow sutil */}
         <div className="flex gap-0.5 rounded-full bg-[var(--hover)] p-0.5" role="tablist" aria-label="Métrica do gráfico">
           {METRICS.map((m) => (
             <button
@@ -167,11 +168,16 @@ export function RevenueChart({
               aria-selected={metric === m.id}
               onClick={() => setMetric(m.id)}
               className={cn(
-                'rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-150',
+                'rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-150',
                 metric === m.id
                   ? 'bg-[var(--active)] text-foreground'
                   : 'text-muted-foreground hover:text-sub',
               )}
+              style={
+                metric === m.id
+                  ? { boxShadow: `inset 0 0 0 1px ${m.color}55, 0 0 10px ${m.color}22` }
+                  : undefined
+              }
             >
               {m.label}
             </button>

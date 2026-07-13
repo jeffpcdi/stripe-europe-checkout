@@ -82,19 +82,18 @@ function buildPoints(
     ]
   })
 
-  // Refino 5: anéis de pulso nos 3 países com mais tráfego, intensidade
-  // proporcional (raio da onda cresce com o tráfego). Vendas continuam
-  // pulsando em rosa via cor no ringColor.
-  const top3 = countries.slice(0, 3)
-  const topMax = Math.max(1, ...top3.map((c) => c.count))
-  const rings: GeoRing[] = top3.flatMap((c) => {
+  // V2-41: anéis de pulso agora nos 5 países com mais tráfego (era 3) —
+  // o globo parece mais vivo com múltiplas ondas simultâneas.
+  const topRinged = countries.slice(0, 5)
+  const topMax = Math.max(1, ...topRinged.map((c) => c.count))
+  const rings: GeoRing[] = topRinged.flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
     return [{ lat: coords[0], lng: coords[1], intensity: c.count / topMax }]
   })
 
-  // Refino 7: labels dos 3 maiores — nome + contagem em mono pequeno
-  const labels: GeoLabel[] = top3.flatMap((c) => {
+  // V2-42: labels dos 3 maiores, maiores e mais legíveis (0.85 → 1.0)
+  const labels: GeoLabel[] = countries.slice(0, 3).flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
     return [
@@ -102,16 +101,16 @@ function buildPoints(
         lat: coords[0],
         lng: coords[1],
         text: `${c.name} · ${c.count}`,
-        size: 0.85,
+        size: 1.0,
       },
     ]
   })
 
-  // Item 32 / Refino 6: arcos de tráfego — dos demais países ativos para o líder
+  // V2-43: mais arcos de tráfego — até 8 origens (era 5) convergindo ao líder
   const leader = countries[0]
   const leaderCoords = leader ? COUNTRY_COORDS[leader.code?.toUpperCase() ?? ''] : null
   const arcs: GeoArc[] = leaderCoords
-    ? countries.slice(1, 6).flatMap((c) => {
+    ? countries.slice(1, 9).flatMap((c) => {
         const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
         if (!coords) return []
         return [
@@ -191,11 +190,11 @@ function GlobeCanvas({
       /* renderer indisponível nesta versão */
     }
 
-    // Refino 8: entrada cinematográfica única por sessão — altitude 4.0→2.2
-    // com ease-out do próprio pointOfView. Reduced-motion e navegações
-    // seguintes pulam direto para o enquadramento final.
+    // V2-44: entrada cinematográfica aprimorada — além do zoom 4.0→2.2, o
+    // globo agora gira 60° de longitude durante a aproximação (efeito
+    // "chegando da órbita"). Única por sessão; reduced-motion pula direto.
     if (!reducedMotion && firstGlobeEntryThisSession()) {
-      g.pointOfView({ lat: 20, lng: -30, altitude: ALT_ENTRY }, 0)
+      g.pointOfView({ lat: 8, lng: -90, altitude: ALT_ENTRY }, 0)
       window.setTimeout(() => {
         globeRef.current?.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, ENTRY_MS)
       }, 60)
@@ -242,23 +241,29 @@ function GlobeCanvas({
       /* renderer indisponível — segue sem pausa por viewport */
     }
 
-    // Emissive leve: a blue-marble já é clara — só um toque ciano de marca
-    // para o lado noturno do globo não sumir no tema dark.
+    // V2-45: material aprimorado — emissive ciano mais presente + shininess
+    // para o oceano refletir a luz como água (specular sutil da marca).
     try {
       const mat = g.globeMaterial?.()
       if (mat) {
         mat.emissive?.set?.('#0b3a40')
-        mat.emissiveIntensity = 0.22
+        mat.emissiveIntensity = 0.28
+        mat.shininess = 12
+        mat.specular?.set?.('#1a6b70')
       }
     } catch {
       /* material indisponível nesta versão */
     }
 
-    // Luzes reforçadas: iluminação uniforme, sem hemisfério apagado.
+    // V2-46: luzes com temperatura da marca — a direcional puxa levemente
+    // para ciano-frio, dando ao globo o tom "neon noite" do dashboard.
     try {
       for (const light of g.lights()) {
-        if (light.type === 'DirectionalLight') light.intensity = 2.4
-        if (light.type === 'AmbientLight') light.intensity = 1.6
+        if (light.type === 'DirectionalLight') {
+          light.intensity = 2.5
+          light.color?.set?.('#eafffe')
+        }
+        if (light.type === 'AmbientLight') light.intensity = 1.55
       }
     } catch {
       /* API de luzes indisponível nesta versão */
@@ -291,35 +296,39 @@ function GlobeCanvas({
          earth-night deixava o globo escuro demais no card do overview */
       globeImageUrl="/dashboard/textures/earth-blue-marble.jpg"
       bumpImageUrl="/dashboard/textures/earth-topology.png"
-      /* Refino 2: atmosfera ciano da marca */
+      /* V2-47: atmosfera mais volumosa (0.18 → 0.22) — halo ciano visível */
       showAtmosphere
       atmosphereColor={CYAN}
-      atmosphereAltitude={0.18}
+      atmosphereAltitude={0.22}
       pointsData={points}
       pointLat="lat"
       pointLng="lng"
       pointColor="color"
-      pointAltitude={(d: object) => (d as GeoPoint).size * 0.22}
+      /* V2-48: colunas mais altas nos hotspots (0.22 → 0.3) — leitura 3D */
+      pointAltitude={(d: object) => (d as GeoPoint).size * 0.3}
       pointRadius={(d: object) => (d as GeoPoint).size}
       pointLabel="label"
       pointsMerge={false}
-      /* Refino 5: ondas concêntricas ciano nos hotspots, raio ∝ tráfego */
+      /* V2-49: transição suave quando os dados do poll mudam */
+      pointsTransitionDuration={600}
+      /* Refino 5 + V2-41: ondas concêntricas nos 5 hotspots, raio ∝ tráfego */
       ringsData={rings}
       ringColor={() => (t: number) => `rgba(37,244,238,${(1 - t) * 0.75})`}
       ringMaxRadius={(d: object) => 1.5 + (d as GeoRing).intensity * 1.5}
       ringPropagationSpeed={2}
       ringRepeatPeriod={1400}
-      /* Refino 7: labels mono dos top países */
+      /* V2-42: labels mono maiores com dot mais visível */
       labelsData={labels}
       labelLat="lat"
       labelLng="lng"
       labelText="text"
       labelSize="size"
-      labelColor={() => 'rgba(255,255,255,0.85)'}
-      labelDotRadius={0.28}
-      labelAltitude={0.012}
+      labelColor={() => 'rgba(255,255,255,0.92)'}
+      labelDotRadius={0.34}
+      labelAltitude={0.014}
       labelResolution={2}
-      /* Item 32 / Refino 6: arcos ciano→rosa com dash fluindo rumo ao líder */
+      /* V2-50: arcos mais grossos (0.4 → 0.5) e dash mais rápido (2s → 1.4s)
+         — o fluxo de tráfego rumo ao líder fica óbvio à primeira vista */
       arcsData={arcs}
       arcStartLat="startLat"
       arcStartLng="startLng"
@@ -327,10 +336,11 @@ function GlobeCanvas({
       arcEndLng="endLng"
       arcColor={() => [CYAN, PINK]}
       arcAltitudeAutoScale={0.35}
-      arcStroke={0.4}
-      arcDashLength={0.4}
-      arcDashGap={0.6}
-      arcDashAnimateTime={2000}
+      arcStroke={0.5}
+      arcDashLength={0.35}
+      arcDashGap={0.55}
+      arcDashAnimateTime={1400}
+      arcsTransitionDuration={600}
     />
   )
 }
@@ -376,8 +386,8 @@ function GlobeControls({
   )
 }
 
-/* Refino 10: HUD fino — 4 cantos de mira + legenda de intensidade;
-   estado vazio mantém o selo "aguardando tráfego" */
+/* Refino 10 + V2-51/52/53: HUD orbital completo — cantos de mira, legenda,
+   vinheta interna que foca o globo no centro e anel de latitude decorativo */
 function GlobeHud({ empty }: { empty?: boolean }) {
   return (
     <>
@@ -385,6 +395,21 @@ function GlobeHud({ empty }: { empty?: boolean }) {
       <span className="hud-corner hud-corner--tr" aria-hidden="true" />
       <span className="hud-corner hud-corner--bl" aria-hidden="true" />
       <span className="hud-corner hud-corner--br" aria-hidden="true" />
+      {/* V2-51: vinheta radial interna — bordas escurecem, globo salta */}
+      <span
+        className="pointer-events-none absolute inset-0 z-[2]"
+        aria-hidden="true"
+        style={{
+          background:
+            'radial-gradient(ellipse 75% 70% at 50% 48%, transparent 62%, rgba(0,0,0,0.42) 100%)',
+        }}
+      />
+      {/* V2-52: anel orbital decorativo girando atrás dos controles */}
+      <span
+        className="anim-orbit-slow pointer-events-none absolute left-1/2 top-1/2 z-[1] hidden size-[68%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed sm:block"
+        aria-hidden="true"
+        style={{ borderColor: 'rgba(37,244,238,0.08)' }}
+      />
       {!empty && (
         <span
           className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-1.5"
@@ -398,9 +423,19 @@ function GlobeHud({ empty }: { empty?: boolean }) {
           <span className="font-mono text-[9px] uppercase tracking-wider text-faint">forte</span>
         </span>
       )}
+      {/* V2-53: selo de coordenadas mono no canto — assinatura HUD */}
+      {!empty && (
+        <span
+          className="pointer-events-none absolute bottom-3 left-3 z-10 hidden font-mono text-[9px] uppercase tracking-[0.18em] sm:block"
+          aria-hidden="true"
+          style={{ color: 'rgba(37,244,238,0.4)' }}
+        >
+          LIVE·ORBIT
+        </span>
+      )}
       {empty ? (
         <span className="globe-empty-note">
-          <span className="rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
+          <span className="anim-breathe rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
             Aguardando tráfego
           </span>
         </span>

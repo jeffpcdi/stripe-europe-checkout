@@ -33,11 +33,13 @@ export function Toaster() {
         {toasts.map((t) => {
           const Icon = ICON[t.kind]
           return (
+            /* V2-75: toast entra com spring (pop) + V2-76: barra de vida no
+               rodapé indicando o tempo restante antes de sumir */
             <li
               key={t.id}
               // erro = assertivo (interrompe); sucesso/info = polido
               role={t.kind === 'error' ? 'alert' : 'status'}
-              className={`pointer-events-auto flex items-start gap-2.5 rounded-xl border bg-card/95 px-3.5 py-3 text-sm shadow-lg backdrop-blur ${TONE[t.kind]}`}
+              className={`anim-pop-spring pointer-events-auto relative flex items-start gap-2.5 overflow-hidden rounded-xl border bg-card/95 px-3.5 py-3 text-sm shadow-lg backdrop-blur ${TONE[t.kind]}`}
             >
               <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               <div className="min-w-0 flex-1">
@@ -52,6 +54,7 @@ export function Toaster() {
               >
                 <X className="size-3.5" />
               </button>
+              <span className="toast-life" aria-hidden="true" />
             </li>
           )
         })}

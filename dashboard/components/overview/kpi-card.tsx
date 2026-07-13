@@ -105,14 +105,15 @@ export function KpiCard({
 }) {
   const flashing = useValueFlash(watch, 400)
   const card = (
+    /* V2-59: KPIs ganham hover-glow (lift + halo ciano) e o hero um tilt 3D */
     <GlassCard
       hover
       sheen
       role="group"
       aria-label={ariaLabel}
       className={cn(
-        'anim-kpi-in relative h-full overflow-hidden p-5',
-        hero && 'kpi-hero',
+        'anim-kpi-in hover-glow group relative h-full overflow-hidden p-5',
+        hero && 'kpi-hero hover-tilt',
         flashing && 'kpi-tick',
       )}
       style={{ animationDelay: `${index * 70}ms` }}
@@ -125,9 +126,10 @@ export function KpiCard({
       />
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
+          {/* V2-60: ícone inclina no hover do card (micro personalidade) */}
           <span
             className={cn(
-              'flex size-8 items-center justify-center rounded-[10px]',
+              'icon-tilt flex size-8 items-center justify-center rounded-[10px]',
               tintBg[tint],
               tintText[tint],
             )}
@@ -143,11 +145,11 @@ export function KpiCard({
 
       <div className="mt-4 flex items-end justify-between gap-3">
         <div className="min-w-0">
-          {/* Item 89: hero com peso 700 e tracking -0.03em */}
+          {/* V2-61: hero usa tipografia display fluida (clamp por viewport) */}
           <div
             className={cn(
               'font-mono tracking-tight',
-              hero ? 'kpi-value-hero text-3xl' : 'text-2xl font-semibold',
+              hero ? 'kpi-value-hero text-display' : 'text-2xl font-semibold',
             )}
           >
             {value}

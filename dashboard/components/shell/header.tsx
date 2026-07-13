@@ -293,17 +293,17 @@ export function Header() {
       </span>
 
       <div className="flex items-end justify-between gap-4 px-4 py-4 lg:px-6">
-        <div key={pathname} className={cn(changed && 'anim-row-in')}>
-          {/* Itens 13/195: saudação + breadcrumb Seção / Página */}
-          <p className="label-mono mb-0.5 text-[11px]">
+        <div key={pathname} className={cn(changed && 'anim-blur-in')}>
+          {/* V2-72: saudação com gradiente da marca no eyebrow */}
+          <p className="label-mono label-mono--gradient mb-0.5 text-[11px]">
             {greeting()}
             {group.label !== current.label ? ` · ${group.label}` : ''}
           </p>
-          {/* Item 91: H1 com gradiente branco→ciano sutil */}
+          {/* V2-73: título da página entra com blur-in (foco progressivo) */}
           <h1 className="h1-gradient text-xl font-semibold tracking-tight text-balance">
             {current.label}
           </h1>
-          <p className="mt-0.5 text-[12px] text-faint">{current.description}</p>
+          <p className="mt-0.5 text-[12px] text-pretty text-faint">{current.description}</p>
         </div>
         {/* Item 119: abaixo de 1100px a data empilha para não colidir */}
         <div className="flex items-center gap-3 pb-0.5 max-[1100px]:flex-col max-[1100px]:items-end max-[1100px]:gap-1.5">

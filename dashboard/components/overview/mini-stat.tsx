@@ -29,10 +29,11 @@ export function MiniStat({
 }) {
   const body = (
     <>
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="group flex min-w-0 items-center gap-3">
+        {/* V2-62: tile do ícone com glow da própria cor + tilt no hover */}
         <span
-          className="flex size-8 shrink-0 items-center justify-center rounded-[10px]"
-          style={{ color, background: bg }}
+          className="icon-tilt flex size-8 shrink-0 items-center justify-center rounded-[10px]"
+          style={{ color, background: bg, boxShadow: `0 0 12px ${bg}` }}
           aria-hidden="true"
         >
           <Icon className="size-4" />

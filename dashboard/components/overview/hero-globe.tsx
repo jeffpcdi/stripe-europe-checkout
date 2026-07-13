@@ -6,10 +6,19 @@ import { Globe2, Radio, ShoppingCart } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { CountUp } from '@/components/count-up'
 
+/* V2-54: skeleton do globo agora é um "planeta carregando" — esfera com
+   anel orbital girando, no lugar do círculo pulsante genérico */
 function GlobeSkeleton() {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-[#080a0d]">
-      <div className="aspect-square w-[46%] max-w-72 animate-pulse rounded-full border border-brand-cyan/10 bg-brand-cyan/5" aria-hidden="true" />
+      <div className="relative aspect-square w-[46%] max-w-72" aria-hidden="true">
+        <div className="absolute inset-0 animate-pulse rounded-full border border-brand-cyan/10 bg-brand-cyan/5" />
+        <div
+          className="anim-orbit-slow absolute -inset-4 rounded-full border border-dashed"
+          style={{ borderColor: 'rgba(37,244,238,0.18)' }}
+        />
+        <div className="brand-spinner absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
+      </div>
       <span className="sr-only">Carregando presença ao vivo</span>
     </div>
   )
@@ -33,10 +42,13 @@ function LiveStat({
   active?: boolean
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 px-4 py-3.5">
+    /* V2-55: stat com hover que acende o tile do ícone e levanta o número */
+    <div className="group flex min-w-0 items-center gap-3 px-4 py-3.5 transition-colors hover:bg-white/[0.02]">
       <span
-        className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
-          active ? 'bg-brand-cyan/15 text-brand-cyan' : 'bg-secondary/60 text-muted-foreground'
+        className={`icon-tilt flex size-9 shrink-0 items-center justify-center rounded-lg transition-all ${
+          active
+            ? 'bg-brand-cyan/15 text-brand-cyan shadow-[0_0_14px_rgba(37,244,238,0.2)]'
+            : 'bg-secondary/60 text-muted-foreground'
         }`}
       >
         <Icon className="size-4" aria-hidden="true" />
@@ -45,7 +57,7 @@ function LiveStat({
         <p className="font-mono text-xl font-bold leading-none tabular-nums text-foreground">
           <CountUp value={value} />
         </p>
-        <p className="mt-1 truncate text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className="label-mono mt-1 truncate">{label}</p>
       </div>
     </div>
   )
@@ -63,16 +75,27 @@ export function HeroGlobe() {
   const leaders = liveCountries.slice(0, 3).map((country) => country.name).join(', ')
 
   return (
-    <section aria-labelledby="live-presence-title" className="overflow-hidden rounded-xl border border-border bg-card">
+    /* V2-56: card hero com borda energia + hairline superior — o globo é a
+       peça central do overview e merece a moldura de assinatura */
+    <section
+      aria-labelledby="live-presence-title"
+      className="energy-border top-hairline overflow-hidden rounded-xl border border-border bg-card"
+    >
       <header className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="size-2 rounded-full bg-success" aria-hidden="true" />
-            <h2 id="live-presence-title" className="text-base font-semibold text-foreground">Presença ao vivo</h2>
+            {/* V2-57: dot de "ao vivo" com ping — era estático */}
+            <span className="live-dot" aria-hidden="true" />
+            <h2 id="live-presence-title" className="text-base font-semibold text-foreground">
+              Presença ao vivo
+            </h2>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">Distribuição dos visitantes conectados neste momento.</p>
+          <p className="mt-1 text-sm text-pretty text-muted-foreground">
+            Distribuição dos visitantes conectados neste momento.
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground">Atualização automática</p>
+        {/* V2-58: selo de auto-refresh em mono uppercase com respiração */}
+        <p className="label-mono anim-breathe">Atualização automática</p>
       </header>
 
       <div className="grid grid-cols-3 divide-x divide-border border-b border-border bg-background/30">

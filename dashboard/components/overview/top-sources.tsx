@@ -41,10 +41,12 @@ function RankList({
           <ArrowUpRight className="size-3" aria-hidden="true" />
         </Link>
       </div>
+      {/* V2-64: medalhas de ranking (1º ciano sólido, 2º ciano, 3º rosa) +
+          V2-65: barras animam da esquerda com stagger na entrada */}
       <ol className="mt-3 flex flex-col gap-2.5">
         {rows.map((r, i) => (
-          <li key={r.name} className="flex items-center gap-3">
-            <span className="w-4 shrink-0 font-mono text-[11px] tabular-nums text-faint">
+          <li key={r.name} className="anim-row-in flex items-center gap-3" style={{ animationDelay: `${i * 50}ms` }}>
+            <span className={`rank-badge shrink-0 ${i < 3 ? `rank-badge--${i + 1}` : ''}`}>
               {i + 1}
             </span>
             <div className="min-w-0 flex-1">
@@ -67,8 +69,8 @@ function RankList({
                 role="presentation"
               >
                 <div
-                  className="h-full rounded-full bg-primary/70"
-                  style={{ width: `${Math.max(4, (r.leads / max) * 100)}%` }}
+                  className="funnel-bar h-full rounded-full bg-primary/70"
+                  style={{ width: `${Math.max(4, (r.leads / max) * 100)}%`, animationDelay: `${i * 70}ms` }}
                 />
               </div>
             </div>

@@ -16,9 +16,10 @@ export function SectionTitle({
   as?: 'h2' | 'h3'
 }) {
   return (
+    /* V2-70: eyebrow agora usa o gradiente ciano→rosa da marca */
     <div className={cn('min-w-0', className)}>
-      {eyebrow ? <p className="label-mono mb-0.5">{eyebrow}</p> : null}
-      <Tag className="section-head text-sm font-semibold text-foreground">
+      {eyebrow ? <p className="label-mono label-mono--gradient mb-0.5">{eyebrow}</p> : null}
+      <Tag className="section-head text-balance text-sm font-semibold text-foreground">
         {children}
       </Tag>
     </div>

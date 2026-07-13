@@ -22,12 +22,16 @@ function SidebarFooter() {
     : null
 
   return (
+    /* V2-77: divisória do rodapé com fade nas pontas + dot com pulso vivo */
     <div className="mt-auto px-3 pb-5 pt-3">
-      <div className="mb-3 h-px bg-border" aria-hidden="true" />
+      <div className="divider-fade mb-3" aria-hidden="true" />
       <div className="flex items-center gap-2 px-3">
         <span
-          className={cn('size-1.5 shrink-0 rounded-full', ok ? 'bg-success' : 'bg-error')}
-          style={ok ? { boxShadow: '0 0 6px rgba(34,197,94,.6)' } : undefined}
+          className={cn(
+            'status-dot shrink-0',
+            ok ? 'status-dot--ok status-dot--pulse' : 'status-dot--err status-dot--pulse',
+          )}
+          style={{ width: 6, height: 6 }}
           aria-hidden="true"
         />
         <span className="text-[11px] text-muted-foreground">
@@ -96,9 +100,10 @@ export function Sidebar() {
               {sIdx > 0 ? <div className="side-section-divider mb-4" aria-hidden="true" /> : null}
               {/* Item 210: label da seção ativa em ciano.
                   Item 59: "?" na seção Gestão abre a visão geral do fluxo. */}
+              {/* V2-78: labels de seção em mono com tracking maior (identidade HUD) */}
               <p
                 className={cn(
-                  'mb-2 flex items-center gap-1.5 px-3 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground',
+                  'mb-2 flex items-center gap-1.5 px-3 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground',
                   sectionActive && 'side-section-label--active',
                 )}
               >

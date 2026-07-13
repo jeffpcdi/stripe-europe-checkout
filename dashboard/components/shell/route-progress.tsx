@@ -32,13 +32,14 @@ export function RouteProgress() {
       aria-hidden="true"
       className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5"
     >
+      {/* V2-74: barra com gradiente ciano→rosa real + cometa de glow na ponta */}
       <div
-        className="h-full rounded-r-full transition-all duration-300 ease-out"
+        className="progress-glow h-full rounded-r-full transition-all duration-300 ease-out"
         style={{
           width: phase === 'loading' ? '70%' : '100%',
           opacity: phase === 'done' ? 0 : 1,
-          background: 'var(--brand-grad)',
-          boxShadow: '0 0 8px rgba(37,244,238,.5)',
+          background: 'linear-gradient(90deg, var(--accent), var(--pink))',
+          boxShadow: '0 0 12px rgba(37,244,238,.55)',
         }}
       />
     </div>

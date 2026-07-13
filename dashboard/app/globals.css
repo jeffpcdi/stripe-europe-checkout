@@ -1751,6 +1751,464 @@ a:active,
 }
 
 /* ============================================================
+   Refinamentos V2 — 100 melhorias de identidade visual
+   Série V2-1..V2-40: fundação (tokens, tipografia, keyframes,
+   utilitários). V2-41+ vivem nos componentes.
+   ============================================================ */
+
+:root {
+  /* V2-1: escala tonal ciano — tiers para fundos, bordas e glows */
+  --cyan-3: rgba(37, 244, 238, 0.03);
+  --cyan-6: rgba(37, 244, 238, 0.06);
+  --cyan-12: rgba(37, 244, 238, 0.12);
+  --cyan-25: rgba(37, 244, 238, 0.25);
+  --cyan-45: rgba(37, 244, 238, 0.45);
+  /* V2-2: escala tonal rosa equivalente */
+  --pink-6: rgba(254, 44, 85, 0.06);
+  --pink-12: rgba(254, 44, 85, 0.12);
+  --pink-25: rgba(254, 44, 85, 0.25);
+  /* V2-3: glow verde "dinheiro" para eventos de venda */
+  --glow-money: 0 0 0 1px rgba(34, 197, 94, 0.35), 0 8px 26px rgba(34, 197, 94, 0.22);
+  /* V2-4: sombra interna sutil para inputs (profundidade invertida) */
+  --inset-well: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+  /* V2-5: duração extra-lenta para efeitos ambiente */
+  --dur-ambient: 900ms;
+}
+
+/* V2-6: Inter com stylistic sets — dígitos abertos e "a" alternativo */
+body {
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+}
+
+/* V2-7: display fluido para números hero (clamp entre viewports) */
+.text-display {
+  font-size: clamp(1.75rem, 1.2rem + 1.6vw, 2.6rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+/* V2-8: zero cortado em métricas mono — evita confundir 0/O */
+.font-mono {
+  font-feature-settings: 'tnum', 'zero';
+}
+
+/* V2-9: eyebrow com gradiente ciano→rosa no texto */
+.label-mono--gradient {
+  background: linear-gradient(90deg, var(--accent), var(--pink));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* V2-10: kbd refinado — tecla física com sombra de profundidade */
+kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--text-sub);
+}
+
+/* ── Keyframes novos ── */
+
+/* V2-11: flutuação vertical suave (ícones de empty-state) */
+@keyframes floatY {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.anim-float {
+  animation: floatY 3.2s var(--ease) infinite;
+}
+
+/* V2-12: respiração de opacidade (elementos ambiente) */
+@keyframes breathe {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+.anim-breathe {
+  animation: breathe 2.8s var(--ease) infinite;
+}
+
+/* V2-13: entrada com blur — foco progressivo (hero, modais) */
+@keyframes blurIn {
+  from { opacity: 0; filter: blur(6px); transform: translateY(8px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+.anim-blur-in {
+  animation: blurIn var(--dur-slow) var(--ease) both;
+}
+
+/* V2-14: gradiente do texto desliza (títulos especiais) */
+@keyframes textShimmer {
+  from { background-position: 200% center; }
+  to { background-position: -200% center; }
+}
+.text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--text) 0%,
+    var(--accent) 45%,
+    var(--pink) 55%,
+    var(--text) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: textShimmer 6s linear infinite;
+}
+
+/* V2-15: pulso de borda ciano (chamar atenção sem mover layout) */
+@keyframes borderPulse {
+  0%, 100% { border-color: var(--cyan-25); }
+  50% { border-color: var(--cyan-45); }
+}
+.anim-border-pulse {
+  animation: borderPulse 2.4s var(--ease) infinite;
+}
+
+/* V2-16: escala de entrada com overshoot (badges, chips novos) */
+@keyframes popSpring {
+  0% { transform: scale(0.6); opacity: 0; }
+  70% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.anim-pop-spring {
+  animation: popSpring 420ms var(--spring) both;
+}
+
+/* V2-17: varredura de scanline ciano (paineis "ao vivo") */
+@keyframes scanCyan {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(500%); }
+}
+.scan-live {
+  position: relative;
+  overflow: hidden;
+}
+.scan-live::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 18%;
+  background: linear-gradient(180deg, transparent, var(--cyan-6), transparent);
+  animation: scanCyan 4.5s linear infinite;
+  pointer-events: none;
+}
+
+/* V2-18: rotação orbital lenta (decorações circulares) */
+@keyframes orbitSlow {
+  to { transform: rotate(360deg); }
+}
+.anim-orbit-slow {
+  animation: orbitSlow 14s linear infinite;
+}
+
+/* ── Utilitários interativos ── */
+
+/* V2-19: hover com lift + glow ciano (cards de destaque) */
+.hover-glow {
+  transition:
+    transform var(--dur) var(--spring),
+    box-shadow var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.hover-glow:hover {
+  transform: translateY(-2px);
+  border-color: var(--cyan-25);
+  box-shadow:
+    var(--shadow-lg),
+    0 0 24px var(--cyan-12);
+}
+
+/* V2-20: tilt 3D sutil no hover (cards hero) */
+.hover-tilt {
+  transition: transform var(--dur) var(--spring);
+  transform-style: preserve-3d;
+}
+.hover-tilt:hover {
+  transform: perspective(900px) rotateX(1.2deg) rotateY(-1.2deg) translateY(-2px);
+}
+
+/* V2-21: link com underline que desliza da esquerda */
+.link-slide {
+  background-image: linear-gradient(90deg, var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 0% 1.5px;
+  transition: background-size var(--dur) var(--ease), color var(--dur-fast) var(--ease);
+}
+.link-slide:hover {
+  background-size: 100% 1.5px;
+  color: var(--accent);
+}
+
+/* V2-22: ícone gira 12° no hover do pai (.group) */
+.group:hover .icon-tilt {
+  transform: rotate(-12deg) scale(1.1);
+}
+.icon-tilt {
+  transition: transform var(--dur-fast) var(--spring);
+}
+
+/* V2-23: chip/badge com anel pulsante para itens "novos" */
+.badge-new {
+  position: relative;
+}
+.badge-new::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 1px solid var(--cyan-45);
+  animation: ping 2.4s var(--ease) infinite;
+  pointer-events: none;
+}
+
+/* V2-24: barra de progresso com listra animada (jobs em execução) */
+@keyframes stripeMove {
+  from { background-position: 0 0; }
+  to { background-position: 24px 0; }
+}
+.progress-stripes {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.14) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.14) 50%,
+    rgba(255, 255, 255, 0.14) 75%,
+    transparent 75%
+  );
+  background-size: 24px 24px;
+  animation: stripeMove 800ms linear infinite;
+}
+
+/* V2-25: trilho de progresso com glow na ponta */
+.progress-glow {
+  position: relative;
+}
+.progress-glow::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(50%, -50%);
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+
+/* V2-26: célula numérica que "acende" verde ao subir / rosa ao descer */
+@keyframes valueUp {
+  0% { color: var(--success); text-shadow: 0 0 10px rgba(34, 197, 94, 0.5); }
+  100% { color: inherit; text-shadow: none; }
+}
+@keyframes valueDown {
+  0% { color: var(--pink); text-shadow: 0 0 10px rgba(254, 44, 85, 0.5); }
+  100% { color: inherit; text-shadow: none; }
+}
+.anim-value-up { animation: valueUp 900ms var(--ease); }
+.anim-value-down { animation: valueDown 900ms var(--ease); }
+
+/* V2-27: zebra sutil em tabelas longas */
+.table-zebra tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+/* V2-28: divisória com fade nas pontas (substitui border-b seca) */
+.divider-fade {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(90deg, transparent, var(--border-strong) 20%, var(--border-strong) 80%, transparent);
+}
+
+/* V2-29: well — campo com profundidade interna */
+.input-well {
+  box-shadow: var(--inset-well);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* V2-30: glass com hover que satura o vidro */
+.glass-hover {
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.glass-hover:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--lg-tint) 92%, var(--accent) 3%);
+}
+
+/* V2-31: rank badge — medalhas 1º/2º/3º em top-lists */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-faint);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+}
+.rank-badge--1 {
+  color: #08080a;
+  background: linear-gradient(135deg, #7ff9f5, var(--accent));
+  border-color: var(--cyan-45);
+  box-shadow: 0 0 10px var(--cyan-25);
+}
+.rank-badge--2 {
+  color: var(--accent);
+  background: var(--cyan-12);
+  border-color: var(--cyan-25);
+}
+.rank-badge--3 {
+  color: var(--pink);
+  background: var(--pink-12);
+  border-color: var(--pink-25);
+}
+
+/* V2-32: empty state — ícone flutua e projeta sombra que respira */
+.empty-icon {
+  animation: floatY 3.2s var(--ease) infinite;
+}
+.empty-icon-shadow {
+  width: 44px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  filter: blur(4px);
+  animation: breathe 3.2s var(--ease) infinite;
+}
+
+/* V2-33: contorno gradiente estático reutilizável (variante fina) */
+.border-gradient {
+  position: relative;
+  isolation: isolate;
+}
+.border-gradient::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--cyan-45), transparent 40%, transparent 60%, var(--pink-25));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* V2-34: header sticky com hairline gradiente inferior */
+.header-hairline {
+  border-bottom: 0 !important;
+  position: relative;
+}
+.header-hairline::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cyan-25) 30%, var(--pink-12) 70%, transparent);
+}
+
+/* V2-35: dot indicador com anel duplo (status crítico) */
+.dot-ring {
+  position: relative;
+}
+.dot-ring::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  opacity: 0.35;
+}
+
+/* V2-36: tabs com indicador que desliza (via view-transition-name) */
+.tab-indicator {
+  view-transition-name: tab-active-indicator;
+}
+
+/* V2-37: card com brilho radial que segue o cursor */
+.spotlight-card {
+  position: relative;
+  overflow: hidden;
+}
+.spotlight-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle 220px at var(--mx, 50%) var(--my, 50%),
+    var(--cyan-6),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+  pointer-events: none;
+}
+.spotlight-card:hover::before {
+  opacity: 1;
+}
+
+/* V2-38: contagem regressiva/atualização — anel de progresso cônico */
+@property --ring-p {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+.ring-progress {
+  background: conic-gradient(var(--accent) var(--ring-p, 0%), rgba(255, 255, 255, 0.08) 0);
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+}
+
+/* V2-39: toast com barra de vida no rodapé */
+@keyframes toastLife {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.toast-life {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform-origin: left;
+  background: linear-gradient(90deg, var(--accent), var(--pink));
+  animation: toastLife 4s linear both;
+}
+
+/* V2-40: número que rola verticalmente ao trocar (odometer leve) */
+@keyframes digitRoll {
+  from { transform: translateY(45%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.anim-digit-roll {
+  animation: digitRoll 320ms var(--spring) both;
+  display: inline-block;
+}
+
+/* ============================================================
    Acessibilidade — reduced motion
    ============================================================ */
 
