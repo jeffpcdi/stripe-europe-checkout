@@ -92,7 +92,7 @@ export function TikTokAdsView() {
   })
 
   // Vendas reais por campanha — mesmo lookback padrão da árvore (7 dias)
-  const { data: attribution } = useAdsAttribution(treeActive)
+  const { data: attribution } = useAdsAttribution(treeActive, effectiveAdvertiser)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -105,13 +105,10 @@ export function TikTokAdsView() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
-  // Modo agregado ("__all__") serve apenas para leitura. Escritas exigem uma
-  // conta explícita para nunca publicar silenciosamente no primeiro advertiser.
-  const isAllMode = effectiveAdvertiser === '__all__'
-  const concreteAdvertiser = isAllMode ? '' : effectiveAdvertiser
+  const concreteAdvertiser = effectiveAdvertiser
 
   function openWriteFlow(setOpen: (open: boolean) => void) {
-    if (isAllMode) {
+    if (!concreteAdvertiser) {
       toast.info('Selecione uma conta de anúncio específica antes de criar ou publicar.')
       return
     }
@@ -339,7 +336,7 @@ export function TikTokAdsView() {
           </div>
 
           {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
-          <RoasCard active={treeActive} />
+          <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
 
           {/* Árvore de campanhas */}
           <CampaignTree

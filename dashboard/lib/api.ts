@@ -297,7 +297,8 @@ export function useAdsAccounts(connected: boolean, businessCenterId?: string) {
   const qs = businessCenterId ? `?businessCenterId=${encodeURIComponent(businessCenterId)}` : ''
   return useSWR<AdsAccountsResponse>(connected ? `/api/ads/accounts${qs}` : null, fetcher, {
     revalidateOnFocus: true,
-    keepPreviousData: true,
+    // Nunca reutiliza a lista/seleção do BC anterior durante a troca.
+    keepPreviousData: false,
   })
 }
 
@@ -352,14 +353,15 @@ export function useAdsCampaignAnalytics(id: string | null, range?: { fromDate?: 
 }
 
 // ROAS/CPA — gasto do TikTok cruzado com as vendas reais dos gateways.
-export function useAdsRoas(active: boolean, range?: { fromDate?: string; toDate?: string }) {
+export function useAdsRoas(active: boolean, adAccountId: string, range?: { fromDate?: string; toDate?: string }) {
   const params = new URLSearchParams()
+  if (adAccountId) params.set('adAccountId', adAccountId)
   if (range?.fromDate) params.set('fromDate', range.fromDate)
   if (range?.toDate) params.set('toDate', range.toDate)
   const qs = params.toString()
-  return useSWR<AdsRoasResponse>(active ? `/api/ads/roas${qs ? `?${qs}` : ''}` : null, fetcher, {
+  return useSWR<AdsRoasResponse>(active && adAccountId ? `/api/ads/roas?${qs}` : null, fetcher, {
     refreshInterval: 60_000,
-    keepPreviousData: true,
+    keepPreviousData: false,
   })
 }
 
@@ -379,15 +381,20 @@ export function useAdsAlerts(active: boolean) {
 
 // Atribuição por campanha — vendas reais casadas com o platformCampaignId
 // (via macro utm_campaign=__CAMPAIGN_ID__ que o TikTok substitui na entrega).
-export function useAdsAttribution(active: boolean, range?: { fromDate?: string; toDate?: string }) {
+export function useAdsAttribution(
+  active: boolean,
+  adAccountId: string,
+  range?: { fromDate?: string; toDate?: string },
+) {
   const params = new URLSearchParams()
+  if (adAccountId) params.set('adAccountId', adAccountId)
   if (range?.fromDate) params.set('fromDate', range.fromDate)
   if (range?.toDate) params.set('toDate', range.toDate)
   const qs = params.toString()
   return useSWR<AdsAttributionResponse>(
-    active ? `/api/ads/attribution${qs ? `?${qs}` : ''}` : null,
+    active && adAccountId ? `/api/ads/attribution?${qs}` : null,
     fetcher,
-    { refreshInterval: 60_000, keepPreviousData: true },
+    { refreshInterval: 60_000, keepPreviousData: false },
   )
 }
 

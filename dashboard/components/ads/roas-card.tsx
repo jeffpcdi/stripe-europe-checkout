@@ -52,8 +52,16 @@ function RoasTooltip({
   )
 }
 
-export function RoasCard({ active, delay = 0 }: { active: boolean; delay?: number }) {
-  const { data, isLoading } = useAdsRoas(active)
+export function RoasCard({
+  active,
+  adAccountId,
+  delay = 0,
+}: {
+  active: boolean
+  adAccountId: string
+  delay?: number
+}) {
+  const { data, isLoading } = useAdsRoas(active, adAccountId)
 
   if (!active) return null
 
