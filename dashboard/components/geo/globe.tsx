@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlobeGL from 'react-globe.gl'
-import { Crosshair, Minus, Plus } from 'lucide-react'
+import { Crosshair, Maximize2, Minimize2, Minus, Plus } from 'lucide-react'
 import { COUNTRY_COORDS } from '@/lib/country-coords'
 
 interface GeoPoint {
@@ -54,9 +54,10 @@ const ALT_STEP = 0.45
 const ALT_ENTRY = 4.0
 const ENTRY_MS = 1200
 
-// Refino 9: velocidades da interação magnética
-const SPIN_IDLE = 0.35
-const SPIN_HOVER = 0.9
+// Refino 9: velocidades da interação magnética — idle mais rápido para o
+// globo nunca parecer "travado" mesmo sem tráfego
+const SPIN_IDLE = 0.65
+const SPIN_HOVER = 1.3
 const RESUME_AFTER_MS = 3000
 
 function buildPoints(
@@ -241,23 +242,24 @@ function GlobeCanvas({
       /* renderer indisponível — segue sem pausa por viewport */
     }
 
-    // Refino 3: emissive baixo no material do globo — massas de terra ganham
-    // contraste no tema dark sem estourar o brilho.
+    // Refino 3: emissive no material do globo — massas de terra visíveis no
+    // tema dark. Valores altos: a textura earth-night é escura por natureza
+    // e sem esse reforço o globo parecia uma bola preta.
     try {
       const mat = g.globeMaterial?.()
       if (mat) {
-        mat.emissive?.set?.('#0a2a2e')
-        mat.emissiveIntensity = 0.18
+        mat.emissive?.set?.('#134e54')
+        mat.emissiveIntensity = 0.42
       }
     } catch {
       /* material indisponível nesta versão */
     }
 
-    // Mais contraste: luzes mais fortes que os padrões suaves do three-globe.
+    // Mais contraste: luzes bem mais fortes que os padrões suaves do three-globe.
     try {
       for (const light of g.lights()) {
-        if (light.type === 'DirectionalLight') light.intensity = 2.1
-        if (light.type === 'AmbientLight') light.intensity = 1.15
+        if (light.type === 'DirectionalLight') light.intensity = 3.0
+        if (light.type === 'AmbientLight') light.intensity = 1.9
       }
     } catch {
       /* API de luzes indisponível nesta versão */
@@ -333,15 +335,19 @@ function GlobeCanvas({
   )
 }
 
-/** Controles flutuantes: zoom + / − / recentrar */
+/** Controles flutuantes: zoom + / − / recentrar / tela cheia */
 function GlobeControls({
   onZoomIn,
   onZoomOut,
   onRecenter,
+  onFullscreen,
+  isFullscreen,
 }: {
   onZoomIn: () => void
   onZoomOut: () => void
   onRecenter: () => void
+  onFullscreen: () => void
+  isFullscreen: boolean
 }) {
   return (
     <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5" data-tour="globe-controls">
@@ -353,6 +359,18 @@ function GlobeControls({
       </button>
       <button type="button" onClick={onRecenter} className="globe-ctl" aria-label="Recentrar globo">
         <Crosshair className="size-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={onFullscreen}
+        className="globe-ctl"
+        aria-label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+      >
+        {isFullscreen ? (
+          <Minimize2 className="size-4" aria-hidden="true" />
+        ) : (
+          <Maximize2 className="size-4" aria-hidden="true" />
+        )}
       </button>
     </div>
   )
@@ -406,6 +424,26 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
   const globeRef = useRef<any>(null)
   const [size, setSize] = useState({ w: 0, h: 320 })
   const resumeTimer = useRef<number | null>(null)
+  // Tela cheia nativa no container — o ResizeObserver já redimensiona o canvas
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => {
+    function onFsChange() {
+      setIsFullscreen(document.fullscreenElement === containerRef.current)
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+
+  function toggleFullscreen() {
+    const el = containerRef.current
+    if (!el) return
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    } else {
+      el.requestFullscreen?.().catch(() => {})
+    }
+  }
 
   const empty = countries.length === 0
 
@@ -480,6 +518,8 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
         onRecenter={() =>
           globeRef.current?.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 500)
         }
+        onFullscreen={toggleFullscreen}
+        isFullscreen={isFullscreen}
       />
     </div>
   )

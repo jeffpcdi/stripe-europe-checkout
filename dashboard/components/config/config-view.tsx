@@ -12,6 +12,7 @@ import { usePrefs } from '@/lib/prefs'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
+import { Switch } from '@/components/ui/switch'
 
 const EVENT_LABELS: { key: keyof PushcutEvents; label: string; hint: string }[] = [
   { key: 'sale', label: 'Venda aprovada', hint: 'Cada pagamento confirmado' },
@@ -409,18 +410,7 @@ function PreferencesCard() {
               <span className="block text-sm text-foreground">{opt.label}</span>
               <span className="block text-xs text-muted-foreground">{opt.hint}</span>
             </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={opt.isOn}
-              aria-label={opt.label}
-              onClick={opt.toggle}
-              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${opt.isOn ? 'bg-[color:var(--brand-cyan)]' : 'bg-secondary'}`}
-            >
-              <span
-                className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${opt.isOn ? 'translate-x-4' : 'translate-x-0.5'}`}
-              />
-            </button>
+            <Switch checked={opt.isOn} onChange={opt.toggle} label={opt.label} />
           </label>
         ))}
       </div>
@@ -909,17 +899,7 @@ function PushcutCard() {
               <span className="block text-sm text-foreground">{ev.label}</span>
               <span className="block text-xs text-muted-foreground">{ev.hint}</span>
             </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={events?.[ev.key] ?? false}
-              onClick={() => toggle(ev.key)}
-              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${events?.[ev.key] ? 'bg-[color:var(--brand-cyan)]' : 'bg-secondary'}`}
-            >
-              <span
-                className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${events?.[ev.key] ? 'translate-x-4' : 'translate-x-0.5'}`}
-              />
-            </button>
+            <Switch checked={events?.[ev.key] ?? false} onChange={() => toggle(ev.key)} label={ev.label} />
           </label>
         ))}
       </div>
