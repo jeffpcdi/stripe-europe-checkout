@@ -340,7 +340,14 @@ export function TikTokAdsView() {
           setPage(1)
           mutateAccounts()
         }}
-        onRefresh={() => {
+        onRefresh={async () => {
+          // Derruba o cache do servidor ANTES de revalidar — sem isso o
+          // mutate() só re-lia o mesmo cache de 45s e o status parecia velho.
+          try {
+            await apiSend('/api/ads/tree/refresh', 'POST', {})
+          } catch {
+            /* cache-bust é melhor-esforço; a revalidação abaixo roda igual */
+          }
           mutateTree()
           mutateAccounts()
           mutateBcs()

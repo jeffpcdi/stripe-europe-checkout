@@ -375,6 +375,35 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // O `status` da árvore da Zernio é DERIVADO dos anúncios filhos — uma
+  // campanha ativa no TikTok com anúncios pausados/pendentes aparecia como
+  // "não ativa" no painel. `platformCampaignStatus` traz o status cru da
+  // plataforma; quando presente, ele manda. Matching por substring com ordem
+  // cuidadosa (DISABLE contém ENABLE — pausado testa primeiro).
+  function normalizeCampaignStatus(raw) {
+    const s = String(raw || '').toUpperCase();
+    if (!s) return null;
+    if (s.includes('DELET')) return 'cancelled';
+    if (s.includes('ARCHIV')) return 'completed';
+    if (s.includes('ISSUE')) return 'error';
+    if (s.includes('PROCESS') || s.includes('REVIEW') || s.includes('AUDIT')) return 'pending_review';
+    if (s.includes('DISABLE') || s.includes('PAUSE')) return 'paused';
+    if (s.includes('ENABLE') || s.includes('ACTIVE') || s.includes('DELIVERY_OK')) return 'active';
+    return null;
+  }
+
+  // Aplica o status da plataforma em cada campanha, preservando o derivado
+  // em `childStatus` (a UI mostra "anúncios pausados" quando divergem).
+  function reconcileTreeStatuses(data) {
+    if (!data || !Array.isArray(data.campaigns)) return data;
+    const campaigns = data.campaigns.map((c) => {
+      const platform = normalizeCampaignStatus(c.platformCampaignStatus);
+      if (!platform || platform === c.status) return c;
+      return { ...c, status: platform, childStatus: c.status };
+    });
+    return { ...data, campaigns };
+  }
+
   // ── Árvore campanha → ad group → ad com métricas ──────────────────────────
   // Sempre consulta exatamente um advertiser explícito. O limite e a paginação
   // pertencem somente a essa conta; nunca há fallback ou agregação entre BCs.
@@ -413,8 +442,21 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         data = await zernio.api('GET', '/ads/tree', { query });
         zernio.cacheSet(ck, data, 45 * 1000);
       }
+      data = reconcileTreeStatuses(data);
+      // Com o status reconciliado, o filtro do servidor (que usa o derivado)
+      // pode divergir do que a UI exibe — refiltra localmente para casar.
+      if (query.status && Array.isArray(data.campaigns)) {
+        data = { ...data, campaigns: data.campaigns.filter((c) => c.status === query.status) };
+      }
       res.json(data);
     } catch (err) { fail(res, err); }
+  });
+
+  // Refresh manual: derruba o cache da árvore desta conta — o próximo GET
+  // busca dados frescos na Zernio. Usado pelo botão "Atualizar" do painel.
+  app.post('/api/ads/tree/refresh', dashboardAuth, (req, res) => {
+    zernio.cacheBust('tree:' + req.account.id);
+    res.status(204).end();
   });
 
   // ── Analytics de campanha (resumo + série diária) ───────────────────���─────

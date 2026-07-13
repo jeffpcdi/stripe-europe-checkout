@@ -283,6 +283,32 @@ export function CampaignTree({
   const campaigns = tree?.campaigns ?? []
   const pagination = tree?.pagination
 
+  // Organização: sem filtro de status, agrupa em seções com ativas primeiro —
+  // era fácil perder uma campanha ativa no meio de dezenas de pausadas.
+  const STATUS_ORDER: Record<string, number> = {
+    active: 0,
+    pending_review: 1,
+    error: 2,
+    rejected: 2,
+    paused: 3,
+    completed: 4,
+    cancelled: 5,
+  }
+  const GROUP_LABELS: Record<number, string> = {
+    0: 'Ativas',
+    1: 'Em revisão',
+    2: 'Com problemas',
+    3: 'Pausadas',
+    4: 'Concluídas',
+    5: 'Canceladas',
+  }
+  const grouped = statusFilter
+    ? null
+    : [...campaigns].sort(
+        (a, b) => (STATUS_ORDER[a.status ?? ''] ?? 6) - (STATUS_ORDER[b.status ?? ''] ?? 6),
+      )
+  const displayCampaigns = grouped ?? campaigns
+
   return (
     <GlassCard className="anim-content-in overflow-hidden p-0">
       {/* Toolbar: filtros de status + ordenação */}
@@ -436,13 +462,23 @@ export function CampaignTree({
         )
       ) : (
         <ul className="stagger divide-y divide-border">
-          {campaigns.map((c) => {
+          {displayCampaigns.map((c, idx) => {
             const id = c.platformCampaignId
             const isOpen = expanded.has(id)
             const busy = busyId === id
             const spendSeries = (c.daily ?? []).map((d) => d.spend ?? 0)
+            // Cabeçalho de seção quando o grupo de status muda (só sem filtro)
+            const groupIdx = STATUS_ORDER[c.status ?? ''] ?? 6
+            const prevGroupIdx = idx > 0 ? (STATUS_ORDER[displayCampaigns[idx - 1].status ?? ''] ?? 6) : -1
+            const showGroupHeader = grouped !== null && groupIdx !== prevGroupIdx
             return (
               <li key={id} className="anim-row-in">
+                {showGroupHeader && (
+                  <p className="label-mono border-b border-border bg-secondary/30 px-4 py-1.5 text-[10px] text-muted-foreground">
+                    {GROUP_LABELS[groupIdx] ?? 'Outras'} (
+                    {displayCampaigns.filter((x) => (STATUS_ORDER[x.status ?? ''] ?? 6) === groupIdx).length})
+                  </p>
+                )}
                 {/* Linha da campanha */}
                 <div className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-secondary/40">
                   <input
@@ -472,6 +508,17 @@ export function CampaignTree({
                       </span>
                       <span className="mt-0.5 flex items-center gap-2">
                         <StatusPill status={c.status} />
+                        {/* Backend reconciliou: campanha ativa na plataforma mas
+                            os anúncios filhos estão noutro estado — sinaliza. */}
+                        {c.childStatus && c.childStatus !== c.status && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] text-warning"
+                            title={`Status da campanha na plataforma difere do estado dos anúncios (${STATUS_META[c.childStatus]?.label ?? c.childStatus})`}
+                          >
+                            <AlertTriangle className="size-3" aria-hidden="true" />
+                            anúncios: {(STATUS_META[c.childStatus]?.label ?? c.childStatus).toLowerCase()}
+                          </span>
+                        )}
                         {c.reviewStatus === 'rejected' && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-error">
                             <AlertTriangle className="size-3" aria-hidden="true" />
