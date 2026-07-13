@@ -282,11 +282,13 @@ function GlobeCanvas({
       width={width}
       height={height}
       backgroundColor="rgba(0,0,0,0)"
-      /* Refino 1: céu estrelado LOCAL — resolve o fundo vazio sem unpkg */
-      backgroundImageUrl="/textures/night-sky.png"
+      /* Refino 1: céu estrelado LOCAL — resolve o fundo vazio sem unpkg.
+         URLs precisam do basePath /dashboard: o Next só o injeta em
+         next/image e next/link, nunca em strings passadas a libs. */
+      backgroundImageUrl="/dashboard/textures/night-sky.png"
       /* Refino 3: texturas locais — terra noturna + relevo topográfico */
-      globeImageUrl="/textures/earth-night.jpg"
-      bumpImageUrl="/textures/earth-topology.png"
+      globeImageUrl="/dashboard/textures/earth-night.jpg"
+      bumpImageUrl="/dashboard/textures/earth-topology.png"
       /* Refino 2: atmosfera ciano da marca */
       showAtmosphere
       atmosphereColor={CYAN}

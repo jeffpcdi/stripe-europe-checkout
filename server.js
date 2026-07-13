@@ -4570,6 +4570,36 @@ function proxyToNextDashboard(req, res) {
   else proxyReq.end();
 }
 
+// WebSocket do Next (Turbopack/HMR em dev) também precisa atravessar o
+// proxy — sem repassar o upgrade, o cliente dev do Next fica aguardando a
+// conexão e a hidratação do React nunca completa via porta pública.
+function proxyDashboardUpgrade(req, socket, head) {
+  const upstream = new URL(DASH_UPSTREAM);
+  const proxyReq = require(upstream.protocol === 'https:' ? 'https' : 'http').request({
+    hostname: upstream.hostname,
+    port: upstream.port || (upstream.protocol === 'https:' ? 443 : 80),
+    path: req.url,
+    method: 'GET',
+    headers: { ...req.headers, host: upstream.host },
+  });
+  proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+    // Reconstroi o handshake 101 para o cliente e emenda os dois sockets
+    let raw = 'HTTP/1.1 101 Switching Protocols\r\n';
+    for (let i = 0; i < proxyRes.rawHeaders.length; i += 2) {
+      raw += proxyRes.rawHeaders[i] + ': ' + proxyRes.rawHeaders[i + 1] + '\r\n';
+    }
+    socket.write(raw + '\r\n');
+    if (proxyHead && proxyHead.length) socket.write(proxyHead);
+    proxySocket.pipe(socket);
+    socket.pipe(proxySocket);
+    proxySocket.on('error', () => socket.destroy());
+    socket.on('error', () => proxySocket.destroy());
+  });
+  proxyReq.on('error', () => socket.destroy());
+  if (head && head.length) proxyReq.write(head);
+  proxyReq.end();
+}
+
 // Item 475: dashboard-view.js (5680 linhas) está CONGELADO — não evoluir.
 // Quem cair nele (via ?legacy=1 ou fallback com Next fora do ar) vê um banner
 // fixo apontando para o novo painel. Injetado na hora de servir para não tocar
@@ -4634,10 +4664,18 @@ stats.hydrate()
   .then(() => gatewayStore.init())
   .then(() => refreshDefaultAccount())
   .finally(() => {
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`✅ Servidor rodando na porta ${PORT}`);
-      console.log(`   Neon (persistência): ${db.enabled ? '✅ ativa' : '❌ desativada'}`);
-    });
+  const httpServer = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Servidor rodando na porta ${PORT}`);
+  console.log(`   Neon (persistência): ${db.enabled ? '✅ ativa' : '❌ desativada'}`);
+  });
+  // Repassa o upgrade de WebSocket do painel novo (Turbopack/HMR) para o Next
+  httpServer.on('upgrade', (req, socket, head) => {
+    if (req.url && req.url.startsWith('/dashboard')) {
+      proxyDashboardUpgrade(req, socket, head);
+    } else {
+      socket.destroy();
+    }
+  });
 
     // ── Manutenção periódica ─────────────────────────────────────────
     // 1. Prune do mapa de presença em memória (remove sessões expiradas
