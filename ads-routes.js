@@ -463,8 +463,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       data = reconcileTreeStatuses(data);
       // Com o status reconciliado, o filtro do servidor (que usa o derivado)
       // pode divergir do que a UI exibe — refiltra localmente para casar.
+      // Aceita a campanha se o filtro casar com o status reconciliado OU com o
+      // original (`childStatus`, preservado antes da reconciliação). Sem isto,
+      // uma campanha reclassificada (ex: paused → pending_review) sumia da aba
+      // filtrada em que a Zernio a devolveu, sem aparecer na nova aba.
       if (query.status && Array.isArray(data.campaigns)) {
-        data = { ...data, campaigns: data.campaigns.filter((c) => c.status === query.status) };
+        data = { ...data, campaigns: data.campaigns.filter((c) => c.status === query.status || c.childStatus === query.status) };
       }
       res.json(data);
     } catch (err) { fail(res, err); }
