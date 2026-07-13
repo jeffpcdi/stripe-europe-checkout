@@ -6,9 +6,10 @@
 // O servidor varre a cada 30min (pegando carona no polling do painel) e
 // notifica via Pushcut. Aqui o usuário configura e pode "verificar agora".
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BellRing, Loader2, ShieldCheck, AlertTriangle } from 'lucide-react'
 import { useAdsAlerts, apiSend, apiErrorHint } from '@/lib/api'
+import { useModalA11y } from '@/lib/use-modal-a11y'
 import { toast } from '@/lib/toast'
 import type { AdsAlertsConfig, AdsAlertCheckResponse } from '@/lib/types'
 
@@ -30,6 +31,11 @@ export function AlertsDialog({
   const [saving, setSaving] = useState(false)
   const [checking, setChecking] = useState(false)
   const [findings, setFindings] = useState<AdsAlertCheckResponse | null>(null)
+
+  // Foco preso, ESC, retorno de foco e trava de scroll. Não fecha enquanto
+  // salva/verifica para não perder a operação em andamento.
+  const ref = useRef<HTMLDivElement>(null)
+  useModalA11y(open, ref, saving || checking ? () => {} : onClose)
 
   // Sincroniza o formulário quando a config salva chega/muda
   useEffect(() => {
@@ -101,7 +107,11 @@ export function AlertsDialog({
         aria-label="Fechar"
         tabIndex={-1}
       />
-      <div className="anim-pop-in relative w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl">
+      <div
+        ref={ref}
+        tabIndex={-1}
+        className="anim-pop-in relative w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl outline-none"
+      >
         <div className="flex items-center gap-2">
           <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
             <BellRing className="size-4 text-primary" aria-hidden="true" />

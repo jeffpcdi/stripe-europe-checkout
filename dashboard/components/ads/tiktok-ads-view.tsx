@@ -203,7 +203,7 @@ export function TikTokAdsView() {
       {/* Cabeçalho: título + conta conectada + ações principais */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Ações do TikTok Ads">
           <button type="button" className="btn-ghost text-xs" onClick={() => setRulesOpen(true)}>
             <Bot className="size-3.5" aria-hidden="true" />
             Automação
@@ -228,7 +228,11 @@ export function TikTokAdsView() {
       </div>
 
       {/* Barra de conexão: conta + advertiser + desconectar */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs">
+      <div
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs"
+        role="region"
+        aria-label="Status da conexão TikTok Ads"
+      >
         <span className="flex items-center gap-1.5 font-semibold text-success">
           <span className="size-2 animate-pulse rounded-full bg-[color:var(--success)]" aria-hidden="true" />
           Conectado
@@ -265,6 +269,8 @@ export function TikTokAdsView() {
               mutateAccounts()
             }}
             aria-label="Atualizar dados"
+            aria-busy={treeValidating}
+            title="Atualizar dados"
           >
             <RefreshCw className={`size-3.5 ${treeValidating ? 'animate-spin' : ''}`} aria-hidden="true" />
           </button>

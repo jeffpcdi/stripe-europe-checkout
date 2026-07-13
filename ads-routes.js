@@ -552,7 +552,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Biblioteca de criativos — vídeos já enviados ao Vercel Blob ────────────
+  // ── Biblioteca de criativos — vídeos já enviados ao Vercel Blob ────────��───
   app.get('/api/ads/library', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -596,6 +596,34 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   const alertLastRun = new Map();   // accId → timestamp da última varredura
   const alertCooldown = new Map();  // accId:campanha:regra → timestamp do último aviso
 
+  // Poda entradas expiradas dos mapas de cooldown. Sem isso eles crescem para
+  // sempre: campanhas novas entram a cada varredura e as antigas nunca saem.
+  // Chamado no início de cada varredura — barato, os mapas são pequenos.
+  function pruneExpired(map, maxAgeMs) {
+    const now = Date.now();
+    for (const [k, ts] of map) if (now - ts > maxAgeMs) map.delete(k);
+  }
+
+  // Busca a árvore de campanhas ativas para varreduras (alertas/regras) com um
+  // micro-cache por conta+janela: quando alertas e regras rodam no mesmo tick
+  // do polling (lookback igual, o caso comum), a segunda varredura reaproveita
+  // a resposta em vez de repetir o GET /ads/tree na Zernio.
+  async function fetchSweepTree(accId, fromDate, toDate) {
+    const st = zernio.getState(accId);
+    const key = 'sweeptree:' + accId + ':' + (st.advertiserId || '') + ':' + fromDate + ':' + toDate;
+    const hit = zernio.cacheGet(key);
+    if (hit) return hit;
+    const tree = await zernio.api('GET', '/ads/tree', {
+      query: {
+        accountId: st.accountId, platform: 'tiktok',
+        adAccountId: st.advertiserId || undefined,
+        status: 'active', fromDate, toDate, limit: 50
+      }
+    });
+    zernio.cacheSet(key, tree, 90e3); // 90s: cobre o tick da varredura
+    return tree;
+  }
+
   function getAlertCfg(accId) {
     return Object.assign({}, ALERT_DEFAULTS, zernio.getState(accId).alerts || {});
   }
@@ -606,16 +634,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const st = zernio.getState(accId);
     if (!st.accountId) return { findings: [], skipped: true };
 
+    // higiene dos mapas em memória (cooldown 6h; guarda 2x a janela)
+    pruneExpired(alertCooldown, 12 * 3600e3);
+    pruneExpired(alertLastRun, 24 * 3600e3);
+
     const iso = (d) => d.toISOString().slice(0, 10);
     const to = new Date();
     const from = new Date(to.getTime() - Math.max(1, cfg.lookbackDays) * 864e5);
-    const tree = await zernio.api('GET', '/ads/tree', {
-      query: {
-        accountId: st.accountId, platform: 'tiktok',
-        adAccountId: st.advertiserId || undefined,
-        status: 'active', fromDate: iso(from), toDate: iso(to), limit: 50
-      }
-    });
+    const tree = await fetchSweepTree(accId, iso(from), iso(to));
 
     const findings = [];
     (tree.campaigns || []).forEach((c) => {
@@ -773,18 +799,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const st = zernio.getState(accId);
     if (!st.accountId || !rules.length) return { executed: [], skipped: true };
 
+    // higiene dos mapas em memória (cooldown 12h; guarda 2x a janela)
+    pruneExpired(rulesCooldown, 24 * 3600e3);
+    pruneExpired(rulesLastRun, 24 * 3600e3);
+
     const iso = (d) => d.toISOString().slice(0, 10);
     const to = new Date();
     const maxLookback = Math.max(...rules.map((r) => r.lookbackDays || 2), 1);
     const fromDate = iso(new Date(to.getTime() - maxLookback * 864e5));
     const toDate = iso(to);
-    const tree = await zernio.api('GET', '/ads/tree', {
-      query: {
-        accountId: st.accountId, platform: 'tiktok',
-        adAccountId: st.advertiserId || undefined,
-        status: 'active', fromDate, toDate, limit: 50
-      }
-    });
+    const tree = await fetchSweepTree(accId, fromDate, toDate);
     const attribution = computeAttribution(accId, fromDate, toDate);
 
     const executed = [];
@@ -853,7 +877,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         sendPushcut('Aprovada', { title: 'TikTok Ads: regra automática', text: entry.result + ' — "' + name + '" (' + detail + ')', sound: 'system' }, accId).catch(() => {});
       }
     }
-    if (executed.length) zernio.cacheBust('tree:' + accId);
+    if (executed.length) {
+      zernio.cacheBust('tree:' + accId);
+      zernio.cacheBust('sweeptree:' + accId); // próxima varredura vê o estado pós-ação
+    }
     appendRulesLog(accId, executed);
     return { executed, checkedAt: new Date().toISOString() };
   }

@@ -5,9 +5,10 @@
 // orçamento quando a métrica cruza o limite. Varredura a cada 30min
 // (carona no polling) + botão "executar agora". Histórico das últimas ações.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Bot, Loader2, Play, Plus, Trash2, History, CheckCircle2, XCircle } from 'lucide-react'
 import { useAdsRules, apiSend, apiErrorHint } from '@/lib/api'
+import { useModalA11y } from '@/lib/use-modal-a11y'
 import { toast } from '@/lib/toast'
 import type { AdsRule, AdsRulesResponse, AdsRulesRunResponse, AdsRuleMetric, AdsRuleAction } from '@/lib/types'
 
@@ -61,6 +62,11 @@ export function AutomationDialog({
   const [tab, setTab] = useState<'rules' | 'log'>('rules')
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
+
+  // Foco preso, ESC, retorno de foco e trava de scroll. Não fecha enquanto
+  // salva/executa para não perder a operação em andamento.
+  const ref = useRef<HTMLDivElement>(null)
+  useModalA11y(open, ref, saving || running ? () => {} : onClose)
 
   // Sincroniza quando as regras salvas chegam
   useEffect(() => {
@@ -130,7 +136,11 @@ export function AutomationDialog({
         aria-label="Fechar"
         tabIndex={-1}
       />
-      <div className="anim-pop-in relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-card shadow-2xl">
+      <div
+        ref={ref}
+        tabIndex={-1}
+        className="anim-pop-in relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-card shadow-2xl outline-none"
+      >
         <div className="flex items-center justify-between gap-3 border-b border-border/50 px-5 py-4">
           <div className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
