@@ -39,6 +39,9 @@ import type {
   AdsOpsJobsResponse,
   AdsSafetyPolicyResponse,
   AdsHealthResponse,
+  AdsCatalogsResponse,
+  AdsCatalogDetailResponse,
+  AdsCatalogSpecResponse,
 } from './types'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
@@ -452,6 +455,48 @@ export function useAdsSafetyPolicy(active: boolean) {
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
+}
+
+// ── Catálogos de produtos (TikTok Shopping/Catalog) ──
+// Lista de catálogos da conta. `active` suspende quando a aba está fechada.
+export function useAdsCatalogs(active: boolean) {
+  return useSWR<AdsCatalogsResponse>(active ? '/api/ads/catalogs' : null, fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+// Detalhe de um catálogo (metadados + produtos). null = suspende.
+export function useAdsCatalogDetail(catalogId: string | null) {
+  return useSWR<AdsCatalogDetailResponse>(
+    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}` : null,
+    fetcher,
+    { revalidateOnFocus: true, keepPreviousData: true },
+  )
+}
+
+// Spec das colunas/campos — estável; carrega uma vez enquanto o dialog abre.
+export function useAdsCatalogSpec(active: boolean) {
+  return useSWR<AdsCatalogSpecResponse>(active ? '/api/ads/catalogs/spec' : null, fetcher, {
+    revalidateOnFocus: false,
+    revalidateIfStale: false,
+  })
+}
+
+// Importa um CSV (texto cru) para um catálogo. Devolve o resumo da importação.
+export async function adsCatalogImportCsv(catalogId: string, csv: string) {
+  const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/import`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'text/csv' },
+    body: csv,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    if (res.status === 401) handleUnauthorized()
+    throw parseApiError(res.status, data)
+  }
+  return data as { summary: import('./types').AdsCatalogImportSummary }
 }
 
 // Upload de criativo (vídeo/imagem) → Vercel Blob. Binário puro no corpo,

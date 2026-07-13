@@ -28,6 +28,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const zernio = require('./zernio-ads');
 const adsOps = require('./ads-ops-store');
+const catalogStore = require('./ads-catalog-store');
+const catalogFeed = require('./ads-catalog-feed');
 
 // Repassa erros da Zernio com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
@@ -666,7 +668,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs']);
 
   // ── Atualizar um anúncio (status/budget/creative) ─────────────────────────
   app.put('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
@@ -877,7 +879,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Alertas de performance ─────────────────────────────────────────────────
+  // ── Alertas de performance ───────────────────────────────────────────────���─
   // Config por conta (junto do estado zernioAds). Regras:
   //  • gasto sem conversão: campanha ativa gastou ≥ X no período sem converter
   //  • CPA estourado: gasto/conversões > teto definido
@@ -1582,6 +1584,130 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       await adsOps.appendAuditEvent(req.account.id, { actorType: 'user', actorId: req.account.id, action: guard.dryRun ? 'campaign_duplicate.simulated' : 'campaign_duplicate.queued', targetType: 'bulk_job', targetId: job.id, advertiserId: target.advertiserId, jobId: job.id, reason: guard.dryRun ? 'Política em modo dry-run' : 'Duplicação confirmada', metadata: { sourceId, count, crossAccount, idempotencyKey } });
       stats.logEvent('info', { acc: req.account.id, title: (guard.dryRun ? 'Simulação de duplicação TikTok: ' : 'Duplicação TikTok enfileirada: ') + count + ' cópia(s) de ' + sourceId });
       res.status(guard.dryRun ? 200 : 202).json({ jobId: job.id, total: count, dryRun: guard.dryRun });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Catálogos de produtos (TikTok Shopping / Catalog) ─────────────────────
+  // A Zernio não publica campanhas de catálogo no TikTok — então aqui gerimos
+  // o CATÁLOGO (produtos editáveis + feed) e publicamos um feed TikTok-ready
+  // numa URL pública do Blob. O usuário cola essa URL no Catalog Manager do
+  // TikTok como feed agendado; toda edição aqui atualiza o feed no próximo pull.
+  // Escopo por conta logada (req.account.id) — nunca cruza contas.
+
+  // Spec das colunas/campos p/ a UI montar o formulário e validar ao vivo.
+  app.get('/api/ads/catalogs/spec', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ columns: catalogFeed.COLUMNS, required: catalogFeed.REQUIRED, enums: catalogFeed.ENUMS, fields: catalogFeed.FIELD_META });
+  });
+
+  app.get('/api/ads/catalogs', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ enabled: catalogStore.enabled, catalogs: await catalogStore.listCatalogs(req.account.id) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/catalogs', dashboardAuth, async (req, res) => {
+    try {
+      const catalog = await catalogStore.createCatalog(req.account.id, req.body || {});
+      stats.logEvent('info', { acc: req.account.id, title: 'Catálogo de produtos criado', ref: catalog.id });
+      res.status(201).json({ catalog });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/catalogs/:catalogId', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
+      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
+      res.json({ catalog, products });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.put('/api/ads/catalogs/:catalogId', dashboardAuth, async (req, res) => {
+    try {
+      const catalog = await catalogStore.updateCatalog(req.account.id, req.params.catalogId, req.body || {});
+      res.json({ catalog });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.delete('/api/ads/catalogs/:catalogId', dashboardAuth, async (req, res) => {
+    try {
+      await catalogStore.deleteCatalog(req.account.id, req.params.catalogId);
+      res.json({ ok: true });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Cria/atualiza um produto (upsert por SKU). Revalida contra a spec.
+  app.post('/api/ads/catalogs/:catalogId/products', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const product = await catalogStore.upsertProduct(
+        req.account.id, req.params.catalogId,
+        { data: body.data || body }, catalogFeed.validateProduct
+      );
+      res.json({ product });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.delete('/api/ads/catalogs/:catalogId/products/:productId', dashboardAuth, async (req, res) => {
+    try {
+      await catalogStore.deleteProduct(req.account.id, req.params.catalogId, req.params.productId);
+      res.json({ ok: true });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Importa CSV (texto no corpo). Aceita o template oficial do TikTok — ignora
+  // cabeçalho e as linhas de instrução (4 & 5). Upsert por SKU: reimportar
+  // atualiza em vez de duplicar.
+  app.post('/api/ads/catalogs/:catalogId/import', dashboardAuth, require('express').text({ type: '*/*', limit: '25mb' }), async (req, res) => {
+    try {
+      const text = typeof req.body === 'string' ? req.body : String((req.body && req.body.csv) || '');
+      if (!text.trim()) return res.status(400).json({ error: 'CSV vazio' });
+      const parsed = catalogFeed.parseCatalogCsv(text);
+      if (!parsed.products.length) return res.status(400).json({ error: 'Nenhum produto encontrado no CSV' });
+      const summary = await catalogStore.bulkUpsertProducts(
+        req.account.id, req.params.catalogId, parsed.products, catalogFeed.validateProduct
+      );
+      stats.logEvent('info', { acc: req.account.id, title: 'Produtos importados no catálogo: ' + summary.imported, ref: req.params.catalogId });
+      res.json({ summary });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Baixa o CSV pronto pro TikTok (sem linhas de instrução).
+  app.get('/api/ads/catalogs/:catalogId/export.csv', dashboardAuth, async (req, res) => {
+    try {
+      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
+      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
+      const csv = catalogFeed.buildCatalogCsv(products);
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', 'attachment; filename="' + (catalog.name || 'catalogo').replace(/[^a-z0-9_-]+/gi, '_') + '.csv"');
+      res.send(csv);
+    } catch (err) { fail(res, err); }
+  });
+
+  // Publica o feed no Blob (URL pública estável). allowOverwrite mantém a MESMA
+  // URL entre publicações — o usuário cola uma vez no TikTok e nunca mais mexe.
+  app.post('/api/ads/catalogs/:catalogId/publish', dashboardAuth, async (req, res) => {
+    try {
+      if (!process.env.BLOB_READ_WRITE_TOKEN) return res.status(503).json({ error: 'Armazenamento (Vercel Blob) não configurado' });
+      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
+      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
+      const valid = products.filter((p) => p.valid);
+      if (!valid.length) return res.status(400).json({ error: 'Nenhum produto válido para publicar. Corrija os erros primeiro.' });
+      const csv = catalogFeed.buildCatalogCsv(valid);
+      const { put } = require('@vercel/blob');
+      // path estável por conta+catálogo → URL não muda entre publicações
+      const blob = await put(
+        'tiktok-catalogs/' + req.account.id + '/' + catalog.id + '.csv', csv,
+        { access: 'public', contentType: 'text/csv; charset=utf-8', allowOverwrite: true, addRandomSuffix: false }
+      );
+      const updated = await catalogStore.setFeedUrl(req.account.id, catalog.id, blob.url);
+      stats.logEvent('info', { acc: req.account.id, title: 'Feed de catálogo publicado (' + valid.length + ' produtos)', ref: catalog.id });
+      res.json({ catalog: updated, feedUrl: blob.url, published: valid.length, skipped: products.length - valid.length });
     } catch (err) { fail(res, err); }
   });
 };

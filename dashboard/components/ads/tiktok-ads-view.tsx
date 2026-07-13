@@ -5,7 +5,7 @@
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
 import { useMemo, useState } from 'react'
-import { Megaphone, Plus, Zap, UserRound, BellRing, Bot, Layers, ListChecks, FlaskConical, OctagonAlert, HeartPulse, Ban } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, BellRing, Bot, Layers, ListChecks, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -39,6 +39,7 @@ import { AlertsDialog } from './alerts-dialog'
 import { AutomationDialog } from './automation-dialog'
 import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
+import { CatalogDialog } from './catalog-dialog'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 // Moeda dos advertisers TikTok (spend vem em unidades inteiras da moeda)
@@ -106,6 +107,7 @@ export function TikTokAdsView() {
   const [rulesOpen, setRulesOpen] = useState(false)
   const [opsOpen, setOpsOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
+  const [catalogOpen, setCatalogOpen] = useState(false)
 
   // Política de segurança — alimenta o badge de simulação/kill switch
   const { data: safety, mutate: mutateSafety } = useAdsSafetyPolicy(connected)
@@ -312,6 +314,10 @@ export function TikTokAdsView() {
             <Layers className="size-3.5" aria-hidden="true" />
             Subir em massa
           </button>
+          <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setCatalogOpen)}>
+            <ShoppingBag className="size-3.5" aria-hidden="true" />
+            Catálogo
+          </button>
           <button type="button" className="btn-primary text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
             <Plus className="size-3.5" aria-hidden="true" />
             Nova campanha
@@ -490,6 +496,12 @@ export function TikTokAdsView() {
         onPolicyChanged={() => mutateSafety()}
       />
       <HealthDialog open={healthOpen} onClose={() => setHealthOpen(false)} />
+      <CatalogDialog
+        open={catalogOpen}
+        onClose={() => setCatalogOpen(false)}
+        advertiserId={concreteAdvertiser}
+        advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
+      />
       <AutomationDialog
         open={rulesOpen}
         onClose={() => setRulesOpen(false)}
