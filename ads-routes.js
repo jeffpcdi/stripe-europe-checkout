@@ -437,10 +437,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         timeIncrement: q.daily === '1' ? 1 : undefined
       };
       const ck = 'tree:' + req.account.id + ':' + selected.advertiserId + ':' + JSON.stringify(query);
-      let data = zernio.cacheGet(ck);
+      // `fresh=1` vem do polling da dashboard e ignora o cache local. O cache
+      // permanece como fallback para consumidores antigos e leituras sem polling.
+      const fresh = q.fresh === '1';
+      let data = fresh ? null : zernio.cacheGet(ck);
       if (!data) {
         data = await zernio.api('GET', '/ads/tree', { query });
-        zernio.cacheSet(ck, data, 45 * 1000);
+        zernio.cacheSet(ck, data, 15 * 1000);
       }
       data = reconcileTreeStatuses(data);
       // Com o status reconciliado, o filtro do servidor (que usa o derivado)

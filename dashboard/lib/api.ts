@@ -331,11 +331,20 @@ export function useAdsTree(
   if (filters.page && filters.page > 1) params.set('page', String(filters.page))
   params.set('limit', '100')
   params.set('daily', '1') // sparkline de tendência por campanha
+  // Cada polling automático pede uma leitura fresca à Zernio. Sem isso, o
+  // intervalo de 60s ainda podia receber o snapshot antigo do cache local.
+  params.set('fresh', '1')
   const qs = params.toString()
   return useSWR<AdsTreeResponse>(active ? `/api/ads/tree${qs ? `?${qs}` : ''}` : null, fetcher, {
-    // Durante o backfill, atualiza rápido; depois volta ao polling normal.
-    refreshInterval: (data) => (data?.backfillPending ? 5_000 : 60_000),
+    // Status de campanha é operacional: 15s visível; 5s durante backfill.
+    refreshInterval: (data) => (data?.backfillPending ? 5_000 : 15_000),
     revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+    refreshWhenHidden: false,
+    // Continua tentando após falhas transitórias da Zernio, sem congelar a UI.
+    shouldRetryOnError: true,
+    errorRetryInterval: 10_000,
+    errorRetryCount: 6,
     // Não exibe campanhas da conta/página anterior enquanto a nova chave carrega:
     // isso evitaria ações acidentais sobre dados fora do contexto selecionado.
     keepPreviousData: false,
