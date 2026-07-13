@@ -300,6 +300,7 @@ export function LinksView() {
   async function copyUrl(l: CheckoutLink) {
     await navigator.clipboard.writeText(publicUrl(l))
     setCopied(l.slug)
+    toast.success('Link copiado')
     setTimeout(() => setCopied(null), 1500)
   }
 
@@ -529,10 +530,12 @@ export function LinksView() {
             const pixelPaused = !!pixel && !pixel.active
             const busy = busySlug === l.slug
             return (
-              /* Item 69: hover eleva com sheen; slug em mono ciano */
+              /* A5.2: hover eleva com borda ciano 40% + shadow-lg; ações do
+                 card aparecem no hover em desktop (sempre visíveis no mobile,
+                 e também com foco de teclado via focus-within) */
               <GlassCard
                 key={l.slug}
-                className="sheen p-4 transition-transform duration-150 hover:-translate-y-0.5"
+                className="group sheen p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-[color:var(--brand-cyan)]/40 hover:shadow-lg"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-2.5">
@@ -549,14 +552,28 @@ export function LinksView() {
                     <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-sm font-semibold text-foreground">{l.nome}</h3>
+                      {/* A5.4: badge de estado unificado com .status-dot —
+                          ativo (verde pulsante), pausado (âmbar), arquivado (neutro) */}
                       <span
-                        className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
-                          l.ativo
-                            ? 'bg-[color:var(--success)]/15 text-[color:var(--success)]'
-                            : 'bg-muted/40 text-muted-foreground'
+                        className={`flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                          l.arquivado
+                            ? 'bg-muted/40 text-muted-foreground'
+                            : l.ativo
+                              ? 'bg-[color:var(--success)]/15 text-[color:var(--success)]'
+                              : 'bg-[color:var(--warning)]/15 text-[color:var(--warning)]'
                         }`}
                       >
-                        {l.ativo ? 'Ativo' : 'Pausado'}
+                        <span
+                          className={`status-dot ${
+                            l.arquivado
+                              ? 'bg-muted-foreground/50'
+                              : l.ativo
+                                ? 'status-dot--ok status-dot--pulse'
+                                : 'status-dot--warn'
+                          }`}
+                          aria-hidden="true"
+                        />
+                        {l.arquivado ? 'Arquivado' : l.ativo ? 'Ativo' : 'Pausado'}
                       </span>
                       {l.urlWhitePage && (
                         <span className="rounded-md bg-[color:var(--brand-pink)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-pink)]">
@@ -595,10 +612,31 @@ export function LinksView() {
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                      https://{l.dominio || appHost}/go/
+                    {/* A5.1: prefixo esmaecido, slug em destaque ciano */}
+                    <p className="mt-1 truncate font-mono text-xs">
+                      <span className="text-muted-foreground/50">
+                        https://{l.dominio || appHost}/go/
+                      </span>
                       <span className="text-primary">{l.slug}</span>
                     </p>
+                    {/* A5.3: mini-barra de conversão cliques→conversões */}
+                    {clicks > 0 && (
+                      <div
+                        className="mt-2 flex items-center gap-2"
+                        role="img"
+                        aria-label={`${convs} conversões em ${clicks} cliques`}
+                      >
+                        <div className="h-1 w-32 overflow-hidden rounded-full bg-secondary/60">
+                          <div
+                            className="h-full rounded-full bg-[color:var(--brand-cyan)]/80 transition-[width] duration-500"
+                            style={{ width: `${Math.min(100, (convs / clicks) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-[10px] tabular-nums text-faint">
+                          {((convs / clicks) * 100).toFixed(1).replace('.', ',')}%
+                        </span>
+                      </div>
+                    )}
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>
                         {l.variantes.length} variante{l.variantes.length === 1 ? '' : 's'}
@@ -668,8 +706,13 @@ export function LinksView() {
                     )}
                   </div>
                   </div>
-                  {/* data-tour repete por card; o tour destaca o 1º (querySelector) */}
-                  <div className="relative flex shrink-0 items-center gap-1" data-tour="links-qr">
+                  {/* data-tour repete por card; o tour destaca o 1º (querySelector).
+                      A5.2: em desktop as ações aparecem no hover/foco do card;
+                      no mobile (sem hover) ficam sempre visíveis. */}
+                  <div
+                    className="relative flex shrink-0 items-center gap-1 sm:opacity-0 sm:transition-opacity sm:duration-150 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                    data-tour="links-qr"
+                  >
                     {/* Item 62: pausar/ativar direto no card (otimista, sem abrir o editor) */}
                     <button
                       type="button"
@@ -723,18 +766,17 @@ export function LinksView() {
                     >
                       {l.arquivado ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
                     </button>
-                    {/* Item 70: morph clipboard → check com rotação spring */}
+                    {/* A5.5: morph Copy→Check via .copy-morph + toast */}
                     <button
                       type="button"
                       onClick={() => copyUrl(l)}
                       className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                       aria-label="Copiar URL"
                     >
-                      {copied === l.slug ? (
-                        <Check className="anim-pop-in size-4 text-[color:var(--success)]" />
-                      ) : (
-                        <Copy className="size-4" />
-                      )}
+                      <span className="copy-morph" data-copied={copied === l.slug}>
+                        <Copy className="size-4" aria-hidden="true" />
+                        <Check className="size-4" aria-hidden="true" />
+                      </span>
                     </button>
                     {/* Item 71: QR code em popover glass */}
                     <button

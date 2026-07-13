@@ -179,21 +179,58 @@ export function CloakStatsPanel() {
         </div>
       )}
 
-      {/* Barra agregada offer/white */}
+      {/* A8.3: donut compacto permitido × bloqueado com legenda inline
+          (substitui a barra horizontal — mesma informação, leitura imediata) */}
       {agg && agg.total > 0 ? (
         <>
-          <div className="mb-1 flex items-center justify-between text-xs">
-            <span className="text-success">Offer {agg.offer}</span>
-            <span className="text-muted-foreground">{blockPct}% bloqueado</span>
-            <span className="text-warning">White {agg.white}</span>
-          </div>
-          <div className="mb-4 flex h-2.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="bg-success transition-all"
-              style={{ width: `${100 - blockPct}%` }}
-              aria-hidden="true"
-            />
-            <div className="bg-warning transition-all" style={{ width: `${blockPct}%` }} aria-hidden="true" />
+          <div className="mb-4 flex items-center gap-4">
+            {(() => {
+              const r = 15.9155 // raio para circunferência = 100
+              const offerPct = 100 - blockPct
+              return (
+                <svg
+                  viewBox="0 0 42 42"
+                  className="size-16 shrink-0 -rotate-90"
+                  role="img"
+                  aria-label={`${offerPct}% dos acessos liberados na offer, ${blockPct}% bloqueados na white page`}
+                >
+                  <circle cx="21" cy="21" r={r} fill="none" stroke="var(--warning)" strokeWidth="5" opacity="0.85" />
+                  <circle
+                    cx="21"
+                    cy="21"
+                    r={r}
+                    fill="none"
+                    stroke="var(--success)"
+                    strokeWidth="5"
+                    strokeDasharray={`${offerPct} ${100 - offerPct}`}
+                    className="transition-[stroke-dasharray] duration-600 ease-out"
+                  />
+                  <text
+                    x="21"
+                    y="21"
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    className="fill-foreground font-mono text-[8px] font-bold tabular-nums"
+                    transform="rotate(90 21 21)"
+                  >
+                    {blockPct}%
+                  </text>
+                </svg>
+              )
+            })()}
+            <div className="flex flex-col gap-1 text-xs">
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-success" aria-hidden="true" />
+                <span className="text-success">Offer</span>
+                <span className="font-mono tabular-nums text-foreground">{agg.offer.toLocaleString('pt-BR')}</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-warning" aria-hidden="true" />
+                <span className="text-warning">White</span>
+                <span className="font-mono tabular-nums text-foreground">{agg.white.toLocaleString('pt-BR')}</span>
+              </span>
+              <span className="text-[11px] text-muted-foreground">{blockPct}% do tráfego bloqueado</span>
+            </div>
           </div>
 
           {/* Motivos de bloqueio */}

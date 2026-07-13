@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Plus,
   Copy,
@@ -195,6 +195,14 @@ export function GatewaysView() {
   const providers = data?.providers ?? []
   const gateways = data?.gateways ?? []
 
+  // A7.4: relógio relativo vivo — re-renderiza a cada 30s para o
+  // "recebeu há X min" não congelar entre polls
+  const [, setClockTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setClockTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
   function handleCopy(id: string, url: string) {
     navigator.clipboard.writeText(url).then(() => {
       setCopied(id)
@@ -380,8 +388,14 @@ export function GatewaysView() {
               <Skeleton className="h-24" />
             </div>
             ) : gateways.length === 0 ? (
-              /* Item 53: estado vazio guiado — CTA de criação + tutorial */
+              /* Item 53 + A7.5: estado vazio ilustrado — ícone + 1 linha + CTA */
               <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <span
+                  className="flex size-12 items-center justify-center rounded-2xl bg-brand-cyan/12 text-brand-cyan"
+                  aria-hidden="true"
+                >
+                  <Zap className="size-6" />
+                </span>
                 <p className="text-sm text-muted-foreground text-pretty">
                   Nenhum gateway conectado. Adicione um para receber webhooks de conversão.
                 </p>
@@ -444,12 +458,29 @@ export function GatewaysView() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         {g.hasSecret && <StatusBadge status="info">assinado</StatusBadge>}
+                        {/* A7.2: status com .status-dot — conectado (verde,
+                            pulso lento), erro (vermelho + tooltip com a causa),
+                            aguardando eventos (âmbar) */}
                         {g.lastEventAt ? (
-                          <StatusBadge status={g.lastEventStatus === 'ok' ? 'success' : 'warning'}>
-                            recebeu {timeAgo(g.lastEventAt)}
-                          </StatusBadge>
+                          g.lastEventStatus === 'ok' ? (
+                            <span className="flex items-center gap-1.5 rounded-md bg-[color:var(--success)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--success)]">
+                              <span className="status-dot status-dot--ok status-dot--pulse" aria-hidden="true" />
+                              recebeu {timeAgo(g.lastEventAt)}
+                            </span>
+                          ) : (
+                            <span
+                              className="flex items-center gap-1.5 rounded-md bg-[color:var(--error)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--error)]"
+                              title={`Último webhook falhou: ${g.lastEventStatus}`}
+                            >
+                              <span className="status-dot status-dot--err" aria-hidden="true" />
+                              erro {timeAgo(g.lastEventAt)}
+                            </span>
+                          )
                         ) : (
-                          <StatusBadge status="neutral">sem eventos</StatusBadge>
+                          <span className="flex items-center gap-1.5 rounded-md bg-[color:var(--warning)]/12 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--warning)]">
+                            <span className="status-dot status-dot--warn" aria-hidden="true" />
+                            aguardando eventos
+                          </span>
                         )}
                       </div>
                     </div>
@@ -480,6 +511,40 @@ export function GatewaysView() {
                         {copied === g.id ? 'Copiado' : 'Copiar'}
                       </button>
                     </div>
+
+                    {/* A7.3: saúde dos webhooks deste gateway — mini-barra
+                        empilhada processados/outros/falhos a partir do log */}
+                    {(() => {
+                      const rows = (convLog?.log ?? []).filter((r) => r.gateway === g.name)
+                      if (rows.length === 0) return null
+                      const ok = rows.filter((r) => r.status === 'paid' || r.matched).length
+                      const failed = rows.filter(
+                        (r) => typeof r.status === 'string' && /erro|invalid|fail|recusad/i.test(r.status),
+                      ).length
+                      const other = rows.length - ok - failed
+                      return (
+                        <div className="mt-2 flex items-center gap-2">
+                          <div
+                            className="flex h-1.5 w-36 overflow-hidden rounded-full bg-secondary/60"
+                            role="img"
+                            aria-label={`Webhooks: ${ok} processados, ${other} outros, ${failed} falhos`}
+                          >
+                            {ok > 0 && (
+                              <div className="h-full bg-[color:var(--success)]" style={{ width: `${(ok / rows.length) * 100}%` }} />
+                            )}
+                            {other > 0 && (
+                              <div className="h-full bg-[color:var(--warning)]/70" style={{ width: `${(other / rows.length) * 100}%` }} />
+                            )}
+                            {failed > 0 && (
+                              <div className="h-full bg-[color:var(--error)]" style={{ width: `${(failed / rows.length) * 100}%` }} />
+                            )}
+                          </div>
+                          <span className="font-mono text-[10px] tabular-nums text-faint">
+                            {ok}/{rows.length} ok{failed > 0 ? ` · ${failed} falho${failed === 1 ? '' : 's'}` : ''}
+                          </span>
+                        </div>
+                      )
+                    })()}
 
                     {prov?.docs && (
                       <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">

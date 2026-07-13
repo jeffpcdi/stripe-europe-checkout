@@ -65,7 +65,12 @@ function DecisionRow({ row, entryKey }: { row: CloakDecisionRow; entryKey: strin
   }
 
   return (
-    <li className="flex items-center gap-2 rounded-md border border-border bg-background/40 px-2.5 py-1.5 text-[11px]">
+    /* A8.2: cor semântica na borda esquerda — permitido (verde) / bloqueado (âmbar) */
+    <li
+      className={`flex items-center gap-2 rounded-md border border-border border-l-2 bg-background/40 px-2.5 py-1.5 text-[11px] ${
+        isOffer ? 'border-l-[color:var(--success)]' : 'border-l-[color:var(--warning)]'
+      }`}
+    >
       <span
         className={`flex size-5 shrink-0 items-center justify-center rounded-full ${
           isOffer ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'
