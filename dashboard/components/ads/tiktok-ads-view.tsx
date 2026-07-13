@@ -66,6 +66,14 @@ export function TikTokAdsView() {
   const [statusFilter, setStatusFilter] = useState('')
   const [sort, setSort] = useState('newest')
   const [page, setPage] = useState(1)
+  // Período das métricas/descoberta de campanhas. Default 365d — a janela
+  // curta (90d da Zernio) escondia campanhas antigas e parecia "faltando".
+  const [rangeDays, setRangeDays] = useState(365)
+  const { fromDate, toDate } = useMemo(() => {
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const now = new Date()
+    return { fromDate: iso(new Date(now.getTime() - rangeDays * 86_400_000)), toDate: iso(now) }
+  }, [rangeDays])
 
   const treeActive = connected && Boolean(effectiveAdvertiser)
   const {
@@ -79,6 +87,8 @@ export function TikTokAdsView() {
     status: statusFilter || undefined,
     sort,
     page,
+    fromDate,
+    toDate,
   })
 
   // Vendas reais por campanha — mesmo lookback padrão da árvore (7 dias)
@@ -95,10 +105,15 @@ export function TikTokAdsView() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
+  // Modo agregado ("__all__"): não há UM advertiser — criação de anúncio e
+  // moeda usam o primeiro do BC como fallback concreto.
+  const isAllMode = effectiveAdvertiser === '__all__'
+  const concreteAdvertiser = isAllMode ? (accounts?.accounts?.[0]?.id ?? '') : effectiveAdvertiser
+
   const currency = useMemo(() => {
-    const adv = accounts?.accounts.find((a) => a.id === effectiveAdvertiser)
+    const adv = accounts?.accounts.find((a) => a.id === concreteAdvertiser)
     return adv?.currency || tree?.campaigns?.[0]?.currency || 'USD'
-  }, [accounts, effectiveAdvertiser, tree])
+  }, [accounts, concreteAdvertiser, tree])
 
   // KPIs agregados sobre a página atual da árvore + série p/ sparkline
   const kpi = useMemo(() => {
@@ -336,6 +351,11 @@ export function TikTokAdsView() {
             }}
             page={page}
             onPage={setPage}
+            rangeDays={rangeDays}
+            onRangeDays={(d) => {
+              setRangeDays(d)
+              setPage(1)
+            }}
             onMutate={() => mutateTree()}
             onRetry={() => mutateTree()}
             onOpenDetail={setDetailCampaign}
@@ -349,7 +369,7 @@ export function TikTokAdsView() {
       <CreateAdPanel
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        advertiserId={effectiveAdvertiser}
+        advertiserId={concreteAdvertiser}
         currency={currency}
         identity={status?.identity ?? null}
         onCreated={() => {

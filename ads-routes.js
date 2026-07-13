@@ -304,6 +304,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   // ── Árvore campanha → ad group → ad com métricas ──────────────────────────
+  // Fixes "não puxa todas as campanhas":
+  //   • limit sobe p/ 100 (antes clampava em 50 e defaultava 20 — contas com
+  //     mais campanhas só viam a 1ª página);
+  //   • source=all explícito (Zernio-created + descobertas na plataforma);
+  //   • sem fromDate → janela ampla de 365d (o default de 90d da Zernio
+  //     escondia campanhas antigas/pausadas sem métrica recente);
+  //   • adAccountId=__all__ → agrega TODOS os advertisers do BC selecionado.
   app.get('/api/ads/tree', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -311,28 +318,83 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
       const q = req.query || {};
+      const iso = (d) => d.toISOString().slice(0, 10);
+      const today = new Date();
+      const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
+      const requestedAdv = String(q.adAccountId || st.advertiserId || '');
       const query = {
         accountId: st.accountId,
         platform: 'tiktok',
-        adAccountId: String(q.adAccountId || st.advertiserId || '') || undefined,
+        source: 'all',
+        adAccountId: requestedAdv || undefined,
         status: ['active', 'paused', 'pending_review', 'error', 'completed', 'cancelled', 'rejected'].includes(q.status) ? q.status : undefined,
-        fromDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : undefined,
-        toDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : undefined,
+        fromDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(yearAgo),
+        toDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today),
         sort: ['newest', 'oldest', 'spend_desc', 'spend_asc'].includes(q.sort) ? q.sort : 'newest',
-        limit: Math.max(1, Math.min(50, parseInt(q.limit, 10) || 20)),
+        limit: Math.max(1, Math.min(100, parseInt(q.limit, 10) || 100)),
         page: Math.max(1, parseInt(q.page, 10) || 1),
         timeIncrement: q.daily === '1' ? 1 : undefined
       };
       const ck = 'tree:' + req.account.id + ':' + JSON.stringify(query);
       let data = zernio.cacheGet(ck);
       if (!data) {
-        data = await zernio.api('GET', '/ads/tree', { query });
+        if (requestedAdv === '__all__') {
+          data = await fetchTreeAllAdvertisers(req.account.id, st, query, q);
+        } else {
+          data = await zernio.api('GET', '/ads/tree', { query });
+        }
         // TTL curto: o painel faz polling e as métricas do TikTok não mudam a cada segundo
         zernio.cacheSet(ck, data, 45 * 1000);
       }
       res.json(data);
     } catch (err) { fail(res, err); }
   });
+
+  // Agrega a árvore de TODOS os advertisers do BC num único payload.
+  // Busca até 3 páginas de 100 por advertiser (300 campanhas/conta) em
+  // paralelo, marca cada campanha com a conta de origem e re-pagina o
+  // resultado combinado localmente.
+  async function fetchTreeAllAdvertisers(accId, st, query, rawQ) {
+    const bcId = String((rawQ || {}).businessCenterId || st.businessCenterId || '') || undefined;
+    let advertisers = [];
+    try { advertisers = await listAdvertisers(accId, st, bcId); } catch (_) { advertisers = []; }
+    const results = await Promise.all(advertisers.slice(0, 20).map(async (a) => {
+      const advId = String(a.id || a._id || '');
+      if (!advId) return { campaigns: [], backfill: false };
+      try {
+        const base = { ...query, adAccountId: advId, limit: 100, page: 1 };
+        const first = await zernio.api('GET', '/ads/tree', { query: base });
+        let camps = first.campaigns || [];
+        const pages = Math.min((first.pagination && first.pagination.pages) || 1, 3);
+        for (let p = 2; p <= pages; p++) {
+          const next = await zernio.api('GET', '/ads/tree', { query: { ...base, page: p } });
+          camps = camps.concat(next.campaigns || []);
+        }
+        camps.forEach((c) => {
+          if (!c.platformAdAccountId) c.platformAdAccountId = advId;
+          if (!c.platformAdAccountName) c.platformAdAccountName = a.name || null;
+        });
+        return { campaigns: camps, backfill: Boolean(first.backfillPending) };
+      } catch (_) {
+        // conta sem permissão/backfill com erro não derruba as demais
+        return { campaigns: [], backfill: false };
+      }
+    }));
+    let all = results.flatMap((r) => r.campaigns);
+    // re-ordena o merge apenas p/ sorts de gasto (o "newest" da Zernio já vem
+    // ordenado por conta; sem createdAt no nível da campanha p/ re-ordenar)
+    if (query.sort === 'spend_desc') all = all.sort((x, y) => (((y.metrics || {}).spend || 0) - ((x.metrics || {}).spend || 0)));
+    else if (query.sort === 'spend_asc') all = all.sort((x, y) => (((x.metrics || {}).spend || 0) - ((y.metrics || {}).spend || 0)));
+    const total = all.length;
+    const start = (query.page - 1) * query.limit;
+    return {
+      campaigns: all.slice(start, start + query.limit),
+      backfillPending: results.some((r) => r.backfill),
+      pagination: { page: query.page, limit: query.limit, total, pages: Math.max(1, Math.ceil(total / query.limit)) },
+      aggregated: true,
+      advertiserCount: advertisers.length
+    };
+  }
 
   // ── Analytics de campanha (resumo + série diária) ───────────────────���─────
   app.get('/api/ads/campaigns/:id/analytics', dashboardAuth, async (req, res) => {
@@ -1046,7 +1108,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Templates de campanha ──────────────────────────────────────────────────
+  // ── Templates de campanha ──────────────────────────���───────────────────────
   // Guarda a CONFIGURAÇÃO (objetivo, orçamento, público, CTA, link, pixel…) —
   // nunca o vídeo. Criar do template = wizard pré-preenchido, só troca o vídeo.
   app.get('/api/ads/templates', dashboardAuth, (req, res) => {
