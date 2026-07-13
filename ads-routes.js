@@ -239,6 +239,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Lista advertisers direto da Zernio (com cache), opcionalmente filtrados
   // pelo BC — usado pelo /accounts e pela re-seleção ao trocar de BC.
+  // Cada conta sai com healthStatus normalizado (approved|banned|limited|
+  // in_review|unknown) + rawStatus cru do TikTok — o painel exibe os dois.
+  // TTL 2min (era 5): banimento precisa aparecer rápido no painel.
   async function listAdvertisers(accId, st, businessCenterId) {
     const ck = 'accounts:' + accId + ':' + (businessCenterId || 'all');
     let data = zernio.cacheGet(ck);
@@ -246,9 +249,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       data = await zernio.api('GET', '/ads/accounts', {
         query: { accountId: st.accountId, businessCenterId: businessCenterId || undefined }
       });
-      zernio.cacheSet(ck, data, 5 * 60 * 1000);
+      zernio.cacheSet(ck, data, 2 * 60 * 1000);
     }
-    return data.accounts || [];
+    return (data.accounts || []).map((a) => {
+      const raw = String(a.status || a.accountStatus || a.advertiserStatus || '');
+      return { ...a, rawStatus: raw, healthStatus: adsOps.normalizeAccountStatus(raw) };
+    });
   }
 
   async function requireAdvertiser(accId, st, rawId, rawBcId) {
@@ -602,7 +608,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops']);
 
   // ── Atualizar um anúncio (status/budget/creative) ─────────────────────────
   app.put('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
@@ -1101,6 +1107,118 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }
     } catch (_) { /* nunca bloqueia a rota */ }
   };
+
+  // ── Saúde das contas + tickets de desbanimento (semi-automático) ──────────
+  // O TikTok NÃO tem API de appeal de conta: a automação detecta o banimento
+  // (transição de status no snapshot Neon), abre um ticket interno com texto
+  // de recurso pré-gerado e link pro formulário oficial — o envio é manual.
+  const APPEAL_URL = 'https://www.tiktok.com/business/en/apply/business-ads-appeal';
+  const healthLastRun = new Map(); // accId → timestamp da última varredura
+
+  function buildAppealText(ticket) {
+    const name = ticket.advertiserName || ticket.advertiserId;
+    const date = new Date().toLocaleDateString('pt-BR');
+    return 'Prezada equipe do TikTok for Business,\n\n'
+      + 'Solicito a revisão da suspensão da conta de anúncios "' + name + '" (ID: ' + ticket.advertiserId + '), detectada em ' + date + '.\n\n'
+      + 'Acredito que a suspensão tenha sido aplicada por engano. Nossa conta segue as Políticas de Publicidade do TikTok: os criativos divulgam produtos/serviços legítimos, as páginas de destino correspondem ao conteúdo anunciado e não utilizamos práticas enganosas.\n\n'
+      + 'Estamos à disposição para fornecer qualquer documentação adicional que comprove a conformidade da conta (informações do negócio, notas fiscais, comprovantes de entrega).\n\n'
+      + 'Solicito, por gentileza, a reativação da conta ou um detalhamento específico da violação identificada para que possamos corrigi-la imediatamente.\n\n'
+      + 'Atenciosamente.';
+  }
+
+  // Varredura de saúde: snapshot dos advertisers → transições → automação.
+  // banned: cria ticket (idempotente) + alerta. approved: resolve tickets.
+  async function runHealthSweep(accId) {
+    const st = zernio.getState(accId);
+    if (!st.accountId || !adsOps.enabled) return { health: [], transitions: [] };
+    // sem filtro de BC: banimento em QUALQUER conta do token deve ser visto
+    const advertisers = await listAdvertisers(accId, st, '');
+    const snapshot = advertisers.map((a) => ({
+      advertiserId: String(a.id || a._id || ''),
+      name: a.name || a.advertiserName || '',
+      rawStatus: a.rawStatus,
+      statusReason: a.statusReason || a.rejectReason || ''
+    }));
+    const transitions = await adsOps.upsertAccountHealth(accId, snapshot);
+    for (const t of transitions) {
+      if (t.to === 'banned') {
+        const ticket = await adsOps.createUnbanTicketIfAbsent(accId, {
+          advertiserId: t.advertiserId, advertiserName: t.advertiserName,
+          appealText: buildAppealText({ advertiserId: t.advertiserId, advertiserName: t.advertiserName }),
+          appealUrl: APPEAL_URL
+        });
+        await adsOps.appendAuditEvent(accId, { actorType: 'system', action: 'account_health.banned', targetType: 'advertiser', targetId: t.advertiserId, advertiserId: t.advertiserId, reason: 'Transição ' + t.from + ' → banned detectada', metadata: { ticketId: ticket ? ticket.id : null } });
+        stats.logEvent('error', { acc: accId, title: '[tiktok-ads] Conta "' + (t.advertiserName || t.advertiserId) + '" foi banida — ticket de desbanimento ' + (ticket ? 'criado' : 'já existente') });
+      } else if (t.to === 'approved' && t.from === 'banned') {
+        const resolved = await adsOps.resolveTicketsForAdvertiser(accId, t.advertiserId);
+        await adsOps.appendAuditEvent(accId, { actorType: 'system', action: 'account_health.reactivated', targetType: 'advertiser', targetId: t.advertiserId, advertiserId: t.advertiserId, reason: 'Conta reativada', metadata: { resolvedTickets: resolved.length } });
+        stats.logEvent('info', { acc: accId, title: '[tiktok-ads] Conta "' + (t.advertiserName || t.advertiserId) + '" foi reativada' + (resolved.length ? ' — ' + resolved.length + ' ticket(s) resolvido(s)' : '') });
+      }
+    }
+    return { health: await adsOps.listAccountHealth(accId), transitions };
+  }
+
+  // pega carona na mesma varredura oportunista (throttle 30min por conta)
+  const prevHealthSweep = adsSweepHook.fn;
+  adsSweepHook.fn = function (accId) {
+    if (prevHealthSweep) prevHealthSweep(accId);
+    try {
+      if (!accId) return;
+      const last = healthLastRun.get(accId) || 0;
+      if (Date.now() - last > 30 * 60e3) {
+        healthLastRun.set(accId, Date.now());
+        runHealthSweep(accId).catch(() => {});
+      }
+    } catch (_) { /* nunca bloqueia a rota */ }
+  };
+
+  // Painel "Saúde das contas": roda a varredura na hora (dados frescos) e
+  // devolve status de todas as contas + tickets.
+  app.get('/api/ads/health', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const st = zernio.getState(req.account.id);
+      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      healthLastRun.set(req.account.id, Date.now());
+      const { health } = await runHealthSweep(req.account.id);
+      const tickets = await adsOps.listUnbanTickets(req.account.id);
+      res.json({ enabled: adsOps.enabled, health, tickets, appealUrl: APPEAL_URL });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/tickets', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ enabled: adsOps.enabled, tickets: await adsOps.listUnbanTickets(req.account.id, req.query.limit) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.patch('/api/ads/tickets/:ticketId', dashboardAuth, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const patch = {};
+      if (b.status && ['submitted', 'dismissed', 'resolved', 'open'].includes(b.status)) patch.status = b.status;
+      if (typeof b.appealText === 'string') patch.appealText = b.appealText;
+      if (typeof b.notes === 'string') patch.notes = b.notes;
+      const ticket = await adsOps.updateUnbanTicket(req.account.id, req.params.ticketId, patch);
+      if (!ticket) return res.status(404).json({ error: 'Ticket não encontrado' });
+      await adsOps.appendAuditEvent(req.account.id, { actorType: 'user', actorId: req.account.id, action: 'unban_ticket.updated', targetType: 'unban_ticket', targetId: ticket.id, advertiserId: ticket.advertiser_id, reason: patch.status ? 'Status → ' + patch.status : 'Texto/notas editados' });
+      res.json({ ticket });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Regenera o texto do recurso a partir do template (descarta edições)
+  app.post('/api/ads/tickets/:ticketId/regenerate', dashboardAuth, async (req, res) => {
+    try {
+      const tickets = await adsOps.listUnbanTickets(req.account.id);
+      const existing = tickets.find((t) => t.id === req.params.ticketId);
+      if (!existing) return res.status(404).json({ error: 'Ticket não encontrado' });
+      const ticket = await adsOps.updateUnbanTicket(req.account.id, existing.id, {
+        appealText: buildAppealText({ advertiserId: existing.advertiser_id, advertiserName: existing.advertiser_name })
+      });
+      res.json({ ticket });
+    } catch (err) { fail(res, err); }
+  });
 
   app.get('/api/ads/rules', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');

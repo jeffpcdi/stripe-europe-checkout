@@ -692,16 +692,54 @@ export interface AdsIdentity {
 }
 
 // ── /api/ads/accounts — advertisers (contas de anúncio) do token ──
+export type AdsHealthStatus = "approved" | "banned" | "limited" | "in_review" | "unknown"
+
 export interface AdsAdvertiser {
   id: string // advertiser_id do TikTok
   name: string
   currency?: string
   status?: string
+  rawStatus?: string // código cru do TikTok (ex.: STATUS_DISABLE)
+  healthStatus?: AdsHealthStatus // normalizado pelo backend
 }
 
 export interface AdsAccountsResponse {
   accounts: AdsAdvertiser[]
   selected: string
+}
+
+// ── /api/ads/health — saúde das contas + tickets de desbanimento ──
+export interface AdsAccountHealth {
+  advertiser_id: string
+  advertiser_name: string | null
+  status: AdsHealthStatus
+  raw_status: string | null
+  status_reason: string | null
+  first_seen_banned_at: string | null
+  last_checked_at: string
+}
+
+export type AdsTicketStatus = "open" | "submitted" | "resolved" | "dismissed"
+
+export interface AdsUnbanTicket {
+  id: string
+  advertiser_id: string
+  advertiser_name: string | null
+  status: AdsTicketStatus
+  appeal_text: string | null
+  appeal_url: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  submitted_at: string | null
+  resolved_at: string | null
+}
+
+export interface AdsHealthResponse {
+  enabled: boolean
+  health: AdsAccountHealth[]
+  tickets: AdsUnbanTicket[]
+  appealUrl: string
 }
 
 // ── Métricas roladas em cada nível da árvore ──
