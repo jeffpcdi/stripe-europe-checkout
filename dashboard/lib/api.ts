@@ -329,9 +329,12 @@ export function useAdsTree(
   params.set('daily', '1') // sparkline de tendência por campanha
   const qs = params.toString()
   return useSWR<AdsTreeResponse>(active ? `/api/ads/tree${qs ? `?${qs}` : ''}` : null, fetcher, {
-    refreshInterval: 60_000,
+    // Durante o backfill, atualiza rápido; depois volta ao polling normal.
+    refreshInterval: (data) => (data?.backfillPending ? 5_000 : 60_000),
     revalidateOnFocus: true,
-    keepPreviousData: true,
+    // Não exibe campanhas da conta/página anterior enquanto a nova chave carrega:
+    // isso evitaria ações acidentais sobre dados fora do contexto selecionado.
+    keepPreviousData: false,
   })
 }
 

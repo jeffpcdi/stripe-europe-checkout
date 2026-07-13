@@ -310,7 +310,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   //   • source=all explícito (Zernio-created + descobertas na plataforma);
   //   • sem fromDate → janela ampla de 365d (o default de 90d da Zernio
   //     escondia campanhas antigas/pausadas sem métrica recente);
-  //   • adAccountId=__all__ → agrega TODOS os advertisers do BC selecionado.
+  //   • adAccountId=__all__ → omite o adAccountId e a Zernio agrega TODOS os
+  //     advertisers da conexão server-side (1 chamada, paginada). Validado ao
+  //     vivo: 434 campanhas em 5 páginas — sem estourar o rate limit da API
+  //     (~25 req/min), que derrubava a versão anterior com N chamadas.
   app.get('/api/ads/tree', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -322,11 +325,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const today = new Date();
       const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
       const requestedAdv = String(q.adAccountId || st.advertiserId || '');
+      const aggregated = requestedAdv === '__all__';
       const query = {
         accountId: st.accountId,
         platform: 'tiktok',
         source: 'all',
-        adAccountId: requestedAdv || undefined,
+        adAccountId: aggregated ? undefined : (requestedAdv || undefined),
         status: ['active', 'paused', 'pending_review', 'error', 'completed', 'cancelled', 'rejected'].includes(q.status) ? q.status : undefined,
         fromDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(yearAgo),
         toDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today),
@@ -335,66 +339,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         page: Math.max(1, parseInt(q.page, 10) || 1),
         timeIncrement: q.daily === '1' ? 1 : undefined
       };
-      const ck = 'tree:' + req.account.id + ':' + JSON.stringify(query);
+      const ck = 'tree:' + req.account.id + ':' + (aggregated ? 'ALL:' : '') + JSON.stringify(query);
       let data = zernio.cacheGet(ck);
       if (!data) {
-        if (requestedAdv === '__all__') {
-          data = await fetchTreeAllAdvertisers(req.account.id, st, query, q);
-        } else {
-          data = await zernio.api('GET', '/ads/tree', { query });
-        }
+        data = await zernio.api('GET', '/ads/tree', { query });
+        if (aggregated && data && typeof data === 'object') data.aggregated = true;
         // TTL curto: o painel faz polling e as métricas do TikTok não mudam a cada segundo
         zernio.cacheSet(ck, data, 45 * 1000);
       }
       res.json(data);
     } catch (err) { fail(res, err); }
   });
-
-  // Agrega a árvore de TODOS os advertisers do BC num único payload.
-  // Busca até 3 páginas de 100 por advertiser (300 campanhas/conta) em
-  // paralelo, marca cada campanha com a conta de origem e re-pagina o
-  // resultado combinado localmente.
-  async function fetchTreeAllAdvertisers(accId, st, query, rawQ) {
-    const bcId = String((rawQ || {}).businessCenterId || st.businessCenterId || '') || undefined;
-    let advertisers = [];
-    try { advertisers = await listAdvertisers(accId, st, bcId); } catch (_) { advertisers = []; }
-    const results = await Promise.all(advertisers.slice(0, 20).map(async (a) => {
-      const advId = String(a.id || a._id || '');
-      if (!advId) return { campaigns: [], backfill: false };
-      try {
-        const base = { ...query, adAccountId: advId, limit: 100, page: 1 };
-        const first = await zernio.api('GET', '/ads/tree', { query: base });
-        let camps = first.campaigns || [];
-        const pages = Math.min((first.pagination && first.pagination.pages) || 1, 3);
-        for (let p = 2; p <= pages; p++) {
-          const next = await zernio.api('GET', '/ads/tree', { query: { ...base, page: p } });
-          camps = camps.concat(next.campaigns || []);
-        }
-        camps.forEach((c) => {
-          if (!c.platformAdAccountId) c.platformAdAccountId = advId;
-          if (!c.platformAdAccountName) c.platformAdAccountName = a.name || null;
-        });
-        return { campaigns: camps, backfill: Boolean(first.backfillPending) };
-      } catch (_) {
-        // conta sem permissão/backfill com erro não derruba as demais
-        return { campaigns: [], backfill: false };
-      }
-    }));
-    let all = results.flatMap((r) => r.campaigns);
-    // re-ordena o merge apenas p/ sorts de gasto (o "newest" da Zernio já vem
-    // ordenado por conta; sem createdAt no nível da campanha p/ re-ordenar)
-    if (query.sort === 'spend_desc') all = all.sort((x, y) => (((y.metrics || {}).spend || 0) - ((x.metrics || {}).spend || 0)));
-    else if (query.sort === 'spend_asc') all = all.sort((x, y) => (((x.metrics || {}).spend || 0) - ((y.metrics || {}).spend || 0)));
-    const total = all.length;
-    const start = (query.page - 1) * query.limit;
-    return {
-      campaigns: all.slice(start, start + query.limit),
-      backfillPending: results.some((r) => r.backfill),
-      pagination: { page: query.page, limit: query.limit, total, pages: Math.max(1, Math.ceil(total / query.limit)) },
-      aggregated: true,
-      advertiserCount: advertisers.length
-    };
-  }
 
   // ── Analytics de campanha (resumo + série diária) ───────────────────���─────
   app.get('/api/ads/campaigns/:id/analytics', dashboardAuth, async (req, res) => {
@@ -425,7 +380,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // individual idêntica à deste endpoint).
   function buildCreatePayload(st, b) {
     const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
-    if (!adAccountId) return { error: 'Selecione um advertiser (adAccountId)' };
+    if (!adAccountId || adAccountId === '__all__') return { error: 'Selecione um advertiser específico (adAccountId)' };
     const name = String(b.name || '').trim().slice(0, 120);
     if (!name) return { error: 'Nome da campanha é obrigatório' };
     const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';
@@ -513,7 +468,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
       const b = req.body || {};
       const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
-      if (!adAccountId) return res.status(400).json({ error: 'Selecione um advertiser (adAccountId)' });
+      if (!adAccountId || adAccountId === '__all__') return res.status(400).json({ error: 'Selecione um advertiser específico (adAccountId)' });
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
       const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';
