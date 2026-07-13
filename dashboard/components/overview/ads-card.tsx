@@ -24,9 +24,10 @@ function fmtCurrency(v: number, currency: string): string {
 
 export function AdsOverviewCard() {
   const { data: status } = useAdsStatus()
-  const connected = Boolean(status?.enabled && status?.connected)
-  // últimos 7 dias — mesma janela padrão da aba de Ads (números batem)
-  const { data: roas } = useAdsRoas(connected)
+  const advertiserId = status?.advertiserId || ''
+  const connected = Boolean(status?.enabled && status?.connected && advertiserId)
+  // Últimos 7 dias somente do advertiser explicitamente salvo.
+  const { data: roas } = useAdsRoas(connected, advertiserId)
 
   // Desconectado ou ainda carregando: não ocupa espaço no overview
   if (!connected || !roas) return null

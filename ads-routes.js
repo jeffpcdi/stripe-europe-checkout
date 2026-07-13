@@ -219,6 +219,24 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return data.accounts || [];
   }
 
+  async function requireAdvertiser(accId, st, rawId, rawBcId) {
+    const advertiserId = String(rawId || '').trim().slice(0, 60);
+    if (!advertiserId || advertiserId === '__all__') {
+      const err = new Error('Selecione uma conta de anúncio específica');
+      err.status = 400;
+      throw err;
+    }
+    const businessCenterId = String(rawBcId || st.businessCenterId || '').trim().slice(0, 60);
+    const accounts = await listAdvertisers(accId, st, businessCenterId);
+    const advertiser = accounts.find((a) => String(a.id || a._id || '') === advertiserId);
+    if (!advertiser) {
+      const err = new Error('A conta de anúncio não pertence ao Business Center selecionado');
+      err.status = 403;
+      throw err;
+    }
+    return { advertiserId, businessCenterId, advertiser };
+  }
+
   app.get('/api/ads/business-centers', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -288,32 +306,40 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
       const bcId = String(req.query.businessCenterId || st.businessCenterId || '').trim().slice(0, 60);
       const accounts = await listAdvertisers(req.account.id, st, bcId);
-      res.json({ accounts, selected: st.advertiserId || '', businessCenterId: bcId || '' });
+      let selected = String(st.advertiserId || '');
+      if (!accounts.some((a) => String(a.id || a._id || '') === selected)) {
+        selected = accounts.length ? String(accounts[0].id || accounts[0]._id || '') : '';
+        zernio.setState(req.account.id, { advertiserId: selected });
+      }
+      res.json({ accounts, selected, businessCenterId: bcId || '' });
     } catch (err) { fail(res, err); }
   });
 
   // seleciona o advertiser usado como padrão nas telas
   app.post('/api/ads/accounts/select', dashboardAuth, async (req, res) => {
     try {
-      const id = String((req.body || {}).advertiserId || '').trim().slice(0, 60);
-      if (!id) return res.status(400).json({ error: 'advertiserId obrigatório' });
-      zernio.setState(req.account.id, { advertiserId: id });
+      const st = zernio.getState(req.account.id);
+      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      const body = req.body || {};
+      const selected = await requireAdvertiser(
+        req.account.id,
+        st,
+        body.advertiserId,
+        body.businessCenterId
+      );
+      zernio.setState(req.account.id, {
+        advertiserId: selected.advertiserId,
+        businessCenterId: selected.businessCenterId || st.businessCenterId || ''
+      });
       zernio.cacheBust('tree:' + req.account.id);
-      res.json({ ok: true, advertiserId: id });
+      zernio.cacheBust('roas:' + req.account.id);
+      res.json({ ok: true, advertiserId: selected.advertiserId });
     } catch (err) { fail(res, err); }
   });
 
   // ── Árvore campanha → ad group → ad com métricas ──────────────────────────
-  // Fixes "não puxa todas as campanhas":
-  //   • limit sobe p/ 100 (antes clampava em 50 e defaultava 20 — contas com
-  //     mais campanhas só viam a 1ª página);
-  //   • source=all explícito (Zernio-created + descobertas na plataforma);
-  //   • sem fromDate → janela ampla de 365d (o default de 90d da Zernio
-  //     escondia campanhas antigas/pausadas sem métrica recente);
-  //   • adAccountId=__all__ → omite o adAccountId e a Zernio agrega TODOS os
-  //     advertisers da conexão server-side (1 chamada, paginada). Validado ao
-  //     vivo: 434 campanhas em 5 páginas — sem estourar o rate limit da API
-  //     (~25 req/min), que derrubava a versão anterior com N chamadas.
+  // Sempre consulta exatamente um advertiser explícito. O limite e a paginação
+  // pertencem somente a essa conta; nunca há fallback ou agregação entre BCs.
   app.get('/api/ads/tree', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -321,16 +347,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
       const q = req.query || {};
+      const selected = await requireAdvertiser(
+        req.account.id,
+        st,
+        q.adAccountId,
+        q.businessCenterId
+      );
       const iso = (d) => d.toISOString().slice(0, 10);
       const today = new Date();
       const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
-      const requestedAdv = String(q.adAccountId || st.advertiserId || '');
-      const aggregated = requestedAdv === '__all__';
       const query = {
         accountId: st.accountId,
         platform: 'tiktok',
         source: 'all',
-        adAccountId: aggregated ? undefined : (requestedAdv || undefined),
+        adAccountId: selected.advertiserId,
         status: ['active', 'paused', 'pending_review', 'error', 'completed', 'cancelled', 'rejected'].includes(q.status) ? q.status : undefined,
         fromDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(yearAgo),
         toDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today),
@@ -339,12 +369,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         page: Math.max(1, parseInt(q.page, 10) || 1),
         timeIncrement: q.daily === '1' ? 1 : undefined
       };
-      const ck = 'tree:' + req.account.id + ':' + (aggregated ? 'ALL:' : '') + JSON.stringify(query);
+      const ck = 'tree:' + req.account.id + ':' + selected.advertiserId + ':' + JSON.stringify(query);
       let data = zernio.cacheGet(ck);
       if (!data) {
         data = await zernio.api('GET', '/ads/tree', { query });
-        if (aggregated && data && typeof data === 'object') data.aggregated = true;
-        // TTL curto: o painel faz polling e as métricas do TikTok não mudam a cada segundo
         zernio.cacheSet(ck, data, 45 * 1000);
       }
       res.json(data);
@@ -639,20 +667,26 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
       const q = req.query || {};
+      const selected = await requireAdvertiser(
+        req.account.id,
+        st,
+        q.adAccountId,
+        q.businessCenterId
+      );
       const today = new Date();
       const defFrom = new Date(today.getTime() - 6 * 864e5);
       const iso = (d) => d.toISOString().slice(0, 10);
       const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(defFrom);
       const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
 
-      const ck = 'roas:' + req.account.id + ':' + fromDate + ':' + toDate;
+      const ck = 'roas:' + req.account.id + ':' + selected.advertiserId + ':' + fromDate + ':' + toDate;
       let out = zernio.cacheGet(ck);
       if (!out) {
-        // 1) Gasto do TikTok por dia (todas as campanhas do advertiser)
+        // 1) Gasto do TikTok por dia apenas da conta selecionada.
         const tree = await zernio.api('GET', '/ads/tree', {
           query: {
             accountId: st.accountId, platform: 'tiktok',
-            adAccountId: st.advertiserId || undefined,
+            adAccountId: selected.advertiserId,
             fromDate, toDate, timeIncrement: 1, limit: 50
           }
         });
@@ -889,17 +923,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return { byCampaign, unattributed };
   }
 
-  app.get('/api/ads/attribution', dashboardAuth, (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    try {
-      const q = req.query || {};
-      const iso = (d) => d.toISOString().slice(0, 10);
-      const today = new Date();
-      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(new Date(today.getTime() - 6 * 864e5));
-      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
-      const data = computeAttribution(req.account.id, fromDate, toDate);
-      res.json({ fromDate, toDate, byCampaign: data.byCampaign, unattributed: data.unattributed });
-    } catch (err) { fail(res, err); }
+  app.get('/api/ads/attribution', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+  const st = zernio.getState(req.account.id);
+  if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+  const q = req.query || {};
+  await requireAdvertiser(req.account.id, st, q.adAccountId, q.businessCenterId);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const today = new Date();
+  const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(new Date(today.getTime() - 6 * 864e5));
+  const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
+  const data = computeAttribution(req.account.id, fromDate, toDate);
+  res.json({ fromDate, toDate, byCampaign: data.byCampaign, unattributed: data.unattributed });
+  } catch (err) { fail(res, err); }
   });
 
   // ── Regras automáticas — além de alertar, AGE ─────────────────────────────

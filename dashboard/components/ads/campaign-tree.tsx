@@ -168,7 +168,7 @@ export function CampaignTree({
   // do contrário, ações poderiam atingir campanhas que já não estão visíveis.
   useEffect(() => {
     setSelected(new Set())
-  }, [page, statusFilter, sort, rangeDays, tree?.aggregated])
+  }, [page, statusFilter, sort, rangeDays, tree])
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -308,7 +308,6 @@ export function CampaignTree({
           {typeof pagination?.total === 'number' && (
             <span className="text-[11px] text-muted-foreground">
               {pagination.total} campanha{pagination.total === 1 ? '' : 's'}
-              {tree?.aggregated ? ' · todas as contas' : ''}
             </span>
           )}
           {onRangeDays && (
@@ -426,7 +425,7 @@ export function CampaignTree({
             <p className="max-w-sm text-pretty text-xs text-muted-foreground">
               {statusFilter
                 ? 'Ajuste o filtro acima para ver as demais campanhas do advertiser.'
-                : 'Se você esperava ver campanhas aqui, aumente o Período acima ou selecione "Todas as contas" no seletor de conta de anúncio. Ou crie sua primeira campanha no botão "Nova campanha".'}
+                : 'Esta conta de anúncio não tem campanhas neste período. Aumente o Período acima ou crie a primeira campanha no botão "Nova campanha".'}
             </p>
             {!statusFilter && onRangeDays && (rangeDays ?? 365) < 730 && (
               <button type="button" className="btn-ghost text-xs" onClick={() => onRangeDays(730)}>
@@ -483,14 +482,7 @@ export function CampaignTree({
                           {c.adSetCount ?? c.adSets?.length ?? 0} grupo{(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? '' : 's'} ·{' '}
                           {c.adCount ?? 0} anúncio{(c.adCount ?? 0) === 1 ? '' : 's'}
                         </span>
-                        {tree?.aggregated && (c.platformAdAccountName || c.platformAdAccountId) && (
-                          <span
-                            className="max-w-32 truncate rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                            title={`Conta de anúncio: ${c.platformAdAccountName || c.platformAdAccountId}`}
-                          >
-                            {c.platformAdAccountName || c.platformAdAccountId}
-                          </span>
-                        )}
+
                         {(() => {
                           // vendas REAIS atribuídas a esta campanha (gateways)
                           const attr = attribution?.[id]

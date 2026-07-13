@@ -778,7 +778,6 @@ export interface AdsTreeResponse {
   campaigns: AdsTreeCampaign[]
   backfillPending?: boolean
   pagination?: { page: number; limit: number; total: number; pages: number }
-  aggregated?: boolean // adAccountId=__all__ → Zernio agrega todos os advertisers server-side
 }
 
 // ── /api/ads/campaigns/:id/analytics ──

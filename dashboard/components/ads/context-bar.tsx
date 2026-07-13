@@ -40,6 +40,7 @@ export function AdsContextBar({
   onDisconnect: () => void
 }) {
   const [switchingBc, setSwitchingBc] = useState(false)
+  const [switchingAdvertiser, setSwitchingAdvertiser] = useState(false)
 
   async function handleSelectBc(bcId: string) {
     setSwitchingBc(true)
@@ -60,14 +61,23 @@ export function AdsContextBar({
   }
 
   async function handleSelectAdvertiser(id: string) {
-    onAdvertiserChanged(id)
-    // "__all__" é um modo de visualização (agregado) — não vira o advertiser
-    // default do backend, senão os fluxos de criação quebrariam.
-    if (id === '__all__') return
+    if (!id || switchingAdvertiser) return
+    setSwitchingAdvertiser(true)
     try {
-      await apiSend('/api/ads/accounts/select', 'POST', { advertiserId: id })
-    } catch {
-      // seleção local continua valendo; o backend só perde o default salvo
+      const res = await apiSend<{ ok: boolean; advertiserId: string }>(
+        '/api/ads/accounts/select',
+        'POST',
+        { advertiserId: id, businessCenterId: selectedBc },
+      )
+      // Só troca o contexto visual depois que o backend confirmou que a conta
+      // pertence ao BC atual; assim nenhuma consulta usa um ID não persistido.
+      onAdvertiserChanged(res.advertiserId)
+    } catch (e) {
+      toast.error('Falha ao selecionar a conta de anúncio', {
+        hint: e instanceof Error ? e.message : undefined,
+      })
+    } finally {
+      setSwitchingAdvertiser(false)
     }
   }
 
@@ -129,12 +139,11 @@ export function AdsContextBar({
         <select
           className="input-neon rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
           value={selectedAdvertiser}
-          disabled={switchingBc}
+          disabled={switchingBc || switchingAdvertiser || advertisers.length === 0}
           onChange={(e) => handleSelectAdvertiser(e.target.value)}
           aria-label="Selecionar conta de anúncio (advertiser)"
         >
-          {!selectedAdvertiser && <option value="">Selecione…</option>}
-          {advertisers.length > 1 && <option value="__all__">Todas as contas ({advertisers.length})</option>}
+          {!selectedAdvertiser && <option value="">Selecione uma conta…</option>}
           {advertisers.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name || a.id}
