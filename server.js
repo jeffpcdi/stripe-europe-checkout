@@ -4667,6 +4667,12 @@ stats.hydrate()
   .then(() => linkStore.init())
   .then(() => gatewayStore.init())
   .then(() => refreshDefaultAccount())
+  // Garante que as tabelas ads_* existam ANTES de qualquer operação de Ads.
+  // Sem isto, o app quebrava com `relation "ads_safety_policies" does not exist`
+  // ao conectar a um banco onde essas tabelas nunca foram criadas.
+  .then(() => require('./ads-ops-store').ensureSchema().catch((e) => {
+    console.warn('[ads-ops] ensureSchema falhou:', e.message);
+  }))
   // Jobs de Ads presos em running/queued de ANTES do reinício nunca continuam
   // (rodam in-process) — marca como failed/partial para o usuário reprocessar.
   .then(() => require('./ads-ops-store').reconcileOrphanJobs().catch((e) => {
