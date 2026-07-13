@@ -130,7 +130,22 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const profileId = await zernio.ensureProfile(req.account.id);
       const data = await zernio.api('GET', '/accounts');
-      const mine = (data.accounts || []).filter((a) => a.platform === 'tiktokads' && String(a.profileId || '') === String(profileId));
+      let mine = (data.accounts || []).filter((a) => a.platform === 'tiktokads' && String(a.profileId || '') === String(profileId));
+      // FALLBACK (adoção de órfã): se a config local foi resetada e um profile
+      // novo foi criado, a conexão feita antes vive em OUTRO profile da mesma
+      // chave (ex.: "Painel acc_282f0c9e4c" antigo). Sem isso o painel fica
+      // preso em "Aguardando autorização" mesmo com a conta conectada na
+      // Zernio. Adotamos a tiktokads mais recente da chave, registrando também
+      // o profileId dela para as próximas chamadas de connect/status.
+      if (!mine.length) {
+        const any = (data.accounts || []).filter((a) => a.platform === 'tiktokads');
+        if (any.length) {
+          any.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+          const adopted = any[0];
+          zernio.setState(req.account.id, { profileId: String(adopted.profileId || profileId) });
+          mine = [adopted];
+        }
+      }
       if (!mine.length) return res.json({ connected: false });
       // a mais recente vence (reconexões geram novas SocialAccounts)
       mine.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -319,7 +334,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Analytics de campanha (resumo + série diária) ─────────────────────────
+  // ── Analytics de campanha (resumo + série diária) ───────────────────���─────
   app.get('/api/ads/campaigns/:id/analytics', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
