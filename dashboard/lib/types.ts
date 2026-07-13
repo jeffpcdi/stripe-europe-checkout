@@ -800,6 +800,11 @@ export interface AdsTreeCampaign {
   platformCampaignId: string
   campaignName?: string
   status?: AdsNodeStatus
+  // Status derivado dos anúncios filhos, preservado pelo backend quando ele
+  // diverge do status real da campanha na plataforma (ex.: campanha ativa
+  // com todos os anúncios pausados). Presente só quando divergem.
+  childStatus?: AdsNodeStatus
+  platformCampaignStatus?: string | null
   reviewStatus?: 'in_review' | 'approved' | 'rejected' | 'with_issues' | null
   adCount?: number
   adSetCount?: number
