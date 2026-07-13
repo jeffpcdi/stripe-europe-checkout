@@ -61,6 +61,9 @@ export function AdsContextBar({
 
   async function handleSelectAdvertiser(id: string) {
     onAdvertiserChanged(id)
+    // "__all__" é um modo de visualização (agregado) — não vira o advertiser
+    // default do backend, senão os fluxos de criação quebrariam.
+    if (id === '__all__') return
     try {
       await apiSend('/api/ads/accounts/select', 'POST', { advertiserId: id })
     } catch {
@@ -131,6 +134,7 @@ export function AdsContextBar({
           aria-label="Selecionar conta de anúncio (advertiser)"
         >
           {!selectedAdvertiser && <option value="">Selecione…</option>}
+          {advertisers.length > 1 && <option value="__all__">Todas as contas ({advertisers.length})</option>}
           {advertisers.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name || a.id}

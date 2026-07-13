@@ -778,6 +778,8 @@ export interface AdsTreeResponse {
   campaigns: AdsTreeCampaign[]
   backfillPending?: boolean
   pagination?: { page: number; limit: number; total: number; pages: number }
+  aggregated?: boolean // adAccountId=__all__ → merge de todos os advertisers do BC
+  advertiserCount?: number
 }
 
 // ── /api/ads/campaigns/:id/analytics ──

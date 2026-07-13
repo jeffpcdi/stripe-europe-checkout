@@ -313,6 +313,7 @@ export function useAdsBulkJob(jobId: string | null) {
 
 // Árvore campanha → ad group → ad. A chave inclui os filtros; `active` = false
 // suspende o hook (aba desconectada). Métricas do TikTok mudam devagar → 60s.
+// limit=100 sempre: o default antigo (20) escondia campanhas de contas grandes.
 export function useAdsTree(
   active: boolean,
   filters: { adAccountId?: string; status?: string; fromDate?: string; toDate?: string; sort?: string; page?: number },
@@ -324,6 +325,7 @@ export function useAdsTree(
   if (filters.toDate) params.set('toDate', filters.toDate)
   if (filters.sort) params.set('sort', filters.sort)
   if (filters.page && filters.page > 1) params.set('page', String(filters.page))
+  params.set('limit', '100')
   params.set('daily', '1') // sparkline de tendência por campanha
   const qs = params.toString()
   return useSWR<AdsTreeResponse>(active ? `/api/ads/tree${qs ? `?${qs}` : ''}` : null, fetcher, {

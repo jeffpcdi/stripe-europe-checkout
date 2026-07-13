@@ -101,11 +101,14 @@ const STATUS_FILTERS = [
   { value: 'rejected', label: 'Rejeitadas' },
 ]
 
+// Valores alinhados com o backend (['newest','oldest','spend_desc','spend_asc']).
+// Antes usava 'spend'/'impressions' — o backend rejeitava e caía em 'newest'
+// silenciosamente, dando impressão de ordenação quebrada.
 const SORTS = [
   { value: 'newest', label: 'Mais recentes' },
   { value: 'oldest', label: 'Mais antigas' },
-  { value: 'spend', label: 'Maior gasto' },
-  { value: 'impressions', label: 'Mais impressões' },
+  { value: 'spend_desc', label: 'Maior gasto' },
+  { value: 'spend_asc', label: 'Menor gasto' },
 ]
 
 export function CampaignTree({
@@ -119,6 +122,8 @@ export function CampaignTree({
   onSort,
   page,
   onPage,
+  rangeDays,
+  onRangeDays,
   onMutate,
   onRetry,
   onOpenDetail,
@@ -135,6 +140,9 @@ export function CampaignTree({
   onSort: (s: string) => void
   page: number
   onPage: (p: number) => void
+  // Janela de descoberta/métricas — campanhas fora do período não aparecem
+  rangeDays?: number
+  onRangeDays?: (d: number) => void
   onMutate: () => void
   onRetry: () => void
   onOpenDetail?: (c: AdsTreeCampaign) => void
@@ -290,20 +298,45 @@ export function CampaignTree({
             </button>
           ))}
         </div>
-        <label className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
-          Ordenar:
-          <select
-            className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
-            value={sort}
-            onChange={(e) => onSort(e.target.value)}
-          >
-            {SORTS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          {typeof pagination?.total === 'number' && (
+            <span className="text-[11px] text-muted-foreground">
+              {pagination.total} campanha{pagination.total === 1 ? '' : 's'}
+              {tree?.aggregated ? ` · ${tree.advertiserCount ?? 0} conta${(tree.advertiserCount ?? 0) === 1 ? '' : 's'}` : ''}
+            </span>
+          )}
+          {onRangeDays && (
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              Período:
+              <select
+                className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+                value={String(rangeDays ?? 365)}
+                onChange={(e) => onRangeDays(Number(e.target.value))}
+                aria-label="Período de métricas e descoberta de campanhas"
+              >
+                <option value="7">7 dias</option>
+                <option value="30">30 dias</option>
+                <option value="90">90 dias</option>
+                <option value="365">12 meses</option>
+                <option value="730">24 meses</option>
+              </select>
+            </label>
+          )}
+          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            Ordenar:
+            <select
+              className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+              value={sort}
+              onChange={(e) => onSort(e.target.value)}
+            >
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {/* Barra de ações em lote — aparece com ≥1 campanha selecionada */}
@@ -363,19 +396,39 @@ export function CampaignTree({
           <ErrorState title="Não foi possível carregar as campanhas" description={error} onRetry={onRetry} />
         </div>
       ) : campaigns.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-          <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
-            <Megaphone className="size-6 text-muted-foreground" aria-hidden="true" />
-          </span>
-          <p className="text-sm font-medium text-foreground">
-            {statusFilter ? 'Nenhuma campanha com esse status' : 'Nenhuma campanha ainda'}
-          </p>
-          <p className="max-w-sm text-pretty text-xs text-muted-foreground">
-            {statusFilter
-              ? 'Ajuste o filtro acima para ver as demais campanhas do advertiser.'
-              : 'Crie sua primeira campanha no botão “Nova campanha” ou impulsione um vídeo orgânico com Spark Ads.'}
-          </p>
-        </div>
+        tree?.backfillPending ? (
+          /* Conta recém-conectada: a Zernio ainda está importando do TikTok —
+             NÃO é "sem campanhas", é sincronização em andamento. */
+          <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden="true" />
+            </span>
+            <p className="text-sm font-medium text-foreground">Sincronizando campanhas do TikTok…</p>
+            <p className="max-w-sm text-pretty text-xs text-muted-foreground">
+              A primeira importação pode levar de 1 a 3 minutos. Suas campanhas vão aparecer aqui
+              automaticamente — não precisa reconectar.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
+              <Megaphone className="size-6 text-muted-foreground" aria-hidden="true" />
+            </span>
+            <p className="text-sm font-medium text-foreground">
+              {statusFilter ? 'Nenhuma campanha com esse status' : 'Nenhuma campanha neste período'}
+            </p>
+            <p className="max-w-sm text-pretty text-xs text-muted-foreground">
+              {statusFilter
+                ? 'Ajuste o filtro acima para ver as demais campanhas do advertiser.'
+                : 'Se você esperava ver campanhas aqui, aumente o Período acima ou selecione "Todas as contas" no seletor de conta de anúncio. Ou crie sua primeira campanha no botão "Nova campanha".'}
+            </p>
+            {!statusFilter && onRangeDays && (rangeDays ?? 365) < 730 && (
+              <button type="button" className="btn-ghost text-xs" onClick={() => onRangeDays(730)}>
+                Buscar nos últimos 24 meses
+              </button>
+            )}
+          </div>
+        )
       ) : (
         <ul className="stagger divide-y divide-border">
           {campaigns.map((c) => {
@@ -424,6 +477,14 @@ export function CampaignTree({
                           {c.adSetCount ?? c.adSets?.length ?? 0} grupo{(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? '' : 's'} ·{' '}
                           {c.adCount ?? 0} anúncio{(c.adCount ?? 0) === 1 ? '' : 's'}
                         </span>
+                        {tree?.aggregated && (c.platformAdAccountName || c.platformAdAccountId) && (
+                          <span
+                            className="max-w-32 truncate rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                            title={`Conta de anúncio: ${c.platformAdAccountName || c.platformAdAccountId}`}
+                          >
+                            {c.platformAdAccountName || c.platformAdAccountId}
+                          </span>
+                        )}
                         {(() => {
                           // vendas REAIS atribuídas a esta campanha (gateways)
                           const attr = attribution?.[id]
