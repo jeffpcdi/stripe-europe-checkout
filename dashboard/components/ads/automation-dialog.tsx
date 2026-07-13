@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react'
 import { Bot, Loader2, Play, Plus, Trash2, History, CheckCircle2, XCircle } from 'lucide-react'
-import { useAdsRules, apiSend } from '@/lib/api'
+import { useAdsRules, apiSend, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsRule, AdsRulesResponse, AdsRulesRunResponse, AdsRuleMetric, AdsRuleAction } from '@/lib/types'
 
@@ -87,7 +87,7 @@ export function AutomationDialog({
       })
       if (close) onClose()
     } catch (e) {
-      toast.error('Falha ao salvar regras', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao salvar regras', { hint: apiErrorHint(e) })
     } finally {
       setSaving(false)
     }
@@ -108,7 +108,7 @@ export function AutomationDialog({
         toast.success('Nenhuma campanha disparou as regras')
       }
     } catch (e) {
-      toast.error('Falha ao executar', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao executar', { hint: apiErrorHint(e) })
     } finally {
       setRunning(false)
     }

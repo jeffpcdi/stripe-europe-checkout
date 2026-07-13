@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, UserRound, Loader2, UploadCloud } from 'lucide-react'
-import { apiSend, adsUpload } from '@/lib/api'
+import { apiSend, adsUpload, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsIdentity } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -59,7 +59,7 @@ export function IdentityDialog({
       setImageUrl(url)
       toast.success('Avatar enviado')
     } catch (e) {
-      toast.error('Falha no upload do avatar', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha no upload do avatar', { hint: apiErrorHint(e) })
     } finally {
       setUploading(false)
     }
@@ -75,7 +75,7 @@ export function IdentityDialog({
       toast.success('Brand Identity salva', { hint: 'Novos anúncios podem anunciar com essa identidade.' })
       onSaved()
     } catch (e) {
-      toast.error('Falha ao salvar identidade', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao salvar identidade', { hint: apiErrorHint(e) })
     } finally {
       setSubmitting(false)
     }

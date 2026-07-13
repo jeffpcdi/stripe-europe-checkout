@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, ShieldCheck, LineChart, Clapperboard, Loader2, RefreshCw } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import { apiSend, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { GlassCard } from '@/components/glass-card'
 
@@ -87,7 +87,7 @@ export function AdsConnectCard({ onConnected }: { onConnected: () => void }) {
       window.open(r.authUrl, '_blank', 'noopener')
       setWaiting(true)
     } catch (e) {
-      toast.error('Falha ao iniciar a conexão', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao iniciar a conexão', { hint: apiErrorHint(e) })
     } finally {
       setStarting(false)
     }
@@ -155,7 +155,7 @@ export function AdsConnectCard({ onConnected }: { onConnected: () => void }) {
                     }
                   } catch (e) {
                     toast.error('Falha ao verificar a conexão', {
-                      hint: e instanceof Error ? e.message : undefined,
+                      hint: apiErrorHint(e),
                     })
                   } finally {
                     setChecking(false)

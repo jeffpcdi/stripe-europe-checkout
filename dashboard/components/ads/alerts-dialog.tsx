@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react'
 import { BellRing, Loader2, ShieldCheck, AlertTriangle } from 'lucide-react'
-import { useAdsAlerts, apiSend } from '@/lib/api'
+import { useAdsAlerts, apiSend, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsAlertsConfig, AdsAlertCheckResponse } from '@/lib/types'
 
@@ -59,7 +59,7 @@ export function AlertsDialog({
       mutate()
       onClose()
     } catch (e) {
-      toast.error('Falha ao salvar alertas', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao salvar alertas', { hint: apiErrorHint(e) })
     } finally {
       setSaving(false)
     }
@@ -81,7 +81,7 @@ export function AlertsDialog({
       setFindings(r)
       if (!r.findings?.length) toast.success('Tudo certo', { hint: 'Nenhuma campanha disparou as regras.' })
     } catch (e) {
-      toast.error('Falha ao verificar', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao verificar', { hint: apiErrorHint(e) })
     } finally {
       setChecking(false)
     }

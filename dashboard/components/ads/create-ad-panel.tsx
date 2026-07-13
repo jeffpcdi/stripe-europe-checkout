@@ -23,7 +23,7 @@ import {
   FlaskConical,
   Trash2,
 } from 'lucide-react'
-import { apiSend, adsUpload, useAdsTemplates } from '@/lib/api'
+import { apiSend, adsUpload, useAdsTemplates, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsGoal, AdsIdentity, AdsTemplate } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
@@ -183,7 +183,7 @@ export function CreateAdPanel({
       set('videoUrl', url)
       toast.success('Vídeo enviado', { hint: 'URL preenchida automaticamente.' })
     } catch (e) {
-      toast.error('Falha no upload do vídeo', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha no upload do vídeo', { hint: apiErrorHint(e) })
       setUploadPct(0)
     } finally {
       setUploading(false)
@@ -236,7 +236,7 @@ export function CreateAdPanel({
       mutateTemplates()
       toast.success('Template salvo', { hint: 'Disponível na próxima campanha.' })
     } catch (e) {
-      toast.error('Falha ao salvar template', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao salvar template', { hint: apiErrorHint(e) })
     } finally {
       setSavingTemplate(false)
     }
@@ -322,7 +322,7 @@ export function CreateAdPanel({
         throw new Error(failed[0]?.error || 'Falha ao criar')
       }
     } catch (e) {
-      toast.error('Falha ao criar a campanha', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao criar a campanha', { hint: apiErrorHint(e) })
     } finally {
       setSubmitting(false)
     }

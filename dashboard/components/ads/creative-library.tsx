@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import { Clapperboard, Loader2, Trash2, Check, X } from 'lucide-react'
-import { useAdsLibrary } from '@/lib/api'
+import { useAdsLibrary, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsLibraryItem } from '@/lib/types'
 
@@ -56,7 +56,7 @@ export function CreativeLibrary({
       toast.success('Criativo removido da biblioteca')
       mutate()
     } catch (e) {
-      toast.error('Falha ao remover criativo', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao remover criativo', { hint: apiErrorHint(e) })
     } finally {
       setDeletingUrl(null)
     }

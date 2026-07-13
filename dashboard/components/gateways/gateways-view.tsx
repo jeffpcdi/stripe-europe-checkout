@@ -16,7 +16,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
-import { useGateways, useConversionLog, apiSend } from '@/lib/api'
+import { useGateways, useConversionLog, apiSend, apiErrorHint } from '@/lib/api'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import type { Gateway, GatewayProvider, GatewayTestResult, GatewayRotateResult } from '@/lib/types'
@@ -175,7 +175,7 @@ export function GatewaysView() {
       mutateLog()
     } catch (e) {
       toast.error('Falha ao reprocessar a conversão', {
-        hint: e instanceof Error ? e.message : undefined,
+        hint: apiErrorHint(e),
       })
     } finally {
       setReprocessing(null)
@@ -230,7 +230,7 @@ export function GatewaysView() {
           toast.success(`Gateway "${g.name}" removido`)
         } catch (e) {
           toast.error('Falha ao remover o gateway', {
-            hint: e instanceof Error ? e.message : undefined,
+            hint: apiErrorHint(e),
           })
         }
       },
@@ -282,7 +282,7 @@ export function GatewaysView() {
           }
         } catch (e) {
           toast.error('Falha ao rotacionar o webhook', {
-            hint: e instanceof Error ? e.message : undefined,
+            hint: apiErrorHint(e),
           })
         } finally {
           setRotating(null)

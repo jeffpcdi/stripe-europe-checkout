@@ -757,7 +757,7 @@ export interface AdsTreeCampaign {
   platformAdAccountId?: string
   platformAdAccountName?: string | null
   adSets?: AdsTreeAdSet[]
-  daily?: AdsMetrics[] // presente quando timeIncrement=1
+  daily?: ({ date?: string; day?: string } & AdsMetrics)[] // presente quando timeIncrement=1
 }
 
 export interface AdsTreeResponse {

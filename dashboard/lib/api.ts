@@ -62,6 +62,14 @@ function parseApiError(status: number, data: unknown): ApiError {
   return new ApiError(status, msg, { code: d.code, hint: d.hint })
 }
 
+// Mensagem de erro pronta para o slot `hint` de um toast: prioriza a orientação
+// pt-BR do backend (ApiError.hint) sobre a mensagem crua, e nunca vaza objetos.
+export function apiErrorHint(e: unknown): string | undefined {
+  if (e instanceof ApiError) return e.hint || e.message
+  if (e instanceof Error) return e.message
+  return undefined
+}
+
 // Sessão expirada (cookie presente mas inválido no Express) → login
 const LOGIN_URL = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
 

@@ -6,9 +6,9 @@
 
 import { useMemo, useState } from 'react'
 import { Megaphone, Plus, Zap, UserRound, RefreshCw, Unplug, BellRing, Bot } from 'lucide-react'
-import { useAdsStatus, useAdsAccounts, useAdsTree, useAdsAttribution, apiSend } from '@/lib/api'
+import { useAdsStatus, useAdsAccounts, useAdsTree, useAdsAttribution, apiSend, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsMetrics, AdsTreeCampaign } from '@/lib/types'
+import type { AdsTreeCampaign } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { SectionTitle } from '@/components/section-title'
 import { Skeleton } from '@/components/skeleton'
@@ -91,7 +91,10 @@ export function TikTokAdsView() {
     let clicks = 0
     let conversions = 0
     let activeCount = 0
-    const byDay = new Map<number, number>()
+    // Agrega o gasto diário por DATA real (não por posição no array): campanhas
+    // que começaram em dias diferentes têm arrays de tamanhos distintos, então
+    // somar por índice misturaria datas diferentes no mesmo ponto da sparkline.
+    const byDay = new Map<string, number>()
     tree.campaigns.forEach((c) => {
       const m = c.metrics ?? {}
       spend += m.spend ?? 0
@@ -99,11 +102,15 @@ export function TikTokAdsView() {
       clicks += m.clicks ?? 0
       conversions += m.conversions ?? 0
       if (c.status === 'active') activeCount++
-      c.daily?.forEach((d: AdsMetrics & { date?: string }, i: number) => {
-        byDay.set(i, (byDay.get(i) ?? 0) + (d.spend ?? 0))
+      c.daily?.forEach((d, i) => {
+        // fallback estável para o índice quando a data não vier no payload
+        const key = (d.date || d.day || '').slice(0, 10) || `#${i}`
+        byDay.set(key, (byDay.get(key) ?? 0) + (d.spend ?? 0))
       })
     })
-    const spendSeries = [...byDay.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v)
+    const spendSeries = [...byDay.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([, v]) => v)
     return {
       spend,
       impressions,
@@ -124,7 +131,7 @@ export function TikTokAdsView() {
       setAdvertiserId(null)
       mutateStatus()
     } catch (e) {
-      toast.error('Falha ao desconectar', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao desconectar', { hint: apiErrorHint(e) })
     } finally {
       setDisconnecting(false)
       setConfirmDisconnect(false)
@@ -283,6 +290,15 @@ export function TikTokAdsView() {
         </GlassCard>
       ) : (
         <>
+          {/* Aviso de escopo: quando há mais de uma página, os KPIs somam só as
+              campanhas visíveis nesta página — evita leitura errada do total. */}
+          {tree?.pagination && tree.pagination.pages > 1 && (
+            <p className="-mb-1 text-[11px] text-muted-foreground">
+              Totais desta página ({tree.campaigns.length} de {tree.pagination.total} campanhas) — navegue
+              na árvore para ver as demais.
+            </p>
+          )}
+
           {/* Linha de KPIs agregados (página atual da árvore) */}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '0ms' }}>

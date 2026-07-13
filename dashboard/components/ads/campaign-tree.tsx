@@ -23,7 +23,7 @@ import {
   Check,
   X,
 } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import { apiSend, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsTreeResponse, AdsTreeCampaign, AdsTreeAd, AdsMetrics, AdsNodeStatus } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -178,7 +178,7 @@ export function CampaignTree({
       setSelected(new Set())
       onMutate()
     } catch (e) {
-      toast.error('Falha na ação em lote', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha na ação em lote', { hint: apiErrorHint(e) })
     } finally {
       setBulkBusy(false)
     }
@@ -199,7 +199,7 @@ export function CampaignTree({
       setEditingBudget(null)
       onMutate()
     } catch (e) {
-      toast.error('Falha ao atualizar orçamento', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao atualizar orçamento', { hint: apiErrorHint(e) })
     } finally {
       setBudgetBusy(false)
     }
@@ -225,7 +225,7 @@ export function CampaignTree({
       toast.success(status === 'paused' ? 'Campanha pausada' : 'Campanha ativada')
       onMutate()
     } catch (e) {
-      toast.error('Falha ao alterar status', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao alterar status', { hint: apiErrorHint(e) })
     } finally {
       setBusyId(null)
     }
@@ -239,7 +239,7 @@ export function CampaignTree({
       toast.success('Campanha duplicada', { hint: 'A cópia chega pausada — revise e ative.' })
       onMutate()
     } catch (e) {
-      toast.error('Falha ao duplicar', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao duplicar', { hint: apiErrorHint(e) })
     } finally {
       setBusyId(null)
     }
@@ -256,7 +256,7 @@ export function CampaignTree({
       setDeleteAd(null)
       onMutate()
     } catch (e) {
-      toast.error('Falha ao excluir anúncio', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao excluir anúncio', { hint: apiErrorHint(e) })
     } finally {
       setDeleting(false)
     }

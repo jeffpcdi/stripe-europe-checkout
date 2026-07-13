@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { Activity, RefreshCw, Timer, Layers, ShieldCheck, CircleAlert, Trash2 } from 'lucide-react'
-import { useOps, apiSend, fetcher } from '@/lib/api'
+import { useOps, apiSend, fetcher, apiErrorHint } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -43,7 +43,7 @@ export function RetentionPanel() {
         r.removed > 0 ? `${r.removed} entrada(s) removida(s)` : 'Nada para limpar neste log',
       )
     } catch (e) {
-      toast.error('Falha ao limpar o log', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao limpar o log', { hint: apiErrorHint(e) })
     } finally {
       setClearing(null)
     }
@@ -129,7 +129,7 @@ export function IntegrityPanel() {
       )
       mutate()
     } catch (e) {
-      toast.error('Falha ao corrigir os problemas', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao corrigir os problemas', { hint: apiErrorHint(e) })
     } finally {
       setFixing(false)
     }
@@ -209,7 +209,7 @@ export function QueueHealthPanel() {
       mutate()
     } catch (e) {
       toast.error('Falha ao forçar a fila de retry', {
-        hint: e instanceof Error ? e.message : undefined,
+        hint: apiErrorHint(e),
       })
     } finally {
       setDraining(false)

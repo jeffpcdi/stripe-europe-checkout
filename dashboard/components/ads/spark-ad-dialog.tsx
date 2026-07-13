@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Zap, Loader2 } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import { apiSend, apiErrorHint } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsGoal } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -90,7 +90,7 @@ export function SparkAdDialog({
       toast.success('Spark Ad criado', { hint: 'O vídeo entra em revisão do TikTok antes de veicular.' })
       onCreated()
     } catch (e) {
-      toast.error('Falha ao criar Spark Ad', { hint: e instanceof Error ? e.message : undefined })
+      toast.error('Falha ao criar Spark Ad', { hint: apiErrorHint(e) })
     } finally {
       setSubmitting(false)
     }
