@@ -87,8 +87,24 @@ async function ensureProfile(accountId) {
   if (profileLocks.has(accountId)) return profileLocks.get(accountId);
   const p = (async () => {
     // nome estável e identificável no painel da Zernio
+    const name = 'Painel ' + String(accountId).slice(0, 20);
+    // FIX (conexão "sumindo"): se a config local for resetada (novo deploy,
+    // pull, ambiente novo), o profileId salvo se perde — mas o profile e a
+    // SocialAccount conectada CONTINUAM existindo na Zernio. Criar um profile
+    // novo aqui órfã a conexão antiga e o painel fica preso em "Aguardando
+    // autorização" para sempre. Por isso, antes de criar, procuramos um
+    // profile existente com o mesmo nome determinístico e o reutilizamos.
+    try {
+      const existing = await api('GET', '/profiles');
+      const match = (existing.profiles || []).find((pr) => pr.name === name);
+      if (match && match._id) {
+        const cur0 = config.get(accountId);
+        config.set(accountId, { zernioAds: Object.assign({}, cur0.zernioAds, { profileId: match._id }) });
+        return match._id;
+      }
+    } catch (_) { /* lista falhou — segue para a criação */ }
     const created = await api('POST', '/profiles', {
-      body: { name: 'Painel ' + String(accountId).slice(0, 20), description: 'Criado pelo dashboard (TikTok Ads)' }
+      body: { name, description: 'Criado pelo dashboard (TikTok Ads)' }
     });
     const id = created && created.profile && created.profile._id;
     if (!id) throw new Error('Zernio não retornou o id do profile');
