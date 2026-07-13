@@ -19,6 +19,7 @@
 // Testes: test/ads-bulk-queue.test.js (espelha retry-queue.test.js).
 // ─────────────────────────────────────────────────────────────────────────────
 const redisMod = require('./redis');
+const adsOps = require('./ads-ops-store');
 
 const QUEUE = 'adsBulkQ';
 const PROC = 'adsBulkQ:proc';
@@ -171,18 +172,31 @@ function recountJob(job) {
 async function persistJob(job) {
   memJobs.set(job.accountId + ':' + job.id, job);
   if (memJobs.size > 200) {
-    // higiene: descarta os jobs mais antigos (o Redis segura a durabilidade)
+    // higiene: descarta os jobs mais antigos (Neon mantém o histórico durável)
     const oldest = [...memJobs.keys()].slice(0, 50);
     oldest.forEach((k) => memJobs.delete(k));
   }
+  if (adsOps.enabled) {
+    try { await adsOps.persistBulkSnapshot(job); } catch (err) {
+      console.error('[ads-bulk] persistJob Neon:', err.message);
+    }
+  }
   if (redisOn()) {
     try { await redis.set(jobKey(job.accountId, job.id), JSON.stringify(job), { ex: JOB_TTL_S }); } catch (err) {
-      console.error('[ads-bulk] persistJob:', err.message);
+      console.error('[ads-bulk] persistJob Redis:', err.message);
     }
   }
 }
 
 async function createBulkJob(accountId, { kind, adAccountId, items, meta }) {
+  const idempotencyKey = String(meta && meta.idempotencyKey || '').trim().slice(0, 200);
+  if (idempotencyKey && adsOps.enabled) {
+    const existing = await adsOps.findJobByIdempotencyKey(accountId, idempotencyKey);
+    if (existing) {
+      const restored = await getBulkJob(accountId, existing.id);
+      if (restored) return restored;
+    }
+  }
   const job = {
     id: 'bj' + randId(),
     accountId,
@@ -203,6 +217,17 @@ async function createBulkJob(accountId, { kind, adAccountId, items, meta }) {
 async function getBulkJob(accountId, jobId) {
   const hit = memJobs.get(accountId + ':' + jobId);
   if (hit) return hit;
+  if (adsOps.enabled) {
+    try {
+      const job = await adsOps.getBulkSnapshot(accountId, jobId);
+      if (job) {
+        memJobs.set(accountId + ':' + jobId, job);
+        return job;
+      }
+    } catch (err) {
+      console.error('[ads-bulk] getBulkJob Neon:', err.message);
+    }
+  }
   if (redisOn()) {
     try {
       const raw = await redis.get(jobKey(accountId, jobId));

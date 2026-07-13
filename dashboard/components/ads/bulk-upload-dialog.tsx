@@ -156,14 +156,18 @@ export function BulkUploadDialog({
       if (body.trim()) common.body = body.trim()
       if (goal === 'conversions') common.pixelId = pixelId.trim()
 
+      const idempotencyKey = `bulk:${advertiserId}:${Date.now()}:${items.map((item) => item.key).join(',')}`
       const res = await apiSend<AdsBulkStartResponse>('/api/ads/bulk', 'POST', {
         adAccountId: advertiserId,
+        idempotencyKey,
         common,
         items: items.map((it) => ({ name: it.name.trim(), videoUrl: it.videoUrl })),
       })
       setJobId(res.jobId)
-      toast.info(`Lote enfileirado: ${res.total} anúncio(s)`, {
-        hint: 'A fila cria um por vez respeitando o rate limit do TikTok.',
+      toast.info(res.dryRun ? `Simulação concluída: ${res.total} anúncio(s)` : `Lote enfileirado: ${res.total} anúncio(s)`, {
+        hint: res.dryRun
+          ? 'Nenhuma campanha foi publicada porque a política está em modo de simulação.'
+          : 'A fila cria um por vez respeitando o rate limit do TikTok.',
       })
     } catch (e) {
       toast.error('Falha ao iniciar o lote', { hint: e instanceof Error ? e.message : undefined })
