@@ -302,7 +302,7 @@ export function CampaignTree({
           {typeof pagination?.total === 'number' && (
             <span className="text-[11px] text-muted-foreground">
               {pagination.total} campanha{pagination.total === 1 ? '' : 's'}
-              {tree?.aggregated ? ` · ${tree.advertiserCount ?? 0} conta${(tree.advertiserCount ?? 0) === 1 ? '' : 's'}` : ''}
+              {tree?.aggregated ? ' · todas as contas' : ''}
             </span>
           )}
           {onRangeDays && (
