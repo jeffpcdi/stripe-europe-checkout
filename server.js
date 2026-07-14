@@ -4120,6 +4120,11 @@ app.post('/api/conversion/quarantine/resolve', dashboardAuth, async (req, res) =
 // ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
 // script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
 // editar um pixel (arquivo em pixels/ ou painel) atualiza todas as p��ginas.
+// Snippet oficial (stub) do ttq — idempotente: reaproveita window.ttq se já
+// existir. Usado tanto no snippet NATIVO inline (recomendado no <head>) quanto
+// como fallback nos scripts servidos por nós, para instalações de tag única.
+const TTQ_STUB = '!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)}}(window,document,"ttq");';
+
 app.get('/px.js', (req, res) => {
   res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
   // rota da página que pediu o script (Referer) — decide QUAIS pixels carregar
@@ -4145,16 +4150,18 @@ app.get('/px.js', (req, res) => {
   }
 
   const js = [
-    // lib oficial ttq (stub assíncrono)
-    '!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)}}(window,document,"ttq");',
-    // carrega TODOS os pixels ativos desta rota
-    pixels.map((px) => 'ttq.load(' + JSON.stringify(px.pixelCode) + ');').join('\n'),
+    // Resiliência: só inicializa/carrega o ttq se ele ainda NÃO existir. Em
+    // instalações de duas partes o snippet nativo já está no <head> e este
+    // bloco é pulado — o pixel nativo funciona mesmo que ESTE script (servido
+    // pelo nosso domínio) não carregue. Fallback para instalações de tag única.
+    'if(!window.ttq){' + TTQ_STUB + '\n' +
+      pixels.map((px) => 'ttq.load(' + JSON.stringify(px.pixelCode) + ');').join('') +
+      'ttq.page();}',
     // identidade: external_id = hash do id único do lead (igual ao servidor)
-    extId ? 'ttq.identify({external_id:' + JSON.stringify(extId) + '});' : '',
-    'ttq.page();',
+    extId ? 'window.ttq.identify({external_id:' + JSON.stringify(extId) + '});' : '',
     // eventos com event_id determinístico + espelho server-side via beacon
     evs.map((e) =>
-      'ttq.track(' + JSON.stringify(e.n) + ',{},{event_id:' + JSON.stringify(e.id) + '});'
+      'window.ttq.track(' + JSON.stringify(e.n) + ',{},{event_id:' + JSON.stringify(e.id) + '});'
     ).join('\n'),
     // beacon: o servidor re-dispara via CAPI com o MESMO event_id (dedup),
     // acrescentando ip/ua/ttclid/_ttp — o sinal mais completo possível
@@ -4197,12 +4204,13 @@ app.get('/px/:token.js', (req, res) => {
   }
 
   const js = [
-    '!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)}}(window,document,"ttq");',
-    'ttq.load(' + JSON.stringify(px.pixelCode) + ');',
-    extId ? 'ttq.identify({external_id:' + JSON.stringify(extId) + '});' : '',
-    'ttq.page();',
+    // Resiliência (ver /px.js): não recarrega o ttq se o snippet nativo inline
+    // já o inicializou no <head>. Se o snippet nativo estiver presente, ele
+    // segue funcionando mesmo que ESTE script não carregue.
+    'if(!window.ttq){' + TTQ_STUB + 'ttq.load(' + JSON.stringify(px.pixelCode) + ');ttq.page();}',
+    extId ? 'window.ttq.identify({external_id:' + JSON.stringify(extId) + '});' : '',
     evs.map((e) =>
-      'ttq.track(' + JSON.stringify(e.n) + ',{},{event_id:' + JSON.stringify(e.id) + '});'
+      'window.ttq.track(' + JSON.stringify(e.n) + ',{},{event_id:' + JSON.stringify(e.id) + '});'
     ).join('\n'),
     // beacon → espelho server-side (CAPI) apontando para ESTE pixel (token)
     'try{',
@@ -4284,7 +4292,21 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
     hasToken: !!p.accessToken,
     // script individual deste pixel (estilo Xtracky): cole em qualquer página
     scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,
-    scriptTag: p.token ? '<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null
+    // Instalação em DUAS PARTES (resiliência): o snippet nativo da TikTok vai
+    // inline no <head> e NÃO depende do nosso servidor — se o nosso domínio
+    // cair, o pixel nativo continua disparando. O nosso script (com defer)
+    // apenas enriquece (external_id) e espelha via CAPI; ele detecta o ttq já
+    // carregado e não o recarrega. Degradação graciosa em vez de perda total.
+    scriptTagNative: p.pixelCode
+      ? '<!-- 1) TikTok Pixel (nativo) — cole no <head>, funciona mesmo se nosso servidor cair -->\n<script>\n' + TTQ_STUB + '\nttq.load(' + JSON.stringify(p.pixelCode) + ');\nttq.page();\n</script>'
+      : null,
+    scriptTagEnrich: p.token
+      ? '<!-- 2) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
+      : null,
+    // Compatibilidade: scriptTag agora entrega o bloco COMPLETO (as duas partes).
+    scriptTag: p.token && p.pixelCode
+      ? '<!-- 1) TikTok Pixel (nativo) — cole no <head>, funciona mesmo se nosso servidor cair -->\n<script>\n' + TTQ_STUB + '\nttq.load(' + JSON.stringify(p.pixelCode) + ');\nttq.page();\n</script>\n\n<!-- 2) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
+      : (p.token ? '<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null)
   }));
   // Item 6: snippet BASE do loader (dispara para todos os pixels da conta) e
   // orientação clara — eventos de pagamento exigem gateway, nunca o navegador.
@@ -4495,7 +4517,7 @@ async function buscarPaginaSegura(rawUrl) {
     }
     return { html, finalUrl: u.href };
   }
-  return { error: 'a página redirecionou demais' };
+  return { error: 'a p��gina redirecionou demais' };
 }
 
 app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
