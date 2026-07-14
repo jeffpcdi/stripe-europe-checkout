@@ -79,6 +79,7 @@ function HeroKpi({
   value,
   dim,
   sensitive,
+  sub,
 }: {
   label: string
   value: React.ReactNode
@@ -86,6 +87,8 @@ function HeroKpi({
   dim?: boolean
   /** true = borrado no modo apresentação */
   sensitive?: boolean
+  /** Linha secundária discreta (ex.: receita em outras moedas). */
+  sub?: React.ReactNode
 }) {
   return (
     <div className="min-w-0">
@@ -100,6 +103,14 @@ function HeroKpi({
       >
         {value}
       </p>
+      {sub ? (
+        <p
+          className="mt-1.5 whitespace-nowrap font-mono text-[11px] font-medium leading-none tabular-nums text-white/45"
+          {...(sensitive ? { 'data-sensitive': true } : {})}
+        >
+          {sub}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -238,6 +249,13 @@ export function OverviewView() {
   }
 
   const revCents = cur.rev[cur.mainCur] || 0
+  // Receita em OUTRAS moedas (além da dominante). Sem isto o card mostrava só a
+  // moeda principal e escondia, por ex., uma venda em BRL — o que fazia a receita
+  // "parecer travada" ao trocar de período quando a diferença era noutra moeda.
+  // Não somamos moedas diferentes (câmbio distinto): listamos cada uma.
+  const otherRev = Object.entries(cur.rev)
+    .filter(([c, v]) => c !== cur.mainCur && v > 0)
+    .sort((a, b) => b[1] - a[1])
   const attempts = cur.sales + cur.failed
   const hasGeo = cur.countries.length > 0
   const hasSources = cur.topCampaigns.length > 0 || cur.topLinks.length > 0
@@ -303,6 +321,11 @@ export function OverviewView() {
               dim={revCents === 0}
               sensitive
               value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
+              sub={
+                otherRev.length
+                  ? '+ ' + otherRev.map(([c, v]) => money(v, c)).join('  +  ')
+                  : undefined
+              }
             />
             <HeroKpi
               label="Gasto"
