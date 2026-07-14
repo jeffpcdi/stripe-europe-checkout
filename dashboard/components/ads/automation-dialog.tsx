@@ -281,6 +281,7 @@ export function AutomationDialog({
                     )}
 
                     {r.metric !== 'schedule' &&
+                      r.metric !== 'roas_scale' &&
                       (r.action === 'pause' ? (
                         <label className="flex flex-col gap-1">
                           <span className="text-[11px] text-muted-foreground">Janela (dias)</span>

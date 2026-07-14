@@ -75,6 +75,16 @@ export function KpiRow({
   const { data: kpis } = useAdsKpis(active, adAccountId, { fromDate, toDate })
   const deltas = kpis?.deltas
 
+  // Valores: preferem os totais do backend (advertiser INTEIRO no período,
+  // mesma base dos deltas — sem "US$ 0,00 com +300%" quando o filtro de
+  // status esconde campanhas). Fallback: agregado local da página da árvore.
+  const cur = kpis?.current
+  const spend = cur?.spend ?? kpi.spend
+  const impressions = cur?.impressions ?? kpi.impressions
+  const clicks = cur?.clicks ?? kpi.clicks
+  const ctr = cur?.ctr ?? kpi.ctr
+  const cpm = cur?.cpm ?? kpi.cpm
+
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '0ms' }}>
@@ -85,7 +95,7 @@ export function KpiRow({
               <Delta value={deltas?.spend} />
             </div>
             <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
-              <CountUp value={kpi.spend} format={(v) => fmtSpend(v, currency)} />
+              <CountUp value={spend} format={(v) => fmtSpend(v, currency)} />
             </p>
           </div>
           {kpi.spendSeries.length > 1 && (
@@ -99,7 +109,7 @@ export function KpiRow({
           <Delta value={deltas?.impressions} />
         </div>
         <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
-          <CountUp value={kpi.impressions} format={fmtCompact} />
+          <CountUp value={impressions} format={fmtCompact} />
         </p>
       </GlassCard>
       <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '80ms' }}>
@@ -108,9 +118,11 @@ export function KpiRow({
           <Delta value={deltas?.ctr} />
         </div>
         <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
-          <CountUp value={kpi.ctr} format={(v) => fmtPercent(v)} />
+          <CountUp value={ctr} format={(v) => fmtPercent(v)} />
         </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">{fmtCompact(kpi.clicks)} cliques</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          {fmtCompact(clicks)} clique{clicks === 1 ? '' : 's'}
+        </p>
       </GlassCard>
       <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '120ms' }}>
         <div className="flex items-center gap-2">
@@ -119,7 +131,7 @@ export function KpiRow({
           <Delta value={deltas?.cpm} goodWhenUp={false} />
         </div>
         <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
-          <CountUp value={kpi.cpm} format={(v) => fmtSpend(v, currency)} />
+          <CountUp value={cpm} format={(v) => fmtSpend(v, currency)} />
         </p>
         <p className="mt-0.5 text-[11px] text-muted-foreground">
           {kpi.activeCount} campanha{kpi.activeCount === 1 ? '' : 's'} ativa{kpi.activeCount === 1 ? '' : 's'}
