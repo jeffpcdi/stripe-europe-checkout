@@ -717,6 +717,9 @@ function GatewayEditor({
   const [provider, setProvider] = useState(gateway?.provider ?? providers[0]?.id ?? 'generic')
   const [name, setName] = useState(gateway?.name ?? '')
   const [secret, setSecret] = useState('')
+  // Valor já em centavos: alguns checkouts (ex.: Cooud) mandam amount:9500
+  // para €95,00. Sem esta flag o backend multiplica por 100 → €9.500,00.
+  const [amountInCents, setAmountInCents] = useState(gateway?.amountInCents ?? false)
   // Item 103: revelar/ocultar o que está sendo digitado no campo do segredo
   const [showSecret, setShowSecret] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -735,6 +738,8 @@ function GatewayEditor({
         provider,
         name: name.trim() || undefined,
         secret: secret.trim() || undefined,
+        // merge-patch no backend: só esta chave muda, outras configs ficam
+        config: { amountInCents },
       })
       onSaved()
     } catch (e) {
@@ -811,6 +816,23 @@ function GatewayEditor({
                 Este gateway já tem um segredo salvo — deixe em branco para manter ou cole um novo para substituir.
               </span>
             )}
+          </label>
+
+          {/* Valor já em centavos — evita o clássico €95,00 → €9.500,00 */}
+          <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/40 px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={amountInCents}
+              onChange={(e) => setAmountInCents(e.target.checked)}
+              className="mt-0.5 size-4 accent-[color:var(--brand-cyan)]"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-xs font-medium text-foreground">Valor já vem em centavos</span>
+              <span className="text-[11px] leading-relaxed text-muted-foreground">
+                Marque se o gateway envia <code className="font-mono">amount: 9500</code> para uma venda de
+                €95,00. Se as vendas aparecem 100× maiores no painel (ex.: €9.500 em vez de €95), é isso.
+              </span>
+            </span>
           </label>
 
           {prov?.docs && (
