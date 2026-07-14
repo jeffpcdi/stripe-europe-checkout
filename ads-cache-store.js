@@ -410,6 +410,41 @@ async function listSyncStates(accountId) {
   return sql`SELECT advertiser_id, status, last_synced_at, last_full_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, requested_at FROM ads_sync_state WHERE account_id = ${accountId} ORDER BY last_synced_at DESC NULLS LAST`;
 }
 
+// Classifica um ID (campanha | ad group | anúncio) consultando o espelho da
+// estrutura. Orçamento no TikTok vive em campanha OU ad group, nunca no anúncio
+// — o PUT de orçamento usa isto p/ rotear ao tool certo sem tocar no front.
+// Retorna { type, advertiserId, campaignId } ou null se o ID não está no cache.
+// advertiserId é opcional: se omitido, procura em TODOS os advertisers da conta
+// (o front não passa o advertiser no PUT/DELETE de entidade) e devolve o dono.
+async function classifyEntity(accountId, advertiserId, entityId) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = String(advertiserId || '').trim();
+  entityId = String(entityId || '').trim();
+  if (!enabled || !entityId) return null;
+  await ensureSchema();
+  const rows = advertiserId
+    ? await sql`SELECT advertiser_id, data FROM ads_campaigns_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}`
+    : await sql`SELECT advertiser_id, data FROM ads_campaigns_cache WHERE account_id = ${accountId}`;
+  for (const r of rows) {
+    const adv = String(r.advertiser_id || '');
+    const c = r.data || {};
+    if (String(c.platformCampaignId || '') === entityId) {
+      return { type: 'campaign', advertiserId: adv, campaignId: entityId };
+    }
+    for (const g of (c.adSets || [])) {
+      if (String(g.platformAdSetId || '') === entityId) {
+        return { type: 'adgroup', advertiserId: adv, campaignId: String(c.platformCampaignId || ''), adGroupId: entityId };
+      }
+      for (const a of (g.ads || [])) {
+        if (String(a.platformAdId || '') === entityId) {
+          return { type: 'ad', advertiserId: adv, campaignId: String(c.platformCampaignId || ''), adGroupId: String(g.platformAdSetId || ''), adId: entityId };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 module.exports = {
   enabled,
   ensureSchema,
@@ -422,4 +457,5 @@ module.exports = {
   touchActivity,
   listActiveAdvertisers,
   listSyncStates,
+  classifyEntity,
 };

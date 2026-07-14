@@ -216,10 +216,20 @@ function start() {
 
 function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
+// Após uma ESCRITA (pausar/ativar/orçamento), o espelho fica defasado. Isto
+// força um sync imediato da conta (sem throttle) p/ a dashboard refletir a
+// mudança. Best-effort e não-bloqueante: a rota já respondeu ao usuário.
+function syncAfterWrite(accountId, advertiserId) {
+  advertiserId = String(advertiserId || '').trim();
+  if (!cache.enabled || !provider.enabled || !advertiserId) return;
+  dedupSync(accountId, advertiserId).catch((e) => console.warn('[ads-sync] sync pós-escrita falhou:', e.message));
+}
+
 module.exports = {
   syncAdvertiser,
   ensureFresh,
   refreshNow,
+  syncAfterWrite,
   start,
   stop,
   tick,

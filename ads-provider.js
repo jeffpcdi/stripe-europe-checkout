@@ -549,6 +549,100 @@ async function getDashboardTree(accountId, opts = {}) {
   return Object.assign({}, base, { campaigns: campaigns, pagination: Object.assign({}, base.pagination, { total: campaigns.length }) });
 }
 
+// ══ Escrita / mutações (Gate 4) ══════════════════════════════════════════════
+// A dashboard fala 'active'|'paused'|'deleted' e budget {amount,type}. O TikTok
+// fala operation_status (ENABLE|DISABLE|DELETE) e budget_mode. Traduzimos aqui,
+// mantendo a fronteira: rotas nunca montam payload de plataforma na mão.
+function badRequest(msg, status) {
+  const e = new Error(msg);
+  e.status = status || 400;
+  return e;
+}
+
+// 'active'|'paused'|'deleted' (+ sinônimos) → ENABLE|DISABLE|DELETE.
+function toOperationStatus(status) {
+  const s = String(status || '').toLowerCase();
+  if (['active', 'enable', 'enabled', 'resume', 'resumed'].includes(s)) return 'ENABLE';
+  if (['paused', 'pause', 'disable', 'disabled'].includes(s)) return 'DISABLE';
+  if (['deleted', 'delete', 'cancel', 'cancelled'].includes(s)) return 'DELETE';
+  return null;
+}
+
+// 'daily'|'lifetime' → BUDGET_MODE_DAY|BUDGET_MODE_TOTAL.
+function toBudgetMode(type) {
+  return String(type || '').toLowerCase() === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY';
+}
+
+function normIds(ids, max) {
+  const arr = (Array.isArray(ids) ? ids : [ids]).map((x) => String(x || '').trim().slice(0, 60)).filter(Boolean);
+  return arr.slice(0, max || 50);
+}
+
+// Status em lote — campanhas.
+async function setCampaignStatus(advertiserId, campaignIds, status) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const op = toOperationStatus(status);
+  if (!op) throw badRequest('status deve ser active, paused ou deleted');
+  const ids = normIds(campaignIds);
+  if (!ids.length) throw badRequest('Nenhuma campanha informada');
+  return pipeboard.callTool('update_tiktok_campaign_status', { advertiser_id: adv, campaign_ids: ids, operation_status: op });
+}
+
+// Status em lote — ad groups.
+async function setAdGroupStatus(advertiserId, adGroupIds, status) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const op = toOperationStatus(status);
+  if (!op) throw badRequest('status deve ser active, paused ou deleted');
+  const ids = normIds(adGroupIds);
+  if (!ids.length) throw badRequest('Nenhum ad group informado');
+  return pipeboard.callTool('update_tiktok_adgroup_status', { advertiser_id: adv, adgroup_ids: ids, operation_status: op });
+}
+
+// Status em lote — anúncios.
+async function setAdStatus(advertiserId, adIds, status) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const op = toOperationStatus(status);
+  if (!op) throw badRequest('status deve ser active, paused ou deleted');
+  const ids = normIds(adIds);
+  if (!ids.length) throw badRequest('Nenhum anúncio informado');
+  return pipeboard.callTool('update_tiktok_ad_status', { advertiser_id: adv, ad_ids: ids, operation_status: op });
+}
+
+// Atualiza campanha (orçamento e/ou nome). budget: {amount,type}.
+async function updateCampaign(advertiserId, campaignId, patch) {
+  const adv = String(advertiserId || '').trim();
+  const cid = String(campaignId || '').trim();
+  if (!adv || !cid) throw badRequest('advertiserId e campaignId são obrigatórios');
+  const args = { advertiser_id: adv, campaign_id: cid };
+  const p = patch || {};
+  if (p.name) args.campaign_name = String(p.name).slice(0, 512);
+  if (p.budget && Number(p.budget.amount) > 0) {
+    args.budget = Number(p.budget.amount);
+    args.budget_mode = toBudgetMode(p.budget.type);
+  }
+  if (args.campaign_name === undefined && args.budget === undefined) throw badRequest('Nada para atualizar');
+  return pipeboard.callTool('update_tiktok_campaign', args);
+}
+
+// Atualiza ad group (orçamento e/ou nome).
+async function updateAdGroup(advertiserId, adGroupId, patch) {
+  const adv = String(advertiserId || '').trim();
+  const gid = String(adGroupId || '').trim();
+  if (!adv || !gid) throw badRequest('advertiserId e adGroupId são obrigatórios');
+  const args = { advertiser_id: adv, adgroup_id: gid };
+  const p = patch || {};
+  if (p.name) args.adgroup_name = String(p.name).slice(0, 512);
+  if (p.budget && Number(p.budget.amount) > 0) {
+    args.budget = Number(p.budget.amount);
+    args.budget_mode = toBudgetMode(p.budget.type);
+  }
+  if (args.adgroup_name === undefined && args.budget === undefined) throw badRequest('Nada para atualizar');
+  return pipeboard.callTool('update_tiktok_adgroup', args);
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -570,10 +664,16 @@ module.exports = {
   getDashboardTree,
   // insights
   getInsights,
+  // escrita (Gate 4)
+  setCampaignStatus,
+  setAdGroupStatus,
+  setAdStatus,
+  updateCampaign,
+  updateAdGroup,
   // cache
   cacheBust,
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode },
 };

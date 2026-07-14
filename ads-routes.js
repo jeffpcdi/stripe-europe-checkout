@@ -671,117 +671,137 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // ── Pausar/ativar campanhas em lote ───────────────────────────────────────
   app.post('/api/ads/campaigns/bulk-status', dashboardAuth, async (req, res) => {
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       const b = req.body || {};
       const status = b.status === 'paused' ? 'paused' : b.status === 'active' ? 'active' : '';
       if (!status) return res.status(400).json({ error: 'status deve ser active ou paused' });
-      const campaigns = (Array.isArray(b.campaigns) ? b.campaigns : []).slice(0, 50)
-        .map((c) => ({ platformCampaignId: String((c || {}).platformCampaignId || '').slice(0, 60), platform: 'tiktok' }))
-        .filter((c) => c.platformCampaignId);
-      if (!campaigns.length) return res.status(400).json({ error: 'Nenhuma campanha informada' });
-      // dry-run: não toca a Zernio. Mesma forma de resposta ({ totals }) que a
-      // UI lê, com os itens marcados como simulados.
+      const ids = (Array.isArray(b.campaigns) ? b.campaigns : []).slice(0, 50)
+        .map((c) => String((c || {}).platformCampaignId || '').slice(0, 60)).filter(Boolean);
+      if (!ids.length) return res.status(400).json({ error: 'Nenhuma campanha informada' });
+      // advertiser: do corpo (adAccountId) ou o resolvido no token
+      const advertiserId = b.adAccountId ? String(b.adAccountId).trim() : await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+      // dry-run: não toca o Pipeboard. Mesma forma de resposta ({ totals }).
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
-          action: 'campaign_status', targetType: 'campaign', advertiserId: st.advertiserId,
-          metadata: { status, count: campaigns.length, campaignIds: campaigns.map((c) => c.platformCampaignId) },
-          title: (status === 'paused' ? 'Pausar' : 'Ativar') + ' ' + campaigns.length + ' campanha(s)'
+          action: 'campaign_status', targetType: 'campaign', advertiserId,
+          metadata: { status, count: ids.length, campaignIds: ids },
+          title: (status === 'paused' ? 'Pausar' : 'Ativar') + ' ' + ids.length + ' campanha(s)'
         });
-        return res.json({ dryRun: true, simulated: campaigns.length, totals: { updated: 0, skipped: campaigns.length, failed: 0 } });
+        return res.json({ dryRun: true, simulated: ids.length, totals: { updated: 0, skipped: ids.length, failed: 0 } });
       }
-      const data = await zernio.api('POST', '/ads/campaigns/bulk-status', { body: { status, campaigns } });
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'Campanhas TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + campaigns.length });
-      res.json(data);
+      await pipeboard.setCampaignStatus(advertiserId, ids, status);
+      adsSync.syncAfterWrite(req.account.id, advertiserId); // reflete no espelho
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanhas TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + ids.length });
+      res.json({ ok: true, totals: { updated: ids.length, skipped: 0, failed: 0 } });
     } catch (err) { fail(res, err); }
   });
 
-  // ── Duplicar campanha (cópia nasce pausada) ───────────────────────────────
+  // ── Duplicar campanha ─────────────────────────────────────────────────────
+  // ADIADO na migração p/ Pipeboard: o provider não expõe uma tool de "duplicar"
+  // (o zernio fazia deep-copy nativo). Reconstruir via create_* + re-upload de
+  // vídeo é um gate próprio. Até lá, respondemos 501 com mensagem clara — a UI
+  // desabilita o botão e mostra este texto.
   app.post('/api/ads/campaigns/:id/duplicate', dashboardAuth, async (req, res) => {
-    try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
-      const sourceId = String(req.params.id || '');
-      // dry-run: não duplica de verdade.
-      if (await isDryRun(req.account.id)) {
-        await auditSimulated(req.account.id, {
-          action: 'campaign_duplicate', targetType: 'campaign', targetId: sourceId, advertiserId: st.advertiserId,
-          title: 'Duplicar campanha ' + sourceId
-        });
-        return res.json({ dryRun: true, simulated: true, sourceId });
-      }
-      const id = encodeURIComponent(sourceId);
-      const data = await zernio.api('POST', '/ads/campaigns/' + id + '/duplicate', {
-        body: { platform: 'tiktok', deepCopy: true, statusOption: 'PAUSED', renameStrategy: 'ONLY_TOP_LEVEL_RENAME', renameSuffix: ' (cópia)' },
-        timeoutMs: 120000
-      });
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'Campanha TikTok duplicada', ref: sourceId });
-      res.json(data);
-    } catch (err) { fail(res, err); }
+    return res.status(501).json({
+      error: 'Duplicar campanha está temporariamente indisponível nesta versão. Crie uma nova campanha manualmente ou aguarde a próxima atualização.',
+      code: 'DUPLICATE_UNSUPPORTED',
+    });
   });
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
   const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs']);
 
-  // ── Atualizar um anúncio (status/budget/creative) ─────────────────────────
+  // ── Atualizar uma entidade (status/budget) ────────────────────────────────
+  // O :adId pode ser campanha, ad group ou anúncio. Classificamos no espelho
+  // (Neon) e roteamos ao tool certo do Pipeboard:
+  //   - status  → update_tiktok_{campaign|adgroup|ad}_status
+  //   - budget  → só campanha/ad group (o TikTok não tem orçamento em anúncio);
+  //               se o ID for um anúncio, aplicamos no AD GROUP dono — que é o
+  //               que o front pretende (envia o 1º anúncio do grupo).
   app.put('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
     if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       const b = req.body || {};
-      const payload = {};
-      if (['active', 'paused'].includes(b.status)) payload.status = b.status;
-      if (b.budget && Number(b.budget.amount) > 0) {
-        payload.budget = { amount: Number(b.budget.amount), type: b.budget.type === 'lifetime' ? 'lifetime' : 'daily' };
-      }
+      const entityId = String(req.params.adId || '');
+      const wantStatus = ['active', 'paused'].includes(b.status) ? b.status : null;
+      const wantBudget = b.budget && Number(b.budget.amount) > 0
+        ? { amount: Number(b.budget.amount), type: b.budget.type === 'lifetime' ? 'lifetime' : 'daily' } : null;
       if (b.creative && typeof b.creative === 'object') {
-        const c = {};
-        if (typeof b.creative.body === 'string' && b.creative.body.trim()) c.body = b.creative.body.trim().slice(0, 100);
-        if (/^https?:\/\//.test(String(b.creative.linkUrl || ''))) c.linkUrl = String(b.creative.linkUrl).trim().slice(0, 500);
-        if (/^https:\/\//.test(String(b.creative.videoUrl || ''))) c.videoUrl = String(b.creative.videoUrl).trim().slice(0, 500);
-        if (Object.keys(c).length) payload.creative = c;
+        // Edição de criativo depende de re-upload/asset ids no Pipeboard — adiado
+        // junto com a duplicação. Não silenciamos: avisamos o front.
+        return res.status(501).json({ error: 'Editar o criativo de um anúncio existente está temporariamente indisponível.', code: 'CREATIVE_EDIT_UNSUPPORTED' });
       }
-      if (!Object.keys(payload).length) return res.status(400).json({ error: 'Nada para atualizar' });
-      const adId = String(req.params.adId || '');
-      // dry-run: cobre orçamento/bid/status/creative — nada chega ao TikTok.
+      if (!wantStatus && !wantBudget) return res.status(400).json({ error: 'Nada para atualizar' });
+
+      // classifica no espelho (advertiser resolvido junto)
+      const hint = String(b.adAccountId || '').trim() || undefined;
+      const ent = await adsCache.classifyEntity(req.account.id, hint, entityId);
+      if (!ent) return res.status(404).json({ error: 'Entidade não encontrada no espelho. Atualize a árvore e tente de novo.' });
+      const advertiserId = ent.advertiserId;
+
+      // orçamento em anúncio → aplica no ad group dono
+      const budgetTarget = wantBudget
+        ? (ent.type === 'campaign' ? { kind: 'campaign', id: ent.campaignId } : { kind: 'adgroup', id: ent.type === 'ad' ? ent.adGroupId : ent.adGroupId || entityId })
+        : null;
+      if (wantBudget && (!budgetTarget || !budgetTarget.id)) {
+        return res.status(422).json({ error: 'Não foi possível resolver o ad group/campanha para aplicar o orçamento.' });
+      }
+
+      const applied = {};
+      if (wantStatus) applied.status = { level: ent.type, id: entityId, value: wantStatus };
+      if (wantBudget) applied.budget = { level: budgetTarget.kind, id: budgetTarget.id, amount: wantBudget.amount, type: wantBudget.type };
+
+      // dry-run: nada chega ao TikTok.
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
-          action: 'ad_update', targetType: 'ad', targetId: adId, advertiserId: st.advertiserId,
-          metadata: { applied: payload }, title: 'Atualizar anúncio ' + adId
+          action: 'entity_update', targetType: ent.type, targetId: entityId, advertiserId,
+          metadata: { applied }, title: 'Atualizar ' + ent.type + ' ' + entityId
         });
-        return res.json({ dryRun: true, simulated: true, id: adId, applied: payload });
+        return res.json({ dryRun: true, simulated: true, id: entityId, applied });
       }
-      const id = encodeURIComponent(adId);
-      const data = await zernio.api('PUT', '/ads/' + id, { body: payload, timeoutMs: 120000 });
-      zernio.cacheBust('tree:' + req.account.id);
-      res.json(data);
+
+      if (wantStatus) {
+        if (ent.type === 'campaign') await pipeboard.setCampaignStatus(advertiserId, [entityId], wantStatus);
+        else if (ent.type === 'adgroup') await pipeboard.setAdGroupStatus(advertiserId, [entityId], wantStatus);
+        else await pipeboard.setAdStatus(advertiserId, [entityId], wantStatus);
+      }
+      if (wantBudget) {
+        if (budgetTarget.kind === 'campaign') await pipeboard.updateCampaign(advertiserId, budgetTarget.id, { budget: wantBudget });
+        else await pipeboard.updateAdGroup(advertiserId, budgetTarget.id, { budget: wantBudget });
+      }
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Entidade TikTok atualizada (' + ent.type + ')', ref: entityId });
+      res.json({ ok: true, id: entityId, applied });
     } catch (err) { fail(res, err); }
   });
 
-  // ── Cancelar um anúncio (preservado para histórico) ───────────────────────
+  // ── Cancelar/excluir um anúncio ───────────────────────────────────────────
   app.delete('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
     if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       const adId = String(req.params.adId || '');
-      // dry-run: não cancela de verdade.
+      const hint = String((req.body || {}).adAccountId || '').trim() || undefined;
+      const ent = await adsCache.classifyEntity(req.account.id, hint, adId);
+      if (!ent) return res.status(404).json({ error: 'Entidade não encontrada no espelho. Atualize a árvore e tente de novo.' });
+      const advertiserId = ent.advertiserId;
+      // dry-run: não exclui de verdade.
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
-          action: 'ad_delete', targetType: 'ad', targetId: adId, advertiserId: st.advertiserId,
-          title: 'Cancelar anúncio ' + adId
+          action: 'entity_delete', targetType: ent.type, targetId: adId, advertiserId,
+          title: 'Excluir ' + ent.type + ' ' + adId
         });
         return res.json({ dryRun: true, simulated: true, id: adId });
       }
-      const id = encodeURIComponent(adId);
-      const data = await zernio.api('DELETE', '/ads/' + id);
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('warn', { acc: req.account.id, title: 'Anúncio TikTok cancelado', ref: adId });
-      res.json(data);
+      if (ent.type === 'campaign') await pipeboard.setCampaignStatus(advertiserId, [adId], 'deleted');
+      else if (ent.type === 'adgroup') await pipeboard.setAdGroupStatus(advertiserId, [adId], 'deleted');
+      else await pipeboard.setAdStatus(advertiserId, [adId], 'deleted');
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      stats.logEvent('warn', { acc: req.account.id, title: ent.type + ' TikTok excluído', ref: adId });
+      res.json({ ok: true, id: adId });
     } catch (err) { fail(res, err); }
   });
 
@@ -1616,60 +1636,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Duplicação (1 ou N cópias; mesma conta ou outra conta do BC) ──────────
-  // Mesma conta → endpoint de duplicate da Zernio. Outra conta → reconstrução
-  // (lê a origem e recria via /ads/create). Tudo passa pela MESMA fila do bulk.
+  // ── Duplicação (1 ou N cópias) ────────────────────────────────────────────
+  // ADIADO na migração p/ Pipeboard: sem tool nativa de duplicar; reconstruir
+  // via create_* + re-upload de vídeo é um gate próprio (junto do Gate 5 de
+  // criação). Até lá respondemos 501 — a UI (duplicate-dialog) mostra o aviso.
   app.post('/api/ads/duplicate', dashboardAuth, async (req, res) => {
-    try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
-      const b = req.body || {};
-      const sourceType = b.sourceType === 'campaign' ? 'campaign' : '';
-      if (!sourceType) return res.status(400).json({ error: 'sourceType deve ser "campaign"' });
-      const sourceId = String(b.sourceId || '').trim().slice(0, 60);
-      if (!sourceId) return res.status(400).json({ error: 'sourceId obrigatório' });
-      const sourceAdAccountId = String(b.sourceAdAccountId || '').trim().slice(0, 60);
-      const targetAdAccountId = String(b.targetAdAccountId || '').trim().slice(0, 60);
-      await requireAdvertiser(req.account.id, st, sourceAdAccountId, b.businessCenterId);
-      const target = await requireAdvertiser(req.account.id, st, targetAdAccountId, b.businessCenterId);
-      const idempotencyKey = String(b.idempotencyKey || '').trim().slice(0, 200);
-      if (!idempotencyKey) return res.status(400).json({ error: 'idempotencyKey obrigatória' });
-      const policy = await adsOps.getSafetyPolicy(req.account.id);
-      const guard = adsOps.assertMutationAllowed(policy, { advertiserId: target.advertiserId, idempotencyKey });
-      const count = Math.max(1, Math.min(10, parseInt(b.count, 10) || 1));
-      const nameSuffix = String(b.nameSuffix || ' (cópia)').slice(0, 60);
-      const crossAccount = targetAdAccountId && targetAdAccountId !== sourceAdAccountId;
-
-      const items = [];
-      for (let i = 0; i < count; i++) {
-        const suffix = count > 1 ? nameSuffix + ' ' + (i + 1) : nameSuffix;
-        items.push({
-          ref: 'Cópia ' + (i + 1) + ' de ' + sourceId,
-          task: crossAccount
-            ? { kind: 'duplicate_cross', sourceId, sourceAdAccountId, targetAdAccountId, renameSuffix: suffix }
-            : { kind: 'duplicate_same', sourceId, renameSuffix: suffix }
-        });
-      }
-      const job = await bulk.createBulkJob(req.account.id, {
-        kind: 'duplicate', adAccountId: target.advertiserId,
-        items: items.map((t) => ({ ref: t.ref })),
-        meta: { sourceId, crossAccount, idempotencyKey, dryRun: guard.dryRun }
-      });
-      if (job.meta && job.meta.idempotencyKey === idempotencyKey && job.items.some((item) => item.task || item.status !== 'queued')) {
-        return res.status(200).json({ jobId: job.id, total: job.total, dryRun: Boolean(job.meta.dryRun), reused: true });
-      }
-      for (let i = 0; i < items.length; i++) {
-        await bulk.updateBulkItem(req.account.id, job.id, i, { task: items[i].task });
-        if (guard.dryRun) {
-          await bulk.updateBulkItem(req.account.id, job.id, i, { status: 'done', resultId: 'dry-run' });
-        } else {
-          await bulk.enqueueBulkItem({ accountId: req.account.id, jobId: job.id, idx: i, task: items[i].task });
-        }
-      }
-      await adsOps.appendAuditEvent(req.account.id, { actorType: 'user', actorId: req.account.id, action: guard.dryRun ? 'campaign_duplicate.simulated' : 'campaign_duplicate.queued', targetType: 'bulk_job', targetId: job.id, advertiserId: target.advertiserId, jobId: job.id, reason: guard.dryRun ? 'Política em modo dry-run' : 'Duplicação confirmada', metadata: { sourceId, count, crossAccount, idempotencyKey } });
-      stats.logEvent('info', { acc: req.account.id, title: (guard.dryRun ? 'Simulação de duplicação TikTok: ' : 'Duplicação TikTok enfileirada: ') + count + ' cópia(s) de ' + sourceId });
-      res.status(guard.dryRun ? 200 : 202).json({ jobId: job.id, total: count, dryRun: guard.dryRun });
-    } catch (err) { fail(res, err); }
+    return res.status(501).json({
+      error: 'Duplicar campanha está temporariamente indisponível nesta versão. Aguarde a próxima atualização.',
+      code: 'DUPLICATE_UNSUPPORTED',
+    });
   });
 
   // ── Catálogos de produtos (TikTok Shopping / Catalog) ─────────────────────
