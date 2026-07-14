@@ -1656,54 +1656,27 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       pipeboard.cacheBust('tree:');
       return { resultId: result.campaignId || null };
     }
-    if (task.kind === 'duplicate_same') {
-      const id = encodeURIComponent(String(task.sourceId || ''));
-      const data = await zernio.api('POST', '/ads/campaigns/' + id + '/duplicate', {
-        body: {
-          platform: 'tiktok', deepCopy: true, statusOption: 'PAUSED',
-          renameStrategy: 'ONLY_TOP_LEVEL_RENAME',
-          renameSuffix: String(task.renameSuffix || ' (cópia)').slice(0, 60)
-        },
-        timeoutMs: 120000
+    if (task.kind === 'duplicate_pb') {
+      // F3: duplicação composta via Pipeboard, MESMA conta. captureCampaign é
+      // cacheada 10min no provider → N cópias do mesmo job capturam 1×. Mesma
+      // retomada idempotente do 'create': progresso por item no Neon.
+      const resume = await adsOps.getBulkProgress(env.accountId, env.jobId, env.idx);
+      const capture = await pipeboard.captureCampaign(task.advertiserId, task.sourceId);
+      const result = await pipeboard.recreateCampaign(task.advertiserId, capture, String(task.newName || '').slice(0, 512), {
+        resume,
+        dedupeByName: true,
+        onProgress: (ids) => adsOps.saveBulkProgress(env.accountId, env.jobId, env.idx, ids),
       });
-      zernio.cacheBust('tree:' + env.accountId);
-      return { resultId: (data && data.platformCampaignId) || null };
-    }
-    if (task.kind === 'duplicate_cross') {
-      // Não há "duplicate para outra conta" na Zernio: lê a campanha de origem
-      // na árvore e RECRIA na conta destino com os dados disponíveis.
-      const st = zernio.getState(env.accountId);
-      const tree = await zernio.api('GET', '/ads/tree', {
-        query: { accountId: st.accountId, platform: 'tiktok', adAccountId: task.sourceAdAccountId || undefined, limit: 50 }
-      });
-      const src = (tree.campaigns || []).find((c) => c.platformCampaignId === task.sourceId);
-      if (!src) throw new Error('Campanha de origem não encontrada na conta de origem');
-      const firstAd = ((src.adSets || [])[0] || {}).ads && src.adSets[0].ads[0];
-      const creative = (firstAd && firstAd.creative) || {};
-      const videoUrl = String(creative.videoUrl || creative.imageUrl || '');
-      if (!/^https:\/\//.test(videoUrl)) {
-        throw new Error('A campanha de origem não expõe a URL do criativo — duplicação entre contas exige recriar com o vídeo. Use "Subir em massa" com o vídeo da biblioteca.');
-      }
-      const goal = String((firstAd && firstAd.goal) || 'traffic');
-      const built = buildCreatePayload(st, {
-        adAccountId: task.targetAdAccountId,
-        name: String(task.newName || ((src.campaignName || task.sourceId) + (task.renameSuffix || ' (cópia)'))).slice(0, 120),
-        goal: ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(goal) ? goal : 'traffic',
-        videoUrl,
-        budgetAmount: Number((src.budget || {}).amount) || Number(((src.adSets || [])[0] || {}).budget && src.adSets[0].budget.amount) || 0,
-        // lifetime exigiria endDate (não disponível na árvore) — recria como daily
-        budgetType: 'daily',
-        body: creative.body || undefined,
-        linkUrl: creative.linkUrl || undefined
-      });
-      if (built.error) throw new Error('Não foi possível reconstruir a campanha: ' + built.error);
-      const data = await zernio.api('POST', '/ads/create', {
-        body: built.payload,
-        timeoutMs: 120000,
-        headers: { 'Idempotency-Key': 'dup:' + env.jobId + ':' + env.idx }
-      });
-      zernio.cacheBust('tree:' + env.accountId);
-      return { resultId: (data && data.platformCampaignId) || null };
+      await adsOps.appendAuditEvent(env.accountId, {
+        actorType: 'user', actorId: env.accountId, action: 'bulk_duplicate_item',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId: task.advertiserId,
+        jobId: env.jobId,
+        afterState: { campaignId: result.campaignId, adGroupIds: result.adGroupIds, adIds: result.adIds, sourceId: task.sourceId },
+        reason: 'Duplicação da campanha ' + task.sourceId + ' (item ' + env.idx + ' do job ' + env.jobId + ')',
+        metadata: { warnings: result.warnings },
+      }).catch(() => {});
+      pipeboard.cacheBust('tree:');
+      return { resultId: result.campaignId || null };
     }
     throw new Error('Tipo de tarefa desconhecido: ' + String(task.kind || ''));
   }
@@ -1807,15 +1780,67 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Duplicação (1 ou N cópias) ────────────────────────────────────────────
-  // ADIADO na migração p/ Pipeboard: sem tool nativa de duplicar; reconstruir
-  // via create_* + re-upload de vídeo é um gate próprio (junto do Gate 5 de
-  // criação). Até lá respondemos 501 — a UI (duplicate-dialog) mostra o aviso.
+  // ── Duplicação (1 ou N cópias) — F3, via Pipeboard ────────────────────────
+  // Sem tool nativa de duplicar: cada cópia é uma RECRIAÇÃO composta
+  // (captureCampaign 1×/job + recreateCampaign por cópia) processada na mesma
+  // fila durável do bulk, com retomada idempotente por item. MESMA conta
+  // apenas: entre contas o video_id não é transferível (escopado ao
+  // advertiser) — responder 422 honesto é melhor que cópia sem criativo.
   app.post('/api/ads/duplicate', dashboardAuth, async (req, res) => {
-    return res.status(501).json({
-      error: 'Duplicar campanha está temporariamente indisponível nesta versão. Aguarde a próxima atualização.',
-      code: 'DUPLICATE_UNSUPPORTED',
-    });
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const b = req.body || {};
+      const sourceId = String(b.sourceId || '').trim().slice(0, 60);
+      if (!sourceId) return res.status(400).json({ error: 'sourceId (campanha de origem) obrigatório' });
+      const sourceAdAccountId = String(b.sourceAdAccountId || '').trim().slice(0, 60);
+      const targetAdAccountId = String(b.targetAdAccountId || sourceAdAccountId).trim().slice(0, 60);
+      if (targetAdAccountId && sourceAdAccountId && targetAdAccountId !== sourceAdAccountId) {
+        return res.status(422).json({
+          error: 'Duplicar para OUTRA conta ainda não é suportado: os criativos (video_id) são escopados ao advertiser de origem no TikTok. Duplique na mesma conta ou use "Subir em massa" com o vídeo da biblioteca na conta destino.',
+          code: 'CROSS_ACCOUNT_UNSUPPORTED',
+        });
+      }
+      const selected = await requireAdvertiser(req.account.id, null, sourceAdAccountId, null);
+      const count = Math.min(10, Math.max(1, parseInt(b.count, 10) || 1));
+      const suffix = String(b.nameSuffix || ' (cópia)').slice(0, 60);
+      const idempotencyKey = String(b.idempotencyKey || '').trim().slice(0, 200);
+      if (!idempotencyKey) return res.status(400).json({ error: 'idempotencyKey obrigatória' });
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      const guard = adsOps.assertMutationAllowed(policy, { advertiserId: selected.advertiserId, idempotencyKey });
+
+      // Valida a ORIGEM antes de enfileirar (o job nasce consistente) e já
+      // aquece o cache da captura p/ os itens do worker.
+      const capture = await pipeboard.captureCampaign(selected.advertiserId, sourceId);
+      const srcName = String(capture.campaign.campaign_name || capture.campaign.name || sourceId);
+
+      const tasks = [];
+      for (let i = 0; i < count; i++) {
+        const newName = (srcName + suffix + (count > 1 ? ' ' + (i + 1) : '')).slice(0, 512);
+        tasks.push({
+          ref: newName.slice(0, 120),
+          task: { kind: 'duplicate_pb', sourceId, advertiserId: selected.advertiserId, newName },
+        });
+      }
+      const job = await bulk.createBulkJob(req.account.id, {
+        kind: 'duplicate', adAccountId: selected.advertiserId,
+        items: tasks.map((t) => ({ ref: t.ref })),
+        meta: { sourceId, idempotencyKey, dryRun: guard.dryRun },
+      });
+      if (job.meta && job.meta.idempotencyKey === idempotencyKey && job.items.some((item) => item.task || item.status !== 'queued')) {
+        return res.status(200).json({ jobId: job.id, total: job.total, dryRun: Boolean(job.meta.dryRun), reused: true });
+      }
+      for (let i = 0; i < tasks.length; i++) {
+        await bulk.updateBulkItem(req.account.id, job.id, i, { task: tasks[i].task });
+        if (guard.dryRun) {
+          await bulk.updateBulkItem(req.account.id, job.id, i, { status: 'done', resultId: 'dry-run' });
+        } else {
+          await bulk.enqueueBulkItem({ accountId: req.account.id, jobId: job.id, idx: i, task: tasks[i].task });
+        }
+      }
+      await adsOps.appendAuditEvent(req.account.id, { actorType: 'user', actorId: req.account.id, action: guard.dryRun ? 'duplicate.simulated' : 'duplicate.queued', targetType: 'bulk_job', targetId: job.id, advertiserId: selected.advertiserId, jobId: job.id, reason: guard.dryRun ? 'Política em modo dry-run' : 'Duplicação confirmada', metadata: { sourceId, count, idempotencyKey } });
+      stats.logEvent('info', { acc: req.account.id, title: (guard.dryRun ? 'Simulação de duplicação: ' : 'Duplicação iniciada: ') + count + ' cópia(s) de ' + srcName });
+      res.status(guard.dryRun ? 200 : 202).json({ jobId: job.id, total: count, dryRun: guard.dryRun });
+    } catch (err) { fail(res, err); }
   });
 
   // ── Catálogos de produtos (TikTok Shopping / Catalog) ─────────────────────
