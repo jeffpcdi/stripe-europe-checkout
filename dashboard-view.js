@@ -5401,7 +5401,25 @@ function renderHealth(){
   var grid=document.getElementById('health-grid'); if(!grid) return;
   grid.removeAttribute('aria-busy');
   if(!HEALTH){ grid.innerHTML='<div class="muted" style="padding:8px 0;font-size:13px">Indispon&iacute;vel</div>'; return; }
-  grid.innerHTML=setupChecklistHTML(false);
+  grid.innerHTML=setupChecklistHTML(false)+pruneNoticeHTML();
+}
+// Poda silenciosa (auditoria): mostra quantos leads/eventos foram descartados
+// do cache quente por exceder o cap. Só aparece quando houve poda — leads
+// podados sinalizam cache subdimensionado (dados seguem no Neon).
+function pruneNoticeHTML(){
+  var p=HEALTH&&HEALTH.prune; if(!p) return '';
+  if(!p.leads&&!p.events) return '';
+  var parts=[];
+  if(p.leads) parts.push('<b>'+p.leads.toLocaleString('pt-BR')+'</b> lead(s) '+(p.leadsLastAt?'&mdash; \u00faltima '+timeAgo(p.leadsLastAt):''));
+  if(p.events) parts.push('<b>'+p.events.toLocaleString('pt-BR')+'</b> evento(s) do feed');
+  var warn=p.leads>0;
+  return '<div class="prune-notice'+(warn?' warn':'')+'" style="margin-top:10px;padding:10px 12px;border-radius:10px;'+
+    'font-size:12.5px;line-height:1.5;background:'+(warn?'var(--warn-bg,rgba(240,180,40,.10))':'var(--card2,rgba(255,255,255,.03))')+';'+
+    'border:1px solid '+(warn?'var(--warn,rgba(240,180,40,.35))':'var(--border,rgba(255,255,255,.08))')+';color:var(--muted2)">'+
+    '<b style="color:var(--fg)">Poda do cache</b> &mdash; descartado(s) desde o \u00faltimo reinício (cap '+
+    (p.maxLeads||0).toLocaleString('pt-BR')+' leads / '+(p.maxEvents||0).toLocaleString('pt-BR')+' eventos): '+
+    parts.join(' &middot; ')+'. Os dados permanecem no banco; o match de vendas usa fallback no Neon.'+
+    '</div>';
 }
 
 /* ── Drawer ── */

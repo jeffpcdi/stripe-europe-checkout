@@ -631,9 +631,11 @@ app.get('/px.gif', (req, res) => {
       ttEvents.dispatchToAll('ViewContent', {
         eventId: evId, leadId: vid, ip: clientIp(req),
         userAgent: uaRaw.slice(0, 500), url: ref || undefined
-      }, landing, acc).catch(() => {});
-    }).catch(() => {});
-  } catch (_) { /* pixel de imagem nunca derruba nada */ }
+      }, landing, acc).catch((err) =>
+        console.error('[server] ViewContent (pixel img) dispatch falhou:', err && err.message, '| vid=', vid, '| acc=', acc));
+    }).catch((err) =>
+      console.error('[server] ViewContent seenPixelEvent falhou:', err && err.message, '| vid=', vid));
+  } catch (err) { console.error('[server] ViewContent (pixel img) erro inesperado:', err && err.message); }
 });
 
 // Endpoint público chamado pelo snippet (sendBeacon/fetch, sem cookies).
@@ -2942,7 +2944,7 @@ app.post('/api/cloak/link/:slug', dashboardAuth, async (req, res) => {
   });
 });
 
-// Item 165/208: lista os perfis de simulação disponíveis (metadados leves —
+// Item 165/208: lista os perfis de simulaç��o disponíveis (metadados leves —
 // não expõe headers/IPs sintéticos, só o rótulo e o veredito esperado).
 app.get('/api/cloak/test/profiles', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -3290,6 +3292,10 @@ app.get('/api/health', dashboardAuth, async (req, res) => {
     // deadlineRate alto = lookup de ASN estourando o teto (DNS lento) e o
     // sinal de datacenter escapando com frequência.
     cloakerLatency: botFilter.getJudgeLatency(),
+    // Poda silenciosa (auditoria): quantos leads/eventos foram descartados do
+    // cache quente por exceder o cap desde o boot. >0 em leads = cache
+    // subdimensionado (dados seguem no Neon; o match usa fallback no banco).
+    prune:       stats.getPruneStats(),
     uptimeSec:   Math.round(process.uptime()),
     // Item 443: versão do app para a seção "Sobre" das Configurações.
     version:     require('./package.json').version || null,
@@ -3556,6 +3562,12 @@ async function processConversion(n) {
     amount: n.amountCents, currency: n.currency
   };
   if (n._forceRedispatch) receipt.reprocessado = true;
+  // Princípio (auditoria): nenhum evento de dinheiro pode sumir sem rastro.
+  // O log da conversão (Redis) é best-effort, mas a falha NÃO pode ser
+  // engolida — se o Redis está fora, precisamos saber que o recibo se perdeu.
+  const logConvLogErr = (where) => (err) =>
+    console.error('[server] pushConversionLog falhou (' + where + '):', err && err.message,
+      '| orderId=', n.orderId, '| gateway=', n.gateway, '| acc=', n.acc);
   // Item 342: cópia auditável da conversão normalizada para o feed.
   // Whitelist (nada de flags internas) + cap de tamanho: MAX_EVENTS eventos
   // ficam em memória e no JSON persistido — raw gigante estouraria o estado.
@@ -3581,7 +3593,7 @@ async function processConversion(n) {
       const fresh = await db.markOrderProcessed(n.acc || null, n.gateway, n.orderId);
       if (!fresh) {
         receipt.status = 'dedup (durável — receita já contabilizada)';
-        rdb.pushConversionLog(receipt).catch(() => {});
+        rdb.pushConversionLog(receipt).catch(logConvLogErr('dedup-duravel'));
         return receipt;
       }
     }
@@ -3590,7 +3602,7 @@ async function processConversion(n) {
     // pediu o redisparo porque a CAPI falhou mas o pagamento é válido).
     if (!n._forceRedispatch && await seenPixelEvent(evId)) {
       receipt.status = 'dedup';
-      rdb.pushConversionLog(receipt).catch(() => {});
+      rdb.pushConversionLog(receipt).catch(logConvLogErr('dedup'));
       return receipt;
     }
     // 2. resolve o lead no backend: ttclid → leadId → e-mail → telefone → órfão
@@ -3607,8 +3619,23 @@ async function processConversion(n) {
       if (lead && (lead.acc || null) !== (n.acc || null)) lead = null;
       if (lead) matchVia = 'leadId';
     }
-    if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email, n.acc); if (lead) matchVia = 'email'; } catch (_) {} }
-    if (!lead && n.phone) { try { lead = stats.findLeadByPhone(n.phone, n.acc); if (lead) matchVia = 'phone'; } catch (_) {} }
+    if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email, n.acc); if (lead) matchVia = 'email'; } catch (err) { console.error('[server] findLeadByEmail falhou:', err.message, '| orderId=', n.orderId); } }
+    if (!lead && n.phone) { try { lead = stats.findLeadByPhone(n.phone, n.acc); if (lead) matchVia = 'phone'; } catch (err) { console.error('[server] findLeadByPhone falhou:', err.message, '| orderId=', n.orderId); } }
+    // Risco 7: fallback no Neon quando o cache em memória não casou — o
+    // comprador pode ser antigo e ter sido podado do cache (cap MAX_LEADS).
+    // Re-hidrata no cache para que o match e a CAPI usem a identidade real
+    // em vez de tratar como órfã.
+    if (!lead && (n.email || n.phone)) {
+      try {
+        const rows = await db.findLeadsByContact(n.acc || null, { email: n.email, phone: n.phone });
+        if (rows && rows.length) {
+          lead = stats.ingestLead(rows[0]);
+          if (lead) matchVia = n.email ? 'email (neon)' : 'phone (neon)';
+        }
+      } catch (err) {
+        console.error('[server] fallback findLeadsByContact falhou:', err.message, '| gateway=', n.gateway, '| orderId=', n.orderId, '| acc=', n.acc);
+      }
+    }
     receipt.match = matchVia || 'órfã';
     receipt.leadId = lead ? lead.id : null;
 
@@ -3617,7 +3644,7 @@ async function processConversion(n) {
     if (n.dryRun) {
       receipt.status = 'teste ok';
       receipt.teste = true;
-      rdb.pushConversionLog(receipt).catch(() => {});
+      rdb.pushConversionLog(receipt).catch(logConvLogErr('teste'));
       return receipt;
     }
 
@@ -3642,7 +3669,7 @@ async function processConversion(n) {
       }
       notifyPushcut(n.event, n);
       receipt.status = 'ok (sem CAPI)';
-      rdb.pushConversionLog(receipt).catch(() => {});
+      rdb.pushConversionLog(receipt).catch(logConvLogErr('sem-capi'));
       return receipt;
     }
 
@@ -3678,7 +3705,26 @@ async function processConversion(n) {
             raw: rawForFeed()
           });
         }
-      } catch (_) {}
+      } catch (err) {
+        // PIOR caso da auditoria: sem isto, a venda paga sumia do dashboard, o
+        // recibo dizia "ok" e a CAPI disparava — perda de receita invisível.
+        console.error('[server] matchExternalConversion falhou (venda NÃO registrada no dashboard):',
+          err && err.message, '| gateway=', n.gateway, '| orderId=', n.orderId, '| acc=', saleAcc,
+          '| email=', n.email || '—');
+        receipt.saleError = String((err && err.message) || err).slice(0, 200);
+        // deixa rastro NO FEED: o operador vê que houve uma venda não contabilizada.
+        try {
+          stats.logEvent('info', {
+            acc: saleAcc,
+            title: '[erro] venda paga não registrada no dashboard: ' + ((err && err.message) || 'erro'),
+            gateway: n.gateway, ref: n.orderId,
+            amount: n.amountCents, currency: n.currency,
+            moneyPathError: true
+          });
+        } catch (e2) {
+          console.error('[server] logEvent do erro de venda também falhou:', e2 && e2.message, '| orderId=', n.orderId);
+        }
+      }
       // Atribuição ao link/variante que originou o clique (teste A/B).
       // Risco 5: duplicata NÃO reconta a conversão do teste A/B.
       try {
@@ -3686,7 +3732,10 @@ async function processConversion(n) {
           linkStore.recordConversion(saleAcc, lead.linkSlug, lead.linkVariant, n.amountCents, n.currency);
           receipt.link = lead.linkSlug;
         }
-      } catch (_) {}
+      } catch (err) {
+        console.error('[server] linkStore.recordConversion falhou (atribuição A/B perdida):',
+          err && err.message, '| link=', lead && lead.linkSlug, '| orderId=', n.orderId, '| acc=', saleAcc);
+      }
       notifyPushcut('CompletePayment', n);
     } else if (n.event === 'InitiateCheckout' || n.event === 'AddPaymentInfo') {
       // PIX gerado / checkout iniciado no gateway: avança o estágio do lead
@@ -3734,12 +3783,18 @@ async function processConversion(n) {
     }, '*', n.acc || (lead && lead.acc) || null);
     const errs = (r.results || []).filter((x) => x && (x.error || (x.code != null && x.code !== 0))).length;
     receipt.status = r.dispatched === 0 ? 'sem pixel' : (errs ? ('erro em ' + errs + '/' + r.dispatched) : 'ok');
+    // Não deixa o recibo dizer "ok" se a venda não foi contabilizada (o match
+    // acima falhou): o status carrega a ressalva para não enganar o operador.
+    if (receipt.saleError) receipt.status += ' — VENDA NÃO CONTABILIZADA (' + receipt.saleError + ')';
     receipt.dispatched = r.dispatched;
   } catch (err) {
     receipt.status = 'erro';
     receipt.error = String(err.message || err).slice(0, 200);
+    // Caminho do dinheiro: falha ao processar a conversão não pode sumir.
+    console.error('[server] processConversion falhou:', err && err.message,
+      '| event=', n.event, '| gateway=', n.gateway, '| orderId=', n.orderId, '| acc=', n.acc);
   }
-  rdb.pushConversionLog(receipt).catch(() => {});
+  rdb.pushConversionLog(receipt).catch(logConvLogErr('final'));
   return receipt;
 }
 
@@ -3751,13 +3806,22 @@ async function processConversion(n) {
 // (processa inline) — funciona, só não sobrevive a restart.
 function submitConversion(n) {
   if (n && !n._recvAt) n._recvAt = Date.now(); // item 199: carimbo de recebimento
+  // Caminho do dinheiro: qualquer falha no processamento inline precisa deixar
+  // rastro (senão a venda some sem nenhuma pista de que existiu).
+  const onProcErr = (where) => (err) =>
+    console.error('[server] submitConversion/processConversion falhou (' + where + '):', err && err.message,
+      '| event=', n && n.event, '| gateway=', n && n.gateway, '| orderId=', n && n.orderId);
   if (rdb.enabled) {
     rdb.enqueueConversion(n).then((ok) => {
       // se o enqueue falhar (Redis instável), processa inline como rede de segurança
-      if (!ok) processConversion(n).catch(() => {});
-    }).catch(() => { processConversion(n).catch(() => {}); });
+      if (!ok) processConversion(n).catch(onProcErr('fallback-inline'));
+    }).catch((err) => {
+      console.error('[server] enqueueConversion falhou, processando inline:', err && err.message,
+        '| orderId=', n && n.orderId);
+      processConversion(n).catch(onProcErr('enqueue-rejeitado'));
+    });
   } else {
-    processConversion(n).catch(() => {});
+    processConversion(n).catch(onProcErr('sem-redis'));
   }
 }
 
@@ -4299,9 +4363,11 @@ app.post('/api/px/event', (req, res) => {
         };
         if (tokenPixel) return ttEvents.sendToPixel(tokenPixel, payload);
         return ttEvents.dispatchToAll(name, payload, route, acc);
-      }).catch(() => {});
+      }).catch((err) =>
+        console.error('[server] beacon dispatch falhou (' + name + ' perdido):', err && err.message,
+          '| evId=', evId, '| vid=', vId || '—', '| acc=', acc));
     });
-  } catch (_) { /* beacon nunca propaga erro */ }
+  } catch (err) { console.error('[server] beacon erro inesperado:', err && err.message); }
 });
 
 // ── APIs de gestão de pixels (dashboard, por conta) ────�����─����────────────

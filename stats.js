@@ -59,10 +59,29 @@ let phoneIndex = new Map(); // `${acc}|${tail9}` -> Set<lead>
 // para quando o dedup durável do Neon não se aplica — banco off ou sem order_id
 // no evId). `${acc}|${gateway}|${orderId}` -> lead órfão já criado.
 let orphanOrderIndex = new Map();
+// Poda silenciosa (auditoria): contadores acumulados de itens descartados do
+// cache quente por exceder o cap. NÃO é perda de dados (leads/eventos seguem no
+// Neon e o Risco 7 re-hidrata leads antigos sob demanda), mas precisa ser
+// VISÍVEL no Diagnóstico — antes o descarte era silencioso. lastAt = quando
+// ocorreu a última poda; total = quantos foram podados desde o boot.
+const pruneStats = { leads: 0, events: 0, leadsLastAt: null, eventsLastAt: null };
 // Risco 3: índice O(1) de ttclid → Set<lead>, chave `${acc}|${ttclid}`. Guarda
 // TODOS os ttclids que o lead já registrou (lead.clicks), não só o vencedor —
 // o webhook pode ecoar qualquer um deles e ainda assim casar o lead certo.
 let ttclidIndex = new Map();
+// Risco 8 (LGPD): contagem de leads ANONIMIZADOS por conta. Se uma venda vira
+// órfã e a conta tem leads anonimizados na janela, o comprador PODE ser um lead
+// cujo e-mail/telefone foi apagado pela retenção LGPD — não um bug de match.
+// Sobrevive a hydrate/rebuild (repopulado abaixo a partir dos leads do Neon).
+let anonymizedByAcc = new Map(); // acc -> { count, lastAt }
+
+function noteAnonymized(acc, at) {
+  const key = acc || '';
+  const cur = anonymizedByAcc.get(key) || { count: 0, lastAt: null };
+  cur.count += 1;
+  if (at && (!cur.lastAt || at > cur.lastAt)) cur.lastAt = at;
+  anonymizedByAcc.set(key, cur);
+}
 
 function rebuildIndex() {
   leadIndex = new Map();
@@ -70,6 +89,7 @@ function rebuildIndex() {
   phoneIndex = new Map();
   orphanOrderIndex = new Map();
   ttclidIndex = new Map();
+  anonymizedByAcc = new Map();
   // state.leads é do mais novo pro mais velho.
   (state.leads || []).forEach((l) => {
     if (!l || !l.id) return;
@@ -80,6 +100,8 @@ function rebuildIndex() {
       const k = orphanKey(l.acc, l.gateway, l.ref);
       if (!orphanOrderIndex.has(k)) orphanOrderIndex.set(k, l);
     }
+    // Risco 8: recontabiliza anonimizados após hydrate/rebuild.
+    if (l.anonymized) noteAnonymized(l.acc, l.anonymizedAt || l.at);
   });
 }
 
@@ -157,7 +179,20 @@ function logEvent(type, data) {
     at: new Date().toISOString()
   }, data || {});
   state.events.unshift(entry);
-  if (state.events.length > MAX_EVENTS) state.events.length = MAX_EVENTS;
+  if (state.events.length > MAX_EVENTS) {
+    // Poda silenciosa do feed → agora contabilizada. Não é perda de dados (o
+    // evento já foi para o Neon via db.insertEvent abaixo e o arquivamento
+    // frio mantém histórico), mas o descarte do feed quente fica visível.
+    const dropped = state.events.length - MAX_EVENTS;
+    state.events.length = MAX_EVENTS;
+    pruneStats.events += dropped;
+    pruneStats.eventsLastAt = new Date().toISOString();
+    // log amostrado (1 a cada 100 podas) para não poluir sob alto volume
+    if (pruneStats.events % 100 < dropped) {
+      console.warn('[stats] poda de eventos do feed: total ' + pruneStats.events +
+        ' descartado(s) do cache quente desde o boot (cap ' + MAX_EVENTS + '; histórico no Neon).');
+    }
+  }
   markDirty();
   invalidateStatsCache();
   db.insertEvent(entry.acc || null, entry);
@@ -335,8 +370,29 @@ function addLead(lead) {
         if (orphanOrderIndex.get(k) === l) orphanOrderIndex.delete(k);
       }
     });
+    // Poda silenciosa → agora deixa rastro. Alerta se um COMPRADOR foi podado
+    // (ainda recuperável do Neon via findLeadsByContact no match, mas é sinal
+    // de cache subdimensionado para o volume da conta).
+    pruneStats.leads += removed.length;
+    pruneStats.leadsLastAt = new Date().toISOString();
+    const convictedOut = removed.filter((l) => l && l.status === 'converted').length;
+    console.warn('[stats] poda de leads: ' + removed.length + ' removido(s) do cache (cap ' + MAX_LEADS +
+      '), ' + convictedOut + ' comprador(es). Total podado desde o boot: ' + pruneStats.leads +
+      '. (Dados seguem no Neon; match usa fallback no banco.)');
   }
   return lead;
+}
+
+// Risco 7: re-hidrata no cache um lead vindo do Neon (fallback de match). Se já
+// existe em memória (mesmo id), devolve o do cache — não duplica. Depois de
+// ingerir, os índices sync (e-mail/telefone/ttclid) casam normalmente e o
+// match não cria órfã de um comprador que só estava frio no banco.
+function ingestLead(leadData) {
+  if (!leadData || !leadData.id) return null;
+  ensureLoaded();
+  const existing = leadIndex.get(leadData.id);
+  if (existing) return existing;
+  return addLead(leadData);
 }
 
 // ── Jornada do lead: páginas/passos percorridos até a compra ───────────────
@@ -631,13 +687,27 @@ function matchExternalConversion(data) {
     const reason = tried.length === 0
       ? 'gateway não enviou nenhuma chave de identificação (sem leadId, e-mail ou telefone)'
       : 'nenhum lead rastreado casou com ' + tried.join(' / ') + ' (visitante não passou pelo link antes de comprar, ou comprou de outro dispositivo)';
+    // Risco 8 (LGPD): se a conta anonimizou leads e o gateway MANDOU contato
+    // (e-mail/telefone) que não casou, o comprador pode ser um lead cuja PII
+    // foi apagada pela retenção — não um bug de match. Sinaliza para o operador
+    // não confundir os dois casos.
+    const anon = anonymizedByAcc.get(acc || '');
+    const maybeAnon = !!(anon && anon.count > 0) && !!(data.email || data.phone);
+    let orphanReason = tried.length === 0 ? 'sem_chave' : 'sem_match';
+    let reasonMsg = reason;
+    if (maybeAnon) {
+      orphanReason = 'possivel_anonimizado';
+      reasonMsg = reason + ' — a conta tem ' + anon.count + ' lead(s) anonimizado(s) pela retenção LGPD; ' +
+        'o comprador PODE ser um deles (e-mail/telefone apagados), não uma falha de rastreio';
+    }
     logEvent('info', {
       acc,
-      title: '[atribuição] conversão órfã: ' + reason,
+      title: '[atribuição] conversão órfã: ' + reasonMsg,
       gateway: gw,
       ref: data.email || data.phone || data.leadId || null,
-      orphanReason: tried.length === 0 ? 'sem_chave' : 'sem_match',
-      triedKeys: tried
+      orphanReason,
+      triedKeys: tried,
+      anonymizedInWindow: maybeAnon ? anon.count : undefined
     });
     lead = addLead({
       id: data.leadId || newId('orphan'),
@@ -797,6 +867,8 @@ function anonymizeOldLeads(accountId, days) {
     unindexLeadContacts(l); // sai do match ANTES de perder as chaves
     delete l.email; delete l.phone; delete l.customer;
     l.anonymized = true;
+    l.anonymizedAt = new Date().toISOString();
+    noteAnonymized(accountId, l.anonymizedAt); // Risco 8: alimenta o hint de órfã
     n++;
   });
   if (n > 0) {
@@ -804,6 +876,16 @@ function anonymizeOldLeads(accountId, days) {
     markDirty();
   }
   return n;
+}
+
+// Poda silenciosa (auditoria): snapshot dos contadores de descarte por cap,
+// consumido pelo /api/health e exibido na tela de Diagnóstico.
+function getPruneStats() {
+  return {
+    leads: pruneStats.leads, events: pruneStats.events,
+    leadsLastAt: pruneStats.leadsLastAt, eventsLastAt: pruneStats.eventsLastAt,
+    maxLeads: MAX_LEADS, maxEvents: MAX_EVENTS
+  };
 }
 
 // Zera SOMENTE os dados da conta informada (ou tudo, se accountId omitido).
@@ -873,6 +955,6 @@ process.once('beforeExit', flushSync);
 
 module.exports = {
   logEvent, recordVisit, recordCheckoutEntry, recordClickStep,
-  attachTracking, getLead, findLeadByEmail, findLeadByPhone, findLeadByTtclid, matchExternalConversion, getStats, reset, hydrate,
-  inCheckoutNow, anonymizeOldLeads, markPaymentStarted
+  attachTracking, getLead, findLeadByEmail, findLeadByPhone, findLeadByTtclid, ingestLead, matchExternalConversion, getStats, reset, hydrate,
+  inCheckoutNow, anonymizeOldLeads, markPaymentStarted, getPruneStats
   };
