@@ -3750,6 +3750,40 @@ if (rdb.enabled) {
   setTimeout(() => { rdb.reclaimConversions(0 + 1).then(() => convWorkerTick()).catch(() => {}); }, 4000).unref();
 }
 
+// ── Quarentena de webhooks REJEITADOS (prioridade #1 do handoff) ───────────
+// Guarda o PAYLOAD CRU + headers de qualquer webhook rejeitado ANTES de
+// responder o erro. Sem isso, a evidência era destruída (só os nomes das
+// chaves iam para o log) e nenhum erro futuro podia ser diagnosticado.
+// Best-effort e NÃO-bloqueante: nunca pode atrasar/derrubar a resposta ao gateway.
+function quarantineWebhook(req, route, reason, gatewayHint, accountId) {
+  try {
+    const h = (req && req.headers) || {};
+    // headers úteis para diagnóstico, SEM cookie/authorization (não vaza sessão)
+    const safeHeaders = {};
+    Object.keys(h).forEach((k) => {
+      const kl = String(k).toLowerCase();
+      if (kl === 'cookie' || kl === 'authorization') return;
+      safeHeaders[k] = String(h[k]).slice(0, 300);
+    });
+    // corpo cru: prioriza o texto EXATO recebido (req.rawBody); cai no parseado.
+    // Guarda o texto original quando não for JSON válido (form-urlencoded etc.).
+    let raw = null;
+    if (req && req.rawBody) {
+      try { raw = JSON.parse(req.rawBody); }
+      catch (_) { raw = { _rawText: String(req.rawBody).slice(0, 8000) }; }
+    }
+    if (raw == null) raw = (req && req.body != null) ? req.body : null;
+    db.insertQuarantine({
+      accountId: accountId || null,
+      route: route,
+      rawPayload: raw,
+      headers: safeHeaders,
+      rejectionReason: reason,
+      gatewayHint: gatewayHint || null
+    }).catch(() => {});
+  } catch (_) { /* a quarentena NUNCA pode quebrar o webhook */ }
+}
+
 // Endpoint público que os gateways chamam.
 app.post('/api/conversion', (req, res) => {
   const secret = process.env.CONVERSION_WEBHOOK_SECRET;
@@ -3759,6 +3793,8 @@ app.post('/api/conversion', (req, res) => {
   }
   const provided = req.headers['x-webhook-secret'] || req.query.secret || '';
   if (!provided || !safeEqual(String(provided), secret)) {
+    // Quarentena: guarda o payload cru mesmo quando o segredo global não bate.
+    quarantineWebhook(req, '/api/conversion', 'segredo inválido', String(req.query.gateway || ''), _defaultAccountId);
     return res.status(401).json({ ok: false, error: 'segredo inválido' });
   }
   const n = normalizeConversion(req.body, req.query);
@@ -3773,6 +3809,8 @@ app.post('/api/conversion', (req, res) => {
       error: n.error,
       keys: Object.keys(req.body || {}).slice(0, 20).join(',').slice(0, 300)
     }).catch(() => {});
+    // Quarentena: o corpo cru é preservado para descobrir onde está o valor.
+    quarantineWebhook(req, '/api/conversion', n.error, String(req.query.gateway || ''), _defaultAccountId);
     return res.status(400).json({ ok: false, error: n.error });
   }
   // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
@@ -3806,6 +3844,8 @@ app.post('/hook/:token', async (req, res) => {
       at: new Date().toISOString(), acc: gw.accountId,
       gateway: gw.provider, event: 'rejeitado', status: 'erro', error: sig.reason
     }).catch(() => {});
+    // Quarentena: guarda o payload cru para inspeção mesmo com assinatura ruim.
+    quarantineWebhook(req, '/hook/:token', sig.reason || 'assinatura inválida', gw.provider, gw.accountId);
     return res.status(401).json({ ok: false, error: sig.reason });
   }
 
@@ -3819,6 +3859,8 @@ app.post('/hook/:token', async (req, res) => {
       gateway: gw.provider, event: 'formato inválido', status: 'erro',
       error: n.error, keys: Object.keys(req.body || {}).slice(0, 20).join(',').slice(0, 300)
     }).catch(() => {});
+    // Quarentena: preserva o corpo cru — é aqui que descobrimos o alias do valor.
+    quarantineWebhook(req, '/hook/:token', n.error, gw.provider, gw.accountId);
     return res.status(400).json({ ok: false, error: n.error });
   }
 
@@ -3997,6 +4039,36 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
     secret: req.account.role === 'admin' ? (process.env.CONVERSION_WEBHOOK_SECRET || '') : '',
     log: own
   });
+});
+
+// ── Quarentena de webhooks rejeitados (item handoff #1) ────────────────────
+// Lista os payloads crus dos webhooks recusados para inspeção no "Diagnóstico
+// avançado". Escopo por conta; admin também vê os itens legados (sem account_id).
+app.get('/api/conversion/quarantine', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const isAdmin = req.account.role === 'admin';
+  const includeResolved = String(req.query.all || '') === '1';
+  try {
+    const items = await db.listQuarantine(req.account.id, isAdmin, { includeResolved, limit: 100 });
+    const pending = await db.countQuarantine(req.account.id, isAdmin);
+    res.json({ ok: true, enabled: db.enabled, pending, items });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao carregar a quarentena.', 'quarantine_failed');
+  }
+});
+
+// Marca um item da quarentena como resolvido (some da lista padrão).
+app.post('/api/conversion/quarantine/resolve', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const id = Number((req.body && req.body.id) || 0);
+  if (!id) return apiError(res, 400, 'Informe o id do item a resolver.', 'missing_id');
+  try {
+    const ok = await db.resolveQuarantine(req.account.id, req.account.role === 'admin', id);
+    if (!ok) return apiError(res, 404, 'Item não encontrado na sua quarentena.', 'not_found');
+    res.json({ ok: true });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao resolver o item.', 'resolve_failed');
+  }
 });
 
 // ���─ API: zerar estatísticas ─────���───────���──────────────────────���─────
@@ -4701,7 +4773,8 @@ stats.hydrate()
     //    mesmo sem ninguém consultar /api/live).
     setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();
     // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
-    setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 24 * 60 * 60 * 1000).unref();
-    setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 30 * 1000).unref();
+    //    A quarentena de webhooks também tem retenção de 30 dias (item handoff #1).
+    setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); }, 24 * 60 * 60 * 1000).unref();
+    setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); }, 30 * 1000).unref();
     // 3. Sessões de login expiradas: o próprio auth.js agenda o prune (1x/h).
   });

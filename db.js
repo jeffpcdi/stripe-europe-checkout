@@ -29,7 +29,7 @@ let ready = false;
 
 // Item 249: status por migração — o /api/health reporta se a tabela
 // custom_domains e a coluna accounts.currency migraram com sucesso no boot.
-const migrations = { customDomains: false, accountCurrency: false };
+const migrations = { customDomains: false, accountCurrency: false, quarantine: false };
 
 // Chave namespaced por conta para tabelas keyed-by-name.
 function nsKey(accountId, name) {
@@ -124,6 +124,28 @@ async function init() {
       ip_masked text
     )`;
     await sql`CREATE INDEX IF NOT EXISTS account_audit_acc_at_idx ON account_audit (account_id, at DESC)`;
+
+    // ── Quarentena de webhooks REJEITADOS (prioridade máxima do handoff) ──
+    // Antes, um webhook rejeitado na normalização tinha o corpo DESCARTADO (só
+    // os nomes das chaves iam para o log) — a evidência sumia e o erro ficava
+    // indiagnosticável. Aqui gravamos o PAYLOAD CRU e completo + headers de
+    // TODA rejeição (segredo/assinatura inválida, amount inválido, formato
+    // desconhecido) ANTES de responder o erro. Retenção: 30 dias (pruneQuarantine).
+    await sql`CREATE TABLE IF NOT EXISTS conversion_quarantine (
+      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      received_at timestamptz NOT NULL DEFAULT now(),
+      account_id text,
+      route text,
+      raw_payload jsonb,
+      headers jsonb,
+      rejection_reason text,
+      gateway_hint text,
+      resolved boolean NOT NULL DEFAULT false,
+      resolved_at timestamptz
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS conversion_quarantine_recv_idx ON conversion_quarantine (received_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS conversion_quarantine_acc_idx ON conversion_quarantine (account_id, received_at DESC)`;
+    migrations.quarantine = true;
 
     await sql`CREATE TABLE IF NOT EXISTS variants (
       name text PRIMARY KEY,
@@ -490,6 +512,7 @@ async function deleteAccountCascade(accountId) {
     await sql`DELETE FROM links           WHERE account_id = ${accountId} OR slug LIKE ${accountId + ':%'}`;
     await sql`DELETE FROM gateways        WHERE account_id = ${accountId}`;
     await sql`DELETE FROM custom_domains  WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM conversion_quarantine WHERE account_id = ${accountId}`;
     await sql`DELETE FROM config          WHERE key = ${accountId}`;
     await sql`DELETE FROM accounts        WHERE id = ${accountId}`;
     return true;
@@ -639,6 +662,90 @@ async function listAudit(accountId, limit) {
       FROM account_audit WHERE account_id = ${accountId}
       ORDER BY at DESC LIMIT ${n}`;
   } catch (err) { console.error('[db] listAudit:', err.message); return []; }
+}
+
+// ── Quarentena de webhooks rejeitados ──────────────────────────────────────
+// Grava o payload cru + headers de uma rejeição. Fire-and-forget do ponto de
+// vista do webhook: NUNCA pode quebrar a resposta ao gateway (o chamador dá
+// catch). accountId pode ser null (rota legada /api/conversion sem token).
+async function insertQuarantine(entry) {
+  if (!enabled || !entry) return null;
+  try {
+    const rows = await sql`INSERT INTO conversion_quarantine
+      (account_id, route, raw_payload, headers, rejection_reason, gateway_hint)
+      VALUES (
+        ${entry.accountId || null},
+        ${String(entry.route || '').slice(0, 120) || null},
+        ${JSON.stringify(entry.rawPayload ?? null)}::jsonb,
+        ${JSON.stringify(entry.headers ?? null)}::jsonb,
+        ${String(entry.rejectionReason || '').slice(0, 300) || null},
+        ${String(entry.gatewayHint || '').slice(0, 60) || null}
+      )
+      RETURNING id`;
+    return rows.length ? rows[0].id : null;
+  } catch (err) { console.error('[db] insertQuarantine:', err.message); return null; }
+}
+
+// Lista a quarentena da conta (admin também vê os itens legados sem account_id,
+// mesma fronteira do log de conversões). includeResolved=false esconde os já
+// tratados. Limite defensivo de 200.
+async function listQuarantine(accountId, isAdmin, opts) {
+  if (!enabled) return [];
+  const o = opts || {};
+  const n = Math.max(1, Math.min(200, Number(o.limit) || 100));
+  const includeResolved = !!o.includeResolved;
+  try {
+    if (isAdmin) {
+      return await sql`SELECT id, received_at, account_id, route, raw_payload, headers,
+          rejection_reason, gateway_hint, resolved, resolved_at
+        FROM conversion_quarantine
+        WHERE (account_id = ${accountId} OR account_id IS NULL)
+          AND (${includeResolved} OR resolved = false)
+        ORDER BY received_at DESC LIMIT ${n}`;
+    }
+    return await sql`SELECT id, received_at, account_id, route, raw_payload, headers,
+        rejection_reason, gateway_hint, resolved, resolved_at
+      FROM conversion_quarantine
+      WHERE account_id = ${accountId}
+        AND (${includeResolved} OR resolved = false)
+      ORDER BY received_at DESC LIMIT ${n}`;
+  } catch (err) { console.error('[db] listQuarantine:', err.message); return []; }
+}
+
+// Conta os itens NÃO resolvidos (badge do painel). Mesma fronteira do list.
+async function countQuarantine(accountId, isAdmin) {
+  if (!enabled) return 0;
+  try {
+    const rows = isAdmin
+      ? await sql`SELECT count(*)::int AS n FROM conversion_quarantine
+          WHERE (account_id = ${accountId} OR account_id IS NULL) AND resolved = false`
+      : await sql`SELECT count(*)::int AS n FROM conversion_quarantine
+          WHERE account_id = ${accountId} AND resolved = false`;
+    return rows.length ? rows[0].n : 0;
+  } catch (err) { console.error('[db] countQuarantine:', err.message); return 0; }
+}
+
+// Marca um item como resolvido (escopado à conta; admin cobre os legados).
+async function resolveQuarantine(accountId, isAdmin, id) {
+  if (!enabled || !id) return false;
+  try {
+    const rows = isAdmin
+      ? await sql`UPDATE conversion_quarantine SET resolved = true, resolved_at = now()
+          WHERE id = ${id} AND (account_id = ${accountId} OR account_id IS NULL) RETURNING id`
+      : await sql`UPDATE conversion_quarantine SET resolved = true, resolved_at = now()
+          WHERE id = ${id} AND account_id = ${accountId} RETURNING id`;
+    return rows.length > 0;
+  } catch (err) { console.error('[db] resolveQuarantine:', err.message); return false; }
+}
+
+// Retenção: apaga o que passou de 30 dias. Roda no boot + diariamente.
+async function pruneQuarantine() {
+  if (!enabled) return 0;
+  try {
+    const rows = await sql`DELETE FROM conversion_quarantine
+      WHERE received_at < now() - interval '30 days' RETURNING id`;
+    return rows.length;
+  } catch (err) { console.error('[db] pruneQuarantine:', err.message); return 0; }
 }
 
 async function upsertVariant(accountId, name, data) {
@@ -1032,6 +1139,8 @@ module.exports = {
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
   upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
+  // quarentena de webhooks rejeitados
+  insertQuarantine, listQuarantine, countQuarantine, resolveQuarantine, pruneQuarantine,
   saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels, getPixelByToken,
   upsertLink, deleteLink, loadLinks,

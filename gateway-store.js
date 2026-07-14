@@ -58,7 +58,7 @@ const PROVIDERS = {
   generic: {
     label: 'Genérico (qualquer gateway)',
     secretLabel: 'Segredo (opcional)',
-    docs: 'Aceita qualquer payload JSON com event/status (paid, refunded…), order_id/id, amount/value e email. Se definir um segredo, envie-o no header x-webhook-secret ou query ?secret=.'
+    docs: 'Aceita qualquer payload JSON com event/status (paid, refunded…), order_id/id, amount/value e email. A URL de webhook já é secreta e autentica sozinha — o campo Segredo é OPCIONAL (verificação extra): se você defini-lo, envie-o de volta no header x-webhook-secret ou na query ?secret=; se o gateway não conseguir enviar, deixe em branco.'
   }
 };
 
@@ -237,14 +237,22 @@ function verifySignature(gateway, req) {
       return safeEqual(expected, sig) ? { ok: true } : { ok: false, reason: 'assinatura Kiwify inválida' };
     }
     default: {
-      // Demais providers: segredo simples em header/query (x-webhook-secret,
-      // x-token, ?secret=, ?token=) ou campo token no body
+      // Item handoff #4 — segredo OPCIONAL para providers sem assinatura
+      // criptográfica. O token da URL (24 bytes aleatórios = 192 bits) já é um
+      // bearer secret forte e autentica o webhook por si só. O "segredo"
+      // cadastrado vira uma checagem EXTRA: se o gateway o devolver (header
+      // x-webhook-secret/x-token/x-api-key, query ?secret=/?token= ou campo no
+      // corpo), ele PRECISA bater; se o gateway NÃO devolver (caso comum — a
+      // maioria dos checkouts não ecoa segredo), aceitamos com base só no token.
+      // Isso destrava gateways que rejeitavam 100% dos webhooks ("segredo
+      // inválido"). Stripe/Hotmart/Kiwify seguem estritos (assinatura real).
       const provided = String(
         req.headers['x-webhook-secret'] || req.headers['x-token'] || req.headers['x-api-key'] ||
         req.query.secret || req.query.token ||
         req.body?.token || req.body?.secret || ''
       );
-      return provided && safeEqual(provided, secret) ? { ok: true } : { ok: false, reason: 'segredo inválido' };
+      if (!provided) return { ok: true }; // token da URL basta
+      return safeEqual(provided, secret) ? { ok: true } : { ok: false, reason: 'segredo enviado não confere' };
     }
   }
 }
@@ -265,6 +273,8 @@ function adaptPayload(provider, body) {
     'checkout.session.async_payment_succeeded': 'paid',
     'payment_intent.succeeded': 'paid',
     'invoice.paid': 'paid',
+    // Renovação de assinatura bem-sucedida = venda recorrente (item handoff #5)
+    'invoice.payment_succeeded': 'paid',
     'charge.refunded': 'refunded',
     'charge.dispute.created': 'chargeback',
     'payment_intent.payment_failed': 'failed',

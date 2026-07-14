@@ -22,11 +22,24 @@
 //   para Hotmart aqui; se a Hotmart passar a ecoar, adicionar o container.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// A ORDEM das checagens importa. Casos que se confundem:
+//  - "subscription.canceled" contém "cancel" → NÃO é pagamento recusado; é
+//    churn de assinatura. Precisa ser tratado ANTES do Failed (que casa "cancel").
+//  - Renovação de assinatura ("invoice.payment_succeeded", "subscription_charged",
+//    "renovada"…) É uma venda recorrente → CompletePayment. Mas uma renovação
+//    que FALHOU ("recurring_payment_failed") continua Failed — por isso o Failed
+//    é avaliado ANTES do sucesso recorrente.
 function mapConversionEvent(raw) {
   const s = String(raw || '').toLowerCase();
   if (/refund|reembols|estorn|devolvid/.test(s)) return 'Refund';
   if (/charged?_?back|dispute|disputa|protest|contesta/.test(s)) return 'Dispute';
-  if (/fail|refus|recus|declin|denied|negad|cancel|expirad|expired/.test(s)) return 'Failed';
+  // Cancelamento/pausa de ASSINATURA não é pagamento recusado — ignora (não
+  // dispara Failed nem CAPI). Guardado ANTES do Failed, que casaria "cancel".
+  if (/(subscription|assinatura|recurr|recorr)[^a-z]?.*(cancel|delet|pause|paus|revok)|(cancel|delet|pause|paus|revok).*(subscription|assinatura|recurr|recorr)/.test(s)) return null;
+  // Falha/recusa de pagamento (inclui falha de renovação: "..._failed").
+  if (/fail|refus|recus|declin|denied|negad|cancel|expirad|expired|chargefail/.test(s)) return 'Failed';
+  // Renovação/cobrança recorrente BEM-SUCEDIDA = venda recorrente.
+  if (/renew|renov|recurr|recorren|subscription_?charged|subscription_?renew|invoice\.payment_succeeded|invoice_paid/.test(s)) return 'CompletePayment';
   if (/paid|approved|aprovad|completed|complete|purchase|sale|compra|venda|succeed|success/.test(s)) return 'CompletePayment';
   if (/payment_info|processing|processando|waiting_payment|pending|analys|analis/.test(s)) return 'AddPaymentInfo';
   if (/checkout|cart|carrinho|pix|billet|boleto|initiate|created|criad/.test(s)) return 'InitiateCheckout';
@@ -90,19 +103,51 @@ function parseAmount(v) {
   return Number(s);
 }
 
-// Extrai o valor da venda em CENTAVOS testando aliases de todos os gateways.
-// Campos que já vêm em centavos (Kiwify: charge_amount, product_base_price)
-// têm prioridade e NÃO são multiplicados por 100.
+// Varredura RECURSIVA (breadth-first) por campos candidatos. O valor pode estar
+// aninhado em containers que o flatten não conhece (ex.: o gateway manda
+// { data: { transaction: { charge: {...} } } } e pickAmountCents só olhava a
+// raiz). BFS garante que a ocorrência MAIS RASA de cada alias vença — assim a
+// raiz continua com prioridade sobre um campo homônimo lá no fundo (ex.: uma
+// comissão). Mesmo princípio do flattenGatewayPayload, mas para QUALQUER nível.
+function collectFields(root, wanted) {
+  const found = {};
+  let level = [root];
+  let depth = 0;
+  while (level.length && depth < 8) {
+    const next = [];
+    for (const obj of level) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
+      for (const k of Object.keys(obj)) {
+        const kl = String(k).toLowerCase();
+        const v = obj[k];
+        // primeira (mais rasa) ocorrência de cada alias vence
+        if (wanted.has(kl) && !(kl in found)) found[kl] = v;
+        if (v && typeof v === 'object') next.push(v);
+      }
+    }
+    level = next;
+    depth++;
+  }
+  return found;
+}
+
+// Extrai o valor da venda em CENTAVOS testando aliases de todos os gateways,
+// em QUALQUER profundidade (item handoff #3). Campos que já vêm em centavos
+// (Kiwify: charge_amount, product_base_price) têm prioridade e NÃO são
+// multiplicados por 100.
+const CENTS_FIELDS = ['amount_cents', 'value_cents', 'total_cents', 'price_cents', 'charge_amount', 'product_base_price'];
+const UNIT_FIELDS = ['amount', 'value', 'valor', 'total', 'price', 'total_price', 'total_value',
+  'total_amount', 'valor_total', 'order_amount', 'payment_amount', 'amount_paid', 'paid_amount',
+  'sale_amount', 'purchase_amount', 'gross_amount', 'net_amount', 'full_price'];
 function pickAmountCents(b) {
-  const CENTS_FIELDS = ['amount_cents', 'value_cents', 'total_cents', 'price_cents', 'charge_amount', 'product_base_price'];
+  const wanted = new Set(CENTS_FIELDS.concat(UNIT_FIELDS));
+  const found = collectFields(b, wanted);
   for (let i = 0; i < CENTS_FIELDS.length; i++) {
-    const n = parseAmount(b[CENTS_FIELDS[i]]);
+    const n = parseAmount(found[CENTS_FIELDS[i]]);
     if (Number.isFinite(n) && n >= 0 && n <= 100000000) return Math.round(n);
   }
-  const UNIT_FIELDS = ['amount', 'value', 'total', 'price', 'total_price', 'total_value',
-    'amount_paid', 'paid_amount', 'sale_amount', 'purchase_amount', 'full_price'];
   for (let j = 0; j < UNIT_FIELDS.length; j++) {
-    const n = parseAmount(b[UNIT_FIELDS[j]]);
+    const n = parseAmount(found[UNIT_FIELDS[j]]);
     if (Number.isFinite(n) && n >= 0 && n <= 1000000) return Math.round(n * 100);
   }
   return null;
