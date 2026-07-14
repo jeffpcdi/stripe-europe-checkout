@@ -5,7 +5,8 @@
 // (pausar/ativar, duplicar, excluir anúncio). Segue o padrão visual das
 // tabelas do dashboard (linhas com stagger, status dots, ações no hover).
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ChevronRight,
   Play,
@@ -30,7 +31,6 @@ import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { SparkLine } from '@/components/sparkline'
 import { fmtCompact, fmtPercent } from '@/lib/format'
 
 function fmtMoney(v: number | undefined, currency: string): string {
@@ -80,25 +80,24 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
-function MetricsRow({ m, currency }: { m?: AdsMetrics; currency: string }) {
+// Métricas que saíram da linha compacta e vivem agora no expand.
+function SecondaryMetrics({ m, currency }: { m?: AdsMetrics; currency: string }) {
   return (
-    <div className="grid grid-cols-3 gap-x-4 gap-y-1 sm:grid-cols-6">
-      <Metric label="Gasto" value={fmtMoney(m?.spend, currency)} />
+    <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
       <Metric label="Impr." value={fmtCompact(m?.impressions)} />
       <Metric label="Cliques" value={fmtCompact(m?.clicks)} />
       <Metric label="CTR" value={m?.ctr != null ? fmtPercent(m.ctr) : '—'} />
       <Metric label="CPM" value={fmtMoney(m?.cpm, currency)} />
-      <Metric label="Conv." value={fmtCompact(m?.conversions)} />
     </div>
   )
 }
 
 const STATUS_FILTERS = [
-  { value: '', label: 'Todas' },
   { value: 'active', label: 'Ativas' },
   { value: 'paused', label: 'Pausadas' },
   { value: 'pending_review', label: 'Em revisão' },
   { value: 'rejected', label: 'Rejeitadas' },
+  { value: '', label: 'Todas' },
 ]
 
 // Valores alinhados com o backend (['newest','oldest','spend_desc','spend_asc']).
@@ -309,6 +308,333 @@ export function CampaignTree({
       )
   const displayCampaigns = grouped ?? campaigns
 
+  // Lista achatada (cabeçalhos de grupo + campanhas) para virtualizar de forma
+  // uniforme. Cabeçalhos só existem quando não há filtro (modo agrupado).
+  type FlatRow =
+    | { kind: 'group'; groupIdx: number; count: number; key: string }
+    | { kind: 'campaign'; c: AdsTreeCampaign; key: string }
+  const flatRows: FlatRow[] = []
+  displayCampaigns.forEach((c, idx) => {
+    const groupIdx = STATUS_ORDER[c.status ?? ''] ?? 6
+    const prevGroupIdx = idx > 0 ? STATUS_ORDER[displayCampaigns[idx - 1].status ?? ''] ?? 6 : -1
+    if (grouped !== null && groupIdx !== prevGroupIdx) {
+      const count = displayCampaigns.filter((x) => (STATUS_ORDER[x.status ?? ''] ?? 6) === groupIdx).length
+      flatRows.push({ kind: 'group', groupIdx, count, key: `g-${groupIdx}` })
+    }
+    flatRows.push({ kind: 'campaign', c, key: c.platformCampaignId })
+  })
+
+  // Virtualiza só quando vale a pena (>50 linhas). O virtualizer é sempre
+  // instanciado (regra de hooks), mas só consumimos sua saída no modo virtual.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const virtualize = flatRows.length > 50
+  const rowVirtualizer = useVirtualizer({
+    count: flatRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 44,
+    overscan: 10,
+    getItemKey: (i) => flatRows[i].key,
+  })
+
+  // Colunas numéricas alinhadas — mesmas larguras no cabeçalho e nas linhas
+  // (tabular-nums + largura fixa evitam o truncamento "US..." do layout antigo).
+  const colGasto = 'w-24 shrink-0 text-right tabular-nums'
+  const colRoas = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
+  const colConv = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
+  const colActions = 'flex w-[4.75rem] shrink-0 items-center justify-end gap-0.5'
+
+  // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
+  function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>) {
+    return (
+      <p className="label-mono flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] text-muted-foreground">
+        {(GROUP_LABELS[row.groupIdx] ?? 'Outras') + ` (${row.count})`}
+      </p>
+    )
+  }
+
+  // Uma linha de campanha (compacta ~40px) + bloco expandido (grupos/anúncios).
+  function renderCampaignRow(c: AdsTreeCampaign) {
+    const id = c.platformCampaignId
+    const isOpen = expanded.has(id)
+    const busy = busyId === id
+    const meta = STATUS_META[c.status ?? ''] ?? { dot: 'bg-muted-foreground', pulse: false, label: c.status || '—' }
+    const attr = attribution?.[id]
+    const spend = Number(c.metrics?.spend) || 0
+    const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
+    const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected'
+    const errorMsg =
+      c.reviewStatus === 'rejected'
+        ? 'Revisão rejeitada pelo TikTok'
+        : c.status === 'error'
+          ? 'Erro na campanha'
+          : c.status === 'rejected'
+            ? 'Campanha rejeitada'
+            : null
+
+    return (
+      <div className={`border-b border-border/70 ${isError ? 'bg-error/10' : ''}`}>
+        {/* Linha compacta */}
+        <div className="flex items-center gap-2 px-3 transition-colors hover:bg-secondary/40">
+          <input
+            type="checkbox"
+            checked={selected.has(id)}
+            onChange={() => toggleSelect(id)}
+            aria-label={`Selecionar campanha ${c.campaignName || id}`}
+            className="size-3.5 shrink-0 accent-[color:var(--primary)]"
+          />
+          <button
+            type="button"
+            onClick={() => toggle(id)}
+            aria-expanded={isOpen}
+            aria-label={`${isOpen ? 'Recolher' : 'Expandir'} campanha ${c.campaignName || id}`}
+            className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left"
+          >
+            <ChevronRight
+              className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-90' : ''}`}
+              aria-hidden="true"
+            />
+            <span
+              className={`size-1.5 shrink-0 rounded-full ${meta.dot} ${meta.pulse ? 'animate-pulse' : ''}`}
+              aria-hidden="true"
+              title={meta.label}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-[13px] font-medium text-foreground">{c.campaignName || id}</span>
+                {c.childStatus && c.childStatus !== c.status && (
+                  <AlertTriangle
+                    className="size-3 shrink-0 text-warning"
+                    aria-hidden="true"
+                  />
+                )}
+              </span>
+              {errorMsg && <span className="mt-0.5 block truncate text-[11px] text-error">{errorMsg}</span>}
+            </span>
+          </button>
+
+          <span className={`${colGasto} text-[13px] font-semibold text-foreground`}>{fmtMoney(c.metrics?.spend, c.currency || currency)}</span>
+          <span className={`${colRoas} text-[13px] font-medium ${roas !== null ? 'text-success' : 'text-muted-foreground'}`}>
+            {roas !== null ? roas.toFixed(2) : '—'}
+          </span>
+          <span className={`${colConv} text-[13px] text-foreground`}>{fmtCompact(c.metrics?.conversions)}</span>
+
+          <div className={colActions}>
+            {busy ? (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
+            ) : (
+              <>
+                {c.status === 'active' ? (
+                  <button
+                    type="button"
+                    className="btn-ghost !px-1.5 !py-1"
+                    onClick={() => setCampaignStatus(c, 'paused')}
+                    aria-label={`Pausar campanha ${c.campaignName || id}`}
+                    title="Pausar"
+                  >
+                    <Pause className="size-3.5" aria-hidden="true" />
+                  </button>
+                ) : c.status === 'paused' ? (
+                  <button
+                    type="button"
+                    className="btn-ghost !px-1.5 !py-1"
+                    onClick={() => setCampaignStatus(c, 'active')}
+                    aria-label={`Ativar campanha ${c.campaignName || id}`}
+                    title="Ativar"
+                  >
+                    <Play className="size-3.5" aria-hidden="true" />
+                  </button>
+                ) : (
+                  <span className="size-3.5" aria-hidden="true" />
+                )}
+                <button
+                  type="button"
+                  className="btn-ghost !px-1.5 !py-1"
+                  onClick={() => (onDuplicate ? onDuplicate(c) : duplicateCampaign(c))}
+                  aria-label={`Duplicar campanha ${c.campaignName || id}`}
+                  title="Duplicar"
+                >
+                  <Copy className="size-3.5" aria-hidden="true" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Bloco expandido: métricas secundárias + grupos/anúncios */}
+        {isOpen && (
+          <div className="anim-content-in border-t border-border/60 bg-background/40 px-3 py-3 pl-9">
+            <div className="mb-2 flex flex-wrap items-center gap-3">
+              {onOpenDetail && (
+                <button
+                  type="button"
+                  className="btn-ghost !px-2 !py-1 text-[11px]"
+                  onClick={() => onOpenDetail(c)}
+                  aria-label={`Ver métricas da campanha ${c.campaignName || id}`}
+                >
+                  <BarChart3 className="size-3.5" aria-hidden="true" />
+                  Métricas e gráficos
+                </button>
+              )}
+              <span className="text-[11px] text-muted-foreground">
+                {c.adSetCount ?? c.adSets?.length ?? 0} grupo{(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? '' : 's'} ·{' '}
+                {c.adCount ?? 0} anúncio{(c.adCount ?? 0) === 1 ? '' : 's'}
+              </span>
+              {attr && attr.sales > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium tabular-nums text-success">
+                  {attr.sales} venda{attr.sales === 1 ? '' : 's'} · {fmtMoney(attr.revenueCents / 100, currency)}
+                  {roas !== null && ` · ROAS ${roas.toFixed(2)}`}
+                </span>
+              )}
+            </div>
+            <div className="mb-3 max-w-md">
+              <SecondaryMetrics m={c.metrics} currency={c.currency || currency} />
+            </div>
+            {(c.adSets ?? []).length === 0 ? (
+              <p className="py-2 text-xs text-muted-foreground">Nenhum grupo de anúncios nesta campanha.</p>
+            ) : (
+              (c.adSets ?? []).map((s, si) => (
+                <div key={s.platformAdSetId ?? si} className="py-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Layers className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="text-xs font-medium text-foreground">
+                      {s.adSetName || s.name || s.platformAdSetId || `Grupo ${si + 1}`}
+                    </span>
+                    <StatusPill status={s.status} />
+                    {(() => {
+                      const groupKey = String(s.platformAdSetId ?? `${id}-${si}`)
+                      const firstAdId = s.ads?.[0]?.platformAdId || s.ads?.[0]?._id
+                      const budgetType: 'daily' | 'lifetime' = s.budget?.type === 'lifetime' ? 'lifetime' : 'daily'
+                      if (editingBudget === groupKey && firstAdId) {
+                        return (
+                          <span className="inline-flex items-center gap-1">
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={1}
+                              step="0.01"
+                              value={budgetValue}
+                              onChange={(e) => setBudgetValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveBudget(groupKey, firstAdId, budgetType)
+                                if (e.key === 'Escape') setEditingBudget(null)
+                              }}
+                              autoFocus
+                              disabled={budgetBusy}
+                              aria-label="Novo orçamento do grupo"
+                              className="input-neon w-20 rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums text-foreground"
+                            />
+                            <button
+                              type="button"
+                              className="btn-ghost !p-1 text-success"
+                              onClick={() => saveBudget(groupKey, firstAdId, budgetType)}
+                              disabled={budgetBusy}
+                              aria-label="Salvar orçamento"
+                            >
+                              {budgetBusy ? (
+                                <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                              ) : (
+                                <Check className="size-3" aria-hidden="true" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-ghost !p-1 text-muted-foreground"
+                              onClick={() => setEditingBudget(null)}
+                              disabled={budgetBusy}
+                              aria-label="Cancelar edição"
+                            >
+                              <X className="size-3" aria-hidden="true" />
+                            </button>
+                          </span>
+                        )
+                      }
+                      return (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                          {s.budget?.amount != null &&
+                            `${fmtMoney(s.budget.amount, currency)}/${budgetType === 'lifetime' ? 'total' : 'dia'}`}
+                          {firstAdId && (
+                            <button
+                              type="button"
+                              className="btn-ghost !p-1"
+                              onClick={() => {
+                                setEditingBudget(groupKey)
+                                setBudgetValue(s.budget?.amount != null ? String(s.budget.amount) : '')
+                              }}
+                              aria-label={`Editar orçamento do grupo ${s.adSetName || s.name || groupKey}`}
+                              title="Editar orçamento"
+                            >
+                              <Pencil className="size-3" aria-hidden="true" />
+                            </button>
+                          )}
+                        </span>
+                      )
+                    })()}
+                  </div>
+                  <ul className="mt-1 flex flex-col">
+                    {(s.ads ?? []).map((ad, ai) => {
+                      const adKey = ad.platformAdId || ad._id || String(ai)
+                      return (
+                        <li
+                          key={adKey}
+                          className="group flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-secondary/50"
+                        >
+                          <Clapperboard className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <span className="min-w-0 flex-1 truncate text-xs text-foreground">{ad.name || adKey}</span>
+                          {ad.adType === 'boost' && (
+                            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                              Spark
+                            </span>
+                          )}
+                          <StatusPill status={ad.status} />
+                          {ad.rejectionReason && (
+                            <span className="max-w-48 truncate text-[11px] text-error" title={ad.rejectionReason}>
+                              {ad.rejectionReason}
+                            </span>
+                          )}
+                          <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">
+                            {fmtMoney(ad.metrics?.spend, currency)} · {fmtCompact(ad.metrics?.impressions)} impr.
+                          </span>
+                          {ad.creative?.linkUrl && (
+                            <a
+                              href={ad.creative.linkUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn-ghost px-1.5 py-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                              aria-label="Abrir página de destino do anúncio"
+                              title="Página de destino"
+                            >
+                              <ExternalLink className="size-3" aria-hidden="true" />
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-ghost px-1.5 py-1 text-error opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                            onClick={() => setDeleteAd(ad)}
+                            aria-label={`Excluir anúncio ${ad.name || adKey}`}
+                            title="Excluir anúncio"
+                          >
+                            <Trash2 className="size-3" aria-hidden="true" />
+                          </button>
+                        </li>
+                      )
+                    })}
+                    {(s.ads ?? []).length === 0 && (
+                      <li className="px-2 py-1.5 text-[11px] text-muted-foreground">Sem anúncios neste grupo.</li>
+                    )}
+                  </ul>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderFlatRow(row: FlatRow) {
+    return row.kind === 'group' ? renderGroupHeader(row) : renderCampaignRow(row.c)
+  }
+
   return (
     <GlassCard className="anim-content-in overflow-hidden p-0">
       {/* Toolbar: filtros de status + ordenação */}
@@ -461,308 +787,43 @@ export function CampaignTree({
           </div>
         )
       ) : (
-        <ul className="stagger divide-y divide-border">
-          {displayCampaigns.map((c, idx) => {
-            const id = c.platformCampaignId
-            const isOpen = expanded.has(id)
-            const busy = busyId === id
-            const spendSeries = (c.daily ?? []).map((d) => d.spend ?? 0)
-            // Cabeçalho de seção quando o grupo de status muda (só sem filtro)
-            const groupIdx = STATUS_ORDER[c.status ?? ''] ?? 6
-            const prevGroupIdx = idx > 0 ? (STATUS_ORDER[displayCampaigns[idx - 1].status ?? ''] ?? 6) : -1
-            const showGroupHeader = grouped !== null && groupIdx !== prevGroupIdx
-            return (
-              <li key={id} className="anim-row-in">
-                {showGroupHeader && (
-                  <p className="label-mono border-b border-border bg-secondary/30 px-4 py-1.5 text-[10px] text-muted-foreground">
-                    {GROUP_LABELS[groupIdx] ?? 'Outras'} (
-                    {displayCampaigns.filter((x) => (STATUS_ORDER[x.status ?? ''] ?? 6) === groupIdx).length})
-                  </p>
-                )}
-                {/* Linha da campanha */}
-                <div className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-secondary/40">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(id)}
-                    onChange={() => toggleSelect(id)}
-                    aria-label={`Selecionar campanha ${c.campaignName || id}`}
-                    className="size-3.5 shrink-0 accent-[color:var(--primary)]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => toggle(id)}
-                    aria-expanded={isOpen}
-                    aria-label={`${isOpen ? 'Recolher' : 'Expandir'} campanha ${c.campaignName || id}`}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        <div ref={scrollRef} className={virtualize ? 'h-[70vh] overflow-auto' : 'max-h-[70vh] overflow-auto'}>
+          {/* Cabeçalho de tabela fixo — rótulos aparecem uma única vez */}
+          <div className="label-mono sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-[var(--surface,var(--card))] px-3 py-2 text-[10px] text-muted-foreground">
+            <span className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="w-3.5 shrink-0" aria-hidden="true" />
+            <span className="size-1.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1">Campanha</span>
+            <span className={colGasto}>Gasto</span>
+            <span className={colRoas}>ROAS</span>
+            <span className={colConv}>Conv.</span>
+            <span className={colActions} aria-hidden="true" />
+          </div>
+
+          {virtualize ? (
+            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+              {rowVirtualizer.getVirtualItems().map((vi) => {
+                const row = flatRows[vi.index]
+                return (
+                  <div
+                    key={vi.key}
+                    data-index={vi.index}
+                    ref={rowVirtualizer.measureElement}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
                   >
-                    <ChevronRight
-                      className={`size-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                      aria-hidden="true"
-                    />
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary">
-                      <Megaphone className="size-4 text-muted-foreground" aria-hidden="true" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-foreground">
-                        {c.campaignName || id}
-                      </span>
-                      <span className="mt-0.5 flex items-center gap-2">
-                        <StatusPill status={c.status} />
-                        {/* Backend reconciliou: campanha ativa na plataforma mas
-                            os anúncios filhos estão noutro estado — sinaliza. */}
-                        {c.childStatus && c.childStatus !== c.status && (
-                          <span
-                            className="inline-flex items-center gap-1 text-[11px] text-warning"
-                            title={`Status da campanha na plataforma difere do estado dos anúncios (${STATUS_META[c.childStatus]?.label ?? c.childStatus})`}
-                          >
-                            <AlertTriangle className="size-3" aria-hidden="true" />
-                            anúncios: {(STATUS_META[c.childStatus]?.label ?? c.childStatus).toLowerCase()}
-                          </span>
-                        )}
-                        {c.reviewStatus === 'rejected' && (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-error">
-                            <AlertTriangle className="size-3" aria-hidden="true" />
-                            revisão rejeitada
-                          </span>
-                        )}
-                        <span className="text-[11px] text-muted-foreground">
-                          {c.adSetCount ?? c.adSets?.length ?? 0} grupo{(c.adSetCount ?? c.adSets?.length ?? 0) === 1 ? '' : 's'} ·{' '}
-                          {c.adCount ?? 0} anúncio{(c.adCount ?? 0) === 1 ? '' : 's'}
-                        </span>
-
-                        {(() => {
-                          // vendas REAIS atribuídas a esta campanha (gateways)
-                          const attr = attribution?.[id]
-                          if (!attr || attr.sales === 0) return null
-                          const spend = Number(c.metrics?.spend) || 0
-                          const roas = spend > 0 ? attr.revenueCents / 100 / spend : null
-                          return (
-                            <span
-                              className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium tabular-nums text-success"
-                              title={`${attr.sales} venda(s) reais atribuídas · ${fmtMoney(attr.revenueCents / 100, currency)}${roas !== null ? ` · ROAS ${roas.toFixed(2)}` : ''}`}
-                            >
-                              {attr.sales} venda{attr.sales === 1 ? '' : 's'} ·{' '}
-                              {fmtMoney(attr.revenueCents / 100, currency)}
-                              {roas !== null && ` · ROAS ${roas.toFixed(2)}`}
-                            </span>
-                          )
-                        })()}
-                      </span>
-                    </span>
-                  </button>
-
-                  {spendSeries.length > 1 && (
-                    <SparkLine data={spendSeries} color="var(--primary)" width={72} height={24} />
-                  )}
-
-                  <div className="hidden w-72 shrink-0 md:block">
-                    <MetricsRow m={c.metrics} currency={c.currency || currency} />
+                    {renderFlatRow(row)}
                   </div>
-
-                  {/* Ações da campanha */}
-                  <div className="flex shrink-0 items-center gap-1">
-                    {onOpenDetail && (
-                      <button
-                        type="button"
-                        className="btn-ghost px-2 py-1"
-                        onClick={() => onOpenDetail(c)}
-                        aria-label={`Ver métricas da campanha ${c.campaignName || id}`}
-                        title="Métricas e gráficos"
-                      >
-                        <BarChart3 className="size-3.5" aria-hidden="true" />
-                      </button>
-                    )}
-                    {busy ? (
-                      <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
-                    ) : (
-                      <>
-                        {c.status === 'active' ? (
-                          <button
-                            type="button"
-                            className="btn-ghost px-2 py-1"
-                            onClick={() => setCampaignStatus(c, 'paused')}
-                            aria-label={`Pausar campanha ${c.campaignName || id}`}
-                            title="Pausar"
-                          >
-                            <Pause className="size-3.5" aria-hidden="true" />
-                          </button>
-                        ) : c.status === 'paused' ? (
-                          <button
-                            type="button"
-                            className="btn-ghost px-2 py-1"
-                            onClick={() => setCampaignStatus(c, 'active')}
-                            aria-label={`Ativar campanha ${c.campaignName || id}`}
-                            title="Ativar"
-                          >
-                            <Play className="size-3.5" aria-hidden="true" />
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="btn-ghost px-2 py-1"
-                          onClick={() => (onDuplicate ? onDuplicate(c) : duplicateCampaign(c))}
-                          aria-label={`Duplicar campanha ${c.campaignName || id}`}
-                          title="Duplicar (N cópias, mesma conta ou outra)"
-                        >
-                          <Copy className="size-3.5" aria-hidden="true" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Métricas no mobile */}
-                <div className="px-4 pb-3 md:hidden">
-                  <MetricsRow m={c.metrics} currency={c.currency || currency} />
-                </div>
-
-                {/* Ad groups + ads expandidos */}
-                {isOpen && (
-                  <div className="anim-content-in border-t border-border/60 bg-background/40 px-4 py-2 pl-10">
-                    {(c.adSets ?? []).length === 0 ? (
-                      <p className="py-3 text-xs text-muted-foreground">Nenhum grupo de anúncios nesta campanha.</p>
-                    ) : (
-                      (c.adSets ?? []).map((s, si) => (
-                        <div key={s.platformAdSetId ?? si} className="py-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Layers className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                            <span className="text-xs font-medium text-foreground">
-                              {s.adSetName || s.name || s.platformAdSetId || `Grupo ${si + 1}`}
-                            </span>
-                            <StatusPill status={s.status} />
-                            {(() => {
-                              const groupKey = String(s.platformAdSetId ?? `${id}-${si}`)
-                              const firstAdId = s.ads?.[0]?.platformAdId || s.ads?.[0]?._id
-                              const budgetType: 'daily' | 'lifetime' = s.budget?.type === 'lifetime' ? 'lifetime' : 'daily'
-                              if (editingBudget === groupKey && firstAdId) {
-                                return (
-                                  <span className="inline-flex items-center gap-1">
-                                    <input
-                                      type="number"
-                                      inputMode="decimal"
-                                      min={1}
-                                      step="0.01"
-                                      value={budgetValue}
-                                      onChange={(e) => setBudgetValue(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') saveBudget(groupKey, firstAdId, budgetType)
-                                        if (e.key === 'Escape') setEditingBudget(null)
-                                      }}
-                                      autoFocus
-                                      disabled={budgetBusy}
-                                      aria-label="Novo orçamento do grupo"
-                                      className="input-neon w-20 rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] tabular-nums text-foreground"
-                                    />
-                                    <button
-                                      type="button"
-                                      className="btn-ghost !p-1 text-success"
-                                      onClick={() => saveBudget(groupKey, firstAdId, budgetType)}
-                                      disabled={budgetBusy}
-                                      aria-label="Salvar orçamento"
-                                    >
-                                      {budgetBusy ? (
-                                        <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                                      ) : (
-                                        <Check className="size-3" aria-hidden="true" />
-                                      )}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn-ghost !p-1 text-muted-foreground"
-                                      onClick={() => setEditingBudget(null)}
-                                      disabled={budgetBusy}
-                                      aria-label="Cancelar edição"
-                                    >
-                                      <X className="size-3" aria-hidden="true" />
-                                    </button>
-                                  </span>
-                                )
-                              }
-                              return (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                                  {s.budget?.amount != null &&
-                                    `${fmtMoney(s.budget.amount, currency)}/${budgetType === 'lifetime' ? 'total' : 'dia'}`}
-                                  {firstAdId && (
-                                    <button
-                                      type="button"
-                                      className="btn-ghost !p-1"
-                                      onClick={() => {
-                                        setEditingBudget(groupKey)
-                                        setBudgetValue(s.budget?.amount != null ? String(s.budget.amount) : '')
-                                      }}
-                                      aria-label={`Editar orçamento do grupo ${s.adSetName || s.name || groupKey}`}
-                                      title="Editar orçamento"
-                                    >
-                                      <Pencil className="size-3" aria-hidden="true" />
-                                    </button>
-                                  )}
-                                </span>
-                              )
-                            })()}
-                          </div>
-                          <ul className="mt-1 flex flex-col">
-                            {(s.ads ?? []).map((ad, ai) => {
-                              const adKey = ad.platformAdId || ad._id || String(ai)
-                              return (
-                                <li
-                                  key={adKey}
-                                  className="group flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-secondary/50"
-                                >
-                                  <Clapperboard className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                                  <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                                    {ad.name || adKey}
-                                  </span>
-                                  {ad.adType === 'boost' && (
-                                    <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                                      Spark
-                                    </span>
-                                  )}
-                                  <StatusPill status={ad.status} />
-                                  {ad.rejectionReason && (
-                                    <span className="max-w-48 truncate text-[11px] text-error" title={ad.rejectionReason}>
-                                      {ad.rejectionReason}
-                                    </span>
-                                  )}
-                                  <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">
-                                    {fmtMoney(ad.metrics?.spend, currency)} · {fmtCompact(ad.metrics?.impressions)} impr.
-                                  </span>
-                                  {ad.creative?.linkUrl && (
-                                    <a
-                                      href={ad.creative.linkUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="btn-ghost px-1.5 py-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                                      aria-label="Abrir página de destino do anúncio"
-                                      title="Página de destino"
-                                    >
-                                      <ExternalLink className="size-3" aria-hidden="true" />
-                                    </a>
-                                  )}
-                                  <button
-                                    type="button"
-                                    className="btn-ghost px-1.5 py-1 text-error opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                                    onClick={() => setDeleteAd(ad)}
-                                    aria-label={`Excluir anúncio ${ad.name || adKey}`}
-                                    title="Excluir anúncio"
-                                  >
-                                    <Trash2 className="size-3" aria-hidden="true" />
-                                  </button>
-                                </li>
-                              )
-                            })}
-                            {(s.ads ?? []).length === 0 && (
-                              <li className="px-2 py-1.5 text-[11px] text-muted-foreground">Sem anúncios neste grupo.</li>
-                            )}
-                          </ul>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+                )
+              })}
+            </div>
+          ) : (
+            <div>
+              {flatRows.map((row) => (
+                <div key={row.key}>{renderFlatRow(row)}</div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Paginação */}
