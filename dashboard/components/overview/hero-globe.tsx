@@ -117,11 +117,11 @@ export function HeroGlobe({
       {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".
           pointer-events-none para não interceptar arraste/zoom do globo. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-[6%] flex flex-col items-center gap-1.5 text-center">
-        <div className="hero-globe-badge pointer-events-auto inline-flex flex-col items-center gap-1 px-6 py-3">
-          <div className="flex items-center gap-2">
+        <div className="hero-globe-badge pointer-events-auto inline-flex flex-col items-center gap-1.5 px-8 py-3.5">
+          <div className="flex items-center gap-2.5">
             <span className="live-dot" aria-hidden="true" />
             <p
-              className="font-mono text-4xl font-bold leading-none tabular-nums text-white xl:text-5xl"
+              className="font-mono text-3xl font-bold leading-none tabular-nums text-white xl:text-4xl"
               data-sensitive
             >
               <CountUp value={onlineNow} />

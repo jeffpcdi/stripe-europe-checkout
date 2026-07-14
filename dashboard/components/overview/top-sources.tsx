@@ -9,7 +9,6 @@
 import Link from 'next/link'
 import { ArrowUpRight } from 'lucide-react'
 import type { SourceRank } from '@/lib/metrics'
-import { GlassCard } from '@/components/glass-card'
 
 // Macro de UTM que o TikTok NÃO substituiu chega literal ("{{campaign.name}}",
 // "__CAMPAIGN_NAME__") ou vazia — qualquer uma indica atribuição quebrada.
@@ -29,7 +28,7 @@ export function TopSources({
   if (rows.length === 0) return null
 
   return (
-    <GlassCard className="flex h-full flex-col p-5">
+    <div className="hero-glass-panel flex h-full flex-col p-5">
       <div className="mb-4 flex items-center justify-between gap-2">
         <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
           {useCampaigns ? 'Top campanhas' : 'Top links'}
@@ -68,6 +67,6 @@ export function TopSources({
           )
         })}
       </ol>
-    </GlassCard>
+    </div>
   )
 }

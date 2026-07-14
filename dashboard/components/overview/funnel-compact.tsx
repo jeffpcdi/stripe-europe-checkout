@@ -11,7 +11,6 @@ import { ArrowUpRight } from 'lucide-react'
 import type { PeriodMetrics } from '@/lib/metrics'
 import { fmtPercent } from '@/lib/format'
 import { CountUp } from '@/components/count-up'
-import { GlassCard } from '@/components/glass-card'
 
 export function FunnelCompact({
   metrics: m,
@@ -47,7 +46,7 @@ export function FunnelCompact({
   ]
 
   return (
-    <GlassCard className="flex h-full flex-col p-5">
+    <div className="hero-glass-panel flex h-full flex-col p-5">
       <div className="mb-4 flex items-center justify-between gap-2">
         <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
           Funil · {periodLabel}
@@ -78,7 +77,8 @@ export function FunnelCompact({
                   className="funnel-bar h-full rounded"
                   style={{
                     width: `${w}%`,
-                    background: `color-mix(in oklab, var(--accent) ${st.alpha * 100}%, transparent)`,
+                    background: `linear-gradient(90deg, color-mix(in oklab, var(--accent) ${st.alpha * 100}%, transparent), color-mix(in oklab, var(--accent) ${st.alpha * 50}%, transparent))`,
+                    boxShadow: `0 0 12px color-mix(in oklab, var(--accent) ${st.alpha * 40}%, transparent)`,
                     animationDelay: `${i * 200}ms`,
                   }}
                 />
@@ -97,6 +97,6 @@ export function FunnelCompact({
           Gargalo: {bottleneck.where} ({'\u2212'}{fmtPercent(bottleneck.drop)})
         </p>
       ) : null}
-    </GlassCard>
+    </div>
   )
 }

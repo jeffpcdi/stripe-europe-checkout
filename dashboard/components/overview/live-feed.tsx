@@ -42,10 +42,10 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
             return (
               <li
                 key={lead.id}
-                className="anim-row-in flex items-center justify-between gap-3 border-b border-white/[0.05] py-2.5 last:border-b-0"
+                className="anim-row-in flex items-center justify-between gap-3 border-b border-white/[0.05] py-3 last:border-b-0"
               >
                 <span className="flex min-w-0 items-center gap-2.5">
-                  <span className="text-base leading-none" aria-hidden="true">
+                  <span className="text-lg leading-none" aria-hidden="true">
                     {countryFlag(lead.country)}
                   </span>
                   <span className="truncate text-xs font-medium text-foreground">
@@ -60,7 +60,7 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                     </span>
                   ) : null}
                 </span>
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-faint">
+                <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
                   {timeAgo(lead.at)}
                 </span>
               </li>

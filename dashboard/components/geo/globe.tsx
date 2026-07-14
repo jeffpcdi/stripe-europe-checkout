@@ -404,7 +404,7 @@ function GlobeControls({
   isFullscreen: boolean
 }) {
   return (
-    <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5" data-tour="globe-controls">
+    <div className="absolute right-3 top-3 hidden z-10 flex-col gap-1.5" data-tour="globe-controls">
       <button type="button" onClick={onZoomIn} className="globe-ctl" aria-label="Aproximar">
         <Plus className="size-4" aria-hidden="true" />
       </button>
@@ -456,7 +456,7 @@ function GlobeHud({ empty }: { empty?: boolean }) {
       />
       {!empty && (
         <span
-          className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-1.5"
+          className="pointer-events-none absolute bottom-8 right-8 lg:right-16 z-10 flex items-center gap-1.5"
           aria-hidden="true"
         >
           <span className="font-mono text-[9px] uppercase tracking-wider text-faint">fraco</span>
@@ -470,7 +470,7 @@ function GlobeHud({ empty }: { empty?: boolean }) {
       {/* V2-53: selo de coordenadas mono no canto — assinatura HUD */}
       {!empty && (
         <span
-          className="pointer-events-none absolute bottom-3 left-3 z-10 hidden font-mono text-[9px] uppercase tracking-[0.18em] sm:block"
+          className="pointer-events-none absolute bottom-8 left-8 lg:left-16 z-10 hidden font-mono text-[9px] uppercase tracking-[0.18em] sm:block"
           aria-hidden="true"
           style={{ color: 'rgba(37,244,238,0.4)' }}
         >
