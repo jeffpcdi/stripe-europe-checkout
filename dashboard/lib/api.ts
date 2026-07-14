@@ -16,6 +16,7 @@ import type {
   EmqTrendResponse,
   GatewaysResponse,
   ConversionLogResponse,
+  QuarantineResponse,
   CloakConfig,
   CloakStatsResponse,
   CloakEntriesResponse,
@@ -209,6 +210,15 @@ export function useGateways() {
 
 export function useConversionLog() {
   return useSWR<ConversionLogResponse>('/api/conversion/log', fetcher, {
+    refreshInterval: POLL_MS,
+    keepPreviousData: true,
+  })
+}
+
+// Quarentena de webhooks rejeitados (payload cru preservado). Poll no ritmo
+// do stats para o badge acompanhar novas rejeições com o painel aberto.
+export function useQuarantine() {
+  return useSWR<QuarantineResponse>('/api/conversion/quarantine', fetcher, {
     refreshInterval: POLL_MS,
     keepPreviousData: true,
   })

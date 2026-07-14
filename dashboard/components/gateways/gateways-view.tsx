@@ -26,7 +26,7 @@ import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
 import { timeAgo } from '@/lib/format'
-import { QueueHealthPanel, RetentionPanel, IntegrityPanel } from './queue-health-panel'
+import { QueueHealthPanel, RetentionPanel, IntegrityPanel, QuarantinePanel } from './queue-health-panel'
 
 // Tutorial da aba Gateways — inclui a regra de ouro: venda só conta quando o
 // GATEWAY confirma o pagamento via webhook (nunca pelo navegador do cliente).
@@ -660,7 +660,7 @@ export function GatewaysView() {
                         <dd className={row.matched ? 'font-medium text-success' : 'text-muted-foreground'}>
                           {row.matched
                             ? 'casou com um clique rastreado'
-                            : 'não casou — venda sem clique rastreado (órfã) ou fora da janela'}
+                            : 'não casou — venda órfã (sem leadId, e-mail ou telefone que batesse com um lead)'}
                         </dd>
                         {/* Item 198: reenfileirar manualmente quando o disparo CAPI
                             falhou mas o pagamento é válido. Não duplica a venda no
@@ -713,11 +713,12 @@ export function GatewaysView() {
         <summary className="flex cursor-pointer select-none items-center justify-between gap-2 rounded-xl px-4 py-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground [&::-webkit-details-marker]:hidden">
           <span className="flex items-center gap-2">
             <Info className="size-3.5" aria-hidden="true" />
-            Diagnóstico avançado — integridade, fila de conversões e retenção
+            Diagnóstico avançado — webhooks em quarentena, integridade, fila e retenção
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
         </summary>
         <div className="flex flex-col gap-5 border-t border-border p-4">
+          <QuarantinePanel />
           <IntegrityPanel />
           <QueueHealthPanel />
           <RetentionPanel />

@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Activity, RefreshCw, Timer, Layers, ShieldCheck, CircleAlert, Trash2 } from 'lucide-react'
-import { useOps, apiSend, fetcher } from '@/lib/api'
+import { Activity, RefreshCw, Timer, Layers, ShieldCheck, CircleAlert, Trash2, Inbox, ChevronDown, Check } from 'lucide-react'
+import { useOps, useQuarantine, apiSend, fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -181,6 +181,103 @@ export function IntegrityPanel() {
           handleFix()
         }}
       />
+    </GlassCard>
+  )
+}
+
+// ── Quarentena de webhooks REJEITADOS (prioridade #1 do handoff) ───────────
+// Antes, um webhook recusado tinha o corpo DESCARTADO — o valor de uma venda
+// que não casava com nenhum alias sumia sem deixar rastro. Agora o payload cru
+// fica preservado aqui: o operador expande a linha, vê o JSON EXATO que o
+// gateway mandou, descobre onde está o valor/e-mail e reporta o alias que
+// falta. Painel OCULTO quando não há nada em quarentena (caminho saudável).
+export function QuarantinePanel() {
+  const { data, mutate } = useQuarantine()
+  const [expanded, setExpanded] = useState<number | null>(null)
+  const [resolving, setResolving] = useState<number | null>(null)
+
+  const items = data?.items ?? []
+  // Sem itens pendentes: não polui o diagnóstico. (data undefined = ainda carregando)
+  if (!data || items.length === 0) return null
+
+  async function handleResolve(id: number) {
+    setResolving(id)
+    try {
+      await apiSend('/api/conversion/quarantine/resolve', 'POST', { id })
+      toast.success('Item marcado como resolvido')
+      mutate()
+    } catch (e) {
+      toast.error('Falha ao resolver o item', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setResolving(null)
+    }
+  }
+
+  return (
+    <GlassCard className="min-w-0 p-5">
+      <div className="mb-1 flex items-center gap-2">
+        <Inbox className="size-4 text-[color:var(--warning)]" aria-hidden="true" />
+        <h2 className="section-head text-sm font-semibold text-foreground">Webhooks em quarentena</h2>
+        <span className="rounded-full bg-[color:var(--warning)]/15 px-2 py-0.5 text-[11px] font-semibold text-[color:var(--warning)]">
+          {data.pending}
+        </span>
+      </div>
+      <p className="mb-3 text-xs text-muted-foreground text-pretty">
+        Webhooks recusados (segredo/assinatura inválida, valor não reconhecido ou formato desconhecido). O
+        corpo original fica guardado aqui para você ver o que o gateway enviou e descobrir o que faltou.
+      </p>
+      <ul className="flex max-h-[32rem] flex-col gap-1 overflow-y-auto">
+        {items.map((item) => {
+          const isOpen = expanded === item.id
+          return (
+            <li key={item.id} className="rounded-lg border border-border text-xs">
+              <button
+                type="button"
+                onClick={() => setExpanded(isOpen ? null : item.id)}
+                aria-expanded={isOpen}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left hover:bg-secondary/60"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="size-1.5 shrink-0 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
+                  <span className="truncate font-mono text-foreground">{item.gateway_hint || 'desconhecido'}</span>
+                  <span className="truncate text-muted-foreground">{item.rejection_reason || 'rejeitado'}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+                  {timeAgo(item.received_at)}
+                  <ChevronDown className={`size-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                </span>
+              </button>
+              {isOpen && (
+                <div className="mx-2 mb-2 flex flex-col gap-2 rounded-lg bg-secondary/40 px-3 py-2 text-[11px]">
+                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                    <dt className="text-muted-foreground">Rota</dt>
+                    <dd className="font-mono text-foreground">{item.route || '—'}</dd>
+                    <dt className="text-muted-foreground">Motivo</dt>
+                    <dd className="text-foreground text-pretty">{item.rejection_reason || '—'}</dd>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-muted-foreground">Payload recebido (cru)</p>
+                    <pre className="max-h-64 overflow-auto rounded-md border border-border bg-background/60 p-2 font-mono text-[10px] leading-relaxed text-foreground">
+                      {JSON.stringify(item.raw_payload, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleResolve(item.id)}
+                      disabled={resolving !== null}
+                      className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+                    >
+                      <Check className={`size-3 ${resolving === item.id ? 'animate-pulse' : ''}`} aria-hidden="true" />
+                      {resolving === item.id ? 'Resolvendo…' : 'Marcar como resolvido'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
     </GlassCard>
   )
 }
