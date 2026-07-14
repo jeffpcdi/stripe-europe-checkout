@@ -88,15 +88,16 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
   const start = Date.now();
   const callsBefore = pipeboard.getCallStats ? pipeboard.getCallStats().total : 0;
 
-  // Backoff de conta bloqueada: se o último resultado foi 'blocked' há menos de
-  // BLOCKED_BACKOFF_MS, não re-tenta (não desperdiça chamada nem piora a cota do
-  // time). O refresh manual passa opts.force para permitir nova tentativa.
+  // Backoff de conta bloqueada/não-autorizada: se o último resultado foi
+  // 'blocked' ou 'unauthorized' há menos de BLOCKED_BACKOFF_MS, não re-tenta
+  // (não desperdiça chamada nem polui o log a cada tick — ambos os estados só
+  // mudam por ação externa). O refresh manual passa opts.force para re-tentar.
   if (!opts.force) {
     const prev = await cache.getSyncState(accountId, advertiserId).catch(() => null);
-    if (prev && prev.status === 'blocked' && prev.updated_at) {
+    if (prev && (prev.status === 'blocked' || prev.status === 'unauthorized') && prev.updated_at) {
       const age = Date.now() - new Date(prev.updated_at).getTime();
       if (age < BLOCKED_BACKOFF_MS) {
-        return { ok: false, blocked: true, error: prev.last_error || 'Conta bloqueada', skipped: true };
+        return { ok: false, blocked: prev.status === 'blocked', unauthorized: prev.status === 'unauthorized', error: prev.last_error || 'Conta indisponível', skipped: true };
       }
     }
   }
@@ -147,9 +148,14 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
     // ser martelado a cada tick. Marcamos status='blocked' para o backoff e para
     // a dashboard poder explicar ao usuário.
     const blocked = err.code === 'ACCOUNT_BLOCKED';
-    await cache.upsertSyncState(accountId, advertiserId, { status: blocked ? 'blocked' : 'error', lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
-    console.error('[ads-sync] ' + accountId + '/' + advertiserId + (blocked ? ' BLOQUEADA:' : ' ERRO:'), err.message);
-    return { ok: false, error: err.message, blocked };
+    // Advertiser removido do acesso da conexão Pipeboard (Configure Access):
+    // erro PERMANENTE até o usuário reconfigurar — também entra em backoff em
+    // vez de repetir o mesmo erro a cada 3 minutos no log.
+    const unauthorized = !blocked && /not one of the accounts this TikTok connection is allowed to access/i.test(String(err.message || ''));
+    const status = blocked ? 'blocked' : unauthorized ? 'unauthorized' : 'error';
+    await cache.upsertSyncState(accountId, advertiserId, { status, lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
+    console.error('[ads-sync] ' + accountId + '/' + advertiserId + (blocked ? ' BLOQUEADA:' : unauthorized ? ' SEM ACESSO (backoff 30min):' : ' ERRO:'), err.message);
+    return { ok: false, error: err.message, blocked, unauthorized };
   }
 }
 
