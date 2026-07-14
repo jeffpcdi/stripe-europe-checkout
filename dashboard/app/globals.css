@@ -2309,20 +2309,6 @@ html {
 
 /* Glow central foi movido para hero-globe-glow-core e hero-globe-glow-outer no bloco de Animações Globais */
 
-/* Container do globo no hero — ocupa toda a largura disponível */
-.hero-globe-container {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: auto;
-  min-height: 560px;
-}
-@media (min-width: 1024px) {
-  .hero-globe-container {
-    min-height: 640px;
-  }
-}
 
 /* Items 8–9: painel de vidro translúcido (glassmorphism) */
 .hero-glass-panel {

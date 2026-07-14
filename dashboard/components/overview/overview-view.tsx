@@ -308,11 +308,10 @@ export function OverviewView() {
         className="hero-globe-section relative overflow-hidden rounded-2xl border border-white/[0.06]"
         style={{ ['--i' as string]: 1 }}
       >
-        {/* Fundo atmosférico profundo (item 7) */}
-        <div className="hero-globe-bg absolute inset-0" aria-hidden="true" />
 
-        {/* Globo — ocupa toda a largura, centrado (items 4, 5, 6) */}
-        <div className="relative z-0 flex items-center justify-center px-4 py-8 sm:px-8 sm:py-10 lg:px-16">
+
+        {/* Globo — ocupa 100% absoluto (fundo do painel) */}
+        <div className="absolute inset-0 z-0">
           <HeroGlobe countries={todayCountries} />
         </div>
 

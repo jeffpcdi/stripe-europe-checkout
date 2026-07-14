@@ -103,8 +103,7 @@ export function HeroGlobe({
     /* O globo agora ocupa TODA a largura/altura do hero. Sem max-w — o
        container externo (overview-view) controla o tamanho. */
     <div
-      className="hero-globe-container relative w-full"
-      style={{ minHeight: 640 }}
+      className="hero-globe-container absolute inset-0"
       aria-label={`Presença ao vivo: ${onlineNow} online agora em ${activeCountries} ${activeCountries === 1 ? 'país' : 'países'}`}
     >
       {/* Glow atmosférico e Elementos Orbitais (Mega Plano) */}
