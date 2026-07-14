@@ -3,6 +3,7 @@
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { useHealth, useEmqTrend } from '@/lib/api'
+import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import { cn } from '@/lib/utils'
 import { TrendingDown, TrendingUp, Minus } from 'lucide-react'
 
@@ -54,7 +55,10 @@ export function HealthCard() {
 
   // Item 297: tendência de EMQ dos pixels — média recente vs. base e alerta
   // de queda/baixo já calculados pela rota /api/pixels/emq-trend.
-  const { data: emqData } = useEmqTrend()
+  // Fase 4: adiado para pós-first-paint — a linha de EMQ é secundária e não
+  // pode competir com o hero pelas 6 conexões do navegador no load inicial.
+  const afterFirstPaint = useAfterFirstPaint()
+  const { data: emqData } = useEmqTrend(afterFirstPaint)
   const emq = (() => {
     const pixels = emqData?.pixels?.filter((p) => p.recentAvg != null) ?? []
     if (pixels.length === 0) return null

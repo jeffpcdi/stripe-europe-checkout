@@ -34,12 +34,21 @@ interface GeoLabel {
   size: number
 }
 
+/* Fase 5: ping externo de lead novo. `key` identifica o pulso (TTL controlado
+   pelo pai); resolvido para coordenadas aqui, virando um anel temporário. */
+export interface GeoPulse {
+  code: string
+  key: number
+}
+
 interface GlobePanelProps {
   countries: { code: string; name: string; count: number; purchased: number }[]
   /* Item 161: código do país em foco (hover na tabela) — gira o globo até ele */
   focusCode?: string | null
   /* Item 163: métrica ativa muda a cor dos pontos */
   metric?: 'visits' | 'sales'
+  /* Fase 5: pulsos externos (lead novo detectado no poll) → anéis temporários */
+  pulses?: GeoPulse[]
 }
 
 // Cores da marca capturadas do legado
@@ -63,7 +72,14 @@ const RESUME_AFTER_MS = 3000
 function buildPoints(
   countries: GlobePanelProps['countries'],
   metric: 'visits' | 'sales' = 'visits',
+  pulses: GeoPulse[] = [],
 ) {
+  // Fase 5: países ativos sem coordenadas no mapa são omitidos silenciosamente
+  // do render — mas contabilizamos para diagnosticar falta de cobertura.
+  const omitted: string[] = []
+  for (const c of countries) {
+    if (!COUNTRY_COORDS[c.code?.toUpperCase() ?? '']) omitted.push(c.code)
+  }
   // Item 163: em "vendas" só países com compra pontuam, em verde
   const base = metric === 'sales' ? countries.filter((c) => c.purchased > 0) : countries
   const max = Math.max(1, ...base.map((c) => (metric === 'sales' ? c.purchased : c.count)))
@@ -91,6 +107,14 @@ function buildPoints(
     if (!coords) return []
     return [{ lat: coords[0], lng: coords[1], intensity: c.count / topMax }]
   })
+
+  // Fase 5: cada pulso de lead novo vira um anel temporário em intensidade
+  // máxima (onda ampla e nítida). O TTL é gerido pelo pai (hero-globe) — quando
+  // o pulso sai da lista, o anel some no próximo render.
+  for (const p of pulses) {
+    const coords = COUNTRY_COORDS[p.code?.toUpperCase() ?? '']
+    if (coords) rings.push({ lat: coords[0], lng: coords[1], intensity: 1 })
+  }
 
   // V2-42: labels dos 3 maiores, maiores e mais legíveis (0.85 → 1.0)
   const labels: GeoLabel[] = countries.slice(0, 3).flatMap((c) => {
@@ -123,7 +147,7 @@ function buildPoints(
         ]
       })
     : []
-  return { points, rings, arcs, labels }
+  return { points, rings, arcs, labels, omitted }
 }
 
 /** True apenas na primeira montagem do globo nesta sessão do navegador. */
@@ -144,6 +168,7 @@ function GlobeCanvas({
   height,
   globeRef,
   metric = 'visits',
+  pulses = [],
 }: GlobePanelProps & {
   width: number
   height: number
@@ -277,10 +302,25 @@ function GlobeCanvas({
 
   // Fluidez: memoizado — antes recalculava a cada render do pai (poll do
   // /api/live a cada 5s), forçando o three-globe a reconstruir tudo.
-  const { points, rings, arcs, labels } = useMemo(
-    () => buildPoints(countries, metric),
-    [countries, metric],
+  // Fase 5: `pulses` entra na dependência — muda só quando um ping é
+  // adicionado/expira (cadência do poll de 5s), nunca por frame.
+  const { points, rings, arcs, labels, omitted } = useMemo(
+    () => buildPoints(countries, metric, pulses),
+    [countries, metric, pulses],
   )
+
+  // Fase 5: alerta de cobertura — quantos países ativos ficaram fora do mapa
+  // por falta de coordenadas em country-coords.ts. Só loga quando o conjunto
+  // muda (assinatura), evitando ruído a cada poll.
+  const omittedSig = omitted.join(',')
+  useEffect(() => {
+    if (omitted.length > 0) {
+      console.warn(
+        `[globo] ${omitted.length} país(es) ativos sem coordenadas foram omitidos do mapa: ${omitted.join(', ')}. Amplie country-coords.ts para cobri-los.`,
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [omittedSig])
 
   return (
     <GlobeGL
@@ -454,7 +494,12 @@ function zoomBy(globeRef: React.MutableRefObject<any>, delta: number) {
   g.pointOfView({ ...pov, altitude }, 320)
 }
 
-export default function GlobePanel({ countries, focusCode, metric = 'visits' }: GlobePanelProps) {
+export default function GlobePanel({
+  countries,
+  focusCode,
+  metric = 'visits',
+  pulses = [],
+}: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
   const [size, setSize] = useState({ w: 0, h: 320 })
@@ -481,6 +526,9 @@ export default function GlobePanel({ countries, focusCode, metric = 'visits' }: 
   }
 
   const empty = countries.length === 0
+  // Fase 5: overlay da base — total de leads representados + países ativos.
+  const totalLeads = countries.reduce((sum, c) => sum + (c.count || 0), 0)
+  const activeCountries = countries.length
 
   // Item 161: hover na tabela gira o globo até o país
   useEffect(() => {
