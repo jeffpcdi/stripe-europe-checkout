@@ -64,8 +64,8 @@ const ALT_ENTRY = 5.5
 const ENTRY_MS = 1800
 
 // Item 14: rotação mais suave e lenta — sensação de globo flutuando elegantemente
-const SPIN_IDLE = 0.35
-const SPIN_HOVER = 0.9
+const SPIN_IDLE = 0.25
+const SPIN_HOVER = 0.7
 const RESUME_AFTER_MS = 3000
 
 function buildPoints(
@@ -342,7 +342,7 @@ function GlobeCanvas({
       showAtmosphere
       atmosphereColor={CYAN}
       /* Item 11: atmosfera mais volumosa — halo ciano envolvente */
-      atmosphereAltitude={0.28}
+      atmosphereAltitude={0.35}
       pointsData={points}
       pointLat="lat"
       pointLng="lng"
