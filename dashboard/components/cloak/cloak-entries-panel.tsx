@@ -30,6 +30,7 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from '@/lib/toast'
 import { CloakEntryEditor } from './cloak-entry-editor'
 import { CloakDecisionLog } from './cloak-decision-log'
+import { SectionTitle } from '@/components/section-title'
 
 // Item 136: threshold efetivo por sensibilidade (espelha bot-filter.js) para o
 // badge do card — 'custom' usa o threshold gravado no próprio entry.
@@ -209,7 +210,7 @@ export function CloakEntriesPanel() {
       <span className="sr-only" role="status" aria-live="polite">{copyAnnounce}</span>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="section-head text-sm font-semibold text-foreground">Links de cloaking</h2>
+          <SectionTitle>Links de cloaking</SectionTitle>
           <p className="text-xs text-muted-foreground">URLs /c/&lt;slug&gt; com proteção própria e slug aleatório</p>
         </div>
         <button

@@ -7,6 +7,7 @@ import type { CloakConfig, CloakSensitivity, CloakTestResult } from '@/lib/types
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Switch } from '@/components/ui/switch'
+import { SectionTitle } from '@/components/section-title'
 
 // Camadas de detecção expostas na UI — rótulo + descrição curta.
 const LAYERS: { key: keyof CloakConfig; label: string; hint: string }[] = [
@@ -120,7 +121,7 @@ export function CloakConfigPanel() {
             <ShieldCheck className="size-4" />
           </span>
           <div>
-            <h2 className="section-head text-sm font-semibold text-foreground">Filtro de bots (global)</h2>
+            <SectionTitle>Filtro de bots (global)</SectionTitle>
             <p className="text-xs text-muted-foreground">Regras padrão aplicadas a todos os links protegidos</p>
           </div>
         </div>

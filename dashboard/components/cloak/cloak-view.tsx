@@ -6,108 +6,18 @@ import { apiSend, useCloakTestProfiles } from '@/lib/api'
 import type { CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
-import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
+import { SectionTitle } from '@/components/section-title'
 import { CloakConfigPanel } from './cloak-config-panel'
 import { CloakStatsPanel } from './cloak-stats-panel'
 import { CloakEntriesPanel } from './cloak-entries-panel'
 import { describeSignal, LAYER_META, type SignalLayer } from './signal-labels'
 
-const CLOAK_STEPS: TutorialStep[] = [
-  {
-    title: 'O que o cloaker faz',
-    body: (
-      <>
-        Ele decide, a cada acesso, quem vê a <strong>página segura</strong> (white page) e quem vê a{' '}
-        <strong>oferta real</strong>. Robôs de revisão, bots e acessos suspeitos ficam na página segura;
-        o comprador real passa para a oferta.
-      </>
-    ),
-    tip: 'Isso protege a conta de anúncios de reprovações por revisar a oferta diretamente.',
-  },
-  {
-    title: 'Como pontua o acesso',
-    body: (
-      <>
-        Cada acesso ganha um <strong>score</strong> a partir de sinais (data center, robôs conhecidos,
-        país fora do alvo, comportamento de automação…). Se o score passa do <strong>limiar</strong>, o
-        acesso é bloqueado e vê a white page.
-      </>
-    ),
-  },
-  {
-    title: 'Configuração e entradas',
-    body: (
-      <>
-        No painel de <strong>configuração</strong> você ajusta o limiar e as regras. Em{' '}
-        <strong>entradas</strong>, define páginas branca/oferta e segmentação por país. Comece com o
-        preset padrão — ele já é seguro.
-      </>
-    ),
-  },
-  {
-    title: 'Teste antes de subir',
-    body: (
-      <>
-        Use o <strong>Teste ao vivo</strong> para ver como o cloaker classificaria o seu próprio acesso,
-        com o score e os sinais detectados. Em <strong>Simular visitante</strong> você ainda roda perfis
-        prontos — revisor da ByteDance, navegador headless, usuário real do anúncio — e confere se cada
-        um cai no lado certo. Tudo sem gastar clique de anúncio.
-      </>
-    ),
-  },
-  // Item 202: natureza unidirecional do veredito sticky
-  {
-    title: 'Memória de bot (sticky)',
-    body: (
-      <>
-        Quando um visitante é condenado como robô, o veredito fica <strong>guardado por 6 horas</strong>:
-        as próximas visitas dele vão direto para a página segura, sem re-julgar. Esse cache é{' '}
-        <strong>unidirecional</strong> — só guarda veredito de <em>bot</em>, nunca de humano. Um robô que
-        passou uma vez não fica &quot;preso&quot; como real: ele é re-julgado a cada visita.
-      </>
-    ),
-    tip: 'Isso evita que um revisor alterne entre offer e white recarregando a página — e é um fail-safe: errar para o lado seguro.',
-  },
-  // Itens 207/211: regras de fuso/idioma por país e exceções legítimas
-  {
-    title: 'Fuso horário e idioma por país',
-    body: (
-      <>
-        Para os principais países (BR, PT, ES, IT, FR, DE, US, MX…), o cloaker sabe qual{' '}
-        <strong>fuso horário</strong> e quais <strong>idiomas</strong> são esperados. Um acesso com IP do
-        Brasil e navegador em chinês, ou fuso da Europa, gera os sinais{' '}
-        <strong>&quot;idioma fora do país&quot;</strong> e <strong>&quot;fuso não bate&quot;</strong>.
-      </>
-    ),
-    tip: 'Esses sinais têm peso REDUZIDO de propósito: viajantes e VPNs pessoais são exceções legítimas. Não aperte demais o limiar por causa deles — sozinhos, nunca bloqueiam ninguém.',
-  },
-  // Item 260: camada de velocity (anti device-farm)
-  {
-    title: 'Limite de acessos (anti device-farm)',
-    body: (
-      <>
-        Uma <strong>device farm</strong> é uma bancada de celulares/emuladores que martela o seu link
-        dezenas de vezes por minuto — normalmente a partir do <strong>mesmo IP</strong> — para gastar seu
-        orçamento ou espionar a oferta. O cloaker conta os acessos de cada IP numa janela de tempo e, ao
-        passar do limite, manda o excedente para a <strong>página branca</strong>.
-      </>
-    ),
-    tip: 'O padrão (12 acessos a cada 60s) tem folga para uma família no mesmo Wi-Fi. Se um escritório inteiro cair no limite, use "Liberar IP" no painel técnico — a contagem também expira sozinha ao fim da janela.',
-  },
-]
-
 export function CloakView() {
-  const [showTutorial, setShowTutorial] = useState(false)
   return (
     /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão.
        flex-wrap no cabeçalho segue o padrão das outras abas no mobile. */
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground text-pretty">
-          Proteja sua oferta: robôs veem a página segura, compradores veem a oferta real.
-        </p>
-        <TutorialButton onClick={() => setShowTutorial(true)} />
-      </div>
+
 
       <div data-tour="cloak-stats">
         <CloakStatsPanel />
@@ -124,12 +34,7 @@ export function CloakView() {
 
       <CloakEntriesPanel />
 
-      <TutorialModal
-        open={showTutorial}
-        onClose={() => setShowTutorial(false)}
-        title="Como funciona o cloaker"
-        steps={CLOAK_STEPS}
-      />
+
     </div>
   )
 }
@@ -194,10 +99,7 @@ function CloakTestPanel() {
     <GlassCard className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="section-head text-sm font-semibold text-foreground">Teste ao vivo</h2>
-          <p className="text-xs text-muted-foreground">
-            {profile ? 'Simula um visitante escolhido' : 'Julga a requisição atual deste navegador'}
-          </p>
+          <SectionTitle>Teste ao vivo</SectionTitle>
         </div>
         <button
           type="button"

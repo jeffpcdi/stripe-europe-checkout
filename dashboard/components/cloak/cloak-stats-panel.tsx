@@ -7,6 +7,7 @@ import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
+import { SectionTitle } from '@/components/section-title'
 
 // Rótulos amigáveis para os motivos de bloqueio do motor
 const REASON_LABELS: Record<string, string> = {
@@ -123,8 +124,8 @@ export function CloakStatsPanel() {
             <Filter className="size-4" />
           </span>
           <div>
-            <h2 className="section-head flex items-center gap-1.5 text-sm font-semibold text-foreground">
-              Offer vs White
+            <div className="flex items-center gap-1.5">
+              <SectionTitle>Offer vs White</SectionTitle>
               {/* Item 221: fonte do dado — memória zera em reinícios */}
               {data && (
                 <span
@@ -136,7 +137,7 @@ export function CloakStatsPanel() {
                   {data.redis ? 'durável' : 'memória'}
                 </span>
               )}
-            </h2>
+            </div>
             <p className="text-xs text-muted-foreground">Decisões do cloaker por link</p>
           </div>
         </div>
