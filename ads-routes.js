@@ -1207,26 +1207,24 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         try {
           if (r.action === 'pause') {
             if (!dryRun) {
-              await zernio.api('POST', '/ads/campaigns/bulk-status', {
-                body: { status: 'paused', campaigns: [{ platformCampaignId: c.platformCampaignId, platform: 'tiktok' }] }
-              });
+              await pipeboard.setCampaignStatus(advertiserId, [c.platformCampaignId], 'paused');
             }
             entry.ok = true;
             entry.result = (dryRun ? '[simulado] ' : '') + 'campanha pausada';
           } else {
-            // ± pct% no orçamento de cada grupo (via 1º anúncio do grupo)
+            // ± pct% no orçamento de cada grupo — aplicado DIRETO no ad group
+            // (no TikTok o orçamento vive no ad group/campanha, não no anúncio).
             const pct = Math.max(5, Math.min(50, Number(r.pct) || 20));
             const factor = r.action === 'budget_up' ? 1 + pct / 100 : 1 - pct / 100;
             let changed = 0;
             for (const s of (c.adSets || []).slice(0, 10)) {
               const cur = Number((s.budget || {}).amount) || 0;
-              const adId = (s.ads || [])[0] && ((s.ads[0].platformAdId) || (s.ads[0]._id));
-              if (!(cur > 0) || !adId) continue;
+              const adGroupId = s.platformAdSetId || s._id;
+              if (!(cur > 0) || !adGroupId) continue;
               const amount = Math.max(1, +(cur * factor).toFixed(2));
               if (!dryRun) {
-                await zernio.api('PUT', '/ads/' + encodeURIComponent(adId), {
-                  body: { budget: { amount, type: (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily' } },
-                  timeoutMs: 60000
+                await pipeboard.updateAdGroup(advertiserId, adGroupId, {
+                  budget: { amount, type: (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily' }
                 });
               }
               changed += 1;
@@ -1250,7 +1248,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         sendPushcut('Aprovada', { title: 'TikTok Ads: regra automática', text: entry.result + ' — "' + name + '" (' + detail + ')', sound: 'system' }, accId).catch(() => {});
       }
     }
-    if (executed.length) zernio.cacheBust('tree:' + accId);
+    if (executed.length) adsSync.syncAfterWrite(accId, advertiserId); // reflete no espelho
     appendRulesLog(accId, executed);
     return { executed, checkedAt: new Date().toISOString() };
   }
