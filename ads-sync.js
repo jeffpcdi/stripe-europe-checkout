@@ -18,6 +18,11 @@ const pipeboard = require('./pipeboard-mcp');
 
 const WIDE_DAYS = Number(process.env.ADS_SYNC_WINDOW_DAYS) || 90;
 const CHUNK_DAYS = 30; // TikTok limita stat_time_day a janelas de 30 dias (erro 40002)
+// Sync incremental: métricas de dias passados são imutáveis, só as recentes
+// mudam. O loop quente refaz só os últimos INCREMENTAL_DAYS dias; o backfill
+// completo (WIDE_DAYS) roda no cache frio e no máximo 1× a cada FULL_EVERY_MS.
+const INCREMENTAL_DAYS = Number(process.env.ADS_SYNC_INCREMENTAL_DAYS) || 3;
+const FULL_EVERY_MS = Number(process.env.ADS_SYNC_FULL_EVERY_MS) || 24 * 3600 * 1000;
 const SYNC_INTERVAL_MS = Number(process.env.ADS_SYNC_INTERVAL_MS) || 3 * 60 * 1000; // 3 min
 const ACTIVE_WINDOW_MIN = Number(process.env.ADS_SYNC_ACTIVE_MIN) || 6 * 60;        // 6h
 const STALE_MS = Number(process.env.ADS_SYNC_STALE_MS) || SYNC_INTERVAL_MS;         // idade p/ revalidar
@@ -73,37 +78,52 @@ async function collectDaily(advertiserId, levelName, startDate, endDate) {
 
 // Sincroniza UM advertiser: estrutura (getDashboardTree, janela larga) +
 // métricas diárias dos 3 níveis → grava snapshot no espelho.
-async function syncAdvertiser(accountId, advertiserId) {
+async function syncAdvertiser(accountId, advertiserId, opts = {}) {
   advertiserId = String(advertiserId || '').trim();
   if (!advertiserId) return { ok: false, error: 'advertiserId vazio' };
   const start = Date.now();
   const callsBefore = pipeboard.getCallStats ? pipeboard.getCallStats().total : 0;
+
+  // Full vs incremental: full quando pedido explicitamente, ou quando nunca
+  // houve backfill completo, ou quando o último passou de FULL_EVERY_MS.
+  let full = opts.full === true;
+  if (!full) {
+    const st = await cache.getSyncState(accountId, advertiserId).catch(() => null);
+    const lastFull = st && st.last_full_synced_at ? new Date(st.last_full_synced_at).getTime() : 0;
+    full = !lastFull || (Date.now() - lastFull) > FULL_EVERY_MS;
+  }
+
   await cache.upsertSyncState(accountId, advertiserId, { status: 'syncing' }).catch(() => {});
   try {
     const today = new Date();
-    const from = iso(new Date(today.getTime() - WIDE_DAYS * 864e5));
+    // Estrutura: sempre janela larga (a árvore precisa refletir tudo).
+    const structFrom = iso(new Date(today.getTime() - WIDE_DAYS * 864e5));
     const to = iso(today);
+    // Métricas: janela larga no full, curta no incremental (dias imutáveis).
+    const metricsFrom = full ? structFrom : iso(new Date(today.getTime() - (INCREMENTAL_DAYS - 1) * 864e5));
 
     // Estrutura + status derivados (fresh: ignora o micro-cache de 15s do provider).
-    const tree = await provider.getDashboardTree(accountId, { advertiserId, fromDate: from, toDate: to, fresh: true });
+    const tree = await provider.getDashboardTree(accountId, { advertiserId, fromDate: structFrom, toDate: to, fresh: true });
 
     // Métricas diárias dos 3 níveis (falha isolada não derruba o sync inteiro).
     const [cd, gd, ad] = await Promise.all([
-      collectDaily(advertiserId, 'campaign', from, to).catch((e) => { console.warn('[ads-sync] métricas campaign falharam:', e.message); return []; }),
-      collectDaily(advertiserId, 'adgroup', from, to).catch((e) => { console.warn('[ads-sync] métricas adgroup falharam:', e.message); return []; }),
-      collectDaily(advertiserId, 'ad', from, to).catch((e) => { console.warn('[ads-sync] métricas ad falharam:', e.message); return []; }),
+      collectDaily(advertiserId, 'campaign', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas campaign falharam:', e.message); return []; }),
+      collectDaily(advertiserId, 'adgroup', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas adgroup falharam:', e.message); return []; }),
+      collectDaily(advertiserId, 'ad', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas ad falharam:', e.message); return []; }),
     ]);
     const dailyMetrics = cd.concat(gd, ad);
 
-    await cache.writeAdvertiserSnapshot(accountId, advertiserId, { campaigns: tree.campaigns || [], dailyMetrics });
+    // Incremental NÃO poda métricas (preserva o backfill histórico).
+    await cache.writeAdvertiserSnapshot(accountId, advertiserId, { campaigns: tree.campaigns || [], dailyMetrics }, { pruneMetrics: full });
 
     const callsUsed = (pipeboard.getCallStats ? pipeboard.getCallStats().total : 0) - callsBefore;
+    const now = new Date().toISOString();
     await cache.upsertSyncState(accountId, advertiserId, {
-      status: 'ok', lastSyncedAt: new Date().toISOString(), windowFrom: from, windowTo: to,
-      lastDurationMs: Date.now() - start, callsUsed,
+      status: 'ok', lastSyncedAt: now, lastFullSyncedAt: full ? now : null,
+      windowFrom: structFrom, windowTo: to, lastDurationMs: Date.now() - start, callsUsed,
     });
-    console.log('[ads-sync] ' + accountId + '/' + advertiserId + ' ok — ' + (tree.campaigns || []).length + ' campanhas, ' + dailyMetrics.length + ' linhas de métrica, ' + callsUsed + ' chamadas, ' + (Date.now() - start) + 'ms');
-    return { ok: true, campaigns: (tree.campaigns || []).length, metrics: dailyMetrics.length, callsUsed };
+    console.log('[ads-sync] ' + accountId + '/' + advertiserId + ' ok (' + (full ? 'full' : 'incremental') + ') — ' + (tree.campaigns || []).length + ' campanhas, ' + dailyMetrics.length + ' linhas de métrica, ' + callsUsed + ' chamadas, ' + (Date.now() - start) + 'ms');
+    return { ok: true, full, campaigns: (tree.campaigns || []).length, metrics: dailyMetrics.length, callsUsed };
   } catch (err) {
     await cache.upsertSyncState(accountId, advertiserId, { status: 'error', lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
     console.error('[ads-sync] ' + accountId + '/' + advertiserId + ' ERRO:', err.message);

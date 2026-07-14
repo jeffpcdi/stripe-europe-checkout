@@ -84,6 +84,7 @@ async function ensureSchema() {
       advertiser_id text NOT NULL,
       status text NOT NULL DEFAULT 'never',
       last_synced_at timestamptz,
+      last_full_synced_at timestamptz,
       last_error text,
       last_duration_ms integer,
       calls_used integer NOT NULL DEFAULT 0,
@@ -93,6 +94,8 @@ async function ensureSchema() {
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (account_id, advertiser_id)
     )`;
+    // Tabelas pré-existentes (antes do sync incremental) ganham a coluna aqui.
+    await sql`ALTER TABLE ads_sync_state ADD COLUMN IF NOT EXISTS last_full_synced_at timestamptz`;
     await sql`CREATE INDEX IF NOT EXISTS ads_sync_state_activity_idx ON ads_sync_state (requested_at DESC)`;
     console.log('[ads-cache] schema verificado/criado');
     return true;
@@ -162,7 +165,7 @@ async function bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns)
 // diárias. Poda linhas com synced_at anterior a este sync (entidades/dias que
 // sumiram lá fora). Não é uma transação única (driver HTTP), mas é seguro para
 // um cache: uma falha parcial é corrigida no próximo sync.
-async function writeAdvertiserSnapshot(accountId, advertiserId, snapshot) {
+async function writeAdvertiserSnapshot(accountId, advertiserId, snapshot, opts = {}) {
   accountId = cleanAccountId(accountId);
   advertiserId = String(advertiserId || '').trim();
   if (!enabled || !advertiserId) return { ok: false };
@@ -170,15 +173,19 @@ async function writeAdvertiserSnapshot(accountId, advertiserId, snapshot) {
   const syncedAt = new Date().toISOString();
   const campaigns = Array.isArray(snapshot.campaigns) ? snapshot.campaigns : [];
   const metrics = Array.isArray(snapshot.dailyMetrics) ? snapshot.dailyMetrics : [];
+  // pruneMetrics: só o sync COMPLETO poda o histórico. O incremental refaz
+  // apenas os últimos dias (upsert) e NÃO deve apagar o backfill mais antigo.
+  const pruneMetrics = opts.pruneMetrics !== false;
 
   const nCamp = await bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns);
   const nMet = await bulkUpsertMetrics(accountId, advertiserId, syncedAt, metrics);
 
   // Poda: remove campanhas que não vieram neste sync (deletadas no TikTok).
+  // A estrutura é sempre refetch completa, então a poda é sempre segura.
   await sql`DELETE FROM ads_campaigns_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND synced_at < ${syncedAt}`;
-  // Poda de métricas: só quando houve alguma métrica (evita apagar tudo se a
-  // chamada de insights falhou e veio vazia — nesse caso preservamos o cache).
-  if (metrics.length) {
+  // Poda de métricas: só no sync completo e só quando houve alguma métrica
+  // (evita apagar tudo se a chamada de insights falhou e veio vazia).
+  if (pruneMetrics && metrics.length) {
     await sql`DELETE FROM ads_metrics_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND synced_at < ${syncedAt}`;
   }
   return { ok: true, campaigns: nCamp, metrics: nMet, syncedAt };
@@ -353,11 +360,12 @@ async function upsertSyncState(accountId, advertiserId, patch) {
   await ensureSchema();
   const p = patch || {};
   const rows = await sql`
-    INSERT INTO ads_sync_state (account_id, advertiser_id, status, last_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, updated_at)
-    VALUES (${accountId}, ${advertiserId}, ${p.status || 'syncing'}, ${p.lastSyncedAt || null}, ${p.lastError || null}, ${p.lastDurationMs || null}, ${p.callsUsed || 0}, ${p.windowFrom || null}, ${p.windowTo || null}, now())
+    INSERT INTO ads_sync_state (account_id, advertiser_id, status, last_synced_at, last_full_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, updated_at)
+    VALUES (${accountId}, ${advertiserId}, ${p.status || 'syncing'}, ${p.lastSyncedAt || null}, ${p.lastFullSyncedAt || null}, ${p.lastError || null}, ${p.lastDurationMs || null}, ${p.callsUsed || 0}, ${p.windowFrom || null}, ${p.windowTo || null}, now())
     ON CONFLICT (account_id, advertiser_id) DO UPDATE SET
       status = EXCLUDED.status,
       last_synced_at = COALESCE(EXCLUDED.last_synced_at, ads_sync_state.last_synced_at),
+      last_full_synced_at = COALESCE(EXCLUDED.last_full_synced_at, ads_sync_state.last_full_synced_at),
       last_error = EXCLUDED.last_error,
       last_duration_ms = COALESCE(EXCLUDED.last_duration_ms, ads_sync_state.last_duration_ms),
       calls_used = EXCLUDED.calls_used,
@@ -399,7 +407,7 @@ async function listSyncStates(accountId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
   await ensureSchema();
-  return sql`SELECT advertiser_id, status, last_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, requested_at FROM ads_sync_state WHERE account_id = ${accountId} ORDER BY last_synced_at DESC NULLS LAST`;
+  return sql`SELECT advertiser_id, status, last_synced_at, last_full_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, requested_at FROM ads_sync_state WHERE account_id = ${accountId} ORDER BY last_synced_at DESC NULLS LAST`;
 }
 
 module.exports = {
