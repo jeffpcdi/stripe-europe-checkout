@@ -7,7 +7,7 @@
 // Os cards "online/checkout/países" saíram — essa informação vive aqui.
 
 import dynamic from 'next/dynamic'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLive } from '@/lib/api'
 import { CountUp } from '@/components/count-up'
 import type { GeoPulse } from '@/components/geo/globe'
@@ -87,19 +87,21 @@ function useLeadPulses(countries: LiveCountry[]): GeoPulse[] {
 export function HeroGlobe({
   leadsToday,
   countriesToday,
+  countries,
 }: {
   /** leads que entraram HOJE (de /api/stats — o overview já tem esse dado) */
   leadsToday: number
   /** países distintos dos leads de hoje */
   countriesToday: number
+  /** países dos leads de HOJE — colorem o globo (mesma história do contador).
+      Antes o globo pintava só quem estava online AGORA: ficava apagado com
+      "Aguardando tráfego" por cima de "87 leads hoje". */
+  countries: { code: string; name: string; count: number; purchased: number }[]
 }) {
-  const { data, isLoading } = useLive()
+  // /api/live continua alimentando os PULSOS (anéis de lead novo, Fase 5) —
+  // é a única razão do hook aqui; a coloração vem do prop `countries`.
+  const { data } = useLive()
   const liveCountries = data?.summary.countries ?? []
-  const countries = useMemo(
-    () => liveCountries.map((country) => ({ ...country, purchased: 0 })),
-    [liveCountries],
-  )
-  // Fase 5: pulsos de leads novos alimentam os anéis do globo
   const pulses = useLeadPulses(liveCountries)
 
   return (
@@ -109,11 +111,9 @@ export function HeroGlobe({
       className="relative mx-auto aspect-square w-full max-w-[560px]"
       aria-label={`Presença ao vivo: ${leadsToday} leads hoje em ${countriesToday} ${countriesToday === 1 ? 'país' : 'países'}`}
     >
-      {isLoading && !data ? (
-        <GlobeSkeleton />
-      ) : (
-        <GlobePanel countries={countries} metric="visits" pulses={pulses} />
-      )}
+      {/* A coloração vem de `countries` (stats, já carregado quando o overview
+          renderiza) — não espera o /api/live; ele só adiciona pulsos depois. */}
+      <GlobePanel countries={countries} metric="visits" pulses={pulses} />
 
       {/* Números DENTRO do globo, sobrepostos na base. pointer-events-none
           para não interceptar arraste/zoom do globo. */}

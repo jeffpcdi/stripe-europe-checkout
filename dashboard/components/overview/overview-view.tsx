@@ -8,6 +8,7 @@ import { useStats, useEmqTrend, useAdsStatus, useAdsRoas } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import { aggregate, money, periodStart } from '@/lib/metrics'
 import { countryFlag, fmtPercent } from '@/lib/format'
+import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { Skeleton } from '@/components/skeleton'
@@ -170,19 +171,31 @@ export function OverviewView() {
 
   // Números DENTRO do globo: leads que entraram HOJE (fixo, independente do
   // período selecionado — o label diz "LEADS HOJE") + países distintos deles.
-  const { leadsToday, countriesToday } = useMemo(() => {
+  // todayCountries também COLORE o globo: pintar só quem está online agora
+  // deixava o globo apagado com "Aguardando tráfego" por cima do contador — 
+  // estados contraditórios. Agora globo e contador contam a MESMA história.
+  const { leadsToday, countriesToday, todayCountries } = useMemo(() => {
     const start = new Date()
     start.setHours(0, 0, 0, 0)
     const t = start.getTime()
     let n = 0
-    const set = new Set<string>()
+    const byCountry = new Map<string, number>()
     for (const l of data?.leads ?? []) {
       const at = new Date(l.at).getTime()
       if (!Number.isFinite(at) || at < t) continue
       n++
-      if (l.country) set.add(l.country)
+      if (l.country) byCountry.set(l.country, (byCountry.get(l.country) ?? 0) + 1)
     }
-    return { leadsToday: n, countriesToday: set.size }
+    return {
+      leadsToday: n,
+      countriesToday: byCountry.size,
+      todayCountries: Array.from(byCountry, ([code, count]) => ({
+        code,
+        name: countryName(code),
+        count,
+        purchased: 0,
+      })),
+    }
   }, [data])
 
   if (error) {
@@ -351,7 +364,11 @@ export function OverviewView() {
         </div>
 
         {/* Centro — o globo, circular, com os números DENTRO dele */}
-        <HeroGlobe leadsToday={leadsToday} countriesToday={countriesToday} />
+        <HeroGlobe
+          leadsToday={leadsToday}
+          countriesToday={countriesToday}
+          countries={todayCountries}
+        />
 
         {/* Direita — CHEGANDO AGORA: últimos leads de /api/stats (poll de 12s,
             zero request nova) */}
