@@ -10,19 +10,7 @@ import { useAdsKpis } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { CountUp } from '@/components/count-up'
 import { SparkLine } from '@/components/sparkline'
-import { fmtCompact, fmtPercent } from '@/lib/format'
-
-function fmtSpend(v: number, currency?: string | null): string {
-  try {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: currency || 'USD',
-      maximumFractionDigits: 2,
-    }).format(v)
-  } catch {
-    return v.toFixed(2)
-  }
-}
+import { fmtCompact, fmtPercent, fmtSpend } from '@/lib/format'
 
 // Seta + % de variação. `goodWhenUp=false` inverte a cor (CPM subir é ruim).
 function Delta({ value, goodWhenUp = true }: { value: number | null | undefined; goodWhenUp?: boolean }) {

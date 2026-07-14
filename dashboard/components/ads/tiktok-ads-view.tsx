@@ -15,6 +15,7 @@ import {
   useAdsAttribution,
   useAdsSafetyPolicy,
   useAdsHealth,
+  useAdsBriefing,
   apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -41,6 +42,10 @@ import { CatalogDialog } from './catalog-dialog'
 import { OpsStatusCards } from './ops-status-cards'
 import { McpStatusCard } from './mcp-status-card'
 import { KpiRow } from './kpi-row'
+import { BriefingCard } from './briefing-card'
+import { CopilotPanel } from './copilot-panel'
+import { CreativeInsightsCard } from './creative-insights-card'
+import { BudgetProposalCard } from './budget-proposal-card'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export function TikTokAdsView() {
@@ -128,6 +133,11 @@ export function TikTokAdsView() {
     const adv = accounts?.accounts.find((a) => a.id === concreteAdvertiser)
     return adv?.currency || tree?.campaigns?.[0]?.currency || 'USD'
   }, [accounts, concreteAdvertiser, tree])
+
+  // IA configurada no servidor? (resposta do briefing carrega a flag `ai`;
+  // SWR dedupa com o fetch do BriefingCard — custo zero extra)
+  const { data: briefingData } = useAdsBriefing(treeActive)
+  const aiEnabled = briefingData?.ai ?? false
 
   // KPIs agregados sobre a página atual da árvore + série p/ sparkline
   const kpi = useMemo(() => {
@@ -474,6 +484,21 @@ export function TikTokAdsView() {
 
           {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
           <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
+
+          {/* ── Camada de IA (some inteira se AI_GATEWAY_API_KEY não estiver
+              configurada no servidor — cada card se auto-esconde no 503) ── */}
+          <BriefingCard adAccountId={concreteAdvertiser} currency={currency} />
+          <CopilotPanel
+            active={treeActive}
+            adAccountId={concreteAdvertiser}
+            currency={currency}
+            aiEnabled={aiEnabled}
+            onMutateTree={() => mutateTree()}
+          />
+          <div className="grid gap-3 md:grid-cols-2">
+            <CreativeInsightsCard adAccountId={concreteAdvertiser} currency={currency} />
+            <BudgetProposalCard adAccountId={concreteAdvertiser} currency={currency} onApplied={() => mutateTree()} />
+          </div>
 
           {/* Árvore de campanhas */}
           <CampaignTree
