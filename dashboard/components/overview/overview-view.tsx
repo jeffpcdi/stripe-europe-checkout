@@ -16,7 +16,6 @@ import { GlassCard } from '@/components/glass-card'
 import { TopSources } from './top-sources'
 import { ExportSummaryButton } from './export-summary'
 import { TvModeButton } from './tv-mode'
-import { OnboardingChecklist } from './onboarding-checklist'
 import { PeriodPicker } from './period-picker'
 import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
@@ -242,11 +241,6 @@ export function OverviewView() {
   const attempts = cur.sales + cur.failed
   const hasGeo = cur.countries.length > 0
   const hasSources = cur.topCampaigns.length > 0 || cur.topLinks.length > 0
-  // Item 288: onboarding usa o HISTÓRICO TODO (não o período filtrado) —
-  // trocar para "hoje" numa conta ativa não pode ressuscitar o checklist.
-  const everVisited = (data?.leads?.length ?? 0) > 0
-  const everSold = (data?.events ?? []).some((e) => e.type === 'sale')
-  const isOnboarding = !everVisited || !everSold
 
   const revSeries = cur.series.map((s) => s.revenue)
 
@@ -280,36 +274,7 @@ export function OverviewView() {
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
-      {/* Item 288: conta que ainda não fechou o ciclo (visita + venda) vê o
-          checklist guiado no topo, com progresso derivado de dados reais */}
-      {isOnboarding && <OnboardingChecklist hasVisits={everVisited} hasSales={everSold} />}
 
-      {/* Item 277: aprovação crítica (<40% com volume relevante) vira alerta
-          acionável, não só uma cor. CTA leva ao cloaker (filtro de tráfego). */}
-      {attempts >= 10 && cur.approval < 40 && (
-        <GlassCard
-          role="alert"
-          className="flex flex-col gap-3 border-l-2 border-l-[#fe2c55] p-4 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div className="flex items-start gap-3">
-            <ShieldAlert className="mt-0.5 size-5 shrink-0 text-[#fe2c55]" aria-hidden="true" />
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                Aprovação em {fmtPercent(cur.approval)} — abaixo do saudável
-              </p>
-              <p className="text-sm text-muted-foreground text-pretty">
-                {cur.failed} de {attempts} tentativas falharam neste período. Verifique o cloaker e os gateways para barrar tráfego ruim.
-              </p>
-            </div>
-          </div>
-          <a
-            href="/cloak"
-            className="shrink-0 self-start rounded-lg bg-[#fe2c55] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:self-auto"
-          >
-            Abrir cloaker
-          </a>
-        </GlassCard>
-      )}
 
       {/* ── BLOCO HERO IMERSIVO — globo ocupa todo o painel; KPIs e LiveFeed
           são sobrepostos com glassmorphism. Items 4-9. ─────────────────── */}

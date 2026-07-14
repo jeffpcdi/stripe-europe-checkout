@@ -6,9 +6,9 @@
    ============================================================ */
 
 :root {
-  /* Superfícies — preto puro como o legado */
+  /* Superfícies — fundo espacial atmosférico global */
   --bg: #09090b;
-  --card: #121215;
+  --card: rgba(18, 18, 21, 0.4);
   --border: rgba(255, 255, 255, 0.1);
 
   /* Texto — contraste elevado (muted agora ≥4.5:1 sobre #08080a) */
@@ -44,15 +44,15 @@
   --error-light: rgba(239, 68, 68, 0.13);
   --accent-light: rgba(37, 244, 238, 0.12);
 
-  /* Liquid Glass */
-  --lg-blur: 8px;
-  --lg-sat: 100%;
-  --lg-tint: #121215;
-  --lg-tint-thick: #101012;
-  --lg-tint-clear: rgba(18, 18, 21, 0.72);
-  --lg-tint-brand: #121719;
-  --lg-rim-top: rgba(255, 255, 255, 0.08);
-  --lg-rim-side: rgba(255, 255, 255, 0.04);
+  /* Liquid Glass (Fase 3: Upgrade Imersivo Global) */
+  --lg-blur: 24px;
+  --lg-sat: 150%;
+  --lg-tint: rgba(9, 9, 11, 0.45);
+  --lg-tint-thick: rgba(9, 9, 11, 0.65);
+  --lg-tint-clear: rgba(9, 9, 11, 0.25);
+  --lg-tint-brand: rgba(37, 244, 238, 0.05);
+  --lg-rim-top: rgba(255, 255, 255, 0.12);
+  --lg-rim-side: rgba(255, 255, 255, 0.06);
 
   /* Estados interativos */
   --hover: rgba(255, 255, 255, 0.05);
@@ -152,6 +152,7 @@ html {
 
 body {
   background: var(--bg);
+  background-image: radial-gradient(circle at top, rgba(37, 244, 238, 0.05) 0%, rgba(9, 9, 11, 1) 60%);
   color: var(--text);
   font-family: var(--font-sans);
   line-height: 1.55;
@@ -1148,21 +1149,34 @@ a:active,
   animation: ping 2s var(--ease) infinite;
 }
 
-/* Item 57: skeleton com varredura ciano 8% (shimmer neon da marca) */
+/* Item 57: skeleton com pulso cyan elegante */
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.04) 25%,
-    rgba(37, 244, 238, 0.08) 50%,
-    rgba(255, 255, 255, 0.04) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmerNeon 1.8s linear infinite;
+  background: var(--lg-tint-thick);
+  border: 1px solid rgba(37, 244, 238, 0.05);
   border-radius: var(--radius-sm);
+  animation: shimmerCyan 2s infinite ease-in-out;
+}
+
+@keyframes shimmerCyan {
+  0%, 100% {
+    background-color: var(--lg-tint-thick);
+    box-shadow: 0 0 0 rgba(37, 244, 238, 0);
+  }
+  50% {
+    background-color: rgba(37, 244, 238, 0.08);
+    box-shadow: 0 0 12px rgba(37, 244, 238, 0.1);
+  }
 }
 
 .text-gradient-brand {
   background: var(--brand-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-gradient-metallic {
+  background: linear-gradient(90deg, #f7f7f8 0%, #94949d 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -2214,21 +2228,7 @@ kbd {
   color: #fff;
 }
 
-/* V2-96: skeleton com onda dupla — segunda passada rosa fraca defasada */
-.skeleton {
-  position: relative;
-}
-.skeleton::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, var(--pink-6), transparent);
-  background-size: 200% 100%;
-  animation: shimmerNeon 2.4s linear infinite;
-  animation-delay: 600ms;
-  border-radius: inherit;
-  pointer-events: none;
-}
+/* (Skeleton cyan consolidado no arquivo acima) */
 
 /* V2-97: botão primário com brilho que atravessa no hover */
 .btn-shine {

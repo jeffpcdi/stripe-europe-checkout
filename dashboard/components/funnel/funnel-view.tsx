@@ -170,7 +170,7 @@ export function FunnelView() {
       label: 'Visitaram',
       sub: 'topo do funil',
       value: m?.visits ?? 0,
-      bar: 'var(--brand-grad)',
+      alpha: 1.0,
       color: 'var(--accent)',
       rate: fmtPercent(100),
       stepRate: null as string | null,
@@ -185,7 +185,7 @@ export function FunnelView() {
       label: 'Checkout',
       sub: 'entraram no checkout',
       value: m?.reachedCheckout ?? 0,
-      bar: 'color-mix(in oklab, var(--accent) 72%, transparent)',
+      alpha: 0.72,
       color: 'var(--accent)',
       rate: fmtPercent(v2c),
       stepRate: `${fmtPercent(v2c)} das visitas`,
@@ -213,7 +213,7 @@ export function FunnelView() {
             label: 'Tentaram pagar',
             sub: 'tentativas registradas pelo gateway',
             value: attempts,
-            bar: 'color-mix(in oklab, var(--accent) 58%, transparent)',
+            alpha: 0.58,
             color: 'var(--accent)',
             rate: fmtPercent(m && m.visits ? +((attempts / m.visits) * 100).toFixed(1) : 0),
             stepRate: `${m?.failed ?? 0} recusada${(m?.failed ?? 0) === 1 ? '' : 's'}`,
@@ -229,7 +229,7 @@ export function FunnelView() {
       label: 'Compraram',
       sub: 'pagamento aprovado',
       value: m?.purchased ?? 0,
-      bar: 'color-mix(in oklab, var(--accent) 44%, transparent)',
+      alpha: 0.44,
       color: 'var(--accent)',
       rate: fmtPercent(m?.overall ?? 0),
       // Item 302: com a etapa de tentativas visível, a taxa que importa é
@@ -382,7 +382,8 @@ export function FunnelView() {
                         className="funnel-bar relative h-full rounded-md"
                         style={{
                           width: `${w}%`,
-                          background: st.bar,
+                          background: `linear-gradient(90deg, color-mix(in oklab, var(--accent) ${st.alpha * 100}%, transparent), color-mix(in oklab, var(--accent) ${st.alpha * 50}%, transparent))`,
+                          boxShadow: `0 0 16px color-mix(in oklab, var(--accent) ${st.alpha * 20}%, transparent)`,
                           animationDelay: `${i * 300}ms`,
                         }}
                       >
