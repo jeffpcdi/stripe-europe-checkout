@@ -4,7 +4,8 @@
 // advertiser, KPIs agregados e a árvore de campanhas. Os fluxos de escrita
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
-import { useMemo, useRef, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Megaphone, Plus, Zap, UserRound, Copy, Layers, MoreHorizontal, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
 import {
   useAdsStatus,
@@ -111,17 +112,6 @@ export function TikTokAdsView() {
   const [opsOpen, setOpsOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
-  // Menu "⋯" com ações secundárias (Saúde, Brand Identity, Catálogo)
-  const [moreOpen, setMoreOpen] = useState(false)
-  const moreRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!moreOpen) return
-    function onDocClick(e: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [moreOpen])
 
   // Política de segurança — alimenta o badge de simulação/kill switch
   const { data: safety, mutate: mutateSafety } = useAdsSafetyPolicy(connected)
@@ -320,73 +310,54 @@ export function TikTokAdsView() {
             <Zap className="size-3.5" aria-hidden="true" />
             Spark Ads
           </button>
-          <div className="relative" ref={moreRef}>
-            <button
-              type="button"
-              className="btn-ghost text-xs"
-              onClick={() => setMoreOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={moreOpen}
-              aria-label="Mais ações"
-            >
-              <MoreHorizontal className="size-3.5" aria-hidden="true" />
-              {openTickets.length > 0 && (
-                <span className="ml-0.5 rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
-                  {openTickets.length}
-                </span>
-              )}
-            </button>
-            {moreOpen && (
-              <div
-                role="menu"
-                className="anim-content-in absolute right-0 z-20 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-[var(--surface,var(--card))] p-1 shadow-xl"
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button type="button" className="btn-ghost text-xs" aria-label="Mais ações">
+                <MoreHorizontal className="size-3.5" aria-hidden="true" />
+                {openTickets.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
+                    {openTickets.length}
+                  </span>
+                )}
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="end"
+                sideOffset={8}
+                className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-[12px] p-1.5"
               >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-secondary"
-                  onClick={() => {
-                    setMoreOpen(false)
-                    setHealthOpen(true)
-                  }}
+                <DropdownMenu.Item
+                  className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                  onSelect={() => setHealthOpen(true)}
                 >
-                  <HeartPulse className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  <HeartPulse className="size-3.5" aria-hidden="true" />
                   Saúde das contas
                   {openTickets.length > 0 && (
                     <span className="ml-auto rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
                       {openTickets.length}
                     </span>
                   )}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-secondary"
-                  onClick={() => {
-                    setMoreOpen(false)
-                    setIdentityOpen(true)
-                  }}
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                  onSelect={() => setIdentityOpen(true)}
                 >
-                  <UserRound className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  <UserRound className="size-3.5" aria-hidden="true" />
                   <span className="truncate">
                     {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
                   </span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-secondary"
-                  onClick={() => {
-                    setMoreOpen(false)
-                    openWriteFlow(setCatalogOpen)
-                  }}
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                  onSelect={() => openWriteFlow(setCatalogOpen)}
                 >
-                  <ShoppingBag className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  <ShoppingBag className="size-3.5" aria-hidden="true" />
                   Catálogo de produtos
-                </button>
-              </div>
-            )}
-          </div>
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         </div>
       </div>
 
