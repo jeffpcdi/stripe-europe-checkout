@@ -209,18 +209,39 @@ let timer = null;
 async function tick() {
   if (running) return;
   running = true;
+  const tickStart = Date.now();
   try {
+    // automation é carregado preguiçosamente AQUI (não no topo) para evitar
+    // qualquer risco de ciclo de require no boot — em runtime o cache de
+    // módulos do Node resolve na primeira chamada e reusa depois.
+    const automation = require('./ads-automation');
     const actives = await cache.listActiveAdvertisers(ACTIVE_WINDOW_MIN);
     for (const a of actives) {
       const st = await cache.getSyncState(a.accountId, a.advertiserId).catch(() => null);
       const last = st && st.last_synced_at ? new Date(st.last_synced_at).getTime() : 0;
-      if (!last || (Date.now() - last) >= (SYNC_INTERVAL_MS - 15 * 1000)) {
-        await syncAdvertiser(a.accountId, a.advertiserId); // sequencial: respeita o rate limit do provider
+      const wasBlocked = st && st.status === 'blocked';
+      if (!last || (Date.now() - last) >= (SYNC_INTERVAL_MS - 15 * 1000) || wasBlocked) {
+        // Conta bloqueada: syncAdvertiser já respeita BLOCKED_BACKOFF_MS (só
+        // re-proba após 30min). Se o re-probe der certo, é a auto-recuperação
+        // do estado 'blocked' obsoleto — loga e avisa no rulesLog.
+        const result = await syncAdvertiser(a.accountId, a.advertiserId); // sequencial: respeita o rate limit
+        if (wasBlocked && result && result.ok) {
+          try { automation.noteRecovery(a.accountId, a.advertiserId); } catch (_) {}
+        }
       }
+    }
+    // Varreduras de automação 24/7: rodam DEPOIS do sync (espelho fresco),
+    // uma vez por conta, lendo SÓ do Neon — zero chamadas extras à Pipeboard.
+    // Throttle vive dentro do módulo (compartilhado com o hook das rotas).
+    const accounts = [...new Set(actives.map((a) => a.accountId))];
+    for (const accId of accounts) {
+      try { automation.maybeSweep(accId); } catch (_) { /* sweep nunca derruba o sync */ }
     }
   } catch (err) {
     console.error('[ads-sync] tick falhou:', err.message);
   } finally {
+    const dur = Date.now() - tickStart;
+    if (dur > 60 * 1000) console.warn('[ads-sync] tick demorou ' + Math.round(dur / 1000) + 's (esperado < 60s)');
     running = false;
   }
 }

@@ -31,6 +31,7 @@ const pipeboard = require('./ads-provider'); // Gate 2+: fronteira dashboard↔P
 const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só /diag)
 const adsCache = require('./ads-cache-store'); // espelho durável no Neon (leitura)
 const adsSync = require('./ads-sync');         // motor Pipeboard→Neon (sync em background)
+const automation = require('./ads-automation'); // regras/alertas/dayparting 24/7
 const adsOps = require('./ads-ops-store');
 const catalogStore = require('./ads-catalog-store');
 const catalogFeed = require('./ads-catalog-feed');
@@ -987,88 +988,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Alertas de performance ───────────────────────────────────────────────���─
-  // Config por conta (junto do estado zernioAds). Regras:
-  //  • gasto sem conversão: campanha ativa gastou ≥ X no período sem converter
-  //  • CPA estourado: gasto/conversões > teto definido
-  // A varredura pega carona nas chamadas do painel (throttle 30min por conta) e
-  // notifica via Pushcut (mesmo canal "Aprovada" já configurado pelo usuário).
-  const ALERT_DEFAULTS = { enabled: false, spendNoConv: 20, cpaMax: 0, lookbackDays: 2 };
-  const alertLastRun = new Map();   // accId → timestamp da última varredura
-  const alertCooldown = new Map();  // accId:campanha:regra → timestamp do último aviso
-
-  function getAlertCfg(accId) {
-    return Object.assign({}, ALERT_DEFAULTS, pipeboard.getState(accId).alerts || {});
-  }
-
-  async function runAlertSweep(accId, { force } = {}) {
-    const cfg = getAlertCfg(accId);
-    if (!cfg.enabled && !force) return { findings: [], skipped: true };
-    if (!pipeboard.enabled) return { findings: [], skipped: true };
-    const advertiserId = await pipeboard.resolveAdvertiserId(accId);
-    if (!advertiserId) return { findings: [], skipped: true };
-
-    const iso = (d) => d.toISOString().slice(0, 10);
-    const to = new Date();
-    const from = new Date(to.getTime() - Math.max(1, cfg.lookbackDays) * 864e5);
-    const tree = await pipeboard.getDashboardTree(accId, {
-      advertiserId, status: 'active', fromDate: iso(from), toDate: iso(to),
-    });
-
-    const findings = [];
-    (tree.campaigns || []).forEach((c) => {
-      const m = c.metrics || {};
-      const spend = Number(m.spend) || 0;
-      const conv = Number(m.conversions) || 0;
-      const name = c.campaignName || c.platformCampaignId;
-      if (cfg.spendNoConv > 0 && conv === 0 && spend >= cfg.spendNoConv) {
-        findings.push({
-          rule: 'spend_no_conv', campaignId: c.platformCampaignId, campaignName: name,
-          spend: +spend.toFixed(2), conversions: 0,
-          text: '"' + name + '" gastou ' + spend.toFixed(2) + ' ' + (c.currency || '') + ' nos últimos ' + cfg.lookbackDays + 'd sem nenhuma conversão.'
-        });
-      }
-      if (cfg.cpaMax > 0 && conv > 0 && spend / conv > cfg.cpaMax) {
-        findings.push({
-          rule: 'cpa_max', campaignId: c.platformCampaignId, campaignName: name,
-          spend: +spend.toFixed(2), conversions: conv, cpa: +(spend / conv).toFixed(2),
-          text: '"' + name + '" está com CPA de ' + (spend / conv).toFixed(2) + ' ' + (c.currency || '') + ' (teto: ' + cfg.cpaMax + ').'
-        });
-      }
-    });
-
-    // notifica com cooldown de 6h por campanha+regra (não vira spam)
-    const { sendPushcut } = require('./pushcut');
-    for (const f of findings) {
-      const key = accId + ':' + f.campaignId + ':' + f.rule;
-      const last = alertCooldown.get(key) || 0;
-      if (Date.now() - last < 6 * 3600e3) { f.muted = true; continue; }
-      alertCooldown.set(key, Date.now());
-      stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] ' + f.text });
-      sendPushcut('Aprovada', { title: 'TikTok Ads: atenção', text: f.text, sound: 'system' }, accId).catch(() => {});
-    }
-    return { findings, checkedAt: new Date().toISOString() };
-  }
-
-  // varredura oportunista: pega carona no polling do painel (nunca derruba a
-  // request). Chamada explicitamente pelas rotas de leitura mais frequentes —
-  // um app.use registrado aqui não funcionaria (Express roda na ordem de
-  // registro e as rotas acima já terminaram a resposta).
-  function maybeSweep(accId) {
-    try {
-      if (!accId || !getAlertCfg(accId).enabled) return;
-      const last = alertLastRun.get(accId) || 0;
-      if (Date.now() - last > 30 * 60e3) {
-        alertLastRun.set(accId, Date.now());
-        runAlertSweep(accId).catch(() => {});
-      }
-    } catch (_) { /* nunca bloqueia a rota que pegou a carona */ }
-  }
-  adsSweepHook.fn = maybeSweep;
+  // ── Alertas + regras + dayparting — motor extraído para ads-automation.js ──
+  // O motor roda 24/7 no tick do ads-sync (dashboard fechada = automações vivas)
+  // E pega carona no polling das rotas (latência percebida menor). O throttle é
+  // ÚNICO, dentro do módulo — dois gatilhos nunca causam varredura dupla.
+  automation.init({ stats, syncAfterWrite: adsSync.syncAfterWrite });
+  adsSweepHook.fn = automation.maybeSweep;
 
   app.get('/api/ads/alerts', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json(getAlertCfg(req.account.id));
+    res.json(automation.getAlertCfg(req.account.id));
   });
 
   app.put('/api/ads/alerts', dashboardAuth, (req, res) => {
@@ -1088,43 +1017,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // “verificar agora” — roda a varredura na hora e devolve o que encontrou
   app.post('/api/ads/alerts/check', dashboardAuth, async (req, res) => {
     try {
-      alertLastRun.set(req.account.id, Date.now());
-      const result = await runAlertSweep(req.account.id, { force: true });
+      automation.markSweepNow(req.account.id);
+      const result = await automation.runAlertSweep(req.account.id, { force: true });
       res.json(result);
     } catch (err) { fail(res, err); }
   });
 
-  // ── Atribuição por campanha ──────────────────��─────────────────────────────
+  // ── Atribuição por campanha ─────────────────────────────────────────────────
   // Os anúncios criados aqui saem com utm_campaign=__CAMPAIGN_ID__ (macro que
   // o TikTok troca pelo ID real). O /api/track grava utm.campaign no lead, e
   // este endpoint casa os leads COMPRADOS com o platformCampaignId — dando
-  // receita, vendas e ROAS POR CAMPANHA (não só o agregado do /roas).
-  function computeAttribution(accId, fromDate, toDate) {
-    const byCampaign = {}; // campaignId → { revenueCents, sales }
-    const unattributed = { revenueCents: 0, sales: 0 }; // tiktok sem campanha
-    if (typeof stats.getStats !== 'function') return { byCampaign, unattributed };
-    const snap = stats.getStats(accId) || {};
-    (snap.leads || []).forEach((l) => {
-      if (l.stage !== 'purchased' || !l.convertedAt) return;
-      const day = String(l.convertedAt).slice(0, 10);
-      if (day < fromDate || day > toDate) return;
-      const src = String((l.utm || {}).source || '').toLowerCase();
-      const isTikTok = src === 'tiktok' || !!l.ttclid; // ttclid só existe vindo do TikTok
-      if (!isTikTok) return;
-      const cents = Number(l.reportedAmount) || 0;
-      // utm.campaign carrega o ID numérico da campanha (macro substituído)
-      const camp = String((l.utm || {}).campaign || '').trim();
-      if (/^\d{5,30}$/.test(camp)) {
-        if (!byCampaign[camp]) byCampaign[camp] = { revenueCents: 0, sales: 0 };
-        byCampaign[camp].revenueCents += cents;
-        byCampaign[camp].sales += 1;
-      } else {
-        unattributed.revenueCents += cents;
-        unattributed.sales += 1;
-      }
-    });
-    return { byCampaign, unattributed };
-  }
+  // receita, vendas e ROAS POR CAMPANHA. A lógica vive em ads-automation.js
+  // (as regras roas_min/roas_scale usam a mesma atribuição).
+  const computeAttribution = automation.computeAttribution;
 
   app.get('/api/ads/attribution', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -1143,146 +1048,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   } catch (err) { fail(res, err); }
   });
 
-  // ── Regras automáticas — além de alertar, AGE ─────────────────────��───────
-  // Cada regra: métrica observada + limite + ação. Métricas:
-  //  • cpa_max        — gasto/conversões acima do teto
-  //  • spend_no_conv  — gastou ≥ X sem nenhuma conversão
-  //  • roas_min       — ROAS atribuído (vendas reais) abaixo do piso
-  // Ações: pause (bulk-status) | budget_down | budget_up (± pct% no orçamento
-  // de cada grupo da campanha, via PUT no 1º anúncio do grupo).
-  const RULE_METRICS = ['cpa_max', 'spend_no_conv', 'roas_min'];
-  const RULE_ACTIONS = ['pause', 'budget_down', 'budget_up'];
-  const rulesLastRun = new Map();  // accId → ts da última execução
-  const rulesCooldown = new Map(); // accId:campanha:regra → ts da última ação
-
-  function getRules(accId) {
-    const st = pipeboard.getState(accId);
-    return Array.isArray(st.rules) ? st.rules : [];
-  }
-  function getRulesLog(accId) {
-    const st = pipeboard.getState(accId);
-    return Array.isArray(st.rulesLog) ? st.rulesLog : [];
-  }
-  function appendRulesLog(accId, entries) {
-    if (!entries.length) return;
-    const log = [...entries, ...getRulesLog(accId)].slice(0, 50);
-    pipeboard.setState(accId, { rulesLog: log });
-  }
-
-  async function runRulesSweep(accId, { force } = {}) {
-    const rules = getRules(accId).filter((r) => r.enabled);
-    if (!rules.length && !force) return { executed: [], skipped: true };
-    if (!pipeboard.enabled || !rules.length) return { executed: [], skipped: true };
-    const advertiserId = await pipeboard.resolveAdvertiserId(accId);
-    if (!advertiserId) return { executed: [], skipped: true };
-    const st = { advertiserId }; // compat: usado no audit/mutações abaixo
-
-    // Regras automáticas também respeitam o dry-run: em simulação, elas
-    // avaliam as condições e registram o que FARIAM, mas não tocam a plataforma.
-    const dryRun = await isDryRun(accId);
-    const iso = (d) => d.toISOString().slice(0, 10);
-    const to = new Date();
-    const maxLookback = Math.max(...rules.map((r) => r.lookbackDays || 2), 1);
-    const fromDate = iso(new Date(to.getTime() - maxLookback * 864e5));
-    const toDate = iso(to);
-    const tree = await pipeboard.getDashboardTree(accId, {
-      advertiserId, status: 'active', fromDate, toDate,
-    });
-    const attribution = computeAttribution(accId, fromDate, toDate);
-
-    const executed = [];
-    for (const c of tree.campaigns || []) {
-      const m = c.metrics || {};
-      const spend = Number(m.spend) || 0;
-      const conv = Number(m.conversions) || 0;
-      const name = c.campaignName || c.platformCampaignId;
-      const attr = attribution.byCampaign[c.platformCampaignId] || { revenueCents: 0, sales: 0 };
-      const roas = spend > 0 ? (attr.revenueCents / 100) / spend : null;
-
-      for (const r of rules) {
-        let hit = false; let detail = '';
-        if (r.metric === 'cpa_max' && r.threshold > 0 && conv > 0 && spend / conv > r.threshold) {
-          hit = true; detail = 'CPA ' + (spend / conv).toFixed(2) + ' > teto ' + r.threshold;
-        } else if (r.metric === 'spend_no_conv' && r.threshold > 0 && conv === 0 && spend >= r.threshold) {
-          hit = true; detail = 'gastou ' + spend.toFixed(2) + ' sem conversão';
-        } else if (r.metric === 'roas_min' && r.threshold > 0 && spend > 0 && roas !== null && roas < r.threshold) {
-          hit = true; detail = 'ROAS ' + roas.toFixed(2) + ' < piso ' + r.threshold;
-        }
-        if (!hit) continue;
-
-        // cooldown de 12h por campanha+regra: uma ação por “episódio”
-        const key = accId + ':' + c.platformCampaignId + ':' + r.id;
-        if (Date.now() - (rulesCooldown.get(key) || 0) < 12 * 3600e3) continue;
-        rulesCooldown.set(key, Date.now());
-
-        const entry = {
-          at: new Date().toISOString(), ruleId: r.id, metric: r.metric,
-          action: r.action, campaignId: c.platformCampaignId, campaignName: name,
-          detail, ok: false
-        };
-        entry.simulated = dryRun;
-        try {
-          if (r.action === 'pause') {
-            if (!dryRun) {
-              await pipeboard.setCampaignStatus(advertiserId, [c.platformCampaignId], 'paused');
-            }
-            entry.ok = true;
-            entry.result = (dryRun ? '[simulado] ' : '') + 'campanha pausada';
-          } else {
-            // ± pct% no orçamento de cada grupo — aplicado DIRETO no ad group
-            // (no TikTok o orçamento vive no ad group/campanha, não no anúncio).
-            const pct = Math.max(5, Math.min(50, Number(r.pct) || 20));
-            const factor = r.action === 'budget_up' ? 1 + pct / 100 : 1 - pct / 100;
-            let changed = 0;
-            for (const s of (c.adSets || []).slice(0, 10)) {
-              const cur = Number((s.budget || {}).amount) || 0;
-              const adGroupId = s.platformAdSetId || s._id;
-              if (!(cur > 0) || !adGroupId) continue;
-              const amount = Math.max(1, +(cur * factor).toFixed(2));
-              if (!dryRun) {
-                await pipeboard.updateAdGroup(advertiserId, adGroupId, {
-                  budget: { amount, type: (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily' }
-                });
-              }
-              changed += 1;
-            }
-            entry.ok = changed > 0;
-            entry.result = (dryRun ? '[simulado] ' : '') + 'orçamento ' + (r.action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' grupo(s)';
-          }
-          if (dryRun && entry.ok) {
-            await auditSimulated(accId, {
-              action: 'rule_action', targetType: 'campaign', targetId: c.platformCampaignId, advertiserId: st.advertiserId,
-              metadata: { ruleId: r.id, metric: r.metric, action: r.action, detail }, title: 'Regra automática: ' + entry.result
-            });
-          }
-        } catch (e) {
-          entry.result = 'falhou: ' + (e && e.message ? e.message.slice(0, 120) : 'erro');
-        }
-        executed.push(entry);
-        const emoji = entry.ok ? 'executada' : 'FALHOU';
-        stats.logEvent(entry.ok ? 'info' : 'warn', { acc: accId, title: '[tiktok-ads] Regra ' + emoji + ': ' + entry.result + ' — "' + name + '" (' + detail + ')' });
-        const { sendPushcut } = require('./pushcut');
-        sendPushcut('Aprovada', { title: 'TikTok Ads: regra automática', text: entry.result + ' — "' + name + '" (' + detail + ')', sound: 'system' }, accId).catch(() => {});
-      }
-    }
-    if (executed.length) adsSync.syncAfterWrite(accId, advertiserId); // reflete no espelho
-    appendRulesLog(accId, executed);
-    return { executed, checkedAt: new Date().toISOString() };
-  }
-
-  // as regras pegam carona na MESMA varredura oportunista dos alertas
-  const prevSweep = adsSweepHook.fn;
-  adsSweepHook.fn = function (accId) {
-    if (prevSweep) prevSweep(accId);
-    try {
-      if (!accId || !getRules(accId).some((r) => r.enabled)) return;
-      const last = rulesLastRun.get(accId) || 0;
-      if (Date.now() - last > 30 * 60e3) {
-        rulesLastRun.set(accId, Date.now());
-        runRulesSweep(accId).catch(() => {});
-      }
-    } catch (_) { /* nunca bloqueia a rota */ }
-  };
+  // ── Regras automáticas — motor em ads-automation.js ────────────────────────
+  // Métricas: cpa_max | spend_no_conv | roas_min | ctr_min | cpm_max |
+  // roas_scale (escala vencedoras com teto) | schedule (dayparting).
+  // As rotas abaixo só delegam; a varredura 24/7 roda no tick do ads-sync.
 
   // ── Saúde das contas + tickets de desbanimento (semi-automático) ──────────
   // O TikTok NÃO tem API de appeal de conta: a automação detecta o banimento
@@ -1295,7 +1064,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const name = ticket.advertiserName || ticket.advertiserId;
     const date = new Date().toLocaleDateString('pt-BR');
     return 'Prezada equipe do TikTok for Business,\n\n'
-      + 'Solicito a revisão da suspensão da conta de anúncios "' + name + '" (ID: ' + ticket.advertiserId + '), detectada em ' + date + '.\n\n'
+      + 'Solicito a revisão da suspensão da conta de an��ncios "' + name + '" (ID: ' + ticket.advertiserId + '), detectada em ' + date + '.\n\n'
       + 'Acredito que a suspensão tenha sido aplicada por engano. Nossa conta segue as Políticas de Publicidade do TikTok: os criativos divulgam produtos/serviços legítimos, as páginas de destino correspondem ao conteúdo anunciado e não utilizamos práticas enganosas.\n\n'
       + 'Estamos à disposição para fornecer qualquer documentação adicional que comprove a conformidade da conta (informações do negócio, notas fiscais, comprovantes de entrega).\n\n'
       + 'Solicito, por gentileza, a reativação da conta ou um detalhamento específico da violação identificada para que possamos corrigi-la imediatamente.\n\n'
@@ -1402,35 +1171,33 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.get('/api/ads/rules', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ rules: getRules(req.account.id), log: getRulesLog(req.account.id) });
+    res.json({ rules: automation.getRules(req.account.id), log: automation.getRulesLog(req.account.id) });
   });
 
   app.put('/api/ads/rules', dashboardAuth, (req, res) => {
     try {
-      const raw = Array.isArray((req.body || {}).rules) ? req.body.rules : [];
-      const rules = raw.slice(0, 10).map((r, i) => ({
-        id: String(r.id || 'r' + Date.now().toString(36) + i).slice(0, 24),
-        enabled: !!r.enabled,
-        metric: RULE_METRICS.includes(r.metric) ? r.metric : 'cpa_max',
-        threshold: Math.max(0, Math.min(100000, Number(r.threshold) || 0)),
-        lookbackDays: Math.max(1, Math.min(30, parseInt(r.lookbackDays, 10) || 2)),
-        action: RULE_ACTIONS.includes(r.action) ? r.action : 'pause',
-        pct: Math.max(5, Math.min(50, Number(r.pct) || 20))
-      })).filter((r) => r.threshold > 0);
+      // validação/clamps (inclusive dos campos novos) centralizada no motor
+      const rules = automation.validateRules((req.body || {}).rules);
       pipeboard.setState(req.account.id, { rules });
-      res.json({ rules, log: getRulesLog(req.account.id) });
+      res.json({ rules, log: automation.getRulesLog(req.account.id) });
     } catch (err) { fail(res, err); }
   });
 
   app.post('/api/ads/rules/run', dashboardAuth, async (req, res) => {
     try {
-      rulesLastRun.set(req.account.id, Date.now());
-      const result = await runRulesSweep(req.account.id, { force: true });
-      res.json(result);
+      automation.markSweepNow(req.account.id);
+      const [rules, schedule] = await Promise.all([
+        automation.runRulesSweep(req.account.id, { force: true }),
+        automation.runScheduleSweep(req.account.id, { force: true }),
+      ]);
+      res.json({
+        executed: [...(rules.executed || []), ...(schedule.executed || [])],
+        checkedAt: rules.checkedAt || schedule.checkedAt || new Date().toISOString(),
+      });
     } catch (err) { fail(res, err); }
   });
 
-  // ── Templates de campanha ────────────────────��─────���───────────────────────
+  // ── Templates de campanha ──────────────────���─��─────���───────────────────────
   // Guarda a CONFIGURAÇÃO (objetivo, orçamento, público, CTA, link, pixel…) —
   // nunca o vídeo. Criar do template = wizard pré-preenchido, só troca o vídeo.
   app.get('/api/ads/templates', dashboardAuth, (req, res) => {

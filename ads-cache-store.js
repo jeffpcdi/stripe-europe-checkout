@@ -97,6 +97,19 @@ async function ensureSchema() {
     // Tabelas pré-existentes (antes do sync incremental) ganham a coluna aqui.
     await sql`ALTER TABLE ads_sync_state ADD COLUMN IF NOT EXISTS last_full_synced_at timestamptz`;
     await sql`CREATE INDEX IF NOT EXISTS ads_sync_state_activity_idx ON ads_sync_state (requested_at DESC)`;
+
+    // Estado durável das automações (cooldowns de regras/alertas + marcações
+    // do dayparting). Antes vivia só em Maps de memória: um deploy re-armava
+    // todos os cooldowns e uma regra podia agir DUAS vezes no mesmo episódio.
+    // key: 'rule:<accId>:<campId>:<ruleId>' | 'alert:...' | 'sched:<ruleId>:<campId>'
+    await sql`CREATE TABLE IF NOT EXISTS ads_automation_state (
+      account_id text NOT NULL,
+      key text NOT NULL,
+      kind text NOT NULL DEFAULT 'rule',
+      last_fired_at timestamptz NOT NULL DEFAULT now(),
+      meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+      PRIMARY KEY (account_id, key)
+    )`;
     console.log('[ads-cache] schema verificado/criado');
     return true;
   })().catch((err) => { schemaReady = null; throw err; });
@@ -445,6 +458,38 @@ async function classifyEntity(accountId, advertiserId, entityId) {
   return null;
 }
 
+// ── Estado das automações (cooldowns/dayparting persistidos) ───────────────
+// Leitura em bloco por conta: o motor carrega tudo 1× no boot/primeiro sweep
+// e mantém um cache quente em memória (write-through nas escritas).
+async function listAutomationState(accountId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureSchema();
+  const rows = await sql`SELECT key, kind, last_fired_at, meta FROM ads_automation_state WHERE account_id = ${accountId}`;
+  return rows.map((r) => ({ key: r.key, kind: r.kind, lastFiredAt: r.last_fired_at, meta: r.meta || {} }));
+}
+
+async function upsertAutomationState(accountId, key, kind, meta) {
+  accountId = cleanAccountId(accountId);
+  key = String(key || '').slice(0, 200);
+  if (!enabled || !key) return null;
+  await ensureSchema();
+  await sql`
+    INSERT INTO ads_automation_state (account_id, key, kind, last_fired_at, meta)
+    VALUES (${accountId}, ${key}, ${String(kind || 'rule').slice(0, 20)}, now(), ${JSON.stringify(meta || {})}::jsonb)
+    ON CONFLICT (account_id, key) DO UPDATE SET
+      kind = EXCLUDED.kind, last_fired_at = now(), meta = EXCLUDED.meta`;
+  return true;
+}
+
+async function deleteAutomationState(accountId, key) {
+  accountId = cleanAccountId(accountId);
+  key = String(key || '').slice(0, 200);
+  if (!enabled || !key) return;
+  await ensureSchema();
+  await sql`DELETE FROM ads_automation_state WHERE account_id = ${accountId} AND key = ${key}`;
+}
+
 module.exports = {
   enabled,
   ensureSchema,
@@ -458,4 +503,7 @@ module.exports = {
   listActiveAdvertisers,
   listSyncStates,
   classifyEntity,
+  listAutomationState,
+  upsertAutomationState,
+  deleteAutomationState,
 };
