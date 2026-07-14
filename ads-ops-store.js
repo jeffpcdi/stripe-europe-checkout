@@ -286,6 +286,16 @@ async function getAuditEvent(accountId, auditId) {
   return rows[0] || null;
 }
 
+// Lista os eventos de auditoria mais recentes da conta (para a UI mostrar o
+// histórico e oferecer "reverter" nas ações reais do motor que têm before_state).
+async function listAuditEvents(accountId, limit) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureSchema();
+  const lim = Math.min(200, Math.max(1, Math.floor(Number(limit) || 50)));
+  return await sql`SELECT id, actor_type, actor_id, action, target_type, target_id, advertiser_id, before_state, after_state, reason, metadata, created_at FROM ads_audit_events WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${lim}`;
+}
+
 // Conta ações REAIS do motor de regras na última janela (default 1h). É a base
 // durável do cap global de ações/hora (sobrevive a restart, ao contrário de um
 // contador em memória). Só conta ações reais — os sufixos '.simulated' (dry-run)
@@ -443,4 +453,4 @@ async function resolveTicketsForAdvertiser(accountId, advertiserId) {
   return sql`UPDATE ads_unban_tickets SET status = 'resolved', resolved_at = now(), notes = COALESCE(notes || ' | ', '') || 'Conta reativada — resolvido automaticamente', updated_at = now() WHERE account_id = ${accountId} AND advertiser_id = ${String(advertiserId || '')} AND status IN ('open','submitted') RETURNING id, advertiser_id`;
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, countRecentEngineActions, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };

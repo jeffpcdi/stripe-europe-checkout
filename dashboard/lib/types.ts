@@ -1244,6 +1244,8 @@ export interface AdsSafetyPolicy {
   killSwitch: boolean
   dailySpendCap: number | null
   maxBudgetChangePct: number
+  /** Cap global de ações reais do motor por hora (anti-loop). 0 = desligado. */
+  maxActionsPerHour: number
   cooldownMinutes: number
   allowedHours: Record<string, unknown>
   blockedAdvertiserIds: string[]

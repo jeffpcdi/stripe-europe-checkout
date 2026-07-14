@@ -170,12 +170,6 @@ function validateRules(raw) {
   }).filter((r) => r.metric === 'schedule' ? r.days && r.days.length : r.threshold > 0);
 }
 
-// ── Dry-run (mesma guarda fechada das rotas: na dúvida, simula) ─────────────
-async function isDryRun(accId) {
-  const policy = await adsOps.getSafetyPolicy(accId);
-  return !!(policy && policy.dryRun);
-}
-
 async function auditSimulated(accId, { action, targetType, targetId, advertiserId, metadata, title }) {
   try {
     await adsOps.appendAuditEvent(accId, {
@@ -789,5 +783,5 @@ module.exports = {
   getSweepInfo,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep },
+  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, actionOutcomes },
 };

@@ -102,6 +102,65 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // Histórico de auditoria (ações reais/simuladas do motor + escritas manuais).
+  // A UI usa `before_state` p/ decidir se mostra o botão "reverter".
+  app.get('/api/ads/ops/audit', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ enabled: adsOps.enabled, events: await adsOps.listAuditEvents(req.account.id, req.query.limit) });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Rollback de UMA ação do motor: restaura o `before_state` gravado quando a
+  // ação real aconteceu. Só reverte ações reais com estado anterior conhecido
+  // (rule_action / schedule_action). O kill switch NÃO bloqueia o rollback —
+  // reverter é justamente a forma de reagir a algo que o motor fez.
+  app.post('/api/ads/ops/audit/:auditId/rollback', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const ev = await adsOps.getAuditEvent(req.account.id, String(req.params.auditId || ''));
+      if (!ev) return res.status(404).json({ error: 'Evento de auditoria não encontrado' });
+      if (!['rule_action', 'schedule_action'].includes(ev.action)) {
+        return res.status(422).json({ error: 'Esta ação não é reversível automaticamente.', code: 'NOT_REVERSIBLE' });
+      }
+      const before = ev.before_state;
+      if (!before || !before.kind) return res.status(422).json({ error: 'Sem estado anterior registrado para reverter.', code: 'NO_BEFORE_STATE' });
+      const advertiserId = ev.advertiser_id;
+      if (!advertiserId) return res.status(422).json({ error: 'Advertiser da ação não registrado.' });
+
+      // dry-run continua valendo: um rollback também é uma escrita.
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'rollback', targetType: ev.target_type, targetId: ev.target_id, advertiserId,
+          metadata: { of: ev.id, restore: before }, title: 'Reverter ação ' + ev.id,
+        });
+        return res.json({ dryRun: true, simulated: true, restored: before });
+      }
+
+      if (before.kind === 'status') {
+        // restaura o status anterior da campanha (pause/activate feito pelo motor)
+        await pipeboard.setCampaignStatus(advertiserId, [before.id], before.value === 'paused' ? 'paused' : 'active');
+      } else if (before.kind === 'budget') {
+        // restaura o orçamento anterior de cada ad group tocado
+        for (const g of (before.adGroups || [])) {
+          if (!g || !g.id || !(Number(g.amount) > 0)) continue;
+          await pipeboard.updateAdGroup(advertiserId, g.id, { budget: { amount: Number(g.amount), type: g.type === 'lifetime' ? 'lifetime' : 'daily' } });
+        }
+      } else {
+        return res.status(422).json({ error: 'Tipo de estado anterior não suportado para rollback.', code: 'UNSUPPORTED_STATE' });
+      }
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'rollback',
+        targetType: ev.target_type, targetId: ev.target_id, advertiserId,
+        beforeState: ev.after_state, afterState: before,
+        reason: 'Rollback manual da ação ' + ev.id, metadata: { of: ev.id },
+      });
+      stats.logEvent('warn', { acc: req.account.id, title: '[tiktok-ads] Rollback manual da ação ' + ev.id + ' (' + ev.action + ')' });
+      res.json({ ok: true, restored: before });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Guarda de escrita (dry-run) ─────────────────────────────────────────────
   // O badge "Modo simulação" promete que NENHUMA escrita chega ao TikTok. Esta
   // guarda centraliza essa promessa: toda rota/rotina que muta estado na Zernio
@@ -130,6 +189,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (_) { /* auditoria não pode derrubar a rota */ }
     if (title) stats.logEvent('info', { acc: accountId, title: '[simulação] ' + title });
   }
+
+  // Kill switch: corta TODA escrita (status/orçamento/bid/criar/duplicar/delete),
+  // inclusive as mutações individuais que antes só checavam dry-run. Falha
+  // FECHADA como o dry-run — se o Neon estiver fora, getSafetyPolicy devolve o
+  // default (killSwitch=false), então não bloqueia por engano. Uso nas rotas:
+  //   if (await killSwitchActive(accountId)) return res.status(423).json(KILL_SWITCH_BODY)
+  async function killSwitchActive(accountId) {
+    try {
+      const policy = await adsOps.getSafetyPolicy(accountId);
+      return !!(policy && policy.killSwitch);
+    } catch (_) { return false; }
+  }
+  const KILL_SWITCH_BODY = { error: 'KILL_SWITCH_ON', message: 'Kill switch ativo: todas as alterações em anúncios estão bloqueadas. Desative em Operações › Política de segurança para voltar a agir.' };
 
   // ── [Gate 1 — TEMPORÁRIO] Diagnóstico do Pipeboard MCP ──────────────────────
   // Valida a auth server-to-server e captura os JSON Schemas REAIS das tools
@@ -650,6 +722,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
       const built = buildCreatePayload(st, b);
       if (built.error) return res.status(400).json({ error: built.error });
@@ -682,6 +755,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
       const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
       if (!adAccountId || adAccountId === '__all__') return res.status(400).json({ error: 'Selecione um advertiser específico (adAccountId)' });
@@ -739,6 +813,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const ids = (Array.isArray(b.campaigns) ? b.campaigns : []).slice(0, 50)
         .map((c) => String((c || {}).platformCampaignId || '').slice(0, 60)).filter(Boolean);
       if (!ids.length) return res.status(400).json({ error: 'Nenhuma campanha informada' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       // advertiser: do corpo (adAccountId) ou o resolvido no token
       const advertiserId = b.adAccountId ? String(b.adAccountId).trim() : await pipeboard.resolveAdvertiserId(req.account.id);
       if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
@@ -785,6 +860,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
       const entityId = String(req.params.adId || '');
       const wantStatus = ['active', 'paused'].includes(b.status) ? b.status : null;
@@ -844,6 +920,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const adId = String(req.params.adId || '');
       const hint = String((req.body || {}).adAccountId || '').trim() || undefined;
       const ent = await adsCache.classifyEntity(req.account.id, hint, adId);
@@ -871,6 +948,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const displayName = String((req.body || {}).displayName || '').trim().slice(0, 100);
       const imageUrl = String((req.body || {}).imageUrl || '').trim().slice(0, 500);
       if (!displayName) return res.status(400).json({ error: 'Nome da marca é obrigatório' });
@@ -1154,6 +1232,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const knownIds = new Set(((tree && tree.campaigns) || []).map((c) => String(c.platformCampaignId)));
       const v = adsAi.validateProposedAction(action, knownIds);
       if (!v.ok) return res.status(400).json({ error: 'Proposta inválida: ' + v.error });
+
+      // Kill switch bloqueia escritas na plataforma (pause/activate/budget), mas
+      // NÃO impede criar uma regra (create_rule é só config; regras já respeitam
+      // o kill switch na hora de agir, no motor).
+      if (action.type !== 'create_rule' && await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
 
       if (action.type === 'pause' || action.type === 'activate') {
         const status = action.type === 'pause' ? 'paused' : 'active';

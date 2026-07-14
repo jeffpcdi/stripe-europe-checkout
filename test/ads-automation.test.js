@@ -23,8 +23,16 @@ provider.setState = (accId, patch) => { stateByAcc[accId] = Object.assign({}, st
 cache.upsertAutomationState = async (acc, key, kind, meta) => { calls.upserts.push({ acc, key, kind, meta }); };
 cache.deleteAutomationState = async (acc, key) => { calls.deletes.push({ acc, key }); };
 cache.listAutomationState = async () => [];
-adsOps.getSafetyPolicy = async () => ({ dryRun: false });
-adsOps.appendAuditEvent = async () => {};
+// Política base: usa a normalização REAL para carregar todos os campos com
+// defaults (maxBudgetChangePct, maxActionsPerHour, circuitBreakerErrorPct...).
+// Os testes sobrescrevem `policyOverride` para exercitar cada guarda.
+let policyOverride = { dryRun: false };
+adsOps.getSafetyPolicy = async () => adsOps.normalizePolicy(policyOverride);
+adsOps.appendAuditEvent = async () => ({ id: 'audit_test' });
+// Contador durável de ações/hora: por padrão zero (sem histórico). Testes do
+// cap sobrescrevem para simular ações já feitas na janela.
+let recentActions = 0;
+adsOps.countRecentEngineActions = async () => recentActions;
 
 let treeCampaigns = [];
 // intercepta a fonte da árvore: cache está off (sem DATABASE_URL no teste),
@@ -162,7 +170,8 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     const acc = 'acc_cd';
     provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5 }]) });
     resetCalls(); clearCooldowns(acc);
-    treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 100, clicks: 1 } })];
+    // volume acima dos pisos default (1000 impr. / 30 cliques) p/ a regra agir
+    treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } })];
     await automation.runRulesSweep(acc, { force: true });
     const ruleUpserts = calls.upserts.filter((u) => u.key.startsWith('rule:'));
     assert.strictEqual(ruleUpserts.length, 1, 'cooldown gravado no Neon (write-through)');
@@ -216,16 +225,110 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
 
   // ── dry-run: avalia e loga, mas NÃO toca a plataforma ─────────────────────
   {
-    adsOps.getSafetyPolicy = async () => ({ dryRun: true });
+    policyOverride = { dryRun: true };
     const acc = 'acc_dry';
     provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5 }]) });
     resetCalls(); clearCooldowns(acc);
-    treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 100, clicks: 1 } })];
+    treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } })];
     const out = await automation.runRulesSweep(acc, { force: true });
     assert.strictEqual(out.executed.length, 1, 'dry-run avalia e registra');
     assert.strictEqual(out.executed[0].simulated, true, 'entrada marcada como simulada');
     assert.strictEqual(calls.status.length, 0, 'dry-run: NENHUMA escrita na plataforma');
-    adsOps.getSafetyPolicy = async () => ({ dryRun: false });
+    policyOverride = { dryRun: false };
+  }
+
+  // ── GUARDA: kill switch aborta a varredura inteira (zero avaliação) ───────
+  {
+    policyOverride = { dryRun: false, killSwitch: true };
+    const acc = 'acc_kill';
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5 }]) });
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({ metrics: { spend: 999, conversions: 0, impressions: 5000, clicks: 100 } })];
+    const out = await automation.runRulesSweep(acc, { force: true });
+    assert.strictEqual(out.killSwitch, true, 'sweep sinaliza killSwitch');
+    assert.strictEqual(out.executed.length, 0, 'kill switch: nada avaliado nem executado');
+    assert.strictEqual(calls.status.length, 0, 'kill switch: nenhuma escrita');
+    // schedule também respeita o kill switch
+    provider.setState(acc, { rules: automation.validateRules([{ id: 's1', enabled: true, metric: 'schedule', days: [0, 1, 2, 3, 4, 5, 6], startTime: '00:00', endTime: '23:59', timezone: 'UTC' }]) });
+    treeCampaigns = [campaign({ platformCampaignId: 'c1', status: 'active' })];
+    const outS = await automation.runScheduleSweep(acc, { force: true });
+    assert.strictEqual(outS.killSwitch, true, 'dayparting também aborta com kill switch');
+    assert.strictEqual(calls.status.length, 0, 'kill switch: dayparting não escreve');
+    policyOverride = { dryRun: false };
+  }
+
+  // ── GUARDA: teto de gasto diário recusa budget_up sem consumir cooldown ───
+  {
+    // maxBudgetChangePct alto p/ o passo de +50% valer; teto de gasto é o que barra.
+    policyOverride = { dryRun: false, dailySpendCap: 60, maxBudgetChangePct: 100 };
+    const acc = 'acc_cap';
+    // roas_scale quer +50% em cima de 50 = 75; conta já gasta 50/dia; teto 60
+    const campId = '9990000000001';
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500 }]) });
+    leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }];
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({ platformCampaignId: campId, adSets: [{ platformAdSetId: 'g1', budget: { amount: 50, type: 'daily' } }], metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })];
+    let out = await automation.runRulesSweep(acc, { force: true });
+    assert.strictEqual(calls.budget.length, 0, 'teto de gasto diário: nenhuma alteração de orçamento aplicada');
+    assert.ok(out.executed.some((e) => /teto de gasto/.test(e.result || '')), 'registra a recusa por teto de gasto');
+    // recusa NÃO consumiu cooldown: com teto maior, a MESMA regra agora aplica
+    policyOverride = { dryRun: false, dailySpendCap: 1000, maxBudgetChangePct: 100 };
+    resetCalls();
+    out = await automation.runRulesSweep(acc, { force: true });
+    assert.strictEqual(calls.budget.length, 1, 'sem estouro de teto: aplica (prova que a recusa não gastou o cooldown)');
+    leads = [];
+    policyOverride = { dryRun: false };
+  }
+
+  // ── GUARDA: cap de ações/hora para o motor (anti-loop) ────────────────────
+  {
+    policyOverride = { dryRun: false, maxActionsPerHour: 2 };
+    recentActions = 2; // já bateu o teto antes de começar
+    const acc = 'acc_rate';
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5 }]) });
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [
+      campaign({ platformCampaignId: 'c1', metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } }),
+      campaign({ platformCampaignId: 'c2', metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } }),
+    ];
+    const out = await automation.runRulesSweep(acc, { force: true });
+    assert.strictEqual(calls.status.length, 0, 'cap de ações/hora já estourado: motor não age');
+    assert.ok(out.executed.length === 0, 'nada executado quando o cap já foi atingido');
+    recentActions = 0;
+    policyOverride = { dryRun: false };
+  }
+
+  // ── GUARDA: pisos de volume de cpa_max / spend_no_conv ────────────────────
+  {
+    policyOverride = { dryRun: false };
+    const acc = 'acc_vol';
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, minClicks: 30, minImpressions: 1000 }]) });
+    resetCalls(); clearCooldowns(acc);
+    // gastou acima do limiar mas com pouquíssimo volume (3 cliques) → NÃO age
+    treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 100, clicks: 3 } })];
+    let out = await automation.runRulesSweep(acc, { force: true });
+    assert.strictEqual(out.executed.length, 0, 'volume insuficiente: spend_no_conv NÃO pausa (ruído estatístico)');
+    // agora com volume suficiente → age
+    clearCooldowns(acc);
+    treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } })];
+    out = await automation.runRulesSweep(acc, { force: true });
+    assert.strictEqual(out.executed.length, 1, 'com volume suficiente: spend_no_conv pausa');
+  }
+
+  // ── maxBudgetChangePct da política limita o passo do motor ────────────────
+  {
+    policyOverride = { dryRun: false, maxBudgetChangePct: 10 }; // teto 10% mesmo a regra pedindo 50%
+    const acc = 'acc_step';
+    const campId = '5550000000002';
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500 }]) });
+    leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }];
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({ platformCampaignId: campId, adSets: [{ platformAdSetId: 'g1', budget: { amount: 100, type: 'daily' } }], metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })];
+    await automation.runRulesSweep(acc, { force: true });
+    assert.strictEqual(calls.budget.length, 1, 'aplicou');
+    assert.strictEqual(calls.budget[0].patch.budget.amount, 110, 'regra pedia +50% (150) mas a política limita a +10% → 110');
+    leads = [];
+    policyOverride = { dryRun: false };
   }
 
   // ── contrato: rotas delegam ao motor (não-regressão da extração) ──────────
@@ -236,6 +339,14 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.match(routes, /automation\.validateRules/, 'PUT /rules valida via motor');
     assert.match(routes, /automation\.runRulesSweep/, 'POST /rules/run delega ao motor');
     assert.match(routes, /adsSweepHook\.fn = automation\.maybeSweep/, 'hook das rotas aponta pro motor');
+    // Guardas de kill switch nas rotas de escrita individuais + rollback
+    assert.match(routes, /async function killSwitchActive/, 'helper de kill switch existe nas rotas');
+    const killGuards = routes.match(/killSwitchActive\(req\.account\.id\)/g) || [];
+    assert.ok(killGuards.length >= 6, 'kill switch aplicado em ≥6 rotas de escrita (create/boost/identity/bulk-status/PUT/DELETE/copilot)');
+    assert.match(routes, /app\.post\('\/api\/ads\/ops\/audit\/:auditId\/rollback'/, 'rota de rollback registrada');
+    assert.match(routes, /app\.get\('\/api\/ads\/ops\/audit'/, 'rota de histórico de auditoria registrada');
+    assert.match(routes, /adsOps\.listAuditEvents/, 'GET /ops/audit usa listAuditEvents');
+    assert.match(routes, /adsOps\.getAuditEvent/, 'rollback lê o evento pelo id');
     const sync = fs.readFileSync(path.join(__dirname, '..', 'ads-sync.js'), 'utf8');
     assert.match(sync, /automation\.maybeSweep\(accId\)/, 'tick do sync varre automações 24/7');
     assert.match(sync, /automation\.noteRecovery/, 'auto-recuperação de conta bloqueada ligada no tick');

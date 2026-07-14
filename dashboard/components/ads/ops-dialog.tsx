@@ -299,6 +299,20 @@ export function OpsDialog({
                   />
                   <span className="text-[11px] text-muted-foreground">Por ação de automação/IA</span>
                 </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-foreground">Máx. de ações/hora</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1000}
+                    step={1}
+                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    value={draft.maxActionsPerHour ?? 10}
+                    onChange={(e) => patch({ maxActionsPerHour: e.target.value === '' ? 0 : Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+                    aria-label="Máximo de ações automáticas por hora"
+                  />
+                  <span className="text-[11px] text-muted-foreground">Anti-loop do motor. 0 = sem limite</span>
+                </label>
               </div>
 
               <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-pretty text-[11px] leading-relaxed text-muted-foreground">
