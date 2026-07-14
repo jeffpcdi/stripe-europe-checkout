@@ -1,9 +1,11 @@
 'use client'
 
-// Duplicação de campanha — 1 a 10 cópias, na MESMA conta (endpoint nativo de
-// duplicate da Zernio) ou em OUTRA conta do BC (o backend reconstrói via
-// /ads/create). Tudo passa pela mesma fila do bulk: a UI acompanha o
-// progresso aqui dentro (polling que para sozinho ao concluir).
+// Duplicação de campanha — 1 a 10 cópias, na MESMA conta. Não há tool nativa
+// de duplicar no Pipeboard: o backend CAPTURA a origem (campanha → grupos →
+// anúncios) e RECRIA tudo, reaproveitando os criativos (video_id) da conta.
+// Entre contas não é suportado (video_id é escopado ao advertiser) — a UI
+// bloqueia antes de enviar. Tudo passa pela mesma fila durável do bulk: a UI
+// acompanha o progresso aqui dentro (polling que para sozinho ao concluir).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Copy, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react'
@@ -70,8 +72,9 @@ export function DuplicateDialog({
     const n = parseInt(count, 10)
     if (!(n >= 1 && n <= 10)) return 'Número de cópias deve ser entre 1 e 10'
     if (!target) return 'Selecione a conta destino'
+    if (crossAccount) return 'Duplicar para outra conta ainda não é suportado — os criativos são escopados à conta de origem no TikTok'
     return null
-  }, [count, target])
+  }, [count, target, crossAccount])
 
   async function handleSubmit() {
     if (!campaign) return
@@ -205,9 +208,8 @@ export function DuplicateDialog({
 
               {crossAccount && (
                 <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
-                  Duplicar para outra conta RECRIA a campanha (o TikTok não copia entre contas): o vídeo, textos e
-                  segmentação são reaproveitados, mas o histórico de aprendizado não migra. Orçamento lifetime vira
-                  diário. A cópia chega pausada.
+                  Duplicar para OUTRA conta ainda não é suportado: os criativos (vídeos) são escopados à conta de
+                  origem no TikTok. Use &quot;Subir em massa&quot; com o vídeo da biblioteca na conta destino.
                 </p>
               )}
               {!crossAccount && (

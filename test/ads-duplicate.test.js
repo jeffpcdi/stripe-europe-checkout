@@ -1,0 +1,196 @@
+// F3 — Duplicação composta via Pipeboard (captureCampaign + recreateCampaign).
+// Mesmo padrão dos testes F1/F2: stub do wrapper MCP via require.cache, zero
+// rede. Cobre: captura completa, allowlist (IDs/métricas nunca copiados),
+// schedule no passado recalculado, preflight+fallback 40002, reaproveitamento
+// de criativos, identidade Spark → fallback, retomada idempotente e pausa de
+// cópia parcial em falha.
+'use strict';
+
+const path = require('path');
+const assert = require('assert');
+
+// ── Stub do pipeboard-mcp ANTES de carregar o provider ─────────────────────
+const stubCalls = [];
+let stubHandlers = {};
+const pipeboardPath = require.resolve(path.join(__dirname, '..', 'pipeboard-mcp.js'));
+require.cache[pipeboardPath] = {
+  id: pipeboardPath, filename: pipeboardPath, loaded: true,
+  exports: {
+    enabled: true,
+    callTool: async (name, args) => {
+      stubCalls.push({ name, args });
+      if (!stubHandlers[name]) throw new Error('stub sem handler p/ ' + name);
+      return stubHandlers[name](args);
+    },
+    listTools: async () => ({ tools: [] }),
+  },
+};
+const providerPath = require.resolve(path.join(__dirname, '..', 'ads-provider.js'));
+delete require.cache[providerPath];
+const provider = require(providerPath);
+
+function countCalls(name) { return stubCalls.filter((c) => c.name === name).length; }
+function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name === name); }
+
+// Handlers base: uma origem com 1 campanha, 2 adgroups, 2 ads (1 vídeo Spark).
+function baseHandlers(overrides) {
+  const h = {
+    get_tiktok_advertisers: async () => ({ advertisers: [{ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR', status: 'STATUS_ENABLE' }] }),
+    get_tiktok_advertiser_info: async () => ({ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR' }),
+    get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-custom', identity_type: 'CUSTOMIZED_USER', display_name: 'Marca' }] }),
+    get_tiktok_campaigns: async () => ({ campaigns: [{
+      campaign_id: 'src-camp', campaign_name: 'Origem', objective_type: 'TRAFFIC',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 50, create_time: '2026-01-01 10:00:00',
+      modify_time: '2026-02-01 10:00:00', secondary_status: 'CAMPAIGN_STATUS_ENABLE',
+    }] }),
+    get_tiktok_adgroups: async () => ({ adgroups: [
+      { adgroup_id: 'src-ag1', adgroup_name: 'Grupo A', optimization_goal: 'CLICK',
+        budget_mode: 'BUDGET_MODE_DAY', budget: 25, bid_type: 'BID_TYPE_NO_BID',
+        schedule_start_time: '2025-01-01 00:00:00', // PASSADO — deve recalcular
+        targeting: { location_ids: ['123'], age_groups: ['AGE_25_34'] } },
+      { adgroup_id: 'src-ag2', adgroup_name: 'Grupo B', optimization_goal: 'CLICK',
+        budget_mode: 'BUDGET_MODE_DAY', budget: 25, bid_type: 'BID_TYPE_CUSTOM', bid_price: 0.5,
+        schedule_start_time: '2099-01-01 00:00:00', // FUTURO — deve preservar
+        targeting: { location_ids: ['123'] } },
+    ] }),
+    get_tiktok_ads: async () => ({ ads: [
+      { ad_id: 'src-ad1', adgroup_id: 'src-ag1', ad_name: 'Ad 1', ad_format: 'SINGLE_VIDEO',
+        ad_text: 'Texto 1', video_id: 'vid-1', identity_id: 'id-custom', identity_type: 'CUSTOMIZED_USER',
+        landing_page_url: 'https://ex.com', call_to_action: 'SHOP_NOW' },
+      { ad_id: 'src-ad2', adgroup_id: 'src-ag2', ad_name: 'Ad 2 (spark)', ad_format: 'SINGLE_VIDEO',
+        ad_text: 'Texto 2', video_id: 'vid-2', identity_id: 'tt-user-9', identity_type: 'TT_USER' },
+    ] }),
+    create_tiktok_campaign: async () => ({ campaign_id: 'new-camp' }),
+    create_tiktok_adgroup: (() => { let n = 0; return async () => ({ adgroup_id: 'new-ag' + (++n) }); })(),
+    create_tiktok_ad: (() => { let n = 0; return async () => ({ ad_id: 'new-ad' + (++n) }); })(),
+    update_tiktok_campaign_status: async () => ({ ok: true }),
+  };
+  return Object.assign(h, overrides || {});
+}
+
+(async () => {
+  // ── 1. Captura completa + recriação feliz ─────────────────────────────────
+  stubCalls.length = 0;
+  stubHandlers = baseHandlers();
+  provider.cacheBust('');
+  const capture = await provider.captureCampaign('adv1', 'src-camp');
+  assert.strictEqual(capture.campaign.campaign_id, 'src-camp');
+  assert.strictEqual(capture.adGroups.length, 2);
+  assert.strictEqual(capture.ads.length, 2);
+
+  const progressLog = [];
+  const result = await provider.recreateCampaign('adv1', capture, 'Origem (cópia)', {
+    onProgress: async (p) => progressLog.push(JSON.parse(JSON.stringify(p))),
+  });
+  assert.strictEqual(result.campaignId, 'new-camp');
+  assert.strictEqual(result.adGroupIds.length, 2);
+  assert.strictEqual(result.adIds.length, 2);
+
+  // Allowlist: nada de IDs/timestamps/métricas nos args de criação
+  const campArgs = lastCall('create_tiktok_campaign').args;
+  assert.strictEqual(campArgs.campaign_name, 'Origem (cópia)');
+  assert.strictEqual(campArgs.objective_type, 'TRAFFIC');
+  assert.ok(!('campaign_id' in campArgs) && !('create_time' in campArgs) && !('secondary_status' in campArgs), 'IDs/timestamps não podem vazar p/ o create');
+
+  // Schedule: ag1 (passado) recalculado; ag2 (futuro) preservado
+  const agCalls = stubCalls.filter((c) => c.name === 'create_tiktok_adgroup');
+  assert.notStrictEqual(agCalls[0].args.schedule_start_time, '2025-01-01 00:00:00', 'passado deve ser recalculado');
+  assert.strictEqual(agCalls[1].args.schedule_start_time, '2099-01-01 00:00:00', 'futuro deve ser preservado');
+  assert.ok(result.warnings.some((w) => /passado/i.test(w)), 'warning do recálculo');
+  // bid custom preservado
+  assert.strictEqual(agCalls[1].args.bid_price, 0.5);
+
+  // Criativos reaproveitados + ads PAUSED + Spark → fallback de identidade
+  const adCalls = stubCalls.filter((c) => c.name === 'create_tiktok_ad');
+  assert.strictEqual(adCalls[0].args.video_id, 'vid-1', 'video_id da origem reaproveitado');
+  assert.strictEqual(adCalls[0].args.status, 'PAUSED');
+  assert.strictEqual(adCalls[0].args.identity_id, 'id-custom');
+  assert.strictEqual(adCalls[1].args.identity_id, 'id-custom', 'Spark (TT_USER) deve cair no fallback');
+  assert.ok(result.warnings.some((w) => /spark/i.test(w)), 'warning do Spark');
+  // progresso reportado a cada passo (1 camp + 2 ags + 2 ads = 5)
+  assert.strictEqual(progressLog.length, 5);
+  console.log('ok 1 - captura + recriação com allowlist, schedule, criativos e identidade');
+
+  // ── 2. Preflight 40002: DYNAMIC_DAILY + objetivo incompatível → DAY ───────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers({
+    get_tiktok_campaigns: async () => ({ campaigns: [{
+      campaign_id: 'src-camp', campaign_name: 'Origem', objective_type: 'TRAFFIC',
+      budget_mode: 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET', budget: 50,
+    }] }),
+  });
+  const cap2 = await provider.captureCampaign('adv1', 'src-camp');
+  const r2 = await provider.recreateCampaign('adv1', cap2, 'Cópia 2', {});
+  assert.strictEqual(lastCall('create_tiktok_campaign').args.budget_mode, 'BUDGET_MODE_DAY');
+  assert.ok(r2.warnings.some((w) => /preflight 40002/.test(w)), 'warning do preflight');
+  console.log('ok 2 - preflight 40002 converte DYNAMIC_DAILY → DAY em objetivo incompatível');
+
+  // ── 3. Fallback 40002: TikTok recusa o modo dinâmico → retry único com DAY ─
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  let campAttempts = 0;
+  stubHandlers = baseHandlers({
+    get_tiktok_campaigns: async () => ({ campaigns: [{
+      campaign_id: 'src-camp', campaign_name: 'Origem', objective_type: 'WEB_CONVERSIONS',
+      budget_mode: 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET', budget: 50,
+    }] }),
+    create_tiktok_campaign: async (args) => {
+      campAttempts++;
+      if (args.budget_mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET') {
+        throw new Error('TikTok API error 40002: dynamic daily budget not supported for this objective');
+      }
+      return { campaign_id: 'new-camp-40002' };
+    },
+  });
+  const cap3 = await provider.captureCampaign('adv1', 'src-camp');
+  const r3 = await provider.recreateCampaign('adv1', cap3, 'Cópia 3', {});
+  assert.strictEqual(campAttempts, 2, 'exatamente 1 retry');
+  assert.strictEqual(r3.campaignId, 'new-camp-40002');
+  assert.ok(r3.warnings.some((w) => /40002/.test(w)), 'conversão registrada, nunca silenciosa');
+  console.log('ok 3 - fallback 40002: retry único com BUDGET_MODE_DAY, warning registrado');
+
+  // ── 4. Retomada idempotente: crash após 1º adgroup → retry pula os feitos ─
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers();
+  const resume = { campaignId: 'new-camp', adGroups: { 'src-ag1': 'new-ag1' }, ads: {} };
+  const r4 = await provider.recreateCampaign('adv1', await provider.captureCampaign('adv1', 'src-camp'), 'Origem (cópia)', { resume });
+  assert.strictEqual(countCalls('create_tiktok_campaign'), 0, 'campanha do resume não pode ser recriada');
+  assert.strictEqual(countCalls('create_tiktok_adgroup'), 1, 'só o adgroup que faltava');
+  assert.strictEqual(r4.campaignId, 'new-camp');
+  assert.strictEqual(r4.adGroupIds.length, 2);
+  console.log('ok 4 - retomada pula campanha e adgroup já criados (zero duplicação)');
+
+  // ── 5. Falha no meio → cópia parcial PAUSADA + progresso no erro ──────────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  let paused = false;
+  stubHandlers = baseHandlers({
+    create_tiktok_adgroup: async () => { throw new Error('boom no adgroup'); },
+    update_tiktok_campaign_status: async (args) => { paused = true; assert.deepStrictEqual(args.campaign_ids, ['new-camp']); return { ok: true }; },
+  });
+  let threw = false;
+  try {
+    await provider.recreateCampaign('adv1', await provider.captureCampaign('adv1', 'src-camp'), 'Cópia falha', {});
+  } catch (e) {
+    threw = true;
+    assert.ok(paused, 'campanha órfã tem de ser pausada');
+    assert.strictEqual(e.createdIds.campaignId, 'new-camp');
+    assert.ok(e.step, 'erro carrega o step');
+  }
+  assert.ok(threw);
+  console.log('ok 5 - falha parcial: campanha pausada, erro com step + progresso');
+
+  // ── 6. Cache da captura: 2ª chamada não refaz as leituras ─────────────────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers();
+  await provider.captureCampaign('adv1', 'src-camp');
+  const readsAfterFirst = stubCalls.length;
+  await provider.captureCampaign('adv1', 'src-camp');
+  assert.strictEqual(stubCalls.length, readsAfterFirst, 'captura cacheada: N cópias = 1 captura');
+  console.log('ok 6 - captura cacheada (N cópias do job pagam 1 captura)');
+
+  console.log('\nF3: todos os testes passaram');
+})().catch((e) => { console.error('FALHOU:', e); process.exit(1); });
