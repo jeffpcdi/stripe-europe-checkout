@@ -9,6 +9,7 @@
 import Link from 'next/link'
 import type { Lead } from '@/lib/types'
 import { countryFlag, timeAgo, fmtCurrency } from '@/lib/format'
+import { SectionTitle } from '@/components/section-title'
 
 const MAX_ROWS = 5
 
@@ -26,10 +27,10 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
 
   return (
     <div className="flex h-full flex-col justify-center gap-3">
-      <h3 className="flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
+      <div className="flex items-center gap-2">
         <span className="live-dot" aria-hidden="true" />
-        Chegando agora
-      </h3>
+        <SectionTitle>Chegando agora</SectionTitle>
+      </div>
 
       {rows.length === 0 ? (
         <p className="py-4 text-xs text-pretty text-muted-foreground">

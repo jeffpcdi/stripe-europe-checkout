@@ -9,6 +9,7 @@
 import Link from 'next/link'
 import { ArrowUpRight } from 'lucide-react'
 import type { SourceRank } from '@/lib/metrics'
+import { SectionTitle } from '@/components/section-title'
 
 // Macro de UTM que o TikTok NÃO substituiu chega literal ("{{campaign.name}}",
 // "__CAMPAIGN_NAME__") ou vazia — qualquer uma indica atribuição quebrada.
@@ -30,9 +31,9 @@ export function TopSources({
   return (
     <div className="hero-glass-panel flex h-full flex-col p-5">
       <div className="mb-4 flex items-center justify-between gap-2">
-        <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
+        <SectionTitle>
           {useCampaigns ? 'Top campanhas' : 'Top links'}
-        </h3>
+        </SectionTitle>
         <Link
           href={useCampaigns ? '/funnel' : '/links'}
           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"

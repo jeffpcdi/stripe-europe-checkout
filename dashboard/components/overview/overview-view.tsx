@@ -90,7 +90,7 @@ function HeroKpi({
   return (
     <div className="min-w-0">
       <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
-        {label}
+        <span className="text-gradient-metallic">{label}</span>
       </p>
       <p
         className={`mt-1 whitespace-nowrap font-mono text-2xl font-bold leading-none tabular-nums sm:text-3xl xl:text-4xl ${
@@ -342,7 +342,7 @@ export function OverviewView() {
       {/* ── Rodapé — Países ativos · EMQ, em linha, discreto ───────────── */}
       <section
         aria-label="Presença e qualidade dos eventos"
-        className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1 font-mono text-[11px] tabular-nums text-muted-foreground"
+        className="glass inline-flex flex-wrap items-center gap-x-5 gap-y-2 rounded-full px-5 py-2.5 font-mono text-[11px] tabular-nums text-muted-foreground self-start"
         style={{ ['--i' as string]: 3 }}
       >
         <HealthDot />

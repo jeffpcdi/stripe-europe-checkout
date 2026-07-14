@@ -11,6 +11,7 @@ import { ArrowUpRight } from 'lucide-react'
 import type { PeriodMetrics } from '@/lib/metrics'
 import { fmtPercent } from '@/lib/format'
 import { CountUp } from '@/components/count-up'
+import { SectionTitle } from '@/components/section-title'
 
 export function FunnelCompact({
   metrics: m,
@@ -48,9 +49,9 @@ export function FunnelCompact({
   return (
     <div className="hero-glass-panel flex h-full flex-col p-5">
       <div className="mb-4 flex items-center justify-between gap-2">
-        <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
+        <SectionTitle>
           Funil · {periodLabel}
-        </h3>
+        </SectionTitle>
         <Link
           href="/funnel"
           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
