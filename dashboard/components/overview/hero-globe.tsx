@@ -1,10 +1,12 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Globe2, Radio, ShoppingCart } from 'lucide-react'
 import { useLive } from '@/lib/api'
 import { CountUp } from '@/components/count-up'
+import type { GeoPulse } from '@/components/geo/globe'
+import type { LiveCountry } from '@/lib/types'
 
 /* V2-54: skeleton do globo agora é um "planeta carregando" — esfera com
    anel orbital girando, no lugar do círculo pulsante genérico */
@@ -63,6 +65,55 @@ function LiveStat({
   )
 }
 
+// Fase 5: quanto tempo um anel de "lead novo" fica visível no globo.
+const PULSE_TTL_MS = 6000
+
+/**
+ * Detecta leads novos comparando a contagem por país entre polls consecutivos
+ * do /api/live (cadência de 5s). Um aumento de `count` num país vira um pulso
+ * com TTL, que o globo desenha como anel temporário. Robusto a:
+ *  - primeiro poll: só semeia a baseline, NÃO dispara pulsos (evita enxurrada
+ *    inicial ao abrir a tela);
+ *  - quedas de count (visitante saiu): ignoradas;
+ *  - países novos na lista: contam do zero como pulso.
+ * Não guarda PII — apenas o código do país e um contador.
+ */
+function useLeadPulses(countries: LiveCountry[]): GeoPulse[] {
+  const [pulses, setPulses] = useState<GeoPulse[]>([])
+  const prevCounts = useRef<Map<string, number> | null>(null)
+  const keySeq = useRef(0)
+
+  useEffect(() => {
+    const next = new Map<string, number>()
+    for (const c of countries) next.set(c.code, c.count || 0)
+
+    // primeiro poll → só estabelece baseline, sem pulsos
+    if (prevCounts.current === null) {
+      prevCounts.current = next
+      return
+    }
+
+    const fresh: GeoPulse[] = []
+    for (const [code, count] of next) {
+      const before = prevCounts.current.get(code) ?? 0
+      if (count > before) fresh.push({ code, key: ++keySeq.current })
+    }
+    prevCounts.current = next
+
+    if (fresh.length === 0) return
+    setPulses((cur) => [...cur, ...fresh])
+
+    // expira esse lote após o TTL (cada lote tem seu próprio timer)
+    const expiring = new Set(fresh.map((p) => p.key))
+    const t = window.setTimeout(() => {
+      setPulses((cur) => cur.filter((p) => !expiring.has(p.key)))
+    }, PULSE_TTL_MS)
+    return () => window.clearTimeout(t)
+  }, [countries])
+
+  return pulses
+}
+
 export function HeroGlobe() {
   const { data, isLoading } = useLive()
   const online = data?.summary.online ?? 0
@@ -72,6 +123,8 @@ export function HeroGlobe() {
     () => liveCountries.map((country) => ({ ...country, purchased: 0 })),
     [liveCountries],
   )
+  // Fase 5: pulsos de leads novos alimentam os anéis do globo
+  const pulses = useLeadPulses(liveCountries)
   const leaders = liveCountries.slice(0, 3).map((country) => country.name).join(', ')
 
   return (
@@ -106,7 +159,11 @@ export function HeroGlobe() {
 
       {/* V2-100: grade de pontos ciano ultra-sutil atrás do globo */}
       <div className="dot-matrix relative h-[400px] w-full sm:h-[500px]">
-        {isLoading && !data ? <GlobeSkeleton /> : <GlobePanel countries={countries} metric="visits" />}
+        {isLoading && !data ? (
+          <GlobeSkeleton />
+        ) : (
+          <GlobePanel countries={countries} metric="visits" pulses={pulses} />
+        )}
       </div>
 
       <footer className="flex min-h-11 items-center border-t border-border px-4 py-2.5 text-xs text-muted-foreground sm:px-5">

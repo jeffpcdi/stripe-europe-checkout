@@ -1551,6 +1551,9 @@ function checkSalesWatchdog() {
 // lote de eventos além da retenção (padrão 90 dias) para events_archive.
 // Não bloqueia o request: dispara async e ignora o resultado.
 const EVENT_RETENTION_DAYS = Math.max(7, Math.min(3650, Number(process.env.EVENT_RETENTION_DAYS) || 90));
+// Fase 6: janela reprocessada a cada sweep. 35d cobre o maior período fixo da
+// UI (30d) com folga para fuso/limites de dia. Recompute idempotente da janela.
+const DAILY_ROLLUP_DAYS = Math.max(2, Math.min(400, Number(process.env.DAILY_ROLLUP_DAYS) || 35));
 let lastArchiveSweep = 0;
 let archiveSweepBusy = false;
 function checkEventArchive() {
@@ -1561,6 +1564,12 @@ function checkEventArchive() {
   db.archiveOldEvents(EVENT_RETENTION_DAYS, 2000)
     .then((n) => { if (n > 0) console.log('[stats] arquivados ' + n + ' evento(s) antigos (> ' + EVENT_RETENTION_DAYS + 'd)'); })
     .catch(() => {})
+    // Fase 6: logo após arquivar, recomputa o rollup diário (idempotente) para
+    // os últimos 35 dias — inclui eventos recém-movidos ao arquivo. Encadeado no
+    // MESMO gancho horário para não criar outro timer nem outra varredura.
+    .then(() => db.aggregateDaily(DAILY_ROLLUP_DAYS))
+    .then((rows) => { if (rows > 0) console.log('[stats] rollup diário atualizado (' + rows + ' linha(s), ' + DAILY_ROLLUP_DAYS + 'd)'); })
+    .catch((err) => { console.error('[stats] aggregateDaily falhou:', err && err.message); })
     .finally(() => { archiveSweepBusy = false; });
 }
 // Item 324/425 (LGPD): anonimização automática de leads antigos, pegando
@@ -4541,7 +4550,7 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
   }
 });
 
-// ── Verificação de instalação do pixel por URL ────────────────────────────
+// ── Verificação de instalação do pixel por URL ───────────────��────────────
 // O lojista cola a URL de uma página dele (ex.: a LP ou a página de obrigado)
 // e o servidor busca o HTML e confere se o script do pixel (/px/<token>.js)
 // ou o pixel code do TikTok aparecem na página. Roda 100% server-side.
@@ -4886,7 +4895,7 @@ app.get('/termos', (req, res) => {
 // ── Só a pasta /assets é servida estaticamente (logo da marca) ───────
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d' }));
 
-// ── Iniciar servidor ──────────────────────────────────────────���──────
+// ── Iniciar servidor ────────���─────────────────────────────────���──────
 // Hidrata stats, config, pixels, links e gateways a partir do Neon ANTES
 // de escutar, para que os dados de todas as contas já estejam disponíveis
 // no primeiro request pós-deploy.

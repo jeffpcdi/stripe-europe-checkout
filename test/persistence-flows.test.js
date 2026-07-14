@@ -104,6 +104,18 @@ function ok(cond, msg) {
   ok(orphanEvt.orphanReason === 'sem_match' && orphanEvt.triedKeys.includes('email'),
     'órfã: registra as chaves tentadas (email) e o motivo sem_match');
 
+  // ── Fase 6: agregação diária — contrato de fallback sem Neon ─────────────
+  // Sem DATABASE_URL o rollup é um no-op seguro (nunca explode nem inventa
+  // dados). O caminho SQL idempotente exige Neon real e é exercitado em staging.
+  const db = require('../db');
+  const aggRows = await db.aggregateDaily(35);
+  ok(aggRows === 0, 'rollup: aggregateDaily sem Neon é no-op (retorna 0, não explode)');
+  const daily = await db.readDaily(ACC, 35);
+  ok(Array.isArray(daily) && daily.length === 0, 'rollup: readDaily sem Neon devolve [] (erro ≠ dados)');
+  // idempotência do contrato: reexecutar não muda o resultado
+  const aggRows2 = await db.aggregateDaily(35);
+  ok(aggRows2 === aggRows, 'rollup: reexecução dá o MESMO resultado (idempotente por contrato)');
+
   // Limpeza: remove o domínio de teste do snapshot local compartilhado
   // (mesmo debounce de 500ms do persistDisk).
   config.set(ACC, { customDomains: [] });

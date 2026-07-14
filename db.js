@@ -112,6 +112,26 @@ async function init() {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS events_archive_acc_at_idx ON events_archive (account_id, at DESC)`;
 
+    // ── Fase 6: agregação diária de eventos (rollup) ──────────────────────
+    // Relatórios de longo período (30d/tudo) varriam milhares de linhas de
+    // `events` a cada request. Esta tabela guarda UMA linha por
+    // (conta, dia, tipo, moeda) com contagem e receita somada. Preenchida por
+    // recompute idempotente (aggregateDaily) no mesmo sweep horário do
+    // arquivamento — reprocessar o mesmo dia NUNCA duplica (ON CONFLICT
+    // sobrescreve). day é a data UTC; currency = '' para tipos sem moeda.
+    await sql`CREATE TABLE IF NOT EXISTS events_daily (
+      account_id text NOT NULL DEFAULT '',
+      day date NOT NULL,
+      type text NOT NULL DEFAULT 'info',
+      currency text NOT NULL DEFAULT '',
+      count integer NOT NULL DEFAULT 0,
+      revenue_cents bigint NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (account_id, day, type, currency)
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS events_daily_acc_day_idx ON events_daily (account_id, day DESC)`;
+    migrations.eventsDaily = true;
+
     // Itens 417/439: trilha de auditoria da conta — ações sensíveis (login,
     // criação/remoção de link, reset de stats, import de backup, acesso a
     // rotas sensíveis…) com IP mascarado. Visível na aba Config.
@@ -694,6 +714,83 @@ async function archiveOldEvents(retentionDays, batch) {
   }
 }
 
+// Fase 6: recomputa o rollup diário de eventos para os últimos `days` dias.
+// Idempotente: reagrega a janela inteira a partir de `events` + `events_archive`
+// (um evento recém-arquivado continua contando) e faz UPSERT — reprocessar o
+// mesmo intervalo produz exatamente os mesmos números, nunca soma em dobro.
+// A receita vem do jsonb: coalesce(amount, amountCents) em centavos, só para
+// eventos com valor numérico. Chamado no sweep horário (checkEventArchive).
+// Retorna quantas linhas (conta, dia, tipo, moeda) foram gravadas.
+async function aggregateDaily(days) {
+  if (!enabled) return 0;
+  const window = Math.max(1, Math.min(400, Math.round(Number(days) || 35)));
+  try {
+    // Fonte unificada: eventos quentes + arquivados no intervalo. amount está em
+    // centavos no data jsonb (chave `amount`, com fallback `amountCents`);
+    // filtramos a valores numéricos e não-negativos para não poluir a receita.
+    const rows = await sql`
+      WITH src AS (
+        SELECT account_id, type, at, data FROM events
+          WHERE at >= (now()::date - (${window} || ' days')::interval)
+        UNION ALL
+        SELECT account_id, type, at, data FROM events_archive
+          WHERE at >= (now()::date - (${window} || ' days')::interval)
+      ), norm AS (
+        SELECT
+          COALESCE(account_id, '') AS account_id,
+          (at AT TIME ZONE 'UTC')::date AS day,
+          COALESCE(type, 'info') AS type,
+          COALESCE(NULLIF(upper(data->>'currency'), ''), '') AS currency,
+          CASE
+            WHEN jsonb_typeof(data->'amount') = 'number' THEN GREATEST((data->>'amount')::numeric, 0)
+            WHEN jsonb_typeof(data->'amountCents') = 'number' THEN GREATEST((data->>'amountCents')::numeric, 0)
+            ELSE 0
+          END AS amount_cents
+        FROM src
+      ), agg AS (
+        SELECT account_id, day, type, currency,
+               COUNT(*) AS count,
+               COALESCE(SUM(amount_cents), 0)::bigint AS revenue_cents
+        FROM norm
+        GROUP BY account_id, day, type, currency
+      )
+      INSERT INTO events_daily (account_id, day, type, currency, count, revenue_cents, updated_at)
+      SELECT account_id, day, type, currency, count, revenue_cents, now() FROM agg
+      ON CONFLICT (account_id, day, type, currency)
+      DO UPDATE SET count = EXCLUDED.count,
+                    revenue_cents = EXCLUDED.revenue_cents,
+                    updated_at = now()
+      RETURNING 1`;
+    return Array.isArray(rows) ? rows.length : 0;
+  } catch (err) {
+    console.error('[db] aggregateDaily:', err.message);
+    return 0;
+  }
+}
+
+// Fase 6: lê o rollup diário de uma conta (relatórios de período longo). Sem
+// escopo de conta = agrega tudo. Devolve linhas cruas (conta o consumidor soma).
+async function readDaily(accountId, days) {
+  if (!enabled) return [];
+  const window = Math.max(1, Math.min(400, Math.round(Number(days) || 35)));
+  try {
+    if (accountId) {
+      return await sql`SELECT account_id, day, type, currency, count, revenue_cents
+        FROM events_daily
+        WHERE account_id = ${accountId}
+          AND day >= (now()::date - (${window} || ' days')::interval)
+        ORDER BY day DESC`;
+    }
+    return await sql`SELECT account_id, day, type, currency, count, revenue_cents
+      FROM events_daily
+      WHERE day >= (now()::date - (${window} || ' days')::interval)
+      ORDER BY day DESC`;
+  } catch (err) {
+    console.error('[db] readDaily:', err.message);
+    return [];
+  }
+}
+
 // Itens 417/439: grava uma entrada na trilha de auditoria. Fire-and-forget —
 // auditoria nunca pode quebrar a ação que está auditando.
 async function insertAudit(accountId, action, detail, ipMasked) {
@@ -1216,7 +1313,7 @@ module.exports = {
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
-  upsertLead, findLeadsByContact, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
+  upsertLead, findLeadsByContact, insertEvent, archiveOldEvents, aggregateDaily, readDaily, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
   // quarentena de webhooks rejeitados
   insertQuarantine, listQuarantine, countQuarantine, resolveQuarantine, pruneQuarantine,
   // dedup durável de receita por pedido (Risco 5)

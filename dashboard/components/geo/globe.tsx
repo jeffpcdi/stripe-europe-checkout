@@ -592,9 +592,29 @@ export default function GlobePanel({
           height={size.h}
           globeRef={globeRef}
           metric={metric}
+          pulses={pulses}
         />
       )}
       <GlobeHud empty={empty} />
+      {/* Fase 5: overlay da base — leitura rápida do que o globo representa.
+          pointer-events-none para não interceptar o arraste/rotação. */}
+      {!empty && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4">
+          <div className="font-mono text-[10.5px] leading-tight tabular-nums text-white/55">
+            <span className="text-white/80" data-sensitive>
+              {totalLeads.toLocaleString('pt-BR')}
+            </span>{' '}
+            {totalLeads === 1 ? 'lead' : 'leads'} · {activeCountries}{' '}
+            {activeCountries === 1 ? 'país' : 'países'}
+          </div>
+          {pulses.length > 0 && (
+            <div className="flex items-center gap-1.5 font-mono text-[10.5px] tabular-nums text-emerald-400/90">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+              ao vivo
+            </div>
+          )}
+        </div>
+      )}
       <GlobeControls
         onZoomIn={() => zoomBy(globeRef, -ALT_STEP)}
         onZoomOut={() => zoomBy(globeRef, ALT_STEP)}
