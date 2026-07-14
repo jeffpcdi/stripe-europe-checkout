@@ -114,6 +114,19 @@ export function LeadsTable({
   // Item 180: o input responde na hora, mas o filtro só roda 300ms depois
   const [rawQuery, setRawQuery] = useState('')
   const [query, setQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  // Atalho Cmd+K / Ctrl+K para focar na busca
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        searchRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
   const [stage, setStage] = useState('')
   const [gateway, setGateway] = useState('')
   // Item 306: filtro por país, derivado dos leads presentes
@@ -347,13 +360,14 @@ export function LeadsTable({
               aria-hidden
             />
             <input
+              ref={searchRef}
               type="search"
               value={rawQuery}
               onChange={(e) => {
                 setRawQuery(e.target.value)
                 resetPage()
               }}
-              placeholder="Buscar lead, país, origem…"
+              placeholder="Buscar lead… (Cmd+K)"
               className="h-8 w-52 rounded-md border border-border/60 bg-muted/20 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
             />
             {/* Item 180: micro-spinner enquanto o debounce roda */}

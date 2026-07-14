@@ -21,8 +21,11 @@ import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelCompact } from './funnel-compact'
-import { LeadsTable } from '@/components/funnel/leads-table'
-// Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
+import dynamic from 'next/dynamic'
+const LeadsTable = dynamic(() => import('@/components/funnel/leads-table').then(m => m.LeadsTable), {
+  ssr: false,
+  loading: () => <Skeleton className="h-[400px] w-full rounded-2xl" />
+})// Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
 // resto do app — formata direto sem dividir por 100.
 function fmtAdsMoney(v: number, currency: string): string {
   try {
@@ -267,7 +270,7 @@ export function OverviewView() {
 
   return (
     /* A1.5: fundo com profundidade. A1.1: cascata só na primeira entrada. */
-    <div className={`overview-depth flex flex-col gap-4 ${firstEnter ? 'stagger-fade' : ''}`}>
+    <div className={`overview-depth mx-auto max-w-[1600px] flex flex-col gap-4 ${firstEnter ? 'stagger-fade' : ''}`}>
       {/* Redesign: barra compacta de controles — o shell Header já traz kicker +
           título + badge AO VIVO. Sem card "Operacional" separado (a saúde vive
           no rodapé). Item 171: sticky em mobile. */}
