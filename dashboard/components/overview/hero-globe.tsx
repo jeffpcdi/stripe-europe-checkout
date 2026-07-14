@@ -120,18 +120,18 @@ export function HeroGlobe({
 
       {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".
           pointer-events-none para não interceptar arraste/zoom do globo. */}
-      <div className="pointer-events-none absolute inset-x-0 top-[8%] flex flex-col items-center gap-1.5 text-center z-20">
-        <div className="hero-globe-badge glass glass-pulse pointer-events-auto inline-flex flex-col items-center gap-1.5 px-8 py-3.5 rounded-[24px] backdrop-blur-xl border border-white/10 shadow-[0_0_20px_rgba(37,244,238,0.15)]">
-          <div className="flex items-center gap-2.5">
+      <div className="pointer-events-none absolute inset-x-0 top-6 flex flex-col items-center gap-1.5 text-center z-20">
+        <div className="hero-globe-badge glass glass-pulse pointer-events-auto inline-flex flex-col items-center gap-1.5 px-6 py-2.5 rounded-[20px] backdrop-blur-xl border border-white/10 shadow-[0_0_20px_rgba(37,244,238,0.15)]">
+          <div className="flex items-center gap-2">
             <span className="live-dot" aria-hidden="true" />
             <p
-              className="font-mono text-3xl font-bold leading-none tabular-nums text-white xl:text-4xl"
+              className="font-mono text-2xl font-bold leading-none tabular-nums text-white xl:text-3xl"
               data-sensitive
             >
               <CountUp value={onlineNow} />
             </p>
           </div>
-          <p className="text-[10.5px] font-medium uppercase tracking-[0.14em] text-white/55">
+          <p className="text-[9.5px] font-medium uppercase tracking-[0.12em] text-white/60">
             online agora · {activeCountries}{' '}
             {activeCountries === 1 ? 'país' : 'países'}
           </p>

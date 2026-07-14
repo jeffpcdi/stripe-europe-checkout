@@ -202,7 +202,7 @@ function GlobeCanvas({
     const g = globeRef.current
     if (!g) return
     g.controls().autoRotate = !reducedMotion
-    g.controls().enableZoom = false
+    g.controls().enableZoom = true
 
     // Fluidez: limita o pixelRatio a 1.5. Em telas Retina (DPR 2–3) o three.js
     // renderizava em resolução cheia, dobrando/triplicando o trabalho de
@@ -404,7 +404,7 @@ function GlobeControls({
   isFullscreen: boolean
 }) {
   return (
-    <div className="absolute right-3 top-3 hidden z-10 flex-col gap-1.5" data-tour="globe-controls">
+    <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5" data-tour="globe-controls">
       <button type="button" onClick={onZoomIn} className="globe-ctl" aria-label="Aproximar">
         <Plus className="size-4" aria-hidden="true" />
       </button>
@@ -417,7 +417,7 @@ function GlobeControls({
       <button
         type="button"
         onClick={onFullscreen}
-        className="globe-ctl"
+        className="globe-ctl transition-transform hover:scale-110 focus:scale-110 active:scale-95 animate-pulse border-brand-cyan/50 shadow-[0_0_10px_rgba(37,244,238,0.2)]"
         aria-label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
       >
         {isFullscreen ? (
