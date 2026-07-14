@@ -512,6 +512,78 @@ async function deleteAutomationState(accountId, key) {
   await sql`DELETE FROM ads_automation_state WHERE account_id = ${accountId} AND key = ${key}`;
 }
 
+// Série diária COMPLETA do advertiser (spend/impr/cliques/conv por dia).
+// Alimenta a detecção de anomalias do briefing (z-score precisa de CTR/CPM
+// diários, que readAdvertiserDaily não expõe). Ordenada por dia ASC.
+async function readDailySeries(accountId, advertiserId, fromDate, toDate) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = String(advertiserId || '').trim();
+  if (!enabled || !advertiserId) return [];
+  await ensureSchema();
+  const rows = await sql`
+    SELECT day::text AS day, SUM(spend)::float8 AS spend, SUM(impressions)::float8 AS impressions,
+           SUM(clicks)::float8 AS clicks, SUM(conversions)::float8 AS conversions
+    FROM ads_metrics_cache
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND level = 'campaign' AND day >= ${fromDate} AND day <= ${toDate}
+    GROUP BY day ORDER BY day ASC`;
+  return rows.map((r) => ({
+    day: r.day,
+    spend: num(r.spend),
+    impressions: num(r.impressions),
+    clicks: num(r.clicks),
+    conversions: num(r.conversions),
+  }));
+}
+
+// ── Conteúdo gerado por IA (briefings diários, insights de criativos) ───────
+// kind: 'daily' | 'creatives'. PK (account, date, kind) = idempotência natural:
+// gerar 2× no mesmo dia sobrescreve em vez de duplicar. content = texto pronto
+// para a UI; meta = payload estruturado (anomalias, variações, proposta).
+let briefingSchemaReady = null;
+async function ensureBriefingSchema() {
+  if (!enabled) return false;
+  if (briefingSchemaReady) return briefingSchemaReady;
+  briefingSchemaReady = (async () => {
+    await sql`CREATE TABLE IF NOT EXISTS ads_briefings (
+      account_id text NOT NULL,
+      date date NOT NULL,
+      kind text NOT NULL DEFAULT 'daily',
+      content text NOT NULL DEFAULT '',
+      meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (account_id, date, kind)
+    )`;
+    return true;
+  })().catch((err) => { briefingSchemaReady = null; throw err; });
+  return briefingSchemaReady;
+}
+
+async function upsertBriefing(accountId, date, kind, content, meta) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureBriefingSchema();
+  await sql`
+    INSERT INTO ads_briefings (account_id, date, kind, content, meta)
+    VALUES (${accountId}, ${date}, ${String(kind || 'daily').slice(0, 20)}, ${String(content || '')}, ${JSON.stringify(meta || {})}::jsonb)
+    ON CONFLICT (account_id, date, kind) DO UPDATE SET
+      content = EXCLUDED.content, meta = EXCLUDED.meta, created_at = now()`;
+  return true;
+}
+
+// Últimos N briefings de um tipo (default: 7 dias de 'daily' para o card).
+async function listBriefings(accountId, kind, limit = 7) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureBriefingSchema();
+  const rows = await sql`
+    SELECT date::text AS date, kind, content, meta, created_at
+    FROM ads_briefings
+    WHERE account_id = ${accountId} AND kind = ${String(kind || 'daily')}
+    ORDER BY date DESC LIMIT ${Math.min(Math.max(1, limit), 30)}`;
+  return rows.map((r) => ({ date: r.date, kind: r.kind, content: r.content, meta: r.meta || {}, createdAt: r.created_at }));
+}
+
 module.exports = {
   enabled,
   ensureSchema,
@@ -519,6 +591,7 @@ module.exports = {
   readTree,
   readAdvertiserDaily,
   readAdvertiserTotals,
+  readDailySeries,
   readCampaignAnalytics,
   getSyncState,
   upsertSyncState,
@@ -529,4 +602,6 @@ module.exports = {
   listAutomationState,
   upsertAutomationState,
   deleteAutomationState,
+  upsertBriefing,
+  listBriefings,
 };

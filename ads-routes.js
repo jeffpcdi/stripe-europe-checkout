@@ -32,6 +32,7 @@ const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só
 const adsCache = require('./ads-cache-store'); // espelho durável no Neon (leitura)
 const adsSync = require('./ads-sync');         // motor Pipeboard→Neon (sync em background)
 const automation = require('./ads-automation'); // regras/alertas/dayparting 24/7
+const adsAi = require('./ads-ai');             // copiloto/briefing/criativos/realocação (IA, leituras 100% Neon)
 const adsOps = require('./ads-ops-store');
 const catalogStore = require('./ads-catalog-store');
 const catalogFeed = require('./ads-catalog-feed');
@@ -1087,6 +1088,159 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   automation.init({ stats, syncAfterWrite: adsSync.syncAfterWrite });
   adsSweepHook.fn = automation.maybeSweep;
 
+  // ── IA (copiloto/briefing/criativos/realocação) ─────────────────────────────
+  // ads-ai.js NUNCA toca a Pipeboard: leituras vêm do espelho Neon + atribuição
+  // local (injetadas aqui). Mutações só via /copilot/execute, que reusa os
+  // MESMOS caminhos das ações manuais (dry-run, auditoria, syncAfterWrite).
+  adsAi.init({
+    cache: adsCache,
+    computeAttribution: automation.computeAttribution,
+    getRules: automation.getRules,
+    getRulesLog: automation.getRulesLog,
+    sendPushcut: require('./pushcut').sendPushcut,
+  });
+
+  const AI_OFF = { error: 'IA não configurada no servidor (AI_GATEWAY_API_KEY ausente)', code: 'AI_NOT_CONFIGURED' };
+
+  // Resolve o advertiser (query/body opcional) sem duplicar lógica.
+  async function resolveAdv(req, hint) {
+    if (hint) return (await requireAdvertiser(req.account.id, null, hint, null)).advertiserId;
+    const id = await pipeboard.resolveAdvertiserId(req.account.id);
+    if (!id) { const e = new Error('Nenhuma conta de anúncio autorizada no token'); e.status = 409; throw e; }
+    return id;
+  }
+
+  // Chat do copiloto — resposta em SSE (text/event-stream).
+  app.post('/api/ads/copilot', dashboardAuth, async (req, res) => {
+    if (!adsAi.enabled()) return res.status(503).json(AI_OFF);
+    try {
+      const b = req.body || {};
+      const message = String(b.message || '').trim();
+      if (!message) return res.status(400).json({ error: 'Mensagem vazia' });
+      const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
+      const currency = String(b.currency || 'USD').slice(0, 5);
+
+      res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+      res.flushHeaders();
+      const write = (ev) => { try { res.write('data: ' + JSON.stringify(ev) + '\n\n'); } catch (_) { /* cliente desconectou */ } };
+      await adsAi.copilotTurn({
+        accId: req.account.id,
+        advertiserId,
+        currency,
+        sessionId: String(b.sessionId || '').slice(0, 60) || req.account.id,
+        message,
+        write,
+      });
+      res.end();
+    } catch (err) {
+      if (!res.headersSent) return fail(res, err);
+      try { res.write('data: ' + JSON.stringify({ type: 'error', error: String(err.message || err) }) + '\n\n'); res.end(); } catch (_) {}
+    }
+  });
+
+  // Executa uma proposta APROVADA pelo usuário. Valida schema + IDs contra o
+  // espelho e delega para os mesmos primitivos das ações manuais.
+  app.post('/api/ads/copilot/execute', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const b = req.body || {};
+      const action = b.action || {};
+      const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
+
+      // IDs conhecidos do espelho — proposta com ID alucinado morre aqui (400).
+      const tree = await adsCache.readTree(req.account.id, advertiserId, {});
+      const knownIds = new Set(((tree && tree.campaigns) || []).map((c) => String(c.platformCampaignId)));
+      const v = adsAi.validateProposedAction(action, knownIds);
+      if (!v.ok) return res.status(400).json({ error: 'Proposta inválida: ' + v.error });
+
+      if (action.type === 'pause' || action.type === 'activate') {
+        const status = action.type === 'pause' ? 'paused' : 'active';
+        const ids = v.params.campaignIds;
+        if (await isDryRun(req.account.id)) {
+          await auditSimulated(req.account.id, {
+            action: 'campaign_status', targetType: 'campaign', advertiserId,
+            metadata: { status, count: ids.length, campaignIds: ids, via: 'copilot' },
+            title: '[Copiloto] ' + (status === 'paused' ? 'Pausar' : 'Ativar') + ' ' + ids.length + ' campanha(s)',
+          });
+          return res.json({ dryRun: true, simulated: ids.length });
+        }
+        await pipeboard.setCampaignStatus(advertiserId, ids, status);
+        adsSync.syncAfterWrite(req.account.id, advertiserId);
+        stats.logEvent('info', { acc: req.account.id, title: '[Copiloto] Campanhas ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + ids.length });
+        return res.json({ ok: true, updated: ids.length });
+      }
+
+      if (action.type === 'budget') {
+        const { campaignId, budget } = v.params;
+        if (await isDryRun(req.account.id)) {
+          await auditSimulated(req.account.id, {
+            action: 'entity_update', targetType: 'campaign', targetId: campaignId, advertiserId,
+            metadata: { applied: { budget: { level: 'campaign', id: campaignId, amount: budget, type: 'daily' } }, via: 'copilot' },
+            title: '[Copiloto] Orçamento da campanha ' + campaignId + ' → ' + budget,
+          });
+          return res.json({ dryRun: true, simulated: true });
+        }
+        await pipeboard.updateCampaign(advertiserId, campaignId, { budget: { amount: budget, type: 'daily' } });
+        adsSync.syncAfterWrite(req.account.id, advertiserId);
+        stats.logEvent('info', { acc: req.account.id, title: '[Copiloto] Orçamento atualizado', ref: campaignId });
+        return res.json({ ok: true });
+      }
+
+      if (action.type === 'create_rule') {
+        // validateRules aplica clamps/drop de regra inválida — mesma via do PUT.
+        const current = automation.getRules(req.account.id);
+        const merged = automation.validateRules(current.concat([Object.assign({ enabled: true }, v.params.rule)]));
+        if (merged.length === current.length) return res.status(400).json({ error: 'Regra proposta é inválida (rejeitada pela validação do motor)' });
+        pipeboard.setState(req.account.id, { rules: merged });
+        stats.logEvent('info', { acc: req.account.id, title: '[Copiloto] Regra de automação criada' });
+        return res.json({ ok: true, rules: merged });
+      }
+
+      return res.status(400).json({ error: 'Tipo de ação não suportado' });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Briefing de hoje + histórico 7d (gerado 1×/dia pelo tick do ads-sync).
+  app.get('/api/ads/briefing', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const briefings = await adsCache.listBriefings(req.account.id, 'daily', 7);
+      res.json({ ai: adsAi.enabled(), briefings });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Gerar briefing agora (botão na UI) — sobrescreve o de hoje (PK account+date).
+  app.post('/api/ads/briefing/run', dashboardAuth, async (req, res) => {
+    if (!adsAi.enabled()) return res.status(503).json(AI_OFF);
+    try {
+      const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
+      const out = await adsAi.generateDailyBriefing(req.account.id, advertiserId, String((req.body || {}).currency || 'USD').slice(0, 5));
+      res.json(out);
+    } catch (err) { fail(res, err); }
+  });
+
+  // Análise de criativos (cache 24h; ?force=1 regenera).
+  app.get('/api/ads/creatives/insights', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      const out = await adsAi.creativeInsights(req.account.id, advertiserId, { force: String((req.query || {}).force || '') === '1' });
+      if (out && out.error === 'AI_NOT_CONFIGURED') return res.status(503).json(AI_OFF);
+      res.json(out);
+    } catch (err) { fail(res, err); }
+  });
+
+  // Proposta de realocação de orçamento (determinística + rationale da IA).
+  app.get('/api/ads/budget/proposal', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const q = req.query || {};
+      const advertiserId = await resolveAdv(req, String(q.adAccountId || '').trim());
+      const out = await adsAi.budgetProposal(req.account.id, advertiserId, String(q.currency || 'USD').slice(0, 5));
+      res.json(out);
+    } catch (err) { fail(res, err); }
+  });
+
   app.get('/api/ads/alerts', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(automation.getAlertCfg(req.account.id));
@@ -1140,7 +1294,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   } catch (err) { fail(res, err); }
   });
 
-  // ── Regras automáticas — motor em ads-automation.js ────────────────────────
+  // ── Regras automáticas — motor em ads-automation.js ────────��───────────────
   // Métricas: cpa_max | spend_no_conv | roas_min | ctr_min | cpm_max |
   // roas_scale (escala vencedoras com teto) | schedule (dayparting).
   // As rotas abaixo só delegam; a varredura 24/7 roda no tick do ads-sync.
