@@ -448,6 +448,30 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return { ...data, campaigns };
   }
 
+  // Busca a árvore COMPLETA da Zernio agregando todas as páginas. A Zernio
+  // limita a 100 campanhas por página; contas com mais de 100 campanhas
+  // perdiam as excedentes (o front não pagina). O cap evita loop desgovernado.
+  async function fetchAllTreePages(baseQuery) {
+    const MAX_PAGES = 50; // 50 × 100 = 5000 campanhas — teto de segurança
+    const first = await zernio.api('GET', '/ads/tree', { query: { ...baseQuery, page: 1 } });
+    if (!first || !Array.isArray(first.campaigns)) return first;
+    const pages = first.pagination && first.pagination.pages ? Math.min(first.pagination.pages, MAX_PAGES) : 1;
+    if (pages <= 1) return first;
+    const all = [...first.campaigns];
+    let backfillPending = Boolean(first.backfillPending);
+    for (let p = 2; p <= pages; p++) {
+      const next = await zernio.api('GET', '/ads/tree', { query: { ...baseQuery, page: p } });
+      if (next && Array.isArray(next.campaigns)) all.push(...next.campaigns);
+      if (next && next.backfillPending) backfillPending = true;
+    }
+    return {
+      ...first,
+      campaigns: all,
+      backfillPending,
+      pagination: { ...(first.pagination || {}), page: 1, pages, total: all.length }
+    };
+  }
+
   // ── Árvore campanha → ad group → ad com métricas ──────────────────────────
   // Sempre consulta exatamente um advertiser explícito. O limite e a paginação
   // pertencem somente a essa conta; nunca há fallback ou agregação entre BCs.
@@ -467,37 +491,38 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const iso = (d) => d.toISOString().slice(0, 10);
       const today = new Date();
       const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
-      const query = {
+      // O filtro de status NÃO vai para a Zernio. A Zernio filtra pelo status
+      // derivado dela, mas nós reconciliamos o status depois (ex: paused →
+      // pending_review). Se pedíssemos o subconjunto já filtrado, campanhas
+      // reclassificadas cairiam no vão — some da aba pedida e nunca aparecem
+      // nas outras (que nem são buscadas). Buscamos TODAS e filtramos aqui.
+      const statusFilter = ['active', 'paused', 'pending_review', 'error', 'completed', 'cancelled', 'rejected'].includes(q.status) ? q.status : undefined;
+      const baseQuery = {
         accountId: st.accountId,
         platform: 'tiktok',
         source: 'all',
         adAccountId: selected.advertiserId,
-        status: ['active', 'paused', 'pending_review', 'error', 'completed', 'cancelled', 'rejected'].includes(q.status) ? q.status : undefined,
         fromDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(yearAgo),
         toDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today),
         sort: ['newest', 'oldest', 'spend_desc', 'spend_asc'].includes(q.sort) ? q.sort : 'newest',
-        limit: Math.max(1, Math.min(100, parseInt(q.limit, 10) || 100)),
-        page: Math.max(1, parseInt(q.page, 10) || 1),
+        limit: 100,
         timeIncrement: q.daily === '1' ? 1 : undefined
       };
-      const ck = 'tree:' + req.account.id + ':' + selected.advertiserId + ':' + JSON.stringify(query);
-      // `fresh=1` vem do polling da dashboard e ignora o cache local. O cache
-      // permanece como fallback para consumidores antigos e leituras sem polling.
+      // Cache key ignora o status: uma única busca completa alimenta todas as
+      // abas. `fresh=1` vem do polling da dashboard e ignora o cache local.
+      const ck = 'tree:' + req.account.id + ':' + selected.advertiserId + ':' + JSON.stringify(baseQuery);
       const fresh = q.fresh === '1';
       let data = fresh ? null : zernio.cacheGet(ck);
       if (!data) {
-        data = await zernio.api('GET', '/ads/tree', { query });
+        data = await fetchAllTreePages(baseQuery);
         zernio.cacheSet(ck, data, 15 * 1000);
       }
       data = reconcileTreeStatuses(data);
-      // Com o status reconciliado, o filtro do servidor (que usa o derivado)
-      // pode divergir do que a UI exibe — refiltra localmente para casar.
-      // Aceita a campanha se o filtro casar com o status reconciliado OU com o
-      // original (`childStatus`, preservado antes da reconciliação). Sem isto,
-      // uma campanha reclassificada (ex: paused → pending_review) sumia da aba
-      // filtrada em que a Zernio a devolveu, sem aparecer na nova aba.
-      if (query.status && Array.isArray(data.campaigns)) {
-        data = { ...data, campaigns: data.campaigns.filter((c) => c.status === query.status || c.childStatus === query.status) };
+      // Filtra localmente sobre o conjunto COMPLETO já reconciliado. Aceita a
+      // campanha se o filtro casar com o status reconciliado OU com o original
+      // (`childStatus`, preservado na reconciliação).
+      if (statusFilter && Array.isArray(data.campaigns)) {
+        data = { ...data, campaigns: data.campaigns.filter((c) => c.status === statusFilter || c.childStatus === statusFilter) };
       }
       res.json(data);
     } catch (err) { fail(res, err); }
