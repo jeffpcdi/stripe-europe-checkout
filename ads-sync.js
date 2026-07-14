@@ -27,6 +27,10 @@ const SYNC_INTERVAL_MS = Number(process.env.ADS_SYNC_INTERVAL_MS) || 3 * 60 * 10
 const ACTIVE_WINDOW_MIN = Number(process.env.ADS_SYNC_ACTIVE_MIN) || 6 * 60;        // 6h
 const STALE_MS = Number(process.env.ADS_SYNC_STALE_MS) || SYNC_INTERVAL_MS;         // idade p/ revalidar
 const MANUAL_THROTTLE_MS = Number(process.env.ADS_SYNC_MANUAL_THROTTLE_MS) || 20 * 1000;
+// Conta bloqueada pelo limite mensal do Pipeboard: espera antes de tentar de
+// novo. O reset real é mensal, mas 30min basta para recuperar rápido se o
+// usuário liberar um slot, sem martelar a API a cada tick.
+const BLOCKED_BACKOFF_MS = Number(process.env.ADS_SYNC_BLOCKED_BACKOFF_MS) || 30 * 60 * 1000;
 
 function iso(d) { return d.toISOString().slice(0, 10); }
 function dayStr(v) { return String(v || '').slice(0, 10); }
@@ -84,6 +88,19 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
   const start = Date.now();
   const callsBefore = pipeboard.getCallStats ? pipeboard.getCallStats().total : 0;
 
+  // Backoff de conta bloqueada: se o último resultado foi 'blocked' há menos de
+  // BLOCKED_BACKOFF_MS, não re-tenta (não desperdiça chamada nem piora a cota do
+  // time). O refresh manual passa opts.force para permitir nova tentativa.
+  if (!opts.force) {
+    const prev = await cache.getSyncState(accountId, advertiserId).catch(() => null);
+    if (prev && prev.status === 'blocked' && prev.updated_at) {
+      const age = Date.now() - new Date(prev.updated_at).getTime();
+      if (age < BLOCKED_BACKOFF_MS) {
+        return { ok: false, blocked: true, error: prev.last_error || 'Conta bloqueada', skipped: true };
+      }
+    }
+  }
+
   // Full vs incremental: full quando pedido explicitamente, ou quando nunca
   // houve backfill completo, ou quando o último passou de FULL_EVERY_MS.
   let full = opts.full === true;
@@ -125,19 +142,24 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
     console.log('[ads-sync] ' + accountId + '/' + advertiserId + ' ok (' + (full ? 'full' : 'incremental') + ') — ' + (tree.campaigns || []).length + ' campanhas, ' + dailyMetrics.length + ' linhas de métrica, ' + callsUsed + ' chamadas, ' + (Date.now() - start) + 'ms');
     return { ok: true, full, campaigns: (tree.campaigns || []).length, metrics: dailyMetrics.length, callsUsed };
   } catch (err) {
-    await cache.upsertSyncState(accountId, advertiserId, { status: 'error', lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
-    console.error('[ads-sync] ' + accountId + '/' + advertiserId + ' ERRO:', err.message);
-    return { ok: false, error: err.message };
+    // Bloqueio de conta (limite mensal de contas do Pipeboard) é um estado
+    // distinto de erro genérico: é esperado, recuperável só no reset, e não deve
+    // ser martelado a cada tick. Marcamos status='blocked' para o backoff e para
+    // a dashboard poder explicar ao usuário.
+    const blocked = err.code === 'ACCOUNT_BLOCKED';
+    await cache.upsertSyncState(accountId, advertiserId, { status: blocked ? 'blocked' : 'error', lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
+    console.error('[ads-sync] ' + accountId + '/' + advertiserId + (blocked ? ' BLOQUEADA:' : ' ERRO:'), err.message);
+    return { ok: false, error: err.message, blocked };
   }
 }
 
 // Dedup de sync em voo: requests concorrentes para o mesmo advertiser
 // compartilham a mesma promessa (evita rajada de N syncs idênticos).
 const inflight = new Map();
-function dedupSync(accountId, advertiserId) {
+function dedupSync(accountId, advertiserId, opts = {}) {
   const key = syncKey(accountId, advertiserId);
   if (inflight.has(key)) return inflight.get(key);
-  const p = syncAdvertiser(accountId, advertiserId).finally(() => inflight.delete(key));
+  const p = syncAdvertiser(accountId, advertiserId, opts).finally(() => inflight.delete(key));
   inflight.set(key, p);
   return p;
 }
@@ -176,7 +198,9 @@ async function refreshNow(accountId, advertiserId) {
   const waitMs = MANUAL_THROTTLE_MS - (Date.now() - prev);
   if (waitMs > 0) return { ok: false, throttled: true, retryInMs: waitMs };
   lastManual.set(key, Date.now());
-  return dedupSync(accountId, advertiserId);
+  // force: o refresh manual ignora o backoff de bloqueio — o usuário pediu
+  // explicitamente, então tentamos de novo mesmo que a conta esteja bloqueada.
+  return dedupSync(accountId, advertiserId, { force: true });
 }
 
 // ── Loop recorrente ─────────────────────────────────────────────────────────
