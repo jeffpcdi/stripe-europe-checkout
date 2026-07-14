@@ -64,7 +64,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[color-mix(in_oklab,var(--bg)_92%,white_2%)] md:flex"
+      className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r border-white/5 bg-[#040406]/60 backdrop-blur-3xl md:flex"
       aria-label="Navegação principal"
     >
       {/* Logo */}

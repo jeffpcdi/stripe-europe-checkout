@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { FlaskConical, Loader2, Server, Timer, SlidersHorizontal, Bot, Check, X } from 'lucide-react'
+import * as Tabs from '@radix-ui/react-tabs'
 import { apiSend, useCloakTestProfiles } from '@/lib/api'
 import type { CloakTestResult } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -14,27 +15,50 @@ import { describeSignal, LAYER_META, type SignalLayer } from './signal-labels'
 
 export function CloakView() {
   return (
-    /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão.
-       flex-wrap no cabeçalho segue o padrão das outras abas no mobile. */
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
+      <Tabs.Root defaultValue="overview" className="flex flex-col gap-6">
+        <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar mx-auto w-max">
+          <Tabs.Trigger
+            value="overview"
+            className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+          >
+            Visão Geral
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="rules"
+            className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+          >
+            Regras e Simulação
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="traffic"
+            className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+          >
+            Tráfego ao Vivo
+          </Tabs.Trigger>
+        </Tabs.List>
 
+        <Tabs.Content value="overview" className="focus:outline-none outline-none">
+          <div data-tour="cloak-stats">
+            <CloakStatsPanel />
+          </div>
+        </Tabs.Content>
 
-      <div data-tour="cloak-stats">
-        <CloakStatsPanel />
-      </div>
+        <Tabs.Content value="rules" className="focus:outline-none outline-none">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <div data-tour="cloak-config">
+              <CloakConfigPanel />
+            </div>
+            <div data-tour="cloak-test">
+              <CloakTestPanel />
+            </div>
+          </div>
+        </Tabs.Content>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div data-tour="cloak-config">
-          <CloakConfigPanel />
-        </div>
-        <div data-tour="cloak-test">
-          <CloakTestPanel />
-        </div>
-      </div>
-
-      <CloakEntriesPanel />
-
-
+        <Tabs.Content value="traffic" className="focus:outline-none outline-none">
+          <CloakEntriesPanel />
+        </Tabs.Content>
+      </Tabs.Root>
     </div>
   )
 }

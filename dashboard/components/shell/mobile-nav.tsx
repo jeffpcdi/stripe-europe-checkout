@@ -29,7 +29,7 @@ export function MobileNav() {
           style={{ animation: 'popBgIn var(--dur-fast) var(--ease) both' }}
         />
         <Dialog.Content
-          className="glass glass-thick anim-pop-in fixed inset-y-3 left-3 z-50 flex w-64 flex-col overflow-y-auto p-4 focus:outline-none"
+          className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col overflow-y-auto bg-[#040406]/70 backdrop-blur-3xl border-r border-white/5 p-5 shadow-2xl focus:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left duration-300"
           aria-describedby={undefined}
         >
           <div className="mb-4 flex items-center justify-between px-2">
@@ -64,10 +64,10 @@ export function MobileNav() {
                           onClick={() => setOpen(false)}
                           aria-current={active ? 'page' : undefined}
                           className={cn(
-                            'flex items-center gap-2.5 rounded-[10px] px-2 py-2 text-sm transition-colors duration-150',
+                            'flex min-h-[44px] items-center gap-3 rounded-[12px] px-3 py-2.5 text-[15px] font-medium transition-colors duration-150',
                             active
-                              ? 'bg-[var(--active)] text-foreground'
-                              : 'text-sub hover:bg-[var(--hover)] hover:text-foreground',
+                              ? 'bg-brand-cyan/10 text-white shadow-[inset_2px_0_0_#25f4ee]'
+                              : 'text-muted-foreground hover:bg-white/5 hover:text-white',
                           )}
                         >
                           <item.icon
