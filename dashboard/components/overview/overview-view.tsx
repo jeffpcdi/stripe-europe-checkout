@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useOncePerSession, useValueFlash } from '@/lib/motion'
 import {
   Banknote,
@@ -8,13 +9,12 @@ import {
   Users,
   Percent,
   Globe2,
-  RotateCcw,
   ShieldAlert,
-  Coins,
-  CalendarDays,
-  Timer,
+  TrendingUp,
+  Megaphone,
 } from 'lucide-react'
-import { useStats } from '@/lib/api'
+import { useStats, useEmqTrend, useAdsStatus, useAdsRoas } from '@/lib/api'
+import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import {
   aggregate,
   deltaPct,
@@ -22,28 +22,52 @@ import {
   periodStart,
   prevWindow,
 } from '@/lib/metrics'
-import { countryFlag, fmtDurationShort, fmtPercent } from '@/lib/format'
+import { countryFlag, fmtPercent } from '@/lib/format'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { SparkBars, SparkLine } from '@/components/sparkline'
 import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { KpiCard } from './kpi-card'
-import { MiniStat } from './mini-stat'
 import { TopSources } from './top-sources'
-import { GatewayDonut } from './gateway-donut'
 import { ExportSummaryButton } from './export-summary'
 import { TvModeButton } from './tv-mode'
 import { OnboardingChecklist } from './onboarding-checklist'
 import { PeriodPicker } from './period-picker'
-import { RevenueChart } from './revenue-chart'
-import { HealthCard } from './health-card'
+import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
-import { GoalCard } from './goal-card'
-import { AdsOverviewCard } from './ads-card'
+import { LiveFeed } from './live-feed'
+import { FunnelCompact } from './funnel-compact'
 
 const NEUTRAL = '#6b7183'
 const NEUTRAL_BG = 'rgba(107,113,131,.10)'
+
+// Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
+// resto do app — formata direto sem dividir por 100.
+function fmtAdsMoney(v: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: currency || 'BRL',
+      maximumFractionDigits: 2,
+    }).format(v)
+  } catch {
+    return v.toFixed(2)
+  }
+}
+
+// Fase 3: o PeriodPicker único também governa a janela do ROAS de Ads. O
+// endpoint /api/ads/roas aceita fromDate/toDate (YYYY-MM-DD); 'all' omite o
+// range e usa o default do servidor. A troca de período só refaz essa request
+// na INTERAÇÃO do usuário — no load ela dispara uma única vez, pós-first-paint.
+function periodToAdsRange(period: Period): { fromDate?: string; toDate?: string } | undefined {
+  if (period === 'all') return undefined
+  const to = new Date()
+  const from = periodStart(period) ?? to
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return { fromDate: fmt(from), toDate: fmt(to) }
+}
 
 const PERIODS: Period[] = ['today', '7d', '30d', 'all']
 const PERIOD_KEY = 'roi:overview:period'
@@ -87,6 +111,33 @@ export function OverviewView() {
   )
   const saleFlash = useValueFlash(totalSales, 800)
 
+  // Fase 3: TikTok Ads alimenta os KPIs "Gasto" e "ROAS". Só resolve
+  // pós-first-paint (chave null até lá — NÃO entra no orçamento de requests do
+  // load) e só quando a conta está conectada. Sem Ads, os KPIs caem para
+  // métricas do próprio funil (Vendas + Conversão). Mesmas chaves SWR do
+  // AdsOverviewCard legado → SWR deduplica, zero request extra.
+  const afterFirstPaint = useAfterFirstPaint()
+  const { data: adsStatus } = useAdsStatus(afterFirstPaint)
+  const adAccountId = adsStatus?.advertiserId || ''
+  const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
+  const adsRange = useMemo(() => periodToAdsRange(period), [period])
+  const { data: roas } = useAdsRoas(adsConnected, adAccountId, adsRange)
+  const showAdsKpis = adsConnected && !!roas
+  // Também alimenta o rodapé "EMQ" — mesma chave do popover de saúde (dedup).
+  const { data: emqData } = useEmqTrend(afterFirstPaint)
+  const emqSummary = useMemo(() => {
+    const pixels = emqData?.pixels?.filter((p) => p.recentAvg != null) ?? []
+    if (pixels.length === 0) return null
+    const recent = pixels.reduce((s, p) => s + (p.recentAvg ?? 0), 0) / pixels.length
+    const withBase = pixels.filter((p) => p.baseAvg != null)
+    const base = withBase.length
+      ? withBase.reduce((s, p) => s + (p.baseAvg ?? 0), 0) / withBase.length
+      : null
+    const dir: 'up' | 'down' | 'flat' =
+      base == null || Math.abs(recent - base) < 0.15 ? 'flat' : recent > base ? 'up' : 'down'
+    return { recent, dir, alerts: emqData?.alerts ?? 0 }
+  }, [emqData])
+
   // Persiste no localStorage e reflete no ?p= sem recarregar (histórico limpo).
   function setPeriod(next: Period) {
     setPeriodState(next)
@@ -108,48 +159,6 @@ export function OverviewView() {
       cur: aggregate(data, periodStart(period)),
       prev: w ? aggregate(data, w.prevFrom, w.prevTo) : null,
     }
-  }, [data, period])
-
-  // Item 274: melhor dia da semana por receita, derivado da própria série.
-  // Fica ANTES dos early returns (regra dos hooks): quando `cur` ainda não
-  // existe, devolve null sem custo.
-  const bestWeekday = useMemo(() => {
-    if (!cur || cur.series.length < 14) return null
-    const names = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
-    const byDow = Array.from({ length: 7 }, () => ({ revenue: 0, count: 0 }))
-    for (const p of cur.series) {
-      const dow = new Date(p.day + 'T00:00:00').getDay()
-      if (Number.isNaN(dow)) continue
-      byDow[dow].revenue += p.revenue
-      byDow[dow].count += 1
-    }
-    let best = -1
-    for (let i = 0; i < 7; i++) {
-      if (byDow[i].count > 0 && (best < 0 || byDow[i].revenue > byDow[best].revenue)) best = i
-    }
-    if (best < 0 || byDow[best].revenue <= 0) return null
-    return { name: names[best], revenue: byDow[best].revenue }
-  }, [cur])
-
-  // Item 296: tempo médio da primeira visita até a compra, mediana dos leads
-  // comprados no período (mediana > média: um outlier de dias não distorce).
-  const timeToBuy = useMemo(() => {
-    if (!data?.leads) return null
-    const from = periodStart(period)
-    const deltas: number[] = []
-    for (const l of data.leads) {
-      if (l.stage !== 'purchased' || !l.purchasedAt || !l.at) continue
-      const bought = new Date(l.purchasedAt).getTime()
-      const first = new Date(l.at).getTime()
-      if (Number.isNaN(bought) || Number.isNaN(first) || bought <= first) continue
-      if (from && bought < from.getTime()) continue
-      deltas.push(bought - first)
-    }
-    if (deltas.length < 3) return null // amostra pequena demais para afirmar algo
-    deltas.sort((a, b) => a - b)
-    const mid = Math.floor(deltas.length / 2)
-    const median = deltas.length % 2 ? deltas[mid] : (deltas[mid - 1] + deltas[mid]) / 2
-    return { median, count: deltas.length }
   }, [data, period])
 
   if (error) {
@@ -270,59 +279,52 @@ export function OverviewView() {
   const salesSeries = cur.series.map((s) => s.sales)
   const visitSeries = cur.series.map((s) => s.visits)
 
+  // Item 401: banner de aprovação baixa continua no overview (risco financeiro).
   const attempts = cur.sales + cur.failed
-  const apColor = !attempts
-    ? NEUTRAL
-    : cur.approval >= 70
-      ? '#22c55e'
-      : cur.approval >= 40
-        ? '#fbbf24'
-        : '#fe2c55'
-  const apBg = !attempts
-    ? NEUTRAL_BG
-    : cur.approval >= 70
-      ? 'rgba(34,197,94,.12)'
-      : cur.approval >= 40
-        ? 'rgba(251,191,36,.12)'
-        : 'rgba(254,44,85,.12)'
-
-  const hasSales = cur.sales > 0
   const hasGeo = cur.countries.length > 0
+  // Fase 3: TopSources (campanhas + links) só ocupa coluna quando há origem
+  // rastreada no período; senão o funil compacto ganha a largura toda.
+  const hasSources = cur.topCampaigns.length > 0 || cur.topLinks.length > 0
   // Item 288: onboarding usa o HISTÓRICO TODO (não o período filtrado) —
   // trocar para "hoje" numa conta ativa não pode ressuscitar o checklist.
   const everVisited = (data?.leads?.length ?? 0) > 0
   const everSold = (data?.events ?? []).some((e) => e.type === 'sale')
   const isOnboarding = !everVisited || !everSold
-  // Item 111: sistema fixo — ciano = métrica, verde = sucesso, âmbar = atenção, rosa = risco
-  const refColor = cur.refunds ? '#fbbf24' : NEUTRAL
-  const dispColor = cur.disputes ? '#fe2c55' : NEUTRAL
 
   return (
     /* A1.5: fundo com profundidade (radial ciano + grid de pontos) atrás do
        hero. A1.1: cascata só na primeira entrada da sessão. */
     <div className={`overview-depth flex flex-col gap-4 ${firstEnter ? 'stagger-fade' : ''}`}>
-      {/* Item 171: sticky no topo em mobile ao rolar */}
+      {/* Fase 3: barra própria do overview. O shell Header já traz
+          kicker + título + LiveBadge — aqui fica o dot único de saúde
+          (health-card → health-dot, detalhe em popover) à esquerda e os
+          controles + PeriodPicker único à direita. Item 171: sticky em mobile. */}
       <div
-        className="picker-sticky flex items-center justify-end gap-2"
+        className="picker-sticky flex flex-wrap items-center justify-between gap-2"
         data-tour="period"
         style={{ ['--i' as string]: 0 }}
       >
-        {/* Item 294: fullscreen para telão — esconde o chrome via data-tv */}
-        <TvModeButton />
-        {/* Item 278: baixa o resumo do período como PNG (canvas) */}
-        <ExportSummaryButton
-          period={period}
-          summary={{
-            revenue: revCents,
-            mainCur: cur.mainCur,
-            sales: cur.sales,
-            visits: cur.visits,
-            overall: cur.overall,
-            approval: cur.approval,
-            series: revSeries,
-          }}
-        />
-        <PeriodPicker value={period} onChange={setPeriod} />
+        {/* Dot único de saúde — substitui o antigo HealthCard de coluna inteira */}
+        <HealthDot />
+        <div className="flex items-center gap-2">
+          {/* Item 294: fullscreen para telão — esconde o chrome via data-tv */}
+          <TvModeButton />
+          {/* Item 278: baixa o resumo do período como PNG (canvas) */}
+          <ExportSummaryButton
+            period={period}
+            summary={{
+              revenue: revCents,
+              mainCur: cur.mainCur,
+              sales: cur.sales,
+              visits: cur.visits,
+              overall: cur.overall,
+              approval: cur.approval,
+              series: revSeries,
+            }}
+          />
+          {/* Item 296 (Fase 3): PeriodPicker ÚNICO governa KPIs + funil + campanhas */}
+          <PeriodPicker value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       {/* Item 288: conta que ainda não fechou o ciclo (visita + venda) vê o
@@ -356,14 +358,20 @@ export function OverviewView() {
         </GlassCard>
       )}
 
-      {/* KPIs principais — mesma ordem e semântica do legado.
-          Item 167: carrossel horizontal com snap em <640px */}
+      {/* Fase 3 — HERO em 3 colunas: KPIs (esquerda) · globo (centro) ·
+          "Chegando agora" (direita). O globo ganha a coluna mais larga. */}
       <section
-        aria-label="Indicadores principais"
-        className="kpi-carousel grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-        data-tour="kpis"
+        aria-label="Painel principal"
+        className="grid gap-4 lg:grid-cols-12"
+        data-tour="chart"
         style={{ ['--i' as string]: 1 }}
       >
+        {/* Coluna 1 — KPIs cortados de 8 → 4, em 2×2.
+            Item 167: carrossel com snap horizontal em <640px */}
+        <div
+          className="kpi-carousel grid grid-cols-2 gap-3 lg:col-span-4 lg:content-start"
+          data-tour="kpis"
+        >
         {/* Item 96: glow do card de receita cresce com o delta do período.
             A1.4: venda nova no poll → varredura verde na borda (800ms). */}
         <div
@@ -376,7 +384,6 @@ export function OverviewView() {
         >
           {/* Item 279: cada KPI vira drill-down para a aba correspondente */}
           <KpiCard
-            hero
             index={0}
             icon={Banknote}
             tint="green"
@@ -410,235 +417,235 @@ export function OverviewView() {
             spark={<SparkLine data={revSeries} color="#25f4ee" />}
           />
         </div>
-        <KpiCard
-          index={1}
-          icon={CircleCheck}
-          tint="green"
-          href="/activity?f=sale"
-          watch={cur.sales}
-          label="Vendas aprovadas"
-          ariaLabel={`Vendas aprovadas: ${cur.sales}, ${cur.failed} recusadas`}
-          value={
-            <CountUp
-              value={cur.sales}
-              className={cur.sales > 0 ? 'text-success' : 'text-muted-foreground'}
+        {/* KPIs 2–4 adaptativos: com TikTok Ads conectado mostram Gasto e ROAS
+            (dados pós-first-paint da integração); sem Ads, caem para Vendas e
+            Conversão do próprio funil. Leads aparece nos dois modos. */}
+        {showAdsKpis && roas ? (
+          <>
+            <KpiCard
+              index={1}
+              icon={Megaphone}
+              tint="cyan"
+              href="/ads/tiktok"
+              label="Investimento"
+              ariaLabel={`Investimento em anúncios: ${fmtAdsMoney(roas.spend, roas.currency)} na janela do período`}
+              value={<span data-sensitive>{fmtAdsMoney(roas.spend, roas.currency)}</span>}
+              sub="TikTok Ads · gasto"
             />
-          }
-          sub={
-            <>
-              <span className={cur.failed > 0 ? 'text-error' : ''}>{cur.failed}</span>{' '}
-              recusadas
-            </>
-          }
-          delta={d('sales')}
-          spark={<SparkBars data={salesSeries} color="#22c55e" />}
-        />
-        <KpiCard
-          index={2}
-          icon={Users}
-          tint="cyan"
-          href="/funnel"
-          watch={cur.visits}
-          label="Novos leads"
-          ariaLabel={`Novos leads: ${cur.visits} no período`}
-          value={
-            <CountUp
-              value={cur.visits}
-              className={cur.visits > 0 ? 'text-brand-cyan' : 'text-muted-foreground'}
+            <KpiCard
+              index={2}
+              icon={TrendingUp}
+              tint={roas.roas !== null && roas.roas >= 1 ? 'green' : 'amber'}
+              href="/ads/tiktok"
+              label="ROAS"
+              ariaLabel={`ROAS: ${roas.roas === null ? 'sem dados' : roas.roas.toFixed(2).replace('.', ',')}, com ${roas.sales} vendas atribuídas`}
+              value={
+                <span
+                  className={
+                    roas.roas === null
+                      ? 'text-muted-foreground'
+                      : roas.roas >= 1
+                        ? 'text-success'
+                        : 'text-error'
+                  }
+                >
+                  {roas.roas === null ? '—' : roas.roas.toFixed(2).replace('.', ',')}
+                </span>
+              }
+              sub={`${roas.sales} vendas atribuídas`}
             />
-          }
-          sub="entraram no funil"
-          delta={d('visits')}
-          spark={<SparkLine data={visitSeries} color="#25f4ee" />}
-        />
-        <KpiCard
-          index={3}
-          icon={Percent}
-          tint="amber"
-          href="/funnel"
-          label="Conversão"
-          ariaLabel={`Conversão: ${fmtPercent(cur.overall)} de visita para compra${prev ? `, ${cur.overall - prev.overall >= 0 ? 'mais' : 'menos'} ${Math.abs(cur.overall - prev.overall).toFixed(1).replace('.', ',')} pontos percentuais que o período anterior` : ''}`}
-          value={
-            <CountUp
-              value={cur.overall}
-              format={(v) => fmtPercent(v)}
-              className={cur.overall > 0 ? 'text-warning' : 'text-muted-foreground'}
+            <KpiCard
+              index={3}
+              icon={Users}
+              tint="cyan"
+              href="/funnel"
+              watch={cur.visits}
+              label="Novos leads"
+              ariaLabel={`Novos leads: ${cur.visits} no período`}
+              value={
+                <CountUp
+                  value={cur.visits}
+                  className={cur.visits > 0 ? 'text-brand-cyan' : 'text-muted-foreground'}
+                />
+              }
+              sub="entraram no funil"
+              delta={d('visits')}
+              spark={<SparkLine data={visitSeries} color="#25f4ee" />}
             />
-          }
-          sub="visita → compra"
-          /* Item 291: conversão JÁ é % — delta correto é a diferença em
-             pontos percentuais, não % de % (2%→3% = +1 p.p., não +50%) */
-          delta={prev ? +(cur.overall - prev.overall).toFixed(1) : null}
-          deltaUnit="pp"
-        />
+          </>
+        ) : (
+          <>
+            <KpiCard
+              index={1}
+              icon={Users}
+              tint="cyan"
+              href="/funnel"
+              watch={cur.visits}
+              label="Novos leads"
+              ariaLabel={`Novos leads: ${cur.visits} no período`}
+              value={
+                <CountUp
+                  value={cur.visits}
+                  className={cur.visits > 0 ? 'text-brand-cyan' : 'text-muted-foreground'}
+                />
+              }
+              sub="entraram no funil"
+              delta={d('visits')}
+              spark={<SparkLine data={visitSeries} color="#25f4ee" />}
+            />
+            <KpiCard
+              index={2}
+              icon={CircleCheck}
+              tint="green"
+              href="/activity?f=sale"
+              watch={cur.sales}
+              label="Vendas aprovadas"
+              ariaLabel={`Vendas aprovadas: ${cur.sales}, ${cur.failed} recusadas`}
+              value={
+                <CountUp
+                  value={cur.sales}
+                  className={cur.sales > 0 ? 'text-success' : 'text-muted-foreground'}
+                />
+              }
+              sub={
+                <>
+                  <span className={cur.failed > 0 ? 'text-error' : ''}>{cur.failed}</span>{' '}
+                  recusadas
+                </>
+              }
+              delta={d('sales')}
+              spark={<SparkBars data={salesSeries} color="#22c55e" />}
+            />
+            <KpiCard
+              index={3}
+              icon={Percent}
+              tint="amber"
+              href="/funnel"
+              label="Conversão"
+              ariaLabel={`Conversão: ${fmtPercent(cur.overall)} de visita para compra${prev ? `, ${cur.overall - prev.overall >= 0 ? 'mais' : 'menos'} ${Math.abs(cur.overall - prev.overall).toFixed(1).replace('.', ',')} pontos percentuais que o período anterior` : ''}`}
+              value={
+                <CountUp
+                  value={cur.overall}
+                  format={(v) => fmtPercent(v)}
+                  className={cur.overall > 0 ? 'text-warning' : 'text-muted-foreground'}
+                />
+              }
+              sub="visita → compra"
+              /* Item 291: conversão JÁ é % — delta em pontos percentuais */
+              delta={prev ? +(cur.overall - prev.overall).toFixed(1) : null}
+              deltaUnit="pp"
+            />
+          </>
+        )}
+        </div>
+
+        {/* Coluna 2 — globo (peça central do overview) */}
+        <div className="lg:col-span-5">
+          <HeroGlobe />
+        </div>
+
+        {/* Coluna 3 — feed "Chegando agora": últimos leads de /api/stats,
+            sem request nova (o poll de 12s já atualiza data.leads) */}
+        <div className="lg:col-span-3">
+          <LiveFeed leads={data?.leads ?? []} />
+        </div>
       </section>
 
-      {/* Itens 271+276: meta mensal com progresso e projeção de fim de mês.
-          Só aparece quando há meta configurada em Config. */}
-      <GoalCard />
-
-      {/* TikTok Ads: gasto × vendas atribuídas × ROAS (últimos 7 dias).
-          Só aparece com a conta conectada — some para quem não usa Ads. */}
-      <AdsOverviewCard />
-
-      {/* Ministats — réplica dos chips do legado */}
+      {/* Fase 3 — abaixo do hero, 2 colunas: funil compacto | top campanhas.
+          Ambos governados pelo PeriodPicker único (elimina a divergência de
+          período que havia entre Overview/Funil/Atividade). TopSources some
+          quando não há campanhas/links no período; aí o funil ocupa a largura. */}
       <section
-        aria-label="Métricas secundárias"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        aria-label="Funil e origem dos leads"
+        className={`grid gap-4 ${hasSources ? 'lg:grid-cols-2' : ''}`}
         style={{ ['--i' as string]: 2 }}
       >
-        <MiniStat
-          index={0}
-          icon={CircleCheck}
-          color={apColor}
-          bg={apBg}
-          label="Aprovação"
-          value={fmtPercent(cur.approval)}
-          sub={`${cur.sales} de ${attempts} transações`}
-          extra={attempts ? <SparkBars data={salesSeries} color={apColor} width={64} height={22} /> : undefined}
-        />
-        {/* Item 285: receita líquida estimada = bruta − reembolsos/disputas */}
-        <MiniStat
-          index={1}
-          icon={Banknote}
-          color={hasSales ? '#22c55e' : NEUTRAL}
-          bg={hasSales ? 'rgba(34,197,94,.1)' : NEUTRAL_BG}
-          label="Receita líquida"
-          value={
-            <span data-sensitive>
-              {money(Math.max(0, revCents - (cur.refundRev[cur.mainCur] || 0)), cur.mainCur)}
-            </span>
-          }
-          sub={
-            (cur.refundRev[cur.mainCur] || 0) > 0
-              ? `− ${money(cur.refundRev[cur.mainCur], cur.mainCur)} devolvidos`
-              : 'sem devoluções no período'
-          }
-        />
-        <MiniStat
-          index={2}
-          icon={Coins}
-          color={hasSales ? '#25f4ee' : NEUTRAL}
-          bg={hasSales ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
-          label="Ticket médio"
-          value={<span data-sensitive>{money(cur.avgTicket, cur.mainCur)}</span>}
-          sub="por venda aprovada"
-        />
-        <MiniStat
-          index={3}
-          icon={Globe2}
-          color={hasGeo ? '#25f4ee' : NEUTRAL}
-          bg={hasGeo ? 'rgba(37,244,238,.1)' : NEUTRAL_BG}
-          label="Países ativos"
-          value={cur.countries.length}
-          sub={
-            hasGeo
-              ? cur.countries
-                  .slice(0, 3)
-                  .map((c) => `${countryFlag(c.code)} ${c.code}`)
-                  .join('  ')
-              : 'aguardando leads'
-          }
-        />
-        {/* Item 292: chips de risco viram drill-down para a Atividade filtrada */}
-        {cur.refunds > 0 && (
-          <MiniStat
-            index={4}
-            icon={RotateCcw}
-            color={refColor}
-            bg="rgba(251,191,36,.12)"
-            label="Reembolsos"
-            value={cur.refunds}
-            sub="exige atenção — ver na Atividade"
-            href="/activity?f=refund"
-          />
-        )}
-        {cur.disputes > 0 && (
-          <MiniStat
-            index={5}
-            icon={ShieldAlert}
-            color={dispColor}
-            bg="rgba(254,44,85,.12)"
-            label="Disputas"
-            value={cur.disputes}
-            sub="responda o quanto antes"
-            href="/activity?f=dispute"
-          />
-        )}
+        <FunnelCompact metrics={cur} />
+        {hasSources && <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />}
       </section>
 
-      {/* Itens 286/287: de onde vêm os leads que convertem — só aparece
-          quando o período tem campanhas UTM ou links rastreados */}
-      <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />
-
-      {/* Globo — presença global ao vivo. Fica na página inicial, mas depois
-          dos números: primeiro o usuário vê o dinheiro, depois o mundo. */}
-      <div style={{ ['--i' as string]: 3 }}>
-        <HeroGlobe />
-      </div>
-
-      {/* Gráfico + saúde — item 177: só renderiza quando visível */}
+      {/* Fase 3 — rodapé: presença (países ativos) + qualidade dos eventos (EMQ).
+          O detalhe de saúde por serviço vive no popover do HealthDot; aqui fica
+          o resumo. EMQ usa a mesma chave SWR do popover (dedup, zero request). */}
       <section
-        aria-label="Gráficos e saúde"
-        className="cv-auto grid gap-4 lg:grid-cols-3"
-        data-tour="chart"
-        style={{ ['--i' as string]: 4 }}
+        aria-label="Presença e qualidade dos eventos"
+        className="grid gap-4 sm:grid-cols-2"
+        style={{ ['--i' as string]: 3 }}
       >
-        <div className="lg:col-span-2 flex flex-col gap-4">
-          {/* Item 272: série anterior vira linha fantasma de comparação */}
-          <RevenueChart series={cur.series} currency={cur.mainCur} prevSeries={prev?.series} />
-          {/* Itens 274 + 296: insights derivados (melhor dia + tempo até compra) */}
-          {(bestWeekday || timeToBuy) && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {bestWeekday && (
-                <GlassCard className="flex items-center gap-3 p-4">
-                  <div
-                    className="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                    style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
-                  >
-                    <CalendarDays
-                      className="size-5"
-                      style={{ color: '#25f4ee' }}
-                      aria-hidden="true"
-                    />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Melhor dia da semana</p>
-                    <p className="text-sm font-semibold text-foreground text-pretty">
-                      {bestWeekday.name} lidera com{' '}
-                      <span data-sensitive>{money(bestWeekday.revenue, cur.mainCur)}</span> em
-                      receita
-                    </p>
-                  </div>
-                </GlassCard>
-              )}
-              {timeToBuy && (
-                <GlassCard className="flex items-center gap-3 p-4">
-                  <div
-                    className="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                    style={{ backgroundColor: 'rgba(34,197,94,.1)' }}
-                  >
-                    <Timer className="size-5" style={{ color: '#22c55e' }} aria-hidden="true" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Tempo até a compra</p>
-                    <p className="text-sm font-semibold text-foreground text-pretty">
-                      {fmtDurationShort(timeToBuy.median)} da visita ao pagamento{' '}
-                      <span className="font-normal text-muted-foreground">
-                        (mediana de {timeToBuy.count} vendas)
-                      </span>
-                    </p>
-                  </div>
-                </GlassCard>
-              )}
+        <GlassCard className="flex items-center gap-3 p-4">
+          <span
+            className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+            style={{ backgroundColor: hasGeo ? 'rgba(37,244,238,.1)' : NEUTRAL_BG }}
+            aria-hidden="true"
+          >
+            <Globe2 className="size-5" style={{ color: hasGeo ? '#25f4ee' : NEUTRAL }} />
+          </span>
+          <div className="min-w-0">
+            <p className="label-mono">Países ativos</p>
+            <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+              {cur.countries.length}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {hasGeo
+                ? cur.countries
+                    .slice(0, 4)
+                    .map((c) => `${countryFlag(c.code)} ${c.code}`)
+                    .join('  ')
+                : 'aguardando os primeiros leads'}
+            </p>
+          </div>
+        </GlassCard>
+
+        {/* EMQ — drill-down para a aba Pixels; só aparece com dados de pixel */}
+        {emqSummary ? (
+          <Link
+            href="/pixels"
+            className="block rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            <GlassCard hover className="flex h-full items-center gap-3 p-4">
+              <span
+                className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
+                aria-hidden="true"
+              >
+                {emqSummary.dir === 'down' ? (
+                  <TrendingUp className="size-5 rotate-180 text-warning" />
+                ) : (
+                  <TrendingUp
+                    className={emqSummary.dir === 'up' ? 'size-5 text-success' : 'size-5 text-brand-cyan'}
+                  />
+                )}
+              </span>
+              <div className="min-w-0">
+                <p className="label-mono">Qualidade dos eventos · EMQ</p>
+                <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+                  {emqSummary.recent.toFixed(1)}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {emqSummary.alerts > 0
+                    ? `${emqSummary.alerts} pixel(s) em alerta — ver detalhe`
+                    : 'média dos pixels ativos — ver detalhe'}
+                </p>
+              </div>
+            </GlassCard>
+          </Link>
+        ) : (
+          <GlassCard className="flex items-center gap-3 p-4">
+            <span
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+              style={{ backgroundColor: NEUTRAL_BG }}
+              aria-hidden="true"
+            >
+              <TrendingUp className="size-5" style={{ color: NEUTRAL }} />
+            </span>
+            <div className="min-w-0">
+              <p className="label-mono">Qualidade dos eventos · EMQ</p>
+              <p className="text-sm text-muted-foreground text-pretty">
+                Sem dados de pixel ainda.
+              </p>
             </div>
-          )}
-        </div>
-        <div className="flex flex-col gap-4">
-          <HealthCard />
-          {/* Item 298: donut de receita por gateway (só com 2+ gateways) */}
-          <GatewayDonut data={cur.revByGateway} mainCur={cur.mainCur} />
-        </div>
+          </GlassCard>
+        )}
       </section>
     </div>
   )
