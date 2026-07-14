@@ -30,21 +30,31 @@ function newId(prefix) {
 let state = null;
 let leadIndex = new Map(); // id -> lead (referência ao objeto em state.leads)
 // Item 450: índices O(1) por contato normalizado, com chave `${acc}|${norm}`
-// (isolam contas). Guardam o lead MAIS RECENTE com aquele contato — mesma
-// semântica dos finds O(n) antigos (state.leads é unshift, índice 0 = novo).
-let emailIndex = new Map(); // `${acc}|${email}` -> lead
-let phoneIndex = new Map(); // `${acc}|${tail9}` -> lead
+// (isolam contas). Risco 1: guardam a LISTA de leads com aquele contato (Set),
+// não só o mais recente — o mesmo e-mail pode ter leads de campanhas diferentes
+// e a escolha do vencedor passa a considerar intenção de compra + recência.
+let emailIndex = new Map(); // `${acc}|${email}` -> Set<lead>
+let phoneIndex = new Map(); // `${acc}|${tail9}` -> Set<lead>
+// Risco 5: dedup em memória de vendas órfãs por pedido (defesa em profundidade
+// para quando o dedup durável do Neon não se aplica — banco off ou sem order_id
+// no evId). `${acc}|${gateway}|${orderId}` -> lead órfão já criado.
+let orphanOrderIndex = new Map();
 
 function rebuildIndex() {
   leadIndex = new Map();
   emailIndex = new Map();
   phoneIndex = new Map();
-  // state.leads é do mais novo pro mais velho; newestWins=false preserva o
-  // PRIMEIRO visto (= mais recente) em cada chave de contato (item 450).
+  orphanOrderIndex = new Map();
+  // state.leads é do mais novo pro mais velho.
   (state.leads || []).forEach((l) => {
     if (!l || !l.id) return;
     leadIndex.set(l.id, l);
     indexLeadContacts(l, false);
+    // Repovoa o índice de órfãs por pedido (mantém o 1º visto = mais recente).
+    if (l.orphan && l.ref) {
+      const k = orphanKey(l.acc, l.gateway, l.ref);
+      if (!orphanOrderIndex.has(k)) orphanOrderIndex.set(k, l);
+    }
   });
 }
 
@@ -148,29 +158,78 @@ function normPhoneKey(phone) {
   return digits.length >= 8 ? digits.slice(-9) : null;
 }
 function contactKey(acc, norm) { return (acc || '') + '|' + norm; }
+function orphanKey(acc, gw, orderId) {
+  return (acc || '') + '|' + String(gw || '') + '|' + String(orderId || '');
+}
 
-// Item 450: registra o lead nos índices de contato. newestWins=true para
-// escritas ao vivo (lead novo substitui o antigo com o mesmo contato);
-// false no rebuild, que percorre do mais novo pro mais velho.
-function indexLeadContacts(lead, newestWins) {
+// Adiciona/remove um lead num índice de contato baseado em Set (Risco 1: vários
+// leads podem compartilhar o mesmo e-mail/telefone). Limpa a chave quando vazia.
+function idxAdd(map, key, lead) {
+  let s = map.get(key);
+  if (!s) { s = new Set(); map.set(key, s); }
+  s.add(lead);
+}
+function idxRemove(map, key, lead) {
+  const s = map.get(key);
+  if (!s) return;
+  s.delete(lead);
+  if (s.size === 0) map.delete(key);
+}
+
+// Item 450 / Risco 1: registra o lead nos índices de contato (agora listas).
+// O parâmetro newestWins deixou de importar para a corretude — guardamos TODOS
+// os leads do contato e escolhemos o vencedor na leitura (pickBestCandidate).
+function indexLeadContacts(lead, _newestWins) {
   if (!lead) return;
   const e = normEmailKey(lead.email);
-  if (e) {
-    const k = contactKey(lead.acc, e);
-    if (newestWins || !emailIndex.has(k)) emailIndex.set(k, lead);
-  }
+  if (e) idxAdd(emailIndex, contactKey(lead.acc, e), lead);
   const p = normPhoneKey(lead.phone);
-  if (p) {
-    const k = contactKey(lead.acc, p);
-    if (newestWins || !phoneIndex.has(k)) phoneIndex.set(k, lead);
-  }
+  if (p) idxAdd(phoneIndex, contactKey(lead.acc, p), lead);
 }
 function unindexLeadContacts(lead) {
   if (!lead) return;
   const e = normEmailKey(lead.email);
-  if (e) { const k = contactKey(lead.acc, e); if (emailIndex.get(k) === lead) emailIndex.delete(k); }
+  if (e) idxRemove(emailIndex, contactKey(lead.acc, e), lead);
   const p = normPhoneKey(lead.phone);
-  if (p) { const k = contactKey(lead.acc, p); if (phoneIndex.get(k) === lead) phoneIndex.delete(k); }
+  if (p) idxRemove(phoneIndex, contactKey(lead.acc, p), lead);
+}
+
+// Risco 1: escolhe o melhor candidato entre leads que compartilham um contato.
+// Prioriza INTENÇÃO real de compra (checkoutAt/paymentStartedAt mais recente),
+// desempata pela recência de criação do lead. Retorna também quantos candidatos
+// existiam e se pertenciam a CAMPANHAS diferentes (UTMs distintos) — sinal de
+// que o crédito é duvidoso e a venda deve ser marcada como ambígua.
+function pickBestCandidate(set) {
+  const arr = set ? Array.from(set) : [];
+  if (arr.length === 0) return { lead: null, candidates: 0, ambiguous: false };
+  if (arr.length === 1) return { lead: arr[0], candidates: 1, ambiguous: false };
+  const intentTime = (l) => Math.max(
+    l && l.checkoutAt ? Date.parse(l.checkoutAt) || 0 : 0,
+    l && l.paymentStartedAt ? Date.parse(l.paymentStartedAt) || 0 : 0
+  );
+  const createdTime = (l) => (l && l.at ? Date.parse(l.at) || 0 : 0);
+  const best = arr.slice().sort((a, b) => {
+    const d = intentTime(b) - intentTime(a);
+    return d !== 0 ? d : createdTime(b) - createdTime(a);
+  })[0];
+  const campaignOf = (l) => {
+    const u = (l && l.utm) || {};
+    return [u.source, u.medium, u.campaign, u.content, u.term]
+      .map((x) => (x == null ? '' : String(x))).join('|');
+  };
+  const campaigns = new Set(arr.map(campaignOf));
+  return { lead: best, candidates: arr.length, ambiguous: campaigns.size > 1 };
+}
+
+// Junta os candidatos de e-mail e telefone da MESMA conta e escolhe o melhor.
+function findContactCandidates(acc, email, phone) {
+  ensureLoaded();
+  const set = new Set();
+  const e = normEmailKey(email);
+  if (e) { const s = emailIndex.get(contactKey(acc, e)); if (s) s.forEach((l) => set.add(l)); }
+  const p = normPhoneKey(phone);
+  if (p) { const s = phoneIndex.get(contactKey(acc, p)); if (s) s.forEach((l) => set.add(l)); }
+  return pickBestCandidate(set);
 }
 
 function addLead(lead) {

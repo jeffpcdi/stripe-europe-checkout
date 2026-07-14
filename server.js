@@ -3571,6 +3571,20 @@ async function processConversion(n) {
     } catch (_) { return undefined; }
   };
   try {
+    // Risco 5: dedup DURÁVEL de receita ANTES do Redis. O dedup do Redis
+    // abaixo expira em ~2h; um retry do gateway depois disso re-emitia a venda
+    // e duplicava a receita. O registro em processed_orders (Neon, 90 dias)
+    // reconhece o pedido mesmo dias depois. Só vale para a venda paga
+    // (CompletePayment que registra receita); refund/dispute são eventos
+    // distintos e não passam por aqui. Reprocessamento manual pula de propósito.
+    if (n.event === 'CompletePayment' && n.registerSale && !n.dryRun && !n._forceRedispatch && n.orderId) {
+      const fresh = await db.markOrderProcessed(n.acc || null, n.gateway, n.orderId);
+      if (!fresh) {
+        receipt.status = 'dedup (durável — receita já contabilizada)';
+        rdb.pushConversionLog(receipt).catch(() => {});
+        return receipt;
+      }
+    }
     // 1. dedup — retries do gateway nunca duplicam o disparo.
     // Item 198: reprocessamento manual PULA o dedup de propósito (o admin
     // pediu o redisparo porque a CAPI falhou mas o pagamento é válido).
@@ -3630,25 +3644,39 @@ async function processConversion(n) {
     // 3. registra a venda no dashboard (só CompletePayment)
     if (n.event === 'CompletePayment' && n.registerSale) {
       const saleAcc = n.acc || (lead && lead.acc) || null;
+      let matched = null;
       try {
-        const matched = stats.matchExternalConversion({
+        matched = stats.matchExternalConversion({
           acc: saleAcc,
           leadId: lead ? lead.id : null, gateway: n.gateway,
           amountCents: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email, phone: n.phone, ref: n.orderId
         });
-        stats.logEvent('sale', {
-          acc: saleAcc,
-          title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
-          amount: n.amountCents, currency: n.currency,
-          customer: n.customer, email: n.email,
-          gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id,
-          raw: rawForFeed()
-        });
+        // Risco 1: transparência de atribuição — quantos leads casaram com o
+        // contato e se pertenciam a campanhas diferentes (crédito duvidoso).
+        receipt.matchCandidates = matched.matchCandidates || 1;
+        receipt.matchAmbiguous = !!matched.matchAmbiguous;
+        // Risco 5: em duplicata (lead já 'converted' ou 2º hit da mesma órfã),
+        // NÃO re-emite o evento de venda — senão a receita conta 2×.
+        if (matched._duplicate) {
+          receipt.duplicate = true;
+          receipt.status = 'duplicata (receita não recontada)';
+        } else {
+          stats.logEvent('sale', {
+            acc: saleAcc,
+            title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
+            amount: n.amountCents, currency: n.currency,
+            customer: n.customer, email: n.email,
+            gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id,
+            matchAmbiguous: !!matched.matchAmbiguous, matchCandidates: matched.matchCandidates || 1,
+            raw: rawForFeed()
+          });
+        }
       } catch (_) {}
-      // Atribuição ao link/variante que originou o clique (teste A/B)
+      // Atribuição ao link/variante que originou o clique (teste A/B).
+      // Risco 5: duplicata NÃO reconta a conversão do teste A/B.
       try {
-        if (lead && lead.linkSlug) {
+        if (lead && lead.linkSlug && !(matched && matched._duplicate)) {
           linkStore.recordConversion(saleAcc, lead.linkSlug, lead.linkVariant, n.amountCents, n.currency);
           receipt.link = lead.linkSlug;
         }
@@ -4688,7 +4716,7 @@ function proxyDashboardUpgrade(req, socket, head) {
   proxyReq.end();
 }
 
-// ── Integração TikTok Ads (via Zernio) ────────────────────────────────────
+// ── Integração TikTok Ads (via Zernio) ─────────────────────────────���──────
 // Rotas /api/ads/* — escopadas à conta logada pelo mesmo dashboardAuth.
 require('./ads-routes')(app, dashboardAuth, { stats });
 
@@ -4790,7 +4818,7 @@ stats.hydrate()
     setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();
     // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
     //    A quarentena de webhooks também tem retenção de 30 dias (item handoff #1).
-    setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); }, 24 * 60 * 60 * 1000).unref();
-    setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); }, 30 * 1000).unref();
+    setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); db.pruneProcessedOrders(); }, 24 * 60 * 60 * 1000).unref();
+    setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); db.pruneProcessedOrders(); }, 30 * 1000).unref();
     // 3. Sessões de login expiradas: o próprio auth.js agenda o prune (1x/h).
   });

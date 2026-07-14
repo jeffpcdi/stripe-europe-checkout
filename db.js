@@ -147,6 +147,23 @@ async function init() {
     await sql`CREATE INDEX IF NOT EXISTS conversion_quarantine_acc_idx ON conversion_quarantine (account_id, received_at DESC)`;
     migrations.quarantine = true;
 
+    // ── Dedup DURÁVEL de receita por pedido (Risco 5) ────────────────────
+    // O dedup do Redis (evId) expira em ~2h; um retry do gateway depois disso
+    // re-emitia a venda e DUPLICAVA a receita em todas as métricas. Aqui
+    // registramos cada CompletePayment por (conta, gateway, order_id) com
+    // retenção de 90 dias — um retry (mesmo dias depois) é reconhecido e a
+    // receita não é recontada. account_id/gateway usam '' em vez de NULL
+    // porque compõem a PRIMARY KEY (colunas de PK não aceitam NULL).
+    await sql`CREATE TABLE IF NOT EXISTS processed_orders (
+      account_id text NOT NULL DEFAULT '',
+      gateway text NOT NULL DEFAULT '',
+      order_id text NOT NULL,
+      processed_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (account_id, gateway, order_id)
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS processed_orders_at_idx ON processed_orders (processed_at)`;
+    migrations.processedOrders = true;
+
     await sql`CREATE TABLE IF NOT EXISTS variants (
       name text PRIMARY KEY,
       data jsonb NOT NULL,
@@ -738,6 +755,34 @@ async function resolveQuarantine(accountId, isAdmin, id) {
   } catch (err) { console.error('[db] resolveQuarantine:', err.message); return false; }
 }
 
+// Risco 5: dedup DURÁVEL de receita. Retorna true se o pedido é NOVO (registra
+// e segue o fluxo), false se já foi processado antes (retry do gateway — a
+// receita NÃO deve ser recontada). Atômico via INSERT ... ON CONFLICT DO
+// NOTHING, imune a corrida entre dois retries simultâneos. Fail-open: com o
+// banco desativado ou em erro, devolve true para não BLOQUEAR vendas legítimas
+// (o dedup de curto prazo do Redis ainda cobre a janela de retries imediatos).
+async function markOrderProcessed(accountId, gateway, orderId) {
+  if (!enabled) return true;
+  if (!orderId) return true; // sem order_id não há chave estável p/ deduplicar
+  try {
+    const rows = await sql`INSERT INTO processed_orders (account_id, gateway, order_id)
+      VALUES (${accountId || ''}, ${String(gateway || '').slice(0, 30)}, ${String(orderId).slice(0, 200)})
+      ON CONFLICT (account_id, gateway, order_id) DO NOTHING
+      RETURNING order_id`;
+    return rows.length > 0;
+  } catch (err) { console.error('[db] markOrderProcessed:', err.message); return true; }
+}
+
+// Retenção do dedup durável: apaga pedidos com mais de 90 dias. Boot + diária.
+async function pruneProcessedOrders() {
+  if (!enabled) return 0;
+  try {
+    const rows = await sql`DELETE FROM processed_orders
+      WHERE processed_at < now() - interval '90 days' RETURNING order_id`;
+    return rows.length;
+  } catch (err) { console.error('[db] pruneProcessedOrders:', err.message); return 0; }
+}
+
 // Retenção: apaga o que passou de 30 dias. Roda no boot + diariamente.
 async function pruneQuarantine() {
   if (!enabled) return 0;
@@ -1141,6 +1186,8 @@ module.exports = {
   upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
   // quarentena de webhooks rejeitados
   insertQuarantine, listQuarantine, countQuarantine, resolveQuarantine, pruneQuarantine,
+  // dedup durável de receita por pedido (Risco 5)
+  markOrderProcessed, pruneProcessedOrders,
   saveConfig, loadConfig, loadAllConfigs, ping, pruneSessions,
   upsertPixel, deletePixel, loadPixels, getPixelByToken,
   upsertLink, deleteLink, loadLinks,
