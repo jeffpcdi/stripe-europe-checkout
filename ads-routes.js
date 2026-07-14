@@ -26,8 +26,7 @@
 //   PATCH  /api/ads/identity             → Brand Identity (nome+avatar)
 //   POST   /api/ads/upload               → vídeo/imagem → Vercel Blob (URL pública)
 // ─────────────────────────────────────────────────────────────────────────────
-const zernio = require('./zernio-ads');
-const pipeboard = require('./ads-provider'); // Gate 2+: fronteira dashboard↔Pipeboard
+const pipeboard = require('./ads-provider'); // fronteira dashboard↔Pipeboard (única integração — F6 removeu a Zernio)
 const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só /diag)
 const adsCache = require('./ads-cache-store'); // espelho durável no Neon (leitura)
 const adsSync = require('./ads-sync');         // motor Pipeboard→Neon (sync em background)
@@ -37,15 +36,11 @@ const adsOps = require('./ads-ops-store');
 const catalogStore = require('./ads-catalog-store');
 const catalogFeed = require('./ads-catalog-feed');
 
-// Repassa erros da Zernio com o payload estruturado (o front mostra a mensagem)
+// Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
   const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
   const out = { error: String(err.message || 'erro inesperado').slice(0, 500) };
-  if (err.zernio && typeof err.zernio === 'object') {
-    if (err.zernio.code) out.code = err.zernio.code;
-    if (err.zernio.type) out.type = err.zernio.type;
-    if (err.zernio.platformError) out.platformError = err.zernio.platformError;
-  }
+  if (err.step) out.step = err.step;
   res.status(status).json(out);
 }
 
@@ -306,7 +301,23 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         account: { id: s.advertiserId, username: advName, displayName: advName },
         businessCenterId: '', // Pipeboard não tem Business Center
         advertiserId: s.advertiserId || '',
-        identity: null,        // identidade migra no Gate 6 (capability flag)
+        identity: null,
+        // F6 — capability flags: fonte ÚNICA de verdade do que o backend
+        // suporta via Pipeboard. A UI esconde (não desabilita com promessa
+        // vaga) o que estiver false. Nunca prometer o que a API não faz.
+        capabilities: {
+          createCampaign: true,      // F1
+          bulkCreate: true,          // F2
+          duplicateSameAccount: true, // F3
+          duplicateCrossAccount: false, // video_id é escopado ao advertiser
+          variations: true,          // F4
+          sparkAds: true,            // F5 (via seletor de identidade/post)
+          sparkCodeRedeem: false,    // resgate só no TikTok Ads Manager
+          customIdentity: false,     // CUSTOMIZED_USER deprecated na plataforma (2026)
+          businessCenters: false,    // Pipeboard não expõe BC
+          oauthConnect: false,       // conexão é por chave de servidor, não OAuth por usuário
+          appPromotion: false,       // exige app_id que a UI não coleta
+        },
       });
     } catch (err) { fail(res, err); }
   });
@@ -353,86 +364,46 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── OAuth: gera a URL de autorização do TikTok Business ───────────────────
-  // Aceita GET e POST: o painel chama via POST (ação), mas mantemos GET
-  // para compatibilidade com integrações antigas.
-  //
-  // FIX: o endpoint canônico da Zernio é GET /connect/{platform}/ads →
-  // /connect/tiktok/ads (docs: "Connect ads for a platform"). O caminho
-  // antigo /connect/tiktok-ads não é a rota de OAuth (só existe como PATCH,
-  // para Brand Identity) e levava o usuário ao dashboard/login da Zernio em
-  // vez da tela de autorização do TikTok for Business.
-  //
-  // Escopo da BC: o TikTok escolhe os advertisers NA TELA DE CONSENTIMENTO
-  // do OAuth ("tiktok scopes advertisers at OAuth"). Se o usuário marcar a
-  // Business Center inteira, a Zernio enumera todos os advertisers da BC
-  // automaticamente em GET /ads/accounts (sem cap por chamada).
+  // ── Conexão — F6, semântica Pipeboard ──────────────────────────────────────
+  // NÃO há OAuth por usuário: a integração é uma chave de servidor
+  // (PIPEBOARD_API_TOKEN) que já escopa os advertisers. "Conectar" no painel
+  // vira uma verificação: se a chave está de pé e há advertiser, já está
+  // conectado. GET mantido por compatibilidade com integrações antigas.
   async function startConnect(req, res) {
     try {
-      const profileId = await zernio.ensureProfile(req.account.id);
-      // Modo ads-only (sem accountId de posting): anúncios usam Brand Identity.
-      const data = await zernio.api('GET', '/connect/tiktok/ads', { query: { profileId } });
-      // Já conectado nesta profile → devolve como sucesso imediato (o front
-      // confirma via POST /api/ads/connected, que resolve a SocialAccount).
-      if (data && data.alreadyConnected) {
-        return res.json({ alreadyConnected: true, authUrl: '' });
-      }
-      if (!data || !data.authUrl) return res.status(502).json({ error: 'Zernio não retornou a URL de autorização' });
-      res.json({ authUrl: data.authUrl });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor (PIPEBOARD_API_TOKEN)' });
+      const s = await pipeboard.getStatus(req.account.id);
+      if (s.connected) return res.json({ alreadyConnected: true, authUrl: '' });
+      // Chave ok mas nenhum advertiser visível: não existe URL de autorização
+      // a devolver — o vínculo de contas é feito no painel do Pipeboard.
+      return res.status(422).json({
+        error: 'A chave do Pipeboard está ativa mas nenhum advertiser está visível. Vincule a conta TikTok Ads no painel do Pipeboard (pipeboard.co) e recarregue.',
+        code: 'NO_ADVERTISER_VISIBLE',
+      });
     } catch (err) { fail(res, err); }
   }
   app.get('/api/ads/connect', dashboardAuth, startConnect);
   app.post('/api/ads/connect', dashboardAuth, startConnect);
 
-  // ── Callback do painel: após o OAuth, descobre a SocialAccount criada ─────
+  // Confirmação de conexão (o front chama após "conectar"): mesmo shape antigo.
   app.post('/api/ads/connected', dashboardAuth, async (req, res) => {
     try {
-      const profileId = await zernio.ensureProfile(req.account.id);
-      const data = await zernio.api('GET', '/accounts');
-      let mine = (data.accounts || []).filter((a) => a.platform === 'tiktokads' && String(a.profileId || '') === String(profileId));
-      // FALLBACK (adoção de órfã): se a config local foi resetada e um profile
-      // novo foi criado, a conexão feita antes vive em OUTRO profile da mesma
-      // chave (ex.: "Painel acc_282f0c9e4c" antigo). Sem isso o painel fica
-      // preso em "Aguardando autorização" mesmo com a conta conectada na
-      // Zernio. Adotamos a tiktokads mais recente da chave, registrando também
-      // o profileId dela para as próximas chamadas de connect/status.
-      if (!mine.length) {
-        const any = (data.accounts || []).filter((a) => a.platform === 'tiktokads');
-        if (any.length) {
-          any.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-          const adopted = any[0];
-          zernio.setState(req.account.id, { profileId: String(adopted.profileId || profileId) });
-          mine = [adopted];
-        }
-      }
-      if (!mine.length) return res.json({ connected: false });
-      // a mais recente vence (reconexões geram novas SocialAccounts)
-      mine.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-      const acct = mine[0];
-      zernio.setState(req.account.id, { accountId: acct._id });
-      zernio.cacheBust('status:' + req.account.id);
-      zernio.cacheBust('accounts:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'TikTok Ads conectado: ' + (acct.displayName || acct.username || acct._id) });
-      res.json({ connected: true, account: { id: acct._id, username: acct.username || '', displayName: acct.displayName || '' } });
+      if (!pipeboard.enabled) return res.json({ connected: false });
+      const s = await pipeboard.getStatus(req.account.id);
+      if (!s.connected) return res.json({ connected: false });
+      const advName = (s.advertiser && s.advertiser.name) || s.advertiserId;
+      res.json({ connected: true, account: { id: s.advertiserId, username: advName, displayName: advName } });
     } catch (err) { fail(res, err); }
   });
 
-  // ── Desconectar (esquece localmente; a revogação fica no painel Zernio) ───
-  app.post('/api/ads/disconnect', dashboardAuth, async (req, res) => {
-    try {
-      const st = zernio.getState(req.account.id);
-      if (st.accountId) {
-        // tenta remover a SocialAccount na Zernio (melhor esforço)
-        try { await zernio.api('DELETE', '/accounts/' + st.accountId); } catch (_) { /* já removida */ }
-      }
-      zernio.setState(req.account.id, { accountId: '', businessCenterId: '', advertiserId: '', identity: null });
-      zernio.cacheBust('status:' + req.account.id);
-      zernio.cacheBust('accounts:' + req.account.id);
-      zernio.cacheBust('bcs:' + req.account.id);
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('warn', { acc: req.account.id, title: 'TikTok Ads desconectado' });
-      res.json({ ok: true });
-    } catch (err) { fail(res, err); }
+  // Desconectar não existe com chave de servidor: a revogação é remover o
+  // token no painel do Pipeboard. 410 honesto (capabilities.oauthConnect=false
+  // já esconde o botão na UI; isto cobre chamadas diretas à API).
+  app.post('/api/ads/disconnect', dashboardAuth, async (_req, res) => {
+    res.status(410).json({
+      error: 'A conexão é gerenciada pela chave do servidor (Pipeboard) — não há desconexão por usuário. Para revogar o acesso, remova o token no painel do Pipeboard.',
+      code: 'SERVER_KEY_MANAGED',
+    });
   });
 
   // ── Business Centers (camada acima dos advertisers) ──────────────────────
@@ -914,7 +885,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Duplicar campanha ─────────────────────────────────────────────────────
+  // ── Duplicar campanha ─────��───────────────────────────────────────────────
   // ADIADO na migração p/ Pipeboard: o provider não expõe uma tool de "duplicar"
   // (o zernio fazia deep-copy nativo). Reconstruir via create_* + re-upload de
   // vídeo é um gate próprio. Até lá, respondemos 501 com mensagem clara — a UI
@@ -1024,24 +995,18 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Brand Identity (nome + avatar exibidos no anúncio) ────────────────────
-  app.patch('/api/ads/identity', dashboardAuth, async (req, res) => {
-    try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
-      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
-      const displayName = String((req.body || {}).displayName || '').trim().slice(0, 100);
-      const imageUrl = String((req.body || {}).imageUrl || '').trim().slice(0, 500);
-      if (!displayName) return res.status(400).json({ error: 'Nome da marca é obrigatório' });
-      if (!/^https:\/\//.test(imageUrl)) return res.status(400).json({ error: 'URL da imagem (quadrada, ≥98×98, JPG/PNG) é obrigatória' });
-      const data = await zernio.api('PATCH', '/connect/tiktok-ads', {
-        body: { accountId: st.accountId, displayName, imageUrl },
-        timeoutMs: 60000
-      });
-      zernio.setState(req.account.id, { identity: { identityId: data.identityId || '', displayName, imageUrl } });
-      stats.logEvent('info', { acc: req.account.id, title: 'Brand Identity TikTok configurada: ' + displayName });
-      res.json({ ok: true, identityId: data.identityId || '', displayName, imageUrl });
-    } catch (err) { fail(res, err); }
+  // ── Brand Identity (CUSTOMIZED_USER) — F6: deprecated NA PLATAFORMA ───────
+  // O TikTok não aceita mais identidades customizadas na criação de anúncios
+  // (2026): anúncios criados com CUSTOMIZED_USER são REJEITADOS. O próprio
+  // create_tiktok_identity do MCP está marcado deprecated. As identidades
+  // agora vêm de get_tiktok_identities (TT_USER/AUTH_CODE/BC_AUTH_TT) — é o
+  // que a criação (F1) e o Spark (F5) já usam. 410 honesto; a UI esconde o
+  // diálogo via capabilities.customIdentity=false.
+  app.patch('/api/ads/identity', dashboardAuth, async (_req, res) => {
+    res.status(410).json({
+      error: 'Identidade customizada (nome + avatar próprios) foi descontinuada pelo TikTok — anúncios com ela são rejeitados. Os anúncios usam a identidade da conta TikTok vinculada ao advertiser (automático).',
+      code: 'CUSTOM_IDENTITY_DEPRECATED',
+    });
   });
 
   // ── Upload de criativo → Vercel Blob (retorna URL pública p/ a Zernio) ────
