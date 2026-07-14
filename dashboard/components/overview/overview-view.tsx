@@ -47,16 +47,29 @@ const NEUTRAL_BG = 'rgba(107,113,131,.10)'
 
 const PERIODS: Period[] = ['today', '7d', '30d', 'all']
 const PERIOD_KEY = 'roi:overview:period'
+// Fase 4: marcador da migração para o novo default 'today'. Sem ele, usuários
+// que já tinham '7d' gravado ficariam presos e nunca veriam o padrão novo.
+const PERIOD_MIGRATION_KEY = 'roi:overview:period:v2'
 
 // Itens 283/284: período escolhido persiste (localStorage) e aceita deep-link
-// (?p=30d). Precedência: query string → localStorage → default '7d'.
+// (?p=30d). Precedência: query string → localStorage → default 'today' (Fase 4).
 function initialPeriod(): Period {
-  if (typeof window === 'undefined') return '7d'
+  if (typeof window === 'undefined') return 'today'
+  // Migração única (Fase 4): limpa a preferência legada UMA vez para que o novo
+  // default 'today' valha. Preferências escolhidas DEPOIS da migração persistem.
+  try {
+    if (!window.localStorage.getItem(PERIOD_MIGRATION_KEY)) {
+      window.localStorage.removeItem(PERIOD_KEY)
+      window.localStorage.setItem(PERIOD_MIGRATION_KEY, '1')
+    }
+  } catch {
+    /* localStorage indisponível (modo privado): segue com o default */
+  }
   const fromUrl = new URLSearchParams(window.location.search).get('p') as Period | null
   if (fromUrl && PERIODS.includes(fromUrl)) return fromUrl
   const saved = window.localStorage.getItem(PERIOD_KEY) as Period | null
   if (saved && PERIODS.includes(saved)) return saved
-  return '7d'
+  return 'today'
 }
 
 export function OverviewView() {

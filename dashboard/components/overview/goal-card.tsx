@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import useSWR from 'swr'
 import { Target } from 'lucide-react'
 import { fetcher, useStats } from '@/lib/api'
+import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import { aggregate, money } from '@/lib/metrics'
 import { fmtPercent } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
@@ -16,8 +17,11 @@ import { GlassCard } from '@/components/glass-card'
  * estimativa. O card só existe quando há meta (> 0): sem meta, sem ruído.
  */
 export function GoalCard() {
+  // Fase 4: /api/settings adiado para pós-first-paint (chave null até lá) —
+  // o card de meta é secundário e não deve concorrer com o hero no load.
+  const afterFirstPaint = useAfterFirstPaint()
   const { data: settings } = useSWR<{ revenueGoal?: number; timezone?: string }>(
-    '/api/settings',
+    afterFirstPaint ? '/api/settings' : null,
     fetcher,
     { revalidateOnFocus: false },
   )

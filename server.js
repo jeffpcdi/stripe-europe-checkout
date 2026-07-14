@@ -42,6 +42,7 @@ const TRACKER_JS = require('./tracker-view');
 const auth = require('./auth');
  const gatewayStore = require('./gateway-store');
  const { normalizeConversion } = require('./conversion-normalize');
+ const { buildUtm } = require('./utm-macros');
  const db = require('./db');
 const redis = require('./redis'); // contadores de decisão do cloaker (offer/white)
 const { loginPage, registerPage } = require('./auth-view');
@@ -401,10 +402,10 @@ app.use(async (req, res, next) => {
         landing: p,
         country: geo.country, countryName: geo.countryName, city: geo.city,
         ttclid: q.ttclid || null,
-        utm: {
-          source: q.utm_source || null, medium: q.utm_medium || null,
-          campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
-        }
+        utm: buildUtm({
+          source: q.utm_source, medium: q.utm_medium,
+          campaign: q.utm_campaign, content: q.utm_content, term: q.utm_term
+        })
       });
       stats.logEvent('visit', {
         acc,
@@ -484,7 +485,7 @@ const rlSweep = setInterval(() => {
 }, 120e3);
 if (rlSweep.unref) rlSweep.unref();
 
-// ── Item 181: contrato unificado de erro da API ─────────────────────────────
+// ── Item 181: contrato unificado de erro da API ──────────��──────────────────
 // Todas as rotas de Gestão devem responder erros como
 //   { ok:false, error, code, hint }
 // onde `error` é o quê aconteceu, `code` é estável para lógica no front e
@@ -729,10 +730,7 @@ app.post('/api/track', async (req, res) => {
       site,
       country: geo.country, countryName: geo.countryName, city: geo.city,
       ttclid: typeof b.ttclid === 'string' ? b.ttclid.slice(0, 500) : null,
-      utm: {
-        source: utm.source || null, medium: utm.medium || null,
-        campaign: utm.campaign || null, content: utm.content || null, term: utm.term || null
-      }
+      utm: buildUtm(utm)
     });
     // _ttp do pixel TikTok da página externa — sobe o Event Match Quality
     if (typeof b.ttp === 'string' && b.ttp) {
@@ -1040,10 +1038,10 @@ app.get('/go/:slug', async (req, res) => {
     referer: req.headers['referer'] || null,
     country: geo.country, countryName: geo.countryName, city: geo.city,
     ttclid: q.ttclid || null,
-    utm: {
-      source: q.utm_source || null, medium: q.utm_medium || null,
-      campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
-    }
+    utm: buildUtm({
+      source: q.utm_source, medium: q.utm_medium,
+      campaign: q.utm_campaign, content: q.utm_content, term: q.utm_term
+    })
   });
   // guarda o link/variante no lead — atribuição da conversão no webhook universal
   try { stats.attachTracking(visitorId, { acc, linkSlug: link.slug, linkVariant: variant.id }); } catch (_) {}
@@ -1103,7 +1101,7 @@ app.get('/go/:slug', async (req, res) => {
   return res.redirect(302, dest);
 });
 
-// ── Links de cloaking (/c/:slug) ─────────────────────────────────────
+// ── Links de cloaking (/c/:slug) ───────────────────────────────��─────
 // Roteia pessoas reais → offer; bots/revisores → white page. Usa a config
 // de proteção DO PRÓPRIO link (não a global): cada link tem seu interruptor,
 // sensibilidade e camadas de detecção.
@@ -1354,10 +1352,10 @@ app.get('/l/:slug', (req, res) => {
       landing: 'l:' + slug,
       country: geo.country, countryName: geo.countryName, city: geo.city,
       ttclid: typeof q.ttclid === 'string' ? q.ttclid.slice(0, 500) : null,
-      utm: {
-        source: q.utm_source || null, medium: q.utm_medium || null,
-        campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
-      }
+      utm: buildUtm({
+        source: q.utm_source, medium: q.utm_medium,
+        campaign: q.utm_campaign, content: q.utm_content, term: q.utm_term
+      })
     });
     bumpShortlinkClick(acc, slug);
   } catch (_) { /* rastreamento nunca bloqueia o redirect */ }
@@ -1553,6 +1551,9 @@ function checkSalesWatchdog() {
 // lote de eventos além da retenção (padrão 90 dias) para events_archive.
 // Não bloqueia o request: dispara async e ignora o resultado.
 const EVENT_RETENTION_DAYS = Math.max(7, Math.min(3650, Number(process.env.EVENT_RETENTION_DAYS) || 90));
+// Fase 6: janela reprocessada a cada sweep. 35d cobre o maior período fixo da
+// UI (30d) com folga para fuso/limites de dia. Recompute idempotente da janela.
+const DAILY_ROLLUP_DAYS = Math.max(2, Math.min(400, Number(process.env.DAILY_ROLLUP_DAYS) || 35));
 let lastArchiveSweep = 0;
 let archiveSweepBusy = false;
 function checkEventArchive() {
@@ -1563,6 +1564,12 @@ function checkEventArchive() {
   db.archiveOldEvents(EVENT_RETENTION_DAYS, 2000)
     .then((n) => { if (n > 0) console.log('[stats] arquivados ' + n + ' evento(s) antigos (> ' + EVENT_RETENTION_DAYS + 'd)'); })
     .catch(() => {})
+    // Fase 6: logo após arquivar, recomputa o rollup diário (idempotente) para
+    // os últimos 35 dias — inclui eventos recém-movidos ao arquivo. Encadeado no
+    // MESMO gancho horário para não criar outro timer nem outra varredura.
+    .then(() => db.aggregateDaily(DAILY_ROLLUP_DAYS))
+    .then((rows) => { if (rows > 0) console.log('[stats] rollup diário atualizado (' + rows + ' linha(s), ' + DAILY_ROLLUP_DAYS + 'd)'); })
+    .catch((err) => { console.error('[stats] aggregateDaily falhou:', err && err.message); })
     .finally(() => { archiveSweepBusy = false; });
 }
 // Item 324/425 (LGPD): anonimização automática de leads antigos, pegando
@@ -2730,7 +2737,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
     const now = new Date().toISOString();
     const cur = config.get(req.account.id).customDomains || [];
     const has = cur.some((d) => d.host === host);
-    // Prova forte confirmada (HTTPS + marcador) → status 'active' persistido,
+    // Prova forte confirmada (HTTPS + marcador) ��� status 'active' persistido,
     // além do espelho legado `verificado` para a UI antiga.
     const next = has
       ? cur.map((d) => d.host === host ? Object.assign({}, d, { verificado: true, verificadoEm: now, status: 'active', lastCheckedAt: now, lastError: null }) : d)
@@ -4543,7 +4550,7 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
   }
 });
 
-// ── Verificação de instalação do pixel por URL ────────────────────────────
+// ── Verificação de instalação do pixel por URL ───────────────��────────────
 // O lojista cola a URL de uma página dele (ex.: a LP ou a página de obrigado)
 // e o servidor busca o HTML e confere se o script do pixel (/px/<token>.js)
 // ou o pixel code do TikTok aparecem na página. Roda 100% server-side.
@@ -4801,7 +4808,7 @@ function proxyToNextDashboard(req, res) {
   else proxyReq.end();
 }
 
-// WebSocket do Next (Turbopack/HMR em dev) também precisa atravessar o
+// WebSocket do Next (Turbopack/HMR em dev) tamb��m precisa atravessar o
 // proxy — sem repassar o upgrade, o cliente dev do Next fica aguardando a
 // conexão e a hidratação do React nunca completa via porta pública.
 function proxyDashboardUpgrade(req, socket, head) {
@@ -4888,7 +4895,7 @@ app.get('/termos', (req, res) => {
 // ── Só a pasta /assets é servida estaticamente (logo da marca) ───────
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d' }));
 
-// ── Iniciar servidor ──────────────────────────────────────────���──────
+// ── Iniciar servidor ────────���─────────────────────────────────���──────
 // Hidrata stats, config, pixels, links e gateways a partir do Neon ANTES
 // de escutar, para que os dados de todas as contas já estejam disponíveis
 // no primeiro request pós-deploy.

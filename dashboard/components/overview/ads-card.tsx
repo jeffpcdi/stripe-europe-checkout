@@ -8,6 +8,7 @@
 import Link from 'next/link'
 import { Megaphone, ArrowUpRight } from 'lucide-react'
 import { useAdsStatus, useAdsRoas } from '@/lib/api'
+import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import { GlassCard } from '@/components/glass-card'
 import { SparkLine } from '@/components/sparkline'
 
@@ -24,7 +25,10 @@ function fmtCurrency(v: number, currency: string): string {
 }
 
 export function AdsOverviewCard() {
-  const { data: status } = useAdsStatus()
+  // Fase 4: status de Ads só resolve pós-first-paint (chave null até lá) —
+  // mantém o load inicial no orçamento de 2 requests do hero.
+  const afterFirstPaint = useAfterFirstPaint()
+  const { data: status } = useAdsStatus(afterFirstPaint)
   const advertiserId = status?.advertiserId || ''
   const connected = Boolean(status?.enabled && status?.connected && advertiserId)
   // Últimos 7 dias somente do advertiser explicitamente salvo.

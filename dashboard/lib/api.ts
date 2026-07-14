@@ -192,9 +192,12 @@ export function usePixelDurability() {
   })
 }
 
-// Tendência de EMQ muda no máximo 1x/dia — sem polling agressivo
-export function useEmqTrend() {
-  return useSWR<EmqTrendResponse>('/api/pixels/emq-trend', fetcher, {
+// Tendência de EMQ muda no máximo 1x/dia — sem polling agressivo.
+// Fase 4: `active` permite adiar o fetch (chave null = SWR não dispara). No
+// overview a Saúde só busca EMQ pós-first-paint — não conta no orçamento de
+// requests simultâneas do carregamento inicial (padrão useLead/useCloakDecisions).
+export function useEmqTrend(active = true) {
+  return useSWR<EmqTrendResponse>(active ? '/api/pixels/emq-trend' : null, fetcher, {
     refreshInterval: 60_000,
     keepPreviousData: true,
   })
@@ -291,8 +294,10 @@ export function usePushcutConfig() {
 
 // Estado da integração (conectado? advertiser? identity?). Sem polling — a
 // view revalida via mutate() após conectar/desconectar.
-export function useAdsStatus() {
-  return useSWR<AdsStatusResponse>('/api/ads/status', fetcher, {
+// Fase 4: `active` permite adiar o fetch (chave null = SWR não dispara). No
+// overview o card de Ads só resolve o status pós-first-paint.
+export function useAdsStatus(active = true) {
+  return useSWR<AdsStatusResponse>(active ? '/api/ads/status' : null, fetcher, {
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
