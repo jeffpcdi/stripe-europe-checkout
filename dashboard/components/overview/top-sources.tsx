@@ -1,84 +1,20 @@
 'use client'
 
-// Itens 286/287: rankings "top campanhas" (utm_campaign) e "top links"
-// (linkSlug) na Overview — mostram de onde vêm os leads que CONVERTEM,
-// não só os que chegam. Só renderiza quando há dados de origem no período
-// (contas sem UTM/links rastreados não veem cards vazios).
+// Redesign: "TOP CAMPANHAS" como lista simples — nome à esquerda, número à
+// direita. Sem medalhas, sem barras. Linhas com problema (macro de UTM não
+// substituída, ex.: "{{campaign.name}}" ou "__CAMPAIGN_NAME__") aparecem em
+// vermelho: é dinheiro sendo gasto sem atribuição. Campanhas têm prioridade;
+// sem campanha no período, cai para os links rastreados.
 
 import Link from 'next/link'
-import { Megaphone, Link2, ArrowUpRight } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
-import { GlassCard } from '@/components/glass-card'
+import { ArrowUpRight } from 'lucide-react'
 import type { SourceRank } from '@/lib/metrics'
-import { fmtPercent } from '@/lib/format'
+import { GlassCard } from '@/components/glass-card'
 
-function RankList({
-  icon: Icon,
-  title,
-  rows,
-  href,
-  hrefLabel,
-}: {
-  icon: LucideIcon
-  title: string
-  rows: SourceRank[]
-  href: string
-  hrefLabel: string
-}) {
-  const max = Math.max(...rows.map((r) => r.leads), 1)
-  return (
-    <GlassCard className="p-5">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="section-head flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
-          {title}
-        </h3>
-        <Link
-          href={href}
-          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {hrefLabel}
-          <ArrowUpRight className="size-3" aria-hidden="true" />
-        </Link>
-      </div>
-      {/* V2-64: medalhas de ranking (1º ciano sólido, 2º ciano, 3º rosa) +
-          V2-65: barras animam da esquerda com stagger na entrada */}
-      <ol className="mt-3 flex flex-col gap-2.5">
-        {rows.map((r, i) => (
-          <li key={r.name} className="anim-row-in flex items-center gap-3" style={{ animationDelay: `${i * 50}ms` }}>
-            <span className={`rank-badge shrink-0 ${i < 3 ? `rank-badge--${i + 1}` : ''}`}>
-              {i + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate text-xs font-medium text-foreground">{r.name}</span>
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-                  {r.purchased > 0 ? (
-                    <>
-                      <span className="text-success">{r.purchased}</span>
-                      {' · '}
-                      {fmtPercent(r.conv)}
-                    </>
-                  ) : (
-                    `${r.leads} ${r.leads === 1 ? 'lead' : 'leads'}`
-                  )}
-                </span>
-              </div>
-              <div
-                className="mt-1 h-1 overflow-hidden rounded-full bg-border/60"
-                role="presentation"
-              >
-                <div
-                  className="funnel-bar h-full rounded-full bg-primary/70"
-                  style={{ width: `${Math.max(4, (r.leads / max) * 100)}%`, animationDelay: `${i * 70}ms` }}
-                />
-              </div>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </GlassCard>
-  )
+// Macro de UTM que o TikTok NÃO substituiu chega literal ("{{campaign.name}}",
+// "__CAMPAIGN_NAME__") ou vazia — qualquer uma indica atribuição quebrada.
+function isBrokenUtm(name: string): boolean {
+  return !name || name.includes('{') || name.includes('__') || name === '(não definida)'
 }
 
 export function TopSources({
@@ -88,30 +24,50 @@ export function TopSources({
   campaigns: SourceRank[]
   links: SourceRank[]
 }) {
-  if (!campaigns.length && !links.length) return null
+  const useCampaigns = campaigns.length > 0
+  const rows = (useCampaigns ? campaigns : links).slice(0, 6)
+  if (rows.length === 0) return null
+
   return (
-    <section
-      aria-label="Principais origens de tráfego"
-      className="grid gap-4 md:grid-cols-2"
-    >
-      {campaigns.length > 0 && (
-        <RankList
-          icon={Megaphone}
-          title="Top campanhas"
-          rows={campaigns}
-          href="/funnel"
-          hrefLabel="ver funil"
-        />
-      )}
-      {links.length > 0 && (
-        <RankList
-          icon={Link2}
-          title="Top links"
-          rows={links}
-          href="/links"
-          hrefLabel="gerenciar links"
-        />
-      )}
-    </section>
+    <GlassCard className="flex h-full flex-col p-5">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
+          {useCampaigns ? 'Top campanhas' : 'Top links'}
+        </h3>
+        <Link
+          href={useCampaigns ? '/funnel' : '/links'}
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {useCampaigns ? 'ver funil' : 'gerenciar'}
+          <ArrowUpRight className="size-3" aria-hidden="true" />
+        </Link>
+      </div>
+
+      <ol className="flex flex-1 flex-col justify-center">
+        {rows.map((r, i) => {
+          const broken = isBrokenUtm(r.name)
+          return (
+            <li
+              key={r.name || `linha-${i}`}
+              className="anim-row-in flex items-center justify-between gap-3 border-b border-white/[0.05] py-2.5 last:border-b-0"
+              style={{ animationDelay: `${i * 50}ms` }}
+            >
+              <span
+                className={`truncate text-xs font-medium ${broken ? 'text-error' : 'text-foreground'}`}
+                title={broken ? 'UTM quebrada — macro não substituída na origem' : undefined}
+              >
+                {r.name || '(sem nome)'}
+                {broken ? ' · UTM quebrada' : ''}
+              </span>
+              <span
+                className={`shrink-0 font-mono text-sm font-semibold tabular-nums ${broken ? 'text-error' : 'text-foreground'}`}
+              >
+                {r.purchased > 0 ? r.purchased : r.leads}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+    </GlassCard>
   )
 }

@@ -45,9 +45,11 @@ export default function DashboardLayout({
           <TopNav />
           <Header />
         </div>
+        {/* Redesign: largura total — o max-width de 1100px criava faixas
+            pretas nas laterais em telas grandes (1920px). */}
         <main
           id="conteudo"
-          className="mx-auto w-full max-w-[1100px] px-4 pb-16 pt-2 lg:px-6"
+          className="w-full px-4 pb-16 pt-2 lg:px-6"
         >
           <ViewTransition default="none" enter="vt-fade-in" exit="vt-fade-out">
             {children}

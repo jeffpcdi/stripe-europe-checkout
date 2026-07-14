@@ -2,33 +2,17 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useOncePerSession, useValueFlash } from '@/lib/motion'
-import {
-  Banknote,
-  CircleCheck,
-  Users,
-  Percent,
-  Globe2,
-  ShieldAlert,
-  TrendingUp,
-  Megaphone,
-} from 'lucide-react'
+import { useOncePerSession } from '@/lib/motion'
+import { ShieldAlert } from 'lucide-react'
 import { useStats, useEmqTrend, useAdsStatus, useAdsRoas } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
-import {
-  aggregate,
-  deltaPct,
-  money,
-  periodStart,
-  prevWindow,
-} from '@/lib/metrics'
+import { aggregate, money, periodStart } from '@/lib/metrics'
 import { countryFlag, fmtPercent } from '@/lib/format'
+import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
-import { SparkBars, SparkLine } from '@/components/sparkline'
 import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
-import { KpiCard } from './kpi-card'
 import { TopSources } from './top-sources'
 import { ExportSummaryButton } from './export-summary'
 import { TvModeButton } from './tv-mode'
@@ -38,9 +22,6 @@ import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelCompact } from './funnel-compact'
-
-const NEUTRAL = '#6b7183'
-const NEUTRAL_BG = 'rgba(107,113,131,.10)'
 
 // Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
 // resto do app — formata direto sem dividir por 100.
@@ -75,6 +56,13 @@ const PERIOD_KEY = 'roi:overview:period'
 // que já tinham '7d' gravado ficariam presos e nunca veriam o padrão novo.
 const PERIOD_MIGRATION_KEY = 'roi:overview:period:v2'
 
+const PERIOD_LABEL: Record<Period, string> = {
+  today: 'hoje',
+  '7d': '7 dias',
+  '30d': '30 dias',
+  all: 'tudo',
+}
+
 // Itens 283/284: período escolhido persiste (localStorage) e aceita deep-link
 // (?p=30d). Precedência: query string → localStorage → default 'today' (Fase 4).
 function initialPeriod(): Period {
@@ -96,34 +84,57 @@ function initialPeriod(): Period {
   return 'today'
 }
 
+// Redesign: KPI do hero — sem card, sem ícone, sem borda. Só o label minúsculo
+// em caixa alta + valor grande em mono. whitespace-nowrap garante que valores
+// monetários NUNCA truncam (bug do "€ 11.041,0(").
+function HeroKpi({
+  label,
+  value,
+  dim,
+  sensitive,
+}: {
+  label: string
+  value: React.ReactNode
+  /** true = valor sem dado/zero → cinza apagado */
+  dim?: boolean
+  /** true = borrado no modo apresentação */
+  sensitive?: boolean
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
+        {label}
+      </p>
+      <p
+        className={`mt-1 whitespace-nowrap font-mono text-3xl font-bold leading-none tabular-nums xl:text-4xl ${
+          dim ? 'text-muted-foreground' : 'text-foreground'
+        }`}
+        {...(sensitive ? { 'data-sensitive': true } : {})}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
 export function OverviewView() {
   const [period, setPeriodState] = useState<Period>(initialPeriod)
   const { data, error, isLoading } = useStats()
   // A1.1: entrada orquestrada roda UMA vez por sessão — navegações seguintes
   // pulam a cascata (os cards aparecem direto, sem re-animar).
   const firstEnter = useOncePerSession('overview-enter')
-  // A1.4: nova venda detectada no poll → varredura de glow verde no card de
-  // receita (800ms). Observa a contagem de vendas de TODO o histórico para o
-  // flash não disparar ao trocar de período.
-  const totalSales = useMemo(
-    () => (data?.events ?? []).filter((e) => e.type === 'sale').length,
-    [data],
-  )
-  const saleFlash = useValueFlash(totalSales, 800)
 
   // Fase 3: TikTok Ads alimenta os KPIs "Gasto" e "ROAS". Só resolve
   // pós-first-paint (chave null até lá — NÃO entra no orçamento de requests do
-  // load) e só quando a conta está conectada. Sem Ads, os KPIs caem para
-  // métricas do próprio funil (Vendas + Conversão). Mesmas chaves SWR do
-  // AdsOverviewCard legado → SWR deduplica, zero request extra.
+  // load) e só quando a conta está conectada. Sem Ads, mostram "—".
   const afterFirstPaint = useAfterFirstPaint()
   const { data: adsStatus } = useAdsStatus(afterFirstPaint)
   const adAccountId = adsStatus?.advertiserId || ''
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
   const adsRange = useMemo(() => periodToAdsRange(period), [period])
   const { data: roas } = useAdsRoas(adsConnected, adAccountId, adsRange)
-  const showAdsKpis = adsConnected && !!roas
-  // Também alimenta o rodapé "EMQ" — mesma chave do popover de saúde (dedup).
+
+  // Rodapé "EMQ" — mesma chave SWR do popover de saúde (dedup, zero request).
   const { data: emqData } = useEmqTrend(afterFirstPaint)
   const emqSummary = useMemo(() => {
     const pixels = emqData?.pixels?.filter((p) => p.recentAvg != null) ?? []
@@ -152,14 +163,40 @@ export function OverviewView() {
     }
   }
 
-  const { cur, prev } = useMemo(() => {
-    if (!data) return { cur: null, prev: null }
-    const w = prevWindow(period)
-    return {
-      cur: aggregate(data, periodStart(period)),
-      prev: w ? aggregate(data, w.prevFrom, w.prevTo) : null,
-    }
+  const { cur } = useMemo(() => {
+    if (!data) return { cur: null }
+    // O hero não exibe deltas (spec: label + valor, nada mais).
+    return { cur: aggregate(data, periodStart(period)) }
   }, [data, period])
+
+  // Números DENTRO do globo: leads que entraram HOJE (fixo, independente do
+  // período selecionado — o label diz "LEADS HOJE") + países distintos deles.
+  // todayCountries também COLORE o globo: pintar só quem está online agora
+  // deixava o globo apagado com "Aguardando tráfego" por cima do contador — 
+  // estados contraditórios. Agora globo e contador contam a MESMA história.
+  const { leadsToday, countriesToday, todayCountries } = useMemo(() => {
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    const t = start.getTime()
+    let n = 0
+    const byCountry = new Map<string, number>()
+    for (const l of data?.leads ?? []) {
+      const at = new Date(l.at).getTime()
+      if (!Number.isFinite(at) || at < t) continue
+      n++
+      if (l.country) byCountry.set(l.country, (byCountry.get(l.country) ?? 0) + 1)
+    }
+    return {
+      leadsToday: n,
+      countriesToday: byCountry.size,
+      todayCountries: Array.from(byCountry, ([code, count]) => ({
+        code,
+        name: countryName(code),
+        count,
+        purchased: 0,
+      })),
+    }
+  }, [data])
 
   if (error) {
     return (
@@ -173,117 +210,57 @@ export function OverviewView() {
   }
 
   if (isLoading || !cur) {
-    // Itens 58/59: skeleton mimético (silhueta real do card) com stagger de 60ms
+    // Itens 58/59: skeleton mimético — silhueta do NOVO layout (hero único)
     return (
       <div className="flex flex-col gap-4" aria-busy="true" aria-label="Carregando métricas">
         <div className="flex justify-end">
           <Skeleton className="h-8 w-64 rounded-full" />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="glass anim-kpi-in flex flex-col gap-4 p-5"
-              style={{ animationDelay: `${i * 60}ms` }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <Skeleton className="size-8 rounded-[10px]" />
-                  <Skeleton className="h-3 w-20" />
-                </div>
-                <Skeleton className="h-5 w-12 rounded-full" />
-              </div>
-              <div className="flex items-end justify-between gap-3">
-                <div className="flex flex-col gap-2">
-                  <Skeleton className="h-8 w-28" />
-                  <Skeleton className="h-3 w-24" />
-                </div>
-                <Skeleton className="h-7 w-24" />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="glass anim-kpi-in flex items-center gap-3 p-4"
-              style={{ animationDelay: `${240 + i * 60}ms` }}
-            >
-              <Skeleton className="size-9 rounded-[10px]" />
-              <div className="flex flex-col gap-1.5">
-                <Skeleton className="h-4 w-14" />
-                <Skeleton className="h-3 w-20" />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {/* Item 142: skeleton do gráfico com forma de onda fantasma */}
-          <div
-            className="glass anim-kpi-in flex flex-col gap-4 p-5 lg:col-span-2"
-            style={{ animationDelay: '540ms' }}
-          >
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-4 w-44" />
-              <Skeleton className="h-7 w-40 rounded-full" />
-            </div>
-            <svg
-              viewBox="0 0 400 140"
-              className="h-56 w-full"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <path
-                d="M0,110 C40,100 60,60 100,70 C140,80 160,30 200,45 C240,60 260,90 300,75 C340,60 360,40 400,50 L400,140 L0,140 Z"
-                fill="rgba(255,255,255,0.06)"
-              />
-              <path
-                d="M0,110 C40,100 60,60 100,70 C140,80 160,30 200,45 C240,60 260,90 300,75 C340,60 360,40 400,50"
-                fill="none"
-                stroke="rgba(37,244,238,0.15)"
-                strokeWidth="2"
-              />
-            </svg>
-          </div>
-          <div
-            className="glass anim-kpi-in flex flex-col gap-3 p-5"
-            style={{ animationDelay: '600ms' }}
-          >
-            <Skeleton className="h-4 w-36" />
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center justify-between">
-                <Skeleton className="h-3.5 w-32" />
-                <Skeleton className="h-3.5 w-14" />
+        {/* hero: KPIs | globo | feed */}
+        <div className="grid gap-6 rounded-xl border border-white/[0.06] bg-[#060608] p-6 lg:grid-cols-[1fr_1.35fr_1fr] lg:items-center lg:p-8">
+          <div className="flex flex-col gap-8">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex flex-col gap-2">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-9 w-36" />
               </div>
             ))}
           </div>
+          <div className="mx-auto aspect-square w-full max-w-[560px]">
+            <Skeleton className="size-full rounded-full" />
+          </div>
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-3 w-28" />
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center justify-between">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-3.5 w-12" />
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* funil | campanhas */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="glass flex flex-col gap-3 p-5">
+              <Skeleton className="h-3 w-24" />
+              {[0, 1, 2, 3].map((j) => (
+                <div key={j} className="flex items-center gap-3">
+                  <Skeleton className="h-3.5 w-20" />
+                  <Skeleton className="h-5 flex-1 rounded" />
+                  <Skeleton className="h-3.5 w-10" />
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
     )
   }
 
-  const d = (k: keyof typeof cur, invert = false) =>
-    prev ? deltaPct(Number(cur[k]) || 0, Number(prev[k]) || 0) : null
-
   const revCents = cur.rev[cur.mainCur] || 0
-  const prevRev = prev ? prev.rev[cur.mainCur] || 0 : 0
-  const revDelta = prev ? deltaPct(revCents, prevRev) : null
-  // Item 273 (bug): vendas em OUTRAS moedas sumiam do card — o valor grande
-  // é na moeda principal, mas o breakdown das demais precisa aparecer.
-  const otherRev = Object.entries(cur.rev)
-    .filter(([c, cents]) => c !== cur.mainCur && cents > 0)
-    .sort((a, b) => b[1] - a[1])
-
-  const revSeries = cur.series.map((s) => s.revenue)
-  const salesSeries = cur.series.map((s) => s.sales)
-  const visitSeries = cur.series.map((s) => s.visits)
-
-  // Item 401: banner de aprovação baixa continua no overview (risco financeiro).
   const attempts = cur.sales + cur.failed
   const hasGeo = cur.countries.length > 0
-  // Fase 3: TopSources (campanhas + links) só ocupa coluna quando há origem
-  // rastreada no período; senão o funil compacto ganha a largura toda.
   const hasSources = cur.topCampaigns.length > 0 || cur.topLinks.length > 0
   // Item 288: onboarding usa o HISTÓRICO TODO (não o período filtrado) —
   // trocar para "hoje" numa conta ativa não pode ressuscitar o checklist.
@@ -291,40 +268,36 @@ export function OverviewView() {
   const everSold = (data?.events ?? []).some((e) => e.type === 'sale')
   const isOnboarding = !everVisited || !everSold
 
+  const revSeries = cur.series.map((s) => s.revenue)
+
   return (
-    /* A1.5: fundo com profundidade (radial ciano + grid de pontos) atrás do
-       hero. A1.1: cascata só na primeira entrada da sessão. */
+    /* A1.5: fundo com profundidade. A1.1: cascata só na primeira entrada. */
     <div className={`overview-depth flex flex-col gap-4 ${firstEnter ? 'stagger-fade' : ''}`}>
-      {/* Fase 3: barra própria do overview. O shell Header já traz
-          kicker + título + LiveBadge — aqui fica o dot único de saúde
-          (health-card → health-dot, detalhe em popover) à esquerda e os
-          controles + PeriodPicker único à direita. Item 171: sticky em mobile. */}
+      {/* Redesign: barra compacta de controles — o shell Header já traz kicker +
+          título + badge AO VIVO. Sem card "Operacional" separado (a saúde vive
+          no rodapé). Item 171: sticky em mobile. */}
       <div
-        className="picker-sticky flex flex-wrap items-center justify-between gap-2"
+        className="picker-sticky flex items-center justify-end gap-2"
         data-tour="period"
         style={{ ['--i' as string]: 0 }}
       >
-        {/* Dot único de saúde — substitui o antigo HealthCard de coluna inteira */}
-        <HealthDot />
-        <div className="flex items-center gap-2">
-          {/* Item 294: fullscreen para telão — esconde o chrome via data-tv */}
-          <TvModeButton />
-          {/* Item 278: baixa o resumo do período como PNG (canvas) */}
-          <ExportSummaryButton
-            period={period}
-            summary={{
-              revenue: revCents,
-              mainCur: cur.mainCur,
-              sales: cur.sales,
-              visits: cur.visits,
-              overall: cur.overall,
-              approval: cur.approval,
-              series: revSeries,
-            }}
-          />
-          {/* Item 296 (Fase 3): PeriodPicker ÚNICO governa KPIs + funil + campanhas */}
-          <PeriodPicker value={period} onChange={setPeriod} />
-        </div>
+        {/* Item 294: fullscreen para telão — esconde o chrome via data-tv */}
+        <TvModeButton />
+        {/* Item 278: baixa o resumo do período como PNG (canvas) */}
+        <ExportSummaryButton
+          period={period}
+          summary={{
+            revenue: revCents,
+            mainCur: cur.mainCur,
+            sales: cur.sales,
+            visits: cur.visits,
+            overall: cur.overall,
+            approval: cur.approval,
+            series: revSeries,
+          }}
+        />
+        {/* Item 296 (Fase 3): PeriodPicker ÚNICO governa KPIs + funil + campanhas */}
+        <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
       {/* Item 288: conta que ainda não fechou o ciclo (visita + venda) vê o
@@ -358,294 +331,98 @@ export function OverviewView() {
         </GlassCard>
       )}
 
-      {/* Fase 3 — HERO em 3 colunas: KPIs (esquerda) · globo (centro) ·
-          "Chegando agora" (direita). O globo ganha a coluna mais larga. */}
+      {/* ── BLOCO HERO — um único painel: fundo mais escuro que a página,
+          borda sutil, radius 12px, largura total. Grid 1fr | 1.35fr | 1fr,
+          colunas separadas por ESPAÇO, não por linha. ─────────────────── */}
       <section
         aria-label="Painel principal"
-        className="grid gap-4 lg:grid-cols-12"
         data-tour="chart"
+        className="grid gap-8 rounded-xl border border-white/[0.06] bg-[#060608] p-5 sm:p-6 lg:grid-cols-[1fr_1.35fr_1fr] lg:items-center lg:gap-10 lg:p-8"
         style={{ ['--i' as string]: 1 }}
       >
-        {/* Coluna 1 — KPIs cortados de 8 → 4, em 2×2.
-            Item 167: carrossel com snap horizontal em <640px */}
-        <div
-          className="kpi-carousel grid grid-cols-2 gap-3 lg:col-span-4 lg:content-start"
-          data-tour="kpis"
-        >
-        {/* Item 96: glow do card de receita cresce com o delta do período.
-            A1.4: venda nova no poll → varredura verde na borda (800ms). */}
-        <div
-          className={`kpi-glow rounded-[var(--radius)] ${saleFlash ? 'sale-flash' : ''}`}
-          style={{
-            ['--glow' as string]: String(
-              revDelta && revDelta > 0 ? Math.min(1, revDelta / 100) : 0,
-            ),
-          }}
-        >
-          {/* Item 279: cada KPI vira drill-down para a aba correspondente */}
-          <KpiCard
-            index={0}
-            icon={Banknote}
-            tint="green"
-            href="/activity?f=sale"
-            watch={revCents}
-            label="Receita total"
-            ariaLabel={`Receita total: ${money(revCents, cur.mainCur)}${revDelta !== null ? `, ${revDelta > 0 ? 'alta' : revDelta < 0 ? 'queda' : 'estável'} de ${Math.abs(revDelta).toFixed(1)}% vs período anterior` : ''}`}
-          value={
-            /* Item 125: borrado no modo apresentação */
-            <span data-sensitive>
-              <CountUp
-                value={revCents}
-                format={(v) => money(Math.round(v), cur.mainCur)}
-                className={revCents > 0 ? 'text-success' : 'text-muted-foreground'}
-              />
-            </span>
-          }
-            sub={
-              otherRev.length > 0 ? (
-                /* Item 273: receita nas demais moedas não some do card */
-                <span data-sensitive>
-                  {'+ '}
-                  {otherRev.map(([c, cents]) => money(cents, c)).join(' + ')}
-                  {' em outras moedas'}
-                </span>
-              ) : (
-                'no período selecionado'
-              )
+        {/* Esquerda — três KPIs empilhados: label + valor. Nada mais. */}
+        <div className="flex flex-row flex-wrap gap-8 lg:flex-col lg:gap-10" data-tour="kpis">
+          <HeroKpi
+            label="Receita"
+            dim={revCents === 0}
+            sensitive
+            value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
+          />
+          <HeroKpi
+            label="Gasto"
+            dim={!roas}
+            sensitive
+            value={roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
+          />
+          <HeroKpi
+            label="ROAS"
+            dim={!roas || roas.roas === null}
+            value={
+              roas && roas.roas !== null ? roas.roas.toFixed(2).replace('.', ',') : '—'
             }
-            delta={revDelta}
-            spark={<SparkLine data={revSeries} color="#25f4ee" />}
           />
         </div>
-        {/* KPIs 2–4 adaptativos: com TikTok Ads conectado mostram Gasto e ROAS
-            (dados pós-first-paint da integração); sem Ads, caem para Vendas e
-            Conversão do próprio funil. Leads aparece nos dois modos. */}
-        {showAdsKpis && roas ? (
-          <>
-            <KpiCard
-              index={1}
-              icon={Megaphone}
-              tint="cyan"
-              href="/ads/tiktok"
-              label="Investimento"
-              ariaLabel={`Investimento em anúncios: ${fmtAdsMoney(roas.spend, roas.currency)} na janela do período`}
-              value={<span data-sensitive>{fmtAdsMoney(roas.spend, roas.currency)}</span>}
-              sub="TikTok Ads · gasto"
-            />
-            <KpiCard
-              index={2}
-              icon={TrendingUp}
-              tint={roas.roas !== null && roas.roas >= 1 ? 'green' : 'amber'}
-              href="/ads/tiktok"
-              label="ROAS"
-              ariaLabel={`ROAS: ${roas.roas === null ? 'sem dados' : roas.roas.toFixed(2).replace('.', ',')}, com ${roas.sales} vendas atribuídas`}
-              value={
-                <span
-                  className={
-                    roas.roas === null
-                      ? 'text-muted-foreground'
-                      : roas.roas >= 1
-                        ? 'text-success'
-                        : 'text-error'
-                  }
-                >
-                  {roas.roas === null ? '—' : roas.roas.toFixed(2).replace('.', ',')}
-                </span>
-              }
-              sub={`${roas.sales} vendas atribuídas`}
-            />
-            <KpiCard
-              index={3}
-              icon={Users}
-              tint="cyan"
-              href="/funnel"
-              watch={cur.visits}
-              label="Novos leads"
-              ariaLabel={`Novos leads: ${cur.visits} no período`}
-              value={
-                <CountUp
-                  value={cur.visits}
-                  className={cur.visits > 0 ? 'text-brand-cyan' : 'text-muted-foreground'}
-                />
-              }
-              sub="entraram no funil"
-              delta={d('visits')}
-              spark={<SparkLine data={visitSeries} color="#25f4ee" />}
-            />
-          </>
-        ) : (
-          <>
-            <KpiCard
-              index={1}
-              icon={Users}
-              tint="cyan"
-              href="/funnel"
-              watch={cur.visits}
-              label="Novos leads"
-              ariaLabel={`Novos leads: ${cur.visits} no período`}
-              value={
-                <CountUp
-                  value={cur.visits}
-                  className={cur.visits > 0 ? 'text-brand-cyan' : 'text-muted-foreground'}
-                />
-              }
-              sub="entraram no funil"
-              delta={d('visits')}
-              spark={<SparkLine data={visitSeries} color="#25f4ee" />}
-            />
-            <KpiCard
-              index={2}
-              icon={CircleCheck}
-              tint="green"
-              href="/activity?f=sale"
-              watch={cur.sales}
-              label="Vendas aprovadas"
-              ariaLabel={`Vendas aprovadas: ${cur.sales}, ${cur.failed} recusadas`}
-              value={
-                <CountUp
-                  value={cur.sales}
-                  className={cur.sales > 0 ? 'text-success' : 'text-muted-foreground'}
-                />
-              }
-              sub={
-                <>
-                  <span className={cur.failed > 0 ? 'text-error' : ''}>{cur.failed}</span>{' '}
-                  recusadas
-                </>
-              }
-              delta={d('sales')}
-              spark={<SparkBars data={salesSeries} color="#22c55e" />}
-            />
-            <KpiCard
-              index={3}
-              icon={Percent}
-              tint="amber"
-              href="/funnel"
-              label="Conversão"
-              ariaLabel={`Conversão: ${fmtPercent(cur.overall)} de visita para compra${prev ? `, ${cur.overall - prev.overall >= 0 ? 'mais' : 'menos'} ${Math.abs(cur.overall - prev.overall).toFixed(1).replace('.', ',')} pontos percentuais que o período anterior` : ''}`}
-              value={
-                <CountUp
-                  value={cur.overall}
-                  format={(v) => fmtPercent(v)}
-                  className={cur.overall > 0 ? 'text-warning' : 'text-muted-foreground'}
-                />
-              }
-              sub="visita → compra"
-              /* Item 291: conversão JÁ é % — delta em pontos percentuais */
-              delta={prev ? +(cur.overall - prev.overall).toFixed(1) : null}
-              deltaUnit="pp"
-            />
-          </>
-        )}
-        </div>
 
-        {/* Coluna 2 — globo (peça central do overview) */}
-        <div className="lg:col-span-5">
-          <HeroGlobe />
-        </div>
+        {/* Centro — o globo, circular, com os números DENTRO dele */}
+        <HeroGlobe
+          leadsToday={leadsToday}
+          countriesToday={countriesToday}
+          countries={todayCountries}
+        />
 
-        {/* Coluna 3 — feed "Chegando agora": últimos leads de /api/stats,
-            sem request nova (o poll de 12s já atualiza data.leads) */}
-        <div className="lg:col-span-3">
-          <LiveFeed leads={data?.leads ?? []} />
-        </div>
+        {/* Direita — CHEGANDO AGORA: últimos leads de /api/stats (poll de 12s,
+            zero request nova) */}
+        <LiveFeed leads={data?.leads ?? []} />
       </section>
 
-      {/* Fase 3 — abaixo do hero, 2 colunas: funil compacto | top campanhas.
-          Ambos governados pelo PeriodPicker único (elimina a divergência de
-          período que havia entre Overview/Funil/Atividade). TopSources some
-          quando não há campanhas/links no período; aí o funil ocupa a largura. */}
+      {/* ── Abaixo: FUNIL | TOP CAMPANHAS — 2 colunas, altura igual,
+          governadas pelo MESMO PeriodPicker ─────────────────────────── */}
       <section
         aria-label="Funil e origem dos leads"
-        className={`grid gap-4 ${hasSources ? 'lg:grid-cols-2' : ''}`}
+        className={`grid items-stretch gap-4 ${hasSources ? 'lg:grid-cols-2' : ''}`}
         style={{ ['--i' as string]: 2 }}
       >
-        <FunnelCompact metrics={cur} />
+        <FunnelCompact metrics={cur} periodLabel={PERIOD_LABEL[period]} />
         {hasSources && <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />}
       </section>
 
-      {/* Fase 3 — rodapé: presença (países ativos) + qualidade dos eventos (EMQ).
-          O detalhe de saúde por serviço vive no popover do HealthDot; aqui fica
-          o resumo. EMQ usa a mesma chave SWR do popover (dedup, zero request). */}
+      {/* ── Rodapé — Países ativos · EMQ, em linha, discreto ───────────── */}
       <section
         aria-label="Presença e qualidade dos eventos"
-        className="grid gap-4 sm:grid-cols-2"
+        className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1 font-mono text-[11px] tabular-nums text-muted-foreground"
         style={{ ['--i' as string]: 3 }}
       >
-        <GlassCard className="flex items-center gap-3 p-4">
-          <span
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg"
-            style={{ backgroundColor: hasGeo ? 'rgba(37,244,238,.1)' : NEUTRAL_BG }}
-            aria-hidden="true"
-          >
-            <Globe2 className="size-5" style={{ color: hasGeo ? '#25f4ee' : NEUTRAL }} />
+        <HealthDot />
+        <span>
+          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+            Países ativos{' '}
           </span>
-          <div className="min-w-0">
-            <p className="label-mono">Países ativos</p>
-            <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
-              {cur.countries.length}
-            </p>
-            <p className="truncate text-xs text-muted-foreground">
-              {hasGeo
-                ? cur.countries
-                    .slice(0, 4)
-                    .map((c) => `${countryFlag(c.code)} ${c.code}`)
-                    .join('  ')
-                : 'aguardando os primeiros leads'}
-            </p>
-          </div>
-        </GlassCard>
-
-        {/* EMQ — drill-down para a aba Pixels; só aparece com dados de pixel */}
-        {emqSummary ? (
-          <Link
-            href="/pixels"
-            className="block rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring"
-          >
-            <GlassCard hover className="flex h-full items-center gap-3 p-4">
-              <span
-                className="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                style={{ backgroundColor: 'rgba(37,244,238,.1)' }}
-                aria-hidden="true"
-              >
-                {emqSummary.dir === 'down' ? (
-                  <TrendingUp className="size-5 rotate-180 text-warning" />
-                ) : (
-                  <TrendingUp
-                    className={emqSummary.dir === 'up' ? 'size-5 text-success' : 'size-5 text-brand-cyan'}
-                  />
-                )}
-              </span>
-              <div className="min-w-0">
-                <p className="label-mono">Qualidade dos eventos · EMQ</p>
-                <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
-                  {emqSummary.recent.toFixed(1)}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {emqSummary.alerts > 0
-                    ? `${emqSummary.alerts} pixel(s) em alerta — ver detalhe`
-                    : 'média dos pixels ativos — ver detalhe'}
-                </p>
-              </div>
-            </GlassCard>
-          </Link>
-        ) : (
-          <GlassCard className="flex items-center gap-3 p-4">
-            <span
-              className="flex size-10 shrink-0 items-center justify-center rounded-lg"
-              style={{ backgroundColor: NEUTRAL_BG }}
-              aria-hidden="true"
-            >
-              <TrendingUp className="size-5" style={{ color: NEUTRAL }} />
+          <span className="text-foreground">{cur.countries.length}</span>
+          {hasGeo ? (
+            <span className="ml-2 text-faint">
+              {cur.countries
+                .slice(0, 4)
+                .map((c) => `${countryFlag(c.code)} ${c.code}`)
+                .join('  ')}
             </span>
-            <div className="min-w-0">
-              <p className="label-mono">Qualidade dos eventos · EMQ</p>
-              <p className="text-sm text-muted-foreground text-pretty">
-                Sem dados de pixel ainda.
-              </p>
-            </div>
-          </GlassCard>
-        )}
+          ) : null}
+        </span>
+        {emqSummary ? (
+          <Link href="/pixels" className="transition-colors hover:text-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+              EMQ{' '}
+            </span>
+            <span className={emqSummary.alerts > 0 ? 'text-error' : 'text-foreground'}>
+              {emqSummary.recent.toFixed(1)}
+              {emqSummary.dir === 'up' ? ' \u2191' : emqSummary.dir === 'down' ? ' \u2193' : ''}
+            </span>
+            {emqSummary.alerts > 0 ? (
+              <span className="ml-1 text-error">
+                · {emqSummary.alerts} alerta{emqSummary.alerts === 1 ? '' : 's'}
+              </span>
+            ) : null}
+          </Link>
+        ) : null}
       </section>
     </div>
   )

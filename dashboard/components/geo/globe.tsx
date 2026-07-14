@@ -526,9 +526,6 @@ export default function GlobePanel({
   }
 
   const empty = countries.length === 0
-  // Fase 5: overlay da base — total de leads representados + países ativos.
-  const totalLeads = countries.reduce((sum, c) => sum + (c.count || 0), 0)
-  const activeCountries = countries.length
 
   // Item 161: hover na tabela gira o globo até o país
   useEffect(() => {
@@ -596,23 +593,13 @@ export default function GlobePanel({
         />
       )}
       <GlobeHud empty={empty} />
-      {/* Fase 5: overlay da base — leitura rápida do que o globo representa.
-          pointer-events-none para não interceptar o arraste/rotação. */}
-      {!empty && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4">
-          <div className="font-mono text-[10.5px] leading-tight tabular-nums text-white/55">
-            <span className="text-white/80" data-sensitive>
-              {totalLeads.toLocaleString('pt-BR')}
-            </span>{' '}
-            {totalLeads === 1 ? 'lead' : 'leads'} · {activeCountries}{' '}
-            {activeCountries === 1 ? 'país' : 'países'}
-          </div>
-          {pulses.length > 0 && (
-            <div className="flex items-center gap-1.5 font-mono text-[10.5px] tabular-nums text-emerald-400/90">
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-              ao vivo
-            </div>
-          )}
+      {/* Redesign: os números da base saíram daqui — agora moram no overlay do
+          HeroGlobe (contagem grande DENTRO do globo). Só fica o selo "ao vivo"
+          quando há pulso de lead novo (Fase 5). */}
+      {pulses.length > 0 && (
+        <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 font-mono text-[10.5px] tabular-nums text-emerald-400/90">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+          ao vivo
         </div>
       )}
       <GlobeControls

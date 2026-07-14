@@ -1,18 +1,22 @@
 'use client'
 
+// Redesign: o globo é a peça central do BLOCO HERO — circular (aspect 1),
+// sem chrome de card próprio (o painel do hero é um bloco só no overview).
+// Os números moram DENTRO do globo, sobrepostos na base: contagem de leads
+// de hoje (grande, ciano, mono) + linha "LEADS HOJE · N PAÍSES".
+// Os cards "online/checkout/países" saíram — essa informação vive aqui.
+
 import dynamic from 'next/dynamic'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Globe2, Radio, ShoppingCart } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useLive } from '@/lib/api'
 import { CountUp } from '@/components/count-up'
 import type { GeoPulse } from '@/components/geo/globe'
 import type { LiveCountry } from '@/lib/types'
 
-/* V2-54: skeleton do globo agora é um "planeta carregando" — esfera com
-   anel orbital girando, no lugar do círculo pulsante genérico */
+/* V2-54: skeleton do globo — esfera com anel orbital girando */
 function GlobeSkeleton() {
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-[#080a0d]">
+    <div className="absolute inset-0 flex items-center justify-center">
       <div className="relative aspect-square w-[46%] max-w-72" aria-hidden="true">
         <div className="absolute inset-0 animate-pulse rounded-full border border-brand-cyan/10 bg-brand-cyan/5" />
         <div
@@ -30,40 +34,6 @@ const GlobePanel = dynamic(() => import('@/components/geo/globe'), {
   ssr: false,
   loading: () => <GlobeSkeleton />,
 })
-
-function LiveStat({
-  icon: Icon,
-  value,
-  label,
-  active,
-}: {
-  icon: typeof Radio
-  value: number
-  label: string
-  /** destaque ciano quando há atividade */
-  active?: boolean
-}) {
-  return (
-    /* V2-55: stat com hover que acende o tile do ícone e levanta o número */
-    <div className="group flex min-w-0 items-center gap-3 px-4 py-3.5 transition-colors hover:bg-white/[0.02]">
-      <span
-        className={`icon-tilt flex size-9 shrink-0 items-center justify-center rounded-lg transition-all ${
-          active
-            ? 'bg-brand-cyan/15 text-brand-cyan shadow-[0_0_14px_rgba(37,244,238,0.2)]'
-            : 'bg-secondary/60 text-muted-foreground'
-        }`}
-      >
-        <Icon className="size-4" aria-hidden="true" />
-      </span>
-      <div className="min-w-0">
-        <p className="font-mono text-xl font-bold leading-none tabular-nums text-foreground">
-          <CountUp value={value} />
-        </p>
-        <p className="label-mono mt-1 truncate">{label}</p>
-      </div>
-    </div>
-  )
-}
 
 // Fase 5: quanto tempo um anel de "lead novo" fica visível no globo.
 const PULSE_TTL_MS = 6000
@@ -114,61 +84,51 @@ function useLeadPulses(countries: LiveCountry[]): GeoPulse[] {
   return pulses
 }
 
-export function HeroGlobe() {
-  const { data, isLoading } = useLive()
-  const online = data?.summary.online ?? 0
-  const checkout = data?.checkout.externalEst ?? 0
+export function HeroGlobe({
+  leadsToday,
+  countriesToday,
+  countries,
+}: {
+  /** leads que entraram HOJE (de /api/stats — o overview já tem esse dado) */
+  leadsToday: number
+  /** países distintos dos leads de hoje */
+  countriesToday: number
+  /** países dos leads de HOJE — colorem o globo (mesma história do contador).
+      Antes o globo pintava só quem estava online AGORA: ficava apagado com
+      "Aguardando tráfego" por cima de "87 leads hoje". */
+  countries: { code: string; name: string; count: number; purchased: number }[]
+}) {
+  // /api/live continua alimentando os PULSOS (anéis de lead novo, Fase 5) —
+  // é a única razão do hook aqui; a coloração vem do prop `countries`.
+  const { data } = useLive()
   const liveCountries = data?.summary.countries ?? []
-  const countries = useMemo(
-    () => liveCountries.map((country) => ({ ...country, purchased: 0 })),
-    [liveCountries],
-  )
-  // Fase 5: pulsos de leads novos alimentam os anéis do globo
   const pulses = useLeadPulses(liveCountries)
-  const leaders = liveCountries.slice(0, 3).map((country) => country.name).join(', ')
 
   return (
-    /* V2-56: card hero com borda energia + hairline superior — o globo é a
-       peça central do overview e merece a moldura de assinatura */
-    <section
-      aria-labelledby="live-presence-title"
-      className="energy-border top-hairline overflow-hidden rounded-xl border border-border bg-card"
+    /* Circular, aspect 1, ocupa toda a coluna central do hero. mx-auto centra
+       quando a coluna é mais larga que alta. */
+    <div
+      className="relative mx-auto aspect-square w-full max-w-[560px]"
+      aria-label={`Presença ao vivo: ${leadsToday} leads hoje em ${countriesToday} ${countriesToday === 1 ? 'país' : 'países'}`}
     >
-      <header className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div>
-          <div className="flex items-center gap-2">
-            {/* V2-57: dot de "ao vivo" com ping — era estático */}
-            <span className="live-dot" aria-hidden="true" />
-            <h2 id="live-presence-title" className="text-base font-semibold text-foreground">
-              Presença ao vivo
-            </h2>
-          </div>
-          <p className="mt-1 text-sm text-pretty text-muted-foreground">
-            Distribuição dos visitantes conectados neste momento.
-          </p>
-        </div>
-        {/* V2-58: selo de auto-refresh em mono uppercase com respiração */}
-        <p className="label-mono anim-breathe">Atualização automática</p>
-      </header>
+      {/* A coloração vem de `countries` (stats, já carregado quando o overview
+          renderiza) — não espera o /api/live; ele só adiciona pulsos depois. */}
+      <GlobePanel countries={countries} metric="visits" pulses={pulses} />
 
-      <div className="grid grid-cols-3 divide-x divide-border border-b border-border bg-background/30">
-        <LiveStat icon={Radio} value={online} label="Online agora" active={online > 0} />
-        <LiveStat icon={ShoppingCart} value={checkout} label="No checkout" active={checkout > 0} />
-        <LiveStat icon={Globe2} value={countries.length} label="Países ativos" active={countries.length > 0} />
+      {/* Números DENTRO do globo, sobrepostos na base. pointer-events-none
+          para não interceptar arraste/zoom do globo. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-[8%] flex flex-col items-center gap-1 text-center">
+        <p
+          className="font-mono text-4xl font-bold leading-none tabular-nums text-brand-cyan xl:text-5xl"
+          data-sensitive
+        >
+          <CountUp value={leadsToday} />
+        </p>
+        <p className="text-[10.5px] font-medium uppercase tracking-[0.14em] text-white/45">
+          {leadsToday === 1 ? 'Lead hoje' : 'Leads hoje'} · {countriesToday}{' '}
+          {countriesToday === 1 ? 'país' : 'países'}
+        </p>
       </div>
-
-      {/* V2-100: grade de pontos ciano ultra-sutil atrás do globo */}
-      <div className="dot-matrix relative h-[400px] w-full sm:h-[500px]">
-        {isLoading && !data ? (
-          <GlobeSkeleton />
-        ) : (
-          <GlobePanel countries={countries} metric="visits" pulses={pulses} />
-        )}
-      </div>
-
-      <footer className="flex min-h-11 items-center border-t border-border px-4 py-2.5 text-xs text-muted-foreground sm:px-5">
-        {leaders ? `Maior presença agora: ${leaders}.` : 'Aguardando os primeiros visitantes para mostrar a distribuição.'}
-      </footer>
-    </section>
+    </div>
   )
 }
