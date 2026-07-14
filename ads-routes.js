@@ -238,6 +238,46 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── Diagnóstico da conexão MCP Pipeboard ────────────────────────────────────
+  // Painel de saúde da integração: conexão real (tools/list cacheado 5min),
+  // volume de chamadas/erros na última hora e contas bloqueadas pelo limite
+  // mensal (com data de reset). ?force=1 refaz o teste ignorando o cache.
+  app.get('/api/ads/mcp/status', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const mcp = require('./pipeboard-mcp');
+      const [diag, syncStates] = await Promise.all([
+        mcp.getDiagnostics({ force: req.query.force === '1' }),
+        adsCache.enabled ? adsCache.listSyncStates(req.account.id).catch(() => []) : Promise.resolve([]),
+      ]);
+      const blocked = syncStates
+        .filter((s) => s.status === 'blocked')
+        .map((s) => {
+          const m = String(s.last_error || '').match(/(\d{4}-\d{2}-\d{2})/);
+          return { advertiserId: s.advertiser_id, blockedUntil: (m && m[1]) || null };
+        });
+      const lastSync = syncStates.reduce((max, s) => {
+        const t = s.last_synced_at ? new Date(s.last_synced_at).getTime() : 0;
+        return t > max ? t : max;
+      }, 0);
+      res.json({
+        enabled: mcp.enabled,
+        connected: !!diag.ok,
+        error: diag.error || null,
+        checkedAt: diag.checkedAt || null,
+        cached: !!diag.cached,
+        toolCount: diag.toolCount || 0,
+        calls: mcp.getCallStats(),
+        accounts: {
+          synced: syncStates.length,
+          blocked,
+          lastSyncAt: lastSync ? new Date(lastSync).toISOString() : null,
+        },
+        automation: automation.getSweepInfo(req.account.id),
+      });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── OAuth: gera a URL de autorização do TikTok Business ───────────────────
   // Aceita GET e POST: o painel chama via POST (ação), mas mantemos GET
   // para compatibilidade com integrações antigas.

@@ -59,8 +59,9 @@ async function ensureLoaded(accId) {
   if (memState.has(accId) && loadedAccounts.has(accId)) return loadedAccounts.get(accId);
   if (!memState.has(accId)) memState.set(accId, new Map());
   const p = (async () => {
-    if (!cache.enabled) return;
     try {
+      // listAutomationState já devolve [] quando o Neon está desligado —
+      // sem guarda extra aqui (e os testes conseguem stubar a função).
       const rows = await cache.listAutomationState(accId);
       const m = memState.get(accId);
       for (const r of rows) {
@@ -530,6 +531,21 @@ function maybeSweep(accId) {
 // Marca "varredura feita agora" (rotas manuais /rules/run e /alerts/check).
 function markSweepNow(accId) { sweepLast.set(accId, Date.now()); }
 
+// Resumo p/ o painel de diagnóstico MCP: última varredura, regras ativas e
+// último disparo do log — a UI mostra que o motor 24/7 está de fato girando.
+function getSweepInfo(accId) {
+  const rules = getRules(accId);
+  const log = getRulesLog(accId);
+  return {
+    lastSweepAt: sweepLast.has(accId) ? new Date(sweepLast.get(accId)).toISOString() : null,
+    lastScheduleSweepAt: scheduleLast.has(accId) ? new Date(scheduleLast.get(accId)).toISOString() : null,
+    rulesEnabled: rules.filter((r) => r.enabled && r.metric !== 'schedule').length,
+    schedulesEnabled: rules.filter((r) => r.enabled && r.metric === 'schedule').length,
+    alertsEnabled: !!getAlertCfg(accId).enabled,
+    lastAction: log.length ? { at: log[0].at, result: log[0].result || log[0].detail, campaignName: log[0].campaignName, ok: !!log[0].ok } : null,
+  };
+}
+
 // ── Auto-recuperação de conta bloqueada ─────────────────────────────────────
 // Chamado pelo ads-sync quando um sync de conta antes 'blocked' dá certo.
 function noteRecovery(accId, advertiserId) {
@@ -557,6 +573,7 @@ module.exports = {
   runScheduleSweep,
   maybeSweep,
   markSweepNow,
+  getSweepInfo,
   noteRecovery,
   // expostos p/ testes
   _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep },

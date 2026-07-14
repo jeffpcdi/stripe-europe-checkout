@@ -123,10 +123,13 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   // ── roas_scale: teto respeitado + cooldown de 24h ─────────────────────────
   {
     const acc = 'acc_scale';
+    // atenção: a atribuição só casa utm.campaign com ID NUMÉRICO (macro
+    // __CAMPAIGN_ID__ do TikTok) — por isso o ID aqui é numérico de verdade
+    const campId = '1234567890123';
     provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 60 }]) });
-    leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: 'c1' }, reportedAmount: 10000 }]; // 100 de receita
+    leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }]; // 100 de receita
     resetCalls(); clearCooldowns(acc);
-    treeCampaigns = [campaign({ platformCampaignId: 'c1', metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })]; // ROAS 10
+    treeCampaigns = [campaign({ platformCampaignId: campId, metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })]; // ROAS 10
     let out = await automation.runRulesSweep(acc, { force: true });
     assert.strictEqual(out.executed.length, 1, 'roas_scale dispara com venda + ROAS alto');
     assert.strictEqual(calls.budget.length, 1, 'orçamento alterado 1x');
@@ -137,7 +140,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     // grupo já no teto: não toca
     clearCooldowns(acc);
     resetCalls();
-    treeCampaigns = [campaign({ platformCampaignId: 'c1', adSets: [{ platformAdSetId: 'g1', budget: { amount: 60, type: 'daily' } }], metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })];
+    treeCampaigns = [campaign({ platformCampaignId: campId, adSets: [{ platformAdSetId: 'g1', budget: { amount: 60, type: 'daily' } }], metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })];
     out = await automation.runRulesSweep(acc, { force: true });
     assert.strictEqual(calls.budget.length, 0, 'já no teto: zero chamadas de orçamento');
     leads = [];
