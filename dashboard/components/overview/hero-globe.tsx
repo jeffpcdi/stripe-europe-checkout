@@ -107,8 +107,13 @@ export function HeroGlobe({
       style={{ minHeight: 640 }}
       aria-label={`Presença ao vivo: ${onlineNow} online agora em ${activeCountries} ${activeCountries === 1 ? 'país' : 'países'}`}
     >
-      {/* Glow atmosférico — pseudo-elemento via CSS (globals.css) */}
-      <div className="hero-globe-glow" aria-hidden="true" />
+      {/* Glow atmosférico e Elementos Orbitais (Mega Plano) */}
+      <div className="hero-globe-glow-outer" aria-hidden="true" />
+      <div className="hero-globe-glow-core" aria-hidden="true" />
+      <div className="hero-stardust" aria-hidden="true" />
+      
+      <div className="hero-orbit-ring" aria-hidden="true" />
+      <div className="hero-orbit-ring outer" aria-hidden="true" />
 
       {/* A coloração vem de `countries` (stats, já carregado quando o overview
           renderiza) — não espera o /api/live; ele só adiciona pulsos depois. */}

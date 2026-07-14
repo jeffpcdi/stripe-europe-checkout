@@ -21,7 +21,7 @@ import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelCompact } from './funnel-compact'
-
+import { LeadsTable } from '@/components/funnel/leads-table'
 // Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
 // resto do app — formata direto sem dividir por 100.
 function fmtAdsMoney(v: number, currency: string): string {
@@ -80,6 +80,7 @@ function HeroKpi({
   dim,
   sensitive,
   sub,
+  colorClass,
 }: {
   label: string
   value: React.ReactNode
@@ -89,6 +90,8 @@ function HeroKpi({
   sensitive?: boolean
   /** Linha secundária discreta (ex.: receita em outras moedas). */
   sub?: React.ReactNode
+  /** Classe de cor personalizada para o valor principal (ex: text-brand-cyan) */
+  colorClass?: string
 }) {
   return (
     <div className="min-w-0">
@@ -96,8 +99,8 @@ function HeroKpi({
         <span className="text-gradient-metallic">{label}</span>
       </p>
       <p
-        className={`mt-1 whitespace-nowrap font-mono text-2xl font-bold leading-none tabular-nums sm:text-3xl xl:text-4xl ${
-          dim ? 'text-muted-foreground' : 'text-foreground'
+        className={`mt-1 whitespace-nowrap font-mono text-2xl font-bold leading-none tabular-nums sm:text-3xl xl:text-3xl ${
+          dim ? 'text-muted-foreground' : colorClass || 'text-foreground'
         }`}
         {...(sensitive ? { 'data-sensitive': true } : {})}
       >
@@ -320,6 +323,7 @@ export function OverviewView() {
               label="Receita"
               dim={revCents === 0}
               sensitive
+              colorClass="text-brand-cyan"
               value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
               sub={
                 otherRev.length
@@ -336,6 +340,7 @@ export function OverviewView() {
             <HeroKpi
               label="ROAS"
               dim={!roas || roas.roas === null}
+              colorClass="text-success"
               value={
                 roas && roas.roas !== null ? roas.roas.toFixed(2).replace('.', ',') : '—'
               }
@@ -362,11 +367,20 @@ export function OverviewView() {
         {hasSources && <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />}
       </section>
 
+      {/* ── Abaixo: Integração do Funil (Leads Table) ─────────────────── */}
+      <section
+        aria-label="Tabela de Leads Integrada"
+        className="animate-in-up delay-3 w-full"
+        style={{ ['--i' as string]: 3 }}
+      >
+        <LeadsTable leads={data?.leads ?? []} periodStart={periodStart(period)} />
+      </section>
+
       {/* ── Rodapé — Países ativos · EMQ, em linha, discreto ───────────── */}
       <section
         aria-label="Presença e qualidade dos eventos"
-        className="glass inline-flex flex-wrap items-center gap-x-5 gap-y-2 rounded-full px-5 py-2.5 font-mono text-[11px] tabular-nums text-muted-foreground self-start"
-        style={{ ['--i' as string]: 3 }}
+        className="glass animate-in-up delay-4 inline-flex flex-wrap items-center gap-x-5 gap-y-2 rounded-full px-5 py-2.5 font-mono text-[11px] tabular-nums text-muted-foreground self-start"
+        style={{ ['--i' as string]: 4 }}
       >
         <HealthDot />
         <span>

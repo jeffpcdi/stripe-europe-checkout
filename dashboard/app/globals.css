@@ -2307,25 +2307,7 @@ html {
   }
 }
 
-/* Item 11: glow atmosférico pulsante ao redor do globo */
-.hero-globe-glow {
-  position: absolute;
-  inset: -15%;
-  z-index: 0;
-  pointer-events: none;
-  background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.12) 0%, transparent 60%);
-  animation: heroGlobeGlow 4s ease-in-out infinite alternate;
-}
-@keyframes heroGlobeGlow {
-  from {
-    opacity: 0.6;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1.04);
-  }
-}
+/* Glow central foi movido para hero-globe-glow-core e hero-globe-glow-outer no bloco de Animações Globais */
 
 /* Container do globo no hero — ocupa toda a largura disponível */
 .hero-globe-container {
@@ -2401,6 +2383,133 @@ html {
   .hero-globe-section > .relative {
     order: -1;
   }
+}
+
+/* ============================================================
+   Mega Plan: Novas Animações e Efeitos Globais
+   ============================================================ */
+
+/* 1. Orbit e Dust para o Globo */
+.hero-orbit-ring {
+  position: absolute;
+  inset: -30%;
+  border-radius: 50%;
+  border: 1px solid rgba(37, 244, 238, 0.08);
+  border-left-color: rgba(37, 244, 238, 0.2);
+  animation: orbitSpin 20s linear infinite;
+  pointer-events: none;
+}
+.hero-orbit-ring.outer {
+  inset: -45%;
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  border-right-color: rgba(59, 130, 246, 0.25);
+  animation: orbitSpin 25s linear infinite reverse;
+}
+@keyframes orbitSpin {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.02); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+.hero-stardust {
+  position: absolute;
+  inset: -60%;
+  background-image: 
+    radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.4) 100%, transparent),
+    radial-gradient(1.5px 1.5px at 30% 60%, rgba(37,244,238,0.5) 100%, transparent),
+    radial-gradient(1px 1px at 60% 80%, rgba(59,130,246,0.4) 100%, transparent),
+    radial-gradient(2px 2px at 80% 30%, rgba(255,255,255,0.3) 100%, transparent);
+  animation: stardustDrift 60s linear infinite;
+  pointer-events: none;
+  opacity: 0.6;
+}
+@keyframes stardustDrift {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Dupla camada de Glow */
+.hero-globe-glow-core {
+  position: absolute;
+  inset: -10%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.15) 0%, transparent 50%);
+  animation: heroGlobeGlow 3s ease-in-out infinite alternate;
+}
+.hero-globe-glow-outer {
+  position: absolute;
+  inset: -25%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 65%);
+  animation: heroGlobeGlow 5s ease-in-out infinite alternate-reverse;
+}
+@keyframes heroGlobeGlow {
+  from { opacity: 0.5; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1.05); }
+}
+
+/* 2. Scrollbar Invisível / Fina (Padrão macOS escuro) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 3. Hover Float e Animate-In para GlassCards */
+.hover-float {
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+.hover-float:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 16px 40px -8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1) !important;
+}
+
+/* Animate-In (Staggered Fade-in-up) */
+.animate-in-up {
+  animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.delay-1 { animation-delay: 50ms; }
+.delay-2 { animation-delay: 100ms; }
+.delay-3 { animation-delay: 150ms; }
+.delay-4 { animation-delay: 200ms; }
+.delay-5 { animation-delay: 250ms; }
+
+/* 4. Skeleton Shimmer (Premium) */
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 100%
+  );
+  animation: shimmerFlow 2s infinite;
+}
+@keyframes shimmerFlow {
+  100% { transform: translateX(100%); }
 }
 
 /* ============================================================
