@@ -1,7 +1,5 @@
 import {
   LayoutDashboard,
-  ListChecks,
-  Filter,
   Link2,
   Target,
   CreditCard,
@@ -54,17 +52,10 @@ export const NAV_GROUPS: NavGroup[] = [
     href: '/',
     routes: ['/'],
   },
-  {
-    id: 'analytics',
-    label: 'Análises',
-    icon: Filter,
-    href: '/funnel',
-    routes: ['/activity', '/funnel'],
-    tabs: [
-      { label: 'Funil', href: '/funnel' },
-      { label: 'Atividade', href: '/activity' },
-    ],
-  },
+  // Fase 3: grupo "Análises" (Funil + Atividade) removido da navegação — o
+  // funil compacto e o ranking de campanhas agora vivem na Visão Geral. As
+  // rotas /funnel e /activity CONTINUAM acessíveis por link direto (drill-down
+  // dos KPIs/feed apontam para elas); apenas saíram das pills/menu.
   {
     id: 'tracking',
     label: 'Rastreamento',
@@ -108,9 +99,7 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Métricas',
     items: [
-      { id: 'overview', label: 'Visão Geral', description: 'KPIs, presença ao vivo e geografia', icon: LayoutDashboard, href: '/' },
-      { id: 'activity', label: 'Atividade', description: 'Log de conversões e pixels', icon: ListChecks, href: '/activity' },
-      { id: 'funnel', label: 'Funil', description: 'Visita, checkout, compra', icon: Filter, href: '/funnel' },
+      { id: 'overview', label: 'Visão Geral', description: 'KPIs, funil, presença ao vivo e campanhas', icon: LayoutDashboard, href: '/' },
     ],
   },
   {

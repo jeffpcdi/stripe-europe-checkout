@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useOncePerSession, useValueFlash } from '@/lib/motion'
 import {
   Banknote,
@@ -8,11 +9,7 @@ import {
   Users,
   Percent,
   Globe2,
-  RotateCcw,
   ShieldAlert,
-  Coins,
-  CalendarDays,
-  Timer,
   TrendingUp,
   Megaphone,
 } from 'lucide-react'
@@ -25,25 +22,20 @@ import {
   periodStart,
   prevWindow,
 } from '@/lib/metrics'
-import { countryFlag, fmtDurationShort, fmtPercent } from '@/lib/format'
+import { countryFlag, fmtPercent } from '@/lib/format'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { SparkBars, SparkLine } from '@/components/sparkline'
 import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { KpiCard } from './kpi-card'
-import { MiniStat } from './mini-stat'
 import { TopSources } from './top-sources'
-import { GatewayDonut } from './gateway-donut'
 import { ExportSummaryButton } from './export-summary'
 import { TvModeButton } from './tv-mode'
 import { OnboardingChecklist } from './onboarding-checklist'
 import { PeriodPicker } from './period-picker'
-import { RevenueChart } from './revenue-chart'
 import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
-import { GoalCard } from './goal-card'
-import { AdsOverviewCard } from './ads-card'
 import { LiveFeed } from './live-feed'
 import { FunnelCompact } from './funnel-compact'
 
@@ -169,48 +161,6 @@ export function OverviewView() {
     }
   }, [data, period])
 
-  // Item 274: melhor dia da semana por receita, derivado da própria série.
-  // Fica ANTES dos early returns (regra dos hooks): quando `cur` ainda não
-  // existe, devolve null sem custo.
-  const bestWeekday = useMemo(() => {
-    if (!cur || cur.series.length < 14) return null
-    const names = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
-    const byDow = Array.from({ length: 7 }, () => ({ revenue: 0, count: 0 }))
-    for (const p of cur.series) {
-      const dow = new Date(p.day + 'T00:00:00').getDay()
-      if (Number.isNaN(dow)) continue
-      byDow[dow].revenue += p.revenue
-      byDow[dow].count += 1
-    }
-    let best = -1
-    for (let i = 0; i < 7; i++) {
-      if (byDow[i].count > 0 && (best < 0 || byDow[i].revenue > byDow[best].revenue)) best = i
-    }
-    if (best < 0 || byDow[best].revenue <= 0) return null
-    return { name: names[best], revenue: byDow[best].revenue }
-  }, [cur])
-
-  // Item 296: tempo médio da primeira visita até a compra, mediana dos leads
-  // comprados no período (mediana > média: um outlier de dias não distorce).
-  const timeToBuy = useMemo(() => {
-    if (!data?.leads) return null
-    const from = periodStart(period)
-    const deltas: number[] = []
-    for (const l of data.leads) {
-      if (l.stage !== 'purchased' || !l.purchasedAt || !l.at) continue
-      const bought = new Date(l.purchasedAt).getTime()
-      const first = new Date(l.at).getTime()
-      if (Number.isNaN(bought) || Number.isNaN(first) || bought <= first) continue
-      if (from && bought < from.getTime()) continue
-      deltas.push(bought - first)
-    }
-    if (deltas.length < 3) return null // amostra pequena demais para afirmar algo
-    deltas.sort((a, b) => a - b)
-    const mid = Math.floor(deltas.length / 2)
-    const median = deltas.length % 2 ? deltas[mid] : (deltas[mid - 1] + deltas[mid]) / 2
-    return { median, count: deltas.length }
-  }, [data, period])
-
   if (error) {
     return (
       <GlassCard className="flex min-h-64 flex-col items-center justify-center gap-2 p-8 text-center">
@@ -329,32 +279,17 @@ export function OverviewView() {
   const salesSeries = cur.series.map((s) => s.sales)
   const visitSeries = cur.series.map((s) => s.visits)
 
+  // Item 401: banner de aprovação baixa continua no overview (risco financeiro).
   const attempts = cur.sales + cur.failed
-  const apColor = !attempts
-    ? NEUTRAL
-    : cur.approval >= 70
-      ? '#22c55e'
-      : cur.approval >= 40
-        ? '#fbbf24'
-        : '#fe2c55'
-  const apBg = !attempts
-    ? NEUTRAL_BG
-    : cur.approval >= 70
-      ? 'rgba(34,197,94,.12)'
-      : cur.approval >= 40
-        ? 'rgba(251,191,36,.12)'
-        : 'rgba(254,44,85,.12)'
-
-  const hasSales = cur.sales > 0
   const hasGeo = cur.countries.length > 0
+  // Fase 3: TopSources (campanhas + links) só ocupa coluna quando há origem
+  // rastreada no período; senão o funil compacto ganha a largura toda.
+  const hasSources = cur.topCampaigns.length > 0 || cur.topLinks.length > 0
   // Item 288: onboarding usa o HISTÓRICO TODO (não o período filtrado) —
   // trocar para "hoje" numa conta ativa não pode ressuscitar o checklist.
   const everVisited = (data?.leads?.length ?? 0) > 0
   const everSold = (data?.events ?? []).some((e) => e.type === 'sale')
   const isOnboarding = !everVisited || !everSold
-  // Item 111: sistema fixo — ciano = métrica, verde = sucesso, âmbar = atenção, rosa = risco
-  const refColor = cur.refunds ? '#fbbf24' : NEUTRAL
-  const dispColor = cur.disputes ? '#fe2c55' : NEUTRAL
 
   return (
     /* A1.5: fundo com profundidade (radial ciano + grid de pontos) atrás do
