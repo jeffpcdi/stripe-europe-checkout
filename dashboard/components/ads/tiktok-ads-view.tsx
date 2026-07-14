@@ -4,8 +4,8 @@
 // advertiser, KPIs agregados e a árvore de campanhas. Os fluxos de escrita
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
-import { useMemo, useState } from 'react'
-import { Megaphone, Plus, Zap, UserRound, BellRing, Bot, Layers, ListChecks, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
+import { useMemo, useRef, useState, useEffect } from 'react'
+import { Megaphone, Plus, Zap, UserRound, Copy, Layers, MoreHorizontal, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -40,6 +40,7 @@ import { AutomationDialog } from './automation-dialog'
 import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
 import { CatalogDialog } from './catalog-dialog'
+import { OpsStatusCards } from './ops-status-cards'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 // Moeda dos advertisers TikTok (spend vem em unidades inteiras da moeda)
@@ -68,7 +69,9 @@ export function TikTokAdsView() {
 
   const [advertiserId, setAdvertiserId] = useState<string | null>(null) // null = usa o salvo
   const effectiveAdvertiser = advertiserId ?? accounts?.selected ?? ''
-  const [statusFilter, setStatusFilter] = useState('')
+  // Abre em "Ativas": há ~8 ativas e ~99 pausadas — abrir em "Todas" enterrava
+  // o operador em ruído. Ele filtra para "Todas" quando quiser o histórico.
+  const [statusFilter, setStatusFilter] = useState('active')
   const [sort, setSort] = useState('newest')
   const [page, setPage] = useState(1)
   // Período das métricas/descoberta de campanhas. Default 365d — a janela
@@ -108,6 +111,17 @@ export function TikTokAdsView() {
   const [opsOpen, setOpsOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
+  // Menu "⋯" com ações secundárias (Saúde, Brand Identity, Catálogo)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!moreOpen) return
+    function onDocClick(e: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [moreOpen])
 
   // Política de segurança — alimenta o badge de simulação/kill switch
   const { data: safety, mutate: mutateSafety } = useAdsSafetyPolicy(connected)
@@ -280,48 +294,99 @@ export function TikTokAdsView() {
             </button>
           )}
         </div>
+        {/* Ações primárias de operação + menu "⋯" para o secundário */}
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="btn-ghost text-xs" onClick={() => setHealthOpen(true)}>
-            <HeartPulse className="size-3.5" aria-hidden="true" />
-            Saúde
-            {openTickets.length > 0 && (
-              <span className="ml-0.5 rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
-                {openTickets.length}
-              </span>
-            )}
+          <button type="button" className="btn-primary text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
+            <Plus className="size-3.5" aria-hidden="true" />
+            Nova campanha
           </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => setOpsOpen(true)}>
-            <ListChecks className="size-3.5" aria-hidden="true" />
-            Operações
-          </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => setRulesOpen(true)}>
-            <Bot className="size-3.5" aria-hidden="true" />
-            Automação
-          </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => setAlertsOpen(true)}>
-            <BellRing className="size-3.5" aria-hidden="true" />
-            Alertas
-          </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => setIdentityOpen(true)}>
-            <UserRound className="size-3.5" aria-hidden="true" />
-            {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
-          </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setSparkOpen)}>
-            <Zap className="size-3.5" aria-hidden="true" />
-            Spark Ads
+          <button
+            type="button"
+            className="btn-ghost text-xs"
+            onClick={() => {
+              // Duplicar exige uma campanha de origem: guia o operador para o
+              // ícone de duplicar na linha da campanha desejada.
+              toast.info('Para duplicar, use o ícone de duplicar na campanha desejada, na lista abaixo.')
+            }}
+          >
+            <Copy className="size-3.5" aria-hidden="true" />
+            Duplicar
           </button>
           <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setBulkOpen)}>
             <Layers className="size-3.5" aria-hidden="true" />
             Subir em massa
           </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setCatalogOpen)}>
-            <ShoppingBag className="size-3.5" aria-hidden="true" />
-            Catálogo
+          <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setSparkOpen)}>
+            <Zap className="size-3.5" aria-hidden="true" />
+            Spark Ads
           </button>
-          <button type="button" className="btn-primary text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
-            <Plus className="size-3.5" aria-hidden="true" />
-            Nova campanha
-          </button>
+          <div className="relative" ref={moreRef}>
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={() => setMoreOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              aria-label="Mais ações"
+            >
+              <MoreHorizontal className="size-3.5" aria-hidden="true" />
+              {openTickets.length > 0 && (
+                <span className="ml-0.5 rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
+                  {openTickets.length}
+                </span>
+              )}
+            </button>
+            {moreOpen && (
+              <div
+                role="menu"
+                className="anim-content-in absolute right-0 z-20 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-[var(--surface,var(--card))] p-1 shadow-xl"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-secondary"
+                  onClick={() => {
+                    setMoreOpen(false)
+                    setHealthOpen(true)
+                  }}
+                >
+                  <HeartPulse className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  Saúde das contas
+                  {openTickets.length > 0 && (
+                    <span className="ml-auto rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
+                      {openTickets.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-secondary"
+                  onClick={() => {
+                    setMoreOpen(false)
+                    setIdentityOpen(true)
+                  }}
+                >
+                  <UserRound className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  <span className="truncate">
+                    {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-foreground transition-colors hover:bg-secondary"
+                  onClick={() => {
+                    setMoreOpen(false)
+                    openWriteFlow(setCatalogOpen)
+                  }}
+                >
+                  <ShoppingBag className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  Catálogo de produtos
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -376,6 +441,14 @@ export function TikTokAdsView() {
         </GlassCard>
       ) : (
         <>
+          {/* Painel de operação: automações, alertas e fila (foco desta tela) */}
+          <OpsStatusCards
+            active={treeActive}
+            onOpenAutomation={() => setRulesOpen(true)}
+            onOpenAlerts={() => setAlertsOpen(true)}
+            onOpenOps={() => setOpsOpen(true)}
+          />
+
           {/* Linha de KPIs agregados (página atual da árvore) */}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '0ms' }}>
