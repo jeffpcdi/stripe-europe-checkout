@@ -474,6 +474,25 @@ async function generateDailyBriefing(accId, advertiserId, currency) {
   return { date: today, content, anomalies, usedAi };
 }
 
+// Wrapper idempotente para o tick 24/7 do ads-sync: gera no máximo 1 briefing
+// por conta/dia (checa o Neon antes; memória local só evita corrida no mesmo
+// processo). Nunca lança — falha de briefing jamais derruba o sync.
+const briefingRan = new Map(); // accId -> 'YYYY-MM-DD' (cache local do dia)
+function maybeDailyBriefing(accId, advertiserId, currency) {
+  const today = isoDay(new Date());
+  if (briefingRan.get(accId) === today) return;
+  briefingRan.set(accId, today); // marca antes: corrida no pior caso pula 1 dia, nunca duplica
+  (async () => {
+    const existing = await cache.listBriefings(accId, 'daily', 1).catch(() => []);
+    if (existing[0] && existing[0].date === today) return; // já gerado (outro processo/manual)
+    await generateDailyBriefing(accId, advertiserId, currency || 'USD');
+    console.log('[ads-ai] briefing diário gerado para ' + accId + ' (' + today + ')');
+  })().catch((err) => {
+    briefingRan.delete(accId); // permite re-tentar no próximo tick
+    console.error('[ads-ai] briefing falhou (re-tenta no próximo tick):', err.message);
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Análise de criativos — top 5 vs. bottom 5 + variações de copy. Cache 24h.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -612,6 +631,7 @@ module.exports = {
   validateProposedAction,
   copilotTurn,
   generateDailyBriefing,
+  maybeDailyBriefing,
   creativeInsights,
   budgetProposal,
   // exposto p/ testes

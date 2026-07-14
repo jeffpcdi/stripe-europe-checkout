@@ -242,6 +242,13 @@ async function tick() {
     const accounts = [...new Set(actives.map((a) => a.accountId))];
     for (const accId of accounts) {
       try { automation.maybeSweep(accId); } catch (_) { /* sweep nunca derruba o sync */ }
+      // Briefing diário com IA: 1×/dia por conta, idempotente via Neon,
+      // fire-and-forget (nunca atrasa nem derruba o tick). Lazy require pelo
+      // mesmo motivo do automation acima (sem risco de ciclo no boot).
+      try {
+        const adv = actives.find((a) => a.accountId === accId);
+        if (adv) require('./ads-ai').maybeDailyBriefing(accId, adv.advertiserId, adv.currency || 'USD');
+      } catch (_) { /* briefing nunca derruba o sync */ }
     }
   } catch (err) {
     console.error('[ads-sync] tick falhou:', err.message);

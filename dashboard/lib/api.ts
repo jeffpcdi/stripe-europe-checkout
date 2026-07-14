@@ -45,6 +45,10 @@ import type {
   AdsCatalogSpecResponse,
   AdsMcpStatusResponse,
   AdsKpisResponse,
+  AdsBriefingResponse,
+  AdsCreativeInsights,
+  AdsBudgetProposal,
+  CopilotEvent,
 } from './types'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
@@ -446,6 +450,81 @@ export function useAdsMcpStatus(active: boolean) {
     revalidateOnFocus: false,
     keepPreviousData: true,
   })
+}
+
+// ── IA: briefing, criativos, realocação, copiloto ────────────────────────────
+
+// Briefing diário (gerado 1×/dia pelo servidor; histórico 7d). Sem polling —
+// muda 1×/dia; o botão "Gerar agora" revalida via mutate().
+export function useAdsBriefing(active: boolean) {
+  return useSWR<AdsBriefingResponse>(active ? '/api/ads/briefing' : null, fetcher, {
+    revalidateOnFocus: false,
+    keepPreviousData: true,
+  })
+}
+
+// Análise de criativos com IA (cache 24h no servidor). Condicional: só busca
+// com o painel aberto. 503 = IA não configurada (a UI esconde o recurso).
+export function useAdsCreativeInsights(active: boolean, adAccountId: string) {
+  const qs = adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''
+  return useSWR<AdsCreativeInsights>(
+    active ? `/api/ads/creatives/insights${qs}` : null,
+    fetcher,
+    { revalidateOnFocus: false, keepPreviousData: true, shouldRetryOnError: false },
+  )
+}
+
+// Proposta de realocação de orçamento (determinística; IA só justifica).
+export function useAdsBudgetProposal(active: boolean, adAccountId: string, currency: string) {
+  const params = new URLSearchParams()
+  if (adAccountId) params.set('adAccountId', adAccountId)
+  if (currency) params.set('currency', currency)
+  return useSWR<AdsBudgetProposal>(
+    active ? `/api/ads/budget/proposal?${params.toString()}` : null,
+    fetcher,
+    { revalidateOnFocus: false, keepPreviousData: true, shouldRetryOnError: false },
+  )
+}
+
+// Chat do copiloto — POST + parse do SSE manualmente (fetch streaming).
+// onEvent recebe cada evento na ordem; a promise resolve no fim do stream.
+export async function copilotSend(
+  body: { message: string; sessionId: string; adAccountId?: string; currency?: string },
+  onEvent: (ev: CopilotEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch('/api/ads/copilot', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    if (res.status === 401) handleUnauthorized()
+    const data = await res.json().catch(() => ({}))
+    throw parseApiError(res.status, data)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    // eventos SSE separados por linha em branco; cada um é "data: {json}"
+    const chunks = buffer.split('\n\n')
+    buffer = chunks.pop() || ''
+    for (const chunk of chunks) {
+      const line = chunk.split('\n').find((l) => l.startsWith('data: '))
+      if (!line) continue
+      try {
+        onEvent(JSON.parse(line.slice(6)) as CopilotEvent)
+      } catch {
+        // evento malformado — ignora e segue o stream
+      }
+    }
+  }
 }
 
 // KPIs agregados do advertiser com delta vs. período anterior (espelho Neon).

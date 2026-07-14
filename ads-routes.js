@@ -275,6 +275,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           lastSyncAt: lastSync ? new Date(lastSync).toISOString() : null,
         },
         automation: automation.getSweepInfo(req.account.id),
+        // IA: configuração + telemetria (chamadas 1h, tokens, briefing de hoje)
+        ai: adsAi.getAiStats(),
       });
     } catch (err) { fail(res, err); }
   });

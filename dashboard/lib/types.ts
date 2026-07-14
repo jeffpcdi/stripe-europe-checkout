@@ -1048,6 +1048,8 @@ export interface AdsMcpStatusResponse {
     alertsEnabled: boolean
     lastAction: { at: string; result?: string; campaignName?: string; ok: boolean } | null
   }
+  // telemetria da camada de IA (Vercel AI Gateway ≠ chamadas Pipeboard)
+  ai?: { calls: number; errors: number; lastAt: string | null; lastError: string | null }
 }
 
 // ── GET /api/ads/kpis — totais agregados com comparação de período ──
@@ -1069,6 +1071,92 @@ export interface AdsKpisResponse {
   previous: AdsKpiTotals | null
   // % vs. período anterior; null quando a base é 0 (a UI oculta a seta)
   deltas: Record<'spend' | 'impressions' | 'clicks' | 'conversions' | 'ctr' | 'cpm', number | null> | null
+}
+
+// ── IA: copiloto, briefing, criativos, realocação (/api/ads/copilot etc.) ──
+
+// Evento SSE do copiloto (data: {...}\n\n)
+export type CopilotEvent =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; name: string }
+  | { type: 'action'; action: ProposedAction }
+  | { type: 'error'; error: string }
+  | { type: 'done' }
+
+// Proposta de ação da IA — vira card de aprovação; executa via /copilot/execute
+export interface ProposedAction {
+  proposed: true
+  type: 'pause' | 'activate' | 'budget' | 'create_rule'
+  params: {
+    campaignIds?: string[]
+    campaignId?: string
+    budget?: number
+    rule?: Partial<AdsRule>
+  }
+  summary: string
+}
+
+export interface AdsAnomaly {
+  metric: 'spend' | 'cpa' | 'ctr' | 'cpm'
+  day: string
+  value: number
+  mean: number
+  z: number
+  direction: 'up' | 'down'
+  severity: 'bad' | 'good'
+}
+
+export interface AdsBriefing {
+  date: string
+  kind: string
+  content: string
+  meta: { anomalies?: AdsAnomaly[]; usedAi?: boolean; advertiserId?: string }
+  createdAt: string
+}
+
+export interface AdsBriefingResponse {
+  ai: boolean
+  briefings: AdsBriefing[]
+}
+
+export interface AdsCreativeInsights {
+  cached?: boolean
+  stale?: boolean
+  insufficient?: boolean
+  adCount?: number
+  content?: string
+  patterns?: string
+  topAds?: {
+    adId: string
+    name: string
+    campaignName: string
+    spend: number
+    conversions: number
+    ctr: number
+  }[]
+  variations?: { basedOn: string; copies: string[] }[]
+}
+
+export interface AdsBudgetProposal {
+  insufficient?: boolean
+  eligibleCount?: number
+  noChange?: boolean
+  message?: string
+  totalBudget?: number
+  currency?: string
+  rationale?: string
+  changes?: {
+    campaignId: string
+    name: string
+    roas: number | null
+    sales: number
+    current: number
+    proposed: number
+    deltaPct: number
+  }[]
+  unchanged?: { id: string; name: string }[]
+  excluded?: { id: string; name: string; reason: string }[]
+  actions?: ProposedAction[]
 }
 
 // ── /api/ads/templates — configurações de campanha reutilizáveis ──
