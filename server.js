@@ -4126,7 +4126,13 @@ app.post('/api/conversion/quarantine/resolve', dashboardAuth, async (req, res) =
 const TTQ_STUB = '!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)}}(window,document,"ttq");';
 
 app.get('/px.js', (req, res) => {
-  res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+  // Cache PRIVADO (nunca compartilhado): o script embute dados do visitante
+  // (external_id + event_id com o v_id), então não pode ser servido a outro
+  // visitante. `private` mantém no cache do PRÓPRIO navegador; max-age=300
+  // elimina o roundtrip por pageview; stale-while-revalidate=3600 permite usar
+  // a cópia antiga (mesmo se o nosso servidor cair) enquanto revalida em 2º
+  // plano. O ETag abaixo torna a revalidação barata (304 sem corpo).
+  res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'private, max-age=300, stale-while-revalidate=3600' });
   // rota da página que pediu o script (Referer) — decide QUAIS pixels carregar
   let route = '/';
   try { route = new URL(req.headers.referer || 'https://x/').pathname || '/'; } catch (_) {}
@@ -4176,6 +4182,10 @@ app.get('/px.js', (req, res) => {
     '}catch(_){}'
   ].filter(Boolean).join('\n');
 
+  // ETag forte do conteúdo → revalidação barata (If-None-Match → 304 sem corpo)
+  const etag = '"' + crypto.createHash('md5').update(js).digest('hex') + '"';
+  res.set('ETag', etag);
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
   res.send(js);
 });
 
@@ -4185,9 +4195,13 @@ app.get('/px.js', (req, res) => {
 // O script carrega SÓ aquele pixel, identifica o visitante e espelha os
 // eventos no servidor (CAPI) com dedup — independe de rotas configuradas.
 app.get('/px/:token.js', (req, res) => {
+  // Cache PRIVADO + SWR + ETag (mesma razão do /px.js: o corpo varia por
+  // visitante, então nunca 'public'). Vary: Cookie garante que caches que
+  // porventura ignorem 'private' ao menos segmentem pelo v_id do visitante.
   res.set({
     'Content-Type': 'application/javascript; charset=utf-8',
-    'Cache-Control': 'no-store',
+    'Cache-Control': 'private, max-age=300, stale-while-revalidate=3600',
+    'Vary': 'Cookie',
     'Access-Control-Allow-Origin': '*'   // páginas externas podem carregar
   });
   const token = String(req.params.token || '').slice(0, 64);
@@ -4224,6 +4238,9 @@ app.get('/px/:token.js', (req, res) => {
     '}catch(_){}'
   ].filter(Boolean).join('\n');
 
+  const etag = '"' + crypto.createHash('md5').update(js).digest('hex') + '"';
+  res.set('ETag', etag);
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
   res.send(js);
 });
 
