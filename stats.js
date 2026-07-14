@@ -242,6 +242,11 @@ function addLead(lead) {
       if (!l) return;
       if (l.id) leadIndex.delete(l.id);
       unindexLeadContacts(l); // item 450: não deixar entrada apontando pra lead podado
+      // Risco 5: idem para o índice de órfãs por pedido.
+      if (l.orphan && l.ref) {
+        const k = orphanKey(l.acc, l.gateway, l.ref);
+        if (orphanOrderIndex.get(k) === l) orphanOrderIndex.delete(k);
+      }
     });
   }
   return lead;
@@ -424,10 +429,9 @@ function findLeadByEmail(email, accountId) {
   ensureLoaded();
   const needle = normEmailKey(email);
   if (!needle) return null;
-  // Risco 2: match ESTRITO por conta. O fallback contactKey(null, …) casava um
-  // lead sem dono com o webhook de QUALQUER conta — vazamento entre tenants.
-  // Removido (os dados legados são reivindicados por claimLegacyData).
-  return emailIndex.get(contactKey(accountId, needle)) || null;
+  // Risco 2: match ESTRITO por conta (fallback contactKey(null,…) removido).
+  // Risco 1: o índice agora é um Set — escolhe o melhor por intenção/recência.
+  return pickBestCandidate(emailIndex.get(contactKey(accountId, needle))).lead;
 }
 
 // Busca por telefone — 3º fallback do webhook (leadId → email → phone).
@@ -436,8 +440,8 @@ function findLeadByPhone(phone, accountId) {
   ensureLoaded();
   const tail = normPhoneKey(phone);
   if (!tail) return null;
-  // Risco 2: match ESTRITO por conta (fallback null removido — ver findLeadByEmail).
-  return phoneIndex.get(contactKey(accountId, tail)) || null;
+  // Risco 2: estrito por conta. Risco 1: Set → melhor candidato.
+  return pickBestCandidate(phoneIndex.get(contactKey(accountId, tail))).lead;
 }
 
 // ── Convers��o de gateway externo (Kiwify, Hotmart, PerfectPay, …) ─────────
@@ -458,15 +462,46 @@ function matchExternalConversion(data) {
   // Risco 2: fronteira ESTRITA (null só casa com null). findLead(id) resolve por
   // id sem escopo de conta, então o guard é o que impede o cruzamento aqui.
   if (lead && (lead.acc || null) !== (acc || null)) lead = null;
-  if (!lead) lead = (data.email ? findLeadByEmail(data.email, acc) : null) ||
-    (data.phone ? findLeadByPhone(data.phone, acc) : null);
+  // Risco 1: transparência de atribuição. Quando casamos por CONTATO
+  // (e-mail/telefone), pode haver >1 lead — registramos quantos e se são de
+  // campanhas diferentes (crédito duvidoso). Match direto por leadId = 1.
+  let candidates = 1;
+  let ambiguous = false;
+  if (lead) {
+    candidates = 1;
+  } else {
+    const pick = findContactCandidates(acc, data.email, data.phone);
+    lead = pick.lead;
+    candidates = pick.candidates;
+    ambiguous = pick.ambiguous;
+  }
+
+  // Risco 5 (defesa em profundidade): 2º hit da MESMA venda órfã (retry sem
+  // leadId/e-mail casável) reusaria addLead e criaria uma órfã duplicada, com
+  // receita dobrada. Se já existe uma órfã para (conta,gateway,orderId),
+  // devolve a original marcada como duplicata em vez de criar outra.
+  if (!lead && data.ref) {
+    const ok = orphanKey(acc, gw, data.ref);
+    const existingOrphan = orphanOrderIndex.get(ok);
+    if (existingOrphan) {
+      existingOrphan.duplicateReports = (existingOrphan.duplicateReports || 0) + 1;
+      markDirty();
+      return decorateMatch(existingOrphan, { candidates, ambiguous, duplicate: true });
+    }
+  }
 
   if (lead) {
-    if (lead.status === 'converted') {
+    const alreadyConverted = lead.status === 'converted';
+    if (alreadyConverted) {
+      // Risco 5: retry de uma venda já contabilizada — conta o report e
+      // sinaliza duplicata para o caller NÃO re-emitir o evento de receita.
       lead.duplicateReports = (lead.duplicateReports || 0) + 1;
-    } else {
-      lead.status = 'converted';
+      markDirty();
+      invalidateStatsCache();
+      db.upsertLead(lead.acc || null, lead);
+      return decorateMatch(lead, { candidates, ambiguous, duplicate: true });
     }
+    lead.status = 'converted';
     lead.stage = 'purchased';
     lead.gateway = gw;
     if (acc && !lead.acc) lead.acc = acc;
@@ -519,6 +554,8 @@ function matchExternalConversion(data) {
       ref: data.ref || null,
       utm: {}
     });
+    // Risco 5: indexa a órfã por (conta,gateway,orderId) para reconhecer retries.
+    if (data.ref) orphanOrderIndex.set(orphanKey(acc, gw, data.ref), lead);
   }
 
   pushJourney(lead, 'compra');
@@ -532,6 +569,19 @@ function matchExternalConversion(data) {
   markDirty();
   invalidateStatsCache();
   db.upsertLead(lead.acc || null, lead);
+  return decorateMatch(lead, { candidates, ambiguous, duplicate: false });
+}
+
+// Risco 1/5: anexa metadados de atribuição ao lead retornado SEM persisti-los.
+// Usa propriedades não-enumeráveis para que db.upsertLead (JSON.stringify) as
+// ignore — elas são só um canal de comunicação com o caller (server.js).
+function decorateMatch(lead, meta) {
+  if (!lead) return lead;
+  try {
+    Object.defineProperty(lead, 'matchCandidates', { value: meta.candidates || 1, configurable: true, enumerable: false, writable: true });
+    Object.defineProperty(lead, 'matchAmbiguous', { value: !!meta.ambiguous, configurable: true, enumerable: false, writable: true });
+    Object.defineProperty(lead, '_duplicate', { value: !!meta.duplicate, configurable: true, enumerable: false, writable: true });
+  } catch (_) { /* se falhar, o caller cai nos defaults */ }
   return lead;
 }
 
