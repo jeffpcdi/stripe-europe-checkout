@@ -1,0 +1,237 @@
+// ── Motor de sync Pipeboard → Neon ──────────────────────────────────────────
+// PORQUÊ: a dashboard não deve mais esperar a API do Pipeboard a cada tela.
+// Este motor busca, em segundo plano, a estrutura + as métricas diárias de cada
+// advertiser ATIVO (visualizado recentemente na dashboard) e grava no espelho
+// durável (ads-cache-store). As rotas de leitura passam a ler só do Neon.
+//
+// Estratégia:
+//   - Janela larga (365d) de métricas DIÁRIAS por entidade → qualquer
+//     date-range pedido pela dashboard é servido por agregação, sem re-chamar.
+//   - Só sincroniza advertisers ativos (touchActivity marca quando a dashboard
+//     abre uma conta) — corta o custo de varrer os 155 do token.
+//   - Stale-while-revalidate: se já há cache, serve na hora e revalida em
+//     segundo plano; só bloqueia no PRIMEIRO carregamento (cache frio).
+//   - Como o plano é ilimitado, o intervalo é agressivo (3 min por padrão).
+const provider = require('./ads-provider');
+const cache = require('./ads-cache-store');
+const pipeboard = require('./pipeboard-mcp');
+
+const WIDE_DAYS = Number(process.env.ADS_SYNC_WINDOW_DAYS) || 90;
+const CHUNK_DAYS = 30; // TikTok limita stat_time_day a janelas de 30 dias (erro 40002)
+// Sync incremental: métricas de dias passados são imutáveis, só as recentes
+// mudam. O loop quente refaz só os últimos INCREMENTAL_DAYS dias; o backfill
+// completo (WIDE_DAYS) roda no cache frio e no máximo 1× a cada FULL_EVERY_MS.
+const INCREMENTAL_DAYS = Number(process.env.ADS_SYNC_INCREMENTAL_DAYS) || 3;
+const FULL_EVERY_MS = Number(process.env.ADS_SYNC_FULL_EVERY_MS) || 24 * 3600 * 1000;
+const SYNC_INTERVAL_MS = Number(process.env.ADS_SYNC_INTERVAL_MS) || 3 * 60 * 1000; // 3 min
+const ACTIVE_WINDOW_MIN = Number(process.env.ADS_SYNC_ACTIVE_MIN) || 6 * 60;        // 6h
+const STALE_MS = Number(process.env.ADS_SYNC_STALE_MS) || SYNC_INTERVAL_MS;         // idade p/ revalidar
+const MANUAL_THROTTLE_MS = Number(process.env.ADS_SYNC_MANUAL_THROTTLE_MS) || 20 * 1000;
+
+function iso(d) { return d.toISOString().slice(0, 10); }
+function dayStr(v) { return String(v || '').slice(0, 10); }
+function syncKey(accountId, advertiserId) { return accountId + '|' + advertiserId; }
+
+// Coleta métricas DIÁRIAS de um nível (dimensão de entidade + stat_time_day).
+// Uma linha por (entidade, dia). Falha isolada devolve [] (o snapshot preserva
+// o cache antigo daquele nível em vez de zerá-lo).
+const LEVELS = {
+  campaign: { level: 'AUCTION_CAMPAIGN', dimKey: 'campaign_id' },
+  adgroup: { level: 'AUCTION_ADGROUP', dimKey: 'adgroup_id' },
+  ad: { level: 'AUCTION_AD', dimKey: 'ad_id' },
+};
+// Fatia [startDate, endDate] em janelas de ≤30 dias (limite do TikTok para
+// stat_time_day). Devolve [{ start, end }].
+function dateChunks(startDate, endDate) {
+  const chunks = [];
+  let cur = new Date(startDate + 'T00:00:00Z');
+  const end = new Date(endDate + 'T00:00:00Z');
+  while (cur <= end) {
+    const chunkEnd = new Date(Math.min(cur.getTime() + (CHUNK_DAYS - 1) * 864e5, end.getTime()));
+    chunks.push({ start: iso(cur), end: iso(chunkEnd) });
+    cur = new Date(chunkEnd.getTime() + 864e5);
+  }
+  return chunks;
+}
+
+async function collectDaily(advertiserId, levelName, startDate, endDate) {
+  const { level, dimKey } = LEVELS[levelName];
+  const chunks = dateChunks(startDate, endDate);
+  // Uma chamada por janela de 30 dias. O rate limiter do provider serializa;
+  // Promise.all só encurta a espera de agendamento.
+  const perChunk = await Promise.all(chunks.map((c) =>
+    provider.getInsights(advertiserId, { level, startDate: c.start, endDate: c.end, dimensions: [dimKey, 'stat_time_day'] })
+      .then((r) => r.rows || [])
+  ));
+  const out = [];
+  for (const rows of perChunk) {
+    for (const r of rows) {
+      const d = r.dimensions || {};
+      const entityId = String(d[dimKey] || '');
+      const day = dayStr(d.stat_time_day);
+      if (!entityId || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      out.push({ level: levelName, entityId, day, spend: r.spend, impressions: r.impressions, clicks: r.clicks, conversions: r.conversions, reach: r.reach });
+    }
+  }
+  return out;
+}
+
+// Sincroniza UM advertiser: estrutura (getDashboardTree, janela larga) +
+// métricas diárias dos 3 níveis → grava snapshot no espelho.
+async function syncAdvertiser(accountId, advertiserId, opts = {}) {
+  advertiserId = String(advertiserId || '').trim();
+  if (!advertiserId) return { ok: false, error: 'advertiserId vazio' };
+  const start = Date.now();
+  const callsBefore = pipeboard.getCallStats ? pipeboard.getCallStats().total : 0;
+
+  // Full vs incremental: full quando pedido explicitamente, ou quando nunca
+  // houve backfill completo, ou quando o último passou de FULL_EVERY_MS.
+  let full = opts.full === true;
+  if (!full) {
+    const st = await cache.getSyncState(accountId, advertiserId).catch(() => null);
+    const lastFull = st && st.last_full_synced_at ? new Date(st.last_full_synced_at).getTime() : 0;
+    full = !lastFull || (Date.now() - lastFull) > FULL_EVERY_MS;
+  }
+
+  await cache.upsertSyncState(accountId, advertiserId, { status: 'syncing' }).catch(() => {});
+  try {
+    const today = new Date();
+    // Estrutura: sempre janela larga (a árvore precisa refletir tudo).
+    const structFrom = iso(new Date(today.getTime() - WIDE_DAYS * 864e5));
+    const to = iso(today);
+    // Métricas: janela larga no full, curta no incremental (dias imutáveis).
+    const metricsFrom = full ? structFrom : iso(new Date(today.getTime() - (INCREMENTAL_DAYS - 1) * 864e5));
+
+    // Estrutura + status derivados (fresh: ignora o micro-cache de 15s do provider).
+    const tree = await provider.getDashboardTree(accountId, { advertiserId, fromDate: structFrom, toDate: to, fresh: true });
+
+    // Métricas diárias dos 3 níveis (falha isolada não derruba o sync inteiro).
+    const [cd, gd, ad] = await Promise.all([
+      collectDaily(advertiserId, 'campaign', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas campaign falharam:', e.message); return []; }),
+      collectDaily(advertiserId, 'adgroup', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas adgroup falharam:', e.message); return []; }),
+      collectDaily(advertiserId, 'ad', metricsFrom, to).catch((e) => { console.warn('[ads-sync] métricas ad falharam:', e.message); return []; }),
+    ]);
+    const dailyMetrics = cd.concat(gd, ad);
+
+    // Incremental NÃO poda métricas (preserva o backfill histórico).
+    await cache.writeAdvertiserSnapshot(accountId, advertiserId, { campaigns: tree.campaigns || [], dailyMetrics }, { pruneMetrics: full });
+
+    const callsUsed = (pipeboard.getCallStats ? pipeboard.getCallStats().total : 0) - callsBefore;
+    const now = new Date().toISOString();
+    await cache.upsertSyncState(accountId, advertiserId, {
+      status: 'ok', lastSyncedAt: now, lastFullSyncedAt: full ? now : null,
+      windowFrom: structFrom, windowTo: to, lastDurationMs: Date.now() - start, callsUsed,
+    });
+    console.log('[ads-sync] ' + accountId + '/' + advertiserId + ' ok (' + (full ? 'full' : 'incremental') + ') — ' + (tree.campaigns || []).length + ' campanhas, ' + dailyMetrics.length + ' linhas de métrica, ' + callsUsed + ' chamadas, ' + (Date.now() - start) + 'ms');
+    return { ok: true, full, campaigns: (tree.campaigns || []).length, metrics: dailyMetrics.length, callsUsed };
+  } catch (err) {
+    await cache.upsertSyncState(accountId, advertiserId, { status: 'error', lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
+    console.error('[ads-sync] ' + accountId + '/' + advertiserId + ' ERRO:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Dedup de sync em voo: requests concorrentes para o mesmo advertiser
+// compartilham a mesma promessa (evita rajada de N syncs idênticos).
+const inflight = new Map();
+function dedupSync(accountId, advertiserId) {
+  const key = syncKey(accountId, advertiserId);
+  if (inflight.has(key)) return inflight.get(key);
+  const p = syncAdvertiser(accountId, advertiserId).finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
+// Garante dados para uma leitura da dashboard:
+//   - marca o advertiser como ativo (vira alvo do loop recorrente);
+//   - se há cache, serve na hora e revalida em segundo plano quando velho (SWR);
+//   - se o cache está frio (nunca sincronizado), BLOQUEIA até o 1º sync.
+// Retorna { ok, cached, stale, cold } — a rota lê do espelho em seguida.
+async function ensureFresh(accountId, advertiserId, opts = {}) {
+  advertiserId = String(advertiserId || '').trim();
+  if (!cache.enabled || !provider.enabled || !advertiserId) return { ok: false, disabled: true };
+  await cache.touchActivity(accountId, advertiserId).catch(() => {});
+  const st = await cache.getSyncState(accountId, advertiserId).catch(() => null);
+  const last = st && st.last_synced_at ? new Date(st.last_synced_at).getTime() : 0;
+  const hasData = last > 0 && st && st.status !== 'never';
+  const stale = !last || (Date.now() - last) > (opts.maxAgeMs || STALE_MS);
+
+  if (hasData) {
+    if (stale) dedupSync(accountId, advertiserId).catch(() => {}); // revalida sem bloquear
+    return { ok: true, cached: true, stale };
+  }
+  // cache frio: bloqueia no primeiro carregamento (senão a tela viria vazia)
+  if (opts.blockIfCold === false) { dedupSync(accountId, advertiserId).catch(() => {}); return { ok: false, cold: true }; }
+  return dedupSync(accountId, advertiserId);
+}
+
+// Refresh manual (botão "Atualizar agora") com throttle por advertiser — evita
+// que cliques repetidos disparem uma rajada de syncs.
+const lastManual = new Map();
+async function refreshNow(accountId, advertiserId) {
+  advertiserId = String(advertiserId || '').trim();
+  if (!cache.enabled || !provider.enabled || !advertiserId) return { ok: false, disabled: true };
+  const key = syncKey(accountId, advertiserId);
+  const prev = lastManual.get(key) || 0;
+  const waitMs = MANUAL_THROTTLE_MS - (Date.now() - prev);
+  if (waitMs > 0) return { ok: false, throttled: true, retryInMs: waitMs };
+  lastManual.set(key, Date.now());
+  return dedupSync(accountId, advertiserId);
+}
+
+// ── Loop recorrente ─────────────────────────────────────────────────────────
+let running = false;
+let timer = null;
+async function tick() {
+  if (running) return;
+  running = true;
+  try {
+    const actives = await cache.listActiveAdvertisers(ACTIVE_WINDOW_MIN);
+    for (const a of actives) {
+      const st = await cache.getSyncState(a.accountId, a.advertiserId).catch(() => null);
+      const last = st && st.last_synced_at ? new Date(st.last_synced_at).getTime() : 0;
+      if (!last || (Date.now() - last) >= (SYNC_INTERVAL_MS - 15 * 1000)) {
+        await syncAdvertiser(a.accountId, a.advertiserId); // sequencial: respeita o rate limit do provider
+      }
+    }
+  } catch (err) {
+    console.error('[ads-sync] tick falhou:', err.message);
+  } finally {
+    running = false;
+  }
+}
+
+function start() {
+  if (timer) return;
+  if (!cache.enabled || !provider.enabled) {
+    console.warn('[ads-sync] desativado (Neon ou Pipeboard indisponível).');
+    return;
+  }
+  console.log('[ads-sync] motor ligado — intervalo ' + Math.round(SYNC_INTERVAL_MS / 1000) + 's, janela ' + WIDE_DAYS + 'd, ativos < ' + ACTIVE_WINDOW_MIN + 'min.');
+  timer = setInterval(() => { tick().catch(() => {}); }, SYNC_INTERVAL_MS);
+  if (timer.unref) timer.unref();
+  // primeiro tick logo após o boot (dá tempo do schema/rotas subirem)
+  setTimeout(() => { tick().catch(() => {}); }, 5 * 1000);
+}
+
+function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+// Após uma ESCRITA (pausar/ativar/orçamento), o espelho fica defasado. Isto
+// força um sync imediato da conta (sem throttle) p/ a dashboard refletir a
+// mudança. Best-effort e não-bloqueante: a rota já respondeu ao usuário.
+function syncAfterWrite(accountId, advertiserId) {
+  advertiserId = String(advertiserId || '').trim();
+  if (!cache.enabled || !provider.enabled || !advertiserId) return;
+  dedupSync(accountId, advertiserId).catch((e) => console.warn('[ads-sync] sync pós-escrita falhou:', e.message));
+}
+
+module.exports = {
+  syncAdvertiser,
+  ensureFresh,
+  refreshNow,
+  syncAfterWrite,
+  start,
+  stop,
+  tick,
+  _config: { WIDE_DAYS, SYNC_INTERVAL_MS, ACTIVE_WINDOW_MIN, STALE_MS, MANUAL_THROTTLE_MS },
+};

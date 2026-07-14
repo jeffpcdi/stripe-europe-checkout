@@ -4397,16 +4397,23 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
     // cair, o pixel nativo continua disparando. O nosso script (com defer)
     // apenas enriquece (external_id) e espelha via CAPI; ele detecta o ttq já
     // carregado e não o recarrega. Degradação graciosa em vez de perda total.
+    // Parte 1 — RASTREAMENTO (/t.js): é o que registra a visita NA DASHBOARD
+    // (funil, leads, geo, jornada). Sem ele o visitante fica invisível para o
+    // operador, mesmo com o pixel disparando para o TikTok. Um por página,
+    // independe de qual pixel — por isso a mesma tag em todos.
+    scriptTagTracker: '<!-- 1) ROI-NADOS Rastreamento — registra a visita na SUA dashboard (funil, leads, jornada) -->\n<script src="' + proto + '://' + host + '/t.js" defer></script>',
     scriptTagNative: p.pixelCode
-      ? '<!-- 1) TikTok Pixel (nativo) — cole no <head>, funciona mesmo se nosso servidor cair -->\n<script>\n' + TTQ_STUB + '\nttq.load(' + JSON.stringify(p.pixelCode) + ');\nttq.page();\n</script>'
+      ? '<!-- 2) TikTok Pixel (nativo) — cole no <head>, funciona mesmo se nosso servidor cair -->\n<script>\n' + TTQ_STUB + '\nttq.load(' + JSON.stringify(p.pixelCode) + ');\nttq.page();\n</script>'
       : null,
     scriptTagEnrich: p.token
-      ? '<!-- 2) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
+      ? '<!-- 3) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
       : null,
-    // Compatibilidade: scriptTag agora entrega o bloco COMPLETO (as duas partes).
+    // Compatibilidade: scriptTag entrega o bloco COMPLETO (as TRÊS partes).
+    // A parte 1 (/t.js) faltava aqui — quem instalava só o que a página mandava
+    // não via as próprias visitas na dashboard.
     scriptTag: p.token && p.pixelCode
-      ? '<!-- 1) TikTok Pixel (nativo) — cole no <head>, funciona mesmo se nosso servidor cair -->\n<script>\n' + TTQ_STUB + '\nttq.load(' + JSON.stringify(p.pixelCode) + ');\nttq.page();\n</script>\n\n<!-- 2) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
-      : (p.token ? '<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null)
+      ? '<!-- 1) ROI-NADOS Rastreamento — registra a visita na SUA dashboard (funil, leads, jornada) -->\n<script src="' + proto + '://' + host + '/t.js" defer></script>\n\n<!-- 2) TikTok Pixel (nativo) — cole no <head>, funciona mesmo se nosso servidor cair -->\n<script>\n' + TTQ_STUB + '\nttq.load(' + JSON.stringify(p.pixelCode) + ');\nttq.page();\n</script>\n\n<!-- 3) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
+      : (p.token ? '<script src="' + proto + '://' + host + '/t.js" defer></script>\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null)
   }));
   // Item 6: snippet BASE do loader (dispara para todos os pixels da conta) e
   // orientação clara — eventos de pagamento exigem gateway, nunca o navegador.
@@ -4417,6 +4424,8 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
     meta: {
       loaderUrl: base,
       loaderTag: '<script src="' + base + '" defer></script>',
+      trackerUrl: proto + '://' + host + '/t.js',
+      trackerTag: '<script src="' + proto + '://' + host + '/t.js" defer></script>',
       paymentNote: 'Este script cobre Visita, Carrinho e Checkout. O evento de Compra (CompletePayment) só dispara quando um gateway confirma o pagamento via webhook — conecte um gateway na aba Gateways.'
     }
   });
@@ -4640,11 +4649,15 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
       return { slug: p.slug, name: p.name, scriptOk, nativeOk, instalado: scriptOk || nativeOk };
     });
     const algum = found.some((f) => f.instalado);
+    // O /t.js é quem registra a visita NA DASHBOARD. Pixel instalado sem ele =
+    // eventos chegam ao TikTok mas o operador não vê os próprios visitantes —
+    // exatamente a confusão mais comum. Checamos e avisamos explicitamente.
+    const trackerOk = html.indexOf('/t.js') !== -1;
     stats.logEvent('info', {
       acc: req.account.id,
-      title: 'Verificação de pixel por URL: ' + (algum ? 'instalado' : 'NÃO encontrado') + ' em ' + page.finalUrl
+      title: 'Verificação de pixel por URL: ' + (algum ? 'instalado' : 'NÃO encontrado') + (trackerOk ? '' : ' (sem rastreamento /t.js)') + ' em ' + page.finalUrl
     });
-    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, pixels: found });
+    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, trackerOk, pixels: found });
   } catch (err) {
     res.status(500).json({ error: 'falha na verificação' });
   }
@@ -4760,7 +4773,7 @@ app.post('/api/reset-stats', dashboardAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Dashboard Next.js (proxy reverso, mesmo domínio) ─────────────────
+// ── Dashboard Next.js (proxy reverso, mesmo domínio) ───────────────���─
 // O app Next roda internamente na porta 3001 com basePath /dashboard.
 // O Express (porta pública) repassa /dashboard/* para ele — sessão, APIs
 // e WebSocket ficam todos no MESMO domínio, sem CORS nem env de URL pública.
@@ -4915,6 +4928,13 @@ stats.hydrate()
   .then(() => require('./ads-catalog-store').ensureSchema().catch((e) => {
     console.warn('[ads-catalog] ensureSchema falhou:', e.message);
   }))
+  // Espelho durável do Pipeboard (ads_campaigns_cache / _metrics_cache /
+  // _sync_state). A dashboard lê daqui; o motor de sync escreve aqui.
+  .then(() => require('./ads-cache-store').ensureSchema().catch((e) => {
+    console.warn('[ads-cache] ensureSchema falhou:', e.message);
+  }))
+  // Liga o motor de sync Pipeboard→Neon (loop em background p/ contas ativas).
+  .then(() => { try { require('./ads-sync').start(); } catch (e) { console.warn('[ads-sync] start falhou:', e.message); } })
   // Jobs de Ads presos em running/queued de ANTES do reinício nunca continuam
   // (rodam in-process) — marca como failed/partial para o usuário reprocessar.
   .then(() => require('./ads-ops-store').reconcileOrphanJobs().catch((e) => {

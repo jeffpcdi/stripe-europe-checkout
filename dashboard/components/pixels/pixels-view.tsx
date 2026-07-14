@@ -49,6 +49,8 @@ type UrlCheck = {
   ok: boolean
   url?: string
   algumInstalado?: boolean
+  /** O /t.js (rastreamento da dashboard) está na página? Sem ele a visita não aparece no funil. */
+  trackerOk?: boolean
   pixels?: { slug: string; name: string; scriptOk: boolean; nativeOk: boolean; instalado: boolean }[]
   error?: string
 }
@@ -77,22 +79,24 @@ const PIXEL_STEPS: TutorialStep[] = [
     ),
   },
   {
-    title: '2. Instale o script na sua página',
+    title: '2. Instale o bloco completo na sua página',
     body: (
       <>
-        Copie a tag <code>&lt;script&gt;</code> do pixel e cole antes do <code>&lt;/head&gt;</code> da sua
-        landing page. Ela rastreia visita, carrinho e checkout automaticamente.
+        Copie o bloco <code>&lt;script&gt;</code> do pixel e cole antes do <code>&lt;/head&gt;</code>. Ele
+        tem <strong>3 partes</strong>: (1) o <strong>Rastreamento</strong> (<code>/t.js</code>) — é ele que
+        faz o visitante <strong>aparecer na sua dashboard</strong> (funil, leads, jornada); (2) o pixel
+        nativo do TikTok; (3) o enriquecimento + CAPI.
       </>
     ),
-    tip: 'A tag é individual por pixel — cada campanha pode ter a sua.',
+    tip: 'Sem a parte 1 (/t.js), os eventos até chegam ao TikTok, mas você NÃO vê as visitas na dashboard.',
   },
   {
     title: '3. Confirme que está instalado',
     body: (
       <>
         Use o painel <strong>Verificar instalação</strong>: cole a URL da sua página e nós buscamos o HTML
-        dela para confirmar se o script está presente. Você também pode usar <strong>Testar disparo</strong>{' '}
-        para enviar um evento de teste e ver a resposta do TikTok.
+        dela para confirmar se o pixel <strong>e o rastreamento</strong> estão presentes. Você também pode
+        usar <strong>Testar disparo</strong> para enviar um evento de teste e ver a resposta do TikTok.
       </>
     ),
   },
@@ -346,7 +350,7 @@ export function PixelsView() {
             <div>
               <h2 className="section-head text-sm font-semibold text-foreground">Pixels TikTok</h2>
               <p className="text-xs text-muted-foreground">
-                Eventos server-side (CAPI) — cole o script em qualquer página
+                Bloco completo: rastreamento da dashboard + pixel TikTok + CAPI — cole em qualquer página
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -747,6 +751,25 @@ export function PixelsView() {
                           : 'Nenhum pixel seu foi encontrado nessa página. Cole a tag do script antes do </head> e tente de novo.'}
                       </span>
                     </p>
+                    {/* O caso mais confuso: pixel ok mas SEM o /t.js — os eventos vão
+                        ao TikTok, mas a visita não aparece na dashboard. Aviso dedicado. */}
+                    {urlCheck.trackerOk === false && (
+                      <p className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                        <span className="text-pretty">
+                          O script de <strong>Rastreamento</strong> (<code>/t.js</code>) não está nessa página —
+                          por isso as visitas <strong>não aparecem na sua dashboard</strong> (funil, leads).
+                          Copie o bloco completo do pixel (a parte 1 é o rastreamento) e cole antes do{' '}
+                          <code>{'</head>'}</code>.
+                        </span>
+                      </p>
+                    )}
+                    {urlCheck.trackerOk === true && (
+                      <p className="flex items-center justify-between gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-[11px]">
+                        <span className="truncate font-medium text-foreground">Rastreamento da dashboard (/t.js)</span>
+                        <span className="shrink-0 font-mono text-success">instalado</span>
+                      </p>
+                    )}
                     {(urlCheck.pixels ?? []).map((p) => (
                       <p key={p.slug} className="flex items-center justify-between gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-[11px]">
                         <span className="truncate font-medium text-foreground">{p.name}</span>

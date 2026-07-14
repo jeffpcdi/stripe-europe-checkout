@@ -292,12 +292,9 @@ export function TikTokAdsView() {
           </button>
           <button
             type="button"
-            className="btn-ghost text-xs"
-            onClick={() => {
-              // Duplicar exige uma campanha de origem: guia o operador para o
-              // ícone de duplicar na linha da campanha desejada.
-              toast.info('Para duplicar, use o ícone de duplicar na campanha desejada, na lista abaixo.')
-            }}
+            className="btn-ghost text-xs opacity-40"
+            disabled
+            title="Duplicar campanha está temporariamente indisponível nesta versão."
           >
             <Copy className="size-3.5" aria-hidden="true" />
             Duplicar

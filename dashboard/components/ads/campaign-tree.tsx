@@ -248,20 +248,6 @@ export function CampaignTree({
     }
   }
 
-  async function duplicateCampaign(c: AdsTreeCampaign) {
-    const id = c.platformCampaignId
-    setBusyId(id)
-    try {
-      await apiSend(`/api/ads/campaigns/${encodeURIComponent(id)}/duplicate`, 'POST', {})
-      toast.success('Campanha duplicada', { hint: 'A cópia chega pausada — revise e ative.' })
-      onMutate()
-    } catch (e) {
-      toast.error('Falha ao duplicar', { hint: e instanceof Error ? e.message : undefined })
-    } finally {
-      setBusyId(null)
-    }
-  }
-
   async function handleDeleteAd() {
     const ad = deleteAd
     const adId = ad?.platformAdId || ad?._id
@@ -448,10 +434,10 @@ export function CampaignTree({
                 )}
                 <button
                   type="button"
-                  className="btn-ghost !px-1.5 !py-1"
-                  onClick={() => (onDuplicate ? onDuplicate(c) : duplicateCampaign(c))}
-                  aria-label={`Duplicar campanha ${c.campaignName || id}`}
-                  title="Duplicar"
+                  className="btn-ghost !px-1.5 !py-1 opacity-40"
+                  disabled
+                  aria-label={`Duplicar campanha ${c.campaignName || id} (temporariamente indisponível)`}
+                  title="Duplicar (temporariamente indisponível nesta versão)"
                 >
                   <Copy className="size-3.5" aria-hidden="true" />
                 </button>
