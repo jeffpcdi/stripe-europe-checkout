@@ -133,6 +133,18 @@ async function ensureSchema() {
       created_at timestamptz NOT NULL DEFAULT now()
     )`;
     await sql`CREATE INDEX IF NOT EXISTS ads_audit_events_account_created_idx ON ads_audit_events (account_id, created_at DESC)`;
+    // Progresso durável POR ITEM do bulk (F2): grava cada ID criado ANTES de
+    // avançar para o próximo passo da composição. É o que torna o retry da fila
+    // (at-least-once) seguro sem Idempotency-Key no MCP: pós-crash, o item
+    // retoma do passo gravado em vez de recriar a campanha.
+    await sql`CREATE TABLE IF NOT EXISTS ads_bulk_progress (
+      account_id text NOT NULL,
+      job_id text NOT NULL,
+      item_index integer NOT NULL,
+      created jsonb NOT NULL DEFAULT '{}'::jsonb,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (account_id, job_id, item_index)
+    )`;
     await sql`CREATE TABLE IF NOT EXISTS ads_account_health (
       id text PRIMARY KEY,
       account_id text NOT NULL,
@@ -284,6 +296,30 @@ async function getAuditEvent(accountId, auditId) {
   await ensureSchema();
   const rows = await sql`SELECT id, account_id, actor_type, actor_id, action, target_type, target_id, advertiser_id, job_id, before_state, after_state, reason, metadata, created_at FROM ads_audit_events WHERE account_id = ${accountId} AND id = ${String(auditId || '')} LIMIT 1`;
   return rows[0] || null;
+}
+
+// ── Progresso por item do bulk (F2) ─────────────────────────────────────────
+// getBulkProgress: o que este item JÁ criou na plataforma (retomada pós-crash).
+// saveBulkProgress: merge do progresso — chamado após CADA passo da composição.
+// Sem Neon (enabled=false) devolve {} e não grava: o bulk continua funcionando,
+// só sem a garantia de retomada (mesma degradação do resto do ops-store).
+async function getBulkProgress(accountId, jobId, itemIndex) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return {};
+  await ensureSchema();
+  const rows = await sql`SELECT created FROM ads_bulk_progress WHERE account_id = ${accountId} AND job_id = ${String(jobId)} AND item_index = ${Number(itemIndex) || 0}`;
+  return (rows[0] && rows[0].created) || {};
+}
+
+async function saveBulkProgress(accountId, jobId, itemIndex, created) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return;
+  await ensureSchema();
+  const patch = JSON.stringify(created || {});
+  await sql`INSERT INTO ads_bulk_progress (account_id, job_id, item_index, created, updated_at)
+    VALUES (${accountId}, ${String(jobId)}, ${Number(itemIndex) || 0}, ${patch}::jsonb, now())
+    ON CONFLICT (account_id, job_id, item_index)
+    DO UPDATE SET created = ads_bulk_progress.created || ${patch}::jsonb, updated_at = now()`;
 }
 
 // Lista os eventos de auditoria mais recentes da conta (para a UI mostrar o
@@ -453,4 +489,4 @@ async function resolveTicketsForAdvertiser(accountId, advertiserId) {
   return sql`UPDATE ads_unban_tickets SET status = 'resolved', resolved_at = now(), notes = COALESCE(notes || ' | ', '') || 'Conta reativada — resolvido automaticamente', updated_at = now() WHERE account_id = ${accountId} AND advertiser_id = ${String(advertiserId || '')} AND status IN ('open','submitted') RETURNING id, advertiser_id`;
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };

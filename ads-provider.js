@@ -792,16 +792,43 @@ function ageGroupsFor(ageMin, ageMax) {
   return out.length && out.length < AGE_BUCKETS.length ? out : undefined; // todos = não segmenta
 }
 
+// Cinto extra da retomada (F2): se o crash aconteceu APÓS criar a campanha mas
+// ANTES de gravar o progresso, o resume não sabe dela. Antes de recriar, lista
+// as campanhas e casa o NOME exato — se já existe, reaproveita o id em vez de
+// duplicar. Falha da listagem NÃO bloqueia (é cinto, não trava).
+async function findCampaignIdByName(advertiserId, name) {
+  try {
+    const out = await pipeboard.callTool('get_tiktok_campaigns', {
+      advertiser_id: advertiserId, page: 1, page_size: 1000,
+    });
+    const list = firstArray(out, ['campaigns', 'campaign_list', 'list', 'data']);
+    const hit = list.find((c) => String(c.campaign_name || c.name || '') === String(name));
+    return hit ? String(hit.campaign_id || hit.id || '') || null : null;
+  } catch (_) { return null; }
+}
+
 // Orquestração completa. spec (já validado pela rota):
 //   { name, goal, videoUrl, budgetAmount, budgetType, endDate?, body?, linkUrl?,
 //     callToAction?, countries?, languages?, ageMin?, ageMax?,
 //     promotedObject? { pixelId, customEventType }, status? 'paused'|'active' }
 // SEMPRE cria o anúncio PAUSED e só liga no fim se spec.status==='active' —
 // nada entra em delivery no meio da composição.
-async function createFullAd(advertiserId, spec) {
+//
+// opts (F2 — retomada idempotente p/ a fila at-least-once do bulk):
+//   resume      — { campaignId?, adGroupId?, videoId?, adId? } já criados numa
+//                 tentativa anterior; cada passo com ID presente é PULADO.
+//   onProgress  — async (createdIds) => {}: chamado após CADA passo criar algo,
+//                 ANTES do próximo. O caller persiste (Neon) p/ o retry retomar.
+//   dedupeByName — true: antes de criar a campanha (sem resume dela), procura
+//                 nome exato na plataforma e reaproveita (janela crash-antes-
+//                 de-gravar). Só o bulk usa; a rota interativa não precisa.
+async function createFullAd(advertiserId, spec, opts) {
   const adv = String(advertiserId || '').trim();
   if (!adv) throw badRequest('advertiserId é obrigatório');
   const s = spec || {};
+  const o = opts || {};
+  const resume = (o.resume && typeof o.resume === 'object') ? o.resume : {};
+  const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
   const goal = GOAL_MAP[s.goal];
   if (!goal) throw badRequest('Objetivo "' + s.goal + '" ainda não suportado na criação via Pipeboard' + (s.goal === 'app_promotion' ? ' (exige app_id, que a UI ainda não coleta)' : ''));
   if (s.goal === 'conversions') {
@@ -810,6 +837,12 @@ async function createFullAd(advertiserId, spec) {
   }
   const warnings = [];
   const createdIds = {};
+
+  // Item já completo numa tentativa anterior (crash entre o fim e o ack da
+  // fila): devolve direto, zero chamadas de escrita.
+  if (resume.adId && resume.campaignId) {
+    return { campaignId: String(resume.campaignId), adGroupId: String(resume.adGroupId || ''), videoId: String(resume.videoId || ''), adId: String(resume.adId), name: s.name, warnings: ['Retomado: item já estava completo de uma tentativa anterior'], resumed: true };
+  }
 
   // Pré-requisitos ANTES de criar qualquer coisa (falha barata, zero órfãos):
   const [info, identity, regions] = await Promise.all([
@@ -820,50 +853,67 @@ async function createFullAd(advertiserId, spec) {
   if (regions.missingCountries.length) warnings.push('Países sem região equivalente no TikTok (ignorados): ' + regions.missingCountries.join(', '));
 
   // 1) Campanha — orçamento fica no ADGROUP (padrão sem CBO); campanha INFINITE.
-  const campArgs = {
-    advertiser_id: adv,
-    campaign_name: String(s.name).slice(0, 512),
-    objective_type: goal.objective,
-  };
-  if (s.goal === 'conversions') {
-    campArgs.pixel_id = String(s.promotedObject.pixelId);
-    campArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
+  let campaignId = String(resume.campaignId || '');
+  if (campaignId) {
+    warnings.push('Retomado: campanha ' + campaignId + ' reaproveitada da tentativa anterior');
+  } else {
+    if (o.dedupeByName) {
+      const existing = await findCampaignIdByName(adv, String(s.name).slice(0, 512));
+      if (existing) { campaignId = existing; warnings.push('Campanha "' + s.name + '" já existia na plataforma (crash antes de gravar progresso?) — reaproveitada em vez de duplicar'); }
+    }
+    if (!campaignId) {
+      const campArgs = {
+        advertiser_id: adv,
+        campaign_name: String(s.name).slice(0, 512),
+        objective_type: goal.objective,
+      };
+      if (s.goal === 'conversions') {
+        campArgs.pixel_id = String(s.promotedObject.pixelId);
+        campArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
+      }
+      const campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+      campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+      if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
+    }
   }
-  const campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
-  const campaignId = String(deepPluck(campOut, 'campaign_id') || '');
-  if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
   createdIds.campaignId = campaignId;
+  await report({ ...createdIds });
 
   try {
     // 2) Ad group — targeting/orçamento/agenda.
-    const targeting = { location_ids: regions.locationIds };
-    const ages = ageGroupsFor(s.ageMin, s.ageMax);
-    if (ages) targeting.age_groups = ages;
-    if (Array.isArray(s.languages) && s.languages.length) targeting.languages = s.languages;
-    const agArgs = {
-      advertiser_id: adv,
-      campaign_id: campaignId,
-      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
-      optimization_goal: goal.optimizationGoal,
-      budget_mode: s.budgetType === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY',
-      budget: Number(s.budgetAmount),
-      schedule_start_time: advertiserLocalTime(info && info.timezone),
-      targeting,
-      bid_type: 'BID_TYPE_NO_BID',
-    };
-    if (s.budgetType === 'lifetime' && s.endDate) {
-      agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
+    let adGroupId = String(resume.adGroupId || '');
+    if (!adGroupId) {
+      const targeting = { location_ids: regions.locationIds };
+      const ages = ageGroupsFor(s.ageMin, s.ageMax);
+      if (ages) targeting.age_groups = ages;
+      if (Array.isArray(s.languages) && s.languages.length) targeting.languages = s.languages;
+      const agArgs = {
+        advertiser_id: adv,
+        campaign_id: campaignId,
+        adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+        optimization_goal: goal.optimizationGoal,
+        budget_mode: s.budgetType === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY',
+        budget: Number(s.budgetAmount),
+        schedule_start_time: advertiserLocalTime(info && info.timezone),
+        targeting,
+        bid_type: 'BID_TYPE_NO_BID',
+      };
+      if (s.budgetType === 'lifetime' && s.endDate) {
+        agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
+      }
+      if (s.goal === 'conversions') agArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
+      if (s.goal === 'lead_generation') { agArgs.promotion_type = 'LEAD_GENERATION'; agArgs.promotion_target_type = 'EXTERNAL_WEBSITE'; }
+      const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
+      adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+      if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id', createdIds);
     }
-    if (s.goal === 'conversions') agArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
-    if (s.goal === 'lead_generation') { agArgs.promotion_type = 'LEAD_GENERATION'; agArgs.promotion_target_type = 'EXTERNAL_WEBSITE'; }
-    const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
-    const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
-    if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id', createdIds);
     createdIds.adGroupId = adGroupId;
+    await report({ ...createdIds });
 
     // 3) Vídeo (URL pública do Blob → TikTok; dedupe por md5 no retry).
-    const videoId = await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
+    const videoId = String(resume.videoId || '') || await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
     createdIds.videoId = videoId;
+    await report({ ...createdIds });
 
     // 4) Anúncio — SEMPRE nasce PAUSED.
     const adArgs = {
@@ -885,6 +935,7 @@ async function createFullAd(advertiserId, spec) {
     const adId = String(deepPluck(adOut, 'ad_id') || '');
     if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id', createdIds);
     createdIds.adId = adId;
+    await report({ ...createdIds });
 
     // 5) Só liga no fim, se pedido. Default: fica tudo PAUSED p/ revisão humana.
     if (String(s.status || 'paused') === 'active') {

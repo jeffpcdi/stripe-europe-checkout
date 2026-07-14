@@ -1625,14 +1625,36 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   async function processBulkItem(env) {
     const task = env.task || {};
     if (task.kind === 'create') {
-      const data = await zernio.api('POST', '/ads/create', {
-        body: task.payload,
-        timeoutMs: 120000,
-        // Idempotency-Key por item: retry/reclaim nunca duplica a campanha
-        headers: { 'Idempotency-Key': 'bulk:' + env.jobId + ':' + env.idx }
+      // F2: composição via Pipeboard com RETOMADA IDEMPOTENTE. O MCP não tem
+      // Idempotency-Key e a fila é at-least-once, então a garantia vem de:
+      // 1) progresso por item gravado no Neon após CADA passo (onProgress);
+      // 2) no retry/reclaim, resume pula os passos já feitos;
+      // 3) cinto extra dedupeByName p/ a janela crash-antes-de-gravar.
+      // Critério de aceitação da F2: matar o processo no meio de um job e
+      // reiniciar NÃO pode duplicar campanha.
+      const p = task.payload || {};
+      const resume = await adsOps.getBulkProgress(env.accountId, env.jobId, env.idx);
+      const result = await pipeboard.createFullAd(p.adAccountId, {
+        name: p.name, goal: p.goal, videoUrl: p.imageUrl,
+        budgetAmount: p.budgetAmount, budgetType: p.budgetType, endDate: p.endDate,
+        body: p.body, linkUrl: p.linkUrl, callToAction: p.callToAction,
+        countries: p.countries, languages: p.languages,
+        ageMin: p.ageMin, ageMax: p.ageMax, promotedObject: p.promotedObject,
+        status: 'paused',
+      }, {
+        resume,
+        dedupeByName: true,
+        onProgress: (ids) => adsOps.saveBulkProgress(env.accountId, env.jobId, env.idx, ids),
       });
-      zernio.cacheBust('tree:' + env.accountId);
-      return { resultId: (data && data.platformCampaignId) || null };
+      await adsOps.appendAuditEvent(env.accountId, {
+        actorType: 'user', actorId: env.accountId, action: 'bulk_create_item',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId: p.adAccountId,
+        jobId: env.jobId,
+        afterState: { campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId },
+        reason: 'Bulk item ' + env.idx + ' do job ' + env.jobId,
+      }).catch(() => {});
+      pipeboard.cacheBust('tree:');
+      return { resultId: result.campaignId || null };
     }
     if (task.kind === 'duplicate_same') {
       const id = encodeURIComponent(String(task.sourceId || ''));
@@ -1704,8 +1726,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.post('/api/ads/bulk', dashboardAuth, async (req, res) => {
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      // F2: gate via Pipeboard (requireAdvertiser já valida o advertiser contra
+      // o token; o gate antigo por st.accountId da Zernio deixaria 409 p/ sempre).
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const st = { accountId: req.account.id };
       const b = req.body || {};
       const adAccountId = String(b.adAccountId || '').trim().slice(0, 60);
       const selected = await requireAdvertiser(req.account.id, st, adAccountId, b.businessCenterId);
