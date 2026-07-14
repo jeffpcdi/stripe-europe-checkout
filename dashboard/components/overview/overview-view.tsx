@@ -13,8 +13,12 @@ import {
   Coins,
   CalendarDays,
   Timer,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from 'lucide-react'
-import { useStats } from '@/lib/api'
+import { useStats, useEmqTrend, useAdsStatus, useAdsRoas } from '@/lib/api'
+import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
 import {
   aggregate,
   deltaPct,
@@ -37,13 +41,29 @@ import { TvModeButton } from './tv-mode'
 import { OnboardingChecklist } from './onboarding-checklist'
 import { PeriodPicker } from './period-picker'
 import { RevenueChart } from './revenue-chart'
-import { HealthCard } from './health-card'
+import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
 import { GoalCard } from './goal-card'
 import { AdsOverviewCard } from './ads-card'
+import { LiveFeed } from './live-feed'
+import { FunnelCompact } from './funnel-compact'
 
 const NEUTRAL = '#6b7183'
 const NEUTRAL_BG = 'rgba(107,113,131,.10)'
+
+// Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
+// resto do app — formata direto sem dividir por 100.
+function fmtAdsMoney(v: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: currency || 'BRL',
+      maximumFractionDigits: 2,
+    }).format(v)
+  } catch {
+    return v.toFixed(2)
+  }
+}
 
 const PERIODS: Period[] = ['today', '7d', '30d', 'all']
 const PERIOD_KEY = 'roi:overview:period'
