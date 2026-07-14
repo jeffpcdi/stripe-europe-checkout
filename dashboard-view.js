@@ -4132,6 +4132,9 @@ function renderActivity(){
     if(e.landing) meta.push('<span style="opacity:.65">'+esc(e.landing)+'</span>');
     if(e.practice) meta.push('<span class="amb">'+esc(e.practice)+'</span>');
     if(e.reason) meta.push('<span class="neg">'+esc(e.reason)+'</span>');
+    // Risco 1: venda que casou com mais de um lead de campanhas diferentes —
+    // crédito de atribuição é duvidoso. Alerta o operador no feed.
+    if(e.matchAmbiguous) meta.push('<span class="amb" title="'+esc((e.matchCandidates||2)+' leads de campanhas diferentes casaram com este contato — a campanha creditada pode estar errada')+'">atribui&ccedil;&atilde;o amb&iacute;gua ('+esc(String(e.matchCandidates||2))+')</span>');
     var amt=e.amount?'<div class="amt">'+money(e.amount,e.currency)+'</div>':'';
     var ts=e.at?fmtDateLocal(e.at).replace(/.*,\s*/,''):'';
     return '<div class="ev" style="border-left:2px solid '+mp.c+'20">'+

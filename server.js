@@ -3541,7 +3541,11 @@ function notifyPushcut(event, n) {
 async function processConversion(n) {
   // item 199: latência webhook→disparo (do recebimento até começar a processar)
   if (n && n._recvAt) rdb.recordConvLatency(Date.now() - n._recvAt);
-  const evId = n.event + '.' + n.gateway + '.' + n.orderId;
+  // Risco 6: a chave de dedup DEVE incluir a conta. Sem ela, duas contas com
+  // gateway 'generic' e order_ids curtos ("1001") colidem e a venda da segunda
+  // conta é descartada como duplicata da primeira. 'legacy' cobre o webhook
+  // legado (conta padrão) de forma estável.
+  const evId = (n.acc || 'legacy') + '.' + n.event + '.' + n.gateway + '.' + n.orderId;
   const receipt = {
     // Item 198: id ESTÁVEL do recibo — permite localizar a entrada no log
     // para reprocessamento manual (evId + carimbo de recebimento)
@@ -3567,6 +3571,20 @@ async function processConversion(n) {
     } catch (_) { return undefined; }
   };
   try {
+    // Risco 5: dedup DURÁVEL de receita ANTES do Redis. O dedup do Redis
+    // abaixo expira em ~2h; um retry do gateway depois disso re-emitia a venda
+    // e duplicava a receita. O registro em processed_orders (Neon, 90 dias)
+    // reconhece o pedido mesmo dias depois. Só vale para a venda paga
+    // (CompletePayment que registra receita); refund/dispute são eventos
+    // distintos e não passam por aqui. Reprocessamento manual pula de propósito.
+    if (n.event === 'CompletePayment' && n.registerSale && !n.dryRun && !n._forceRedispatch && n.orderId) {
+      const fresh = await db.markOrderProcessed(n.acc || null, n.gateway, n.orderId);
+      if (!fresh) {
+        receipt.status = 'dedup (durável — receita já contabilizada)';
+        rdb.pushConversionLog(receipt).catch(() => {});
+        return receipt;
+      }
+    }
     // 1. dedup — retries do gateway nunca duplicam o disparo.
     // Item 198: reprocessamento manual PULA o dedup de propósito (o admin
     // pediu o redisparo porque a CAPI falhou mas o pagamento é válido).
@@ -3578,7 +3596,11 @@ async function processConversion(n) {
     // 2. resolve o lead no backend: leadId → e-mail → telefone → órfão
     // (com n.acc definido, o match respeita a fronteira da conta)
     let lead = n.leadId ? stats.getLead(n.leadId) : null;
-    if (lead && n.acc && lead.acc && lead.acc !== n.acc) lead = null;
+    // Risco 2: fronteira ESTRITA. O guard antigo só agia quando ambos os acc
+    // existiam, deixando cruzar contas quando algum era null (lead legado ou
+    // n.acc não resolvido). Agora um lead só casa se a conta for EXATAMENTE a
+    // mesma (null só casa com null).
+    if (lead && (lead.acc || null) !== (n.acc || null)) lead = null;
     let matchVia = lead ? 'leadId' : null;
     if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email, n.acc); if (lead) matchVia = 'email'; } catch (_) {} }
     if (!lead && n.phone) { try { lead = stats.findLeadByPhone(n.phone, n.acc); if (lead) matchVia = 'phone'; } catch (_) {} }
@@ -3622,25 +3644,39 @@ async function processConversion(n) {
     // 3. registra a venda no dashboard (só CompletePayment)
     if (n.event === 'CompletePayment' && n.registerSale) {
       const saleAcc = n.acc || (lead && lead.acc) || null;
+      let matched = null;
       try {
-        const matched = stats.matchExternalConversion({
+        matched = stats.matchExternalConversion({
           acc: saleAcc,
           leadId: lead ? lead.id : null, gateway: n.gateway,
           amountCents: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email, phone: n.phone, ref: n.orderId
         });
-        stats.logEvent('sale', {
-          acc: saleAcc,
-          title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
-          amount: n.amountCents, currency: n.currency,
-          customer: n.customer, email: n.email,
-          gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id,
-          raw: rawForFeed()
-        });
+        // Risco 1: transparência de atribuição — quantos leads casaram com o
+        // contato e se pertenciam a campanhas diferentes (crédito duvidoso).
+        receipt.matchCandidates = matched.matchCandidates || 1;
+        receipt.matchAmbiguous = !!matched.matchAmbiguous;
+        // Risco 5: em duplicata (lead já 'converted' ou 2º hit da mesma órfã),
+        // NÃO re-emite o evento de venda — senão a receita conta 2×.
+        if (matched._duplicate) {
+          receipt.duplicate = true;
+          receipt.status = 'duplicata (receita não recontada)';
+        } else {
+          stats.logEvent('sale', {
+            acc: saleAcc,
+            title: matched.orphan ? ('Venda ' + n.gateway + ' SEM lead (órfã)') : ('Venda aprovada (' + n.gateway + ')'),
+            amount: n.amountCents, currency: n.currency,
+            customer: n.customer, email: n.email,
+            gateway: n.gateway, orphan: !!matched.orphan, ref: matched.id,
+            matchAmbiguous: !!matched.matchAmbiguous, matchCandidates: matched.matchCandidates || 1,
+            raw: rawForFeed()
+          });
+        }
       } catch (_) {}
-      // Atribuição ao link/variante que originou o clique (teste A/B)
+      // Atribuição ao link/variante que originou o clique (teste A/B).
+      // Risco 5: duplicata NÃO reconta a conversão do teste A/B.
       try {
-        if (lead && lead.linkSlug) {
+        if (lead && lead.linkSlug && !(matched && matched._duplicate)) {
           linkStore.recordConversion(saleAcc, lead.linkSlug, lead.linkVariant, n.amountCents, n.currency);
           receipt.link = lead.linkSlug;
         }
@@ -3750,6 +3786,40 @@ if (rdb.enabled) {
   setTimeout(() => { rdb.reclaimConversions(0 + 1).then(() => convWorkerTick()).catch(() => {}); }, 4000).unref();
 }
 
+// ── Quarentena de webhooks REJEITADOS (prioridade #1 do handoff) ───────────
+// Guarda o PAYLOAD CRU + headers de qualquer webhook rejeitado ANTES de
+// responder o erro. Sem isso, a evidência era destruída (só os nomes das
+// chaves iam para o log) e nenhum erro futuro podia ser diagnosticado.
+// Best-effort e NÃO-bloqueante: nunca pode atrasar/derrubar a resposta ao gateway.
+function quarantineWebhook(req, route, reason, gatewayHint, accountId) {
+  try {
+    const h = (req && req.headers) || {};
+    // headers úteis para diagnóstico, SEM cookie/authorization (não vaza sessão)
+    const safeHeaders = {};
+    Object.keys(h).forEach((k) => {
+      const kl = String(k).toLowerCase();
+      if (kl === 'cookie' || kl === 'authorization') return;
+      safeHeaders[k] = String(h[k]).slice(0, 300);
+    });
+    // corpo cru: prioriza o texto EXATO recebido (req.rawBody); cai no parseado.
+    // Guarda o texto original quando não for JSON válido (form-urlencoded etc.).
+    let raw = null;
+    if (req && req.rawBody) {
+      try { raw = JSON.parse(req.rawBody); }
+      catch (_) { raw = { _rawText: String(req.rawBody).slice(0, 8000) }; }
+    }
+    if (raw == null) raw = (req && req.body != null) ? req.body : null;
+    db.insertQuarantine({
+      accountId: accountId || null,
+      route: route,
+      rawPayload: raw,
+      headers: safeHeaders,
+      rejectionReason: reason,
+      gatewayHint: gatewayHint || null
+    }).catch(() => {});
+  } catch (_) { /* a quarentena NUNCA pode quebrar o webhook */ }
+}
+
 // Endpoint público que os gateways chamam.
 app.post('/api/conversion', (req, res) => {
   const secret = process.env.CONVERSION_WEBHOOK_SECRET;
@@ -3759,6 +3829,8 @@ app.post('/api/conversion', (req, res) => {
   }
   const provided = req.headers['x-webhook-secret'] || req.query.secret || '';
   if (!provided || !safeEqual(String(provided), secret)) {
+    // Quarentena: guarda o payload cru mesmo quando o segredo global não bate.
+    quarantineWebhook(req, '/api/conversion', 'segredo inválido', String(req.query.gateway || ''), _defaultAccountId);
     return res.status(401).json({ ok: false, error: 'segredo inválido' });
   }
   const n = normalizeConversion(req.body, req.query);
@@ -3773,7 +3845,17 @@ app.post('/api/conversion', (req, res) => {
       error: n.error,
       keys: Object.keys(req.body || {}).slice(0, 20).join(',').slice(0, 300)
     }).catch(() => {});
+    // Quarentena: o corpo cru é preservado para descobrir onde está o valor.
+    quarantineWebhook(req, '/api/conversion', n.error, String(req.query.gateway || ''), _defaultAccountId);
     return res.status(400).json({ ok: false, error: n.error });
+  }
+  // Risco 2: o webhook legado depende da conta padrão para ter uma fronteira.
+  // Se ela não resolveu (_defaultAccountId null), processar significaria rodar
+  // SEM dono — e um match por leadId/e-mail poderia cruzar contas. Recusamos
+  // com 503 (o gateway reenvia) em vez de processar sem fronteira.
+  if (!_defaultAccountId) {
+    quarantineWebhook(req, '/api/conversion', 'conta padrão indisponível — webhook recusado', String(req.query.gateway || ''), null);
+    return res.status(503).json({ ok: false, error: 'conta indisponível, tente novamente' });
   }
   // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
   res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });
@@ -3806,6 +3888,8 @@ app.post('/hook/:token', async (req, res) => {
       at: new Date().toISOString(), acc: gw.accountId,
       gateway: gw.provider, event: 'rejeitado', status: 'erro', error: sig.reason
     }).catch(() => {});
+    // Quarentena: guarda o payload cru para inspeção mesmo com assinatura ruim.
+    quarantineWebhook(req, '/hook/:token', sig.reason || 'assinatura inválida', gw.provider, gw.accountId);
     return res.status(401).json({ ok: false, error: sig.reason });
   }
 
@@ -3819,6 +3903,8 @@ app.post('/hook/:token', async (req, res) => {
       gateway: gw.provider, event: 'formato inválido', status: 'erro',
       error: n.error, keys: Object.keys(req.body || {}).slice(0, 20).join(',').slice(0, 300)
     }).catch(() => {});
+    // Quarentena: preserva o corpo cru — é aqui que descobrimos o alias do valor.
+    quarantineWebhook(req, '/hook/:token', n.error, gw.provider, gw.accountId);
     return res.status(400).json({ ok: false, error: n.error });
   }
 
@@ -3997,6 +4083,36 @@ app.get('/api/conversion/log', dashboardAuth, async (req, res) => {
     secret: req.account.role === 'admin' ? (process.env.CONVERSION_WEBHOOK_SECRET || '') : '',
     log: own
   });
+});
+
+// ── Quarentena de webhooks rejeitados (item handoff #1) ────────────────────
+// Lista os payloads crus dos webhooks recusados para inspeção no "Diagnóstico
+// avançado". Escopo por conta; admin também vê os itens legados (sem account_id).
+app.get('/api/conversion/quarantine', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const isAdmin = req.account.role === 'admin';
+  const includeResolved = String(req.query.all || '') === '1';
+  try {
+    const items = await db.listQuarantine(req.account.id, isAdmin, { includeResolved, limit: 100 });
+    const pending = await db.countQuarantine(req.account.id, isAdmin);
+    res.json({ ok: true, enabled: db.enabled, pending, items });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao carregar a quarentena.', 'quarantine_failed');
+  }
+});
+
+// Marca um item da quarentena como resolvido (some da lista padrão).
+app.post('/api/conversion/quarantine/resolve', dashboardAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const id = Number((req.body && req.body.id) || 0);
+  if (!id) return apiError(res, 400, 'Informe o id do item a resolver.', 'missing_id');
+  try {
+    const ok = await db.resolveQuarantine(req.account.id, req.account.role === 'admin', id);
+    if (!ok) return apiError(res, 404, 'Item não encontrado na sua quarentena.', 'not_found');
+    res.json({ ok: true });
+  } catch (e) {
+    apiError(res, 500, 'Falha ao resolver o item.', 'resolve_failed');
+  }
 });
 
 // ���─ API: zerar estatísticas ─────���───────���──────────────────────���─────
@@ -4600,7 +4716,7 @@ function proxyDashboardUpgrade(req, socket, head) {
   proxyReq.end();
 }
 
-// ── Integração TikTok Ads (via Zernio) ────────────────────────────────────
+// ── Integração TikTok Ads (via Zernio) ─────────────────────────────���──────
 // Rotas /api/ads/* — escopadas à conta logada pelo mesmo dashboardAuth.
 require('./ads-routes')(app, dashboardAuth, { stats });
 
@@ -4701,7 +4817,8 @@ stats.hydrate()
     //    mesmo sem ninguém consultar /api/live).
     setInterval(() => { try { presence.prune(); } catch (_) {} }, 60 * 1000).unref();
     // 2. Limpeza de sessões antigas no Neon (1x por dia, mantém 30 dias).
-    setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 24 * 60 * 60 * 1000).unref();
-    setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); }, 30 * 1000).unref();
+    //    A quarentena de webhooks também tem retenção de 30 dias (item handoff #1).
+    setInterval(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); db.pruneProcessedOrders(); }, 24 * 60 * 60 * 1000).unref();
+    setTimeout(() => { db.pruneSessions(30); db.prunePixelEvents(14); db.pruneQuarantine(); db.pruneProcessedOrders(); }, 30 * 1000).unref();
     // 3. Sessões de login expiradas: o próprio auth.js agenda o prune (1x/h).
   });

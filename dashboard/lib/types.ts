@@ -439,6 +439,30 @@ export interface ConversionLogResponse {
   log: ConversionLogRow[]
 }
 
+// ── /api/conversion/quarantine — webhooks REJEITADOS com payload cru ──
+// Todo webhook recusado (segredo/assinatura inválida, amount inválido, formato
+// desconhecido) tem o corpo original preservado aqui para diagnóstico, em vez
+// de ser descartado. Retenção de 30 dias no Neon.
+export interface QuarantineItem {
+  id: number
+  received_at: string
+  account_id: string | null
+  route: string | null
+  raw_payload: unknown
+  headers: Record<string, string> | null
+  rejection_reason: string | null
+  gateway_hint: string | null
+  resolved: boolean
+  resolved_at: string | null
+}
+
+export interface QuarantineResponse {
+  ok: boolean
+  enabled: boolean
+  pending: number
+  items: QuarantineItem[]
+}
+
 // ── /api/cloak-config — configuração global do filtro de bots ──
 export type CloakSensitivity = 'strict' | 'balanced' | 'loose' | 'custom'
 
