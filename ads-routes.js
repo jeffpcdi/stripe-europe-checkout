@@ -27,6 +27,7 @@
 //   POST   /api/ads/upload               → vídeo/imagem → Vercel Blob (URL pública)
 // ─────────────────────────────────────────────────────────────────────────────
 const zernio = require('./zernio-ads');
+const pipeboard = require('./pipeboard-mcp'); // Gate 1: cliente MCP do Pipeboard
 const adsOps = require('./ads-ops-store');
 const catalogStore = require('./ads-catalog-store');
 const catalogFeed = require('./ads-catalog-feed');
@@ -124,6 +125,60 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (_) { /* auditoria não pode derrubar a rota */ }
     if (title) stats.logEvent('info', { acc: accountId, title: '[simulação] ' + title });
   }
+
+  // ── [Gate 1 — TEMPORÁRIO] Diagnóstico do Pipeboard MCP ──────────────────────
+  // Valida a auth server-to-server e captura os JSON Schemas REAIS das tools
+  // ANTES de escrever o provider (o plano proíbe mapear às cegas). Também
+  // confirma ≥1 advertiser. Escopado ao dashboardAuth; removido no Gate 7.
+  // Critério de aceite do gate: retornar as 19 tools + ≥1 advertiser.
+  app.get('/api/ads/diag', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const started = Date.now();
+    try {
+      if (!pipeboard.enabled) {
+        return res.status(503).json({
+          ok: false,
+          reason: 'PIPEBOARD_API_KEY ausente ou inválida no servidor',
+          url: pipeboard.MCP_URL,
+        });
+      }
+      const listed = await pipeboard.listTools();
+      const tools = (listed && listed.tools) || [];
+      const toolNames = tools.map((t) => t.name).sort();
+      // Schema real de cada tool — o provider (Gate 2) é escrito contra isto.
+      const schemas = {};
+      for (const t of tools) schemas[t.name] = t.inputSchema || t.input_schema || null;
+
+      // Prova de vida da conta: lista advertisers (só se a tool existir).
+      let advertisers = null;
+      let advertisersError = null;
+      if (toolNames.includes('list_tiktok_advertisers')) {
+        try {
+          advertisers = await pipeboard.callTool('list_tiktok_advertisers', {});
+        } catch (e) {
+          advertisersError = String((e && e.message) || e);
+        }
+      }
+
+      res.json({
+        ok: true,
+        url: pipeboard.MCP_URL,
+        elapsedMs: Date.now() - started,
+        toolCount: toolNames.length,
+        toolNames,
+        schemas,
+        advertisers,
+        advertisersError,
+      });
+    } catch (err) {
+      res.status(err.status || 500).json({
+        ok: false,
+        error: String((err && err.message) || err).slice(0, 500),
+        status: err.status || 500,
+        pipeboard: (err && err.pipeboard) || null,
+      });
+    }
+  });
 
   // ── Status da integração ──────────────────────────────────────────────────
   app.get('/api/ads/status', dashboardAuth, async (req, res) => {
