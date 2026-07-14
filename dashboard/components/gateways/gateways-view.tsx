@@ -24,64 +24,11 @@ import { GlassCard } from '@/components/glass-card'
 import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
-import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
+import { SectionTitle } from '@/components/section-title'
 import { timeAgo } from '@/lib/format'
 import { QueueHealthPanel, RetentionPanel, IntegrityPanel, QuarantinePanel } from './queue-health-panel'
 
-// Tutorial da aba Gateways — inclui a regra de ouro: venda só conta quando o
-// GATEWAY confirma o pagamento via webhook (nunca pelo navegador do cliente).
-const GATEWAY_STEPS: TutorialStep[] = [
-  {
-    title: 'O que o gateway faz aqui',
-    body: (
-      <>
-        O gateway (Stripe, Hotmart, Kiwify…) é quem processa o pagamento. Quando alguém compra, ele avisa
-        o nosso servidor por <strong>webhook</strong> — e só então registramos a venda e disparamos o
-        evento de <strong>Compra</strong> para o TikTok.
-      </>
-    ),
-    tip: 'É por isso que venda NUNCA é contada pelo navegador do cliente: só o gateway confirma pagamento real.',
-  },
-  {
-    title: '1. Crie o gateway',
-    body: (
-      <>
-        Clique em <strong>Novo gateway</strong>, escolha o provedor e dê um nome. Geramos uma{' '}
-        <strong>URL de webhook única</strong> para ele — essa URL é o seu &quot;script&quot; de integração:
-        não precisa colar código nenhum na página.
-      </>
-    ),
-  },
-  {
-    title: '2. Cole a URL no painel do checkout',
-    body: (
-      <>
-        No painel do seu gateway, procure <strong>Webhooks</strong> (ou &quot;Notificações&quot; /
-        &quot;Postback&quot;) e cole a URL copiada. Marque os eventos de <strong>pagamento aprovado</strong>{' '}
-        (e reembolso/chargeback, se houver).
-      </>
-    ),
-    tip: 'Cada gateway tem a própria URL — não reutilize a mesma URL em dois gateways.',
-  },
-  {
-    title: '3. Teste o fluxo',
-    body: (
-      <>
-        Use <strong>Testar fluxo</strong> para simular uma confirmação de pagamento e ver o caminho
-        completo: webhook recebido → lead casado → evento CompletePayment na fila do TikTok.
-      </>
-    ),
-  },
-  {
-    title: '4. Acompanhe o diário de conversões',
-    body: (
-      <>
-        O painel ao lado mostra cada webhook que chegou e o que aconteceu com ele (aceito, duplicado,
-        recusado e por quê). Se uma venda não apareceu, é aqui que você descobre o motivo.
-      </>
-    ),
-  },
-]
+// GATEWAY_STEPS removed
 
 // Item 73: cor da marca por provedor — cápsula e borda no hover
 // Item 32: mapa ALINHADO ao catálogo real de PROVIDERS do gateway-store.js
@@ -143,7 +90,7 @@ export function GatewaysView() {
   const [cardTest, setCardTest] = useState<{ id: string; ok: boolean; msg: string; note?: string } | null>(null)
   const [cardTesting, setCardTesting] = useState<string | null>(null)
   const [rotating, setRotating] = useState<string | null>(null)
-  const [showTutorial, setShowTutorial] = useState(false)
+
   // Item 110: anúncio acessível da cópia (aria-live), padrão da aba Pixels (93)
   const [copyAnnounce, setCopyAnnounce] = useState('')
   // Item 104: linha do log expandida (detalhe do webhook)
@@ -330,14 +277,10 @@ export function GatewaysView() {
           {/* Item 57: flex-wrap para o grupo de botões quebrar linha no mobile
               (sem isso o card estoura a viewport e a página inteira rola na horizontal) */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="section-head text-sm font-semibold text-foreground">Gateways de pagamento</h2>
-              <p className="text-xs text-muted-foreground">
-                Webhook único por gateway — cole a URL no painel do checkout
-              </p>
+            <div className="mb-4">
+              <SectionTitle>Gateways de pagamento</SectionTitle>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <TutorialButton onClick={() => setShowTutorial(true)} />
               <button
                 type="button"
                 onClick={handleTest}
@@ -393,8 +336,7 @@ export function GatewaysView() {
                 </p>
                 {/* Item 106: consequência concreta de não ter gateway (par do aviso 86 na aba Pixels) */}
                 <p className="max-w-md text-xs text-warning text-pretty">
-                  Sem gateway, os eventos de dinheiro do pixel (Compra e Pagamento) nunca disparam — eles
-                  só saem do webhook do seu checkout.
+                  Sem gateway os eventos de Compra e Pagamento não disparam.
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <button
@@ -403,13 +345,6 @@ export function GatewaysView() {
                     className="rounded-lg bg-[color:var(--brand-cyan)] px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
                   >
                     Conectar primeiro gateway
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowTutorial(true)}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  >
-                    Ver tutorial
                   </button>
                 </div>
               </div>
@@ -589,7 +524,7 @@ export function GatewaysView() {
 
         {/* V2-88: painel do log com scanline ciano — sinaliza "ao vivo" */}
         <GlassCard className="scan-live min-w-0 p-5" data-tour="gateways-webhooks">
-          <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Webhooks recebidos</h2>
+          <SectionTitle>Webhooks recebidos</SectionTitle>
           <p className="mb-3 text-xs text-muted-foreground">Últimas conversões processadas dos seus gateways</p>
           {!convLog || convLog.log.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Nenhum webhook recebido ainda.</p>
@@ -724,13 +659,6 @@ export function GatewaysView() {
           <RetentionPanel />
         </div>
       </details>
-
-      <TutorialModal
-        open={showTutorial}
-        onClose={() => setShowTutorial(false)}
-        title="Como conectar seu gateway de pagamento"
-        steps={GATEWAY_STEPS}
-      />
 
       {(creating || editing) && (
         <GatewayEditor

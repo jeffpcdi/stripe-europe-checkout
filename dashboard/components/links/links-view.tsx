@@ -29,7 +29,7 @@ import type { CheckoutLink } from '@/lib/types'
 import { formatMoney } from '@/lib/format'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
-import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
+import { SectionTitle } from '@/components/section-title'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import { LinkEditor } from './link-editor'
@@ -43,46 +43,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   conversoes: 'Mais conversões',
 }
 
-const LINK_STEPS: TutorialStep[] = [
-  {
-    title: 'O que é um link de checkout',
-    body: (
-      <>
-        É um link <code>/go/seu-slug</code> que você usa nos anúncios. Ele rastreia o clique, aplica
-        cloaker e split A/B quando você quiser, e leva o visitante ao checkout certo.
-      </>
-    ),
-  },
-  {
-    title: '1. Crie o link',
-    body: (
-      <>
-        Clique em <strong>Novo link</strong>, dê um nome e defina o <code>slug</code> (o final da URL).
-        Adicione uma ou mais <strong>variantes</strong> de destino para testar ofertas (split A/B).
-      </>
-    ),
-    tip: 'Com 2+ variantes, o tráfego é dividido automaticamente e você compara a conversão de cada uma.',
-  },
-  {
-    title: '2. Use domínio próprio (opcional)',
-    body: (
-      <>
-        Se você verificou um domínio na aba <strong>Domínios</strong>, escolha-o aqui para o link sair
-        com a sua marca em vez do domínio padrão.
-      </>
-    ),
-  },
-  {
-    title: '3. Cloaker e segmentação',
-    body: (
-      <>
-        Configure página branca (white page), países e idiomas permitidos. Assim, quem não é público-alvo
-        (ou o robô de revisão) vê a página segura, e o comprador real vê a oferta.
-      </>
-    ),
-    tip: 'Copie a URL pronta pelo botão de copiar ou gere um QR code para mídia offline.',
-  },
-]
+// LINK_STEPS removed
 
 export function LinksView() {
   const { data, isLoading, error, mutate } = useLinks()
@@ -111,7 +72,6 @@ export function LinksView() {
   // link nunca sai para um serviço de terceiros)
   const [qrFor, setQrFor] = useState<string | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
-  const [showTutorial, setShowTutorial] = useState(false)
   // Item 124: atalho "usar em um link" da aba Domínios — ?novo=1&dominio=host
   // abre o editor de criação já com o domínio selecionado
   const [presetDominio, setPresetDominio] = useState<string | null>(null)
@@ -410,7 +370,6 @@ export function LinksView() {
               Arquivados ({archivedCount})
             </button>
           )}
-          <TutorialButton onClick={() => setShowTutorial(true)} />
           <button
             type="button"
             data-tour="links-new"
@@ -421,13 +380,6 @@ export function LinksView() {
           </button>
         </div>
       </div>
-
-      <TutorialModal
-        open={showTutorial}
-        onClose={() => setShowTutorial(false)}
-        title="Como criar seus links de checkout"
-        steps={LINK_STEPS}
-      />
 
       {links.length === 0 ? (
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
@@ -443,13 +395,6 @@ export function LinksView() {
               className="rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
             >
               Criar primeiro link
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowTutorial(true)}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              Ver tutorial
             </button>
           </div>
         </GlassCard>
