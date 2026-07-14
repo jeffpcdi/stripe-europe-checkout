@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, ChevronDown, Timer, X } from 'lucide-react'
 import { useStats } from '@/lib/api'
-import { aggregate, periodStart } from '@/lib/metrics'
+import { aggregate, periodStart, isMacroCampaign } from '@/lib/metrics'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { CountUp } from '@/components/count-up'
@@ -39,7 +39,8 @@ export function FunnelView() {
     const campaigns = new Set<string>()
     for (const l of data?.leads ?? []) {
       if (l.linkSlug) links.add(l.linkSlug)
-      if (l.utm?.campaign) campaigns.add(l.utm.campaign)
+      // Fase 1: não oferece macro não substituída como opção de filtro
+      if (l.utm?.campaign && !isMacroCampaign(l.utm.campaign)) campaigns.add(l.utm.campaign)
     }
     return {
       links: [...links].sort(),
@@ -101,6 +102,18 @@ export function FunnelView() {
 
   // 316: receita real da etapa final (moeda dominante do período)
   const purchasedValue = m ? (m.rev[m.mainCur] ?? 0) : 0
+
+  // Fase 2: compras órfãs (webhook sem lead rastreado casado) no mesmo recorte.
+  // A receita já as inclui (rev vem dos eventos de venda), então sem esta fatia
+  // o funil dizia "0 compraram" enquanto o rótulo mostrava receita — a
+  // incoerência que o operador via. A taxa de conversão segue só sobre as
+  // rastreadas (m.purchased); a nota apenas revela o que a receita já contava.
+  const orphanPurchases = m?.orphanPurchases ?? 0
+  const trackedPurchased = m?.purchased ?? 0
+  const orphanNote =
+    orphanPurchases > 0
+      ? `${trackedPurchased} rastreada${trackedPurchased === 1 ? '' : 's'} · ${orphanPurchases} não rastreada${orphanPurchases === 1 ? '' : 's'}`
+      : null
 
   // ── Item 303: benchmark interno — taxa atual vs média 30d por etapa ────
   // Mesmo recorte de link/campanha do funil (comparar filtrado com global
@@ -165,6 +178,7 @@ export function FunnelView() {
       money: null as string | null,
       elapsed: null as string | null,
       bench: null as { delta: number; base: number } | null,
+      orphanNote: null as string | null,
     },
     {
       // Item 302: sub corrigido — chegar ao checkout não é iniciar pagamento
@@ -188,6 +202,7 @@ export function FunnelView() {
           : null,
       // Item 303: desvio da taxa atual vs média 30d (pontos percentuais)
       bench: bench ? { delta: +(v2c - bench.v2c).toFixed(1), base: bench.v2c } : null,
+      orphanNote: null as string | null,
     },
     // Item 302: etapa intermediária — o gateway registrou uma tentativa
     // (aprovada ou recusada). Pode passar do checkout: retentativas e vendas
@@ -206,6 +221,7 @@ export function FunnelView() {
             money: null as string | null,
             elapsed: null as string | null,
             bench: null as { delta: number; base: number } | null,
+            orphanNote: null as string | null,
           },
         ]
       : []),
@@ -231,6 +247,8 @@ export function FunnelView() {
           : null,
       // Item 303: checkout→compra atual vs média 30d
       bench: bench ? { delta: +(c2p - bench.c2p).toFixed(1), base: bench.c2p } : null,
+      // Fase 2: fatia rastreada vs órfã (só aparece quando há venda órfã)
+      orphanNote,
     },
   ]
 
@@ -384,7 +402,7 @@ export function FunnelView() {
                   </span>
                 </div>
                 {/* Itens 145/316/317: taxa, dinheiro e tempo mediano da etapa */}
-                {st.stepRate || st.money || st.elapsed || st.bench ? (
+                {st.stepRate || st.money || st.elapsed || st.bench || st.orphanNote ? (
                   <p className="pl-[152px] font-mono text-[10.5px] tabular-nums text-faint">
                     {[st.stepRate, st.money, st.elapsed].filter(Boolean).map((part, j) => (
                       <span key={String(part)}>
@@ -392,6 +410,18 @@ export function FunnelView() {
                         {st.money === part ? <span data-sensitive>{part}</span> : part}
                       </span>
                     ))}
+                    {/* Fase 2: fatia rastreada vs órfã — o "não rastreada" em
+                        âmbar para o operador entender de onde vem a receita
+                        quando "compraram" parece zerado */}
+                    {st.orphanNote ? (
+                      <span
+                        className="text-warning"
+                        title="Vendas confirmadas por webhook que não casaram com um lead rastreado. A receita as inclui; a taxa de conversão, não."
+                      >
+                        {st.stepRate || st.money || st.elapsed ? ' · ' : ''}
+                        {st.orphanNote}
+                      </span>
+                    ) : null}
                     {/* Item 303: desvio vs média 30d — verde acima, âmbar abaixo,
                         neutro quando empata (delta 0 não é nem bom nem ruim) */}
                     {st.bench ? (

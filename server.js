@@ -226,6 +226,37 @@ function geoFromReq(req) {
   return geoLookup(clientIp(req));
 }
 
+// ── Fase 1: sanitização de macros de UTM ──────────────────────────────────
+// O TikTok só substitui as macros do anúncio (__CAMPAIGN_NAME__, __CAMPAIGN_ID__,
+// __AID__, __PLACEMENT__…) na ENTREGA real. Cliques de preview do Ads Manager,
+// bots e acessos diretos chegam com a macro literal não substituída e poluíam o
+// ranking de campanhas. Regra: token ancorado em __MAIÚSCULAS/DÍGITOS__.
+// Case-sensitive de propósito — nomes legítimos com underscore (promo_black_friday,
+// verao_2024, até MINHA_CAMPANHA) NÃO casam; só o padrão de macro do TikTok.
+const UTM_MACRO_RE = /__[A-Z0-9]+(?:_[A-Z0-9]+)*__/;
+function isUtmMacro(v) {
+  return typeof v === 'string' && UTM_MACRO_RE.test(v);
+}
+// Monta o objeto utm já sanitizado a partir dos 5 campos crus. Quando o campaign
+// é uma macro não substituída, grava campaign=null e preserva o valor original em
+// campaignRaw (a flag utmRaw de auditoria — persiste junto do utm no lead, já que
+// stats.recordVisit grava o objeto utm inteiro). Só campaign carrega macro.
+function buildUtm(src) {
+  src = src || {};
+  const utm = {
+    source: src.source || null,
+    medium: src.medium || null,
+    campaign: src.campaign || null,
+    content: src.content || null,
+    term: src.term || null,
+  };
+  if (isUtmMacro(utm.campaign)) {
+    utm.campaignRaw = utm.campaign; // auditoria: macro crua não substituída
+    utm.campaign = null;
+  }
+  return utm;
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -401,10 +432,10 @@ app.use(async (req, res, next) => {
         landing: p,
         country: geo.country, countryName: geo.countryName, city: geo.city,
         ttclid: q.ttclid || null,
-        utm: {
-          source: q.utm_source || null, medium: q.utm_medium || null,
-          campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
-        }
+        utm: buildUtm({
+          source: q.utm_source, medium: q.utm_medium,
+          campaign: q.utm_campaign, content: q.utm_content, term: q.utm_term
+        })
       });
       stats.logEvent('visit', {
         acc,
@@ -729,10 +760,7 @@ app.post('/api/track', async (req, res) => {
       site,
       country: geo.country, countryName: geo.countryName, city: geo.city,
       ttclid: typeof b.ttclid === 'string' ? b.ttclid.slice(0, 500) : null,
-      utm: {
-        source: utm.source || null, medium: utm.medium || null,
-        campaign: utm.campaign || null, content: utm.content || null, term: utm.term || null
-      }
+      utm: buildUtm(utm)
     });
     // _ttp do pixel TikTok da página externa — sobe o Event Match Quality
     if (typeof b.ttp === 'string' && b.ttp) {
@@ -1040,10 +1068,10 @@ app.get('/go/:slug', async (req, res) => {
     referer: req.headers['referer'] || null,
     country: geo.country, countryName: geo.countryName, city: geo.city,
     ttclid: q.ttclid || null,
-    utm: {
-      source: q.utm_source || null, medium: q.utm_medium || null,
-      campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
-    }
+    utm: buildUtm({
+      source: q.utm_source, medium: q.utm_medium,
+      campaign: q.utm_campaign, content: q.utm_content, term: q.utm_term
+    })
   });
   // guarda o link/variante no lead — atribuição da conversão no webhook universal
   try { stats.attachTracking(visitorId, { acc, linkSlug: link.slug, linkVariant: variant.id }); } catch (_) {}
@@ -1354,10 +1382,10 @@ app.get('/l/:slug', (req, res) => {
       landing: 'l:' + slug,
       country: geo.country, countryName: geo.countryName, city: geo.city,
       ttclid: typeof q.ttclid === 'string' ? q.ttclid.slice(0, 500) : null,
-      utm: {
-        source: q.utm_source || null, medium: q.utm_medium || null,
-        campaign: q.utm_campaign || null, content: q.utm_content || null, term: q.utm_term || null
-      }
+      utm: buildUtm({
+        source: q.utm_source, medium: q.utm_medium,
+        campaign: q.utm_campaign, content: q.utm_content, term: q.utm_term
+      })
     });
     bumpShortlinkClick(acc, slug);
   } catch (_) { /* rastreamento nunca bloqueia o redirect */ }
@@ -4801,7 +4829,7 @@ function proxyToNextDashboard(req, res) {
   else proxyReq.end();
 }
 
-// WebSocket do Next (Turbopack/HMR em dev) também precisa atravessar o
+// WebSocket do Next (Turbopack/HMR em dev) tamb��m precisa atravessar o
 // proxy — sem repassar o upgrade, o cliente dev do Next fica aguardando a
 // conexão e a hidratação do React nunca completa via porta pública.
 function proxyDashboardUpgrade(req, socket, head) {

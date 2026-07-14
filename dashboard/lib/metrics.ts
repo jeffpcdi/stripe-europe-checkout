@@ -4,6 +4,17 @@
 
 import type { StatsResponse, Period, StatsEvent, Lead } from './types'
 
+// Fase 1 (defesa no display): uma campanha cujo nome é a macro do TikTok NÃO
+// substituída (__CAMPAIGN_NAME__, __CAMPAIGN_ID__…) não é campanha real — veio de
+// preview do Ads Manager, bot ou acesso direto. A ingestão já anula esses valores
+// (server.js/buildUtm), mas esta guarda corrige na hora os leads históricos que
+// já tinham a macro salva. Mesmo padrão do backend: ancorado em __MAIÚSC/DÍGITOS__,
+// case-sensitive — não descarta nomes legítimos com underscore (promo_black_friday).
+const UTM_MACRO_RE = /__[A-Z0-9]+(?:_[A-Z0-9]+)*__/
+export function isMacroCampaign(name: string | null | undefined): boolean {
+  return typeof name === 'string' && UTM_MACRO_RE.test(name)
+}
+
 export interface PeriodMetrics {
   rev: Record<string, number>
   mainCur: string
@@ -30,6 +41,16 @@ export interface PeriodMetrics {
   topCampaigns: SourceRank[]
   /** Item 287: ranking de links rastreados (linkSlug) por conversão */
   topLinks: SourceRank[]
+  /**
+   * Fase 2: compras que chegaram por webhook mas não casaram com nenhum lead
+   * rastreado (venda órfã). O backend cria um lead orphan:true / stage:purchased
+   * E um evento sale — logo a receita (`rev`) já as inclui, mas `purchased` (só
+   * leads rastreados) não. Expostas à parte para o funil mostrar "N rastreadas ·
+   * M não rastreadas" sem alterar a taxa de conversão (que segue só sobre as
+   * rastreadas). Campos NOVOS — não mexem em nenhum consumidor existente.
+   */
+  orphanPurchases: number
+  orphanRevenue: Record<string, number>
 }
 
 export interface SourceRank {
@@ -149,6 +170,20 @@ export function aggregate(
   ).length
   const purchased = leads.filter((l) => l.stage === 'purchased').length
 
+  // Fase 2: vendas órfãs no mesmo recorte. Varremos data.leads COMPLETO (a var
+  // `leads` acima já excluiu !orphan e é consumida por todo o resto). O backend
+  // grava reportedAmount/reportedCurrency na órfã; caímos para amount/currency
+  // por segurança. Não somamos em `rev` — essa receita já veio pelos eventos.
+  let orphanPurchases = 0
+  const orphanRevenue: Record<string, number> = {}
+  for (const l of data.leads) {
+    if (!l.orphan || l.stage !== 'purchased') continue
+    if (!within(l.at, from, to)) continue
+    orphanPurchases++
+    const cur = (l.reportedCurrency || l.currency || 'BRL').toUpperCase()
+    orphanRevenue[cur] = (orphanRevenue[cur] || 0) + (l.reportedAmount || l.amount || 0)
+  }
+
   for (const l of leads) bump(l.at, 'visits', 1)
 
   const countryMap = new Map<
@@ -196,7 +231,10 @@ export function aggregate(
       .sort((a, b) => b.purchased - a.purchased || b.leads - a.leads)
       .slice(0, 5)
   }
-  const topCampaigns = rankBy((l) => l.utm?.campaign)
+  // Fase 1: macro não substituída → null faz o rankBy pular (ignora no ranking)
+  const topCampaigns = rankBy((l) =>
+    isMacroCampaign(l.utm?.campaign) ? null : l.utm?.campaign,
+  )
   const topLinks = rankBy((l) => l.linkSlug)
 
   const attempts = sales + failed
@@ -232,6 +270,8 @@ export function aggregate(
       .sort((a, b) => b.revenue - a.revenue),
     topCampaigns,
     topLinks,
+    orphanPurchases,
+    orphanRevenue,
   }
 }
 
