@@ -275,7 +275,7 @@ async function readTree(accountId, advertiserId, opts = {}) {
 async function readAdvertiserDaily(accountId, advertiserId, fromDate, toDate) {
   accountId = cleanAccountId(accountId);
   advertiserId = String(advertiserId || '').trim();
-  if (!enabled || !advertiserId) return { spendByDay: {}, spend: 0, conversions: 0 };
+  if (!enabled || !advertiserId) return { spendByDay: {}, spend: 0, conversions: 0, currency: null };
   await ensureSchema();
   const rows = await sql`
     SELECT day::text AS day, SUM(spend)::float8 AS spend, SUM(conversions)::float8 AS conversions
@@ -291,7 +291,13 @@ async function readAdvertiserDaily(accountId, advertiserId, fromDate, toDate) {
     spend += num(r.spend);
     conversions += num(r.conversions);
   }
-  return { spendByDay, spend, conversions };
+  // moeda: lida de qualquer campanha do espelho (o sync a persiste no nó)
+  const curRows = await sql`
+    SELECT data->>'currency' AS currency FROM ads_campaigns_cache
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND data->>'currency' IS NOT NULL LIMIT 1`;
+  const currency = (curRows[0] && curRows[0].currency) || null;
+  return { spendByDay, spend, conversions, currency };
 }
 
 // Série diária + resumo de UMA campanha (aba de analytics da campanha).

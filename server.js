@@ -4915,6 +4915,13 @@ stats.hydrate()
   .then(() => require('./ads-catalog-store').ensureSchema().catch((e) => {
     console.warn('[ads-catalog] ensureSchema falhou:', e.message);
   }))
+  // Espelho durável do Pipeboard (ads_campaigns_cache / _metrics_cache /
+  // _sync_state). A dashboard lê daqui; o motor de sync escreve aqui.
+  .then(() => require('./ads-cache-store').ensureSchema().catch((e) => {
+    console.warn('[ads-cache] ensureSchema falhou:', e.message);
+  }))
+  // Liga o motor de sync Pipeboard→Neon (loop em background p/ contas ativas).
+  .then(() => { try { require('./ads-sync').start(); } catch (e) { console.warn('[ads-sync] start falhou:', e.message); } })
   // Jobs de Ads presos em running/queued de ANTES do reinício nunca continuam
   // (rodam in-process) — marca como failed/partial para o usuário reprocessar.
   .then(() => require('./ads-ops-store').reconcileOrphanJobs().catch((e) => {

@@ -29,6 +29,8 @@
 const zernio = require('./zernio-ads');
 const pipeboard = require('./ads-provider'); // Gate 2+: fronteira dashboard↔Pipeboard
 const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só /diag)
+const adsCache = require('./ads-cache-store'); // espelho durável no Neon (leitura)
+const adsSync = require('./ads-sync');         // motor Pipeboard→Neon (sync em background)
 const adsOps = require('./ads-ops-store');
 const catalogStore = require('./ads-catalog-store');
 const catalogFeed = require('./ads-catalog-feed');
@@ -179,6 +181,35 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         pipeboard: (err && err.pipeboard) || null,
       });
     }
+  });
+
+  // ── Diagnóstico do cache/sync ───────────────────────────────────────────────
+  // Prova que o caminho de leitura ficou local: mostra quantas chamadas o app
+  // fez ao Pipeboard (total/min/hora) — que agora só vêm do sync + escritas —
+  // e o estado de sync de cada advertiser desta conta (último sync, duração,
+  // chamadas gastas, erro). Alimenta o painel de diagnóstico da dashboard.
+  app.get('/api/ads/sync-status', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const calls = pipeboardMcp.getCallStats ? pipeboardMcp.getCallStats() : null;
+      const states = adsCache.enabled ? await adsCache.listSyncStates(req.account.id) : [];
+      res.json({
+        cacheEnabled: !!adsCache.enabled,
+        syncConfig: adsSync._config || null,
+        calls, // { total, lastMinute, lastHour, byTool }
+        advertisers: (states || []).map((s) => ({
+          advertiserId: s.advertiser_id,
+          status: s.status,
+          lastSyncedAt: s.last_synced_at,
+          lastDurationMs: s.last_duration_ms,
+          callsUsed: s.calls_used,
+          windowFrom: s.window_from,
+          windowTo: s.window_to,
+          lastError: s.last_error,
+          requestedAt: s.requested_at,
+        })),
+      });
+    } catch (err) { fail(res, err); }
   });
 
   // ── Status da integração ──────────────────────────────────────────────────
@@ -395,24 +426,39 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         advertiserId = await pipeboard.resolveAdvertiserId(req.account.id);
         if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
       }
+      // Caminho de leitura = espelho no Neon (instantâneo + resiliente).
+      // ensureFresh: marca a conta como ativa (alvo do loop), serve o cache já
+      // gravado e revalida em segundo plano; só bloqueia no cache FRIO (1º acesso).
+      if (adsCache.enabled) {
+        await adsSync.ensureFresh(req.account.id, advertiserId).catch((e) => {
+          console.warn('[ads/tree] ensureFresh falhou (segue com o que houver):', e.message);
+        });
+        const cached = await adsCache.readTree(req.account.id, advertiserId, {
+          fromDate: q.fromDate, toDate: q.toDate, status: q.status, sort: q.sort,
+        });
+        if (cached) return res.json(cached);
+      }
+      // Fallback: Neon indisponível → leitura ao vivo do provider (degradado).
       const data = await pipeboard.getDashboardTree(req.account.id, {
-        advertiserId,
-        fromDate: q.fromDate,
-        toDate: q.toDate,
-        status: q.status,
-        sort: q.sort,
-        fresh: q.fresh === '1',
+        advertiserId, fromDate: q.fromDate, toDate: q.toDate, status: q.status, sort: q.sort,
       });
       res.json(data);
     } catch (err) { fail(res, err); }
   });
 
-  // Refresh manual: derruba o cache da árvore/analytics desta conta — o
-  // próximo GET busca dados frescos no Pipeboard. Botão "Atualizar" do painel.
-  app.post('/api/ads/tree/refresh', dashboardAuth, (req, res) => {
-    pipeboard.cacheBust('dashtree:' + req.account.id);
-    pipeboard.cacheBust('analytics:' + req.account.id);
-    res.status(204).end();
+  // Refresh manual ("Atualizar agora"): força um sync imediato deste advertiser
+  // (Pipeboard→Neon) com throttle por conta. Não é mais um cache-bust local —
+  // é o único gatilho manual de leitura ao provider fora do loop de sync.
+  app.post('/api/ads/tree/refresh', dashboardAuth, async (req, res) => {
+    try {
+      if (!adsCache.enabled) { pipeboard.cacheBust('dashtree:' + req.account.id); return res.status(204).end(); }
+      const q = req.query || {};
+      let advertiserId = q.adAccountId ? String(q.adAccountId).trim() : await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+      const r = await adsSync.refreshNow(req.account.id, advertiserId);
+      if (r && r.throttled) return res.status(429).json({ error: 'Aguarde antes de atualizar novamente', retryInMs: r.retryInMs });
+      res.json({ ok: true, synced: !!(r && r.ok), campaigns: r && r.campaigns, metrics: r && r.metrics });
+    } catch (err) { fail(res, err); }
   });
 
   // ── Analytics de campanha (resumo + série diária) ───────────────────���─────
@@ -435,6 +481,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(new Date(today.getTime() - 6 * 864e5));
       const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
 
+      // Espelho no Neon: série diária no nível campanha, agregada por dia.
+      if (adsCache.enabled) {
+        await adsSync.ensureFresh(req.account.id, advertiserId).catch(() => {});
+        const cachedAn = await adsCache.readCampaignAnalytics(req.account.id, advertiserId, campaignId, fromDate, toDate);
+        if (cachedAn && cachedAn.summary) return res.json(cachedAn);
+      }
+      // Fallback: leitura ao vivo (Neon indisponível).
       const ck = 'analytics:' + req.account.id + ':' + advertiserId + ':' + campaignId + ':' + fromDate + ':' + toDate;
       let data = pipeboard.cacheGet(ck);
       if (!data) {
@@ -798,14 +851,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(defFrom);
       const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
 
-      const ck = 'roas:' + req.account.id + ':' + advertiserId + ':' + fromDate + ':' + toDate;
-      let out = pipeboard.cacheGet ? pipeboard.cacheGet(ck) : null;
-      if (!out) {
-        // 1) Gasto do TikTok por DIA (dimensão stat_time_day) da conta selecionada.
-        const spendByDay = {}; // 'YYYY-MM-DD' → gasto (moeda do advertiser)
-        let spend = 0, conversions = 0;
+      // 1) Gasto do TikTok por DIA — do espelho no Neon (instantâneo). A receita
+      // vem do stats interno, então a leitura local do gasto é agregada aqui.
+      const spendByDay = {}; // 'YYYY-MM-DD' → gasto (moeda do advertiser)
+      let spend = 0, conversions = 0, currency = null;
+      if (adsCache.enabled) {
+        await adsSync.ensureFresh(req.account.id, advertiserId).catch(() => {});
+        const d = await adsCache.readAdvertiserDaily(req.account.id, advertiserId, fromDate, toDate);
+        Object.assign(spendByDay, d.spendByDay);
+        spend = d.spend; conversions = d.conversions; currency = d.currency;
+      } else {
+        // Fallback ao vivo (Neon indisponível).
         const advInfo = await pipeboard.getAdvertiserInfo(advertiserId).catch(() => null);
-        let currency = (advInfo && advInfo.currency) || null;
+        currency = (advInfo && advInfo.currency) || null;
         const ins = await pipeboard.getInsights(advertiserId, {
           level: 'AUCTION_ADVERTISER', startDate: fromDate, endDate: toDate, dimensions: ['stat_time_day'],
         });
@@ -815,46 +873,45 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           conversions += r.conversions || 0;
           if (/^\d{4}-\d{2}-\d{2}$/.test(day)) spendByDay[day] = (spendByDay[day] || 0) + (r.spend || 0);
         });
-
-        // 2) Vendas reais da conta no mesmo intervalo (fonte: stats/leads)
-        const revByDay = {}; const salesByDay = {};
-        let revenueCents = 0, sales = 0;
-        if (typeof stats.getStats === 'function') {
-          const snap = stats.getStats(req.account.id) || {};
-          (snap.leads || []).forEach((l) => {
-            if (l.stage !== 'purchased' || !l.convertedAt) return;
-            const day = String(l.convertedAt).slice(0, 10);
-            if (day < fromDate || day > toDate) return;
-            const cents = Number(l.reportedAmount) || 0;
-            revenueCents += cents; sales += 1;
-            revByDay[day] = (revByDay[day] || 0) + cents;
-            salesByDay[day] = (salesByDay[day] || 0) + 1;
-          });
-        }
-
-        // 3) Série contínua dia a dia (mesmo sem dado — o gráfico não pula datas)
-        const daily = [];
-        for (let t = new Date(fromDate + 'T00:00:00Z'); iso(t) <= toDate; t = new Date(t.getTime() + 864e5)) {
-          const day = iso(t);
-          daily.push({
-            date: day,
-            spend: +(spendByDay[day] || 0).toFixed(2),
-            revenueCents: revByDay[day] || 0,
-            sales: salesByDay[day] || 0
-          });
-        }
-
-        const revenue = revenueCents / 100;
-        out = {
-          fromDate, toDate, currency: currency || 'EUR',
-          spend: +spend.toFixed(2), conversions,
-          revenueCents, sales,
-          roas: spend > 0 ? +(revenue / spend).toFixed(2) : null,
-          cpa: sales > 0 && spend > 0 ? +(spend / sales).toFixed(2) : null,
-          daily
-        };
-        if (pipeboard.cacheSet) pipeboard.cacheSet(ck, out, 60 * 1000);
       }
+
+      // 2) Vendas reais da conta no mesmo intervalo (fonte: stats/leads)
+      const revByDay = {}; const salesByDay = {};
+      let revenueCents = 0, sales = 0;
+      if (typeof stats.getStats === 'function') {
+        const snap = stats.getStats(req.account.id) || {};
+        (snap.leads || []).forEach((l) => {
+          if (l.stage !== 'purchased' || !l.convertedAt) return;
+          const day = String(l.convertedAt).slice(0, 10);
+          if (day < fromDate || day > toDate) return;
+          const cents = Number(l.reportedAmount) || 0;
+          revenueCents += cents; sales += 1;
+          revByDay[day] = (revByDay[day] || 0) + cents;
+          salesByDay[day] = (salesByDay[day] || 0) + 1;
+        });
+      }
+
+      // 3) Série contínua dia a dia (mesmo sem dado — o gráfico não pula datas)
+      const daily = [];
+      for (let t = new Date(fromDate + 'T00:00:00Z'); iso(t) <= toDate; t = new Date(t.getTime() + 864e5)) {
+        const day = iso(t);
+        daily.push({
+          date: day,
+          spend: +(spendByDay[day] || 0).toFixed(2),
+          revenueCents: revByDay[day] || 0,
+          sales: salesByDay[day] || 0
+        });
+      }
+
+      const revenue = revenueCents / 100;
+      const out = {
+        fromDate, toDate, currency: currency || 'EUR',
+        spend: +spend.toFixed(2), conversions,
+        revenueCents, sales,
+        roas: spend > 0 ? +(revenue / spend).toFixed(2) : null,
+        cpa: sales > 0 && spend > 0 ? +(spend / sales).toFixed(2) : null,
+        daily
+      };
       res.json(out);
     } catch (err) { fail(res, err); }
   });

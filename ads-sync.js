@@ -16,7 +16,8 @@ const provider = require('./ads-provider');
 const cache = require('./ads-cache-store');
 const pipeboard = require('./pipeboard-mcp');
 
-const WIDE_DAYS = Number(process.env.ADS_SYNC_WINDOW_DAYS) || 365;
+const WIDE_DAYS = Number(process.env.ADS_SYNC_WINDOW_DAYS) || 90;
+const CHUNK_DAYS = 30; // TikTok limita stat_time_day a janelas de 30 dias (erro 40002)
 const SYNC_INTERVAL_MS = Number(process.env.ADS_SYNC_INTERVAL_MS) || 3 * 60 * 1000; // 3 min
 const ACTIVE_WINDOW_MIN = Number(process.env.ADS_SYNC_ACTIVE_MIN) || 6 * 60;        // 6h
 const STALE_MS = Number(process.env.ADS_SYNC_STALE_MS) || SYNC_INTERVAL_MS;         // idade p/ revalidar
@@ -34,16 +35,38 @@ const LEVELS = {
   adgroup: { level: 'AUCTION_ADGROUP', dimKey: 'adgroup_id' },
   ad: { level: 'AUCTION_AD', dimKey: 'ad_id' },
 };
+// Fatia [startDate, endDate] em janelas de ≤30 dias (limite do TikTok para
+// stat_time_day). Devolve [{ start, end }].
+function dateChunks(startDate, endDate) {
+  const chunks = [];
+  let cur = new Date(startDate + 'T00:00:00Z');
+  const end = new Date(endDate + 'T00:00:00Z');
+  while (cur <= end) {
+    const chunkEnd = new Date(Math.min(cur.getTime() + (CHUNK_DAYS - 1) * 864e5, end.getTime()));
+    chunks.push({ start: iso(cur), end: iso(chunkEnd) });
+    cur = new Date(chunkEnd.getTime() + 864e5);
+  }
+  return chunks;
+}
+
 async function collectDaily(advertiserId, levelName, startDate, endDate) {
   const { level, dimKey } = LEVELS[levelName];
-  const { rows } = await provider.getInsights(advertiserId, { level, startDate, endDate, dimensions: [dimKey, 'stat_time_day'] });
+  const chunks = dateChunks(startDate, endDate);
+  // Uma chamada por janela de 30 dias. O rate limiter do provider serializa;
+  // Promise.all só encurta a espera de agendamento.
+  const perChunk = await Promise.all(chunks.map((c) =>
+    provider.getInsights(advertiserId, { level, startDate: c.start, endDate: c.end, dimensions: [dimKey, 'stat_time_day'] })
+      .then((r) => r.rows || [])
+  ));
   const out = [];
-  for (const r of rows) {
-    const d = r.dimensions || {};
-    const entityId = String(d[dimKey] || '');
-    const day = dayStr(d.stat_time_day);
-    if (!entityId || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
-    out.push({ level: levelName, entityId, day, spend: r.spend, impressions: r.impressions, clicks: r.clicks, conversions: r.conversions, reach: r.reach });
+  for (const rows of perChunk) {
+    for (const r of rows) {
+      const d = r.dimensions || {};
+      const entityId = String(d[dimKey] || '');
+      const day = dayStr(d.stat_time_day);
+      if (!entityId || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      out.push({ level: levelName, entityId, day, spend: r.spend, impressions: r.impressions, clicks: r.clicks, conversions: r.conversions, reach: r.reach });
+    }
   }
   return out;
 }
