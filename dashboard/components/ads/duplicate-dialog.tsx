@@ -30,9 +30,14 @@ export function DuplicateDialog({
 }) {
   const open = Boolean(campaign)
   const ref = useRef<HTMLDivElement>(null)
+  // 'copy': cópias exatas (1-10). 'variations': até 50 a partir do template,
+  // com overrides opcionais de orçamento/texto aplicados a cada variação.
+  const [mode, setMode] = useState<'copy' | 'variations'>('copy')
   const [count, setCount] = useState('1')
   const [target, setTarget] = useState('')
   const [suffix, setSuffix] = useState(' (cópia)')
+  const [varBudget, setVarBudget] = useState('')
+  const [varText, setVarText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const notifiedRef = useRef(false)
@@ -44,9 +49,12 @@ export function DuplicateDialog({
 
   useEffect(() => {
     if (open) {
+      setMode('copy')
       setCount('1')
       setTarget(currentAdvertiserId)
       setSuffix(' (cópia)')
+      setVarBudget('')
+      setVarText('')
       setJobId(null)
       notifiedRef.current = false
     }
@@ -68,28 +76,43 @@ export function DuplicateDialog({
 
   const crossAccount = Boolean(target) && target !== currentAdvertiserId
 
+  const maxCount = mode === 'variations' ? 50 : 10
+
   const error: string | null = useMemo(() => {
     const n = parseInt(count, 10)
-    if (!(n >= 1 && n <= 10)) return 'Número de cópias deve ser entre 1 e 10'
+    if (!(n >= 1 && n <= maxCount)) return `Número de ${mode === 'variations' ? 'variações' : 'cópias'} deve ser entre 1 e ${maxCount}`
     if (!target) return 'Selecione a conta destino'
     if (crossAccount) return 'Duplicar para outra conta ainda não é suportado — os criativos são escopados à conta de origem no TikTok'
+    if (mode === 'variations' && varBudget && !(parseFloat(varBudget) > 0)) return 'Orçamento por variação deve ser maior que zero'
     return null
-  }, [count, target, crossAccount])
+  }, [count, target, crossAccount, mode, maxCount, varBudget])
 
   async function handleSubmit() {
     if (!campaign) return
     setSubmitting(true)
     try {
-      const idempotencyKey = `duplicate:${campaign.platformCampaignId}:${target}:${count}:${Date.now()}`
-      const res = await apiSend<AdsBulkStartResponse>('/api/ads/duplicate', 'POST', {
+      const n = parseInt(count, 10)
+      const idempotencyKey = `duplicate:${campaign.platformCampaignId}:${target}:${mode}:${count}:${Date.now()}`
+      const body: Record<string, unknown> = {
         sourceType: 'campaign',
         idempotencyKey,
         sourceId: campaign.platformCampaignId,
         sourceAdAccountId: currentAdvertiserId,
         targetAdAccountId: target,
-        count: parseInt(count, 10),
         nameSuffix: suffix,
-      })
+      }
+      if (mode === 'variations') {
+        const budget = parseFloat(varBudget)
+        const srcName = campaign.campaignName || campaign.platformCampaignId
+        body.variations = Array.from({ length: n }, (_, i) => ({
+          name: `${srcName}${suffix} ${i + 1}`.slice(0, 512),
+          ...(budget > 0 ? { budgetAmount: budget } : {}),
+          ...(varText.trim() ? { adText: varText.trim() } : {}),
+        }))
+      } else {
+        body.count = n
+      }
+      const res = await apiSend<AdsBulkStartResponse>('/api/ads/duplicate', 'POST', body)
       setJobId(res.jobId)
     } catch (e) {
       toast.error('Falha ao enfileirar a duplicação', { hint: e instanceof Error ? e.message : undefined })
@@ -166,13 +189,34 @@ export function DuplicateDialog({
             </div>
           ) : (
             <>
+              <div className="flex rounded-lg border border-border bg-secondary/40 p-0.5" role="tablist" aria-label="Modo de duplicação">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'copy'}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mode === 'copy' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
+                  onClick={() => { setMode('copy'); setCount('1'); setSuffix(' (cópia)') }}
+                >
+                  Cópias exatas
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'variations'}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mode === 'variations' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
+                  onClick={() => { setMode('variations'); setSuffix(' (variação)') }}
+                >
+                  Variações (até 50)
+                </button>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-foreground">Número de cópias</span>
+                  <span className="text-xs font-medium text-foreground">{mode === 'variations' ? 'Número de variações' : 'Número de cópias'}</span>
                   <input
                     type="number"
                     min={1}
-                    max={10}
+                    max={maxCount}
                     className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={count}
                     onChange={(e) => setCount(e.target.value)}
@@ -212,10 +256,38 @@ export function DuplicateDialog({
                   origem no TikTok. Use &quot;Subir em massa&quot; com o vídeo da biblioteca na conta destino.
                 </p>
               )}
+              {mode === 'variations' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-foreground">Orçamento por variação (opcional)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                      value={varBudget}
+                      onChange={(e) => setVarBudget(e.target.value)}
+                      placeholder="Herda da origem"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-foreground">Texto do anúncio (opcional)</span>
+                    <input
+                      className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                      value={varText}
+                      maxLength={100}
+                      onChange={(e) => setVarText(e.target.value)}
+                      placeholder="Herda da origem"
+                    />
+                  </label>
+                </div>
+              )}
+
               {!crossAccount && (
                 <p className="rounded-lg bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                  Cópia completa (campanha → grupos → anúncios) na mesma conta. As cópias chegam pausadas — revise e
-                  ative.
+                  {mode === 'variations'
+                    ? 'Cada variação recria a campanha completa a partir do template, com os overrides acima aplicados. Tudo chega pausado — revise e ative.'
+                    : 'Cópia completa (campanha → grupos → anúncios) na mesma conta. As cópias chegam pausadas — revise e ative.'}
                 </p>
               )}
 

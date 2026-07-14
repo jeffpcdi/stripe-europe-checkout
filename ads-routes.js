@@ -1665,6 +1665,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const result = await pipeboard.recreateCampaign(task.advertiserId, capture, String(task.newName || '').slice(0, 512), {
         resume,
         dedupeByName: true,
+        overrides: task.overrides || undefined, // F4: variações com budget/texto próprios
         onProgress: (ids) => adsOps.saveBulkProgress(env.accountId, env.jobId, env.idx, ids),
       });
       await adsOps.appendAuditEvent(env.accountId, {
@@ -1801,8 +1802,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
       }
       const selected = await requireAdvertiser(req.account.id, null, sourceAdAccountId, null);
-      const count = Math.min(10, Math.max(1, parseInt(b.count, 10) || 1));
-      const suffix = String(b.nameSuffix || ' (cópia)').slice(0, 60);
+      // F4: modo VARIAÇÕES — array de até 50 itens, cada um com overrides
+      // opcionais { name?, budgetAmount?, adText? } aplicados sobre o template.
+      // Sem "variations", modo cópia exata clássico (1-10, count+suffix).
+      const rawVariations = Array.isArray(b.variations) ? b.variations.slice(0, 50) : null;
+      const count = rawVariations ? rawVariations.length : Math.min(10, Math.max(1, parseInt(b.count, 10) || 1));
+      if (rawVariations && !count) return res.status(400).json({ error: 'variations vazio — envie 1 a 50 variações' });
+      const suffix = String(b.nameSuffix || (rawVariations ? ' (variação)' : ' (cópia)')).slice(0, 60);
       const idempotencyKey = String(b.idempotencyKey || '').trim().slice(0, 200);
       if (!idempotencyKey) return res.status(400).json({ error: 'idempotencyKey obrigatória' });
       const policy = await adsOps.getSafetyPolicy(req.account.id);
@@ -1815,11 +1821,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       const tasks = [];
       for (let i = 0; i < count; i++) {
-        const newName = (srcName + suffix + (count > 1 ? ' ' + (i + 1) : '')).slice(0, 512);
-        tasks.push({
-          ref: newName.slice(0, 120),
-          task: { kind: 'duplicate_pb', sourceId, advertiserId: selected.advertiserId, newName },
-        });
+        const v = rawVariations ? (rawVariations[i] || {}) : null;
+        const newName = String((v && v.name) || (srcName + suffix + (count > 1 ? ' ' + (i + 1) : ''))).slice(0, 512);
+        const task = { kind: 'duplicate_pb', sourceId, advertiserId: selected.advertiserId, newName };
+        if (v) {
+          const overrides = {};
+          if (Number(v.budgetAmount) > 0) overrides.budgetAmount = Math.min(100000, Number(v.budgetAmount));
+          if (v.adText) overrides.adText = String(v.adText).slice(0, 100);
+          if (Object.keys(overrides).length) task.overrides = overrides;
+        }
+        tasks.push({ ref: newName.slice(0, 120), task });
       }
       const job = await bulk.createBulkJob(req.account.id, {
         kind: 'duplicate', adAccountId: selected.advertiserId,

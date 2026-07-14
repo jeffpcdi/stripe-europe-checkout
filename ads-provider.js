@@ -998,7 +998,8 @@ function is40002DynamicBudget(err) {
 }
 
 // Campo a campo do que É copiável de um adgroup de origem (allowlist).
-function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings) {
+// overrides (F4 — variações): { budgetAmount? } aplicado por cima da origem.
+function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, overrides) {
   const args = {
     advertiser_id: adv,
     campaign_id: newCampaignId,
@@ -1019,11 +1020,18 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings) {
     if (Number.isFinite(endMs) && endMs > Date.now()) args.schedule_end_time = String(srcAg.schedule_end_time);
   }
   const mode = String(srcAg.budget_mode || '');
+  const budgetOverride = Number((overrides || {}).budgetAmount) > 0 ? Number(overrides.budgetAmount) : 0;
   if (mode && mode !== 'BUDGET_MODE_INFINITE') {
     // adgroup NÃO aceita DYNAMIC_DAILY (enum do create só tem DAY/TOTAL/INFINITE)
     args.budget_mode = mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET' ? 'BUDGET_MODE_DAY' : mode;
     if (mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET') warnings.push('Orçamento dinâmico do grupo convertido para diário fixo (não suportado na recriação)');
-    if (Number(srcAg.budget) > 0) args.budget = Number(srcAg.budget);
+    if (budgetOverride) args.budget = budgetOverride;
+    else if (Number(srcAg.budget) > 0) args.budget = Number(srcAg.budget);
+  } else if (budgetOverride) {
+    // Origem sem orçamento no grupo (INFINITE/CBO) mas a variação pede um:
+    // vira orçamento diário fixo no grupo.
+    args.budget_mode = 'BUDGET_MODE_DAY';
+    args.budget = budgetOverride;
   }
   const bidType = String(srcAg.bid_type || '');
   if (bidType) {
@@ -1045,9 +1053,12 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings) {
 // Recria a campanha capturada. newName é o nome da CÓPIA (já com sufixo).
 // opts.resume/opts.onProgress: mesma mecânica idempotente do createFullAd —
 // progresso = { campaignId, adGroups: {srcId: newId}, ads: {srcId: newId} }.
+// opts.overrides (F4 — variações): { budgetAmount?, adText? } aplicado por
+// cima da origem em CADA grupo/anúncio da variação.
 async function recreateCampaign(advertiserId, capture, newName, opts) {
   const adv = String(advertiserId || '').trim();
   const o = opts || {};
+  const overrides = (o.overrides && typeof o.overrides === 'object') ? o.overrides : {};
   const resume = (o.resume && typeof o.resume === 'object') ? o.resume : {};
   const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
   const src = capture.campaign;
@@ -1110,7 +1121,7 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
     for (const srcAg of capture.adGroups) {
       const srcAgId = String(srcAg.adgroup_id || srcAg.id || '');
       if (progress.adGroups[srcAgId]) continue; // já criado numa tentativa anterior
-      const agArgs = buildAdGroupCopyArgs(adv, progress.campaignId, srcAg, info && info.timezone, warnings);
+      const agArgs = buildAdGroupCopyArgs(adv, progress.campaignId, srcAg, info && info.timezone, warnings, overrides);
       const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
       const newAgId = String(deepPluck(agOut, 'adgroup_id') || '');
       if (!newAgId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id na duplicação', progress);
@@ -1130,7 +1141,7 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
         adgroup_id: newAgId,
         ad_name: String(srcAd.ad_name || srcAd.name || newName).slice(0, 500),
         ad_format: String(srcAd.ad_format || 'SINGLE_VIDEO'),
-        ad_text: String(srcAd.ad_text || srcAd.title || newName).slice(0, 100),
+        ad_text: String(overrides.adText || srcAd.ad_text || srcAd.title || newName).slice(0, 100),
         status: 'PAUSED',
       };
       const vid = String(srcAd.video_id || deepPluck(srcAd, 'video_id') || '');
