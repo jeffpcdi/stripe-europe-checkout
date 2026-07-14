@@ -96,6 +96,35 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── Guarda de escrita (dry-run) ─────────────────────────────────────────────
+  // O badge "Modo simulação" promete que NENHUMA escrita chega ao TikTok. Esta
+  // guarda centraliza essa promessa: toda rota/rotina que muta estado na Zernio
+  // (status, orçamento, bid, criação, duplicação, delete e as regras
+  // automáticas) consulta a política ANTES de chamar a Zernio. getSafetyPolicy
+  // já devolve dryRun=true por padrão — inclusive quando o Neon está
+  // indisponível — então a guarda falha FECHADA: na dúvida, simula em vez de
+  // escrever de verdade.
+  async function isDryRun(accountId) {
+    const policy = await adsOps.getSafetyPolicy(accountId);
+    return !!(policy && policy.dryRun);
+  }
+
+  // Auditoria padronizada de uma escrita simulada (mesmo sufixo `.simulated`
+  // usado em criar/duplicar em massa) + log de atividade. Nunca lança —
+  // auditoria é best-effort e não pode derrubar a resposta da rota.
+  async function auditSimulated(accountId, { action, targetType, targetId, advertiserId, metadata, title }) {
+    try {
+      await adsOps.appendAuditEvent(accountId, {
+        actorType: 'user', actorId: accountId, action: action + '.simulated',
+        targetType: targetType || null, targetId: targetId || null,
+        advertiserId: advertiserId || null,
+        reason: 'Política em modo dry-run (nada enviado ao TikTok)',
+        metadata: metadata || {}
+      });
+    } catch (_) { /* auditoria não pode derrubar a rota */ }
+    if (title) stats.logEvent('info', { acc: accountId, title: '[simulação] ' + title });
+  }
+
   // ── Status da integração ──────────────────────────────────────────────────
   app.get('/api/ads/status', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -578,6 +607,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const payload = built.payload;
       const name = payload.name;
 
+      // dry-run: não cria nada no TikTok.
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'campaign_create', targetType: 'campaign', advertiserId: payload.adAccountId || st.advertiserId,
+          metadata: { name, goal: payload.goal }, title: 'Criar campanha ' + name
+        });
+        return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
+      }
       // Idempotency-Key evita campanha duplicada em retry de rede
       const idem = String(b.idempotencyKey || '').slice(0, 80) || undefined;
       const data = await zernio.api('POST', '/ads/create', {
@@ -591,7 +628,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Spark Ads (impulsionar vídeo orgânico) ───────────────────────────���────
+  // ── Spark Ads (impulsionar vídeo orgânico) ───────────────────────────�����────
   app.post('/api/ads/boost', dashboardAuth, async (req, res) => {
     try {
       const st = zernio.getState(req.account.id);
@@ -628,6 +665,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30) : [];
       if (countries.length) payload.targeting = Object.assign({}, payload.targeting, { countries });
 
+      // dry-run: não impulsiona de verdade.
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'spark_ad_create', targetType: 'campaign', advertiserId: adAccountId,
+          metadata: { name, goal }, title: 'Impulsionar Spark Ad ' + name
+        });
+        return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
+      }
       const data = await zernio.api('POST', '/ads/boost', { body: payload, timeoutMs: 120000 });
       zernio.cacheBust('tree:' + req.account.id);
       stats.logEvent('info', { acc: req.account.id, title: 'Spark Ad criado: ' + name });
@@ -647,6 +692,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         .map((c) => ({ platformCampaignId: String((c || {}).platformCampaignId || '').slice(0, 60), platform: 'tiktok' }))
         .filter((c) => c.platformCampaignId);
       if (!campaigns.length) return res.status(400).json({ error: 'Nenhuma campanha informada' });
+      // dry-run: não toca a Zernio. Mesma forma de resposta ({ totals }) que a
+      // UI lê, com os itens marcados como simulados.
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'campaign_status', targetType: 'campaign', advertiserId: st.advertiserId,
+          metadata: { status, count: campaigns.length, campaignIds: campaigns.map((c) => c.platformCampaignId) },
+          title: (status === 'paused' ? 'Pausar' : 'Ativar') + ' ' + campaigns.length + ' campanha(s)'
+        });
+        return res.json({ dryRun: true, simulated: campaigns.length, totals: { updated: 0, skipped: campaigns.length, failed: 0 } });
+      }
       const data = await zernio.api('POST', '/ads/campaigns/bulk-status', { body: { status, campaigns } });
       zernio.cacheBust('tree:' + req.account.id);
       stats.logEvent('info', { acc: req.account.id, title: 'Campanhas TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + campaigns.length });
@@ -659,13 +714,22 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
-      const id = encodeURIComponent(String(req.params.id || ''));
+      const sourceId = String(req.params.id || '');
+      // dry-run: não duplica de verdade.
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'campaign_duplicate', targetType: 'campaign', targetId: sourceId, advertiserId: st.advertiserId,
+          title: 'Duplicar campanha ' + sourceId
+        });
+        return res.json({ dryRun: true, simulated: true, sourceId });
+      }
+      const id = encodeURIComponent(sourceId);
       const data = await zernio.api('POST', '/ads/campaigns/' + id + '/duplicate', {
         body: { platform: 'tiktok', deepCopy: true, statusOption: 'PAUSED', renameStrategy: 'ONLY_TOP_LEVEL_RENAME', renameSuffix: ' (cópia)' },
         timeoutMs: 120000
       });
       zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'Campanha TikTok duplicada', ref: String(req.params.id || '') });
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanha TikTok duplicada', ref: sourceId });
       res.json(data);
     } catch (err) { fail(res, err); }
   });
@@ -694,7 +758,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         if (Object.keys(c).length) payload.creative = c;
       }
       if (!Object.keys(payload).length) return res.status(400).json({ error: 'Nada para atualizar' });
-      const id = encodeURIComponent(String(req.params.adId || ''));
+      const adId = String(req.params.adId || '');
+      // dry-run: cobre orçamento/bid/status/creative — nada chega ao TikTok.
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'ad_update', targetType: 'ad', targetId: adId, advertiserId: st.advertiserId,
+          metadata: { applied: payload }, title: 'Atualizar anúncio ' + adId
+        });
+        return res.json({ dryRun: true, simulated: true, id: adId, applied: payload });
+      }
+      const id = encodeURIComponent(adId);
       const data = await zernio.api('PUT', '/ads/' + id, { body: payload, timeoutMs: 120000 });
       zernio.cacheBust('tree:' + req.account.id);
       res.json(data);
@@ -707,10 +780,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const st = zernio.getState(req.account.id);
       if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
-      const id = encodeURIComponent(String(req.params.adId || ''));
+      const adId = String(req.params.adId || '');
+      // dry-run: não cancela de verdade.
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'ad_delete', targetType: 'ad', targetId: adId, advertiserId: st.advertiserId,
+          title: 'Cancelar anúncio ' + adId
+        });
+        return res.json({ dryRun: true, simulated: true, id: adId });
+      }
+      const id = encodeURIComponent(adId);
       const data = await zernio.api('DELETE', '/ads/' + id);
       zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('warn', { acc: req.account.id, title: 'Anúncio TikTok cancelado', ref: String(req.params.adId || '') });
+      stats.logEvent('warn', { acc: req.account.id, title: 'Anúncio TikTok cancelado', ref: adId });
       res.json(data);
     } catch (err) { fail(res, err); }
   });
@@ -1073,6 +1155,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const st = zernio.getState(accId);
     if (!st.accountId || !rules.length) return { executed: [], skipped: true };
 
+    // Regras automáticas também respeitam o dry-run: em simulação, elas
+    // avaliam as condições e registram o que FARIAM, mas não tocam a Zernio.
+    const dryRun = await isDryRun(accId);
     const iso = (d) => d.toISOString().slice(0, 10);
     const to = new Date();
     const maxLookback = Math.max(...rules.map((r) => r.lookbackDays || 2), 1);
@@ -1117,13 +1202,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           action: r.action, campaignId: c.platformCampaignId, campaignName: name,
           detail, ok: false
         };
+        entry.simulated = dryRun;
         try {
           if (r.action === 'pause') {
-            await zernio.api('POST', '/ads/campaigns/bulk-status', {
-              body: { status: 'paused', campaigns: [{ platformCampaignId: c.platformCampaignId, platform: 'tiktok' }] }
-            });
+            if (!dryRun) {
+              await zernio.api('POST', '/ads/campaigns/bulk-status', {
+                body: { status: 'paused', campaigns: [{ platformCampaignId: c.platformCampaignId, platform: 'tiktok' }] }
+              });
+            }
             entry.ok = true;
-            entry.result = 'campanha pausada';
+            entry.result = (dryRun ? '[simulado] ' : '') + 'campanha pausada';
           } else {
             // ± pct% no orçamento de cada grupo (via 1º anúncio do grupo)
             const pct = Math.max(5, Math.min(50, Number(r.pct) || 20));
@@ -1134,14 +1222,22 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
               const adId = (s.ads || [])[0] && ((s.ads[0].platformAdId) || (s.ads[0]._id));
               if (!(cur > 0) || !adId) continue;
               const amount = Math.max(1, +(cur * factor).toFixed(2));
-              await zernio.api('PUT', '/ads/' + encodeURIComponent(adId), {
-                body: { budget: { amount, type: (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily' } },
-                timeoutMs: 60000
-              });
+              if (!dryRun) {
+                await zernio.api('PUT', '/ads/' + encodeURIComponent(adId), {
+                  body: { budget: { amount, type: (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily' } },
+                  timeoutMs: 60000
+                });
+              }
               changed += 1;
             }
             entry.ok = changed > 0;
-            entry.result = 'orçamento ' + (r.action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' grupo(s)';
+            entry.result = (dryRun ? '[simulado] ' : '') + 'orçamento ' + (r.action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' grupo(s)';
+          }
+          if (dryRun && entry.ok) {
+            await auditSimulated(accId, {
+              action: 'rule_action', targetType: 'campaign', targetId: c.platformCampaignId, advertiserId: st.advertiserId,
+              metadata: { ruleId: r.id, metric: r.metric, action: r.action, detail }, title: 'Regra automática: ' + entry.result
+            });
           }
         } catch (e) {
           entry.result = 'falhou: ' + (e && e.message ? e.message.slice(0, 120) : 'erro');
@@ -1599,7 +1695,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // ── Catálogos de produtos (TikTok Shopping / Catalog) ─────────────────────
   // A Zernio não publica campanhas de catálogo no TikTok — então aqui gerimos
-  // o CATÁLOGO (produtos editáveis + feed) e publicamos um feed TikTok-ready
+  // o CATÁLOGO (produtos edit��veis + feed) e publicamos um feed TikTok-ready
   // numa URL pública do Blob. O usuário cola essa URL no Catalog Manager do
   // TikTok como feed agendado; toda edição aqui atualiza o feed no próximo pull.
   // Escopo por conta logada (req.account.id) — nunca cruza contas.
