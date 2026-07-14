@@ -3541,7 +3541,11 @@ function notifyPushcut(event, n) {
 async function processConversion(n) {
   // item 199: latência webhook→disparo (do recebimento até começar a processar)
   if (n && n._recvAt) rdb.recordConvLatency(Date.now() - n._recvAt);
-  const evId = n.event + '.' + n.gateway + '.' + n.orderId;
+  // Risco 6: a chave de dedup DEVE incluir a conta. Sem ela, duas contas com
+  // gateway 'generic' e order_ids curtos ("1001") colidem e a venda da segunda
+  // conta é descartada como duplicata da primeira. 'legacy' cobre o webhook
+  // legado (conta padrão) de forma estável.
+  const evId = (n.acc || 'legacy') + '.' + n.event + '.' + n.gateway + '.' + n.orderId;
   const receipt = {
     // Item 198: id ESTÁVEL do recibo — permite localizar a entrada no log
     // para reprocessamento manual (evId + carimbo de recebimento)
@@ -3578,7 +3582,11 @@ async function processConversion(n) {
     // 2. resolve o lead no backend: leadId → e-mail → telefone → órfão
     // (com n.acc definido, o match respeita a fronteira da conta)
     let lead = n.leadId ? stats.getLead(n.leadId) : null;
-    if (lead && n.acc && lead.acc && lead.acc !== n.acc) lead = null;
+    // Risco 2: fronteira ESTRITA. O guard antigo só agia quando ambos os acc
+    // existiam, deixando cruzar contas quando algum era null (lead legado ou
+    // n.acc não resolvido). Agora um lead só casa se a conta for EXATAMENTE a
+    // mesma (null só casa com null).
+    if (lead && (lead.acc || null) !== (n.acc || null)) lead = null;
     let matchVia = lead ? 'leadId' : null;
     if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email, n.acc); if (lead) matchVia = 'email'; } catch (_) {} }
     if (!lead && n.phone) { try { lead = stats.findLeadByPhone(n.phone, n.acc); if (lead) matchVia = 'phone'; } catch (_) {} }
@@ -3812,6 +3820,14 @@ app.post('/api/conversion', (req, res) => {
     // Quarentena: o corpo cru é preservado para descobrir onde está o valor.
     quarantineWebhook(req, '/api/conversion', n.error, String(req.query.gateway || ''), _defaultAccountId);
     return res.status(400).json({ ok: false, error: n.error });
+  }
+  // Risco 2: o webhook legado depende da conta padrão para ter uma fronteira.
+  // Se ela não resolveu (_defaultAccountId null), processar significaria rodar
+  // SEM dono — e um match por leadId/e-mail poderia cruzar contas. Recusamos
+  // com 503 (o gateway reenvia) em vez de processar sem fronteira.
+  if (!_defaultAccountId) {
+    quarantineWebhook(req, '/api/conversion', 'conta padrão indisponível — webhook recusado', String(req.query.gateway || ''), null);
+    return res.status(503).json({ ok: false, error: 'conta indisponível, tente novamente' });
   }
   // resposta IMEDIATA — nenhum gateway sofre timeout esperando a CAPI
   res.json({ ok: true, event: n.event, gateway: n.gateway, orderId: n.orderId });

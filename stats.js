@@ -365,9 +365,10 @@ function findLeadByEmail(email, accountId) {
   ensureLoaded();
   const needle = normEmailKey(email);
   if (!needle) return null;
-  return emailIndex.get(contactKey(accountId, needle)) ||
-    // fallback: leads antigos podem estar indexados sem conta (acc null)
-    (accountId ? emailIndex.get(contactKey(null, needle)) || null : null);
+  // Risco 2: match ESTRITO por conta. O fallback contactKey(null, …) casava um
+  // lead sem dono com o webhook de QUALQUER conta — vazamento entre tenants.
+  // Removido (os dados legados são reivindicados por claimLegacyData).
+  return emailIndex.get(contactKey(accountId, needle)) || null;
 }
 
 // Busca por telefone — 3º fallback do webhook (leadId → email → phone).
@@ -376,8 +377,8 @@ function findLeadByPhone(phone, accountId) {
   ensureLoaded();
   const tail = normPhoneKey(phone);
   if (!tail) return null;
-  return phoneIndex.get(contactKey(accountId, tail)) ||
-    (accountId ? phoneIndex.get(contactKey(null, tail)) || null : null);
+  // Risco 2: match ESTRITO por conta (fallback null removido — ver findLeadByEmail).
+  return phoneIndex.get(contactKey(accountId, tail)) || null;
 }
 
 // ── Convers��o de gateway externo (Kiwify, Hotmart, PerfectPay, …) ─────────
@@ -395,7 +396,9 @@ function matchExternalConversion(data) {
   // match: leadId direto → e-mail → telefone (webhook universal).
   // Com conta definida, o lead por id só vale se pertencer à MESMA conta.
   let lead = findLead(data.leadId);
-  if (lead && acc && lead.acc && lead.acc !== acc) lead = null;
+  // Risco 2: fronteira ESTRITA (null só casa com null). findLead(id) resolve por
+  // id sem escopo de conta, então o guard é o que impede o cruzamento aqui.
+  if (lead && (lead.acc || null) !== (acc || null)) lead = null;
   if (!lead) lead = (data.email ? findLeadByEmail(data.email, acc) : null) ||
     (data.phone ? findLeadByPhone(data.phone, acc) : null);
 
