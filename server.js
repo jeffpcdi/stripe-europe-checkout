@@ -2833,7 +2833,7 @@ app.post('/api/pushcut-config', dashboardAuth, (req, res) => {
   if (typeof b.url === 'string' && b.url.indexOf('••••') === -1) {
     const u = b.url.trim();
     if (u === '' || /^https:\/\/api\.pushcut\.io\/.+/i.test(u)) pc.url = u.slice(0, 300);
-    else return res.status(400).json({ error: 'URL inválida — use o webhook do app Pushcut (https://api.pushcut.io/...)' });
+    else return res.status(400).json({ error: 'URL inválida �� use o webhook do app Pushcut (https://api.pushcut.io/...)' });
   }
   if (b.events && typeof b.events === 'object') {
     pc.events = {};
@@ -3966,7 +3966,7 @@ app.post('/hook/:token', async (req, res) => {
 
   // 2. adapta payload específico do provider → normalizador genérico
   const adapted = gatewayStore.adaptPayload(gw.provider, req.body);
-  const n = normalizeConversion(adapted, { gateway: gw.provider });
+  const n = normalizeConversion(adapted, { gateway: gw.provider, amountInCents: !!(gw.config && gw.config.amountInCents) });
   if (n.error) {
     gatewayStore.touch(gw.id, 'formato inválido');
     rdb.pushConversionLog({
@@ -4018,6 +4018,7 @@ app.get('/api/gateways', dashboardAuth, (req, res) => {
       id: g.id, provider: g.provider, name: g.name,
       webhookUrl: proto + '://' + host + '/hook/' + g.webhookToken,
       hasSecret: !!g.secret,
+      amountInCents: !!(g.config && g.config.amountInCents), // valor já vem em centavos
       lastEventAt: g.lastEventAt, lastEventStatus: g.lastEventStatus,
       createdAt: g.createdAt
     }))
@@ -4087,19 +4088,21 @@ app.post('/api/gateways/:id/test', dashboardAuth, async (req, res) => {
       ? 'este gateway tem segredo configurado — o teste do painel valida o fluxo do payload, mas a assinatura só é conferida em webhooks reais do provedor'
       : 'sem segredo configurado — o token da URL é a autenticação';
     const cur = accountCurrency(req.account.id);
+    const amountInCents = !!(g.config && g.config.amountInCents);
     const adapted = gatewayStore.adaptPayload(g.provider, g.provider === 'stripe' ? {
       type: 'checkout.session.completed',
       data: { object: { id: 'cs_teste_' + Date.now().toString(36), amount_total: 100, currency: cur.toLowerCase(), customer_details: { email: 'teste@webhook.local', name: 'Teste do Painel' } } }
     } : {
       event: 'paid',
       order_id: 'teste_' + Date.now().toString(36),
-      amount: '1.00',
+      // reflete o formato real do gateway: em centavos (100) ou unidade ('1.00')
+      amount: amountInCents ? 100 : '1.00',
       currency: cur,
       email: 'teste@webhook.local',
       name: 'Teste do Painel',
       product: 'Disparo de teste'
     });
-    const n = normalizeConversion(adapted, { gateway: g.provider });
+    const n = normalizeConversion(adapted, { gateway: g.provider, amountInCents });
     if (n.error) return res.status(400).json({ ok: false, error: n.error, signatureNote });
     n.dryRun = true;
     n.acc = req.account.id;

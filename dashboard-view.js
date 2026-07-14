@@ -2013,6 +2013,13 @@ tbody tr:hover{box-shadow:inset 3px 0 0 var(--cyan)}
               <input class="inp" id="gw-secret" placeholder="cole aqui o segredo do gateway" style="width:100%;font-family:'Geist Mono',monospace;font-size:12.5px">
               <p class="hint" style="margin-top:6px;line-height:1.7">Sem segredo, o token secreto da URL j&aacute; autentica os webhooks.</p>
             </div>
+            <div class="form-row">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="gw-amount-cents" style="width:auto;margin:0">
+                <span>O valor j&aacute; vem em centavos</span>
+              </label>
+              <p class="hint" style="margin-top:6px;line-height:1.7">Marque se este gateway envia o valor na menor unidade (ex.: <b>694</b> para &euro; 6,94). Deixe desmarcado se envia em unidades (ex.: <b>6.94</b>).</p>
+            </div>
             <div style="display:flex;gap:8px;margin-top:14px">
               <button class="btn btn-sm primary" id="gw-save">Salvar gateway</button>
               <button class="btn btn-sm" id="gw-cancel">Cancelar</button>
@@ -5249,6 +5256,7 @@ function showGwForm(g){
   document.getElementById('gw-id').value=g?g.id:'';
   document.getElementById('gw-name').value=g?g.name:'';
   document.getElementById('gw-secret').value='';
+  var ac=document.getElementById('gw-amount-cents'); if(ac) ac.checked=!!(g&&g.amountInCents);
   var sel=document.getElementById('gw-provider');
   if(sel&&g) sel.value=g.provider;
   gwProviderHint();
@@ -5271,7 +5279,8 @@ function saveGateway(){
   var body={
     id:document.getElementById('gw-id').value||undefined,
     provider:document.getElementById('gw-provider').value,
-    name:document.getElementById('gw-name').value.trim()
+    name:document.getElementById('gw-name').value.trim(),
+    config:{ amountInCents: !!document.getElementById('gw-amount-cents').checked }
   };
   var secret=document.getElementById('gw-secret').value.trim();
   if(secret) body.secret=secret;

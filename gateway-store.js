@@ -135,7 +135,11 @@ async function save(accountId, input) {
     name: String(input.name || PROVIDERS[provider].label).slice(0, 80),
     webhookToken: existing ? existing.webhookToken : newToken(),
     secret: input.secret != null ? String(input.secret).slice(0, 200) || null : (existing ? existing.secret : null),
-    config: input.config && typeof input.config === 'object' ? input.config : (existing ? existing.config : {}),
+    // merge-patch: preserva chaves de config já existentes ao editar (ex.: um
+    // toggle não apaga outro). config.amountInCents = valor já vem em centavos.
+    config: input.config && typeof input.config === 'object'
+      ? Object.assign({}, existing ? existing.config : {}, input.config)
+      : (existing ? existing.config : {}),
     lastEventAt: existing ? existing.lastEventAt : null,
     lastEventStatus: existing ? existing.lastEventStatus : null,
     createdAt: existing ? existing.createdAt : new Date().toISOString()

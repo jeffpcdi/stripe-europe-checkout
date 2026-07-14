@@ -139,7 +139,12 @@ const CENTS_FIELDS = ['amount_cents', 'value_cents', 'total_cents', 'price_cents
 const UNIT_FIELDS = ['amount', 'value', 'valor', 'total', 'price', 'total_price', 'total_value',
   'total_amount', 'valor_total', 'order_amount', 'payment_amount', 'amount_paid', 'paid_amount',
   'sale_amount', 'purchase_amount', 'gross_amount', 'net_amount', 'full_price'];
-function pickAmountCents(b) {
+function pickAmountCents(b, opts) {
+  // amountInCents: alguns gateways (ex.: "Cloud") mandam o valor JÁ em centavos
+  // (menor unidade) mesmo sob um alias "de unidade" (amount/value/total). Sem
+  // isso, o valor era multiplicado por 100 (ex.: amount:694 → €694 em vez de
+  // €6,94). Configurável por gateway (config.amountInCents).
+  const amountInCents = !!(opts && opts.amountInCents);
   const wanted = new Set(CENTS_FIELDS.concat(UNIT_FIELDS));
   const found = collectFields(b, wanted);
   for (let i = 0; i < CENTS_FIELDS.length; i++) {
@@ -148,7 +153,10 @@ function pickAmountCents(b) {
   }
   for (let j = 0; j < UNIT_FIELDS.length; j++) {
     const n = parseAmount(found[UNIT_FIELDS[j]]);
-    if (Number.isFinite(n) && n >= 0 && n <= 1000000) return Math.round(n * 100);
+    if (!Number.isFinite(n) || n < 0) continue;
+    // gateway manda em centavos: NÃO multiplica (o valor já é a menor unidade)
+    if (amountInCents) { if (n <= 100000000) return Math.round(n); continue; }
+    if (n <= 1000000) return Math.round(n * 100);
   }
   return null;
 }
@@ -178,7 +186,7 @@ function normalizeConversion(body, query) {
     str(b.transaction) || b.sale_id || b.purchase_id || b.order_ref || b.code || b.id || b.ref || null;
   if (!orderId) return { error: 'order_id obrigatório (aliases: transaction_id, transaction, sale_id, id, ref)' };
   // valor: obrigatório apenas na compra aprovada (aliases + campos em centavos)
-  const amountCents = pickAmountCents(b);
+  const amountCents = pickAmountCents(b, { amountInCents: !!(query && query.amountInCents) });
   const hasAmount = amountCents != null;
   if (event === 'CompletePayment' && !hasAmount) return { error: 'amount inválido (aliases: value, total, price, charge_amount…)' };
   // moeda: Hotmart manda currency_value, outros currency/currency_code
