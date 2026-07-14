@@ -646,7 +646,7 @@ async function findLeadsByContact(accountId, opts) {
     if (!out.length && tail.length >= 8) {
       const rows = await sql`SELECT data FROM leads
         WHERE account_id IS NOT DISTINCT FROM ${accountId || null}
-          AND right(regexp_replace(data->>'phone', '\D', '', 'g'), 9) = ${tail}
+          AND right(regexp_replace(data->>'phone', '[^0-9]', '', 'g'), 9) = ${tail}
         ORDER BY created_at DESC LIMIT 5`;
       rows.forEach((r) => { if (r && r.data) out.push(r.data); });
     }
