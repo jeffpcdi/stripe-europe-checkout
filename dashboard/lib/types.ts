@@ -407,6 +407,8 @@ export interface Gateway {
   name: string
   webhookUrl: string
   hasSecret: boolean
+  /** true = gateway envia o valor JÁ em centavos (ex.: 9500 = €95,00) */
+  amountInCents?: boolean
   lastEventAt?: string | null
   lastEventStatus?: string | null
   createdAt: string
