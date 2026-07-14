@@ -2297,13 +2297,13 @@ html {
     inset 0 0 40px 10px rgba(0, 0, 0, 0.3);
 }
 
-/* Item 6: altura generosa */
+/* Item 6: altura generosa, aumentada conforme pedido */
 .hero-globe-section {
-  min-height: 520px;
+  min-height: 680px;
 }
 @media (max-width: 768px) {
   .hero-globe-section {
-    min-height: 400px;
+    min-height: 480px;
   }
 }
 
@@ -2313,7 +2313,7 @@ html {
   inset: -15%;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.06) 0%, transparent 55%);
+  background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.12) 0%, transparent 60%);
   animation: heroGlobeGlow 4s ease-in-out infinite alternate;
 }
 @keyframes heroGlobeGlow {
@@ -2333,14 +2333,12 @@ html {
   display: flex;
   align-items: center;
   justify-content: center;
-  aspect-ratio: 16 / 10;
-  max-height: 560px;
+  aspect-ratio: auto;
+  min-height: 560px;
 }
 @media (min-width: 1024px) {
   .hero-globe-container {
-    aspect-ratio: auto;
-    max-height: none;
-    min-height: 460px;
+    min-height: 640px;
   }
 }
 

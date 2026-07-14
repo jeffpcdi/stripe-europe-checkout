@@ -205,7 +205,7 @@ export function OverviewView() {
           <Skeleton className="h-8 w-64 rounded-full" />
         </div>
         {/* hero: globo full-width com overlays */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-[#040406]" style={{ minHeight: 520 }}>
+        <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-[#040406]" style={{ minHeight: 680 }}>
           <div className="flex items-center justify-center p-16">
             <Skeleton className="aspect-square w-full max-w-[440px] rounded-full" />
           </div>
