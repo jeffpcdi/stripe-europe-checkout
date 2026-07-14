@@ -1,12 +1,15 @@
 'use client'
 
-// Spark Ads — impulsiona um vídeo orgânico do TikTok como anúncio.
-// Aceita o ID do vídeo da conta conectada (platformPostId) OU um Spark Code
-// gerado por outro criador. Cria via POST /api/ads/boost.
+// Spark Ads — impulsiona um post orgânico do TikTok como anúncio (F5, via
+// Pipeboard). Fluxo: seleciona a IDENTIDADE autorizada (TT_USER = conta
+// vinculada; AUTH_CODE = criador cujo Spark Code já foi resgatado no Ads
+// Manager) → seleciona o POST da identidade → cria via POST /api/ads/boost.
+// Colar Spark Code cru não é suportado pela API — o aviso explica o resgate.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Zap, Loader2 } from 'lucide-react'
-import { apiSend } from '@/lib/api'
+import useSWR from 'swr'
+import { X, Zap, Loader2, RefreshCw } from 'lucide-react'
+import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsGoal } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -18,6 +21,27 @@ const GOALS: { value: AdsGoal; label: string }[] = [
   { value: 'video_views', label: 'Views de vídeo' },
   { value: 'awareness', label: 'Alcance' },
 ]
+
+type SparkIdentity = {
+  identityId: string
+  identityType: 'TT_USER' | 'AUTH_CODE' | 'BC_AUTH_TT'
+  displayName?: string
+  avatarUrl?: string
+  bcId?: string
+}
+
+type SparkVideo = {
+  itemId: string
+  text?: string
+  coverUrl?: string
+  duration?: number
+}
+
+const IDENTITY_TYPE_LABEL: Record<SparkIdentity['identityType'], string> = {
+  TT_USER: 'Conta vinculada',
+  AUTH_CODE: 'Criador autorizado',
+  BC_AUTH_TT: 'Business Center',
+}
 
 export function SparkAdDialog({
   open,
@@ -33,11 +57,10 @@ export function SparkAdDialog({
   onCreated: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [source, setSource] = useState<'own' | 'creator'>('own')
   const [name, setName] = useState('')
   const [goal, setGoal] = useState<AdsGoal>('engagement')
-  const [videoId, setVideoId] = useState('')
-  const [sparkCode, setSparkCode] = useState('')
+  const [identityKey, setIdentityKey] = useState('') // identityId:identityType
+  const [itemId, setItemId] = useState('')
   const [budget, setBudget] = useState('')
   const [budgetType, setBudgetType] = useState<'daily' | 'lifetime'>('daily')
   const [countries, setCountries] = useState('BR')
@@ -48,11 +71,10 @@ export function SparkAdDialog({
 
   useEffect(() => {
     if (open) {
-      setSource('own')
       setName('')
       setGoal('engagement')
-      setVideoId('')
-      setSparkCode('')
+      setIdentityKey('')
+      setItemId('')
       setBudget('')
       setBudgetType('daily')
       setCountries('BR')
@@ -60,15 +82,39 @@ export function SparkAdDialog({
     }
   }, [open])
 
+  // Identidades autorizadas p/ Spark (carrega ao abrir).
+  const { data: identData, isLoading: identLoading, error: identError, mutate: reloadIdentities } = useSWR<{
+    identities: SparkIdentity[]
+  }>(open && advertiserId ? `/api/ads/spark/identities?adAccountId=${encodeURIComponent(advertiserId)}` : null, fetcher)
+  const identities = identData?.identities ?? []
+  const identity = useMemo(
+    () => identities.find((i) => `${i.identityId}:${i.identityType}` === identityKey) ?? null,
+    [identities, identityKey]
+  )
+
+  // Posts da identidade selecionada — fonte do tiktok_item_id.
+  const videosKey =
+    open && advertiserId && identity
+      ? `/api/ads/spark/videos?adAccountId=${encodeURIComponent(advertiserId)}&identityId=${encodeURIComponent(identity.identityId)}&identityType=${encodeURIComponent(identity.identityType)}${identity.bcId ? `&bcId=${encodeURIComponent(identity.bcId)}` : ''}`
+      : null
+  const { data: videoData, isLoading: videosLoading, error: videosError } = useSWR<{ videos: SparkVideo[] }>(videosKey, fetcher)
+  const videos = videoData?.videos ?? []
+
+  // Troca de identidade invalida o post selecionado.
+  useEffect(() => {
+    setItemId('')
+  }, [identityKey])
+
   const error: string | null = useMemo(() => {
     if (!name.trim()) return 'Dê um nome à campanha'
-    if (source === 'own' && !videoId.trim()) return 'Informe o ID do vídeo'
-    if (source === 'creator' && !sparkCode.trim()) return 'Cole o Spark Code do criador'
+    if (!identity) return 'Selecione a identidade (conta ou criador autorizado)'
+    if (!itemId) return 'Selecione o post a impulsionar'
     if (!(Number(budget) > 0)) return 'Informe o orçamento'
     return null
-  }, [name, source, videoId, sparkCode, budget])
+  }, [name, identity, itemId, budget])
 
   async function handleSubmit() {
+    if (!identity) return
     setSubmitting(true)
     try {
       const countryList = countries
@@ -80,14 +126,16 @@ export function SparkAdDialog({
         name: name.trim(),
         goal,
         budget: { amount: Number(budget), type: budgetType },
+        identityId: identity.identityId,
+        identityType: identity.identityType,
+        itemId,
       }
-      if (source === 'own') payload.platformPostId = videoId.trim()
-      else payload.sparkAuthCode = sparkCode.trim()
+      if (identity.bcId) payload.bcId = identity.bcId
       if (countryList.length) payload.countries = countryList
       if (/^https?:\/\//.test(linkUrl.trim())) payload.linkUrl = linkUrl.trim()
 
       await apiSend('/api/ads/boost', 'POST', payload)
-      toast.success('Spark Ad criado', { hint: 'O vídeo entra em revisão do TikTok antes de veicular.' })
+      toast.success('Spark Ad criado (pausado)', { hint: 'Revise na dashboard e ative — o TikTok ainda revisa antes de veicular.' })
       onCreated()
     } catch (e) {
       toast.error('Falha ao criar Spark Ad', { hint: e instanceof Error ? e.message : undefined })
@@ -105,68 +153,105 @@ export function SparkAdDialog({
         if (e.target === e.currentTarget && !submitting) onClose()
       }}
     >
-      <div ref={ref} role="dialog" aria-modal="true" aria-label="Impulsionar vídeo (Spark Ads)" tabIndex={-1} className="w-full max-w-md outline-none">
+      <div ref={ref} role="dialog" aria-modal="true" aria-label="Impulsionar post (Spark Ads)" tabIndex={-1} className="w-full max-w-md outline-none">
         <GlassCard className="anim-pop-in flex flex-col gap-4 p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Zap className="size-4 text-primary" aria-hidden="true" />
-              Impulsionar vídeo (Spark Ads)
+              Impulsionar post (Spark Ads)
             </h2>
             <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} disabled={submitting} aria-label="Fechar">
               <X className="size-4" aria-hidden="true" />
             </button>
           </div>
 
-          {/* Fonte do vídeo */}
-          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Fonte do vídeo">
-            <button
-              type="button"
-              onClick={() => setSource('own')}
-              aria-pressed={source === 'own'}
-              className={`rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                source === 'own' ? 'border-primary/60 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-secondary/50'
-              }`}
-            >
-              Meu vídeo
-            </button>
-            <button
-              type="button"
-              onClick={() => setSource('creator')}
-              aria-pressed={source === 'creator'}
-              className={`rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                source === 'creator' ? 'border-primary/60 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-secondary/50'
-              }`}
-            >
-              Vídeo de criador
-            </button>
-          </div>
+          {/* Identidade (conta vinculada ou criador autorizado) */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-foreground">Identidade (de quem é o post)</span>
+            {identLoading ? (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                Carregando identidades…
+              </div>
+            ) : identError ? (
+              <button
+                type="button"
+                onClick={() => reloadIdentities()}
+                className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-left text-xs text-error"
+              >
+                <RefreshCw className="size-3.5" aria-hidden="true" />
+                Falha ao carregar — tocar para tentar de novo
+              </button>
+            ) : identities.length === 0 ? (
+              <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+                Nenhuma identidade autorizada para Spark nesta conta. Vincule sua conta TikTok ou resgate um Spark Code
+                no TikTok Ads Manager (Ativos → Criativo → Autorização de post).
+              </p>
+            ) : (
+              <select
+                className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={identityKey}
+                onChange={(e) => setIdentityKey(e.target.value)}
+              >
+                <option value="">Selecione…</option>
+                {identities.map((i) => (
+                  <option key={`${i.identityId}:${i.identityType}`} value={`${i.identityId}:${i.identityType}`}>
+                    {(i.displayName || i.identityId) + ' — ' + IDENTITY_TYPE_LABEL[i.identityType]}
+                  </option>
+                ))}
+              </select>
+            )}
+            <span className="text-[11px] text-muted-foreground">
+              Criador de fora? Resgate o Spark Code dele no TikTok Ads Manager — ele aparece aqui como &quot;Criador
+              autorizado&quot;.
+            </span>
+          </label>
 
-          {source === 'own' ? (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-foreground">ID do vídeo (da conta conectada)</span>
-              <input
-                className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={videoId}
-                onChange={(e) => setVideoId(e.target.value)}
-                placeholder="7234567890123456789"
-              />
-              <span className="text-[11px] text-muted-foreground">
-                É o número no final da URL do vídeo: tiktok.com/@conta/video/<strong>723456…</strong>
-              </span>
-            </label>
-          ) : (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-foreground">Spark Code do criador</span>
-              <input
-                className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={sparkCode}
-                onChange={(e) => setSparkCode(e.target.value)}
-                placeholder="Cole o código de autorização"
-              />
-              <span className="text-[11px] text-muted-foreground">
-                O criador gera em: TikTok → Configurações → Criador → Autorização de anúncio.
-              </span>
-            </label>
+          {/* Post da identidade */}
+          {identity && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-foreground">Post a impulsionar</span>
+              {videosLoading ? (
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  Carregando posts…
+                </div>
+              ) : videosError ? (
+                <p className="rounded-lg bg-error/10 px-3 py-2 text-[11px] text-error">Falha ao carregar os posts desta identidade.</p>
+              ) : videos.length === 0 ? (
+                <p className="rounded-lg bg-secondary/60 px-3 py-2 text-[11px] text-muted-foreground">
+                  Esta identidade não tem posts disponíveis para impulsionar.
+                </p>
+              ) : (
+                <div className="flex max-h-48 flex-col gap-1 overflow-y-auto rounded-lg border border-border p-1" role="listbox" aria-label="Posts disponíveis">
+                  {videos.map((v) => (
+                    <button
+                      key={v.itemId}
+                      type="button"
+                      role="option"
+                      aria-selected={itemId === v.itemId}
+                      onClick={() => setItemId(v.itemId)}
+                      className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+                        itemId === v.itemId ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-secondary/50'
+                      }`}
+                    >
+                      {v.coverUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={v.coverUrl || "/placeholder.svg"} alt="" className="size-9 shrink-0 rounded object-cover" />
+                      ) : (
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded bg-secondary text-[10px] text-muted-foreground">
+                          vídeo
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{v.text || v.itemId}</span>
+                        {v.duration ? <span className="text-[10px] text-muted-foreground">{Math.round(v.duration)}s</span> : null}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           <label className="flex flex-col gap-1.5">

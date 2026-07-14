@@ -785,56 +785,103 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   // ── Spark Ads (impulsionar vídeo orgânico) ───────────────────────────�����────
+  // F5 via Pipeboard. Descoberta: identidades autorizadas p/ Spark
+  // (TT_USER/AUTH_CODE/BC_AUTH_TT). AUTH_CODE = criador cujo Spark Code JÁ
+  // foi resgatado no TikTok Ads Manager.
+  app.get('/api/ads/spark/identities', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const selected = await requireAdvertiser(req.account.id, null, String(req.query.adAccountId || ''), null);
+      const identities = await pipeboard.listSparkIdentities(selected.advertiserId);
+      res.json({ identities });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Posts (vídeos orgânicos) de uma identidade — fonte do tiktok_item_id.
+  app.get('/api/ads/spark/videos', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const selected = await requireAdvertiser(req.account.id, null, String(req.query.adAccountId || ''), null);
+      const videos = await pipeboard.listIdentityVideos(
+        selected.advertiserId,
+        String(req.query.identityId || ''),
+        String(req.query.identityType || ''),
+        String(req.query.bcId || '') || undefined
+      );
+      res.json({ videos });
+    } catch (err) { fail(res, err); }
+  });
+
   app.post('/api/ads/boost', dashboardAuth, async (req, res) => {
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
-      const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
-      if (!adAccountId || adAccountId === '__all__') return res.status(400).json({ error: 'Selecione um advertiser específico (adAccountId)' });
+      const selected = await requireAdvertiser(req.account.id, null, String(b.adAccountId || ''), null);
+      const adAccountId = selected.advertiserId;
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
-      const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';
+      const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions'].includes(b.goal) ? b.goal : '';
       if (!goal) return res.status(400).json({ error: 'Objetivo (goal) inválido' });
       const budgetAmount = Number((b.budget || {}).amount || b.budgetAmount);
       if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento inválido' });
       const budgetType = ((b.budget || {}).type || b.budgetType) === 'lifetime' ? 'lifetime' : 'daily';
 
-      const payload = {
-        accountId: st.accountId,
-        adAccountId,
-        name,
-        goal,
-        budget: { amount: budgetAmount, type: budgetType }
-      };
-      // vídeo próprio (platformPostId) OU de outro criador (sparkAuthCode)
-      const platformPostId = String(b.platformPostId || '').trim().slice(0, 60);
-      const sparkAuthCode = String(b.sparkAuthCode || '').trim().slice(0, 120);
-      if (platformPostId) payload.platformPostId = platformPostId;
-      if (sparkAuthCode) payload.sparkAuthCode = sparkAuthCode;
-      if (!platformPostId && !sparkAuthCode) {
-        return res.status(400).json({ error: 'Informe o ID do vídeo (platformPostId) ou um Spark Code do criador' });
+      // Spark Code cru NÃO é conversível via API (nenhum tool de resgate no
+      // MCP — verificado no dump dos 74 tools): o resgate é feito no TikTok
+      // Ads Manager e o criador vira identidade AUTH_CODE, que aparece no
+      // seletor. 422 honesto com o caminho.
+      if (String(b.sparkAuthCode || '').trim()) {
+        return res.status(422).json({
+          error: 'Colar Spark Code direto não é suportado: resgate o código no TikTok Ads Manager (Ativos → Criativo → Autorização de post). O criador vira uma identidade autorizada e os vídeos dele aparecem no seletor aqui.',
+          code: 'SPARK_CODE_REDEEM_REQUIRED',
+        });
       }
-      if (/^https?:\/\//.test(String(b.linkUrl || ''))) payload.linkUrl = withAdsTracking(String(b.linkUrl).trim().slice(0, 500));
-      if (/^[A-Z_]{3,30}$/.test(String(b.callToAction || ''))) payload.callToAction = b.callToAction;
+      const identityId = String(b.identityId || '').trim().slice(0, 60);
+      const identityType = String(b.identityType || '').trim().toUpperCase().slice(0, 20);
+      const itemId = String(b.itemId || b.platformPostId || '').trim().slice(0, 60);
+      if (!identityId || !itemId) {
+        return res.status(400).json({ error: 'Selecione a identidade (identityId/identityType) e o post (itemId) — use os seletores do diálogo' });
+      }
+
+      const spec = {
+        name, goal,
+        budgetAmount, budgetType,
+        identityId, identityType, itemId,
+        bcId: String(b.bcId || '').trim() || undefined,
+      };
+      if (/^https?:\/\//.test(String(b.linkUrl || ''))) spec.linkUrl = withAdsTracking(String(b.linkUrl).trim().slice(0, 500));
+      if (/^[A-Z_]{3,30}$/.test(String(b.callToAction || ''))) spec.callToAction = b.callToAction;
+      if (String(b.body || '').trim()) spec.body = String(b.body).trim().slice(0, 100);
       const countries = Array.isArray(b.countries)
         ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30) : [];
-      if (countries.length) payload.targeting = Object.assign({}, payload.targeting, { countries });
+      if (countries.length) spec.countries = countries;
 
       // dry-run: não impulsiona de verdade.
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
           action: 'spark_ad_create', targetType: 'campaign', advertiserId: adAccountId,
-          metadata: { name, goal }, title: 'Impulsionar Spark Ad ' + name
+          metadata: { name, goal, itemId }, title: 'Impulsionar Spark Ad ' + name
         });
         return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
       }
-      const data = await zernio.api('POST', '/ads/boost', { body: payload, timeoutMs: 120000 });
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'Spark Ad criado: ' + name });
-      res.status(201).json(data);
-    } catch (err) { fail(res, err); }
+      const result = await pipeboard.createSparkAd(adAccountId, spec);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'spark_ad_create',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId: adAccountId,
+        afterState: { campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, itemId },
+        reason: 'Spark Ad: ' + name, metadata: { goal, identityType },
+      }).catch(() => {});
+      adsSync.syncAfterWrite(req.account.id, adAccountId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Spark Ad criado (PAUSED): ' + name + ' [' + result.campaignId + ']' });
+      res.status(201).json({ id: result.campaignId, campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, name, status: 'paused', warnings: result.warnings });
+    } catch (err) {
+      if (err && err.step) {
+        stats.logEvent('warn', { acc: req.account.id, title: '[tiktok-ads] Spark falhou no passo "' + err.step + '": ' + String(err.message || '').slice(0, 160) });
+        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada está gastando.' : undefined });
+      }
+      fail(res, err);
+    }
   });
 
   // ── Pausar/ativar campanhas em lote ───────────────────────────────────────

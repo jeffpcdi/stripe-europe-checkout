@@ -1196,6 +1196,137 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// F5 — Spark Ads (impulsionar post orgânico existente).
+// O MCP NÃO tem conversão "Spark Code → tiktok_item_id" (verificado no dump
+// completo dos 74 tools). O fluxo documentado é: get_tiktok_identities →
+// get_tiktok_identity_videos → create_tiktok_ad com tiktok_item_id.
+// Identidades AUTH_CODE são criadores cujo Spark Code JÁ foi resgatado no
+// TikTok Ads Manager — os posts deles aparecem no mesmo seletor. Colar código
+// cru não é suportado: a rota explica como resgatar (422 honesto).
+// ════════════════════════════════════════════════════════════════════════════
+
+// Identidades utilizáveis para Spark (TT_USER preferida > AUTH_CODE > BC_AUTH_TT).
+async function listSparkIdentities(advertiserId) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const out = await pipeboard.callTool('get_tiktok_identities', { advertiser_id: adv });
+  const list = firstArray(out, ['identities', 'identity_list', 'list', 'data']);
+  const RANK = { TT_USER: 0, AUTH_CODE: 1, BC_AUTH_TT: 2 };
+  return list
+    .map((i) => ({
+      identityId: String(i.identity_id || i.id || ''),
+      identityType: String(i.identity_type || '').toUpperCase(),
+      displayName: String(i.display_name || i.identity_name || i.username || '') || undefined,
+      avatarUrl: String(i.profile_image || i.avatar_icon_web_uri || i.avatar_url || '') || undefined,
+      bcId: String(i.identity_authorized_bc_id || i.bc_id || '') || undefined,
+    }))
+    .filter((i) => i.identityId && RANK[i.identityType] !== undefined)
+    .sort((a, b) => RANK[a.identityType] - RANK[b.identityType]);
+}
+
+// Posts (vídeos orgânicos) de uma identidade — é daqui que sai o tiktok_item_id.
+async function listIdentityVideos(advertiserId, identityId, identityType, bcId) {
+  const adv = String(advertiserId || '').trim();
+  const type = String(identityType || '').toUpperCase();
+  if (!adv || !identityId) throw badRequest('advertiserId e identityId são obrigatórios');
+  if (!['TT_USER', 'AUTH_CODE', 'BC_AUTH_TT'].includes(type)) throw badRequest('identityType deve ser TT_USER, AUTH_CODE ou BC_AUTH_TT');
+  const args = { advertiser_id: adv, identity_id: String(identityId), identity_type: type };
+  if (type === 'BC_AUTH_TT') {
+    if (!bcId) throw badRequest('identityType BC_AUTH_TT exige o Business Center (bcId)');
+    args.identity_authorized_bc_id = String(bcId);
+  }
+  const out = await pipeboard.callTool('get_tiktok_identity_videos', args);
+  const list = firstArray(out, ['videos', 'video_list', 'items', 'list', 'data']);
+  return list.map((v) => ({
+    itemId: String(v.item_id || v.tiktok_item_id || v.video_id || v.id || ''),
+    text: String(v.text || v.title || v.video_title || '') || undefined,
+    coverUrl: String(v.video_cover_url || v.cover_url || v.thumbnail_url || '') || undefined,
+    createTime: v.create_time || v.created_at || undefined,
+    duration: Number(v.duration) || undefined,
+  })).filter((v) => v.itemId);
+}
+
+// Campanha Spark completa: campaign → adgroup → create_tiktok_ad com
+// identity + tiktok_item_id (SEM upload — o criativo é o post orgânico).
+// Mesmos guarda-corpos da F1: pré-requisitos antes de criar, tudo nasce
+// PAUSED, falha parcial pausa a campanha órfã e propaga step + createdIds.
+async function createSparkAd(advertiserId, spec) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const s = spec || {};
+  const goal = GOAL_MAP[s.goal];
+  if (!goal) throw badRequest('Objetivo "' + s.goal + '" não suportado para Spark Ads');
+  const identityId = String(s.identityId || '').trim();
+  const identityType = String(s.identityType || '').toUpperCase();
+  const itemId = String(s.itemId || '').trim();
+  if (!identityId || !itemId) throw badRequest('identityId e itemId (post) são obrigatórios — selecione a identidade e o vídeo');
+  if (!['TT_USER', 'AUTH_CODE', 'BC_AUTH_TT'].includes(identityType)) throw badRequest('identityType deve ser TT_USER, AUTH_CODE ou BC_AUTH_TT');
+  if (identityType === 'BC_AUTH_TT' && !s.bcId) throw badRequest('identityType BC_AUTH_TT exige o Business Center (bcId)');
+  const warnings = [];
+  const createdIds = {};
+
+  const [info, regions] = await Promise.all([
+    getAdvertiserInfo(adv),
+    resolveLocationIds(adv, (s.countries && s.countries.length ? s.countries : ['PT']), goal.objective),
+  ]);
+  if (regions.missingCountries.length) warnings.push('Países sem região equivalente no TikTok (ignorados): ' + regions.missingCountries.join(', '));
+
+  const campOut = await pipeboard.callTool('create_tiktok_campaign', {
+    advertiser_id: adv,
+    campaign_name: String(s.name).slice(0, 512),
+    objective_type: goal.objective,
+  });
+  const campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+  if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
+  createdIds.campaignId = campaignId;
+
+  try {
+    const agOut = await pipeboard.callTool('create_tiktok_adgroup', {
+      advertiser_id: adv,
+      campaign_id: campaignId,
+      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+      optimization_goal: goal.optimizationGoal,
+      budget_mode: s.budgetType === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY',
+      budget: Number(s.budgetAmount),
+      schedule_start_time: advertiserLocalTime(info && info.timezone),
+      targeting: { location_ids: regions.locationIds },
+      bid_type: 'BID_TYPE_NO_BID',
+    });
+    const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+    if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id', createdIds);
+    createdIds.adGroupId = adGroupId;
+
+    const adArgs = {
+      advertiser_id: adv,
+      adgroup_id: adGroupId,
+      ad_name: String(s.name).slice(0, 500),
+      ad_format: 'SINGLE_VIDEO',
+      ad_text: String(s.body || s.name).slice(0, 100),
+      identity_id: identityId,
+      identity_type: identityType,
+      tiktok_item_id: itemId,
+      status: 'PAUSED',
+    };
+    if (identityType === 'BC_AUTH_TT') { adArgs.identity_bc_id = String(s.bcId); adArgs.dark_post_status = 'ON'; }
+    if (s.linkUrl) adArgs.landing_page_url = String(s.linkUrl).slice(0, 500);
+    if (s.callToAction) adArgs.call_to_action = String(s.callToAction);
+    const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
+    const adId = String(deepPluck(adOut, 'ad_id') || '');
+    if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id', createdIds);
+    createdIds.adId = adId;
+
+    warnings.push('Criado em PAUSED — ative na dashboard quando estiver pronto');
+    cacheBust('tree:');
+    return { ...createdIds, itemId, name: s.name, warnings };
+  } catch (err) {
+    try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    if (!err.step) err.step = 'adgroup';
+    err.createdIds = createdIds;
+    throw err;
+  }
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -1228,6 +1359,10 @@ module.exports = {
   // duplicação composta (F3)
   captureCampaign,
   recreateCampaign,
+  // Spark Ads (F5)
+  listSparkIdentities,
+  listIdentityVideos,
+  createSparkAd,
   // cache
   cacheBust,
   cacheGet,
