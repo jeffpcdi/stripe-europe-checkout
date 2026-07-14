@@ -27,6 +27,9 @@ function normalizePolicy(input) {
     // Number(null) === 0 transformaria "sem teto" em "teto zero" (bloqueia tudo).
     dailySpendCap: value.dailySpendCap != null && value.dailySpendCap !== '' && Number.isFinite(Number(value.dailySpendCap)) && Number(value.dailySpendCap) >= 0 ? Number(value.dailySpendCap) : null,
     maxBudgetChangePct: Math.min(100, Math.max(0, Number(value.maxBudgetChangePct) || 20)),
+    // Cap global de ações reais do motor por hora/conta. Trava o loop
+    // "regra pausa → outra reativa → repete". Default 10; 0 = desligado.
+    maxActionsPerHour: value.maxActionsPerHour != null && value.maxActionsPerHour !== '' && Number.isFinite(Number(value.maxActionsPerHour)) && Number(value.maxActionsPerHour) >= 0 ? Math.min(1000, Math.floor(Number(value.maxActionsPerHour))) : 10,
     cooldownMinutes: Math.min(10080, Math.max(0, Math.floor(Number(value.cooldownMinutes) || 60))),
     allowedHours: value.allowedHours && typeof value.allowedHours === 'object' ? value.allowedHours : {},
     blockedAdvertiserIds: Array.isArray(value.blockedAdvertiserIds) ? [...new Set(value.blockedAdvertiserIds.map(String).filter(Boolean))].slice(0, 100) : [],
@@ -63,6 +66,7 @@ async function ensureSchema() {
       kill_switch boolean NOT NULL DEFAULT false,
       daily_spend_cap numeric,
       max_budget_change_pct numeric NOT NULL DEFAULT 20,
+      max_actions_per_hour integer NOT NULL DEFAULT 10,
       cooldown_minutes integer NOT NULL DEFAULT 60,
       allowed_hours jsonb NOT NULL DEFAULT '{}'::jsonb,
       blocked_advertiser_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -70,6 +74,9 @@ async function ensureSchema() {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`;
+    // Migração para bancos que já têm a tabela antiga (CREATE IF NOT EXISTS não
+    // adiciona colunas novas). Idempotente.
+    await sql`ALTER TABLE ads_safety_policies ADD COLUMN IF NOT EXISTS max_actions_per_hour integer NOT NULL DEFAULT 10`;
     await sql`CREATE TABLE IF NOT EXISTS ads_jobs (
       id text PRIMARY KEY,
       account_id text NOT NULL,
@@ -173,10 +180,10 @@ async function getSafetyPolicy(accountId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return normalizePolicy({});
   await ensureSchema();
-  const rows = await sql`SELECT enabled, dry_run, kill_switch, daily_spend_cap, max_budget_change_pct, cooldown_minutes, allowed_hours, blocked_advertiser_ids, circuit_breaker_error_pct FROM ads_safety_policies WHERE account_id = ${accountId} LIMIT 1`;
+  const rows = await sql`SELECT enabled, dry_run, kill_switch, daily_spend_cap, max_budget_change_pct, max_actions_per_hour, cooldown_minutes, allowed_hours, blocked_advertiser_ids, circuit_breaker_error_pct FROM ads_safety_policies WHERE account_id = ${accountId} LIMIT 1`;
   if (!rows.length) return normalizePolicy({});
   const row = rows[0];
-  return normalizePolicy({ enabled: row.enabled, dryRun: row.dry_run, killSwitch: row.kill_switch, dailySpendCap: row.daily_spend_cap, maxBudgetChangePct: row.max_budget_change_pct, cooldownMinutes: row.cooldown_minutes, allowedHours: row.allowed_hours, blockedAdvertiserIds: row.blocked_advertiser_ids, circuitBreakerErrorPct: row.circuit_breaker_error_pct });
+  return normalizePolicy({ enabled: row.enabled, dryRun: row.dry_run, killSwitch: row.kill_switch, dailySpendCap: row.daily_spend_cap, maxBudgetChangePct: row.max_budget_change_pct, maxActionsPerHour: row.max_actions_per_hour, cooldownMinutes: row.cooldown_minutes, allowedHours: row.allowed_hours, blockedAdvertiserIds: row.blocked_advertiser_ids, circuitBreakerErrorPct: row.circuit_breaker_error_pct });
 }
 
 async function saveSafetyPolicy(accountId, input) {
@@ -184,7 +191,7 @@ async function saveSafetyPolicy(accountId, input) {
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const p = normalizePolicy(input);
-  await sql`INSERT INTO ads_safety_policies (id, account_id, enabled, dry_run, kill_switch, daily_spend_cap, max_budget_change_pct, cooldown_minutes, allowed_hours, blocked_advertiser_ids, circuit_breaker_error_pct) VALUES (${id('sp_')}, ${accountId}, ${p.enabled}, ${p.dryRun}, ${p.killSwitch}, ${p.dailySpendCap}, ${p.maxBudgetChangePct}, ${p.cooldownMinutes}, ${JSON.stringify(p.allowedHours)}, ${JSON.stringify(p.blockedAdvertiserIds)}, ${p.circuitBreakerErrorPct}) ON CONFLICT (account_id) DO UPDATE SET enabled = EXCLUDED.enabled, dry_run = EXCLUDED.dry_run, kill_switch = EXCLUDED.kill_switch, daily_spend_cap = EXCLUDED.daily_spend_cap, max_budget_change_pct = EXCLUDED.max_budget_change_pct, cooldown_minutes = EXCLUDED.cooldown_minutes, allowed_hours = EXCLUDED.allowed_hours, blocked_advertiser_ids = EXCLUDED.blocked_advertiser_ids, circuit_breaker_error_pct = EXCLUDED.circuit_breaker_error_pct, updated_at = now()`;
+  await sql`INSERT INTO ads_safety_policies (id, account_id, enabled, dry_run, kill_switch, daily_spend_cap, max_budget_change_pct, max_actions_per_hour, cooldown_minutes, allowed_hours, blocked_advertiser_ids, circuit_breaker_error_pct) VALUES (${id('sp_')}, ${accountId}, ${p.enabled}, ${p.dryRun}, ${p.killSwitch}, ${p.dailySpendCap}, ${p.maxBudgetChangePct}, ${p.maxActionsPerHour}, ${p.cooldownMinutes}, ${JSON.stringify(p.allowedHours)}, ${JSON.stringify(p.blockedAdvertiserIds)}, ${p.circuitBreakerErrorPct}) ON CONFLICT (account_id) DO UPDATE SET enabled = EXCLUDED.enabled, dry_run = EXCLUDED.dry_run, kill_switch = EXCLUDED.kill_switch, daily_spend_cap = EXCLUDED.daily_spend_cap, max_budget_change_pct = EXCLUDED.max_budget_change_pct, max_actions_per_hour = EXCLUDED.max_actions_per_hour, cooldown_minutes = EXCLUDED.cooldown_minutes, allowed_hours = EXCLUDED.allowed_hours, blocked_advertiser_ids = EXCLUDED.blocked_advertiser_ids, circuit_breaker_error_pct = EXCLUDED.circuit_breaker_error_pct, updated_at = now()`;
   // Contrato único (camelCase normalizado) para GET e PUT — a UI nunca vê a row crua.
   return p;
 }
@@ -267,6 +274,30 @@ async function appendAuditEvent(accountId, input) {
   const value = input || {};
   const rows = await sql`INSERT INTO ads_audit_events (id, account_id, actor_type, actor_id, action, target_type, target_id, advertiser_id, job_id, before_state, after_state, reason, metadata) VALUES (${id('audit_')}, ${accountId}, ${String(value.actorType || 'system').slice(0, 40)}, ${value.actorId ? String(value.actorId).slice(0, 120) : null}, ${String(value.action || 'unknown').slice(0, 100)}, ${value.targetType ? String(value.targetType).slice(0, 60) : null}, ${value.targetId ? String(value.targetId).slice(0, 160) : null}, ${value.advertiserId ? String(value.advertiserId).slice(0, 120) : null}, ${value.jobId ? String(value.jobId).slice(0, 160) : null}, ${value.beforeState ? JSON.stringify(value.beforeState) : null}, ${value.afterState ? JSON.stringify(value.afterState) : null}, ${value.reason ? String(value.reason).slice(0, 500) : null}, ${JSON.stringify(value.metadata || {})}) RETURNING *`;
   return rows[0];
+}
+
+// Busca um evento de auditoria específico (escopado à conta) — usado pelo
+// rollback para restaurar o before_state gravado numa ação real do motor.
+async function getAuditEvent(accountId, auditId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const rows = await sql`SELECT id, account_id, actor_type, actor_id, action, target_type, target_id, advertiser_id, job_id, before_state, after_state, reason, metadata, created_at FROM ads_audit_events WHERE account_id = ${accountId} AND id = ${String(auditId || '')} LIMIT 1`;
+  return rows[0] || null;
+}
+
+// Conta ações REAIS do motor de regras na última janela (default 1h). É a base
+// durável do cap global de ações/hora (sobrevive a restart, ao contrário de um
+// contador em memória). Só conta ações reais — os sufixos '.simulated' (dry-run)
+// não entram, senão o dry-run travaria o motor sem nunca tocar a plataforma.
+async function countRecentEngineActions(accountId, sinceMs) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return 0;
+  await ensureSchema();
+  const windowMs = Math.max(60e3, Number(sinceMs) || 3600e3);
+  const seconds = Math.ceil(windowMs / 1000);
+  const rows = await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'schedule_action') AND created_at > now() - make_interval(secs => ${seconds})`;
+  return rows.length ? Number(rows[0].n) || 0 : 0;
 }
 
 async function claimNextJob(workerId, leaseSeconds) {
@@ -412,4 +443,4 @@ async function resolveTicketsForAdvertiser(accountId, advertiserId) {
   return sql`UPDATE ads_unban_tickets SET status = 'resolved', resolved_at = now(), notes = COALESCE(notes || ' | ', '') || 'Conta reativada — resolvido automaticamente', updated_at = now() WHERE account_id = ${accountId} AND advertiser_id = ${String(advertiserId || '')} AND status IN ('open','submitted') RETURNING id, advertiser_id`;
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, countRecentEngineActions, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };
