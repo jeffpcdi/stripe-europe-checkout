@@ -286,6 +286,12 @@ function recordClick(lead, click) {
   if (!lead || !click || !click.ttclid) return;
   const at = click.at || new Date().toISOString();
   const utm = (click.utm && typeof click.utm === 'object') ? click.utm : {};
+  // A atribuição CONGELA no checkout: um clique que chega DEPOIS de o checkout
+  // já ter ocorrido entra no histórico (para análise), mas não muda o crédito.
+  // Decidido por ORDEM de eventos, não por timestamp — imune a colisão de ms.
+  // (O clique do próprio /go é registrado ANTES de checkoutAt em
+  // recordCheckoutEntry, então ainda conta como último clique pago.)
+  const frozen = !!lead.checkoutAt;
   lead.clicks = Array.isArray(lead.clicks) ? lead.clicks : [];
   const last = lead.clicks[lead.clicks.length - 1];
   if (last && last.ttclid === click.ttclid) {
@@ -296,24 +302,19 @@ function recordClick(lead, click) {
     lead.clicks.push({ ttclid: click.ttclid, utm: utm, at: at });
     if (lead.clicks.length > 10) lead.clicks = lead.clicks.slice(-10); // cap 10
   }
-  // indexa o novo ttclid para match O(1) do webhook
+  // indexa o novo ttclid para match O(1) do webhook (mesmo se congelado: o
+  // webhook pode ecoar qualquer clique do histórico e ainda casar este lead)
   idxAdd(ttclidIndex, contactKey(lead.acc, click.ttclid), lead);
-  applyLastClickPaid(lead);
+  if (!frozen) applyLastClickPaid(lead);
 }
 
-// Recalcula o clique vencedor: o ttclid MAIS RECENTE cujo `at` <= checkoutAt
-// (last-click pago). Sem checkout ainda → o mais recente de todos. Se todos os
-// cliques ocorreram DEPOIS do checkout (raro), mantém o mais recente para não
-// perder atribuição. Atualiza lead.ttclid e lead.utm juntos (par coerente).
+// Elege o clique vencedor = o ttclid MAIS RECENTE do histórico (last-click
+// pago). Só é chamado ANTES/no checkout (depois a atribuição está congelada),
+// então "mais recente" já respeita a regra "antes do checkoutAt". Atualiza
+// lead.ttclid e lead.utm juntos (par coerente).
 function applyLastClickPaid(lead) {
   if (!lead || !Array.isArray(lead.clicks) || !lead.clicks.length) return;
-  const co = lead.checkoutAt ? (Date.parse(lead.checkoutAt) || Infinity) : Infinity;
-  let winner = null, winnerT = -1;
-  for (const c of lead.clicks) {
-    const t = Date.parse(c.at) || 0;
-    if (t <= co && t >= winnerT) { winner = c; winnerT = t; }
-  }
-  if (!winner) winner = lead.clicks[lead.clicks.length - 1]; // fallback: mais recente
+  const winner = lead.clicks[lead.clicks.length - 1]; // o mais recente registrado
   lead.ttclid = winner.ttclid;
   if (winner.utm && winner.utm.source) lead.utm = winner.utm;
 }
@@ -444,10 +445,11 @@ function recordCheckoutEntry(id, gateway, data) {
     });
     if (!data.ttclid && data.utm && data.utm.source && (!lead.utm || !lead.utm.source)) lead.utm = data.utm;
   }
-  lead.checkoutAt = nowIso;
-  // Risco 4: o clique do /go é o clique pago que precede o checkout. Registra
-  // com at=checkoutAt para vencer o last-click pago (empate qualifica).
+  // Risco 4: o clique do /go é o ÚLTIMO clique pago antes do checkout. Registra
+  // ANTES de setar checkoutAt para que ele vire o vencedor (last-click pago);
+  // só depois a atribuição congela. A ordem dos eventos é o que decide.
   recordClick(lead, { ttclid: data.ttclid, utm: data.utm, at: nowIso });
+  lead.checkoutAt = nowIso;
   // Item 302: "iniciou pagamento" ≠ "visitou o checkout". Só o webhook do
   // gateway (InitiateCheckout/AddPaymentInfo = PIX gerado / cartão digitado)
   // passa paymentStarted:true — o hit de página no /go/:slug NÃO marca.
