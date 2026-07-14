@@ -281,10 +281,40 @@ function extractContent(result) {
   }
 }
 
+// ── Contador de chamadas (observabilidade / diagnóstico) ────────────────────
+// Antes não havia como saber quantas chamadas o app fazia ao Pipeboard. Com o
+// espelho no Neon, o caminho de leitura ficou local e as ÚNICAS chamadas ao
+// provider passam a ser o sync + as escritas — este contador prova isso no
+// /diag. Mantém o total desde o boot + um ring buffer de timestamps para
+// derivar "chamadas na última hora" sem crescer indefinidamente.
+const callStats = { total: 0, byTool: {}, recent: [] };
+function recordCall(name) {
+  callStats.total += 1;
+  callStats.byTool[name] = (callStats.byTool[name] || 0) + 1;
+  const now = Date.now();
+  callStats.recent.push(now);
+  // mantém só a última hora
+  const cutoff = now - 3600 * 1000;
+  if (callStats.recent.length > 2000 || callStats.recent[0] < cutoff) {
+    callStats.recent = callStats.recent.filter((t) => t >= cutoff);
+  }
+}
+function getCallStats() {
+  const now = Date.now();
+  const recent = callStats.recent.filter((t) => t >= now - 3600 * 1000);
+  return {
+    total: callStats.total,
+    lastMinute: recent.filter((t) => t >= now - 60 * 1000).length,
+    lastHour: recent.length,
+    byTool: Object.assign({}, callStats.byTool),
+  };
+}
+
 // callToolRaw — resultado bruto do tools/call (content + isError).
 async function callToolRaw(name, args, opts = {}) {
   if (!enabled) throw errKeyMissing();
   await acquire();
+  recordCall(name);
   try {
     return await withSession(() =>
       sendRequest('tools/call', { name, arguments: args || {} }, { timeoutMs: opts.timeoutMs || 60000 })
@@ -317,6 +347,7 @@ module.exports = {
   listTools,
   callTool,
   callToolRaw,
+  getCallStats,
   // exposto p/ testes/diagnóstico
   _internals: { extractSseMessages, parseMessages, extractContent },
 };
