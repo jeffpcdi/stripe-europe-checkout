@@ -161,6 +161,12 @@ function str(v) {
 // Normaliza QUALQUER payload de gateway para o formato interno.
 function normalizeConversion(body, query) {
   const b = flattenGatewayPayload(body);
+  // Risco 3: extrai o ttclid ecoado pelo gateway (chave de match determinística
+  // e last-click pago). Busca RECURSIVA e case-insensitive (mesmo padrão do
+  // collectFields), então acha o ttclid mesmo aninhado em trackingParameters /
+  // metadata / tracking. Aliases aceitos: ttclid, utm_ttclid.
+  const trk = collectFields(body || {}, new Set(['ttclid', 'utm_ttclid']));
+  const ttclidRaw = str(trk.ttclid || trk.utm_ttclid || b.ttclid || b.utm_ttclid);
   // evento: Kiwify usa webhook_event_type + order_status, Hotmart usa event,
   // PerfectPay usa sale_status_detail, outros usam type/status
   const event = mapConversionEvent(
@@ -185,6 +191,7 @@ function normalizeConversion(body, query) {
     currency: /^[a-zA-Z]{3}$/.test(curRaw) ? curRaw.toLowerCase() : 'eur',
     // vid ecoado: raiz OU containers de rastreio (src/sck/s1) já achatados acima
     leadId: str(b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id || b.s1 || b.sck || b.src),
+    ttclid: ttclidRaw, // Risco 3: 1ª tentativa de match (antes do leadId)
     email: str(b.email || b.customer_email || b.buyer_email),
     phone: str(b.phone || b.customer_phone || b.buyer_phone || b.phone_number || b.mobile || b.checkout_phone),
     customer: str(b.customer || b.name || b.full_name || b.buyer_name || b.customer_name),

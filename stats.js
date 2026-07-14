@@ -2,6 +2,26 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 
+// ═══════════════════════════════════════════════════════════════════════════
+// REGRA DE ATRIBUIÇÃO: LAST-CLICK PAGO  (não altere sem decisão de produto)
+// ─────────────────────────────────────────────────────────────────────────
+// O crédito de uma conversão vai para o ttclid (clique pago do TikTok) MAIS
+// RECENTE registrado ANTES do checkoutAt do lead. Consequências no código:
+//
+//  • lead.clicks = [{ ttclid, utm, at }]  → histórico completo de cliques
+//    pagos (cap de 10). NUNCA descartamos cliques: o primeiro fica no histórico
+//    para análise; o vencedor é recalculado por applyLastClickPaid().
+//  • lead.ttclid / lead.utm  → SEMPRE apontam para o clique vencedor
+//    (last-click pago). Um clique novo na campanha B substitui o crédito da
+//    campanha A (enquanto ocorrer antes do checkout).
+//  • Match do webhook: ttclid é a 1ª tentativa (determinística), na ordem
+//    ttclid → leadId → email → phone → órfã.
+//
+// Se precisar de OUTRA regra (first-click, multi-touch…), mude aqui de forma
+// explícita — não reintroduza "preencher só se vazio", que silenciosamente
+// congelava o crédito no primeiro clique (Risco 4 da auditoria).
+// ═══════════════════════════════════════════════════════════════════════════
+
 // ── Store de estatísticas ──────────────────────────────────────────────────
 // REMODELADO: o estado agora vive EM MEMÓRIA (fonte quente) e é persistido:
 //   1. no Neon (write-through assíncrono, fonte de verdade durável);
@@ -39,12 +59,37 @@ let phoneIndex = new Map(); // `${acc}|${tail9}` -> Set<lead>
 // para quando o dedup durável do Neon não se aplica — banco off ou sem order_id
 // no evId). `${acc}|${gateway}|${orderId}` -> lead órfão já criado.
 let orphanOrderIndex = new Map();
+// Poda silenciosa (auditoria): contadores acumulados de itens descartados do
+// cache quente por exceder o cap. NÃO é perda de dados (leads/eventos seguem no
+// Neon e o Risco 7 re-hidrata leads antigos sob demanda), mas precisa ser
+// VISÍVEL no Diagnóstico — antes o descarte era silencioso. lastAt = quando
+// ocorreu a última poda; total = quantos foram podados desde o boot.
+const pruneStats = { leads: 0, events: 0, leadsLastAt: null, eventsLastAt: null };
+// Risco 3: índice O(1) de ttclid → Set<lead>, chave `${acc}|${ttclid}`. Guarda
+// TODOS os ttclids que o lead já registrou (lead.clicks), não só o vencedor —
+// o webhook pode ecoar qualquer um deles e ainda assim casar o lead certo.
+let ttclidIndex = new Map();
+// Risco 8 (LGPD): contagem de leads ANONIMIZADOS por conta. Se uma venda vira
+// órfã e a conta tem leads anonimizados na janela, o comprador PODE ser um lead
+// cujo e-mail/telefone foi apagado pela retenção LGPD — não um bug de match.
+// Sobrevive a hydrate/rebuild (repopulado abaixo a partir dos leads do Neon).
+let anonymizedByAcc = new Map(); // acc -> { count, lastAt }
+
+function noteAnonymized(acc, at) {
+  const key = acc || '';
+  const cur = anonymizedByAcc.get(key) || { count: 0, lastAt: null };
+  cur.count += 1;
+  if (at && (!cur.lastAt || at > cur.lastAt)) cur.lastAt = at;
+  anonymizedByAcc.set(key, cur);
+}
 
 function rebuildIndex() {
   leadIndex = new Map();
   emailIndex = new Map();
   phoneIndex = new Map();
   orphanOrderIndex = new Map();
+  ttclidIndex = new Map();
+  anonymizedByAcc = new Map();
   // state.leads é do mais novo pro mais velho.
   (state.leads || []).forEach((l) => {
     if (!l || !l.id) return;
@@ -55,6 +100,8 @@ function rebuildIndex() {
       const k = orphanKey(l.acc, l.gateway, l.ref);
       if (!orphanOrderIndex.has(k)) orphanOrderIndex.set(k, l);
     }
+    // Risco 8: recontabiliza anonimizados após hydrate/rebuild.
+    if (l.anonymized) noteAnonymized(l.acc, l.anonymizedAt || l.at);
   });
 }
 
@@ -132,7 +179,20 @@ function logEvent(type, data) {
     at: new Date().toISOString()
   }, data || {});
   state.events.unshift(entry);
-  if (state.events.length > MAX_EVENTS) state.events.length = MAX_EVENTS;
+  if (state.events.length > MAX_EVENTS) {
+    // Poda silenciosa do feed → agora contabilizada. Não é perda de dados (o
+    // evento já foi para o Neon via db.insertEvent abaixo e o arquivamento
+    // frio mantém histórico), mas o descarte do feed quente fica visível.
+    const dropped = state.events.length - MAX_EVENTS;
+    state.events.length = MAX_EVENTS;
+    pruneStats.events += dropped;
+    pruneStats.eventsLastAt = new Date().toISOString();
+    // log amostrado (1 a cada 100 podas) para não poluir sob alto volume
+    if (pruneStats.events % 100 < dropped) {
+      console.warn('[stats] poda de eventos do feed: total ' + pruneStats.events +
+        ' descartado(s) do cache quente desde o boot (cap ' + MAX_EVENTS + '; histórico no Neon).');
+    }
+  }
   markDirty();
   invalidateStatsCache();
   db.insertEvent(entry.acc || null, entry);
@@ -185,6 +245,8 @@ function indexLeadContacts(lead, _newestWins) {
   if (e) idxAdd(emailIndex, contactKey(lead.acc, e), lead);
   const p = normPhoneKey(lead.phone);
   if (p) idxAdd(phoneIndex, contactKey(lead.acc, p), lead);
+  // Risco 3: indexa TODOS os ttclids conhecidos do lead (vencedor + histórico).
+  leadTtclids(lead).forEach((tc) => idxAdd(ttclidIndex, contactKey(lead.acc, tc), lead));
 }
 function unindexLeadContacts(lead) {
   if (!lead) return;
@@ -192,6 +254,17 @@ function unindexLeadContacts(lead) {
   if (e) idxRemove(emailIndex, contactKey(lead.acc, e), lead);
   const p = normPhoneKey(lead.phone);
   if (p) idxRemove(phoneIndex, contactKey(lead.acc, p), lead);
+  leadTtclids(lead).forEach((tc) => idxRemove(ttclidIndex, contactKey(lead.acc, tc), lead));
+}
+// Conjunto de ttclids que um lead já registrou: o vencedor atual + o histórico
+// de cliques. Usado para (des)indexar no ttclidIndex.
+function leadTtclids(lead) {
+  const out = new Set();
+  if (lead && lead.ttclid) out.add(lead.ttclid);
+  if (lead && Array.isArray(lead.clicks)) {
+    lead.clicks.forEach((c) => { if (c && c.ttclid) out.add(c.ttclid); });
+  }
+  return out;
 }
 
 // Risco 1: escolhe o melhor candidato entre leads que compartilham um contato.
@@ -232,6 +305,55 @@ function findContactCandidates(acc, email, phone) {
   return pickBestCandidate(set);
 }
 
+// Risco 3: lead com um ttclid específico (match determinístico do webhook).
+function findLeadByTtclid(ttclid, acc) {
+  ensureLoaded();
+  if (!ttclid) return null;
+  return pickBestCandidate(ttclidIndex.get(contactKey(acc, ttclid))).lead;
+}
+
+// ── ATRIBUIÇÃO LAST-CLICK PAGO (ver cabeçalho do arquivo) ──────────────────
+// Registra um clique PAGO (com ttclid) no histórico do lead. NÃO descarta
+// cliques anteriores (Risco 4): o primeiro fica no histórico para análise; o
+// vencedor é recalculado por applyLastClickPaid. Cliques sem ttclid não são
+// "pagos" e não entram aqui (não sobrescrevem o crédito pago).
+function recordClick(lead, click) {
+  if (!lead || !click || !click.ttclid) return;
+  const at = click.at || new Date().toISOString();
+  const utm = (click.utm && typeof click.utm === 'object') ? click.utm : {};
+  // A atribuição CONGELA no checkout: um clique que chega DEPOIS de o checkout
+  // já ter ocorrido entra no histórico (para análise), mas não muda o crédito.
+  // Decidido por ORDEM de eventos, não por timestamp — imune a colisão de ms.
+  // (O clique do próprio /go é registrado ANTES de checkoutAt em
+  // recordCheckoutEntry, então ainda conta como último clique pago.)
+  const frozen = !!lead.checkoutAt;
+  lead.clicks = Array.isArray(lead.clicks) ? lead.clicks : [];
+  const last = lead.clicks[lead.clicks.length - 1];
+  if (last && last.ttclid === click.ttclid) {
+    // mesmo clique reaparecendo (reload/navegação): atualiza timestamp/utm
+    last.at = at;
+    if (utm.source) last.utm = utm;
+  } else {
+    lead.clicks.push({ ttclid: click.ttclid, utm: utm, at: at });
+    if (lead.clicks.length > 10) lead.clicks = lead.clicks.slice(-10); // cap 10
+  }
+  // indexa o novo ttclid para match O(1) do webhook (mesmo se congelado: o
+  // webhook pode ecoar qualquer clique do histórico e ainda casar este lead)
+  idxAdd(ttclidIndex, contactKey(lead.acc, click.ttclid), lead);
+  if (!frozen) applyLastClickPaid(lead);
+}
+
+// Elege o clique vencedor = o ttclid MAIS RECENTE do histórico (last-click
+// pago). Só é chamado ANTES/no checkout (depois a atribuição está congelada),
+// então "mais recente" já respeita a regra "antes do checkoutAt". Atualiza
+// lead.ttclid e lead.utm juntos (par coerente).
+function applyLastClickPaid(lead) {
+  if (!lead || !Array.isArray(lead.clicks) || !lead.clicks.length) return;
+  const winner = lead.clicks[lead.clicks.length - 1]; // o mais recente registrado
+  lead.ttclid = winner.ttclid;
+  if (winner.utm && winner.utm.source) lead.utm = winner.utm;
+}
+
 function addLead(lead) {
   state.leads.unshift(lead);
   leadIndex.set(lead.id, lead);
@@ -248,8 +370,29 @@ function addLead(lead) {
         if (orphanOrderIndex.get(k) === l) orphanOrderIndex.delete(k);
       }
     });
+    // Poda silenciosa → agora deixa rastro. Alerta se um COMPRADOR foi podado
+    // (ainda recuperável do Neon via findLeadsByContact no match, mas é sinal
+    // de cache subdimensionado para o volume da conta).
+    pruneStats.leads += removed.length;
+    pruneStats.leadsLastAt = new Date().toISOString();
+    const convictedOut = removed.filter((l) => l && l.status === 'converted').length;
+    console.warn('[stats] poda de leads: ' + removed.length + ' removido(s) do cache (cap ' + MAX_LEADS +
+      '), ' + convictedOut + ' comprador(es). Total podado desde o boot: ' + pruneStats.leads +
+      '. (Dados seguem no Neon; match usa fallback no banco.)');
   }
   return lead;
+}
+
+// Risco 7: re-hidrata no cache um lead vindo do Neon (fallback de match). Se já
+// existe em memória (mesmo id), devolve o do cache — não duplica. Depois de
+// ingerir, os índices sync (e-mail/telefone/ttclid) casam normalmente e o
+// match não cria órfã de um comprador que só estava frio no banco.
+function ingestLead(leadData) {
+  if (!leadData || !leadData.id) return null;
+  ensureLoaded();
+  const existing = leadIndex.get(leadData.id);
+  if (existing) return existing;
+  return addLead(leadData);
 }
 
 // ── Jornada do lead: páginas/passos percorridos até a compra ───────────────
@@ -305,13 +448,18 @@ function recordVisit(data) {
       utm: data.utm || {}
     });
   } else {
-    // enriquece dados que faltavam
-    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid', 'site', 'acc'].forEach((k) => {
+    // enriquece dados que faltavam (ttclid/utm NÃO entram aqui: são last-click
+    // pago, tratados por recordClick abaixo — ver cabeçalho do arquivo)
+    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'site', 'acc'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
-    if (data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) lead.utm = data.utm;
+    // organico (sem ttclid): rede de segurança p/ não perder o 1º utm orgânico.
+    // Um clique pago posterior sempre sobrepõe via applyLastClickPaid.
+    if (!data.ttclid && data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) lead.utm = data.utm;
     lead.lastSeen = nowIso;
   }
+  // Risco 4: registra o clique pago no histórico (last-click pago).
+  recordClick(lead, { ttclid: data.ttclid, utm: data.utm, at: nowIso });
   pushJourney(lead, data.landing);
   markDirty();
   db.upsertLead(lead.acc || null, lead);
@@ -347,11 +495,16 @@ function recordCheckoutEntry(id, gateway, data) {
     lead.gateway = gateway || lead.gateway;
     // email/phone: o gateway manda no PIX gerado — essenciais para o match
     // da conversão futura (fallback por e-mail/telefone) e para a CAPI
-    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'ttclid', 'email', 'phone', 'customer', 'acc'].forEach((k) => {
+    // ttclid/utm NÃO entram aqui: são last-click pago (recordClick abaixo)
+    ['ip', 'ua', 'device', 'os', 'browser', 'referer', 'country', 'countryName', 'city', 'email', 'phone', 'customer', 'acc'].forEach((k) => {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
-    if (data.utm && data.utm.source && (!lead.utm || !lead.utm.source)) lead.utm = data.utm;
+    if (!data.ttclid && data.utm && data.utm.source && (!lead.utm || !lead.utm.source)) lead.utm = data.utm;
   }
+  // Risco 4: o clique do /go é o ÚLTIMO clique pago antes do checkout. Registra
+  // ANTES de setar checkoutAt para que ele vire o vencedor (last-click pago);
+  // só depois a atribuição congela. A ordem dos eventos é o que decide.
+  recordClick(lead, { ttclid: data.ttclid, utm: data.utm, at: nowIso });
   lead.checkoutAt = nowIso;
   // Item 302: "iniciou pagamento" ≠ "visitou o checkout". Só o webhook do
   // gateway (InitiateCheckout/AddPaymentInfo = PIX gerado / cartão digitado)
@@ -380,7 +533,9 @@ function attachTracking(id, patch) {
   }
   if (patch.acc && !lead.acc) lead.acc = patch.acc;
   if (patch.ttUrl) lead.ttUrl = String(patch.ttUrl).slice(0, 500);
-  if (patch.ttclid && !lead.ttclid) lead.ttclid = patch.ttclid;
+  // Risco 4: NÃO congela o primeiro ttclid — registra como clique pago no
+  // histórico e deixa o last-click pago decidir o vencedor (ver cabeçalho).
+  if (patch.ttclid) recordClick(lead, { ttclid: patch.ttclid, utm: patch.utm, at: nowIso });
   if (patch.ttp) lead.ttp = patch.ttp;
   // Sinais do challenge de cloaking (persistidos pelo /api/cloakcheck)
   if (patch.cloakChallenge) lead.cloakChallenge = patch.cloakChallenge;
@@ -456,20 +611,23 @@ function matchExternalConversion(data) {
   const gw = String(data.gateway || 'externo').toLowerCase().slice(0, 30);
   const acc = data.acc || null;
 
-  // match: leadId direto → e-mail → telefone (webhook universal).
-  // Com conta definida, o lead por id só vale se pertencer à MESMA conta.
-  let lead = findLead(data.leadId);
-  // Risco 2: fronteira ESTRITA (null só casa com null). findLead(id) resolve por
-  // id sem escopo de conta, então o guard é o que impede o cruzamento aqui.
-  if (lead && (lead.acc || null) !== (acc || null)) lead = null;
+  // Risco 3: ORDEM de match → ttclid → leadId → e-mail → telefone → órfã.
+  // O ttclid é a 1ª tentativa: é o clique pago (determinístico e já escopado
+  // por conta em findByTtclid), a chave mais forte que o gateway pode ecoar.
+  let lead = data.ttclid ? findLeadByTtclid(data.ttclid, acc) : null;
+  // leadId direto: com conta definida, só vale se pertencer à MESMA conta.
+  if (!lead) {
+    lead = findLead(data.leadId);
+    // Risco 2: fronteira ESTRITA (null só casa com null). findLead(id) resolve
+    // por id sem escopo de conta; o guard impede o cruzamento entre contas.
+    if (lead && (lead.acc || null) !== (acc || null)) lead = null;
+  }
   // Risco 1: transparência de atribuição. Quando casamos por CONTATO
   // (e-mail/telefone), pode haver >1 lead — registramos quantos e se são de
-  // campanhas diferentes (crédito duvidoso). Match direto por leadId = 1.
+  // campanhas diferentes (crédito duvidoso). ttclid/leadId direto = 1.
   let candidates = 1;
   let ambiguous = false;
-  if (lead) {
-    candidates = 1;
-  } else {
+  if (!lead) {
     const pick = findContactCandidates(acc, data.email, data.phone);
     lead = pick.lead;
     candidates = pick.candidates;
@@ -522,19 +680,34 @@ function matchExternalConversion(data) {
     // casou (quais chaves de match o gateway mandou vs. o que faltou), para
     // alimentar o toggle de órfãs (item 312) e o diagnóstico de atribuição.
     const tried = [];
+    if (data.ttclid) tried.push('ttclid');
     if (data.leadId) tried.push('leadId');
     if (data.email) tried.push('email');
     if (data.phone) tried.push('telefone');
     const reason = tried.length === 0
       ? 'gateway não enviou nenhuma chave de identificação (sem leadId, e-mail ou telefone)'
       : 'nenhum lead rastreado casou com ' + tried.join(' / ') + ' (visitante não passou pelo link antes de comprar, ou comprou de outro dispositivo)';
+    // Risco 8 (LGPD): se a conta anonimizou leads e o gateway MANDOU contato
+    // (e-mail/telefone) que não casou, o comprador pode ser um lead cuja PII
+    // foi apagada pela retenção — não um bug de match. Sinaliza para o operador
+    // não confundir os dois casos.
+    const anon = anonymizedByAcc.get(acc || '');
+    const maybeAnon = !!(anon && anon.count > 0) && !!(data.email || data.phone);
+    let orphanReason = tried.length === 0 ? 'sem_chave' : 'sem_match';
+    let reasonMsg = reason;
+    if (maybeAnon) {
+      orphanReason = 'possivel_anonimizado';
+      reasonMsg = reason + ' — a conta tem ' + anon.count + ' lead(s) anonimizado(s) pela retenção LGPD; ' +
+        'o comprador PODE ser um deles (e-mail/telefone apagados), não uma falha de rastreio';
+    }
     logEvent('info', {
       acc,
-      title: '[atribuição] conversão órfã: ' + reason,
+      title: '[atribuição] conversão órfã: ' + reasonMsg,
       gateway: gw,
       ref: data.email || data.phone || data.leadId || null,
-      orphanReason: tried.length === 0 ? 'sem_chave' : 'sem_match',
-      triedKeys: tried
+      orphanReason,
+      triedKeys: tried,
+      anonymizedInWindow: maybeAnon ? anon.count : undefined
     });
     lead = addLead({
       id: data.leadId || newId('orphan'),
@@ -574,7 +747,7 @@ function matchExternalConversion(data) {
 
 // Risco 1/5: anexa metadados de atribuição ao lead retornado SEM persisti-los.
 // Usa propriedades não-enumeráveis para que db.upsertLead (JSON.stringify) as
-// ignore — elas são só um canal de comunicação com o caller (server.js).
+// ignore ��� elas são só um canal de comunicação com o caller (server.js).
 function decorateMatch(lead, meta) {
   if (!lead) return lead;
   try {
@@ -694,6 +867,8 @@ function anonymizeOldLeads(accountId, days) {
     unindexLeadContacts(l); // sai do match ANTES de perder as chaves
     delete l.email; delete l.phone; delete l.customer;
     l.anonymized = true;
+    l.anonymizedAt = new Date().toISOString();
+    noteAnonymized(accountId, l.anonymizedAt); // Risco 8: alimenta o hint de órfã
     n++;
   });
   if (n > 0) {
@@ -701,6 +876,16 @@ function anonymizeOldLeads(accountId, days) {
     markDirty();
   }
   return n;
+}
+
+// Poda silenciosa (auditoria): snapshot dos contadores de descarte por cap,
+// consumido pelo /api/health e exibido na tela de Diagnóstico.
+function getPruneStats() {
+  return {
+    leads: pruneStats.leads, events: pruneStats.events,
+    leadsLastAt: pruneStats.leadsLastAt, eventsLastAt: pruneStats.eventsLastAt,
+    maxLeads: MAX_LEADS, maxEvents: MAX_EVENTS
+  };
 }
 
 // Zera SOMENTE os dados da conta informada (ou tudo, se accountId omitido).
@@ -770,6 +955,6 @@ process.once('beforeExit', flushSync);
 
 module.exports = {
   logEvent, recordVisit, recordCheckoutEntry, recordClickStep,
-  attachTracking, getLead, findLeadByEmail, findLeadByPhone, matchExternalConversion, getStats, reset, hydrate,
-  inCheckoutNow, anonymizeOldLeads, markPaymentStarted
+  attachTracking, getLead, findLeadByEmail, findLeadByPhone, findLeadByTtclid, ingestLead, matchExternalConversion, getStats, reset, hydrate,
+  inCheckoutNow, anonymizeOldLeads, markPaymentStarted, getPruneStats
   };

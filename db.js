@@ -621,6 +621,39 @@ async function upsertLead(accountId, lead) {
   } catch (err) { console.error('[db] upsertLead:', err.message); }
 }
 
+// Risco 7: fallback de MATCH no banco. O cache em memória guarda só os últimos
+// MAX_LEADS; um comprador antigo podado do cache viraria órfã mesmo existindo
+// no Neon. Busca por contato (e-mail e, se preciso, telefone), escopada por
+// conta (IS NOT DISTINCT FROM = fronteira estrita: null casa só com null,
+// coerente com o Risco 2). Retorna os `data` (JSON) dos até 5 leads mais
+// recentes para o chamador re-hidratar no cache e casar.
+async function findLeadsByContact(accountId, opts) {
+  if (!enabled) return [];
+  const { email, phone } = opts || {};
+  try {
+    const out = [];
+    const em = email ? String(email).trim().toLowerCase() : '';
+    if (em) {
+      const rows = await sql`SELECT data FROM leads
+        WHERE account_id IS NOT DISTINCT FROM ${accountId || null}
+          AND lower(data->>'email') = ${em}
+        ORDER BY created_at DESC LIMIT 5`;
+      rows.forEach((r) => { if (r && r.data) out.push(r.data); });
+    }
+    // telefone: compara os ÚLTIMOS 9 dígitos (mesma regra do normPhoneKey),
+    // ignorando DDI/formatação. Só se o e-mail não trouxe nada.
+    const tail = phone ? String(phone).replace(/\D/g, '').replace(/^00/, '').slice(-9) : '';
+    if (!out.length && tail.length >= 8) {
+      const rows = await sql`SELECT data FROM leads
+        WHERE account_id IS NOT DISTINCT FROM ${accountId || null}
+          AND right(regexp_replace(data->>'phone', '[^0-9]', '', 'g'), 9) = ${tail}
+        ORDER BY created_at DESC LIMIT 5`;
+      rows.forEach((r) => { if (r && r.data) out.push(r.data); });
+    }
+    return out;
+  } catch (err) { console.error('[db] findLeadsByContact:', err.message); return []; }
+}
+
 async function insertEvent(accountId, evt) {
   if (!enabled || !evt || !evt.id) return;
   try {
@@ -1183,7 +1216,7 @@ module.exports = {
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
-  upsertLead, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
+  upsertLead, findLeadsByContact, insertEvent, archiveOldEvents, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
   // quarentena de webhooks rejeitados
   insertQuarantine, listQuarantine, countQuarantine, resolveQuarantine, pruneQuarantine,
   // dedup durável de receita por pedido (Risco 5)
