@@ -59,14 +59,13 @@ const ALT_MIN = 1.2
 const ALT_MAX = 3.5
 const ALT_DEFAULT = 2.2
 const ALT_STEP = 0.45
-// Refino 8: entrada cinematográfica — altitude inicial e duração
-const ALT_ENTRY = 4.0
-const ENTRY_MS = 1200
+// Item 15: entrada cinematográfica aprimorada — mais distante e mais lenta
+const ALT_ENTRY = 5.5
+const ENTRY_MS = 1800
 
-// Refino 9: velocidades da interação magnética — idle mais rápido para o
-// globo nunca parecer "travado" mesmo sem tráfego
-const SPIN_IDLE = 0.65
-const SPIN_HOVER = 1.3
+// Item 14: rotação mais suave e lenta — sensação de globo flutuando elegantemente
+const SPIN_IDLE = 0.35
+const SPIN_HOVER = 0.9
 const RESUME_AFTER_MS = 3000
 
 function buildPoints(
@@ -91,7 +90,8 @@ function buildPoints(
       {
         lat: coords[0],
         lng: coords[1],
-        size: 0.28 + (Math.log1p(value) / Math.log1p(max)) * 0.72,
+        // Item 12: pontos maiores e mais vibrantes (0.28→0.4 min, 0.72→0.8 range)
+        size: 0.4 + (Math.log1p(value) / Math.log1p(max)) * 0.8,
         color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
         label: `${c.name}: ${c.count} visitas${c.purchased ? ` · ${c.purchased} vendas` : ''}`,
       },
@@ -218,13 +218,15 @@ function GlobeCanvas({
     // V2-44: entrada cinematográfica aprimorada — além do zoom 4.0→2.2, o
     // globo agora gira 60° de longitude durante a aproximação (efeito
     // "chegando da órbita"). Única por sessão; reduced-motion pula direto.
+    // Item 15: entrada cinematográfica — zoom distante (5.5) desacelera suavemente
+    // até a posição final em 1.8s. Longitude -45 mostra mais Europa/Brasil.
     if (!reducedMotion && firstGlobeEntryThisSession()) {
       g.pointOfView({ lat: 8, lng: -90, altitude: ALT_ENTRY }, 0)
       window.setTimeout(() => {
-        globeRef.current?.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, ENTRY_MS)
+        globeRef.current?.pointOfView({ lat: 20, lng: -45, altitude: ALT_DEFAULT }, ENTRY_MS)
       }, 60)
     } else {
-      g.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 0)
+      g.pointOfView({ lat: 20, lng: -45, altitude: ALT_DEFAULT }, 0)
     }
     g.controls().autoRotateSpeed = SPIN_IDLE
 
@@ -339,14 +341,15 @@ function GlobeCanvas({
       /* V2-47: atmosfera mais volumosa (0.18 → 0.22) — halo ciano visível */
       showAtmosphere
       atmosphereColor={CYAN}
-      atmosphereAltitude={0.22}
+      /* Item 11: atmosfera mais volumosa — halo ciano envolvente */
+      atmosphereAltitude={0.28}
       pointsData={points}
       pointLat="lat"
       pointLng="lng"
       pointColor="color"
-      /* V2-48: colunas mais altas nos hotspots (0.22 → 0.3) — leitura 3D */
-      pointAltitude={(d: object) => (d as GeoPoint).size * 0.3}
-      pointRadius={(d: object) => (d as GeoPoint).size}
+      /* Item 12: pontos mais altos e maiores — presença vibrante */
+      pointAltitude={(d: object) => (d as GeoPoint).size * 0.35}
+      pointRadius={(d: object) => (d as GeoPoint).size * 1.15}
       pointLabel="label"
       pointsMerge={false}
       /* V2-49: transição suave quando os dados do poll mudam */
@@ -375,11 +378,12 @@ function GlobeCanvas({
       arcEndLat="endLat"
       arcEndLng="endLng"
       arcColor={() => [CYAN, PINK]}
-      arcAltitudeAutoScale={0.35}
-      arcStroke={0.5}
-      arcDashLength={0.35}
-      arcDashGap={0.55}
-      arcDashAnimateTime={1400}
+      /* Item 13: arcos mais grossos e visíveis, animação mais fluida */
+      arcAltitudeAutoScale={0.4}
+      arcStroke={0.65}
+      arcDashLength={0.4}
+      arcDashGap={0.5}
+      arcDashAnimateTime={1200}
       arcsTransitionDuration={600}
     />
   )
@@ -606,7 +610,7 @@ export default function GlobePanel({
         onZoomIn={() => zoomBy(globeRef, -ALT_STEP)}
         onZoomOut={() => zoomBy(globeRef, ALT_STEP)}
         onRecenter={() =>
-          globeRef.current?.pointOfView({ lat: 20, lng: -30, altitude: ALT_DEFAULT }, 500)
+          globeRef.current?.pointOfView({ lat: 20, lng: -45, altitude: ALT_DEFAULT }, 500)
         }
         onFullscreen={toggleFullscreen}
         isFullscreen={isFullscreen}

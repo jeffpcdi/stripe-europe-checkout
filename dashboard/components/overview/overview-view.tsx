@@ -52,9 +52,6 @@ function periodToAdsRange(period: Period): { fromDate?: string; toDate?: string 
 
 const PERIODS: Period[] = ['today', '7d', '30d', 'all']
 const PERIOD_KEY = 'roi:overview:period'
-// Fase 4: marcador da migração para o novo default 'today'. Sem ele, usuários
-// que já tinham '7d' gravado ficariam presos e nunca veriam o padrão novo.
-const PERIOD_MIGRATION_KEY = 'roi:overview:period:v2'
 
 const PERIOD_LABEL: Record<Period, string> = {
   today: 'hoje',
@@ -63,24 +60,15 @@ const PERIOD_LABEL: Record<Period, string> = {
   all: 'tudo',
 }
 
-// Itens 283/284: período escolhido persiste (localStorage) e aceita deep-link
-// (?p=30d). Precedência: query string → localStorage → default 'today' (Fase 4).
+// Item 3 (Refinamento): período SEMPRE começa em "hoje". A migração antiga
+// (PERIOD_MIGRATION_KEY) foi removida — lógica simplificada.
+// Precedência: query string → localStorage → default 'today'.
 function initialPeriod(): Period {
   if (typeof window === 'undefined') return 'today'
-  // Migração única (Fase 4): limpa a preferência legada UMA vez para que o novo
-  // default 'today' valha. Preferências escolhidas DEPOIS da migração persistem.
-  try {
-    if (!window.localStorage.getItem(PERIOD_MIGRATION_KEY)) {
-      window.localStorage.removeItem(PERIOD_KEY)
-      window.localStorage.setItem(PERIOD_MIGRATION_KEY, '1')
-    }
-  } catch {
-    /* localStorage indisponível (modo privado): segue com o default */
-  }
   const fromUrl = new URLSearchParams(window.location.search).get('p') as Period | null
   if (fromUrl && PERIODS.includes(fromUrl)) return fromUrl
-  const saved = window.localStorage.getItem(PERIOD_KEY) as Period | null
-  if (saved && PERIODS.includes(saved)) return saved
+  // Fase 5: NÃO restaura do localStorage no primeiro load — SEMPRE "hoje".
+  // O localStorage só persiste dentro da mesma sessão (setPeriod salva).
   return 'today'
 }
 
@@ -106,7 +94,7 @@ function HeroKpi({
         {label}
       </p>
       <p
-        className={`mt-1 whitespace-nowrap font-mono text-3xl font-bold leading-none tabular-nums xl:text-4xl ${
+        className={`mt-1 whitespace-nowrap font-mono text-2xl font-bold leading-none tabular-nums sm:text-3xl xl:text-4xl ${
           dim ? 'text-muted-foreground' : 'text-foreground'
         }`}
         {...(sensitive ? { 'data-sensitive': true } : {})}
@@ -165,37 +153,27 @@ export function OverviewView() {
 
   const { cur } = useMemo(() => {
     if (!data) return { cur: null }
-    // O hero não exibe deltas (spec: label + valor, nada mais).
+    // Item 2: receita FILTRADA pelo período — aggregate já faz o corte correto.
     return { cur: aggregate(data, periodStart(period)) }
   }, [data, period])
 
-  // Números DENTRO do globo: leads que entraram HOJE (fixo, independente do
-  // período selecionado — o label diz "LEADS HOJE") + países distintos deles.
-  // todayCountries também COLORE o globo: pintar só quem está online agora
-  // deixava o globo apagado com "Aguardando tráfego" por cima do contador — 
-  // estados contraditórios. Agora globo e contador contam a MESMA história.
-  const { leadsToday, countriesToday, todayCountries } = useMemo(() => {
+  // Países dos leads de HOJE — colorem o globo (mesma história do mundo real).
+  const todayCountries = useMemo(() => {
     const start = new Date()
     start.setHours(0, 0, 0, 0)
     const t = start.getTime()
-    let n = 0
     const byCountry = new Map<string, number>()
     for (const l of data?.leads ?? []) {
       const at = new Date(l.at).getTime()
       if (!Number.isFinite(at) || at < t) continue
-      n++
       if (l.country) byCountry.set(l.country, (byCountry.get(l.country) ?? 0) + 1)
     }
-    return {
-      leadsToday: n,
-      countriesToday: byCountry.size,
-      todayCountries: Array.from(byCountry, ([code, count]) => ({
-        code,
-        name: countryName(code),
-        count,
-        purchased: 0,
-      })),
-    }
+    return Array.from(byCountry, ([code, count]) => ({
+      code,
+      name: countryName(code),
+      count,
+      purchased: 0,
+    }))
   }, [data])
 
   if (error) {
@@ -210,15 +188,19 @@ export function OverviewView() {
   }
 
   if (isLoading || !cur) {
-    // Itens 58/59: skeleton mimético — silhueta do NOVO layout (hero único)
+    // Skeleton mimético — silhueta do novo layout imersivo
     return (
       <div className="flex flex-col gap-4" aria-busy="true" aria-label="Carregando métricas">
         <div className="flex justify-end">
           <Skeleton className="h-8 w-64 rounded-full" />
         </div>
-        {/* hero: KPIs | globo | feed */}
-        <div className="grid gap-6 rounded-xl border border-white/[0.06] bg-[#060608] p-6 lg:grid-cols-[1fr_1.35fr_1fr] lg:items-center lg:p-8">
-          <div className="flex flex-col gap-8">
+        {/* hero: globo full-width com overlays */}
+        <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-[#040406]" style={{ minHeight: 520 }}>
+          <div className="flex items-center justify-center p-16">
+            <Skeleton className="aspect-square w-full max-w-[440px] rounded-full" />
+          </div>
+          {/* overlay esquerdo */}
+          <div className="absolute left-6 top-6 flex flex-col gap-6">
             {[0, 1, 2].map((i) => (
               <div key={i} className="flex flex-col gap-2">
                 <Skeleton className="h-3 w-16" />
@@ -226,13 +208,11 @@ export function OverviewView() {
               </div>
             ))}
           </div>
-          <div className="mx-auto aspect-square w-full max-w-[560px]">
-            <Skeleton className="size-full rounded-full" />
-          </div>
-          <div className="flex flex-col gap-3">
+          {/* overlay direito */}
+          <div className="absolute right-6 top-6 flex flex-col gap-3">
             <Skeleton className="h-3 w-28" />
             {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center justify-between">
+              <div key={i} className="flex items-center justify-between gap-8">
                 <Skeleton className="h-3.5 w-32" />
                 <Skeleton className="h-3.5 w-12" />
               </div>
@@ -331,48 +311,56 @@ export function OverviewView() {
         </GlassCard>
       )}
 
-      {/* ── BLOCO HERO — um único painel: fundo mais escuro que a página,
-          borda sutil, radius 12px, largura total. Grid 1fr | 1.35fr | 1fr,
-          colunas separadas por ESPAÇO, não por linha. ─────────────────── */}
+      {/* ── BLOCO HERO IMERSIVO — globo ocupa todo o painel; KPIs e LiveFeed
+          são sobrepostos com glassmorphism. Items 4-9. ─────────────────── */}
       <section
         aria-label="Painel principal"
         data-tour="chart"
-        className="grid gap-8 rounded-xl border border-white/[0.06] bg-[#060608] p-5 sm:p-6 lg:grid-cols-[1fr_1.35fr_1fr] lg:items-center lg:gap-10 lg:p-8"
+        className="hero-globe-section relative overflow-hidden rounded-2xl border border-white/[0.06]"
         style={{ ['--i' as string]: 1 }}
       >
-        {/* Esquerda — três KPIs empilhados: label + valor. Nada mais. */}
-        <div className="flex flex-row flex-wrap gap-8 lg:flex-col lg:gap-10" data-tour="kpis">
-          <HeroKpi
-            label="Receita"
-            dim={revCents === 0}
-            sensitive
-            value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
-          />
-          <HeroKpi
-            label="Gasto"
-            dim={!roas}
-            sensitive
-            value={roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
-          />
-          <HeroKpi
-            label="ROAS"
-            dim={!roas || roas.roas === null}
-            value={
-              roas && roas.roas !== null ? roas.roas.toFixed(2).replace('.', ',') : '—'
-            }
-          />
+        {/* Fundo atmosférico profundo (item 7) */}
+        <div className="hero-globe-bg absolute inset-0" aria-hidden="true" />
+
+        {/* Globo — ocupa toda a largura, centrado (items 4, 5, 6) */}
+        <div className="relative z-0 flex items-center justify-center px-4 py-8 sm:px-8 sm:py-10 lg:px-16">
+          <HeroGlobe countries={todayCountries} />
         </div>
 
-        {/* Centro — o globo, circular, com os números DENTRO dele */}
-        <HeroGlobe
-          leadsToday={leadsToday}
-          countriesToday={countriesToday}
-          countries={todayCountries}
-        />
+        {/* Overlay ESQUERDO — KPIs em painel glassmorphism (item 8) */}
+        <div
+          className="hero-overlay-left pointer-events-none absolute left-4 top-4 z-10 sm:left-6 sm:top-6 lg:left-8 lg:top-8"
+          data-tour="kpis"
+        >
+          <div className="hero-glass-panel pointer-events-auto flex flex-col gap-6 p-4 sm:gap-7 sm:p-5">
+            <HeroKpi
+              label="Receita"
+              dim={revCents === 0}
+              sensitive
+              value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
+            />
+            <HeroKpi
+              label="Gasto"
+              dim={!roas}
+              sensitive
+              value={roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
+            />
+            <HeroKpi
+              label="ROAS"
+              dim={!roas || roas.roas === null}
+              value={
+                roas && roas.roas !== null ? roas.roas.toFixed(2).replace('.', ',') : '—'
+              }
+            />
+          </div>
+        </div>
 
-        {/* Direita — CHEGANDO AGORA: últimos leads de /api/stats (poll de 12s,
-            zero request nova) */}
-        <LiveFeed leads={data?.leads ?? []} />
+        {/* Overlay DIREITO — CHEGANDO AGORA em painel glassmorphism (item 9) */}
+        <div className="hero-overlay-right pointer-events-none absolute right-4 top-4 z-10 sm:right-6 sm:top-6 lg:right-8 lg:top-8">
+          <div className="hero-glass-panel pointer-events-auto max-w-[280px] p-4 sm:p-5">
+            <LiveFeed leads={data?.leads ?? []} />
+          </div>
+        </div>
       </section>
 
       {/* ── Abaixo: FUNIL | TOP CAMPANHAS — 2 colunas, altura igual,

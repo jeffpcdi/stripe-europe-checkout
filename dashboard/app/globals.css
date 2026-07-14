@@ -2270,6 +2270,128 @@ html {
 }
 
 /* ============================================================
+   Hero Globe — layout imersivo com overlays glassmorphism
+   ============================================================ */
+
+/* Item 7: fundo atmosférico profundo — sensação de espaço */
+.hero-globe-bg {
+  background:
+    radial-gradient(ellipse 120% 100% at 50% 55%, #0c1018 0%, #060608 50%, #030305 100%);
+  /* vinheta: bordas mais escuras para focar o globo */
+  box-shadow:
+    inset 0 0 120px 40px rgba(0, 0, 0, 0.6),
+    inset 0 0 40px 10px rgba(0, 0, 0, 0.3);
+}
+
+/* Item 6: altura generosa */
+.hero-globe-section {
+  min-height: 520px;
+}
+@media (max-width: 768px) {
+  .hero-globe-section {
+    min-height: 400px;
+  }
+}
+
+/* Item 11: glow atmosférico pulsante ao redor do globo */
+.hero-globe-glow {
+  position: absolute;
+  inset: -15%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.06) 0%, transparent 55%);
+  animation: heroGlobeGlow 4s ease-in-out infinite alternate;
+}
+@keyframes heroGlobeGlow {
+  from {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+/* Container do globo no hero — ocupa toda a largura disponível */
+.hero-globe-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 10;
+  max-height: 560px;
+}
+@media (min-width: 1024px) {
+  .hero-globe-container {
+    aspect-ratio: auto;
+    max-height: none;
+    min-height: 460px;
+  }
+}
+
+/* Items 8–9: painel de vidro translúcido (glassmorphism) */
+.hero-glass-panel {
+  background: rgba(8, 8, 12, 0.55);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+.hero-glass-panel:hover {
+  background: rgba(8, 8, 12, 0.65);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Item 10: badge glassmorphism na base do globo */
+.hero-globe-badge {
+  background: rgba(8, 8, 12, 0.5);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Responsivo: em mobile os overlays ficam estáticos, não sobrepostos */
+@media (max-width: 1023px) {
+  .hero-overlay-left,
+  .hero-overlay-right {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    padding: 0 16px;
+    z-index: 10;
+  }
+  .hero-overlay-left {
+    margin-top: -40px;
+    margin-bottom: 8px;
+  }
+  .hero-overlay-right {
+    margin-bottom: 16px;
+  }
+  .hero-glass-panel {
+    max-width: none !important;
+  }
+  .hero-globe-section {
+    display: flex;
+    flex-direction: column;
+  }
+  .hero-globe-section > .relative {
+    order: -1;
+  }
+}
+
+/* ============================================================
    Acessibilidade — reduced motion
    ============================================================ */
 

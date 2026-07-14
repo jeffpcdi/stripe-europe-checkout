@@ -1,10 +1,9 @@
 'use client'
 
-// Redesign: o globo é a peça central do BLOCO HERO — circular (aspect 1),
-// sem chrome de card próprio (o painel do hero é um bloco só no overview).
-// Os números moram DENTRO do globo, sobrepostos na base: contagem de leads
-// de hoje (grande, ciano, mono) + linha "LEADS HOJE · N PAÍSES".
-// Os cards "online/checkout/países" saíram — essa informação vive aqui.
+// Refinamento: o globo é a peça central IMERSIVA do BLOCO HERO — ocupa toda a
+// largura do hero com KPIs e LiveFeed sobrepostos via absolute. O counter na
+// base mostra "ONLINE AGORA" (tempo real de /api/live), não "leads hoje".
+// Badge com glassmorphism na base do globo.
 
 import dynamic from 'next/dynamic'
 import { useEffect, useRef, useState } from 'react'
@@ -85,49 +84,54 @@ function useLeadPulses(countries: LiveCountry[]): GeoPulse[] {
 }
 
 export function HeroGlobe({
-  leadsToday,
-  countriesToday,
   countries,
 }: {
-  /** leads que entraram HOJE (de /api/stats — o overview já tem esse dado) */
-  leadsToday: number
-  /** países distintos dos leads de hoje */
-  countriesToday: number
   /** países dos leads de HOJE — colorem o globo (mesma história do contador).
       Antes o globo pintava só quem estava online AGORA: ficava apagado com
-      "Aguardando tráfego" por cima de "87 leads hoje". */
+      "Aguardando tráfego" por cima do contador. */
   countries: { code: string; name: string; count: number; purchased: number }[]
 }) {
-  // /api/live continua alimentando os PULSOS (anéis de lead novo, Fase 5) —
-  // é a única razão do hook aqui; a coloração vem do prop `countries`.
+  // /api/live alimenta: 1) o counter "online agora" e 2) os PULSOS (anéis de
+  // lead novo, Fase 5). A coloração estática vem do prop `countries`.
   const { data } = useLive()
   const liveCountries = data?.summary.countries ?? []
+  const onlineNow = data?.summary.online ?? 0
+  const activeCountries = liveCountries.length
   const pulses = useLeadPulses(liveCountries)
 
   return (
-    /* Circular, aspect 1, ocupa toda a coluna central do hero. mx-auto centra
-       quando a coluna é mais larga que alta. */
+    /* O globo agora ocupa TODA a largura/altura do hero. Sem max-w — o
+       container externo (overview-view) controla o tamanho. */
     <div
-      className="relative mx-auto aspect-square w-full max-w-[560px]"
-      aria-label={`Presença ao vivo: ${leadsToday} leads hoje em ${countriesToday} ${countriesToday === 1 ? 'país' : 'países'}`}
+      className="hero-globe-container relative w-full"
+      style={{ minHeight: 480 }}
+      aria-label={`Presença ao vivo: ${onlineNow} online agora em ${activeCountries} ${activeCountries === 1 ? 'país' : 'países'}`}
     >
+      {/* Glow atmosférico — pseudo-elemento via CSS (globals.css) */}
+      <div className="hero-globe-glow" aria-hidden="true" />
+
       {/* A coloração vem de `countries` (stats, já carregado quando o overview
           renderiza) — não espera o /api/live; ele só adiciona pulsos depois. */}
       <GlobePanel countries={countries} metric="visits" pulses={pulses} />
 
-      {/* Números DENTRO do globo, sobrepostos na base. pointer-events-none
-          para não interceptar arraste/zoom do globo. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-[8%] flex flex-col items-center gap-1 text-center">
-        <p
-          className="font-mono text-4xl font-bold leading-none tabular-nums text-brand-cyan xl:text-5xl"
-          data-sensitive
-        >
-          <CountUp value={leadsToday} />
-        </p>
-        <p className="text-[10.5px] font-medium uppercase tracking-[0.14em] text-white/45">
-          {leadsToday === 1 ? 'Lead hoje' : 'Leads hoje'} · {countriesToday}{' '}
-          {countriesToday === 1 ? 'país' : 'países'}
-        </p>
+      {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".
+          pointer-events-none para não interceptar arraste/zoom do globo. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-[6%] flex flex-col items-center gap-1.5 text-center">
+        <div className="hero-globe-badge pointer-events-auto inline-flex flex-col items-center gap-1 px-6 py-3">
+          <div className="flex items-center gap-2">
+            <span className="live-dot" aria-hidden="true" />
+            <p
+              className="font-mono text-4xl font-bold leading-none tabular-nums text-white xl:text-5xl"
+              data-sensitive
+            >
+              <CountUp value={onlineNow} />
+            </p>
+          </div>
+          <p className="text-[10.5px] font-medium uppercase tracking-[0.14em] text-white/55">
+            online agora · {activeCountries}{' '}
+            {activeCountries === 1 ? 'país' : 'países'}
+          </p>
+        </div>
       </div>
     </div>
   )
