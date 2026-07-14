@@ -572,6 +572,8 @@ module.exports = {
   getInsights,
   // cache
   cacheBust,
+  cacheGet,
+  cacheSet,
   // helpers expostos p/ teste
   _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow },
 };
