@@ -43,6 +43,8 @@ import type {
   AdsCatalogsResponse,
   AdsCatalogDetailResponse,
   AdsCatalogSpecResponse,
+  AdsMcpStatusResponse,
+  AdsKpisResponse,
 } from './types'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
@@ -433,6 +435,34 @@ export function useAdsRules(active: boolean) {
   return useSWR<AdsRulesResponse>(active ? '/api/ads/rules' : null, fetcher, {
     revalidateOnFocus: false,
   })
+}
+
+// Diagnóstico da conexão MCP Pipeboard (conexão, tools, chamadas/erros 1h,
+// contas bloqueadas, estado do motor de automações). O backend cacheia o
+// ping por 5min — o refresh de 60s aqui não gera chamadas reais extras.
+export function useAdsMcpStatus(active: boolean) {
+  return useSWR<AdsMcpStatusResponse>(active ? '/api/ads/mcp/status' : null, fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: false,
+    keepPreviousData: true,
+  })
+}
+
+// KPIs agregados do advertiser com delta vs. período anterior (espelho Neon).
+export function useAdsKpis(
+  active: boolean,
+  adAccountId: string,
+  range?: { fromDate?: string; toDate?: string },
+) {
+  const params = new URLSearchParams()
+  if (adAccountId) params.set('adAccountId', adAccountId)
+  if (range?.fromDate) params.set('fromDate', range.fromDate)
+  if (range?.toDate) params.set('toDate', range.toDate)
+  return useSWR<AdsKpisResponse>(
+    active && adAccountId ? `/api/ads/kpis?${params.toString()}` : null,
+    fetcher,
+    { revalidateOnFocus: false, keepPreviousData: true },
+  )
 }
 
 // Templates de campanha salvos da conta.

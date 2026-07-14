@@ -320,6 +320,28 @@ async function readAdvertiserDaily(accountId, advertiserId, fromDate, toDate) {
   return { spendByDay, spend, conversions, currency };
 }
 
+// Totais agregados do advertiser num range (spend/impressões/cliques/conv).
+// Alimenta o /api/ads/kpis — o delta de período é só ESTA query com outro range.
+async function readAdvertiserTotals(accountId, advertiserId, fromDate, toDate) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = String(advertiserId || '').trim();
+  if (!enabled || !advertiserId) return null;
+  await ensureSchema();
+  const rows = await sql`
+    SELECT SUM(spend)::float8 AS spend, SUM(impressions)::float8 AS impressions,
+           SUM(clicks)::float8 AS clicks, SUM(conversions)::float8 AS conversions
+    FROM ads_metrics_cache
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND level = 'campaign' AND day >= ${fromDate} AND day <= ${toDate}`;
+  const r = rows[0] || {};
+  return {
+    spend: num(r.spend),
+    impressions: num(r.impressions),
+    clicks: num(r.clicks),
+    conversions: num(r.conversions),
+  };
+}
+
 // Série diária + resumo de UMA campanha (aba de analytics da campanha).
 async function readCampaignAnalytics(accountId, advertiserId, campaignId, fromDate, toDate) {
   accountId = cleanAccountId(accountId);
@@ -496,6 +518,7 @@ module.exports = {
   writeAdvertiserSnapshot,
   readTree,
   readAdvertiserDaily,
+  readAdvertiserTotals,
   readCampaignAnalytics,
   getSyncState,
   upsertSyncState,

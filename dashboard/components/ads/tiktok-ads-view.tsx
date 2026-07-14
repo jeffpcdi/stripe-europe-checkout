@@ -23,9 +23,6 @@ import { GlassCard } from '@/components/glass-card'
 import { SectionTitle } from '@/components/section-title'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
-import { CountUp } from '@/components/count-up'
-import { SparkLine } from '@/components/sparkline'
-import { fmtCompact, fmtPercent } from '@/lib/format'
 import { AdsConnectCard } from './connect-card'
 import { AdsContextBar } from './context-bar'
 import { BulkUploadDialog } from './bulk-upload-dialog'
@@ -42,20 +39,9 @@ import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
 import { CatalogDialog } from './catalog-dialog'
 import { OpsStatusCards } from './ops-status-cards'
+import { McpStatusCard } from './mcp-status-card'
+import { KpiRow } from './kpi-row'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-
-// Moeda dos advertisers TikTok (spend vem em unidades inteiras da moeda)
-function fmtSpend(v: number, currency?: string | null): string {
-  try {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: currency || 'USD',
-      maximumFractionDigits: 2,
-    }).format(v)
-  } catch {
-    return v.toFixed(2)
-  }
-}
 
 export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
@@ -417,6 +403,9 @@ export function TikTokAdsView() {
             onOpenOps={() => setOpsOpen(true)}
           />
 
+          {/* Diagnóstico da integração MCP Pipeboard (linha fina, expande) */}
+          <McpStatusCard active={treeActive} />
+
           {/* Aviso de sincronização bloqueada: sem isto a tela mostraria "0
               campanhas / tudo zerado" como se a conta estivesse vazia, quando na
               verdade o Pipeboard bloqueou o acesso. Explica o porquê e o que fazer. */}
@@ -431,13 +420,37 @@ export function TikTokAdsView() {
                       : 'Falha ao sincronizar com o TikTok'}
                   </p>
                   {tree.syncError.code === 'ACCOUNT_BLOCKED' ? (
-                    <p className="text-pretty text-xs leading-relaxed text-muted-foreground">
-                      O Pipeboard limita o time a 10 contas de anúncio por mês (limite compartilhado por
-                      todos, não por pessoa). Esta conta ficou fora do limite
-                      {tree.syncError.blockedUntil ? ` e volta a liberar em ${tree.syncError.blockedUntil}` : ''}.
-                      Por isso as campanhas e métricas aparecem zeradas — os dados existem no TikTok, mas o
-                      acesso via API está bloqueado. Use uma conta já ativa neste mês ou aguarde o reset.
-                    </p>
+                    <>
+                      <p className="text-pretty text-xs leading-relaxed text-muted-foreground">
+                        O Pipeboard limita o time a 10 contas de anúncio por mês (limite compartilhado por
+                        todos, não por pessoa). Esta conta ficou fora do limite
+                        {tree.syncError.blockedUntil ? ` e volta a liberar em ${tree.syncError.blockedUntil}` : ''}.
+                        Por isso as campanhas e métricas aparecem zeradas — os dados existem no TikTok, mas o
+                        acesso via API está bloqueado. O servidor re-testa sozinho a cada 30 min; se o estado
+                        estiver apenas desatualizado, o botão abaixo destrava na hora.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn-ghost mt-1 text-[11px]"
+                        onClick={async () => {
+                          try {
+                            await apiSend(
+                              `/api/ads/tree/refresh?adAccountId=${encodeURIComponent(concreteAdvertiser)}`,
+                              'POST',
+                              {},
+                            )
+                            toast.success('Conta re-testada — atualizando…')
+                            mutateTree()
+                          } catch (e) {
+                            toast.error('Ainda bloqueada', {
+                              hint: e instanceof Error ? e.message : undefined,
+                            })
+                          }
+                        }}
+                      >
+                        Tentar agora
+                      </button>
+                    </>
                   ) : (
                     <p className="text-pretty text-xs leading-relaxed text-muted-foreground">
                       {tree.syncError.message}
@@ -448,44 +461,16 @@ export function TikTokAdsView() {
             </GlassCard>
           )}
 
-          {/* Linha de KPIs agregados (página atual da árvore) */}
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '0ms' }}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="label-mono">Investimento</p>
-                  <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
-                    <CountUp value={kpi.spend} format={(v) => fmtSpend(v, currency)} />
-                  </p>
-                </div>
-                {kpi.spendSeries.length > 1 && (
-                  <SparkLine data={kpi.spendSeries} color="var(--brand-cyan, #25f4ee)" width={72} height={26} />
-                )}
-              </div>
-            </GlassCard>
-            <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '40ms' }}>
-              <p className="label-mono">Impressões</p>
-              <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
-                <CountUp value={kpi.impressions} format={fmtCompact} />
-              </p>
-            </GlassCard>
-            <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '80ms' }}>
-              <p className="label-mono">CTR</p>
-              <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
-                <CountUp value={kpi.ctr} format={(v) => fmtPercent(v)} />
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{fmtCompact(kpi.clicks)} cliques</p>
-            </GlassCard>
-            <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '120ms' }}>
-              <p className="label-mono">CPM</p>
-              <p className="kpi-value-hero mt-1 text-xl font-semibold text-foreground">
-                <CountUp value={kpi.cpm} format={(v) => fmtSpend(v, currency)} />
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {kpi.activeCount} campanha{kpi.activeCount === 1 ? '' : 's'} ativa{kpi.activeCount === 1 ? '' : 's'}
-              </p>
-            </GlassCard>
-          </div>
+          {/* Linha de KPIs agregados (página atual da árvore) + delta vs.
+              período anterior (backend/Neon) — extraída para kpi-row.tsx */}
+          <KpiRow
+            kpi={kpi}
+            currency={currency}
+            active={treeActive}
+            adAccountId={concreteAdvertiser}
+            fromDate={fromDate}
+            toDate={toDate}
+          />
 
           {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
           <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />

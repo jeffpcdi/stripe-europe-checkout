@@ -907,9 +907,61 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── KPIs agregados com comparação de período ────────────────────────────────
+  // Totais do range pedido + o range ANTERIOR de mesmo tamanho, direto do
+  // espelho Neon (2 SUMs — zero chamadas à Pipeboard). Deltas em % ficam null
+  // quando a base é 0 (a UI oculta a seta em vez de mostrar "+Infinity%").
+  app.get('/api/ads/kpis', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const q = req.query || {};
+      let advertiserId;
+      if (q.adAccountId) {
+        advertiserId = (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId;
+      } else {
+        advertiserId = await pipeboard.resolveAdvertiserId(req.account.id);
+        if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+      }
+      if (!adsCache.enabled) return res.json({ current: null, previous: null, deltas: null });
+
+      const iso = (d) => d.toISOString().slice(0, 10);
+      const today = new Date();
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || ''))
+        ? q.fromDate
+        : iso(new Date(today.getTime() - 6 * 864e5));
+      // período anterior: mesma duração, terminando 1 dia antes do início atual
+      const spanMs = new Date(toDate + 'T00:00:00Z').getTime() - new Date(fromDate + 'T00:00:00Z').getTime();
+      const prevTo = iso(new Date(new Date(fromDate + 'T00:00:00Z').getTime() - 864e5));
+      const prevFrom = iso(new Date(new Date(prevTo + 'T00:00:00Z').getTime() - spanMs));
+
+      const [current, previous] = await Promise.all([
+        adsCache.readAdvertiserTotals(req.account.id, advertiserId, fromDate, toDate),
+        adsCache.readAdvertiserTotals(req.account.id, advertiserId, prevFrom, prevTo),
+      ]);
+      const derive = (t) => t && {
+        ...t,
+        ctr: t.impressions > 0 ? (t.clicks / t.impressions) * 100 : 0,
+        cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0,
+      };
+      const cur = derive(current);
+      const prev = derive(previous);
+      const pct = (c, p) => (p > 0 ? +(((c - p) / p) * 100).toFixed(1) : null);
+      const deltas = cur && prev ? {
+        spend: pct(cur.spend, prev.spend),
+        impressions: pct(cur.impressions, prev.impressions),
+        clicks: pct(cur.clicks, prev.clicks),
+        conversions: pct(cur.conversions, prev.conversions),
+        ctr: pct(cur.ctr, prev.ctr),
+        cpm: pct(cur.cpm, prev.cpm),
+      } : null;
+      res.json({ fromDate, toDate, prevFrom, prevTo, current: cur, previous: prev, deltas });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── ROAS/CPA — cruza o gasto do TikTok com as VENDAS REAIS dos gateways ───
   // Gasto: /ads/tree com timeIncrement=1 (série diária somada entre campanhas).
-  // Receita: leads convertidos (stage=purchased) da própria conta no período —
+  // Receita: leads convertidos (stage=purchased) da pr��pria conta no período —
   // a mesma fonte da aba Visão Geral, então os números batem entre abas.
   app.get('/api/ads/roas', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
