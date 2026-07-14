@@ -49,6 +49,10 @@ interface GlobePanelProps {
   metric?: 'visits' | 'sales'
   /* Fase 5: pulsos externos (lead novo detectado no poll) → anéis temporários */
   pulses?: GeoPulse[]
+  /* Arcos de tráfego só fazem sentido com gente NO SITE agora — o pai liga/
+     desliga conforme a presença ao vivo (/api/live). Default true para não
+     mudar o comportamento de outros usos do globo. */
+  showArcs?: boolean
 }
 
 // Cores da marca capturadas do legado
@@ -169,6 +173,7 @@ function GlobeCanvas({
   globeRef,
   metric = 'visits',
   pulses = [],
+  showArcs = true,
 }: GlobePanelProps & {
   width: number
   height: number
@@ -311,6 +316,11 @@ function GlobeCanvas({
     [countries, metric, pulses],
   )
 
+  // Sem presença ao vivo, os arcos somem (fade suave via arcsTransitionDuration).
+  // Memoizado para manter identidade estável — trocar a referência a cada render
+  // faria o three-globe reconstruir a camada de arcos continuamente.
+  const visibleArcs = useMemo(() => (showArcs ? arcs : []), [showArcs, arcs])
+
   // Fase 5: alerta de cobertura — quantos países ativos ficaram fora do mapa
   // por falta de coordenadas em country-coords.ts. Só loga quando o conjunto
   // muda (assinatura), evitando ruído a cada poll.
@@ -372,7 +382,7 @@ function GlobeCanvas({
       labelResolution={2}
       /* V2-50: arcos mais grossos (0.4 → 0.5) e dash mais rápido (2s → 1.4s)
          — o fluxo de tráfego rumo ao líder fica óbvio à primeira vista */
-      arcsData={arcs}
+      arcsData={visibleArcs}
       arcStartLat="startLat"
       arcStartLng="startLng"
       arcEndLat="endLat"
@@ -503,6 +513,7 @@ export default function GlobePanel({
   focusCode,
   metric = 'visits',
   pulses = [],
+  showArcs = true,
 }: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
@@ -594,6 +605,7 @@ export default function GlobePanel({
           globeRef={globeRef}
           metric={metric}
           pulses={pulses}
+          showArcs={showArcs}
         />
       )}
       <GlobeHud empty={empty} />
