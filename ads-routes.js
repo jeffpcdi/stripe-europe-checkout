@@ -720,10 +720,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.post('/api/ads/create', dashboardAuth, async (req, res) => {
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      // F1: gate via Pipeboard (a Zernio está morta — o gate antigo por
+      // st.accountId deixaria a rota em 409 p/ sempre). O buildCreatePayload
+      // recebe um "st" sintético com o advertiser resolvido pelo provider.
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const advertiserId = await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhum advertiser TikTok autorizado — conecte no Pipeboard primeiro' });
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
+      const st = { accountId: req.account.id, advertiserId };
       const built = buildCreatePayload(st, b);
       if (built.error) return res.status(400).json({ error: built.error });
       const payload = built.payload;
@@ -737,17 +742,46 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
         return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
       }
-      // Idempotency-Key evita campanha duplicada em retry de rede
-      const idem = String(b.idempotencyKey || '').slice(0, 80) || undefined;
-      const data = await zernio.api('POST', '/ads/create', {
-        body: payload,
-        timeoutMs: 120000, // upload de vídeo síncrono no TikTok pode demorar
-        headers: idem ? { 'Idempotency-Key': idem } : undefined
+      // F1: criação composta via Pipeboard (campaign → adgroup → upload → ad).
+      // O provider SEMPRE cria em PAUSED; sem "status: active" aqui — a rota de
+      // criação entrega material p/ revisão humana, nunca delivery imediato.
+      // No campo imageUrl o buildCreatePayload carrega a URL do VÍDEO (legado).
+      const result = await pipeboard.createFullAd(payload.adAccountId, {
+        name: payload.name,
+        goal: payload.goal,
+        videoUrl: payload.imageUrl,
+        budgetAmount: payload.budgetAmount,
+        budgetType: payload.budgetType,
+        endDate: payload.endDate,
+        body: payload.body,
+        linkUrl: payload.linkUrl,
+        callToAction: payload.callToAction,
+        countries: payload.countries,
+        languages: payload.languages,
+        ageMin: payload.ageMin,
+        ageMax: payload.ageMax,
+        promotedObject: payload.promotedObject,
+        status: 'paused',
       });
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'Campanha TikTok criada: ' + name });
-      res.status(201).json(data);
-    } catch (err) { fail(res, err); }
+      // Auditoria durável da criação real (afterState = IDs criados; "desfazer
+      // criação" = pausar/apagar em cadeia esses IDs).
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'campaign_create',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId: payload.adAccountId,
+        afterState: { campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, videoId: result.videoId },
+        reason: 'Criação de campanha completa: ' + name, metadata: { goal: payload.goal },
+      }).catch(() => {});
+      adsSync.syncAfterWrite(req.account.id, payload.adAccountId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanha TikTok criada (PAUSED): ' + name + ' [' + result.campaignId + ']' });
+      res.status(201).json({ id: result.campaignId, campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, videoId: result.videoId, name, status: 'paused', warnings: result.warnings });
+    } catch (err) {
+      // Falha no meio da composição: reporta o passo e o que já existe (pausado).
+      if (err && err.step) {
+        stats.logEvent('warn', { acc: req.account.id, title: '[tiktok-ads] Criação falhou no passo "' + err.step + '": ' + String(err.message || '').slice(0, 160) });
+        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada está gastando. Revise e apague na dashboard se não quiser mantê-la.' : undefined });
+      }
+      fail(res, err);
+    }
   });
 
   // ── Spark Ads (impulsionar vídeo orgânico) ───────────────────────────�����────
