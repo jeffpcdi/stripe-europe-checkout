@@ -27,7 +27,8 @@
 //   POST   /api/ads/upload               → vídeo/imagem → Vercel Blob (URL pública)
 // ─────────────────────────────────────────────────────────────────────────────
 const zernio = require('./zernio-ads');
-const pipeboard = require('./pipeboard-mcp'); // Gate 1: cliente MCP do Pipeboard
+const pipeboard = require('./ads-provider'); // Gate 2+: fronteira dashboard↔Pipeboard
+const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só /diag)
 const adsOps = require('./ads-ops-store');
 const catalogStore = require('./ads-catalog-store');
 const catalogFeed = require('./ads-catalog-feed');
@@ -135,14 +136,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     const started = Date.now();
     try {
-      if (!pipeboard.enabled) {
+      if (!pipeboardMcp.enabled) {
         return res.status(503).json({
           ok: false,
           reason: 'PIPEBOARD_API_KEY ausente ou inválida no servidor',
-          url: pipeboard.MCP_URL,
+          url: pipeboardMcp.MCP_URL,
         });
       }
-      const listed = await pipeboard.listTools();
+      const listed = await pipeboardMcp.listTools();
       const tools = (listed && listed.tools) || [];
       const toolNames = tools.map((t) => t.name).sort();
       // Schema real de cada tool — o provider (Gate 2) é escrito contra isto.
@@ -154,7 +155,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       let advertisersError = null;
       if (toolNames.includes('list_tiktok_advertisers')) {
         try {
-          advertisers = await pipeboard.callTool('list_tiktok_advertisers', {});
+          advertisers = await pipeboardMcp.callTool('list_tiktok_advertisers', {});
         } catch (e) {
           advertisersError = String((e && e.message) || e);
         }
@@ -162,7 +163,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       res.json({
         ok: true,
-        url: pipeboard.MCP_URL,
+        url: pipeboardMcp.MCP_URL,
         elapsedMs: Date.now() - started,
         toolCount: toolNames.length,
         toolNames,
@@ -406,10 +407,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // Refresh manual: derruba o cache da árvore desta conta — o próximo GET
-  // busca dados frescos na Zernio. Usado pelo botão "Atualizar" do painel.
+  // Refresh manual: derruba o cache da árvore/analytics desta conta — o
+  // próximo GET busca dados frescos no Pipeboard. Botão "Atualizar" do painel.
   app.post('/api/ads/tree/refresh', dashboardAuth, (req, res) => {
-    zernio.cacheBust('tree:' + req.account.id);
+    pipeboard.cacheBust('dashtree:' + req.account.id);
+    pipeboard.cacheBust('analytics:' + req.account.id);
     res.status(204).end();
   });
 
@@ -857,7 +859,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Biblioteca de criativos — vídeos já enviados ao Vercel Blob ────────��───
+  // ── Biblioteca de criativos — vídeos já enviados ao Vercel Blob ��───────��───
   app.get('/api/ads/library', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
@@ -1211,10 +1213,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // Varredura de saúde: snapshot dos advertisers → transições → automação.
   // banned: cria ticket (idempotente) + alerta. approved: resolve tickets.
   async function runHealthSweep(accId) {
-    const st = zernio.getState(accId);
-    if (!st.accountId || !adsOps.enabled) return { health: [], transitions: [] };
-    // sem filtro de BC: banimento em QUALQUER conta do token deve ser visto
-    const advertisers = await listAdvertisers(accId, st, '');
+    if (!pipeboard.enabled || !adsOps.enabled) return { health: [], transitions: [] };
+    // varre TODAS as contas do token: banimento em qualquer uma deve ser visto
+    const advertisers = await listAdvertisers(accId, null, '');
     const snapshot = advertisers.map((a) => ({
       advertiserId: String(a.id || a._id || ''),
       name: a.name || a.advertiserName || '',
@@ -1379,9 +1380,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.delete('/api/ads/templates', dashboardAuth, (req, res) => {
     try {
       const id = String((req.query || {}).id || '');
-      const st = zernio.getState(req.account.id);
+      const st = pipeboard.getState(req.account.id);
       const items = (Array.isArray(st.templates) ? st.templates : []).filter((t) => t.id !== id);
-      zernio.setState(req.account.id, { templates: items });
+      pipeboard.setState(req.account.id, { templates: items });
       res.json({ ok: true });
     } catch (err) { fail(res, err); }
   });
