@@ -33,6 +33,25 @@ module.exports = `(function(){
   if (!vid || !VID_OK.test(vid)) vid = newVid();
   try { localStorage.setItem('roinados_vid', vid); } catch(_){}
 
+  // ── external_id (EMQ): MESMO hash do servidor → SHA-256('lead:'+vid).
+  // Liga o ViewContent do NAVEGADOR ao evento server-side (CAPI) e às
+  // conversões da mesma pessoa (o servidor usa hash('lead:'+vid) idêntico).
+  // Sem crypto.subtle (contexto inseguro/browser antigo) NÃO enviamos nada:
+  // um external_id malformado derruba o Event Match Quality mais do que a
+  // simples ausência. extIdReady libera o disparo assim que o hash resolve (~1ms).
+  var extIdHash = null, extIdReady = false;
+  (function(){
+    try {
+      if (!(window.crypto && window.crypto.subtle && window.TextEncoder)) { extIdReady = true; return; }
+      var data = new TextEncoder().encode(('lead:' + vid).toLowerCase());
+      window.crypto.subtle.digest('SHA-256', data).then(function(buf){
+        var b = new Uint8Array(buf), h = '';
+        for (var i=0;i<b.length;i++) h += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+        extIdHash = h; extIdReady = true;
+      }).catch(function(){ extIdReady = true; });
+    } catch(_){ extIdReady = true; }
+  })();
+
   // ── sinais de identidade ──
   function qs(name){ try { return new URLSearchParams(location.search).get(name); } catch(_){ return null; } }
   function ck(name){ var m=document.cookie.match(new RegExp('(?:^|; )'+name+'=([^;]*)')); return m?decodeURIComponent(m[1]):null; }
@@ -78,7 +97,13 @@ module.exports = `(function(){
   function utcHourKey(){ return new Date().toISOString().slice(0,13).replace(/[-T]/g,''); }
   function fireBrowserPixel(){
     try {
+      if (!extIdReady) return false;                 // aguarda o hash (~1ms) p/ enviar external_id junto do ViewContent
       if (window.ttq && typeof window.ttq.track === 'function') {
+        // external_id ANTES do track: o ttq aplica a identidade aos eventos
+        // seguintes. Mesmo hash do servidor → dedup browser+CAPI com identidade.
+        if (extIdHash && typeof window.ttq.identify === 'function') {
+          try { window.ttq.identify({ external_id: extIdHash }); } catch(_){}
+        }
         window.ttq.track('ViewContent', {}, { event_id: 'ViewContent.' + vid + '.' + utcHourKey() });
         return true;
       }
