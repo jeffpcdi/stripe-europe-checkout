@@ -287,7 +287,7 @@ function extractContent(result) {
 // provider passam a ser o sync + as escritas — este contador prova isso no
 // /diag. Mantém o total desde o boot + um ring buffer de timestamps para
 // derivar "chamadas na última hora" sem crescer indefinidamente.
-const callStats = { total: 0, byTool: {}, recent: [] };
+const callStats = { total: 0, byTool: {}, recent: [], errors: [], lastError: null };
 function recordCall(name) {
   callStats.total += 1;
   callStats.byTool[name] = (callStats.byTool[name] || 0) + 1;
@@ -299,15 +299,61 @@ function recordCall(name) {
     callStats.recent = callStats.recent.filter((t) => t >= cutoff);
   }
 }
+function recordError(name, err) {
+  const now = Date.now();
+  callStats.errors.push(now);
+  const cutoff = now - 3600 * 1000;
+  if (callStats.errors.length > 500 || (callStats.errors[0] || now) < cutoff) {
+    callStats.errors = callStats.errors.filter((t) => t >= cutoff);
+  }
+  // guarda só o resumo do último erro (sem payloads — podem ter dados da conta)
+  callStats.lastError = {
+    at: new Date(now).toISOString(),
+    tool: String(name || '').slice(0, 60),
+    message: String((err && err.message) || 'erro').slice(0, 200),
+    code: (err && err.code) || null,
+  };
+}
 function getCallStats() {
   const now = Date.now();
   const recent = callStats.recent.filter((t) => t >= now - 3600 * 1000);
+  const errors = callStats.errors.filter((t) => t >= now - 3600 * 1000);
   return {
     total: callStats.total,
     lastMinute: recent.filter((t) => t >= now - 60 * 1000).length,
     lastHour: recent.length,
+    errorsLastHour: errors.length,
+    lastError: callStats.lastError,
     byTool: Object.assign({}, callStats.byTool),
   };
+}
+
+// ── Diagnóstico de conexão (cacheado) ────────────────────────────────────────
+// O painel MCP da dashboard poderia derrubar o rate limit se cada render
+// fizesse um tools/list. Cache de 5min: 1 chamada real a cada 5min no máximo,
+// compartilhada por todos os usuários. force=true ignora o cache (botão
+// "testar conexão").
+let _diagCache = null; // { at:ms, ok, toolCount, tools:[nomes] }
+async function getDiagnostics({ force } = {}) {
+  if (!enabled) return { ok: false, enabled: false, toolCount: 0, tools: [], error: 'PIPEBOARD_API_KEY ausente' };
+  if (!force && _diagCache && Date.now() - _diagCache.at < 5 * 60e3) {
+    return Object.assign({ cached: true }, _diagCache.data);
+  }
+  try {
+    const r = await listTools();
+    const tools = (r.tools || []).map((t) => t.name);
+    const data = { ok: true, enabled: true, toolCount: tools.length, tools, checkedAt: new Date().toISOString() };
+    _diagCache = { at: Date.now(), data };
+    return data;
+  } catch (err) {
+    const data = {
+      ok: false, enabled: true, toolCount: 0, tools: [],
+      error: String(err.message || 'falha').slice(0, 200), checkedAt: new Date().toISOString(),
+    };
+    // cache curto para erro (1min): não martela um servidor com problema
+    _diagCache = { at: Date.now() - 4 * 60e3, data };
+    return data;
+  }
 }
 
 // callToolRaw — resultado bruto do tools/call (content + isError).
@@ -319,6 +365,9 @@ async function callToolRaw(name, args, opts = {}) {
     return await withSession(() =>
       sendRequest('tools/call', { name, arguments: args || {} }, { timeoutMs: opts.timeoutMs || 60000 })
     );
+  } catch (err) {
+    recordError(name, err);
+    throw err;
   } finally {
     release();
   }
@@ -342,6 +391,7 @@ async function callTool(name, args, opts = {}) {
       const m = msg.match(/resets? on (\d{4}-\d{2}-\d{2})|blocked until(?: the limit resets on)? (\d{4}-\d{2}-\d{2})/i);
       err.blockedUntil = (m && (m[1] || m[2])) || null;
     }
+    recordError(name, err); // isError do TikTok também conta como erro no diag
     throw err;
   }
   return extractContent(result);
@@ -355,6 +405,7 @@ module.exports = {
   callTool,
   callToolRaw,
   getCallStats,
+  getDiagnostics,
   // exposto p/ testes/diagnóstico
   _internals: { extractSseMessages, parseMessages, extractContent },
 };

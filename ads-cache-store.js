@@ -97,6 +97,19 @@ async function ensureSchema() {
     // Tabelas pré-existentes (antes do sync incremental) ganham a coluna aqui.
     await sql`ALTER TABLE ads_sync_state ADD COLUMN IF NOT EXISTS last_full_synced_at timestamptz`;
     await sql`CREATE INDEX IF NOT EXISTS ads_sync_state_activity_idx ON ads_sync_state (requested_at DESC)`;
+
+    // Estado durável das automações (cooldowns de regras/alertas + marcações
+    // do dayparting). Antes vivia só em Maps de memória: um deploy re-armava
+    // todos os cooldowns e uma regra podia agir DUAS vezes no mesmo episódio.
+    // key: 'rule:<accId>:<campId>:<ruleId>' | 'alert:...' | 'sched:<ruleId>:<campId>'
+    await sql`CREATE TABLE IF NOT EXISTS ads_automation_state (
+      account_id text NOT NULL,
+      key text NOT NULL,
+      kind text NOT NULL DEFAULT 'rule',
+      last_fired_at timestamptz NOT NULL DEFAULT now(),
+      meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+      PRIMARY KEY (account_id, key)
+    )`;
     console.log('[ads-cache] schema verificado/criado');
     return true;
   })().catch((err) => { schemaReady = null; throw err; });
@@ -307,6 +320,28 @@ async function readAdvertiserDaily(accountId, advertiserId, fromDate, toDate) {
   return { spendByDay, spend, conversions, currency };
 }
 
+// Totais agregados do advertiser num range (spend/impressões/cliques/conv).
+// Alimenta o /api/ads/kpis — o delta de período é só ESTA query com outro range.
+async function readAdvertiserTotals(accountId, advertiserId, fromDate, toDate) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = String(advertiserId || '').trim();
+  if (!enabled || !advertiserId) return null;
+  await ensureSchema();
+  const rows = await sql`
+    SELECT SUM(spend)::float8 AS spend, SUM(impressions)::float8 AS impressions,
+           SUM(clicks)::float8 AS clicks, SUM(conversions)::float8 AS conversions
+    FROM ads_metrics_cache
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND level = 'campaign' AND day >= ${fromDate} AND day <= ${toDate}`;
+  const r = rows[0] || {};
+  return {
+    spend: num(r.spend),
+    impressions: num(r.impressions),
+    clicks: num(r.clicks),
+    conversions: num(r.conversions),
+  };
+}
+
 // Série diária + resumo de UMA campanha (aba de analytics da campanha).
 async function readCampaignAnalytics(accountId, advertiserId, campaignId, fromDate, toDate) {
   accountId = cleanAccountId(accountId);
@@ -445,12 +480,118 @@ async function classifyEntity(accountId, advertiserId, entityId) {
   return null;
 }
 
+// ── Estado das automações (cooldowns/dayparting persistidos) ───────────────
+// Leitura em bloco por conta: o motor carrega tudo 1× no boot/primeiro sweep
+// e mantém um cache quente em memória (write-through nas escritas).
+async function listAutomationState(accountId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureSchema();
+  const rows = await sql`SELECT key, kind, last_fired_at, meta FROM ads_automation_state WHERE account_id = ${accountId}`;
+  return rows.map((r) => ({ key: r.key, kind: r.kind, lastFiredAt: r.last_fired_at, meta: r.meta || {} }));
+}
+
+async function upsertAutomationState(accountId, key, kind, meta) {
+  accountId = cleanAccountId(accountId);
+  key = String(key || '').slice(0, 200);
+  if (!enabled || !key) return null;
+  await ensureSchema();
+  await sql`
+    INSERT INTO ads_automation_state (account_id, key, kind, last_fired_at, meta)
+    VALUES (${accountId}, ${key}, ${String(kind || 'rule').slice(0, 20)}, now(), ${JSON.stringify(meta || {})}::jsonb)
+    ON CONFLICT (account_id, key) DO UPDATE SET
+      kind = EXCLUDED.kind, last_fired_at = now(), meta = EXCLUDED.meta`;
+  return true;
+}
+
+async function deleteAutomationState(accountId, key) {
+  accountId = cleanAccountId(accountId);
+  key = String(key || '').slice(0, 200);
+  if (!enabled || !key) return;
+  await ensureSchema();
+  await sql`DELETE FROM ads_automation_state WHERE account_id = ${accountId} AND key = ${key}`;
+}
+
+// Série diária COMPLETA do advertiser (spend/impr/cliques/conv por dia).
+// Alimenta a detecção de anomalias do briefing (z-score precisa de CTR/CPM
+// diários, que readAdvertiserDaily não expõe). Ordenada por dia ASC.
+async function readDailySeries(accountId, advertiserId, fromDate, toDate) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = String(advertiserId || '').trim();
+  if (!enabled || !advertiserId) return [];
+  await ensureSchema();
+  const rows = await sql`
+    SELECT day::text AS day, SUM(spend)::float8 AS spend, SUM(impressions)::float8 AS impressions,
+           SUM(clicks)::float8 AS clicks, SUM(conversions)::float8 AS conversions
+    FROM ads_metrics_cache
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND level = 'campaign' AND day >= ${fromDate} AND day <= ${toDate}
+    GROUP BY day ORDER BY day ASC`;
+  return rows.map((r) => ({
+    day: r.day,
+    spend: num(r.spend),
+    impressions: num(r.impressions),
+    clicks: num(r.clicks),
+    conversions: num(r.conversions),
+  }));
+}
+
+// ── Conteúdo gerado por IA (briefings diários, insights de criativos) ───────
+// kind: 'daily' | 'creatives'. PK (account, date, kind) = idempotência natural:
+// gerar 2× no mesmo dia sobrescreve em vez de duplicar. content = texto pronto
+// para a UI; meta = payload estruturado (anomalias, variações, proposta).
+let briefingSchemaReady = null;
+async function ensureBriefingSchema() {
+  if (!enabled) return false;
+  if (briefingSchemaReady) return briefingSchemaReady;
+  briefingSchemaReady = (async () => {
+    await sql`CREATE TABLE IF NOT EXISTS ads_briefings (
+      account_id text NOT NULL,
+      date date NOT NULL,
+      kind text NOT NULL DEFAULT 'daily',
+      content text NOT NULL DEFAULT '',
+      meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (account_id, date, kind)
+    )`;
+    return true;
+  })().catch((err) => { briefingSchemaReady = null; throw err; });
+  return briefingSchemaReady;
+}
+
+async function upsertBriefing(accountId, date, kind, content, meta) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureBriefingSchema();
+  await sql`
+    INSERT INTO ads_briefings (account_id, date, kind, content, meta)
+    VALUES (${accountId}, ${date}, ${String(kind || 'daily').slice(0, 20)}, ${String(content || '')}, ${JSON.stringify(meta || {})}::jsonb)
+    ON CONFLICT (account_id, date, kind) DO UPDATE SET
+      content = EXCLUDED.content, meta = EXCLUDED.meta, created_at = now()`;
+  return true;
+}
+
+// Últimos N briefings de um tipo (default: 7 dias de 'daily' para o card).
+async function listBriefings(accountId, kind, limit = 7) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureBriefingSchema();
+  const rows = await sql`
+    SELECT date::text AS date, kind, content, meta, created_at
+    FROM ads_briefings
+    WHERE account_id = ${accountId} AND kind = ${String(kind || 'daily')}
+    ORDER BY date DESC LIMIT ${Math.min(Math.max(1, limit), 30)}`;
+  return rows.map((r) => ({ date: r.date, kind: r.kind, content: r.content, meta: r.meta || {}, createdAt: r.created_at }));
+}
+
 module.exports = {
   enabled,
   ensureSchema,
   writeAdvertiserSnapshot,
   readTree,
   readAdvertiserDaily,
+  readAdvertiserTotals,
+  readDailySeries,
   readCampaignAnalytics,
   getSyncState,
   upsertSyncState,
@@ -458,4 +599,9 @@ module.exports = {
   listActiveAdvertisers,
   listSyncStates,
   classifyEntity,
+  listAutomationState,
+  upsertAutomationState,
+  deleteAutomationState,
+  upsertBriefing,
+  listBriefings,
 };

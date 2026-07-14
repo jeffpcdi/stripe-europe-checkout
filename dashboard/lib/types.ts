@@ -966,8 +966,16 @@ export interface AdsAttributionResponse {
 }
 
 // ── GET/PUT /api/ads/rules — regras automáticas de otimização ──
-export type AdsRuleMetric = 'cpa_max' | 'spend_no_conv' | 'roas_min'
-export type AdsRuleAction = 'pause' | 'budget_down' | 'budget_up'
+export type AdsRuleMetric =
+  | 'cpa_max'
+  | 'spend_no_conv'
+  | 'roas_min'
+  | 'ctr_min' // CTR abaixo do piso (c/ mínimo de impressões)
+  | 'cpm_max' // CPM acima do teto (c/ mínimo de gasto)
+  | 'roas_scale' // escala vencedoras: ROAS ≥ X → +orçamento (teto obrigatório)
+  | 'schedule' // dayparting: ativa/pausa por dia da semana + janela de horário
+// 'activate' só aparece no LOG (dayparting religando campanha própria)
+export type AdsRuleAction = 'pause' | 'budget_down' | 'budget_up' | 'activate'
 
 export interface AdsRule {
   id: string
@@ -977,6 +985,16 @@ export interface AdsRule {
   lookbackDays: number
   action: AdsRuleAction
   pct: number // % de ajuste de orçamento (budget_up/down)
+  // guardas dos tipos novos (opcionais — regras antigas não os têm)
+  minImpressions?: number // ctr_min: não age com menos impressões que isso
+  minSpend?: number // cpm_max: não age com menos gasto que isso
+  minSales?: number // roas_scale: vendas atribuídas mínimas p/ escalar
+  budgetCap?: number // roas_scale: teto absoluto de orçamento por grupo
+  // dayparting
+  days?: number[] // 0=domingo … 6=sábado
+  startTime?: string // 'HH:MM'
+  endTime?: string // 'HH:MM' (pode cruzar meia-noite)
+  timezone?: string // IANA, default Europe/Lisbon
 }
 
 export interface AdsRuleLogEntry {
@@ -1000,6 +1018,145 @@ export interface AdsRulesRunResponse {
   executed: AdsRuleLogEntry[]
   checkedAt?: string
   skipped?: boolean
+}
+
+// ── GET /api/ads/mcp/status — diagnóstico da conexão MCP Pipeboard ──
+export interface AdsMcpStatusResponse {
+  enabled: boolean
+  connected: boolean
+  error: string | null
+  checkedAt: string | null
+  cached: boolean
+  toolCount: number
+  calls: {
+    total: number
+    lastMinute: number
+    lastHour: number
+    errorsLastHour: number
+    lastError: { at: string; tool: string; message: string; code: string | null } | null
+  }
+  accounts: {
+    synced: number
+    blocked: { advertiserId: string; blockedUntil: string | null }[]
+    lastSyncAt: string | null
+  }
+  automation: {
+    lastSweepAt: string | null
+    lastScheduleSweepAt: string | null
+    rulesEnabled: number
+    schedulesEnabled: number
+    alertsEnabled: boolean
+    lastAction: { at: string; result?: string; campaignName?: string; ok: boolean } | null
+  }
+  // telemetria da camada de IA (Vercel AI Gateway ≠ chamadas Pipeboard)
+  ai?: { calls: number; errors: number; lastAt: string | null; lastError: string | null }
+}
+
+// ── GET /api/ads/kpis — totais agregados com comparação de período ──
+export interface AdsKpiTotals {
+  spend: number
+  impressions: number
+  clicks: number
+  conversions: number
+  ctr: number
+  cpm: number
+}
+
+export interface AdsKpisResponse {
+  fromDate?: string
+  toDate?: string
+  prevFrom?: string
+  prevTo?: string
+  current: AdsKpiTotals | null
+  previous: AdsKpiTotals | null
+  // % vs. período anterior; null quando a base é 0 (a UI oculta a seta)
+  deltas: Record<'spend' | 'impressions' | 'clicks' | 'conversions' | 'ctr' | 'cpm', number | null> | null
+}
+
+// ── IA: copiloto, briefing, criativos, realocação (/api/ads/copilot etc.) ──
+
+// Evento SSE do copiloto (data: {...}\n\n)
+export type CopilotEvent =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; name: string }
+  | { type: 'action'; action: ProposedAction }
+  | { type: 'error'; error: string }
+  | { type: 'done' }
+
+// Proposta de ação da IA — vira card de aprovação; executa via /copilot/execute
+export interface ProposedAction {
+  proposed: true
+  type: 'pause' | 'activate' | 'budget' | 'create_rule'
+  params: {
+    campaignIds?: string[]
+    campaignId?: string
+    budget?: number
+    rule?: Partial<AdsRule>
+  }
+  summary: string
+}
+
+export interface AdsAnomaly {
+  metric: 'spend' | 'cpa' | 'ctr' | 'cpm'
+  day: string
+  value: number
+  mean: number
+  z: number
+  direction: 'up' | 'down'
+  severity: 'bad' | 'good'
+}
+
+export interface AdsBriefing {
+  date: string
+  kind: string
+  content: string
+  meta: { anomalies?: AdsAnomaly[]; usedAi?: boolean; advertiserId?: string }
+  createdAt: string
+}
+
+export interface AdsBriefingResponse {
+  ai: boolean
+  briefings: AdsBriefing[]
+}
+
+export interface AdsCreativeInsights {
+  cached?: boolean
+  stale?: boolean
+  insufficient?: boolean
+  adCount?: number
+  content?: string
+  patterns?: string
+  topAds?: {
+    adId: string
+    name: string
+    campaignName: string
+    spend: number
+    conversions: number
+    ctr: number
+  }[]
+  variations?: { basedOn: string; copies: string[] }[]
+}
+
+export interface AdsBudgetProposal {
+  insufficient?: boolean
+  eligibleCount?: number
+  noChange?: boolean
+  message?: string
+  totalBudget?: number
+  currency?: string
+  rationale?: string
+  changes?: {
+    campaignId: string
+    name: string
+    roas: number | null
+    sales: number
+    current: number
+    proposed: number
+    deltaPct: number
+  }[]
+  unchanged?: { id: string; name: string }[]
+  excluded?: { id: string; name: string; reason: string }[]
+  actions?: ProposedAction[]
 }
 
 // ── /api/ads/templates — configurações de campanha reutilizáveis ──

@@ -88,15 +88,16 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
   const start = Date.now();
   const callsBefore = pipeboard.getCallStats ? pipeboard.getCallStats().total : 0;
 
-  // Backoff de conta bloqueada: se o último resultado foi 'blocked' há menos de
-  // BLOCKED_BACKOFF_MS, não re-tenta (não desperdiça chamada nem piora a cota do
-  // time). O refresh manual passa opts.force para permitir nova tentativa.
+  // Backoff de conta bloqueada/não-autorizada: se o último resultado foi
+  // 'blocked' ou 'unauthorized' há menos de BLOCKED_BACKOFF_MS, não re-tenta
+  // (não desperdiça chamada nem polui o log a cada tick — ambos os estados só
+  // mudam por ação externa). O refresh manual passa opts.force para re-tentar.
   if (!opts.force) {
     const prev = await cache.getSyncState(accountId, advertiserId).catch(() => null);
-    if (prev && prev.status === 'blocked' && prev.updated_at) {
+    if (prev && (prev.status === 'blocked' || prev.status === 'unauthorized') && prev.updated_at) {
       const age = Date.now() - new Date(prev.updated_at).getTime();
       if (age < BLOCKED_BACKOFF_MS) {
-        return { ok: false, blocked: true, error: prev.last_error || 'Conta bloqueada', skipped: true };
+        return { ok: false, blocked: prev.status === 'blocked', unauthorized: prev.status === 'unauthorized', error: prev.last_error || 'Conta indisponível', skipped: true };
       }
     }
   }
@@ -147,9 +148,14 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
     // ser martelado a cada tick. Marcamos status='blocked' para o backoff e para
     // a dashboard poder explicar ao usuário.
     const blocked = err.code === 'ACCOUNT_BLOCKED';
-    await cache.upsertSyncState(accountId, advertiserId, { status: blocked ? 'blocked' : 'error', lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
-    console.error('[ads-sync] ' + accountId + '/' + advertiserId + (blocked ? ' BLOQUEADA:' : ' ERRO:'), err.message);
-    return { ok: false, error: err.message, blocked };
+    // Advertiser removido do acesso da conexão Pipeboard (Configure Access):
+    // erro PERMANENTE até o usuário reconfigurar — também entra em backoff em
+    // vez de repetir o mesmo erro a cada 3 minutos no log.
+    const unauthorized = !blocked && /not one of the accounts this TikTok connection is allowed to access/i.test(String(err.message || ''));
+    const status = blocked ? 'blocked' : unauthorized ? 'unauthorized' : 'error';
+    await cache.upsertSyncState(accountId, advertiserId, { status, lastError: String(err.message || err).slice(0, 500), lastDurationMs: Date.now() - start }).catch(() => {});
+    console.error('[ads-sync] ' + accountId + '/' + advertiserId + (blocked ? ' BLOQUEADA:' : unauthorized ? ' SEM ACESSO (backoff 30min):' : ' ERRO:'), err.message);
+    return { ok: false, error: err.message, blocked, unauthorized };
   }
 }
 
@@ -209,18 +215,46 @@ let timer = null;
 async function tick() {
   if (running) return;
   running = true;
+  const tickStart = Date.now();
   try {
+    // automation é carregado preguiçosamente AQUI (não no topo) para evitar
+    // qualquer risco de ciclo de require no boot — em runtime o cache de
+    // módulos do Node resolve na primeira chamada e reusa depois.
+    const automation = require('./ads-automation');
     const actives = await cache.listActiveAdvertisers(ACTIVE_WINDOW_MIN);
     for (const a of actives) {
       const st = await cache.getSyncState(a.accountId, a.advertiserId).catch(() => null);
       const last = st && st.last_synced_at ? new Date(st.last_synced_at).getTime() : 0;
-      if (!last || (Date.now() - last) >= (SYNC_INTERVAL_MS - 15 * 1000)) {
-        await syncAdvertiser(a.accountId, a.advertiserId); // sequencial: respeita o rate limit do provider
+      const wasBlocked = st && st.status === 'blocked';
+      if (!last || (Date.now() - last) >= (SYNC_INTERVAL_MS - 15 * 1000) || wasBlocked) {
+        // Conta bloqueada: syncAdvertiser já respeita BLOCKED_BACKOFF_MS (só
+        // re-proba após 30min). Se o re-probe der certo, é a auto-recuperação
+        // do estado 'blocked' obsoleto — loga e avisa no rulesLog.
+        const result = await syncAdvertiser(a.accountId, a.advertiserId); // sequencial: respeita o rate limit
+        if (wasBlocked && result && result.ok) {
+          try { automation.noteRecovery(a.accountId, a.advertiserId); } catch (_) {}
+        }
       }
+    }
+    // Varreduras de automação 24/7: rodam DEPOIS do sync (espelho fresco),
+    // uma vez por conta, lendo SÓ do Neon — zero chamadas extras à Pipeboard.
+    // Throttle vive dentro do módulo (compartilhado com o hook das rotas).
+    const accounts = [...new Set(actives.map((a) => a.accountId))];
+    for (const accId of accounts) {
+      try { automation.maybeSweep(accId); } catch (_) { /* sweep nunca derruba o sync */ }
+      // Briefing diário com IA: 1×/dia por conta, idempotente via Neon,
+      // fire-and-forget (nunca atrasa nem derruba o tick). Lazy require pelo
+      // mesmo motivo do automation acima (sem risco de ciclo no boot).
+      try {
+        const adv = actives.find((a) => a.accountId === accId);
+        if (adv) require('./ads-ai').maybeDailyBriefing(accId, adv.advertiserId, adv.currency || 'USD');
+      } catch (_) { /* briefing nunca derruba o sync */ }
     }
   } catch (err) {
     console.error('[ads-sync] tick falhou:', err.message);
   } finally {
+    const dur = Date.now() - tickStart;
+    if (dur > 60 * 1000) console.warn('[ads-sync] tick demorou ' + Math.round(dur / 1000) + 's (esperado < 60s)');
     running = false;
   }
 }

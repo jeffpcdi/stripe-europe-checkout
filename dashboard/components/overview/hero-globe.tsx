@@ -115,8 +115,15 @@ export function HeroGlobe({
       <div className="hero-orbit-ring outer" aria-hidden="true" />
 
       {/* A coloração vem de `countries` (stats, já carregado quando o overview
-          renderiza) — não espera o /api/live; ele só adiciona pulsos depois. */}
-      <GlobePanel countries={countries} metric="visits" pulses={pulses} />
+          renderiza) — não espera o /api/live; ele só adiciona pulsos depois.
+          Arcos de tráfego só com gente online AGORA — com 0 online, arcos
+          voando contradizem o contador logo abaixo. */}
+      <GlobePanel
+        countries={countries}
+        metric="visits"
+        pulses={pulses}
+        showArcs={onlineNow > 0}
+      />
 
       {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".
           pointer-events-none para não interceptar arraste/zoom do globo. */}
