@@ -436,9 +436,6 @@ function GlobeHud({ empty }: { empty?: boolean }) {
   return (
     <>
       <span className="hud-corner hud-corner--tl" aria-hidden="true" />
-      <span className="hud-corner hud-corner--tr" aria-hidden="true" />
-      <span className="hud-corner hud-corner--bl" aria-hidden="true" />
-      <span className="hud-corner hud-corner--br" aria-hidden="true" />
       {/* V2-51: vinheta radial interna — bordas escurecem, globo salta */}
       <span
         className="pointer-events-none absolute inset-0 z-[2]"
@@ -454,29 +451,6 @@ function GlobeHud({ empty }: { empty?: boolean }) {
         aria-hidden="true"
         style={{ borderColor: 'rgba(37,244,238,0.08)' }}
       />
-      {!empty && (
-        <span
-          className="pointer-events-none absolute bottom-8 right-8 lg:right-16 z-10 flex items-center gap-1.5"
-          aria-hidden="true"
-        >
-          <span className="font-mono text-[9px] uppercase tracking-wider text-faint">fraco</span>
-          <span
-            className="h-1 w-12 rounded-full"
-            style={{ background: 'linear-gradient(90deg, rgba(37,244,238,.15), #25f4ee, #fe2c55)' }}
-          />
-          <span className="font-mono text-[9px] uppercase tracking-wider text-faint">forte</span>
-        </span>
-      )}
-      {/* V2-53: selo de coordenadas mono no canto — assinatura HUD */}
-      {!empty && (
-        <span
-          className="pointer-events-none absolute bottom-8 left-8 lg:left-16 z-10 hidden font-mono text-[9px] uppercase tracking-[0.18em] sm:block"
-          aria-hidden="true"
-          style={{ color: 'rgba(37,244,238,0.4)' }}
-        >
-          LIVE·ORBIT
-        </span>
-      )}
       {empty ? (
         <span className="globe-empty-note">
           <span className="anim-breathe rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">

@@ -321,7 +321,7 @@ export function OverviewView() {
           className="hero-overlay-left pointer-events-none absolute left-4 top-4 z-10 sm:left-6 sm:top-6 lg:left-8 lg:top-8"
           data-tour="kpis"
         >
-          <div className="hero-glass-panel pointer-events-auto flex flex-col gap-6 p-4 sm:gap-7 sm:p-5">
+          <div className="hero-glass-panel pointer-events-auto flex flex-col gap-8 p-4 sm:gap-10 sm:p-5">
             <HeroKpi
               label="Receita"
               dim={revCents === 0}
@@ -352,7 +352,7 @@ export function OverviewView() {
         </div>
 
         {/* Overlay DIREITO — CHEGANDO AGORA em painel glassmorphism (item 9) */}
-        <div className="hero-overlay-right pointer-events-none absolute right-4 bottom-4 z-10 sm:right-6 sm:bottom-6 lg:right-8 lg:bottom-8">
+        <div className="hero-overlay-right pointer-events-none absolute right-4 bottom-8 z-10 sm:right-6 sm:bottom-12 lg:right-8 lg:bottom-12">
           <div className="hero-glass-panel pointer-events-auto max-w-[280px] p-4 sm:p-5">
             <LiveFeed leads={data?.leads ?? []} />
           </div>

@@ -2421,7 +2421,7 @@ html {
     radial-gradient(2px 2px at 80% 30%, rgba(255,255,255,0.3) 100%, transparent);
   animation: stardustDrift 60s linear infinite;
   pointer-events: none;
-  opacity: 0.6;
+  opacity: 0.85;
 }
 @keyframes stardustDrift {
   0% { transform: rotate(0deg); }
@@ -2434,7 +2434,7 @@ html {
   inset: -10%;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.15) 0%, transparent 50%);
+  background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.15) 0%, transparent 70%);
   animation: heroGlobeGlow 3s ease-in-out infinite alternate;
 }
 .hero-globe-glow-outer {
@@ -2442,7 +2442,7 @@ html {
   inset: -25%;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 65%);
+  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.12) 0%, transparent 75%);
   animation: heroGlobeGlow 5s ease-in-out infinite alternate-reverse;
 }
 @keyframes heroGlobeGlow {

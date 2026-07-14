@@ -43,7 +43,7 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
             return (
               <li
                 key={lead.id}
-                className="anim-row-in flex items-center justify-between gap-3 border-b border-white/[0.05] py-3 last:border-b-0"
+                className="anim-row-in group flex items-center justify-between gap-3 border-b border-white/[0.05] py-3 last:border-b-0 hover:bg-white/5 px-2 -mx-2 rounded-lg transition-colors cursor-default"
               >
                 <span className="flex min-w-0 items-center gap-2.5">
                   <span className="text-lg leading-none" aria-hidden="true">
@@ -61,7 +61,7 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                     </span>
                   ) : null}
                 </span>
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+                <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground group-hover:text-foreground transition-colors">
                   {timeAgo(lead.at)}
                 </span>
               </li>
