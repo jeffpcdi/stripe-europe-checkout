@@ -16,7 +16,7 @@ import type { LiveCountry } from '@/lib/types'
 function GlobeSkeleton() {
   return (
     <div className="absolute inset-0 flex items-center justify-center">
-      <div className="relative aspect-square w-[46%] max-w-72" aria-hidden="true">
+      <div className="relative aspect-square w-[60%] max-w-96" aria-hidden="true">
         <div className="absolute inset-0 animate-pulse rounded-full border border-brand-cyan/10 bg-brand-cyan/5" />
         <div
           className="anim-orbit-slow absolute -inset-4 rounded-full border border-dashed"
@@ -104,7 +104,7 @@ export function HeroGlobe({
        container externo (overview-view) controla o tamanho. */
     <div
       className="hero-globe-container relative w-full"
-      style={{ minHeight: 480 }}
+      style={{ minHeight: 640 }}
       aria-label={`Presença ao vivo: ${onlineNow} online agora em ${activeCountries} ${activeCountries === 1 ? 'país' : 'países'}`}
     >
       {/* Glow atmosférico — pseudo-elemento via CSS (globals.css) */}
@@ -117,7 +117,7 @@ export function HeroGlobe({
       {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".
           pointer-events-none para não interceptar arraste/zoom do globo. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-[6%] flex flex-col items-center gap-1.5 text-center">
-        <div className="hero-globe-badge glass pointer-events-auto inline-flex flex-col items-center gap-1.5 px-8 py-3.5 rounded-[24px]">
+        <div className="hero-globe-badge glass glass-pulse pointer-events-auto inline-flex flex-col items-center gap-1.5 px-8 py-3.5 rounded-[24px]">
           <div className="flex items-center gap-2.5">
             <span className="live-dot" aria-hidden="true" />
             <p
