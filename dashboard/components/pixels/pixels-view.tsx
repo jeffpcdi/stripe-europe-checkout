@@ -346,24 +346,27 @@ export function PixelsView() {
         {/* Pixels cadastrados — min-w-0 para o script longo truncar em vez de
             alargar a coluna além da viewport no mobile */}
         <GlassCard className="min-w-0 p-5">
-          <div className="mb-4 flex items-center justify-between gap-2">
-            <div>
+          {/* Cabeçalho em duas linhas: título+ações lado a lado, descrição CURTA
+              embaixo em largura total — no mobile o texto longo espremia numa
+              coluna de uma palavra por linha. */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between gap-2">
               <h2 className="section-head text-sm font-semibold text-foreground">Pixels TikTok</h2>
-              <p className="text-xs text-muted-foreground">
-                Bloco completo: rastreamento da dashboard + pixel TikTok + CAPI — cole em qualquer página
-              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <TutorialButton onClick={() => setShowTutorial(true)} />
+                <button
+                  type="button"
+                  data-tour="pixels-new"
+                  onClick={() => setCreating(true)}
+                  className="btn-shine flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
+                >
+                  <Plus className="size-3.5" /> Novo pixel
+                </button>
+              </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <TutorialButton onClick={() => setShowTutorial(true)} />
-              <button
-                type="button"
-                data-tour="pixels-new"
-                onClick={() => setCreating(true)}
-                className="btn-shine flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
-              >
-                <Plus className="size-3.5" /> Novo pixel
-              </button>
-            </div>
+            <p className="mt-1 text-xs text-muted-foreground text-pretty">
+              Um código só: rastreia na dashboard e dispara para o TikTok.
+            </p>
           </div>
 
           {/* Item 12: aviso permanente — Compra só dispara com gateway conectado */}
@@ -558,38 +561,31 @@ export function PixelsView() {
                       </p>
                     )}
 
-                  {/* Script para instalar. Item 89: copiar a tag <script> inteira
-                      OU só a URL do script (para colar em GTM/Tag Manager). */}
+                  {/* Instalação — o básico bem feito: instrução de UMA frase,
+                      código completo legível (multi-linha, rolável) e UM botão.
+                      Antes: 3 scripts truncados numa linha + 2 botões = confusão. */}
                   {p.scriptTag && (
-                    <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">
-                      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
-                        {p.scriptTag}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(`${p.slug}:tag`, p.scriptTag!, 'Tag do script')}
-                        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-brand-cyan transition-colors hover:bg-secondary"
-                      >
-                        <span className="copy-morph" data-copied={copied === `${p.slug}:tag`}>
-                          <Copy className="size-3.5" aria-hidden="true" />
-                          <Check className="size-3.5" aria-hidden="true" />
-                        </span>
-                        {copied === `${p.slug}:tag` ? 'Copiado' : 'Copiar tag'}
-                      </button>
-                      {p.scriptUrl && (
+                    <div className="mt-3 overflow-hidden rounded-lg border border-border bg-input">
+                      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+                        <p className="min-w-0 text-xs leading-relaxed text-muted-foreground text-pretty">
+                          Copie e cole antes do <code className="text-foreground">{'</head>'}</code> da sua
+                          página. Pronto: visitas aparecem no seu funil e os eventos vão ao TikTok.
+                        </p>
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${p.slug}:url`, p.scriptUrl!, 'URL do script')}
-                          title="Copiar só a URL (para GTM)"
-                          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          onClick={() => handleCopy(`${p.slug}:tag`, p.scriptTag!, 'Código de instalação')}
+                          className="flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-brand-cyan transition-colors hover:bg-secondary/70"
                         >
-                          <span className="copy-morph" data-copied={copied === `${p.slug}:url`}>
+                          <span className="copy-morph" data-copied={copied === `${p.slug}:tag`}>
                             <Copy className="size-3.5" aria-hidden="true" />
                             <Check className="size-3.5" aria-hidden="true" />
                           </span>
-                          {copied === `${p.slug}:url` ? 'Copiado' : 'Só URL'}
+                          {copied === `${p.slug}:tag` ? 'Copiado' : 'Copiar código'}
                         </button>
-                      )}
+                      </div>
+                      <pre className="max-h-44 overflow-auto whitespace-pre px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                        {p.scriptTag}
+                      </pre>
                     </div>
                   )}
 
