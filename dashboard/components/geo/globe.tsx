@@ -57,7 +57,7 @@ const PINK = '#fe2c55'
 
 const ALT_MIN = 1.2
 const ALT_MAX = 3.5
-const ALT_DEFAULT = 2.2
+const ALT_DEFAULT = 1.6
 const ALT_STEP = 0.45
 // Item 15: entrada cinematográfica aprimorada — mais distante e mais lenta
 const ALT_ENTRY = 5.5

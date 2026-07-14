@@ -121,7 +121,7 @@ export function HeroGlobe({
 
       {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".
           pointer-events-none para não interceptar arraste/zoom do globo. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-[6%] flex flex-col items-center gap-1.5 text-center">
+      <div className="pointer-events-none absolute inset-x-0 top-[4%] flex flex-col items-center gap-1.5 text-center z-20">
         <div className="hero-globe-badge glass glass-pulse pointer-events-auto inline-flex flex-col items-center gap-1.5 px-8 py-3.5 rounded-[24px]">
           <div className="flex items-center gap-2.5">
             <span className="live-dot" aria-hidden="true" />
