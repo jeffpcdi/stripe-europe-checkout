@@ -42,6 +42,7 @@ const TRACKER_JS = require('./tracker-view');
 const auth = require('./auth');
  const gatewayStore = require('./gateway-store');
  const { normalizeConversion } = require('./conversion-normalize');
+ const { buildUtm } = require('./utm-macros');
  const db = require('./db');
 const redis = require('./redis'); // contadores de decisão do cloaker (offer/white)
 const { loginPage, registerPage } = require('./auth-view');
@@ -224,37 +225,6 @@ function geoFromReq(req) {
     return { country: cc, countryName: COUNTRY_NAMES[cc] || cc, city: city };
   }
   return geoLookup(clientIp(req));
-}
-
-// ── Fase 1: sanitização de macros de UTM ──────────────────────────────────
-// O TikTok só substitui as macros do anúncio (__CAMPAIGN_NAME__, __CAMPAIGN_ID__,
-// __AID__, __PLACEMENT__…) na ENTREGA real. Cliques de preview do Ads Manager,
-// bots e acessos diretos chegam com a macro literal não substituída e poluíam o
-// ranking de campanhas. Regra: token ancorado em __MAIÚSCULAS/DÍGITOS__.
-// Case-sensitive de propósito — nomes legítimos com underscore (promo_black_friday,
-// verao_2024, até MINHA_CAMPANHA) NÃO casam; só o padrão de macro do TikTok.
-const UTM_MACRO_RE = /__[A-Z0-9]+(?:_[A-Z0-9]+)*__/;
-function isUtmMacro(v) {
-  return typeof v === 'string' && UTM_MACRO_RE.test(v);
-}
-// Monta o objeto utm já sanitizado a partir dos 5 campos crus. Quando o campaign
-// é uma macro não substituída, grava campaign=null e preserva o valor original em
-// campaignRaw (a flag utmRaw de auditoria — persiste junto do utm no lead, já que
-// stats.recordVisit grava o objeto utm inteiro). Só campaign carrega macro.
-function buildUtm(src) {
-  src = src || {};
-  const utm = {
-    source: src.source || null,
-    medium: src.medium || null,
-    campaign: src.campaign || null,
-    content: src.content || null,
-    term: src.term || null,
-  };
-  if (isUtmMacro(utm.campaign)) {
-    utm.campaignRaw = utm.campaign; // auditoria: macro crua não substituída
-    utm.campaign = null;
-  }
-  return utm;
 }
 
 const app = express();
@@ -515,7 +485,7 @@ const rlSweep = setInterval(() => {
 }, 120e3);
 if (rlSweep.unref) rlSweep.unref();
 
-// ── Item 181: contrato unificado de erro da API ─────────────────────────────
+// ── Item 181: contrato unificado de erro da API ──────────��──────────────────
 // Todas as rotas de Gestão devem responder erros como
 //   { ok:false, error, code, hint }
 // onde `error` é o quê aconteceu, `code` é estável para lógica no front e
@@ -1131,7 +1101,7 @@ app.get('/go/:slug', async (req, res) => {
   return res.redirect(302, dest);
 });
 
-// ── Links de cloaking (/c/:slug) ─────────────────────────────────────
+// ── Links de cloaking (/c/:slug) ───────────────────────────────��─────
 // Roteia pessoas reais → offer; bots/revisores → white page. Usa a config
 // de proteção DO PRÓPRIO link (não a global): cada link tem seu interruptor,
 // sensibilidade e camadas de detecção.
@@ -2758,7 +2728,7 @@ app.post('/api/domains/verify', dashboardAuth, async (req, res) => {
     const now = new Date().toISOString();
     const cur = config.get(req.account.id).customDomains || [];
     const has = cur.some((d) => d.host === host);
-    // Prova forte confirmada (HTTPS + marcador) → status 'active' persistido,
+    // Prova forte confirmada (HTTPS + marcador) ��� status 'active' persistido,
     // além do espelho legado `verificado` para a UI antiga.
     const next = has
       ? cur.map((d) => d.host === host ? Object.assign({}, d, { verificado: true, verificadoEm: now, status: 'active', lastCheckedAt: now, lastError: null }) : d)
