@@ -3593,15 +3593,20 @@ async function processConversion(n) {
       rdb.pushConversionLog(receipt).catch(() => {});
       return receipt;
     }
-    // 2. resolve o lead no backend: leadId → e-mail → telefone → órfão
+    // 2. resolve o lead no backend: ttclid → leadId → e-mail → telefone → órfão
     // (com n.acc definido, o match respeita a fronteira da conta)
-    let lead = n.leadId ? stats.getLead(n.leadId) : null;
-    // Risco 2: fronteira ESTRITA. O guard antigo só agia quando ambos os acc
-    // existiam, deixando cruzar contas quando algum era null (lead legado ou
-    // n.acc não resolvido). Agora um lead só casa se a conta for EXATAMENTE a
-    // mesma (null só casa com null).
-    if (lead && (lead.acc || null) !== (n.acc || null)) lead = null;
-    let matchVia = lead ? 'leadId' : null;
+    // Risco 3: ttclid primeiro — clique pago é a chave de match mais forte.
+    let lead = n.ttclid ? stats.findLeadByTtclid(n.ttclid, n.acc) : null;
+    let matchVia = lead ? 'ttclid' : null;
+    if (!lead) {
+      lead = n.leadId ? stats.getLead(n.leadId) : null;
+      // Risco 2: fronteira ESTRITA. O guard antigo só agia quando ambos os acc
+      // existiam, deixando cruzar contas quando algum era null (lead legado ou
+      // n.acc não resolvido). Agora um lead só casa se a conta for EXATAMENTE a
+      // mesma (null só casa com null).
+      if (lead && (lead.acc || null) !== (n.acc || null)) lead = null;
+      if (lead) matchVia = 'leadId';
+    }
     if (!lead && n.email) { try { lead = stats.findLeadByEmail(n.email, n.acc); if (lead) matchVia = 'email'; } catch (_) {} }
     if (!lead && n.phone) { try { lead = stats.findLeadByPhone(n.phone, n.acc); if (lead) matchVia = 'phone'; } catch (_) {} }
     receipt.match = matchVia || 'órfã';
@@ -3648,6 +3653,7 @@ async function processConversion(n) {
       try {
         matched = stats.matchExternalConversion({
           acc: saleAcc,
+          ttclid: n.ttclid || (lead && lead.ttclid) || null, // Risco 3: 1ª chave de match
           leadId: lead ? lead.id : null, gateway: n.gateway,
           amountCents: n.amountCents, currency: n.currency,
           customer: n.customer, email: n.email, phone: n.phone, ref: n.orderId
@@ -3693,6 +3699,7 @@ async function processConversion(n) {
             email: n.email || undefined,
             phone: n.phone || undefined,
             customer: n.name || undefined,
+            ttclid: n.ttclid || undefined, // Risco 3: mantém o clique pago coerente
             paymentStarted: true // item 302: veio do GATEWAY, não do hit de página
           });
         } catch (_) {}
