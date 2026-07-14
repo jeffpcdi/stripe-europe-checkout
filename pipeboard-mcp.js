@@ -329,12 +329,19 @@ async function callTool(name, args, opts = {}) {
   const result = await callToolRaw(name, args, opts);
   if (result && result.isError) {
     const detail = extractContent(result);
-    const err = new Error(
-      'TikTok/Pipeboard: ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)).slice(0, 400)
-    );
+    const msg = (typeof detail === 'string' ? detail : JSON.stringify(detail));
+    const err = new Error('TikTok/Pipeboard: ' + msg.slice(0, 400));
     err.status = 502;
     err.source = 'tiktok';
     err.detail = detail;
+    // Bloqueio de conta pelo limite mensal de contas do Pipeboard (limite do
+    // TIME, não por pessoa). É recuperável só quando o limite reseta — a
+    // dashboard precisa distinguir isto de "conta sem campanhas".
+    if (/monthly limit of \d+ ad accounts|blocked until/i.test(msg)) {
+      err.code = 'ACCOUNT_BLOCKED';
+      const m = msg.match(/resets? on (\d{4}-\d{2}-\d{2})|blocked until(?: the limit resets on)? (\d{4}-\d{2}-\d{2})/i);
+      err.blockedUntil = (m && (m[1] || m[2])) || null;
+    }
     throw err;
   }
   return extractContent(result);

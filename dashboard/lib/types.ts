@@ -845,6 +845,14 @@ export interface AdsTreeResponse {
   campaigns: AdsTreeCampaign[]
   backfillPending?: boolean
   pagination?: { page: number; limit: number; total: number; pages: number }
+  /** Motivo pelo qual a sincronização com o TikTok falhou (ex.: conta bloqueada
+   *  pelo limite mensal de contas do Pipeboard). Presente = mostrar aviso. */
+  syncError?: {
+    code: 'ACCOUNT_BLOCKED' | 'SYNC_ERROR'
+    message: string
+    blockedUntil?: string | null
+    advertiserId?: string
+  }
 }
 
 // ── /api/ads/campaigns/:id/analytics ──

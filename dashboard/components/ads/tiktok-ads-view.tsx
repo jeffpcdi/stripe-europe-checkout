@@ -417,6 +417,37 @@ export function TikTokAdsView() {
             onOpenOps={() => setOpsOpen(true)}
           />
 
+          {/* Aviso de sincronização bloqueada: sem isto a tela mostraria "0
+              campanhas / tudo zerado" como se a conta estivesse vazia, quando na
+              verdade o Pipeboard bloqueou o acesso. Explica o porquê e o que fazer. */}
+          {tree?.syncError && (
+            <GlassCard className="border-warning/40 bg-warning/10 p-4">
+              <div className="flex items-start gap-3">
+                <Ban className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-semibold text-warning">
+                    {tree.syncError.code === 'ACCOUNT_BLOCKED'
+                      ? 'Conta bloqueada pelo Pipeboard'
+                      : 'Falha ao sincronizar com o TikTok'}
+                  </p>
+                  {tree.syncError.code === 'ACCOUNT_BLOCKED' ? (
+                    <p className="text-pretty text-xs leading-relaxed text-muted-foreground">
+                      O Pipeboard limita o time a 10 contas de anúncio por mês (limite compartilhado por
+                      todos, não por pessoa). Esta conta ficou fora do limite
+                      {tree.syncError.blockedUntil ? ` e volta a liberar em ${tree.syncError.blockedUntil}` : ''}.
+                      Por isso as campanhas e métricas aparecem zeradas — os dados existem no TikTok, mas o
+                      acesso via API está bloqueado. Use uma conta já ativa neste mês ou aguarde o reset.
+                    </p>
+                  ) : (
+                    <p className="text-pretty text-xs leading-relaxed text-muted-foreground">
+                      {tree.syncError.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </GlassCard>
+          )}
+
           {/* Linha de KPIs agregados (página atual da árvore) */}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <GlassCard hover className="anim-kpi-in p-4" style={{ animationDelay: '0ms' }}>

@@ -429,15 +429,32 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // Caminho de leitura = espelho no Neon (instantâneo + resiliente).
       // ensureFresh: marca a conta como ativa (alvo do loop), serve o cache já
       // gravado e revalida em segundo plano; só bloqueia no cache FRIO (1º acesso).
-      if (adsCache.enabled) {
-        await adsSync.ensureFresh(req.account.id, advertiserId).catch((e) => {
-          console.warn('[ads/tree] ensureFresh falhou (segue com o que houver):', e.message);
-        });
-        const cached = await adsCache.readTree(req.account.id, advertiserId, {
-          fromDate: q.fromDate, toDate: q.toDate, status: q.status, sort: q.sort,
-        });
-        if (cached) return res.json(cached);
+    if (adsCache.enabled) {
+      await adsSync.ensureFresh(req.account.id, advertiserId).catch((e) => {
+        console.warn('[ads/tree] ensureFresh falhou (segue com o que houver):', e.message);
+      });
+      const cached = await adsCache.readTree(req.account.id, advertiserId, {
+        fromDate: q.fromDate, toDate: q.toDate, status: q.status, sort: q.sort,
+      });
+      if (cached) {
+        // Se o último sync falhou (ex.: conta bloqueada pelo limite mensal do
+        // Pipeboard), a árvore vem vazia. Sem isto a tela diria "0 campanhas"
+        // como se a conta não tivesse anúncios — enganoso. Anexamos o motivo
+        // real para a dashboard mostrar um aviso claro (não é erro fatal: o
+        // resto da UI segue renderizando).
+        const st = await adsCache.getSyncState(req.account.id, advertiserId).catch(() => null);
+        if (st && (st.status === 'blocked' || st.status === 'error')) {
+          const m = String(st.last_error || '').match(/(\d{4}-\d{2}-\d{2})/);
+          cached.syncError = {
+            code: st.status === 'blocked' ? 'ACCOUNT_BLOCKED' : 'SYNC_ERROR',
+            message: st.last_error || 'Falha ao sincronizar com o TikTok.',
+            blockedUntil: st.status === 'blocked' ? (m && m[1]) || null : null,
+            advertiserId,
+          };
+        }
+        return res.json(cached);
       }
+    }
       // Fallback: Neon indisponível → leitura ao vivo do provider (degradado).
       const data = await pipeboard.getDashboardTree(req.account.id, {
         advertiserId, fromDate: q.fromDate, toDate: q.toDate, status: q.status, sort: q.sort,
