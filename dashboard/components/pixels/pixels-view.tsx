@@ -38,7 +38,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { TutorialButton, TutorialModal, type TutorialStep } from '@/components/tutorial-modal'
+import { SectionTitle } from '@/components/section-title'
 import { timeAgo } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { readClipboardText } from '@/lib/clipboard'
@@ -55,63 +55,7 @@ type UrlCheck = {
   error?: string
 }
 
-// Passos do tutorial da aba Pixels
-const PIXEL_STEPS: TutorialStep[] = [
-  {
-    title: 'O que é o Pixel TikTok aqui',
-    body: (
-      <>
-        Cada pixel dispara eventos <strong>server-side</strong> (Events API / CAPI) direto do nosso servidor
-        para o TikTok. Isso é mais confiável que o pixel do navegador, que costuma ser bloqueado dentro do
-        app do TikTok.
-      </>
-    ),
-    tip: 'Você precisa do Pixel Code e do Access Token, ambos gerados no TikTok Events Manager.',
-  },
-  {
-    title: '1. Crie o pixel',
-    body: (
-      <>
-        Clique em <strong>Novo pixel</strong> e cole o <code>Pixel Code</code> (ex.: C0ABC123) e o{' '}
-        <code>Access Token</code>. Deixe ligados os eventos que quer enviar: Visita, Carrinho, Checkout,
-        Pagamento e Compra.
-      </>
-    ),
-  },
-  {
-    title: '2. Instale o bloco completo na sua página',
-    body: (
-      <>
-        Copie o bloco <code>&lt;script&gt;</code> do pixel e cole antes do <code>&lt;/head&gt;</code>. Ele
-        tem <strong>3 partes</strong>: (1) o <strong>Rastreamento</strong> (<code>/t.js</code>) — é ele que
-        faz o visitante <strong>aparecer na sua dashboard</strong> (funil, leads, jornada); (2) o pixel
-        nativo do TikTok; (3) o enriquecimento + CAPI.
-      </>
-    ),
-    tip: 'Sem a parte 1 (/t.js), os eventos até chegam ao TikTok, mas você NÃO vê as visitas na dashboard.',
-  },
-  {
-    title: '3. Confirme que está instalado',
-    body: (
-      <>
-        Use o painel <strong>Verificar instalação</strong>: cole a URL da sua página e nós buscamos o HTML
-        dela para confirmar se o pixel <strong>e o rastreamento</strong> estão presentes. Você também pode
-        usar <strong>Testar disparo</strong> para enviar um evento de teste e ver a resposta do TikTok.
-      </>
-    ),
-  },
-  {
-    title: '4. Evento de Compra só vem do gateway',
-    body: (
-      <>
-        A <strong>Visita/Carrinho/Checkout</strong> saem do script na página. Mas a{' '}
-        <strong>Compra (CompletePayment)</strong> só dispara quando o <strong>gateway confirma o pagamento</strong>{' '}
-        via webhook — é assim que garantimos que só venda real conta. Configure um gateway na aba Gateways.
-      </>
-    ),
-    tip: 'Sem gateway conectado, o evento de Compra nunca dispara — por design, para não contar venda falsa.',
-  },
-]
+// Removed PIXEL_STEPS
 
 // Rótulos PT-BR dos eventos CAPI — mesma ordem do funil real
 const EVENT_LABELS: { key: keyof PixelEvents; label: string }[] = [
@@ -147,7 +91,6 @@ export function PixelsView() {
   const [testResult, setTestResult] = useState<{ slug: string; ok: boolean; msg: string } | null>(null)
   // Evento escolhido para o teste, por pixel (default ViewContent)
   const [testEvent, setTestEvent] = useState<Record<string, keyof PixelEvents>>({})
-  const [showTutorial, setShowTutorial] = useState(false)
   const [checkUrl, setCheckUrl] = useState('')
   const [checking, setChecking] = useState(false)
   const [urlCheck, setUrlCheck] = useState<UrlCheck | null>(null)
@@ -277,44 +220,7 @@ export function PixelsView() {
       {/* Item 51: cabeçalho de saúde consolidado. "Durável" = há uma camada de
           persistência disponível (banco OU Redis); é a capacidade que garante que
           a config sobrevive a um restart, independente de já ter havido gravação. */}
-      {durability &&
-        (() => {
-          const persistente = durability.dbEnabled || durability.redisEnabled
-          return (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs">
-              <span
-                className={`flex items-center gap-1.5 font-semibold ${persistente ? 'text-success' : 'text-warning'}`}
-              >
-                <span
-                  className={`size-2 rounded-full ${persistente ? 'bg-[color:var(--success)]' : 'bg-[color:var(--warning)]'}`}
-                  aria-hidden="true"
-                />
-                {persistente ? 'Config durável' : 'Config volátil (só em memória)'}
-              </span>
-              <span className="text-muted-foreground">
-                Banco:{' '}
-                <strong className={durability.dbEnabled ? 'text-success' : 'text-warning'}>
-                  {durability.dbEnabled ? 'conectado' : 'off'}
-                </strong>
-              </span>
-              <span className="text-muted-foreground">
-                Redis:{' '}
-                <strong className={durability.redisEnabled ? 'text-success' : 'text-muted-foreground'}>
-                  {durability.redisEnabled ? 'conectado' : 'off'}
-                </strong>
-              </span>
-              {!persistente && (
-                <span className="text-pretty text-muted-foreground">
-                  — pixels criados agora podem sumir num restart do servidor
-                </span>
-              )}
-              {/* Erro real de gravação durável (banco/Redis habilitado mas falhou) */}
-              {persistente && durability.lastError && (
-                <span className="text-pretty text-warning">— {durability.lastError}</span>
-              )}
-            </div>
-          )
-        })()}
+      {/* Config durável removida do painel do usuário final */}
 
       {/* Diagnóstico: por que a config pode não estar chegando ao pixel.
           Item 87: além dos warnings gerais, lista pixel a pixel o que falta
@@ -351,9 +257,8 @@ export function PixelsView() {
               coluna de uma palavra por linha. */}
           <div className="mb-4">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="section-head text-sm font-semibold text-foreground">Pixels TikTok</h2>
+              <SectionTitle>Pixels TikTok</SectionTitle>
               <div className="flex shrink-0 items-center gap-2">
-                <TutorialButton onClick={() => setShowTutorial(true)} />
                 <button
                   type="button"
                   data-tour="pixels-new"
@@ -364,21 +269,13 @@ export function PixelsView() {
                 </button>
               </div>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground text-pretty">
-              Um código só: rastreia na dashboard e dispara para o TikTok.
-            </p>
           </div>
 
-          {/* Item 12: aviso permanente — Compra só dispara com gateway conectado */}
-          <p className="mb-3 rounded-lg border border-[color:var(--warning)]/25 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-muted-foreground text-pretty">
-            O script cobre Visita, Carrinho e Checkout. O evento de{' '}
-            <strong className="text-foreground">Compra (CompletePayment)</strong> só dispara quando um
-            gateway confirma o pagamento —{' '}
-            <Link href="/gateways" className="font-semibold text-[color:var(--brand-cyan)] hover:underline">
-              conecte um gateway
-            </Link>
-            .
-          </p>
+          {/* Mini-alerta do Gateway */}
+          <div className="mb-4 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <TriangleAlert className="size-3 text-warning" />
+            <span>O evento de Compra requer um <Link href="/gateways" className="font-semibold text-brand-cyan hover:underline">gateway conectado</Link>.</span>
+          </div>
 
           {error && !data ? (
             /* Item 182: erro de carregamento com retry consistente */
@@ -401,13 +298,6 @@ export function PixelsView() {
                   className="rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
                 >
                   Criar primeiro pixel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowTutorial(true)}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                >
-                  Ver tutorial
                 </button>
               </div>
             </div>
@@ -569,11 +459,11 @@ export function PixelsView() {
                       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
                         <p className="min-w-0 text-xs leading-relaxed text-muted-foreground text-pretty">
                           Copie e cole antes do <code className="text-foreground">{'</head>'}</code> da sua
-                          página. Pronto: visitas aparecem no seu funil e os eventos vão ao TikTok.
+                          página.
                         </p>
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${p.slug}:tag`, p.scriptTag!, 'Código de instalação')}
+                          onClick={() => handleCopy(`${p.slug}:tag`, p.scriptTag ? p.scriptTag.replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*[\r\n]/gm, '').trim() : '', 'Código de instalação')}
                           className="flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-brand-cyan transition-colors hover:bg-secondary/70"
                         >
                           <span className="copy-morph" data-copied={copied === `${p.slug}:tag`}>
@@ -584,7 +474,7 @@ export function PixelsView() {
                         </button>
                       </div>
                       <pre className="max-h-44 overflow-auto whitespace-pre px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
-                        {p.scriptTag}
+                        {p.scriptTag ? p.scriptTag.replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*[\r\n]/gm, '').trim() : ''}
                       </pre>
                     </div>
                   )}
@@ -690,10 +580,9 @@ export function PixelsView() {
         {/* Verificar instalação + saúde da CAPI + log de disparos */}
         <div className="flex min-w-0 flex-col gap-5">
           <GlassCard className="p-5" data-tour="pixels-verify">
-            <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Verificar instalação</h2>
-            <p className="mb-3 text-xs text-muted-foreground text-pretty">
-              Cole a URL da sua página e confirmamos, pelo servidor, se o script do pixel está presente
-            </p>
+            <div className="mb-4">
+              <SectionTitle>Verificar instalação</SectionTitle>
+            </div>
             <form
               className="flex items-center gap-2"
               onSubmit={(e) => {
@@ -781,8 +670,9 @@ export function PixelsView() {
           </GlassCard>
 
           <GlassCard className="p-5" data-tour="pixels-health">
-            <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Saúde dos disparos</h2>
-            <p className="mb-3 text-xs text-muted-foreground">Taxa de sucesso da Events API (24h)</p>
+            <div className="mb-4">
+              <SectionTitle>Saúde dos disparos</SectionTitle>
+            </div>
             {!health ? (
               <Skeleton className="h-16" />
             ) : health.total === 0 ? (
@@ -843,15 +733,9 @@ export function PixelsView() {
               Sparkline por pixel + alerta de EMQ baixo ou em queda. */}
           {emqTrend && emqTrend.pixels.some((p) => p.trend.length > 0) && (
             <GlassCard className="p-5">
-              <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Qualidade do match (EMQ)</h2>
-              {/* Item 215: explicação curta da escala 0–10 e do impacto na otimização.
-                  Item 218: com vários pixels, os cards ficam lado a lado para comparar. */}
-              <p className="mb-3 text-xs text-muted-foreground text-pretty">
-                O Event Match Quality vai de <strong className="text-foreground">0 a 10</strong> e mede o quão bem
-                o TikTok casa seus eventos com pessoas reais. Abaixo de ~5 o algoritmo otimiza no escuro; para
-                subir, envie e-mail/telefone com hash, <code className="rounded bg-secondary px-1 font-mono">ttclid</code>{' '}
-                e IP/User-Agent. Compare os pixels abaixo para achar o que precisa de atenção.
-              </p>
+              <div className="mb-4">
+                <SectionTitle>Qualidade do match (EMQ)</SectionTitle>
+              </div>
               <div className="flex flex-col gap-4">
                 {emqTrend.pixels
                   .filter((p) => p.trend.length > 0)
@@ -864,8 +748,9 @@ export function PixelsView() {
 
       {/* V2-91: log de disparos com scanline ciano "ao vivo" */}
       <GlassCard className="scan-live p-5">
-        <h2 className="section-head mb-1 text-sm font-semibold text-foreground">Disparos recentes</h2>
-            <p className="mb-3 text-xs text-muted-foreground">Log da Events API — inclui descartes e o motivo</p>
+        <div className="mb-4">
+          <SectionTitle>Disparos recentes</SectionTitle>
+        </div>
             {!log || log.log.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Nenhum disparo registrado ainda.</p>
             ) : (
@@ -1051,13 +936,6 @@ export function PixelsView() {
           </GlassCard>
         </div>
       </div>
-
-      <TutorialModal
-        open={showTutorial}
-        onClose={() => setShowTutorial(false)}
-        title="Como configurar seu pixel TikTok"
-        steps={PIXEL_STEPS}
-      />
 
       {(creating || editing) && (
         <PixelEditor
