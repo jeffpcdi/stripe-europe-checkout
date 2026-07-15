@@ -1,7 +1,7 @@
 'use client'
 
 // Card de conexão do TikTok Ads via Pipeboard. NÃO há OAuth por usuário:
-// a integração usa uma chave de servidor (PIPEBOARD_API_TOKEN) que já escopa
+// a integração usa uma chave de servidor (PIPEBOARD_API_KEY) que já escopa
 // os advertisers. "Conectar" aqui é uma VERIFICAÇÃO: se a chave está de pé e
 // há advertiser visível, a conta já está conectada. Se a chave está ok mas
 // nenhum advertiser aparece, o vínculo é feito no painel do Pipeboard.

@@ -706,7 +706,7 @@ export interface AdsCapabilities {
 
 // ── /api/ads/status — estado da integração ──
 export interface AdsStatusResponse {
-  enabled: boolean // PIPEBOARD_API_TOKEN presente no servidor
+  enabled: boolean // PIPEBOARD_API_KEY presente no servidor
   connected: boolean
   account?: { id: string; username: string; displayName: string }
   businessCenterId?: string

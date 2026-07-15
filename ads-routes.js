@@ -366,12 +366,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // ── Conexão — F6, semântica Pipeboard ──────────────────────────────────────
   // NÃO há OAuth por usuário: a integração é uma chave de servidor
-  // (PIPEBOARD_API_TOKEN) que já escopa os advertisers. "Conectar" no painel
+  // (PIPEBOARD_API_KEY) que já escopa os advertisers. "Conectar" no painel
   // vira uma verificação: se a chave está de pé e há advertiser, já está
   // conectado. GET mantido por compatibilidade com integrações antigas.
   async function startConnect(req, res) {
     try {
-      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor (PIPEBOARD_API_TOKEN)' });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor (PIPEBOARD_API_KEY)' });
       const s = await pipeboard.getStatus(req.account.id);
       if (s.connected) return res.json({ alreadyConnected: true, authUrl: '' });
       // Chave ok mas nenhum advertiser visível: não existe URL de autorização
