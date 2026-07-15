@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, ShoppingBag } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -281,73 +281,9 @@ export function TikTokAdsView() {
             </button>
           )}
         </div>
-        {/* Ações primárias de operação + menu "⋯" para o secundário */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="btn-primary text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
-            <Plus className="size-3.5" aria-hidden="true" />
-            Nova campanha
-          </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setBulkOpen)}>
-            <Layers className="size-3.5" aria-hidden="true" />
-            Subir em massa
-          </button>
-          <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setSparkOpen)}>
-            <Zap className="size-3.5" aria-hidden="true" />
-            Spark Ads
-          </button>
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <button type="button" className="btn-ghost text-xs" aria-label="Mais ações">
-                <MoreHorizontal className="size-3.5" aria-hidden="true" />
-                {openTickets.length > 0 && (
-                  <span className="ml-0.5 rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
-                    {openTickets.length}
-                  </span>
-                )}
-              </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                align="end"
-                sideOffset={8}
-                className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-[12px] p-1.5"
-              >
-                <DropdownMenu.Item
-                  className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                  onSelect={() => setHealthOpen(true)}
-                >
-                  <HeartPulse className="size-3.5" aria-hidden="true" />
-                  Saúde das contas
-                  {openTickets.length > 0 && (
-                    <span className="ml-auto rounded-full bg-error/15 px-1.5 text-[10px] font-semibold text-error">
-                      {openTickets.length}
-                    </span>
-                  )}
-                </DropdownMenu.Item>
-                {/* F6: identidade customizada foi descontinuada pelo TikTok —
-                    só aparece se o backend disser que suporta (capability). */}
-                {status?.capabilities?.customIdentity !== false && (
-                  <DropdownMenu.Item
-                    className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                    onSelect={() => setIdentityOpen(true)}
-                  >
-                    <UserRound className="size-3.5" aria-hidden="true" />
-                    <span className="truncate">
-                      {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
-                    </span>
-                  </DropdownMenu.Item>
-                )}
-                <DropdownMenu.Item
-                  className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                  onSelect={() => openWriteFlow(setCatalogOpen)}
-                >
-                  <ShoppingBag className="size-3.5" aria-hidden="true" />
-                  Catálogo de produtos
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-        </div>
+        {/* O header ficou só com identidade + estado (badges). As AÇÕES moram
+            nas abas onde são usadas: criar/subir/Spark na aba Campanhas, saúde
+            na aba Automações — antes 6 ações disputavam o topo da página. */}
       </div>
 
       {/* Barra de contexto: conta de anúncio + deep-link + desconectar */}
@@ -495,9 +431,61 @@ export function TikTokAdsView() {
             </>
           )}
 
-          {/* ── Aba: Campanhas — "operar" (árvore + ações) ── */}
+          {/* ── Aba: Campanhas — "operar" (criar + árvore + ações) ── */}
           {tab === 'campaigns' && (
-            <CampaignTree
+            <>
+              {/* Barra de criação: tudo que PUBLICA vive junto da lista que
+                  mostra o resultado. Primário = Nova campanha; o resto apoia. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" className="btn-primary text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
+                  <Plus className="size-3.5" aria-hidden="true" />
+                  Nova campanha
+                </button>
+                <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setBulkOpen)}>
+                  <Layers className="size-3.5" aria-hidden="true" />
+                  Subir em massa
+                </button>
+                <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setSparkOpen)}>
+                  <Zap className="size-3.5" aria-hidden="true" />
+                  Spark Ads
+                </button>
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button type="button" className="btn-ghost text-xs" aria-label="Mais ações de criação">
+                      <MoreHorizontal className="size-3.5" aria-hidden="true" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      align="start"
+                      sideOffset={8}
+                      className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-[12px] p-1.5"
+                    >
+                      {/* F6: identidade customizada foi descontinuada pelo TikTok —
+                          só aparece se o backend disser que suporta (capability). */}
+                      {status?.capabilities?.customIdentity !== false && (
+                        <DropdownMenu.Item
+                          className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                          onSelect={() => setIdentityOpen(true)}
+                        >
+                          <UserRound className="size-3.5" aria-hidden="true" />
+                          <span className="truncate">
+                            {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
+                          </span>
+                        </DropdownMenu.Item>
+                      )}
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                        onSelect={() => openWriteFlow(setCatalogOpen)}
+                      >
+                        <ShoppingBag className="size-3.5" aria-hidden="true" />
+                        Catálogo de produtos
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              </div>
+              <CampaignTree
               tree={tree}
               loading={treeLoading && !tree}
               error={treeError ? String((treeError as Error).message || 'erro') : null}
@@ -524,7 +512,8 @@ export function TikTokAdsView() {
               onOpenDetail={setDetailCampaign}
               onDuplicate={setDuplicateCampaign}
               attribution={attribution?.byCampaign}
-            />
+              />
+            </>
           )}
 
           {/* ── Aba: Automações — regras, alertas, fila e diagnóstico ── */}
@@ -535,6 +524,7 @@ export function TikTokAdsView() {
                 onOpenAutomation={() => setRulesOpen(true)}
                 onOpenAlerts={() => setAlertsOpen(true)}
                 onOpenOps={() => setOpsOpen(true)}
+                onOpenHealth={() => setHealthOpen(true)}
               />
               {/* Painel inline: regras com toggle de 1 clique + histórico do
                   motor — o dia a dia sem precisar abrir o editor completo */}

@@ -6,7 +6,7 @@
 // Badge com glassmorphism na base do globo.
 
 import dynamic from 'next/dynamic'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLive } from '@/lib/api'
 import { CountUp } from '@/components/count-up'
 import type { GeoPulse } from '@/components/geo/globe'
@@ -86,18 +86,33 @@ function useLeadPulses(countries: LiveCountry[]): GeoPulse[] {
 export function HeroGlobe({
   countries,
 }: {
-  /** países dos leads de HOJE — colorem o globo (mesma história do contador).
-      Antes o globo pintava só quem estava online AGORA: ficava apagado com
-      "Aguardando tráfego" por cima do contador. */
+  /** países dos leads de HOJE — usados apenas como métrica de "vendas"
+      (purchased) para tingir de rosa os totens de países que compraram.
+      Os TOTENS em si são guiados pelo AO VIVO (veja abaixo). */
   countries: { code: string; name: string; count: number; purchased: number }[]
 }) {
-  // /api/live alimenta: 1) o counter "online agora" e 2) os PULSOS (anéis de
-  // lead novo, Fase 5). A coloração estática vem do prop `countries`.
+  // /api/live alimenta TUDO agora: counter "online agora", PULSOS (anéis de
+  // lead novo) e os TOTENS. Antes os totens vinham dos leads acumulados de
+  // hoje — o globo mostrava 4 espetos ciano com "ONLINE AGORA · 0" logo
+  // acima, contradição direta. Pedido do usuário: totem só com gente NO SITE
+  // agora, altura proporcional à demanda de cada país.
   const { data } = useLive()
   const liveCountries = data?.summary.countries ?? []
   const onlineNow = data?.summary.online ?? 0
   const activeCountries = liveCountries.length
   const pulses = useLeadPulses(liveCountries)
+
+  // Totens = presença ao vivo. `purchased` vem de hoje (o /api/live não traz
+  // vendas) só para manter o tom rosa em países que já compraram no dia.
+  const liveGlobeCountries = useMemo(() => {
+    const purchasedByCode = new Map(countries.map((c) => [c.code, c.purchased]))
+    return liveCountries.map((c) => ({
+      code: c.code,
+      name: c.name,
+      count: c.count,
+      purchased: purchasedByCode.get(c.code) ?? 0,
+    }))
+  }, [liveCountries, countries])
 
   return (
     /* O globo agora ocupa TODA a largura/altura do hero. Sem max-w — o
@@ -114,12 +129,11 @@ export function HeroGlobe({
       <div className="hero-orbit-ring" aria-hidden="true" />
       <div className="hero-orbit-ring outer" aria-hidden="true" />
 
-      {/* A coloração vem de `countries` (stats, já carregado quando o overview
-          renderiza) — não espera o /api/live; ele só adiciona pulsos depois.
-          Arcos de tráfego só com gente online AGORA — com 0 online, arcos
-          voando contradizem o contador logo abaixo. */}
+      {/* Totens/pontos guiados pelo AO VIVO: com 0 online o globo fica limpo
+          ("Aguardando tráfego"), consistente com o contador logo acima. Arcos
+          idem — só com gente no site agora. */}
       <GlobePanel
-        countries={countries}
+        countries={liveGlobeCountries}
         metric="visits"
         pulses={pulses}
         showArcs={onlineNow > 0}

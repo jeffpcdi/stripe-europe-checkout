@@ -1134,6 +1134,7 @@ export interface AdsCreativeInsights {
   stale?: boolean
   insufficient?: boolean
   adCount?: number
+  windowDays?: number // 1 = análise de hoje; 7 = fallback (dia sem 3 anúncios com gasto)
   content?: string
   patterns?: string
   topAds?: {
