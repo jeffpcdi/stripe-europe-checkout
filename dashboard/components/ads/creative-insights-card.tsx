@@ -2,7 +2,8 @@
 
 /**
  * Análise de criativos vencedores — a IA olha os top anúncios do espelho Neon
- * (30d), explica os padrões que os fazem performar e sugere variações de copy.
+ * (HOJE; cai para 7d se o dia ainda não tem 3 anúncios com gasto), explica os
+ * padrões que os fazem performar e sugere variações de copy.
  *
  * Cache de 24h no SERVIDOR (o botão "Reanalisar" força regeneração). Carregado
  * sob demanda: o fetch só acontece quando o usuário expande o painel — sem
@@ -74,8 +75,8 @@ export function CreativeInsightsCard({
 
           {data?.insufficient && (
             <p className="text-xs text-muted-foreground">
-              Dados insuficientes: preciso de pelo menos 3 anúncios com gasto nos últimos 30 dias para
-              detectar padrões.
+              Dados insuficientes: preciso de pelo menos 3 anúncios com gasto (hoje ou nos últimos 7
+              dias) para detectar padrões.
             </p>
           )}
 
@@ -85,7 +86,8 @@ export function CreativeInsightsCard({
               {data.topAds && data.topAds.length > 0 && (
                 <div className="flex flex-col gap-1">
                   <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Base da análise ({data.adCount} anúncios, 30d)
+                    Base da análise ({data.topAds.length} anúncios,{' '}
+                    {data.windowDays === 1 ? 'hoje' : `últimos ${data.windowDays ?? 7} dias`})
                   </p>
                   <ul className="flex flex-col gap-1">
                     {data.topAds.slice(0, 5).map((ad) => (
