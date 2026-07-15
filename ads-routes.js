@@ -1386,7 +1386,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         cpaMax: Math.max(0, Math.min(100000, Number(b.cpaMax) || 0)),
         lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2))
       };
-      pipeboard.setState(req.account.id, { alerts: cfg });
+      // alertsSeeded: salvar é escolha do usuário — o seed não mexe mais aqui.
+      pipeboard.setState(req.account.id, { alerts: cfg, alertsSeeded: true });
       res.json(cfg);
     } catch (err) { fail(res, err); }
   });
@@ -1551,11 +1552,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.json({ rules: automation.getRules(req.account.id), log: automation.getRulesLog(req.account.id) });
   });
 
+  // Pacote de presets de fábrica — a UI usa para "adicionar preset" individual
+  // ou "restaurar presets" sem duplicar as constantes no front. Sempre vem
+  // com enabled:false (quem liga é o usuário, regra a regra).
+  app.get('/api/ads/rules/presets', dashboardAuth, (_req, res) => {
+    res.json({ presets: automation.buildRulePresets() });
+  });
+
   app.put('/api/ads/rules', dashboardAuth, (req, res) => {
     try {
-      // validação/clamps (inclusive dos campos novos) centralizada no motor
+      // validação/clamps (inclusive dos campos novos) centralizada no motor.
+      // rulesSeeded junto: salvar (mesmo lista vazia) é escolha do usuário —
+      // o seed automático nunca mais mexe nesta conta.
       const rules = automation.validateRules((req.body || {}).rules);
-      pipeboard.setState(req.account.id, { rules });
+      pipeboard.setState(req.account.id, { rules, rulesSeeded: true });
       res.json({ rules, log: automation.getRulesLog(req.account.id) });
     } catch (err) { fail(res, err); }
   });

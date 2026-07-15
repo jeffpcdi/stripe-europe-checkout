@@ -100,13 +100,78 @@ async function underCooldown(accId, key, ms) {
   return !!(cur && Date.now() - cur.at < ms);
 }
 
+// ── Presets de fábrica (regras prontas, PAUSADAS; alertas ligados) ──────────
+// Pacote sensato que o usuário ativa com 1 clique cada. Decisão de produto:
+// regras que AGEM (pausam/mexem em orçamento) nascem enabled:false — dinheiro
+// real exige revisão dos thresholds antes; alertas só notificam, então nascem
+// ligados. Todos os valores passam por validateRules sem mutação (testado) —
+// inclusive o budgetCap do roas_scale, obrigatório para a regra ser válida.
+function buildRulePresets() {
+  return validateRules([
+    {
+      id: 'preset_cpa', preset: true, enabled: false,
+      name: 'CPA alto → pausar',
+      description: 'Pausa campanhas cujo custo por conversão passar de 15 € nos últimos 2 dias. Só age com volume mínimo (30 cliques / 1000 impressões) — ruído não é sinal.',
+      metric: 'cpa_max', threshold: 15, lookbackDays: 2, action: 'pause', minClicks: 30, minImpressions: 1000,
+    },
+    {
+      id: 'preset_noconv', preset: true, enabled: false,
+      name: 'Gasto sem venda → pausar',
+      description: 'Pausa campanhas que gastarem 20 € em 2 dias sem NENHUMA conversão. Mesmos pisos de volume do CPA.',
+      metric: 'spend_no_conv', threshold: 20, lookbackDays: 2, action: 'pause', minClicks: 30, minImpressions: 1000,
+    },
+    {
+      id: 'preset_ctr', preset: true, enabled: false,
+      name: 'CTR baixo → pausar',
+      description: 'Pausa campanhas com CTR abaixo de 0,5% após 2000 impressões — criativo que não engaja só queima orçamento.',
+      metric: 'ctr_min', threshold: 0.5, lookbackDays: 2, action: 'pause', minImpressions: 2000,
+    },
+    {
+      id: 'preset_scale', preset: true, enabled: false,
+      name: 'ROAS bom → escalar',
+      description: 'Aumenta o orçamento em 20% quando o ROAS atribuído passar de 2,0 com pelo menos 2 vendas. Teto absoluto de 100 €/dia por campanha — escala sem limite é o risco nº 1.',
+      metric: 'roas_scale', threshold: 2, lookbackDays: 2, minSales: 2, pct: 20, budgetCap: 100,
+    },
+    {
+      id: 'preset_cpm', preset: true, enabled: false,
+      name: 'CPM caro → reduzir orçamento',
+      description: 'Reduz o orçamento em 20% quando o CPM passar de 12 € com pelo menos 5 € gastos — leilão caro demais para insistir no mesmo volume.',
+      metric: 'cpm_max', threshold: 12, lookbackDays: 2, action: 'budget_down', pct: 20, minSpend: 5,
+    },
+  ]);
+}
+// Alertas pré-ligados: SÓ notificam (nunca agem), então podem nascer ativos.
+const ALERT_PRESET = { enabled: true, spendNoConv: 20, cpaMax: 15, lookbackDays: 2 };
+
 // ── Config por conta (mesmo storage de antes: estado do provider) ───────────
+// Seed automático na PRIMEIRA leitura: se a conta nunca teve config (nem flag,
+// nem dados), semeia os presets e marca a flag. Conta que já configurou algo
+// (regras/alertas existentes de antes deste deploy) só ganha a flag — os dados
+// dela NUNCA são sobrescritos. O PUT das rotas também seta a flag, então
+// "salvar lista vazia" é respeitado como escolha (não re-semeia).
 function getAlertCfg(accId) {
+  const st = provider.getState(accId);
+  if (!st.alertsSeeded) {
+    const hasOwn = st.alerts && typeof st.alerts === 'object' && Object.keys(st.alerts).length > 0;
+    provider.setState(accId, hasOwn ? { alertsSeeded: true } : { alertsSeeded: true, alerts: { ...ALERT_PRESET } });
+    if (!hasOwn) return Object.assign({}, ALERT_DEFAULTS, ALERT_PRESET);
+  }
   return Object.assign({}, ALERT_DEFAULTS, provider.getState(accId).alerts || {});
 }
 function getRules(accId) {
   const st = provider.getState(accId);
-  return Array.isArray(st.rules) ? st.rules : [];
+  if (!st.rulesSeeded) {
+    const hasOwn = Array.isArray(st.rules) && st.rules.length > 0;
+    if (hasOwn) {
+      provider.setState(accId, { rulesSeeded: true });
+    } else {
+      const seeded = buildRulePresets();
+      provider.setState(accId, { rulesSeeded: true, rules: seeded });
+      return seeded;
+    }
+  }
+  const cur = provider.getState(accId);
+  return Array.isArray(cur.rules) ? cur.rules : [];
 }
 function getRulesLog(accId) {
   const st = provider.getState(accId);
@@ -129,6 +194,13 @@ function validateRules(raw) {
       id: String(r.id || 'r' + Date.now().toString(36) + i).slice(0, 24),
       enabled: !!r.enabled,
       metric,
+      // Nome/descrição legíveis (opcionais). Regras antigas sem eles seguem
+      // válidas — a UI cai no rótulo técnico da métrica. `preset` marca as
+      // regras semeadas de fábrica (badge na UI); some se o usuário editar
+      // a regra por fora do pacote (o PUT revalida e só preserva se vier).
+      ...(r.name ? { name: String(r.name).slice(0, 80) } : {}),
+      ...(r.description ? { description: String(r.description).slice(0, 200) } : {}),
+      ...(r.preset ? { preset: true } : {}),
       threshold: Math.max(0, Math.min(100000, Number(r.threshold) || 0)),
       lookbackDays: Math.max(1, Math.min(30, parseInt(r.lookbackDays, 10) || 2)),
       action: RULE_ACTIONS.includes(r.action) ? r.action : 'pause',
@@ -769,6 +841,8 @@ module.exports = {
   RULE_METRICS,
   RULE_ACTIONS,
   ALERT_DEFAULTS,
+  ALERT_PRESET,
+  buildRulePresets,
   getAlertCfg,
   getRules,
   getRulesLog,
