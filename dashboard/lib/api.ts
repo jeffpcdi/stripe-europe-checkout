@@ -27,7 +27,6 @@ import type {
   AccountSettings,
   AdsStatusResponse,
   AdsAccountsResponse,
-  AdsBusinessCentersResponse,
   AdsBulkJob,
   AdsTreeResponse,
   AdsCampaignAnalyticsResponse,
@@ -295,7 +294,7 @@ export function usePushcutConfig() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TikTok Ads (via Zernio) — /api/ads/*
+// TikTok Ads (via Pipeboard) — /api/ads/*
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Estado da integração (conectado? advertiser? identity?). Sem polling — a
@@ -309,22 +308,12 @@ export function useAdsStatus(active = true) {
   })
 }
 
-// Business Centers do token — camada acima dos advertisers. Só busca depois
-// de conectado. `unsupported: true` na resposta = Zernio sem o endpoint.
-export function useAdsBusinessCenters(connected: boolean) {
-  return useSWR<AdsBusinessCentersResponse>(connected ? '/api/ads/business-centers' : null, fetcher, {
-    revalidateOnFocus: true,
-    keepPreviousData: true,
-  })
-}
-
 // Advertisers do token — só busca depois de conectado (connected = true).
-// `businessCenterId` entra na CHAVE do SWR: trocar de BC recarrega a lista.
-export function useAdsAccounts(connected: boolean, businessCenterId?: string) {
-  const qs = businessCenterId ? `?businessCenterId=${encodeURIComponent(businessCenterId)}` : ''
-  return useSWR<AdsAccountsResponse>(connected ? `/api/ads/accounts${qs}` : null, fetcher, {
+// Pipeboard não tem Business Centers: as contas vêm direto do token.
+export function useAdsAccounts(connected: boolean) {
+  return useSWR<AdsAccountsResponse>(connected ? '/api/ads/accounts' : null, fetcher, {
     revalidateOnFocus: true,
-    // Nunca reutiliza a lista/seleção do BC anterior durante a troca.
+    // Nunca reutiliza a lista/seleção anterior durante a troca de conta.
     keepPreviousData: false,
   })
 }
@@ -355,7 +344,7 @@ export function useAdsTree(
   if (filters.page && filters.page > 1) params.set('page', String(filters.page))
   params.set('limit', '100')
   params.set('daily', '1') // sparkline de tendência por campanha
-  // Cada polling automático pede uma leitura fresca à Zernio. Sem isso, o
+  // Cada polling automático pede uma leitura fresca ao backend. Sem isso, o
   // intervalo de 60s ainda podia receber o snapshot antigo do cache local.
   params.set('fresh', '1')
   const qs = params.toString()
@@ -365,7 +354,7 @@ export function useAdsTree(
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     refreshWhenHidden: false,
-    // Continua tentando após falhas transitórias da Zernio, sem congelar a UI.
+    // Continua tentando após falhas transitórias do backend, sem congelar a UI.
     shouldRetryOnError: true,
     errorRetryInterval: 10_000,
     errorRetryCount: 6,

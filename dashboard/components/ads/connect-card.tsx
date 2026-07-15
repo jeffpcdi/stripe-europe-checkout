@@ -1,11 +1,13 @@
 'use client'
 
-// Card de conexão OAuth do TikTok Ads. Abre a autorização do TikTok Business
-// em popup/nova aba e, na volta do usuário, confirma a conexão no backend
-// (POST /api/ads/connected descobre a SocialAccount criada pela Zernio).
+// Card de conexão do TikTok Ads via Pipeboard. NÃO há OAuth por usuário:
+// a integração usa uma chave de servidor (PIPEBOARD_API_KEY) que já escopa
+// os advertisers. "Conectar" aqui é uma VERIFICAÇÃO: se a chave está de pé e
+// há advertiser visível, a conta já está conectada. Se a chave está ok mas
+// nenhum advertiser aparece, o vínculo é feito no painel do Pipeboard.
 
-import { useEffect, useRef, useState } from 'react'
-import { ExternalLink, ShieldCheck, LineChart, Clapperboard, Loader2, RefreshCw } from 'lucide-react'
+import { useState } from 'react'
+import { ShieldCheck, LineChart, Clapperboard, Loader2, RefreshCw, ExternalLink } from 'lucide-react'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { GlassCard } from '@/components/glass-card'
@@ -32,74 +34,39 @@ const BENEFITS = [
   },
   {
     icon: ShieldCheck,
-    title: 'Conexão oficial',
-    text: 'Autorização OAuth do TikTok for Business. Você pode revogar quando quiser.',
+    title: 'Integração de servidor',
+    text: 'Conexão via Pipeboard com chave gerenciada no servidor — sem tokens no navegador.',
   },
 ]
 
 export function AdsConnectCard({ onConnected }: { onConnected: () => void }) {
-  const [starting, setStarting] = useState(false)
-  // 'idle' → 'waiting' (popup aberto) → confirmação
-  const [waiting, setWaiting] = useState(false)
   const [checking, setChecking] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Ao voltar o foco para o painel com a espera ativa, confirma a conexão.
-  useEffect(() => {
-    if (!waiting) return
-    let cancelled = false
-
-    async function check() {
-      if (cancelled) return
-      setChecking(true)
-      try {
-        const r = await apiSend<{ connected: boolean }>('/api/ads/connected', 'POST')
-        if (r.connected && !cancelled) {
-          toast.success('Conta TikTok Ads conectada')
-          setWaiting(false)
-          onConnected()
-        }
-      } catch {
-        // silencioso: o usuário pode ainda estar no meio do OAuth
-      } finally {
-        if (!cancelled) setChecking(false)
-      }
-    }
-
-    function onFocus() {
-      check()
-    }
-    window.addEventListener('focus', onFocus)
-    // fallback: tenta a cada 5s enquanto espera (o OAuth pode fechar sozinho)
-    pollRef.current = setInterval(check, 5000)
-    return () => {
-      cancelled = true
-      window.removeEventListener('focus', onFocus)
-      if (pollRef.current) clearInterval(pollRef.current)
-    }
-  }, [waiting, onConnected])
+  // 422 NO_ADVERTISER_VISIBLE: chave ok, mas falta vincular a conta no Pipeboard
+  const [needsLink, setNeedsLink] = useState(false)
 
   async function handleConnect() {
-    setStarting(true)
+    setChecking(true)
     try {
-      const r = await apiSend<{ authUrl: string; alreadyConnected?: boolean }>('/api/ads/connect', 'POST')
-      // Zernio pode responder que a profile já tem a conta conectada — nesse
-      // caso pulamos o OAuth e confirmamos direto no backend.
+      const r = await apiSend<{ alreadyConnected?: boolean }>('/api/ads/connect', 'POST')
       if (r.alreadyConnected) {
         const c = await apiSend<{ connected: boolean }>('/api/ads/connected', 'POST')
         if (c.connected) {
-          toast.success('Conta TikTok Ads já estava conectada')
+          toast.success('Conta TikTok Ads conectada')
           onConnected()
           return
         }
       }
-      // abre em nova aba (o OAuth do TikTok não funciona bem em iframe)
-      window.open(r.authUrl, '_blank', 'noopener')
-      setWaiting(true)
+      setNeedsLink(true)
     } catch (e) {
-      toast.error('Falha ao iniciar a conexão', { hint: e instanceof Error ? e.message : undefined })
+      const msg = e instanceof Error ? e.message : ''
+      // o backend responde 422 com instruções quando falta vincular a conta
+      if (msg.includes('advertiser') || msg.includes('Pipeboard')) {
+        setNeedsLink(true)
+      } else {
+        toast.error('Falha ao verificar a conexão', { hint: msg || undefined })
+      }
     } finally {
-      setStarting(false)
+      setChecking(false)
     }
   }
 
@@ -116,7 +83,7 @@ export function AdsConnectCard({ onConnected }: { onConnected: () => void }) {
             </h3>
             <p className="mt-1 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground">
               Veja campanhas e métricas, suba anúncios com criativos de vídeo e gerencie tudo sem sair do
-              painel. A autorização é feita direto no TikTok for Business.
+              painel. A integração é feita pelo Pipeboard, com a chave configurada no servidor.
             </p>
           </div>
         </div>
@@ -131,81 +98,33 @@ export function AdsConnectCard({ onConnected }: { onConnected: () => void }) {
           ))}
         </ul>
 
-        {/* Guia em passos — o usuário sabe exatamente o que vem depois do OAuth */}
-        <ol className="flex flex-col gap-2 sm:flex-row sm:gap-3" aria-label="Como conectar">
-          {[
-            'Clique em "Conectar" e autorize no TikTok for Business',
-            'De volta ao painel, escolha o Business Center',
-            'Selecione a conta de anúncio e gerencie tudo daqui',
-          ].map((step, i) => (
-            <li key={step} className="flex flex-1 items-start gap-2.5 rounded-xl border border-border bg-card/50 p-3">
-              <span
-                className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-bold text-primary"
-                aria-hidden="true"
-              >
-                {i + 1}
-              </span>
-              <span className="text-pretty text-xs leading-relaxed text-muted-foreground">{step}</span>
-            </li>
-          ))}
-        </ol>
-
-        {/* O TikTok define QUAIS contas o token acessa na tela de consentimento
-            do OAuth. Sem esse aviso, o usuário autoriza só 1 conta e acha que
-            a integração está quebrada. */}
-        <p className="rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-pretty text-xs leading-relaxed text-warning">
-          Importante: na tela de autorização do TikTok, marque a sua Business Center inteira (ou todas
-          as contas de anúncio que quer gerenciar). O TikTok só libera acesso ao que for selecionado
-          nessa etapa — para adicionar contas depois, é preciso reconectar.
-        </p>
+        {needsLink && (
+          <div className="flex flex-col gap-3 rounded-lg border border-warning/25 bg-warning/10 px-4 py-3">
+            <p className="text-pretty text-xs leading-relaxed text-warning">
+              A chave do Pipeboard está ativa, mas nenhuma conta de anúncio está visível ainda. Vincule a sua
+              conta TikTok Ads no painel do Pipeboard e verifique novamente.
+            </p>
+            <a
+              href="https://pipeboard.co"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-warning underline underline-offset-2"
+            >
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+              Abrir painel do Pipeboard
+            </a>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-3">
-          {!waiting ? (
-            <button type="button" className="btn-primary" onClick={handleConnect} disabled={starting}>
-              {starting ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <ExternalLink className="size-4" aria-hidden="true" />
-              )}
-              Conectar TikTok Ads
-            </button>
-          ) : (
-            <>
-              <span className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-                <Loader2 className="size-4 animate-spin text-brand-cyan" aria-hidden="true" />
-                Aguardando a autorização na aba do TikTok…
-              </span>
-              <button
-                type="button"
-                className="btn-ghost text-xs"
-                onClick={async () => {
-                  setChecking(true)
-                  try {
-                    const r = await apiSend<{ connected: boolean }>('/api/ads/connected', 'POST')
-                    if (r.connected) {
-                      toast.success('Conta TikTok Ads conectada')
-                      setWaiting(false)
-                      onConnected()
-                    } else {
-                      toast.info('Ainda não detectamos a autorização', {
-                        hint: 'Conclua o login no TikTok e tente de novo.',
-                      })
-                    }
-                  } catch (e) {
-                    toast.error('Falha ao verificar a conexão', {
-                      hint: e instanceof Error ? e.message : undefined,
-                    })
-                  } finally {
-                    setChecking(false)
-                  }
-                }}
-                disabled={checking}
-              >
-                <RefreshCw className={`size-3.5 ${checking ? 'animate-spin' : ''}`} aria-hidden="true" />
-                Já autorizei
-              </button>
-            </>
-          )}
+          <button type="button" className="btn-primary" onClick={handleConnect} disabled={checking}>
+            {checking ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw className="size-4" aria-hidden="true" />
+            )}
+            {needsLink ? 'Verificar novamente' : 'Conectar TikTok Ads'}
+          </button>
         </div>
       </div>
     </GlassCard>

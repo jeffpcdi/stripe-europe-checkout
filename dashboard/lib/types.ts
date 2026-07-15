@@ -706,26 +706,13 @@ export interface AdsCapabilities {
 
 // ── /api/ads/status — estado da integração ──
 export interface AdsStatusResponse {
-  enabled: boolean // PIPEBOARD_API_TOKEN presente no servidor
+  enabled: boolean // PIPEBOARD_API_KEY presente no servidor
   connected: boolean
   account?: { id: string; username: string; displayName: string }
   businessCenterId?: string
   advertiserId?: string
   identity?: AdsIdentity | null
   capabilities?: AdsCapabilities
-}
-
-// ── GET /api/ads/business-centers — camada acima dos advertisers ──
-export interface AdsBusinessCenter {
-  id: string
-  name: string
-  type?: string
-}
-
-export interface AdsBusinessCentersResponse {
-  businessCenters: AdsBusinessCenter[]
-  selected: string
-  unsupported?: boolean // Zernio sem o endpoint — a UI esconde o seletor
 }
 
 export interface AdsIdentity {
@@ -999,6 +986,10 @@ export type AdsRuleAction = 'pause' | 'budget_down' | 'budget_up' | 'activate'
 export interface AdsRule {
   id: string
   enabled: boolean
+  // Nome/descrição legíveis (presets de fábrica trazem; regras antigas não)
+  name?: string
+  description?: string
+  preset?: boolean // regra semeada de fábrica (badge na UI)
   metric: AdsRuleMetric
   threshold: number
   lookbackDays: number
@@ -1275,7 +1266,7 @@ export interface AdsSafetyPolicyResponse {
 }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ────────────────────────
-// A Zernio não publica campanhas de catálogo; gerimos produtos + feed aqui e
+// O backend não publica campanhas de catálogo; gerimos produtos + feed aqui e
 // publicamos um CSV TikTok-ready numa URL pública (Blob) para feed agendado.
 export interface AdsCatalog {
   id: string

@@ -1,16 +1,15 @@
 'use client'
 
-// Aba TikTok Ads (via Zernio) — orquestra conexão OAuth, seleção de
+// Aba TikTok Ads (via Pipeboard) — orquestra verificação de conexão, seleção de
 // advertiser, KPIs agregados e a árvore de campanhas. Os fluxos de escrita
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
 import { useMemo, useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, Zap, UserRound, Copy, Layers, MoreHorizontal, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
-  useAdsBusinessCenters,
   useAdsTree,
   useAdsAttribution,
   useAdsSafetyPolicy,
@@ -40,6 +39,7 @@ import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
 import { CatalogDialog } from './catalog-dialog'
 import { OpsStatusCards } from './ops-status-cards'
+import { AutomationPanel } from './automation-panel'
 import { McpStatusCard } from './mcp-status-card'
 import { KpiRow } from './kpi-row'
 import { BriefingCard } from './briefing-card'
@@ -52,12 +52,8 @@ export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
   const connected = Boolean(status?.connected)
 
-  // Business Center selecionado (camada acima do advertiser). null = usa o salvo.
-  const { data: bcs, mutate: mutateBcs } = useAdsBusinessCenters(connected)
-  const [bcId, setBcId] = useState<string | null>(null)
-  const effectiveBc = bcId ?? bcs?.selected ?? ''
-
-  const { data: accounts, mutate: mutateAccounts } = useAdsAccounts(connected, effectiveBc || undefined)
+  // Pipeboard não tem Business Center — as contas vêm direto do token.
+  const { data: accounts, mutate: mutateAccounts } = useAdsAccounts(connected)
 
   const [advertiserId, setAdvertiserId] = useState<string | null>(null) // null = usa o salvo
   const effectiveAdvertiser = advertiserId ?? accounts?.selected ?? ''
@@ -66,8 +62,8 @@ export function TikTokAdsView() {
   const [statusFilter, setStatusFilter] = useState('active')
   const [sort, setSort] = useState('newest')
   const [page, setPage] = useState(1)
-  // Período das métricas/descoberta de campanhas. Default 365d — a janela
-  // curta (90d da Zernio) escondia campanhas antigas e parecia "faltando".
+  // Período das métricas/descoberta de campanhas. Default 365d — janela
+  // curta escondia campanhas antigas e parecia "faltando".
   const [rangeDays, setRangeDays] = useState(365)
   const { fromDate, toDate } = useMemo(() => {
     const iso = (d: Date) => d.toISOString().slice(0, 10)
@@ -93,6 +89,12 @@ export function TikTokAdsView() {
 
   // Vendas reais por campanha — mesmo lookback padrão da árvore (7 dias)
   const { data: attribution } = useAdsAttribution(treeActive, effectiveAdvertiser)
+
+  // Sub-abas por tarefa: a página empilhava 12 cards numa coluna só e ninguém
+  // achava nada. Cada aba tem UM propósito: ver resultado / operar campanhas /
+  // configurar automações / usar a IA. Estado local (não URL) — trocar de aba
+  // não recarrega nada, os hooks SWR continuam vivos.
+  const [tab, setTab] = useState<'overview' | 'campaigns' | 'automation' | 'ai'>('overview')
 
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -179,7 +181,6 @@ export function TikTokAdsView() {
       await apiSend('/api/ads/disconnect', 'POST')
       toast.success('Conta TikTok Ads desconectada')
       setAdvertiserId(null)
-      setBcId(null)
       mutateStatus()
     } catch (e) {
       toast.error('Falha ao desconectar', { hint: e instanceof Error ? e.message : undefined })
@@ -196,7 +197,7 @@ export function TikTokAdsView() {
         <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <ErrorState
           title="Integração não configurada no servidor"
-          description="A variável ZERNIO_API_KEY não está definida (ou é inválida). Adicione a chave sk_… da Zernio nas variáveis de ambiente do servidor, reinicie e tente novamente."
+          description="A variável PIPEBOARD_API_KEY não está definida no servidor. Gere o token no painel do Pipeboard (pipeboard.co), adicione às variáveis de ambiente e tente novamente."
           onRetry={() => mutateStatus()}
         />
       </div>
@@ -227,7 +228,7 @@ export function TikTokAdsView() {
     )
   }
 
-  // ── Estado: n��o conectado → card de conexão OAuth ────────────────────────
+  // ── Estado: não conectado → card de verificação de conexão ───────────────
   if (!connected) {
     return (
       <div className="flex flex-col gap-5">
@@ -285,15 +286,6 @@ export function TikTokAdsView() {
           <button type="button" className="btn-primary text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
             <Plus className="size-3.5" aria-hidden="true" />
             Nova campanha
-          </button>
-          <button
-            type="button"
-            className="btn-ghost text-xs opacity-40"
-            disabled
-            title="Duplicar campanha está temporariamente indisponível nesta versão."
-          >
-            <Copy className="size-3.5" aria-hidden="true" />
-            Duplicar
           </button>
           <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setBulkOpen)}>
             <Layers className="size-3.5" aria-hidden="true" />
@@ -358,22 +350,12 @@ export function TikTokAdsView() {
         </div>
       </div>
 
-      {/* Barra de contexto: BC → conta de anúncio + deep-link + desconectar */}
+      {/* Barra de contexto: conta de anúncio + deep-link + desconectar */}
       <AdsContextBar
         accountLabel={status?.account?.displayName || status?.account?.username || status?.account?.id || ''}
-        businessCenters={bcs?.businessCenters ?? []}
-        bcUnsupported={Boolean(bcs?.unsupported)}
-        selectedBc={effectiveBc}
         advertisers={advertisers}
         selectedAdvertiser={effectiveAdvertiser}
         refreshing={treeValidating}
-        onBcChanged={(newBc, newAdvertiser) => {
-          setBcId(newBc)
-          setAdvertiserId(newAdvertiser || '')
-          setPage(1)
-          mutateBcs()
-          mutateAccounts()
-        }}
         onAdvertiserChanged={(id) => {
           setAdvertiserId(id)
           setPage(1)
@@ -389,7 +371,6 @@ export function TikTokAdsView() {
           }
           mutateTree()
           mutateAccounts()
-          mutateBcs()
         }}
         onDisconnect={status?.capabilities?.oauthConnect === false ? null : () => setConfirmDisconnect(true)}
       />
@@ -409,16 +390,37 @@ export function TikTokAdsView() {
         </GlassCard>
       ) : (
         <>
-          {/* Painel de operação: automações, alertas e fila (foco desta tela) */}
-          <OpsStatusCards
-            active={treeActive}
-            onOpenAutomation={() => setRulesOpen(true)}
-            onOpenAlerts={() => setAlertsOpen(true)}
-            onOpenOps={() => setOpsOpen(true)}
-          />
-
-          {/* Diagnóstico da integração MCP Pipeboard (linha fina, expande) */}
-          <McpStatusCard active={treeActive} />
+          {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
+              (pill tablist) é o mesmo da aba Atividade. */}
+          <div
+            className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-[var(--hover)] p-0.5 self-start"
+            role="tablist"
+            aria-label="Seções do TikTok Ads"
+          >
+            {(
+              [
+                { value: 'overview', label: 'Visão geral' },
+                { value: 'campaigns', label: 'Campanhas' },
+                { value: 'automation', label: 'Automações' },
+                { value: 'ai', label: 'IA' },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.value}
+                onClick={() => setTab(t.value)}
+                className={
+                  tab === t.value
+                    ? 'flex shrink-0 items-center rounded-full bg-[var(--active)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors'
+                    : 'flex shrink-0 items-center rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-sub'
+                }
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
 
           {/* Aviso de sincronização bloqueada: sem isto a tela mostraria "0
               campanhas / tudo zerado" como se a conta estivesse vazia, quando na
@@ -475,64 +477,97 @@ export function TikTokAdsView() {
             </GlassCard>
           )}
 
-          {/* Linha de KPIs agregados (página atual da árvore) + delta vs.
-              período anterior (backend/Neon) — extraída para kpi-row.tsx */}
-          <KpiRow
-            kpi={kpi}
-            currency={currency}
-            active={treeActive}
-            adAccountId={concreteAdvertiser}
-            fromDate={fromDate}
-            toDate={toDate}
-          />
+          {/* ── Aba: Visão geral — "como estou indo?" (KPIs, ROAS, briefing) ── */}
+          {tab === 'overview' && (
+            <>
+              <KpiRow
+                kpi={kpi}
+                currency={currency}
+                active={treeActive}
+                adAccountId={concreteAdvertiser}
+                fromDate={fromDate}
+                toDate={toDate}
+              />
+              {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
+              <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
+              {/* Briefing diário da IA (se auto-esconde sem AI_GATEWAY_API_KEY) */}
+              <BriefingCard adAccountId={concreteAdvertiser} currency={currency} />
+            </>
+          )}
 
-          {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
-          <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
+          {/* ── Aba: Campanhas — "operar" (árvore + ações) ── */}
+          {tab === 'campaigns' && (
+            <CampaignTree
+              tree={tree}
+              loading={treeLoading && !tree}
+              error={treeError ? String((treeError as Error).message || 'erro') : null}
+              currency={currency}
+              statusFilter={statusFilter}
+              onStatusFilter={(s) => {
+                setStatusFilter(s)
+                setPage(1)
+              }}
+              sort={sort}
+              onSort={(s) => {
+                setSort(s)
+                setPage(1)
+              }}
+              page={page}
+              onPage={setPage}
+              rangeDays={rangeDays}
+              onRangeDays={(d) => {
+                setRangeDays(d)
+                setPage(1)
+              }}
+              onMutate={() => mutateTree()}
+              onRetry={() => mutateTree()}
+              onOpenDetail={setDetailCampaign}
+              onDuplicate={setDuplicateCampaign}
+              attribution={attribution?.byCampaign}
+            />
+          )}
 
-          {/* ── Camada de IA (some inteira se AI_GATEWAY_API_KEY não estiver
-              configurada no servidor — cada card se auto-esconde no 503) ── */}
-          <BriefingCard adAccountId={concreteAdvertiser} currency={currency} />
-          <CopilotPanel
-            active={treeActive}
-            adAccountId={concreteAdvertiser}
-            currency={currency}
-            aiEnabled={aiEnabled}
-            onMutateTree={() => mutateTree()}
-          />
-          <div className="grid gap-3 md:grid-cols-2">
-            <CreativeInsightsCard adAccountId={concreteAdvertiser} currency={currency} />
-            <BudgetProposalCard adAccountId={concreteAdvertiser} currency={currency} onApplied={() => mutateTree()} />
-          </div>
+          {/* ── Aba: Automações — regras, alertas, fila e diagnóstico ── */}
+          {tab === 'automation' && (
+            <>
+              <OpsStatusCards
+                active={treeActive}
+                onOpenAutomation={() => setRulesOpen(true)}
+                onOpenAlerts={() => setAlertsOpen(true)}
+                onOpenOps={() => setOpsOpen(true)}
+              />
+              {/* Painel inline: regras com toggle de 1 clique + histórico do
+                  motor — o dia a dia sem precisar abrir o editor completo */}
+              <AutomationPanel
+                active={treeActive}
+                onOpenRulesEditor={() => setRulesOpen(true)}
+                onOpenAlertsEditor={() => setAlertsOpen(true)}
+              />
+              {/* Diagnóstico da integração MCP Pipeboard (linha fina, expande) */}
+              <McpStatusCard active={treeActive} />
+            </>
+          )}
 
-          {/* Árvore de campanhas */}
-          <CampaignTree
-            tree={tree}
-            loading={treeLoading && !tree}
-            error={treeError ? String((treeError as Error).message || 'erro') : null}
-            currency={currency}
-            statusFilter={statusFilter}
-            onStatusFilter={(s) => {
-              setStatusFilter(s)
-              setPage(1)
-            }}
-            sort={sort}
-            onSort={(s) => {
-              setSort(s)
-              setPage(1)
-            }}
-            page={page}
-            onPage={setPage}
-            rangeDays={rangeDays}
-            onRangeDays={(d) => {
-              setRangeDays(d)
-              setPage(1)
-            }}
-            onMutate={() => mutateTree()}
-            onRetry={() => mutateTree()}
-            onOpenDetail={setDetailCampaign}
-            onDuplicate={setDuplicateCampaign}
-            attribution={attribution?.byCampaign}
-          />
+          {/* ── Aba: IA — copiloto, insights de criativo, realocação ── */}
+          {tab === 'ai' && (
+            <>
+              <CopilotPanel
+                active={treeActive}
+                adAccountId={concreteAdvertiser}
+                currency={currency}
+                aiEnabled={aiEnabled}
+                onMutateTree={() => mutateTree()}
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <CreativeInsightsCard adAccountId={concreteAdvertiser} currency={currency} />
+                <BudgetProposalCard
+                  adAccountId={concreteAdvertiser}
+                  currency={currency}
+                  onApplied={() => mutateTree()}
+                />
+              </div>
+            </>
+          )}
         </>
       )}
 

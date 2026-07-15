@@ -366,12 +366,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // ── Conexão — F6, semântica Pipeboard ──────────────────────────────────────
   // NÃO há OAuth por usuário: a integração é uma chave de servidor
-  // (PIPEBOARD_API_TOKEN) que já escopa os advertisers. "Conectar" no painel
+  // (PIPEBOARD_API_KEY) que já escopa os advertisers. "Conectar" no painel
   // vira uma verificação: se a chave está de pé e há advertiser, já está
   // conectado. GET mantido por compatibilidade com integrações antigas.
   async function startConnect(req, res) {
     try {
-      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor (PIPEBOARD_API_TOKEN)' });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor (PIPEBOARD_API_KEY)' });
       const s = await pipeboard.getStatus(req.account.id);
       if (s.connected) return res.json({ alreadyConnected: true, authUrl: '' });
       // Chave ok mas nenhum advertiser visível: não existe URL de autorização
@@ -406,23 +406,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     });
   });
 
-  // ── Business Centers (camada acima dos advertisers) ──────────────────────
-  // A Zernio expõe GET /ads/business-centers; a criação de BC/conta de anúncio
-  // NÃO tem API (só a UI do TikTok) — por isso o deep-link mais abaixo.
-  // Se a Zernio não suportar o endpoint (404), devolvemos lista vazia com
-  // `unsupported: true` e a UI esconde o seletor de BC (nunca prometer o que
-  // a API não faz).
-  // Pipeboard NÃO tem Business Center (nem API nem conceito). A UI mantém o
-  // seletor de BC escondido quando `unsupported: true`. Deixamos o helper por
-  // compatibilidade com as rotas, sempre devolvendo lista vazia + unsupported.
-  async function listBusinessCenters(_accId, _st) {
-    return { businessCenters: [], unsupported: true };
-  }
-
-  // Lista advertisers via provider (os 155 do token). O provider já normaliza
-  // healthStatus + rawStatus e resolve o selecionado. `businessCenterId` é
-  // ignorado (não existe no Pipeboard) — mantido na assinatura por compat.
-  async function listAdvertisers(accId, _st, _businessCenterId) {
+  // ── Advertisers: helpers ───────────────────────────────────────────────────
+  // Lista advertisers via provider. O provider já normaliza healthStatus +
+  // rawStatus e resolve o selecionado. (Business Centers da era Zernio foram
+  // removidos: o Pipeboard não tem o conceito — as contas vêm do token.)
+  async function listAdvertisers(accId, _st) {
     const out = await pipeboard.listAdvertisers(accId, { enrich: 0 });
     return out.advertisers;
   }
@@ -444,22 +432,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return { advertiserId, businessCenterId: '', advertiser: { id: advertiserId } };
   }
 
-  app.get('/api/ads/business-centers', dashboardAuth, async (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    try {
-      // Pipeboard não tem BC: sempre unsupported → a UI esconde o seletor.
-      const out = await listBusinessCenters(req.account.id);
-      res.json({ businessCenters: out.businessCenters, selected: '', unsupported: out.unsupported });
-    } catch (err) { fail(res, err); }
-  });
-
-  app.post('/api/ads/business-centers/select', dashboardAuth, async (req, res) => {
-    // Sem BC no Pipeboard — no-op idempotente (a UI não deve chamar isto).
-    res.json({ ok: true, businessCenterId: '', advertiserId: pipeboard.getState(req.account.id).advertiserId || '' });
-  });
-
   // ── Deep-link: criar conta de anúncio (NÃO há API — só a UI do TikTok) ────
-  // Sem BC, o deep-link aponta para o Business Center genérico do TikTok.
   app.get('/api/ads/deeplink/create-account', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({ url: 'https://business.tiktok.com/', businessCenterId: '' });
@@ -1386,7 +1359,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         cpaMax: Math.max(0, Math.min(100000, Number(b.cpaMax) || 0)),
         lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2))
       };
-      pipeboard.setState(req.account.id, { alerts: cfg });
+      // alertsSeeded: salvar é escolha do usuário — o seed não mexe mais aqui.
+      pipeboard.setState(req.account.id, { alerts: cfg, alertsSeeded: true });
       res.json(cfg);
     } catch (err) { fail(res, err); }
   });
@@ -1551,11 +1525,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.json({ rules: automation.getRules(req.account.id), log: automation.getRulesLog(req.account.id) });
   });
 
+  // Pacote de presets de fábrica — a UI usa para "adicionar preset" individual
+  // ou "restaurar presets" sem duplicar as constantes no front. Sempre vem
+  // com enabled:false (quem liga é o usuário, regra a regra).
+  app.get('/api/ads/rules/presets', dashboardAuth, (_req, res) => {
+    res.json({ presets: automation.buildRulePresets() });
+  });
+
   app.put('/api/ads/rules', dashboardAuth, (req, res) => {
     try {
-      // validação/clamps (inclusive dos campos novos) centralizada no motor
+      // validação/clamps (inclusive dos campos novos) centralizada no motor.
+      // rulesSeeded junto: salvar (mesmo lista vazia) é escolha do usuário —
+      // o seed automático nunca mais mexe nesta conta.
       const rules = automation.validateRules((req.body || {}).rules);
-      pipeboard.setState(req.account.id, { rules });
+      pipeboard.setState(req.account.id, { rules, rulesSeeded: true });
       res.json({ rules, log: automation.getRulesLog(req.account.id) });
     } catch (err) { fail(res, err); }
   });
