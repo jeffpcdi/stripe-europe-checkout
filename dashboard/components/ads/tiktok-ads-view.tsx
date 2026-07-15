@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, Zap, UserRound, Copy, Layers, MoreHorizontal, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, HeartPulse, Ban, ShoppingBag } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -39,6 +39,7 @@ import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
 import { CatalogDialog } from './catalog-dialog'
 import { OpsStatusCards } from './ops-status-cards'
+import { AutomationPanel } from './automation-panel'
 import { McpStatusCard } from './mcp-status-card'
 import { KpiRow } from './kpi-row'
 import { BriefingCard } from './briefing-card'
@@ -196,7 +197,7 @@ export function TikTokAdsView() {
         <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <ErrorState
           title="Integração não configurada no servidor"
-          description="A variável PIPEBOARD_API_TOKEN não está definida no servidor. Gere o token no painel do Pipeboard (pipeboard.co), adicione às variáveis de ambiente e tente novamente."
+          description="A variável PIPEBOARD_API_KEY não está definida no servidor. Gere o token no painel do Pipeboard (pipeboard.co), adicione às variáveis de ambiente e tente novamente."
           onRetry={() => mutateStatus()}
         />
       </div>
@@ -227,7 +228,7 @@ export function TikTokAdsView() {
     )
   }
 
-  // ── Estado: n��o conectado → card de conexão OAuth ────────────────────────
+  // ── Estado: não conectado → card de verificação de conexão ───────────────
   if (!connected) {
     return (
       <div className="flex flex-col gap-5">
@@ -476,64 +477,97 @@ export function TikTokAdsView() {
             </GlassCard>
           )}
 
-          {/* Linha de KPIs agregados (página atual da árvore) + delta vs.
-              período anterior (backend/Neon) — extraída para kpi-row.tsx */}
-          <KpiRow
-            kpi={kpi}
-            currency={currency}
-            active={treeActive}
-            adAccountId={concreteAdvertiser}
-            fromDate={fromDate}
-            toDate={toDate}
-          />
+          {/* ── Aba: Visão geral — "como estou indo?" (KPIs, ROAS, briefing) ── */}
+          {tab === 'overview' && (
+            <>
+              <KpiRow
+                kpi={kpi}
+                currency={currency}
+                active={treeActive}
+                adAccountId={concreteAdvertiser}
+                fromDate={fromDate}
+                toDate={toDate}
+              />
+              {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
+              <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
+              {/* Briefing diário da IA (se auto-esconde sem AI_GATEWAY_API_KEY) */}
+              <BriefingCard adAccountId={concreteAdvertiser} currency={currency} />
+            </>
+          )}
 
-          {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
-          <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
+          {/* ── Aba: Campanhas — "operar" (árvore + ações) ── */}
+          {tab === 'campaigns' && (
+            <CampaignTree
+              tree={tree}
+              loading={treeLoading && !tree}
+              error={treeError ? String((treeError as Error).message || 'erro') : null}
+              currency={currency}
+              statusFilter={statusFilter}
+              onStatusFilter={(s) => {
+                setStatusFilter(s)
+                setPage(1)
+              }}
+              sort={sort}
+              onSort={(s) => {
+                setSort(s)
+                setPage(1)
+              }}
+              page={page}
+              onPage={setPage}
+              rangeDays={rangeDays}
+              onRangeDays={(d) => {
+                setRangeDays(d)
+                setPage(1)
+              }}
+              onMutate={() => mutateTree()}
+              onRetry={() => mutateTree()}
+              onOpenDetail={setDetailCampaign}
+              onDuplicate={setDuplicateCampaign}
+              attribution={attribution?.byCampaign}
+            />
+          )}
 
-          {/* ── Camada de IA (some inteira se AI_GATEWAY_API_KEY não estiver
-              configurada no servidor — cada card se auto-esconde no 503) ── */}
-          <BriefingCard adAccountId={concreteAdvertiser} currency={currency} />
-          <CopilotPanel
-            active={treeActive}
-            adAccountId={concreteAdvertiser}
-            currency={currency}
-            aiEnabled={aiEnabled}
-            onMutateTree={() => mutateTree()}
-          />
-          <div className="grid gap-3 md:grid-cols-2">
-            <CreativeInsightsCard adAccountId={concreteAdvertiser} currency={currency} />
-            <BudgetProposalCard adAccountId={concreteAdvertiser} currency={currency} onApplied={() => mutateTree()} />
-          </div>
+          {/* ── Aba: Automações — regras, alertas, fila e diagnóstico ── */}
+          {tab === 'automation' && (
+            <>
+              <OpsStatusCards
+                active={treeActive}
+                onOpenAutomation={() => setRulesOpen(true)}
+                onOpenAlerts={() => setAlertsOpen(true)}
+                onOpenOps={() => setOpsOpen(true)}
+              />
+              {/* Painel inline: regras com toggle de 1 clique + histórico do
+                  motor — o dia a dia sem precisar abrir o editor completo */}
+              <AutomationPanel
+                active={treeActive}
+                onOpenRulesEditor={() => setRulesOpen(true)}
+                onOpenAlertsEditor={() => setAlertsOpen(true)}
+              />
+              {/* Diagnóstico da integração MCP Pipeboard (linha fina, expande) */}
+              <McpStatusCard active={treeActive} />
+            </>
+          )}
 
-          {/* Árvore de campanhas */}
-          <CampaignTree
-            tree={tree}
-            loading={treeLoading && !tree}
-            error={treeError ? String((treeError as Error).message || 'erro') : null}
-            currency={currency}
-            statusFilter={statusFilter}
-            onStatusFilter={(s) => {
-              setStatusFilter(s)
-              setPage(1)
-            }}
-            sort={sort}
-            onSort={(s) => {
-              setSort(s)
-              setPage(1)
-            }}
-            page={page}
-            onPage={setPage}
-            rangeDays={rangeDays}
-            onRangeDays={(d) => {
-              setRangeDays(d)
-              setPage(1)
-            }}
-            onMutate={() => mutateTree()}
-            onRetry={() => mutateTree()}
-            onOpenDetail={setDetailCampaign}
-            onDuplicate={setDuplicateCampaign}
-            attribution={attribution?.byCampaign}
-          />
+          {/* ── Aba: IA — copiloto, insights de criativo, realocação ── */}
+          {tab === 'ai' && (
+            <>
+              <CopilotPanel
+                active={treeActive}
+                adAccountId={concreteAdvertiser}
+                currency={currency}
+                aiEnabled={aiEnabled}
+                onMutateTree={() => mutateTree()}
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <CreativeInsightsCard adAccountId={concreteAdvertiser} currency={currency} />
+                <BudgetProposalCard
+                  adAccountId={concreteAdvertiser}
+                  currency={currency}
+                  onApplied={() => mutateTree()}
+                />
+              </div>
+            </>
+          )}
         </>
       )}
 
