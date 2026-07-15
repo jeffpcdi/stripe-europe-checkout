@@ -332,15 +332,19 @@ export function TikTokAdsView() {
                     </span>
                   )}
                 </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                  onSelect={() => setIdentityOpen(true)}
-                >
-                  <UserRound className="size-3.5" aria-hidden="true" />
-                  <span className="truncate">
-                    {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
-                  </span>
-                </DropdownMenu.Item>
+                {/* F6: identidade customizada foi descontinuada pelo TikTok —
+                    só aparece se o backend disser que suporta (capability). */}
+                {status?.capabilities?.customIdentity !== false && (
+                  <DropdownMenu.Item
+                    className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                    onSelect={() => setIdentityOpen(true)}
+                  >
+                    <UserRound className="size-3.5" aria-hidden="true" />
+                    <span className="truncate">
+                      {status?.identity ? 'Identidade: ' + status.identity.displayName : 'Brand Identity'}
+                    </span>
+                  </DropdownMenu.Item>
+                )}
                 <DropdownMenu.Item
                   className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
                   onSelect={() => openWriteFlow(setCatalogOpen)}
@@ -387,7 +391,7 @@ export function TikTokAdsView() {
           mutateAccounts()
           mutateBcs()
         }}
-        onDisconnect={() => setConfirmDisconnect(true)}
+        onDisconnect={status?.capabilities?.oauthConnect === false ? null : () => setConfirmDisconnect(true)}
       />
 
       {!effectiveAdvertiser ? (

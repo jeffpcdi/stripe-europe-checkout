@@ -643,6 +643,690 @@ async function updateAdGroup(advertiserId, adGroupId, patch) {
   return pipeboard.callTool('update_tiktok_adgroup', args);
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// F1 — Criação de campanha completa (campaign → adgroup → upload → ad).
+// A Zernio tinha um endpoint único /ads/create; no Pipeboard é uma COMPOSIÇÃO
+// de 4-6 tools. Toda escrita passa por aqui — rotas nunca chamam callTool.
+// Erros carregam e.step ('regions'|'identity'|'campaign'|'adgroup'|'upload'|'ad')
+// e e.createdIds (o que já existe na plataforma) p/ a rota reportar com precisão
+// e nada ficar gastando: falha após criar campanha → pausamos a campanha órfã.
+// ════════════════════════════════════════════════════════════════════════════
+
+// goal do frontend → objetivo TikTok + optimization_goal do adgroup.
+// Enum de objetivos confirmado ao vivo no dump do tools/list (2026-05-07).
+const GOAL_MAP = {
+  traffic: { objective: 'TRAFFIC', optimizationGoal: 'CLICK' },
+  awareness: { objective: 'REACH', optimizationGoal: 'REACH' },
+  video_views: { objective: 'VIDEO_VIEWS', optimizationGoal: 'VIDEO_VIEW' },
+  engagement: { objective: 'ENGAGEMENT', optimizationGoal: 'ENGAGED_VIEW' },
+  lead_generation: { objective: 'LEAD_GENERATION', optimizationGoal: 'LEAD_GENERATION' },
+  conversions: { objective: 'WEB_CONVERSIONS', optimizationGoal: 'CONVERT' },
+  // app_promotion exige app_id (via /app/list/) que a UI não coleta ainda —
+  // rejeitado com mensagem clara em vez de chutar.
+};
+
+// Busca profunda de um campo em respostas do MCP (create retorna campaign_id
+// em posições que variam: raiz, .data, .campaign…). Determinístico e raso (3 níveis).
+function deepPluck(obj, key, depth) {
+  if (!obj || typeof obj !== 'object' || (depth || 0) > 3) return undefined;
+  if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (v && typeof v === 'object') {
+      const found = deepPluck(v, key, (depth || 0) + 1);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
+}
+
+// Primeiro array encontrado na resposta (regions/identities vêm embrulhados
+// com nomes variados: .regions, .identity_list, .list, .data.list…).
+function firstArray(obj, keys) {
+  for (const k of keys) {
+    const v = deepPluck(obj, k);
+    if (Array.isArray(v) && v.length) return v;
+  }
+  return [];
+}
+
+function stepError(step, msg, createdIds, status) {
+  const e = badRequest(msg, status || 502);
+  e.step = step;
+  if (createdIds) e.createdIds = createdIds;
+  return e;
+}
+
+// ISO country codes → location_ids do TikTok. O TikTok NÃO aceita "PT"/"BR"
+// direto — exige os IDs de get_tiktok_targeting_regions. Cache 24h por
+// advertiser+objetivo (a lista de países não muda no dia a dia).
+async function resolveLocationIds(advertiserId, countries, objectiveType) {
+  const ck = 'regions:' + advertiserId + ':' + objectiveType;
+  let regions = cacheGet(ck);
+  if (!regions) {
+    const out = await pipeboard.callTool('get_tiktok_targeting_regions', {
+      advertiser_id: advertiserId, objective_type: objectiveType, level_range: 'TO_COUNTRY',
+    });
+    regions = firstArray(out, ['regions', 'region_info', 'list', 'data']);
+    if (!regions.length) throw stepError('regions', 'TikTok não retornou regiões de segmentação para este advertiser/objetivo');
+    cacheSet(ck, regions, 24 * 60 * 60 * 1000);
+  }
+  const wanted = new Set((countries || []).map((c) => String(c).toUpperCase()));
+  const ids = [];
+  const found = new Set();
+  for (const r of regions) {
+    const code = String(r.region_code || r.country_code || r.code || '').toUpperCase();
+    const id = String(r.location_id || r.region_id || r.id || '');
+    if (id && wanted.has(code) && !found.has(code)) { ids.push(id); found.add(code); }
+  }
+  const missing = [...wanted].filter((c) => !found.has(c));
+  if (!ids.length) throw stepError('regions', 'Nenhum dos países pedidos (' + [...wanted].join(', ') + ') está disponível como região de segmentação neste advertiser', null, 400);
+  return { locationIds: ids, missingCountries: missing };
+}
+
+// Identidade do anúncio — a doc do create_tiktok_ad PROÍBE chutar: tem de vir
+// de get_tiktok_identities. Para anúncio regular (vídeo enviado, não-Spark):
+//   CUSTOMIZED_USER (clássica; criação de novas está deprecated mas as
+//   existentes seguem utilizáveis) > BC_AUTH_TT (exige identity_bc_id e
+//   dark_post_status ON). TT_USER/AUTH_CODE são Spark-only (exigem post).
+async function pickAdIdentity(advertiserId) {
+  const out = await pipeboard.callTool('get_tiktok_identities', { advertiser_id: advertiserId });
+  const list = firstArray(out, ['identities', 'identity_list', 'list', 'data']);
+  const byType = (t) => list.find((i) => String(i.identity_type || '').toUpperCase() === t && (i.identity_id || i.id));
+  const custom = byType('CUSTOMIZED_USER');
+  if (custom) return { identityId: String(custom.identity_id || custom.id), identityType: 'CUSTOMIZED_USER' };
+  const bc = byType('BC_AUTH_TT');
+  if (bc) {
+    return {
+      identityId: String(bc.identity_id || bc.id), identityType: 'BC_AUTH_TT',
+      identityBcId: String(bc.identity_authorized_bc_id || bc.bc_id || deepPluck(bc, 'bc_id') || '') || undefined,
+      darkPost: true,
+    };
+  }
+  throw stepError('identity', 'Nenhuma identidade utilizável para anúncio regular neste advertiser (é preciso uma identidade CUSTOMIZED_USER existente ou BC_AUTH_TT). TT_USER/AUTH_CODE servem só para Spark Ads.', null, 409);
+}
+
+// Upload por URL + polling canônico: get_tiktok_video_info a cada ~5s até
+// displayable. O TikTok deduplica por md5 — re-upload do mesmo arquivo devolve
+// o mesmo video_id (idempotência de graça no retry).
+async function uploadVideoAndWait(advertiserId, videoUrl, createdIds) {
+  const up = await pipeboard.callTool('upload_tiktok_video', {
+    advertiser_id: advertiserId, video_url: videoUrl, wait_for_processing_seconds: 60,
+  });
+  const videoId = String(deepPluck(up, 'video_id') || '');
+  if (!videoId) throw stepError('upload', 'Upload do vídeo não retornou video_id', createdIds);
+  if (deepPluck(up, 'displayable') === true) return videoId;
+  for (let i = 0; i < 8; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const info = await pipeboard.callTool('get_tiktok_video_info', { advertiser_id: advertiserId, video_ids: [videoId] });
+    const vids = firstArray(info, ['videos', 'video_list', 'list', 'data']);
+    const v = vids.find((x) => String(x.video_id || x.id || '') === videoId) || vids[0];
+    if (v && (v.displayable === true || /READY|SUCCEED/i.test(String(v.status || v.video_status || '')))) return videoId;
+  }
+  throw stepError('upload', 'Vídeo enviado (video_id ' + videoId + ') mas não ficou processado/displayable a tempo — tente de novo em instantes (o re-upload reaproveita o mesmo vídeo)', createdIds);
+}
+
+// "YYYY-MM-DD HH:MM:SS" no fuso do ADVERTISER (exigência do schedule_start_time).
+function advertiserLocalTime(timezone, date) {
+  const d = date || new Date(Date.now() + 10 * 60 * 1000); // +10min: "must be in the future"
+  try {
+    const s = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).format(d);
+    return s.replace('T', ' ');
+  } catch (_) {
+    return new Date(d).toISOString().slice(0, 19).replace('T', ' ');
+  }
+}
+
+// ageMin/ageMax → buckets do TikTok.
+const AGE_BUCKETS = [
+  { id: 'AGE_13_17', min: 13, max: 17 }, { id: 'AGE_18_24', min: 18, max: 24 },
+  { id: 'AGE_25_34', min: 25, max: 34 }, { id: 'AGE_35_44', min: 35, max: 44 },
+  { id: 'AGE_45_54', min: 45, max: 54 }, { id: 'AGE_55_100', min: 55, max: 100 },
+];
+function ageGroupsFor(ageMin, ageMax) {
+  const lo = Number(ageMin) || 13; const hi = Number(ageMax) || 100;
+  const out = AGE_BUCKETS.filter((b) => b.max >= lo && b.min <= hi).map((b) => b.id);
+  return out.length && out.length < AGE_BUCKETS.length ? out : undefined; // todos = não segmenta
+}
+
+// Cinto extra da retomada (F2): se o crash aconteceu APÓS criar a campanha mas
+// ANTES de gravar o progresso, o resume não sabe dela. Antes de recriar, lista
+// as campanhas e casa o NOME exato — se já existe, reaproveita o id em vez de
+// duplicar. Falha da listagem NÃO bloqueia (é cinto, não trava).
+async function findCampaignIdByName(advertiserId, name) {
+  try {
+    const out = await pipeboard.callTool('get_tiktok_campaigns', {
+      advertiser_id: advertiserId, page: 1, page_size: 1000,
+    });
+    const list = firstArray(out, ['campaigns', 'campaign_list', 'list', 'data']);
+    const hit = list.find((c) => String(c.campaign_name || c.name || '') === String(name));
+    return hit ? String(hit.campaign_id || hit.id || '') || null : null;
+  } catch (_) { return null; }
+}
+
+// Orquestração completa. spec (já validado pela rota):
+//   { name, goal, videoUrl, budgetAmount, budgetType, endDate?, body?, linkUrl?,
+//     callToAction?, countries?, languages?, ageMin?, ageMax?,
+//     promotedObject? { pixelId, customEventType }, status? 'paused'|'active' }
+// SEMPRE cria o anúncio PAUSED e só liga no fim se spec.status==='active' —
+// nada entra em delivery no meio da composição.
+//
+// opts (F2 — retomada idempotente p/ a fila at-least-once do bulk):
+//   resume      — { campaignId?, adGroupId?, videoId?, adId? } já criados numa
+//                 tentativa anterior; cada passo com ID presente é PULADO.
+//   onProgress  — async (createdIds) => {}: chamado após CADA passo criar algo,
+//                 ANTES do próximo. O caller persiste (Neon) p/ o retry retomar.
+//   dedupeByName — true: antes de criar a campanha (sem resume dela), procura
+//                 nome exato na plataforma e reaproveita (janela crash-antes-
+//                 de-gravar). Só o bulk usa; a rota interativa não precisa.
+async function createFullAd(advertiserId, spec, opts) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const s = spec || {};
+  const o = opts || {};
+  const resume = (o.resume && typeof o.resume === 'object') ? o.resume : {};
+  const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
+  const goal = GOAL_MAP[s.goal];
+  if (!goal) throw badRequest('Objetivo "' + s.goal + '" ainda não suportado na criação via Pipeboard' + (s.goal === 'app_promotion' ? ' (exige app_id, que a UI ainda não coleta)' : ''));
+  if (s.goal === 'conversions') {
+    const evt = String((s.promotedObject || {}).customEventType || '').trim();
+    if (!evt) throw badRequest('Objetivo Conversões exige o evento de otimização (customEventType) — o TikTok não aceita CONVERT sem optimization_event');
+  }
+  const warnings = [];
+  const createdIds = {};
+
+  // Item já completo numa tentativa anterior (crash entre o fim e o ack da
+  // fila): devolve direto, zero chamadas de escrita.
+  if (resume.adId && resume.campaignId) {
+    return { campaignId: String(resume.campaignId), adGroupId: String(resume.adGroupId || ''), videoId: String(resume.videoId || ''), adId: String(resume.adId), name: s.name, warnings: ['Retomado: item já estava completo de uma tentativa anterior'], resumed: true };
+  }
+
+  // Pré-requisitos ANTES de criar qualquer coisa (falha barata, zero órfãos):
+  const [info, identity, regions] = await Promise.all([
+    getAdvertiserInfo(adv),
+    pickAdIdentity(adv),
+    resolveLocationIds(adv, (s.countries && s.countries.length ? s.countries : ['PT']), goal.objective),
+  ]);
+  if (regions.missingCountries.length) warnings.push('Países sem região equivalente no TikTok (ignorados): ' + regions.missingCountries.join(', '));
+
+  // 1) Campanha — orçamento fica no ADGROUP (padrão sem CBO); campanha INFINITE.
+  let campaignId = String(resume.campaignId || '');
+  if (campaignId) {
+    warnings.push('Retomado: campanha ' + campaignId + ' reaproveitada da tentativa anterior');
+  } else {
+    if (o.dedupeByName) {
+      const existing = await findCampaignIdByName(adv, String(s.name).slice(0, 512));
+      if (existing) { campaignId = existing; warnings.push('Campanha "' + s.name + '" já existia na plataforma (crash antes de gravar progresso?) — reaproveitada em vez de duplicar'); }
+    }
+    if (!campaignId) {
+      const campArgs = {
+        advertiser_id: adv,
+        campaign_name: String(s.name).slice(0, 512),
+        objective_type: goal.objective,
+      };
+      if (s.goal === 'conversions') {
+        campArgs.pixel_id = String(s.promotedObject.pixelId);
+        campArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
+      }
+      const campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+      campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+      if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
+    }
+  }
+  createdIds.campaignId = campaignId;
+  await report({ ...createdIds });
+
+  try {
+    // 2) Ad group — targeting/orçamento/agenda.
+    let adGroupId = String(resume.adGroupId || '');
+    if (!adGroupId) {
+      const targeting = { location_ids: regions.locationIds };
+      const ages = ageGroupsFor(s.ageMin, s.ageMax);
+      if (ages) targeting.age_groups = ages;
+      if (Array.isArray(s.languages) && s.languages.length) targeting.languages = s.languages;
+      const agArgs = {
+        advertiser_id: adv,
+        campaign_id: campaignId,
+        adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+        optimization_goal: goal.optimizationGoal,
+        budget_mode: s.budgetType === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY',
+        budget: Number(s.budgetAmount),
+        schedule_start_time: advertiserLocalTime(info && info.timezone),
+        targeting,
+        bid_type: 'BID_TYPE_NO_BID',
+      };
+      if (s.budgetType === 'lifetime' && s.endDate) {
+        agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
+      }
+      if (s.goal === 'conversions') agArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
+      if (s.goal === 'lead_generation') { agArgs.promotion_type = 'LEAD_GENERATION'; agArgs.promotion_target_type = 'EXTERNAL_WEBSITE'; }
+      const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
+      adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+      if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id', createdIds);
+    }
+    createdIds.adGroupId = adGroupId;
+    await report({ ...createdIds });
+
+    // 3) Vídeo (URL pública do Blob → TikTok; dedupe por md5 no retry).
+    const videoId = String(resume.videoId || '') || await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
+    createdIds.videoId = videoId;
+    await report({ ...createdIds });
+
+    // 4) Anúncio — SEMPRE nasce PAUSED.
+    const adArgs = {
+      advertiser_id: adv,
+      adgroup_id: adGroupId,
+      ad_name: String(s.name).slice(0, 500),
+      ad_format: 'SINGLE_VIDEO',
+      ad_text: String(s.body || s.name).slice(0, 100),
+      video_id: videoId,
+      identity_id: identity.identityId,
+      identity_type: identity.identityType,
+      status: 'PAUSED',
+    };
+    if (identity.identityBcId) adArgs.identity_bc_id = identity.identityBcId;
+    if (identity.darkPost) adArgs.dark_post_status = 'ON';
+    if (s.linkUrl) adArgs.landing_page_url = String(s.linkUrl).slice(0, 500);
+    if (s.callToAction) adArgs.call_to_action = String(s.callToAction);
+    const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
+    const adId = String(deepPluck(adOut, 'ad_id') || '');
+    if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id', createdIds);
+    createdIds.adId = adId;
+    await report({ ...createdIds });
+
+    // 5) Só liga no fim, se pedido. Default: fica tudo PAUSED p/ revisão humana.
+    if (String(s.status || 'paused') === 'active') {
+      await setAdStatus(adv, [adId], 'active');
+    } else {
+      warnings.push('Criado em PAUSED — ative na dashboard quando estiver pronto');
+    }
+    cacheBust('tree:');
+    return { ...createdIds, name: s.name, warnings };
+  } catch (err) {
+    // Campanha órfã NÃO pode ficar entregável: pausa best-effort e devolve
+    // o step + o que já foi criado p/ a rota reportar com precisão.
+    try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    if (!err.step) err.step = 'adgroup';
+    err.createdIds = createdIds;
+    throw err;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// F3 — Duplicação de campanha na MESMA conta (composição: não há tool nativa).
+// captureCampaign lê a origem COMPLETA (4 calls, cache 10min — capturar 1× por
+// job mesmo com N cópias) e recreateCampaign recria com allowlist de campos:
+// IDs/timestamps/métricas ficam de fora por construção (só copiamos o que é
+// input válido de create_*). Criativos: MESMA conta ⇒ reaproveita video_id/
+// image_ids da origem (zero re-upload). Tudo nasce PAUSED.
+// ════════════════════════════════════════════════════════════════════════════
+
+async function captureCampaign(advertiserId, campaignId) {
+  const adv = String(advertiserId || '').trim();
+  const cid = String(campaignId || '').trim();
+  if (!adv || !cid) throw badRequest('advertiserId e campaignId são obrigatórios');
+  const ck = 'dupcap:' + adv + ':' + cid;
+  const cached = cacheGet(ck);
+  if (cached) return cached;
+
+  const [campsOut, agsOut, adsOut] = await Promise.all([
+    pipeboard.callTool('get_tiktok_campaigns', { advertiser_id: adv, page: 1, page_size: 1000 }),
+    pipeboard.callTool('get_tiktok_adgroups', { advertiser_id: adv, campaign_ids: [cid], page: 1, page_size: 1000 }),
+    pipeboard.callTool('get_tiktok_ads', { advertiser_id: adv, campaign_ids: [cid], page: 1, page_size: 1000 }),
+  ]);
+  const campaign = firstArray(campsOut, ['campaigns', 'campaign_list', 'list', 'data'])
+    .find((c) => String(c.campaign_id || c.id || '') === cid);
+  if (!campaign) throw stepError('capture', 'Campanha de origem ' + cid + ' não encontrada neste advertiser', null, 404);
+  const adGroups = firstArray(agsOut, ['adgroups', 'adgroup_list', 'list', 'data']);
+  if (!adGroups.length) throw stepError('capture', 'A campanha de origem não tem nenhum ad group — nada a duplicar', null, 422);
+  const ads = firstArray(adsOut, ['ads', 'ad_list', 'list', 'data']);
+  const capture = { campaign, adGroups, ads };
+  cacheSet(ck, capture, 10 * 60 * 1000);
+  return capture;
+}
+
+// Preflight do erro 40002: DYNAMIC_DAILY_BUDGET só é aceito em alguns objetivos.
+// A lista exata não é pública — então: preflight converte quando o objetivo é
+// sabidamente incompatível E há um fallback de retry se o TikTok recusar mesmo
+// assim. Nunca falha silenciosa: toda conversão vira warning no resultado.
+function is40002DynamicBudget(err) {
+  const msg = String((err && err.message) || '');
+  return /40002/.test(msg) || /dynamic\s+daily\s+budget/i.test(msg);
+}
+
+// Campo a campo do que É copiável de um adgroup de origem (allowlist).
+// overrides (F4 — variações): { budgetAmount? } aplicado por cima da origem.
+function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, overrides) {
+  const args = {
+    advertiser_id: adv,
+    campaign_id: newCampaignId,
+    adgroup_name: String(srcAg.adgroup_name || srcAg.name || 'grupo').slice(0, 500),
+    optimization_goal: String(srcAg.optimization_goal || 'CLICK'),
+    targeting: srcAg.targeting && typeof srcAg.targeting === 'object' ? srcAg.targeting : undefined,
+  };
+  // schedule no passado NÃO é copiável: recalcula p/ agora (+10min)
+  const srcStart = String(srcAg.schedule_start_time || '');
+  const startMs = Date.parse(srcStart.replace(' ', 'T'));
+  if (Number.isFinite(startMs) && startMs > Date.now()) args.schedule_start_time = srcStart;
+  else {
+    args.schedule_start_time = advertiserLocalTime(timezone);
+    if (srcStart) warnings.push('Início da veiculação estava no passado — recalculado para agora');
+  }
+  if (srcAg.schedule_end_time) {
+    const endMs = Date.parse(String(srcAg.schedule_end_time).replace(' ', 'T'));
+    if (Number.isFinite(endMs) && endMs > Date.now()) args.schedule_end_time = String(srcAg.schedule_end_time);
+  }
+  const mode = String(srcAg.budget_mode || '');
+  const budgetOverride = Number((overrides || {}).budgetAmount) > 0 ? Number(overrides.budgetAmount) : 0;
+  if (mode && mode !== 'BUDGET_MODE_INFINITE') {
+    // adgroup NÃO aceita DYNAMIC_DAILY (enum do create só tem DAY/TOTAL/INFINITE)
+    args.budget_mode = mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET' ? 'BUDGET_MODE_DAY' : mode;
+    if (mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET') warnings.push('Orçamento dinâmico do grupo convertido para diário fixo (não suportado na recriação)');
+    if (budgetOverride) args.budget = budgetOverride;
+    else if (Number(srcAg.budget) > 0) args.budget = Number(srcAg.budget);
+  } else if (budgetOverride) {
+    // Origem sem orçamento no grupo (INFINITE/CBO) mas a variação pede um:
+    // vira orçamento diário fixo no grupo.
+    args.budget_mode = 'BUDGET_MODE_DAY';
+    args.budget = budgetOverride;
+  }
+  const bidType = String(srcAg.bid_type || '');
+  if (bidType) {
+    args.bid_type = bidType;
+    if (bidType === 'BID_TYPE_CUSTOM') {
+      if (Number(srcAg.conversion_bid_price) > 0) args.conversion_bid_price = Number(srcAg.conversion_bid_price);
+      else if (Number(srcAg.bid_price) > 0) args.bid_price = Number(srcAg.bid_price);
+    }
+  }
+  if (srcAg.billing_event) args.billing_event = String(srcAg.billing_event);
+  if (srcAg.optimization_event) args.optimization_event = String(srcAg.optimization_event);
+  if (srcAg.promotion_type) args.promotion_type = String(srcAg.promotion_type);
+  if (srcAg.promotion_target_type) args.promotion_target_type = String(srcAg.promotion_target_type);
+  if (srcAg.placement_type) args.placement_type = String(srcAg.placement_type);
+  if (Array.isArray(srcAg.placements) && srcAg.placements.length) args.placements = srcAg.placements;
+  return args;
+}
+
+// Recria a campanha capturada. newName é o nome da CÓPIA (já com sufixo).
+// opts.resume/opts.onProgress: mesma mecânica idempotente do createFullAd —
+// progresso = { campaignId, adGroups: {srcId: newId}, ads: {srcId: newId} }.
+// opts.overrides (F4 — variações): { budgetAmount?, adText? } aplicado por
+// cima da origem em CADA grupo/anúncio da variação.
+async function recreateCampaign(advertiserId, capture, newName, opts) {
+  const adv = String(advertiserId || '').trim();
+  const o = opts || {};
+  const overrides = (o.overrides && typeof o.overrides === 'object') ? o.overrides : {};
+  const resume = (o.resume && typeof o.resume === 'object') ? o.resume : {};
+  const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
+  const src = capture.campaign;
+  const warnings = [];
+  const progress = {
+    campaignId: String(resume.campaignId || '') || null,
+    adGroups: { ...(resume.adGroups || {}) },
+    ads: { ...(resume.ads || {}) },
+  };
+
+  const [info, fallbackIdentity] = await Promise.all([
+    getAdvertiserInfo(adv),
+    pickAdIdentity(adv).catch(() => null),
+  ]);
+
+  // 1) Campanha
+  if (!progress.campaignId) {
+    if (o.dedupeByName) {
+      const existing = await findCampaignIdByName(adv, String(newName).slice(0, 512));
+      if (existing) { progress.campaignId = existing; warnings.push('Cópia "' + newName + '" já existia (retomada pós-crash) — reaproveitada'); }
+    }
+  }
+  if (!progress.campaignId) {
+    const campArgs = {
+      advertiser_id: adv,
+      campaign_name: String(newName).slice(0, 512),
+      objective_type: String(src.objective_type || src.objective || 'TRAFFIC'),
+    };
+    const srcMode = String(src.budget_mode || '');
+    // Preflight 40002: DYNAMIC_DAILY só entra se o objetivo for de conversão/
+    // vendas (onde se sabe que existe); fora disso converte já no preflight.
+    if (srcMode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET' && !/CONVERSIONS|PRODUCT_SALES|SHOP_PURCHASES|APP_PROMOTION/.test(campArgs.objective_type)) {
+      campArgs.budget_mode = 'BUDGET_MODE_DAY';
+      if (Number(src.budget) > 0) campArgs.budget = Number(src.budget);
+      warnings.push('Orçamento dinâmico diário convertido para diário fixo (objetivo ' + campArgs.objective_type + ' não o suporta — preflight 40002)');
+    } else if (srcMode && srcMode !== 'BUDGET_MODE_INFINITE') {
+      campArgs.budget_mode = srcMode;
+      if (Number(src.budget) > 0) campArgs.budget = Number(src.budget);
+    }
+    if (src.budget_optimize_on === true) campArgs.budget_optimize_on = true;
+    if (src.pixel_id) { campArgs.pixel_id = String(src.pixel_id); if (src.optimization_event) campArgs.optimization_event = String(src.optimization_event); }
+    let campOut;
+    try {
+      campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+    } catch (err) {
+      // Fallback 40002: o TikTok recusou o modo dinâmico → retry ÚNICO com DAY.
+      if (is40002DynamicBudget(err) && campArgs.budget_mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET') {
+        campArgs.budget_mode = 'BUDGET_MODE_DAY';
+        warnings.push('TikTok recusou orçamento dinâmico (40002) — recriada com orçamento diário fixo');
+        campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+      } else { err.step = err.step || 'campaign'; throw err; }
+    }
+    progress.campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+    if (!progress.campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id na duplicação');
+  }
+  await report({ ...progress });
+
+  try {
+    // 2) Ad groups (todos) — cada um gravado no progresso ao nascer.
+    for (const srcAg of capture.adGroups) {
+      const srcAgId = String(srcAg.adgroup_id || srcAg.id || '');
+      if (progress.adGroups[srcAgId]) continue; // já criado numa tentativa anterior
+      const agArgs = buildAdGroupCopyArgs(adv, progress.campaignId, srcAg, info && info.timezone, warnings, overrides);
+      const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
+      const newAgId = String(deepPluck(agOut, 'adgroup_id') || '');
+      if (!newAgId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id na duplicação', progress);
+      progress.adGroups[srcAgId] = newAgId;
+      await report({ ...progress });
+    }
+
+    // 3) Ads — reaproveita video_id/image_ids da origem (mesma conta); SEMPRE PAUSED.
+    for (const srcAd of capture.ads) {
+      const srcAdId = String(srcAd.ad_id || srcAd.id || '');
+      if (progress.ads[srcAdId]) continue;
+      const srcAgId = String(srcAd.adgroup_id || '');
+      const newAgId = progress.adGroups[srcAgId];
+      if (!newAgId) { warnings.push('Anúncio ' + srcAdId + ' ignorado: ad group de origem não mapeado'); continue; }
+      const adArgs = {
+        advertiser_id: adv,
+        adgroup_id: newAgId,
+        ad_name: String(srcAd.ad_name || srcAd.name || newName).slice(0, 500),
+        ad_format: String(srcAd.ad_format || 'SINGLE_VIDEO'),
+        ad_text: String(overrides.adText || srcAd.ad_text || srcAd.title || newName).slice(0, 100),
+        status: 'PAUSED',
+      };
+      const vid = String(srcAd.video_id || deepPluck(srcAd, 'video_id') || '');
+      const imgs = srcAd.image_ids || deepPluck(srcAd, 'image_ids');
+      if (vid) adArgs.video_id = vid;
+      else if (Array.isArray(imgs) && imgs.length) adArgs.image_ids = imgs;
+      else { warnings.push('Anúncio ' + srcAdId + ' ignorado: origem não expõe video_id/image_ids'); continue; }
+      // Identidade: a da origem se exposta; senão a utilizável da conta.
+      const srcIdentityId = String(srcAd.identity_id || '');
+      const srcIdentityType = String(srcAd.identity_type || '').toUpperCase();
+      if (srcIdentityId && srcIdentityType && srcIdentityType !== 'TT_USER' && srcIdentityType !== 'AUTH_CODE') {
+        adArgs.identity_id = srcIdentityId;
+        adArgs.identity_type = srcIdentityType;
+        if (srcAd.identity_authorized_bc_id) adArgs.identity_authorized_bc_id = String(srcAd.identity_authorized_bc_id);
+        if (srcIdentityType === 'BC_AUTH_TT') {
+          if (srcAd.identity_bc_id) adArgs.identity_bc_id = String(srcAd.identity_bc_id);
+          adArgs.dark_post_status = 'ON';
+        }
+      } else if (fallbackIdentity) {
+        adArgs.identity_id = fallbackIdentity.identityId;
+        adArgs.identity_type = fallbackIdentity.identityType;
+        if (fallbackIdentity.identityBcId) adArgs.identity_bc_id = fallbackIdentity.identityBcId;
+        if (fallbackIdentity.darkPost) adArgs.dark_post_status = 'ON';
+        if (srcIdentityType === 'TT_USER' || srcIdentityType === 'AUTH_CODE') warnings.push('Anúncio ' + srcAdId + ' era Spark (identidade não copiável) — recriado com a identidade padrão da conta');
+      } else { warnings.push('Anúncio ' + srcAdId + ' ignorado: nenhuma identidade utilizável'); continue; }
+      if (srcAd.landing_page_url) adArgs.landing_page_url = String(srcAd.landing_page_url).slice(0, 500);
+      if (srcAd.call_to_action) adArgs.call_to_action = String(srcAd.call_to_action);
+      else if (srcAd.call_to_action_id) adArgs.call_to_action_id = String(srcAd.call_to_action_id);
+      if (Array.isArray(srcAd.utm_params) && srcAd.utm_params.length) adArgs.utm_params = srcAd.utm_params;
+      if (Array.isArray(srcAd.deeplink_utm_params) && srcAd.deeplink_utm_params.length) adArgs.deeplink_utm_params = srcAd.deeplink_utm_params;
+      const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
+      const newAdId = String(deepPluck(adOut, 'ad_id') || '');
+      if (!newAdId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id na duplicação', progress);
+      progress.ads[srcAdId] = newAdId;
+      await report({ ...progress });
+    }
+
+    cacheBust('tree:');
+    return {
+      campaignId: progress.campaignId,
+      adGroupIds: Object.values(progress.adGroups),
+      adIds: Object.values(progress.ads),
+      name: newName,
+      warnings,
+    };
+  } catch (err) {
+    // Cópia parcial NUNCA fica entregável: pausa best-effort e devolve progresso.
+    try { await setCampaignStatus(adv, [progress.campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    if (!err.step) err.step = 'adgroup';
+    err.createdIds = progress;
+    throw err;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// F5 — Spark Ads (impulsionar post orgânico existente).
+// O MCP NÃO tem conversão "Spark Code → tiktok_item_id" (verificado no dump
+// completo dos 74 tools). O fluxo documentado é: get_tiktok_identities →
+// get_tiktok_identity_videos → create_tiktok_ad com tiktok_item_id.
+// Identidades AUTH_CODE são criadores cujo Spark Code JÁ foi resgatado no
+// TikTok Ads Manager — os posts deles aparecem no mesmo seletor. Colar código
+// cru não é suportado: a rota explica como resgatar (422 honesto).
+// ════════════════════════════════════════════════════════════════════════════
+
+// Identidades utilizáveis para Spark (TT_USER preferida > AUTH_CODE > BC_AUTH_TT).
+async function listSparkIdentities(advertiserId) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const out = await pipeboard.callTool('get_tiktok_identities', { advertiser_id: adv });
+  const list = firstArray(out, ['identities', 'identity_list', 'list', 'data']);
+  const RANK = { TT_USER: 0, AUTH_CODE: 1, BC_AUTH_TT: 2 };
+  return list
+    .map((i) => ({
+      identityId: String(i.identity_id || i.id || ''),
+      identityType: String(i.identity_type || '').toUpperCase(),
+      displayName: String(i.display_name || i.identity_name || i.username || '') || undefined,
+      avatarUrl: String(i.profile_image || i.avatar_icon_web_uri || i.avatar_url || '') || undefined,
+      bcId: String(i.identity_authorized_bc_id || i.bc_id || '') || undefined,
+    }))
+    .filter((i) => i.identityId && RANK[i.identityType] !== undefined)
+    .sort((a, b) => RANK[a.identityType] - RANK[b.identityType]);
+}
+
+// Posts (vídeos orgânicos) de uma identidade — é daqui que sai o tiktok_item_id.
+async function listIdentityVideos(advertiserId, identityId, identityType, bcId) {
+  const adv = String(advertiserId || '').trim();
+  const type = String(identityType || '').toUpperCase();
+  if (!adv || !identityId) throw badRequest('advertiserId e identityId são obrigatórios');
+  if (!['TT_USER', 'AUTH_CODE', 'BC_AUTH_TT'].includes(type)) throw badRequest('identityType deve ser TT_USER, AUTH_CODE ou BC_AUTH_TT');
+  const args = { advertiser_id: adv, identity_id: String(identityId), identity_type: type };
+  if (type === 'BC_AUTH_TT') {
+    if (!bcId) throw badRequest('identityType BC_AUTH_TT exige o Business Center (bcId)');
+    args.identity_authorized_bc_id = String(bcId);
+  }
+  const out = await pipeboard.callTool('get_tiktok_identity_videos', args);
+  const list = firstArray(out, ['videos', 'video_list', 'items', 'list', 'data']);
+  return list.map((v) => ({
+    itemId: String(v.item_id || v.tiktok_item_id || v.video_id || v.id || ''),
+    text: String(v.text || v.title || v.video_title || '') || undefined,
+    coverUrl: String(v.video_cover_url || v.cover_url || v.thumbnail_url || '') || undefined,
+    createTime: v.create_time || v.created_at || undefined,
+    duration: Number(v.duration) || undefined,
+  })).filter((v) => v.itemId);
+}
+
+// Campanha Spark completa: campaign → adgroup → create_tiktok_ad com
+// identity + tiktok_item_id (SEM upload — o criativo é o post orgânico).
+// Mesmos guarda-corpos da F1: pré-requisitos antes de criar, tudo nasce
+// PAUSED, falha parcial pausa a campanha órfã e propaga step + createdIds.
+async function createSparkAd(advertiserId, spec) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const s = spec || {};
+  const goal = GOAL_MAP[s.goal];
+  if (!goal) throw badRequest('Objetivo "' + s.goal + '" não suportado para Spark Ads');
+  const identityId = String(s.identityId || '').trim();
+  const identityType = String(s.identityType || '').toUpperCase();
+  const itemId = String(s.itemId || '').trim();
+  if (!identityId || !itemId) throw badRequest('identityId e itemId (post) são obrigatórios — selecione a identidade e o vídeo');
+  if (!['TT_USER', 'AUTH_CODE', 'BC_AUTH_TT'].includes(identityType)) throw badRequest('identityType deve ser TT_USER, AUTH_CODE ou BC_AUTH_TT');
+  if (identityType === 'BC_AUTH_TT' && !s.bcId) throw badRequest('identityType BC_AUTH_TT exige o Business Center (bcId)');
+  const warnings = [];
+  const createdIds = {};
+
+  const [info, regions] = await Promise.all([
+    getAdvertiserInfo(adv),
+    resolveLocationIds(adv, (s.countries && s.countries.length ? s.countries : ['PT']), goal.objective),
+  ]);
+  if (regions.missingCountries.length) warnings.push('Países sem região equivalente no TikTok (ignorados): ' + regions.missingCountries.join(', '));
+
+  const campOut = await pipeboard.callTool('create_tiktok_campaign', {
+    advertiser_id: adv,
+    campaign_name: String(s.name).slice(0, 512),
+    objective_type: goal.objective,
+  });
+  const campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+  if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
+  createdIds.campaignId = campaignId;
+
+  try {
+    const agOut = await pipeboard.callTool('create_tiktok_adgroup', {
+      advertiser_id: adv,
+      campaign_id: campaignId,
+      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+      optimization_goal: goal.optimizationGoal,
+      budget_mode: s.budgetType === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY',
+      budget: Number(s.budgetAmount),
+      schedule_start_time: advertiserLocalTime(info && info.timezone),
+      targeting: { location_ids: regions.locationIds },
+      bid_type: 'BID_TYPE_NO_BID',
+    });
+    const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+    if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id', createdIds);
+    createdIds.adGroupId = adGroupId;
+
+    const adArgs = {
+      advertiser_id: adv,
+      adgroup_id: adGroupId,
+      ad_name: String(s.name).slice(0, 500),
+      ad_format: 'SINGLE_VIDEO',
+      ad_text: String(s.body || s.name).slice(0, 100),
+      identity_id: identityId,
+      identity_type: identityType,
+      tiktok_item_id: itemId,
+      status: 'PAUSED',
+    };
+    if (identityType === 'BC_AUTH_TT') { adArgs.identity_bc_id = String(s.bcId); adArgs.dark_post_status = 'ON'; }
+    if (s.linkUrl) adArgs.landing_page_url = String(s.linkUrl).slice(0, 500);
+    if (s.callToAction) adArgs.call_to_action = String(s.callToAction);
+    const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
+    const adId = String(deepPluck(adOut, 'ad_id') || '');
+    if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id', createdIds);
+    createdIds.adId = adId;
+
+    warnings.push('Criado em PAUSED — ative na dashboard quando estiver pronto');
+    cacheBust('tree:');
+    return { ...createdIds, itemId, name: s.name, warnings };
+  } catch (err) {
+    try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    if (!err.step) err.step = 'adgroup';
+    err.createdIds = createdIds;
+    throw err;
+  }
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -670,10 +1354,19 @@ module.exports = {
   setAdStatus,
   updateCampaign,
   updateAdGroup,
+  // criação composta (F1)
+  createFullAd,
+  // duplicação composta (F3)
+  captureCampaign,
+  recreateCampaign,
+  // Spark Ads (F5)
+  listSparkIdentities,
+  listIdentityVideos,
+  createSparkAd,
   // cache
   cacheBust,
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, GOAL_MAP },
 };

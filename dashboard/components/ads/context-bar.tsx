@@ -54,7 +54,9 @@ export function AdsContextBar({
   onBcChanged: (bcId: string, advertiserId: string) => void
   onAdvertiserChanged: (id: string) => void
   onRefresh: () => void
-  onDisconnect: () => void
+  // F6: null esconde o botão — com Pipeboard a conexão é chave de servidor,
+  // não há "desconectar" por usuário (a revogação é no painel do Pipeboard).
+  onDisconnect: (() => void) | null
 }) {
   const [switchingBc, setSwitchingBc] = useState(false)
   const [switchingAdvertiser, setSwitchingAdvertiser] = useState(false)
@@ -204,14 +206,16 @@ export function AdsContextBar({
         >
           <RefreshCw className={`size-3.5 ${refreshing || switchingBc ? 'animate-spin' : ''}`} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className="btn-ghost px-2 py-1 text-xs text-muted-foreground"
-          onClick={onDisconnect}
-        >
-          <Unplug className="size-3.5" aria-hidden="true" />
-          Desconectar
-        </button>
+        {onDisconnect && (
+          <button
+            type="button"
+            className="btn-ghost px-2 py-1 text-xs text-muted-foreground"
+            onClick={onDisconnect}
+          >
+            <Unplug className="size-3.5" aria-hidden="true" />
+            Desconectar
+          </button>
+        )}
       </div>
     </div>
   )

@@ -26,8 +26,7 @@
 //   PATCH  /api/ads/identity             → Brand Identity (nome+avatar)
 //   POST   /api/ads/upload               → vídeo/imagem → Vercel Blob (URL pública)
 // ─────────────────────────────────────────────────────────────────────────────
-const zernio = require('./zernio-ads');
-const pipeboard = require('./ads-provider'); // Gate 2+: fronteira dashboard↔Pipeboard
+const pipeboard = require('./ads-provider'); // fronteira dashboard↔Pipeboard (única integração — F6 removeu a Zernio)
 const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só /diag)
 const adsCache = require('./ads-cache-store'); // espelho durável no Neon (leitura)
 const adsSync = require('./ads-sync');         // motor Pipeboard→Neon (sync em background)
@@ -37,15 +36,11 @@ const adsOps = require('./ads-ops-store');
 const catalogStore = require('./ads-catalog-store');
 const catalogFeed = require('./ads-catalog-feed');
 
-// Repassa erros da Zernio com o payload estruturado (o front mostra a mensagem)
+// Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
   const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
   const out = { error: String(err.message || 'erro inesperado').slice(0, 500) };
-  if (err.zernio && typeof err.zernio === 'object') {
-    if (err.zernio.code) out.code = err.zernio.code;
-    if (err.zernio.type) out.type = err.zernio.type;
-    if (err.zernio.platformError) out.platformError = err.zernio.platformError;
-  }
+  if (err.step) out.step = err.step;
   res.status(status).json(out);
 }
 
@@ -102,6 +97,65 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // Histórico de auditoria (ações reais/simuladas do motor + escritas manuais).
+  // A UI usa `before_state` p/ decidir se mostra o botão "reverter".
+  app.get('/api/ads/ops/audit', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ enabled: adsOps.enabled, events: await adsOps.listAuditEvents(req.account.id, req.query.limit) });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Rollback de UMA ação do motor: restaura o `before_state` gravado quando a
+  // ação real aconteceu. Só reverte ações reais com estado anterior conhecido
+  // (rule_action / schedule_action). O kill switch NÃO bloqueia o rollback —
+  // reverter é justamente a forma de reagir a algo que o motor fez.
+  app.post('/api/ads/ops/audit/:auditId/rollback', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const ev = await adsOps.getAuditEvent(req.account.id, String(req.params.auditId || ''));
+      if (!ev) return res.status(404).json({ error: 'Evento de auditoria não encontrado' });
+      if (!['rule_action', 'schedule_action'].includes(ev.action)) {
+        return res.status(422).json({ error: 'Esta ação não é reversível automaticamente.', code: 'NOT_REVERSIBLE' });
+      }
+      const before = ev.before_state;
+      if (!before || !before.kind) return res.status(422).json({ error: 'Sem estado anterior registrado para reverter.', code: 'NO_BEFORE_STATE' });
+      const advertiserId = ev.advertiser_id;
+      if (!advertiserId) return res.status(422).json({ error: 'Advertiser da ação não registrado.' });
+
+      // dry-run continua valendo: um rollback também é uma escrita.
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'rollback', targetType: ev.target_type, targetId: ev.target_id, advertiserId,
+          metadata: { of: ev.id, restore: before }, title: 'Reverter ação ' + ev.id,
+        });
+        return res.json({ dryRun: true, simulated: true, restored: before });
+      }
+
+      if (before.kind === 'status') {
+        // restaura o status anterior da campanha (pause/activate feito pelo motor)
+        await pipeboard.setCampaignStatus(advertiserId, [before.id], before.value === 'paused' ? 'paused' : 'active');
+      } else if (before.kind === 'budget') {
+        // restaura o orçamento anterior de cada ad group tocado
+        for (const g of (before.adGroups || [])) {
+          if (!g || !g.id || !(Number(g.amount) > 0)) continue;
+          await pipeboard.updateAdGroup(advertiserId, g.id, { budget: { amount: Number(g.amount), type: g.type === 'lifetime' ? 'lifetime' : 'daily' } });
+        }
+      } else {
+        return res.status(422).json({ error: 'Tipo de estado anterior não suportado para rollback.', code: 'UNSUPPORTED_STATE' });
+      }
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'rollback',
+        targetType: ev.target_type, targetId: ev.target_id, advertiserId,
+        beforeState: ev.after_state, afterState: before,
+        reason: 'Rollback manual da ação ' + ev.id, metadata: { of: ev.id },
+      });
+      stats.logEvent('warn', { acc: req.account.id, title: '[tiktok-ads] Rollback manual da ação ' + ev.id + ' (' + ev.action + ')' });
+      res.json({ ok: true, restored: before });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Guarda de escrita (dry-run) ─────────────────────────────────────────────
   // O badge "Modo simulação" promete que NENHUMA escrita chega ao TikTok. Esta
   // guarda centraliza essa promessa: toda rota/rotina que muta estado na Zernio
@@ -130,6 +184,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (_) { /* auditoria não pode derrubar a rota */ }
     if (title) stats.logEvent('info', { acc: accountId, title: '[simulação] ' + title });
   }
+
+  // Kill switch: corta TODA escrita (status/orçamento/bid/criar/duplicar/delete),
+  // inclusive as mutações individuais que antes só checavam dry-run. Falha
+  // FECHADA como o dry-run — se o Neon estiver fora, getSafetyPolicy devolve o
+  // default (killSwitch=false), então não bloqueia por engano. Uso nas rotas:
+  //   if (await killSwitchActive(accountId)) return res.status(423).json(KILL_SWITCH_BODY)
+  async function killSwitchActive(accountId) {
+    try {
+      const policy = await adsOps.getSafetyPolicy(accountId);
+      return !!(policy && policy.killSwitch);
+    } catch (_) { return false; }
+  }
+  const KILL_SWITCH_BODY = { error: 'KILL_SWITCH_ON', message: 'Kill switch ativo: todas as alterações em anúncios estão bloqueadas. Desative em Operações › Política de segurança para voltar a agir.' };
 
   // ── [Gate 1 — TEMPORÁRIO] Diagnóstico do Pipeboard MCP ──────────────────────
   // Valida a auth server-to-server e captura os JSON Schemas REAIS das tools
@@ -234,7 +301,23 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         account: { id: s.advertiserId, username: advName, displayName: advName },
         businessCenterId: '', // Pipeboard não tem Business Center
         advertiserId: s.advertiserId || '',
-        identity: null,        // identidade migra no Gate 6 (capability flag)
+        identity: null,
+        // F6 — capability flags: fonte ÚNICA de verdade do que o backend
+        // suporta via Pipeboard. A UI esconde (não desabilita com promessa
+        // vaga) o que estiver false. Nunca prometer o que a API não faz.
+        capabilities: {
+          createCampaign: true,      // F1
+          bulkCreate: true,          // F2
+          duplicateSameAccount: true, // F3
+          duplicateCrossAccount: false, // video_id é escopado ao advertiser
+          variations: true,          // F4
+          sparkAds: true,            // F5 (via seletor de identidade/post)
+          sparkCodeRedeem: false,    // resgate só no TikTok Ads Manager
+          customIdentity: false,     // CUSTOMIZED_USER deprecated na plataforma (2026)
+          businessCenters: false,    // Pipeboard não expõe BC
+          oauthConnect: false,       // conexão é por chave de servidor, não OAuth por usuário
+          appPromotion: false,       // exige app_id que a UI não coleta
+        },
       });
     } catch (err) { fail(res, err); }
   });
@@ -281,86 +364,46 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── OAuth: gera a URL de autorização do TikTok Business ───────────────────
-  // Aceita GET e POST: o painel chama via POST (ação), mas mantemos GET
-  // para compatibilidade com integrações antigas.
-  //
-  // FIX: o endpoint canônico da Zernio é GET /connect/{platform}/ads →
-  // /connect/tiktok/ads (docs: "Connect ads for a platform"). O caminho
-  // antigo /connect/tiktok-ads não é a rota de OAuth (só existe como PATCH,
-  // para Brand Identity) e levava o usuário ao dashboard/login da Zernio em
-  // vez da tela de autorização do TikTok for Business.
-  //
-  // Escopo da BC: o TikTok escolhe os advertisers NA TELA DE CONSENTIMENTO
-  // do OAuth ("tiktok scopes advertisers at OAuth"). Se o usuário marcar a
-  // Business Center inteira, a Zernio enumera todos os advertisers da BC
-  // automaticamente em GET /ads/accounts (sem cap por chamada).
+  // ── Conexão — F6, semântica Pipeboard ──────────────────────────────────────
+  // NÃO há OAuth por usuário: a integração é uma chave de servidor
+  // (PIPEBOARD_API_TOKEN) que já escopa os advertisers. "Conectar" no painel
+  // vira uma verificação: se a chave está de pé e há advertiser, já está
+  // conectado. GET mantido por compatibilidade com integrações antigas.
   async function startConnect(req, res) {
     try {
-      const profileId = await zernio.ensureProfile(req.account.id);
-      // Modo ads-only (sem accountId de posting): anúncios usam Brand Identity.
-      const data = await zernio.api('GET', '/connect/tiktok/ads', { query: { profileId } });
-      // Já conectado nesta profile → devolve como sucesso imediato (o front
-      // confirma via POST /api/ads/connected, que resolve a SocialAccount).
-      if (data && data.alreadyConnected) {
-        return res.json({ alreadyConnected: true, authUrl: '' });
-      }
-      if (!data || !data.authUrl) return res.status(502).json({ error: 'Zernio não retornou a URL de autorização' });
-      res.json({ authUrl: data.authUrl });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor (PIPEBOARD_API_TOKEN)' });
+      const s = await pipeboard.getStatus(req.account.id);
+      if (s.connected) return res.json({ alreadyConnected: true, authUrl: '' });
+      // Chave ok mas nenhum advertiser visível: não existe URL de autorização
+      // a devolver — o vínculo de contas é feito no painel do Pipeboard.
+      return res.status(422).json({
+        error: 'A chave do Pipeboard está ativa mas nenhum advertiser está visível. Vincule a conta TikTok Ads no painel do Pipeboard (pipeboard.co) e recarregue.',
+        code: 'NO_ADVERTISER_VISIBLE',
+      });
     } catch (err) { fail(res, err); }
   }
   app.get('/api/ads/connect', dashboardAuth, startConnect);
   app.post('/api/ads/connect', dashboardAuth, startConnect);
 
-  // ── Callback do painel: após o OAuth, descobre a SocialAccount criada ─────
+  // Confirmação de conexão (o front chama após "conectar"): mesmo shape antigo.
   app.post('/api/ads/connected', dashboardAuth, async (req, res) => {
     try {
-      const profileId = await zernio.ensureProfile(req.account.id);
-      const data = await zernio.api('GET', '/accounts');
-      let mine = (data.accounts || []).filter((a) => a.platform === 'tiktokads' && String(a.profileId || '') === String(profileId));
-      // FALLBACK (adoção de órfã): se a config local foi resetada e um profile
-      // novo foi criado, a conexão feita antes vive em OUTRO profile da mesma
-      // chave (ex.: "Painel acc_282f0c9e4c" antigo). Sem isso o painel fica
-      // preso em "Aguardando autorização" mesmo com a conta conectada na
-      // Zernio. Adotamos a tiktokads mais recente da chave, registrando também
-      // o profileId dela para as próximas chamadas de connect/status.
-      if (!mine.length) {
-        const any = (data.accounts || []).filter((a) => a.platform === 'tiktokads');
-        if (any.length) {
-          any.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-          const adopted = any[0];
-          zernio.setState(req.account.id, { profileId: String(adopted.profileId || profileId) });
-          mine = [adopted];
-        }
-      }
-      if (!mine.length) return res.json({ connected: false });
-      // a mais recente vence (reconexões geram novas SocialAccounts)
-      mine.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-      const acct = mine[0];
-      zernio.setState(req.account.id, { accountId: acct._id });
-      zernio.cacheBust('status:' + req.account.id);
-      zernio.cacheBust('accounts:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'TikTok Ads conectado: ' + (acct.displayName || acct.username || acct._id) });
-      res.json({ connected: true, account: { id: acct._id, username: acct.username || '', displayName: acct.displayName || '' } });
+      if (!pipeboard.enabled) return res.json({ connected: false });
+      const s = await pipeboard.getStatus(req.account.id);
+      if (!s.connected) return res.json({ connected: false });
+      const advName = (s.advertiser && s.advertiser.name) || s.advertiserId;
+      res.json({ connected: true, account: { id: s.advertiserId, username: advName, displayName: advName } });
     } catch (err) { fail(res, err); }
   });
 
-  // ── Desconectar (esquece localmente; a revogação fica no painel Zernio) ───
-  app.post('/api/ads/disconnect', dashboardAuth, async (req, res) => {
-    try {
-      const st = zernio.getState(req.account.id);
-      if (st.accountId) {
-        // tenta remover a SocialAccount na Zernio (melhor esforço)
-        try { await zernio.api('DELETE', '/accounts/' + st.accountId); } catch (_) { /* já removida */ }
-      }
-      zernio.setState(req.account.id, { accountId: '', businessCenterId: '', advertiserId: '', identity: null });
-      zernio.cacheBust('status:' + req.account.id);
-      zernio.cacheBust('accounts:' + req.account.id);
-      zernio.cacheBust('bcs:' + req.account.id);
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('warn', { acc: req.account.id, title: 'TikTok Ads desconectado' });
-      res.json({ ok: true });
-    } catch (err) { fail(res, err); }
+  // Desconectar não existe com chave de servidor: a revogação é remover o
+  // token no painel do Pipeboard. 410 honesto (capabilities.oauthConnect=false
+  // já esconde o botão na UI; isto cobre chamadas diretas à API).
+  app.post('/api/ads/disconnect', dashboardAuth, async (_req, res) => {
+    res.status(410).json({
+      error: 'A conexão é gerenciada pela chave do servidor (Pipeboard) — não há desconexão por usuário. Para revogar o acesso, remova o token no painel do Pipeboard.',
+      code: 'SERVER_KEY_MANAGED',
+    });
   });
 
   // ── Business Centers (camada acima dos advertisers) ──────────────────────
@@ -648,9 +691,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.post('/api/ads/create', dashboardAuth, async (req, res) => {
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      // F1: gate via Pipeboard (a Zernio está morta — o gate antigo por
+      // st.accountId deixaria a rota em 409 p/ sempre). O buildCreatePayload
+      // recebe um "st" sintético com o advertiser resolvido pelo provider.
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const advertiserId = await pipeboard.resolveAdvertiserId(req.account.id);
+      if (!advertiserId) return res.status(409).json({ error: 'Nenhum advertiser TikTok autorizado — conecte no Pipeboard primeiro' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
+      const st = { accountId: req.account.id, advertiserId };
       const built = buildCreatePayload(st, b);
       if (built.error) return res.status(400).json({ error: built.error });
       const payload = built.payload;
@@ -664,69 +713,146 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
         return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
       }
-      // Idempotency-Key evita campanha duplicada em retry de rede
-      const idem = String(b.idempotencyKey || '').slice(0, 80) || undefined;
-      const data = await zernio.api('POST', '/ads/create', {
-        body: payload,
-        timeoutMs: 120000, // upload de vídeo síncrono no TikTok pode demorar
-        headers: idem ? { 'Idempotency-Key': idem } : undefined
+      // F1: criação composta via Pipeboard (campaign → adgroup → upload → ad).
+      // O provider SEMPRE cria em PAUSED; sem "status: active" aqui — a rota de
+      // criação entrega material p/ revisão humana, nunca delivery imediato.
+      // No campo imageUrl o buildCreatePayload carrega a URL do VÍDEO (legado).
+      const result = await pipeboard.createFullAd(payload.adAccountId, {
+        name: payload.name,
+        goal: payload.goal,
+        videoUrl: payload.imageUrl,
+        budgetAmount: payload.budgetAmount,
+        budgetType: payload.budgetType,
+        endDate: payload.endDate,
+        body: payload.body,
+        linkUrl: payload.linkUrl,
+        callToAction: payload.callToAction,
+        countries: payload.countries,
+        languages: payload.languages,
+        ageMin: payload.ageMin,
+        ageMax: payload.ageMax,
+        promotedObject: payload.promotedObject,
+        status: 'paused',
       });
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'Campanha TikTok criada: ' + name });
-      res.status(201).json(data);
-    } catch (err) { fail(res, err); }
+      // Auditoria durável da criação real (afterState = IDs criados; "desfazer
+      // criação" = pausar/apagar em cadeia esses IDs).
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'campaign_create',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId: payload.adAccountId,
+        afterState: { campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, videoId: result.videoId },
+        reason: 'Criação de campanha completa: ' + name, metadata: { goal: payload.goal },
+      }).catch(() => {});
+      adsSync.syncAfterWrite(req.account.id, payload.adAccountId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanha TikTok criada (PAUSED): ' + name + ' [' + result.campaignId + ']' });
+      res.status(201).json({ id: result.campaignId, campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, videoId: result.videoId, name, status: 'paused', warnings: result.warnings });
+    } catch (err) {
+      // Falha no meio da composição: reporta o passo e o que já existe (pausado).
+      if (err && err.step) {
+        stats.logEvent('warn', { acc: req.account.id, title: '[tiktok-ads] Criação falhou no passo "' + err.step + '": ' + String(err.message || '').slice(0, 160) });
+        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada está gastando. Revise e apague na dashboard se não quiser mantê-la.' : undefined });
+      }
+      fail(res, err);
+    }
   });
 
   // ── Spark Ads (impulsionar vídeo orgânico) ───────────────────────────�����────
+  // F5 via Pipeboard. Descoberta: identidades autorizadas p/ Spark
+  // (TT_USER/AUTH_CODE/BC_AUTH_TT). AUTH_CODE = criador cujo Spark Code JÁ
+  // foi resgatado no TikTok Ads Manager.
+  app.get('/api/ads/spark/identities', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const selected = await requireAdvertiser(req.account.id, null, String(req.query.adAccountId || ''), null);
+      const identities = await pipeboard.listSparkIdentities(selected.advertiserId);
+      res.json({ identities });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Posts (vídeos orgânicos) de uma identidade — fonte do tiktok_item_id.
+  app.get('/api/ads/spark/videos', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const selected = await requireAdvertiser(req.account.id, null, String(req.query.adAccountId || ''), null);
+      const videos = await pipeboard.listIdentityVideos(
+        selected.advertiserId,
+        String(req.query.identityId || ''),
+        String(req.query.identityType || ''),
+        String(req.query.bcId || '') || undefined
+      );
+      res.json({ videos });
+    } catch (err) { fail(res, err); }
+  });
+
   app.post('/api/ads/boost', dashboardAuth, async (req, res) => {
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
-      const adAccountId = String(b.adAccountId || st.advertiserId || '').trim();
-      if (!adAccountId || adAccountId === '__all__') return res.status(400).json({ error: 'Selecione um advertiser específico (adAccountId)' });
+      const selected = await requireAdvertiser(req.account.id, null, String(b.adAccountId || ''), null);
+      const adAccountId = selected.advertiserId;
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
-      const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';
+      const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions'].includes(b.goal) ? b.goal : '';
       if (!goal) return res.status(400).json({ error: 'Objetivo (goal) inválido' });
       const budgetAmount = Number((b.budget || {}).amount || b.budgetAmount);
       if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento inválido' });
       const budgetType = ((b.budget || {}).type || b.budgetType) === 'lifetime' ? 'lifetime' : 'daily';
 
-      const payload = {
-        accountId: st.accountId,
-        adAccountId,
-        name,
-        goal,
-        budget: { amount: budgetAmount, type: budgetType }
-      };
-      // vídeo próprio (platformPostId) OU de outro criador (sparkAuthCode)
-      const platformPostId = String(b.platformPostId || '').trim().slice(0, 60);
-      const sparkAuthCode = String(b.sparkAuthCode || '').trim().slice(0, 120);
-      if (platformPostId) payload.platformPostId = platformPostId;
-      if (sparkAuthCode) payload.sparkAuthCode = sparkAuthCode;
-      if (!platformPostId && !sparkAuthCode) {
-        return res.status(400).json({ error: 'Informe o ID do vídeo (platformPostId) ou um Spark Code do criador' });
+      // Spark Code cru NÃO é conversível via API (nenhum tool de resgate no
+      // MCP — verificado no dump dos 74 tools): o resgate é feito no TikTok
+      // Ads Manager e o criador vira identidade AUTH_CODE, que aparece no
+      // seletor. 422 honesto com o caminho.
+      if (String(b.sparkAuthCode || '').trim()) {
+        return res.status(422).json({
+          error: 'Colar Spark Code direto não é suportado: resgate o código no TikTok Ads Manager (Ativos → Criativo → Autorização de post). O criador vira uma identidade autorizada e os vídeos dele aparecem no seletor aqui.',
+          code: 'SPARK_CODE_REDEEM_REQUIRED',
+        });
       }
-      if (/^https?:\/\//.test(String(b.linkUrl || ''))) payload.linkUrl = withAdsTracking(String(b.linkUrl).trim().slice(0, 500));
-      if (/^[A-Z_]{3,30}$/.test(String(b.callToAction || ''))) payload.callToAction = b.callToAction;
+      const identityId = String(b.identityId || '').trim().slice(0, 60);
+      const identityType = String(b.identityType || '').trim().toUpperCase().slice(0, 20);
+      const itemId = String(b.itemId || b.platformPostId || '').trim().slice(0, 60);
+      if (!identityId || !itemId) {
+        return res.status(400).json({ error: 'Selecione a identidade (identityId/identityType) e o post (itemId) — use os seletores do diálogo' });
+      }
+
+      const spec = {
+        name, goal,
+        budgetAmount, budgetType,
+        identityId, identityType, itemId,
+        bcId: String(b.bcId || '').trim() || undefined,
+      };
+      if (/^https?:\/\//.test(String(b.linkUrl || ''))) spec.linkUrl = withAdsTracking(String(b.linkUrl).trim().slice(0, 500));
+      if (/^[A-Z_]{3,30}$/.test(String(b.callToAction || ''))) spec.callToAction = b.callToAction;
+      if (String(b.body || '').trim()) spec.body = String(b.body).trim().slice(0, 100);
       const countries = Array.isArray(b.countries)
         ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30) : [];
-      if (countries.length) payload.targeting = Object.assign({}, payload.targeting, { countries });
+      if (countries.length) spec.countries = countries;
 
       // dry-run: não impulsiona de verdade.
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
           action: 'spark_ad_create', targetType: 'campaign', advertiserId: adAccountId,
-          metadata: { name, goal }, title: 'Impulsionar Spark Ad ' + name
+          metadata: { name, goal, itemId }, title: 'Impulsionar Spark Ad ' + name
         });
         return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
       }
-      const data = await zernio.api('POST', '/ads/boost', { body: payload, timeoutMs: 120000 });
-      zernio.cacheBust('tree:' + req.account.id);
-      stats.logEvent('info', { acc: req.account.id, title: 'Spark Ad criado: ' + name });
-      res.status(201).json(data);
-    } catch (err) { fail(res, err); }
+      const result = await pipeboard.createSparkAd(adAccountId, spec);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'spark_ad_create',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId: adAccountId,
+        afterState: { campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, itemId },
+        reason: 'Spark Ad: ' + name, metadata: { goal, identityType },
+      }).catch(() => {});
+      adsSync.syncAfterWrite(req.account.id, adAccountId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Spark Ad criado (PAUSED): ' + name + ' [' + result.campaignId + ']' });
+      res.status(201).json({ id: result.campaignId, campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, name, status: 'paused', warnings: result.warnings });
+    } catch (err) {
+      if (err && err.step) {
+        stats.logEvent('warn', { acc: req.account.id, title: '[tiktok-ads] Spark falhou no passo "' + err.step + '": ' + String(err.message || '').slice(0, 160) });
+        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada está gastando.' : undefined });
+      }
+      fail(res, err);
+    }
   });
 
   // ── Pausar/ativar campanhas em lote ───────────────────────────────────────
@@ -739,6 +865,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const ids = (Array.isArray(b.campaigns) ? b.campaigns : []).slice(0, 50)
         .map((c) => String((c || {}).platformCampaignId || '').slice(0, 60)).filter(Boolean);
       if (!ids.length) return res.status(400).json({ error: 'Nenhuma campanha informada' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       // advertiser: do corpo (adAccountId) ou o resolvido no token
       const advertiserId = b.adAccountId ? String(b.adAccountId).trim() : await pipeboard.resolveAdvertiserId(req.account.id);
       if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
@@ -758,7 +885,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Duplicar campanha ─────────────────────────────────────────────────────
+  // ── Duplicar campanha ─────��───────────────────────────────────────────────
   // ADIADO na migração p/ Pipeboard: o provider não expõe uma tool de "duplicar"
   // (o zernio fazia deep-copy nativo). Reconstruir via create_* + re-upload de
   // vídeo é um gate próprio. Até lá, respondemos 501 com mensagem clara — a UI
@@ -785,6 +912,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
       const entityId = String(req.params.adId || '');
       const wantStatus = ['active', 'paused'].includes(b.status) ? b.status : null;
@@ -844,6 +972,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const adId = String(req.params.adId || '');
       const hint = String((req.body || {}).adAccountId || '').trim() || undefined;
       const ent = await adsCache.classifyEntity(req.account.id, hint, adId);
@@ -866,23 +995,18 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Brand Identity (nome + avatar exibidos no anúncio) ────────────────────
-  app.patch('/api/ads/identity', dashboardAuth, async (req, res) => {
-    try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
-      const displayName = String((req.body || {}).displayName || '').trim().slice(0, 100);
-      const imageUrl = String((req.body || {}).imageUrl || '').trim().slice(0, 500);
-      if (!displayName) return res.status(400).json({ error: 'Nome da marca é obrigatório' });
-      if (!/^https:\/\//.test(imageUrl)) return res.status(400).json({ error: 'URL da imagem (quadrada, ≥98×98, JPG/PNG) é obrigatória' });
-      const data = await zernio.api('PATCH', '/connect/tiktok-ads', {
-        body: { accountId: st.accountId, displayName, imageUrl },
-        timeoutMs: 60000
-      });
-      zernio.setState(req.account.id, { identity: { identityId: data.identityId || '', displayName, imageUrl } });
-      stats.logEvent('info', { acc: req.account.id, title: 'Brand Identity TikTok configurada: ' + displayName });
-      res.json({ ok: true, identityId: data.identityId || '', displayName, imageUrl });
-    } catch (err) { fail(res, err); }
+  // ── Brand Identity (CUSTOMIZED_USER) — F6: deprecated NA PLATAFORMA ───────
+  // O TikTok não aceita mais identidades customizadas na criação de anúncios
+  // (2026): anúncios criados com CUSTOMIZED_USER são REJEITADOS. O próprio
+  // create_tiktok_identity do MCP está marcado deprecated. As identidades
+  // agora vêm de get_tiktok_identities (TT_USER/AUTH_CODE/BC_AUTH_TT) — é o
+  // que a criação (F1) e o Spark (F5) já usam. 410 honesto; a UI esconde o
+  // diálogo via capabilities.customIdentity=false.
+  app.patch('/api/ads/identity', dashboardAuth, async (_req, res) => {
+    res.status(410).json({
+      error: 'Identidade customizada (nome + avatar próprios) foi descontinuada pelo TikTok — anúncios com ela são rejeitados. Os anúncios usam a identidade da conta TikTok vinculada ao advertiser (automático).',
+      code: 'CUSTOM_IDENTITY_DEPRECATED',
+    });
   });
 
   // ── Upload de criativo → Vercel Blob (retorna URL pública p/ a Zernio) ────
@@ -1154,6 +1278,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const knownIds = new Set(((tree && tree.campaigns) || []).map((c) => String(c.platformCampaignId)));
       const v = adsAi.validateProposedAction(action, knownIds);
       if (!v.ok) return res.status(400).json({ error: 'Proposta inválida: ' + v.error });
+
+      // Kill switch bloqueia escritas na plataforma (pause/activate/budget), mas
+      // NÃO impede criar uma regra (create_rule é só config; regras já respeitam
+      // o kill switch na hora de agir, no motor).
+      if (action.type !== 'create_rule' && await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
 
       if (action.type === 'pause' || action.type === 'activate') {
         const status = action.type === 'pause' ? 'paused' : 'active';
@@ -1508,63 +1637,59 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   async function processBulkItem(env) {
     const task = env.task || {};
     if (task.kind === 'create') {
-      const data = await zernio.api('POST', '/ads/create', {
-        body: task.payload,
-        timeoutMs: 120000,
-        // Idempotency-Key por item: retry/reclaim nunca duplica a campanha
-        headers: { 'Idempotency-Key': 'bulk:' + env.jobId + ':' + env.idx }
+      // F2: composição via Pipeboard com RETOMADA IDEMPOTENTE. O MCP não tem
+      // Idempotency-Key e a fila é at-least-once, então a garantia vem de:
+      // 1) progresso por item gravado no Neon após CADA passo (onProgress);
+      // 2) no retry/reclaim, resume pula os passos já feitos;
+      // 3) cinto extra dedupeByName p/ a janela crash-antes-de-gravar.
+      // Critério de aceitação da F2: matar o processo no meio de um job e
+      // reiniciar NÃO pode duplicar campanha.
+      const p = task.payload || {};
+      const resume = await adsOps.getBulkProgress(env.accountId, env.jobId, env.idx);
+      const result = await pipeboard.createFullAd(p.adAccountId, {
+        name: p.name, goal: p.goal, videoUrl: p.imageUrl,
+        budgetAmount: p.budgetAmount, budgetType: p.budgetType, endDate: p.endDate,
+        body: p.body, linkUrl: p.linkUrl, callToAction: p.callToAction,
+        countries: p.countries, languages: p.languages,
+        ageMin: p.ageMin, ageMax: p.ageMax, promotedObject: p.promotedObject,
+        status: 'paused',
+      }, {
+        resume,
+        dedupeByName: true,
+        onProgress: (ids) => adsOps.saveBulkProgress(env.accountId, env.jobId, env.idx, ids),
       });
-      zernio.cacheBust('tree:' + env.accountId);
-      return { resultId: (data && data.platformCampaignId) || null };
+      await adsOps.appendAuditEvent(env.accountId, {
+        actorType: 'user', actorId: env.accountId, action: 'bulk_create_item',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId: p.adAccountId,
+        jobId: env.jobId,
+        afterState: { campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId },
+        reason: 'Bulk item ' + env.idx + ' do job ' + env.jobId,
+      }).catch(() => {});
+      pipeboard.cacheBust('tree:');
+      return { resultId: result.campaignId || null };
     }
-    if (task.kind === 'duplicate_same') {
-      const id = encodeURIComponent(String(task.sourceId || ''));
-      const data = await zernio.api('POST', '/ads/campaigns/' + id + '/duplicate', {
-        body: {
-          platform: 'tiktok', deepCopy: true, statusOption: 'PAUSED',
-          renameStrategy: 'ONLY_TOP_LEVEL_RENAME',
-          renameSuffix: String(task.renameSuffix || ' (cópia)').slice(0, 60)
-        },
-        timeoutMs: 120000
+    if (task.kind === 'duplicate_pb') {
+      // F3: duplicação composta via Pipeboard, MESMA conta. captureCampaign é
+      // cacheada 10min no provider → N cópias do mesmo job capturam 1×. Mesma
+      // retomada idempotente do 'create': progresso por item no Neon.
+      const resume = await adsOps.getBulkProgress(env.accountId, env.jobId, env.idx);
+      const capture = await pipeboard.captureCampaign(task.advertiserId, task.sourceId);
+      const result = await pipeboard.recreateCampaign(task.advertiserId, capture, String(task.newName || '').slice(0, 512), {
+        resume,
+        dedupeByName: true,
+        overrides: task.overrides || undefined, // F4: variações com budget/texto próprios
+        onProgress: (ids) => adsOps.saveBulkProgress(env.accountId, env.jobId, env.idx, ids),
       });
-      zernio.cacheBust('tree:' + env.accountId);
-      return { resultId: (data && data.platformCampaignId) || null };
-    }
-    if (task.kind === 'duplicate_cross') {
-      // Não há "duplicate para outra conta" na Zernio: lê a campanha de origem
-      // na árvore e RECRIA na conta destino com os dados disponíveis.
-      const st = zernio.getState(env.accountId);
-      const tree = await zernio.api('GET', '/ads/tree', {
-        query: { accountId: st.accountId, platform: 'tiktok', adAccountId: task.sourceAdAccountId || undefined, limit: 50 }
-      });
-      const src = (tree.campaigns || []).find((c) => c.platformCampaignId === task.sourceId);
-      if (!src) throw new Error('Campanha de origem não encontrada na conta de origem');
-      const firstAd = ((src.adSets || [])[0] || {}).ads && src.adSets[0].ads[0];
-      const creative = (firstAd && firstAd.creative) || {};
-      const videoUrl = String(creative.videoUrl || creative.imageUrl || '');
-      if (!/^https:\/\//.test(videoUrl)) {
-        throw new Error('A campanha de origem não expõe a URL do criativo — duplicação entre contas exige recriar com o vídeo. Use "Subir em massa" com o vídeo da biblioteca.');
-      }
-      const goal = String((firstAd && firstAd.goal) || 'traffic');
-      const built = buildCreatePayload(st, {
-        adAccountId: task.targetAdAccountId,
-        name: String(task.newName || ((src.campaignName || task.sourceId) + (task.renameSuffix || ' (cópia)'))).slice(0, 120),
-        goal: ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(goal) ? goal : 'traffic',
-        videoUrl,
-        budgetAmount: Number((src.budget || {}).amount) || Number(((src.adSets || [])[0] || {}).budget && src.adSets[0].budget.amount) || 0,
-        // lifetime exigiria endDate (não disponível na árvore) — recria como daily
-        budgetType: 'daily',
-        body: creative.body || undefined,
-        linkUrl: creative.linkUrl || undefined
-      });
-      if (built.error) throw new Error('Não foi possível reconstruir a campanha: ' + built.error);
-      const data = await zernio.api('POST', '/ads/create', {
-        body: built.payload,
-        timeoutMs: 120000,
-        headers: { 'Idempotency-Key': 'dup:' + env.jobId + ':' + env.idx }
-      });
-      zernio.cacheBust('tree:' + env.accountId);
-      return { resultId: (data && data.platformCampaignId) || null };
+      await adsOps.appendAuditEvent(env.accountId, {
+        actorType: 'user', actorId: env.accountId, action: 'bulk_duplicate_item',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId: task.advertiserId,
+        jobId: env.jobId,
+        afterState: { campaignId: result.campaignId, adGroupIds: result.adGroupIds, adIds: result.adIds, sourceId: task.sourceId },
+        reason: 'Duplicação da campanha ' + task.sourceId + ' (item ' + env.idx + ' do job ' + env.jobId + ')',
+        metadata: { warnings: result.warnings },
+      }).catch(() => {});
+      pipeboard.cacheBust('tree:');
+      return { resultId: result.campaignId || null };
     }
     throw new Error('Tipo de tarefa desconhecido: ' + String(task.kind || ''));
   }
@@ -1587,8 +1712,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.post('/api/ads/bulk', dashboardAuth, async (req, res) => {
     try {
-      const st = zernio.getState(req.account.id);
-      if (!st.accountId) return res.status(409).json({ error: 'Conecte sua conta TikTok Ads primeiro' });
+      // F2: gate via Pipeboard (requireAdvertiser já valida o advertiser contra
+      // o token; o gate antigo por st.accountId da Zernio deixaria 409 p/ sempre).
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const st = { accountId: req.account.id };
       const b = req.body || {};
       const adAccountId = String(b.adAccountId || '').trim().slice(0, 60);
       const selected = await requireAdvertiser(req.account.id, st, adAccountId, b.businessCenterId);
@@ -1666,15 +1793,77 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Duplicação (1 ou N cópias) ────────────────────────────────────────────
-  // ADIADO na migração p/ Pipeboard: sem tool nativa de duplicar; reconstruir
-  // via create_* + re-upload de vídeo é um gate próprio (junto do Gate 5 de
-  // criação). Até lá respondemos 501 — a UI (duplicate-dialog) mostra o aviso.
+  // ── Duplicação (1 ou N cópias) — F3, via Pipeboard ────────────────────────
+  // Sem tool nativa de duplicar: cada cópia é uma RECRIAÇÃO composta
+  // (captureCampaign 1×/job + recreateCampaign por cópia) processada na mesma
+  // fila durável do bulk, com retomada idempotente por item. MESMA conta
+  // apenas: entre contas o video_id não é transferível (escopado ao
+  // advertiser) — responder 422 honesto é melhor que cópia sem criativo.
   app.post('/api/ads/duplicate', dashboardAuth, async (req, res) => {
-    return res.status(501).json({
-      error: 'Duplicar campanha está temporariamente indisponível nesta versão. Aguarde a próxima atualização.',
-      code: 'DUPLICATE_UNSUPPORTED',
-    });
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const b = req.body || {};
+      const sourceId = String(b.sourceId || '').trim().slice(0, 60);
+      if (!sourceId) return res.status(400).json({ error: 'sourceId (campanha de origem) obrigatório' });
+      const sourceAdAccountId = String(b.sourceAdAccountId || '').trim().slice(0, 60);
+      const targetAdAccountId = String(b.targetAdAccountId || sourceAdAccountId).trim().slice(0, 60);
+      if (targetAdAccountId && sourceAdAccountId && targetAdAccountId !== sourceAdAccountId) {
+        return res.status(422).json({
+          error: 'Duplicar para OUTRA conta ainda não é suportado: os criativos (video_id) são escopados ao advertiser de origem no TikTok. Duplique na mesma conta ou use "Subir em massa" com o vídeo da biblioteca na conta destino.',
+          code: 'CROSS_ACCOUNT_UNSUPPORTED',
+        });
+      }
+      const selected = await requireAdvertiser(req.account.id, null, sourceAdAccountId, null);
+      // F4: modo VARIAÇÕES — array de até 50 itens, cada um com overrides
+      // opcionais { name?, budgetAmount?, adText? } aplicados sobre o template.
+      // Sem "variations", modo cópia exata clássico (1-10, count+suffix).
+      const rawVariations = Array.isArray(b.variations) ? b.variations.slice(0, 50) : null;
+      const count = rawVariations ? rawVariations.length : Math.min(10, Math.max(1, parseInt(b.count, 10) || 1));
+      if (rawVariations && !count) return res.status(400).json({ error: 'variations vazio — envie 1 a 50 variações' });
+      const suffix = String(b.nameSuffix || (rawVariations ? ' (variação)' : ' (cópia)')).slice(0, 60);
+      const idempotencyKey = String(b.idempotencyKey || '').trim().slice(0, 200);
+      if (!idempotencyKey) return res.status(400).json({ error: 'idempotencyKey obrigatória' });
+      const policy = await adsOps.getSafetyPolicy(req.account.id);
+      const guard = adsOps.assertMutationAllowed(policy, { advertiserId: selected.advertiserId, idempotencyKey });
+
+      // Valida a ORIGEM antes de enfileirar (o job nasce consistente) e já
+      // aquece o cache da captura p/ os itens do worker.
+      const capture = await pipeboard.captureCampaign(selected.advertiserId, sourceId);
+      const srcName = String(capture.campaign.campaign_name || capture.campaign.name || sourceId);
+
+      const tasks = [];
+      for (let i = 0; i < count; i++) {
+        const v = rawVariations ? (rawVariations[i] || {}) : null;
+        const newName = String((v && v.name) || (srcName + suffix + (count > 1 ? ' ' + (i + 1) : ''))).slice(0, 512);
+        const task = { kind: 'duplicate_pb', sourceId, advertiserId: selected.advertiserId, newName };
+        if (v) {
+          const overrides = {};
+          if (Number(v.budgetAmount) > 0) overrides.budgetAmount = Math.min(100000, Number(v.budgetAmount));
+          if (v.adText) overrides.adText = String(v.adText).slice(0, 100);
+          if (Object.keys(overrides).length) task.overrides = overrides;
+        }
+        tasks.push({ ref: newName.slice(0, 120), task });
+      }
+      const job = await bulk.createBulkJob(req.account.id, {
+        kind: 'duplicate', adAccountId: selected.advertiserId,
+        items: tasks.map((t) => ({ ref: t.ref })),
+        meta: { sourceId, idempotencyKey, dryRun: guard.dryRun },
+      });
+      if (job.meta && job.meta.idempotencyKey === idempotencyKey && job.items.some((item) => item.task || item.status !== 'queued')) {
+        return res.status(200).json({ jobId: job.id, total: job.total, dryRun: Boolean(job.meta.dryRun), reused: true });
+      }
+      for (let i = 0; i < tasks.length; i++) {
+        await bulk.updateBulkItem(req.account.id, job.id, i, { task: tasks[i].task });
+        if (guard.dryRun) {
+          await bulk.updateBulkItem(req.account.id, job.id, i, { status: 'done', resultId: 'dry-run' });
+        } else {
+          await bulk.enqueueBulkItem({ accountId: req.account.id, jobId: job.id, idx: i, task: tasks[i].task });
+        }
+      }
+      await adsOps.appendAuditEvent(req.account.id, { actorType: 'user', actorId: req.account.id, action: guard.dryRun ? 'duplicate.simulated' : 'duplicate.queued', targetType: 'bulk_job', targetId: job.id, advertiserId: selected.advertiserId, jobId: job.id, reason: guard.dryRun ? 'Política em modo dry-run' : 'Duplicação confirmada', metadata: { sourceId, count, idempotencyKey } });
+      stats.logEvent('info', { acc: req.account.id, title: (guard.dryRun ? 'Simulação de duplicação: ' : 'Duplicação iniciada: ') + count + ' cópia(s) de ' + srcName });
+      res.status(guard.dryRun ? 200 : 202).json({ jobId: job.id, total: count, dryRun: guard.dryRun });
+    } catch (err) { fail(res, err); }
   });
 
   // ── Catálogos de produtos (TikTok Shopping / Catalog) ─────────────────────

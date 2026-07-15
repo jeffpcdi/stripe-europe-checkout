@@ -685,17 +685,34 @@ export interface PushcutConfig {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TikTok Ads (via Zernio) — contratos de /api/ads/* (ads-routes.js)
+// TikTok Ads (via Pipeboard) — contratos de /api/ads/* (ads-routes.js)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// F6 — o que o backend REALMENTE suporta via Pipeboard. A UI esconde (não
+// desabilita com promessa vaga) tudo que estiver false.
+export interface AdsCapabilities {
+  createCampaign: boolean
+  bulkCreate: boolean
+  duplicateSameAccount: boolean
+  duplicateCrossAccount: boolean
+  variations: boolean
+  sparkAds: boolean
+  sparkCodeRedeem: boolean
+  customIdentity: boolean
+  businessCenters: boolean
+  oauthConnect: boolean
+  appPromotion: boolean
+}
 
 // ── /api/ads/status — estado da integração ──
 export interface AdsStatusResponse {
-  enabled: boolean // ZERNIO_API_KEY presente e válida no servidor
+  enabled: boolean // PIPEBOARD_API_TOKEN presente no servidor
   connected: boolean
   account?: { id: string; username: string; displayName: string }
   businessCenterId?: string
   advertiserId?: string
   identity?: AdsIdentity | null
+  capabilities?: AdsCapabilities
 }
 
 // ── GET /api/ads/business-centers — camada acima dos advertisers ──
@@ -1244,6 +1261,8 @@ export interface AdsSafetyPolicy {
   killSwitch: boolean
   dailySpendCap: number | null
   maxBudgetChangePct: number
+  /** Cap global de ações reais do motor por hora (anti-loop). 0 = desligado. */
+  maxActionsPerHour: number
   cooldownMinutes: number
   allowedHours: Record<string, unknown>
   blockedAdvertiserIds: string[]
