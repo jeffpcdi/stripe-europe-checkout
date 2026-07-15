@@ -1108,6 +1108,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // 2) Vendas reais da conta no mesmo intervalo (fonte: stats/leads)
       const revByDay = {}; const salesByDay = {};
       let revenueCents = 0, sales = 0;
+      // F2 (guarda de moeda): a receita vem dos gateways (ex.: BRL) e o gasto
+      // da conta de anúncio (ex.: EUR). Dividir um pelo outro produz um "ROAS"
+      // numericamente plausível e completamente errado. Rastreamos a moeda
+      // dominante da receita para bloquear o cálculo quando divergir.
+      const revCurCount = {};
       if (typeof stats.getStats === 'function') {
         const snap = stats.getStats(req.account.id) || {};
         (snap.leads || []).forEach((l) => {
@@ -1118,8 +1123,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           revenueCents += cents; sales += 1;
           revByDay[day] = (revByDay[day] || 0) + cents;
           salesByDay[day] = (salesByDay[day] || 0) + 1;
+          const rc = String(l.reportedCurrency || 'BRL').toUpperCase();
+          revCurCount[rc] = (revCurCount[rc] || 0) + cents;
         });
       }
+      const revenueCurrency = Object.entries(revCurCount).sort((a, b) => b[1] - a[1])[0] ? Object.entries(revCurCount).sort((a, b) => b[1] - a[1])[0][0] : null;
 
       // 3) Série contínua dia a dia (mesmo sem dado — o gráfico não pula datas)
       const daily = [];
@@ -1134,11 +1142,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }
 
       const revenue = revenueCents / 100;
+      const spendCurrency = String(currency || 'EUR').toUpperCase();
+      // ROAS só é um número quando gasto e receita estão na MESMA moeda.
+      const currencyMismatch = !!(revenueCurrency && revenueCents > 0 && spend > 0 && revenueCurrency !== spendCurrency);
       const out = {
         fromDate, toDate, currency: currency || 'EUR',
+        revenueCurrency, currencyMismatch,
         spend: +spend.toFixed(2), conversions,
         revenueCents, sales,
-        roas: spend > 0 ? +(revenue / spend).toFixed(2) : null,
+        roas: spend > 0 && !currencyMismatch ? +(revenue / spend).toFixed(2) : null,
         cpa: sales > 0 && spend > 0 ? +(spend / sales).toFixed(2) : null,
         daily
       };

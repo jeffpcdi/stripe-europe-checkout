@@ -75,7 +75,9 @@ export function AdsOverviewCard() {
               {roas.sales}
               {roas.revenueCents > 0 && (
                 <span className="ml-1.5 text-xs font-medium text-success" data-sensitive>
-                  {fmtCurrency(roas.revenueCents / 100, roas.currency)}
+                  {/* F2: a receita vem dos GATEWAYS — formatar com a moeda da
+                      conta de anúncio inflava/deflava o número (EUR × BRL) */}
+                  {fmtCurrency(roas.revenueCents / 100, roas.revenueCurrency || roas.currency)}
                 </span>
               )}
             </p>
@@ -85,6 +87,11 @@ export function AdsOverviewCard() {
             <p className={`text-lg font-semibold tabular-nums ${roasColor}`}>
               {roas.roas === null ? '—' : roas.roas.toFixed(2).replace('.', ',')}
             </p>
+            {roas.currencyMismatch && (
+              <p className="text-[10px] text-warning">
+                moedas diferentes ({roas.currency} × {roas.revenueCurrency})
+              </p>
+            )}
           </div>
         </div>
         {hasSpend && spendSeries.length > 1 && (

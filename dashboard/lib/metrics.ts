@@ -51,6 +51,16 @@ export interface PeriodMetrics {
    */
   orphanPurchases: number
   orphanRevenue: Record<string, number>
+  /**
+   * Fase 2 (sanidade de valor): vendas com amount > 20× a mediana do período
+   * — quase sempre erro de integração (centavos enviados como reais, moeda
+   * errada no webhook). Continuam na receita (dinheiro reportado é dinheiro
+   * reportado) mas SAEM do ticket médio, que uma única venda de R$ 50.000
+   * num mar de R$ 47 tornaria inútil. Exigimos ≥5 vendas para flagar —
+   * mediana de 2-3 pontos não é base estatística.
+   */
+  suspectSales: number
+  suspectRevenue: number
 }
 
 export interface SourceRank {
@@ -135,11 +145,19 @@ export function aggregate(
   // moedas num donut somaria valores incomparáveis)
   const revGwMap = new Map<string, { name: string; revenue: number; sales: number; cur: string }>()
 
+  // Fase 2: valores individuais por moeda para a mediana da sanidade
+  const saleAmounts = new Map<string, number[]>()
+
   for (const e of events) {
     if (e.type === 'sale') {
       sales++
       const cur = (e.currency || 'BRL').toUpperCase()
       rev[cur] = (rev[cur] || 0) + (e.amount || 0)
+      if (e.amount) {
+        const arr = saleAmounts.get(cur) ?? []
+        arr.push(e.amount)
+        saleAmounts.set(cur, arr)
+      }
       bump(e.at, 'revenue', e.amount || 0)
       bump(e.at, 'sales', 1)
       const gwName = e.gateway || 'outro'
@@ -242,6 +260,28 @@ export function aggregate(
     Object.entries(rev).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'BRL'
   const totalRev = rev[mainCur] || 0
 
+  // Fase 2: sanidade — venda >20× a mediana (moeda principal, ≥5 vendas)
+  // é suspeita: fica na receita, sai do ticket médio.
+  let suspectSales = 0
+  let suspectRevenue = 0
+  const mainAmounts = saleAmounts.get(mainCur) ?? []
+  if (mainAmounts.length >= 5) {
+    const sorted = [...mainAmounts].sort((a, b) => a - b)
+    const mid = Math.floor(sorted.length / 2)
+    const median =
+      sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    if (median > 0) {
+      for (const a of mainAmounts) {
+        if (a > median * 20) {
+          suspectSales++
+          suspectRevenue += a
+        }
+      }
+    }
+  }
+  const saneSales = sales - suspectSales
+  const saneRev = totalRev - suspectRevenue
+
   const series = [...dayMap.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([day, v]) => ({ day, ...v }))
@@ -260,7 +300,7 @@ export function aggregate(
     paymentStarted,
     purchased,
     overall: visits ? +((purchased / visits) * 100).toFixed(1) : 0,
-    avgTicket: sales ? Math.round(totalRev / sales) : 0,
+    avgTicket: saneSales > 0 ? Math.round(saneRev / saneSales) : 0,
     countries: [...countryMap.values()].sort((a, b) => b.count - a.count),
     series,
     byGateway: [...gwMap.values()].sort((a, b) => b.checkout - a.checkout),
@@ -272,6 +312,8 @@ export function aggregate(
     topLinks,
     orphanPurchases,
     orphanRevenue,
+    suspectSales,
+    suspectRevenue,
   }
 }
 

@@ -265,6 +265,18 @@ export function OverviewView() {
   }
 
   const revCents = cur.rev[cur.mainCur] || 0
+  // F2 (guarda de moeda): conta de anúncio em EUR e receita em BRL → dividir
+  // um pelo outro dá um "ROAS" sem significado. O servidor já zera o roas e
+  // manda a flag; aqui só decidimos a mensagem. Fallback local para respostas
+  // antigas em cache (sem a flag).
+  const currencyMismatch = Boolean(
+    roas &&
+      (roas.currencyMismatch ??
+        (roas.roas !== null &&
+          roas.currency &&
+          revCents > 0 &&
+          cur.mainCur !== roas.currency.toUpperCase())),
+  )
   // Receita em OUTRAS moedas (além da dominante). Sem isto o card mostrava só a
   // moeda principal e escondia, por ex., uma venda em BRL — o que fazia a receita
   // "parecer travada" ao trocar de período quando a diferença era noutra moeda.
@@ -338,9 +350,21 @@ export function OverviewView() {
               colorClass="text-brand-cyan"
               value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
               sub={
-                otherRev.length
-                  ? '+ ' + otherRev.map(([c, v]) => money(v, c)).join('  +  ')
-                  : undefined
+                [
+                  otherRev.length
+                    ? '+ ' + otherRev.map(([c, v]) => money(v, c)).join('  +  ')
+                    : null,
+                  // F2: receita com purchased=0 no funil era "divergência" —
+                  // agora declara a base: vendas órfãs (webhook sem lead)
+                  cur.orphanPurchases > 0
+                    ? `inclui ${cur.orphanPurchases} ${cur.orphanPurchases === 1 ? 'venda não rastreada' : 'vendas não rastreadas'}`
+                    : null,
+                  cur.suspectSales > 0
+                    ? `${cur.suspectSales} ${cur.suspectSales === 1 ? 'valor atípico' : 'valores atípicos'} (fora do ticket médio)`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || undefined
               }
             />
             <HeroKpi
@@ -349,12 +373,23 @@ export function OverviewView() {
               sensitive
               value={roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
             />
+            {/* F2: moeda do gasto ≠ moeda da receita → ROAS seria número
+                errado (R$ ÷ US$). Mostra o porquê em vez de calcular. */}
             <HeroKpi
               label="ROAS"
-              dim={!roas || roas.roas === null}
+              dim={!roas || roas.roas === null || currencyMismatch}
               colorClass="text-success"
               value={
-                roas && roas.roas !== null ? roas.roas.toFixed(2).replace('.', ',') : '—'
+                currencyMismatch
+                  ? '—'
+                  : roas && roas.roas !== null
+                    ? roas.roas.toFixed(2).replace('.', ',')
+                    : '—'
+              }
+              sub={
+                currencyMismatch
+                  ? `moedas diferentes (gasto ${roas?.currency} × receita ${roas?.revenueCurrency || cur.mainCur})`
+                  : undefined
               }
             />
           </div>

@@ -911,11 +911,15 @@ export interface AdsRoasResponse {
   fromDate: string
   toDate: string
   currency: string
+  /** F2: moeda dominante da RECEITA (dos gateways) — pode divergir da conta */
+  revenueCurrency?: string | null
+  /** F2: true quando receita e gasto estão em moedas diferentes → roas=null */
+  currencyMismatch?: boolean
   spend: number
   conversions: number
   revenueCents: number
   sales: number
-  roas: number | null // receita/gasto — null sem gasto
+  roas: number | null // receita/gasto — null sem gasto OU moedas divergentes
   cpa: number | null // gasto/vendas — null sem vendas
   daily: AdsRoasDaily[]
 }
