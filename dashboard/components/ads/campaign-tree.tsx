@@ -23,6 +23,7 @@ import {
   Pencil,
   Check,
   X,
+  Search,
 } from 'lucide-react'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -162,12 +163,17 @@ export function CampaignTree({
   const [editingBudget, setEditingBudget] = useState<string | null>(null)
   const [budgetValue, setBudgetValue] = useState('')
   const [budgetBusy, setBudgetBusy] = useState(false)
+  // Busca por nome + "só com gasto" — filtros CLIENT-SIDE: o backend devolve a
+  // lista inteira numa página só (readTree → pages:1), então filtrar aqui nunca
+  // esconde resultados de outras páginas. "Só com gasto" nasce desligado.
+  const [query, setQuery] = useState('')
+  const [onlyWithSpend, setOnlyWithSpend] = useState(false)
 
   // Uma seleção de lote não pode sobreviver à troca de página/filtro/período;
   // do contrário, ações poderiam atingir campanhas que já não estão visíveis.
   useEffect(() => {
     setSelected(new Set())
-  }, [page, statusFilter, sort, rangeDays, tree])
+  }, [page, statusFilter, sort, rangeDays, tree, query, onlyWithSpend])
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -268,6 +274,32 @@ export function CampaignTree({
   const campaigns = tree?.campaigns ?? []
   const pagination = tree?.pagination
 
+  // Aplica busca + "só com gasto" sobre a lista carregada
+  const q = query.trim().toLowerCase()
+  const visible = campaigns.filter((c) => {
+    if (q && !String(c.campaignName || c.platformCampaignId).toLowerCase().includes(q)) return false
+    if (onlyWithSpend && !(Number(c.metrics?.spend) > 0)) return false
+    return true
+  })
+
+  // Resumo do que está visível: contagem por status + gasto total — dá o
+  // panorama sem precisar rolar 100 linhas.
+  const summary = useMemo(() => {
+    let active = 0
+    let paused = 0
+    let review = 0
+    let problem = 0
+    let spend = 0
+    for (const c of visible) {
+      if (c.status === 'active') active++
+      else if (c.status === 'paused') paused++
+      else if (c.status === 'pending_review') review++
+      else if (c.status === 'rejected' || c.status === 'error') problem++
+      spend += Number(c.metrics?.spend) || 0
+    }
+    return { active, paused, review, problem, spend }
+  }, [visible])
+
   // Organização: sem filtro de status, agrupa em seções com ativas primeiro —
   // era fácil perder uma campanha ativa no meio de dezenas de pausadas.
   const STATUS_ORDER: Record<string, number> = {
@@ -289,10 +321,10 @@ export function CampaignTree({
   }
   const grouped = statusFilter
     ? null
-    : [...campaigns].sort(
+    : [...visible].sort(
         (a, b) => (STATUS_ORDER[a.status ?? ''] ?? 6) - (STATUS_ORDER[b.status ?? ''] ?? 6),
       )
-  const displayCampaigns = grouped ?? campaigns
+  const displayCampaigns = grouped ?? visible
 
   // Lista achatada (cabeçalhos de grupo + campanhas) para virtualizar de forma
   // uniforme. Cabeçalhos só existem quando não há filtro (modo agrupado).
@@ -359,8 +391,9 @@ export function CampaignTree({
 
     return (
       <div className={`border-b border-border/70 ${isError ? 'bg-error/10' : ''}`}>
-        {/* Linha compacta */}
-        <div className="flex items-center gap-2 px-3 transition-colors hover:bg-secondary/40">
+        {/* Linha compacta — ações aparecem no hover/focus (sm+), sempre
+            visíveis no mobile (não há hover no touch) */}
+        <div className="group flex items-center gap-2 px-3 transition-colors hover:bg-secondary/40">
           <input
             type="checkbox"
             checked={selected.has(id)}
@@ -398,7 +431,13 @@ export function CampaignTree({
             </span>
           </button>
 
-          <span className={`${colGasto} text-[13px] font-semibold text-foreground`}>{fmtMoney(c.metrics?.spend, c.currency || currency)}</span>
+          {/* Gasto zero em cinza sem destaque — 100 linhas de "US$ 0,00" em
+              negrito eram só ruído; o olho agora acha quem gastou de verdade */}
+          <span
+            className={`${colGasto} text-[13px] ${spend > 0 ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}
+          >
+            {fmtMoney(c.metrics?.spend, c.currency || currency)}
+          </span>
           <span className={`${colRoas} text-[13px] font-medium ${roas !== null ? 'text-success' : 'text-muted-foreground'}`}>
             {roas !== null ? roas.toFixed(2) : '—'}
           </span>
@@ -412,7 +451,7 @@ export function CampaignTree({
                 {c.status === 'active' ? (
                   <button
                     type="button"
-                    className="btn-ghost !px-1.5 !py-1"
+                    className="btn-ghost !px-1.5 !py-1 sm:opacity-0 sm:transition-opacity sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
                     onClick={() => setCampaignStatus(c, 'paused')}
                     aria-label={`Pausar campanha ${c.campaignName || id}`}
                     title="Pausar"
@@ -422,7 +461,7 @@ export function CampaignTree({
                 ) : c.status === 'paused' ? (
                   <button
                     type="button"
-                    className="btn-ghost !px-1.5 !py-1"
+                    className="btn-ghost !px-1.5 !py-1 sm:opacity-0 sm:transition-opacity sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
                     onClick={() => setCampaignStatus(c, 'active')}
                     aria-label={`Ativar campanha ${c.campaignName || id}`}
                     title="Ativar"
@@ -437,7 +476,7 @@ export function CampaignTree({
                 {onDuplicate && (
                   <button
                     type="button"
-                    className="btn-ghost !px-1.5 !py-1"
+                    className="btn-ghost !px-1.5 !py-1 sm:opacity-0 sm:transition-opacity sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
                     onClick={() => onDuplicate(c)}
                     aria-label={`Duplicar campanha ${c.campaignName || id}`}
                     title="Duplicar"
@@ -627,64 +666,129 @@ export function CampaignTree({
 
   return (
     <GlassCard className="anim-content-in overflow-hidden p-0">
-      {/* Toolbar: filtros de status + ordenação */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrar por status">
-          {STATUS_FILTERS.map((f) => (
+      {/* Toolbar em 2 linhas: busca (com contagem) em cima; status + filtros
+          de dados embaixo. Antes tudo disputava uma linha só e nada respirava. */}
+      <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1 sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar campanha…"
+              aria-label="Buscar campanha por nome"
+              className="input-neon w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+            {visible.length !== campaigns.length
+              ? `${visible.length} de ${campaigns.length}`
+              : `${campaigns.length} campanha${campaigns.length === 1 ? '' : 's'}`}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrar por status">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => onStatusFilter(f.value)}
+                aria-pressed={statusFilter === f.value}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  statusFilter === f.value
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            {/* Esconde as dezenas de campanhas zeradas (testes) com 1 clique */}
             <button
-              key={f.value}
               type="button"
-              onClick={() => onStatusFilter(f.value)}
-              aria-pressed={statusFilter === f.value}
+              onClick={() => setOnlyWithSpend((v) => !v)}
+              aria-pressed={onlyWithSpend}
               className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                statusFilter === f.value
+                onlyWithSpend
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
               }`}
             >
-              {f.label}
+              Só com gasto
             </button>
-          ))}
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-3">
-          {typeof pagination?.total === 'number' && (
-            <span className="text-[11px] text-muted-foreground">
-              {pagination.total} campanha{pagination.total === 1 ? '' : 's'}
-            </span>
-          )}
-          {onRangeDays && (
+            {onRangeDays && (
+              <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                Período:
+                <select
+                  className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+                  value={String(rangeDays ?? 365)}
+                  onChange={(e) => onRangeDays(Number(e.target.value))}
+                  aria-label="Período de métricas e descoberta de campanhas"
+                >
+                  <option value="7">7 dias</option>
+                  <option value="30">30 dias</option>
+                  <option value="90">90 dias</option>
+                  <option value="365">12 meses</option>
+                  <option value="730">24 meses</option>
+                </select>
+              </label>
+            )}
             <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              Período:
+              Ordenar:
               <select
                 className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
-                value={String(rangeDays ?? 365)}
-                onChange={(e) => onRangeDays(Number(e.target.value))}
-                aria-label="Período de métricas e descoberta de campanhas"
+                value={sort}
+                onChange={(e) => onSort(e.target.value)}
               >
-                <option value="7">7 dias</option>
-                <option value="30">30 dias</option>
-                <option value="90">90 dias</option>
-                <option value="365">12 meses</option>
-                <option value="730">24 meses</option>
+                {SORTS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
               </select>
             </label>
-          )}
-          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            Ordenar:
-            <select
-              className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
-              value={sort}
-              onChange={(e) => onSort(e.target.value)}
-            >
-              {SORTS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          </div>
         </div>
       </div>
+
+      {/* Resumo do que está visível — panorama sem rolar a lista */}
+      {visible.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-secondary/30 px-4 py-2 text-[11px] tabular-nums text-muted-foreground">
+          {summary.active > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-[color:var(--success)]" aria-hidden="true" />
+              {summary.active} ativa{summary.active === 1 ? '' : 's'}
+            </span>
+          )}
+          {summary.review > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
+              {summary.review} em revisão
+            </span>
+          )}
+          {summary.problem > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-[color:var(--error)]" aria-hidden="true" />
+              {summary.problem} com problema{summary.problem === 1 ? '' : 's'}
+            </span>
+          )}
+          {summary.paused > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-muted-foreground" aria-hidden="true" />
+              {summary.paused} pausada{summary.paused === 1 ? '' : 's'}
+            </span>
+          )}
+          <span className="ml-auto font-medium text-foreground">
+            Gasto: {fmtMoney(summary.spend, currency)}
+          </span>
+        </div>
+      )}
 
       {/* Barra de ações em lote — aparece com ≥1 campanha selecionada */}
       {selected.size > 0 && (
@@ -741,6 +845,29 @@ export function CampaignTree({
       ) : error ? (
         <div className="p-6">
           <ErrorState title="Não foi possível carregar as campanhas" description={error} onRetry={onRetry} />
+        </div>
+      ) : campaigns.length > 0 && visible.length === 0 ? (
+        /* Há campanhas, mas a busca/filtro local não achou nada */
+        <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+          <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
+            <Search className="size-6 text-muted-foreground" aria-hidden="true" />
+          </span>
+          <p className="text-sm font-medium text-foreground">Nada encontrado</p>
+          <p className="max-w-sm text-pretty text-xs text-muted-foreground">
+            {onlyWithSpend
+              ? 'Nenhuma campanha corresponde à busca com o filtro "Só com gasto" ligado.'
+              : 'Nenhuma campanha corresponde à busca.'}
+          </p>
+          <button
+            type="button"
+            className="btn-ghost text-xs"
+            onClick={() => {
+              setQuery('')
+              setOnlyWithSpend(false)
+            }}
+          >
+            Limpar busca e filtros
+          </button>
         </div>
       ) : campaigns.length === 0 ? (
         tree?.backfillPending ? (
