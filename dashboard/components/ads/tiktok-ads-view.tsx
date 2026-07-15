@@ -1,6 +1,6 @@
 'use client'
 
-// Aba TikTok Ads (via Zernio) — orquestra conexão OAuth, seleção de
+// Aba TikTok Ads (via Pipeboard) — orquestra verificação de conexão, seleção de
 // advertiser, KPIs agregados e a árvore de campanhas. Os fluxos de escrita
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
@@ -10,7 +10,6 @@ import { Megaphone, Plus, Zap, UserRound, Copy, Layers, MoreHorizontal, FlaskCon
 import {
   useAdsStatus,
   useAdsAccounts,
-  useAdsBusinessCenters,
   useAdsTree,
   useAdsAttribution,
   useAdsSafetyPolicy,
@@ -52,12 +51,8 @@ export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
   const connected = Boolean(status?.connected)
 
-  // Business Center selecionado (camada acima do advertiser). null = usa o salvo.
-  const { data: bcs, mutate: mutateBcs } = useAdsBusinessCenters(connected)
-  const [bcId, setBcId] = useState<string | null>(null)
-  const effectiveBc = bcId ?? bcs?.selected ?? ''
-
-  const { data: accounts, mutate: mutateAccounts } = useAdsAccounts(connected, effectiveBc || undefined)
+  // Pipeboard não tem Business Center — as contas vêm direto do token.
+  const { data: accounts, mutate: mutateAccounts } = useAdsAccounts(connected)
 
   const [advertiserId, setAdvertiserId] = useState<string | null>(null) // null = usa o salvo
   const effectiveAdvertiser = advertiserId ?? accounts?.selected ?? ''
@@ -66,8 +61,8 @@ export function TikTokAdsView() {
   const [statusFilter, setStatusFilter] = useState('active')
   const [sort, setSort] = useState('newest')
   const [page, setPage] = useState(1)
-  // Período das métricas/descoberta de campanhas. Default 365d — a janela
-  // curta (90d da Zernio) escondia campanhas antigas e parecia "faltando".
+  // Período das métricas/descoberta de campanhas. Default 365d — janela
+  // curta escondia campanhas antigas e parecia "faltando".
   const [rangeDays, setRangeDays] = useState(365)
   const { fromDate, toDate } = useMemo(() => {
     const iso = (d: Date) => d.toISOString().slice(0, 10)
@@ -196,7 +191,7 @@ export function TikTokAdsView() {
         <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <ErrorState
           title="Integração não configurada no servidor"
-          description="A variável ZERNIO_API_KEY não está definida (ou é inválida). Adicione a chave sk_… da Zernio nas variáveis de ambiente do servidor, reinicie e tente novamente."
+          description="A variável PIPEBOARD_API_TOKEN não está definida no servidor. Gere o token no painel do Pipeboard (pipeboard.co), adicione às variáveis de ambiente e tente novamente."
           onRetry={() => mutateStatus()}
         />
       </div>
@@ -358,22 +353,12 @@ export function TikTokAdsView() {
         </div>
       </div>
 
-      {/* Barra de contexto: BC → conta de anúncio + deep-link + desconectar */}
+      {/* Barra de contexto: conta de anúncio + deep-link + desconectar */}
       <AdsContextBar
         accountLabel={status?.account?.displayName || status?.account?.username || status?.account?.id || ''}
-        businessCenters={bcs?.businessCenters ?? []}
-        bcUnsupported={Boolean(bcs?.unsupported)}
-        selectedBc={effectiveBc}
         advertisers={advertisers}
         selectedAdvertiser={effectiveAdvertiser}
         refreshing={treeValidating}
-        onBcChanged={(newBc, newAdvertiser) => {
-          setBcId(newBc)
-          setAdvertiserId(newAdvertiser || '')
-          setPage(1)
-          mutateBcs()
-          mutateAccounts()
-        }}
         onAdvertiserChanged={(id) => {
           setAdvertiserId(id)
           setPage(1)
@@ -389,7 +374,6 @@ export function TikTokAdsView() {
           }
           mutateTree()
           mutateAccounts()
-          mutateBcs()
         }}
         onDisconnect={status?.capabilities?.oauthConnect === false ? null : () => setConfirmDisconnect(true)}
       />

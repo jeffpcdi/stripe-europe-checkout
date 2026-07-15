@@ -432,15 +432,19 @@ export function CampaignTree({
                 ) : (
                   <span className="size-3.5" aria-hidden="true" />
                 )}
-                <button
-                  type="button"
-                  className="btn-ghost !px-1.5 !py-1 opacity-40"
-                  disabled
-                  aria-label={`Duplicar campanha ${c.campaignName || id} (temporariamente indisponível)`}
-                  title="Duplicar (temporariamente indisponível nesta versão)"
-                >
-                  <Copy className="size-3.5" aria-hidden="true" />
-                </button>
+                {/* Duplicação (mesma conta) está disponível via Pipeboard —
+                    o estado desabilitado era da era Zernio/501. */}
+                {onDuplicate && (
+                  <button
+                    type="button"
+                    className="btn-ghost !px-1.5 !py-1"
+                    onClick={() => onDuplicate(c)}
+                    aria-label={`Duplicar campanha ${c.campaignName || id}`}
+                    title="Duplicar"
+                  >
+                    <Copy className="size-3.5" aria-hidden="true" />
+                  </button>
+                )}
               </>
             )}
           </div>
