@@ -262,3 +262,23 @@ export function gwLabel(g?: string | null): string {
   if (g.startsWith('link:')) return `Link ${g.slice(5)}`
   return g.charAt(0).toUpperCase() + g.slice(1)
 }
+
+/**
+ * Nome de campanha legível: o TikTok empilha "Copy N of" a cada duplicação
+ * ("Copy 3 of Copy 2 of Promo") — poluição que não dá informação. Remove
+ * todos os prefixos empilhados; nosso sufixo " (cópia)" é preservado porque
+ * ele É a informação (marca cópias feitas pelo painel). IDs numéricos crus
+ * viram "Campanha …final" para nunca mostrar um número de 19 dígitos.
+ */
+export function cleanCampaignName(name?: string | null): string {
+  const raw = String(name ?? '').trim()
+  if (!raw) return 'Sem nome'
+  // Remove "Copy N of " / "Copy of " empilhados no início (case-insensitive)
+  const cleaned = raw.replace(/^(?:copy(?:\s+\d+)?\s+of\s+)+/i, '').trim()
+  if (cleaned) {
+    // Só o ID numérico? Mostra rótulo curto — o ID completo vai no title/hover.
+    if (/^\d{8,}$/.test(cleaned)) return `Campanha …${cleaned.slice(-6)}`
+    return cleaned
+  }
+  return 'Sem nome'
+}

@@ -6,8 +6,10 @@
 // Badge com glassmorphism na base do globo.
 
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLive } from '@/lib/api'
+import { timeAgo } from '@/lib/format'
 import { CountUp } from '@/components/count-up'
 import type { GeoPulse } from '@/components/geo/globe'
 import type { LiveCountry } from '@/lib/types'
@@ -85,22 +87,47 @@ function useLeadPulses(countries: LiveCountry[]): GeoPulse[] {
 
 export function HeroGlobe({
   countries,
+  lastLeadAt,
 }: {
   /** países dos leads de HOJE — usados apenas como métrica de "vendas"
       (purchased) para tingir de rosa os totens de países que compraram.
       Os TOTENS em si são guiados pelo AO VIVO (veja abaixo). */
   countries: { code: string; name: string; count: number; purchased: number }[]
+  /** ISO do lead mais recente (qualquer período) — null se NUNCA houve lead.
+      Distingue "tracking nunca configurado" de "só está quieto agora". */
+  lastLeadAt?: string | null
 }) {
   // /api/live alimenta TUDO agora: counter "online agora", PULSOS (anéis de
   // lead novo) e os TOTENS. Antes os totens vinham dos leads acumulados de
   // hoje — o globo mostrava 4 espetos ciano com "ONLINE AGORA · 0" logo
   // acima, contradição direta. Pedido do usuário: totem só com gente NO SITE
   // agora, altura proporcional à demanda de cada país.
-  const { data } = useLive()
+  const { data, error: liveError } = useLive()
   const liveCountries = data?.summary.countries ?? []
   const onlineNow = data?.summary.online ?? 0
   const activeCountries = liveCountries.length
   const pulses = useLeadPulses(liveCountries)
+
+  // 3 estados vazios distintos (antes era 1 genérico que mentia):
+  // (a) erro de fetch → aviso discreto, sem fingir que "não há tráfego";
+  // (b) nunca houve lead → o problema é setup, CTA para configurar;
+  // (c) tracking ok, só quieto → "Aguardando visitantes · última há Xmin".
+  const emptyNote = liveError ? (
+    <span className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
+      Sem conexão com o tempo real — tentando de novo…
+    </span>
+  ) : !lastLeadAt ? (
+    <Link
+      href="/links"
+      className="pointer-events-auto rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+    >
+      Nenhuma visita registrada ainda — configurar rastreamento
+    </Link>
+  ) : (
+    <span className="anim-breathe rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
+      Aguardando visitantes · última visita {timeAgo(lastLeadAt)}
+    </span>
+  )
 
   // Totens = presença ao vivo. `purchased` vem de hoje (o /api/live não traz
   // vendas) só para manter o tom rosa em países que já compraram no dia.
@@ -137,6 +164,7 @@ export function HeroGlobe({
         metric="visits"
         pulses={pulses}
         showArcs={onlineNow > 0}
+        emptyNote={emptyNote}
       />
 
       {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".

@@ -192,6 +192,16 @@ export function OverviewView() {
     }))
   }, [data])
 
+  // Lead mais recente (qualquer período) — o globo usa para distinguir
+  // "tracking nunca configurado" (null) de "só está quieto agora".
+  const lastLeadAt = useMemo(() => {
+    let max = ''
+    for (const l of data?.leads ?? []) {
+      if (l.at && l.at > max) max = l.at
+    }
+    return max || null
+  }, [data])
+
   if (error) {
     return (
       <GlassCard className="flex min-h-64 flex-col items-center justify-center gap-2 p-8 text-center">
@@ -312,7 +322,7 @@ export function OverviewView() {
 
         {/* Globo — ocupa 100% absoluto (fundo do painel) */}
         <div className="absolute inset-0 z-0">
-          <HeroGlobe countries={todayCountries} />
+          <HeroGlobe countries={todayCountries} lastLeadAt={lastLeadAt} />
         </div>
 
         {/* Overlay ESQUERDO — KPIs em painel glassmorphism (item 8) */}

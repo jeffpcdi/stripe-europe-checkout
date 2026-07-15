@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { ArrowUpRight } from 'lucide-react'
 import type { SourceRank } from '@/lib/metrics'
 import { SectionTitle } from '@/components/section-title'
+import { cleanCampaignName } from '@/lib/format'
 
 // Macro de UTM que o TikTok NÃO substituiu chega literal ("{{campaign.name}}",
 // "__CAMPAIGN_NAME__") ou vazia — qualquer uma indica atribuição quebrada.
@@ -28,11 +29,16 @@ export function TopSources({
   const rows = (useCampaigns ? campaigns : links).slice(0, 6)
   if (rows.length === 0) return null
 
+  // Coerência: "Top campanhas" com 0 vendas no período inteiro é promessa
+  // falsa — o número solto era 1 LEAD parecendo venda. Sem nenhuma venda,
+  // o título assume o que a lista realmente mostra: tráfego.
+  const anyPurchase = rows.some((r) => r.purchased > 0)
+
   return (
     <div className="hero-glass-panel flex h-full flex-col p-5">
       <div className="mb-4 flex items-center justify-between gap-2">
         <SectionTitle>
-          {useCampaigns ? 'Top campanhas' : 'Top links'}
+          {useCampaigns ? (anyPurchase ? 'Top campanhas' : 'Campanhas com tráfego') : 'Top links'}
         </SectionTitle>
         <Link
           href={useCampaigns ? '/funnel' : '/links'}
@@ -54,15 +60,22 @@ export function TopSources({
             >
               <span
                 className={`truncate text-xs font-medium ${broken ? 'text-error' : 'text-foreground'}`}
-                title={broken ? 'UTM quebrada — macro não substituída na origem' : undefined}
+                title={
+                  broken
+                    ? 'UTM quebrada — macro não substituída na origem'
+                    : r.name || undefined
+                }
               >
-                {r.name || '(sem nome)'}
+                {broken ? r.name || '(sem nome)' : cleanCampaignName(r.name)}
                 {broken ? ' · UTM quebrada' : ''}
               </span>
+              {/* Rótulo explícito: o número solto fazia 1 lead parecer venda */}
               <span
-                className={`shrink-0 font-mono text-sm font-semibold tabular-nums ${broken ? 'text-error' : 'text-foreground'}`}
+                className={`shrink-0 font-mono text-xs font-semibold tabular-nums ${broken ? 'text-error' : 'text-foreground'}`}
               >
-                {r.purchased > 0 ? r.purchased : r.leads}
+                {r.purchased > 0
+                  ? `${r.leads} leads · ${r.purchased} ${r.purchased === 1 ? 'venda' : 'vendas'}`
+                  : `${r.leads} ${r.leads === 1 ? 'lead' : 'leads'}`}
               </span>
             </li>
           )
