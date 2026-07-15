@@ -1,12 +1,12 @@
 'use client'
 
-// Painel de operação do topo do TikTok Ads: 3 cards de status clicáveis
-// (Automação, Alertas, Fila de operações) que substituem a antiga fileira de
-// botões iguais. Cada card resume o estado e abre o dialog correspondente.
-// Só apresentação — consome os mesmos hooks/endpoints já existentes.
+// Painel de operação do topo do TikTok Ads: 4 cards de status clicáveis
+// (Automação, Alertas, Fila de operações, Saúde das contas) que substituem a
+// antiga fileira de botões iguais. Cada card resume o estado e abre o dialog
+// correspondente. Só apresentação — consome hooks/endpoints já existentes.
 
-import { Bot, BellRing, ListChecks, AlertTriangle } from 'lucide-react'
-import { useAdsRules, useAdsAlerts, useAdsOpsJobs } from '@/lib/api'
+import { Bot, BellRing, ListChecks, AlertTriangle, HeartPulse } from 'lucide-react'
+import { useAdsRules, useAdsAlerts, useAdsOpsJobs, useAdsHealth } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 
 // Um card de status: ícone + rótulo, número grande, linha de apoio. O estado
@@ -62,15 +62,19 @@ export function OpsStatusCards({
   onOpenAutomation,
   onOpenAlerts,
   onOpenOps,
+  onOpenHealth,
 }: {
   active: boolean
   onOpenAutomation: () => void
   onOpenAlerts: () => void
   onOpenOps: () => void
+  onOpenHealth: () => void
 }) {
   const { data: rulesData } = useAdsRules(active)
   const { data: alertsData } = useAdsAlerts(active)
   const { data: jobsData } = useAdsOpsJobs(active)
+  // SWR dedupa com o fetch do badge no header — custo zero extra
+  const { data: healthData } = useAdsHealth(active)
 
   // Automação: regras ligadas + quantas dispararam hoje (log do dia)
   const rules = rulesData?.rules ?? []
@@ -92,8 +96,15 @@ export function OpsStatusCards({
     (j) => j.status === 'queued' || j.status === 'running' || j.status === 'retrying',
   ).length
 
+  // Saúde: contas banidas + tickets de desbanimento abertos
+  const healthRows = healthData?.health ?? []
+  const bannedCount = healthRows.filter((h) => h.status === 'banned').length
+  const ticketCount = (healthData?.tickets ?? []).filter(
+    (t) => t.status === 'open' || t.status === 'submitted',
+  ).length
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatusCard
         icon={<Bot className="size-4" aria-hidden="true" />}
         label="Automação"
@@ -136,6 +147,20 @@ export function OpsStatusCards({
         }
         alert={pendingJobs > 0}
         onClick={onOpenOps}
+      />
+      <StatusCard
+        icon={<HeartPulse className="size-4" aria-hidden="true" />}
+        label="Saúde das contas"
+        value={bannedCount > 0 ? bannedCount : 'OK'}
+        hint={
+          bannedCount > 0
+            ? `${bannedCount} conta${bannedCount === 1 ? '' : 's'} banida${bannedCount === 1 ? '' : 's'}${ticketCount ? ` · ${ticketCount} ticket${ticketCount === 1 ? '' : 's'}` : ''}`
+            : healthRows.length === 0
+              ? 'Nenhuma varredura ainda'
+              : `${healthRows.length} conta${healthRows.length === 1 ? '' : 's'} monitorada${healthRows.length === 1 ? '' : 's'}`
+        }
+        alert={bannedCount > 0}
+        onClick={onOpenHealth}
       />
     </div>
   )
