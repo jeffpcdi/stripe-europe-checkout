@@ -94,8 +94,9 @@ function buildPoints(
       {
         lat: coords[0],
         lng: coords[1],
-        // Item 12: pontos maiores e mais vibrantes (0.28→0.4 min, 0.72→0.8 range)
-        size: 0.4 + (Math.log1p(value) / Math.log1p(max)) * 0.8,
+        // Demanda visível: base menor (0.4→0.22) e range maior (0.8→1.1) — o
+        // totem do país líder fica ~4x o de 1 visitante, em vez de quase igual.
+        size: 0.22 + (Math.log1p(value) / Math.log1p(max)) * 1.1,
         color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
         label: `${c.name}: ${c.count} visitas${c.purchased ? ` · ${c.purchased} vendas` : ''}`,
       },
