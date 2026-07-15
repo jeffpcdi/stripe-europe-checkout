@@ -205,6 +205,11 @@ function validateRules(raw) {
       lookbackDays: Math.max(1, Math.min(30, parseInt(r.lookbackDays, 10) || 2)),
       action: RULE_ACTIONS.includes(r.action) ? r.action : 'pause',
       pct: Math.max(5, Math.min(50, Number(r.pct) || 20)),
+      // F3 — MODO PROPOSTA: 'proposal' grava a intenção p/ aprovação humana;
+      // 'execute' age direto (comportamento antigo). Default proposal — é a
+      // migração implícita: regras antigas salvas sem o campo passam a propor
+      // em vez de executar (quem quiser autonomia total marca execute).
+      mode: r.mode === 'execute' ? 'execute' : 'proposal',
     };
     if (metric === 'ctr_min') {
       // guarda de volume: nunca pausar campanha recém-ligada com 10 impressões
@@ -388,6 +393,45 @@ async function runAlertSweep(accId, { force } = {}) {
   return { findings, checkedAt: new Date().toISOString() };
 }
 
+// ── Execução de UMA ação de regra (pause / budget ±) ────────────────────────
+// F3: extraída do corpo do sweep para o approve de proposta executar pelo
+// MESMO caminho (mesmos provider calls, mesmos before/after) — sem reimplementar
+// e divergir. Estados são computados de forma pura (proposta usa sem executar).
+function computeActionStates(action, campaign, plan) {
+  if (action === 'pause') {
+    return {
+      beforeState: { kind: 'status', level: 'campaign', id: campaign.platformCampaignId, value: campaign.status || 'active' },
+      afterState: { kind: 'status', level: 'campaign', id: campaign.platformCampaignId, value: 'paused' },
+    };
+  }
+  const changes = (plan && plan.changes) || [];
+  return {
+    beforeState: { kind: 'budget', adGroups: changes.map((ch) => ({ id: ch.adGroupId, amount: ch.cur, type: ch.type })) },
+    afterState: { kind: 'budget', adGroups: changes.map((ch) => ({ id: ch.adGroupId, amount: ch.amount, type: ch.type })) },
+  };
+}
+
+async function executeRuleAction({ advertiserId, action, campaign, plan, dryRun }) {
+  const { beforeState, afterState } = computeActionStates(action, campaign, plan);
+  const prefix = dryRun ? '[simulado] ' : '';
+  if (action === 'pause') {
+    if (!dryRun) await provider.setCampaignStatus(advertiserId, [campaign.platformCampaignId], 'paused');
+    return { ok: true, result: prefix + 'campanha pausada', beforeState, afterState };
+  }
+  const { pct, cap, capped, changes } = plan;
+  let changed = 0;
+  for (const ch of changes) {
+    if (!dryRun) {
+      await provider.updateAdGroup(advertiserId, ch.adGroupId, { budget: { amount: ch.amount, type: ch.type } });
+    }
+    changed += 1;
+  }
+  let result = prefix + 'orçamento ' + (action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' grupo(s)'
+    + (capped ? ' (teto ' + cap + ' aplicado em ' + capped + ')' : '');
+  if (!changed && capped) result = prefix + 'todos os grupos já no teto de ' + cap;
+  return { ok: changed > 0, result, beforeState, afterState };
+}
+
 // ── Regras (agem: pause / budget ±) ─────────────────────────────────────────
 async function runRulesSweep(accId, { force } = {}) {
   const rules = getRules(accId).filter((r) => r.enabled && r.metric !== 'schedule');
@@ -534,6 +578,39 @@ async function runRulesSweep(accId, { force } = {}) {
       if (await underCooldown(accId, key, cooldownMs)) continue;
       await markFired(accId, key, 'rule', { metric: r.metric, action: r.action });
 
+      // F3 — MODO PROPOSTA (default): grava a intenção e NÃO chama o provider.
+      // Vem DEPOIS de hit + plan + recusa por teto + cooldown de propósito:
+      // o cooldown É consumido na proposta — sem isso cada sweep re-proporia
+      // a mesma ação a cada 10min. Dry-run tem precedência (simula, abaixo).
+      // Cap/hora e circuit breaker NÃO contam propostas: nada foi executado.
+      const mode = r.mode === 'execute' ? 'execute' : 'proposal';
+      if (!dryRun && mode === 'proposal') {
+        const states = computeActionStates(r.action, c, plan);
+        const created = await adsOps.createRuleProposal(accId, {
+          ruleId: r.id, metric: r.metric, action: r.action, advertiserId,
+          campaignId: c.platformCampaignId, campaignName: name, detail,
+          plan: { ...(plan || {}), ...states },
+        });
+        const pEntry = {
+          at: new Date().toISOString(), ruleId: r.id, metric: r.metric,
+          action: r.action, campaignId: c.platformCampaignId, campaignName: name,
+          detail, ok: true, proposed: true,
+          result: created ? 'proposta criada — aguardando aprovação' : 'proposta já pendente para esta campanha',
+          ...(created ? { proposalId: created.id } : {}),
+        };
+        executed.push(pEntry);
+        if (created) {
+          stats.logEvent('info', { acc: accId, title: '[tiktok-ads] Proposta criada (aguardando aprovação): ' + detail + ' — "' + name + '"' });
+          sendPushcut('Aprovada', { title: 'TikTok Ads: proposta aguardando', text: 'Regra sugere: ' + (r.action === 'pause' ? 'pausar' : 'ajustar orçamento de') + ' "' + name + '" (' + detail + '). Aprove no painel.', sound: 'system' }, accId).catch(() => {});
+          await auditReal(accId, {
+            action: 'rule_proposal.created', targetType: 'campaign', targetId: c.platformCampaignId, advertiserId,
+            reason: 'Proposta: ' + detail,
+            metadata: { proposalId: created.id, ruleId: r.id, metric: r.metric, action: r.action },
+          });
+        }
+        continue;
+      }
+
       const entry = {
         at: new Date().toISOString(), ruleId: r.id, metric: r.metric,
         action: r.action, campaignId: c.platformCampaignId, campaignName: name,
@@ -541,37 +618,13 @@ async function runRulesSweep(accId, { force } = {}) {
       };
       let beforeState = null; let afterState = null;
       try {
-        if (r.action === 'pause') {
-          // before_state p/ rollback: status anterior (a árvore vem filtrada
-          // por 'active', então a campanha estava ativa).
-          beforeState = { kind: 'status', level: 'campaign', id: c.platformCampaignId, value: c.status || 'active' };
-          afterState = { kind: 'status', level: 'campaign', id: c.platformCampaignId, value: 'paused' };
-          if (!dryRun) await provider.setCampaignStatus(advertiserId, [c.platformCampaignId], 'paused');
-          entry.ok = true;
-          entry.result = (dryRun ? '[simulado] ' : '') + 'campanha pausada';
-        } else {
-          const { pct, cap, capped, changes } = plan;
-          const beforeGroups = []; const afterGroups = [];
-          let changed = 0;
-          for (const ch of changes) {
-            if (!dryRun) {
-              await provider.updateAdGroup(advertiserId, ch.adGroupId, {
-                budget: { amount: ch.amount, type: ch.type }
-              });
-            }
-            beforeGroups.push({ id: ch.adGroupId, amount: ch.cur, type: ch.type });
-            afterGroups.push({ id: ch.adGroupId, amount: ch.amount, type: ch.type });
-            changed += 1;
-          }
-          beforeState = { kind: 'budget', adGroups: beforeGroups };
-          afterState = { kind: 'budget', adGroups: afterGroups };
-          entry.ok = changed > 0;
-          entry.result = (dryRun ? '[simulado] ' : '') + 'orçamento ' + (r.action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' grupo(s)'
-            + (capped ? ' (teto ' + cap + ' aplicado em ' + capped + ')' : '');
-          if (!changed && capped) entry.result = (dryRun ? '[simulado] ' : '') + 'todos os grupos já no teto de ' + cap;
-          // orçamento da conta cresce (só quando aplicado de verdade)
-          if (entry.ok && !dryRun && r.action === 'budget_up') accountDailyBudget += plan.delta;
-        }
+        const done = await executeRuleAction({ advertiserId, action: r.action, campaign: c, plan, dryRun });
+        entry.ok = done.ok;
+        entry.result = done.result;
+        beforeState = done.beforeState;
+        afterState = done.afterState;
+        // orçamento da conta cresce (só quando aplicado de verdade)
+        if (entry.ok && !dryRun && r.action === 'budget_up') accountDailyBudget += plan.delta;
         // AUDITORIA DURÁVEL de toda ação real + mantém o contrato das simuladas.
         if (entry.ok) {
           if (dryRun) {
@@ -599,9 +652,97 @@ async function runRulesSweep(accId, { force } = {}) {
       sendPushcut('Aprovada', { title: 'TikTok Ads: regra automática', text: entry.result + ' — "' + name + '" (' + detail + ')', sound: 'system' }, accId).catch(() => {});
     }
   }
-  if (executed.some((e) => e.ok && !e.simulated)) syncAfterWrite(accId, advertiserId);
+  // Propostas não mudaram nada na plataforma — não disparam sync pós-escrita.
+  if (executed.some((e) => e.ok && !e.simulated && !e.proposed)) syncAfterWrite(accId, advertiserId);
   appendRulesLog(accId, executed);
   return { executed, checkedAt: new Date().toISOString() };
+}
+
+// ── F3: aprovação de proposta ───────────────────────────────────────────────
+// Executa uma proposta pendente pelo MESMO caminho do motor (executeRuleAction)
+// com TODOS os guards: assertMutationAllowed (kill switch/política/conta
+// bloqueada/idempotência), dry-run recusa (aprovação é ação real), circuit
+// breaker e cap/hora contam a aprovação. Re-valida contra o estado ATUAL antes
+// de tocar a plataforma — o plan foi computado até 6h atrás.
+async function approveProposal(accId, proposalId) {
+  const p = await adsOps.getRuleProposal(accId, proposalId);
+  if (!p) { const e = new Error('Proposta não encontrada'); e.status = 404; throw e; }
+  if (p.status !== 'pending') { const e = new Error('Proposta já ' + (p.status === 'expired' ? 'expirada' : 'decidida (' + p.status + ')')); e.status = 409; throw e; }
+
+  // Guards ANTES da transição — recusa aqui deixa a proposta pendente (o
+  // usuário pode aprovar de novo quando o guard liberar).
+  const policy = await adsOps.getSafetyPolicy(accId);
+  adsOps.assertMutationAllowed(policy, { advertiserId: p.advertiser_id, idempotencyKey: 'proposal:' + p.id });
+  if (policy.dryRun) { const e = new Error('Modo simulação (dry-run) ativo na política — desative para executar aprovações'); e.status = 409; throw e; }
+  if (breakerOpen(accId, policy)) { const e = new Error('Circuit breaker aberto (muitas falhas recentes) — tente mais tarde'); e.status = 409; throw e; }
+  if (policy.maxActionsPerHour > 0) {
+    const n = await adsOps.countRecentEngineActions(accId, 3600e3);
+    if (n >= policy.maxActionsPerHour) { const e = new Error('Cap de ' + policy.maxActionsPerHour + ' ações/hora atingido — tente mais tarde'); e.status = 429; throw e; }
+  }
+
+  // Transição ATÔMICA pending→approved (carrega o TTL de 6h no WHERE): dois
+  // cliques concorrentes → só um executa; proposta velha → recusada aqui.
+  const approved = await adsOps.decideRuleProposal(accId, proposalId, 'approved');
+  if (!approved) { const e = new Error('Proposta expirada ou já decidida'); e.status = 409; throw e; }
+
+  const plan = approved.plan || {};
+  const advertiserId = approved.advertiser_id || await provider.resolveAdvertiserId(accId);
+  const failReval = async (msg) => {
+    await adsOps.markProposalExecution(accId, approved.id, false, msg);
+    const e = new Error(msg); e.status = 409; throw e;
+  };
+
+  // RE-VALIDAÇÃO contra o espelho atual (cai para a API viva se o espelho
+  // estiver velho — aprovação é rara e exatidão importa mais que 1 request).
+  const to = new Date();
+  const range = { fromDate: isoDay(new Date(to.getTime() - 2 * 864e5)), toDate: isoDay(to), status: 'active' };
+  let t = await treeForSweep(accId, advertiserId, range);
+  if (t.stale) t = await treeForSweep(accId, advertiserId, { ...range, force: true });
+  const c = (t.campaigns || []).find((x) => String(x.platformCampaignId) === String(approved.campaign_id));
+  if (!c) await failReval('Campanha já não está ativa — a proposta não se aplica mais');
+  if (approved.action !== 'pause') {
+    // orçamento atual precisa bater com o before da proposta (tolerância 1%):
+    // se alguém mexeu no meio-tempo, aplicar o plano antigo sobrescreveria.
+    const groups = new Map((c.adSets || []).map((s) => [String(s.platformAdSetId || s._id), Number((s.budget || {}).amount) || 0]));
+    for (const ch of (plan.changes || [])) {
+      const cur = groups.get(String(ch.adGroupId));
+      if (cur == null || Math.abs(cur - ch.cur) > Math.max(0.01, ch.cur * 0.01)) {
+        await failReval('Orçamento mudou desde a proposta (grupo ' + ch.adGroupId + ': era ' + ch.cur + ', hoje ' + (cur == null ? 'inexistente' : cur) + ') — regra vai reavaliar no próximo ciclo');
+      }
+    }
+  }
+
+  // Executa pela MESMA função do motor — nenhum caminho paralelo.
+  const entry = {
+    at: new Date().toISOString(), ruleId: approved.rule_id, metric: approved.metric,
+    action: approved.action, campaignId: approved.campaign_id, campaignName: approved.campaign_name,
+    detail: approved.detail, ok: false, approvedProposal: true,
+  };
+  try {
+    const done = await executeRuleAction({ advertiserId, action: approved.action, campaign: c, plan, dryRun: false });
+    entry.ok = done.ok;
+    entry.result = done.result + ' (proposta aprovada)';
+    recordOutcome(accId, done.ok); // alimenta o circuit breaker como qualquer ação real
+    const ev = await auditReal(accId, {
+      action: 'rule_proposal.approved', targetType: 'campaign', targetId: approved.campaign_id, advertiserId,
+      beforeState: done.beforeState, afterState: done.afterState,
+      reason: 'Proposta aprovada: ' + (approved.detail || ''),
+      metadata: { proposalId: approved.id, ruleId: approved.rule_id, metric: approved.metric, action: approved.action },
+    });
+    if (ev && ev.id) entry.auditId = ev.id;
+    await adsOps.markProposalExecution(accId, approved.id, done.ok, done.ok ? null : done.result);
+    if (done.ok) syncAfterWrite(accId, advertiserId);
+    appendRulesLog(accId, [entry]);
+    stats.logEvent(done.ok ? 'info' : 'warn', { acc: accId, title: '[tiktok-ads] Proposta ' + (done.ok ? 'executada' : 'FALHOU') + ': ' + entry.result + ' — "' + entry.campaignName + '"' });
+    return { ok: done.ok, result: entry.result, proposalId: approved.id, auditId: entry.auditId || null };
+  } catch (err) {
+    const msg = 'falhou: ' + String(err && err.message ? err.message : 'erro').slice(0, 200);
+    recordOutcome(accId, false);
+    await adsOps.markProposalExecution(accId, approved.id, false, msg);
+    entry.result = msg;
+    appendRulesLog(accId, [entry]);
+    const e = new Error(msg); e.status = 502; throw e;
+  }
 }
 
 // ── Dayparting (agendamento por dia/horário) ────────────────────────────────
@@ -852,10 +993,11 @@ module.exports = {
   runAlertSweep,
   runRulesSweep,
   runScheduleSweep,
+  approveProposal,
   maybeSweep,
   markSweepNow,
   getSweepInfo,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, actionOutcomes },
+  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, actionOutcomes, executeRuleAction, computeActionStates },
 };

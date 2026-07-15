@@ -1569,6 +1569,43 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── F3: propostas do motor (modo proposta) ──────────────────────────────────
+  // Regra em mode:'proposal' (default) grava a intenção em ads_rule_proposals
+  // em vez de executar. Aqui o humano decide: listar / aprovar / rejeitar.
+  app.get('/api/ads/proposals', dashboardAuth, async (req, res) => {
+    try {
+      res.set('Cache-Control', 'no-store');
+      const items = await adsOps.listRuleProposals(req.account.id, {
+        status: req.query.status ? String(req.query.status) : undefined,
+        limit: req.query.limit,
+      });
+      res.json({ enabled: adsOps.enabled, items });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Aprovar = re-validar contra o estado atual + executar pela MESMA função do
+  // motor (todos os guards: kill switch, dry-run, cap/hora, breaker). A lógica
+  // vive em automation.approveProposal — a rota só traduz o erro em HTTP.
+  app.post('/api/ads/proposals/:id/approve', dashboardAuth, async (req, res) => {
+    try {
+      res.json(await automation.approveProposal(req.account.id, req.params.id));
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/proposals/:id/reject', dashboardAuth, async (req, res) => {
+    try {
+      const row = await adsOps.decideRuleProposal(req.account.id, req.params.id, 'rejected');
+      if (!row) return res.status(409).json({ error: 'Proposta expirada ou já decidida' });
+      // Decisão humana vai à trilha durável (mesma tabela das ações do motor).
+      adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', action: 'rule_proposal.rejected', targetType: 'campaign',
+        targetId: row.campaign_id, advertiserId: row.advertiser_id,
+        reason: row.detail || null, metadata: { proposalId: row.id, ruleId: row.rule_id, metric: row.metric },
+      }).catch(() => {});
+      res.json({ ok: true, proposal: { id: row.id, status: row.status } });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Templates de campanha ──────────────────���─��─────���───────────────────────
   // Guarda a CONFIGURAÇÃO (objetivo, orçamento, público, CTA, link, pixel…) —
   // nunca o vídeo. Criar do template = wizard pré-preenchido, só troca o vídeo.
