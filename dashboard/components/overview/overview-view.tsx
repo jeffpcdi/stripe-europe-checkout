@@ -14,6 +14,8 @@ import { CountUp } from '@/components/count-up'
 import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { TopSources } from './top-sources'
+import { DecideStrip } from './decide-strip'
+import { AdsOverviewCard } from './ads-card'
 import { ExportSummaryButton } from './export-summary'
 import { TvModeButton } from './tv-mode'
 import { PeriodPicker } from './period-picker'
@@ -192,6 +194,16 @@ export function OverviewView() {
     }))
   }, [data])
 
+  // Lead mais recente (qualquer período) — o globo usa para distinguir
+  // "tracking nunca configurado" (null) de "só está quieto agora".
+  const lastLeadAt = useMemo(() => {
+    let max = ''
+    for (const l of data?.leads ?? []) {
+      if (l.at && l.at > max) max = l.at
+    }
+    return max || null
+  }, [data])
+
   if (error) {
     return (
       <GlassCard className="flex min-h-64 flex-col items-center justify-center gap-2 p-8 text-center">
@@ -255,6 +267,18 @@ export function OverviewView() {
   }
 
   const revCents = cur.rev[cur.mainCur] || 0
+  // F2 (guarda de moeda): conta de anúncio em EUR e receita em BRL → dividir
+  // um pelo outro dá um "ROAS" sem significado. O servidor já zera o roas e
+  // manda a flag; aqui só decidimos a mensagem. Fallback local para respostas
+  // antigas em cache (sem a flag).
+  const currencyMismatch = Boolean(
+    roas &&
+      (roas.currencyMismatch ??
+        (roas.roas !== null &&
+          roas.currency &&
+          revCents > 0 &&
+          cur.mainCur !== roas.currency.toUpperCase())),
+  )
   // Receita em OUTRAS moedas (além da dominante). Sem isto o card mostrava só a
   // moeda principal e escondia, por ex., uma venda em BRL — o que fazia a receita
   // "parecer travada" ao trocar de período quando a diferença era noutra moeda.
@@ -312,7 +336,7 @@ export function OverviewView() {
 
         {/* Globo — ocupa 100% absoluto (fundo do painel) */}
         <div className="absolute inset-0 z-0">
-          <HeroGlobe countries={todayCountries} />
+          <HeroGlobe countries={todayCountries} lastLeadAt={lastLeadAt} />
         </div>
 
         {/* Overlay ESQUERDO — KPIs em painel glassmorphism (item 8) */}
@@ -328,9 +352,21 @@ export function OverviewView() {
               colorClass="text-brand-cyan"
               value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
               sub={
-                otherRev.length
-                  ? '+ ' + otherRev.map(([c, v]) => money(v, c)).join('  +  ')
-                  : undefined
+                [
+                  otherRev.length
+                    ? '+ ' + otherRev.map(([c, v]) => money(v, c)).join('  +  ')
+                    : null,
+                  // F2: receita com purchased=0 no funil era "divergência" —
+                  // agora declara a base: vendas órfãs (webhook sem lead)
+                  cur.orphanPurchases > 0
+                    ? `inclui ${cur.orphanPurchases} ${cur.orphanPurchases === 1 ? 'venda não rastreada' : 'vendas não rastreadas'}`
+                    : null,
+                  cur.suspectSales > 0
+                    ? `${cur.suspectSales} ${cur.suspectSales === 1 ? 'valor atípico' : 'valores atípicos'} (fora do ticket médio)`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || undefined
               }
             />
             <HeroKpi
@@ -339,12 +375,23 @@ export function OverviewView() {
               sensitive
               value={roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
             />
+            {/* F2: moeda do gasto ≠ moeda da receita → ROAS seria número
+                errado (R$ ÷ US$). Mostra o porquê em vez de calcular. */}
             <HeroKpi
               label="ROAS"
-              dim={!roas || roas.roas === null}
+              dim={!roas || roas.roas === null || currencyMismatch}
               colorClass="text-success"
               value={
-                roas && roas.roas !== null ? roas.roas.toFixed(2).replace('.', ',') : '—'
+                currencyMismatch
+                  ? '—'
+                  : roas && roas.roas !== null
+                    ? roas.roas.toFixed(2).replace('.', ',')
+                    : '—'
+              }
+              sub={
+                currencyMismatch
+                  ? `moedas diferentes (gasto ${roas?.currency} × receita ${roas?.revenueCurrency || cur.mainCur})`
+                  : undefined
               }
             />
           </div>
@@ -358,12 +405,28 @@ export function OverviewView() {
         </div>
       </section>
 
+      {/* ── F4: decisões pendentes + ROAS de Ads — abaixo da dobra, gated por
+          adsConnected (quem não usa Ads não vê nem paga a request). O card
+          reusa o MESMO range/chave SWR do hook do hero → dedup, +0 requests;
+          a faixa é o +1 request declarado no plano. Boundary próprio na faixa:
+          se quebrar, o globo não cai junto. ──────────────────────────── */}
+      {adsConnected ? (
+        <section
+          aria-label="Decisões pendentes e desempenho de anúncios"
+          className="grid items-start gap-4 lg:grid-cols-2"
+          style={{ ['--i' as string]: 2 }}
+        >
+          <DecideStrip active={adsConnected && afterFirstPaint} />
+          <AdsOverviewCard range={adsRange} rangeLabel={PERIOD_LABEL[period]} />
+        </section>
+      ) : null}
+
       {/* ── Abaixo: FUNIL | TOP CAMPANHAS — 2 colunas, altura igual,
           governadas pelo MESMO PeriodPicker ─────────────────────────── */}
       <section
         aria-label="Funil e origem dos leads"
         className={`grid items-stretch gap-4 ${hasSources ? 'lg:grid-cols-2' : ''}`}
-        style={{ ['--i' as string]: 2 }}
+        style={{ ['--i' as string]: 3 }}
       >
         <FunnelCompact metrics={cur} periodLabel={PERIOD_LABEL[period]} />
         {hasSources && <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />}
@@ -373,7 +436,7 @@ export function OverviewView() {
       <section
         aria-label="Tabela de Leads Integrada"
         className="animate-in-up delay-3 w-full"
-        style={{ ['--i' as string]: 3 }}
+        style={{ ['--i' as string]: 4 }}
       >
         <LeadsTable leads={data?.leads ?? []} periodStart={periodStart(period)} />
       </section>
@@ -382,7 +445,7 @@ export function OverviewView() {
       <section
         aria-label="Presença e qualidade dos eventos"
         className="glass animate-in-up delay-4 inline-flex flex-wrap items-center gap-x-5 gap-y-2 rounded-full px-5 py-2.5 font-mono text-[11px] tabular-nums text-muted-foreground self-start"
-        style={{ ['--i' as string]: 4 }}
+        style={{ ['--i' as string]: 5 }}
       >
         <HealthDot />
         <span>

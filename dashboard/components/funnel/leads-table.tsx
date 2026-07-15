@@ -12,6 +12,7 @@ import {
   plural,
   STAGE_LABEL,
   STAGE_CLASS,
+  cleanCampaignName,
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import {
@@ -495,10 +496,10 @@ export function LeadsTable({
                   <SortableTh label="Etapa" k="stage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="label-mono pb-2 pr-3">Gateway</th>
                   <SortableTh label="País" k="country" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                  {/* Item 328: dispositivo (ua.js já parseia na entrada) */}
-                  <th className="label-mono pb-2 pr-3">
-                    <span className="sr-only">Dispositivo</span>
-                    <Smartphone className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  {/* Item 328: dispositivo. Header TEXTUAL — o ícone de celular
+                      sozinho colava em "Origem" e parecia pertencer a ela. */}
+                  <th className="label-mono pb-2 pr-3" title="Dispositivo">
+                    Disp.
                   </th>
                   <th className="label-mono pb-2 pr-3">Origem</th>
                   {/* Item 305: coluna de campanha opcional */}
@@ -605,14 +606,31 @@ export function LeadsTable({
                           <span className="text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="py-2.5 pr-3 text-xs text-muted-foreground">
-                        <Highlight text={origin} query={query} />
+                      {/* Origem como badge: tiktok=rosa (marca), ref=cinza,
+                          direto=neutro — de relance dá para ver o mix de fontes */}
+                      <td className="py-2.5 pr-3 text-xs">
+                        <span
+                          className={cn(
+                            'rounded-md px-2 py-0.5 text-[11px] font-medium',
+                            origin === 'tiktok'
+                              ? 'bg-[rgba(254,44,85,.12)] text-[#fe2c55]'
+                              : origin === 'ref'
+                                ? 'bg-muted/40 text-muted-foreground'
+                                : 'bg-white/[0.04] text-muted-foreground',
+                          )}
+                          title={origin === 'ref' ? l.referer || 'referência externa' : undefined}
+                        >
+                          <Highlight text={origin} query={query} />
+                        </span>
                       </td>
-                      {/* Item 305: campanha (UTM) opcional */}
+                      {/* Item 305: campanha (UTM) opcional — nome limpo, o
+                          original ("Copy N of…") fica no title/hover */}
                       {showCampaign ? (
                         <td className="py-2.5 pr-3 text-xs text-muted-foreground">
                           {l.utm?.campaign ? (
-                            <Highlight text={l.utm.campaign} query={query} />
+                            <span title={l.utm.campaign}>
+                              <Highlight text={cleanCampaignName(l.utm.campaign)} query={query} />
+                            </span>
                           ) : (
                             '—'
                           )}
@@ -646,11 +664,19 @@ export function LeadsTable({
                             {formatMoney(l.reportedAmount, l.reportedCurrency)}
                           </span>
                         ) : l.expectedAmount ? (
-                          <span className="text-muted-foreground">
+                          <span
+                            className="text-muted-foreground"
+                            title="Valor esperado do checkout — o gateway ainda não confirmou"
+                          >
                             {formatMoney(l.expectedAmount, l.expectedCurrency)}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span
+                            className="text-muted-foreground"
+                            title="Sem valor: o gateway não reportou o total desta transação"
+                          >
+                            —
+                          </span>
                         )}
                       </td>
                       <td className="py-2.5 text-xs tabular-nums text-muted-foreground">{timeAgo(l.at)}</td>

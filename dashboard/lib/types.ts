@@ -907,15 +907,43 @@ export interface AdsRoasDaily {
   sales: number
 }
 
+// F4: proposta do motor de regras aguardando decisão humana (modo proposta,
+// Fase 3). Vem de /api/ads/proposals — linhas de ads_rule_proposals no Neon.
+export interface AdsRuleProposal {
+  id: string
+  rule_id: string
+  metric: string
+  action: string
+  advertiser_id: string | null
+  campaign_id: string
+  campaign_name: string | null
+  detail: string | null
+  plan: Record<string, unknown>
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'executed' | 'failed'
+  error: string | null
+  created_at: string
+  decided_at: string | null
+  executed_at: string | null
+}
+
+export interface AdsProposalsResponse {
+  enabled: boolean
+  items: AdsRuleProposal[]
+}
+
 export interface AdsRoasResponse {
   fromDate: string
   toDate: string
   currency: string
+  /** F2: moeda dominante da RECEITA (dos gateways) — pode divergir da conta */
+  revenueCurrency?: string | null
+  /** F2: true quando receita e gasto estão em moedas diferentes → roas=null */
+  currencyMismatch?: boolean
   spend: number
   conversions: number
   revenueCents: number
   sales: number
-  roas: number | null // receita/gasto — null sem gasto
+  roas: number | null // receita/gasto — null sem gasto OU moedas divergentes
   cpa: number | null // gasto/vendas — null sem vendas
   daily: AdsRoasDaily[]
 }

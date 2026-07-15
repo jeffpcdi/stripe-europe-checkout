@@ -9,7 +9,6 @@
 import Link from 'next/link'
 import { ArrowUpRight } from 'lucide-react'
 import type { PeriodMetrics } from '@/lib/metrics'
-import { fmtPercent } from '@/lib/format'
 import { CountUp } from '@/components/count-up'
 import { SectionTitle } from '@/components/section-title'
 
@@ -25,16 +24,26 @@ export function FunnelCompact({
   const v2c = m.visits ? +((m.reachedCheckout / m.visits) * 100).toFixed(1) : 0
   const c2p = m.reachedCheckout ? +((m.purchased / m.reachedCheckout) * 100).toFixed(1) : 0
 
-  // Gargalo: a maior queda percentual entre etapas (item 146).
+  // Gargalo em frase humana. Antes: "Gargalo: Visita → Checkout (−100,0%)" —
+  // percentual negativo cru que parecia bug. Agora conta a história: "De cada
+  // 100 visitas, nenhuma chegou ao checkout". Nunca expõe % negativo.
   const dropV2C = m.visits ? 100 - v2c : 0
   const dropC2P = m.reachedCheckout ? 100 - c2p : 0
   const hasFlow = m.visits > 0 || m.reachedCheckout > 0
-  const bottleneck =
-    !hasFlow
-      ? null
-      : dropV2C >= dropC2P
-        ? { where: 'Visita \u2192 Checkout', drop: dropV2C }
-        : { where: 'Checkout \u2192 Compra', drop: dropC2P }
+  let bottleneckMsg: string | null = null
+  if (hasFlow) {
+    if (m.visits > 0 && dropV2C >= dropC2P) {
+      bottleneckMsg =
+        m.reachedCheckout === 0
+          ? 'De cada 100 visitas, nenhuma chegou ao checkout'
+          : `De cada 100 visitas, só ${Math.max(1, Math.round(v2c))} ${Math.round(v2c) === 1 ? 'chega' : 'chegam'} ao checkout`
+    } else if (m.reachedCheckout > 0 && dropC2P > 0) {
+      bottleneckMsg =
+        m.purchased === 0
+          ? 'Ninguém que chegou ao checkout comprou'
+          : `De cada 100 pessoas no checkout, só ${Math.max(1, Math.round(c2p))} ${Math.round(c2p) === 1 ? 'compra' : 'compram'}`
+    }
+  }
 
   const attempts = m.sales + m.failed
   const showAttempts = attempts > 0
@@ -92,10 +101,10 @@ export function FunnelCompact({
         })}
       </div>
 
-      {/* Gargalo — faixa vermelha discreta no rodapé */}
-      {bottleneck && bottleneck.drop > 0 ? (
-        <p className="mt-4 rounded border-l-2 border-l-[#fe2c55] bg-[rgba(254,44,85,.06)] px-3 py-2 font-mono text-[10.5px] tabular-nums text-[#fe2c55]/90">
-          Gargalo: {bottleneck.where} ({'\u2212'}{fmtPercent(bottleneck.drop)})
+      {/* Gargalo — faixa vermelha discreta no rodapé, em frase humana */}
+      {bottleneckMsg ? (
+        <p className="mt-4 rounded border-l-2 border-l-[#fe2c55] bg-[rgba(254,44,85,.06)] px-3 py-2 text-[11px] leading-relaxed text-[#fe2c55]/90">
+          {bottleneckMsg}
         </p>
       ) : null}
     </div>

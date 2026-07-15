@@ -32,7 +32,7 @@ import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { fmtCompact, fmtPercent } from '@/lib/format'
+import { fmtCompact, fmtPercent, cleanCampaignName } from '@/lib/format'
 
 function fmtMoney(v: number | undefined, currency: string): string {
   if (v == null) return '—'
@@ -277,7 +277,13 @@ export function CampaignTree({
   // Aplica busca + "só com gasto" sobre a lista carregada
   const q = query.trim().toLowerCase()
   const visible = campaigns.filter((c) => {
-    if (q && !String(c.campaignName || c.platformCampaignId).toLowerCase().includes(q)) return false
+    // Busca bate no nome cru E no limpo — o usuário vê o limpo na tela
+    if (
+      q &&
+      !String(c.campaignName || c.platformCampaignId).toLowerCase().includes(q) &&
+      !cleanCampaignName(c.campaignName).toLowerCase().includes(q)
+    )
+      return false
     if (onlyWithSpend && !(Number(c.metrics?.spend) > 0)) return false
     return true
   })
@@ -419,7 +425,13 @@ export function CampaignTree({
             />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
-                <span className="truncate text-[13px] font-medium text-foreground">{c.campaignName || id}</span>
+                {/* Nome limpo ("Copy N of" removido); original + ID no hover */}
+                <span
+                  className="truncate text-[13px] font-medium text-foreground"
+                  title={`${c.campaignName || 'Sem nome'} · ${id}`}
+                >
+                  {cleanCampaignName(c.campaignName || id)}
+                </span>
                 {c.childStatus && c.childStatus !== c.status && (
                   <AlertTriangle
                     className="size-3 shrink-0 text-warning"

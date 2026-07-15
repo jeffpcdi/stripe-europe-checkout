@@ -101,7 +101,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   // ── ctr_min: guarda de impressões mínimas ─────────────────────────────────
   {
     const acc = 'acc_ctr';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'ctr_min', threshold: 1, minImpressions: 1000 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'ctr_min', threshold: 1, minImpressions: 1000, mode: 'execute' }]) });
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 5, conversions: 0, impressions: 200, clicks: 0 } })];
     let out = await automation.runRulesSweep(acc, { force: true });
@@ -117,7 +117,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   // ── cpm_max: guarda de gasto mínimo ───────────────────────────────────────
   {
     const acc = 'acc_cpm';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'cpm_max', threshold: 10, minSpend: 2 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'cpm_max', threshold: 10, minSpend: 2, mode: 'execute' }]) });
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 0.5, conversions: 0, impressions: 10, clicks: 0 } })]; // CPM 50 mas gasto 0.5
     let out = await automation.runRulesSweep(acc, { force: true });
@@ -134,7 +134,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     // atenção: a atribuição só casa utm.campaign com ID NUMÉRICO (macro
     // __CAMPAIGN_ID__ do TikTok) — por isso o ID aqui é numérico de verdade
     const campId = '1234567890123';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 60 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 60, mode: 'execute' }]) });
     leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }]; // 100 de receita
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ platformCampaignId: campId, metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })]; // ROAS 10
@@ -168,7 +168,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   // ── cooldown: write-through no Neon (persistência) ────────────────────────
   {
     const acc = 'acc_cd';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]) });
     resetCalls(); clearCooldowns(acc);
     // volume acima dos pisos default (1000 impr. / 30 cliques) p/ a regra agir
     treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } })];
@@ -227,7 +227,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   {
     policyOverride = { dryRun: true };
     const acc = 'acc_dry';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]) });
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } })];
     const out = await automation.runRulesSweep(acc, { force: true });
@@ -241,7 +241,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   {
     policyOverride = { dryRun: false, killSwitch: true };
     const acc = 'acc_kill';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]) });
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 999, conversions: 0, impressions: 5000, clicks: 100 } })];
     const out = await automation.runRulesSweep(acc, { force: true });
@@ -264,7 +264,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     const acc = 'acc_cap';
     // roas_scale quer +50% em cima de 50 = 75; conta já gasta 50/dia; teto 60
     const campId = '9990000000001';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500, mode: 'execute' }]) });
     leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }];
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ platformCampaignId: campId, adSets: [{ platformAdSetId: 'g1', budget: { amount: 50, type: 'daily' } }], metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })];
@@ -285,7 +285,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     policyOverride = { dryRun: false, maxActionsPerHour: 2 };
     recentActions = 2; // já bateu o teto antes de começar
     const acc = 'acc_rate';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]) });
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [
       campaign({ platformCampaignId: 'c1', metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } }),
@@ -302,7 +302,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   {
     policyOverride = { dryRun: false };
     const acc = 'acc_vol';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, minClicks: 30, minImpressions: 1000 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, minClicks: 30, minImpressions: 1000, mode: 'execute' }]) });
     resetCalls(); clearCooldowns(acc);
     // gastou acima do limiar mas com pouquíssimo volume (3 cliques) → NÃO age
     treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 100, clicks: 3 } })];
@@ -320,7 +320,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     policyOverride = { dryRun: false, maxBudgetChangePct: 10 }; // teto 10% mesmo a regra pedindo 50%
     const acc = 'acc_step';
     const campId = '5550000000002';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500 }]) });
+    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500, mode: 'execute' }]) });
     leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }];
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ platformCampaignId: campId, adSets: [{ platformAdSetId: 'g1', budget: { amount: 100, type: 'daily' } }], metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })];

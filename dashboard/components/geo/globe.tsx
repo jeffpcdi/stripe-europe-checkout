@@ -53,6 +53,9 @@ interface GlobePanelProps {
      desliga conforme a presença ao vivo (/api/live). Default true para não
      mudar o comportamento de outros usos do globo. */
   showArcs?: boolean
+  /* Nota contextual do estado vazio (HeroGlobe passa a mensagem certa por
+     situação: sem tracking / sem visitantes / erro). Sem ela, texto genérico. */
+  emptyNote?: React.ReactNode
 }
 
 // Cores da marca capturadas do legado
@@ -443,7 +446,7 @@ function GlobeControls({
 
 /* Refino 10 + V2-51/52/53: HUD orbital completo — cantos de mira, legenda,
    vinheta interna que foca o globo no centro e anel de latitude decorativo */
-function GlobeHud({ empty }: { empty?: boolean }) {
+function GlobeHud({ empty, note }: { empty?: boolean; note?: React.ReactNode }) {
   return (
     <>
       <span className="hud-corner hud-corner--tl" aria-hidden="true" />
@@ -462,11 +465,16 @@ function GlobeHud({ empty }: { empty?: boolean }) {
         aria-hidden="true"
         style={{ borderColor: 'rgba(37,244,238,0.08)' }}
       />
+      {/* Estado vazio: o chamador pode passar uma nota contextual (HeroGlobe
+          distingue "sem tracking" / "sem visitantes agora" / "erro de fetch").
+          Sem nota, mantém o texto genérico (página /geo). */}
       {empty ? (
         <span className="globe-empty-note">
-          <span className="anim-breathe rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
-            Aguardando tráfego
-          </span>
+          {note ?? (
+            <span className="anim-breathe rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
+              Aguardando tráfego
+            </span>
+          )}
         </span>
       ) : null}
       {/* Refino 4: reflexo de chão ciano ancora o globo ao card */}
@@ -489,6 +497,7 @@ export default function GlobePanel({
   metric = 'visits',
   pulses = [],
   showArcs = true,
+  emptyNote,
 }: GlobePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<any>(null)
@@ -583,7 +592,7 @@ export default function GlobePanel({
           showArcs={showArcs}
         />
       )}
-      <GlobeHud empty={empty} />
+      <GlobeHud empty={empty} note={emptyNote} />
       {/* Redesign: os números da base saíram daqui — agora moram no overlay do
           HeroGlobe (contagem grande DENTRO do globo). Só fica o selo "ao vivo"
           quando há pulso de lead novo (Fase 5). */}

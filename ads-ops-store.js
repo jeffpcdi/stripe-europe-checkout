@@ -178,6 +178,34 @@ async function ensureSchema() {
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_unban_tickets_open ON ads_unban_tickets (account_id, advertiser_id) WHERE status IN ('open', 'submitted')`;
     await sql`CREATE INDEX IF NOT EXISTS idx_ads_unban_tickets_account ON ads_unban_tickets (account_id, status, created_at DESC)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_ads_account_health_account ON ads_account_health (account_id, status)`;
+    // F3 — MODO PROPOSTA: regra em mode:'proposal' grava a intenção aqui em
+    // vez de chamar o provider. `plan` carrega before/after JÁ computados no
+    // momento do hit (a aprovação re-valida contra o estado atual antes de
+    // executar). TTL de 6h: proposta velha tem dado defasado — vira 'expired'
+    // e recusa aprovação.
+    await sql`CREATE TABLE IF NOT EXISTS ads_rule_proposals (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      rule_id text NOT NULL,
+      metric text NOT NULL,
+      action text NOT NULL,
+      advertiser_id text,
+      campaign_id text NOT NULL,
+      campaign_name text,
+      detail text,
+      plan jsonb NOT NULL DEFAULT '{}'::jsonb,
+      status text NOT NULL DEFAULT 'pending',
+      error text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      decided_at timestamptz,
+      executed_at timestamptz
+    )`;
+    // Índice (acc, status): o painel lista pendentes por conta a cada poll —
+    // sem ele cada load faria seq scan na tabela inteira.
+    await sql`CREATE INDEX IF NOT EXISTS idx_ads_rule_proposals_account ON ads_rule_proposals (account_id, status, created_at DESC)`;
+    // Dedup: no máximo 1 proposta PENDENTE por (conta, regra, campanha) —
+    // dois sweeps concorrentes (tick + hook das rotas) não duplicam.
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_rule_proposals_pending ON ads_rule_proposals (account_id, rule_id, campaign_id) WHERE status = 'pending'`;
     console.log('[ads-ops] schema verificado/criado');
     return true;
   })().catch((err) => {
@@ -342,8 +370,77 @@ async function countRecentEngineActions(accountId, sinceMs) {
   await ensureSchema();
   const windowMs = Math.max(60e3, Number(sinceMs) || 3600e3);
   const seconds = Math.ceil(windowMs / 1000);
-  const rows = await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'schedule_action') AND created_at > now() - make_interval(secs => ${seconds})`;
+  // 'rule_proposal.approved' entra: aprovar executa uma ação REAL na
+  // plataforma — o cap/hora vale para ela como para qualquer outra. Propostas
+  // criadas ('rule_proposal.created') NÃO entram: nada foi executado.
+  const rows = await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'schedule_action', 'rule_proposal.approved') AND created_at > now() - make_interval(secs => ${seconds})`;
   return rows.length ? Number(rows[0].n) || 0 : 0;
+}
+
+// ── F3: propostas do motor de regras (modo proposta) ────────────────────────
+// Cria proposta pendente. Dedup pelo índice único parcial: já existe pendente
+// para a mesma (regra, campanha) → devolve null (nada re-gravado).
+async function createRuleProposal(accountId, input) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const v = input || {};
+  try {
+    const rows = await sql`INSERT INTO ads_rule_proposals (id, account_id, rule_id, metric, action, advertiser_id, campaign_id, campaign_name, detail, plan)
+      VALUES (${id('prop_')}, ${accountId}, ${String(v.ruleId || '').slice(0, 24)}, ${String(v.metric || '').slice(0, 40)}, ${String(v.action || '').slice(0, 40)}, ${v.advertiserId ? String(v.advertiserId).slice(0, 120) : null}, ${String(v.campaignId || '').slice(0, 160)}, ${v.campaignName ? String(v.campaignName).slice(0, 200) : null}, ${v.detail ? String(v.detail).slice(0, 500) : null}, ${JSON.stringify(v.plan || {})})
+      ON CONFLICT DO NOTHING RETURNING *`;
+    return rows[0] || null;
+  } catch (_) { return null; } // proposta é best-effort: nunca derruba o sweep
+}
+
+const PROPOSAL_TTL_MS = 6 * 3600e3; // 6h — depois disso o dado do plan está defasado
+
+// Lista propostas da conta. Antes de listar, expira as pendentes velhas —
+// a UI nunca mostra uma proposta "aprovável" com dados de ontem.
+async function listRuleProposals(accountId, { status, limit } = {}) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureSchema();
+  await sql`UPDATE ads_rule_proposals SET status = 'expired', decided_at = now() WHERE account_id = ${accountId} AND status = 'pending' AND created_at < now() - make_interval(secs => ${PROPOSAL_TTL_MS / 1000})`;
+  const max = Math.min(200, Math.max(1, Number(limit) || 50));
+  if (status) {
+    return await sql`SELECT * FROM ads_rule_proposals WHERE account_id = ${accountId} AND status = ${String(status).slice(0, 20)} ORDER BY created_at DESC LIMIT ${max}`;
+  }
+  return await sql`SELECT * FROM ads_rule_proposals WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${max}`;
+}
+
+// Busca uma proposta específica (escopada à conta) — o approve precisa dela
+// ANTES da transição (advertiser_id para o assertMutationAllowed).
+async function getRuleProposal(accountId, proposalId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const rows = await sql`SELECT * FROM ads_rule_proposals WHERE account_id = ${accountId} AND id = ${String(proposalId || '').slice(0, 160)} LIMIT 1`;
+  return rows[0] || null;
+}
+
+// Transição atômica pending→(approved|rejected). O WHERE carrega o TTL: uma
+// proposta velha NUNCA transiciona (0 linhas → chamador trata como expirada).
+async function decideRuleProposal(accountId, proposalId, decision) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  if (!['approved', 'rejected'].includes(decision)) throw new Error('decisão inválida');
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_rule_proposals SET status = ${decision}, decided_at = now()
+    WHERE account_id = ${accountId} AND id = ${String(proposalId || '').slice(0, 160)}
+      AND status = 'pending' AND created_at > now() - make_interval(secs => ${PROPOSAL_TTL_MS / 1000})
+    RETURNING *`;
+  return rows[0] || null;
+}
+
+// Resultado da execução pós-aprovação: 'executed' ou 'failed' (+erro).
+async function markProposalExecution(accountId, proposalId, ok, error) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_rule_proposals SET status = ${ok ? 'executed' : 'failed'}, error = ${error ? String(error).slice(0, 300) : null}, executed_at = now()
+    WHERE account_id = ${accountId} AND id = ${String(proposalId || '').slice(0, 160)} AND status = 'approved' RETURNING *`;
+  return rows[0] || null;
 }
 
 async function claimNextJob(workerId, leaseSeconds) {
@@ -489,4 +586,4 @@ async function resolveTicketsForAdvertiser(accountId, advertiserId) {
   return sql`UPDATE ads_unban_tickets SET status = 'resolved', resolved_at = now(), notes = COALESCE(notes || ' | ', '') || 'Conta reativada — resolvido automaticamente', updated_at = now() WHERE account_id = ${accountId} AND advertiser_id = ${String(advertiserId || '')} AND status IN ('open','submitted') RETURNING id, advertiser_id`;
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser };
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, PROPOSAL_TTL_MS };

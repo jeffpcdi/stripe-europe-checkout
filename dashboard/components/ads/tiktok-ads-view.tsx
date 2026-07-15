@@ -4,7 +4,7 @@
 // advertiser, KPIs agregados e a árvore de campanhas. Os fluxos de escrita
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, ShoppingBag } from 'lucide-react'
 import {
@@ -93,8 +93,15 @@ export function TikTokAdsView() {
   // Sub-abas por tarefa: a página empilhava 12 cards numa coluna só e ninguém
   // achava nada. Cada aba tem UM propósito: ver resultado / operar campanhas /
   // configurar automações / usar a IA. Estado local (não URL) — trocar de aba
-  // não recarrega nada, os hooks SWR continuam vivos.
+  // não recarrega nada, os hooks SWR continuam vivos. Exceção (F4): ?tab= é
+  // honrado UMA vez pós-mount (deep-link "ver automações" da home). useEffect
+  // em vez de initializer para não divergir da renderização do servidor;
+  // window.location em vez de useSearchParams para não exigir Suspense.
   const [tab, setTab] = useState<'overview' | 'campaigns' | 'automation' | 'ai'>('overview')
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (t === 'campaigns' || t === 'automation' || t === 'ai') setTab(t)
+  }, [])
 
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -533,8 +540,6 @@ export function TikTokAdsView() {
                 onOpenRulesEditor={() => setRulesOpen(true)}
                 onOpenAlertsEditor={() => setAlertsOpen(true)}
               />
-              {/* Diagnóstico da integração MCP Pipeboard (linha fina, expande) */}
-              <McpStatusCard active={treeActive} />
             </>
           )}
 
@@ -558,6 +563,11 @@ export function TikTokAdsView() {
               </div>
             </>
           )}
+          {/* F4: rodapé "Sistema" — diagnóstico Pipeboard visível em TODAS as
+              abas (antes vivia só em Automações e ninguém achava quando a
+              integração caía). Recolhido por padrão numa linha fina; usa
+              /api/ads/mcp/status que a página já carrega (+0 requests). */}
+          <McpStatusCard active={treeActive} />
         </>
       )}
 

@@ -24,15 +24,23 @@ function fmtCurrency(v: number, currency: string): string {
   }
 }
 
-export function AdsOverviewCard() {
+export function AdsOverviewCard({
+  range,
+  rangeLabel,
+}: {
+  /** F4: quando a home monta o card, passa o MESMO range do hook do hero —
+      mesma chave SWR → dedup → +0 requests. Sem prop: 7 dias (default). */
+  range?: { fromDate?: string; toDate?: string }
+  rangeLabel?: string
+} = {}) {
   // Fase 4: status de Ads só resolve pós-first-paint (chave null até lá) —
   // mantém o load inicial no orçamento de 2 requests do hero.
   const afterFirstPaint = useAfterFirstPaint()
   const { data: status } = useAdsStatus(afterFirstPaint)
   const advertiserId = status?.advertiserId || ''
   const connected = Boolean(status?.enabled && status?.connected && advertiserId)
-  // Últimos 7 dias somente do advertiser explicitamente salvo.
-  const { data: roas } = useAdsRoas(connected, advertiserId)
+  // Advertiser explicitamente salvo; janela do chamador ou 7 dias.
+  const { data: roas } = useAdsRoas(connected, advertiserId, range)
 
   // Desconectado ou ainda carregando: não ocupa espaço no overview
   if (!connected || !roas) return null
@@ -49,7 +57,7 @@ export function AdsOverviewCard() {
           <span className="flex size-7 items-center justify-center rounded-[10px] bg-[rgba(37,244,238,.1)]">
             <Megaphone className="size-3.5 text-brand-cyan" aria-hidden="true" />
           </span>
-          TikTok Ads · últimos 7 dias
+          TikTok Ads · {rangeLabel || 'últimos 7 dias'}
         </span>
         {/* Link do Next aplica o basePath /dashboard — <a> cru caía em 404 */}
         <Link
@@ -75,7 +83,9 @@ export function AdsOverviewCard() {
               {roas.sales}
               {roas.revenueCents > 0 && (
                 <span className="ml-1.5 text-xs font-medium text-success" data-sensitive>
-                  {fmtCurrency(roas.revenueCents / 100, roas.currency)}
+                  {/* F2: a receita vem dos GATEWAYS — formatar com a moeda da
+                      conta de anúncio inflava/deflava o número (EUR × BRL) */}
+                  {fmtCurrency(roas.revenueCents / 100, roas.revenueCurrency || roas.currency)}
                 </span>
               )}
             </p>
@@ -85,6 +95,11 @@ export function AdsOverviewCard() {
             <p className={`text-lg font-semibold tabular-nums ${roasColor}`}>
               {roas.roas === null ? '—' : roas.roas.toFixed(2).replace('.', ',')}
             </p>
+            {roas.currencyMismatch && (
+              <p className="text-[10px] text-warning">
+                moedas diferentes ({roas.currency} × {roas.revenueCurrency})
+              </p>
+            )}
           </div>
         </div>
         {hasSpend && spendSeries.length > 1 && (
