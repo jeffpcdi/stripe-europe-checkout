@@ -1,7 +1,7 @@
 'use client'
 
 // Gerenciador de catálogos de produtos do TikTok.
-// A Zernio (integração de Ads) NÃO publica campanhas de catálogo — então o
+// A integração de Ads NÃO publica campanhas de catálogo — então o
 // fluxo aqui é: editar produtos na dashboard → publicar um feed CSV
 // TikTok-ready numa URL pública (Blob) → o usuário cola essa URL UMA vez no
 // Catalog Manager do TikTok como feed agendado. Toda edição aqui atualiza o

@@ -715,19 +715,6 @@ export interface AdsStatusResponse {
   capabilities?: AdsCapabilities
 }
 
-// ── GET /api/ads/business-centers — camada acima dos advertisers ──
-export interface AdsBusinessCenter {
-  id: string
-  name: string
-  type?: string
-}
-
-export interface AdsBusinessCentersResponse {
-  businessCenters: AdsBusinessCenter[]
-  selected: string
-  unsupported?: boolean // Zernio sem o endpoint — a UI esconde o seletor
-}
-
 export interface AdsIdentity {
   identityId: string
   displayName: string
@@ -1275,7 +1262,7 @@ export interface AdsSafetyPolicyResponse {
 }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ────────────────────────
-// A Zernio não publica campanhas de catálogo; gerimos produtos + feed aqui e
+// O backend não publica campanhas de catálogo; gerimos produtos + feed aqui e
 // publicamos um CSV TikTok-ready numa URL pública (Blob) para feed agendado.
 export interface AdsCatalog {
   id: string

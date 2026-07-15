@@ -174,7 +174,6 @@ export function TikTokAdsView() {
       await apiSend('/api/ads/disconnect', 'POST')
       toast.success('Conta TikTok Ads desconectada')
       setAdvertiserId(null)
-      setBcId(null)
       mutateStatus()
     } catch (e) {
       toast.error('Falha ao desconectar', { hint: e instanceof Error ? e.message : undefined })

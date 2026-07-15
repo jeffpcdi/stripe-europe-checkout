@@ -406,23 +406,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     });
   });
 
-  // ── Business Centers (camada acima dos advertisers) ──────────────────────
-  // A Zernio expõe GET /ads/business-centers; a criação de BC/conta de anúncio
-  // NÃO tem API (só a UI do TikTok) — por isso o deep-link mais abaixo.
-  // Se a Zernio não suportar o endpoint (404), devolvemos lista vazia com
-  // `unsupported: true` e a UI esconde o seletor de BC (nunca prometer o que
-  // a API não faz).
-  // Pipeboard NÃO tem Business Center (nem API nem conceito). A UI mantém o
-  // seletor de BC escondido quando `unsupported: true`. Deixamos o helper por
-  // compatibilidade com as rotas, sempre devolvendo lista vazia + unsupported.
-  async function listBusinessCenters(_accId, _st) {
-    return { businessCenters: [], unsupported: true };
-  }
-
-  // Lista advertisers via provider (os 155 do token). O provider já normaliza
-  // healthStatus + rawStatus e resolve o selecionado. `businessCenterId` é
-  // ignorado (não existe no Pipeboard) — mantido na assinatura por compat.
-  async function listAdvertisers(accId, _st, _businessCenterId) {
+  // ── Advertisers: helpers ───────────────────────────────────────────────────
+  // Lista advertisers via provider. O provider já normaliza healthStatus +
+  // rawStatus e resolve o selecionado. (Business Centers da era Zernio foram
+  // removidos: o Pipeboard não tem o conceito — as contas vêm do token.)
+  async function listAdvertisers(accId, _st) {
     const out = await pipeboard.listAdvertisers(accId, { enrich: 0 });
     return out.advertisers;
   }
@@ -444,22 +432,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return { advertiserId, businessCenterId: '', advertiser: { id: advertiserId } };
   }
 
-  app.get('/api/ads/business-centers', dashboardAuth, async (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    try {
-      // Pipeboard não tem BC: sempre unsupported → a UI esconde o seletor.
-      const out = await listBusinessCenters(req.account.id);
-      res.json({ businessCenters: out.businessCenters, selected: '', unsupported: out.unsupported });
-    } catch (err) { fail(res, err); }
-  });
-
-  app.post('/api/ads/business-centers/select', dashboardAuth, async (req, res) => {
-    // Sem BC no Pipeboard — no-op idempotente (a UI não deve chamar isto).
-    res.json({ ok: true, businessCenterId: '', advertiserId: pipeboard.getState(req.account.id).advertiserId || '' });
-  });
-
   // ── Deep-link: criar conta de anúncio (NÃO há API — só a UI do TikTok) ────
-  // Sem BC, o deep-link aponta para o Business Center genérico do TikTok.
   app.get('/api/ads/deeplink/create-account', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({ url: 'https://business.tiktok.com/', businessCenterId: '' });

@@ -201,7 +201,7 @@ export function CampaignTree({
     }
   }
 
-  // Salva o orçamento do grupo via 1º anúncio do grupo (a Zernio aplica o
+  // Salva o orçamento do grupo via 1º anúncio do grupo (o backend aplica o
   // budget no ad group dono do anúncio — não existe PUT direto de grupo).
   async function saveBudget(groupKey: string, adId: string, type: 'daily' | 'lifetime') {
     const amount = Number(budgetValue.replace(',', '.'))
@@ -744,7 +744,7 @@ export function CampaignTree({
         </div>
       ) : campaigns.length === 0 ? (
         tree?.backfillPending ? (
-          /* Conta recém-conectada: a Zernio ainda está importando do TikTok —
+          /* Conta recém-conectada: o sync ainda está importando do TikTok —
              NÃO é "sem campanhas", é sincronização em andamento. */
           <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
             <span className="flex size-12 items-center justify-center rounded-2xl bg-secondary">
