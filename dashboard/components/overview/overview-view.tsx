@@ -14,6 +14,8 @@ import { CountUp } from '@/components/count-up'
 import { Skeleton } from '@/components/skeleton'
 import { GlassCard } from '@/components/glass-card'
 import { TopSources } from './top-sources'
+import { DecideStrip } from './decide-strip'
+import { AdsOverviewCard } from './ads-card'
 import { ExportSummaryButton } from './export-summary'
 import { TvModeButton } from './tv-mode'
 import { PeriodPicker } from './period-picker'
@@ -403,12 +405,28 @@ export function OverviewView() {
         </div>
       </section>
 
+      {/* ── F4: decisões pendentes + ROAS de Ads — abaixo da dobra, gated por
+          adsConnected (quem não usa Ads não vê nem paga a request). O card
+          reusa o MESMO range/chave SWR do hook do hero → dedup, +0 requests;
+          a faixa é o +1 request declarado no plano. Boundary próprio na faixa:
+          se quebrar, o globo não cai junto. ──────────────────────────── */}
+      {adsConnected ? (
+        <section
+          aria-label="Decisões pendentes e desempenho de anúncios"
+          className="grid items-start gap-4 lg:grid-cols-2"
+          style={{ ['--i' as string]: 2 }}
+        >
+          <DecideStrip active={adsConnected && afterFirstPaint} />
+          <AdsOverviewCard range={adsRange} rangeLabel={PERIOD_LABEL[period]} />
+        </section>
+      ) : null}
+
       {/* ── Abaixo: FUNIL | TOP CAMPANHAS — 2 colunas, altura igual,
           governadas pelo MESMO PeriodPicker ─────────────────────────── */}
       <section
         aria-label="Funil e origem dos leads"
         className={`grid items-stretch gap-4 ${hasSources ? 'lg:grid-cols-2' : ''}`}
-        style={{ ['--i' as string]: 2 }}
+        style={{ ['--i' as string]: 3 }}
       >
         <FunnelCompact metrics={cur} periodLabel={PERIOD_LABEL[period]} />
         {hasSources && <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />}
@@ -418,7 +436,7 @@ export function OverviewView() {
       <section
         aria-label="Tabela de Leads Integrada"
         className="animate-in-up delay-3 w-full"
-        style={{ ['--i' as string]: 3 }}
+        style={{ ['--i' as string]: 4 }}
       >
         <LeadsTable leads={data?.leads ?? []} periodStart={periodStart(period)} />
       </section>
@@ -427,7 +445,7 @@ export function OverviewView() {
       <section
         aria-label="Presença e qualidade dos eventos"
         className="glass animate-in-up delay-4 inline-flex flex-wrap items-center gap-x-5 gap-y-2 rounded-full px-5 py-2.5 font-mono text-[11px] tabular-nums text-muted-foreground self-start"
-        style={{ ['--i' as string]: 4 }}
+        style={{ ['--i' as string]: 5 }}
       >
         <HealthDot />
         <span>

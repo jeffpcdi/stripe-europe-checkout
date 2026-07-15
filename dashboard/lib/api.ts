@@ -35,6 +35,7 @@ import type {
   AdsAlertsConfig,
   AdsAttributionResponse,
   AdsRulesResponse,
+  AdsProposalsResponse,
   AdsTemplatesResponse,
   AdsOpsJobsResponse,
   AdsSafetyPolicyResponse,
@@ -427,6 +428,18 @@ export function useAdsAttribution(
 export function useAdsRules(active: boolean) {
   return useSWR<AdsRulesResponse>(active ? '/api/ads/rules' : null, fetcher, {
     revalidateOnFocus: false,
+  })
+}
+
+// F4: propostas pendentes do motor (modo proposta). Chave null enquanto
+// inactive — na home só resolve pós-first-paint E com Ads conectado, para
+// não entrar no orçamento de requests do load de quem não usa Ads.
+export function useAdsProposals(active: boolean, status: 'pending' | '' = 'pending') {
+  const qs = status ? `?status=${status}` : ''
+  return useSWR<AdsProposalsResponse>(active ? `/api/ads/proposals${qs}` : null, fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: false,
+    keepPreviousData: true,
   })
 }
 
