@@ -986,6 +986,10 @@ export type AdsRuleAction = 'pause' | 'budget_down' | 'budget_up' | 'activate'
 export interface AdsRule {
   id: string
   enabled: boolean
+  // Nome/descrição legíveis (presets de fábrica trazem; regras antigas não)
+  name?: string
+  description?: string
+  preset?: boolean // regra semeada de fábrica (badge na UI)
   metric: AdsRuleMetric
   threshold: number
   lookbackDays: number

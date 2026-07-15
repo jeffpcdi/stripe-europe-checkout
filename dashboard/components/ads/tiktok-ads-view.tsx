@@ -89,6 +89,12 @@ export function TikTokAdsView() {
   // Vendas reais por campanha — mesmo lookback padrão da árvore (7 dias)
   const { data: attribution } = useAdsAttribution(treeActive, effectiveAdvertiser)
 
+  // Sub-abas por tarefa: a página empilhava 12 cards numa coluna só e ninguém
+  // achava nada. Cada aba tem UM propósito: ver resultado / operar campanhas /
+  // configurar automações / usar a IA. Estado local (não URL) — trocar de aba
+  // não recarrega nada, os hooks SWR continuam vivos.
+  const [tab, setTab] = useState<'overview' | 'campaigns' | 'automation' | 'ai'>('overview')
+
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
@@ -280,15 +286,6 @@ export function TikTokAdsView() {
             <Plus className="size-3.5" aria-hidden="true" />
             Nova campanha
           </button>
-          <button
-            type="button"
-            className="btn-ghost text-xs opacity-40"
-            disabled
-            title="Duplicar campanha está temporariamente indisponível nesta versão."
-          >
-            <Copy className="size-3.5" aria-hidden="true" />
-            Duplicar
-          </button>
           <button type="button" className="btn-ghost text-xs" onClick={() => openWriteFlow(setBulkOpen)}>
             <Layers className="size-3.5" aria-hidden="true" />
             Subir em massa
@@ -392,16 +389,37 @@ export function TikTokAdsView() {
         </GlassCard>
       ) : (
         <>
-          {/* Painel de operação: automações, alertas e fila (foco desta tela) */}
-          <OpsStatusCards
-            active={treeActive}
-            onOpenAutomation={() => setRulesOpen(true)}
-            onOpenAlerts={() => setAlertsOpen(true)}
-            onOpenOps={() => setOpsOpen(true)}
-          />
-
-          {/* Diagnóstico da integração MCP Pipeboard (linha fina, expande) */}
-          <McpStatusCard active={treeActive} />
+          {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
+              (pill tablist) é o mesmo da aba Atividade. */}
+          <div
+            className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-[var(--hover)] p-0.5 self-start"
+            role="tablist"
+            aria-label="Seções do TikTok Ads"
+          >
+            {(
+              [
+                { value: 'overview', label: 'Visão geral' },
+                { value: 'campaigns', label: 'Campanhas' },
+                { value: 'automation', label: 'Automações' },
+                { value: 'ai', label: 'IA' },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.value}
+                onClick={() => setTab(t.value)}
+                className={
+                  tab === t.value
+                    ? 'flex shrink-0 items-center rounded-full bg-[var(--active)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors'
+                    : 'flex shrink-0 items-center rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-sub'
+                }
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
 
           {/* Aviso de sincronização bloqueada: sem isto a tela mostraria "0
               campanhas / tudo zerado" como se a conta estivesse vazia, quando na
