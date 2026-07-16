@@ -13,12 +13,17 @@
 //   - Anti-repetição: nunca sorteia a mesma frase duas vezes seguidas por
 //     conta+evento (estado em memória; reinício zera, sem problema).
 
-// Interpolação: {valor} {produto} {cliente} {gateway} {campanha}
+// Interpolação ESTRITA: {valor} {produto} {cliente} {gateway} {campanha}.
+// Se o template referencia um dado que não veio, retorna null — o chamador
+// usa o fallback (evita frases quebradas tipo "Checkout no em andamento").
 function interp(tpl, data) {
-  return String(tpl).replace(/\{(valor|produto|cliente|gateway|campanha)\}/g, (_, k) => {
+  let missing = false;
+  const out = String(tpl).replace(/\{(valor|produto|cliente|gateway|campanha)\}/g, (_, k) => {
     const v = data && data[k];
-    return v != null && String(v).trim() ? String(v).trim() : '';
+    if (v == null || !String(v).trim()) { missing = true; return ''; }
+    return String(v).trim();
   }).replace(/\s{2,}/g, ' ').trim();
+  return missing ? null : out;
 }
 
 // Pools de frases por evento. Cada item: { t: título, b: corpo }.
@@ -119,11 +124,17 @@ function classify(name, payload) {
   return null; // desconhecido → passa o payload original
 }
 
+// Frase só é elegível se TODOS os dados que ela referencia estão presentes
+// (título e corpo) — assim nunca sai texto com buraco.
+function eligible(phrase, data) {
+  return interp(phrase.t, data) !== null && (!phrase.b || interp(phrase.b, data) !== null);
+}
+
 // Anti-repetição: última frase usada por conta+evento (memória do processo).
 const lastPick = new Map();
-function pick(event, accountId) {
-  const pool = POOLS[event];
-  if (!pool || !pool.length) return null;
+function pick(event, accountId, data) {
+  const pool = (POOLS[event] || []).filter((ph) => eligible(ph, data));
+  if (!pool.length) return null;
   if (pool.length === 1) return pool[0];
   const key = (accountId || 'main') + ':' + event;
   const last = lastPick.get(key);
@@ -149,15 +160,13 @@ function build(opts) {
     return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag };
   }
 
-  const phrase = pick(event, accountId);
   const data = meta || {};
+  const phrase = pick(event, accountId, data);
+  // Nenhuma frase elegível (faltam dados) → payload original, sem buracos.
+  if (!phrase) return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag };
   const title = interp(phrase.t, data) || p.title || 'ROI-NADOS';
-  // Corpo: frase do pool interpolada; se vazia (ou sem dados), usa o texto
-  // original — informação completa sempre chega.
-  let body = phrase.b ? interp(phrase.b, data) : '';
-  // Remove sobras de template quando faltam dados ("via ." / ": ." etc.)
-  body = body.replace(/\s+(via|no|em|de)\s*\.\s*/g, '. ').replace(/\s{2,}/g, ' ').trim();
-  if (!body || body.length < 8) body = p.text || '';
+  // Corpo vazio no pool ('') = usa o texto original (informação completa).
+  const body = (phrase.b ? interp(phrase.b, data) : '') || p.text || '';
   return { title, body, url, tag };
 }
 
