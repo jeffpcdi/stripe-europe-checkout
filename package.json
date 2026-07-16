@@ -12,6 +12,7 @@
     "check:domains": "node --env-file-if-exists=.env.development.local scripts/check-domains.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.15",
     "@neondatabase/serverless": "^1.1.0",
     "@upstash/redis": "^1.38.0",
     "@vercel/blob": "^2.6.1",
