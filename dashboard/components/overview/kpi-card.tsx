@@ -52,8 +52,8 @@ export function DeltaChip({
         delta === 0
           ? 'bg-[var(--hover)] text-muted-foreground'
           : good
-            ? 'bg-[var(--success-light)] text-success'
-            : 'bg-[var(--error-light)] text-error',
+            ? 'bg-[var(--success-light)] text-success border border-success/30 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
+            : 'bg-[var(--error-light)] text-error border border-error/30 shadow-[0_0_10px_rgba(239,68,68,0.2)]',
       )}
     >
       {/* Item 21: seta entra com spring */}
@@ -113,9 +113,12 @@ export function KpiCard({
       role="group"
       aria-label={ariaLabel}
       className={cn(
-        'anim-kpi-in hover-glow group relative h-full overflow-hidden p-5',
+        'anim-kpi-in hover-glow group relative h-full overflow-hidden p-5 transition-shadow duration-300',
         hero && 'kpi-hero hover-tilt',
         flashing && 'kpi-tick',
+        tint === 'green' && 'hover:shadow-[0_0_25px_rgba(34,197,94,0.15)]',
+        tint === 'cyan' && 'hover:shadow-[0_0_25px_rgba(37,244,238,0.15)]',
+        tint === 'amber' && 'hover:shadow-[0_0_25px_rgba(251,191,36,0.15)]',
       )}
       style={{ animationDelay: `${index * 70}ms` }}
     >
@@ -149,8 +152,9 @@ export function KpiCard({
           {/* V2-61: hero usa tipografia display fluida (clamp por viewport) */}
           <div
             className={cn(
-              'font-mono tracking-tight',
+              'font-mono tracking-tight transition-all duration-300 origin-left',
               hero ? 'kpi-value-hero text-display' : 'text-2xl font-semibold',
+              flashing && 'scale-[1.03] text-brand-cyan'
             )}
           >
             {value}

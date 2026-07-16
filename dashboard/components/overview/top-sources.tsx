@@ -55,9 +55,10 @@ export function TopSources({
           return (
             <li
               key={r.name || `linha-${i}`}
-              className="anim-row-in flex items-center justify-between gap-3 border-b border-white/[0.05] py-2.5 last:border-b-0"
+              className="anim-feed-row group relative flex items-center justify-between gap-3 border-b border-white/[0.05] py-2.5 px-3 -mx-3 rounded-lg hover:bg-white/5 transition-colors cursor-default last:border-b-0"
               style={{ animationDelay: `${i * 50}ms` }}
             >
+              <div className="absolute left-0 top-1/4 bottom-1/4 w-1 rounded-full bg-brand-cyan opacity-0 group-hover:opacity-100 transition-all shadow-[0_0_10px_rgba(37,244,238,0.8)]" aria-hidden="true" />
               <span
                 className={`truncate text-xs font-medium ${broken ? 'text-error' : 'text-foreground'}`}
                 title={

@@ -579,7 +579,7 @@ export function LeadsTable({
                       <td className="py-2.5 pr-3 text-xs">
                         {l.country ? (
                           <span className="text-foreground">
-                            <span aria-hidden>{countryFlag(l.country)}</span>{' '}
+                            <span className="drop-shadow-md" aria-hidden>{countryFlag(l.country)}</span>{' '}
                             <Highlight text={l.countryName || l.country} query={query} />
                           </span>
                         ) : (

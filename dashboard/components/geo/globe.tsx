@@ -97,11 +97,10 @@ function buildPoints(
       {
         lat: coords[0],
         lng: coords[1],
-        // Demanda visível: base menor (0.4→0.22) e range maior (0.8→1.1) — o
-        // totem do país líder fica ~4x o de 1 visitante, em vez de quase igual.
+        // Demanda visível: base menor (0.4→0.22) e range maior (0.8→1.1)
         size: 0.22 + (Math.log1p(value) / Math.log1p(max)) * 1.1,
         color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
-        label: `${c.name}: ${c.count} visitas${c.purchased ? ` · ${c.purchased} vendas` : ''}`,
+        label: `<div style="background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(37,244,238,0.4); box-shadow: 0 0 10px rgba(37,244,238,0.2); font-family: monospace; font-size: 11px; color: #fff;">${c.name}: ${c.count} visitas${c.purchased ? ` <span style="color:#22c55e">· ${c.purchased} vendas</span>` : ''}</div>`,
       },
     ]
   })
@@ -370,9 +369,9 @@ function GlobeCanvas({
       pointsTransitionDuration={600}
       /* Refino 5 + V2-41: ondas concêntricas nos 5 hotspots, raio ∝ tráfego */
       ringsData={rings}
-      ringColor={() => (t: number) => `rgba(37,244,238,${(1 - t) * 0.75})`}
-      ringMaxRadius={(d: object) => 1.5 + (d as GeoRing).intensity * 1.5}
-      ringPropagationSpeed={2}
+      ringColor={() => (t: number) => metric === 'sales' ? `rgba(254,44,85,${(1 - t) * 0.85})` : `rgba(37,244,238,${(1 - t) * 0.85})`}
+      ringMaxRadius={(d: object) => 2.0 + (d as GeoRing).intensity * 3.0}
+      ringPropagationSpeed={1.5}
       ringRepeatPeriod={1400}
       /* V2-42: labels mono maiores com dot mais visível */
       labelsData={labels}
@@ -575,7 +574,7 @@ export default function GlobePanel({
   return (
     <div
       ref={containerRef}
-      className="globe-stage relative h-full w-full overflow-hidden"
+      className="globe-stage relative h-full w-full overflow-hidden bg-[radial-gradient(ellipse_at_center,rgba(37,244,238,0.06)_0%,transparent_70%)]"
       data-tour="globe"
       onPointerEnter={() => setSpin(SPIN_HOVER)}
       onPointerLeave={() => setSpin(SPIN_IDLE)}

@@ -340,8 +340,8 @@ export function FunnelView() {
                     ponto de queda ganha o selo "gargalo" em vermelho */}
                 {i > 0 && st.stepRate ? (
                   <div className="flex items-center gap-1.5 pl-[152px] pb-1 font-mono text-[10px] tabular-nums text-faint">
-                    <ChevronDown className="size-3" aria-hidden="true" />
-                    <span>{st.stepRate}</span>
+                    <ChevronDown className="size-3 text-brand-cyan drop-shadow-[0_0_8px_rgba(37,244,238,0.8)]" aria-hidden="true" />
+                    <span className="text-brand-cyan drop-shadow-[0_0_8px_rgba(37,244,238,0.6)]">{st.stepRate}</span>
                     {st.isBottleneck ? (
                       /* V2-86: selo com anel pulsante — o gargalo grita */
                       <span className="badge-new rounded-full bg-[rgba(254,44,85,.12)] px-1.5 py-px font-semibold uppercase tracking-wider text-[#fe2c55]">
@@ -383,7 +383,7 @@ export function FunnelView() {
                         style={{
                           width: `${w}%`,
                           background: `linear-gradient(90deg, color-mix(in oklab, var(--accent) ${st.alpha * 100}%, transparent), color-mix(in oklab, var(--accent) ${st.alpha * 50}%, transparent))`,
-                          boxShadow: `0 0 16px color-mix(in oklab, var(--accent) ${st.alpha * 20}%, transparent)`,
+                          boxShadow: `0 0 20px color-mix(in oklab, var(--accent) ${st.alpha * 60}%, transparent)`,
                           animationDelay: `${i * 300}ms`,
                         }}
                       >
@@ -398,7 +398,7 @@ export function FunnelView() {
                       <CountUp value={st.value} />
                     </span>
                   </div>
-                  <span className="text-right font-mono text-sm font-semibold tabular-nums text-muted-foreground">
+                  <span className="text-right font-mono text-sm font-semibold tabular-nums text-foreground drop-shadow-[0_0_10px_var(--accent)] bg-white/[0.03] border border-white/[0.05] rounded-md px-2 py-1">
                     {st.rate}
                   </span>
                 </div>
@@ -468,6 +468,9 @@ export function FunnelView() {
       {/* A4.5: estado vazio filtrado ganha CTA para limpar os filtros */}
       {hasFilter && (m?.visits ?? 0) === 0 ? (
         <GlassCard className="flex flex-col items-center gap-3 p-8 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-brand-cyan/20 text-brand-cyan animate-pulse shadow-[0_0_20px_rgba(37,244,238,0.3)]">
+            <AlertTriangle className="size-6" />
+          </div>
           <p className="text-sm text-muted-foreground">
             Nenhuma visita corresponde aos filtros ativos neste período.
           </p>

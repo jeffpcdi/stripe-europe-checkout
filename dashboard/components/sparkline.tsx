@@ -49,13 +49,13 @@ export function SparkLine({
         points={pts}
         fill="none"
         stroke={color}
-        strokeWidth="1.5"
+        strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeDasharray="1000"
-        style={{ animation: 'drawLine 1.2s var(--ease) both' }}
+        style={{ animation: 'drawLine 1.2s var(--ease) both', filter: `drop-shadow(0 0 4px ${color}88)` }}
       />
-      <circle cx={lastX} cy={lastY} r="2" fill={color}>
+      <circle cx={lastX} cy={lastY} r="3" fill={color} style={{ filter: `drop-shadow(0 0 6px ${color})` }}>
         <animate attributeName="opacity" values="1;0.3;1" dur="1.8s" repeatCount="indefinite" />
       </circle>
     </svg>

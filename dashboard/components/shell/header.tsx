@@ -103,7 +103,7 @@ function LiveBadge() {
       data-tour="live-badge"
     >
       <span
-        className={cn('live-dot', !ok && '[--success:var(--error)]', slow && '[--success:var(--warning)]')}
+        className={cn('live-dot shadow-[0_0_8px_currentColor] animate-pulse', !ok && '[--success:var(--error)]', slow && '[--success:var(--warning)]')}
         aria-hidden="true"
       />
       <span className="text-xs font-medium text-sub">
@@ -201,7 +201,7 @@ function UserMenu() {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className="glass hidden size-8 items-center justify-center rounded-full text-xs font-bold text-brand-cyan transition-transform hover:scale-105 sm:flex"
+          className="glass hidden size-8 items-center justify-center rounded-full border-transparent text-xs font-bold text-brand-cyan transition-all hover:scale-110 hover:border-brand-cyan/50 hover:shadow-[0_0_15px_rgba(37,244,238,0.4)] sm:flex"
           aria-label="Menu do usuário"
         >
           {initial}
@@ -278,7 +278,7 @@ export function Header() {
   prevPath.current = pathname
 
   return (
-    <div className="relative border-b border-[var(--border)]">
+    <div className="relative border-b border-[var(--border)] shadow-[0_1px_20px_rgba(37,244,238,0.05)]">
       {/* Item 16: sheen lento no hairline inferior */}
       <span
         aria-hidden="true"

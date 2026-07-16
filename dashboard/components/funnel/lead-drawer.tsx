@@ -199,7 +199,7 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
                 <Field label="Local">
                   {lead.country ? (
                     <>
-                      <span aria-hidden>{countryFlag(lead.country)}</span>{' '}
+                      <span className="drop-shadow-md" aria-hidden>{countryFlag(lead.country)}</span>{' '}
                       {[lead.city, lead.countryName || lead.country].filter(Boolean).join(', ')}
                     </>
                   ) : (

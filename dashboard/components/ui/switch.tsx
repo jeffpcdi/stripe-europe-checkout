@@ -31,7 +31,7 @@ export function Switch({
       onClick={() => onChange(!checked)}
       className={`relative inline-flex shrink-0 cursor-pointer items-center rounded-full border-0 p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${
         sm ? 'h-4 w-7' : 'h-5 w-9'
-      } ${checked ? 'bg-brand-cyan' : 'bg-muted'}`}
+      } ${checked ? 'bg-brand-cyan shadow-[0_0_10px_rgba(37,244,238,0.4)]' : 'bg-muted'}`}
     >
       <span
         className={`pointer-events-none absolute left-0.5 top-1/2 -translate-y-1/2 rounded-full bg-white shadow transition-transform ${

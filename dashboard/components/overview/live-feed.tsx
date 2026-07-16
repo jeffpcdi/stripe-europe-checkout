@@ -43,10 +43,10 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
             return (
               <li
                 key={lead.id}
-                className="anim-row-in group flex items-center justify-between gap-3 border-b border-white/[0.05] py-3 last:border-b-0 hover:bg-white/5 px-2 -mx-2 rounded-lg transition-colors cursor-default"
+                className="anim-feed-row group flex items-center justify-between gap-3 border-b border-white/[0.05] py-3 last:border-b-0 hover:bg-white/5 px-2 -mx-2 rounded-lg transition-colors cursor-default"
               >
                 <span className="flex min-w-0 items-center gap-2.5">
-                  <span className="text-lg leading-none" aria-hidden="true">
+                  <span className="text-lg leading-none drop-shadow-md" aria-hidden="true">
                     {countryFlag(lead.country)}
                   </span>
                   <span className="truncate text-xs font-medium text-foreground">

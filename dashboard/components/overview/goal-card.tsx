@@ -96,7 +96,7 @@ export function GoalCard() {
       {/* V2-63: barra com glow na ponta + preenchimento gradiente — o
           marcador fantasma da projeção continua atrás */}
       <div
-        className="relative h-2 overflow-hidden rounded-full bg-secondary"
+        className="relative h-2 rounded-full bg-secondary/30"
         role="progressbar"
         aria-valuenow={Math.round(pct)}
         aria-valuemin={0}
@@ -108,11 +108,12 @@ export function GoalCard() {
           style={{
             width: `${pct}%`,
             background: `linear-gradient(90deg, ${barColor}88, ${barColor})`,
+            boxShadow: `0 0 10px ${barColor}aa`,
           }}
         />
         {projPct > pct && (
           <div
-            className="absolute inset-y-0 rounded-full opacity-30"
+            className="absolute inset-y-0 rounded-r-full opacity-30 border-t border-b border-r border-dashed"
             style={{ left: `${pct}%`, width: `${projPct - pct}%`, background: barColor }}
             aria-hidden="true"
           />

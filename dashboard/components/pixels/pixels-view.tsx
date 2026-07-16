@@ -360,7 +360,7 @@ export function PixelsView() {
                         onChange={() => handleToggleActive(p)}
                         label={p.active ? `Pausar pixel ${p.name}` : `Ativar pixel ${p.name}`}
                       />
-                      <StatusBadge status={p.active ? 'success' : 'neutral'}>
+                      <StatusBadge status={p.active ? 'success' : 'neutral'} dot={p.active}>
                         {p.active ? 'ativo' : 'pausado'}
                       </StatusBadge>
                       {p.hasToken ? (
@@ -455,7 +455,7 @@ export function PixelsView() {
                       código completo legível (multi-linha, rolável) e UM botão.
                       Antes: 3 scripts truncados numa linha + 2 botões = confusão. */}
                   {p.scriptTag && (
-                    <div className="mt-3 overflow-hidden rounded-lg border border-border bg-input">
+                    <div className="mt-3 overflow-hidden rounded-lg border border-border bg-input border-t-2 border-t-brand-cyan shadow-[0_-2px_10px_rgba(37,244,238,0.2)]">
                       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
                         <p className="min-w-0 text-xs leading-relaxed text-muted-foreground text-pretty">
                           Copie e cole antes do <code className="text-foreground">{'</head>'}</code> da sua
@@ -512,7 +512,7 @@ export function PixelsView() {
                       className={`mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
                         testResult.ok
                           ? 'bg-[var(--success-light)] text-success'
-                          : 'bg-destructive/10 text-destructive'
+                          : 'bg-destructive/10 text-destructive border border-destructive/30 shadow-[0_0_8px_rgba(254,44,85,0.2)] animate-pulse'
                       }`}
                       role="status"
                     >
@@ -819,7 +819,7 @@ export function PixelsView() {
                           const key = row.id ?? String(i)
                           const open = expandedLog === key
                           return (
-                            <li key={key} className="rounded-lg text-xs hover:bg-secondary/60">
+                            <li key={key} className="rounded-lg text-xs hover:bg-white/[.04] even:bg-white/[.02] transition-colors">
                               <button
                                 type="button"
                                 onClick={() => setExpandedLog(open ? null : key)}

@@ -61,7 +61,7 @@ function ChartTooltip({
   const up = delta !== null && delta >= 0
 
   return (
-    <div className="glass glass-thick rounded-[10px] px-3 py-2 text-xs">
+    <div className="glass glass-thick rounded-[10px] border border-brand-cyan/20 shadow-[0_0_15px_rgba(37,244,238,0.15)] px-3 py-2 text-xs backdrop-blur-xl">
       <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
         {fmtDay(label)}
       </p>
@@ -219,8 +219,8 @@ export function RevenueChart({
                 <defs>
                   {/* Item 24: gradiente duplo — cor da métrica no topo, ciano fraco no meio, transparente */}
                   <linearGradient id={`grad-${metric}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={conf.color} stopOpacity={0.3} />
-                    <stop offset="55%" stopColor="#25f4ee" stopOpacity={0.08} />
+                    <stop offset="0%" stopColor={conf.color} stopOpacity={0.6} />
+                    <stop offset="55%" stopColor="#25f4ee" stopOpacity={0.15} />
                     <stop offset="100%" stopColor="#25f4ee" stopOpacity={0} />
                   </linearGradient>
                 </defs>

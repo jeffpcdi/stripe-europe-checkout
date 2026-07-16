@@ -102,17 +102,17 @@ export function OnboardingChecklist({
             <Link
               href={s.href}
               className={cn(
-                'group flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-white/[.04]',
-                s.done && 'opacity-55',
+                'group flex items-center gap-3 rounded-lg px-2 py-2.5 transition-all hover:bg-white/[.04]',
+                s.done && 'opacity-50',
               )}
             >
               {s.done ? (
-                <CircleCheck className="size-4.5 shrink-0 text-success" aria-hidden="true" />
+                <CircleCheck className="size-4.5 shrink-0 text-success drop-shadow-[0_0_8px_rgba(34,197,94,0.6)]" aria-hidden="true" />
               ) : (
                 <Circle className="size-4.5 shrink-0 text-muted-foreground" aria-hidden="true" />
               )}
               <span className="flex min-w-0 flex-1 flex-col">
-                <span className={cn('text-sm', s.done && 'line-through')}>{s.label}</span>
+                <span className={cn('text-sm transition-all', s.done && 'line-through text-muted-foreground')}>{s.label}</span>
                 <span className="truncate text-xs text-muted-foreground">{s.desc}</span>
               </span>
               <span className="sr-only">{s.done ? 'concluído' : 'pendente'}</span>

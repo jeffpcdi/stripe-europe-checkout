@@ -504,10 +504,10 @@ export function LinksView() {
                       <span
                         className={`flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
                           l.arquivado
-                            ? 'bg-muted/40 text-muted-foreground'
+                            ? 'bg-muted/40 text-muted-foreground border border-muted/50'
                             : l.ativo
-                              ? 'bg-[color:var(--success)]/15 text-[color:var(--success)]'
-                              : 'bg-[color:var(--warning)]/15 text-[color:var(--warning)]'
+                              ? 'bg-[color:var(--success)]/20 text-[color:var(--success)] border border-[color:var(--success)]/40 drop-shadow-[0_0_8px_var(--success-light)]'
+                              : 'bg-[color:var(--warning)]/20 text-[color:var(--warning)] border border-[color:var(--warning)]/40 drop-shadow-[0_0_8px_var(--warning)]'
                         }`}
                       >
                         <span
@@ -744,7 +744,7 @@ export function LinksView() {
                             alt={`QR code do link ${l.nome}`}
                             width={140}
                             height={140}
-                            className="rounded-md"
+                            className="rounded-md border-2 border-brand-cyan shadow-[0_0_20px_rgba(37,244,238,0.4)]"
                           />
                         ) : (
                           <div className="flex size-[140px] items-center justify-center rounded-md bg-secondary/60">

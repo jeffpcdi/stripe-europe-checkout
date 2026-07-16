@@ -199,7 +199,7 @@ export function DomainsView() {
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring'
+    'w-full rounded-lg border border-border bg-input input-neon px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring'
 
   return (
     /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
@@ -398,7 +398,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
       <button
         type="button"
         onClick={copy}
-        className="flex items-center justify-between gap-2 rounded-lg border border-border bg-secondary/60 px-3 py-2 text-left transition-colors hover:bg-secondary"
+        className="flex items-center justify-between gap-2 rounded-lg border border-border bg-secondary/60 px-3 py-2 text-left transition-all hover:bg-secondary hover:border-brand-cyan/40 hover:shadow-[0_0_10px_rgba(37,244,238,0.2)]"
         aria-label={`Copiar ${label}: ${value}`}
       >
         <code className="min-w-0 break-all font-mono text-xs text-foreground">{value}</code>
@@ -483,7 +483,7 @@ function DnsTutorialModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-xl sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="dns-tutorial-title"
@@ -735,7 +735,7 @@ function HealthBadge({ status }: { status: DomainStatus }) {
   }
   const s = map[status]
   return (
-    <span className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${s.cls}`}>
+    <span className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${s.cls} ${status === 'active' ? 'shadow-[0_0_8px_rgba(34,197,94,0.4)] animate-[pulse_3s_ease-in-out_infinite]' : ''}`}>
       <span className={`size-1.5 rounded-full bg-current ${s.pulse ? 'animate-pulse' : ''}`} aria-hidden="true" />
       {s.label}
     </span>
@@ -761,7 +761,7 @@ function DomainCard({
 }) {
   const status = effectiveStatus(domain, result)
   return (
-    <GlassCard className="p-4">
+    <GlassCard className="p-4 transition-all hover:border-brand-cyan/30 hover:shadow-[0_0_15px_rgba(37,244,238,0.1)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           {/* Item 75: check verde com draw-in de SVG path quando verificado */}
@@ -833,7 +833,7 @@ function DomainCard({
           <button
             type="button"
             onClick={onAskDelete}
-            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+            className="rounded-md p-2 text-muted-foreground transition-all hover:bg-destructive/15 hover:text-destructive hover:shadow-[0_0_10px_rgba(254,44,85,0.2)]"
             aria-label="Remover domínio"
           >
             <Trash2 className="size-4" />

@@ -69,12 +69,12 @@ function ProviderIcon({ provider, label }: { provider: string; label: string }) 
   const mark = PROVIDER_MARKS[provider]
   if (mark) {
     return (
-      <svg viewBox={mark.viewBox} className="size-4" fill="currentColor" aria-hidden="true">
+      <svg viewBox={mark.viewBox} className="size-4 drop-shadow-[0_0_8px_currentColor]" fill="currentColor" aria-hidden="true">
         <path d={mark.d} />
       </svg>
     )
   }
-  return <span className="text-sm font-bold leading-none">{(label || provider).charAt(0).toUpperCase()}</span>
+  return <span className="text-sm font-bold leading-none drop-shadow-[0_0_8px_currentColor]">{(label || provider).charAt(0).toUpperCase()}</span>
 }
 
 export function GatewaysView() {
@@ -357,7 +357,7 @@ export function GatewaysView() {
                   /* Item 73: cápsula e borda na cor da marca do provedor */
                   <li
                     key={g.id}
-                    className="group rounded-xl border border-border bg-secondary/40 p-4 transition-colors duration-150"
+                    className="group rounded-xl border border-border bg-secondary/40 p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(0,0,0,0.4)]"
                     style={{ ['--gw-brand' as string]: brand }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = `color-mix(in oklab, ${brand} 45%, transparent)`
@@ -416,7 +416,7 @@ export function GatewaysView() {
                         sem caixa amarela extra poluindo cada card */}
                     {/* Webhook URL para colar no gateway */}
                     <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">
-                      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+                      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground blur-[4px] hover:blur-none transition-all duration-300 cursor-crosshair">
                         {g.webhookUrl}
                       </code>
                       <button
@@ -447,13 +447,13 @@ export function GatewaysView() {
                             aria-label={`Webhooks: ${ok} processados, ${other} outros, ${failed} falhos`}
                           >
                             {ok > 0 && (
-                              <div className="h-full bg-[color:var(--success)]" style={{ width: `${(ok / rows.length) * 100}%` }} />
+                              <div className="h-full bg-[color:var(--success)] shadow-[0_0_8px_var(--success)]" style={{ width: `${(ok / rows.length) * 100}%` }} />
                             )}
                             {other > 0 && (
-                              <div className="h-full bg-[color:var(--warning)]/70" style={{ width: `${(other / rows.length) * 100}%` }} />
+                              <div className="h-full bg-[color:var(--warning)]/70 shadow-[0_0_8px_var(--warning)]" style={{ width: `${(other / rows.length) * 100}%` }} />
                             )}
                             {failed > 0 && (
-                              <div className="h-full bg-[color:var(--error)]" style={{ width: `${(failed / rows.length) * 100}%` }} />
+                              <div className="h-full bg-[color:var(--error)] shadow-[0_0_8px_var(--error)]" style={{ width: `${(failed / rows.length) * 100}%` }} />
                             )}
                           </div>
                           <span className="font-mono text-[10px] tabular-nums text-faint">
@@ -488,7 +488,12 @@ export function GatewaysView() {
                         type="button"
                         onClick={() => handleCardTest(g)}
                         disabled={cardTesting === g.id}
-                        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                        className={cn(
+                          "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-all duration-300",
+                          cardTesting === g.id
+                            ? "bg-brand-cyan/20 text-brand-cyan ring-2 ring-brand-cyan/50 shadow-[0_0_15px_rgba(37,244,238,0.5)] animate-pulse"
+                            : "bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                        )}
                       >
                         <Zap className="size-3.5" /> {cardTesting === g.id ? 'Testando…' : 'Testar'}
                       </button>
@@ -543,7 +548,7 @@ export function GatewaysView() {
                       type="button"
                       onClick={() => setExpandedRow(isOpen ? null : rowKey)}
                       aria-expanded={isOpen}
-                      className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-secondary/60"
+                      className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-white/[.04] transition-colors"
                     >
                       <span className="flex min-w-0 items-center gap-2">
                         <span
@@ -754,7 +759,7 @@ function GatewayEditor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm md:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md md:items-center"
       role="dialog"
       aria-modal="true"
       aria-label={gateway ? 'Editar gateway' : 'Novo gateway'}

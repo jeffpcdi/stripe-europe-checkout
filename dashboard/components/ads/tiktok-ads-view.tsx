@@ -203,7 +203,6 @@ export function TikTokAdsView() {
   if (status && !status.enabled) {
     return (
       <div className="flex flex-col gap-5">
-        <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <ErrorState
           title="Integração não configurada no servidor"
           description="A variável PIPEBOARD_API_KEY não está definida no servidor. Gere o token no painel do Pipeboard (pipeboard.co), adicione às variáveis de ambiente e tente novamente."
@@ -216,7 +215,6 @@ export function TikTokAdsView() {
   if (statusError) {
     return (
       <div className="flex flex-col gap-5">
-        <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <ErrorState onRetry={() => mutateStatus()} />
       </div>
     )
@@ -225,7 +223,6 @@ export function TikTokAdsView() {
   if (statusLoading && !status) {
     return (
       <div className="flex flex-col gap-5">
-        <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <Skeleton className="h-40 rounded-2xl bg-brand-cyan/5 shadow-[0_0_15px_rgba(37,244,238,0.1)] border border-brand-cyan/10" />
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
@@ -241,7 +238,6 @@ export function TikTokAdsView() {
   if (!connected) {
     return (
       <div className="flex flex-col gap-5">
-        <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
         <AdsConnectCard onConnected={() => mutateStatus()} />
       </div>
     )
@@ -254,7 +250,6 @@ export function TikTokAdsView() {
       {/* Cabeçalho: título + conta conectada + ações principais */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
-          <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
           {/* Badge de guardrail ativo — o usuário entende por que nada publica */}
           {killSwitchActive ? (
             <button

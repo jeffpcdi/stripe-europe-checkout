@@ -457,8 +457,12 @@ export function OverviewView() {
             <span className="ml-2 text-faint">
               {cur.countries
                 .slice(0, 4)
-                .map((c) => `${countryFlag(c.code)} ${c.code}`)
-                .join('  ')}
+                .map((c) => (
+                  <span key={c.code} className="mr-2">
+                    <span className="drop-shadow-md mr-1">{countryFlag(c.code)}</span>
+                    {c.code}
+                  </span>
+                ))}
             </span>
           ) : null}
         </span>

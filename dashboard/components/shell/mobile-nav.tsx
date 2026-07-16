@@ -25,7 +25,7 @@ export function MobileNav() {
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay
-          className="fixed inset-0 z-50 bg-black/60"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xl"
           style={{ animation: 'popBgIn var(--dur-fast) var(--ease) both' }}
         />
         <Dialog.Content
