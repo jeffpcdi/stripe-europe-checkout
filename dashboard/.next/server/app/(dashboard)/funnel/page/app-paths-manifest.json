@@ -1,0 +1,3 @@
+{
+  "/(dashboard)/funnel/page": "app/(dashboard)/funnel/page.js"
+}

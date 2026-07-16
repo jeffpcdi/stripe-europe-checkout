@@ -80,12 +80,13 @@ export function RoasCard({
   const profitable = data.roas !== null && data.roas >= 1
 
   return (
-    /* V2-93: card ROAS com hover-glow + borda verde-lucro quando profitable */
+    /* V2-93: card ROAS com hover-glow profundo + aura verde-lucro quando profitable */
     <GlassCard
-      className={cn('anim-kpi-in hover-glow p-4', profitable && 'shadow-[var(--glow-money)]')}
+      className={cn('group anim-kpi-in p-4 relative overflow-hidden transition-all duration-500 border border-white/5 bg-[#040406]/80 backdrop-blur-3xl hover:shadow-[0_12px_50px_rgba(0,0,0,0.6)] hover:-translate-y-0.5', profitable && 'shadow-[0_0_30px_rgba(34,197,94,0.15)] ring-1 ring-success/20')}
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="absolute inset-0 bg-gradient-to-t from-success/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" aria-hidden="true" />
+      <div className="relative flex items-center justify-between gap-2">
         <p className="label-mono label-mono--gradient text-[10px]">ROAS real · últimos 7 dias</p>
         <HandCoins className="size-4 text-muted-foreground" aria-hidden="true" />
       </div>
@@ -152,7 +153,7 @@ export function RoasCard({
         </div>
       )}
 
-      <p className="mt-2 text-[10px] leading-relaxed text-faint">
+      <p className="relative mt-2 text-[10px] leading-relaxed text-faint">
         Receita real dos gateways cruzada com o gasto do TikTok — não é a conversão estimada do pixel.
       </p>
     </GlassCard>

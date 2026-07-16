@@ -60,12 +60,23 @@ export function StatusPill({ status }: { status?: AdsNodeStatus }) {
     cls: 'text-muted-foreground',
     dot: 'bg-muted-foreground',
   }
+  
+  let bgClass = 'bg-white/5 border-white/5'
+  if (status === 'active') bgClass = 'bg-success/15 border-success/20 text-success shadow-[0_0_10px_rgba(34,197,94,0.1)]'
+  else if (status === 'pending_review') bgClass = 'bg-warning/15 border-warning/20 text-warning shadow-[0_0_10px_rgba(234,179,8,0.1)]'
+  else if (status === 'rejected' || status === 'error') bgClass = 'bg-error/15 border-error/20 text-error shadow-[0_0_10px_rgba(239,68,68,0.1)]'
+  else bgClass = 'bg-muted/10 border-white/5 text-muted-foreground'
+
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${meta.cls}`}>
-      <span
-        className={`size-1.5 rounded-full ${meta.dot} ${meta.pulse ? 'animate-pulse' : ''}`}
-        aria-hidden="true"
-      />
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold tracking-wide backdrop-blur-sm ${bgClass}`}>
+      {meta.pulse ? (
+        <span className="relative flex size-1.5">
+          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${meta.dot}`} aria-hidden="true" />
+          <span className={`relative inline-flex size-1.5 rounded-full ${meta.dot} drop-shadow-md`} aria-hidden="true" />
+        </span>
+      ) : (
+        <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
+      )}
       {meta.label}
     </span>
   )
@@ -370,7 +381,7 @@ export function CampaignTree({
   // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>) {
     return (
-      <p className="label-mono flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] text-muted-foreground">
+      <p className="label-mono flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] text-muted-foreground shadow-[inset_2px_0_0_var(--brand-cyan)] transition-colors hover:bg-white/[0.02]">
         {(GROUP_LABELS[row.groupIdx] ?? 'Outras') + ` (${row.count})`}
       </p>
     )
@@ -399,7 +410,8 @@ export function CampaignTree({
       <div className={`border-b border-border/70 ${isError ? 'bg-error/10' : ''}`}>
         {/* Linha compacta — ações aparecem no hover/focus (sm+), sempre
             visíveis no mobile (não há hover no touch) */}
-        <div className="group flex items-center gap-2 px-3 transition-colors hover:bg-secondary/40">
+        <div className="group relative flex items-center gap-2 px-3 transition-all duration-300 hover:bg-white/[0.04] overflow-hidden">
+          <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-brand-cyan/0 transition-colors duration-300 group-hover:bg-brand-cyan/50" aria-hidden="true" />
           <input
             type="checkbox"
             checked={selected.has(id)}
@@ -463,25 +475,25 @@ export function CampaignTree({
                 {c.status === 'active' ? (
                   <button
                     type="button"
-                    className="btn-ghost !px-1.5 !py-1 sm:opacity-0 sm:transition-opacity sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
+                    className="flex h-6 w-6 items-center justify-center rounded-md transition-all sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100 hover:bg-white/10 hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] text-foreground"
                     onClick={() => setCampaignStatus(c, 'paused')}
                     aria-label={`Pausar campanha ${c.campaignName || id}`}
                     title="Pausar"
                   >
-                    <Pause className="size-3.5" aria-hidden="true" />
+                    <Pause className="size-3.5 transition-transform hover:scale-110" aria-hidden="true" />
                   </button>
                 ) : c.status === 'paused' ? (
                   <button
                     type="button"
-                    className="btn-ghost !px-1.5 !py-1 sm:opacity-0 sm:transition-opacity sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
+                    className="flex h-6 w-6 items-center justify-center rounded-md transition-all sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100 hover:bg-white/10 hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] text-foreground"
                     onClick={() => setCampaignStatus(c, 'active')}
                     aria-label={`Ativar campanha ${c.campaignName || id}`}
                     title="Ativar"
                   >
-                    <Play className="size-3.5" aria-hidden="true" />
+                    <Play className="size-3.5 transition-transform hover:scale-110" aria-hidden="true" />
                   </button>
                 ) : (
-                  <span className="size-3.5" aria-hidden="true" />
+                  <span className="size-6" aria-hidden="true" />
                 )}
                 {/* Duplicação (mesma conta) está disponível via Pipeboard —
                     o estado desabilitado era da era Zernio/501. */}
@@ -617,9 +629,9 @@ export function CampaignTree({
                       return (
                         <li
                           key={adKey}
-                          className="group flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-secondary/50"
+                          className="group flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 transition-all duration-300 hover:bg-white/[0.03]"
                         >
-                          <Clapperboard className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <Clapperboard className="size-3.5 shrink-0 text-muted-foreground transition-all duration-300 group-hover:scale-125 group-hover:text-brand-cyan group-hover:drop-shadow-[0_0_8px_rgba(37,244,238,0.6)]" aria-hidden="true" />
                           <span className="min-w-0 flex-1 truncate text-xs text-foreground">{ad.name || adKey}</span>
                           {ad.adType === 'boost' && (
                             <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">

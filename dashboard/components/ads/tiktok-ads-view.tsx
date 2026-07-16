@@ -5,6 +5,7 @@
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, ShoppingBag } from 'lucide-react'
 import {
@@ -224,13 +225,13 @@ export function TikTokAdsView() {
     return (
       <div className="flex flex-col gap-5">
         <SectionTitle eyebrow="Anúncios">TikTok Ads</SectionTitle>
-        <Skeleton className="h-40 rounded-2xl" />
+        <Skeleton className="h-40 rounded-2xl bg-brand-cyan/5 shadow-[0_0_15px_rgba(37,244,238,0.1)] border border-brand-cyan/10" />
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-2xl" />
+            <Skeleton key={i} className="h-24 rounded-2xl bg-brand-cyan/5 shadow-[0_0_15px_rgba(37,244,238,0.1)] border border-brand-cyan/10" />
           ))}
         </div>
-        <Skeleton className="h-64 rounded-2xl" />
+        <Skeleton className="h-64 rounded-2xl bg-brand-cyan/5 shadow-[0_0_15px_rgba(37,244,238,0.1)] border border-brand-cyan/10" />
       </div>
     )
   }
@@ -321,10 +322,9 @@ export function TikTokAdsView() {
       {!effectiveAdvertiser ? (
         /* V2-94: empty state do Ads com ícone flutuante + sombra que respira */
         <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
-          <span className="empty-icon flex size-12 items-center justify-center rounded-xl bg-[var(--accent-light)] text-brand-cyan">
-            <Megaphone className="size-6" aria-hidden="true" />
+          <span className="empty-icon flex size-14 items-center justify-center rounded-xl bg-gradient-to-br from-brand-cyan/20 to-purple-500/10 text-brand-cyan shadow-[0_0_30px_rgba(37,244,238,0.3)] animate-bounce border border-brand-cyan/30">
+            <Megaphone className="size-6 drop-shadow-[0_0_8px_rgba(37,244,238,0.8)]" aria-hidden="true" />
           </span>
-          <span className="empty-icon-shadow -mt-2" aria-hidden="true" />
           <p className="text-sm font-medium text-foreground">Selecione um advertiser</p>
           <p className="max-w-md text-pretty text-xs text-muted-foreground">
             Escolha acima qual conta de anúncio do TikTok você quer gerenciar. As campanhas, métricas e a
@@ -335,35 +335,34 @@ export function TikTokAdsView() {
         <>
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
-          <div
-            className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-[var(--hover)] p-0.5 self-start"
-            role="tablist"
-            aria-label="Seções do TikTok Ads"
-          >
-            {(
-              [
-                { value: 'overview', label: 'Visão geral' },
-                { value: 'campaigns', label: 'Campanhas' },
-                { value: 'automation', label: 'Automações' },
-                { value: 'ai', label: 'IA' },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                role="tab"
-                aria-selected={tab === t.value}
-                onClick={() => setTab(t.value)}
-                className={
-                  tab === t.value
-                    ? 'flex shrink-0 items-center rounded-full bg-[var(--active)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors'
-                    : 'flex shrink-0 items-center rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-sub'
-                }
+          <Tabs.Root value={tab} onValueChange={(v) => setTab(v as TabKey)}>
+            <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar mx-auto w-max mb-2">
+              <Tabs.Trigger
+                value="overview"
+                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
               >
-                {t.label}
-              </button>
-            ))}
-          </div>
+                Visão geral
+              </Tabs.Trigger>
+              <Tabs.Trigger
+                value="campaigns"
+                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+              >
+                Campanhas
+              </Tabs.Trigger>
+              <Tabs.Trigger
+                value="automation"
+                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+              >
+                Automações
+              </Tabs.Trigger>
+              <Tabs.Trigger
+                value="ai"
+                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+              >
+                IA
+              </Tabs.Trigger>
+            </Tabs.List>
+          </Tabs.Root>
 
           {/* Aviso de sincronização bloqueada: sem isto a tela mostraria "0
               campanhas / tudo zerado" como se a conta estivesse vazia, quando na

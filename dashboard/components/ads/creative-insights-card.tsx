@@ -43,8 +43,10 @@ export function CreativeInsightsCard({
   }
 
   return (
-    <GlassCard className="p-4">
-      <div className="flex items-center justify-between gap-2">
+    <GlassCard className="p-4 group relative overflow-hidden transition-all duration-300">
+      <div className="absolute inset-0 bg-gradient-to-br from-brand-cyan/0 to-purple-500/0 transition-all duration-500 group-hover:from-brand-cyan/10 group-hover:to-purple-500/5" aria-hidden="true" />
+      <div className="absolute inset-0 shadow-[inset_0_0_0_rgba(37,244,238,0)] transition-shadow duration-500 group-hover:shadow-[inset_0_0_30px_rgba(37,244,238,0.15)]" aria-hidden="true" />
+      <div className="relative flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -59,7 +61,7 @@ export function CreativeInsightsCard({
             type="button"
             onClick={reanalyze}
             disabled={forcing || isValidating}
-            className="rounded-lg border border-border bg-secondary px-2.5 py-1 text-[11px] font-medium text-secondary-foreground transition-colors hover:bg-secondary/70 disabled:opacity-50"
+            className="rounded-lg border border-brand-cyan/30 bg-brand-cyan/5 px-2.5 py-1 text-[11px] font-medium text-brand-cyan transition-all hover:bg-brand-cyan/20 hover:shadow-[0_0_10px_rgba(37,244,238,0.2)] disabled:opacity-50"
           >
             {forcing ? 'Analisando…' : 'Reanalisar'}
           </button>

@@ -127,13 +127,13 @@ export function DuplicateDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-md"
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose()
       }}
     >
       <div ref={ref} role="dialog" aria-modal="true" aria-label="Duplicar campanha" tabIndex={-1} className="w-full max-w-md outline-none">
-        <GlassCard className="anim-pop-in flex flex-col gap-4 p-5">
+        <GlassCard className="anim-pop-in flex flex-col gap-4 p-5 bg-[#040406]/95 border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Copy className="size-4 text-primary" aria-hidden="true" />

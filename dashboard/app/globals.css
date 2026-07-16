@@ -790,6 +790,9 @@ html[data-tv] main {
 }
 .input-neon:focus {
   background-size: 100% 2px;
+  border-color: var(--brand-cyan) !important;
+  box-shadow: 0 0 15px rgba(37,244,238,0.3), inset 0 0 5px rgba(37,244,238,0.1) !important;
+  outline: none;
 }
 
 /* Item 79: erro de validação entra com shake curto */

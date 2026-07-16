@@ -153,8 +153,11 @@ export function AttentionStrip({
   const hasAlarms = activeJobs > 0 || banned > 0 || alertsOff
 
   return (
-    <GlassCard className={cn('p-4', pending.length > 0 && 'border-l-2 border-l-warning')}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <GlassCard className={cn('p-4 relative overflow-hidden transition-all', pending.length > 0 && 'border-l-4 border-l-warning shadow-[0_0_15px_rgba(234,179,8,0.15)]')}>
+      {pending.length > 0 && (
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc0MCcgaGVpZ2h0PSc0MCc+CiAgPHBhdGggZD0nTTAgNDBMNDAgMEgwdicgZmlsbD0nI2VhYjMwOCcgZmlsbC1vcGFjaXR5PScwLjAzJy8+Cjwvc3ZnPg==')] opacity-50 mix-blend-overlay" aria-hidden="true" />
+      )}
+      <div className="relative flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-foreground">Precisa de você</h3>
         {hasAlarms ? (
           <div className="flex flex-wrap items-center gap-1.5">

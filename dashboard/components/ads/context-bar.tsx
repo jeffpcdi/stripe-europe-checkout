@@ -90,10 +90,13 @@ export function AdsContextBar({
     <div
       role="toolbar"
       aria-label="Contexto do TikTok Ads: Business Center e conta de anúncio"
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-white/5 bg-[#040406]/60 backdrop-blur-3xl px-5 py-3 text-xs shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
     >
       <span className="flex items-center gap-1.5 font-semibold text-success">
-        <span className="size-2 animate-pulse rounded-full bg-[color:var(--success)]" aria-hidden="true" />
+        <span className="relative flex size-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" aria-hidden="true" />
+          <span className="relative inline-flex size-2 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.8)]" aria-hidden="true" />
+        </span>
         Conectado
       </span>
       <span className="hidden text-muted-foreground sm:inline">
@@ -137,11 +140,11 @@ export function AdsContextBar({
 
       <button
         type="button"
-        className="btn-ghost px-2 py-1 text-xs"
+        className="flex items-center gap-1.5 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:bg-white/10 hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] active:scale-95"
         onClick={openCreateAccount}
         title="Abre o TikTok Business Center em nova aba — a criação de conta não tem API"
       >
-        <ExternalLink className="size-3.5" aria-hidden="true" />
+        <ExternalLink className="size-3.5 text-muted-foreground" aria-hidden="true" />
         Criar conta de anúncio
       </button>
 

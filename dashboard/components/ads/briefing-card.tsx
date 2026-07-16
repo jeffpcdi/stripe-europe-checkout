@@ -13,6 +13,7 @@ import { useState } from 'react'
 import { useAdsBriefing, apiSend } from '@/lib/api'
 import type { AdsAnomaly, AdsBriefing } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
+import { Bot, Sparkles } from 'lucide-react'
 
 const METRIC_LABEL: Record<AdsAnomaly['metric'], string> = {
   spend: 'Gasto',
@@ -88,12 +89,14 @@ export function BriefingCard({ adAccountId, currency }: { adAccountId: string; c
   }
 
   return (
-    <GlassCard className="p-4">
-      <div className="flex items-center justify-between gap-2">
+    <GlassCard className="p-4 relative overflow-hidden bg-gradient-to-br from-brand-cyan/10 via-transparent to-purple-500/5 border border-white/5 shadow-[0_0_20px_rgba(37,244,238,0.1)]">
+      <div className="absolute inset-0 bg-gradient-to-br from-brand-cyan/5 to-transparent opacity-50 mix-blend-overlay" aria-hidden="true" />
+      <div className="relative flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <p className="label-mono">Briefing diário</p>
+          <Bot className="size-4 text-brand-cyan animate-pulse" aria-hidden="true" />
+          <p className="label-mono bg-gradient-to-r from-brand-cyan to-white bg-clip-text text-transparent">Briefing diário</p>
           {latest && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[10px] text-brand-cyan/70 font-medium">
               {isToday ? 'hoje' : latest.date}
             </span>
           )}
@@ -102,9 +105,14 @@ export function BriefingCard({ adAccountId, currency }: { adAccountId: string; c
           type="button"
           onClick={generateNow}
           disabled={generating}
-          className="rounded-lg border border-border bg-secondary px-2.5 py-1 text-[11px] font-medium text-secondary-foreground transition-colors hover:bg-secondary/70 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-lg border border-brand-cyan/30 bg-brand-cyan/10 px-2.5 py-1 text-[11px] font-medium text-brand-cyan transition-all hover:bg-brand-cyan/20 hover:shadow-[0_0_10px_rgba(37,244,238,0.2)] disabled:opacity-50"
         >
-          {generating ? 'Gerando…' : isToday ? 'Regenerar' : 'Gerar agora'}
+          {generating ? 'Gerando…' : (
+            <>
+              <Sparkles className="size-3" aria-hidden="true" />
+              {isToday ? 'Regenerar' : 'Gerar agora'}
+            </>
+          )}
         </button>
       </div>
 

@@ -71,10 +71,10 @@ export function BudgetProposalCard({
         aria-expanded={open}
       >
         <div className="flex items-center gap-2">
-          <p className="label-mono">Realocação de orçamento (IA)</p>
+          <p className="label-mono bg-gradient-to-r from-success to-white bg-clip-text text-transparent">Realocação de orçamento (IA)</p>
           <span className="text-[10px] text-muted-foreground">{open ? '▾' : '▸'}</span>
         </div>
-        {open && isValidating && <span className="text-[10px] text-muted-foreground">calculando…</span>}
+        {open && isValidating && <span className="text-[10px] text-success animate-pulse">calculando…</span>}
       </button>
 
       {open && (
@@ -146,8 +146,8 @@ export function BudgetProposalCard({
                           </td>
                           <td
                             className={
-                              'py-1.5 text-right text-xs font-medium tabular-nums ' +
-                              (up ? 'text-emerald-400' : 'text-red-400')
+                              'py-1.5 text-right text-xs font-bold tabular-nums ' +
+                              (up ? 'text-success drop-shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'text-error drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]')
                             }
                           >
                             {up ? '+' : ''}
@@ -171,7 +171,7 @@ export function BudgetProposalCard({
                   type="button"
                   onClick={() => applyAll(data)}
                   disabled={applyState === 'applying' || applyState === 'done'}
-                  className="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                  className="rounded-lg border border-success/30 bg-success/10 px-4 py-1.5 text-[11px] font-bold text-success shadow-[0_0_15px_rgba(34,197,94,0.2)] transition-all hover:bg-success/20 hover:shadow-[0_0_25px_rgba(34,197,94,0.4)] disabled:opacity-50"
                 >
                   {applyState === 'applying'
                     ? 'Aplicando…'

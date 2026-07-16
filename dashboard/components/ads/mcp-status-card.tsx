@@ -53,7 +53,7 @@ export function McpStatusCard({ active }: { active: boolean }) {
   }
 
   return (
-    <GlassCard className="p-0">
+    <GlassCard className="p-0 border border-brand-cyan/20 bg-background/30 shadow-[0_0_10px_rgba(37,244,238,0.1)] overflow-hidden transition-all hover:border-brand-cyan/40 hover:shadow-[0_0_15px_rgba(37,244,238,0.2)]">
       {/* Linha compacta sempre visível */}
       <button
         type="button"
@@ -63,7 +63,7 @@ export function McpStatusCard({ active }: { active: boolean }) {
       >
         <span
           className={`size-2 shrink-0 rounded-full ${
-            connected ? 'bg-success shadow-[0_0_6px_var(--success)]' : 'bg-error shadow-[0_0_6px_var(--error)]'
+            connected ? 'bg-brand-cyan shadow-[0_0_8px_rgba(37,244,238,0.6)] animate-pulse' : 'bg-error shadow-[0_0_6px_var(--error)]'
           }`}
           aria-hidden="true"
         />

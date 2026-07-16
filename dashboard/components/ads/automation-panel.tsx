@@ -569,7 +569,7 @@ export function AutomationPanel({
               )}
               Testar agora
             </button>
-            <button type="button" className="btn-ghost gap-1 text-xs" onClick={addRule} disabled={saving}>
+            <button type="button" className="btn-primary gap-1 text-xs shadow-[0_0_15px_rgba(37,244,238,0.4)] ring-1 ring-brand-cyan hover:shadow-[0_0_25px_rgba(37,244,238,0.6)]" onClick={addRule} disabled={saving}>
               <Plus className="size-3.5" aria-hidden="true" />
               Nova regra
             </button>
@@ -588,15 +588,16 @@ export function AutomationPanel({
             &quot;Propõe&quot;: nada é executado sem a sua aprovação.
           </p>
         ) : (
-          <ul className="flex flex-col divide-y divide-border/60">
+          <ul className="flex flex-col gap-2 mt-2">
             {rules.map((r) => {
               const open = expandedId === r.id
               const meta = METRIC_META[r.metric]
               const last = lastAction(r.id, log)
               const executes = r.mode === 'execute'
               return (
-                <li key={r.id} className="py-2.5">
-                  <div className="flex items-start justify-between gap-3">
+                <GlassCard key={r.id} hover className="p-3 relative overflow-hidden group border border-white/5 bg-background/20 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-brand-cyan/0 transition-colors duration-300 group-hover:bg-brand-cyan/50" aria-hidden="true" />
+                  <div className="flex items-start justify-between gap-3 relative">
                     {/* Cabeçalho da linha = botão do acordeão */}
                     <button
                       type="button"
@@ -610,8 +611,8 @@ export function AutomationPanel({
                         </span>
                         <span
                           className={cn(
-                            'rounded-full px-1.5 py-0.5 text-[10px] font-medium',
-                            executes ? 'bg-[var(--accent-light)] text-brand-cyan' : 'bg-warning/15 text-warning',
+                            'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide border',
+                            executes ? 'bg-brand-cyan/15 text-brand-cyan border-brand-cyan/20 shadow-[0_0_10px_rgba(37,244,238,0.15)]' : 'bg-warning/15 text-warning border-warning/20 shadow-[0_0_10px_rgba(234,179,8,0.15)]',
                           )}
                           title={
                             executes
@@ -619,6 +620,14 @@ export function AutomationPanel({
                               : 'Grava proposta — você aprova antes de agir'
                           }
                         >
+                          {executes ? (
+                            <span className="relative flex size-1.5">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 bg-brand-cyan" aria-hidden="true" />
+                              <span className="relative inline-flex size-1.5 rounded-full bg-brand-cyan drop-shadow-md" aria-hidden="true" />
+                            </span>
+                          ) : (
+                            <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+                          )}
                           {executes ? 'Executa' : 'Propõe'}
                         </span>
                         {r.preset && (
@@ -647,7 +656,7 @@ export function AutomationPanel({
                     />
                   </div>
                   {open && (
-                    <div className="mt-2">
+                    <div className="mt-3 border-t border-white/5 pt-3">
                       <RuleForm
                         rule={r}
                         currency={currency}
@@ -661,7 +670,7 @@ export function AutomationPanel({
                       />
                     </div>
                   )}
-                </li>
+                </GlassCard>
               )
             })}
           </ul>
