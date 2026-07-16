@@ -4969,6 +4969,23 @@ app.use('/dashboard', (req, res, next) => {
   next();
 });
 
+// Ícones na RAIZ do domínio — o iOS busca /apple-touch-icon.png como
+// fallback universal quando a página não declara a tag (ex.: login).
+// Sem isso, "Adicionar à Tela de Início" vira um monograma com a letra "R".
+// Servido direto do disco (dashboard/public) — não depende do Next no ar.
+const ROOT_ICON_PATHS = new Set([
+  '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png',
+  '/apple-touch-icon-180x180.png', '/apple-touch-icon-152x152.png',
+  '/apple-touch-icon-120x120.png', '/favicon.png', '/icon-192.png'
+]);
+const ROOT_ICON_FILE = path.join(__dirname, 'dashboard', 'public', 'apple-touch-icon.png');
+app.use((req, res, next) => {
+  if (!ROOT_ICON_PATHS.has(req.path)) return next();
+  // Todos os tamanhos servem o mesmo arquivo — o iOS redimensiona sozinho.
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.sendFile(ROOT_ICON_FILE, (err) => { if (err && !res.headersSent) next(); });
+});
+
 app.get('/dashboard', pageAuth, (req, res) => {
   if (req.query.legacy === '1') {
     return sendLegacyDashboard(res, 'manual');
