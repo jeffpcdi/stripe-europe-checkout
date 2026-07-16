@@ -110,7 +110,9 @@ function day(d, spend, impressions, clicks, conversions) {
 
 // ── D. budgetProposal — guardas determinísticas (sem IA: AI_GATEWAY_API_KEY off) ──
 {
-  delete process.env.AI_GATEWAY_API_KEY; // garante caminho sem IA (rationale vazio)
+  // garante caminho sem IA (rationale vazio): remove todas as credenciais que habilitam IA
+  delete process.env.AI_GATEWAY_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
 
   const camp = (id, name, budget, spend, status = 'active') => ({
     platformCampaignId: id, name, status, budget, budgetMode: 'daily',
@@ -136,7 +138,7 @@ function day(d, spend, impressions, clicks, conversions) {
     }
     const winner = p.changes.find((c) => c.campaignId === '1111111111');
     if (winner) ok(winner.deltaPct > 0, 'vencedora (2+ vendas) recebe verba');
-    eq(p.rationale, '', 'sem AI_GATEWAY_API_KEY o rationale fica vazio (proposta continua válida)');
+    eq(p.rationale, '', 'sem credenciais de IA o rationale fica vazio (proposta continua válida)');
 
     // Menos de 2 elegíveis → insufficient
     treeCampaigns = [camp('1111111111', 'Única', 100, 200)];
@@ -154,7 +156,7 @@ function day(d, spend, impressions, clicks, conversions) {
     ok(p3.excluded.every((e) => e.reason), 'exclusões têm motivo legível');
 
     // enabled() false sem a chave
-    eq(adsAi.enabled(), false, 'enabled() false sem AI_GATEWAY_API_KEY');
+    eq(adsAi.enabled(), false, 'enabled() false sem credenciais de IA');
     console.log('D. budgetProposal (teto, ±30%, exclusões, sem-IA) OK');
     console.log('ads-ai: ' + asserts + ' asserts OK');
   })().catch((err) => { console.error('FALHOU:', err.message); process.exit(1); });

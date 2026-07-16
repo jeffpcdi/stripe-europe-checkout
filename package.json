@@ -12,6 +12,7 @@
     "check:domains": "node --env-file-if-exists=.env.development.local scripts/check-domains.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.15",
     "@neondatabase/serverless": "^1.1.0",
     "@upstash/redis": "^1.38.0",
     "@vercel/blob": "^2.6.1",
@@ -21,6 +22,7 @@
     "geoip-lite": "^2.0.3",
     "otplib": "^13.4.1",
     "qrcode": "^1.5.4",
+    "web-push": "^3.6.7",
     "ws": "^8.21.0"
   },
   "engines": {

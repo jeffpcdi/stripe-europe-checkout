@@ -37,7 +37,7 @@ if (has('DATABASE_URL') || has('POSTGRES_URL')) {
 
 // ── 2. Cache/estado efêmero (Redis) ──────────────────────────────────────
 console.log(`\n${C.b}Cache & rate-limit (Redis/Upstash)${C.x}`);
-if ((has('KV_REST_API_URL') && has('KV_REST_API_TOKEN')) || (has('UPSTASH_REDIS_REST_URL') && has('UPSTASH_REDIS_REST_TOKEN'))) {
+if ((has('KV_REST_API_URL') && has('KV_REST_API_TOKEN')) || (has('UPSTASH_REDIS_REST_URL') && has('UPSTASH_REDIS_REST_TOKEN')) || (has('UPSTASH_FOR_REDIS_KV_REST_API_URL') && has('UPSTASH_FOR_REDIS_KV_REST_API_TOKEN'))) {
   ok('Redis presente — rate-limit e presença "ao vivo" compartilhados entre instâncias.');
 } else {
   w('Redis ausente — rate-limit e presença ficam por-processo (funciona, mas não escala horizontalmente).');

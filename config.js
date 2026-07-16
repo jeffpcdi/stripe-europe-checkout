@@ -62,6 +62,10 @@ function defaults() {
     // Item 419: scope controla o que o token expõe — 'stats' (só agregados)
     // ou 'stats+leads' (agregados + lista de leads mascarada).
     api: { token: '', scope: 'stats' },
+    // Notificações Web Push nativas (iPhone/Android/desktop, sem Pushcut).
+    // subs: aparelhos inscritos [{id, endpoint, keys:{p256dh,auth}, ua, createdAt}]
+    // funMode: copy humorada (notify-copy.js); false = texto sóbrio.
+    webPush: { subs: [], funMode: true },
     lastDailyReport: '',
     updatedAt: null
   };
@@ -76,6 +80,7 @@ function mergeDefaults(stored) {
   const out = Object.assign({}, base, stored || {});
   out.cloak = Object.assign({}, base.cloak, (stored && stored.cloak) || {});
   out.pushcut = Object.assign({}, base.pushcut, (stored && stored.pushcut) || {});
+  out.webPush = Object.assign({}, base.webPush, (stored && stored.webPush) || {});
   return out;
 }
 
@@ -121,6 +126,8 @@ async function hydrate() {
     if (res && res.ok) {
       (res.data || []).forEach((row) => {
         if (row && row.key && row.data && typeof row.data === 'object') {
+          // Linhas internas (ex.: '_webpush' = chaves VAPID) não são contas.
+          if (String(row.key).startsWith('_')) return;
           cache.set(row.key, mergeDefaults(row.data));
         }
       });
@@ -227,6 +234,24 @@ function set(accountId, patch) {
     daily: ev.daily === true
   };
   next.pushcut = pc;
+
+  // Sanitização do bloco Web Push (aparelhos inscritos + modo zoeira)
+  {
+    const wp = Object.assign({ subs: [], funMode: true }, next.webPush || {});
+    if (!Array.isArray(wp.subs)) wp.subs = [];
+    wp.subs = wp.subs.slice(0, 10).map((s) => ({
+      id: String((s && s.id) || '').slice(0, 40),
+      endpoint: String((s && s.endpoint) || '').slice(0, 600),
+      keys: {
+        p256dh: String((s && s.keys && s.keys.p256dh) || '').slice(0, 200),
+        auth: String((s && s.keys && s.keys.auth) || '').slice(0, 100)
+      },
+      ua: String((s && s.ua) || '').slice(0, 120),
+      createdAt: (s && s.createdAt) || new Date().toISOString()
+    })).filter((s) => /^https:\/\//i.test(s.endpoint) && s.keys.p256dh && s.keys.auth);
+    wp.funMode = wp.funMode !== false;
+    next.webPush = wp;
+  }
 
   // Sanitização dos demais blocos (garante formatos previsíveis)
   if (!Array.isArray(next.shortlinks)) next.shortlinks = [];

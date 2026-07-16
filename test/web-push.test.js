@@ -1,0 +1,98 @@
+'use strict';
+
+// Testes do canal Web Push: copy humorada (notify-copy), sanitização do
+// bloco webPush no config e comportamento do fan-out sem aparelhos.
+// Rede NUNCA é tocada: sem inscrições, sendWebPush retorna false antes
+// de qualquer envio; o VAPID não é gerado nesses caminhos.
+
+const { test } = require('node:test');
+const assert = require('node:assert');
+
+const notifyCopy = require('../notify-copy');
+
+test('notify-copy: venda com funMode interpola valor/produto reais', () => {
+  const meta = { event: 'sale', valor: 'R$ 197,00', produto: 'Curso X', cliente: 'Ana', gateway: 'CartPanda' };
+  const note = notifyCopy.build({
+    name: 'Aprovada',
+    payload: { title: 'Venda aprovada', text: 'texto original' },
+    meta, funMode: true, accountId: 'acc1'
+  });
+  assert.ok(note.title.length > 0, 'título presente');
+  assert.ok(
+    note.title.includes('R$ 197,00') || note.body.includes('R$ 197,00') || note.body === 'texto original',
+    'valor real aparece na copy (ou fallback ao texto original)'
+  );
+  assert.strictEqual(note.url, '/dashboard/activity', 'deep link da venda vai para activity');
+  assert.strictEqual(note.tag, 'roinados-sale');
+});
+
+test('notify-copy: funMode=false preserva título/texto originais', () => {
+  const note = notifyCopy.build({
+    name: 'Aprovada',
+    payload: { title: 'Título original', text: 'Corpo original' },
+    meta: { event: 'sale', valor: 'R$ 10,00' }, funMode: false, accountId: 'acc1'
+  });
+  assert.strictEqual(note.title, 'Título original');
+  assert.strictEqual(note.body, 'Corpo original');
+});
+
+test('notify-copy: evento desconhecido passa payload intacto', () => {
+  const note = notifyCopy.build({
+    name: 'Qualquer',
+    payload: { title: 'Sem classificação', text: 'abc' },
+    meta: null, funMode: true, accountId: 'acc1'
+  });
+  assert.strictEqual(note.title, 'Sem classificação');
+  assert.strictEqual(note.url, '/dashboard');
+});
+
+test('notify-copy: classifica TikTok Ads pelo prefixo do título', () => {
+  const note = notifyCopy.build({
+    name: 'TikTokAds',
+    payload: { title: 'TikTok Ads: proposta pendente', text: 'detalhes' },
+    meta: null, funMode: true, accountId: 'acc1'
+  });
+  assert.strictEqual(note.url, '/dashboard/ads/tiktok', 'deep link do ads');
+  assert.ok(note.body.length > 0, 'corpo preservado (pool ads usa texto original)');
+});
+
+test('notify-copy: anti-repetição não sorteia a mesma frase 2x seguidas', () => {
+  const meta = { event: 'sale', valor: 'R$ 50,00', produto: 'P', cliente: 'C', gateway: 'G' };
+  let prev = null;
+  for (let i = 0; i < 12; i++) {
+    const n = notifyCopy.build({ name: 'Aprovada', payload: {}, meta, funMode: true, accountId: 'rep' });
+    if (prev !== null) assert.notStrictEqual(n.title + n.body, prev, 'frase repetida consecutivamente');
+    prev = n.title + n.body;
+  }
+});
+
+test('config: sanitização do bloco webPush (subs inválidas caem fora)', () => {
+  const config = require('../config');
+  config.set('wp-test', {
+    webPush: {
+      funMode: false,
+      subs: [
+        { id: 'a', endpoint: 'https://push.example/ok', keys: { p256dh: 'k1', auth: 'a1' } },
+        { id: 'b', endpoint: 'http://inseguro.example', keys: { p256dh: 'k2', auth: 'a2' } }, // http → fora
+        { id: 'c', endpoint: 'https://push.example/sem-keys', keys: { p256dh: '', auth: '' } } // sem keys → fora
+      ]
+    }
+  });
+  const wp = config.get('wp-test').webPush;
+  assert.strictEqual(wp.subs.length, 1, 'só a inscrição válida sobrevive');
+  assert.strictEqual(wp.subs[0].endpoint, 'https://push.example/ok');
+  assert.strictEqual(wp.funMode, false, 'funMode persiste');
+});
+
+test('web-push-notify: sem aparelhos inscritos retorna false sem tocar rede', async () => {
+  const webPushNotify = require('../web-push-notify');
+  assert.deepStrictEqual(webPushNotify.subsFor('conta-inexistente-xyz'), []);
+  const ok = await webPushNotify.sendWebPush('conta-inexistente-xyz', { title: 't', body: 'b' });
+  assert.strictEqual(ok, false);
+});
+
+test('pushcut: sendPushcut existe e aceita meta como 4º argumento', () => {
+  const pushcut = require('../pushcut');
+  assert.strictEqual(typeof pushcut.sendPushcut, 'function');
+  assert.ok(pushcut.sendPushcut.length >= 3, 'assinatura com accountId (e meta opcional)');
+});
