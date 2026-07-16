@@ -35,7 +35,39 @@ function logFailure(accountId, notificationName, reason) {
   } catch (_) { /* stats indisponível não pode derrubar o fluxo */ }
 }
 
-async function sendPushcut(notificationName, payload, accountId) {
+// ── Canal 2: Web Push nativo (iPhone/Android/desktop) ────────────────
+// Fan-out: toda notificação que passaria pelo Pushcut também vai aos
+// aparelhos inscritos via Web Push (com copy própria do notify-copy).
+// Os toggles de evento são checados ANTES dos call sites — valem para ambos.
+async function sendViaWebPush(notificationName, payload, accountId, meta) {
+  try {
+    const webPushNotify = require('./web-push-notify');
+    if (!webPushNotify.subsFor(accountId).length) return false; // sem aparelhos
+    const funMode = (require('./config').get(accountId).webPush || {}).funMode !== false;
+    const note = require('./notify-copy').build({
+      name: notificationName, payload, meta, funMode, accountId
+    });
+    return await webPushNotify.sendWebPush(accountId, note);
+  } catch (err) {
+    console.error('[webpush] Erro no fan-out:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Fan-out: envia pelos DOIS canais (Pushcut + Web Push). Retorna true se
+ * pelo menos um canal entregou. `meta` (opcional) carrega o evento e os
+ * dados para a copy do Web Push ({event, valor, produto, cliente, ...}).
+ */
+async function sendPushcut(notificationName, payload, accountId, meta) {
+  const [pcOk, wpOk] = await Promise.all([
+    sendViaPushcut(notificationName, payload, accountId),
+    sendViaWebPush(notificationName, payload, accountId, meta)
+  ]);
+  return pcOk || wpOk;
+}
+
+async function sendViaPushcut(notificationName, payload, accountId) {
   try {
     const base = baseEndpoint(accountId);
     if (!base) return false; // sem webhook configurado — silenciosamente off

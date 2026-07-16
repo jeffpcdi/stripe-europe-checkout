@@ -3266,6 +3266,76 @@ app.post('/api/pushcut/test', dashboardAuth, async (req, res) => {
   res.json({ ok });
 });
 
+// ── API: Web Push — notificações nativas no iPhone (PWA, sem Pushcut) ─────
+const webPushNotify = require('./web-push-notify');
+
+// Chave pública VAPID (o navegador precisa dela para se inscrever)
+app.get('/api/webpush/public-key', dashboardAuth, async (_req, res) => {
+  try {
+    res.json({ ok: true, key: await webPushNotify.publicKey() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'VAPID indisponível: ' + err.message });
+  }
+});
+
+// Inscreve o aparelho atual (subscription vem do PushManager do navegador)
+app.post('/api/webpush/subscribe', dashboardAuth, (req, res) => {
+  const sub = (req.body || {}).subscription;
+  if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    return res.status(400).json({ ok: false, error: 'subscription inválida' });
+  }
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: true };
+  const subs = (wp.subs || []).filter((s) => s.endpoint !== sub.endpoint);
+  if (subs.length >= 10) return res.status(400).json({ ok: false, error: 'Máximo de 10 aparelhos por conta' });
+  subs.push({
+    id: crypto.randomBytes(8).toString('hex'),
+    endpoint: sub.endpoint,
+    keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },
+    ua: String(req.headers['user-agent'] || '').slice(0, 120),
+    createdAt: new Date().toISOString()
+  });
+  config.set(req.account.id, { webPush: Object.assign({}, wp, { subs }) });
+  stats.logEvent('info', { acc: req.account.id, title: '[webpush] Novo aparelho inscrito para notificações' });
+  res.json({ ok: true, devices: subs.length });
+});
+
+// Remove a inscrição do aparelho atual
+app.post('/api/webpush/unsubscribe', dashboardAuth, (req, res) => {
+  const endpoint = String((req.body || {}).endpoint || '');
+  if (!endpoint) return res.status(400).json({ ok: false, error: 'endpoint obrigatório' });
+  const wp = config.get(req.account.id).webPush || { subs: [] };
+  const subs = (wp.subs || []).filter((s) => s.endpoint !== endpoint);
+  config.set(req.account.id, { webPush: Object.assign({}, wp, { subs }) });
+  res.json({ ok: true, devices: subs.length });
+});
+
+// Status: aparelhos inscritos + modo zoeira
+app.get('/api/webpush/status', dashboardAuth, (req, res) => {
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: true };
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, devices: (wp.subs || []).length, funMode: wp.funMode !== false });
+});
+
+// Liga/desliga a copy humorada (modo zoeira)
+app.post('/api/webpush/funmode', dashboardAuth, (req, res) => {
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: true };
+  const funMode = (req.body || {}).funMode !== false;
+  config.set(req.account.id, { webPush: Object.assign({}, wp, { funMode }) });
+  res.json({ ok: true, funMode });
+});
+
+// Teste: dispara uma notificação engraçada só pelo canal Web Push
+app.post('/api/webpush/test', dashboardAuth, async (req, res) => {
+  const wp = config.get(req.account.id).webPush || {};
+  if (!(wp.subs || []).length) return res.json({ ok: false, error: 'Nenhum aparelho inscrito ainda' });
+  const note = require('./notify-copy').build({
+    name: 'Teste', payload: { title: 'Teste — ROI-NADOS', text: 'Notificação de teste.' },
+    meta: { event: 'test' }, funMode: wp.funMode !== false, accountId: req.account.id
+  });
+  const ok = await webPushNotify.sendWebPush(req.account.id, note);
+  res.json({ ok });
+});
+
 // ── API: health-check — variáveis críticas + ping REAL no banco ─────
 app.get('/api/health', dashboardAuth, async (req, res) => {
   // Item 263: health consolidado — além de db/redis, agrega a profundidade
@@ -3542,7 +3612,14 @@ function notifyPushcut(event, n) {
     ].filter(Boolean).join('\n'),
     sound: 'system',
     isTimeSensitive: map.key === 'sale' || map.key === 'dispute'
-  }, n.acc).catch(() => {});
+  }, n.acc, {
+    // meta para a copy do Web Push (notify-copy): evento + dados reais.
+    event: map.key,
+    valor,
+    produto: n.product || '',
+    cliente: n.customer || '',
+    gateway: n.gateway || ''
+  }).catch(() => {});
 }
 
 // A normalização de payloads de gateway (flatten + aliases + tracking) vive em
