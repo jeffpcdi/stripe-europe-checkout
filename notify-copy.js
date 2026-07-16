@@ -182,20 +182,23 @@ function build(opts) {
   const event = (meta && meta.event) || classify(name, p);
   const url = URLS[event] || '/dashboard';
   const tag = 'roinados-' + (event || 'geral');
+  // Som de dinheiro (cha-ching) em vendas e no teste — tocado pelo painel
+  // aberto via WebAudio; no push fechado o sistema toca o som padrão.
+  const sound = event === 'sale' || event === 'test' ? 'cash' : '';
 
   // Modo sóbrio ou evento desconhecido: título/texto originais.
   if (funMode === false || !event || !POOLS[event]) {
-    return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag };
+    return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound };
   }
 
   const data = meta || {};
   const phrase = pick(event, accountId, data);
   // Nenhuma frase elegível (faltam dados) → payload original, sem buracos.
-  if (!phrase) return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag };
+  if (!phrase) return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound };
   const title = interp(phrase.t, data) || p.title || 'ROI-NADOS';
   // Corpo vazio no pool ('') = usa o texto original (informação completa).
   const body = (phrase.b ? interp(phrase.b, data) : '') || p.text || '';
-  return { title, body, url, tag };
+  return { title, body, url, tag, sound };
 }
 
 module.exports = { build, _pools: POOLS };

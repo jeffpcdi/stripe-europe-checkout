@@ -8,6 +8,7 @@ import { CommandPalette } from '@/components/shell/command-palette'
 import { TourGuide } from '@/components/shell/tour'
 import { Toaster } from '@/components/shell/toaster'
 import { ClientErrorReporter } from '@/components/shell/client-error-reporter'
+import { PushSound } from '@/components/shell/push-sound'
 
 export default function DashboardLayout({
   children,
@@ -32,6 +33,8 @@ export default function DashboardLayout({
       <Toaster />
       {/* Item 561: erros de front reportados ao backend (senão são invisíveis) */}
       <ClientErrorReporter />
+      {/* Som de dinheiro (cha-ching) quando push de venda chega com o painel aberto */}
+      <PushSound />
       {/* Sidebar lateral esquerda — desktop.
           Item 294: wrappers display:contents (não afetam o flex) permitem ao
           modo TV esconder o chrome via html[data-tv] [data-tv-hide]. */}

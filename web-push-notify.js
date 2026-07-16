@@ -96,7 +96,9 @@ async function sendWebPush(accountId, note) {
     title: String(note.title || 'ROI-NADOS').slice(0, 120),
     body: String(note.body || '').slice(0, 400),
     url: String(note.url || '/dashboard').slice(0, 300),
-    tag: String(note.tag || 'roinados').slice(0, 60)
+    tag: String(note.tag || 'roinados').slice(0, 60),
+    // 'cash' = som de dinheiro nas abas abertas (WebAudio via SW postMessage)
+    sound: String(note.sound || '').slice(0, 20)
   });
   let delivered = 0;
   await Promise.all(subs.map(async (sub) => {
