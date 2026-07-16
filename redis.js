@@ -8,9 +8,14 @@ let redis = null;
 
 try {
   const { Redis } = require('@upstash/redis');
-  // Aceita os nomes padrão da Upstash e os aliases KV_* (Vercel KV / Railway)
-  const url   = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  // Aceita os nomes padrão da Upstash, os aliases KV_* (Vercel KV / Railway)
+  // e os nomes prefixados que o Marketplace da Vercel injeta (UPSTASH_FOR_REDIS_*)
+  const url   = process.env.UPSTASH_REDIS_REST_URL
+    || process.env.KV_REST_API_URL
+    || process.env.UPSTASH_FOR_REDIS_KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+    || process.env.KV_REST_API_TOKEN
+    || process.env.UPSTASH_FOR_REDIS_KV_REST_API_TOKEN;
   if (url && token) {
     redis = new Redis({ url, token });
     console.log('[redis] Upstash conectado:', url.slice(0, 40) + '...');
@@ -969,7 +974,7 @@ async function loadPixelSnapshot() {
   } catch (err) { console.error('[redis] loadPixelSnapshot:', err.message); return null; }
 }
 
-// ── Snapshot durável de gateways (item 48) ─────────────────────────────────
+// ── Snapshot durável de gateways (item 48) ─────���───────────────────────────
 // Espelho igual ao dos pixels: se o Neon falhar no boot, os gateways hidratam
 // do Redis e os webhooks não ficam órfãos. `field` = `${accountId}:${id}`.
 const GATEWAYS_KEY = 'gateways:all';
