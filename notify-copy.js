@@ -30,56 +30,84 @@ function interp(tpl, data) {
 // Corpo vazio ('') = usa o texto original do payload (informação completa).
 const POOLS = {
   sale: [
+    // Completas (todos os dados)
     { t: 'KA-CHING! {valor} na conta', b: '{cliente} não resistiu: {produto} via {gateway}. O ROI tá nadando de costas.' },
+    { t: 'Cha-ching: {valor}', b: '{cliente} passou o cartão em {produto}. Bora comemorar (rapidinho).' },
+    { t: 'O pix da felicidade: {valor}', b: '{cliente} comprou {produto}. A esteira segue rodando.' },
+    // Médias (valor + produto/gateway)
     { t: 'Mais {valor}. Avisa o contador', b: '{produto} vendido no {gateway}. Segue o baile.' },
     { t: '{valor} caíram agora', b: 'Venda aprovada de {produto}. Dinheiro não dorme.' },
-    { t: 'Cha-ching: {valor}', b: '{cliente} passou o cartão em {produto}. Bora comemorar (rapidinho).' },
     { t: 'Venda aprovada: {valor}', b: 'O {gateway} confirmou. {produto} entregue à causa.' },
     { t: '{valor} sem esforço', b: 'Mais uma de {produto} enquanto você fazia outra coisa.' },
-    { t: 'O pix da felicidade: {valor}', b: '{cliente} comprou {produto}. A esteira segue rodando.' }
+    { t: '{valor}. É disso que eu tô falando', b: '{produto} saiu voando da prateleira digital.' },
+    { t: 'Plot twist: {valor} a mais', b: 'Enquanto uns reclamam do algoritmo, {produto} vende.' },
+    // Leves (só valor — sempre elegíveis quando há venda)
+    { t: '{valor} entraram nadando', b: 'Venda aprovada. O ROI de peito aberto, estilo borboleta.' },
+    { t: 'Barulhinho bom: {valor}', b: 'Aprovada. Pode conferir no extrato, é real.' },
+    { t: 'A internet te pagou {valor}', b: 'Mais uma aprovada. Quem disse que dormir não dá dinheiro?' },
+    { t: '{valor}? Aceito, obrigado', b: 'Venda confirmada. Segue o jogo, campeão.' }
   ],
   failed: [
     { t: 'O cartão disse não: {valor}', b: 'Recusada em {produto} via {gateway}. Respira — recusada não é adeus.' },
     { t: '{valor} escaparam por pouco', b: 'Pagamento recusado no {gateway}. Acontece nas melhores famílias.' },
     { t: 'Recusada de {valor}', b: '{cliente} tentou, o banco negou. Quem sabe na segunda tentativa.' },
     { t: 'Quase, mas não: {valor}', b: 'O {gateway} barrou a compra de {produto}. Fica o aprendizado.' },
-    { t: 'O banco tá de mau humor', b: 'Recusou {valor} em {produto}. Nada pessoal (será?).' }
+    { t: 'O banco tá de mau humor', b: 'Recusou {valor} em {produto}. Nada pessoal (será?).' },
+    // Leves
+    { t: 'O cartão passou vergonha: {valor}', b: 'Recusada. O cliente quis, o banco não deixou.' },
+    { t: '{valor} ficaram pelo caminho', b: 'Pagamento recusado. Remarketing neles.' },
+    { t: 'Negaram {valor}', b: 'O banco falou "hoje não". A gente fala "amanhã sim".' }
   ],
   refund: [
     { t: 'Ihh, {valor} voltaram pro dono', b: 'Reembolso de {produto} via {gateway}. Acontece nas melhores famílias.' },
     { t: 'Reembolso de {valor}', b: '{cliente} pediu o dinheiro de volta. Deixa ir, o mar tá cheio de peixe.' },
     { t: '{valor} fizeram a viagem de volta', b: 'Reembolso processado no {gateway}. Bola pra frente.' },
-    { t: 'Devolvemos {valor}', b: '{produto} não era pra ser. O próximo cliente vem aí.' }
+    { t: 'Devolvemos {valor}', b: '{produto} não era pra ser. O próximo cliente vem aí.' },
+    // Leves
+    { t: '{valor} pediram arrego', b: 'Reembolso processado. Faz parte do jogo.' },
+    { t: 'Saiu {valor} pela porta dos fundos', b: 'Reembolso feito. O funil continua cheio.' }
   ],
   dispute: [
     { t: 'ALERTA: disputa de {valor}', b: 'Hora de vestir a toga e juntar as provas. {gateway} aguarda sua defesa.' },
     { t: 'Disputa aberta: {valor}', b: '{cliente} abriu contestação em {produto}. Documentos na mesa.' },
     { t: 'Chargeback à vista: {valor}', b: 'O {gateway} avisou. Quanto antes responder, melhor a taxa de vitória.' },
-    { t: 'Alguém quer briga: {valor}', b: 'Disputa em {produto}. Mantenha a calma e o comprovante de entrega.' }
+    { t: 'Alguém quer briga: {valor}', b: 'Disputa em {produto}. Mantenha a calma e o comprovante de entrega.' },
+    // Leves
+    { t: 'Objection! Disputa de {valor}', b: 'Chargeback aberto. Junte as provas e responda rápido — o relógio corre.' },
+    { t: 'Ringue armado: {valor} em jogo', b: 'Contestação aberta. Comprovante de entrega é seu melhor golpe.' }
   ],
   checkout: [
     { t: 'Tem gente no caixa', b: 'Checkout iniciado no {gateway}. Torce pra não abandonar o carrinho.' },
     { t: 'Cliente na reta final', b: 'Alguém abriu o checkout de {produto}. Falta pouco.' },
-    { t: 'Carrinho andando', b: 'Checkout no {gateway} em andamento. Sem pressão... mas converte.' }
+    { t: 'Carrinho andando', b: 'Checkout no {gateway} em andamento. Sem pressão... mas converte.' },
+    // Leves (sem dados)
+    { t: 'Peixe no anzol', b: 'Alguém chegou ao checkout. Não respira, não pisca.' },
+    { t: 'Cliente namorando o botão de compra', b: 'Checkout aberto. Vai que é sua.' },
+    { t: 'Alerta de quase-venda', b: 'Tem gente decidindo agora. A ansiedade é grátis.' }
   ],
   login: [
     { t: 'Entraram no seu painel', b: 'Login novo na dashboard. Se foi você, relaxa. Se não foi... corre.' },
     { t: 'Alguém abriu a porta', b: 'Novo login no ROI-NADOS. Não reconhece? Troque a senha agora.' },
-    { t: 'Login detectado', b: 'Acesso novo ao painel. Só confirmando que é você mesmo.' }
+    { t: 'Login detectado', b: 'Acesso novo ao painel. Só confirmando que é você mesmo.' },
+    { t: 'Toc toc — foi você?', b: 'Novo acesso ao painel. Se não foi, a senha nova te espera nas Configurações.' }
   ],
   daily: [
     { t: 'O resumão do dia chegou', b: '' },
     { t: 'Fechamento de caixa (spoiler abaixo)', b: '' },
-    { t: 'Relatório diário: sem enrolação', b: '' }
+    { t: 'Relatório diário: sem enrolação', b: '' },
+    { t: 'Plantão ROI-NADOS: como foi o dia', b: '' },
+    { t: 'Números do dia na área', b: '' }
   ],
   watchdog: [
     { t: 'Silêncio suspeito no caixa', b: '' },
-    { t: 'Cadê as vendas?', b: '' }
+    { t: 'Cadê as vendas?', b: '' },
+    { t: 'O caixa tá quieto DEMAIS', b: '' }
   ],
   ads: [
     { t: 'TikTok Ads pedindo atenção', b: '' },
     { t: 'O motor de Ads te chamou', b: '' },
-    { t: 'Novidade na área de Ads', b: '' }
+    { t: 'Novidade na área de Ads', b: '' },
+    { t: 'Seu tráfego tem um recado', b: '' }
   ],
   ads_breaker: [
     { t: 'Circuit breaker acionado', b: 'Salvei seu orçamento de um incêndio. Motor pausado até a próxima varredura.' },
