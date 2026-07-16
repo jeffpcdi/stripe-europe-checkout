@@ -1191,6 +1191,8 @@ export interface AdsBudgetProposal {
   message?: string
   totalBudget?: number
   currency?: string
+  /** Janela de atribuição usada no cálculo (dias) — a UI avisa quando < 3 */
+  windowDays?: number
   rationale?: string
   changes?: {
     campaignId: string
