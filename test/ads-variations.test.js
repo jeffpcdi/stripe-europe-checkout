@@ -81,7 +81,11 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
 
   // ── 4. Contrato da rota: teto de 50, overrides no task, worker repassa ────
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
-  assert.match(routes, /b\.variations\) \? b\.variations\.slice\(0, 50\)/, 'teto de 50 variações no fan-out');
+  // Teto VALIDADO com 400 (não slice silencioso): 51+ variações são rejeitadas
+  // inteiras — truncar criaria 50 e sumiria com o resto sem o usuário saber.
+  assert.match(routes, /rawVariations\.length > 50/, 'teto de 50 validado antes de enfileirar');
+  assert.match(routes, /Máximo de 50 variações/, 'erro explícito quando passa do teto');
+  assert.ok(!/b\.variations\.slice\(0, 50\)/.test(routes), 'sem truncamento silencioso do array');
   assert.match(routes, /app\.post\('\/api\/ads\/duplicate'[\s\S]*?variations vazio/, 'variations vazio rejeitado');
   assert.match(routes, /task\.overrides = overrides/, 'overrides embarcam no task');
   assert.match(routes, /duplicate_pb[\s\S]*?overrides: task\.overrides/, 'worker repassa overrides ao recreateCampaign');
