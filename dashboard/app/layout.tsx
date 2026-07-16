@@ -18,6 +18,17 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'ROI-NADOS — Tracking & Conversões',
   description: 'Painel de métricas, conversões e pixels em tempo real',
+  // PWA/iOS: ícone da Tela de Início e modo standalone (requisito p/ Web Push no iPhone)
+  appleWebApp: {
+    capable: true,
+    title: 'ROI-NADOS',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    // basePath /dashboard não é aplicado automaticamente em metadata.icons
+    icon: '/dashboard/icon-192.png',
+    apple: '/dashboard/apple-touch-icon.png',
+  },
 }
 
 export const viewport: Viewport = {

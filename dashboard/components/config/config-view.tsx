@@ -12,6 +12,7 @@ import { usePrefs } from '@/lib/prefs'
 import type { PushcutEvents } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
+import { WebPushCard } from '@/components/config/web-push-card'
 import { Switch } from '@/components/ui/switch'
 
 const EVENT_LABELS: { key: keyof PushcutEvents; label: string; hint: string }[] = [
@@ -35,6 +36,7 @@ export function ConfigView() {
       <CurrencyCard />
       <AccountPrefsCard />
       <PreferencesCard />
+      <WebPushCard />
       <PushcutCard />
       <ApiTokenCard />
       <BackupCard />

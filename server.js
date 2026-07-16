@@ -4955,6 +4955,20 @@ function sendLegacyDashboard(res, reason) {
   res.send(html);
 }
 
+// Assets públicos do PWA — o navegador busca manifest/ícones SEM cookies
+// (fetch sem credenciais), então não podem exigir login. São estáticos e
+// não contêm nada sensível. O sw.js também: iOS revalida o worker em
+// background e a sessão pode ter expirado nesse momento.
+const PWA_PUBLIC_PATHS = new Set([
+  '/manifest.webmanifest', '/sw.js',
+  '/icon-192.png', '/icon-512.png', '/icon-512-maskable.png',
+  '/apple-touch-icon.png', '/badge-96.png'
+]);
+app.use('/dashboard', (req, res, next) => {
+  if (PWA_PUBLIC_PATHS.has(req.path)) return proxyToNextDashboard(req, res);
+  next();
+});
+
 app.get('/dashboard', pageAuth, (req, res) => {
   if (req.query.legacy === '1') {
     return sendLegacyDashboard(res, 'manual');
