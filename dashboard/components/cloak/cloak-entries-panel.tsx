@@ -315,8 +315,8 @@ export function CloakEntriesPanel() {
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
               Um link de cloaking mostra duas páginas conforme quem acessa: a{' '}
               <strong className="text-foreground">offer</strong> (sua oferta de verdade) para o público real e a{' '}
-              <strong className="text-foreground">white page</strong> (uma página neutra e inofensiva) para robôs e
-              revisores de anúncio. Assim sua campanha fica protegida sem expor a oferta a quem faz auditoria.
+              <strong className="text-foreground">página segura</strong> (neutra e inofensiva) para robôs e
+              revisores, protegendo sua conta de anúncios. Assim sua campanha fica protegida sem expor a oferta a quem faz auditoria.
             </p>
           </div>
           <button

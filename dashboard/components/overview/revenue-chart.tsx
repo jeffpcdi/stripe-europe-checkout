@@ -61,7 +61,7 @@ function ChartTooltip({
   const up = delta !== null && delta >= 0
 
   return (
-    <div className="glass glass-thick rounded-[10px] border border-brand-cyan/20 shadow-[0_0_15px_rgba(37,244,238,0.15)] px-3 py-2 text-xs backdrop-blur-xl">
+    <div className="glass glass-thick pulse-cyan rounded-[10px] border border-brand-cyan/30 shadow-[0_0_25px_rgba(37,244,238,0.35)] px-3 py-2 text-xs backdrop-blur-xl">
       <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
         {fmtDay(label)}
       </p>
@@ -266,7 +266,7 @@ export function RevenueChart({
                   fill={`url(#grad-${metric})`}
                   animationDuration={700}
                   /* Item 24: linha com drop-shadow neon */
-                  style={{ filter: `drop-shadow(0 0 6px ${conf.color}66)` }}
+                  style={{ filter: `drop-shadow(0 0 8px ${conf.color}99) drop-shadow(0 0 20px ${conf.color}55)` }}
                   /* Item 135: anel dourado no melhor dia do período */
                   dot={(props: { cx?: number; cy?: number; index?: number }) => {
                     const { cx, cy, index } = props
@@ -279,7 +279,7 @@ export function RevenueChart({
                       </g>
                     )
                   }}
-                  activeDot={{ r: 4, strokeWidth: 0, fill: conf.color }}
+                  activeDot={{ r: 5, strokeWidth: 0, fill: '#fff', style: { filter: `drop-shadow(0 0 10px ${conf.color})` } }}
                 />
               </AreaChart>
             )}

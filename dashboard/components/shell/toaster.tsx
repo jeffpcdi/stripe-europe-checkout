@@ -14,9 +14,9 @@ const ICON: Record<ToastKind, typeof CheckCircle2> = {
 }
 
 const TONE: Record<ToastKind, string> = {
-  success: 'border-success/40 text-success',
-  error: 'border-destructive/50 text-destructive',
-  info: 'border-brand-cyan/40 text-brand-cyan',
+  success: 'border-success/50 text-success shadow-[0_0_15px_rgba(34,197,94,0.4)]',
+  error: 'border-destructive/60 text-destructive shadow-[0_0_15px_rgba(239,68,68,0.4)] anim-shake',
+  info: 'border-brand-cyan/50 text-brand-cyan shadow-[0_0_15px_rgba(37,244,238,0.4)]',
 }
 
 export function Toaster() {

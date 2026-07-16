@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLive } from '@/lib/api'
 import { timeAgo } from '@/lib/format'
 import { CountUp } from '@/components/count-up'
+import { ShootingStars } from './shooting-stars'
 import type { GeoPulse } from '@/components/geo/globe'
 import type { LiveCountry } from '@/lib/types'
 
@@ -145,13 +146,14 @@ export function HeroGlobe({
     /* O globo agora ocupa TODA a largura/altura do hero. Sem max-w — o
        container externo (overview-view) controla o tamanho. */
     <div
-      className="hero-globe-container absolute inset-0"
+      className="hero-globe-container absolute inset-0 bg-breathe"
       aria-label={`Presença ao vivo: ${onlineNow} online agora em ${activeCountries} ${activeCountries === 1 ? 'país' : 'países'}`}
     >
       {/* Glow atmosférico e Elementos Orbitais (Mega Plano) */}
       <div className="hero-globe-glow-outer" aria-hidden="true" />
       <div className="hero-globe-glow-core" aria-hidden="true" />
-      <div className="hero-stardust" aria-hidden="true" />
+      <div className="hero-stardust float-dust" aria-hidden="true" />
+      <ShootingStars />
       
       <div className="hero-orbit-ring" aria-hidden="true" />
       <div className="hero-orbit-ring outer" aria-hidden="true" />

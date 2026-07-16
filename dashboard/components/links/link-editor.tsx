@@ -78,7 +78,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
           urlMobile: v.urlMobile ?? '',
           peso: v.peso,
         }))
-      : [{ id: 'v1', nome: 'Variante 1', url: '', urlMobile: '', peso: 100 }],
+      : [{ id: 'v1', nome: 'Versão 1', url: '', urlMobile: '', peso: 100 }],
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -126,7 +126,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
   function addVariant() {
     setVariantes((vs) => [
       ...vs,
-      { id: `v${vs.length + 1}`, nome: `Variante ${vs.length + 1}`, url: '', urlMobile: '', peso: 0 },
+      { id: `v${vs.length + 1}`, nome: `Versão ${vs.length + 1}`, url: '', urlMobile: '', peso: 0 },
     ])
   }
 
@@ -212,7 +212,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring'
+    'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-all hover:border-brand-cyan/40 focus:border-[color:var(--brand-cyan)] focus:shadow-[0_0_15px_rgba(37,244,238,0.3)] focus:outline-none'
 
   return (
     <div
@@ -285,7 +285,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
           )}
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">White page (cloak — revisores/bots)</span>
+            <span className="text-xs font-medium text-muted-foreground">Página segura (fallback para revisão)</span>
             <input
               className={`${inputCls} ${urlInvalida(urlWhitePage) ? 'border-destructive focus:ring-destructive' : ''}`}
               value={urlWhitePage}
@@ -377,11 +377,11 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
             </div>
           </div>
 
-          {/* Variantes A/B */}
+          {/* Versões A/B */}
           <div>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">
-                Variantes (split A/B por peso)
+                Versões (teste A/B por tráfego)
                 {activeVariants.length >= 2 && (
                   <span
                     className={`ml-2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
@@ -408,7 +408,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
                 role="alert"
               >
                 <span className="text-pretty">
-                  Os pesos das variantes precisam somar 100% (atualmente {totalPeso}%).
+                  Os pesos das versões precisam somar 100% (atualmente {totalPeso}%).
                 </span>
                 <button
                   type="button"

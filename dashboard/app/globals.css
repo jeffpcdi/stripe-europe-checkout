@@ -2592,6 +2592,60 @@ input:focus, textarea:focus {
 }
 
 /* ============================================================
+   Fase 6: Ultra Neon - Novas Animações
+   ============================================================ */
+
+/* Shooting Stars */
+.shooting-star {
+  position: absolute;
+  width: 100px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(37,244,238,0), rgba(37,244,238,1), rgba(255,255,255,1));
+  border-radius: 999px;
+  box-shadow: 0 0 15px 3px rgba(37,244,238,0.5);
+  animation: shootingStar 4s linear infinite;
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes shootingStar {
+  0% { transform: translateX(0) translateY(0) rotate(-45deg); opacity: 0; }
+  10% { opacity: 1; }
+  20% { transform: translateX(-300px) translateY(300px) rotate(-45deg); opacity: 0; }
+  100% { transform: translateX(-300px) translateY(300px) rotate(-45deg); opacity: 0; }
+}
+
+/* Dust Particles */
+.float-dust {
+  animation: floatDust 15s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes floatDust {
+  0% { transform: translateY(0px) translateX(0px); opacity: 0.3; }
+  50% { transform: translateY(-20px) translateX(10px); opacity: 0.8; }
+  100% { transform: translateY(10px) translateX(-15px); opacity: 0.3; }
+}
+
+/* BG Breathe (Gradiente Global Lento) */
+.bg-breathe {
+  animation: bgBreathe 20s ease-in-out infinite alternate;
+}
+@keyframes bgBreathe {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+/* Shake Animation (Error Feedback) */
+.anim-shake {
+  animation: errorShake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes errorShake {
+  10%, 90% { transform: translate3d(-1px, 0, 0); }
+  20%, 80% { transform: translate3d(2px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+  40%, 60% { transform: translate3d(4px, 0, 0); }
+}
+
+/* ============================================================
    Acessibilidade — reduced motion
    ============================================================ */
 

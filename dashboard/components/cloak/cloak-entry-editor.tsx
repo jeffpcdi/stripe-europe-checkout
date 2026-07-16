@@ -111,7 +111,7 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-[color:var(--brand-cyan)] focus:outline-none'
+    'w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-all hover:border-brand-cyan/40 focus:border-[color:var(--brand-cyan)] focus:shadow-[0_0_15px_rgba(37,244,238,0.3)] focus:outline-none'
   const labelCls = 'mb-1 block text-xs font-medium text-foreground'
   const hintCls = 'mb-1.5 text-[11px] leading-relaxed text-muted-foreground'
 
@@ -196,8 +196,8 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
                 <p className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-3 py-2 text-[11px] text-foreground">
                   <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
                   <span>
-                    A página branca precisa começar com <code>https://</code>. Uma white page quebrada leva o revisor a
-                    um erro e pode queimar a conta — corrija ou deixe vazio para usar a página neutra embutida.
+                    A página segura precisa começar com <code>https://</code>. Uma página quebrada leva o revisor a
+                    um erro e pode queimar a conta — corrija ou deixe vazio para usar a embutida.
                   </span>
                 </p>
               )}

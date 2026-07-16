@@ -586,7 +586,7 @@ export function LinksView() {
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>
-                        {l.variantes.length} variante{l.variantes.length === 1 ? '' : 's'}
+                        {l.variantes.length} versão{l.variantes.length === 1 ? '' : 'ões'}
                       </span>
                       <span className="tabular-nums">{clicks} cliques</span>
                       <span className="tabular-nums">{convs} conversões</span>
@@ -617,7 +617,7 @@ export function LinksView() {
                       )}
                     </div>
                     {/* Item 66: leitura rápida do A/B — peso configurado vs. participação
-                        real nas conversões de cada variante */}
+                        real nas conversões de cada versão */}
                     {l.variantes.length >= 2 && (
                       <div className="mt-3 flex flex-col gap-1.5">
                         {l.variantes.map((v) => {
