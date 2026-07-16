@@ -12,5 +12,6 @@
   "/(dashboard)/page": "/",
   "/(dashboard)/pixels/page": "/pixels",
   "/_global-error/page": "/_global-error",
-  "/_not-found/page": "/_not-found"
+  "/_not-found/page": "/_not-found",
+  "/manifest.webmanifest/route": "/manifest.webmanifest"
 }

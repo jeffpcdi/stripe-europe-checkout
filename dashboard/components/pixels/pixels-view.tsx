@@ -43,6 +43,7 @@ import { timeAgo } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { readClipboardText } from '@/lib/clipboard'
 import { useConfirm } from '@/lib/use-confirm'
+import { cn } from '@/lib/utils'
 
 // Resultado da verificação de instalação por URL (server-side)
 type UrlCheck = {
@@ -314,7 +315,7 @@ export function PixelsView() {
                     ? (pixelRows.filter((r) => r.status === 'ok').length / pixelRows.length) * 100
                     : null
                 return (
-                <li key={p.slug} className="rounded-xl border border-border bg-secondary/40 p-4">
+                <li key={p.slug} className={cn("rounded-xl border bg-secondary/40 p-4 transition-all duration-500", p.active ? "border-[color:var(--brand-cyan)]/50 shadow-[0_0_15px_rgba(37,244,238,0.15)] bg-gradient-to-br from-[rgba(37,244,238,0.05)] to-transparent" : "border-border opacity-70")}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2.5">
                       {/* A6.1: anel SVG de saúde (verde/âmbar/vermelho) em volta

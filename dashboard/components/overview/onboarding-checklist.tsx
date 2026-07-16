@@ -82,7 +82,7 @@ export function OnboardingChecklist({
 
         {/* Barra de progresso real */}
         <div
-          className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/5"
+          className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/5 drop-shadow-[0_0_8px_rgba(37,244,238,0.2)]"
           role="progressbar"
           aria-valuenow={pct}
           aria-valuemin={0}
@@ -90,7 +90,7 @@ export function OnboardingChecklist({
           aria-label={`Onboarding ${pct}% concluído`}
         >
           <div
-            className="h-full rounded-full bg-[#25f4ee] transition-[width] duration-700"
+            className="h-full rounded-full bg-[var(--brand-cyan)] transition-[width] duration-700 drop-shadow-[0_0_8px_rgba(37,244,238,0.8)]"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -107,9 +107,9 @@ export function OnboardingChecklist({
               )}
             >
               {s.done ? (
-                <CircleCheck className="size-4.5 shrink-0 text-success drop-shadow-[0_0_8px_rgba(34,197,94,0.6)]" aria-hidden="true" />
+                <CircleCheck className="size-4.5 shrink-0 text-success drop-shadow-[0_0_12px_rgba(34,197,94,0.8)]" aria-hidden="true" />
               ) : (
-                <Circle className="size-4.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <Circle className="size-4.5 shrink-0 text-muted-foreground drop-shadow-[0_0_5px_rgba(255,255,255,0.1)]" aria-hidden="true" />
               )}
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className={cn('text-sm transition-all', s.done && 'line-through text-muted-foreground')}>{s.label}</span>

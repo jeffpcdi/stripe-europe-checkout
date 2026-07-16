@@ -12,5 +12,6 @@
   "/(dashboard)/page": "app/(dashboard)/page.js",
   "/(dashboard)/pixels/page": "app/(dashboard)/pixels/page.js",
   "/_global-error/page": "app/_global-error/page.js",
-  "/_not-found/page": "app/_not-found/page.js"
+  "/_not-found/page": "app/_not-found/page.js",
+  "/manifest.webmanifest/route": "app/manifest.webmanifest/route.js"
 }

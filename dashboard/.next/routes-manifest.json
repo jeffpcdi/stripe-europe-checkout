@@ -130,6 +130,12 @@
       "namedRegex": "^/live(?:/)?$"
     },
     {
+      "page": "/manifest.webmanifest",
+      "regex": "^/manifest\\.webmanifest(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/manifest\\.webmanifest(?:/)?$"
+    },
+    {
       "page": "/pixels",
       "regex": "^/pixels(?:/)?$",
       "routeKeys": {},
