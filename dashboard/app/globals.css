@@ -848,6 +848,42 @@ html[data-anim='off'] *::after {
   transition-duration: 0.01ms !important;
 }
 
+/* Shooting Stars Background */
+@keyframes shooting-star {
+  0% { transform: translateX(0) translateY(0) rotate(45deg); opacity: 1; }
+  100% { transform: translateX(-1000px) translateY(1000px) rotate(45deg); opacity: 0; }
+}
+.star-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.shooting-star {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100px;
+  height: 2px;
+  background: linear-gradient(-45deg, rgba(37, 244, 238, 1), rgba(0, 0, 255, 0));
+  border-radius: 999px;
+  filter: drop-shadow(0 0 6px rgba(37, 244, 238, 1));
+  animation: shooting-star 3s linear infinite;
+  opacity: 0;
+}
+.shooting-star::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 2px;
+  background: rgba(37, 244, 238, 1);
+  border-radius: 100%;
+  box-shadow: 0 0 10px rgba(37, 244, 238, 1), 0 0 20px rgba(37, 244, 238, 1);
+}
+
 /* Item 125: modo apresentação — borra valores sensíveis */
 [data-sensitive] {
   transition: filter var(--dur) var(--ease);

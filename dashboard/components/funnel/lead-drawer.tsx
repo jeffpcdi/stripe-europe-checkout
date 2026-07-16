@@ -133,12 +133,17 @@ export function LeadDrawer({ leadId, onClose }: { leadId: string | null; onClose
         type="button"
         aria-label="Fechar painel"
         onClick={onClose}
-        className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-black/60 backdrop-blur-3xl"
       />
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="anim-drawer-in absolute inset-y-0 right-0 flex w-full max-w-md flex-col overflow-y-auto border-l border-border/60 bg-card shadow-2xl outline-none"
+        className={cn(
+          "anim-drawer-in absolute inset-y-0 right-0 flex w-full max-w-md flex-col overflow-y-auto border-l bg-card shadow-2xl outline-none transition-all duration-500",
+          lead?.stage === 'purchased' ? 'shadow-[0_0_60px_rgba(34,197,94,0.15)] border-l-success/40' : 
+          lead?.stage === 'abandoned' ? 'shadow-[0_0_60px_rgba(254,44,85,0.15)] border-l-destructive/40' : 
+          'border-border/60'
+        )}
       >
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/50 bg-card/95 px-5 py-4 backdrop-blur">
           <div className="min-w-0">

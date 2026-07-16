@@ -100,7 +100,7 @@ function buildPoints(
         // Demanda visível: base menor (0.4→0.22) e range maior (0.8→1.1)
         size: 0.22 + (Math.log1p(value) / Math.log1p(max)) * 1.1,
         color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
-        label: `<div style="background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(37,244,238,0.4); box-shadow: 0 0 10px rgba(37,244,238,0.2); font-family: monospace; font-size: 11px; color: #fff;">${c.name}: ${c.count} visitas${c.purchased ? ` <span style="color:#22c55e">· ${c.purchased} vendas</span>` : ''}</div>`,
+        label: `<div style="background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(37,244,238,0.6); box-shadow: 0 0 20px rgba(37,244,238,0.4); font-family: monospace; font-size: 11px; color: #fff;">${c.name}: ${c.count} visitas${c.purchased ? ` <span style="color:#22c55e;text-shadow:0 0 8px rgba(34,197,94,0.6)">· ${c.purchased} vendas</span>` : ''}</div>`,
       },
     ]
   })
@@ -580,6 +580,11 @@ export default function GlobePanel({
       onPointerLeave={() => setSpin(SPIN_IDLE)}
       onPointerDown={pauseSpin}
     >
+      <div className="star-container">
+        <div className="shooting-star" style={{ top: '20%', left: '30%', animationDelay: '0s' }} />
+        <div className="shooting-star" style={{ top: '40%', left: '80%', animationDelay: '1.5s' }} />
+        <div className="shooting-star" style={{ top: '70%', left: '10%', animationDelay: '2.7s' }} />
+      </div>
       {size.w > 0 && (
         <GlobeCanvas
           countries={countries}

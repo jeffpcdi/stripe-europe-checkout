@@ -11,22 +11,19 @@ import { SectionTitle } from '@/components/section-title'
 
 // Rótulos amigáveis para os motivos de bloqueio do motor
 const REASON_LABELS: Record<string, string> = {
-  'bot-ua': 'UA de bot',
-  pais: 'país fora da lista',
-  idioma: 'idioma bloqueado',
-  score: 'score alto',
-  'rate-limit': 'rate-limit',
-  datacenter: 'datacenter',
-  headless: 'headless',
-  webview: 'webview',
-  // Item 203: replay de ttclid — revisor copiou uma URL capturada e o clique
-  // reapareceu com contexto divergente (IP/UA diferente do primeiro uso)
-  'ttclid-replay': 'link de anúncio reusado (replay)',
-  // Itens 201/202: veredito sticky — visitante já marcado como bot nas últimas 6h
-  sticky: 'já marcado como bot (cache 6h)',
-  velocity: 'muitos acessos do mesmo IP',
-  mobile: 'exigia celular',
-  anuncio: 'exigia clique de anúncio',
+  'bot-ua': 'Robô conhecido',
+  pais: 'País bloqueado',
+  idioma: 'Idioma bloqueado',
+  score: 'Comportamento suspeito',
+  'rate-limit': 'Muitas requisições',
+  datacenter: 'Servidor de Nuvem',
+  headless: 'Navegador invisível',
+  webview: 'Navegador interno',
+  'ttclid-replay': 'Clique repetido (anúncio)',
+  sticky: 'Visitante já bloqueado',
+  velocity: 'Automação detectada',
+  mobile: 'Exigia celular',
+  anuncio: 'Exigia anúncio',
 }
 
 // Item 144: mini-gráfico diário offer×white por link (o backend já devolve
@@ -68,7 +65,7 @@ function DailyMiniChart({ daily }: { daily: { day: string; offer: number; white:
               style={{ height: '100%' }}
               title={`${label}: ${d.offer} offer · ${d.white} white`}
             >
-              <div className="flex w-full flex-col overflow-hidden rounded-sm" style={{ height: `${h}%` }}>
+              <div className="flex w-full flex-col overflow-hidden rounded-sm drop-shadow-[0_0_5px_rgba(34,197,94,0.3)] transition-all hover:drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]" style={{ height: `${h}%` }}>
                 <div className="w-full bg-warning" style={{ height: `${100 - offerPct}%` }} aria-hidden="true" />
                 <div className="w-full bg-success" style={{ height: `${offerPct}%` }} aria-hidden="true" />
               </div>
@@ -164,7 +161,7 @@ export function CloakStatsPanel() {
               <Target className="size-3.5" aria-hidden="true" />
               <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Público real na oferta</span>
             </div>
-            <p className="mt-1 font-mono text-xl font-bold tabular-nums text-foreground">{agg.offer.toLocaleString('pt-BR')}</p>
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-success drop-shadow-[0_0_10px_rgba(34,197,94,0.4)]">{agg.offer.toLocaleString('pt-BR')}</p>
             <p className="text-[11px] leading-snug text-muted-foreground">
               acessos que passaram no filtro e viram a offer
             </p>
@@ -174,7 +171,7 @@ export function CloakStatsPanel() {
               <ShieldCheck className="size-3.5" aria-hidden="true" />
               <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Robôs/revisores barrados</span>
             </div>
-            <p className="mt-1 font-mono text-xl font-bold tabular-nums text-foreground">{agg.white.toLocaleString('pt-BR')}</p>
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-warning drop-shadow-[0_0_10px_rgba(245,158,11,0.4)]">{agg.white.toLocaleString('pt-BR')}</p>
             <p className="text-[11px] leading-snug text-muted-foreground">
               enviados à white page e longe da sua oferta
             </p>
@@ -270,7 +267,7 @@ export function CloakStatsPanel() {
                 name="vid"
                 type="text"
                 placeholder="v_id do visitante para reteste"
-                className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background input-neon px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 aria-label="v_id do visitante para limpar o veredito de bot"
               />
               <button

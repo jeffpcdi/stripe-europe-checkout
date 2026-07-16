@@ -123,7 +123,7 @@ export function GeoMultiSelect({
               className="flex items-center gap-1 rounded-md border border-[color:var(--brand-cyan)]/40 bg-[var(--accent-light)] px-2 py-1 text-xs font-medium text-foreground"
             >
               {flags && flagEmoji(code) ? (
-                <span aria-hidden="true">{flagEmoji(code)}</span>
+                <span className="drop-shadow-md" aria-hidden="true">{flagEmoji(code)}</span>
               ) : null}
               {labelFor(code)}
               <span className="font-mono text-[10px] text-muted-foreground">{code}</span>
@@ -179,7 +179,7 @@ export function GeoMultiSelect({
             >
               <span>
                 {flags && flagEmoji(o.code) ? (
-                  <span className="mr-1.5" aria-hidden="true">{flagEmoji(o.code)}</span>
+                  <span className="mr-1.5 drop-shadow-md" aria-hidden="true">{flagEmoji(o.code)}</span>
                 ) : null}
                 {o.name}
               </span>
