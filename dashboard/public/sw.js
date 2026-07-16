@@ -25,11 +25,30 @@ self.addEventListener("push", (event) => {
     badge: "/dashboard/badge-96.png",
     tag: data.tag || undefined, // agrupa notificações do mesmo evento
     data: { url: data.url || "/dashboard" },
+    // silent:false garante o som padrão do sistema (iOS/Android/desktop).
+    // Som customizado em push fechado não é permitido pela Apple — o
+    // cha-ching de dinheiro toca nas abas abertas via postMessage abaixo.
+    silent: false,
     // Botões de ação (Android/desktop; iOS ignora — limite da Apple)
     actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
   }
 
-  event.waitUntil(self.registration.showNotification(title, options))
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      // Avisa as abas abertas do painel para tocar o som do evento
+      // (ex.: 'cash' = cha-ching de dinheiro quando cai venda).
+      data.sound
+        ? self.clients
+            .matchAll({ type: "window", includeUncontrolled: true })
+            .then((clients) => {
+              for (const client of clients) {
+                client.postMessage({ type: "roi-sound", sound: data.sound })
+              }
+            })
+        : Promise.resolve(),
+    ]),
+  )
 })
 
 self.addEventListener("notificationclick", (event) => {
