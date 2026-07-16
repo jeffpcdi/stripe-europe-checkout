@@ -351,15 +351,15 @@ export function GatewaysView() {
               </div>
             ) : (
             <ul className="flex flex-col gap-2" data-tour="gateways-list">
-              {gateways.map((g) => {
+              {gateways.map((g, index) => {
                 const prov = providers.find((p) => p.id === g.provider)
                 const brand = providerColor(g.provider)
                 return (
                   /* Item 73: cápsula e borda na cor da marca do provedor */
                   <li
                     key={g.id}
-                    className="group rounded-xl border border-border bg-secondary/40 p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(0,0,0,0.4)]"
-                    style={{ ['--gw-brand' as string]: brand }}
+                    className="group rounded-xl border border-border bg-secondary/40 p-4 transition-all duration-300 animate-in-up hover-float border-l-[3px] border-l-transparent"
+                    style={{ ['--gw-brand' as string]: brand, animationDelay: `${Math.min(index * 75, 1500)}ms` }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = `color-mix(in oklab, ${brand} 45%, transparent)`
                     }}

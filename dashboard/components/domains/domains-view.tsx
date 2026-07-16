@@ -199,7 +199,7 @@ export function DomainsView() {
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-input input-neon px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring'
+    'w-full rounded-lg border border-border bg-input input-neon px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-[color:var(--brand-cyan)]/50 focus:shadow-[0_0_15px_rgba(37,244,238,0.25)]'
 
   return (
     /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
@@ -319,9 +319,10 @@ export function DomainsView() {
         </GlassCard>
       ) : (
         <div className="flex flex-col gap-3" data-tour="domains-list">
-          {domains.map((d) => (
+          {domains.map((d, index) => (
             <DomainCard
               key={d.host}
+              index={index}
               domain={d}
               result={results[d.host]}
               verifying={verifying === d.host}
@@ -751,6 +752,7 @@ function DomainCard({
   onVerify,
   onAskDelete,
   onTutorial,
+  index,
 }: {
   domain: CustomDomain
   result?: DomainVerifyResult
@@ -758,10 +760,14 @@ function DomainCard({
   onVerify: () => void
   onAskDelete: () => void
   onTutorial: () => void
+  index?: number
 }) {
   const status = effectiveStatus(domain, result)
   return (
-    <GlassCard className="p-4 transition-all hover:border-brand-cyan/30 hover:shadow-[0_0_15px_rgba(37,244,238,0.1)]">
+    <GlassCard 
+      style={{ animationDelay: `${Math.min((index || 0) * 75, 1500)}ms` }}
+      className="p-4 hover-float animate-in-up transition-all border-l-[3px] border-l-transparent hover:border-l-[color:var(--brand-cyan)] hover:border-brand-cyan/30 hover:shadow-[0_0_15px_rgba(37,244,238,0.1)]"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           {/* Item 75: check verde com draw-in de SVG path quando verificado */}

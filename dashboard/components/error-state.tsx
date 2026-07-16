@@ -21,13 +21,13 @@ export function ErrorState({
   return (
     <GlassCard
       role="alert"
-      className="flex min-h-64 flex-col items-center justify-center gap-3 p-8 text-center"
+      className="flex min-h-64 flex-col items-center justify-center gap-3 p-8 text-center anim-shake"
     >
-      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-error/10 text-error">
+      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 text-destructive drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]">
         <AlertTriangle className="h-5 w-5" aria-hidden="true" />
       </span>
       <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium text-error text-balance">{title}</p>
+        <p className="text-base font-semibold text-destructive text-balance">{title}</p>
         <p className="max-w-sm text-sm text-muted-foreground text-pretty">{description}</p>
       </div>
       {onRetry && (

@@ -106,6 +106,7 @@ const EventRow = memo(function EventRow({
   isNew,
   highlight,
   bestOfDay,
+  index,
 }: {
   e: StatsEvent
   isNew?: boolean
@@ -113,6 +114,7 @@ const EventRow = memo(function EventRow({
   highlight?: boolean
   /* Item 344: maior venda do dia ganha marco dourado */
   bestOfDay?: boolean
+  index?: number
 }) {
   const style = EVENT_STYLE[e.type] || EVENT_STYLE.info
   const Icon = style.icon
@@ -182,12 +184,14 @@ const EventRow = memo(function EventRow({
     <div
       id={`evt-${e.id}`}
       className={cn(
-        'border-b border-border/40 last:border-b-0',
+        'border-b border-border/40 last:border-b-0 transition-all duration-300 hover-float',
+        /* initial load stagger */
+        index !== undefined && 'animate-in-up',
         /* A3.2: novo evento desliza de cima + flash único na cor do tipo */
         isNew && 'feed-row-new anim-cell-flash',
         highlight && 'anim-cell-flash rounded-lg outline outline-1 outline-[var(--accent)]/50',
       )}
-      style={{ boxShadow: `inset 2px 0 0 ${style.edge}` }}
+      style={{ boxShadow: `inset 2px 0 0 ${style.edge}`, animationDelay: index !== undefined ? `${Math.min(index * 50, 1000)}ms` : undefined }}
     >
       <button
         type="button"
@@ -1020,6 +1024,7 @@ export function ActivityView() {
                     isNew={isNew}
                     highlight={e.id === highlightId}
                     bestOfDay={bestOfDayIds.has(e.id)}
+                    index={isNew ? undefined : i}
                   />
                 </div>
               )

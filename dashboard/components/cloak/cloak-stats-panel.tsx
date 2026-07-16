@@ -8,6 +8,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import { SectionTitle } from '@/components/section-title'
+import { CountUp } from '@/components/count-up'
 
 // Rótulos amigáveis para os motivos de bloqueio do motor
 const REASON_LABELS: Record<string, string> = {
@@ -159,20 +160,20 @@ export function CloakStatsPanel() {
           <div className="anim-row-in rounded-lg border border-success/30 bg-success/10 p-3 transition-colors hover:bg-success/15">
             <div className="flex items-center gap-1.5 text-success">
               <Target className="size-3.5" aria-hidden="true" />
-              <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Público real na oferta</span>
+              <span className="font-mono text-[11px] font-semibold capitalize">Público real na oferta</span>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-success drop-shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all hover:drop-shadow-[0_0_25px_rgba(34,197,94,1)]">{agg.offer.toLocaleString('pt-BR')}</p>
-            <p className="text-[11px] leading-snug text-muted-foreground">
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-success drop-shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all hover:drop-shadow-[0_0_25px_rgba(34,197,94,1)]"><CountUp value={agg.offer} /></p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
               acessos que passaram no filtro e viram a offer
             </p>
           </div>
           <div className="anim-row-in rounded-lg border border-warning/30 bg-warning/10 p-3 transition-colors hover:bg-warning/15" style={{ animationDelay: '70ms' }}>
             <div className="flex items-center gap-1.5 text-warning">
               <ShieldCheck className="size-3.5" aria-hidden="true" />
-              <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Robôs/revisores barrados</span>
+              <span className="font-mono text-[11px] font-semibold capitalize">Robôs/revisores barrados</span>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-warning drop-shadow-[0_0_15px_rgba(245,158,11,0.8)] transition-all hover:drop-shadow-[0_0_25px_rgba(245,158,11,1)]">{agg.white.toLocaleString('pt-BR')}</p>
-            <p className="text-[11px] leading-snug text-muted-foreground">
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-warning drop-shadow-[0_0_15px_rgba(245,158,11,0.8)] transition-all hover:drop-shadow-[0_0_25px_rgba(245,158,11,1)]"><CountUp value={agg.white} /></p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
               enviados à white page e longe da sua oferta
             </p>
           </div>

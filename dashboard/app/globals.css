@@ -2673,3 +2673,48 @@ input:focus, textarea:focus {
   50% { background: rgba(37, 244, 238, 0.1); }
   100% { opacity: 1; transform: translateY(0) scale(1); background: transparent; }
 }
+
+/* 5. Glass Tooltip Neon */
+[data-tooltip] {
+  position: relative;
+  cursor: help;
+}
+[data-tooltip]::before,
+[data-tooltip]::after {
+  position: absolute;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+  z-index: 100;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+}
+[data-tooltip]::before {
+  content: '';
+  border: 5px solid transparent;
+  border-top-color: rgba(37, 244, 238, 0.5);
+  bottom: calc(100% - 5px);
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(37, 244, 238, 0.3);
+  box-shadow: 0 4px 20px -2px rgba(37, 244, 238, 0.2);
+  color: #fff;
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+[data-tooltip]:hover::before,
+[data-tooltip]:hover::after {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

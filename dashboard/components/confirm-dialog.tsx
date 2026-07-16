@@ -87,7 +87,7 @@ export function ConfirmDialog({
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
                 autoComplete="off"
-                className="mt-1.5 w-full rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm text-foreground outline-none focus:border-destructive/60"
+                className="mt-1.5 w-full rounded-lg border border-border bg-secondary/40 input-neon px-3 py-2 text-sm text-foreground outline-none focus:border-destructive/60 focus:shadow-[0_0_15px_rgba(239,68,68,0.3)]"
                 aria-label={`Digite ${confirmText} para confirmar`}
               />
             </label>

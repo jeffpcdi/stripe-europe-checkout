@@ -307,8 +307,8 @@ export function CloakEntriesPanel() {
         /* Item 145: estado vazio guiado — explica offer × white em linguagem de
            negócio e leva à criação do primeiro link, sem jargão solto */
         <div className="flex flex-col items-center gap-4 px-4 py-10 text-center">
-          <div className="flex size-12 items-center justify-center rounded-full bg-secondary text-muted-foreground">
-            <ShieldCheck className="size-6" />
+          <div className="flex size-16 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)] drop-shadow-[0_0_15px_rgba(37,244,238,0.3)]">
+            <ShieldCheck className="size-8" />
           </div>
           <div className="max-w-md">
             <p className="text-sm font-medium text-foreground">Nenhum link de cloaking ainda</p>
@@ -331,14 +331,14 @@ export function CloakEntriesPanel() {
         <p className="py-8 text-center text-sm text-muted-foreground">Nenhum link corresponde à busca.</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {visible.map((e) => {
+          {visible.map((e, index) => {
             const st = statBySlug[e.slug]
             const sens = e.sensitivity ?? 'balanced'
             const SensIcon = (SENS_META[sens] ?? SENS_META.balanced).icon
             const tr = testResult[e.slug]
             return (
-              <li key={e.slug} className={cn(
-                "rounded-xl border p-4 transition-all duration-300",
+              <li key={e.slug} style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }} className={cn(
+                "hover-float animate-in-up rounded-xl border p-4 transition-all duration-300 border-l-[3px] border-l-transparent hover:border-l-[color:var(--brand-cyan)]",
                 e.enabled 
                   ? "border-primary/40 bg-[rgba(37,244,238,0.02)] shadow-[0_0_15px_rgba(37,244,238,0.1)]" 
                   : "border-border/40 bg-secondary/20 opacity-70"

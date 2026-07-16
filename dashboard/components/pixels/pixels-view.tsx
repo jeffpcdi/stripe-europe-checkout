@@ -304,7 +304,7 @@ export function PixelsView() {
             </div>
           ) : (
             <ul className="flex flex-col gap-2" data-tour="pixels-list">
-              {pixels.map((p) => {
+              {pixels.map((p, index) => {
                 // A6.1/A6.2: disparos deste pixel no log (para o anel de saúde
                 // e a timeline de dots) — o log identifica por nome/slug/código
                 const pixelRows = (log?.log ?? []).filter(
@@ -315,7 +315,7 @@ export function PixelsView() {
                     ? (pixelRows.filter((r) => r.status === 'ok').length / pixelRows.length) * 100
                     : null
                 return (
-                <li key={p.slug} className={cn("rounded-xl border bg-secondary/40 p-4 transition-all duration-500", p.active ? "border-[color:var(--brand-cyan)]/50 shadow-[0_0_15px_rgba(37,244,238,0.15)] bg-gradient-to-br from-[rgba(37,244,238,0.05)] to-transparent" : "border-border opacity-70")}>
+                <li key={p.slug} style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }} className={cn("hover-float animate-in-up rounded-xl border bg-secondary/40 p-4 transition-all duration-300 border-l-[3px] border-l-transparent hover:border-l-[color:var(--brand-cyan)]", p.active ? "border-[color:var(--brand-cyan)]/50 shadow-[0_0_15px_rgba(37,244,238,0.15)] bg-gradient-to-br from-[rgba(37,244,238,0.05)] to-transparent" : "border-border opacity-70")}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2.5">
                       {/* A6.1: anel SVG de saúde (verde/âmbar/vermelho) em volta
@@ -1167,7 +1167,7 @@ function PixelEditor({
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring'
+    'w-full rounded-lg border border-border bg-input input-neon px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-[color:var(--brand-cyan)]/50 focus:shadow-[0_0_15px_rgba(37,244,238,0.25)]'
 
   return (
     <div

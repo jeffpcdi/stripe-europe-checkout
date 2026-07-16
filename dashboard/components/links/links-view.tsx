@@ -32,6 +32,7 @@ import { Skeleton } from '@/components/skeleton'
 import { SectionTitle } from '@/components/section-title'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
+import { CountUp } from '@/components/count-up'
 import { LinkEditor } from './link-editor'
 
 // Item 64: opções de ordenação da lista de links
@@ -364,7 +365,7 @@ export function LinksView() {
                   ? 'border-brand-cyan/50 bg-brand-cyan/10 text-[color:var(--brand-cyan)]'
                   : 'border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
               }`}
-              title="Links arquivados ficam fora da lista e do /go, com histórico preservado"
+              data-tooltip="Links arquivados ficam fora da lista e do /go, com histórico preservado"
             >
               <Archive className="size-3.5" aria-hidden="true" />
               Arquivados ({archivedCount})
@@ -383,8 +384,10 @@ export function LinksView() {
 
       {links.length === 0 ? (
         <GlassCard className="pulse-cyan flex flex-col items-center gap-3 p-10 text-center transition-all">
-          <Link2 className="size-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground text-pretty">
+          <div className="flex size-16 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)] drop-shadow-[0_0_15px_rgba(37,244,238,0.3)]">
+            <Link2 className="size-8" />
+          </div>
+          <p className="text-sm text-foreground font-medium text-pretty">
             Nenhum link ainda. Crie um link /go/slug com split A/B, cloak e domínio próprio.
           </p>
           {/* Item 53: estado vazio guiado — CTA de criação + tutorial */}
@@ -457,7 +460,7 @@ export function LinksView() {
               </p>
             </GlassCard>
           )}
-          {visibleLinks.map((l) => {
+          {visibleLinks.map((l, index) => {
             const clicks = l.variantes.reduce((s, v) => s + v.clicks, 0)
             const convs = l.variantes.reduce((s, v) => s + v.conversions, 0)
             // Item 65: receita somada das variantes (por moeda) + taxa de conversão
@@ -482,7 +485,8 @@ export function LinksView() {
               <GlassCard
                 key={l.slug}
                 spotlight
-                className="group sheen p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-[color:var(--brand-cyan)]/40 hover:shadow-lg"
+                className="group sheen hover-float animate-in-up p-4 border-l-[3px] border-l-transparent hover:border-l-[color:var(--brand-cyan)]"
+                style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-2.5">
@@ -588,11 +592,11 @@ export function LinksView() {
                       <span>
                         {l.variantes.length} versão{l.variantes.length === 1 ? '' : 'ões'}
                       </span>
-                      <span className="tabular-nums">{clicks} cliques</span>
-                      <span className="tabular-nums">{convs} conversões</span>
+                      <span className="tabular-nums"><CountUp value={clicks} /> cliques</span>
+                      <span className="tabular-nums"><CountUp value={convs} /> conversões</span>
                       {/* Item 65: taxa de conversão + receita por moeda */}
                       {convRate !== null && (
-                        <span className="tabular-nums" title="Conversões ÷ cliques">
+                        <span className="tabular-nums" data-tooltip="Conversões ÷ cliques">
                           {convRate.toFixed(1).replace('.', ',')}% conv.
                         </span>
                       )}
@@ -644,7 +648,7 @@ export function LinksView() {
                                 />
                               </div>
                               <span className="w-28 shrink-0 text-right tabular-nums text-muted-foreground">
-                                peso {v.peso}% · {convs > 0 ? `${share.toFixed(0)}% das conv.` : `${v.conversions} conv.`}
+                                peso {v.peso}% · {convs > 0 ? `${share.toFixed(0)}% das conv.` : <><CountUp value={v.conversions} /> conv.</>}
                               </span>
                             </div>
                           )
@@ -683,7 +687,7 @@ export function LinksView() {
                       rel="noopener noreferrer"
                       className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                       aria-label={`Abrir ${publicUrl(l)} em nova aba`}
-                      title="Abrir /go em nova aba (atenção: conta como clique)"
+                      data-tooltip="Abrir /go em nova aba (atenção: conta como clique)"
                     >
                       <ExternalLink className="size-4" />
                     </a>
@@ -694,7 +698,7 @@ export function LinksView() {
                       disabled={busy}
                       className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
                       aria-label={`Duplicar o link ${l.nome}`}
-                      title="Duplicar link (a cópia nasce pausada)"
+                      data-tooltip="Duplicar link (a cópia nasce pausada)"
                     >
                       <CopyPlus className="size-4" />
                     </button>
