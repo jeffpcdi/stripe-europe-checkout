@@ -111,10 +111,17 @@ function ActionCard({
   )
 }
 
+// Biblioteca de prompts prontos — alinhada ao modelo Pipeboard (prompt +
+// aprovação humana). Os chips só PREENCHEM o input: o envio e a aprovação de
+// qualquer ação continuam manuais. Foco diário primeiro (padrão do produto).
 const SUGGESTIONS = [
+  'Resuma o desempenho de hoje vs. ontem',
+  'Qual campanha tem o melhor ROAS real hoje?',
+  'Varredura diária: liste campanhas com CPA acima de 15 e proponha pausas',
+  'Como realoco meu orçamento pelos melhores ROAS?',
+  'Quais criativos devo escalar hoje?',
+  'Alguma campanha gastando sem converter hoje?',
   'Como foi o desempenho dos últimos 7 dias?',
-  'Qual campanha tem o melhor ROAS real?',
-  'Alguma campanha gastando sem converter?',
 ]
 
 export function CopilotPanel({
@@ -209,7 +216,7 @@ export function CopilotPanel({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground bg-gradient-to-r from-brand-cyan to-white bg-clip-text text-transparent">Copiloto de tráfego</p>
           <p className="truncate text-[11px] text-muted-foreground">
-            Pergunte sobre suas campanhas — respostas com dados reais, ações só com sua aprovação
+            Pergunte sobre suas campanhas — respostas com dados reais, ações s�� com sua aprovação
           </p>
         </div>
         <span className="text-[11px] text-muted-foreground">{expanded ? 'Recolher' : 'Abrir'}</span>
@@ -255,11 +262,12 @@ export function CopilotPanel({
             </div>
           )}
 
-          {/* Sugestões (só antes da primeira pergunta) */}
+          {/* Sugestões (só antes da primeira pergunta). Os chips só preenchem
+              o input — o envio é sempre um gesto explícito do usuário. */}
           {messages.length === 0 && (
             <div className="flex flex-wrap gap-2">
               {SUGGESTIONS.map((s) => (
-                <button key={s} type="button" className="btn-ghost px-2.5 py-1 text-[11px]" onClick={() => send(s)}>
+                <button key={s} type="button" className="btn-ghost px-2.5 py-1 text-[11px]" onClick={() => setInput(s)}>
                   {s}
                 </button>
               ))}

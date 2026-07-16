@@ -158,7 +158,8 @@ async function compactCampaigns(accId, advertiserId, { fromDate, toDate, status 
 }
 
 // ROAS real por campanha: gasto (Neon) × vendas atribuídas (gateways locais).
-async function roasByCampaign(accId, advertiserId, days = 7) {
+// Padrão diário (days=1) — pedido do produto: decisões sobre o HOJE primeiro.
+async function roasByCampaign(accId, advertiserId, days = 1) {
   const range = lastNDays(days);
   const [camps, attr] = await Promise.all([
     compactCampaigns(accId, advertiserId, range),
@@ -180,7 +181,7 @@ async function roasByCampaign(accId, advertiserId, days = 7) {
 }
 
 // Melhores anúncios (nível ad) por conversões, depois CTR.
-async function bestAds(accId, advertiserId, days = 7, limit = 10) {
+async function bestAds(accId, advertiserId, days = 1, limit = 10) {
   const range = lastNDays(days);
   const tree = await cache.readTree(accId, advertiserId, range);
   const ads = [];
@@ -288,16 +289,16 @@ async function copilotTurn({ accId, advertiserId, currency, sessionId, message, 
     get_campaigns: tool({
       description: 'Lista campanhas com métricas de um período (dados reais do espelho local). status opcional: active|paused.',
       inputSchema: z.object({
-        days: z.number().min(1).max(90).default(7).describe('Janela em dias'),
+        days: z.number().min(1).max(90).default(1).describe('Janela em dias (padrão: hoje)'),
         status: z.enum(['active', 'paused']).optional(),
       }),
-      execute: async ({ days, status }) => compactCampaigns(accId, advertiserId, Object.assign(lastNDays(days || 7), { status })),
+      execute: async ({ days, status }) => compactCampaigns(accId, advertiserId, Object.assign(lastNDays(days || 1), { status })),
     }),
     get_kpis: tool({
       description: 'Totais agregados (gasto, impressões, cliques, conversões) do período e do período anterior.',
-      inputSchema: z.object({ days: z.number().min(1).max(90).default(7) }),
+      inputSchema: z.object({ days: z.number().min(1).max(90).default(1) }),
       execute: async ({ days }) => {
-        const cur = lastNDays(days || 7);
+        const cur = lastNDays(days || 1);
         const prevTo = isoDay(new Date(new Date(cur.fromDate + 'T00:00:00Z').getTime() - 864e5));
         const prevFrom = isoDay(new Date(new Date(prevTo + 'T00:00:00Z').getTime() - (days - 1) * 864e5));
         const [current, previous] = await Promise.all([
@@ -309,13 +310,13 @@ async function copilotTurn({ accId, advertiserId, currency, sessionId, message, 
     }),
     get_roas_by_campaign: tool({
       description: 'ROAS REAL por campanha: gasto do TikTok × vendas reais dos gateways de pagamento (atribuição via utm_campaign). A fonte mais confiável de performance.',
-      inputSchema: z.object({ days: z.number().min(1).max(30).default(7) }),
-      execute: async ({ days }) => roasByCampaign(accId, advertiserId, days || 7),
+      inputSchema: z.object({ days: z.number().min(1).max(30).default(1) }),
+      execute: async ({ days }) => roasByCampaign(accId, advertiserId, days || 1),
     }),
     get_best_ads: tool({
       description: 'Melhores anúncios (nível ad) por conversões e CTR no período.',
-      inputSchema: z.object({ days: z.number().min(1).max(30).default(7), limit: z.number().min(1).max(20).default(10) }),
-      execute: async ({ days, limit }) => bestAds(accId, advertiserId, days || 7, limit || 10),
+      inputSchema: z.object({ days: z.number().min(1).max(30).default(1), limit: z.number().min(1).max(20).default(10) }),
+      execute: async ({ days, limit }) => bestAds(accId, advertiserId, days || 1, limit || 10),
     }),
     get_rules: tool({
       description: 'Regras de automação configuradas e últimas execuções do motor 24/7.',
@@ -360,7 +361,7 @@ async function copilotTurn({ accId, advertiserId, currency, sessionId, message, 
           metric: z.enum(['cpa_max', 'spend_no_conv', 'roas_min', 'ctr_min', 'cpm_max', 'roas_scale']),
           threshold: z.number(),
           action: z.enum(['pause', 'budget_down', 'budget_up']),
-          lookbackDays: z.number().min(1).max(7).default(2),
+          lookbackDays: z.number().min(1).max(7).default(1),
           pct: z.number().min(5).max(50).default(20),
           budgetCap: z.number().optional().describe('Obrigatório para roas_scale'),
         }),
@@ -576,13 +577,17 @@ async function creativeInsights(accId, advertiserId, { force } = {}) {
 // Guardas: teto global = soma atual (realocar ≠ aumentar), mín. 2 vendas para
 // receber verba, ajuste máx. ±30% por campanha, sem orçamento diário = fora.
 // ═══════════════════════════════════════════════════════════════════════════
-async function budgetProposal(accId, advertiserId, currency) {
-  const rows = await roasByCampaign(accId, advertiserId, 7);
+// `days`: janela de atribuição configurável (1–30, default 1 — padrão diário).
+// Janelas < 3 dias são ruidosas para decisões de dinheiro; a UI exibe aviso
+// com base no `windowDays` devolvido. As invariantes NÃO mudam com a janela.
+async function budgetProposal(accId, advertiserId, currency, days = 1) {
+  const windowDays = Math.max(1, Math.min(30, parseInt(days, 10) || 1));
+  const rows = await roasByCampaign(accId, advertiserId, windowDays);
   const eligible = rows.filter((c) => c.status === 'active' && c.dailyBudget > 0);
   const excluded = rows
     .filter((c) => !(c.status === 'active' && c.dailyBudget > 0))
     .map((c) => ({ id: c.id, name: c.name, reason: c.status !== 'active' ? 'não está ativa' : 'sem orçamento diário (budget no ad group ou ilimitado)' }));
-  if (eligible.length < 2) return { insufficient: true, eligibleCount: eligible.length, excluded };
+  if (eligible.length < 2) return { insufficient: true, eligibleCount: eligible.length, excluded, windowDays };
 
   const totalBudget = eligible.reduce((a, c) => a + c.dailyBudget, 0);
 
@@ -619,7 +624,7 @@ async function budgetProposal(accId, advertiserId, currency) {
   }
 
   const meaningful = changes.filter((c) => Math.abs(c.deltaPct) >= 5);
-  if (!meaningful.length) return { noChange: true, message: 'A distribuição atual já está próxima do ótimo (nenhum ajuste ≥ 5%).', excluded };
+  if (!meaningful.length) return { noChange: true, message: 'A distribuição atual já está próxima do ótimo (nenhum ajuste ≥ 5%).', excluded, windowDays };
 
   let rationale = '';
   if (enabled()) {
@@ -642,6 +647,7 @@ async function budgetProposal(accId, advertiserId, currency) {
   return {
     totalBudget: +totalBudget.toFixed(2),
     currency,
+    windowDays,
     changes: meaningful,
     unchanged: changes.filter((c) => Math.abs(c.deltaPct) < 5).map((c) => ({ id: c.campaignId, name: c.name })),
     excluded,

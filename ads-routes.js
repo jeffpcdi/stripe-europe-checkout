@@ -1076,7 +1076,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
       }
       const today = new Date();
-      const defFrom = new Date(today.getTime() - 6 * 864e5);
+      const defFrom = today; // padrão diário: sem ?fromDate, a janela é HOJE
       const iso = (d) => d.toISOString().slice(0, 10);
       const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(defFrom);
       const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
@@ -1347,12 +1347,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   // Proposta de realocação de orçamento (determinística + rationale da IA).
+  // ?days= — janela de atribuição (clamp 1–30, default 1 = hoje). Janela curta
+  // é ruidosa: a UI avisa com base no windowDays devolvido pela proposta.
   app.get('/api/ads/budget/proposal', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
       const q = req.query || {};
       const advertiserId = await resolveAdv(req, String(q.adAccountId || '').trim());
-      const out = await adsAi.budgetProposal(req.account.id, advertiserId, String(q.currency || 'USD').slice(0, 5));
+      const days = Math.max(1, Math.min(30, parseInt(q.days, 10) || 1));
+      const out = await adsAi.budgetProposal(req.account.id, advertiserId, String(q.currency || 'USD').slice(0, 5), days);
       res.json(out);
     } catch (err) { fail(res, err); }
   });

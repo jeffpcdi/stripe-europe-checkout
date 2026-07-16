@@ -7,6 +7,7 @@ import {
   ShieldAlert,
   Settings,
   Megaphone,
+  ShoppingBag,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -22,6 +23,7 @@ export type ViewId =
   | 'domains'
   | 'cloak'
   | 'ads'
+  | 'catalog'
   | 'config'
 
 export interface NavItem {
@@ -75,8 +77,11 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Anúncios',
     icon: Megaphone,
     href: '/ads/tiktok',
-    routes: ['/ads'],
-    tabs: [{ label: 'TikTok Ads', href: '/ads/tiktok' }],
+    routes: ['/ads', '/catalog'],
+    tabs: [
+      { label: 'TikTok Ads', href: '/ads/tiktok' },
+      { label: 'Catálogo', href: '/catalog' },
+    ],
   },
   {
     id: 'config',
@@ -111,6 +116,7 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { id: 'domains', label: 'Domínios', description: 'Domínios verificados', icon: Globe, href: '/domains' },
       { id: 'cloak', label: 'Cloaker', description: 'Filtros e entries', icon: ShieldAlert, href: '/cloak' },
       { id: 'ads', label: 'TikTok Ads', description: 'Campanhas, anúncios e criativos', icon: Megaphone, href: '/ads/tiktok' },
+      { id: 'catalog', label: 'Catálogo', description: 'Catálogos de produtos do TikTok', icon: ShoppingBag, href: '/catalog' },
     ],
   },
   {

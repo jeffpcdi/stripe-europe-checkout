@@ -476,13 +476,8 @@ export function TikTokAdsView() {
                           </span>
                         </DropdownMenu.Item>
                       )}
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                        onSelect={() => openWriteFlow(setCatalogOpen)}
-                      >
-                        <ShoppingBag className="size-3.5" aria-hidden="true" />
-                        Catálogo de produtos
-                      </DropdownMenu.Item>
+                      {/* O catálogo de produtos virou página própria no menu
+                          (Gestão → Catálogo) — o atalho daqui foi removido. */}
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu.Root>

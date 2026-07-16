@@ -106,37 +106,61 @@ async function underCooldown(accId, key, ms) {
 // real exige revisão dos thresholds antes; alertas só notificam, então nascem
 // ligados. Todos os valores passam por validateRules sem mutação (testado) —
 // inclusive o budgetCap do roas_scale, obrigatório para a regra ser válida.
+// Janela padrão DIÁRIA (lookbackDays:1) — pedido do produto. Os pisos de
+// volume (minClicks/minImpressions/minSpend) protegem contra o ruído de 1 dia;
+// a UI ainda exibe aviso de estabilidade quando a janela é < 3 dias.
+// Nota: não existe preset de "CPC alto" porque o avaliador não tem métrica de
+// CPC (RULE_METRICS) — cpm_max já cobre leilão caro; adicionar CPC exigiria
+// mudar o avaliador, fora do escopo de presets.
 function buildRulePresets() {
   return validateRules([
     {
       id: 'preset_cpa', preset: true, enabled: false,
       name: 'CPA alto → pausar',
-      description: 'Pausa campanhas cujo custo por conversão passar de 15 € nos últimos 2 dias. Só age com volume mínimo (30 cliques / 1000 impressões) — ruído não é sinal.',
-      metric: 'cpa_max', threshold: 15, lookbackDays: 2, action: 'pause', minClicks: 30, minImpressions: 1000,
+      description: 'Pausa campanhas cujo custo por conversão passar de 15 € no dia. Só age com volume mínimo (30 cliques / 1000 impressões) — ruído não é sinal.',
+      metric: 'cpa_max', threshold: 15, lookbackDays: 1, action: 'pause', minClicks: 30, minImpressions: 1000,
     },
     {
       id: 'preset_noconv', preset: true, enabled: false,
       name: 'Gasto sem venda → pausar',
-      description: 'Pausa campanhas que gastarem 20 € em 2 dias sem NENHUMA conversão. Mesmos pisos de volume do CPA.',
-      metric: 'spend_no_conv', threshold: 20, lookbackDays: 2, action: 'pause', minClicks: 30, minImpressions: 1000,
+      description: 'Pausa campanhas que gastarem 20 € no dia sem NENHUMA conversão. Mesmos pisos de volume do CPA.',
+      metric: 'spend_no_conv', threshold: 20, lookbackDays: 1, action: 'pause', minClicks: 30, minImpressions: 1000,
     },
     {
       id: 'preset_ctr', preset: true, enabled: false,
       name: 'CTR baixo → pausar',
       description: 'Pausa campanhas com CTR abaixo de 0,5% após 2000 impressões — criativo que não engaja só queima orçamento.',
-      metric: 'ctr_min', threshold: 0.5, lookbackDays: 2, action: 'pause', minImpressions: 2000,
+      metric: 'ctr_min', threshold: 0.5, lookbackDays: 1, action: 'pause', minImpressions: 2000,
     },
     {
       id: 'preset_scale', preset: true, enabled: false,
       name: 'ROAS bom → escalar',
       description: 'Aumenta o orçamento em 20% quando o ROAS atribuído passar de 2,0 com pelo menos 2 vendas. Teto absoluto de 100 €/dia por campanha — escala sem limite é o risco nº 1.',
-      metric: 'roas_scale', threshold: 2, lookbackDays: 2, minSales: 2, pct: 20, budgetCap: 100,
+      metric: 'roas_scale', threshold: 2, lookbackDays: 1, minSales: 2, pct: 20, budgetCap: 100,
     },
     {
       id: 'preset_cpm', preset: true, enabled: false,
       name: 'CPM caro → reduzir orçamento',
       description: 'Reduz o orçamento em 20% quando o CPM passar de 12 € com pelo menos 5 € gastos — leilão caro demais para insistir no mesmo volume.',
-      metric: 'cpm_max', threshold: 12, lookbackDays: 2, action: 'budget_down', pct: 20, minSpend: 5,
+      metric: 'cpm_max', threshold: 12, lookbackDays: 1, action: 'budget_down', pct: 20, minSpend: 5,
+    },
+    {
+      id: 'preset_roasmin', preset: true, enabled: false,
+      name: 'ROAS baixo → pausar',
+      description: 'Pausa campanhas com ROAS atribuído abaixo de 1,0 no dia. Só age quando a conta já tem venda atribuída no período — ROAS "0" pode ser só atraso de webhook.',
+      metric: 'roas_min', threshold: 1, lookbackDays: 1, action: 'pause',
+    },
+    {
+      id: 'preset_scale_agro', preset: true, enabled: false,
+      name: 'ROAS excelente → escalar agressivo',
+      description: 'Aumenta o orçamento em 30% quando o ROAS atribuído passar de 3,0 com pelo menos 2 vendas. Teto absoluto de 200 €/dia por campanha.',
+      metric: 'roas_scale', threshold: 3, lookbackDays: 1, minSales: 2, pct: 30, budgetCap: 200,
+    },
+    {
+      id: 'preset_schedule', preset: true, enabled: false,
+      name: 'Horário comercial (seg–sex)',
+      description: 'Liga as campanhas às 09:00 e pausa às 23:00, de segunda a sexta (fuso Europe/Lisbon). Fora da janela, tudo pausado.',
+      metric: 'schedule', days: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '23:00', timezone: 'Europe/Lisbon',
     },
   ]);
 }
@@ -202,7 +226,9 @@ function validateRules(raw) {
       ...(r.description ? { description: String(r.description).slice(0, 200) } : {}),
       ...(r.preset ? { preset: true } : {}),
       threshold: Math.max(0, Math.min(100000, Number(r.threshold) || 0)),
-      lookbackDays: Math.max(1, Math.min(30, parseInt(r.lookbackDays, 10) || 2)),
+      // Default DIÁRIO (1): pedido do produto. Janela curta é ruidosa, mas os
+      // pisos de volume (minClicks/minImpressions) protegem; a UI avisa < 3d.
+      lookbackDays: Math.max(1, Math.min(30, parseInt(r.lookbackDays, 10) || 1)),
       action: RULE_ACTIONS.includes(r.action) ? r.action : 'pause',
       pct: Math.max(5, Math.min(50, Number(r.pct) || 20)),
       // F3 — MODO PROPOSTA: 'proposal' grava a intenção p/ aprovação humana;
@@ -450,7 +476,7 @@ async function runRulesSweep(accId, { force } = {}) {
 
   const dryRun = !!policy.dryRun;
   const to = new Date();
-  const maxLookback = Math.max(...rules.map((r) => r.lookbackDays || 2), 1);
+  const maxLookback = Math.max(...rules.map((r) => r.lookbackDays || 1), 1);
   const fromDate = isoDay(new Date(to.getTime() - maxLookback * 864e5));
   const toDate = isoDay(to);
   const { stale, campaigns } = await treeForSweep(accId, advertiserId, {
