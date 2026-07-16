@@ -21,7 +21,7 @@ const provider = require('../ads-provider.js');
 // ── 1. presets são estáveis sob validateRules (sem mutação) ─────────────────
 {
   const presets = automation.buildRulePresets();
-  assert.strictEqual(presets.length, 5, 'pacote tem 5 regras');
+  assert.strictEqual(presets.length, 8, 'pacote tem 8 regras');
   const revalidated = automation.validateRules(presets);
   assert.deepStrictEqual(revalidated, presets, 'validateRules(presets) é identidade — preset já nasce válido');
 
@@ -36,6 +36,14 @@ const provider = require('../ads-provider.js');
   assert.strictEqual(scale.action, 'budget_up', 'escala é sempre budget_up');
   const cpa = presets.find((p) => p.metric === 'cpa_max');
   assert.ok(cpa.minClicks === 30 && cpa.minImpressions === 1000, 'pisos de volume do cpa_max');
+  // Novos presets (padrão diário): ROAS baixo, escala agressiva e dayparting
+  assert.ok(presets.every((p) => p.metric === 'schedule' || p.lookbackDays === 1), 'janela padrão diária (1 dia) em todos os presets com lookback');
+  const roasMin = presets.find((p) => p.metric === 'roas_min');
+  assert.ok(roasMin && roasMin.action === 'pause' && roasMin.threshold === 1, 'preset roas_min pausa abaixo de 1.0');
+  const agro = presets.find((p) => p.id === 'preset_scale_agro');
+  assert.ok(agro && agro.budgetCap === 200 && agro.pct === 30 && agro.action === 'budget_up', 'escala agressiva com teto 200');
+  const sched = presets.find((p) => p.metric === 'schedule');
+  assert.ok(sched && sched.days.length === 5 && sched.startTime === '09:00' && sched.endTime === '23:00', 'dayparting seg–sex 09–23');
   console.log('ok: presets válidos, pausados e estáveis sob validateRules');
 }
 
@@ -43,7 +51,7 @@ const provider = require('../ads-provider.js');
 {
   const acc = 'acc_fresh_' + Date.now().toString(36);
   const rules = automation.getRules(acc);
-  assert.strictEqual(rules.length, 5, 'conta nova é semeada com o pacote');
+  assert.strictEqual(rules.length, 8, 'conta nova é semeada com o pacote');
   assert.ok(rules.every((r) => r.enabled === false), 'tudo semeado pausado');
   assert.strictEqual(provider.getState(acc).rulesSeeded, true, 'flag rulesSeeded setada');
 

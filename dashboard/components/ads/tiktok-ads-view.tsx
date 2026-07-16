@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, ShoppingBag } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, Copy } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -33,10 +33,10 @@ import { SparkAdDialog } from './spark-ad-dialog'
 import { IdentityDialog } from './identity-dialog'
 import { CampaignDrawer } from './campaign-drawer'
 import { DuplicateDialog } from './duplicate-dialog'
+import { DuplicatePanel } from './duplicate-panel'
 import { RoasCard } from './roas-card'
 import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
-import { CatalogDialog } from './catalog-dialog'
 import { AttentionStrip } from './attention-strip'
 import { AutomationPanel } from './automation-panel'
 import { McpStatusCard } from './mcp-status-card'
@@ -96,11 +96,11 @@ export function TikTokAdsView() {
   // honrado UMA vez pós-mount (deep-link "ver automações" da home). useEffect
   // em vez de initializer para não divergir da renderização do servidor;
   // window.location em vez de useSearchParams para não exigir Suspense.
-  type TabKey = 'overview' | 'campaigns' | 'automation' | 'ai'
+  type TabKey = 'overview' | 'campaigns' | 'duplicate' | 'automation' | 'ai'
   const [tab, setTab] = useState<TabKey>('overview')
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
-    if (t === 'campaigns' || t === 'automation' || t === 'ai') setTab(t)
+    if (t === 'campaigns' || t === 'duplicate' || t === 'automation' || t === 'ai') setTab(t)
   }, [])
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -113,7 +113,6 @@ export function TikTokAdsView() {
   const alertsRowRef = useRef<HTMLDivElement | null>(null)
   const [opsOpen, setOpsOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
-  const [catalogOpen, setCatalogOpen] = useState(false)
 
   // Política de segurança — alimenta o badge de simulação/kill switch
   const { data: safety, mutate: mutateSafety } = useAdsSafetyPolicy(connected)
@@ -127,6 +126,9 @@ export function TikTokAdsView() {
   const openTickets = (adsHealth?.tickets ?? []).filter((t) => t.status === 'open' || t.status === 'submitted')
   const [detailCampaign, setDetailCampaign] = useState<AdsTreeCampaign | null>(null)
   const [duplicateCampaign, setDuplicateCampaign] = useState<AdsTreeCampaign | null>(null)
+  // Aba Duplicação: campanha de origem escolhida no seletor (id → objeto da árvore)
+  const [duplicateSourceId, setDuplicateSourceId] = useState('')
+  const duplicateSource = (tree?.campaigns ?? []).find((c) => c.platformCampaignId === duplicateSourceId) ?? null
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
@@ -346,6 +348,12 @@ export function TikTokAdsView() {
                 Campanhas
               </Tabs.Trigger>
               <Tabs.Trigger
+                value="duplicate"
+                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+              >
+                Duplicação
+              </Tabs.Trigger>
+              <Tabs.Trigger
                 value="automation"
                 className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
               >
@@ -476,13 +484,8 @@ export function TikTokAdsView() {
                           </span>
                         </DropdownMenu.Item>
                       )}
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                        onSelect={() => openWriteFlow(setCatalogOpen)}
-                      >
-                        <ShoppingBag className="size-3.5" aria-hidden="true" />
-                        Catálogo de produtos
-                      </DropdownMenu.Item>
+                      {/* O catálogo de produtos virou página própria no menu
+                          (Gestão → Catálogo) — o atalho daqui foi removido. */}
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu.Root>
@@ -516,6 +519,48 @@ export function TikTokAdsView() {
               attribution={attribution?.byCampaign}
               />
             </>
+          )}
+
+          {/* ── Aba: Duplicação — escolher a campanha de origem e duplicar
+              (cópias exatas 1-10 ou variações até 50). Mesmo fluxo da ação
+              por-campanha do CampaignTree, agora como tela dedicada. ── */}
+          {tab === 'duplicate' && (
+            <GlassCard className="flex flex-col gap-4 p-5">
+              <div className="flex items-center gap-2">
+                <Copy className="size-4 text-primary" aria-hidden="true" />
+                <h2 className="text-sm font-semibold text-foreground">Duplicar campanha</h2>
+              </div>
+              <label className="flex max-w-md flex-col gap-1.5">
+                <span className="text-xs font-medium text-foreground">Campanha de origem</span>
+                <select
+                  className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                  value={duplicateSourceId}
+                  onChange={(e) => setDuplicateSourceId(e.target.value)}
+                >
+                  <option value="">Selecione uma campanha…</option>
+                  {(tree?.campaigns ?? []).map((c) => (
+                    <option key={c.platformCampaignId} value={c.platformCampaignId}>
+                      {c.campaignName || c.platformCampaignId}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {duplicateSource ? (
+                <div className="max-w-md">
+                  <DuplicatePanel
+                    campaign={duplicateSource}
+                    advertisers={advertisers}
+                    currentAdvertiserId={concreteAdvertiser}
+                    onFinished={() => mutateTree()}
+                  />
+                </div>
+              ) : (
+                <p className="text-pretty text-xs text-muted-foreground">
+                  Escolha a campanha de origem acima. A lista respeita o filtro/período da aba Campanhas —
+                  se não achar a campanha, troque o período para &quot;Todas&quot; lá.
+                </p>
+              )}
+            </GlassCard>
           )}
 
           {/* ── Aba: Automações (redesenho) — faixa "Precisa de você" no topo
@@ -611,12 +656,6 @@ export function TikTokAdsView() {
         onPolicyChanged={() => mutateSafety()}
       />
       <HealthDialog open={healthOpen} onClose={() => setHealthOpen(false)} />
-      <CatalogDialog
-        open={catalogOpen}
-        onClose={() => setCatalogOpen(false)}
-        advertiserId={concreteAdvertiser}
-        advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
-      />
       <DuplicateDialog
         campaign={duplicateCampaign}
         onClose={() => setDuplicateCampaign(null)}

@@ -1,6 +1,9 @@
 'use client'
 
-// Gerenciador de catálogos de produtos do TikTok.
+// Gerenciador de catálogos de produtos do TikTok — corpo extraído do antigo
+// CatalogDialog (modal 3 cliques fundo) para virar página de nível superior
+// no menu (Gestão → Catálogo). A lógica é a mesma; só o chrome de modal saiu.
+//
 // A integração de Ads NÃO publica campanhas de catálogo — então o
 // fluxo aqui é: editar produtos na dashboard → publicar um feed CSV
 // TikTok-ready numa URL pública (Blob) → o usuário cola essa URL UMA vez no
@@ -10,9 +13,9 @@
 // Telas: (1) lista de catálogos da conta; (2) detalhe com tabela de produtos
 // editável, importação de CSV, download e publicação + passo a passo guiado.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
-  X, ShoppingBag, Loader2, Plus, Trash2, UploadCloud, Download, Rocket,
+  X, Loader2, Plus, Trash2, UploadCloud, Download, Rocket,
   Copy, Check, AlertCircle, ChevronLeft, ExternalLink, PackageOpen,
 } from 'lucide-react'
 import {
@@ -28,88 +31,52 @@ const CURRENCIES = ['USD', 'BRL', 'EUR', 'GBP', 'MXN', 'CAD', 'AUD', 'JPY']
 // lateral). São as que o TikTok exige + as de maior uso.
 const PRIMARY_COLS = ['sku_id', 'title', 'availability', 'condition', 'price', 'image_link', 'link']
 
-export function CatalogDialog({
-  open,
-  onClose,
-  advertiserId,
-  advertiserLabel,
+export function CatalogManager({
+  advertiserId: _advertiserId,
+  advertiserLabel: _advertiserLabel,
 }: {
-  open: boolean
-  onClose: () => void
   advertiserId: string
   advertiserLabel: string
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useModalA11y(open, ref, onClose)
-
-  const { data: list, mutate: mutateList, isLoading: listLoading } = useAdsCatalogs(open)
-  const { data: spec } = useAdsCatalogSpec(open)
+  const { data: list, mutate: mutateList, isLoading: listLoading } = useAdsCatalogs(true)
+  const { data: spec } = useAdsCatalogSpec(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) setSelectedId(null)
-  }, [open])
-
-  if (!open) return null
 
   const enabled = list?.enabled !== false
 
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div ref={ref} role="dialog" aria-modal="true" aria-label="Catálogos de produtos" tabIndex={-1} className="w-full max-w-4xl outline-none">
-        <div className="anim-pop-in flex max-h-[88vh] flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <ShoppingBag className="size-4 text-primary" aria-hidden="true" />
-              Catálogos de produtos
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
-                {advertiserLabel || advertiserId}
-              </span>
-            </h2>
-            <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} aria-label="Fechar">
-              <X className="size-4" aria-hidden="true" />
-            </button>
-          </div>
-
-          {!enabled ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-background p-8 text-center">
-              <AlertCircle className="size-6 text-warning" aria-hidden="true" />
-              <p className="text-sm font-medium text-foreground">Persistência indisponível</p>
-              <p className="max-w-md text-pretty text-xs text-muted-foreground">
-                O banco de dados (Neon) não está configurado, então catálogos não podem ser salvos. Conecte o
-                Neon nas configurações do projeto para usar este recurso.
-              </p>
-            </div>
-          ) : selectedId ? (
-            <CatalogDetail
-              catalogId={selectedId}
-              spec={spec ?? null}
-              onBack={() => {
-                setSelectedId(null)
-                mutateList()
-              }}
-              onDeleted={() => {
-                setSelectedId(null)
-                mutateList()
-              }}
-            />
-          ) : (
-            <CatalogList
-              catalogs={list?.catalogs ?? []}
-              loading={listLoading && !list}
-              advertiserId={advertiserId}
-              onOpen={setSelectedId}
-              onChanged={mutateList}
-            />
-          )}
-        </div>
+  if (!enabled) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-background p-8 text-center">
+        <AlertCircle className="size-6 text-warning" aria-hidden="true" />
+        <p className="text-sm font-medium text-foreground">Persistência indisponível</p>
+        <p className="max-w-md text-pretty text-xs text-muted-foreground">
+          O banco de dados (Neon) não está configurado, então catálogos não podem ser salvos. Conecte o
+          Neon nas configurações do projeto para usar este recurso.
+        </p>
       </div>
-    </div>
+    )
+  }
+
+  return selectedId ? (
+    <CatalogDetail
+      catalogId={selectedId}
+      spec={spec ?? null}
+      onBack={() => {
+        setSelectedId(null)
+        mutateList()
+      }}
+      onDeleted={() => {
+        setSelectedId(null)
+        mutateList()
+      }}
+    />
+  ) : (
+    <CatalogList
+      catalogs={list?.catalogs ?? []}
+      loading={listLoading && !list}
+      onOpen={setSelectedId}
+      onChanged={mutateList}
+    />
   )
 }
 
@@ -117,13 +84,11 @@ export function CatalogDialog({
 function CatalogList({
   catalogs,
   loading,
-  advertiserId,
   onOpen,
   onChanged,
 }: {
   catalogs: AdsCatalog[]
   loading: boolean
-  advertiserId: string
   onOpen: (id: string) => void
   onChanged: () => void
 }) {
@@ -153,7 +118,7 @@ function CatalogList({
   }
 
   return (
-    <div className="flex flex-col gap-3 overflow-y-auto">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           Cada catálogo gera um feed CSV que você conecta ao TikTok Catalog Manager.
@@ -333,7 +298,7 @@ function CatalogDetail({
   }
 
   return (
-    <div className="flex flex-col gap-3 overflow-y-auto">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <button type="button" className="btn-ghost text-xs" onClick={onBack}>
           <ChevronLeft className="size-3.5" aria-hidden="true" />
