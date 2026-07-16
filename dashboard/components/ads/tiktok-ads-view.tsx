@@ -4,7 +4,7 @@
 // advertiser, KPIs agregados e a árvore de campanhas. Os fluxos de escrita
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, ShoppingBag } from 'lucide-react'
 import {
@@ -33,12 +33,10 @@ import { IdentityDialog } from './identity-dialog'
 import { CampaignDrawer } from './campaign-drawer'
 import { DuplicateDialog } from './duplicate-dialog'
 import { RoasCard } from './roas-card'
-import { AlertsDialog } from './alerts-dialog'
-import { AutomationDialog } from './automation-dialog'
 import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
 import { CatalogDialog } from './catalog-dialog'
-import { OpsStatusCards } from './ops-status-cards'
+import { AttentionStrip } from './attention-strip'
 import { AutomationPanel } from './automation-panel'
 import { McpStatusCard } from './mcp-status-card'
 import { KpiRow } from './kpi-row'
@@ -107,8 +105,10 @@ export function TikTokAdsView() {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [identityOpen, setIdentityOpen] = useState(false)
-  const [alertsOpen, setAlertsOpen] = useState(false)
-  const [rulesOpen, setRulesOpen] = useState(false)
+  // Alvo do scroll do chip "Alertas desligados" (AttentionStrip → linha de
+  // alertas do AutomationPanel). Os diálogos de regras/alertas morreram no
+  // redesenho — edição é inline agora.
+  const alertsRowRef = useRef<HTMLDivElement | null>(null)
   const [opsOpen, setOpsOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
@@ -523,23 +523,23 @@ export function TikTokAdsView() {
             </>
           )}
 
-          {/* ── Aba: Automações — regras, alertas, fila e diagnóstico ── */}
+          {/* ── Aba: Automações (redesenho) — faixa "Precisa de você" no topo
+              (propostas + chips de alarme) e painel com edição inline. Os
+              diálogos de regras/alertas morreram; ops/health continuam,
+              abertos pelos chips. ── */}
           {tab === 'automation' && (
             <>
-              <OpsStatusCards
+              <AttentionStrip
                 active={treeActive}
-                onOpenAutomation={() => setRulesOpen(true)}
-                onOpenAlerts={() => setAlertsOpen(true)}
                 onOpenOps={() => setOpsOpen(true)}
                 onOpenHealth={() => setHealthOpen(true)}
+                onFocusAlerts={() => {
+                  // Rola até a linha de alertas — o chip "desligados" leva
+                  // direto ao lugar onde se religa.
+                  alertsRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }}
               />
-              {/* Painel inline: regras com toggle de 1 clique + histórico do
-                  motor — o dia a dia sem precisar abrir o editor completo */}
-              <AutomationPanel
-                active={treeActive}
-                onOpenRulesEditor={() => setRulesOpen(true)}
-                onOpenAlertsEditor={() => setAlertsOpen(true)}
-              />
+              <AutomationPanel active={treeActive} currency={currency} alertsFocusRef={alertsRowRef} />
             </>
           )}
 
@@ -609,7 +609,6 @@ export function TikTokAdsView() {
           mutateStatus()
         }}
       />
-      <AlertsDialog open={alertsOpen} onClose={() => setAlertsOpen(false)} currency={currency} />
       <OpsDialog
         open={opsOpen}
         onClose={() => setOpsOpen(false)}
@@ -622,12 +621,6 @@ export function TikTokAdsView() {
         onClose={() => setCatalogOpen(false)}
         advertiserId={concreteAdvertiser}
         advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
-      />
-      <AutomationDialog
-        open={rulesOpen}
-        onClose={() => setRulesOpen(false)}
-        currency={currency}
-        onExecuted={() => mutateTree()}
       />
       <DuplicateDialog
         campaign={duplicateCampaign}

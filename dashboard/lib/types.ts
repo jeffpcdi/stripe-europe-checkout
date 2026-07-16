@@ -1023,7 +1023,11 @@ export interface AdsRule {
   lookbackDays: number
   action: AdsRuleAction
   pct: number // % de ajuste de orçamento (budget_up/down)
+  // F3 — modo da regra: 'proposal' (default do motor) grava proposta para
+  // aprovação humana; 'execute' age direto. Antes invisível na UI.
+  mode?: 'proposal' | 'execute'
   // guardas dos tipos novos (opcionais — regras antigas não os têm)
+  minClicks?: number // cpa_max/spend_no_conv: piso de cliques (ruído não é sinal)
   minImpressions?: number // ctr_min: não age com menos impressões que isso
   minSpend?: number // cpm_max: não age com menos gasto que isso
   minSales?: number // roas_scale: vendas atribuídas mínimas p/ escalar
@@ -1045,6 +1049,10 @@ export interface AdsRuleLogEntry {
   detail: string
   ok: boolean
   result?: string
+  // Flags da F3 que o motor grava no log (a UI usa para badges por tipo)
+  proposed?: boolean // regra em modo proposta: gravou intenção, não executou
+  simulated?: boolean // dry-run ativo: nada tocou a plataforma
+  approvedProposal?: boolean // execução veio de uma aprovação humana
 }
 
 export interface AdsRulesResponse {
