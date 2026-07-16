@@ -96,7 +96,8 @@ export function TikTokAdsView() {
   // honrado UMA vez pós-mount (deep-link "ver automações" da home). useEffect
   // em vez de initializer para não divergir da renderização do servidor;
   // window.location em vez de useSearchParams para não exigir Suspense.
-  const [tab, setTab] = useState<'overview' | 'campaigns' | 'automation' | 'ai'>('overview')
+  type TabKey = 'overview' | 'campaigns' | 'automation' | 'ai'
+  const [tab, setTab] = useState<TabKey>('overview')
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
     if (t === 'campaigns' || t === 'automation' || t === 'ai') setTab(t)
