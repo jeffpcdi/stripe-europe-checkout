@@ -19,6 +19,7 @@ import {
 import useSWR from 'swr'
 import { useAccount, apiSend, fetcher } from '@/lib/api'
 import { formatDateTime } from '@/lib/format'
+import { Modal } from '@/components/ui/modal'
 import { GlassCard } from '@/components/glass-card'
 
 const inputCls =
@@ -58,6 +59,10 @@ export function SecurityCard() {
     fetcher,
     { revalidateOnFocus: false },
   )
+
+  const [modalPw, setModalPw] = useState(false)
+  const [modalSessions, setModalSessions] = useState(false)
+  const [modal2FA, setModal2FA] = useState(false)
 
   /* item 413 — nome */
   const [name, setName] = useState<string | null>(null)
@@ -167,36 +172,49 @@ export function SecurityCard() {
         </div>
       </div>
 
-      {/* item 411 — trocar senha */}
-      <div className="mt-4 border-t border-border pt-4">
-        <p className="mb-1 text-xs font-medium text-muted-foreground">
-          Trocar senha <span className="font-normal">— as outras sessões são encerradas por segurança</span>
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <input className={`${inputCls} min-w-36 flex-1`} type="password" placeholder="Senha atual" autoComplete="current-password" value={pwCur} onChange={(e) => setPwCur(e.target.value)} />
-          <input className={`${inputCls} min-w-36 flex-1`} type="password" placeholder="Nova senha (mín. 8)" autoComplete="new-password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} />
-          <input className={`${inputCls} min-w-36 flex-1`} type="password" placeholder="Repita a nova" autoComplete="new-password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} />
-          <button type="button" onClick={savePassword} disabled={savingPw || !pwCur || !pwNew} className={btnGhost}>
-            {savingPw ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            Trocar senha
-          </button>
-        </div>
-        {pwMsg && (
-          <p className={`mt-2 text-xs ${pwMsg.ok ? 'text-success' : 'anim-shake text-destructive'}`} role="status">
-            {pwMsg.text}
-          </p>
-        )}
+      <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
+        <button type="button" onClick={() => setModalPw(true)} className={btnGhost}>
+          Trocar senha
+        </button>
+        <button type="button" onClick={() => setModal2FA(true)} className={btnGhost}>
+          Autenticação 2FA
+        </button>
+        <button type="button" onClick={() => setModalSessions(true)} className={btnGhost}>
+          Dispositivos conectados
+        </button>
       </div>
 
-      {/* item 420 — verificação em duas etapas (TOTP) */}
-      <TwofaSection />
+      {/* item 411 — trocar senha (MODAL) */}
+      <Modal isOpen={modalPw} onClose={() => setModalPw(false)} title="Trocar senha" description="As outras sessões serão encerradas por segurança.">
+        <div className="flex flex-col gap-3">
+          <input className={`${inputCls}`} type="password" placeholder="Senha atual" autoComplete="current-password" value={pwCur} onChange={(e) => setPwCur(e.target.value)} />
+          <input className={`${inputCls}`} type="password" placeholder="Nova senha (mín. 8)" autoComplete="new-password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} />
+          <input className={`${inputCls}`} type="password" placeholder="Repita a nova" autoComplete="new-password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} />
+          <div className="flex items-center justify-end gap-2 mt-2">
+             {pwMsg && (
+                <p className={`text-xs ${pwMsg.ok ? 'text-success' : 'anim-shake text-destructive'} mr-auto`} role="status">
+                  {pwMsg.text}
+                </p>
+              )}
+             <button type="button" onClick={() => setModalPw(false)} className={btnGhost}>
+                Cancelar
+             </button>
+             <button type="button" onClick={savePassword} disabled={savingPw || !pwCur || !pwNew} className={btnPrimary}>
+                {savingPw ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Salvar nova senha
+             </button>
+          </div>
+        </div>
+      </Modal>
 
-      {/* item 414 — sessões ativas */}
-      <div className="mt-4 border-t border-border pt-4">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <p className="text-xs font-medium text-muted-foreground">
-            Sessões ativas <span className="font-normal">— onde sua conta está logada agora</span>
-          </p>
+      {/* item 420 — verificação em duas etapas (TOTP) (MODAL) */}
+      <Modal isOpen={modal2FA} onClose={() => setModal2FA(false)} title="Autenticação em Duas Etapas (2FA)">
+        <TwofaSection />
+      </Modal>
+
+      {/* item 414 — sessões ativas (MODAL) */}
+      <Modal isOpen={modalSessions} onClose={() => setModalSessions(false)} title="Sessões Ativas" description="Onde sua conta está logada agora">
+        <div className="flex items-center justify-end mb-4">
           <button
             type="button"
             onClick={revokeOthers}
@@ -214,10 +232,10 @@ export function SecurityCard() {
         ) : (
           <ul className="flex flex-col divide-y divide-border/40">
             {list.map((s) => (
-              <li key={s.sid} className="flex items-center gap-3 py-2">
-                <MonitorSmartphone className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <li key={s.sid} className="flex items-center gap-3 py-3">
+                <MonitorSmartphone className="size-5 shrink-0 text-[color:var(--brand-cyan)]" aria-hidden="true" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-foreground">
+                  <p className="text-sm font-semibold text-foreground">
                     {shortUa(s.ua)}
                     {s.current && (
                       <span className="ml-2 rounded-full bg-[color:var(--brand-cyan)]/15 px-2 py-0.5 text-[10px] font-semibold text-[color:var(--brand-cyan)]">
@@ -235,7 +253,7 @@ export function SecurityCard() {
                     type="button"
                     onClick={() => revokeOne(s.sid)}
                     disabled={revoking !== null}
-                    className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                    className="shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
                   >
                     {revoking === s.sid ? <Loader2 className="size-3 animate-spin" /> : 'Encerrar'}
                   </button>
@@ -244,7 +262,7 @@ export function SecurityCard() {
             ))}
           </ul>
         )}
-      </div>
+      </Modal>
     </GlassCard>
   )
 }
@@ -314,12 +332,12 @@ function TwofaSection() {
   const enabled = status?.enabled ?? false
 
   return (
-    <div className="mt-4 border-t border-border pt-4">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-xs font-medium text-muted-foreground">
-          Verificação em duas etapas <span className="font-normal">— código do app autenticador no login</span>
+    <div>
+      <div className="mb-4 flex items-center justify-between gap-3 border-b border-border pb-4">
+        <p className="text-xs text-muted-foreground">
+          Use um aplicativo autenticador no login
         </p>
-        <span className={`text-xs font-semibold ${!status ? 'text-muted-foreground' : enabled ? 'text-success' : 'text-muted-foreground'}`}>
+        <span className={`text-xs font-semibold px-2 py-1 rounded-md ${!status ? 'text-muted-foreground' : enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'}`}>
           {!status ? 'Verificando…' : enabled ? 'Ativo' : 'Desligado'}
         </span>
       </div>

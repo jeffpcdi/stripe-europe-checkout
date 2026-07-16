@@ -212,38 +212,43 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
   }
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-all hover:border-brand-cyan/40 focus:border-[color:var(--brand-cyan)] focus:shadow-[0_0_15px_rgba(37,244,238,0.3)] focus:outline-none'
+    'w-full rounded-lg border border-border/50 bg-secondary/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 transition-all duration-300 hover:border-[color:var(--brand-cyan)]/40 hover:bg-secondary/60 focus:border-[color:var(--brand-cyan)] focus:bg-background focus:shadow-[0_0_25px_rgba(37,244,238,0.15)] focus:outline-none group-focus-within:border-[color:var(--brand-cyan)]/50'
+
+  const labelCls = "text-[11px] font-semibold text-muted-foreground transition-colors duration-300 group-focus-within:text-[color:var(--brand-cyan)] group-focus-within:drop-shadow-[0_0_5px_rgba(37,244,238,0.4)]"
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl md:items-center transition-all"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 md:items-center transition-all animate-in fade-in duration-500"
       role="dialog"
       aria-modal="true"
       aria-label={link ? 'Editar link' : 'Novo link'}
     >
-      <GlassCard variant="thick" className="my-8 w-full max-w-2xl p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">
+      {/* Black Hole Backdrop Effect */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.4)_0%,rgba(0,0,0,0.9)_100%)] backdrop-blur-3xl pointer-events-none" />
+
+      <GlassCard variant="thick" className="relative z-10 my-8 w-full max-w-2xl p-6 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05),0_30px_60px_-15px_rgba(0,0,0,0.5),0_0_100px_rgba(37,244,238,0.1)] animate-in zoom-in-[0.98] duration-300 ease-out">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70 drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
             {link ? `Editar link — ${link.nome}` : 'Novo link de checkout'}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="group/close rounded-full p-1.5 text-muted-foreground transition-all duration-300 hover:bg-destructive/10 hover:text-destructive"
             aria-label="Fechar"
           >
-            <X className="size-4" />
+            <X className="size-4 transition-transform duration-300 group-hover/close:rotate-90 group-hover/close:scale-110" />
           </button>
         </div>
 
         <div className="flex flex-col gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Nome</span>
+            <label className="group flex flex-col gap-1.5 relative">
+              <span className={labelCls}>Nome</span>
               <input className={inputCls} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Oferta ES" />
             </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">
+            <label className="group flex flex-col gap-1.5 relative">
+              <span className={labelCls}>
                 Slug {link ? '(fixo)' : '(URL: /go/slug)'}
               </span>
               <input
@@ -257,8 +262,8 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Domínio personalizado</span>
+            <label className="group flex flex-col gap-1.5 relative">
+              <span className={labelCls}>Domínio personalizado</span>
               <select className={inputCls} value={dominio} onChange={(e) => setDominio(e.target.value)}>
                 <option value="">Domínio padrão do app</option>
                 {domains.map((d) => (
@@ -268,33 +273,33 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Pixel (slug — vazio = todos)</span>
+            <label className="group flex flex-col gap-1.5 relative">
+              <span className={labelCls}>Pixel (slug — vazio = todos)</span>
               <input className={inputCls} value={pixelSlug} onChange={(e) => setPixelSlug(e.target.value)} placeholder="meu-pixel" />
             </label>
           </div>
 
           {dominioMudou && (
-            <p
-              className="rounded-lg bg-[color:var(--warning)]/10 px-3 py-2 text-xs text-[color:var(--warning)]"
+            <div
+              className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-[color:var(--warning)]/20 to-[color:var(--warning)]/5 border border-[color:var(--warning)]/30 px-4 py-3 text-xs text-[color:var(--warning)] shadow-inner animate-in slide-in-from-top-2 duration-300"
               role="alert"
             >
-              Ao trocar o domínio, a validação anterior deixa de valer: o link será salvo como
-              &quot;domínio não verificado&quot; até você validar {dominio} de novo.
-            </p>
+              <div className="size-1.5 rounded-full bg-[color:var(--warning)] animate-pulse" />
+              <p>Ao trocar o domínio, a validação anterior deixa de valer: o link será salvo como &quot;domínio não verificado&quot;.</p>
+            </div>
           )}
 
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Página segura (fallback para revisão)</span>
+          <label className="group flex flex-col gap-1.5 relative">
+            <span className={labelCls}>Página segura (fallback para revisão)</span>
             <input
-              className={`${inputCls} ${urlInvalida(urlWhitePage) ? 'border-destructive focus:ring-destructive' : ''}`}
+              className={`${inputCls} ${urlInvalida(urlWhitePage) ? 'border-destructive focus:border-destructive focus:shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-[shake_0.5s]' : ''}`}
               value={urlWhitePage}
               onChange={(e) => setUrlWhitePage(e.target.value)}
               placeholder="https://blog-inocente.com"
               aria-invalid={urlInvalida(urlWhitePage)}
             />
             {urlInvalida(urlWhitePage) && (
-              <span className="text-[11px] text-destructive">
+              <span className="text-[11px] text-destructive animate-in slide-in-from-top-1">
                 A URL precisa começar com https:// e ter um domínio válido.
               </span>
             )}
@@ -379,15 +384,15 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
 
           {/* Versões A/B */}
           <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">
-                Versões (teste A/B por tráfego)
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-semibold text-foreground flex items-center gap-2">
+                Versões (teste A/B)
                 {activeVariants.length >= 2 && (
                   <span
-                    className={`ml-2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums transition-colors duration-500 shadow-inner border ${
                       pesoInvalido
-                        ? 'bg-[color:var(--warning)]/15 text-[color:var(--warning)]'
-                        : 'bg-[color:var(--success)]/15 text-[color:var(--success)]'
+                        ? 'bg-[color:var(--warning)]/20 text-[color:var(--warning)] border-[color:var(--warning)]/30 drop-shadow-[0_0_8px_rgba(234,179,8,0.3)] animate-pulse'
+                        : 'bg-[color:var(--success)]/20 text-[color:var(--success)] border-[color:var(--success)]/30 drop-shadow-[0_0_8px_rgba(34,197,94,0.3)]'
                     }`}
                   >
                     soma {totalPeso}%
@@ -397,9 +402,9 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
               <button
                 type="button"
                 onClick={addVariant}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
+                className="group/add flex items-center gap-1.5 rounded-full border border-dashed border-[color:var(--brand-cyan)]/40 px-3 py-1.5 text-xs font-semibold text-[color:var(--brand-cyan)] transition-all duration-300 hover:bg-[color:var(--brand-cyan)]/10 hover:border-[color:var(--brand-cyan)]"
               >
-                <Plus className="size-3.5" /> Adicionar
+                <Plus className="size-3.5 transition-transform group-hover/add:rotate-90 group-hover/add:scale-110" /> Adicionar
               </button>
             </div>
             {pesoInvalido && (
@@ -419,67 +424,71 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
                 </button>
               </div>
             )}
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {variantes.map((v, i) => (
-                <div key={v.id} className="rounded-lg border border-border bg-secondary/40 p-3">
-                  <div className="mb-2 grid grid-cols-[1fr_80px_32px] items-end gap-2">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] text-muted-foreground">Nome</span>
+                <div key={v.id} className="relative rounded-xl border border-border/60 bg-secondary/20 p-4 transition-all duration-300 hover:border-border hover:shadow-lg animate-in fade-in slide-in-from-bottom-4 group/variant">
+                  <div className="mb-3 grid grid-cols-[1fr_90px] sm:grid-cols-[1fr_100px] items-start gap-3">
+                    <label className="group flex flex-col gap-1.5">
+                      <span className={labelCls}>Nome da Versão</span>
                       <input
                         className={inputCls}
                         value={v.nome}
                         onChange={(e) => updateVariant(i, { nome: e.target.value })}
                       />
                     </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] text-muted-foreground">Peso %</span>
-                      <input
-                        className={inputCls}
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={v.peso}
-                        onChange={(e) => updateVariant(i, { peso: Number(e.target.value) })}
-                      />
+                    <label className="group flex flex-col gap-1.5 relative">
+                      <span className={labelCls}>Peso %</span>
+                      <div className="relative">
+                        <input
+                          className={`${inputCls} pr-8 tabular-nums`}
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={v.peso}
+                          onChange={(e) => updateVariant(i, { peso: Number(e.target.value) })}
+                        />
+                        {/* Indicador visual de peso oculto no fundo */}
+                        <div className="absolute bottom-0 left-0 h-0.5 bg-[color:var(--brand-cyan)]/50 rounded-bl-lg transition-all duration-500 pointer-events-none" style={{ width: `${v.peso}%` }} />
+                      </div>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => removeVariant(i)}
-                      disabled={variantes.length === 1}
-                      className="mb-0.5 rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive disabled:opacity-40"
-                      aria-label={`Remover ${v.nome}`}
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] text-muted-foreground">URL do checkout</span>
+                  <button
+                    type="button"
+                    onClick={() => removeVariant(i)}
+                    disabled={variantes.length === 1}
+                    className="absolute -right-2 -top-2 rounded-full border border-border/50 bg-background p-1.5 text-muted-foreground opacity-0 shadow-lg transition-all duration-300 hover:scale-110 hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive group-hover/variant:opacity-100 disabled:hidden"
+                    aria-label={`Remover ${v.nome}`}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="group flex flex-col gap-1.5">
+                      <span className={labelCls}>URL do checkout</span>
                       <input
-                        className={`${inputCls} ${urlInvalida(v.url) ? 'border-destructive focus:ring-destructive' : ''}`}
+                        className={`${inputCls} ${urlInvalida(v.url) ? 'border-destructive focus:border-destructive animate-[shake_0.5s]' : ''}`}
                         value={v.url}
                         onChange={(e) => updateVariant(i, { url: e.target.value })}
                         placeholder="https://pay.gateway.com/abc"
                         aria-invalid={urlInvalida(v.url)}
                       />
                       {urlInvalida(v.url) && (
-                        <span className="text-[11px] text-destructive">
-                          A URL precisa começar com https:// e ter um domínio válido.
+                        <span className="text-[11px] text-destructive animate-in slide-in-from-top-1">
+                          A URL precisa começar com https://.
                         </span>
                       )}
                     </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] text-muted-foreground">URL mobile (opcional)</span>
+                    <label className="group flex flex-col gap-1.5">
+                      <span className={labelCls}>URL mobile (opcional)</span>
                       <input
-                        className={`${inputCls} ${urlInvalida(v.urlMobile) ? 'border-destructive focus:ring-destructive' : ''}`}
+                        className={`${inputCls} ${urlInvalida(v.urlMobile) ? 'border-destructive focus:border-destructive animate-[shake_0.5s]' : ''}`}
                         value={v.urlMobile}
                         onChange={(e) => updateVariant(i, { urlMobile: e.target.value })}
                         placeholder="https://pay.gateway.com/abc-m"
                         aria-invalid={urlInvalida(v.urlMobile)}
                       />
                       {urlInvalida(v.urlMobile) && (
-                        <span className="text-[11px] text-destructive">
-                          A URL precisa começar com https:// e ter um domínio válido.
+                        <span className="text-[11px] text-destructive animate-in slide-in-from-top-1">
+                          A URL precisa começar com https://.
                         </span>
                       )}
                     </label>
@@ -500,82 +509,88 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
           </label>
 
           {/* Item 71: UTM builder — monta a URL de anúncio a partir dos campos */}
-          <div className="rounded-lg border border-border bg-secondary/30">
+          <div className="relative overflow-hidden rounded-xl border border-border bg-secondary/10 shadow-inner group/utm transition-all duration-300">
+            {/* Technical grid background */}
+            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMiIvPjwvc3ZnPg==')] opacity-10 pointer-events-none" />
+            
             <button
               type="button"
               onClick={() => setShowUtm((s) => !s)}
-              className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+              className="relative z-10 flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-secondary/20"
               aria-expanded={showUtm}
             >
-              <span className="flex items-center gap-2 text-xs font-medium text-foreground">
-                <Tag className="size-3.5 text-[color:var(--brand-cyan)]" aria-hidden="true" />
-                Montar URL com UTM (para anúncios)
+              <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Tag className="size-4 text-[color:var(--brand-cyan)] transition-transform group-hover/utm:-rotate-12" aria-hidden="true" />
+                UTM Builder <span className="text-[10px] font-mono text-muted-foreground px-1.5 py-0.5 rounded-md bg-secondary border border-border">/go/slug?utm...</span>
               </span>
-              <span className="text-[11px] text-muted-foreground">{showUtm ? 'ocultar' : 'abrir'}</span>
+              <Plus className={`size-4 text-muted-foreground transition-transform duration-300 ${showUtm ? 'rotate-45' : ''}`} />
             </button>
-            {showUtm && (
-              <div className="flex flex-col gap-3 border-t border-border px-3 py-3">
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {(
-                    [
-                      ['source', 'utm_source', 'facebook'],
-                      ['medium', 'utm_medium', 'cpc'],
-                      ['campaign', 'utm_campaign', 'promo-verao'],
-                      ['content', 'utm_content', 'anuncio-a'],
-                      ['term', 'utm_term', 'palavra-chave'],
-                    ] as const
-                  ).map(([key, label, ph]) => (
-                    <label key={key} className="flex flex-col gap-1">
-                      <span className="font-mono text-[10px] text-muted-foreground">{label}</span>
-                      <input
-                        className={inputCls}
-                        value={utm[key]}
-                        onChange={(e) => setUtm((u) => ({ ...u, [key]: e.target.value }))}
-                        placeholder={ph}
-                      />
-                    </label>
-                  ))}
+            <div className={`grid transition-all duration-500 ease-in-out ${showUtm ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <div className="overflow-hidden">
+                <div className="relative z-10 flex flex-col gap-4 border-t border-border/50 bg-black/20 backdrop-blur-sm px-4 py-4">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {(
+                      [
+                        ['source', 'utm_source', 'facebook'],
+                        ['medium', 'utm_medium', 'cpc'],
+                        ['campaign', 'utm_campaign', 'promo'],
+                        ['content', 'utm_content', 'ad01'],
+                        ['term', 'utm_term', 'keyword'],
+                      ] as const
+                    ).map(([key, label, ph]) => (
+                      <label key={key} className="group flex flex-col gap-1.5">
+                        <span className="font-mono text-[10px] uppercase text-muted-foreground transition-colors group-focus-within:text-[color:var(--brand-cyan)]">{label}</span>
+                        <input
+                          className={inputCls}
+                          value={utm[key]}
+                          onChange={(e) => setUtm((u) => ({ ...u, [key]: e.target.value }))}
+                          placeholder={ph}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 rounded-lg border border-border bg-background/50 px-3 py-2 shadow-inner">
+                    <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/80 selection:bg-[color:var(--brand-cyan)]/30 selection:text-white">
+                      {utmUrl}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={copyUtm}
+                      className="group/copy flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-[color:var(--brand-cyan)] transition-all hover:bg-[color:var(--brand-cyan)]/10 hover:shadow-[0_0_15px_rgba(37,244,238,0.2)]"
+                      aria-label="Copiar URL com UTM"
+                    >
+                      {utmCopied ? (
+                        <>
+                          <Check className="size-3.5 text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" /> 
+                          <span className="text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]">Copiado</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-3.5 transition-transform group-hover/copy:scale-110" /> Copiar
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground text-pretty">
+                    O <code>/go/{utmSlug}</code> registra o clique e redireciona. Os parâmetros UTM chegam intactos na página final.
+                  </p>
                 </div>
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-input px-3 py-2">
-                  <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
-                    {utmUrl}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={copyUtm}
-                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[color:var(--brand-cyan)] transition-colors hover:bg-secondary"
-                    aria-label="Copiar URL com UTM"
-                  >
-                    {utmCopied ? (
-                      <>
-                        <Check className="size-3.5 text-[color:var(--success)]" /> Copiado
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="size-3.5" /> Copiar
-                      </>
-                    )}
-                  </button>
-                </div>
-                <p className="text-[11px] text-muted-foreground text-pretty">
-                  Cole esta URL nos anúncios. O <code>/go/{utmSlug}</code> registra o clique e redireciona
-                  para o checkout — os parâmetros UTM seguem para a página de destino.
-                </p>
               </div>
-            )}
+            </div>
           </div>
 
           {error && (
-            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-              {error}
-            </p>
+            <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive shadow-inner animate-in slide-in-from-top-2" role="alert">
+              <span className="font-bold mr-1">Erro:</span> {error}
+            </div>
           )}
 
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <div className="flex justify-end gap-3 border-t border-border/50 pt-5 mt-2">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              disabled={saving}
+              className="rounded-full px-5 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
             >
               Cancelar
             </button>
@@ -583,9 +598,23 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
               type="button"
               onClick={handleSave}
               disabled={saving || !nome.trim() || !variantes.some((v) => v.url.trim()) || pesoInvalido || temUrlInvalida}
-              className="btn-shine rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_10px_rgba(37,244,238,0.3)] transition-all hover:-translate-y-px hover:shadow-[0_0_20px_rgba(37,244,238,0.6)] hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+              className={`group/save relative flex items-center gap-2 overflow-hidden rounded-full bg-[color:var(--brand-cyan)] px-6 py-2.5 text-sm font-bold text-black shadow-[0_0_15px_rgba(37,244,238,0.4)] transition-all duration-300 hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none disabled:scale-100 ${saving ? 'bg-white shadow-[0_0_30px_rgba(255,255,255,0.6)]' : 'hover:shadow-[0_0_25px_rgba(37,244,238,0.7)] hover:brightness-110'}`}
             >
-              {saving ? 'Salvando…' : 'Salvar link'}
+              {saving ? (
+                <>
+                  {/* Neon ring spinner */}
+                  <svg className="size-4 animate-spin text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Salvando…
+                </>
+              ) : (
+                <>
+                  <div className="absolute inset-0 bg-white/20 opacity-0 transition-opacity duration-300 group-hover/save:opacity-100 mix-blend-overlay" />
+                  Salvar link
+                </>
+              )}
             </button>
           </div>
         </div>

@@ -29,6 +29,8 @@ self.addEventListener("push", (event) => {
     // Som customizado em push fechado não é permitido pela Apple — o
     // cha-ching de dinheiro toca nas abas abertas via postMessage abaixo.
     silent: false,
+    // Haptics/Vibração: ritmo da caixa registradora para vendas
+    vibrate: data.sound === 'cash' ? [200, 100, 200, 100, 400] : [200, 100, 200],
     // Botões de ação (Android/desktop; iOS ignora — limite da Apple)
     actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
   }

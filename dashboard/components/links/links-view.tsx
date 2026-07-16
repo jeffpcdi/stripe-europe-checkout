@@ -315,20 +315,25 @@ export function LinksView() {
   return (
     /* Item 58: gap-5 na raiz — mesmo ritmo vertical nas 5 abas da Gestão */
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          {links.length} link{links.length === 1 ? '' : 's'} de checkout
+      <div className="sticky top-0 z-30 -mx-4 -mt-4 px-4 py-4 sm:-mx-6 sm:px-6 mb-2 flex flex-wrap items-center justify-between gap-4 border-b border-border/10 bg-background/60 backdrop-blur-2xl transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.1)]">
+        <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+          <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-secondary/80 text-foreground text-xs tabular-nums font-semibold border border-border/50">
+            <CountUp value={links.length} />
+          </span>
+          link{links.length === 1 ? '' : 's'} de checkout
           {query.trim() && visibleLinks.length !== links.length && (
-            <span className="ml-1 text-xs">({visibleLinks.length} no filtro)</span>
+            <span className="ml-1 flex items-center text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
+               <span className="mr-1 text-muted-foreground/50">/</span> {visibleLinks.length} no filtro
+            </span>
           )}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {/* Item 64: busca + ordenação (só aparecem com 2+ links) */}
           {links.length > 1 && (
             <>
-              <label className="relative">
+              <label className="relative group">
                 <Search
-                  className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                  className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground transition-all duration-300 group-focus-within:text-[color:var(--brand-cyan)] group-focus-within:-translate-y-[60%] group-focus-within:scale-110"
                   aria-hidden="true"
                 />
                 <input
@@ -337,8 +342,9 @@ export function LinksView() {
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Buscar link…"
                   aria-label="Buscar link por nome, slug ou domínio"
-                  className="w-40 rounded-lg border border-border bg-input py-2 pl-8 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:w-48"
+                  className="w-40 rounded-lg border border-border bg-input/40 py-2 pl-8 pr-2 text-xs text-foreground placeholder:text-muted-foreground transition-all duration-300 ease-out focus:w-56 focus:bg-secondary/60 focus:outline-none focus:ring-1 focus:ring-[color:var(--brand-cyan)] focus:shadow-[0_0_20px_rgba(37,244,238,0.1)] sm:w-48 sm:focus:w-64 backdrop-blur-md"
                 />
+                <div className="pointer-events-none absolute inset-0 rounded-lg bg-gradient-to-r from-[color:var(--brand-cyan)] to-[color:var(--brand-pink)] opacity-0 blur-md transition-opacity duration-300 group-focus-within:opacity-20" />
               </label>
               <select
                 value={sortBy}
@@ -354,20 +360,19 @@ export function LinksView() {
               </select>
             </>
           )}
-          {/* Item 531: alternar para a lista de arquivados (só aparece se existem) */}
           {archivedCount > 0 && (
             <button
               type="button"
               onClick={() => setShowArchived((v) => !v)}
               aria-pressed={showArchived}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition-colors ${
+              className={`group flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all duration-500 ease-out ${
                 showArchived
-                  ? 'border-brand-cyan/50 bg-brand-cyan/10 text-[color:var(--brand-cyan)]'
-                  : 'border-border text-muted-foreground hover:bg-secondary hover:text-foreground'
+                  ? 'border-[color:var(--brand-cyan)]/50 bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)] shadow-[0_0_15px_rgba(37,244,238,0.2)]'
+                  : 'border-border bg-secondary/20 text-muted-foreground hover:bg-secondary/80 hover:text-foreground'
               }`}
               data-tooltip="Links arquivados ficam fora da lista e do /go, com histórico preservado"
             >
-              <Archive className="size-3.5" aria-hidden="true" />
+              <Archive className={`size-3.5 transition-transform duration-300 ${showArchived ? 'rotate-12 scale-110' : 'group-hover:-translate-y-0.5'}`} aria-hidden="true" />
               Arquivados ({archivedCount})
             </button>
           )}
@@ -375,29 +380,53 @@ export function LinksView() {
             type="button"
             data-tour="links-new"
             onClick={() => setCreating(true)}
-            className="btn-shine flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[0_0_10px_rgba(37,244,238,0.3)] transition-all hover:-translate-y-px hover:shadow-[0_0_20px_rgba(37,244,238,0.6)] hover:brightness-110 active:scale-[0.98]"
+            className="group relative flex items-center gap-1.5 rounded-lg overflow-hidden bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-bold text-black transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_15px_rgba(37,244,238,0.4)] hover:shadow-[0_0_25px_rgba(37,244,238,0.7)]"
           >
-            <Plus className="size-4" /> Novo link
+            {/* Spin background glow effect */}
+            <div className="absolute -inset-[150%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_0deg,transparent_0_340deg,white_360deg)] opacity-0 group-hover:opacity-40 transition-opacity duration-300" />
+            <div className="relative z-10 flex items-center gap-1.5">
+              <Plus className="size-4 transition-transform duration-300 group-hover:rotate-90 group-hover:scale-110" /> 
+              Novo link
+            </div>
+            {/* Ripple white flash overlay on click/hover */}
+            <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 group-active:opacity-40 transition-opacity mix-blend-overlay" />
           </button>
         </div>
       </div>
 
       {links.length === 0 ? (
-        <GlassCard className="pulse-cyan flex flex-col items-center gap-3 p-10 text-center transition-all">
-          <div className="flex size-16 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)] drop-shadow-[0_0_15px_rgba(37,244,238,0.3)]">
-            <Link2 className="size-8" />
+        <GlassCard className="relative overflow-hidden flex flex-col items-center justify-center gap-5 p-16 text-center transition-all duration-700 hover:shadow-[0_0_50px_rgba(37,244,238,0.15)] animate-in fade-in zoom-in-95 border border-dashed border-border/50 hover:border-[color:var(--brand-cyan)]/50 group/empty">
+          {/* Background particles and radial gradient */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,var(--brand-cyan-transparent)_0%,transparent_70%)] opacity-20 pointer-events-none" />
+          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPjxyZWN0IHdpZHRoPSI0IiBoZWlnaHQ9IjQiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSIvPjwvc3ZnPg==')] opacity-50 pointer-events-none" />
+          
+          <div className="relative flex size-24 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/10 text-[color:var(--brand-cyan)] shadow-[0_0_40px_rgba(37,244,238,0.2)] group-hover/empty:shadow-[0_0_80px_rgba(37,244,238,0.4)] transition-shadow duration-700">
+            {/* Pulsing rings */}
+            <div className="absolute inset-0 rounded-full border border-[color:var(--brand-cyan)]/30 animate-[ping_3s_ease-out_infinite]" />
+            <div className="absolute inset-0 rounded-full border border-[color:var(--brand-pink)]/20 animate-[ping_4s_ease-out_infinite_1s]" />
+            <Link2 className="size-10 transition-transform duration-700 group-hover/empty:scale-110 group-hover/empty:rotate-12" />
           </div>
-          <p className="text-sm text-foreground font-medium text-pretty">
-            Nenhum link ainda. Crie um link /go/slug com split A/B, cloak e domínio próprio.
-          </p>
-          {/* Item 53: estado vazio guiado — CTA de criação + tutorial */}
-          <div className="flex flex-wrap items-center justify-center gap-2">
+
+          <div className="relative z-10 flex flex-col items-center gap-2 max-w-sm">
+            <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/60 animate-in slide-in-from-bottom-2 duration-500 delay-100">
+              Crie seu primeiro link
+            </h3>
+            <p className="text-sm text-muted-foreground font-medium text-pretty animate-in slide-in-from-bottom-2 duration-500 delay-200">
+              Configure URLs curtas com <strong className="text-foreground">Split A/B</strong>, <strong className="text-foreground">Cloak</strong> e o seu próprio domínio.
+            </p>
+          </div>
+
+          <div className="relative z-10 mt-2 flex flex-wrap items-center justify-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
             <button
               type="button"
               onClick={() => setCreating(true)}
-              className="btn-shine rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black hover:drop-shadow-[0_0_10px_rgba(37,244,238,0.5)] active:scale-[0.98]"
+              className="group/btn relative overflow-hidden rounded-full bg-white px-6 py-2.5 text-sm font-bold text-black transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_35px_rgba(255,255,255,0.6)]"
             >
-              Criar primeiro link
+              <div className="absolute inset-0 bg-gradient-to-r from-[color:var(--brand-cyan)] to-[color:var(--brand-pink)] opacity-0 transition-opacity duration-300 group-hover/btn:opacity-100 mix-blend-screen" />
+              <div className="absolute -inset-[200%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_0deg,transparent_0_340deg,rgba(0,0,0,0.2)_360deg)] group-hover/btn:opacity-0" />
+              <span className="relative z-10 flex items-center gap-2 group-hover/btn:text-white transition-colors duration-300">
+                Criar Link Agora <Plus className="size-4" />
+              </span>
             </button>
           </div>
         </GlassCard>
@@ -485,8 +514,8 @@ export function LinksView() {
               <GlassCard
                 key={l.slug}
                 spotlight
-                className="group sheen hover-float animate-in-up p-4 border-l-[3px] border-l-transparent hover:border-l-[color:var(--brand-cyan)]"
-                style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }}
+                className="relative group flex-col p-5 border-l-[3px] border-l-transparent transition-all duration-500 ease-out hover:-translate-y-1.5 hover:scale-[1.005] hover:border-l-[color:var(--brand-cyan)] hover:shadow-[0_20px_40px_-10px_rgba(37,244,238,0.15)] animate-in fade-in slide-in-from-bottom-8 fill-mode-both"
+                style={{ animationDelay: `${index * 50}ms` }}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-2.5">
@@ -506,28 +535,36 @@ export function LinksView() {
                       {/* A5.4: badge de estado unificado com .status-dot —
                           ativo (verde pulsante), pausado (âmbar), arquivado (neutro) */}
                       <span
-                        className={`flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                        className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-all duration-300 ${
                           l.arquivado
-                            ? 'bg-muted/40 text-muted-foreground border border-muted/50'
+                            ? 'bg-muted/30 text-muted-foreground border border-muted/50 backdrop-blur-sm'
                             : l.ativo
-                              ? 'bg-[color:var(--success)]/20 text-[color:var(--success)] border border-[color:var(--success)]/40 drop-shadow-[0_0_8px_var(--success-light)]'
-                              : 'bg-[color:var(--warning)]/20 text-[color:var(--warning)] border border-[color:var(--warning)]/40 drop-shadow-[0_0_8px_var(--warning)]'
+                              ? 'bg-[color:var(--success)]/10 text-[color:var(--success)] border border-[color:var(--success)]/30 drop-shadow-[0_0_10px_var(--success-light)]'
+                              : 'bg-[color:var(--warning)]/10 text-[color:var(--warning)] border border-[color:var(--warning)]/30 drop-shadow-[0_0_10px_var(--warning)] backdrop-blur-sm'
                         }`}
                       >
-                        <span
-                          className={`status-dot ${
-                            l.arquivado
-                              ? 'bg-muted-foreground/50'
-                              : l.ativo
-                                ? 'status-dot--ok status-dot--pulse'
-                                : 'status-dot--warn'
-                          }`}
-                          aria-hidden="true"
-                        />
+                        <span className="relative flex h-2 w-2 items-center justify-center">
+                          {l.ativo && (
+                            <>
+                              <span className="absolute inline-flex h-full w-full animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] rounded-full bg-[color:var(--success)] opacity-75" />
+                              <span className="absolute inline-flex h-full w-full animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite_0.5s] rounded-full bg-[color:var(--success)] opacity-40" />
+                            </>
+                          )}
+                          <span
+                            className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                              l.arquivado
+                                ? 'bg-muted-foreground/50'
+                                : l.ativo
+                                  ? 'bg-[color:var(--success)]'
+                                  : 'bg-[color:var(--warning)]'
+                            }`}
+                            aria-hidden="true"
+                          />
+                        </span>
                         {l.arquivado ? 'Arquivado' : l.ativo ? 'Ativo' : 'Pausado'}
                       </span>
                       {l.urlWhitePage && (
-                        <span className="rounded-md bg-[color:var(--brand-pink)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-pink)]">
+                        <span className="rounded-full bg-gradient-to-r from-[color:var(--brand-pink)]/20 to-purple-500/20 border border-[color:var(--brand-pink)]/30 px-2 py-0.5 text-[11px] font-bold text-[color:var(--brand-pink)] drop-shadow-[0_0_8px_rgba(255,105,180,0.5)]">
                           Cloak
                         </span>
                       )}
@@ -573,17 +610,17 @@ export function LinksView() {
                     {/* A5.3: mini-barra de conversão cliques→conversões */}
                     {clicks > 0 && (
                       <div
-                        className="mt-2 flex items-center gap-2"
+                        className="mt-3 flex items-center gap-2 group/conv"
                         role="img"
                         aria-label={`${convs} conversões em ${clicks} cliques`}
                       >
-                        <div className="h-1 w-32 overflow-hidden rounded-full bg-secondary/60">
+                        <div className="h-1.5 w-32 overflow-hidden rounded-full bg-secondary shadow-inner">
                           <div
-                            className="h-full rounded-full bg-[color:var(--brand-cyan)]/80 transition-[width] duration-500"
+                            className="h-full rounded-full bg-gradient-to-r from-[color:var(--brand-cyan)] to-[color:var(--brand-pink)] transition-[width] duration-1000 ease-out group-hover/conv:drop-shadow-[0_0_5px_rgba(37,244,238,0.8)]"
                             style={{ width: `${Math.min(100, (convs / clicks) * 100)}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] tabular-nums text-faint">
+                        <span className="font-mono text-[10px] tabular-nums text-foreground/60 transition-colors group-hover/conv:text-[color:var(--brand-cyan)] group-hover/conv:drop-shadow-[0_0_5px_rgba(37,244,238,0.5)]">
                           {((convs / clicks) * 100).toFixed(1).replace('.', ',')}%
                         </span>
                       </div>
@@ -632,18 +669,18 @@ export function LinksView() {
                                 {v.nome}
                               </span>
                               <div
-                                className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-secondary/60"
+                                className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-secondary/80 shadow-inner"
                                 role="img"
                                 aria-label={`${v.nome}: peso ${v.peso}%, ${v.conversions} de ${convs} conversões`}
                               >
                                 {/* trilho: peso configurado */}
                                 <div
-                                  className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/25"
+                                  className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/20"
                                   style={{ width: `${Math.min(100, v.peso)}%` }}
                                 />
                                 {/* preenchimento: participação real nas conversões */}
                                 <div
-                                  className="absolute inset-y-0 left-0 rounded-full bg-[color:var(--brand-cyan)]/70"
+                                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-transparent via-[color:var(--brand-cyan)]/80 to-[color:var(--brand-cyan)] group-hover:drop-shadow-[0_0_5px_rgba(37,244,238,0.5)] transition-[width] duration-1000 ease-out"
                                   style={{ width: `${Math.min(100, share)}%` }}
                                 />
                               </div>
@@ -660,8 +697,11 @@ export function LinksView() {
                   {/* data-tour repete por card; o tour destaca o 1º (querySelector).
                       A5.2: em desktop as ações aparecem no hover/foco do card;
                       no mobile (sem hover) ficam sempre visíveis. */}
+                  {/* data-tour repete por card; o tour destaca o 1º (querySelector).
+                      A5.2: O "Dock" Flutuante. Somente visível via opacidade, 
+                      e agora com efeito de entrada 'spring' do bottom. */}
                   <div
-                    className="relative flex shrink-0 items-center gap-1 sm:opacity-0 sm:transition-opacity sm:duration-150 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-1.5 rounded-full border border-white/5 bg-background/40 p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.4)] backdrop-blur-xl opacity-0 translate-y-2 transition-all duration-300 ease-out group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 sm:right-6"
                     data-tour="links-qr"
                   >
                     {/* Item 62: pausar/ativar direto no card (otimista, sem abrir o editor) */}
@@ -721,26 +761,31 @@ export function LinksView() {
                     <button
                       type="button"
                       onClick={() => copyUrl(l)}
-                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      className="group/btn relative rounded-full p-2 text-muted-foreground transition-all duration-300 hover:scale-110 hover:bg-[color:var(--brand-cyan)]/10 hover:text-[color:var(--brand-cyan)]"
                       aria-label="Copiar URL"
+                      data-tooltip="Copiar link /go"
                     >
-                      <span className="copy-morph" data-copied={copied === l.slug}>
+                      <span className="copy-morph transition-transform duration-300" data-copied={copied === l.slug}>
                         <Copy className="size-4" aria-hidden="true" />
                         <Check className="size-4" aria-hidden="true" />
                       </span>
+                      {copied === l.slug && (
+                         <span className="absolute inset-0 animate-ping rounded-full bg-[color:var(--brand-cyan)] opacity-75" />
+                      )}
                     </button>
                     {/* Item 71: QR code em popover glass */}
                     <button
                       type="button"
                       onClick={() => setQrFor(qrFor === l.slug ? null : l.slug)}
-                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      className="rounded-full p-2 text-muted-foreground transition-all duration-300 hover:scale-110 hover:bg-[color:var(--brand-cyan)]/10 hover:text-[color:var(--brand-cyan)]"
                       aria-label="Ver QR code"
                       aria-expanded={qrFor === l.slug}
+                      data-tooltip="Ver código QR"
                     >
                       <QrCode className="size-4" />
                     </button>
                     {qrFor === l.slug && (
-                      <div className="glass glass-thick anim-pop-in absolute right-0 top-11 z-20 flex flex-col items-center gap-2 p-3">
+                      <div className="absolute right-0 top-14 z-20 flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-background/80 p-4 shadow-[0_15px_50px_rgba(37,244,238,0.15)] backdrop-blur-3xl animate-in zoom-in-95 duration-200">
                         {qrDataUrl ? (
                           /* eslint-disable-next-line @next/next/no-img-element */
                           <img
@@ -748,79 +793,93 @@ export function LinksView() {
                             alt={`QR code do link ${l.nome}`}
                             width={140}
                             height={140}
-                            className="rounded-md border-2 border-brand-cyan shadow-[0_0_20px_rgba(37,244,238,0.4)]"
+                            className="rounded-xl border border-[color:var(--brand-cyan)]/40 shadow-[0_0_20px_rgba(37,244,238,0.2)]"
                           />
                         ) : (
-                          <div className="flex size-[140px] items-center justify-center rounded-md bg-secondary/60">
-                            <QrCode className="size-6 animate-pulse text-muted-foreground" aria-hidden="true" />
+                          <div className="flex size-[140px] items-center justify-center rounded-xl bg-secondary/40 backdrop-blur-md">
+                            <QrCode className="size-8 animate-pulse text-muted-foreground" aria-hidden="true" />
                           </div>
                         )}
-                        <span className="font-mono text-[10px] text-muted-foreground">/go/{l.slug}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground bg-black/40 px-2 py-0.5 rounded-full border border-white/5">/go/{l.slug}</span>
                         <button
                           type="button"
                           onClick={() => downloadQr(l)}
                           disabled={!qrDataUrl}
-                          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                          className="group/dl flex w-full justify-center items-center gap-2 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary/80 hover:shadow-[0_0_10px_rgba(255,255,255,0.05)] disabled:opacity-40"
                         >
-                          <Download className="size-3" aria-hidden="true" /> Baixar PNG
+                          <Download className="size-3.5 transition-transform duration-300 group-hover/dl:translate-y-0.5" aria-hidden="true" /> Baixar PNG
                         </button>
                       </div>
                     )}
                     <button
                       type="button"
                       onClick={() => setEditing(l)}
-                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      className="rounded-full p-2 text-muted-foreground transition-all duration-300 hover:scale-110 hover:bg-[color:var(--brand-cyan)]/10 hover:text-[color:var(--brand-cyan)]"
                       aria-label="Editar link"
+                      data-tooltip="Editar link"
                     >
                       <Pencil className="size-4" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setDeleting(l.slug)}
-                      className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                      className="rounded-full p-2 text-muted-foreground transition-all duration-300 hover:scale-110 hover:bg-destructive/20 hover:text-destructive hover:shadow-[0_0_15px_rgba(255,0,0,0.3)]"
                       aria-label="Excluir link"
+                      data-tooltip="Excluir link"
                     >
                       <Trash2 className="size-4" />
                     </button>
                   </div>
                 </div>
-
               </GlassCard>
             )
           })}
         </div>
       )}
 
-      {/* Itens 76/184: exclusão padronizada — com tráfego exige o nome digitado */}
       {(() => {
         const dl = deleting ? links.find((l) => l.slug === deleting) : undefined
         const dlClicks = dl ? dl.variantes.reduce((s, v) => s + v.clicks, 0) : 0
         const dlConvs = dl ? dl.variantes.reduce((s, v) => s + v.conversions, 0) : 0
         const dlTraffic = dlClicks > 0 || dlConvs > 0
         return (
-          <ConfirmDialog
-            open={Boolean(dl)}
-            title={dl ? `Excluir "${dl.nome}"?` : ''}
-            description={
-              dl && (
-                <>
-                  A URL /go/{dl.slug} deixa de funcionar imediatamente.
-                  {dlTraffic && (
-                    <>
-                      {' '}
-                      Este link já registrou <strong className="text-foreground">{dlClicks} clique{dlClicks === 1 ? '' : 's'}</strong>{' '}
-                      e <strong className="text-foreground">{dlConvs} convers{dlConvs === 1 ? 'ão' : 'ões'}</strong>.
-                    </>
-                  )}
-                </>
-              )
-            }
-            confirmLabel="Excluir"
-            confirmText={dl && dlTraffic ? dl.nome : undefined}
-            busy={deleteBusy}
-            onConfirm={() => deleting && handleDelete(deleting)}
-            onClose={() => setDeleting(null)}
-          />
+          <>
+            {/* Red Room Effect Backdrop */}
+            {Boolean(dl) && (
+              <div className="fixed inset-0 z-40 bg-red-950/20 backdrop-blur-md backdrop-saturate-150 animate-in fade-in duration-300 pointer-events-none" />
+            )}
+            <ConfirmDialog
+              open={Boolean(dl)}
+              title={dl ? `Excluir permanentemente "${dl.nome}"?` : ''}
+              description={
+                dl && (
+                  <div className="flex flex-col gap-3 mt-2">
+                    <p className="text-sm">
+                      A URL <strong className="text-foreground">/go/{dl.slug}</strong> deixará de funcionar imediatamente, quebrando qualquer anúncio ativo.
+                    </p>
+                    {dlTraffic && (
+                      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 mt-2">
+                        <p className="text-xs text-red-200">
+                          <TriangleAlert className="inline-block size-3.5 mr-1 mb-0.5 text-red-400" />
+                          Este link possui tráfego ativo que <strong>será perdido</strong>:
+                        </p>
+                        <div className="mt-2 flex items-center gap-2 font-mono text-sm font-bold text-red-400">
+                          <span className="rounded-md bg-red-950/50 px-2 py-1 shadow-inner border border-red-500/20">{dlClicks} cliques</span>
+                          <span className="rounded-md bg-red-950/50 px-2 py-1 shadow-inner border border-red-500/20">{dlConvs} conversões</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+              confirmLabel="Excluir Permanentemente"
+              confirmText={dl && dlTraffic ? dl.nome : undefined}
+              busy={deleteBusy}
+              onConfirm={() => deleting && handleDelete(deleting)}
+              onClose={() => setDeleting(null)}
+              tone="danger"
+            />
+          </>
         )
       })()}
 

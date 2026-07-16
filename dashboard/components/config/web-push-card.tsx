@@ -17,6 +17,7 @@ import {
   isThisDeviceSubscribed,
   type WebPushSupport,
 } from '@/lib/web-push'
+import { playSaleSound } from '@/lib/sale-alerts'
 
 type Status = { ok: boolean; devices: number; funMode: boolean }
 
@@ -111,6 +112,31 @@ export function WebPushCard() {
       {support && !support.supported && !support.needsInstall && (
         <p className="mb-4 text-xs text-muted-foreground">{support.reason}</p>
       )}
+
+      {/* Aviso de Áudio no iOS */}
+      <div className="mb-4 rounded-lg border border-border bg-secondary/40 p-3">
+        <p className="text-xs font-medium text-foreground">Sons no iPhone (Apple iOS):</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          A Apple não permite sons customizados em notificações fechadas. Mas, com a aba aberta, temos um <strong>Som Premium de Caixa Registradora</strong> via WebAudio. Toque abaixo para desbloquear o alto-falante do Safari para esta sessão.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            playSaleSound()
+            // Feedback visual rápido
+            const btn = document.activeElement as HTMLElement
+            if (btn) {
+              const old = btn.innerHTML
+              btn.innerHTML = '<svg class="lucide lucide-check size-3" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Som Tocado!'
+              setTimeout(() => { btn.innerHTML = old }, 1500)
+            }
+          }}
+          className="mt-3 flex items-center gap-1.5 rounded border border-[color:var(--brand-cyan)]/30 bg-[color:var(--brand-cyan)]/10 px-3 py-1.5 text-xs font-medium text-[color:var(--brand-cyan)] transition-colors hover:bg-[color:var(--brand-cyan)]/20"
+        >
+          <BellRing className="size-3" />
+          Testar Som Premium & Desbloquear
+        </button>
+      </div>
 
       <div className="flex flex-col gap-1">
         <label className="flex cursor-pointer items-center justify-between gap-3 py-1">

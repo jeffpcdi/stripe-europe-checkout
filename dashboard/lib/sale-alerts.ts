@@ -4,28 +4,93 @@
    - Notificação: só faz sentido com a aba em segundo plano; com a aba
      visível o próprio feed já mostra a venda. */
 
-export function playSaleSound() {
+let globalAudioCtx: AudioContext | null = null
+
+export function initAudio() {
+  if (globalAudioCtx) return
   try {
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    const ctx = new Ctx()
-    const play = (freq: number, at: number, dur: number) => {
+    globalAudioCtx = new Ctx()
+    // Toca um som mudo (silent buffer) para forçar o desbloqueio no iOS Safari
+    const buffer = globalAudioCtx.createBuffer(1, 1, 22050)
+    const source = globalAudioCtx.createBufferSource()
+    source.buffer = buffer
+    source.connect(globalAudioCtx.destination)
+    source.start(0)
+
+    if (globalAudioCtx.state === 'suspended') {
+      globalAudioCtx.resume()
+    }
+  } catch (e) {
+    // WebAudio indisponível
+  }
+}
+
+export function playSaleSound() {
+  try {
+    if (!globalAudioCtx) {
+      initAudio()
+    }
+    const ctx = globalAudioCtx
+    if (!ctx) return
+    
+    if (ctx.state === 'suspended') {
+       ctx.resume()
+    }
+
+    const t = ctx.currentTime
+    
+    // "Ching" - O sino metálico (frequências agudas, ondas mistas)
+    const playBell = (freq: number, startOffset: number, volume: number) => {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
-      osc.type = 'sine'
-      osc.frequency.value = freq
-      // envelope curto para não estalar
-      gain.gain.setValueAtTime(0, ctx.currentTime + at)
-      gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + at + 0.02)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + at + dur)
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(freq, t + startOffset)
+      
+      gain.gain.setValueAtTime(0, t + startOffset)
+      gain.gain.linearRampToValueAtTime(volume, t + startOffset + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + startOffset + 0.8)
+      
       osc.connect(gain)
       gain.connect(ctx.destination)
-      osc.start(ctx.currentTime + at)
-      osc.stop(ctx.currentTime + at + dur + 0.05)
+      osc.start(t + startOffset)
+      osc.stop(t + startOffset + 1.0)
     }
-    // "cha-ching": Mi5 → Lá5
-    play(659.25, 0, 0.18)
-    play(880, 0.14, 0.28)
-    window.setTimeout(() => void ctx.close(), 800)
+
+    // "Cha" - Mecanismo mecânico da gaveta abrindo (Ruído Branco / Noise)
+    const playClick = (startOffset: number, duration: number, volume: number) => {
+      const bufferSize = ctx.sampleRate * duration
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+      const data = buffer.getChannelData(0)
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1 // ruído branco
+      }
+      const noise = ctx.createBufferSource()
+      noise.buffer = buffer
+      
+      // Filtro para não soar como TV fora do ar, mas sim como um mecanismo metálico
+      const filter = ctx.createBiquadFilter()
+      filter.type = 'bandpass'
+      filter.frequency.value = 1500
+      filter.Q.value = 0.5
+      
+      const gain = ctx.createGain()
+      gain.gain.setValueAtTime(volume, t + startOffset)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + startOffset + duration)
+      
+      noise.connect(filter)
+      filter.connect(gain)
+      gain.connect(ctx.destination)
+      noise.start(t + startOffset)
+    }
+
+    // O Ritmo do Cha-Ching:
+    playClick(0, 0.15, 0.4)          // O mecanismo puxa (Cha)
+    playBell(1200, 0.12, 0.15)       // Sino principal (Ching)
+    playBell(1500, 0.12, 0.10)       // Harmônico 1
+    playBell(2400, 0.12, 0.08)       // Harmônico 2
+    playClick(0.12, 0.1, 0.2)        // Barulho da gaveta batendo junto com o sino
+
   } catch {
     // autoplay bloqueado ou WebAudio indisponível: falha em silêncio
   }
