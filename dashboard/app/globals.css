@@ -241,12 +241,20 @@ table,
 
 /* Item 51: scrollbar com gradiente da marca */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.16);
   border-radius: 99px;
+  transition: all var(--dur-fast) var(--ease);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(37, 244, 238, 0.4);
+  box-shadow: 0 0 10px rgba(37, 244, 238, 0.3);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(37, 244, 238, 0.48);
@@ -1296,8 +1304,8 @@ a:active,
 
 .side-item--active {
   color: #fff;
-  background: linear-gradient(90deg, rgba(37, 244, 238, 0.12), rgba(37, 244, 238, 0.02));
-  box-shadow: inset 2px 0 0 #25f4ee, 0 0 15px rgba(37, 244, 238, 0.05);
+  background: linear-gradient(90deg, rgba(37, 244, 238, 0.15), rgba(37, 244, 238, 0));
+  box-shadow: inset 1px 0 0 rgba(37, 244, 238, 0.5), 0 0 20px rgba(37, 244, 238, 0.1);
   border-radius: 10px;
 }
 
@@ -1390,6 +1398,23 @@ a:active,
 .group:hover .brand-logo {
   scale: 1.02;
   transition: scale var(--dur-fast) var(--spring);
+}
+.brand-logo {
+  position: relative;
+}
+.brand-logo::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(37,244,238,0.2) 0%, transparent 70%);
+  opacity: 0.5;
+  animation: pulse-glow 4s infinite alternate;
+  pointer-events: none;
+}
+@keyframes pulse-glow {
+  0% { opacity: 0.3; transform: scale(0.9); }
+  100% { opacity: 0.7; transform: scale(1.1); }
 }
 
 /* Barra ciano à esquerda do item ativo — como no print do legado.
@@ -2519,4 +2544,14 @@ html {
   ::view-transition-new(*) {
     animation: none !important;
   }
+}
+
+/* Item 14 & 15: anim-feed-row (spring + flash) */
+.anim-feed-row {
+  animation: feedRowIn 800ms cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+@keyframes feedRowIn {
+  0% { opacity: 0; transform: translateY(-20px) scale(0.95); background: rgba(37, 244, 238, 0.3); }
+  50% { background: rgba(37, 244, 238, 0.1); }
+  100% { opacity: 1; transform: translateY(0) scale(1); background: transparent; }
 }
