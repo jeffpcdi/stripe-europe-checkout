@@ -125,8 +125,10 @@ function saveProgress(key) {
     assert.match(exec, /adsOps\.getBulkProgress\(/, 'executor LÊ o progresso antes de criar (retomada)');
     assert.match(exec, /adsOps\.saveBulkProgress\(/, 'executor GRAVA o progresso a cada passo');
     assert.match(exec, /dedupeByName: true/, 'cinto extra ligado no bulk');
-    const createBranch = exec.slice(0, exec.indexOf("task.kind === 'duplicate_same'"));
-    assert.ok(!/zernio\.api\(/.test(createBranch), "branch 'create' não chama mais zernio.api");
+    // F6: os kinds da era Zernio saíram do worker inteiro — nada de zernio.api
+    // em NENHUM branch, e duplicate_same/duplicate_cross não existem mais.
+    assert.ok(!/zernio\.api\(/.test(exec), 'worker não chama mais zernio.api em nenhum branch');
+    assert.ok(!/task\.kind === 'duplicate_(same|cross)'/.test(exec), 'kinds mortos da Zernio removidos do worker');
     // Store durável existe de verdade
     const store = fs.readFileSync(path.join(__dirname, '..', 'ads-ops-store.js'), 'utf8');
     assert.match(store, /CREATE TABLE IF NOT EXISTS ads_bulk_progress/, 'tabela de progresso no schema');

@@ -1663,9 +1663,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   const bulk = require('./ads-bulk');
 
   // Processador de UM item da fila. Tipos de task:
-  //   create          — criação individual (payload já validado no POST /bulk)
-  //   duplicate_same  — duplica campanha na MESMA conta (endpoint da Zernio)
-  //   duplicate_cross — duplica para OUTRA conta (reconstrói + /ads/create)
+  //   create       — criação individual via Pipeboard (payload validado no POST /bulk)
+  //   duplicate_pb — recriação composta na MESMA conta via Pipeboard (F3/F4)
+  // (Os antigos duplicate_same/duplicate_cross da era Zernio foram removidos —
+  //  F6: kind desconhecido cai no throw do final, nunca em código morto.)
   async function processBulkItem(env) {
     const task = env.task || {};
     if (task.kind === 'create') {
@@ -1849,7 +1850,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // F4: modo VARIAÇÕES — array de até 50 itens, cada um com overrides
       // opcionais { name?, budgetAmount?, adText? } aplicados sobre o template.
       // Sem "variations", modo cópia exata clássico (1-10, count+suffix).
-      const rawVariations = Array.isArray(b.variations) ? b.variations.slice(0, 50) : null;
+      // Teto de 50 VALIDADO (400 explícito) — truncar com slice criaria 50 e
+      // sumiria com as demais sem o usuário saber quais ficaram de fora.
+      const rawVariations = Array.isArray(b.variations) ? b.variations : null;
+      if (rawVariations && rawVariations.length > 50) {
+        return res.status(400).json({ error: 'Máximo de 50 variações por job — você enviou ' + rawVariations.length + '. Divida em jobs menores.' });
+      }
       const count = rawVariations ? rawVariations.length : Math.min(10, Math.max(1, parseInt(b.count, 10) || 1));
       if (rawVariations && !count) return res.status(400).json({ error: 'variations vazio — envie 1 a 50 variações' });
       const suffix = String(b.nameSuffix || (rawVariations ? ' (variação)' : ' (cópia)')).slice(0, 60);
