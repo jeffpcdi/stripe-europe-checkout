@@ -216,7 +216,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm md:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl md:items-center transition-all"
       role="dialog"
       aria-modal="true"
       aria-label={link ? 'Editar link' : 'Novo link'}
@@ -583,7 +583,7 @@ export function LinkEditor({ link, domains, appHost = '', presetDominio = null, 
               type="button"
               onClick={handleSave}
               disabled={saving || !nome.trim() || !variantes.some((v) => v.url.trim()) || pesoInvalido || temUrlInvalida}
-              className="rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+              className="btn-shine rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_10px_rgba(37,244,238,0.3)] transition-all hover:-translate-y-px hover:shadow-[0_0_20px_rgba(37,244,238,0.6)] hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               {saving ? 'Salvando…' : 'Salvar link'}
             </button>

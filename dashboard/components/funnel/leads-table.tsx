@@ -531,6 +531,7 @@ export function LeadsTable({
                       aria-label={`Abrir perfil do lead ${l.id.slice(0, 12)}`}
                       className={cn(
                         'tr-hover cursor-pointer border-b border-border/30 last:border-b-0',
+                        'even:bg-white/[0.01] odd:bg-white/[0.03] transition-all duration-300 hover:translate-x-1 hover:bg-white/[0.06]',
                         isNew && 'anim-cell-flash',
                       )}
                     >
@@ -696,7 +697,7 @@ export function LeadsTable({
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  className="btn-ghost !px-2"
+                  className="btn-ghost !px-2 hover:drop-shadow-[0_0_8px_rgba(37,244,238,0.3)] transition-all"
                   disabled={safePage === 0}
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   aria-label="Página anterior"
@@ -723,7 +724,7 @@ export function LeadsTable({
                 </label>
                 <button
                   type="button"
-                  className="btn-ghost !px-2"
+                  className="btn-ghost !px-2 hover:drop-shadow-[0_0_8px_rgba(37,244,238,0.3)] transition-all"
                   disabled={safePage >= pageCount - 1}
                   onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
                   aria-label="Próxima página"

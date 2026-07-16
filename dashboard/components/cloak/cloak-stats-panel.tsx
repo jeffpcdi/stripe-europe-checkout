@@ -161,7 +161,7 @@ export function CloakStatsPanel() {
               <Target className="size-3.5" aria-hidden="true" />
               <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Público real na oferta</span>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-success drop-shadow-[0_0_10px_rgba(34,197,94,0.4)]">{agg.offer.toLocaleString('pt-BR')}</p>
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-success drop-shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all hover:drop-shadow-[0_0_25px_rgba(34,197,94,1)]">{agg.offer.toLocaleString('pt-BR')}</p>
             <p className="text-[11px] leading-snug text-muted-foreground">
               acessos que passaram no filtro e viram a offer
             </p>
@@ -171,7 +171,7 @@ export function CloakStatsPanel() {
               <ShieldCheck className="size-3.5" aria-hidden="true" />
               <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Robôs/revisores barrados</span>
             </div>
-            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-warning drop-shadow-[0_0_10px_rgba(245,158,11,0.4)]">{agg.white.toLocaleString('pt-BR')}</p>
+            <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-warning drop-shadow-[0_0_15px_rgba(245,158,11,0.8)] transition-all hover:drop-shadow-[0_0_25px_rgba(245,158,11,1)]">{agg.white.toLocaleString('pt-BR')}</p>
             <p className="text-[11px] leading-snug text-muted-foreground">
               enviados à white page e longe da sua oferta
             </p>
@@ -186,7 +186,7 @@ export function CloakStatsPanel() {
           <div className="mb-4 flex flex-wrap items-center gap-1.5">
             <span className="mr-1 text-[11px] text-muted-foreground">{blockPct}% bloqueado ·</span>
             {reasonsSorted.map(([reason, count]) => (
-              <StatusBadge key={reason} status="neutral">
+              <StatusBadge key={reason} status="neutral" className="hover:bg-destructive/20 hover:text-destructive hover:border-destructive/50 transition-all cursor-default">
                 {REASON_LABELS[reason] ?? reason}: {count}
               </StatusBadge>
             ))}

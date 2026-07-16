@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { usePersistedState } from '@/lib/use-persisted-state'
+import { cn } from '@/lib/utils'
 import {
   Plus,
   Link2,
@@ -336,7 +337,12 @@ export function CloakEntriesPanel() {
             const SensIcon = (SENS_META[sens] ?? SENS_META.balanced).icon
             const tr = testResult[e.slug]
             return (
-              <li key={e.slug} className="rounded-xl border border-border bg-secondary/40 p-4">
+              <li key={e.slug} className={cn(
+                "rounded-xl border p-4 transition-all duration-300",
+                e.enabled 
+                  ? "border-primary/40 bg-[rgba(37,244,238,0.02)] shadow-[0_0_15px_rgba(37,244,238,0.1)]" 
+                  : "border-border/40 bg-secondary/20 opacity-70"
+              )}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2.5">
                     {showControls && (
@@ -461,7 +467,7 @@ export function CloakEntriesPanel() {
                     type="button"
                     onClick={() => handleTest(e)}
                     disabled={testing === e.slug}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-all hover:bg-primary/10 hover:text-primary hover:drop-shadow-[0_0_8px_rgba(37,244,238,0.4)] disabled:opacity-50"
                   >
                     {testing === e.slug ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
                     Testar

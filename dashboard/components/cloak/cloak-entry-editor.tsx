@@ -121,7 +121,7 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
     /* A8.4: slide-over lateral no lugar do modal central — overlay leve (sem
        blur) mantém o log de decisões visível atrás durante a edição */
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/40"
+      className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-xl transition-all"
       onClick={onClose}
     >
       <div
@@ -368,7 +368,7 @@ export function CloakEntryEditor({ entry, onClose, onSaved }: Props) {
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+            className="btn-shine flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-4 py-2 text-sm font-semibold text-black shadow-[0_0_10px_rgba(37,244,238,0.3)] transition-all hover:-translate-y-px hover:shadow-[0_0_20px_rgba(37,244,238,0.6)] hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
           >
             {saving && <Loader2 className="size-3.5 animate-spin" />}
             {entry ? 'Salvar' : 'Criar link'}

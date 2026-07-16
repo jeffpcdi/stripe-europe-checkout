@@ -44,12 +44,12 @@
   --error-light: rgba(239, 68, 68, 0.13);
   --accent-light: rgba(37, 244, 238, 0.12);
 
-  /* Liquid Glass (Fase 3: Upgrade Imersivo Global) */
-  --lg-blur: 24px;
+  /* Liquid Glass (Fase 5: Upgrade Imersivo Global) */
+  --lg-blur: 32px;
   --lg-sat: 150%;
-  --lg-tint: rgba(9, 9, 11, 0.45);
-  --lg-tint-thick: rgba(9, 9, 11, 0.65);
-  --lg-tint-clear: rgba(9, 9, 11, 0.25);
+  --lg-tint: rgba(9, 9, 11, 0.40);
+  --lg-tint-thick: rgba(9, 9, 11, 0.60);
+  --lg-tint-clear: rgba(9, 9, 11, 0.20);
   --lg-tint-brand: rgba(37, 244, 238, 0.05);
   --lg-rim-top: rgba(255, 255, 255, 0.12);
   --lg-rim-side: rgba(255, 255, 255, 0.06);
@@ -2309,22 +2309,26 @@ kbd {
 
 /* (Skeleton cyan consolidado no arquivo acima) */
 
-/* V2-97: botão primário com brilho que atravessa no hover */
+/* V2-97: botão primário com brilho que atravessa no hover (Refatorado - Phase 5) */
 .btn-shine {
   position: relative;
   overflow: hidden;
+  transition: all 0.3s ease;
 }
 .btn-shine::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.35) 50%, transparent 60%);
-  transform: translateX(-120%);
-  transition: transform 500ms var(--ease);
+  background: linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.4) 50%, transparent 80%);
+  transform: translateX(-150%) skewX(-15deg);
+  transition: transform 600ms cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
 }
+.btn-shine:hover {
+  box-shadow: 0 0 15px rgba(37, 244, 238, 0.4);
+}
 .btn-shine:hover::after {
-  transform: translateX(120%);
+  transform: translateX(150%) skewX(-15deg);
 }
 
 /* V2-98: caret dos inputs na cor da marca */
@@ -2341,11 +2345,35 @@ html {
   scroll-margin-top: 88px;
 }
 
-/* V2-100: marca d'água HUD — grade de pontos ciano ultra-sutil em painéis
-   especiais (assinatura final da identidade visual) */
-.dot-matrix {
-  background-image: radial-gradient(rgba(37, 244, 238, 0.05) 1px, transparent 1px);
+/* V2-100: marca d'água HUD — grade de pontos ciano ultra-sutil em painéis */
+.dot-matrix, .bg-cyber-dots {
+  background-image: radial-gradient(rgba(37, 244, 238, 0.1) 1px, transparent 1px);
   background-size: 22px 22px;
+}
+
+/* Phase 5: Neon Pulse Animations */
+@keyframes pulse-cyan {
+  0% { box-shadow: 0 0 0 0 rgba(37, 244, 238, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(37, 244, 238, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 244, 238, 0); }
+}
+.pulse-cyan { animation: pulse-cyan 2s infinite; }
+
+@keyframes pulse-red {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+.pulse-red { animation: pulse-red 2s infinite; }
+
+/* Phase 5: Input & Switch Focus Glows */
+input:focus, textarea:focus {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 12px rgba(37, 244, 238, 0.25) !important;
+  border-color: var(--accent) !important;
+  transition: all 0.3s ease;
+}
+.input-neon:focus {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 15px rgba(37, 244, 238, 0.4) !important;
 }
 
 /* ============================================================

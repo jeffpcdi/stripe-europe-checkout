@@ -374,7 +374,7 @@ export function LinksView() {
             type="button"
             data-tour="links-new"
             onClick={() => setCreating(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[var(--glow-cyan-soft)] transition-all hover:-translate-y-px hover:shadow-[var(--glow-cyan)] hover:brightness-105 active:scale-[0.98]"
+            className="btn-shine flex items-center gap-1.5 rounded-lg bg-[color:var(--brand-cyan)] px-3 py-2 text-sm font-semibold text-black shadow-[0_0_10px_rgba(37,244,238,0.3)] transition-all hover:-translate-y-px hover:shadow-[0_0_20px_rgba(37,244,238,0.6)] hover:brightness-110 active:scale-[0.98]"
           >
             <Plus className="size-4" /> Novo link
           </button>
@@ -382,7 +382,7 @@ export function LinksView() {
       </div>
 
       {links.length === 0 ? (
-        <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
+        <GlassCard className="pulse-cyan flex flex-col items-center gap-3 p-10 text-center transition-all">
           <Link2 className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground text-pretty">
             Nenhum link ainda. Crie um link /go/slug com split A/B, cloak e domínio próprio.
@@ -392,7 +392,7 @@ export function LinksView() {
             <button
               type="button"
               onClick={() => setCreating(true)}
-              className="rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
+              className="btn-shine rounded-lg bg-brand-cyan px-3 py-1.5 text-xs font-semibold text-black hover:drop-shadow-[0_0_10px_rgba(37,244,238,0.5)] active:scale-[0.98]"
             >
               Criar primeiro link
             </button>
@@ -451,7 +451,7 @@ export function LinksView() {
             </div>
           )}
           {visibleLinks.length === 0 && (
-            <GlassCard className="p-6 text-center">
+            <GlassCard className="p-6 text-center shadow-[0_0_15px_rgba(37,244,238,0.15)] transition-all">
               <p className="text-sm text-muted-foreground">
                 Nenhum link corresponde a &quot;{query}&quot;.
               </p>

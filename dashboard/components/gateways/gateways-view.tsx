@@ -153,7 +153,7 @@ export function GatewaysView() {
   function handleCopy(id: string, url: string) {
     navigator.clipboard.writeText(url).then(() => {
       setCopied(id)
-      setCopyAnnounce('URL do webhook copiada para a área de transferência.')
+      setCopyAnnounce('Link de integração copiado para a área de transferência.')
       setTimeout(() => setCopied(null), 2000)
     })
   }
@@ -165,7 +165,7 @@ export function GatewaysView() {
       title: `Remover o gateway "${g.name}"?`,
       description: (
         <>
-          Os webhooks dele deixam de ser processados imediatamente. Esta ação não pode ser desfeita.
+          Os eventos deste gateway deixarão de ser processados imediatamente. Esta ação não pode ser desfeita.
           {hasTraffic && ' Este gateway já recebeu eventos.'}
         </>
       ),
@@ -211,14 +211,14 @@ export function GatewaysView() {
   // Rotação do webhook: a URL antiga para de funcionar imediatamente
   function handleRotate(g: Gateway) {
     setConfirm({
-      title: `Rotacionar o webhook de "${g.name}"?`,
+      title: `Gerar novo link de integração de "${g.name}"?`,
       description: (
         <>
           A URL atual <strong>para de funcionar na hora</strong> — você precisará colar a nova no painel
           do checkout. A nova URL é copiada automaticamente.
         </>
       ),
-      confirmLabel: 'Rotacionar webhook',
+      confirmLabel: 'Gerar novo link',
       run: async () => {
         setRotating(g.id)
         try {
@@ -226,10 +226,10 @@ export function GatewaysView() {
           if (r.ok) {
             await navigator.clipboard.writeText(r.webhookUrl).catch(() => {})
             mutate()
-            toast.success('Novo webhook gerado e copiado', { hint: 'Cole no painel do seu gateway.' })
+            toast.success('Novo link de integração gerado e copiado', { hint: 'Cole no painel do seu gateway.' })
           }
         } catch (e) {
-          toast.error('Falha ao rotacionar o webhook', {
+          toast.error('Falha ao gerar o link de integração', {
             hint: e instanceof Error ? e.message : undefined,
           })
         } finally {
@@ -333,7 +333,7 @@ export function GatewaysView() {
                   <Zap className="size-6" />
                 </span>
                 <p className="text-sm text-muted-foreground text-pretty">
-                  Nenhum gateway conectado. Adicione um para receber webhooks de conversão.
+                  Nenhum gateway conectado. Adicione um para receber notificações de conversão.
                 </p>
                 {/* Item 106: consequência concreta de não ter gateway (par do aviso 86 na aba Pixels) */}
                 <p className="max-w-md text-xs text-warning text-pretty">
@@ -398,7 +398,7 @@ export function GatewaysView() {
                           ) : (
                             <span
                               className="flex items-center gap-1.5 rounded-md bg-[color:var(--error)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--error)]"
-                              title={`Último webhook falhou: ${g.lastEventStatus}`}
+                              title={`Última notificação falhou: ${g.lastEventStatus}`}
                             >
                               <span className="status-dot status-dot--err" aria-hidden="true" />
                               erro {timeAgo(g.lastEventAt)}
@@ -530,10 +530,10 @@ export function GatewaysView() {
 
         {/* V2-88: painel do log com scanline ciano — sinaliza "ao vivo" */}
         <GlassCard className="scan-live min-w-0 p-5" data-tour="gateways-webhooks">
-          <SectionTitle>Webhooks recebidos</SectionTitle>
+          <SectionTitle>Notificações de Sistema</SectionTitle>
           <p className="mb-3 text-xs text-muted-foreground">Últimas conversões processadas dos seus gateways</p>
           {!convLog || convLog.log.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Nenhum webhook recebido ainda.</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma notificação recebida ainda.</p>
           ) : (
             <ul className="flex max-h-[32rem] flex-col gap-1 overflow-y-auto">
               {/* Item 104/105: linha expansível — clique revela orderId, valor,
@@ -654,7 +654,7 @@ export function GatewaysView() {
         <summary className="flex cursor-pointer select-none items-center justify-between gap-2 rounded-xl px-4 py-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground [&::-webkit-details-marker]:hidden">
           <span className="flex items-center gap-2">
             <Info className="size-3.5" aria-hidden="true" />
-            Diagnóstico avançado — webhooks em quarentena, integridade, fila e retenção
+            Diagnóstico avançado — notificações em quarentena, integridade, fila e retenção
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
         </summary>

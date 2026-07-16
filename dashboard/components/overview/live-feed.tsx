@@ -9,6 +9,7 @@
 import Link from 'next/link'
 import type { Lead } from '@/lib/types'
 import { countryFlag, timeAgo, fmtCurrency } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { SectionTitle } from '@/components/section-title'
 
 const MAX_ROWS = 5
@@ -52,6 +53,14 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                   <span className="truncate text-xs font-medium text-foreground">
                     {label(lead)}
                   </span>
+                  <span className={cn(
+                    "rounded-md px-1.5 py-0.5 text-[10px] font-mono font-semibold uppercase tracking-wider",
+                    lead.stage === 'purchased' ? "bg-success/15 text-success drop-shadow-[0_0_8px_rgba(34,197,94,0.6)] border border-success/30" :
+                    lead.stage === 'checkout' ? "bg-warning/15 text-warning drop-shadow-[0_0_8px_rgba(251,191,36,0.6)] border border-warning/30" :
+                    "bg-primary/15 text-primary drop-shadow-[0_0_8px_rgba(37,244,238,0.6)] border border-primary/30"
+                  )}>
+                    {lead.stage}
+                  </span>
                   {bought ? (
                     <span
                       className="shrink-0 font-mono text-[11px] font-semibold tabular-nums text-success"
@@ -61,7 +70,7 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                     </span>
                   ) : null}
                 </span>
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground group-hover:text-foreground transition-colors">
+                <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground group-hover:text-foreground group-hover:drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] transition-all">
                   {timeAgo(lead.at)}
                 </span>
               </li>

@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { GlassCard } from '@/components/glass-card'
 import { useModalA11y } from '@/lib/use-modal-a11y'
+import { cn } from '@/lib/utils'
 
 export function ConfirmDialog({
   open,
@@ -52,13 +53,18 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
     >
       <div ref={ref} role="alertdialog" aria-modal="true" aria-label={title} tabIndex={-1} className="w-full max-w-md outline-none">
-        <GlassCard variant="thick" className="p-6">
+        <GlassCard variant="thick" className={cn(
+          "p-6 border shadow-2xl transition-all",
+          tone === 'danger' 
+            ? "border-destructive/30 shadow-[0_0_40px_rgba(239,68,68,0.15)]" 
+            : "border-primary/30 shadow-[0_0_40px_rgba(37,244,238,0.15)]"
+        )}>
           <div className="flex items-start gap-3">
             {tone === 'danger' && (
               <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">

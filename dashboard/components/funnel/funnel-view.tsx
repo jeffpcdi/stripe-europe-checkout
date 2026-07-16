@@ -382,8 +382,8 @@ export function FunnelView() {
                         className="funnel-bar relative h-full rounded-md"
                         style={{
                           width: `${w}%`,
-                          background: `linear-gradient(90deg, color-mix(in oklab, var(--accent) ${st.alpha * 100}%, transparent), color-mix(in oklab, var(--accent) ${st.alpha * 50}%, transparent))`,
-                          boxShadow: `0 0 20px color-mix(in oklab, var(--accent) ${st.alpha * 60}%, transparent)`,
+                          background: `linear-gradient(90deg, color-mix(in oklab, var(--accent) ${st.alpha * 100}%, transparent), color-mix(in oklab, #fe2c55 ${st.alpha * 80}%, transparent))`,
+                          boxShadow: `0 0 25px color-mix(in oklab, var(--accent) ${st.alpha * 70}%, transparent)`,
                           animationDelay: `${i * 300}ms`,
                         }}
                       >
@@ -392,7 +392,7 @@ export function FunnelView() {
                     </div>
                     {/* Itens 108/147: cápsula glass com CountUp mono */}
                     <span
-                      className="glass shrink-0 rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold tabular-nums"
+                      className="glass shrink-0 rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold tabular-nums drop-shadow-[0_0_8px_rgba(37,244,238,0.5)] transition-all hover:drop-shadow-[0_0_15px_rgba(37,244,238,0.8)]"
                       style={{ color: st.color }}
                     >
                       <CountUp value={st.value} />

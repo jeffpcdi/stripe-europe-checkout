@@ -230,9 +230,9 @@ export const STAGE_LABEL: Record<string, string> = {
 }
 
 export const STAGE_CLASS: Record<string, string> = {
-  visit: 'bg-primary/10 text-primary',
-  checkout: 'bg-warning/10 text-warning',
-  purchased: 'bg-success/10 text-success',
+  visit: 'bg-primary/10 text-primary border border-primary/30 shadow-[0_0_10px_rgba(37,244,238,0.2)]',
+  checkout: 'bg-warning/10 text-warning border border-warning/30 shadow-[0_0_10px_rgba(251,191,36,0.2)]',
+  purchased: 'bg-success/10 text-success border border-success/30 shadow-[0_0_10px_rgba(34,197,94,0.2)]',
 }
 
 /** Item 296: duração legível em até 2 unidades: "4min", "2h 15min", "3d 4h" */

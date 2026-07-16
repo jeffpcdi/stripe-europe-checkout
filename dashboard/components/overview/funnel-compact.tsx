@@ -87,13 +87,13 @@ export function FunnelCompact({
                   className="funnel-bar h-full rounded"
                   style={{
                     width: `${w}%`,
-                    background: `linear-gradient(90deg, color-mix(in oklab, var(--accent) ${st.alpha * 100}%, transparent), color-mix(in oklab, var(--accent) ${st.alpha * 50}%, transparent))`,
-                    boxShadow: `0 0 12px color-mix(in oklab, var(--accent) ${st.alpha * 40}%, transparent)`,
+                    background: `linear-gradient(90deg, color-mix(in oklab, var(--accent) ${st.alpha * 100}%, transparent), color-mix(in oklab, #fe2c55 ${st.alpha * 80}%, transparent))`,
+                    boxShadow: `0 0 15px color-mix(in oklab, var(--accent) ${st.alpha * 60}%, transparent)`,
                     animationDelay: `${i * 200}ms`,
                   }}
                 />
               </div>
-              <span className="text-right font-mono text-sm font-semibold tabular-nums text-foreground">
+              <span className="text-right font-mono text-sm font-semibold tabular-nums text-foreground drop-shadow-[0_0_8px_rgba(37,244,238,0.5)] transition-all hover:drop-shadow-[0_0_15px_rgba(37,244,238,0.8)]">
                 <CountUp value={st.value} />
               </span>
             </div>
@@ -103,7 +103,7 @@ export function FunnelCompact({
 
       {/* Gargalo — faixa vermelha discreta no rodapé, em frase humana */}
       {bottleneckMsg ? (
-        <p className="mt-4 rounded border-l-2 border-l-[#fe2c55] bg-[rgba(254,44,85,.06)] px-3 py-2 text-[11px] leading-relaxed text-[#fe2c55]/90">
+        <p className="mt-4 rounded border border-[#fe2c55]/30 border-l-2 border-l-[#fe2c55] bg-[rgba(254,44,85,.08)] px-3 py-2 text-[11px] leading-relaxed text-[#fe2c55] shadow-[0_0_15px_rgba(254,44,85,0.15)] transition-all hover:shadow-[0_0_25px_rgba(254,44,85,0.25)]">
           {bottleneckMsg}
         </p>
       ) : null}
