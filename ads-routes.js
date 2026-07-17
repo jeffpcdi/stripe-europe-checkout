@@ -614,6 +614,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const budgetAmount = Number(b.budgetAmount);
     if (!(budgetAmount > 0)) return { error: 'Orçamento inválido' };
     const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
+    // ABO/CBO: 'campaign' = orçamento otimizado na campanha (CBO); qualquer
+    // outro valor cai em ABO (orçamento no ad group) — o padrão histórico.
+    const budgetOptimization = b.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup';
+    // Estratégia de lance: 'cost_cap' exige um custo-alvo (bidAmount > 0);
+    // 'lowest_cost' (padrão) deixa o TikTok maximizar a entrega.
+    const bidStrategy = b.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost';
+    let bidAmount;
+    if (bidStrategy === 'cost_cap') {
+      bidAmount = Number(b.bidAmount);
+      if (!(bidAmount > 0)) return { error: 'Estratégia "custo-alvo" exige um valor de lance (bidAmount) maior que zero' };
+    }
 
     const payload = {
       accountId: st.accountId,
@@ -622,6 +633,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       goal,
       budgetAmount,
       budgetType,
+      budgetOptimization,
+      bidStrategy,
+      bidAmount,
       // No TikTok, o campo imageUrl carrega a URL do VÍDEO (API é video-only).
       imageUrl: videoUrl,
       body: String(b.body || '').trim().slice(0, 100) || undefined,
@@ -696,6 +710,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         videoUrl: payload.imageUrl,
         budgetAmount: payload.budgetAmount,
         budgetType: payload.budgetType,
+        budgetOptimization: payload.budgetOptimization,
+        bidStrategy: payload.bidStrategy,
+        bidAmount: payload.bidAmount,
         endDate: payload.endDate,
         body: payload.body,
         linkUrl: payload.linkUrl,
@@ -1685,6 +1702,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const result = await pipeboard.createFullAd(p.adAccountId, {
         name: p.name, goal: p.goal, videoUrl: p.imageUrl,
         budgetAmount: p.budgetAmount, budgetType: p.budgetType, endDate: p.endDate,
+        budgetOptimization: p.budgetOptimization, bidStrategy: p.bidStrategy, bidAmount: p.bidAmount,
         body: p.body, linkUrl: p.linkUrl, callToAction: p.callToAction,
         countries: p.countries, languages: p.languages,
         ageMin: p.ageMin, ageMax: p.ageMax, promotedObject: p.promotedObject,

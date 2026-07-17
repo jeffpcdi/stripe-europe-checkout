@@ -62,6 +62,9 @@ interface FormState {
   goal: AdsGoal
   budgetAmount: string
   budgetType: 'daily' | 'lifetime'
+  budgetOptimization: 'adgroup' | 'campaign'
+  bidStrategy: 'lowest_cost' | 'cost_cap'
+  bidAmount: string
   endDate: string
   countries: string
   languages: string
@@ -81,6 +84,9 @@ const INITIAL: FormState = {
   goal: 'traffic',
   budgetAmount: '',
   budgetType: 'daily',
+  budgetOptimization: 'adgroup',
+  bidStrategy: 'lowest_cost',
+  bidAmount: '',
   endDate: '',
   countries: 'BR',
   languages: 'pt',
@@ -152,6 +158,8 @@ export function CreateAdPanel({
       if (!(Number(form.budgetAmount) > 0)) return 'Informe o orçamento'
       if (form.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(form.endDate))
         return 'Orçamento total exige data de término'
+      if (form.bidStrategy === 'cost_cap' && !(Number(form.bidAmount) > 0))
+        return 'Custo-alvo exige um valor de lance maior que zero'
       return null
     }
     if (step === 2) {
@@ -267,7 +275,10 @@ export function CreateAdPanel({
         goal: form.goal,
         budgetAmount: Number(form.budgetAmount),
         budgetType: form.budgetType,
+        budgetOptimization: form.budgetOptimization,
+        bidStrategy: form.bidStrategy,
       }
+      if (form.bidStrategy === 'cost_cap') basePayload.bidAmount = Number(form.bidAmount)
       if (form.budgetType === 'lifetime') basePayload.endDate = form.endDate
       if (countries.length) basePayload.countries = countries
       if (languages.length) basePayload.languages = languages
@@ -504,6 +515,86 @@ export function CreateAdPanel({
                   />
                 </label>
               )}
+
+              {/* Otimização de orçamento: ABO (grupo) × CBO (campanha) */}
+              <fieldset className="flex flex-col gap-1.5">
+                <legend className="text-xs font-medium text-foreground">Otimização de orçamento</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'adgroup', label: 'ABO', hint: 'Orçamento no grupo de anúncios' },
+                    { value: 'campaign', label: 'CBO', hint: 'TikTok distribui na campanha' },
+                  ].map((o) => (
+                    <label
+                      key={o.value}
+                      className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 transition-colors ${
+                        form.budgetOptimization === o.value ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="budgetOptimization"
+                          className="accent-primary"
+                          checked={form.budgetOptimization === o.value}
+                          onChange={() => set('budgetOptimization', o.value as 'adgroup' | 'campaign')}
+                        />
+                        <span className="text-xs font-semibold text-foreground">{o.label}</span>
+                      </span>
+                      <span className="pl-6 text-[11px] text-muted-foreground">{o.hint}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              {/* Estratégia de lance: máxima entrega × teto de custo */}
+              <fieldset className="flex flex-col gap-1.5">
+                <legend className="text-xs font-medium text-foreground">Estratégia de lance</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'lowest_cost', label: 'Menor custo', hint: 'Máxima entrega (sem lance)' },
+                    { value: 'cost_cap', label: 'Custo-alvo', hint: 'Teto de custo por resultado' },
+                  ].map((o) => (
+                    <label
+                      key={o.value}
+                      className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 transition-colors ${
+                        form.bidStrategy === o.value ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="bidStrategy"
+                          className="accent-primary"
+                          checked={form.bidStrategy === o.value}
+                          onChange={() => set('bidStrategy', o.value as 'lowest_cost' | 'cost_cap')}
+                        />
+                        <span className="text-xs font-semibold text-foreground">{o.label}</span>
+                      </span>
+                      <span className="pl-6 text-[11px] text-muted-foreground">{o.hint}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              {form.bidStrategy === 'cost_cap' && (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-foreground">
+                    Custo-alvo por {form.goal === 'conversions' ? 'conversão' : 'resultado'} ({currency})
+                  </span>
+                  <input
+                    type="number"
+                    min={0.01}
+                    step="0.01"
+                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    value={form.bidAmount}
+                    onChange={(e) => set('bidAmount', e.target.value)}
+                    placeholder="Ex.: 8,00"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    O TikTok tenta manter o custo médio abaixo deste valor. Muito baixo pode travar a entrega.
+                  </span>
+                </label>
+              )}
+
               <p className="rounded-lg bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
                 O TikTok exige orçamento mínimo por campanha (geralmente {currency} 50/dia no nível de grupo).
                 Valores muito baixos podem ser rejeitados na criação.
@@ -814,7 +905,11 @@ export function CreateAdPanel({
                   ['Objetivo', GOALS.find((g) => g.value === form.goal)?.label ?? form.goal],
                   [
                     'Orçamento',
-                    `${currency} ${form.budgetAmount} / ${form.budgetType === 'daily' ? 'dia' : `total até ${form.endDate}`}`,
+                    `${currency} ${form.budgetAmount} / ${form.budgetType === 'daily' ? 'dia' : `total até ${form.endDate}`} · ${form.budgetOptimization === 'campaign' ? 'CBO' : 'ABO'}`,
+                  ],
+                  [
+                    'Lance',
+                    form.bidStrategy === 'cost_cap' ? `Custo-alvo ${currency} ${form.bidAmount}` : 'Menor custo (máx. entrega)',
                   ],
                   ['Países', form.countries || '—'],
                   ['Idiomas', form.languages || '—'],

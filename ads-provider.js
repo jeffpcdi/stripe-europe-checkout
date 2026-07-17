@@ -822,6 +822,41 @@ async function findCampaignIdByName(advertiserId, name) {
 //   dedupeByName — true: antes de criar a campanha (sem resume dela), procura
 //                 nome exato na plataforma e reaproveita (janela crash-antes-
 //                 de-gravar). Só o bulk usa; a rota interativa não precisa.
+// ── Plano de orçamento + lance (ABO/CBO/bid) ────────────────────────────────
+// Pura: mapeia a escolha do gestor para os campos do TikTok, tanto no nível
+// campanha (CBO) quanto ad group (ABO, padrão), mais a estratégia de lance.
+//   budgetOptimization: 'campaign' (CBO) | 'adgroup' (ABO, padrão)
+//   bidStrategy:        'lowest_cost' (máx. entrega, padrão) | 'cost_cap' (teto)
+//   bidAmount:          número > 0 quando cost_cap (custo-alvo por resultado)
+// CBO ⇒ orçamento vai na CAMPANHA (budget_optimize_on) e o ad group fica
+// INFINITE; ABO ⇒ orçamento no ad group (comportamento histórico).
+function resolveBudgetPlan(spec) {
+  const s = spec || {};
+  const cbo = s.budgetOptimization === 'campaign';
+  const lifetime = s.budgetType === 'lifetime';
+  const budgetMode = lifetime ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY';
+  const amount = Number(s.budgetAmount);
+  const campaign = {};
+  const adgroup = {};
+  if (cbo) {
+    campaign.budget_mode = budgetMode;
+    campaign.budget = amount;
+    campaign.budget_optimize_on = true;
+    adgroup.budget_mode = 'BUDGET_MODE_INFINITE'; // CBO gerencia no nível campanha
+  } else {
+    adgroup.budget_mode = budgetMode;
+    adgroup.budget = amount;
+  }
+  const bid = { bid_type: 'BID_TYPE_NO_BID' };
+  if (s.bidStrategy === 'cost_cap' && Number(s.bidAmount) > 0) {
+    bid.bid_type = 'BID_TYPE_CUSTOM';
+    // CONVERT + OCPM usa conversion_bid_price; demais objetivos usam bid_price.
+    if (s.goal === 'conversions') bid.conversion_bid_price = Number(s.bidAmount);
+    else bid.bid_price = Number(s.bidAmount);
+  }
+  return { cbo, campaign, adgroup, bid };
+}
+
 async function createFullAd(advertiserId, spec, opts) {
   const adv = String(advertiserId || '').trim();
   if (!adv) throw badRequest('advertiserId é obrigatório');
@@ -837,6 +872,7 @@ async function createFullAd(advertiserId, spec, opts) {
   }
   const warnings = [];
   const createdIds = {};
+  const plan = resolveBudgetPlan(s); // ABO/CBO + estratégia de lance
 
   // Item já completo numa tentativa anterior (crash entre o fim e o ack da
   // fila): devolve direto, zero chamadas de escrita.
@@ -867,6 +903,9 @@ async function createFullAd(advertiserId, spec, opts) {
         campaign_name: String(s.name).slice(0, 512),
         objective_type: goal.objective,
       };
+      // CBO: orçamento + budget_optimize_on vivem na campanha (plan.campaign
+      // fica vazio em ABO, então nada muda no caminho padrão).
+      Object.assign(campArgs, plan.campaign);
       if (s.goal === 'conversions') {
         campArgs.pixel_id = String(s.promotedObject.pixelId);
         campArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
@@ -892,12 +931,15 @@ async function createFullAd(advertiserId, spec, opts) {
         campaign_id: campaignId,
         adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
         optimization_goal: goal.optimizationGoal,
-        budget_mode: s.budgetType === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY',
-        budget: Number(s.budgetAmount),
         schedule_start_time: advertiserLocalTime(info && info.timezone),
         targeting,
-        bid_type: 'BID_TYPE_NO_BID',
       };
+      // Orçamento: em ABO vem no ad group; em CBO fica INFINITE (gerido na
+      // campanha). Lance: NO_BID (máx. entrega) ou CUSTOM (teto de custo).
+      if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
+      if (plan.adgroup.budget != null) agArgs.budget = plan.adgroup.budget;
+      Object.assign(agArgs, plan.bid);
+      // Orçamento total (em qualquer nível) exige janela de término no ad group.
       if (s.budgetType === 'lifetime' && s.endDate) {
         agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
       }
@@ -1481,5 +1523,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, GOAL_MAP },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP },
 };
