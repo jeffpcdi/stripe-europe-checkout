@@ -534,9 +534,11 @@ async function getDashboardTree(accountId, opts = {}) {
     cacheSet(ck, base, 15 * 1000);
   }
 
-  // filtro de status aplicado sobre o conjunto completo cacheado
+  // filtro de status aplicado sobre o conjunto completo cacheado. 'approved'
+  // (Validadas) filtra por reviewStatus — dimensão de revisão, não de entrega.
   let campaigns = base.campaigns;
-  if (statusFilter) campaigns = campaigns.filter((c) => c.status === statusFilter || c.childStatus === statusFilter);
+  if (opts.status === 'approved') campaigns = campaigns.filter((c) => c.reviewStatus === 'approved');
+  else if (statusFilter) campaigns = campaigns.filter((c) => c.status === statusFilter || c.childStatus === statusFilter);
   // ordenação
   const sort = ['newest', 'oldest', 'spend_desc', 'spend_asc'].includes(opts.sort) ? opts.sort : 'newest';
   campaigns = campaigns.slice().sort((a, b) => {
