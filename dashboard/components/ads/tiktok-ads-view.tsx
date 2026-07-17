@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, Copy } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, Gauge, Sparkles, Bot, BrainCircuit } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -33,7 +33,6 @@ import { SparkAdDialog } from './spark-ad-dialog'
 import { IdentityDialog } from './identity-dialog'
 import { CampaignDrawer } from './campaign-drawer'
 import { DuplicateDialog } from './duplicate-dialog'
-import { DuplicatePanel } from './duplicate-panel'
 import { RoasCard } from './roas-card'
 import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
@@ -97,11 +96,21 @@ export function TikTokAdsView() {
   // honrado UMA vez pós-mount (deep-link "ver automações" da home). useEffect
   // em vez de initializer para não divergir da renderização do servidor;
   // window.location em vez de useSearchParams para não exigir Suspense.
-  type TabKey = 'overview' | 'campaigns' | 'smartplus' | 'duplicate' | 'automation' | 'ai'
+  // Sub-abas por tarefa (uma fonte só → tablist + deep-link). Duplicação deixou
+  // de ser aba: cada campanha já tem a ação "Duplicar" na própria linha, então a
+  // aba separada era um caminho redundante — dobrar a superfície sem ganho.
+  type TabKey = 'overview' | 'campaigns' | 'smartplus' | 'automation' | 'ai'
+  const SUBTABS: { value: TabKey; label: string; icon: typeof Gauge }[] = [
+    { value: 'overview', label: 'Visão geral', icon: Gauge },
+    { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
+    { value: 'smartplus', label: 'Smart+', icon: Sparkles },
+    { value: 'automation', label: 'Automações', icon: Bot },
+    { value: 'ai', label: 'IA', icon: BrainCircuit },
+  ]
   const [tab, setTab] = useState<TabKey>('overview')
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
-    if (t === 'campaigns' || t === 'smartplus' || t === 'duplicate' || t === 'automation' || t === 'ai') setTab(t)
+    if (t === 'campaigns' || t === 'smartplus' || t === 'automation' || t === 'ai') setTab(t)
   }, [])
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -127,9 +136,6 @@ export function TikTokAdsView() {
   const openTickets = (adsHealth?.tickets ?? []).filter((t) => t.status === 'open' || t.status === 'submitted')
   const [detailCampaign, setDetailCampaign] = useState<AdsTreeCampaign | null>(null)
   const [duplicateCampaign, setDuplicateCampaign] = useState<AdsTreeCampaign | null>(null)
-  // Aba Duplicação: campanha de origem escolhida no seletor (id → objeto da árvore)
-  const [duplicateSourceId, setDuplicateSourceId] = useState('')
-  const duplicateSource = (tree?.campaigns ?? []).find((c) => c.platformCampaignId === duplicateSourceId) ?? null
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
@@ -336,42 +342,16 @@ export function TikTokAdsView() {
               (pill tablist) é o mesmo da aba Atividade. */}
           <Tabs.Root value={tab} onValueChange={(v) => setTab(v as TabKey)}>
             <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar mx-auto w-max mb-2">
-              <Tabs.Trigger
-                value="overview"
-                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-              >
-                Visão geral
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="campaigns"
-                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-              >
-                Campanhas
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="smartplus"
-                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-              >
-                Smart+
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="duplicate"
-                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-              >
-                Duplicação
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="automation"
-                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-              >
-                Automações
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="ai"
-                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-              >
-                IA
-              </Tabs.Trigger>
+              {SUBTABS.map((t) => (
+                <Tabs.Trigger
+                  key={t.value}
+                  value={t.value}
+                  className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+                >
+                  <t.icon className="size-3.5" aria-hidden="true" />
+                  {t.label}
+                </Tabs.Trigger>
+              ))}
             </Tabs.List>
           </Tabs.Root>
 
@@ -496,6 +476,9 @@ export function TikTokAdsView() {
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu.Root>
+                <span className="ml-auto text-[11px] text-muted-foreground">
+                  Duplicar? Use o ícone de cópia em cada campanha da lista.
+                </span>
               </div>
               <CampaignTree
               tree={tree}
@@ -531,48 +514,6 @@ export function TikTokAdsView() {
           {/* ── Aba: Smart+ — campanhas automatizadas do TikTok (gerir + appeal) ── */}
           {tab === 'smartplus' && (
             <SmartPlusPanel active={treeActive} adAccountId={concreteAdvertiser} currency={currency} />
-          )}
-
-          {/* ── Aba: Duplicação — escolher a campanha de origem e duplicar
-              (cópias exatas 1-10 ou variações até 50). Mesmo fluxo da ação
-              por-campanha do CampaignTree, agora como tela dedicada. ── */}
-          {tab === 'duplicate' && (
-            <GlassCard className="flex flex-col gap-4 p-5">
-              <div className="flex items-center gap-2">
-                <Copy className="size-4 text-primary" aria-hidden="true" />
-                <h2 className="text-sm font-semibold text-foreground">Duplicar campanha</h2>
-              </div>
-              <label className="flex max-w-md flex-col gap-1.5">
-                <span className="text-xs font-medium text-foreground">Campanha de origem</span>
-                <select
-                  className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                  value={duplicateSourceId}
-                  onChange={(e) => setDuplicateSourceId(e.target.value)}
-                >
-                  <option value="">Selecione uma campanha…</option>
-                  {(tree?.campaigns ?? []).map((c) => (
-                    <option key={c.platformCampaignId} value={c.platformCampaignId}>
-                      {c.campaignName || c.platformCampaignId}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {duplicateSource ? (
-                <div className="max-w-md">
-                  <DuplicatePanel
-                    campaign={duplicateSource}
-                    advertisers={advertisers}
-                    currentAdvertiserId={concreteAdvertiser}
-                    onFinished={() => mutateTree()}
-                  />
-                </div>
-              ) : (
-                <p className="text-pretty text-xs text-muted-foreground">
-                  Escolha a campanha de origem acima. A lista respeita o filtro/período da aba Campanhas —
-                  se não achar a campanha, troque o período para &quot;Todas&quot; lá.
-                </p>
-              )}
-            </GlassCard>
           )}
 
           {/* ── Aba: Automações (redesenho) — faixa "Precisa de você" no topo
