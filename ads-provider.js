@@ -1327,6 +1327,109 @@ async function createSparkAd(advertiserId, spec) {
   }
 }
 
+// ── Catálogos de produtos (TikTok Shopping / Dynamic Product Ads) ────────────
+// Fronteira sobre as tools de catálogo do Pipeboard. Todas exigem o Business
+// Center (bc_id): o TikTok prende catálogos ao BC, não ao advertiser. Não há
+// tool para LISTAR os BCs, então o bc_id é resolvido de: seleção persistida na
+// conta (config.pipeboardAds.bcId) → env TIKTOK_BC_ID/PIPEBOARD_BC_ID.
+const ENV_DEFAULT_BC = String(process.env.TIKTOK_BC_ID || process.env.PIPEBOARD_BC_ID || '').trim();
+const CATALOG_TYPES = ['PRODUCT_CATALOG', 'HOTEL_CATALOG', 'FLIGHT_CATALOG', 'VEHICLE_CATALOG'];
+
+function getBusinessCenterId(accountId) {
+  const st = getState(accountId);
+  return String(st.bcId || '').trim() || ENV_DEFAULT_BC;
+}
+function businessCenterFromEnv(accountId) {
+  // true quando o bc_id efetivo vem só do env (a conta não gravou o seu).
+  return !String(getState(accountId).bcId || '').trim() && !!ENV_DEFAULT_BC;
+}
+function setBusinessCenterId(accountId, bcId) {
+  const clean = String(bcId || '').trim().slice(0, 40);
+  setState(accountId, { bcId: clean });
+  return clean;
+}
+
+// Normaliza o overview de auditoria (get_tiktok_catalog_overview). Os nomes de
+// campo variam entre versões da API — plucka defensivamente aprovados/pendentes/
+// reprovados/total de qualquer forma que venham.
+function normalizeCatalogOverview(out) {
+  const num = (...cands) => {
+    for (const c of cands) { const v = deepPluck(out, c); if (v !== undefined && v !== null && v !== '') return Number(v) || 0; }
+    return 0;
+  };
+  return {
+    approved: num('approved', 'approved_count', 'pass', 'pass_count', 'available'),
+    pending: num('pending', 'pending_count', 'processing', 'in_review', 'reviewing'),
+    rejected: num('disapproved', 'rejected', 'rejected_count', 'fail', 'fail_count', 'unavailable'),
+    total: num('total', 'total_count', 'product_count'),
+    raw: out,
+  };
+}
+
+// Cria um catálogo no TikTok. Devolve { catalogId, raw }.
+async function createTikTokCatalog(bcId, { name, catalogType, currency, country } = {}) {
+  const bc = String(bcId || '').trim();
+  if (!bc) throw badRequest('Business Center (bc_id) é obrigatório para criar o catálogo no TikTok', 422);
+  const nm = String(name || '').trim().slice(0, 200);
+  if (!nm) throw badRequest('Nome do catálogo é obrigatório');
+  const args = {
+    bc_id: bc,
+    name: nm,
+    catalog_type: CATALOG_TYPES.includes(catalogType) ? catalogType : 'PRODUCT_CATALOG',
+  };
+  if (currency) args.currency = String(currency).trim().toUpperCase().slice(0, 8);
+  if (country) args.country = String(country).trim().toUpperCase().slice(0, 4);
+  const out = await pipeboard.callTool('create_tiktok_catalog', args);
+  const catalogId = String(deepPluck(out, 'catalog_id') || '');
+  if (!catalogId) throw badRequest('O TikTok não retornou o catalog_id ao criar o catálogo', 502);
+  cacheBust('catalogs:' + bc);
+  return { catalogId, raw: out };
+}
+
+// Sobe produtos ao catálogo via URL pública (o feed CSV publicado no Blob).
+async function uploadTikTokCatalogProducts(bcId, catalogId, fileUrl, fileFormat) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
+  if (!/^https:\/\/[^\s]+/.test(String(fileUrl || ''))) throw badRequest('file_url público (https) é obrigatório');
+  return pipeboard.callTool('upload_tiktok_catalog_products', {
+    bc_id: bc, catalog_id: cid, file_url: String(fileUrl), file_format: fileFormat === 'XML' ? 'XML' : 'CSV',
+  });
+}
+
+// Overview de auditoria dos produtos (aprovados/pendentes/reprovados).
+async function getTikTokCatalogOverview(bcId, catalogId) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
+  const out = await pipeboard.callTool('get_tiktok_catalog_overview', { bc_id: bc, catalog_id: cid });
+  return normalizeCatalogOverview(out);
+}
+
+// Lista os catálogos existentes no Business Center (cache curto).
+async function listTikTokCatalogs(bcId) {
+  const bc = String(bcId || '').trim();
+  if (!bc) throw badRequest('Business Center (bc_id) é obrigatório', 422);
+  const ck = 'catalogs:' + bc;
+  const hit = cacheGet(ck);
+  if (hit) return hit;
+  const out = await pipeboard.callTool('get_tiktok_catalogs', { bc_id: bc, page: 1, page_size: 50 });
+  const list = firstArray(out, ['catalogs', 'catalog_list', 'list', 'data']);
+  return cacheSet(ck, list, 60 * 1000);
+}
+
+// Renomeia um catálogo já criado no TikTok (mantém o vínculo em sincronia).
+async function updateTikTokCatalogName(bcId, catalogId, name) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  const nm = String(name || '').trim().slice(0, 200);
+  if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
+  if (!nm) throw badRequest('Novo nome é obrigatório');
+  const r = await pipeboard.callTool('update_tiktok_catalog', { bc_id: bc, catalog_id: cid, name: nm });
+  cacheBust('catalogs:' + bc);
+  return r;
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -1363,6 +1466,16 @@ module.exports = {
   listSparkIdentities,
   listIdentityVideos,
   createSparkAd,
+  // catálogos (TikTok Shopping / DPA)
+  getBusinessCenterId,
+  businessCenterFromEnv,
+  setBusinessCenterId,
+  createTikTokCatalog,
+  uploadTikTokCatalogProducts,
+  getTikTokCatalogOverview,
+  listTikTokCatalogs,
+  updateTikTokCatalogName,
+  CATALOG_TYPES,
   // cache
   cacheBust,
   cacheGet,

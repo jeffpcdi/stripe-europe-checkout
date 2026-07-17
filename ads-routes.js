@@ -1908,16 +1908,59 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   // ── Catálogos de produtos (TikTok Shopping / Catalog) ─────────────────────
-  // A Zernio não publica campanhas de catálogo no TikTok — então aqui gerimos
-  // o CATÁLOGO (produtos edit��veis + feed) e publicamos um feed TikTok-ready
-  // numa URL pública do Blob. O usuário cola essa URL no Catalog Manager do
-  // TikTok como feed agendado; toda edição aqui atualiza o feed no próximo pull.
-  // Escopo por conta logada (req.account.id) — nunca cruza contas.
+  // Fluxo ponta a ponta: gerimos os produtos (editáveis + validados contra a
+  // spec do template oficial), publicamos um feed CSV TikTok-ready numa URL
+  // pública (Blob) E — quando o Business Center está configurado — criamos o
+  // catálogo REAL no TikTok via Pipeboard e subimos os produtos, deixando-o
+  // pronto para uma campanha de Product Sales / DPA. Escopo por conta logada.
+
+  // Tipos de catálogo do TikTok + países comuns (hints da UI no formulário).
+  const CATALOG_TYPE_LABELS = [
+    { value: 'PRODUCT_CATALOG', label: 'Produtos (e-commerce / infoproduto)' },
+    { value: 'HOTEL_CATALOG', label: 'Hotéis' },
+    { value: 'FLIGHT_CATALOG', label: 'Voos' },
+    { value: 'VEHICLE_CATALOG', label: 'Veículos' },
+  ];
+  const CATALOG_COUNTRIES = [
+    { code: 'BR', name: 'Brasil' }, { code: 'US', name: 'Estados Unidos' },
+    { code: 'PT', name: 'Portugal' }, { code: 'GB', name: 'Reino Unido' },
+    { code: 'MX', name: 'México' }, { code: 'ES', name: 'Espanha' },
+    { code: 'FR', name: 'França' }, { code: 'DE', name: 'Alemanha' },
+    { code: 'IT', name: 'Itália' }, { code: 'CA', name: 'Canadá' },
+    { code: 'AU', name: 'Austrália' }, { code: 'JP', name: 'Japão' },
+  ];
 
   // Spec das colunas/campos p/ a UI montar o formulário e validar ao vivo.
   app.get('/api/ads/catalogs/spec', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ columns: catalogFeed.COLUMNS, required: catalogFeed.REQUIRED, enums: catalogFeed.ENUMS, fields: catalogFeed.FIELD_META });
+    res.json({
+      columns: catalogFeed.COLUMNS, required: catalogFeed.REQUIRED,
+      enums: catalogFeed.ENUMS, fields: catalogFeed.FIELD_META,
+      catalogTypes: CATALOG_TYPE_LABELS, countries: CATALOG_COUNTRIES,
+    });
+  });
+
+  // Business Center usado para os catálogos desta conta. O TikTok prende
+  // catálogos ao BC (não ao advertiser) e não há tool para listar BCs — então o
+  // usuário informa o ID uma vez (persistido) ou vem do env TIKTOK_BC_ID.
+  app.get('/api/ads/catalogs/business-center', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      enabled: pipeboard.enabled,
+      bcId: pipeboard.getBusinessCenterId(req.account.id) || '',
+      fromEnv: pipeboard.businessCenterFromEnv(req.account.id),
+    });
+  });
+
+  app.post('/api/ads/catalogs/business-center', dashboardAuth, (req, res) => {
+    try {
+      const raw = String((req.body || {}).bcId || '').trim();
+      if (raw && !/^\d{6,30}$/.test(raw)) {
+        return res.status(400).json({ error: 'O ID do Business Center deve ser numérico (ex.: 7012345678901234567).', code: 'INVALID_BC_ID' });
+      }
+      const bcId = pipeboard.setBusinessCenterId(req.account.id, raw);
+      res.json({ ok: true, bcId });
+    } catch (err) { fail(res, err); }
   });
 
   app.get('/api/ads/catalogs', dashboardAuth, async (req, res) => {
@@ -2008,26 +2051,110 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // Publica o feed no Blob (URL pública estável). allowOverwrite mantém a MESMA
-  // URL entre publicações — o usuário cola uma vez no TikTok e nunca mais mexe.
+  // Publica o feed CSV no Blob (URL pública estável). Reutilizado por /publish e
+  // /sync-tiktok. allowOverwrite mantém a MESMA URL entre publicações — o TikTok
+  // re-puxa sozinho do mesmo endereço. Lança erros com `status` para o `fail`.
+  async function publishCatalogFeed(accountId, catalogId) {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) { const e = new Error('Armazenamento (Vercel Blob) não configurado'); e.status = 503; throw e; }
+    const catalog = await catalogStore.getCatalog(accountId, catalogId);
+    if (!catalog) { const e = new Error('Catálogo não encontrado'); e.status = 404; throw e; }
+    const products = await catalogStore.listProducts(accountId, catalogId);
+    const valid = products.filter((p) => p.valid);
+    if (!valid.length) { const e = new Error('Nenhum produto válido para publicar. Corrija os erros primeiro.'); e.status = 400; throw e; }
+    const csv = catalogFeed.buildCatalogCsv(valid);
+    const { put } = require('@vercel/blob');
+    // path estável por conta+catálogo → URL não muda entre publicações
+    const blob = await put(
+      'tiktok-catalogs/' + accountId + '/' + catalog.id + '.csv', csv,
+      { access: 'public', contentType: 'text/csv; charset=utf-8', allowOverwrite: true, addRandomSuffix: false }
+    );
+    const updated = await catalogStore.setFeedUrl(accountId, catalog.id, blob.url);
+    return { catalog: updated, feedUrl: blob.url, published: valid.length, skipped: products.length - valid.length };
+  }
+
   app.post('/api/ads/catalogs/:catalogId/publish', dashboardAuth, async (req, res) => {
     try {
-      if (!process.env.BLOB_READ_WRITE_TOKEN) return res.status(503).json({ error: 'Armazenamento (Vercel Blob) não configurado' });
+      const out = await publishCatalogFeed(req.account.id, req.params.catalogId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Feed de catálogo publicado (' + out.published + ' produtos)', ref: req.params.catalogId });
+      res.json(out);
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Publicar direto no TikTok (o caminho "pronto para campanha") ───────────
+  // Um clique faz o ciclo completo: publica o feed no Blob → cria o catálogo no
+  // TikTok (se ainda não existe) → sobe os produtos pela URL pública → busca o
+  // overview de auditoria. Respeita killSwitch e dry-run como qualquer escrita.
+  app.post('/api/ads/catalogs/:catalogId/sync-tiktok', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const accId = req.account.id;
+      const catalogId = req.params.catalogId;
+      const bcId = pipeboard.getBusinessCenterId(accId);
+      if (!bcId) {
+        return res.status(422).json({ error: 'Informe o ID do Business Center do TikTok antes de publicar (aba Catálogo → Business Center).', code: 'NO_BUSINESS_CENTER' });
+      }
+      if (await killSwitchActive(accId)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      // 1) Publica o feed no Blob (também garante que há produtos válidos).
+      const pub = await publishCatalogFeed(accId, catalogId);
+      let catalog = pub.catalog;
+
+      // dry-run: o feed foi publicado (leitura segura), mas NADA é criado/enviado
+      // ao TikTok. Devolve o catálogo + a URL para o usuário conferir.
+      if (await isDryRun(accId)) {
+        await auditSimulated(accId, {
+          action: 'catalog_sync', targetType: 'catalog', targetId: catalogId, advertiserId: null,
+          metadata: { bcId, feedUrl: pub.feedUrl, published: pub.published },
+          title: 'Publicar catálogo no TikTok: ' + (catalog.name || catalogId),
+        });
+        return res.json({ dryRun: true, simulated: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit: catalog.audit || null });
+      }
+
+      // 2) Cria o catálogo no TikTok se ainda não vinculado (idempotente por
+      //    conta: uma vez criado, reusa o mesmo catalog_id nas próximas vezes).
+      if (!catalog.tiktokCatalogId) {
+        const created = await pipeboard.createTikTokCatalog(bcId, {
+          name: catalog.name, catalogType: catalog.catalogType, currency: catalog.currency, country: catalog.country,
+        });
+        catalog = await catalogStore.linkTikTokCatalog(accId, catalogId, { tiktokCatalogId: created.catalogId, bcId });
+      }
+
+      // 3) Sobe os produtos pela URL pública do feed.
+      await pipeboard.uploadTikTokCatalogProducts(bcId, catalog.tiktokCatalogId, pub.feedUrl, 'CSV');
+
+      // 4) Overview de auditoria (best-effort — o upload é assíncrono no TikTok,
+      //    então pode vir como "pendente" logo após; a UI reconsulta depois).
+      let audit = null;
+      try {
+        audit = await pipeboard.getTikTokCatalogOverview(bcId, catalog.tiktokCatalogId);
+        catalog = await catalogStore.setAudit(accId, catalogId, audit);
+      } catch (_) { /* overview é opcional; o vínculo já está gravado */ }
+
+      await adsOps.appendAuditEvent(accId, {
+        actorType: 'user', actorId: accId, action: 'catalog_sync',
+        targetType: 'catalog', targetId: catalogId, advertiserId: null,
+        afterState: { tiktokCatalogId: catalog.tiktokCatalogId, bcId, published: pub.published },
+        reason: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId),
+        metadata: { bcId, published: pub.published },
+      }).catch(() => {});
+      stats.logEvent('info', { acc: accId, title: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId) + ' (' + pub.published + ' produtos)', ref: catalogId });
+      res.json({ ok: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Reconsulta só o overview de auditoria de um catálogo já publicado no TikTok.
+  app.get('/api/ads/catalogs/:catalogId/audit', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
-      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
-      const valid = products.filter((p) => p.valid);
-      if (!valid.length) return res.status(400).json({ error: 'Nenhum produto válido para publicar. Corrija os erros primeiro.' });
-      const csv = catalogFeed.buildCatalogCsv(valid);
-      const { put } = require('@vercel/blob');
-      // path estável por conta+catálogo → URL não muda entre publicações
-      const blob = await put(
-        'tiktok-catalogs/' + req.account.id + '/' + catalog.id + '.csv', csv,
-        { access: 'public', contentType: 'text/csv; charset=utf-8', allowOverwrite: true, addRandomSuffix: false }
-      );
-      const updated = await catalogStore.setFeedUrl(req.account.id, catalog.id, blob.url);
-      stats.logEvent('info', { acc: req.account.id, title: 'Feed de catálogo publicado (' + valid.length + ' produtos)', ref: catalog.id });
-      res.json({ catalog: updated, feedUrl: blob.url, published: valid.length, skipped: products.length - valid.length });
+      if (!catalog.tiktokCatalogId || !catalog.bcId) {
+        return res.status(422).json({ error: 'Catálogo ainda não publicado no TikTok.', code: 'NOT_SYNCED' });
+      }
+      const audit = await pipeboard.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
+      const updated = await catalogStore.setAudit(req.account.id, req.params.catalogId, audit);
+      res.json({ catalog: updated, audit });
     } catch (err) { fail(res, err); }
   });
 };

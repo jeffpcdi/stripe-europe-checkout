@@ -17,12 +17,14 @@ import { useMemo, useRef, useState } from 'react'
 import {
   X, Loader2, Plus, Trash2, UploadCloud, Download, Rocket,
   Copy, Check, AlertCircle, ChevronLeft, ExternalLink, PackageOpen,
+  Building2, Clock, ShieldCheck, RefreshCw, Pencil,
 } from 'lucide-react'
 import {
-  useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, adsCatalogImportCsv, apiSend,
+  useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
+  adsCatalogImportCsv, apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsCatalog, AdsCatalogProduct } from '@/lib/types'
+import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 
 const CURRENCIES = ['USD', 'BRL', 'EUR', 'GBP', 'MXN', 'CAD', 'AUD', 'JPY']
@@ -30,6 +32,8 @@ const CURRENCIES = ['USD', 'BRL', 'EUR', 'GBP', 'MXN', 'CAD', 'AUD', 'JPY']
 // Colunas prioritárias mostradas na tabela compacta (o restante fica no editor
 // lateral). São as que o TikTok exige + as de maior uso.
 const PRIMARY_COLS = ['sku_id', 'title', 'availability', 'condition', 'price', 'image_link', 'link']
+
+type CatalogSpec = AdsCatalogSpecResponse
 
 export function CatalogManager({
   advertiserId: _advertiserId,
@@ -40,6 +44,7 @@ export function CatalogManager({
 }) {
   const { data: list, mutate: mutateList, isLoading: listLoading } = useAdsCatalogs(true)
   const { data: spec } = useAdsCatalogSpec(true)
+  const { data: bc, mutate: mutateBc } = useAdsCatalogBusinessCenter(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const enabled = list?.enabled !== false
@@ -57,37 +62,146 @@ export function CatalogManager({
     )
   }
 
-  return selectedId ? (
-    <CatalogDetail
-      catalogId={selectedId}
-      spec={spec ?? null}
-      onBack={() => {
-        setSelectedId(null)
-        mutateList()
-      }}
-      onDeleted={() => {
-        setSelectedId(null)
-        mutateList()
-      }}
-    />
-  ) : (
-    <CatalogList
-      catalogs={list?.catalogs ?? []}
-      loading={listLoading && !list}
-      onOpen={setSelectedId}
-      onChanged={mutateList}
-    />
+  return (
+    <div className="flex flex-col gap-3">
+      <BusinessCenterBar bcId={bc?.bcId ?? ''} fromEnv={Boolean(bc?.fromEnv)} onChanged={mutateBc} />
+      {selectedId ? (
+        <CatalogDetail
+          catalogId={selectedId}
+          spec={spec ?? null}
+          bcConfigured={Boolean(bc?.bcId)}
+          onBack={() => {
+            setSelectedId(null)
+            mutateList()
+          }}
+          onDeleted={() => {
+            setSelectedId(null)
+            mutateList()
+          }}
+        />
+      ) : (
+        <CatalogList
+          catalogs={list?.catalogs ?? []}
+          spec={spec ?? null}
+          loading={listLoading && !list}
+          onOpen={setSelectedId}
+          onChanged={mutateList}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Business Center (obrigatório para publicar no TikTok) ──────────────────
+// O TikTok prende catálogos ao Business Center, não ao advertiser, e não há
+// API para listar BCs — então o usuário informa o ID uma vez (persistido).
+function BusinessCenterBar({
+  bcId,
+  fromEnv,
+  onChanged,
+}: {
+  bcId: string
+  fromEnv: boolean
+  onChanged: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(bcId)
+  const [busy, setBusy] = useState(false)
+  const configured = Boolean(bcId)
+
+  async function save() {
+    setBusy(true)
+    try {
+      await apiSend('/api/ads/catalogs/business-center', 'POST', { bcId: value.trim() })
+      toast.success('Business Center salvo')
+      setEditing(false)
+      onChanged()
+    } catch (e) {
+      toast.error('Falha ao salvar', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 ${
+          configured ? 'border-border bg-background' : 'border-warning/40 bg-warning/5'
+        }`}
+      >
+        <div className="flex items-center gap-2 text-xs">
+          <Building2 className={`size-4 ${configured ? 'text-primary' : 'text-warning'}`} aria-hidden="true" />
+          {configured ? (
+            <span className="text-foreground">
+              Business Center <code className="rounded bg-secondary px-1.5 py-0.5 text-[11px]">{bcId}</code>
+              {fromEnv && <span className="ml-1 text-[11px] text-muted-foreground">(do servidor)</span>}
+            </span>
+          ) : (
+            <span className="text-pretty text-foreground">
+              Informe o ID do Business Center do TikTok para publicar catálogos direto na plataforma.
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          className={configured ? 'btn-ghost text-xs' : 'btn-primary text-xs'}
+          onClick={() => {
+            setValue(bcId)
+            setEditing(true)
+          }}
+        >
+          {configured ? <Pencil className="size-3.5" aria-hidden="true" /> : <Building2 className="size-3.5" aria-hidden="true" />}
+          {configured ? 'Alterar' : 'Configurar'}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-background p-3">
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="font-medium text-foreground">ID do Business Center</span>
+        <input
+          autoFocus
+          className="input-base"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Ex.: 7012345678901234567"
+          inputMode="numeric"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) save()
+          }}
+        />
+      </label>
+      <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
+        Encontre em <strong className="text-foreground">TikTok Business Center → Configurações</strong>: o ID
+        numérico aparece na URL (<code className="rounded bg-secondary px-1 py-0.5">bc_id=…</code>) e nos detalhes
+        da conta. É o mesmo BC que contém sua conta de anúncio.
+      </p>
+      <div className="flex items-center justify-end gap-2">
+        <button type="button" className="btn-ghost text-xs" onClick={() => setEditing(false)} disabled={busy}>
+          Cancelar
+        </button>
+        <button type="button" className="btn-primary text-xs" onClick={save} disabled={busy}>
+          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
+          Salvar
+        </button>
+      </div>
+    </div>
   )
 }
 
 // ── Tela 1: lista + criação ──────────────────────────────────────────────
 function CatalogList({
   catalogs,
+  spec,
   loading,
   onOpen,
   onChanged,
 }: {
   catalogs: AdsCatalog[]
+  spec: CatalogSpec | null
   loading: boolean
   onOpen: (id: string) => void
   onChanged: () => void
@@ -95,7 +209,12 @@ function CatalogList({
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState('USD')
+  const [catalogType, setCatalogType] = useState('PRODUCT_CATALOG')
+  const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
+
+  const catalogTypes = spec?.catalogTypes ?? [{ value: 'PRODUCT_CATALOG', label: 'Produtos' }]
+  const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
 
   async function handleCreate() {
     if (!name.trim()) return
@@ -104,6 +223,8 @@ function CatalogList({
       const res = await apiSend<{ catalog: AdsCatalog }>('/api/ads/catalogs', 'POST', {
         name: name.trim(),
         currency,
+        catalogType,
+        country,
       })
       toast.success('Catálogo criado')
       setName('')
@@ -121,7 +242,7 @@ function CatalogList({
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          Cada catálogo gera um feed CSV que você conecta ao TikTok Catalog Manager.
+          Cada catálogo é criado no TikTok e fica pronto para uma campanha de vendas (DPA).
         </p>
         {!creating && (
           <button type="button" className="btn-primary shrink-0 text-xs" onClick={() => setCreating(true)}>
@@ -133,20 +254,36 @@ function CatalogList({
 
       {creating && (
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4">
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-medium text-foreground">Nome do catálogo</span>
+            <input
+              autoFocus
+              className="input-base"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex.: Loja Verão 2026"
+              maxLength={200}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) handleCreate()
+              }}
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-3">
             <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Nome do catálogo</span>
-              <input
-                autoFocus
-                className="input-base"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ex.: Loja Verão 2026"
-                maxLength={200}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) handleCreate()
-                }}
-              />
+              <span className="font-medium text-foreground">Tipo</span>
+              <select className="input-base" value={catalogType} onChange={(e) => setCatalogType(e.target.value)}>
+                {catalogTypes.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-medium text-foreground">País principal</span>
+              <select className="input-base" value={country} onChange={(e) => setCountry(e.target.value)}>
+                {countries.map((c) => (
+                  <option key={c.code} value={c.code}>{c.name}</option>
+                ))}
+              </select>
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Moeda</span>
@@ -158,7 +295,8 @@ function CatalogList({
             </label>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            A moeda precisa bater com a moeda padrão do catálogo no TikTok. Todos os preços usarão ela.
+            A moeda precisa bater com a moeda padrão do catálogo no TikTok — todos os preços usarão ela. Tipo,
+            país e moeda são definidos na criação do catálogo na plataforma.
           </p>
           <div className="flex items-center justify-end gap-2">
             <button type="button" className="btn-ghost text-xs" onClick={() => setCreating(false)} disabled={busy}>
@@ -197,11 +335,12 @@ function CatalogList({
                   <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {c.productCount} produto{c.productCount === 1 ? '' : 's'} · {c.currency}
-                    {c.feedUrl ? ' · feed publicado' : ' · não publicado'}
+                    {c.country ? ` · ${c.country}` : ''}
+                    {c.tiktokCatalogId ? ' · no TikTok' : c.feedUrl ? ' · feed publicado' : ' · rascunho'}
                   </p>
                 </div>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${c.feedUrl ? 'bg-success/15 text-success' : 'bg-secondary text-muted-foreground'}`}>
-                  {c.feedUrl ? 'Ativo' : 'Rascunho'}
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${c.tiktokCatalogId ? 'bg-success/15 text-success' : c.feedUrl ? 'bg-primary/15 text-primary' : 'bg-secondary text-muted-foreground'}`}>
+                  {c.tiktokCatalogId ? 'No TikTok' : c.feedUrl ? 'Feed' : 'Rascunho'}
                 </span>
               </button>
             </li>
@@ -216,11 +355,13 @@ function CatalogList({
 function CatalogDetail({
   catalogId,
   spec,
+  bcConfigured,
   onBack,
   onDeleted,
 }: {
   catalogId: string
-  spec: { columns: string[]; required: string[]; enums: Record<string, string[]>; fields: { key: string; required: boolean; enum: string[] | null }[] } | null
+  spec: CatalogSpec | null
+  bcConfigured: boolean
   onBack: () => void
   onDeleted: () => void
 }) {
@@ -228,6 +369,8 @@ function CatalogDetail({
   const fileRef = useRef<HTMLInputElement>(null)
   const [editing, setEditing] = useState<AdsCatalogProduct | 'new' | null>(null)
   const [publishing, setPublishing] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [auditing, setAuditing] = useState(false)
   const [importing, setImporting] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -266,6 +409,46 @@ function CatalogDetail({
       toast.error('Falha ao publicar o feed', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setPublishing(false)
+    }
+  }
+
+  // Publica direto no TikTok: cria o catálogo (se preciso) e sobe os produtos.
+  async function handleSyncTiktok() {
+    setSyncing(true)
+    try {
+      const res = await apiSend<AdsCatalogSyncResponse>(
+        `/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-tiktok`, 'POST', {},
+      )
+      if (res.dryRun) {
+        toast.info('Modo simulação: feed publicado, mas nada foi enviado ao TikTok', {
+          hint: 'Desative o modo simulação em Operações para publicar de verdade.',
+        })
+      } else {
+        toast.success(`Catálogo publicado no TikTok com ${res.published} produto(s)`, {
+          hint: res.audit && res.audit.pending > 0 ? 'Os produtos entram em análise do TikTok — acompanhe o status abaixo.' : undefined,
+        })
+      }
+      mutate()
+    } catch (e) {
+      toast.error('Falha ao publicar no TikTok', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function handleRefreshAudit() {
+    setAuditing(true)
+    try {
+      const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, { credentials: 'include' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Erro ${res.status}`)
+      }
+      mutate()
+    } catch (e) {
+      toast.error('Falha ao atualizar status', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setAuditing(false)
     }
   }
 
@@ -349,44 +532,76 @@ function CatalogDetail({
                 <Plus className="size-3.5" aria-hidden="true" />
                 Produto
               </button>
-              <button type="button" className="btn-primary text-xs" onClick={handlePublish} disabled={publishing || validCount === 0}>
-                {publishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
-                Publicar feed
+              <button
+                type="button"
+                className="btn-ghost text-xs"
+                onClick={handlePublish}
+                disabled={publishing || validCount === 0}
+                title="Publicar só o feed CSV (URL pública) para usar como feed agendado manual"
+              >
+                {publishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />}
+                Feed manual
+              </button>
+              <button
+                type="button"
+                className="btn-primary text-xs"
+                onClick={handleSyncTiktok}
+                disabled={syncing || validCount === 0 || !bcConfigured}
+                title={!bcConfigured ? 'Configure o Business Center acima para publicar no TikTok' : undefined}
+              >
+                {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
+                {catalog?.tiktokCatalogId ? 'Atualizar no TikTok' : 'Publicar no TikTok'}
               </button>
             </div>
           </div>
 
-          {/* Feed publicado + handoff guiado */}
-          {catalog?.feedUrl && (
-            <div className="flex flex-col gap-2 rounded-xl border border-success/30 bg-success/5 p-4">
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                <Check className="size-3.5 text-success" aria-hidden="true" />
-                Feed pronto para o TikTok
-              </p>
-              <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-lg bg-background px-3 py-2 text-[11px] text-muted-foreground">
-                  {catalog.feedUrl}
-                </code>
-                <button type="button" className="btn-ghost shrink-0 px-2 py-2" onClick={copyFeedUrl} aria-label="Copiar URL">
-                  {copied ? <Check className="size-3.5 text-success" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
-                </button>
-              </div>
-              <ol className="ml-4 list-decimal text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                <li>Abra o <strong className="text-foreground">TikTok Business Center → Catalog Manager</strong> e crie/abra um catálogo.</li>
-                <li>Em <strong className="text-foreground">Data source → Scheduled feed</strong>, cole a URL acima e defina a frequência de atualização.</li>
-                <li>Cada vez que você editar produtos aqui e clicar em <strong className="text-foreground">Publicar feed</strong>, a URL continua a mesma — o TikTok re-puxa sozinho.</li>
-                <li>Crie a campanha com objetivo <strong className="text-foreground">Product Sales</strong> e selecione este catálogo.</li>
-              </ol>
-              <a
-                className="btn-ghost w-fit text-xs"
-                href="https://ads.tiktok.com/help/article?aid=10001006"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <ExternalLink className="size-3.5" aria-hidden="true" />
-                Guia oficial do TikTok
-              </a>
+          {/* Aviso: BC não configurado bloqueia a publicação no TikTok */}
+          {!bcConfigured && (
+            <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-[11px] text-muted-foreground">
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+              <span className="text-pretty">
+                Configure o <strong className="text-foreground">Business Center</strong> no topo desta aba para
+                publicar o catálogo direto no TikTok. Sem ele, você ainda pode gerar o <strong className="text-foreground">feed manual</strong> e
+                conectá-lo no Catalog Manager.
+              </span>
             </div>
+          )}
+
+          {/* Status do catálogo no TikTok (quando já publicado) */}
+          {catalog?.tiktokCatalogId && <TiktokStatusPanel catalog={catalog} auditing={auditing} onRefresh={handleRefreshAudit} />}
+
+          {/* Alternativa manual: feed agendado (para quem não usa a publicação
+              direta ou prefere conectar a URL à mão no Catalog Manager) */}
+          {catalog?.feedUrl && (
+            <details className="rounded-xl border border-border bg-background p-4">
+              <summary className="cursor-pointer text-xs font-semibold text-foreground">
+                Alternativa: feed agendado manual (URL pública)
+              </summary>
+              <div className="mt-3 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded-lg bg-secondary px-3 py-2 text-[11px] text-muted-foreground">
+                    {catalog.feedUrl}
+                  </code>
+                  <button type="button" className="btn-ghost shrink-0 px-2 py-2" onClick={copyFeedUrl} aria-label="Copiar URL">
+                    {copied ? <Check className="size-3.5 text-success" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
+                  </button>
+                </div>
+                <ol className="ml-4 list-decimal text-pretty text-[11px] leading-relaxed text-muted-foreground">
+                  <li>Abra o <strong className="text-foreground">TikTok Business Center → Catalog Manager</strong> e crie/abra um catálogo.</li>
+                  <li>Em <strong className="text-foreground">Data source → Scheduled feed</strong>, cole a URL acima e defina a frequência de atualização.</li>
+                  <li>Cada vez que você editar produtos aqui e clicar em <strong className="text-foreground">Feed manual</strong>, a URL continua a mesma — o TikTok re-puxa sozinho.</li>
+                </ol>
+                <a
+                  className="btn-ghost w-fit text-xs"
+                  href="https://ads.tiktok.com/help/article?aid=10001006"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <ExternalLink className="size-3.5" aria-hidden="true" />
+                  Guia oficial do TikTok
+                </a>
+              </div>
+            </details>
           )}
 
           {/* Tabela de produtos */}
@@ -463,6 +678,104 @@ function CatalogDetail({
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ── Painel de status do catálogo no TikTok ────────────────────────────────
+// Mostra que o catálogo já vive no TikTok (id real + auditoria dos produtos) e
+// se está pronto para uma campanha de vendas (DPA).
+function TiktokStatusPanel({
+  catalog,
+  auditing,
+  onRefresh,
+}: {
+  catalog: AdsCatalog
+  auditing: boolean
+  onRefresh: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const audit = catalog.audit
+  const approved = audit?.approved ?? 0
+  const pending = audit?.pending ?? 0
+  const rejected = audit?.rejected ?? 0
+  // "Pronto para campanha" = há produtos aprovados e nada em análise pendente.
+  const ready = approved > 0 && pending === 0
+  const syncedAt = catalog.syncedAt ? new Date(catalog.syncedAt) : null
+
+  function copyId() {
+    if (!catalog.tiktokCatalogId) return
+    navigator.clipboard?.writeText(catalog.tiktokCatalogId).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${ready ? 'border-success/30 bg-success/5' : 'border-primary/25 bg-primary/5'}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+          {ready ? (
+            <ShieldCheck className="size-4 text-success" aria-hidden="true" />
+          ) : (
+            <Clock className="size-4 text-primary" aria-hidden="true" />
+          )}
+          {ready ? 'Publicado no TikTok — pronto para campanha' : 'Publicado no TikTok'}
+        </p>
+        <button type="button" className="btn-ghost text-xs" onClick={onRefresh} disabled={auditing}>
+          {auditing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />}
+          Atualizar status
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="text-muted-foreground">ID do catálogo:</span>
+        <code className="rounded bg-background px-2 py-1 text-foreground">{catalog.tiktokCatalogId}</code>
+        <button type="button" className="btn-ghost px-1.5 py-1" onClick={copyId} aria-label="Copiar ID do catálogo">
+          {copied ? <Check className="size-3 text-success" aria-hidden="true" /> : <Copy className="size-3" aria-hidden="true" />}
+        </button>
+      </div>
+
+      {/* Auditoria dos produtos */}
+      {audit ? (
+        <div className="flex flex-wrap gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-semibold text-success">
+            {approved} aprovado{approved === 1 ? '' : 's'}
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-1 text-[11px] font-semibold text-warning">
+            {pending} em análise
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-error/15 px-2.5 py-1 text-[11px] font-semibold text-error">
+            {rejected} reprovado{rejected === 1 ? '' : 's'}
+          </span>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          Produtos enviados — a auditoria do TikTok pode levar alguns minutos. Clique em “Atualizar status”.
+        </p>
+      )}
+
+      <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
+        {ready
+          ? 'Crie uma campanha de Product Sales (DPA) no TikTok Ads Manager e selecione este catálogo. As edições de produtos aqui, ao republicar, atualizam o mesmo catálogo.'
+          : rejected > 0
+            ? 'Alguns produtos foram reprovados pelo TikTok — verifique imagens (≥ 500×500), links https válidos e a moeda do preço, corrija na tabela e republique.'
+            : 'Assim que os produtos forem aprovados, o catálogo fica disponível na criação de campanhas de Product Sales (DPA).'}
+      </p>
+      {syncedAt && (
+        <p className="text-[10px] text-muted-foreground">
+          Última publicação: {syncedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+        </p>
+      )}
+      <a
+        className="btn-ghost w-fit text-xs"
+        href="https://ads.tiktok.com/i18n/creation/campaign"
+        target="_blank"
+        rel="noreferrer"
+      >
+        <ExternalLink className="size-3.5" aria-hidden="true" />
+        Abrir criação de campanha
+      </a>
     </div>
   )
 }

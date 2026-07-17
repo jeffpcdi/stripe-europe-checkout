@@ -43,6 +43,7 @@ import type {
   AdsCatalogsResponse,
   AdsCatalogDetailResponse,
   AdsCatalogSpecResponse,
+  AdsCatalogBusinessCenter,
   AdsMcpStatusResponse,
   AdsKpisResponse,
   AdsBriefingResponse,
@@ -607,6 +608,13 @@ export function useAdsCatalogSpec(active: boolean) {
   return useSWR<AdsCatalogSpecResponse>(active ? '/api/ads/catalogs/spec' : null, fetcher, {
     revalidateOnFocus: false,
     revalidateIfStale: false,
+  })
+}
+
+// Business Center usado para publicar catálogos no TikTok (persistido por conta).
+export function useAdsCatalogBusinessCenter(active: boolean) {
+  return useSWR<AdsCatalogBusinessCenter>(active ? '/api/ads/catalogs/business-center' : null, fetcher, {
+    revalidateOnFocus: false,
   })
 }
 

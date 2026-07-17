@@ -1305,13 +1305,28 @@ export interface AdsSafetyPolicyResponse {
 }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ────────────────────────
-// O backend não publica campanhas de catálogo; gerimos produtos + feed aqui e
-// publicamos um CSV TikTok-ready numa URL pública (Blob) para feed agendado.
+// Gerimos produtos + feed aqui, publicamos um CSV TikTok-ready numa URL pública
+// (Blob) E — com o Business Center configurado — criamos o catálogo REAL no
+// TikTok e subimos os produtos, deixando-o pronto para campanha (DPA).
+export interface AdsCatalogAudit {
+  approved: number
+  pending: number
+  rejected: number
+  total: number
+  at?: string
+}
+
 export interface AdsCatalog {
   id: string
   accountId: string
   name: string
   currency: string
+  catalogType: string
+  country: string | null
+  bcId: string | null
+  tiktokCatalogId: string | null
+  syncedAt: string | null
+  audit: AdsCatalogAudit | null
   feedUrl: string | null
   feedPublishedAt: string | null
   productCount: number
@@ -1357,6 +1372,25 @@ export interface AdsCatalogSpecResponse {
   required: string[]
   enums: Record<string, string[]>
   fields: AdsCatalogFieldMeta[]
+  catalogTypes: { value: string; label: string }[]
+  countries: { code: string; name: string }[]
+}
+
+export interface AdsCatalogBusinessCenter {
+  enabled: boolean
+  bcId: string
+  fromEnv: boolean
+}
+
+export interface AdsCatalogSyncResponse {
+  ok?: boolean
+  dryRun?: boolean
+  simulated?: boolean
+  catalog: AdsCatalog
+  feedUrl: string
+  published: number
+  skipped?: number
+  audit: AdsCatalogAudit | null
 }
 
 export interface AdsCatalogImportSummary {
