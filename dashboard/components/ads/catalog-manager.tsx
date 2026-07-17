@@ -33,6 +33,41 @@ const CURRENCIES = ['USD', 'BRL', 'EUR', 'GBP', 'MXN', 'CAD', 'AUD', 'JPY']
 // lateral). São as que o TikTok exige + as de maior uso.
 const PRIMARY_COLS = ['sku_id', 'title', 'availability', 'condition', 'price', 'image_link', 'link']
 
+// Rótulos amigáveis em pt-BR para o editor (a chave crua do CSV vira só uma
+// dica pequena). Mantém intuitivo para quem vende, sem esconder o nome técnico.
+const FIELD_LABELS: Record<string, string> = {
+  sku_id: 'ID do produto (SKU)',
+  title: 'Título',
+  description: 'Descrição',
+  availability: 'Disponibilidade',
+  condition: 'Condição',
+  price: 'Preço',
+  link: 'Link do produto',
+  image_link: 'Link da imagem',
+  brand: 'Marca',
+  video_link: 'Link do vídeo',
+  additional_image_link: 'Imagens adicionais',
+  age_group: 'Faixa etária',
+  color: 'Cor',
+  gender: 'Gênero',
+  google_product_category: 'Categoria (Google)',
+  product_type: 'Tipo de produto',
+  sale_price: 'Preço promocional',
+  size: 'Tamanho',
+  gtin: 'GTIN (código de barras)',
+  mpn: 'Código do fabricante (MPN)',
+}
+// Exemplos de preenchimento para os campos que mais confundem.
+const FIELD_PLACEHOLDERS: Record<string, string> = {
+  sku_id: 'Ex.: SKU-001',
+  title: 'Ex.: Camiseta branca algodão',
+  description: 'Descrição curta do produto',
+  price: 'Ex.: 9.99 BRL',
+  link: 'https://sualoja.com/produto',
+  image_link: 'https://sualoja.com/foto.jpg (≥ 500×500)',
+  sale_price: 'Ex.: 7.99 BRL',
+}
+
 type CatalogSpec = AdsCatalogSpecResponse
 
 export function CatalogManager({
@@ -125,21 +160,17 @@ function BusinessCenterBar({
 
   if (!editing) {
     return (
-      <div
-        className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 ${
-          configured ? 'border-border bg-background' : 'border-warning/40 bg-warning/5'
-        }`}
-      >
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3">
         <div className="flex items-center gap-2 text-xs">
-          <Building2 className={`size-4 ${configured ? 'text-primary' : 'text-warning'}`} aria-hidden="true" />
+          <Building2 className={`size-4 ${configured ? 'text-primary' : 'text-muted-foreground'}`} aria-hidden="true" />
           {configured ? (
             <span className="text-foreground">
               Business Center <code className="rounded bg-secondary px-1.5 py-0.5 text-[11px]">{bcId}</code>
               {fromEnv && <span className="ml-1 text-[11px] text-muted-foreground">(do servidor)</span>}
             </span>
           ) : (
-            <span className="text-pretty text-foreground">
-              Informe o ID do Business Center do TikTok para publicar catálogos direto na plataforma.
+            <span className="text-pretty text-muted-foreground">
+              Opcional agora: configure o Business Center quando for publicar direto no TikTok.
             </span>
           )}
         </div>
@@ -780,6 +811,44 @@ function TiktokStatusPanel({
   )
 }
 
+// Um campo do editor de produto: rótulo pt-BR + chave técnica como dica.
+function ProductField({
+  field,
+  value,
+  onChange,
+}: {
+  field: { key: string; required: boolean; enum: string[] | null }
+  value: string
+  onChange: (v: string) => void
+}) {
+  const label = FIELD_LABELS[field.key] || field.key
+  const isMissing = field.required && !String(value).trim()
+  return (
+    <label className="flex flex-col gap-1 text-xs">
+      <span className="flex items-baseline gap-1.5">
+        <span className="font-medium text-foreground">{label}</span>
+        {field.required && <span className="text-error">*</span>}
+        {FIELD_LABELS[field.key] && <span className="text-[10px] text-muted-foreground">{field.key}</span>}
+      </span>
+      {field.enum ? (
+        <select className="input-base" value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="">—</option>
+          {field.enum.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          className={`input-base ${isMissing ? 'border-error/50' : ''}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={FIELD_PLACEHOLDERS[field.key]}
+        />
+      )}
+    </label>
+  )
+}
+
 // ── Editor de um produto (sobreposto) ─────────────────────────────────────
 function ProductEditor({
   catalogId,
@@ -797,17 +866,16 @@ function ProductEditor({
   const ref = useRef<HTMLDivElement>(null)
   const [form, setForm] = useState<Record<string, string>>(product?.data ?? {})
   const [busy, setBusy] = useState(false)
+  const [showOptional, setShowOptional] = useState(false)
   useModalA11y(true, ref, onClose)
 
   const fields = spec?.fields ?? []
   const required = useMemo(() => new Set(spec?.required ?? []), [spec])
 
-  // Campos obrigatórios primeiro, depois o restante — form mais rápido de preencher.
-  const ordered = useMemo(() => {
-    const req = fields.filter((f) => f.required)
-    const opt = fields.filter((f) => !f.required)
-    return [...req, ...opt]
-  }, [fields])
+  // Obrigatórios sempre visíveis; os ~36 opcionais ficam recolhidos (o muro de
+  // 44 campos era o maior atrito — a maioria dos catálogos usa só os 8 exigidos).
+  const requiredFields = useMemo(() => fields.filter((f) => f.required), [fields])
+  const optionalFields = useMemo(() => fields.filter((f) => !f.required), [fields])
 
   async function handleSave() {
     setBusy(true)
@@ -843,37 +911,24 @@ function ProductEditor({
           </div>
 
           <div className="flex flex-col gap-3 overflow-y-auto pr-1">
-            {ordered.map((f) => {
-              const val = form[f.key] ?? ''
-              const isMissing = f.required && !String(val).trim()
-              return (
-                <label key={f.key} className="flex flex-col gap-1 text-xs">
-                  <span className="font-medium text-foreground">
-                    {f.key}
-                    {f.required && <span className="ml-1 text-error">*</span>}
-                  </span>
-                  {f.enum ? (
-                    <select
-                      className="input-base"
-                      value={val}
-                      onChange={(e) => setForm((s) => ({ ...s, [f.key]: e.target.value }))}
-                    >
-                      <option value="">—</option>
-                      {f.enum.map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      className={`input-base ${isMissing ? 'border-error/50' : ''}`}
-                      value={val}
-                      onChange={(e) => setForm((s) => ({ ...s, [f.key]: e.target.value }))}
-                      placeholder={f.key === 'price' ? 'Ex.: 9.99 USD' : undefined}
-                    />
-                  )}
-                </label>
-              )
-            })}
+            {requiredFields.map((f) => (
+              <ProductField key={f.key} field={f} value={form[f.key] ?? ''} onChange={(v) => setForm((s) => ({ ...s, [f.key]: v }))} />
+            ))}
+
+            {optionalFields.length > 0 && (
+              <button
+                type="button"
+                className="btn-ghost w-fit text-xs"
+                onClick={() => setShowOptional((v) => !v)}
+                aria-expanded={showOptional}
+              >
+                {showOptional ? <ChevronLeft className="size-3.5 rotate-90" aria-hidden="true" /> : <Plus className="size-3.5" aria-hidden="true" />}
+                {showOptional ? 'Ocultar campos opcionais' : `Mostrar campos opcionais (${optionalFields.length})`}
+              </button>
+            )}
+            {showOptional && optionalFields.map((f) => (
+              <ProductField key={f.key} field={f} value={form[f.key] ?? ''} onChange={(v) => setForm((s) => ({ ...s, [f.key]: v }))} />
+            ))}
           </div>
 
           <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
