@@ -3,6 +3,9 @@ node_modules/
 .env
 .env*.local
 
+# Build output do Next.js — nunca versionar (é regenerado a cada deploy/build)
+.next/
+
 # Estado de runtime — nunca versionar (cache local do stats.js; a fonte
 # de verdade durável é o Neon e o app recria estes arquivos sozinho).
 # "/pixels/" é ancorado na raiz: só o cache local, NÃO a UI em
