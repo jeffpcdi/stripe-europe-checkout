@@ -1955,6 +1955,61 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  app.post('/api/ads/smart-plus', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const b = req.body || {};
+      const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
+      const goal = ['conversions', 'traffic'].includes(b.goal) ? b.goal : '';
+      if (!goal) return res.status(400).json({ error: 'Objetivo Smart+ deve ser conversions ou traffic' });
+      const name = String(b.name || '').trim().slice(0, 120);
+      if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
+      if (!/^https:\/\/[^\s]+/.test(String(b.videoUrl || ''))) return res.status(400).json({ error: 'URL do vídeo é obrigatória (MP4)' });
+      const budgetAmount = Number(b.budgetAmount);
+      if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento total inválido' });
+      if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return res.status(400).json({ error: 'Informe a data de término (Smart+ usa orçamento total)' });
+      const spec = {
+        name, goal, videoUrl: String(b.videoUrl).trim(),
+        budgetAmount, endDate: String(b.endDate).slice(0, 10),
+        body: String(b.body || '').trim().slice(0, 100) || undefined,
+        linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
+        callToAction: /^[A-Z_]{3,30}$/.test(String(b.callToAction || '')) ? b.callToAction : undefined,
+        countries: Array.isArray(b.countries) ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30) : undefined,
+      };
+      if (goal === 'conversions') {
+        const pixelId = String(b.pixelId || '').trim();
+        if (!/^\d{5,30}$/.test(pixelId)) return res.status(400).json({ error: 'Conversões exigem o Pixel ID NUMÉRICO do TikTok' });
+        spec.pixelId = pixelId;
+        const evt = String(b.customEventType || '').trim().toUpperCase();
+        if (/^[A-Z_]{3,40}$/.test(evt)) spec.customEventType = evt;
+      }
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'smart_plus_create', targetType: 'campaign', advertiserId, metadata: { name, goal },
+          title: 'Criar campanha Smart+ ' + name,
+        });
+        return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
+      }
+      const result = await pipeboard.createSmartPlusCampaign(advertiserId, spec);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'smart_plus_create',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId,
+        afterState: { campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, videoId: result.videoId },
+        reason: 'Campanha Smart+ criada (PAUSADA): ' + name, metadata: { goal },
+      }).catch(() => {});
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanha Smart+ criada (PAUSADA): ' + name + ' [' + result.campaignId + ']' });
+      res.status(201).json({ id: result.campaignId, campaignId: result.campaignId, name, status: 'paused', warnings: result.warnings });
+    } catch (err) {
+      if (err && err.step) {
+        stats.logEvent('warn', { acc: req.account.id, title: '[smart+] Criação falhou no passo "' + err.step + '": ' + String(err.message || '').slice(0, 160) });
+        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada veicula. Revise e exclua na aba Smart+ se não quiser mantê-la.' : undefined });
+      }
+      fail(res, err);
+    }
+  });
+
   app.post('/api/ads/smart-plus/:campaignId/status', dashboardAuth, async (req, res) => {
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });

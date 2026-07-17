@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react'
 import {
-  Sparkles, Loader2, Play, Pause, ShieldQuestion, RefreshCw, AlertCircle, Info,
+  Sparkles, Loader2, Play, Pause, ShieldQuestion, RefreshCw, AlertCircle, Info, Plus,
 } from 'lucide-react'
 import { useAdsSmartPlus, useAdsSmartPlusAds, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -17,6 +17,7 @@ import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { SmartPlusCreateDialog } from './smart-plus-create-dialog'
 
 const OBJECTIVE_LABEL: Record<string, string> = {
   WEB_CONVERSIONS: 'Conversões no site',
@@ -48,6 +49,7 @@ export function SmartPlusPanel({
   const { data, mutate, isLoading, error } = useAdsSmartPlus(active, adAccountId)
   const { data: adsData, mutate: mutateAds } = useAdsSmartPlusAds(active, adAccountId)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
   const [appealTarget, setAppealTarget] = useState<SmartPlusAd | null>(null)
   const [appealReason, setAppealReason] = useState('')
   const [appealBusy, setAppealBusy] = useState(false)
@@ -130,10 +132,20 @@ export function SmartPlusPanel({
             <Sparkles className="size-4 text-primary" aria-hidden="true" />
             Campanhas Smart+
           </h2>
-          <button type="button" className="btn-ghost text-xs" onClick={() => { mutate(); mutateAds() }}>
-            <RefreshCw className="size-3.5" aria-hidden="true" />
-            Atualizar
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-ghost text-xs" onClick={() => { mutate(); mutateAds() }}>
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              Atualizar
+            </button>
+            <button
+              type="button"
+              className="btn-primary text-xs"
+              onClick={() => { if (!adAccountId) { toast.info('Selecione uma conta de anúncio primeiro.'); return } setCreateOpen(true) }}
+            >
+              <Plus className="size-3.5" aria-hidden="true" />
+              Nova Smart+
+            </button>
+          </div>
         </div>
 
         {isLoading && !data ? (
@@ -146,9 +158,13 @@ export function SmartPlusPanel({
             <p className="text-sm font-medium text-foreground">Nenhuma campanha Smart+</p>
             <p className="max-w-md text-pretty text-xs text-muted-foreground">
               Smart+ é o tipo de campanha em que o TikTok automatiza targeting, lance, orçamento e criativo.
-              As campanhas Smart+ desta conta aparecem aqui para você pausar, escalar e recorrer de anúncios
-              reprovados sem entrar no Ads Manager.
+              Clique em <strong className="text-foreground">Nova Smart+</strong> para criar uma direto por aqui —
+              e depois pause, escale e recorra de anúncios reprovados sem entrar no Ads Manager.
             </p>
+            <button type="button" className="btn-primary mt-1 text-xs" onClick={() => setCreateOpen(true)}>
+              <Plus className="size-3.5" aria-hidden="true" />
+              Nova campanha Smart+
+            </button>
           </div>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -187,8 +203,8 @@ export function SmartPlusPanel({
 
         <p className="flex items-start gap-2 rounded-lg bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
           <Info className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
-          A criação de campanhas Smart+ pela dashboard chega em breve. Por enquanto, crie no Ads Manager
-          e gerencie tudo por aqui — pausar, escalar e recorrer de reprovações.
+          As campanhas Smart+ nascem pausadas — nada veicula até você revisar e ativar. O TikTok cuida de
+          targeting, lance, orçamento e criativo; você só define objetivo, orçamento e o vídeo.
         </p>
       </GlassCard>
 
@@ -227,6 +243,14 @@ export function SmartPlusPanel({
           Nenhum anúncio Smart+ reprovado no momento.
         </p>
       )}
+
+      <SmartPlusCreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        advertiserId={adAccountId}
+        currency={currency}
+        onCreated={() => { mutate(); mutateAds() }}
+      />
     </div>
   )
 }

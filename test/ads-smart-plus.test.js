@@ -24,9 +24,19 @@ console.log('Provider — validação antes da rede');
   await throws(() => provider.setSmartPlusCampaignStatus('123', ['c1'], 'xxx'), 400, 'status inválido é rejeitado');
   await throws(() => provider.appealSmartPlusAd('123', ''), 400, 'appeal exige o ID do anúncio');
 
+  console.log('Criação Smart+ — validação antes da rede');
+  await throws(() => provider.createSmartPlusCampaign('123', { name: 'x', videoUrl: 'https://a/v.mp4', budgetAmount: 50, endDate: '2026-08-01' }), 400, 'objetivo inválido reprova');
+  await throws(() => provider.createSmartPlusCampaign('123', { name: 'x', goal: 'traffic', videoUrl: 'ftp://x', budgetAmount: 50, endDate: '2026-08-01' }), 400, 'vídeo não-https reprova');
+  await throws(() => provider.createSmartPlusCampaign('123', { name: 'x', goal: 'traffic', videoUrl: 'https://a/v.mp4', budgetAmount: 50 }), 400, 'Smart+ exige data de término (orçamento total)');
+  await throws(() => provider.createSmartPlusCampaign('123', { name: 'x', goal: 'conversions', videoUrl: 'https://a/v.mp4', budgetAmount: 50, endDate: '2026-08-01' }), 400, 'conversões exigem pixel numérico');
+
   console.log('Rotas — guardrails e allowlist');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   ok(/app\.get\('\/api\/ads\/smart-plus'/.test(routes), 'GET /smart-plus registrado');
+  const createBody = (routes.match(/app\.post\('\/api\/ads\/smart-plus'[\s\S]*?app\.post\('\/api\/ads\/smart-plus\/:campaignId\/status'/) || [''])[0];
+  ok(/killSwitchActive/.test(createBody), 'criação respeita kill switch');
+  ok(/isDryRun/.test(createBody), 'criação respeita dry-run');
+  ok(/createSmartPlusCampaign/.test(createBody), 'criação chama o composto do provider');
   // isola o corpo de cada rota até a próxima registrada (não conta em outra rota)
   const statusBody = (routes.match(/app\.post\('\/api\/ads\/smart-plus\/:campaignId\/status'[\s\S]*?app\.post\('\/api\/ads\/smart-plus\/ads/) || [''])[0];
   const appealBody = (routes.match(/app\.post\('\/api\/ads\/smart-plus\/ads\/:adId\/appeal'[\s\S]*?\n  \/\/ ── Catálogos/) || [''])[0];

@@ -1545,6 +1545,126 @@ async function appealSmartPlusAd(advertiserId, adId, reason) {
   return pipeboard.callTool('appeal_tiktok_smart_plus_ad', args);
 }
 
+// Mapa objetivo (UI) → campos reais do Smart+ (schemas confirmados via MCP).
+// Foco no funil de site do gestor de tráfego: conversões (pixel) e tráfego.
+const SMART_PLUS_GOALS = {
+  conversions: { objective: 'WEB_CONVERSIONS', promotion: 'WEBSITE', optimization: 'CONVERT', billing: 'OCPM', salesDestination: 'WEBSITE' },
+  traffic: { objective: 'TRAFFIC', promotion: 'WEBSITE', optimization: 'CLICK', billing: 'CPC' },
+};
+
+// Cria uma campanha Smart+ completa (campanha → ad group → vídeo → asset group).
+// Smart+ usa orçamento TOTAL no nível campanha (o TikTok liga budget_optimize_on
+// sozinho); o ad group exige janela com término. Tudo nasce PAUSADO (DISABLE) —
+// nada veicula até revisão humana. Falha no meio pausa a campanha e reporta o
+// passo (mesmo padrão à prova de órfãos do createFullAd).
+async function createSmartPlusCampaign(advertiserId, spec) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const s = spec || {};
+  const g = SMART_PLUS_GOALS[s.goal];
+  if (!g) throw badRequest('Objetivo Smart+ não suportado: "' + s.goal + '" (use conversions ou traffic)');
+  if (!/^https:\/\/[^\s]+/.test(String(s.videoUrl || ''))) throw badRequest('Vídeo (URL https) é obrigatório');
+  const budget = Number(s.budgetAmount);
+  if (!(budget > 0)) throw badRequest('Orçamento total inválido');
+  if (s.goal === 'conversions' && !/^\d{5,30}$/.test(String(s.pixelId || ''))) {
+    throw badRequest('Conversões exigem o Pixel ID NUMÉRICO do TikTok');
+  }
+  const endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : null;
+  if (!endDate) throw badRequest('Smart+ usa orçamento total — informe a data de término (endDate)');
+
+  const [info, identity, regions] = await Promise.all([
+    getAdvertiserInfo(adv),
+    pickAdIdentity(adv),
+    resolveLocationIds(adv, (s.countries && s.countries.length ? s.countries : ['BR']), g.objective),
+  ]);
+  const warnings = [];
+  if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
+  const createdIds = {};
+
+  // 1) Campanha Smart+ (DISABLE)
+  const campArgs = {
+    advertiser_id: adv,
+    campaign_name: String(s.name).slice(0, 512),
+    objective_type: g.objective,
+    budget_mode: 'BUDGET_MODE_TOTAL',
+    budget,
+    operation_status: 'DISABLE',
+  };
+  if (g.salesDestination) campArgs.sales_destination = g.salesDestination;
+  const campOut = await pipeboard.callTool('create_tiktok_smart_plus_campaign', campArgs);
+  const campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+  if (!campaignId) throw stepError('campaign', 'create_tiktok_smart_plus_campaign não retornou campaign_id');
+  createdIds.campaignId = campaignId;
+
+  try {
+    // 2) Ad group Smart+ (targeting automático; janela obrigatória p/ TOTAL)
+    const agArgs = {
+      advertiser_id: adv,
+      campaign_id: campaignId,
+      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+      promotion_type: g.promotion,
+      targeting_spec: { location_ids: regions.locationIds },
+      schedule_type: 'SCHEDULE_START_END',
+      schedule_start_time: advertiserLocalTime(info && info.timezone),
+      schedule_end_time: endDate + ' 23:59:59',
+      optimization_goal: g.optimization,
+      billing_event: g.billing,
+      targeting_optimization_mode: 'AUTOMATIC',
+      operation_status: 'DISABLE',
+    };
+    if (s.goal === 'conversions') {
+      agArgs.pixel_id = String(s.pixelId);
+      if (s.customEventType) agArgs.optimization_event = String(s.customEventType).toUpperCase();
+    }
+    if (identity.identityId) {
+      agArgs.identity_id = identity.identityId;
+      agArgs.identity_type = identity.identityType;
+      if (identity.identityBcId) agArgs.identity_authorized_bc_id = identity.identityBcId;
+    }
+    const agOut = await pipeboard.callTool('create_tiktok_smart_plus_adgroup', agArgs);
+    const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+    if (!adGroupId) throw stepError('adgroup', 'create_tiktok_smart_plus_adgroup não retornou adgroup_id', createdIds);
+    createdIds.adGroupId = adGroupId;
+
+    // 3) Vídeo (URL pública → TikTok; dedupe por md5 no retry)
+    const videoId = await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
+    createdIds.videoId = videoId;
+
+    // 4) Asset group (anúncio) — identidade DENTRO do creative_info (schema real)
+    const creativeInfo = { ad_format: 'SINGLE_VIDEO', video_info: { video_id: videoId } };
+    if (identity.identityId) {
+      creativeInfo.identity_id = identity.identityId;
+      creativeInfo.identity_type = identity.identityType;
+      if (identity.identityBcId) creativeInfo.identity_authorized_bc_id = identity.identityBcId;
+      if (identity.darkPost) creativeInfo.dark_post_status = 'ON';
+    }
+    const adArgs = {
+      advertiser_id: adv,
+      adgroup_id: adGroupId,
+      ad_name: String(s.name).slice(0, 500),
+      creative_list: [{ creative_info: creativeInfo }],
+      operation_status: 'DISABLE',
+    };
+    if (s.body) adArgs.ad_text_list = [{ ad_text: String(s.body).slice(0, 100) }];
+    if (s.callToAction) adArgs.call_to_action_list = [{ call_to_action: String(s.callToAction) }];
+    if (s.linkUrl) adArgs.landing_page_url_list = [{ landing_page_url: String(s.linkUrl).slice(0, 500) }];
+    const adOut = await pipeboard.callTool('create_tiktok_smart_plus_ad', adArgs);
+    const adId = String(deepPluck(adOut, 'smart_plus_ad_id') || deepPluck(adOut, 'ad_id') || '');
+    if (!adId) throw stepError('ad', 'create_tiktok_smart_plus_ad não retornou o ID do anúncio', createdIds);
+    createdIds.adId = adId;
+
+    warnings.push('Criado PAUSADO — ative na aba Smart+ quando estiver pronto');
+    cacheBust('tree:');
+    return { ...createdIds, name: s.name, warnings };
+  } catch (err) {
+    // Órfã não pode ficar entregável: pausa best-effort e devolve o passo.
+    try { await setSmartPlusCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    if (!err.step) err.step = 'adgroup';
+    err.createdIds = createdIds;
+    throw err;
+  }
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -1591,11 +1711,12 @@ module.exports = {
   listTikTokCatalogs,
   updateTikTokCatalogName,
   CATALOG_TYPES,
-  // Smart+ (gestão + appeal de anúncio)
+  // Smart+ (gestão + appeal de anúncio + criação composta)
   listSmartPlusCampaigns,
   listSmartPlusAds,
   setSmartPlusCampaignStatus,
   appealSmartPlusAd,
+  createSmartPlusCampaign,
   // cache
   cacheBust,
   cacheGet,
