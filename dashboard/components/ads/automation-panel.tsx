@@ -256,9 +256,9 @@ function RuleForm({
           <NumField
             label="Janela"
             value={draft.lookbackDays}
-            onChange={(v) => set({ lookbackDays: v ?? 2 })}
+            onChange={(v) => set({ lookbackDays: v ?? 1 })}
             suffix="dias"
-            hint="1–30"
+            hint={draft.lookbackDays < 3 ? '⚠ Janela curta — o TikTok recomenda ~7d' : '1–30'}
           />
           {isBudget && (
             <NumField
@@ -729,8 +729,9 @@ export function AutomationPanel({
               <NumField
                 label="Janela"
                 value={alertsDraft.lookbackDays}
-                onChange={(v) => setAlertsDraft({ ...alertsDraft, lookbackDays: v ?? 2 })}
+                onChange={(v) => setAlertsDraft({ ...alertsDraft, lookbackDays: v ?? 1 })}
                 suffix="dias"
+                hint={alertsDraft.lookbackDays < 3 ? '⚠ Janela curta' : '1–30'}
               />
             </div>
             <div className="flex items-center justify-end gap-1.5">

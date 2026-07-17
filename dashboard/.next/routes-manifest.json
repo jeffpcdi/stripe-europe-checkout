@@ -82,6 +82,12 @@
       "namedRegex": "^/ads/tiktok(?:/)?$"
     },
     {
+      "page": "/catalog",
+      "regex": "^/catalog(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/catalog(?:/)?$"
+    },
+    {
       "page": "/cloak",
       "regex": "^/cloak(?:/)?$",
       "routeKeys": {},

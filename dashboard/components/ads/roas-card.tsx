@@ -87,7 +87,7 @@ export function RoasCard({
     >
       <div className="absolute inset-0 bg-gradient-to-t from-success/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" aria-hidden="true" />
       <div className="relative flex items-center justify-between gap-2">
-        <p className="label-mono label-mono--gradient text-[10px]">ROAS real · últimos 7 dias</p>
+        <p className="label-mono label-mono--gradient text-[10px]">ROAS real · {data.daily.length <= 1 ? 'hoje' : `últimos ${data.daily.length} dias`}</p>
         <HandCoins className="size-4 text-muted-foreground" aria-hidden="true" />
       </div>
 

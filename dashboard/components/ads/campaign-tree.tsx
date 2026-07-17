@@ -755,6 +755,7 @@ export function CampaignTree({
                   onChange={(e) => onRangeDays(Number(e.target.value))}
                   aria-label="Período de métricas e descoberta de campanhas"
                 >
+                  <option value="1">Hoje (1 dia)</option>
                   <option value="7">7 dias</option>
                   <option value="30">30 dias</option>
                   <option value="90">90 dias</option>

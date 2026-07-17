@@ -29,7 +29,9 @@ export function BudgetProposalCard({
   onApplied?: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const { data, error, mutate, isValidating } = useAdsBudgetProposal(open, adAccountId, currency)
+  const [days, setDays] = useState(1)
+  const { data, error, mutate, isValidating } = useAdsBudgetProposal(open, adAccountId, currency, days)
+  const windowDays = (data as Record<string, unknown>)?.windowDays as number | undefined
   const [applyState, setApplyState] = useState<ApplyState>('idle')
   const [applyMsg, setApplyMsg] = useState<string | null>(null)
 
@@ -78,6 +80,30 @@ export function BudgetProposalCard({
       </button>
 
       {open && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            Janela:
+            <select
+              className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+              value={String(days)}
+              onChange={(e) => { setDays(Number(e.target.value)); mutate() }}
+            >
+              <option value="1">Hoje (1d)</option>
+              <option value="3">3 dias</option>
+              <option value="7">7 dias</option>
+              <option value="14">14 dias</option>
+              <option value="30">30 dias</option>
+            </select>
+          </label>
+          {days < 3 && (
+            <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+              ⚠ Janela curta — o TikTok recomenda ~7 dias (fase de aprendizado)
+            </span>
+          )}
+        </div>
+      )}
+
+      {open && (
         <div className="mt-3">
           {!data && !error && <p className="text-xs text-muted-foreground">Calculando proposta…</p>}
           {error && !aiOff && (
@@ -113,7 +139,7 @@ export function BudgetProposalCard({
                         Campanha
                       </th>
                       <th className="pb-1.5 pr-2 text-right text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        ROAS 7d
+                        ROAS {windowDays === 1 ? 'hoje' : `${windowDays ?? days}d`}
                       </th>
                       <th className="pb-1.5 pr-2 text-right text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                         Atual

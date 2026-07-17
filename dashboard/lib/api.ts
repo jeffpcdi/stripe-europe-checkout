@@ -477,10 +477,11 @@ export function useAdsCreativeInsights(active: boolean, adAccountId: string) {
 }
 
 // Proposta de realocação de orçamento (determinística; IA só justifica).
-export function useAdsBudgetProposal(active: boolean, adAccountId: string, currency: string) {
+export function useAdsBudgetProposal(active: boolean, adAccountId: string, currency: string, days = 1) {
   const params = new URLSearchParams()
   if (adAccountId) params.set('adAccountId', adAccountId)
   if (currency) params.set('currency', currency)
+  if (days !== 1) params.set('days', String(days))
   return useSWR<AdsBudgetProposal>(
     active ? `/api/ads/budget/proposal?${params.toString()}` : null,
     fetcher,

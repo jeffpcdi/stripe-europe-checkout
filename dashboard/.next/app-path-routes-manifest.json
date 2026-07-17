@@ -1,6 +1,7 @@
 {
   "/(dashboard)/activity/page": "/activity",
   "/(dashboard)/ads/tiktok/page": "/ads/tiktok",
+  "/(dashboard)/catalog/page": "/catalog",
   "/(dashboard)/cloak/page": "/cloak",
   "/(dashboard)/config/page": "/config",
   "/(dashboard)/domains/page": "/domains",

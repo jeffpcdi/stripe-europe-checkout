@@ -63,7 +63,7 @@ export function TikTokAdsView() {
   const [page, setPage] = useState(1)
   // Período das métricas/descoberta de campanhas. Default 365d — janela
   // curta escondia campanhas antigas e parecia "faltando".
-  const [rangeDays, setRangeDays] = useState(365)
+  const [rangeDays, setRangeDays] = useState(1) // padrão diário — pedido do produto
   const { fromDate, toDate } = useMemo(() => {
     const iso = (d: Date) => d.toISOString().slice(0, 10)
     const now = new Date()
