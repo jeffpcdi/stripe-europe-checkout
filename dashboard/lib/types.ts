@@ -795,6 +795,37 @@ export type AdsNodeStatus =
   | 'rejected'
   | string
 
+// ── Smart+ (campanhas automatizadas do TikTok) ─────────────────────────────
+export interface SmartPlusCampaign {
+  campaignId: string
+  name: string
+  objective: string
+  budget: number
+  budgetMode: string
+  status: AdsNodeStatus
+  rawStatus: string
+  secondaryStatus: string
+}
+
+export interface SmartPlusAd {
+  adId: string
+  name: string
+  campaignId: string
+  status: AdsNodeStatus
+  rejected: boolean
+  rejectionReason?: string
+}
+
+export interface AdsSmartPlusResponse {
+  advertiserId: string
+  campaigns: SmartPlusCampaign[]
+}
+
+export interface AdsSmartPlusAdsResponse {
+  advertiserId: string
+  ads: SmartPlusAd[]
+}
+
 export interface AdsBudget {
   amount?: number
   type?: 'daily' | 'lifetime' | string

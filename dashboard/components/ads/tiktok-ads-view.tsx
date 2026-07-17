@@ -45,6 +45,7 @@ import { BriefingCard } from './briefing-card'
 import { CopilotPanel } from './copilot-panel'
 import { CreativeInsightsCard } from './creative-insights-card'
 import { BudgetProposalCard } from './budget-proposal-card'
+import { SmartPlusPanel } from './smart-plus-panel'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export function TikTokAdsView() {
@@ -96,11 +97,11 @@ export function TikTokAdsView() {
   // honrado UMA vez pós-mount (deep-link "ver automações" da home). useEffect
   // em vez de initializer para não divergir da renderização do servidor;
   // window.location em vez de useSearchParams para não exigir Suspense.
-  type TabKey = 'overview' | 'campaigns' | 'duplicate' | 'automation' | 'ai'
+  type TabKey = 'overview' | 'campaigns' | 'smartplus' | 'duplicate' | 'automation' | 'ai'
   const [tab, setTab] = useState<TabKey>('overview')
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
-    if (t === 'campaigns' || t === 'duplicate' || t === 'automation' || t === 'ai') setTab(t)
+    if (t === 'campaigns' || t === 'smartplus' || t === 'duplicate' || t === 'automation' || t === 'ai') setTab(t)
   }, [])
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -348,6 +349,12 @@ export function TikTokAdsView() {
                 Campanhas
               </Tabs.Trigger>
               <Tabs.Trigger
+                value="smartplus"
+                className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
+              >
+                Smart+
+              </Tabs.Trigger>
+              <Tabs.Trigger
                 value="duplicate"
                 className="flex h-9 shrink-0 items-center justify-center rounded-xl px-5 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
               >
@@ -519,6 +526,11 @@ export function TikTokAdsView() {
               attribution={attribution?.byCampaign}
               />
             </>
+          )}
+
+          {/* ── Aba: Smart+ — campanhas automatizadas do TikTok (gerir + appeal) ── */}
+          {tab === 'smartplus' && (
+            <SmartPlusPanel active={treeActive} adAccountId={concreteAdvertiser} currency={currency} />
           )}
 
           {/* ── Aba: Duplicação — escolher a campanha de origem e duplicar

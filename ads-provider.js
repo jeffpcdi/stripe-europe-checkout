@@ -1474,6 +1474,77 @@ async function updateTikTokCatalogName(bcId, catalogId, name) {
   return r;
 }
 
+// ── Smart+ (campanhas automatizadas do TikTok) ──────────────────────────────
+// Smart+ é o tipo de campanha em que o TikTok automatiza targeting, lance,
+// orçamento, criativo e posicionamento. Aqui gerimos (listar/pausar/escalar) e
+// recorremos de anúncios reprovados — o ÚNICO appeal com API é o de anúncio
+// Smart+ (appeal_tiktok_smart_plus_ad); conta suspensa não tem API de recurso.
+function mapSmartPlusCampaign(c) {
+  const id = String(c.campaign_id || c.id || '');
+  return {
+    campaignId: id,
+    name: String(c.campaign_name || c.name || id),
+    objective: String(c.objective_type || ''),
+    budget: Number(c.budget || 0),
+    budgetMode: String(c.budget_mode || ''),
+    status: tiktokStatusToNode(c.operation_status, c.secondary_status),
+    rawStatus: String(c.operation_status || ''),
+    secondaryStatus: String(c.secondary_status || ''),
+  };
+}
+
+function mapSmartPlusAd(a) {
+  const id = String(a.smart_plus_ad_id || a.ad_id || a.id || '');
+  const node = tiktokStatusToNode(a.operation_status, a.secondary_status);
+  return {
+    adId: id,
+    name: String(a.ad_name || a.name || id),
+    campaignId: String(a.campaign_id || ''),
+    status: node,
+    rejected: node === 'rejected',
+    rejectionReason: node === 'rejected' ? (String(a.secondary_status || '') || 'Reprovado pelo TikTok') : undefined,
+  };
+}
+
+async function listSmartPlusCampaigns(advertiserId) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const out = await pipeboard.callTool('get_tiktok_smart_plus_campaigns', { advertiser_id: adv, page: 1, page_size: 50 });
+  return firstArray(out, ['campaigns', 'campaign_list', 'list', 'data']).map(mapSmartPlusCampaign);
+}
+
+async function listSmartPlusAds(advertiserId, opts = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const out = await pipeboard.callTool('get_tiktok_smart_plus_ads', { advertiser_id: adv, page: 1, page_size: 100 });
+  let list = firstArray(out, ['ads', 'ad_list', 'list', 'data']).map(mapSmartPlusAd);
+  const cid = String(opts.campaignId || '').trim();
+  if (cid) list = list.filter((a) => !a.campaignId || a.campaignId === cid);
+  return list;
+}
+
+async function setSmartPlusCampaignStatus(advertiserId, ids, status) {
+  const adv = String(advertiserId || '').trim();
+  const arr = (Array.isArray(ids) ? ids : [ids]).map((x) => String(x || '').trim()).filter(Boolean);
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  if (!arr.length) throw badRequest('Nenhuma campanha Smart+ informada');
+  const op = status === 'active' ? 'ENABLE' : status === 'paused' ? 'DISABLE' : status === 'deleted' ? 'DELETE' : '';
+  if (!op) throw badRequest('status deve ser active, paused ou deleted');
+  const r = await pipeboard.callTool('update_tiktok_smart_plus_campaign_status', { advertiser_id: adv, campaign_ids: arr, operation_status: op });
+  cacheBust('tree:');
+  return r;
+}
+
+async function appealSmartPlusAd(advertiserId, adId, reason) {
+  const adv = String(advertiserId || '').trim();
+  const id = String(adId || '').trim();
+  if (!adv || !id) throw badRequest('advertiserId e o ID do anúncio Smart+ são obrigatórios');
+  const args = { advertiser_id: adv, smart_plus_ad_id: id };
+  const r = String(reason || '').trim();
+  if (r) args.appeal_reason = r.slice(0, 500);
+  return pipeboard.callTool('appeal_tiktok_smart_plus_ad', args);
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -1520,6 +1591,11 @@ module.exports = {
   listTikTokCatalogs,
   updateTikTokCatalogName,
   CATALOG_TYPES,
+  // Smart+ (gestão + appeal de anúncio)
+  listSmartPlusCampaigns,
+  listSmartPlusAds,
+  setSmartPlusCampaignStatus,
+  appealSmartPlusAd,
   // cache
   cacheBust,
   cacheGet,

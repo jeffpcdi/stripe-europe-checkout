@@ -44,6 +44,8 @@ import type {
   AdsCatalogDetailResponse,
   AdsCatalogSpecResponse,
   AdsCatalogBusinessCenter,
+  AdsSmartPlusResponse,
+  AdsSmartPlusAdsResponse,
   AdsMcpStatusResponse,
   AdsKpisResponse,
   AdsBriefingResponse,
@@ -583,6 +585,17 @@ export function useAdsSafetyPolicy(active: boolean) {
     revalidateOnFocus: true,
     keepPreviousData: true,
   })
+}
+
+// ── Smart+ (campanhas automatizadas do TikTok) ──
+export function useAdsSmartPlus(active: boolean, adAccountId?: string) {
+  const key = active ? `/api/ads/smart-plus${adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''}` : null
+  return useSWR<AdsSmartPlusResponse>(key, fetcher, { revalidateOnFocus: true, keepPreviousData: true })
+}
+
+export function useAdsSmartPlusAds(active: boolean, adAccountId?: string) {
+  const key = active ? `/api/ads/smart-plus/ads${adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''}` : null
+  return useSWR<AdsSmartPlusAdsResponse>(key, fetcher, { revalidateOnFocus: true, keepPreviousData: true })
 }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ──

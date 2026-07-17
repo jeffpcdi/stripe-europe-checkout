@@ -889,7 +889,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus']);
 
   // ── Atualizar uma entidade (status/budget) ────────────────────────────────
   // O :adId pode ser campanha, ad group ou anúncio. Classificamos no espelho
@@ -1922,6 +1922,88 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       await adsOps.appendAuditEvent(req.account.id, { actorType: 'user', actorId: req.account.id, action: guard.dryRun ? 'duplicate.simulated' : 'duplicate.queued', targetType: 'bulk_job', targetId: job.id, advertiserId: selected.advertiserId, jobId: job.id, reason: guard.dryRun ? 'Política em modo dry-run' : 'Duplicação confirmada', metadata: { sourceId, count, idempotencyKey } });
       stats.logEvent('info', { acc: req.account.id, title: (guard.dryRun ? 'Simulação de duplicação: ' : 'Duplicação iniciada: ') + count + ' cópia(s) de ' + srcName });
       res.status(guard.dryRun ? 200 : 202).json({ jobId: job.id, total: count, dryRun: guard.dryRun });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Smart+ (campanhas automatizadas do TikTok) ────────────────────────────
+  // Gestão (listar/pausar/escalar) + recurso de anúncio reprovado. O appeal de
+  // anúncio SÓ existe na API para anúncios Smart+ (appeal_tiktok_smart_plus_ad).
+  async function resolveAdvForSmartPlus(req, hint) {
+    if (hint) return (await requireAdvertiser(req.account.id, null, hint, null)).advertiserId;
+    const id = await pipeboard.resolveAdvertiserId(req.account.id);
+    if (!id) { const e = new Error('Nenhuma conta de anúncio autorizada no token'); e.status = 409; throw e; }
+    return id;
+  }
+
+  app.get('/api/ads/smart-plus', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const advertiserId = await resolveAdvForSmartPlus(req, String(req.query.adAccountId || '').trim() || null);
+      const campaigns = await pipeboard.listSmartPlusCampaigns(advertiserId);
+      res.json({ advertiserId, campaigns });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/smart-plus/ads', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const advertiserId = await resolveAdvForSmartPlus(req, String(req.query.adAccountId || '').trim() || null);
+      const ads = await pipeboard.listSmartPlusAds(advertiserId, { campaignId: req.query.campaignId });
+      res.json({ advertiserId, ads });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/smart-plus/:campaignId/status', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const b = req.body || {};
+      const status = ['active', 'paused', 'deleted'].includes(b.status) ? b.status : '';
+      if (!status) return res.status(400).json({ error: 'status deve ser active, paused ou deleted' });
+      const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
+      const campaignId = String(req.params.campaignId || '');
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'smart_plus_status', targetType: 'campaign', targetId: campaignId, advertiserId,
+          metadata: { status }, title: (status === 'paused' ? 'Pausar' : status === 'deleted' ? 'Excluir' : 'Ativar') + ' Smart+ ' + campaignId,
+        });
+        return res.json({ dryRun: true, simulated: true, id: campaignId });
+      }
+      await pipeboard.setSmartPlusCampaignStatus(advertiserId, [campaignId], status);
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'smart_plus_status',
+        targetType: 'campaign', targetId: campaignId, advertiserId, reason: 'Smart+ → ' + status,
+      }).catch(() => {});
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanha Smart+ ' + (status === 'paused' ? 'pausada' : status === 'deleted' ? 'excluída' : 'ativada'), ref: campaignId });
+      res.json({ ok: true, id: campaignId, status });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/smart-plus/ads/:adId/appeal', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const b = req.body || {};
+      const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
+      const adId = String(req.params.adId || '');
+      const reason = String(b.reason || '').trim();
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'smart_plus_appeal', targetType: 'ad', targetId: adId, advertiserId,
+          metadata: { reason: reason.slice(0, 120) }, title: 'Recorrer do anúncio Smart+ ' + adId,
+        });
+        return res.json({ dryRun: true, simulated: true, id: adId });
+      }
+      await pipeboard.appealSmartPlusAd(advertiserId, adId, reason);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'smart_plus_appeal',
+        targetType: 'ad', targetId: adId, advertiserId, reason: 'Recurso enviado ao TikTok' + (reason ? ': ' + reason.slice(0, 120) : ''),
+      }).catch(() => {});
+      stats.logEvent('info', { acc: req.account.id, title: 'Recurso de anúncio Smart+ enviado ao TikTok', ref: adId });
+      res.json({ ok: true, id: adId });
     } catch (err) { fail(res, err); }
   });
 
