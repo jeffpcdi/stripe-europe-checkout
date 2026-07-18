@@ -46,6 +46,7 @@ import { CreativeInsightsCard } from './creative-insights-card'
 import { BudgetProposalCard } from './budget-proposal-card'
 import { SmartPlusPanel } from './smart-plus-panel'
 import { CatalogManager } from './catalog-manager'
+import { OperationsCenter } from './operations-center'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export function TikTokAdsView() {
@@ -461,6 +462,21 @@ export function TikTokAdsView() {
               />
               {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
               <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
+              <OperationsCenter
+                active={treeActive}
+                advertiserId={concreteAdvertiser}
+                currency={currency}
+                campaigns={tree?.campaigns || []}
+                conversions={kpi.conversions}
+                revenue={Object.values(attribution?.byCampaign || {}).reduce((sum, item) => sum + item.revenueCents, 0) / 100}
+                onNavigate={(nextTab, id) => {
+                  changeTab(nextTab)
+                  if (nextTab === 'campaigns' && id) {
+                    const campaign = tree?.campaigns.find((item) => item.platformCampaignId === id)
+                    if (campaign) setDetailCampaign(campaign)
+                  }
+                }}
+              />
               {/* Briefing diário da IA (se auto-esconde sem AI_GATEWAY_API_KEY) */}
               <BriefingCard adAccountId={concreteAdvertiser} currency={currency} />
             </>

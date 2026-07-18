@@ -98,6 +98,47 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  app.get('/api/ads/workspace', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ workspace: await adsOps.getWorkspace(req.account.id, req.query.advertiserId) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.put('/api/ads/workspace', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = String(req.body && req.body.advertiserId || '');
+      const before = await adsOps.getWorkspace(req.account.id, advertiserId);
+      const workspace = await adsOps.saveWorkspace(req.account.id, advertiserId, req.body && req.body.workspace);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'workspace.updated',
+        targetType: 'advertiser', targetId: advertiserId, advertiserId,
+        beforeState: before, afterState: workspace, reason: 'Preferências operacionais atualizadas'
+      });
+      res.json({ workspace });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/reports', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ reports: await adsOps.listInternalReports(req.account.id, req.query.advertiserId, req.query.limit) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/reports', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = String(req.body && req.body.advertiserId || '');
+      const report = await adsOps.createInternalReport(req.account.id, advertiserId, req.body || {});
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'report.created',
+        targetType: 'report', targetId: report.id, advertiserId,
+        afterState: { kind: report.kind, title: report.title }, reason: 'Relatório interno gerado sob demanda'
+      });
+      res.status(201).json({ report });
+    } catch (err) { fail(res, err); }
+  });
+
   // Histórico de auditoria (ações reais/simuladas do motor + escritas manuais).
   // A UI usa `before_state` p/ decidir se mostra o botão "reverter".
   app.get('/api/ads/ops/audit', dashboardAuth, async (req, res) => {
@@ -1927,7 +1968,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Smart+ (campanhas automatizadas do TikTok) ────────────────────────────
+  // ── Smart+ (campanhas automatizadas do TikTok) ────────────���───────────────
   // Gestão (listar/pausar/escalar) + recurso de anúncio reprovado. O appeal de
   // anúncio SÓ existe na API para anúncios Smart+ (appeal_tiktok_smart_plus_ad).
   async function resolveAdvForSmartPlus(req, hint) {

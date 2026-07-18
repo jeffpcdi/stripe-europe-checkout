@@ -587,6 +587,29 @@ export function useAdsSafetyPolicy(active: boolean) {
   })
 }
 
+export function useAdsWorkspace(active: boolean, advertiserId: string) {
+  return useSWR<import('./types').AdsWorkspaceResponse>(
+    active && advertiserId ? `/api/ads/workspace?advertiserId=${encodeURIComponent(advertiserId)}` : null,
+    fetcher,
+    { revalidateOnFocus: false, keepPreviousData: false },
+  )
+}
+
+export function useAdsAudit(active: boolean) {
+  return useSWR<import('./types').AdsAuditResponse>(active ? '/api/ads/ops/audit?limit=40' : null, fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: true,
+  })
+}
+
+export function useAdsReports(active: boolean, advertiserId: string) {
+  return useSWR<import('./types').AdsReportsResponse>(
+    active && advertiserId ? `/api/ads/reports?advertiserId=${encodeURIComponent(advertiserId)}` : null,
+    fetcher,
+    { revalidateOnFocus: false },
+  )
+}
+
 // ── Smart+ (campanhas automatizadas do TikTok) ──
 export function useAdsSmartPlus(active: boolean, adAccountId?: string) {
   const key = active ? `/api/ads/smart-plus${adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''}` : null
