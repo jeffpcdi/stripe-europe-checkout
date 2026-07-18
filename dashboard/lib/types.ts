@@ -1440,3 +1440,21 @@ export interface AdsCatalogPublishResponse {
   published: number
   skipped: number
 }
+
+export interface AdsCatalogPublication {
+  id: string
+  kind: 'feed' | 'tiktok'
+  status: 'success' | 'simulated' | 'error'
+  published: number
+  skipped: number
+  feedUrl: string | null
+  tiktokCatalogId: string | null
+  audit: AdsCatalogAudit | null
+  error: string | null
+  createdAt: string
+}
+
+export interface AdsCatalogProductPreview {
+  product: Record<string, string>
+  finalUrl: string
+}

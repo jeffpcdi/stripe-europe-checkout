@@ -59,6 +59,21 @@ async function ensureSchema() {
       UNIQUE (catalog_id, sku_id)
     )`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_products_catalog_idx ON ads_catalog_products (catalog_id, created_at DESC)`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_catalog_publications (
+      id text PRIMARY KEY,
+      catalog_id text NOT NULL,
+      account_id text NOT NULL,
+      kind text NOT NULL,
+      status text NOT NULL,
+      published integer NOT NULL DEFAULT 0,
+      skipped integer NOT NULL DEFAULT 0,
+      feed_url text,
+      tiktok_catalog_id text,
+      audit jsonb,
+      error text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_catalog_publications_idx ON ads_catalog_publications (account_id, catalog_id, created_at DESC)`;
     console.log('[ads-catalog] schema verificado/criado');
     return true;
   })().catch((err) => {
@@ -288,6 +303,37 @@ async function setAudit(accountId, catalogId, audit) {
   return mapCatalog(rows[0]);
 }
 
+async function appendPublication(accountId, catalogId, event) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const value = event || {};
+  const audit = value.audit && typeof value.audit === 'object' ? value.audit : null;
+  const rows = await sql`INSERT INTO ads_catalog_publications
+    (id, catalog_id, account_id, kind, status, published, skipped, feed_url, tiktok_catalog_id, audit, error)
+    VALUES (${id('pub_')}, ${String(catalogId)}, ${accountId}, ${String(value.kind || 'publish').slice(0, 30)},
+      ${String(value.status || 'success').slice(0, 30)}, ${Number(value.published) || 0}, ${Number(value.skipped) || 0},
+      ${value.feedUrl ? String(value.feedUrl).slice(0, 2000) : null}, ${value.tiktokCatalogId ? String(value.tiktokCatalogId).slice(0, 100) : null},
+      ${audit ? JSON.stringify(audit) : null}, ${value.error ? String(value.error).slice(0, 500) : null}) RETURNING *`;
+  return rows[0] || null;
+}
+
+async function listPublications(accountId, catalogId, limit = 20) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 20));
+  const rows = await sql`SELECT id, kind, status, published, skipped, feed_url, tiktok_catalog_id, audit, error, created_at
+    FROM ads_catalog_publications WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)}
+    ORDER BY created_at DESC LIMIT ${safeLimit}`;
+  return rows.map((row) => ({
+    id: row.id, kind: row.kind, status: row.status, published: Number(row.published) || 0,
+    skipped: Number(row.skipped) || 0, feedUrl: row.feed_url || null,
+    tiktokCatalogId: row.tiktok_catalog_id || null, audit: row.audit || null,
+    error: row.error || null, createdAt: row.created_at,
+  }));
+}
+
 module.exports = {
   enabled,
   ensureSchema,
@@ -304,5 +350,7 @@ module.exports = {
   deleteProduct,
   setFeedUrl,
   linkTikTokCatalog,
-  setAudit
+  setAudit,
+  appendPublication,
+  listPublications
 };

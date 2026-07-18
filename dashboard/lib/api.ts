@@ -616,6 +616,14 @@ export function useAdsCatalogDetail(catalogId: string | null) {
   )
 }
 
+export function useAdsCatalogPublications(catalogId: string | null) {
+  return useSWR<{ publications: import('./types').AdsCatalogPublication[] }>(
+    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}/publications` : null,
+    fetcher,
+    { revalidateOnFocus: true, keepPreviousData: true },
+  )
+}
+
 // Spec das colunas/campos — estável; carrega uma vez enquanto o dialog abre.
 export function useAdsCatalogSpec(active: boolean) {
   return useSWR<AdsCatalogSpecResponse>(active ? '/api/ads/catalogs/spec' : null, fetcher, {
