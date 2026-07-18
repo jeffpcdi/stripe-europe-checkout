@@ -670,7 +670,14 @@ só no Railway (§5.2.2).
 `/geo` Geografia (globo 3D) · `/funnel` Funil (etapas + tabela de leads) · `/activity` Atividade
 (log de conversões/pixels/cloaker) · `/links` Links de Checkout · `/cloak` Filtro de Bots ·
 `/domains` Domínios · `/pixels` Pixel TikTok (saúde + EMQ) · `/gateways` Gateways · `/config`
-Configurações. Cada página é um `page.tsx` fino que renderiza a view de `components/<área>/`.
+Configurações · `/ads/tiktok` **TikTok Ads** (via Pipeboard MCP; rotas `/api/ads/*` em
+`ads-routes.js`) com 6 sub-abas — Visão geral, Campanhas (ABO/CBO + estratégia de lance na
+criação; filtro "Validadas" por reviewStatus), Smart+ (listar/pausar/criar composto pausado +
+appeal de anúncio reprovado), **Catálogo** (produtos + feed CSV + publicação real no TikTok via
+Business Center), Automações (regras cpa/spend/roas/ctr/cpm/**cpc_max** + alerta de criativo
+reprovado; motor 24/7 em `ads-automation.js`) e IA. `/catalog` é só redirect para
+`/ads/tiktok?tab=catalog`. Cada página é um `page.tsx` fino que renderiza a view de
+`components/<área>/`.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):
