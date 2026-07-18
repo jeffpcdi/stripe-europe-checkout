@@ -1389,7 +1389,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         enabled: !!b.enabled,
         spendNoConv: Math.max(0, Math.min(100000, Number(b.spendNoConv) || 0)),
         cpaMax: Math.max(0, Math.min(100000, Number(b.cpaMax) || 0)),
-        lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2))
+        lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2)),
+        rejectedAds: b.rejectedAds === true, // aviso de criativo reprovado (opt-in explícito)
       };
       // alertsSeeded: salvar é escolha do usuário — o seed não mexe mais aqui.
       pipeboard.setState(req.account.id, { alerts: cfg, alertsSeeded: true });

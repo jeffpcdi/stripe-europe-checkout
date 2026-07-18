@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, Gauge, Sparkles, Bot, BrainCircuit } from 'lucide-react'
+import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, Gauge, Sparkles, Bot, BrainCircuit, ShoppingBag } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -45,6 +45,7 @@ import { CopilotPanel } from './copilot-panel'
 import { CreativeInsightsCard } from './creative-insights-card'
 import { BudgetProposalCard } from './budget-proposal-card'
 import { SmartPlusPanel } from './smart-plus-panel'
+import { CatalogManager } from './catalog-manager'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export function TikTokAdsView() {
@@ -99,18 +100,19 @@ export function TikTokAdsView() {
   // Sub-abas por tarefa (uma fonte só → tablist + deep-link). Duplicação deixou
   // de ser aba: cada campanha já tem a ação "Duplicar" na própria linha, então a
   // aba separada era um caminho redundante — dobrar a superfície sem ganho.
-  type TabKey = 'overview' | 'campaigns' | 'smartplus' | 'automation' | 'ai'
+  type TabKey = 'overview' | 'campaigns' | 'smartplus' | 'catalog' | 'automation' | 'ai'
   const SUBTABS: { value: TabKey; label: string; icon: typeof Gauge }[] = [
     { value: 'overview', label: 'Visão geral', icon: Gauge },
     { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
     { value: 'smartplus', label: 'Smart+', icon: Sparkles },
+    { value: 'catalog', label: 'Catálogo', icon: ShoppingBag },
     { value: 'automation', label: 'Automações', icon: Bot },
     { value: 'ai', label: 'IA', icon: BrainCircuit },
   ]
   const [tab, setTab] = useState<TabKey>('overview')
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
-    if (t === 'campaigns' || t === 'smartplus' || t === 'automation' || t === 'ai') setTab(t)
+    if (t === 'campaigns' || t === 'smartplus' || t === 'catalog' || t === 'automation' || t === 'ai') setTab(t)
   }, [])
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -514,6 +516,21 @@ export function TikTokAdsView() {
           {/* ── Aba: Smart+ — campanhas automatizadas do TikTok (gerir + appeal) ── */}
           {tab === 'smartplus' && (
             <SmartPlusPanel active={treeActive} adAccountId={concreteAdvertiser} currency={currency} />
+          )}
+
+          {/* ── Aba: Catálogo — produtos + feed + publicação no TikTok (DPA).
+              Antes era página própria no menu; agora vive onde é usado. ── */}
+          {tab === 'catalog' && (
+            <GlassCard className="flex flex-col gap-4 p-5">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <ShoppingBag className="size-4 text-primary" aria-hidden="true" />
+                Catálogos de produtos
+              </h2>
+              <CatalogManager
+                advertiserId={concreteAdvertiser}
+                advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
+              />
+            </GlassCard>
           )}
 
           {/* ── Aba: Automações (redesenho) — faixa "Precisa de você" no topo

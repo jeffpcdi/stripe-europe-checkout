@@ -997,10 +997,11 @@ export interface AdsAlertsConfig {
   spendNoConv: number // gasto mínimo sem conversão que dispara (0 = off)
   cpaMax: number // teto de CPA (0 = off)
   lookbackDays: number
+  rejectedAds?: boolean // avisa quando um criativo é reprovado na revisão
 }
 
 export interface AdsAlertFinding {
-  rule: 'spend_no_conv' | 'cpa_max'
+  rule: 'spend_no_conv' | 'cpa_max' | 'rejected_ads'
   campaignId: string
   campaignName: string
   spend: number
@@ -1037,6 +1038,7 @@ export type AdsRuleMetric =
   | 'roas_min'
   | 'ctr_min' // CTR abaixo do piso (c/ mínimo de impressões)
   | 'cpm_max' // CPM acima do teto (c/ mínimo de gasto)
+  | 'cpc_max' // CPC acima do teto (c/ mínimo de cliques)
   | 'roas_scale' // escala vencedoras: ROAS ≥ X → +orçamento (teto obrigatório)
   | 'schedule' // dayparting: ativa/pausa por dia da semana + janela de horário
 // 'activate' só aparece no LOG (dayparting religando campanha própria)

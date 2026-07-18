@@ -71,6 +71,12 @@ const METRIC_META: Record<
     unit: '€',
     verb: (r, c) => `age se CPM > ${r.threshold}${c}`,
   },
+  cpc_max: {
+    name: 'CPC acima do limite',
+    thresholdLabel: 'CPC máximo',
+    unit: '€',
+    verb: (r, c) => `age se CPC > ${r.threshold}${c}`,
+  },
   roas_scale: {
     name: 'ROAS bom → escalar',
     thresholdLabel: 'ROAS a partir de',
@@ -284,10 +290,10 @@ function RuleForm({
       {/* Guardas de volume — ruído não é sinal */}
       {!isSchedule && (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          {(draft.metric === 'cpa_max' || draft.metric === 'spend_no_conv') && (
+          {(draft.metric === 'cpa_max' || draft.metric === 'spend_no_conv' || draft.metric === 'cpc_max') && (
             <NumField label="Min. cliques" value={draft.minClicks} onChange={(v) => set({ minClicks: v })} />
           )}
-          {draft.metric !== 'cpm_max' && (
+          {draft.metric !== 'cpm_max' && draft.metric !== 'cpc_max' && (
             <NumField
               label="Min. impressões"
               value={draft.minImpressions}
@@ -696,7 +702,7 @@ export function AutomationPanel({
               <span className="block text-xs font-semibold text-foreground">Alertas de performance</span>
               <span className="block text-[11px] text-muted-foreground">
                 {alertsCfg?.enabled
-                  ? `Avisam com ${alertsCfg.spendNoConv}${currency} gastos sem venda ou CPA acima de ${alertsCfg.cpaMax}${currency} — só notificam, nunca agem`
+                  ? `Avisam com ${alertsCfg.spendNoConv}${currency} gastos sem venda ou CPA acima de ${alertsCfg.cpaMax}${currency}${alertsCfg.rejectedAds ? ' + criativo reprovado' : ''} — só notificam, nunca agem`
                   : 'Desligados — você não recebe aviso de campanha queimando dinheiro'}
               </span>
             </span>
@@ -734,6 +740,15 @@ export function AutomationPanel({
                 hint={alertsDraft.lookbackDays < 3 ? '⚠ Janela curta' : '1–30'}
               />
             </div>
+            <label className="flex w-fit cursor-pointer items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                className="size-3.5 accent-[color:var(--primary)]"
+                checked={alertsDraft.rejectedAds === true}
+                onChange={(e) => setAlertsDraft({ ...alertsDraft, rejectedAds: e.target.checked })}
+              />
+              Avisar quando um criativo for <strong>reprovado</strong> na revisão do TikTok
+            </label>
             <div className="flex items-center justify-end gap-1.5">
               <button
                 type="button"
