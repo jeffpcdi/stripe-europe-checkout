@@ -24,12 +24,12 @@ export function Toaster() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex flex-col items-center gap-2 p-4 sm:items-end"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex flex-col items-center gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-end"
       // Região viva: leitores de tela anunciam novos toasts sem roubar foco.
       role="region"
       aria-label="Notificações"
     >
-      <ol className="flex w-full max-w-sm flex-col gap-2" aria-live="polite" aria-relevant="additions">
+      <ol className="flex w-full max-w-[calc(100vw-2rem)] flex-col gap-2 sm:max-w-sm" aria-live="polite" aria-relevant="additions">
         {toasts.map((t) => {
           const Icon = ICON[t.kind]
           return (
@@ -50,9 +50,9 @@ export function Toaster() {
                 type="button"
                 onClick={() => toast.dismiss(t.id)}
                 aria-label="Dispensar notificação"
-                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                className="-m-1 rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
-                <X className="size-3.5" />
+                <X className="size-4" />
               </button>
               <span className="toast-life" aria-hidden="true" />
             </li>

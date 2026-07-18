@@ -52,7 +52,7 @@ export default function DashboardLayout({
             pretas nas laterais em telas grandes (1920px). */}
         <main
           id="conteudo"
-          className="w-full px-4 pb-16 pt-2 lg:px-6"
+          className="w-full px-4 pb-[max(4rem,calc(3rem+env(safe-area-inset-bottom)))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-2 lg:px-6"
         >
           <ViewTransition default="none" enter="vt-fade-in" exit="vt-fade-out">
             {children}

@@ -39,6 +39,35 @@ function logFailure(accountId, notificationName, reason) {
 // Fan-out: toda notificação que passaria pelo Pushcut também vai aos
 // aparelhos inscritos via Web Push (com copy própria do notify-copy).
 // Os toggles de evento são checados ANTES dos call sites — valem para ambos.
+
+// Evento (notify-copy) → grupo de preferência do Web Push. Espelha a
+// taxonomia usada na dashboard (notify-prefs.ts). Desconhecidos = system.
+function eventGroup(event) {
+  switch (event) {
+    case 'sale': case 'test': return 'sale';
+    case 'failed': return 'failed';
+    case 'refund': return 'refund';
+    case 'dispute': return 'dispute';
+    case 'checkout': return 'checkout';
+    case 'login': return 'login';
+    case 'ads': case 'ads_breaker': case 'ads_cap': return 'ads';
+    default: return 'system'; // daily, watchdog, desconhecidos
+  }
+}
+
+// Preferências por evento do Web Push (webPush.events no config da conta).
+// Ausente = default: tudo ligado EXCETO checkout (muito ruidoso — cada
+// checkout aberto viraria push). Independente dos toggles do Pushcut.
+function webPushEventEnabled(accountId, event) {
+  let events = {};
+  try {
+    events = (require('./config').get(accountId).webPush || {}).events || {};
+  } catch (_) {}
+  const group = eventGroup(event);
+  if (typeof events[group] === 'boolean') return events[group];
+  return group !== 'checkout'; // default
+}
+
 async function sendViaWebPush(notificationName, payload, accountId, meta) {
   try {
     const webPushNotify = require('./web-push-notify');
@@ -47,6 +76,10 @@ async function sendViaWebPush(notificationName, payload, accountId, meta) {
     const note = require('./notify-copy').build({
       name: notificationName, payload, meta, funMode, accountId
     });
+    // Toggle por evento (só do canal Web Push; o teste passa sempre para o
+    // usuário conseguir validar o aparelho mesmo com "venda" desligada).
+    const ev = note.event || '';
+    if (ev !== 'test' && !webPushEventEnabled(accountId, ev)) return false;
     return await webPushNotify.sendWebPush(accountId, note);
   } catch (err) {
     console.error('[webpush] Erro no fan-out:', err.message);

@@ -96,6 +96,126 @@ export function playSaleSound() {
   }
 }
 
+/* ── Sons por evento (WebAudio puro, sem assets) ─────────────────────────
+   Cada tipo de push tem um timbre próprio, tocado quando o painel está
+   aberto (via postMessage do service worker → push-sound.tsx):
+   - alert: dois tons graves descendentes (recusa/reembolso/disputa)
+   - tick:  click curto e agudo (checkout iniciado)
+   - ping:  nota única limpa com leve vibrato (login)
+   - info:  duas notas médias ascendentes suaves (ads/resumo)             */
+
+/** Helper: toca um tom simples com envelope ADSR curto. */
+function playTone(
+  ctx: AudioContext,
+  {
+    freq,
+    startOffset = 0,
+    duration = 0.3,
+    volume = 0.2,
+    type = 'sine' as OscillatorType,
+    freqEnd,
+  }: {
+    freq: number
+    startOffset?: number
+    duration?: number
+    volume?: number
+    type?: OscillatorType
+    freqEnd?: number
+  },
+) {
+  const t = ctx.currentTime + startOffset
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.type = type
+  osc.frequency.setValueAtTime(freq, t)
+  if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, t + duration)
+  gain.gain.setValueAtTime(0, t)
+  gain.gain.linearRampToValueAtTime(volume, t + 0.015)
+  gain.gain.exponentialRampToValueAtTime(0.001, t + duration)
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start(t)
+  osc.stop(t + duration + 0.05)
+}
+
+function getCtx(): AudioContext | null {
+  if (!globalAudioCtx) initAudio()
+  const ctx = globalAudioCtx
+  if (!ctx) return null
+  if (ctx.state === 'suspended') ctx.resume()
+  return ctx
+}
+
+/** Recusa/reembolso/disputa: dois tons graves descendentes (sério, sem susto). */
+export function playAlertSound() {
+  try {
+    const ctx = getCtx()
+    if (!ctx) return
+    playTone(ctx, { freq: 440, duration: 0.22, volume: 0.22, type: 'square' })
+    playTone(ctx, { freq: 330, startOffset: 0.22, duration: 0.32, volume: 0.2, type: 'square' })
+  } catch {
+    // falha em silêncio
+  }
+}
+
+/** Checkout iniciado: click sutil agudo — presença sem interromper. */
+export function playTickSound() {
+  try {
+    const ctx = getCtx()
+    if (!ctx) return
+    playTone(ctx, { freq: 1800, duration: 0.08, volume: 0.12, type: 'triangle', freqEnd: 1400 })
+  } catch {
+    // falha em silêncio
+  }
+}
+
+/** Login: nota única limpa. */
+export function playPingSound() {
+  try {
+    const ctx = getCtx()
+    if (!ctx) return
+    playTone(ctx, { freq: 880, duration: 0.5, volume: 0.18, type: 'sine' })
+    playTone(ctx, { freq: 1760, duration: 0.4, volume: 0.06, type: 'sine' })
+  } catch {
+    // falha em silêncio
+  }
+}
+
+/** Ads/resumo: duas notas médias ascendentes suaves. */
+export function playInfoSound() {
+  try {
+    const ctx = getCtx()
+    if (!ctx) return
+    playTone(ctx, { freq: 523, duration: 0.18, volume: 0.14, type: 'sine' })
+    playTone(ctx, { freq: 659, startOffset: 0.16, duration: 0.28, volume: 0.14, type: 'sine' })
+  } catch {
+    // falha em silêncio
+  }
+}
+
+/** Dispatcher: toca o som certo pelo nome vindo do push (notify-copy SOUNDS). */
+export function playEventSound(sound: string) {
+  switch (sound) {
+    case 'cash':
+      playSaleSound()
+      break
+    case 'alert':
+      playAlertSound()
+      break
+    case 'tick':
+      playTickSound()
+      break
+    case 'ping':
+      playPingSound()
+      break
+    case 'info':
+      playInfoSound()
+      break
+    default:
+      break
+  }
+}
+
 /** Pede permissão se necessário. Retorna true se pode notificar. */
 export async function ensureNotifyPermission(): Promise<boolean> {
   if (typeof Notification === 'undefined') return false

@@ -124,6 +124,29 @@ const POOLS = {
   ]
 };
 
+// Som por evento — tocado pelo painel ABERTO via WebAudio (sale-alerts.ts).
+// Com o PWA fechado o iOS/Android tocam o som padrão do sistema (silent:false
+// no sw.js); som customizado em background exigiria app nativo.
+//   cash  = cha-ching (dinheiro entrando)
+//   alert = dois tons graves descendentes (recusa/reembolso/disputa/watchdog)
+//   tick  = click sutil agudo (checkout iniciado)
+//   ping  = nota única limpa (login)
+//   info  = tom médio suave (ads/resumo)
+const SOUNDS = {
+  sale: 'cash',
+  test: 'cash',
+  failed: 'alert',
+  refund: 'alert',
+  dispute: 'alert',
+  watchdog: 'alert',
+  checkout: 'tick',
+  login: 'ping',
+  daily: 'info',
+  ads: 'info',
+  ads_breaker: 'info',
+  ads_cap: 'info'
+};
+
 // Deep link por evento (basePath /dashboard já embutido)
 const URLS = {
   sale: '/dashboard/activity',
@@ -182,23 +205,23 @@ function build(opts) {
   const event = (meta && meta.event) || classify(name, p);
   const url = URLS[event] || '/dashboard';
   const tag = 'roinados-' + (event || 'geral');
-  // Som de dinheiro (cha-ching) em vendas e no teste — tocado pelo painel
-  // aberto via WebAudio; no push fechado o sistema toca o som padrão.
-  const sound = event === 'sale' || event === 'test' ? 'cash' : '';
+  // Som distinto por evento (mapa SOUNDS acima) — tocado pelo painel aberto
+  // via WebAudio; no push fechado o sistema toca o som padrão.
+  const sound = SOUNDS[event] || '';
 
   // Modo sóbrio ou evento desconhecido: título/texto originais.
   if (funMode === false || !event || !POOLS[event]) {
-    return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound };
+    return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound, event: event || '' };
   }
 
   const data = meta || {};
   const phrase = pick(event, accountId, data);
   // Nenhuma frase elegível (faltam dados) → payload original, sem buracos.
-  if (!phrase) return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound };
+  if (!phrase) return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound, event };
   const title = interp(phrase.t, data) || p.title || 'ROI-NADOS';
   // Corpo vazio no pool ('') = usa o texto original (informação completa).
   const body = (phrase.b ? interp(phrase.b, data) : '') || p.text || '';
-  return { title, body, url, tag, sound };
+  return { title, body, url, tag, sound, event };
 }
 
 module.exports = { build, _pools: POOLS };

@@ -157,6 +157,8 @@ body {
   font-family: var(--font-sans);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  /* iOS: sem flash cinza ao tocar em botões/links */
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Números tabulares em toda métrica mono — colunas alinham perfeitamente */
@@ -2390,13 +2392,12 @@ input:focus, textarea:focus {
     inset 0 0 40px 10px rgba(0, 0, 0, 0.3);
 }
 
-/* Item 6: altura generosa, aumentada conforme pedido */
-.hero-globe-section {
-  min-height: 680px;
-}
-@media (max-width: 768px) {
+/* Item 6: altura generosa — SOMENTE desktop (lg+), onde os overlays são
+   absolutos. No mobile a seção é uma coluna em fluxo: a altura vem do
+   conteúdo (globo compacto + KPIs + feed), sem min-height forçado. */
+@media (min-width: 1024px) {
   .hero-globe-section {
-    min-height: 480px;
+    min-height: 680px;
   }
 }
 
@@ -2434,35 +2435,10 @@ input:focus, textarea:focus {
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* Responsivo: em mobile os overlays ficam estáticos, não sobrepostos */
-@media (max-width: 1023px) {
-  .hero-overlay-left,
-  .hero-overlay-right {
-    position: relative !important;
-    top: auto !important;
-    left: auto !important;
-    right: auto !important;
-    padding: 0 16px;
-    z-index: 10;
-  }
-  .hero-overlay-left {
-    margin-top: -40px;
-    margin-bottom: 8px;
-  }
-  .hero-overlay-right {
-    margin-bottom: 16px;
-  }
-  .hero-glass-panel {
-    max-width: none !important;
-  }
-  .hero-globe-section {
-    display: flex;
-    flex-direction: column;
-  }
-  .hero-globe-section > .relative {
-    order: -1;
-  }
-}
+/* Responsivo mobile: o layout em coluna agora é feito direto no JSX
+   (overview-view.tsx) com classes utilitárias — sem hacks de !important,
+   margens negativas ou reordenação via CSS (fonte do bug de sobreposição
+   do globo no iPhone). */
 
 /* ============================================================
    Mega Plan: Novas Animações e Efeitos Globais

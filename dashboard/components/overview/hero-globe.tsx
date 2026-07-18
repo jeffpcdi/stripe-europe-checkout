@@ -149,14 +149,17 @@ export function HeroGlobe({
       className="hero-globe-container absolute inset-0 bg-breathe"
       aria-label={`Presença ao vivo: ${onlineNow} online agora em ${activeCountries} ${activeCountries === 1 ? 'país' : 'países'}`}
     >
-      {/* Glow atmosférico e Elementos Orbitais (Mega Plano) */}
+      {/* Glow atmosférico e Elementos Orbitais (Mega Plano).
+          No mobile (<lg) os anéis orbitais e stardust ficam ocultos: os anéis
+          têm inset negativo (-30%/-45%) e vazavam para fora do wrapper
+          compacto, sobrepondo os KPIs — além de custo de GPU no iPhone. */}
       <div className="hero-globe-glow-outer" aria-hidden="true" />
       <div className="hero-globe-glow-core" aria-hidden="true" />
-      <div className="hero-stardust float-dust" aria-hidden="true" />
+      <div className="hero-stardust float-dust max-lg:hidden" aria-hidden="true" />
       <ShootingStars />
-      
-      <div className="hero-orbit-ring" aria-hidden="true" />
-      <div className="hero-orbit-ring outer" aria-hidden="true" />
+
+      <div className="hero-orbit-ring max-lg:hidden" aria-hidden="true" />
+      <div className="hero-orbit-ring outer max-lg:hidden" aria-hidden="true" />
 
       {/* Totens/pontos guiados pelo AO VIVO: com 0 online o globo fica limpo
           ("Aguardando tráfego"), consistente com o contador logo acima. Arcos
@@ -171,12 +174,12 @@ export function HeroGlobe({
 
       {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".
           pointer-events-none para não interceptar arraste/zoom do globo. */}
-      <div className="pointer-events-none absolute inset-x-0 top-6 flex flex-col items-center gap-1.5 text-center z-20">
-        <div className="hero-globe-badge pulse-cyan pointer-events-auto inline-flex flex-col items-center gap-1.5 px-6 py-2.5 rounded-[20px] backdrop-blur-xl border border-primary/20 shadow-[0_0_25px_rgba(37,244,238,0.3)] transition-all">
+      <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex flex-col items-center gap-1.5 text-center lg:top-6">
+        <div className="hero-globe-badge pulse-cyan pointer-events-auto inline-flex flex-col items-center gap-1 rounded-[20px] border border-primary/20 px-4 py-2 shadow-[0_0_25px_rgba(37,244,238,0.3)] backdrop-blur-xl transition-all lg:gap-1.5 lg:px-6 lg:py-2.5">
           <div className="flex items-center gap-2">
             <span className="live-dot" aria-hidden="true" />
             <p
-              className="font-mono text-2xl font-bold leading-none tabular-nums text-white xl:text-3xl"
+              className="font-mono text-xl font-bold leading-none tabular-nums text-white lg:text-2xl xl:text-3xl"
               data-sensitive
             >
               <CountUp value={onlineNow} />

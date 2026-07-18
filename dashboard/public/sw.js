@@ -19,6 +19,16 @@ self.addEventListener("push", (event) => {
   }
 
   const title = data.title || "ROI-NADOS"
+  // Haptics/Vibração distinta por tipo de som (Android/desktop; iOS ignora):
+  // cash = ritmo de caixa registradora; alert = longa e insistente;
+  // tick/ping = toque único curto; info = padrão suave.
+  const VIBRATE = {
+    cash: [200, 100, 200, 100, 400],
+    alert: [400, 150, 400, 150, 600],
+    tick: [80],
+    ping: [120],
+    info: [150, 80, 150],
+  }
   const options = {
     body: data.body || "",
     icon: "/dashboard/icon-192.png",
@@ -26,11 +36,10 @@ self.addEventListener("push", (event) => {
     tag: data.tag || undefined, // agrupa notificações do mesmo evento
     data: { url: data.url || "/dashboard" },
     // silent:false garante o som padrão do sistema (iOS/Android/desktop).
-    // Som customizado em push fechado não é permitido pela Apple — o
-    // cha-ching de dinheiro toca nas abas abertas via postMessage abaixo.
+    // Som customizado em push fechado não é permitido pela Apple — os sons
+    // por evento tocam nas abas abertas via postMessage abaixo.
     silent: false,
-    // Haptics/Vibração: ritmo da caixa registradora para vendas
-    vibrate: data.sound === 'cash' ? [200, 100, 200, 100, 400] : [200, 100, 200],
+    vibrate: VIBRATE[data.sound] || [200, 100, 200],
     // Botões de ação (Android/desktop; iOS ignora — limite da Apple)
     actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
   }
@@ -45,7 +54,7 @@ self.addEventListener("push", (event) => {
             .matchAll({ type: "window", includeUncontrolled: true })
             .then((clients) => {
               for (const client of clients) {
-                client.postMessage({ type: "roi-sound", sound: data.sound })
+                client.postMessage({ type: "roi-sound", sound: data.sound, event: data.event || "" })
               }
             })
         : Promise.resolve(),

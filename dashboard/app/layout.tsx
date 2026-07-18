@@ -34,6 +34,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: '#08080a',
   colorScheme: 'dark',
+  // iPhone com Dynamic Island/notch: ocupa a tela toda e expõe as variáveis
+  // env(safe-area-inset-*) usadas no topnav, mobile-nav e toaster.
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
