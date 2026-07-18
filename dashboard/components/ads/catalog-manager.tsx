@@ -13,11 +13,12 @@
 // Telas: (1) lista de catálogos da conta; (2) detalhe com tabela de produtos
 // editável, importação de CSV, download e publicação + passo a passo guiado.
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   X, Loader2, Plus, Trash2, UploadCloud, Download, Rocket,
   Copy, Check, AlertCircle, ChevronLeft, ExternalLink, PackageOpen,
-  Building2, Clock, ShieldCheck, RefreshCw, Pencil,
+  Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
@@ -702,10 +703,17 @@ function CatalogDetail({
           catalogId={catalogId}
           spec={spec}
           product={editing === 'new' ? null : editing}
+          currency={catalog?.currency || 'USD'}
+          autoPublish={bcConfigured}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={async () => {
             setEditing(null)
-            mutate()
+            // 1 clique total: salvar já republica o catálogo no TikTok quando
+            // o Business Center está configurado (usa o sync existente; os
+            // botões manuais continuam disponíveis para quem preferir).
+            const fresh = await mutate()
+            const anyValid = (fresh?.products ?? []).some((p) => p.valid)
+            if (bcConfigured && anyValid) handleSyncTiktok()
           }}
         />
       )}
@@ -850,23 +858,70 @@ function ProductField({
 }
 
 // ── Editor de um produto (sobreposto) ─────────────────────────────────────
+// Renderizado via createPortal no <body>: o editor vivia DENTRO de um card com
+// backdrop-filter/transform, que vira "containing block" e prende o
+// position:fixed ao card — era o popup quebrado/transparente no iPhone.
+// Mobile: bottom sheet (desliza de baixo, largura total, respeitando a
+// safe-area). Desktop: modal centrado como antes.
+
+// SKU legível e único o suficiente para um catálogo manual: base36 do
+// timestamp + 2 chars aleatórios (ex.: "SKU-MDQ3K2-7F").
+function generateSku(): string {
+  const rand = Math.random().toString(36).slice(2, 4).toUpperCase()
+  return `SKU-${Date.now().toString(36).toUpperCase()}-${rand}`
+}
+
+// "9.99", "9,99" ou "1.234,56" → "9.99 BRL" (formato exigido pelo TikTok:
+// número + espaço + moeda do catálogo). Valores já formatados passam direto.
+function formatPriceForFeed(input: string, currency: string): string {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  // Já está no formato final ("9.99 BRL")? Normaliza só a moeda p/ maiúscula.
+  const done = raw.match(/^(\d+(?:\.\d{1,2})?)\s+([A-Za-z]{3})$/)
+  if (done) return `${done[1]} ${done[2].toUpperCase()}`
+  // Aceita vírgula decimal pt-BR e separadores de milhar.
+  let n = raw.replace(/\s/g, '')
+  if (/,\d{1,2}$/.test(n)) n = n.replace(/\./g, '').replace(',', '.')
+  else n = n.replace(/,/g, '')
+  if (!/^\d+(?:\.\d{1,2})?$/.test(n)) return raw // deixa a validação apontar
+  return `${n} ${currency.toUpperCase()}`
+}
+
+// Para editar um produto existente: "9.99 BRL" → "9.99" (o sufixo de moeda é
+// re-anexado no salvar; o usuário só vê o número).
+function stripCurrency(price: string): string {
+  const m = String(price || '').trim().match(/^(\d+(?:\.\d{1,2})?)\s+[A-Za-z]{3}$/)
+  return m ? m[1] : String(price || '')
+}
+
 function ProductEditor({
   catalogId,
   spec,
   product,
+  currency,
+  autoPublish,
   onClose,
   onSaved,
 }: {
   catalogId: string
   spec: { columns: string[]; required: string[]; enums: Record<string, string[]>; fields: { key: string; required: boolean; enum: string[] | null }[] } | null
   product: AdsCatalogProduct | null
+  currency: string
+  autoPublish: boolean
   onClose: () => void
   onSaved: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [form, setForm] = useState<Record<string, string>>(product?.data ?? {})
+  // Menos preenchimento manual: produto novo já nasce com SKU gerado,
+  // condição "new" e disponibilidade "in stock" (tudo editável).
+  const [form, setForm] = useState<Record<string, string>>((): Record<string, string> => {
+    if (product?.data) return { ...product.data, price: stripCurrency(product.data.price || ''), sale_price: stripCurrency(product.data.sale_price || '') }
+    return { sku_id: generateSku(), condition: 'new', availability: 'in stock' }
+  })
   const [busy, setBusy] = useState(false)
   const [showOptional, setShowOptional] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
   useModalA11y(true, ref, onClose)
 
   const fields = spec?.fields ?? []
@@ -880,8 +935,13 @@ function ProductEditor({
   async function handleSave() {
     setBusy(true)
     try {
-      await apiSend(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products`, 'POST', { data: form })
-      toast.success('Produto salvo')
+      // Preços viram "9.99 BRL" (moeda do catálogo) na hora de salvar — o
+      // usuário digita só o número, com ponto ou vírgula.
+      const data: Record<string, string> = { ...form }
+      if (data.price) data.price = formatPriceForFeed(data.price, currency)
+      if (data.sale_price) data.sale_price = formatPriceForFeed(data.sale_price, currency)
+      await apiSend(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products`, 'POST', { data })
+      toast.success(autoPublish ? 'Produto salvo — publicando no TikTok…' : 'Produto salvo')
       onSaved()
     } catch (e) {
       toast.error('Falha ao salvar produto', { hint: e instanceof Error ? e.message : undefined })
@@ -892,15 +952,26 @@ function ProductEditor({
 
   const missingRequired = [...required].filter((k) => !String(form[k] || '').trim())
 
-  return (
+  function renderField(f: { key: string; required: boolean; enum: string[] | null }) {
+    const common = { value: form[f.key] ?? '', onChange: (v: string) => setForm((s) => ({ ...s, [f.key]: v })) }
+    if (f.key === 'price' || f.key === 'sale_price') return <PriceField key={f.key} field={f} currency={currency} {...common} />
+    if (f.key === 'image_link' || f.key === 'additional_image_link') return <ImageField key={f.key} field={f} {...common} />
+    return <ProductField key={f.key} field={f} {...common} />
+  }
+
+  if (!mounted) return null
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:overflow-y-auto sm:p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div ref={ref} role="dialog" aria-modal="true" aria-label="Editar produto" tabIndex={-1} className="w-full max-w-lg outline-none">
-        <div className="anim-pop-in flex max-h-[85vh] flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-card p-5">
+      <div ref={ref} role="dialog" aria-modal="true" aria-label="Editar produto" tabIndex={-1} className="w-full outline-none sm:max-w-lg">
+        {/* Mobile: bottom sheet colado na base com cantos superiores redondos e
+            safe-area; desktop: card centrado */}
+        <div className="anim-pop-in flex max-h-[88dvh] flex-col gap-4 overflow-hidden rounded-t-2xl border border-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:max-h-[85vh] sm:rounded-2xl sm:pb-5">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-foreground">
               {product ? 'Editar produto' : 'Novo produto'}
@@ -911,9 +982,7 @@ function ProductEditor({
           </div>
 
           <div className="flex flex-col gap-3 overflow-y-auto pr-1">
-            {requiredFields.map((f) => (
-              <ProductField key={f.key} field={f} value={form[f.key] ?? ''} onChange={(v) => setForm((s) => ({ ...s, [f.key]: v }))} />
-            ))}
+            {requiredFields.map(renderField)}
 
             {optionalFields.length > 0 && (
               <button
@@ -926,23 +995,149 @@ function ProductEditor({
                 {showOptional ? 'Ocultar campos opcionais' : `Mostrar campos opcionais (${optionalFields.length})`}
               </button>
             )}
-            {showOptional && optionalFields.map((f) => (
-              <ProductField key={f.key} field={f} value={form[f.key] ?? ''} onChange={(v) => setForm((s) => ({ ...s, [f.key]: v }))} />
-            ))}
+            {showOptional && optionalFields.map(renderField)}
           </div>
 
           <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
             <p className="text-[11px] text-muted-foreground">
               {missingRequired.length > 0
-                ? `Faltam obrigatórios: ${missingRequired.join(', ')}`
-                : 'Todos os campos obrigatórios preenchidos'}
+                ? `Faltam obrigatórios: ${missingRequired.map((k) => FIELD_LABELS[k] || k).join(', ')}`
+                : autoPublish
+                  ? 'Ao salvar, o catálogo é republicado no TikTok'
+                  : 'Todos os campos obrigatórios preenchidos'}
             </p>
             <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSave} disabled={busy || missingRequired.length > 0}>
-              {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
-              Salvar
+              {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : autoPublish ? <Rocket className="size-3.5" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
+              {autoPublish ? 'Salvar e publicar' : 'Salvar'}
             </button>
           </div>
         </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// ── Campo de preço simplificado ────────────────────────────────────────────
+// O usuário digita só o número (9.99 ou 9,99); a moeda do catálogo aparece
+// como sufixo fixo e é anexada automaticamente no salvar.
+function PriceField({
+  field,
+  currency,
+  value,
+  onChange,
+}: {
+  field: { key: string; required: boolean }
+  currency: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  const label = FIELD_LABELS[field.key] || field.key
+  const isMissing = field.required && !String(value).trim()
+  return (
+    <label className="flex flex-col gap-1 text-xs">
+      <span className="flex items-baseline gap-1.5">
+        <span className="font-medium text-foreground">{label}</span>
+        {field.required && <span className="text-error">*</span>}
+        <span className="text-[10px] text-muted-foreground">{field.key}</span>
+      </span>
+      <span className="relative flex items-center">
+        <input
+          className={`input-base w-full pr-14 ${isMissing ? 'border-error/50' : ''}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Ex.: 9.99"
+          inputMode="decimal"
+        />
+        <span className="pointer-events-none absolute right-3 text-[11px] font-semibold text-muted-foreground">
+          {currency.toUpperCase()}
+        </span>
+      </span>
+    </label>
+  )
+}
+
+// ── Campo de imagem com upload ─────────────────────────────────────────────
+// Botão "Enviar foto" sobe a imagem para o Vercel Blob (rota /api/ads/upload
+// já existente) e preenche a URL sozinho; colar URL continua funcionando.
+// Preview aparece quando a URL é válida.
+function ImageField({
+  field,
+  value,
+  onChange,
+}: {
+  field: { key: string; required: boolean }
+  value: string
+  onChange: (v: string) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const label = FIELD_LABELS[field.key] || field.key
+  const isMissing = field.required && !String(value).trim()
+  const showPreview = /^https?:\/\/.+/i.test(String(value).trim())
+
+  async function handleUpload(file: File) {
+    setUploading(true)
+    try {
+      const res = await fetch(
+        `/api/ads/upload?kind=image&filename=${encodeURIComponent(file.name)}`,
+        { method: 'POST', body: file, credentials: 'include' },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Erro ${res.status}`)
+      onChange(data.url)
+      toast.success('Foto enviada — URL preenchida')
+    } catch (e) {
+      toast.error('Falha ao enviar a foto', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1 text-xs">
+      <span className="flex items-baseline gap-1.5">
+        <span className="font-medium text-foreground">{label}</span>
+        {field.required && <span className="text-error">*</span>}
+        <span className="text-[10px] text-muted-foreground">{field.key}</span>
+      </span>
+      <div className="flex items-center gap-2">
+        {/* Preview compacto (o TikTok exige ≥ 500×500 na origem) */}
+        {showPreview && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={value || "/placeholder.svg"}
+            alt="Preview do produto"
+            className="size-10 shrink-0 rounded-lg border border-border object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+          />
+        )}
+        <input
+          className={`input-base min-w-0 flex-1 ${isMissing ? 'border-error/50' : ''}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={FIELD_PLACEHOLDERS[field.key] || 'https://… (≥ 500×500)'}
+        />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg"
+          className="sr-only"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) handleUpload(f)
+          }}
+        />
+        <button
+          type="button"
+          className="btn-ghost shrink-0 text-xs"
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+        >
+          {uploading ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <ImageIcon className="size-3.5" aria-hidden="true" />}
+          Enviar foto
+        </button>
       </div>
     </div>
   )

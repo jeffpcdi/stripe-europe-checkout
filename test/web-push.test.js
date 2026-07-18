@@ -23,7 +23,41 @@ test('notify-copy: venda com funMode interpola valor/produto reais', () => {
     'valor real aparece na copy (ou fallback ao texto original)'
   );
   assert.strictEqual(note.url, '/dashboard/activity', 'deep link da venda vai para activity');
-  assert.strictEqual(note.tag, 'roinados-sale');
+  // Vendas EMPILHAM: tag única por notificação (prefixo estável + sufixo),
+  // para uma venda nova nunca substituir a anterior na tela de bloqueio.
+  assert.ok(note.tag.startsWith('roinados-sale-'), 'tag de venda tem prefixo estável');
+  const note2 = notifyCopy.build({
+    name: 'Aprovada',
+    payload: { title: 'Venda aprovada', text: 'texto original' },
+    meta, funMode: true, accountId: 'acc1'
+  });
+  // tags podem colidir só se geradas no MESMO milissegundo — improvável aqui
+  assert.ok(note2.tag.startsWith('roinados-sale-'), 'segunda venda também empilha');
+});
+
+test('notify-copy: eventos de status substituem (tag fixa)', () => {
+  const a = notifyCopy.build({
+    name: 'Checkout', payload: { title: 'Checkout iniciado', text: 'x' },
+    meta: { event: 'checkout', gateway: 'CartPanda' }, funMode: true, accountId: 'acc1'
+  });
+  const b = notifyCopy.build({
+    name: 'Checkout', payload: { title: 'Checkout iniciado', text: 'y' },
+    meta: { event: 'checkout', gateway: 'CartPanda' }, funMode: true, accountId: 'acc1'
+  });
+  assert.strictEqual(a.tag, 'roinados-checkout', 'checkout usa tag fixa');
+  assert.strictEqual(a.tag, b.tag, 'checkouts consecutivos se substituem');
+});
+
+test('notify-copy: som distinto por evento', () => {
+  const cases = [
+    ['sale', 'cash'], ['failed', 'alert'], ['refund', 'alert'],
+    ['dispute', 'alert'], ['checkout', 'tick'], ['login', 'ping'], ['daily', 'info']
+  ];
+  for (const [event, sound] of cases) {
+    const n = notifyCopy.build({ name: 'X', payload: { title: 't', text: 'b' }, meta: { event }, funMode: false, accountId: 'acc1' });
+    assert.strictEqual(n.sound, sound, `evento ${event} → som ${sound}`);
+    assert.strictEqual(n.event, event, 'evento propagado no payload (para prefs de som)');
+  }
 });
 
 test('notify-copy: funMode=false preserva título/texto originais', () => {

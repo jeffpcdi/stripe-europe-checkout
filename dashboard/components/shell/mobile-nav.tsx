@@ -29,7 +29,7 @@ export function MobileNav() {
           style={{ animation: 'popBgIn var(--dur-fast) var(--ease) both' }}
         />
         <Dialog.Content
-          className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col overflow-y-auto bg-[#040406]/70 backdrop-blur-3xl border-r border-white/5 p-5 shadow-2xl focus:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left duration-300"
+          className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col overflow-y-auto border-r border-white/5 bg-[#040406]/70 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] pt-[max(1.25rem,env(safe-area-inset-top))] shadow-2xl backdrop-blur-3xl duration-300 focus:outline-none data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left"
           aria-describedby={undefined}
         >
           <div className="mb-4 flex items-center justify-between px-2">

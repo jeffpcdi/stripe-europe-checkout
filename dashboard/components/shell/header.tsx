@@ -9,6 +9,7 @@ import { RefreshCw, LogOut, UserRound, Eye, EyeOff } from 'lucide-react'
 import { NAV_SECTIONS, activeGroup } from '@/lib/navigation'
 import { useAccount, useHealth, useStats } from '@/lib/api'
 import { DurabilityBadge } from '@/components/shell/durability-badge'
+import { NotificationBell } from '@/components/shell/notification-bell'
 import { usePrefs } from '@/lib/prefs'
 import { cn } from '@/lib/utils'
 
@@ -309,6 +310,7 @@ export function Header() {
           <div className="flex items-center gap-2">
             {/* Item 186: alerta global de durabilidade (só aparece se o banco cair) */}
             <DurabilityBadge />
+            <NotificationBell />
             <PrivacyButton />
             <RefreshButton />
             <LiveBadge />

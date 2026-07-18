@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { MobileNav } from './mobile-nav'
+import { NotificationBell } from './notification-bell'
 
 /**
  * Barra superior — visível apenas no mobile.
@@ -11,8 +12,8 @@ import { MobileNav } from './mobile-nav'
 export function TopNav() {
   return (
     /* V2-81: topnav mobile com hairline gradiente no lugar da borda seca */
-    <header className="header-hairline sticky top-0 z-40 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] backdrop-blur-md md:hidden">
-      <div className="flex h-16 items-center justify-between gap-3 px-4">
+    <header className="header-hairline sticky top-0 z-40 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] pt-[env(safe-area-inset-top)] backdrop-blur-md md:hidden">
+      <div className="flex h-16 items-center justify-between gap-3 px-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
         {/* Logo */}
         <Link href="/" className="group flex items-center" aria-label="ROI-NADOS">
           <span className="brand-logo" aria-hidden="true">
@@ -28,12 +29,13 @@ export function TopNav() {
           </span>
         </Link>
 
-        {/* Direita: status ao vivo + menu */}
-        <div className="flex items-center gap-3">
+        {/* Direita: status ao vivo + sino + menu */}
+        <div className="flex items-center gap-2.5">
           <div className="glass flex items-center gap-2 rounded-full px-3.5 py-1.5">
             <span className="live-dot" aria-hidden="true" />
             <span className="text-xs font-medium text-sub">Ao vivo</span>
           </div>
+          <NotificationBell />
           <MobileNav />
         </div>
       </div>

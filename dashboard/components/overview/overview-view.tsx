@@ -104,7 +104,7 @@ function HeroKpi({
         <span className="text-gradient-metallic">{label}</span>
       </p>
       <p
-        className={`mt-1 whitespace-nowrap font-mono text-2xl font-bold leading-none tabular-nums sm:text-3xl xl:text-3xl ${
+        className={`mt-1 whitespace-nowrap font-mono text-xl font-bold leading-none tabular-nums sm:text-2xl lg:text-3xl ${
           dim ? 'text-muted-foreground' : colorClass || 'text-foreground'
         }`}
         {...(sensitive ? { 'data-sensitive': true } : {})}
@@ -324,27 +324,34 @@ export function OverviewView() {
 
 
 
-      {/* ── BLOCO HERO IMERSIVO — globo ocupa todo o painel; KPIs e LiveFeed
-          são sobrepostos com glassmorphism. Items 4-9. ─────────────────── */}
+      {/* ── BLOCO HERO IMERSIVO — desktop (lg+): globo full-bleed com KPIs e
+          LiveFeed sobrepostos em glassmorphism. Mobile (<lg): coluna real —
+          globo compacto no topo, KPIs e feed empilhados abaixo, SEM
+          sobreposição (fix do bug de overlap no iPhone). Items 4-9. ────── */}
       <section
         aria-label="Painel principal"
         data-tour="chart"
-        className="hero-globe-section relative overflow-hidden rounded-2xl border border-white/[0.06]"
+        className="hero-globe-section relative flex flex-col overflow-hidden rounded-2xl border border-white/[0.06] lg:block"
         style={{ ['--i' as string]: 1 }}
       >
 
 
-        {/* Globo — ocupa 100% absoluto (fundo do painel) */}
-        <div className="absolute inset-0 z-0">
+        {/* Globo — mobile: bloco compacto (~340px) no topo do fluxo;
+            desktop: fundo absoluto ocupando 100% do painel */}
+        <div className="relative z-0 h-[340px] w-full overflow-hidden lg:absolute lg:inset-0 lg:h-auto lg:overflow-visible">
           <HeroGlobe countries={todayCountries} lastLeadAt={lastLeadAt} />
         </div>
 
-        {/* Overlay ESQUERDO — KPIs em painel glassmorphism (item 8) */}
+        {/* KPIs — mobile: painel em fluxo (grid 2 col) abaixo do globo;
+            desktop: overlay glassmorphism absoluto (item 8) */}
         <div
-          className="hero-overlay-left pointer-events-none absolute left-4 top-4 z-10 sm:left-6 sm:top-6 lg:left-8 lg:top-8"
+          className="hero-overlay-left px-3 pt-3 lg:pointer-events-none lg:absolute lg:left-8 lg:top-8 lg:z-10 lg:p-0"
           data-tour="kpis"
         >
-          <div className="hero-glass-panel pointer-events-auto flex flex-col gap-8 p-4 sm:gap-10 sm:p-5">
+          <div className="hero-glass-panel grid grid-cols-2 gap-4 p-4 lg:pointer-events-auto lg:flex lg:flex-col lg:gap-10 lg:p-5">
+            {/* Mobile: Receita ocupa a linha inteira do grid; desktop:
+                lg:contents remove o wrapper e preserva o flex-col original */}
+            <div className="col-span-2 min-w-0 lg:contents">
             <HeroKpi
               label="Receita"
               dim={revCents === 0}
@@ -369,6 +376,7 @@ export function OverviewView() {
                   .join(' · ') || undefined
               }
             />
+            </div>
             <HeroKpi
               label="Gasto"
               dim={!roas}
@@ -397,9 +405,10 @@ export function OverviewView() {
           </div>
         </div>
 
-        {/* Overlay DIREITO — CHEGANDO AGORA em painel glassmorphism (item 9) */}
-        <div className="hero-overlay-right pointer-events-none absolute right-4 bottom-8 z-10 sm:right-6 sm:bottom-12 lg:right-8 lg:bottom-12">
-          <div className="hero-glass-panel pointer-events-auto max-w-[280px] p-4 sm:p-5">
+        {/* CHEGANDO AGORA — mobile: bloco em fluxo, largura total, abaixo dos
+            KPIs; desktop: overlay glassmorphism absoluto (item 9) */}
+        <div className="hero-overlay-right px-3 pb-3 pt-3 lg:pointer-events-none lg:absolute lg:bottom-12 lg:right-8 lg:z-10 lg:p-0">
+          <div className="hero-glass-panel p-4 lg:pointer-events-auto lg:max-w-[280px] lg:p-5">
             <LiveFeed leads={data?.leads ?? []} />
           </div>
         </div>

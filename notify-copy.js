@@ -124,6 +124,40 @@ const POOLS = {
   ]
 };
 
+// Som por evento — tocado pelo painel ABERTO via WebAudio (sale-alerts.ts).
+// Com o PWA fechado o iOS/Android tocam o som padrão do sistema (silent:false
+// no sw.js); som customizado em background exigiria app nativo.
+//   cash  = cha-ching (dinheiro entrando)
+//   alert = dois tons graves descendentes (recusa/reembolso/disputa/watchdog)
+//   tick  = click sutil agudo (checkout iniciado)
+//   ping  = nota única limpa (login)
+//   info  = tom médio suave (ads/resumo)
+const SOUNDS = {
+  sale: 'cash',
+  test: 'cash',
+  failed: 'alert',
+  refund: 'alert',
+  dispute: 'alert',
+  watchdog: 'alert',
+  checkout: 'tick',
+  login: 'ping',
+  daily: 'info',
+  ads: 'info',
+  ads_breaker: 'info',
+  ads_cap: 'info'
+};
+
+// Agrupamento por tag: notificação com a MESMA tag substitui a anterior na
+// tela de bloqueio. Eventos financeiros e de segurança EMPILHAM (tag única
+// por notificação — você nunca perde uma venda porque outra chegou depois);
+// eventos de status SUBSTITUEM (tag fixa — só a última importa, sem poluir).
+const STACKED = new Set(['sale', 'failed', 'refund', 'dispute', 'login']);
+function tagFor(event) {
+  const ev = event || 'geral';
+  if (STACKED.has(ev)) return 'roinados-' + ev + '-' + Date.now().toString(36);
+  return 'roinados-' + ev; // checkout, ads, daily, watchdog, test…
+}
+
 // Deep link por evento (basePath /dashboard já embutido)
 const URLS = {
   sale: '/dashboard/activity',
@@ -181,24 +215,24 @@ function build(opts) {
   const p = payload || {};
   const event = (meta && meta.event) || classify(name, p);
   const url = URLS[event] || '/dashboard';
-  const tag = 'roinados-' + (event || 'geral');
-  // Som de dinheiro (cha-ching) em vendas e no teste — tocado pelo painel
-  // aberto via WebAudio; no push fechado o sistema toca o som padrão.
-  const sound = event === 'sale' || event === 'test' ? 'cash' : '';
+  const tag = tagFor(event);
+  // Som distinto por evento (mapa SOUNDS acima) — tocado pelo painel aberto
+  // via WebAudio; no push fechado o sistema toca o som padrão.
+  const sound = SOUNDS[event] || '';
 
   // Modo sóbrio ou evento desconhecido: título/texto originais.
   if (funMode === false || !event || !POOLS[event]) {
-    return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound };
+    return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound, event: event || '' };
   }
 
   const data = meta || {};
   const phrase = pick(event, accountId, data);
   // Nenhuma frase elegível (faltam dados) → payload original, sem buracos.
-  if (!phrase) return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound };
+  if (!phrase) return { title: p.title || 'ROI-NADOS', body: p.text || '', url, tag, sound, event };
   const title = interp(phrase.t, data) || p.title || 'ROI-NADOS';
   // Corpo vazio no pool ('') = usa o texto original (informação completa).
   const body = (phrase.b ? interp(phrase.b, data) : '') || p.text || '';
-  return { title, body, url, tag, sound };
+  return { title, body, url, tag, sound, event };
 }
 
 module.exports = { build, _pools: POOLS };

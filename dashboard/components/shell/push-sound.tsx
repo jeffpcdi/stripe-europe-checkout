@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect } from 'react'
-import { playSaleSound, initAudio } from '@/lib/sale-alerts'
+import { playEventSound, initAudio } from '@/lib/sale-alerts'
+import { isSoundEnabled } from '@/lib/notify-prefs'
 
 /* Som nas notificações push: o service worker (sw.js) recebe o push e manda
-   postMessage({type:'roi-sound', sound:'cash'}) para as abas abertas — aqui
-   tocamos o cha-ching de dinheiro via WebAudio (mesmo som do feed de vendas).
+   postMessage({type:'roi-sound', sound, event}) para as abas abertas — aqui
+   tocamos o som DISTINTO por evento via WebAudio (cash/alert/tick/ping/info),
+   respeitando as preferências de som por evento (localStorage, por aparelho).
    Com o app fechado, o sistema toca o som padrão (limite da Apple no iOS). */
 export function PushSound() {
   useEffect(() => {
@@ -26,8 +28,10 @@ export function PushSound() {
     if (!('serviceWorker' in navigator)) return
     const onMessage = (event: MessageEvent) => {
       const msg = event.data
-      if (msg && msg.type === 'roi-sound' && msg.sound === 'cash') {
-        playSaleSound()
+      if (msg && msg.type === 'roi-sound' && msg.sound) {
+        // Preferência por evento (localStorage): desligado → silêncio.
+        if (!isSoundEnabled(msg.event || '')) return
+        playEventSound(msg.sound)
       }
     }
     navigator.serviceWorker.addEventListener('message', onMessage)

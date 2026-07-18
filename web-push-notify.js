@@ -97,8 +97,12 @@ async function sendWebPush(accountId, note) {
     body: String(note.body || '').slice(0, 400),
     url: String(note.url || '/dashboard').slice(0, 300),
     tag: String(note.tag || 'roinados').slice(0, 60),
-    // 'cash' = som de dinheiro nas abas abertas (WebAudio via SW postMessage)
-    sound: String(note.sound || '').slice(0, 20)
+    // som por evento nas abas abertas (WebAudio via SW postMessage):
+    // cash | alert | tick | ping | info
+    sound: String(note.sound || '').slice(0, 20),
+    // evento original (sale, failed, checkout…) — usado pelas preferências
+    // de som por evento no painel (notify-prefs)
+    event: String(note.event || '').slice(0, 30)
   });
   let delivered = 0;
   await Promise.all(subs.map(async (sub) => {

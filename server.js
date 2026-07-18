@@ -3324,6 +3324,36 @@ app.post('/api/webpush/funmode', dashboardAuth, (req, res) => {
   res.json({ ok: true, funMode });
 });
 
+// ── Preferências de push por evento (canal Web Push, independe do Pushcut) ─
+// Grupos: sale, failed, refund, dispute, checkout, login, ads, system.
+// Default: tudo ligado exceto checkout (ruidoso). Persistido em webPush.events.
+const WEBPUSH_EVENT_GROUPS = ['sale', 'failed', 'refund', 'dispute', 'checkout', 'login', 'ads', 'system'];
+
+function webPushEventsFor(accountId) {
+  const saved = (config.get(accountId).webPush || {}).events || {};
+  const out = {};
+  for (const g of WEBPUSH_EVENT_GROUPS) {
+    out[g] = typeof saved[g] === 'boolean' ? saved[g] : g !== 'checkout';
+  }
+  return out;
+}
+
+app.get('/api/webpush/events', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, events: webPushEventsFor(req.account.id) });
+});
+
+app.post('/api/webpush/events', dashboardAuth, (req, res) => {
+  const body = (req.body || {}).events || {};
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: true };
+  const events = Object.assign({}, wp.events || {});
+  for (const g of WEBPUSH_EVENT_GROUPS) {
+    if (typeof body[g] === 'boolean') events[g] = body[g];
+  }
+  config.set(req.account.id, { webPush: Object.assign({}, wp, { events }) });
+  res.json({ ok: true, events: webPushEventsFor(req.account.id) });
+});
+
 // Teste: dispara uma notificação engraçada só pelo canal Web Push
 app.post('/api/webpush/test', dashboardAuth, async (req, res) => {
   const wp = config.get(req.account.id).webPush || {};
@@ -3332,8 +3362,20 @@ app.post('/api/webpush/test', dashboardAuth, async (req, res) => {
     name: 'Teste', payload: { title: 'Teste — ROI-NADOS', text: 'Notificação de teste.' },
     meta: { event: 'test' }, funMode: wp.funMode !== false, accountId: req.account.id
   });
+  rdb.pushNotifLog(req.account.id, note).catch(() => {}); // aparece no sino também
   const ok = await webPushNotify.sendWebPush(req.account.id, note);
   res.json({ ok });
+});
+
+// ── Central de notificações do painel (sino no header) ──────────────
+// Histórico das notificações emitidas (Web Push), gravado no fan-out
+// (pushcut.js → redis.pushNotifLog). Redis quando disponível; fallback
+// em memória (zera no restart, aceitável para um feed de conveniência).
+app.get('/api/notifications', dashboardAuth, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const items = await rdb.loadNotifLog(req.account.id, limit);
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, items: items || [] });
 });
 
 // ── API: health-check — variáveis críticas + ping REAL no banco ─────
