@@ -35,6 +35,8 @@ export function AdsContextBar({
   advertisers,
   selectedAdvertiser,
   refreshing,
+  rangeDays,
+  onRangeDays,
   onAdvertiserChanged,
   onRefresh,
   onDisconnect,
@@ -43,6 +45,8 @@ export function AdsContextBar({
   advertisers: AdsAdvertiser[]
   selectedAdvertiser: string
   refreshing: boolean
+  rangeDays: number
+  onRangeDays: (days: number) => void
   onAdvertiserChanged: (id: string) => void
   onRefresh: () => void
   // null esconde o botão — com Pipeboard a conexão é chave de servidor,
@@ -138,9 +142,26 @@ export function AdsContextBar({
         })()}
       </label>
 
+      <label className="flex items-center gap-2 text-muted-foreground">
+        <span>Período:</span>
+        <select
+          className="input-neon rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+          value={rangeDays}
+          onChange={(event) => onRangeDays(Number(event.target.value))}
+          aria-label="Período global das métricas"
+        >
+          <option value={1}>Hoje</option>
+          <option value={7}>7 dias</option>
+          <option value={14}>14 dias</option>
+          <option value={30}>30 dias</option>
+          <option value={90}>90 dias</option>
+          <option value={365}>1 ano</option>
+        </select>
+      </label>
+
       <button
         type="button"
-        className="flex items-center gap-1.5 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:bg-white/10 hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] active:scale-95"
+        className="flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
         onClick={openCreateAccount}
         title="Abre o TikTok Business Center em nova aba — a criação de conta não tem API"
       >
