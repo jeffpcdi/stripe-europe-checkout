@@ -70,12 +70,16 @@ function webPushEventEnabled(accountId, event) {
 
 async function sendViaWebPush(notificationName, payload, accountId, meta) {
   try {
-    const webPushNotify = require('./web-push-notify');
-    if (!webPushNotify.subsFor(accountId).length) return false; // sem aparelhos
     const funMode = (require('./config').get(accountId).webPush || {}).funMode !== false;
     const note = require('./notify-copy').build({
       name: notificationName, payload, meta, funMode, accountId
     });
+    // Central de notificações do painel (sino no header): registra TODO
+    // evento construído — mesmo sem aparelhos inscritos ou com o push do
+    // grupo desligado, o histórico é a fonte da verdade. Fire-and-forget.
+    try { require('./redis').pushNotifLog(accountId, note).catch(() => {}); } catch (_) {}
+    const webPushNotify = require('./web-push-notify');
+    if (!webPushNotify.subsFor(accountId).length) return false; // sem aparelhos
     // Toggle por evento (só do canal Web Push; o teste passa sempre para o
     // usuário conseguir validar o aparelho mesmo com "venda" desligada).
     const ev = note.event || '';

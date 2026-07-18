@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { MobileNav } from './mobile-nav'
+import { NotificationBell } from './notification-bell'
 
 /**
  * Barra superior — visível apenas no mobile.
@@ -28,12 +29,13 @@ export function TopNav() {
           </span>
         </Link>
 
-        {/* Direita: status ao vivo + menu */}
-        <div className="flex items-center gap-3">
+        {/* Direita: status ao vivo + sino + menu */}
+        <div className="flex items-center gap-2.5">
           <div className="glass flex items-center gap-2 rounded-full px-3.5 py-1.5">
             <span className="live-dot" aria-hidden="true" />
             <span className="text-xs font-medium text-sub">Ao vivo</span>
           </div>
+          <NotificationBell />
           <MobileNav />
         </div>
       </div>

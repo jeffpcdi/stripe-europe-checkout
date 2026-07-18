@@ -3362,8 +3362,20 @@ app.post('/api/webpush/test', dashboardAuth, async (req, res) => {
     name: 'Teste', payload: { title: 'Teste — ROI-NADOS', text: 'Notificação de teste.' },
     meta: { event: 'test' }, funMode: wp.funMode !== false, accountId: req.account.id
   });
+  rdb.pushNotifLog(req.account.id, note).catch(() => {}); // aparece no sino também
   const ok = await webPushNotify.sendWebPush(req.account.id, note);
   res.json({ ok });
+});
+
+// ── Central de notificações do painel (sino no header) ──────────────
+// Histórico das notificações emitidas (Web Push), gravado no fan-out
+// (pushcut.js → redis.pushNotifLog). Redis quando disponível; fallback
+// em memória (zera no restart, aceitável para um feed de conveniência).
+app.get('/api/notifications', dashboardAuth, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const items = await rdb.loadNotifLog(req.account.id, limit);
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, items: items || [] });
 });
 
 // ── API: health-check — variáveis críticas + ping REAL no banco ─────

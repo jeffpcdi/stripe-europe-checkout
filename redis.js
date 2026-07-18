@@ -1044,6 +1044,58 @@ async function loadDomainSnapshot() {
 }
 
 // ─��� Ping de saúde ─────────────────────────────────────────────────────────
+// ── Central de notificações do painel ─────────────────────────────────────
+// Histórico das notificações emitidas (Web Push/Pushcut) por conta, para o
+// sino no header da dashboard. Lista "notiflog:<accountId>" com as 100 mais
+// recentes (LPUSH + LTRIM), TTL de 30 dias. Fallback em memória sem Redis.
+const NOTIF_LOG_MAX = 100;
+const notifLogMem = new Map(); // accountId -> [entry, ...] (recente à frente)
+function notifLogKey(accountId) { return 'notiflog:' + (accountId || 'default'); }
+
+async function pushNotifLog(accountId, entry) {
+  if (!entry) return false;
+  const row = {
+    at: Date.now(),
+    event: String(entry.event || '').slice(0, 30),
+    title: String(entry.title || '').slice(0, 120),
+    body: String(entry.body || '').slice(0, 240),
+    url: String(entry.url || '/dashboard').slice(0, 120),
+  };
+  const key = notifLogKey(accountId);
+  const arr = notifLogMem.get(key) || [];
+  arr.unshift(row);
+  if (arr.length > NOTIF_LOG_MAX) arr.length = NOTIF_LOG_MAX;
+  notifLogMem.set(key, arr);
+  if (!enabled) return true;
+  try {
+    const pipe = redis.pipeline();
+    pipe.lpush(key, JSON.stringify(row));
+    pipe.ltrim(key, 0, NOTIF_LOG_MAX - 1);
+    pipe.expire(key, 30 * 86400);
+    await pipe.exec();
+    return true;
+  } catch (err) {
+    console.error('[redis] pushNotifLog:', err.message);
+    return false;
+  }
+}
+
+async function loadNotifLog(accountId, limit) {
+  const n = Math.min(limit || 50, NOTIF_LOG_MAX);
+  const key = notifLogKey(accountId);
+  if (!enabled) return (notifLogMem.get(key) || []).slice(0, n);
+  try {
+    const raw = await redis.lrange(key, 0, n - 1);
+    const out = (raw || [])
+      .map((v) => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (_) { return null; } })
+      .filter(Boolean);
+    return out.length ? out : (notifLogMem.get(key) || []).slice(0, n);
+  } catch (err) {
+    console.error('[redis] loadNotifLog:', err.message);
+    return (notifLogMem.get(key) || []).slice(0, n);
+  }
+}
+
 async function ping() {
   if (!enabled) return { ok: false, reason: 'desabilitado' };
   try {
@@ -1078,5 +1130,6 @@ module.exports = {
   savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,
   saveGatewaySnapshot, deleteGatewaySnapshot, loadGatewaySnapshot,
   saveDomainSnapshot, deleteDomainSnapshot, loadDomainSnapshot,
+  pushNotifLog, loadNotifLog, // central de notificações do painel
   ping, TTL
 };

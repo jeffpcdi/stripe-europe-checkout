@@ -147,6 +147,17 @@ const SOUNDS = {
   ads_cap: 'info'
 };
 
+// Agrupamento por tag: notificação com a MESMA tag substitui a anterior na
+// tela de bloqueio. Eventos financeiros e de segurança EMPILHAM (tag única
+// por notificação — você nunca perde uma venda porque outra chegou depois);
+// eventos de status SUBSTITUEM (tag fixa — só a última importa, sem poluir).
+const STACKED = new Set(['sale', 'failed', 'refund', 'dispute', 'login']);
+function tagFor(event) {
+  const ev = event || 'geral';
+  if (STACKED.has(ev)) return 'roinados-' + ev + '-' + Date.now().toString(36);
+  return 'roinados-' + ev; // checkout, ads, daily, watchdog, test…
+}
+
 // Deep link por evento (basePath /dashboard já embutido)
 const URLS = {
   sale: '/dashboard/activity',
@@ -204,7 +215,7 @@ function build(opts) {
   const p = payload || {};
   const event = (meta && meta.event) || classify(name, p);
   const url = URLS[event] || '/dashboard';
-  const tag = 'roinados-' + (event || 'geral');
+  const tag = tagFor(event);
   // Som distinto por evento (mapa SOUNDS acima) — tocado pelo painel aberto
   // via WebAudio; no push fechado o sistema toca o som padrão.
   const sound = SOUNDS[event] || '';
