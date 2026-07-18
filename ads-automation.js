@@ -34,9 +34,9 @@ const RULE_COOLDOWN_MS = 12 * 3600e3;   // 1 ação por episódio (12h por campa
 const SCALE_COOLDOWN_MS = 24 * 3600e3;  // roas_scale: no máx. 1 escala/dia por campanha
 const ALERT_COOLDOWN_MS = 6 * 3600e3;   // alertas: 6h por campanha+regra
 
-const RULE_METRICS = ['cpa_max', 'spend_no_conv', 'roas_min', 'ctr_min', 'cpm_max', 'roas_scale', 'schedule'];
+const RULE_METRICS = ['cpa_max', 'spend_no_conv', 'roas_min', 'ctr_min', 'cpm_max', 'cpc_max', 'roas_scale', 'schedule'];
 const RULE_ACTIONS = ['pause', 'budget_down', 'budget_up'];
-const ALERT_DEFAULTS = { enabled: false, spendNoConv: 20, cpaMax: 0, lookbackDays: 2 };
+const ALERT_DEFAULTS = { enabled: false, spendNoConv: 20, cpaMax: 0, lookbackDays: 2, rejectedAds: false };
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
 // stats é injetado pelas rotas (logEvent + getStats p/ atribuição). Antes de
@@ -109,9 +109,6 @@ async function underCooldown(accId, key, ms) {
 // Janela padrão DIÁRIA (lookbackDays:1) — pedido do produto. Os pisos de
 // volume (minClicks/minImpressions/minSpend) protegem contra o ruído de 1 dia;
 // a UI ainda exibe aviso de estabilidade quando a janela é < 3 dias.
-// Nota: não existe preset de "CPC alto" porque o avaliador não tem métrica de
-// CPC (RULE_METRICS) — cpm_max já cobre leilão caro; adicionar CPC exigiria
-// mudar o avaliador, fora do escopo de presets.
 function buildRulePresets() {
   return validateRules([
     {
@@ -145,6 +142,12 @@ function buildRulePresets() {
       metric: 'cpm_max', threshold: 12, lookbackDays: 1, action: 'budget_down', pct: 20, minSpend: 5,
     },
     {
+      id: 'preset_cpc', preset: true, enabled: false,
+      name: 'CPC alto → reduzir orçamento',
+      description: 'Reduz o orçamento em 20% quando o custo por clique passar de 1 € no dia, após 30 cliques — clique caro demais para insistir no mesmo volume.',
+      metric: 'cpc_max', threshold: 1, lookbackDays: 1, action: 'budget_down', pct: 20, minClicks: 30,
+    },
+    {
       id: 'preset_roasmin', preset: true, enabled: false,
       name: 'ROAS baixo → pausar',
       description: 'Pausa campanhas com ROAS atribuído abaixo de 1,0 no dia. Só age quando a conta já tem venda atribuída no período — ROAS "0" pode ser só atraso de webhook.',
@@ -165,7 +168,7 @@ function buildRulePresets() {
   ]);
 }
 // Alertas pré-ligados: SÓ notificam (nunca agem), então podem nascer ativos.
-const ALERT_PRESET = { enabled: true, spendNoConv: 20, cpaMax: 15, lookbackDays: 2 };
+const ALERT_PRESET = { enabled: true, spendNoConv: 20, cpaMax: 15, lookbackDays: 2, rejectedAds: true };
 
 // ── Config por conta (mesmo storage de antes: estado do provider) ───────────
 // Seed automático na PRIMEIRA leitura: se a conta nunca teve config (nem flag,
@@ -250,6 +253,10 @@ function validateRules(raw) {
     }
     if (metric === 'cpm_max') {
       out.minSpend = Math.max(0.5, Math.min(100000, Number(r.minSpend) || 1));
+    }
+    if (metric === 'cpc_max') {
+      // piso de cliques obrigatório: CPC de 2 cliques é ruído, não sinal
+      out.minClicks = Math.max(1, Math.min(1000000, parseInt(r.minClicks, 10) || 30));
     }
     if (metric === 'roas_scale') {
       out.action = 'budget_up'; // escala é sempre budget_up
@@ -409,6 +416,23 @@ async function runAlertSweep(accId, { force } = {}) {
     }
   });
 
+  // Criativo reprovado: a leitura acima filtra 'active', então campanhas com
+  // revisão rejeitada ficam de fora — segunda leitura do MESMO espelho (barata,
+  // zero chamadas à API) só para este aviso. O gestor descobre a reprovação
+  // pelo push, não ao abrir o Ads Manager horas depois.
+  if (cfg.rejectedAds) {
+    const { campaigns: rejected } = await treeForSweep(accId, advertiserId, {
+      fromDate: isoDay(from), toDate: isoDay(to), status: 'rejected', force,
+    });
+    (rejected || []).forEach((c) => {
+      const name = c.campaignName || c.platformCampaignId;
+      findings.push({
+        rule: 'rejected_ads', campaignId: c.platformCampaignId, campaignName: name,
+        text: '"' + name + '" teve anúncio REPROVADO na revisão do TikTok — corrija o criativo ou recorra.'
+      });
+    });
+  }
+
   for (const f of findings) {
     const key = 'alert:' + f.campaignId + ':' + f.rule;
     if (await underCooldown(accId, key, ALERT_COOLDOWN_MS)) { f.muted = true; continue; }
@@ -548,6 +572,9 @@ async function runRulesSweep(accId, { force } = {}) {
       } else if (r.metric === 'cpm_max' && r.threshold > 0 && cpm !== null
         && spend >= (r.minSpend || 1) && cpm > r.threshold) {
         hit = true; detail = 'CPM ' + cpm.toFixed(2) + ' > teto ' + r.threshold;
+      } else if (r.metric === 'cpc_max' && r.threshold > 0 && clicks >= (r.minClicks || 30)
+        && spend / clicks > r.threshold) {
+        hit = true; detail = 'CPC ' + (spend / clicks).toFixed(2) + ' > teto ' + r.threshold + ' (' + clicks + ' cliques)';
       } else if (r.metric === 'roas_scale' && r.threshold > 0 && roas !== null
         && attr.sales >= (r.minSales || 2) && roas >= r.threshold) {
         hit = true; detail = 'ROAS ' + roas.toFixed(2) + ' ≥ ' + r.threshold + ' com ' + attr.sales + ' venda(s) — escalando';

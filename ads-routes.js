@@ -614,6 +614,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const budgetAmount = Number(b.budgetAmount);
     if (!(budgetAmount > 0)) return { error: 'Orçamento inválido' };
     const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
+    // ABO/CBO: 'campaign' = orçamento otimizado na campanha (CBO); qualquer
+    // outro valor cai em ABO (orçamento no ad group) — o padrão histórico.
+    const budgetOptimization = b.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup';
+    // Estratégia de lance: 'cost_cap' exige um custo-alvo (bidAmount > 0);
+    // 'lowest_cost' (padrão) deixa o TikTok maximizar a entrega.
+    const bidStrategy = b.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost';
+    let bidAmount;
+    if (bidStrategy === 'cost_cap') {
+      bidAmount = Number(b.bidAmount);
+      if (!(bidAmount > 0)) return { error: 'Estratégia "custo-alvo" exige um valor de lance (bidAmount) maior que zero' };
+    }
 
     const payload = {
       accountId: st.accountId,
@@ -622,6 +633,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       goal,
       budgetAmount,
       budgetType,
+      budgetOptimization,
+      bidStrategy,
+      bidAmount,
       // No TikTok, o campo imageUrl carrega a URL do VÍDEO (API é video-only).
       imageUrl: videoUrl,
       body: String(b.body || '').trim().slice(0, 100) || undefined,
@@ -696,6 +710,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         videoUrl: payload.imageUrl,
         budgetAmount: payload.budgetAmount,
         budgetType: payload.budgetType,
+        budgetOptimization: payload.budgetOptimization,
+        bidStrategy: payload.bidStrategy,
+        bidAmount: payload.bidAmount,
         endDate: payload.endDate,
         body: payload.body,
         linkUrl: payload.linkUrl,
@@ -872,7 +889,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus']);
 
   // ── Atualizar uma entidade (status/budget) ────────────────────────────────
   // O :adId pode ser campanha, ad group ou anúncio. Classificamos no espelho
@@ -1372,7 +1389,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         enabled: !!b.enabled,
         spendNoConv: Math.max(0, Math.min(100000, Number(b.spendNoConv) || 0)),
         cpaMax: Math.max(0, Math.min(100000, Number(b.cpaMax) || 0)),
-        lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2))
+        lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2)),
+        rejectedAds: b.rejectedAds === true, // aviso de criativo reprovado (opt-in explícito)
       };
       // alertsSeeded: salvar é escolha do usuário — o seed não mexe mais aqui.
       pipeboard.setState(req.account.id, { alerts: cfg, alertsSeeded: true });
@@ -1685,6 +1703,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const result = await pipeboard.createFullAd(p.adAccountId, {
         name: p.name, goal: p.goal, videoUrl: p.imageUrl,
         budgetAmount: p.budgetAmount, budgetType: p.budgetType, endDate: p.endDate,
+        budgetOptimization: p.budgetOptimization, bidStrategy: p.bidStrategy, bidAmount: p.bidAmount,
         body: p.body, linkUrl: p.linkUrl, callToAction: p.callToAction,
         countries: p.countries, languages: p.languages,
         ageMin: p.ageMin, ageMax: p.ageMax, promotedObject: p.promotedObject,
@@ -1907,17 +1926,197 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // ── Smart+ (campanhas automatizadas do TikTok) ────────────────────────────
+  // Gestão (listar/pausar/escalar) + recurso de anúncio reprovado. O appeal de
+  // anúncio SÓ existe na API para anúncios Smart+ (appeal_tiktok_smart_plus_ad).
+  async function resolveAdvForSmartPlus(req, hint) {
+    if (hint) return (await requireAdvertiser(req.account.id, null, hint, null)).advertiserId;
+    const id = await pipeboard.resolveAdvertiserId(req.account.id);
+    if (!id) { const e = new Error('Nenhuma conta de anúncio autorizada no token'); e.status = 409; throw e; }
+    return id;
+  }
+
+  app.get('/api/ads/smart-plus', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const advertiserId = await resolveAdvForSmartPlus(req, String(req.query.adAccountId || '').trim() || null);
+      const campaigns = await pipeboard.listSmartPlusCampaigns(advertiserId);
+      res.json({ advertiserId, campaigns });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/smart-plus/ads', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const advertiserId = await resolveAdvForSmartPlus(req, String(req.query.adAccountId || '').trim() || null);
+      const ads = await pipeboard.listSmartPlusAds(advertiserId, { campaignId: req.query.campaignId });
+      res.json({ advertiserId, ads });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/smart-plus', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const b = req.body || {};
+      const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
+      const goal = ['conversions', 'traffic'].includes(b.goal) ? b.goal : '';
+      if (!goal) return res.status(400).json({ error: 'Objetivo Smart+ deve ser conversions ou traffic' });
+      const name = String(b.name || '').trim().slice(0, 120);
+      if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
+      if (!/^https:\/\/[^\s]+/.test(String(b.videoUrl || ''))) return res.status(400).json({ error: 'URL do vídeo é obrigatória (MP4)' });
+      const budgetAmount = Number(b.budgetAmount);
+      if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento total inválido' });
+      if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return res.status(400).json({ error: 'Informe a data de término (Smart+ usa orçamento total)' });
+      const spec = {
+        name, goal, videoUrl: String(b.videoUrl).trim(),
+        budgetAmount, endDate: String(b.endDate).slice(0, 10),
+        body: String(b.body || '').trim().slice(0, 100) || undefined,
+        linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
+        callToAction: /^[A-Z_]{3,30}$/.test(String(b.callToAction || '')) ? b.callToAction : undefined,
+        countries: Array.isArray(b.countries) ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30) : undefined,
+      };
+      if (goal === 'conversions') {
+        const pixelId = String(b.pixelId || '').trim();
+        if (!/^\d{5,30}$/.test(pixelId)) return res.status(400).json({ error: 'Conversões exigem o Pixel ID NUMÉRICO do TikTok' });
+        spec.pixelId = pixelId;
+        const evt = String(b.customEventType || '').trim().toUpperCase();
+        if (/^[A-Z_]{3,40}$/.test(evt)) spec.customEventType = evt;
+      }
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'smart_plus_create', targetType: 'campaign', advertiserId, metadata: { name, goal },
+          title: 'Criar campanha Smart+ ' + name,
+        });
+        return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
+      }
+      const result = await pipeboard.createSmartPlusCampaign(advertiserId, spec);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'smart_plus_create',
+        targetType: 'campaign', targetId: result.campaignId, advertiserId,
+        afterState: { campaignId: result.campaignId, adGroupId: result.adGroupId, adId: result.adId, videoId: result.videoId },
+        reason: 'Campanha Smart+ criada (PAUSADA): ' + name, metadata: { goal },
+      }).catch(() => {});
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanha Smart+ criada (PAUSADA): ' + name + ' [' + result.campaignId + ']' });
+      res.status(201).json({ id: result.campaignId, campaignId: result.campaignId, name, status: 'paused', warnings: result.warnings });
+    } catch (err) {
+      if (err && err.step) {
+        stats.logEvent('warn', { acc: req.account.id, title: '[smart+] Criação falhou no passo "' + err.step + '": ' + String(err.message || '').slice(0, 160) });
+        return res.status(err.status || 502).json({ error: err.message, step: err.step, createdIds: err.createdIds || {}, note: err.createdIds && err.createdIds.campaignId ? 'A campanha parcial foi pausada — nada veicula. Revise e exclua na aba Smart+ se não quiser mantê-la.' : undefined });
+      }
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/ads/smart-plus/:campaignId/status', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const b = req.body || {};
+      const status = ['active', 'paused', 'deleted'].includes(b.status) ? b.status : '';
+      if (!status) return res.status(400).json({ error: 'status deve ser active, paused ou deleted' });
+      const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
+      const campaignId = String(req.params.campaignId || '');
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'smart_plus_status', targetType: 'campaign', targetId: campaignId, advertiserId,
+          metadata: { status }, title: (status === 'paused' ? 'Pausar' : status === 'deleted' ? 'Excluir' : 'Ativar') + ' Smart+ ' + campaignId,
+        });
+        return res.json({ dryRun: true, simulated: true, id: campaignId });
+      }
+      await pipeboard.setSmartPlusCampaignStatus(advertiserId, [campaignId], status);
+      adsSync.syncAfterWrite(req.account.id, advertiserId);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'smart_plus_status',
+        targetType: 'campaign', targetId: campaignId, advertiserId, reason: 'Smart+ → ' + status,
+      }).catch(() => {});
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanha Smart+ ' + (status === 'paused' ? 'pausada' : status === 'deleted' ? 'excluída' : 'ativada'), ref: campaignId });
+      res.json({ ok: true, id: campaignId, status });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/smart-plus/ads/:adId/appeal', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const b = req.body || {};
+      const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
+      const adId = String(req.params.adId || '');
+      const reason = String(b.reason || '').trim();
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'smart_plus_appeal', targetType: 'ad', targetId: adId, advertiserId,
+          metadata: { reason: reason.slice(0, 120) }, title: 'Recorrer do anúncio Smart+ ' + adId,
+        });
+        return res.json({ dryRun: true, simulated: true, id: adId });
+      }
+      await pipeboard.appealSmartPlusAd(advertiserId, adId, reason);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'smart_plus_appeal',
+        targetType: 'ad', targetId: adId, advertiserId, reason: 'Recurso enviado ao TikTok' + (reason ? ': ' + reason.slice(0, 120) : ''),
+      }).catch(() => {});
+      stats.logEvent('info', { acc: req.account.id, title: 'Recurso de anúncio Smart+ enviado ao TikTok', ref: adId });
+      res.json({ ok: true, id: adId });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Catálogos de produtos (TikTok Shopping / Catalog) ─────────────────────
-  // A Zernio não publica campanhas de catálogo no TikTok — então aqui gerimos
-  // o CATÁLOGO (produtos edit��veis + feed) e publicamos um feed TikTok-ready
-  // numa URL pública do Blob. O usuário cola essa URL no Catalog Manager do
-  // TikTok como feed agendado; toda edição aqui atualiza o feed no próximo pull.
-  // Escopo por conta logada (req.account.id) — nunca cruza contas.
+  // Fluxo ponta a ponta: gerimos os produtos (editáveis + validados contra a
+  // spec do template oficial), publicamos um feed CSV TikTok-ready numa URL
+  // pública (Blob) E — quando o Business Center está configurado — criamos o
+  // catálogo REAL no TikTok via Pipeboard e subimos os produtos, deixando-o
+  // pronto para uma campanha de Product Sales / DPA. Escopo por conta logada.
+
+  // Tipos de catálogo do TikTok + países comuns (hints da UI no formulário).
+  const CATALOG_TYPE_LABELS = [
+    { value: 'PRODUCT_CATALOG', label: 'Produtos (e-commerce / infoproduto)' },
+    { value: 'HOTEL_CATALOG', label: 'Hotéis' },
+    { value: 'FLIGHT_CATALOG', label: 'Voos' },
+    { value: 'VEHICLE_CATALOG', label: 'Veículos' },
+  ];
+  const CATALOG_COUNTRIES = [
+    { code: 'BR', name: 'Brasil' }, { code: 'US', name: 'Estados Unidos' },
+    { code: 'PT', name: 'Portugal' }, { code: 'GB', name: 'Reino Unido' },
+    { code: 'MX', name: 'México' }, { code: 'ES', name: 'Espanha' },
+    { code: 'FR', name: 'França' }, { code: 'DE', name: 'Alemanha' },
+    { code: 'IT', name: 'Itália' }, { code: 'CA', name: 'Canadá' },
+    { code: 'AU', name: 'Austrália' }, { code: 'JP', name: 'Japão' },
+  ];
 
   // Spec das colunas/campos p/ a UI montar o formulário e validar ao vivo.
   app.get('/api/ads/catalogs/spec', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ columns: catalogFeed.COLUMNS, required: catalogFeed.REQUIRED, enums: catalogFeed.ENUMS, fields: catalogFeed.FIELD_META });
+    res.json({
+      columns: catalogFeed.COLUMNS, required: catalogFeed.REQUIRED,
+      enums: catalogFeed.ENUMS, fields: catalogFeed.FIELD_META,
+      catalogTypes: CATALOG_TYPE_LABELS, countries: CATALOG_COUNTRIES,
+    });
+  });
+
+  // Business Center usado para os catálogos desta conta. O TikTok prende
+  // catálogos ao BC (não ao advertiser) e não há tool para listar BCs — então o
+  // usuário informa o ID uma vez (persistido) ou vem do env TIKTOK_BC_ID.
+  app.get('/api/ads/catalogs/business-center', dashboardAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      enabled: pipeboard.enabled,
+      bcId: pipeboard.getBusinessCenterId(req.account.id) || '',
+      fromEnv: pipeboard.businessCenterFromEnv(req.account.id),
+    });
+  });
+
+  app.post('/api/ads/catalogs/business-center', dashboardAuth, (req, res) => {
+    try {
+      const raw = String((req.body || {}).bcId || '').trim();
+      if (raw && !/^\d{6,30}$/.test(raw)) {
+        return res.status(400).json({ error: 'O ID do Business Center deve ser numérico (ex.: 7012345678901234567).', code: 'INVALID_BC_ID' });
+      }
+      const bcId = pipeboard.setBusinessCenterId(req.account.id, raw);
+      res.json({ ok: true, bcId });
+    } catch (err) { fail(res, err); }
   });
 
   app.get('/api/ads/catalogs', dashboardAuth, async (req, res) => {
@@ -2008,26 +2207,110 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // Publica o feed no Blob (URL pública estável). allowOverwrite mantém a MESMA
-  // URL entre publicações — o usuário cola uma vez no TikTok e nunca mais mexe.
+  // Publica o feed CSV no Blob (URL pública estável). Reutilizado por /publish e
+  // /sync-tiktok. allowOverwrite mantém a MESMA URL entre publicações — o TikTok
+  // re-puxa sozinho do mesmo endereço. Lança erros com `status` para o `fail`.
+  async function publishCatalogFeed(accountId, catalogId) {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) { const e = new Error('Armazenamento (Vercel Blob) não configurado'); e.status = 503; throw e; }
+    const catalog = await catalogStore.getCatalog(accountId, catalogId);
+    if (!catalog) { const e = new Error('Catálogo não encontrado'); e.status = 404; throw e; }
+    const products = await catalogStore.listProducts(accountId, catalogId);
+    const valid = products.filter((p) => p.valid);
+    if (!valid.length) { const e = new Error('Nenhum produto válido para publicar. Corrija os erros primeiro.'); e.status = 400; throw e; }
+    const csv = catalogFeed.buildCatalogCsv(valid);
+    const { put } = require('@vercel/blob');
+    // path estável por conta+catálogo → URL não muda entre publicações
+    const blob = await put(
+      'tiktok-catalogs/' + accountId + '/' + catalog.id + '.csv', csv,
+      { access: 'public', contentType: 'text/csv; charset=utf-8', allowOverwrite: true, addRandomSuffix: false }
+    );
+    const updated = await catalogStore.setFeedUrl(accountId, catalog.id, blob.url);
+    return { catalog: updated, feedUrl: blob.url, published: valid.length, skipped: products.length - valid.length };
+  }
+
   app.post('/api/ads/catalogs/:catalogId/publish', dashboardAuth, async (req, res) => {
     try {
-      if (!process.env.BLOB_READ_WRITE_TOKEN) return res.status(503).json({ error: 'Armazenamento (Vercel Blob) não configurado' });
+      const out = await publishCatalogFeed(req.account.id, req.params.catalogId);
+      stats.logEvent('info', { acc: req.account.id, title: 'Feed de catálogo publicado (' + out.published + ' produtos)', ref: req.params.catalogId });
+      res.json(out);
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Publicar direto no TikTok (o caminho "pronto para campanha") ───────────
+  // Um clique faz o ciclo completo: publica o feed no Blob → cria o catálogo no
+  // TikTok (se ainda não existe) → sobe os produtos pela URL pública → busca o
+  // overview de auditoria. Respeita killSwitch e dry-run como qualquer escrita.
+  app.post('/api/ads/catalogs/:catalogId/sync-tiktok', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const accId = req.account.id;
+      const catalogId = req.params.catalogId;
+      const bcId = pipeboard.getBusinessCenterId(accId);
+      if (!bcId) {
+        return res.status(422).json({ error: 'Informe o ID do Business Center do TikTok antes de publicar (aba Catálogo → Business Center).', code: 'NO_BUSINESS_CENTER' });
+      }
+      if (await killSwitchActive(accId)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      // 1) Publica o feed no Blob (também garante que há produtos válidos).
+      const pub = await publishCatalogFeed(accId, catalogId);
+      let catalog = pub.catalog;
+
+      // dry-run: o feed foi publicado (leitura segura), mas NADA é criado/enviado
+      // ao TikTok. Devolve o catálogo + a URL para o usuário conferir.
+      if (await isDryRun(accId)) {
+        await auditSimulated(accId, {
+          action: 'catalog_sync', targetType: 'catalog', targetId: catalogId, advertiserId: null,
+          metadata: { bcId, feedUrl: pub.feedUrl, published: pub.published },
+          title: 'Publicar catálogo no TikTok: ' + (catalog.name || catalogId),
+        });
+        return res.json({ dryRun: true, simulated: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit: catalog.audit || null });
+      }
+
+      // 2) Cria o catálogo no TikTok se ainda não vinculado (idempotente por
+      //    conta: uma vez criado, reusa o mesmo catalog_id nas próximas vezes).
+      if (!catalog.tiktokCatalogId) {
+        const created = await pipeboard.createTikTokCatalog(bcId, {
+          name: catalog.name, catalogType: catalog.catalogType, currency: catalog.currency, country: catalog.country,
+        });
+        catalog = await catalogStore.linkTikTokCatalog(accId, catalogId, { tiktokCatalogId: created.catalogId, bcId });
+      }
+
+      // 3) Sobe os produtos pela URL pública do feed.
+      await pipeboard.uploadTikTokCatalogProducts(bcId, catalog.tiktokCatalogId, pub.feedUrl, 'CSV');
+
+      // 4) Overview de auditoria (best-effort — o upload é assíncrono no TikTok,
+      //    então pode vir como "pendente" logo após; a UI reconsulta depois).
+      let audit = null;
+      try {
+        audit = await pipeboard.getTikTokCatalogOverview(bcId, catalog.tiktokCatalogId);
+        catalog = await catalogStore.setAudit(accId, catalogId, audit);
+      } catch (_) { /* overview é opcional; o vínculo já está gravado */ }
+
+      await adsOps.appendAuditEvent(accId, {
+        actorType: 'user', actorId: accId, action: 'catalog_sync',
+        targetType: 'catalog', targetId: catalogId, advertiserId: null,
+        afterState: { tiktokCatalogId: catalog.tiktokCatalogId, bcId, published: pub.published },
+        reason: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId),
+        metadata: { bcId, published: pub.published },
+      }).catch(() => {});
+      stats.logEvent('info', { acc: accId, title: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId) + ' (' + pub.published + ' produtos)', ref: catalogId });
+      res.json({ ok: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Reconsulta só o overview de auditoria de um catálogo já publicado no TikTok.
+  app.get('/api/ads/catalogs/:catalogId/audit', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
-      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
-      const valid = products.filter((p) => p.valid);
-      if (!valid.length) return res.status(400).json({ error: 'Nenhum produto válido para publicar. Corrija os erros primeiro.' });
-      const csv = catalogFeed.buildCatalogCsv(valid);
-      const { put } = require('@vercel/blob');
-      // path estável por conta+catálogo → URL não muda entre publicações
-      const blob = await put(
-        'tiktok-catalogs/' + req.account.id + '/' + catalog.id + '.csv', csv,
-        { access: 'public', contentType: 'text/csv; charset=utf-8', allowOverwrite: true, addRandomSuffix: false }
-      );
-      const updated = await catalogStore.setFeedUrl(req.account.id, catalog.id, blob.url);
-      stats.logEvent('info', { acc: req.account.id, title: 'Feed de catálogo publicado (' + valid.length + ' produtos)', ref: catalog.id });
-      res.json({ catalog: updated, feedUrl: blob.url, published: valid.length, skipped: products.length - valid.length });
+      if (!catalog.tiktokCatalogId || !catalog.bcId) {
+        return res.status(422).json({ error: 'Catálogo ainda não publicado no TikTok.', code: 'NOT_SYNCED' });
+      }
+      const audit = await pipeboard.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
+      const updated = await catalogStore.setAudit(req.account.id, req.params.catalogId, audit);
+      res.json({ catalog: updated, audit });
     } catch (err) { fail(res, err); }
   });
 };

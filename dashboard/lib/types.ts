@@ -795,6 +795,37 @@ export type AdsNodeStatus =
   | 'rejected'
   | string
 
+// ── Smart+ (campanhas automatizadas do TikTok) ─────────────────────────────
+export interface SmartPlusCampaign {
+  campaignId: string
+  name: string
+  objective: string
+  budget: number
+  budgetMode: string
+  status: AdsNodeStatus
+  rawStatus: string
+  secondaryStatus: string
+}
+
+export interface SmartPlusAd {
+  adId: string
+  name: string
+  campaignId: string
+  status: AdsNodeStatus
+  rejected: boolean
+  rejectionReason?: string
+}
+
+export interface AdsSmartPlusResponse {
+  advertiserId: string
+  campaigns: SmartPlusCampaign[]
+}
+
+export interface AdsSmartPlusAdsResponse {
+  advertiserId: string
+  ads: SmartPlusAd[]
+}
+
 export interface AdsBudget {
   amount?: number
   type?: 'daily' | 'lifetime' | string
@@ -966,10 +997,11 @@ export interface AdsAlertsConfig {
   spendNoConv: number // gasto mínimo sem conversão que dispara (0 = off)
   cpaMax: number // teto de CPA (0 = off)
   lookbackDays: number
+  rejectedAds?: boolean // avisa quando um criativo é reprovado na revisão
 }
 
 export interface AdsAlertFinding {
-  rule: 'spend_no_conv' | 'cpa_max'
+  rule: 'spend_no_conv' | 'cpa_max' | 'rejected_ads'
   campaignId: string
   campaignName: string
   spend: number
@@ -1006,6 +1038,7 @@ export type AdsRuleMetric =
   | 'roas_min'
   | 'ctr_min' // CTR abaixo do piso (c/ mínimo de impressões)
   | 'cpm_max' // CPM acima do teto (c/ mínimo de gasto)
+  | 'cpc_max' // CPC acima do teto (c/ mínimo de cliques)
   | 'roas_scale' // escala vencedoras: ROAS ≥ X → +orçamento (teto obrigatório)
   | 'schedule' // dayparting: ativa/pausa por dia da semana + janela de horário
 // 'activate' só aparece no LOG (dayparting religando campanha própria)
@@ -1305,13 +1338,28 @@ export interface AdsSafetyPolicyResponse {
 }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ────────────────────────
-// O backend não publica campanhas de catálogo; gerimos produtos + feed aqui e
-// publicamos um CSV TikTok-ready numa URL pública (Blob) para feed agendado.
+// Gerimos produtos + feed aqui, publicamos um CSV TikTok-ready numa URL pública
+// (Blob) E — com o Business Center configurado — criamos o catálogo REAL no
+// TikTok e subimos os produtos, deixando-o pronto para campanha (DPA).
+export interface AdsCatalogAudit {
+  approved: number
+  pending: number
+  rejected: number
+  total: number
+  at?: string
+}
+
 export interface AdsCatalog {
   id: string
   accountId: string
   name: string
   currency: string
+  catalogType: string
+  country: string | null
+  bcId: string | null
+  tiktokCatalogId: string | null
+  syncedAt: string | null
+  audit: AdsCatalogAudit | null
   feedUrl: string | null
   feedPublishedAt: string | null
   productCount: number
@@ -1357,6 +1405,25 @@ export interface AdsCatalogSpecResponse {
   required: string[]
   enums: Record<string, string[]>
   fields: AdsCatalogFieldMeta[]
+  catalogTypes: { value: string; label: string }[]
+  countries: { code: string; name: string }[]
+}
+
+export interface AdsCatalogBusinessCenter {
+  enabled: boolean
+  bcId: string
+  fromEnv: boolean
+}
+
+export interface AdsCatalogSyncResponse {
+  ok?: boolean
+  dryRun?: boolean
+  simulated?: boolean
+  catalog: AdsCatalog
+  feedUrl: string
+  published: number
+  skipped?: number
+  audit: AdsCatalogAudit | null
 }
 
 export interface AdsCatalogImportSummary {

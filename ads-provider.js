@@ -534,9 +534,11 @@ async function getDashboardTree(accountId, opts = {}) {
     cacheSet(ck, base, 15 * 1000);
   }
 
-  // filtro de status aplicado sobre o conjunto completo cacheado
+  // filtro de status aplicado sobre o conjunto completo cacheado. 'approved'
+  // (Validadas) filtra por reviewStatus — dimensão de revisão, não de entrega.
   let campaigns = base.campaigns;
-  if (statusFilter) campaigns = campaigns.filter((c) => c.status === statusFilter || c.childStatus === statusFilter);
+  if (opts.status === 'approved') campaigns = campaigns.filter((c) => c.reviewStatus === 'approved');
+  else if (statusFilter) campaigns = campaigns.filter((c) => c.status === statusFilter || c.childStatus === statusFilter);
   // ordenação
   const sort = ['newest', 'oldest', 'spend_desc', 'spend_asc'].includes(opts.sort) ? opts.sort : 'newest';
   campaigns = campaigns.slice().sort((a, b) => {
@@ -822,6 +824,41 @@ async function findCampaignIdByName(advertiserId, name) {
 //   dedupeByName — true: antes de criar a campanha (sem resume dela), procura
 //                 nome exato na plataforma e reaproveita (janela crash-antes-
 //                 de-gravar). Só o bulk usa; a rota interativa não precisa.
+// ── Plano de orçamento + lance (ABO/CBO/bid) ────────────────────────────────
+// Pura: mapeia a escolha do gestor para os campos do TikTok, tanto no nível
+// campanha (CBO) quanto ad group (ABO, padrão), mais a estratégia de lance.
+//   budgetOptimization: 'campaign' (CBO) | 'adgroup' (ABO, padrão)
+//   bidStrategy:        'lowest_cost' (máx. entrega, padrão) | 'cost_cap' (teto)
+//   bidAmount:          número > 0 quando cost_cap (custo-alvo por resultado)
+// CBO ⇒ orçamento vai na CAMPANHA (budget_optimize_on) e o ad group fica
+// INFINITE; ABO ⇒ orçamento no ad group (comportamento histórico).
+function resolveBudgetPlan(spec) {
+  const s = spec || {};
+  const cbo = s.budgetOptimization === 'campaign';
+  const lifetime = s.budgetType === 'lifetime';
+  const budgetMode = lifetime ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY';
+  const amount = Number(s.budgetAmount);
+  const campaign = {};
+  const adgroup = {};
+  if (cbo) {
+    campaign.budget_mode = budgetMode;
+    campaign.budget = amount;
+    campaign.budget_optimize_on = true;
+    adgroup.budget_mode = 'BUDGET_MODE_INFINITE'; // CBO gerencia no nível campanha
+  } else {
+    adgroup.budget_mode = budgetMode;
+    adgroup.budget = amount;
+  }
+  const bid = { bid_type: 'BID_TYPE_NO_BID' };
+  if (s.bidStrategy === 'cost_cap' && Number(s.bidAmount) > 0) {
+    bid.bid_type = 'BID_TYPE_CUSTOM';
+    // CONVERT + OCPM usa conversion_bid_price; demais objetivos usam bid_price.
+    if (s.goal === 'conversions') bid.conversion_bid_price = Number(s.bidAmount);
+    else bid.bid_price = Number(s.bidAmount);
+  }
+  return { cbo, campaign, adgroup, bid };
+}
+
 async function createFullAd(advertiserId, spec, opts) {
   const adv = String(advertiserId || '').trim();
   if (!adv) throw badRequest('advertiserId é obrigatório');
@@ -837,6 +874,7 @@ async function createFullAd(advertiserId, spec, opts) {
   }
   const warnings = [];
   const createdIds = {};
+  const plan = resolveBudgetPlan(s); // ABO/CBO + estratégia de lance
 
   // Item já completo numa tentativa anterior (crash entre o fim e o ack da
   // fila): devolve direto, zero chamadas de escrita.
@@ -867,6 +905,9 @@ async function createFullAd(advertiserId, spec, opts) {
         campaign_name: String(s.name).slice(0, 512),
         objective_type: goal.objective,
       };
+      // CBO: orçamento + budget_optimize_on vivem na campanha (plan.campaign
+      // fica vazio em ABO, então nada muda no caminho padrão).
+      Object.assign(campArgs, plan.campaign);
       if (s.goal === 'conversions') {
         campArgs.pixel_id = String(s.promotedObject.pixelId);
         campArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
@@ -892,12 +933,15 @@ async function createFullAd(advertiserId, spec, opts) {
         campaign_id: campaignId,
         adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
         optimization_goal: goal.optimizationGoal,
-        budget_mode: s.budgetType === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY',
-        budget: Number(s.budgetAmount),
         schedule_start_time: advertiserLocalTime(info && info.timezone),
         targeting,
-        bid_type: 'BID_TYPE_NO_BID',
       };
+      // Orçamento: em ABO vem no ad group; em CBO fica INFINITE (gerido na
+      // campanha). Lance: NO_BID (máx. entrega) ou CUSTOM (teto de custo).
+      if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
+      if (plan.adgroup.budget != null) agArgs.budget = plan.adgroup.budget;
+      Object.assign(agArgs, plan.bid);
+      // Orçamento total (em qualquer nível) exige janela de término no ad group.
       if (s.budgetType === 'lifetime' && s.endDate) {
         agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
       }
@@ -1327,6 +1371,300 @@ async function createSparkAd(advertiserId, spec) {
   }
 }
 
+// ── Catálogos de produtos (TikTok Shopping / Dynamic Product Ads) ────────────
+// Fronteira sobre as tools de catálogo do Pipeboard. Todas exigem o Business
+// Center (bc_id): o TikTok prende catálogos ao BC, não ao advertiser. Não há
+// tool para LISTAR os BCs, então o bc_id é resolvido de: seleção persistida na
+// conta (config.pipeboardAds.bcId) → env TIKTOK_BC_ID/PIPEBOARD_BC_ID.
+const ENV_DEFAULT_BC = String(process.env.TIKTOK_BC_ID || process.env.PIPEBOARD_BC_ID || '').trim();
+const CATALOG_TYPES = ['PRODUCT_CATALOG', 'HOTEL_CATALOG', 'FLIGHT_CATALOG', 'VEHICLE_CATALOG'];
+
+function getBusinessCenterId(accountId) {
+  const st = getState(accountId);
+  return String(st.bcId || '').trim() || ENV_DEFAULT_BC;
+}
+function businessCenterFromEnv(accountId) {
+  // true quando o bc_id efetivo vem só do env (a conta não gravou o seu).
+  return !String(getState(accountId).bcId || '').trim() && !!ENV_DEFAULT_BC;
+}
+function setBusinessCenterId(accountId, bcId) {
+  const clean = String(bcId || '').trim().slice(0, 40);
+  setState(accountId, { bcId: clean });
+  return clean;
+}
+
+// Normaliza o overview de auditoria (get_tiktok_catalog_overview). Os nomes de
+// campo variam entre versões da API — plucka defensivamente aprovados/pendentes/
+// reprovados/total de qualquer forma que venham.
+function normalizeCatalogOverview(out) {
+  const num = (...cands) => {
+    for (const c of cands) { const v = deepPluck(out, c); if (v !== undefined && v !== null && v !== '') return Number(v) || 0; }
+    return 0;
+  };
+  return {
+    approved: num('approved', 'approved_count', 'pass', 'pass_count', 'available'),
+    pending: num('pending', 'pending_count', 'processing', 'in_review', 'reviewing'),
+    rejected: num('disapproved', 'rejected', 'rejected_count', 'fail', 'fail_count', 'unavailable'),
+    total: num('total', 'total_count', 'product_count'),
+    raw: out,
+  };
+}
+
+// Cria um catálogo no TikTok. Devolve { catalogId, raw }.
+async function createTikTokCatalog(bcId, { name, catalogType, currency, country } = {}) {
+  const bc = String(bcId || '').trim();
+  if (!bc) throw badRequest('Business Center (bc_id) é obrigatório para criar o catálogo no TikTok', 422);
+  const nm = String(name || '').trim().slice(0, 200);
+  if (!nm) throw badRequest('Nome do catálogo é obrigatório');
+  const args = {
+    bc_id: bc,
+    name: nm,
+    catalog_type: CATALOG_TYPES.includes(catalogType) ? catalogType : 'PRODUCT_CATALOG',
+  };
+  if (currency) args.currency = String(currency).trim().toUpperCase().slice(0, 8);
+  if (country) args.country = String(country).trim().toUpperCase().slice(0, 4);
+  const out = await pipeboard.callTool('create_tiktok_catalog', args);
+  const catalogId = String(deepPluck(out, 'catalog_id') || '');
+  if (!catalogId) throw badRequest('O TikTok não retornou o catalog_id ao criar o catálogo', 502);
+  cacheBust('catalogs:' + bc);
+  return { catalogId, raw: out };
+}
+
+// Sobe produtos ao catálogo via URL pública (o feed CSV publicado no Blob).
+async function uploadTikTokCatalogProducts(bcId, catalogId, fileUrl, fileFormat) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
+  if (!/^https:\/\/[^\s]+/.test(String(fileUrl || ''))) throw badRequest('file_url público (https) é obrigatório');
+  return pipeboard.callTool('upload_tiktok_catalog_products', {
+    bc_id: bc, catalog_id: cid, file_url: String(fileUrl), file_format: fileFormat === 'XML' ? 'XML' : 'CSV',
+  });
+}
+
+// Overview de auditoria dos produtos (aprovados/pendentes/reprovados).
+async function getTikTokCatalogOverview(bcId, catalogId) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
+  const out = await pipeboard.callTool('get_tiktok_catalog_overview', { bc_id: bc, catalog_id: cid });
+  return normalizeCatalogOverview(out);
+}
+
+// Lista os catálogos existentes no Business Center (cache curto).
+async function listTikTokCatalogs(bcId) {
+  const bc = String(bcId || '').trim();
+  if (!bc) throw badRequest('Business Center (bc_id) é obrigatório', 422);
+  const ck = 'catalogs:' + bc;
+  const hit = cacheGet(ck);
+  if (hit) return hit;
+  const out = await pipeboard.callTool('get_tiktok_catalogs', { bc_id: bc, page: 1, page_size: 50 });
+  const list = firstArray(out, ['catalogs', 'catalog_list', 'list', 'data']);
+  return cacheSet(ck, list, 60 * 1000);
+}
+
+// Renomeia um catálogo já criado no TikTok (mantém o vínculo em sincronia).
+async function updateTikTokCatalogName(bcId, catalogId, name) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  const nm = String(name || '').trim().slice(0, 200);
+  if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
+  if (!nm) throw badRequest('Novo nome é obrigatório');
+  const r = await pipeboard.callTool('update_tiktok_catalog', { bc_id: bc, catalog_id: cid, name: nm });
+  cacheBust('catalogs:' + bc);
+  return r;
+}
+
+// ── Smart+ (campanhas automatizadas do TikTok) ──────────────────────────────
+// Smart+ é o tipo de campanha em que o TikTok automatiza targeting, lance,
+// orçamento, criativo e posicionamento. Aqui gerimos (listar/pausar/escalar) e
+// recorremos de anúncios reprovados — o ÚNICO appeal com API é o de anúncio
+// Smart+ (appeal_tiktok_smart_plus_ad); conta suspensa não tem API de recurso.
+function mapSmartPlusCampaign(c) {
+  const id = String(c.campaign_id || c.id || '');
+  return {
+    campaignId: id,
+    name: String(c.campaign_name || c.name || id),
+    objective: String(c.objective_type || ''),
+    budget: Number(c.budget || 0),
+    budgetMode: String(c.budget_mode || ''),
+    status: tiktokStatusToNode(c.operation_status, c.secondary_status),
+    rawStatus: String(c.operation_status || ''),
+    secondaryStatus: String(c.secondary_status || ''),
+  };
+}
+
+function mapSmartPlusAd(a) {
+  const id = String(a.smart_plus_ad_id || a.ad_id || a.id || '');
+  const node = tiktokStatusToNode(a.operation_status, a.secondary_status);
+  return {
+    adId: id,
+    name: String(a.ad_name || a.name || id),
+    campaignId: String(a.campaign_id || ''),
+    status: node,
+    rejected: node === 'rejected',
+    rejectionReason: node === 'rejected' ? (String(a.secondary_status || '') || 'Reprovado pelo TikTok') : undefined,
+  };
+}
+
+async function listSmartPlusCampaigns(advertiserId) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const out = await pipeboard.callTool('get_tiktok_smart_plus_campaigns', { advertiser_id: adv, page: 1, page_size: 50 });
+  return firstArray(out, ['campaigns', 'campaign_list', 'list', 'data']).map(mapSmartPlusCampaign);
+}
+
+async function listSmartPlusAds(advertiserId, opts = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const out = await pipeboard.callTool('get_tiktok_smart_plus_ads', { advertiser_id: adv, page: 1, page_size: 100 });
+  let list = firstArray(out, ['ads', 'ad_list', 'list', 'data']).map(mapSmartPlusAd);
+  const cid = String(opts.campaignId || '').trim();
+  if (cid) list = list.filter((a) => !a.campaignId || a.campaignId === cid);
+  return list;
+}
+
+async function setSmartPlusCampaignStatus(advertiserId, ids, status) {
+  const adv = String(advertiserId || '').trim();
+  const arr = (Array.isArray(ids) ? ids : [ids]).map((x) => String(x || '').trim()).filter(Boolean);
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  if (!arr.length) throw badRequest('Nenhuma campanha Smart+ informada');
+  const op = status === 'active' ? 'ENABLE' : status === 'paused' ? 'DISABLE' : status === 'deleted' ? 'DELETE' : '';
+  if (!op) throw badRequest('status deve ser active, paused ou deleted');
+  const r = await pipeboard.callTool('update_tiktok_smart_plus_campaign_status', { advertiser_id: adv, campaign_ids: arr, operation_status: op });
+  cacheBust('tree:');
+  return r;
+}
+
+async function appealSmartPlusAd(advertiserId, adId, reason) {
+  const adv = String(advertiserId || '').trim();
+  const id = String(adId || '').trim();
+  if (!adv || !id) throw badRequest('advertiserId e o ID do anúncio Smart+ são obrigatórios');
+  const args = { advertiser_id: adv, smart_plus_ad_id: id };
+  const r = String(reason || '').trim();
+  if (r) args.appeal_reason = r.slice(0, 500);
+  return pipeboard.callTool('appeal_tiktok_smart_plus_ad', args);
+}
+
+// Mapa objetivo (UI) → campos reais do Smart+ (schemas confirmados via MCP).
+// Foco no funil de site do gestor de tráfego: conversões (pixel) e tráfego.
+const SMART_PLUS_GOALS = {
+  conversions: { objective: 'WEB_CONVERSIONS', promotion: 'WEBSITE', optimization: 'CONVERT', billing: 'OCPM', salesDestination: 'WEBSITE' },
+  traffic: { objective: 'TRAFFIC', promotion: 'WEBSITE', optimization: 'CLICK', billing: 'CPC' },
+};
+
+// Cria uma campanha Smart+ completa (campanha → ad group → vídeo → asset group).
+// Smart+ usa orçamento TOTAL no nível campanha (o TikTok liga budget_optimize_on
+// sozinho); o ad group exige janela com término. Tudo nasce PAUSADO (DISABLE) —
+// nada veicula até revisão humana. Falha no meio pausa a campanha e reporta o
+// passo (mesmo padrão à prova de órfãos do createFullAd).
+async function createSmartPlusCampaign(advertiserId, spec) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const s = spec || {};
+  const g = SMART_PLUS_GOALS[s.goal];
+  if (!g) throw badRequest('Objetivo Smart+ não suportado: "' + s.goal + '" (use conversions ou traffic)');
+  if (!/^https:\/\/[^\s]+/.test(String(s.videoUrl || ''))) throw badRequest('Vídeo (URL https) é obrigatório');
+  const budget = Number(s.budgetAmount);
+  if (!(budget > 0)) throw badRequest('Orçamento total inválido');
+  if (s.goal === 'conversions' && !/^\d{5,30}$/.test(String(s.pixelId || ''))) {
+    throw badRequest('Conversões exigem o Pixel ID NUMÉRICO do TikTok');
+  }
+  const endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : null;
+  if (!endDate) throw badRequest('Smart+ usa orçamento total — informe a data de término (endDate)');
+
+  const [info, identity, regions] = await Promise.all([
+    getAdvertiserInfo(adv),
+    pickAdIdentity(adv),
+    resolveLocationIds(adv, (s.countries && s.countries.length ? s.countries : ['BR']), g.objective),
+  ]);
+  const warnings = [];
+  if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
+  const createdIds = {};
+
+  // 1) Campanha Smart+ (DISABLE)
+  const campArgs = {
+    advertiser_id: adv,
+    campaign_name: String(s.name).slice(0, 512),
+    objective_type: g.objective,
+    budget_mode: 'BUDGET_MODE_TOTAL',
+    budget,
+    operation_status: 'DISABLE',
+  };
+  if (g.salesDestination) campArgs.sales_destination = g.salesDestination;
+  const campOut = await pipeboard.callTool('create_tiktok_smart_plus_campaign', campArgs);
+  const campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+  if (!campaignId) throw stepError('campaign', 'create_tiktok_smart_plus_campaign não retornou campaign_id');
+  createdIds.campaignId = campaignId;
+
+  try {
+    // 2) Ad group Smart+ (targeting automático; janela obrigatória p/ TOTAL)
+    const agArgs = {
+      advertiser_id: adv,
+      campaign_id: campaignId,
+      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+      promotion_type: g.promotion,
+      targeting_spec: { location_ids: regions.locationIds },
+      schedule_type: 'SCHEDULE_START_END',
+      schedule_start_time: advertiserLocalTime(info && info.timezone),
+      schedule_end_time: endDate + ' 23:59:59',
+      optimization_goal: g.optimization,
+      billing_event: g.billing,
+      targeting_optimization_mode: 'AUTOMATIC',
+      operation_status: 'DISABLE',
+    };
+    if (s.goal === 'conversions') {
+      agArgs.pixel_id = String(s.pixelId);
+      if (s.customEventType) agArgs.optimization_event = String(s.customEventType).toUpperCase();
+    }
+    if (identity.identityId) {
+      agArgs.identity_id = identity.identityId;
+      agArgs.identity_type = identity.identityType;
+      if (identity.identityBcId) agArgs.identity_authorized_bc_id = identity.identityBcId;
+    }
+    const agOut = await pipeboard.callTool('create_tiktok_smart_plus_adgroup', agArgs);
+    const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+    if (!adGroupId) throw stepError('adgroup', 'create_tiktok_smart_plus_adgroup não retornou adgroup_id', createdIds);
+    createdIds.adGroupId = adGroupId;
+
+    // 3) Vídeo (URL pública → TikTok; dedupe por md5 no retry)
+    const videoId = await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
+    createdIds.videoId = videoId;
+
+    // 4) Asset group (anúncio) — identidade DENTRO do creative_info (schema real)
+    const creativeInfo = { ad_format: 'SINGLE_VIDEO', video_info: { video_id: videoId } };
+    if (identity.identityId) {
+      creativeInfo.identity_id = identity.identityId;
+      creativeInfo.identity_type = identity.identityType;
+      if (identity.identityBcId) creativeInfo.identity_authorized_bc_id = identity.identityBcId;
+      if (identity.darkPost) creativeInfo.dark_post_status = 'ON';
+    }
+    const adArgs = {
+      advertiser_id: adv,
+      adgroup_id: adGroupId,
+      ad_name: String(s.name).slice(0, 500),
+      creative_list: [{ creative_info: creativeInfo }],
+      operation_status: 'DISABLE',
+    };
+    if (s.body) adArgs.ad_text_list = [{ ad_text: String(s.body).slice(0, 100) }];
+    if (s.callToAction) adArgs.call_to_action_list = [{ call_to_action: String(s.callToAction) }];
+    if (s.linkUrl) adArgs.landing_page_url_list = [{ landing_page_url: String(s.linkUrl).slice(0, 500) }];
+    const adOut = await pipeboard.callTool('create_tiktok_smart_plus_ad', adArgs);
+    const adId = String(deepPluck(adOut, 'smart_plus_ad_id') || deepPluck(adOut, 'ad_id') || '');
+    if (!adId) throw stepError('ad', 'create_tiktok_smart_plus_ad não retornou o ID do anúncio', createdIds);
+    createdIds.adId = adId;
+
+    warnings.push('Criado PAUSADO — ative na aba Smart+ quando estiver pronto');
+    cacheBust('tree:');
+    return { ...createdIds, name: s.name, warnings };
+  } catch (err) {
+    // Órfã não pode ficar entregável: pausa best-effort e devolve o passo.
+    try { await setSmartPlusCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    if (!err.step) err.step = 'adgroup';
+    err.createdIds = createdIds;
+    throw err;
+  }
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -1363,10 +1701,26 @@ module.exports = {
   listSparkIdentities,
   listIdentityVideos,
   createSparkAd,
+  // catálogos (TikTok Shopping / DPA)
+  getBusinessCenterId,
+  businessCenterFromEnv,
+  setBusinessCenterId,
+  createTikTokCatalog,
+  uploadTikTokCatalogProducts,
+  getTikTokCatalogOverview,
+  listTikTokCatalogs,
+  updateTikTokCatalogName,
+  CATALOG_TYPES,
+  // Smart+ (gestão + appeal de anúncio + criação composta)
+  listSmartPlusCampaigns,
+  listSmartPlusAds,
+  setSmartPlusCampaignStatus,
+  appealSmartPlusAd,
+  createSmartPlusCampaign,
   // cache
   cacheBust,
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, GOAL_MAP },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP },
 };

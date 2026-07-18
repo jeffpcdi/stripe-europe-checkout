@@ -19,6 +19,7 @@ import {
   Clapperboard,
   ExternalLink,
   AlertTriangle,
+  BadgeCheck,
   BarChart3,
   Pencil,
   Check,
@@ -106,9 +107,10 @@ function SecondaryMetrics({ m, currency }: { m?: AdsMetrics; currency: string })
 
 const STATUS_FILTERS = [
   { value: 'active', label: 'Ativas' },
-  { value: 'paused', label: 'Pausadas' },
+  { value: 'approved', label: 'Validadas' },
   { value: 'pending_review', label: 'Em revisão' },
   { value: 'rejected', label: 'Rejeitadas' },
+  { value: 'paused', label: 'Pausadas' },
   { value: '', label: 'Todas' },
 ]
 
@@ -449,6 +451,16 @@ export function CampaignTree({
                     className="size-3 shrink-0 text-warning"
                     aria-hidden="true"
                   />
+                )}
+                {/* Selo de revisão aprovada — o gestor vê "validada" de relance */}
+                {c.reviewStatus === 'approved' && (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-success"
+                    title="Anúncios validados pelo TikTok"
+                  >
+                    <BadgeCheck className="size-2.5" aria-hidden="true" />
+                    Validada
+                  </span>
                 )}
               </span>
               {errorMsg && <span className="mt-0.5 block truncate text-[11px] text-error">{errorMsg}</span>}

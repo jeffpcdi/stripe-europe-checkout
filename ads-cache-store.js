@@ -276,8 +276,15 @@ async function readTree(accountId, advertiserId, opts = {}) {
   });
 
   // filtro de status sobre o conjunto completo (igual ao provider)
-  const statusFilter = ['active', 'paused', 'pending_review', 'error', 'completed', 'cancelled', 'rejected'].includes(opts.status) ? opts.status : undefined;
-  if (statusFilter) campaigns = campaigns.filter((c) => c.status === statusFilter || c.childStatus === statusFilter);
+  // 'approved' (Validadas) é uma dimensão de REVISÃO, não de entrega — filtra
+  // por reviewStatus, não pelo status do nó (uma campanha validada aparece como
+  // 'active'). Os demais valores filtram pelo status/childStatus do nó.
+  if (opts.status === 'approved') {
+    campaigns = campaigns.filter((c) => c.reviewStatus === 'approved');
+  } else {
+    const statusFilter = ['active', 'paused', 'pending_review', 'error', 'completed', 'cancelled', 'rejected'].includes(opts.status) ? opts.status : undefined;
+    if (statusFilter) campaigns = campaigns.filter((c) => c.status === statusFilter || c.childStatus === statusFilter);
+  }
 
   const sort = ['newest', 'oldest', 'spend_desc', 'spend_asc'].includes(opts.sort) ? opts.sort : 'newest';
   campaigns.sort((a, b) => {
