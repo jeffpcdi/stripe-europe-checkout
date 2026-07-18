@@ -403,8 +403,13 @@ function CatalogDetail({
   const [publishing, setPublishing] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [auditing, setAuditing] = useState(false)
+  const [autoChecking, setAutoChecking] = useState(false)
   const [importing, setImporting] = useState(false)
   const [copied, setCopied] = useState(false)
+  // Ref síncrona: impede dois syncs concorrentes mesmo antes do React
+  // aplicar setSyncing(true) (duplo toque no iPhone / salvar + botão manual).
+  const syncLockRef = useRef(false)
+  const auditAttemptsRef = useRef(0)
 
   const catalog = data?.catalog
   const products = data?.products ?? []
@@ -446,6 +451,14 @@ function CatalogDetail({
 
   // Publica direto no TikTok: cria o catálogo (se preciso) e sobe os produtos.
   async function handleSyncTiktok() {
+    if (syncLockRef.current) return
+    if (!bcConfigured) {
+      toast.info('Produto salvo, mas ainda não publicado', {
+        hint: 'Configure o Business Center no topo da aba para publicar no TikTok.',
+      })
+      return
+    }
+    syncLockRef.current = true
     setSyncing(true)
     try {
       const res = await apiSend<AdsCatalogSyncResponse>(
@@ -457,13 +470,16 @@ function CatalogDetail({
         })
       } else {
         toast.success(`Catálogo publicado no TikTok com ${res.published} produto(s)`, {
-          hint: res.audit && res.audit.pending > 0 ? 'Os produtos entram em análise do TikTok — acompanhe o status abaixo.' : undefined,
+          hint: res.audit && res.audit.pending > 0 ? 'A análise será acompanhada automaticamente nesta tela.' : undefined,
         })
+        // Um novo envio reinicia a janela de acompanhamento (até 12 consultas).
+        auditAttemptsRef.current = 0
       }
-      mutate()
+      await mutate()
     } catch (e) {
       toast.error('Falha ao publicar no TikTok', { hint: e instanceof Error ? e.message : undefined })
     } finally {
+      syncLockRef.current = false
       setSyncing(false)
     }
   }
@@ -473,16 +489,48 @@ function CatalogDetail({
     try {
       const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, { credentials: 'include' })
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `Erro ${res.status}`)
+        const auditData = await res.json().catch(() => ({}))
+        throw new Error(auditData.error || `Erro ${res.status}`)
       }
-      mutate()
+      await mutate()
     } catch (e) {
       toast.error('Falha ao atualizar status', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setAuditing(false)
     }
   }
+
+  // Acompanha a análise agregada do TikTok sem exigir recarregar a página.
+  // Intervalo conservador de 20 s, no máximo 12 tentativas (~4 min). Para ao
+  // sair da tela, quando não há pendentes, quando atinge o limite ou em erro.
+  useEffect(() => {
+    const hasTikTokCatalog = Boolean(catalog?.tiktokCatalogId)
+    const needsCheck = hasTikTokCatalog && (!catalog?.audit || (catalog.audit.pending ?? 0) > 0)
+    if (!needsCheck || auditAttemptsRef.current >= 12) {
+      setAutoChecking(false)
+      return
+    }
+
+    setAutoChecking(true)
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        auditAttemptsRef.current += 1
+        const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, { credentials: 'include' })
+        if (!res.ok) throw new Error(`Erro ${res.status}`)
+        if (!cancelled) await mutate()
+      } catch {
+        // Falha silenciosa no polling: o botão manual continua disponível e
+        // evita uma sequência de toasts por instabilidade temporária da API.
+        if (!cancelled) setAutoChecking(false)
+      }
+    }, 20_000)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [catalogId, catalog?.tiktokCatalogId, catalog?.audit?.pending, catalog?.audit?.at, mutate])
 
   async function handleDelete() {
     if (!confirm('Excluir este catálogo e todos os produtos? Isso não pode ser desfeito.')) return
@@ -587,6 +635,14 @@ function CatalogDetail({
             </div>
           </div>
 
+          {/* Fluxo baseado apenas em estados reais retornados pelo backend. */}
+          <CatalogProgress
+            catalog={catalog}
+            productCount={products.length}
+            validCount={validCount}
+            syncing={syncing}
+          />
+
           {/* Aviso: BC não configurado bloqueia a publicação no TikTok */}
           {!bcConfigured && (
             <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-[11px] text-muted-foreground">
@@ -600,7 +656,14 @@ function CatalogDetail({
           )}
 
           {/* Status do catálogo no TikTok (quando já publicado) */}
-          {catalog?.tiktokCatalogId && <TiktokStatusPanel catalog={catalog} auditing={auditing} onRefresh={handleRefreshAudit} />}
+          {catalog?.tiktokCatalogId && (
+            <TiktokStatusPanel
+              catalog={catalog}
+              auditing={auditing}
+              autoChecking={autoChecking}
+              onRefresh={handleRefreshAudit}
+            />
+          )}
 
           {/* Alternativa manual: feed agendado (para quem não usa a publicação
               direta ou prefere conectar a URL à mão no Catalog Manager) */}
@@ -713,7 +776,13 @@ function CatalogDetail({
             // botões manuais continuam disponíveis para quem preferir).
             const fresh = await mutate()
             const anyValid = (fresh?.products ?? []).some((p) => p.valid)
-            if (bcConfigured && anyValid) handleSyncTiktok()
+            if (bcConfigured && anyValid) {
+              await handleSyncTiktok()
+            } else if (!bcConfigured) {
+              toast.info('Produto salvo como rascunho', {
+                hint: 'Configure o Business Center no topo para publicar no TikTok.',
+              })
+            }
           }}
         />
       )}
@@ -721,16 +790,101 @@ function CatalogDetail({
   )
 }
 
+// ── Progresso do fluxo confirmado ─────────────────────────────────────────
+function CatalogProgress({
+  catalog,
+  productCount,
+  validCount,
+  syncing,
+}: {
+  catalog: AdsCatalog | undefined
+  productCount: number
+  validCount: number
+  syncing: boolean
+}) {
+  const audit = catalog?.audit
+  const hasValidProduct = validCount > 0
+  const hasFeed = Boolean(catalog?.feedUrl)
+  const hasTikTokCatalog = Boolean(catalog?.tiktokCatalogId)
+  const reviewState = !hasTikTokCatalog
+    ? 'waiting'
+    : !audit || audit.pending > 0
+      ? 'active'
+      : audit.rejected > 0
+        ? 'error'
+        : audit.approved > 0
+          ? 'done'
+          : 'waiting'
+
+  const steps = [
+    {
+      label: 'Produto válido',
+      detail: productCount === 0 ? 'Adicione o primeiro produto' : `${validCount} de ${productCount} válido${validCount === 1 ? '' : 's'}`,
+      state: hasValidProduct ? 'done' : productCount > 0 ? 'error' : 'waiting',
+    },
+    {
+      label: 'Feed publicado',
+      detail: catalog?.feedPublishedAt ? 'URL estável atualizada' : 'Gerado automaticamente ao publicar',
+      state: hasFeed ? 'done' : syncing ? 'active' : 'waiting',
+    },
+    {
+      label: 'Catálogo TikTok',
+      detail: hasTikTokCatalog ? `ID ${catalog?.tiktokCatalogId}` : 'Criado no Business Center',
+      state: hasTikTokCatalog ? 'done' : syncing ? 'active' : 'waiting',
+    },
+    {
+      label: 'Análise dos produtos',
+      detail: audit
+        ? `${audit.approved} aprovado(s), ${audit.pending} pendente(s), ${audit.rejected} reprovado(s)`
+        : hasTikTokCatalog ? 'Aguardando retorno do TikTok' : 'Começa após a publicação',
+      state: reviewState,
+    },
+  ] as const
+
+  return (
+    <section className="rounded-xl border border-border bg-background p-4" aria-labelledby="catalog-progress-title">
+      <div className="flex flex-col gap-1">
+        <h3 id="catalog-progress-title" className="text-xs font-semibold text-foreground">Progresso da publicação</h3>
+        <p className="text-pretty text-[11px] text-muted-foreground">
+          Etapas verificadas pela dashboard. Aprovação do produto não significa que uma campanha foi criada.
+        </p>
+      </div>
+      <ol className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {steps.map((step, index) => (
+          <li key={step.label} className="flex min-w-0 items-start gap-2 rounded-lg border border-border bg-card p-3">
+            <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+              step.state === 'done'
+                ? 'bg-success/15 text-success'
+                : step.state === 'error'
+                  ? 'bg-error/15 text-error'
+                  : step.state === 'active'
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-secondary text-muted-foreground'
+            }`}>
+              {step.state === 'done' ? <Check className="size-3.5" aria-hidden="true" /> : step.state === 'active' ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : index + 1}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[11px] font-semibold text-foreground">{step.label}</span>
+              <span className="block truncate text-[10px] text-muted-foreground" title={step.detail}>{step.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
 // ── Painel de status do catálogo no TikTok ────────────────────────────────
-// Mostra que o catálogo já vive no TikTok (id real + auditoria dos produtos) e
-// se está pronto para uma campanha de vendas (DPA).
+// Mostra somente o que o provider confirma: ID real e contagens agregadas.
 function TiktokStatusPanel({
   catalog,
   auditing,
+  autoChecking,
   onRefresh,
 }: {
   catalog: AdsCatalog
   auditing: boolean
+  autoChecking: boolean
   onRefresh: () => void
 }) {
   const [copied, setCopied] = useState(false)
@@ -738,8 +892,7 @@ function TiktokStatusPanel({
   const approved = audit?.approved ?? 0
   const pending = audit?.pending ?? 0
   const rejected = audit?.rejected ?? 0
-  // "Pronto para campanha" = há produtos aprovados e nada em análise pendente.
-  const ready = approved > 0 && pending === 0
+  const catalogSynced = approved > 0 && pending === 0
   const syncedAt = catalog.syncedAt ? new Date(catalog.syncedAt) : null
 
   function copyId() {
@@ -751,16 +904,24 @@ function TiktokStatusPanel({
   }
 
   return (
-    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${ready ? 'border-success/30 bg-success/5' : 'border-primary/25 bg-primary/5'}`}>
+    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${catalogSynced ? 'border-success/30 bg-success/5' : 'border-primary/25 bg-primary/5'}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-          {ready ? (
-            <ShieldCheck className="size-4 text-success" aria-hidden="true" />
-          ) : (
-            <Clock className="size-4 text-primary" aria-hidden="true" />
+        <div className="flex flex-col gap-0.5">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            {catalogSynced ? (
+              <ShieldCheck className="size-4 text-success" aria-hidden="true" />
+            ) : (
+              <Clock className="size-4 text-primary" aria-hidden="true" />
+            )}
+            {catalogSynced ? 'Catálogo sincronizado' : 'Catálogo publicado no TikTok'}
+          </p>
+          {autoChecking && (
+            <p className="flex items-center gap-1 text-[10px] text-muted-foreground" role="status">
+              <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+              Verificando a análise automaticamente
+            </p>
           )}
-          {ready ? 'Publicado no TikTok — pronto para campanha' : 'Publicado no TikTok'}
-        </p>
+        </div>
         <button type="button" className="btn-ghost text-xs" onClick={onRefresh} disabled={auditing}>
           {auditing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />}
           Atualizar status
@@ -795,26 +956,22 @@ function TiktokStatusPanel({
       )}
 
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-        {ready
-          ? 'Crie uma campanha de Product Sales (DPA) no TikTok Ads Manager e selecione este catálogo. As edições de produtos aqui, ao republicar, atualizam o mesmo catálogo.'
+        {catalogSynced
+          ? 'O produto está aprovado e sincronizado neste catálogo. A dashboard ainda não cria Product Set, associação com a conta de anúncios ou campanha de catálogo.'
           : rejected > 0
-            ? 'Alguns produtos foram reprovados pelo TikTok — verifique imagens (≥ 500×500), links https válidos e a moeda do preço, corrija na tabela e republique.'
-            : 'Assim que os produtos forem aprovados, o catálogo fica disponível na criação de campanhas de Product Sales (DPA).'}
+            ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
+            : 'O TikTok ainda está processando os produtos. Esta tela atualiza as contagens automaticamente enquanto houver itens pendentes.'}
       </p>
+      <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
+        <strong className="text-foreground">Limite atual da automação:</strong>{' '}
+        publicação e análise do catálogo. Nenhum anúncio é criado ou ativado por esta ação.
+      </div>
       {syncedAt && (
         <p className="text-[10px] text-muted-foreground">
           Última publicação: {syncedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+          {audit?.at ? ` · Status consultado: ${new Date(audit.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}
         </p>
       )}
-      <a
-        className="btn-ghost w-fit text-xs"
-        href="https://ads.tiktok.com/i18n/creation/campaign"
-        target="_blank"
-        rel="noreferrer"
-      >
-        <ExternalLink className="size-3.5" aria-hidden="true" />
-        Abrir criação de campanha
-      </a>
     </div>
   )
 }

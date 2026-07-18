@@ -1339,8 +1339,9 @@ export interface AdsSafetyPolicyResponse {
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ────────────────────────
 // Gerimos produtos + feed aqui, publicamos um CSV TikTok-ready numa URL pública
-// (Blob) E — com o Business Center configurado — criamos o catálogo REAL no
-// TikTok e subimos os produtos, deixando-o pronto para campanha (DPA).
+// (Blob) E — com o Business Center configurado — criamos o catálogo real no
+// TikTok, subimos os produtos e consultamos a análise agregada. Product Set,
+// associação ao advertiser e campanha não fazem parte deste fluxo.
 export interface AdsCatalogAudit {
   approved: number
   pending: number
