@@ -12,6 +12,7 @@ import { ExternalLink, RefreshCw, Unplug } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsAdvertiser, AdsHealthStatus } from '@/lib/types'
+import { McpStatusDot } from './mcp-status-dot'
 
 // Sufixo textual no <option> (options não renderizam markup) + ponto colorido
 // ao lado do seletor para a conta selecionada.
@@ -103,6 +104,8 @@ export function AdsContextBar({
         </span>
         Conectado
       </span>
+      {/* Saúde da conexão TikTok — discreta; detalhe completo no Modo avançado */}
+      <McpStatusDot active />
       <span className="hidden text-muted-foreground sm:inline">
         Conta: <strong className="text-foreground">{accountLabel}</strong>
       </span>

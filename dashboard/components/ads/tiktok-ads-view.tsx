@@ -280,20 +280,20 @@ export function TikTokAdsView() {
               type="button"
               className="flex items-center gap-1.5 rounded-full border border-error/40 bg-error/10 px-2.5 py-1 text-[11px] font-semibold text-error"
               onClick={() => setOpsOpen(true)}
-              title="Kill switch ativo: todas as ações de escrita estão bloqueadas. Clique para gerenciar."
+              title="Tudo pausado: nenhuma ação automática ou manual é publicada. Clique para gerenciar."
             >
               <OctagonAlert className="size-3" aria-hidden="true" />
-              Kill switch ativo
+              Tudo pausado
             </button>
           ) : dryRunActive ? (
             <button
               type="button"
               className="flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning"
               onClick={() => setOpsOpen(true)}
-              title="Modo simulação: operações rodam mas nada é publicado no TikTok. Clique para gerenciar."
+              title="Modo teste: o robô roda mas nada é publicado no TikTok. Clique para gerenciar."
             >
               <FlaskConical className="size-3" aria-hidden="true" />
-              Modo simulação
+              Modo teste
             </button>
           ) : null}
           {/* Badge de conta banida — clica e abre o painel de saúde/tickets */}
@@ -606,6 +606,7 @@ export function TikTokAdsView() {
               adAccountId={concreteAdvertiser}
               aiEnabled={aiEnabled}
               onMutateTree={() => mutateTree()}
+              onOpenLimits={() => setOpsOpen(true)}
             />
           )}
         </>

@@ -101,10 +101,10 @@ export function OpsDialog({
       onPolicyChanged?.()
       toast.success('Política de segurança salva', {
         hint: r.policy.killSwitch
-          ? 'Kill switch ATIVO: todas as ações de escrita estão bloqueadas.'
+          ? 'Tudo pausado: nenhuma ação é publicada no TikTok.'
           : r.policy.dryRun
-            ? 'Modo simulação ativo: nada será publicado no TikTok.'
-            : 'Ações de escrita liberadas dentro dos limites definidos.',
+            ? 'Modo teste ativo: nada é publicado no TikTok.'
+            : 'Ações liberadas dentro dos limites definidos.',
       })
     } catch (e) {
       toast.error('Falha ao salvar a política', { hint: e instanceof Error ? e.message : undefined })
@@ -237,21 +237,21 @@ export function OpsDialog({
                   checked={draft.killSwitch}
                   onChange={(e) => patch({ killSwitch: e.target.checked })}
                   className="mt-0.5 size-4 accent-[color:var(--error)]"
-                  aria-label="Kill switch"
+                  aria-label="Pausar tudo"
                 />
                 <span className="flex flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                     <OctagonAlert className="size-3.5 text-error" aria-hidden="true" />
-                    Kill switch
+                    Pausar tudo (emergência)
                   </span>
                   <span className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                    Bloqueia TODAS as ações de escrita (criar, duplicar, pausar, orçamento) — manuais,
-                    automáticas e da IA. Use em emergência.
+                    Bloqueia TODAS as ações (criar, duplicar, pausar, orçamento) — manuais, do robô e da
+                    IA. Use em emergência.
                   </span>
                 </span>
               </label>
 
-              {/* Dry-run */}
+              {/* Modo teste */}
               <label
                 className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${draft.dryRun ? 'border-warning/40 bg-warning/10' : 'border-border bg-secondary/30'}`}
               >
@@ -260,13 +260,13 @@ export function OpsDialog({
                   checked={draft.dryRun}
                   onChange={(e) => patch({ dryRun: e.target.checked })}
                   className="mt-0.5 size-4 accent-[color:var(--warning)]"
-                  aria-label="Modo simulação (dry-run)"
+                  aria-label="Modo teste"
                 />
                 <span className="flex flex-col gap-0.5">
-                  <span className="text-xs font-semibold text-foreground">Modo simulação (dry-run)</span>
+                  <span className="text-xs font-semibold text-foreground">Modo teste — nada é publicado no TikTok</span>
                   <span className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                    As operações rodam de ponta a ponta mas NADA é publicado no TikTok. Ideal para testar
-                    lotes e regras antes de liberar de verdade.
+                    O robô roda de ponta a ponta mas NADA é publicado no TikTok. Ideal para testar pilotos
+                    e lotes antes de liberar de verdade.
                   </span>
                 </span>
               </label>
@@ -311,7 +311,7 @@ export function OpsDialog({
                     onChange={(e) => patch({ maxActionsPerHour: e.target.value === '' ? 0 : Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
                     aria-label="Máximo de ações automáticas por hora"
                   />
-                  <span className="text-[11px] text-muted-foreground">Anti-loop do motor. 0 = sem limite</span>
+                  <span className="text-[11px] text-muted-foreground">Anti-loop do robô. 0 = sem limite</span>
                 </label>
               </div>
 

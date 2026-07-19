@@ -21,6 +21,7 @@ import {
   Trash2,
   SlidersHorizontal,
   ChevronDown,
+  ShieldCheck,
 } from 'lucide-react'
 import { useAdsRules, useAdsAlerts, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -413,12 +414,14 @@ export function AutomationPanel({
   adAccountId = '',
   aiEnabled = false,
   onMutateTree,
+  onOpenLimits,
 }: {
   active: boolean
   currency?: string
   adAccountId?: string
   aiEnabled?: boolean
   onMutateTree?: () => void
+  onOpenLimits?: () => void
 }) {
   const { data, mutate, isLoading } = useAdsRules(active)
   const { data: alertsCfg, mutate: mutateAlerts } = useAdsAlerts(active)
@@ -696,6 +699,18 @@ export function AutomationPanel({
           </ul>
         )}
       </GlassCard>
+      )}
+
+      {/* Limites de segurança + modo teste — atalho para a política da conta */}
+      {advanced && onOpenLimits && (
+        <button
+          type="button"
+          onClick={onOpenLimits}
+          className="flex items-center gap-2 self-start rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary/40"
+        >
+          <ShieldCheck className="size-3.5 text-primary" aria-hidden="true" />
+          Limites de segurança e modo teste
+        </button>
       )}
 
       {/* Realocação de orçamento por IA + diagnóstico técnico — só no avançado */}
