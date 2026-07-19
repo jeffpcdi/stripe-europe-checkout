@@ -4,7 +4,7 @@
 // advertiser, KPIs agregados e a árvore de campanhas. Os fluxos de escrita
 // (criar anúncio, Spark Ads, Brand Identity) vivem em componentes próprios.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Megaphone, Plus, Zap, UserRound, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, Gauge, Sparkles, Bot, BrainCircuit, ShoppingBag } from 'lucide-react'
@@ -33,20 +33,14 @@ import { SparkAdDialog } from './spark-ad-dialog'
 import { IdentityDialog } from './identity-dialog'
 import { CampaignDrawer } from './campaign-drawer'
 import { DuplicateDialog } from './duplicate-dialog'
-import { RoasCard } from './roas-card'
 import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
-import { AttentionStrip } from './attention-strip'
 import { AutomationPanel } from './automation-panel'
-import { McpStatusCard } from './mcp-status-card'
-import { KpiRow } from './kpi-row'
-import { BriefingCard } from './briefing-card'
-import { CopilotPanel } from './copilot-panel'
-import { CreativeInsightsCard } from './creative-insights-card'
-import { BudgetProposalCard } from './budget-proposal-card'
 import { SmartPlusPanel } from './smart-plus-panel'
 import { CatalogManager } from './catalog-manager'
 import { OperationsCenter } from './operations-center'
+import { TodayPanel } from './today-panel'
+import { usePersistedState } from '@/lib/use-persisted-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export function TikTokAdsView() {
@@ -98,34 +92,42 @@ export function TikTokAdsView() {
   // honrado UMA vez pós-mount (deep-link "ver automações" da home). useEffect
   // em vez de initializer para não divergir da renderização do servidor;
   // window.location em vez de useSearchParams para não exigir Suspense.
-  // Sub-abas por tarefa (uma fonte só → tablist + deep-link). Duplicação deixou
-  // de ser aba: cada campanha já tem a ação "Duplicar" na própria linha, então a
-  // aba separada era um caminho redundante — dobrar a superfície sem ganho.
-  type TabKey = 'overview' | 'campaigns' | 'smartplus' | 'catalog' | 'automation' | 'ai'
+  // 4 abas por tarefa: Hoje (centro de comando) · Campanhas (absorve Smart+) ·
+  // Automações (absorve IA) · Catálogo. Smart+ e IA deixaram de ser abas — o
+  // gestor não deve caçar em 6 portas o que é um fluxo só.
+  type TabKey = 'today' | 'campaigns' | 'automation' | 'catalog'
   const SUBTABS: { value: TabKey; label: string; icon: typeof Gauge }[] = [
-    { value: 'overview', label: 'Visão geral', icon: Gauge },
+    { value: 'today', label: 'Hoje', icon: Gauge },
     { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
-    { value: 'smartplus', label: 'Smart+', icon: Sparkles },
-    { value: 'catalog', label: 'Catálogo', icon: ShoppingBag },
     { value: 'automation', label: 'Automações', icon: Bot },
-    { value: 'ai', label: 'IA', icon: BrainCircuit },
+    { value: 'catalog', label: 'Catálogo', icon: ShoppingBag },
   ]
-  const [tab, setTab] = useState<TabKey>('overview')
+  const [tab, setTab] = useState<TabKey>('today')
+  // Dentro de Campanhas: "Manuais" (árvore + criação) ou "Smart+".
+  const [campaignsView, setCampaignsView] = usePersistedState<'manual' | 'smartplus'>('ads:campaigns:view', 'manual')
   const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
   useEffect(() => {
+    // Lê ?tab= no mount e a cada navegação (voltar/avançar). Mapa de
+    // compatibilidade dos aliases antigos (overview→today, ai→automation,
+    // smartplus→campanhas+segmento) para não quebrar favoritos e deep-links.
     const readTab = () => {
-      const value = new URLSearchParams(window.location.search).get('tab') as TabKey | null
-      setTab(value && validTabs.has(value) ? value : 'overview')
+      const t = new URLSearchParams(window.location.search).get('tab')
+      if (t && validTabs.has(t as TabKey)) setTab(t as TabKey)
+      else if (t === 'overview') setTab('today')
+      else if (t === 'ai') setTab('automation')
+      else if (t === 'smartplus') { setTab('campaigns'); setCampaignsView('smartplus') }
+      else setTab('today')
     }
     readTab()
     window.addEventListener('popstate', readTab)
     return () => window.removeEventListener('popstate', readTab)
-  }, [validTabs])
+  }, [validTabs, setCampaignsView])
 
+  // Troca de aba sincronizada com a URL (?tab=) — 'today' é o default (sem query).
   function changeTab(value: TabKey) {
     setTab(value)
     const url = new URL(window.location.href)
-    if (value === 'overview') url.searchParams.delete('tab')
+    if (value === 'today') url.searchParams.delete('tab')
     else url.searchParams.set('tab', value)
     window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`)
   }
@@ -134,10 +136,6 @@ export function TikTokAdsView() {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [identityOpen, setIdentityOpen] = useState(false)
-  // Alvo do scroll do chip "Alertas desligados" (AttentionStrip → linha de
-  // alertas do AutomationPanel). Os diálogos de regras/alertas morreram no
-  // redesenho — edição é inline agora.
-  const alertsRowRef = useRef<HTMLDivElement | null>(null)
   const [opsOpen, setOpsOpen] = useState(false)
   const [healthOpen, setHealthOpen] = useState(false)
 
@@ -440,51 +438,68 @@ export function TikTokAdsView() {
             </GlassCard>
           )}
 
-          {/* ── Aba: Visão geral — "como estou indo?" (KPIs, ROAS, briefing) ── */}
-          {tab === 'overview' && (
+          {/* ── Aba: Hoje — centro de comando (decisões → resultado → robô) ── */}
+          {tab === 'today' && (
             <>
-              <AttentionStrip
-                active={treeActive}
-                onOpenOps={() => {
-                  changeTab('automation')
-                  setOpsOpen(true)
-                }}
-                onOpenHealth={() => setHealthOpen(true)}
-                onFocusAlerts={() => changeTab('automation')}
-              />
-              <KpiRow
-                kpi={kpi}
-                currency={currency}
-                active={treeActive}
-                adAccountId={concreteAdvertiser}
-                fromDate={fromDate}
-                toDate={toDate}
-              />
-              {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
-              <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
-              <OperationsCenter
-                active={treeActive}
-                advertiserId={concreteAdvertiser}
-                currency={currency}
-                campaigns={tree?.campaigns || []}
-                conversions={kpi.conversions}
-                revenue={Object.values(attribution?.byCampaign || {}).reduce((sum, item) => sum + item.revenueCents, 0) / 100}
-                onNavigate={(nextTab, id) => {
-                  changeTab(nextTab)
-                  if (nextTab === 'campaigns' && id) {
-                    const campaign = tree?.campaigns.find((item) => item.platformCampaignId === id)
-                    if (campaign) setDetailCampaign(campaign)
-                  }
-                }}
-              />
-              {/* Briefing diário da IA (se auto-esconde sem AI_GATEWAY_API_KEY) */}
-              <BriefingCard adAccountId={concreteAdvertiser} currency={currency} />
+            <TodayPanel
+              active={treeActive}
+              adAccountId={concreteAdvertiser}
+              currency={currency}
+              kpi={kpi}
+              fromDate={fromDate}
+              toDate={toDate}
+              onOpenOps={() => setOpsOpen(true)}
+              onOpenHealth={() => setHealthOpen(true)}
+              onGoAutomations={() => changeTab('automation')}
+              onCreate={() => openWriteFlow(setCreateOpen)}
+              onBulk={() => openWriteFlow(setBulkOpen)}
+              onSpark={() => openWriteFlow(setSparkOpen)}
+              onNewSmartPlus={() => { changeTab('campaigns'); setCampaignsView('smartplus') }}
+            />
+            {/* Centro de operações (metas, anomalias, timeline, relatórios) — do main */}
+            <OperationsCenter
+              active={treeActive}
+              advertiserId={concreteAdvertiser}
+              currency={currency}
+              campaigns={tree?.campaigns || []}
+              conversions={kpi.conversions}
+              revenue={Object.values(attribution?.byCampaign || {}).reduce((sum, item) => sum + item.revenueCents, 0) / 100}
+              onNavigate={(nextTab, id) => {
+                const t = nextTab === 'ai' ? 'automation' : nextTab
+                changeTab(t)
+                if (t === 'campaigns' && id) {
+                  const campaign = tree?.campaigns.find((item) => item.platformCampaignId === id)
+                  if (campaign) setDetailCampaign(campaign)
+                }
+              }}
+            />
             </>
           )}
 
-          {/* ── Aba: Campanhas — "operar" (criar + árvore + ações) ── */}
+          {/* ── Aba: Campanhas — Manuais (árvore + criação) ou Smart+ ── */}
           {tab === 'campaigns' && (
             <>
+              {/* Segmento: campanhas manuais × Smart+ (o antigo tab absorvido) */}
+              <div className="flex items-center gap-1 self-start rounded-xl bg-white/[0.03] p-1 text-xs">
+                {([['manual', 'Manuais'], ['smartplus', 'Smart+']] as const).map(([v, label]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={campaignsView === v}
+                    onClick={() => setCampaignsView(v)}
+                    className={`rounded-lg px-3 py-1 font-semibold transition-colors ${
+                      campaignsView === v ? 'bg-white/10 text-white' : 'text-muted-foreground hover:text-white'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {campaignsView === 'smartplus' ? (
+                <SmartPlusPanel active={treeActive} adAccountId={concreteAdvertiser} currency={currency} />
+              ) : (
+              <>
               {/* Barra de criação: tudo que PUBLICA vive junto da lista que
                   mostra o resultado. Primário = Nova campanha; o resto apoia. */}
               <div className="flex flex-wrap items-center gap-2">
@@ -562,12 +577,9 @@ export function TikTokAdsView() {
               onDuplicate={setDuplicateCampaign}
               attribution={attribution?.byCampaign}
               />
+              </>
+              )}
             </>
-          )}
-
-          {/* ── Aba: Smart+ — campanhas automatizadas do TikTok (gerir + appeal) ── */}
-          {tab === 'smartplus' && (
-            <SmartPlusPanel active={treeActive} adAccountId={concreteAdvertiser} currency={currency} />
           )}
 
           {/* ── Aba: Catálogo — produtos + feed + publicação no TikTok (DPA).
@@ -585,51 +597,17 @@ export function TikTokAdsView() {
             </GlassCard>
           )}
 
-          {/* ── Aba: Automações (redesenho) — faixa "Precisa de você" no topo
-              (propostas + chips de alarme) e painel com edição inline. Os
-              diálogos de regras/alertas morreram; ops/health continuam,
-              abertos pelos chips. ── */}
+          {/* ── Aba: Automações — Pilotos + Modo avançado + Copiloto (IA). O
+              inbox de decisões vive na aba Hoje (superfície única de decisão). ── */}
           {tab === 'automation' && (
-            <>
-              <AttentionStrip
-                active={treeActive}
-                onOpenOps={() => setOpsOpen(true)}
-                onOpenHealth={() => setHealthOpen(true)}
-                onFocusAlerts={() => {
-                  // Rola até a linha de alertas — o chip "desligados" leva
-                  // direto ao lugar onde se religa.
-                  alertsRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                }}
-              />
-              <AutomationPanel active={treeActive} currency={currency} alertsFocusRef={alertsRowRef} />
-            </>
+            <AutomationPanel
+              active={treeActive}
+              currency={currency}
+              adAccountId={concreteAdvertiser}
+              aiEnabled={aiEnabled}
+              onMutateTree={() => mutateTree()}
+            />
           )}
-
-          {/* ── Aba: IA — copiloto, insights de criativo, realocação ── */}
-          {tab === 'ai' && (
-            <>
-              <CopilotPanel
-                active={treeActive}
-                adAccountId={concreteAdvertiser}
-                currency={currency}
-                aiEnabled={aiEnabled}
-                onMutateTree={() => mutateTree()}
-              />
-              <div className="grid gap-3 md:grid-cols-2">
-                <CreativeInsightsCard adAccountId={concreteAdvertiser} currency={currency} />
-                <BudgetProposalCard
-                  adAccountId={concreteAdvertiser}
-                  currency={currency}
-                  onApplied={() => mutateTree()}
-                />
-              </div>
-            </>
-          )}
-          {/* F4: rodapé "Sistema" — diagnóstico Pipeboard visível em TODAS as
-              abas (antes vivia só em Automações e ninguém achava quando a
-              integração caía). Recolhido por padrão numa linha fina; usa
-              /api/ads/mcp/status que a página já carrega (+0 requests). */}
-          <McpStatusCard active={treeActive} />
         </>
       )}
 

@@ -39,6 +39,10 @@ import { Skeleton } from '@/components/skeleton'
 import { Switch } from '@/components/switch'
 import { PilotsPanel } from './pilots-panel'
 import { RulesLogList } from './rules-log-list'
+import { CopilotPanel } from './copilot-panel'
+import { CreativeInsightsCard } from './creative-insights-card'
+import { BudgetProposalCard } from './budget-proposal-card'
+import { McpStatusCard } from './mcp-status-card'
 import { cn } from '@/lib/utils'
 
 // ── Metadados por métrica: rótulo do limiar + unidade + guardas visíveis ────
@@ -406,15 +410,19 @@ function RuleForm({
 export function AutomationPanel({
   active,
   currency = '€',
-  alertsFocusRef,
+  adAccountId = '',
+  aiEnabled = false,
+  onMutateTree,
 }: {
   active: boolean
   currency?: string
-  /** A AttentionStrip rola até aqui quando o chip "Alertas desligados" é clicado. */
-  alertsFocusRef?: React.RefObject<HTMLDivElement | null>
+  adAccountId?: string
+  aiEnabled?: boolean
+  onMutateTree?: () => void
 }) {
   const { data, mutate, isLoading } = useAdsRules(active)
   const { data: alertsCfg, mutate: mutateAlerts } = useAdsAlerts(active)
+  const [copilotOpen, setCopilotOpen] = usePersistedState('ads:automation:copilot', false)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -690,8 +698,14 @@ export function AutomationPanel({
       </GlassCard>
       )}
 
+      {/* Realocação de orçamento por IA + diagnóstico técnico — só no avançado */}
+      {advanced && adAccountId && (
+        <BudgetProposalCard adAccountId={adAccountId} currency={currency} onApplied={() => onMutateTree?.()} />
+      )}
+      {advanced && <McpStatusCard active={active} />}
+
       {/* ── Alertas: mesma linguagem — switch + expansão inline ── */}
-      <GlassCard className="p-4" ref={alertsFocusRef}>
+      <GlassCard className="p-4">
         <div className="flex items-start justify-between gap-3">
           <button
             type="button"
@@ -795,6 +809,37 @@ export function AutomationPanel({
           emptyText='O robô avalia suas automações a cada poucos minutos. Nada disparou ainda — use "Testar agora" no modo avançado para rodar uma avaliação imediata.'
         />
       </GlassCard>
+
+      {/* ── Copiloto (IA): pergunte em linguagem natural o que fazer com a conta.
+          Colapsado por padrão — o custo de IA só é pago ao abrir. ── */}
+      {adAccountId && (
+        <GlassCard className="p-4">
+          <button
+            type="button"
+            aria-expanded={copilotOpen}
+            onClick={() => setCopilotOpen(!copilotOpen)}
+            className="flex w-full items-center justify-between gap-2 text-left"
+          >
+            <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Sparkles className="size-4 text-primary" aria-hidden="true" />
+              Copiloto (IA)
+            </span>
+            <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', copilotOpen && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {copilotOpen && (
+            <div className="mt-3 flex flex-col gap-3">
+              <CopilotPanel
+                active={active}
+                adAccountId={adAccountId}
+                currency={currency}
+                aiEnabled={aiEnabled}
+                onMutateTree={() => onMutateTree?.()}
+              />
+              <CreativeInsightsCard adAccountId={adAccountId} currency={currency} />
+            </div>
+          )}
+        </GlassCard>
+      )}
     </div>
   )
 }
