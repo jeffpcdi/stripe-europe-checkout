@@ -783,7 +783,7 @@ export function AutomationPanel({
                 checked={alertsDraft.rejectedAds === true}
                 onChange={(e) => setAlertsDraft({ ...alertsDraft, rejectedAds: e.target.checked })}
               />
-              Avisar quando um criativo for <strong>reprovado</strong> na revisão do TikTok
+              Avisar quando um criativo for <strong>reprovado</strong> na revisão do TikTok (inclui Smart+)
             </label>
             <div className="flex items-center justify-end gap-1.5">
               <button

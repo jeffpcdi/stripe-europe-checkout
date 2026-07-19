@@ -52,4 +52,14 @@ console.log('Alerta de criativo reprovado');
   ok(/rejectedAds: b\.rejectedAds === true/.test(routes), 'PUT /api/ads/alerts aceita rejectedAds (opt-in explícito)');
 }
 
+console.log('Automação cobrindo Smart+ (vigilância de reprovação)');
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'ads-automation.js'), 'utf8');
+  ok(/provider\.listSmartPlusAds/.test(src), 'sweep lê anúncios Smart+ (ao vivo)');
+  ok(/smart_plus_rejected/.test(src), 'gera finding smart_plus_rejected');
+  // best-effort: a leitura Smart+ é protegida por try/catch para nunca quebrar o sweep
+  ok(/listSmartPlusAds\(advertiserId\)[\s\S]{0,400}catch/.test(src), 'leitura Smart+ é best-effort (try/catch)');
+  ok(/cfg\.rejectedAds[\s\S]{0,1600}listSmartPlusAds/.test(src), 'Smart+ só é vigiado com o alerta de reprovação ligado');
+}
+
 console.log('\nads-automation-cpc: ' + n + ' asserts OK');

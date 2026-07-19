@@ -1001,11 +1001,11 @@ export interface AdsAlertsConfig {
 }
 
 export interface AdsAlertFinding {
-  rule: 'spend_no_conv' | 'cpa_max' | 'rejected_ads'
+  rule: 'spend_no_conv' | 'cpa_max' | 'rejected_ads' | 'smart_plus_rejected'
   campaignId: string
   campaignName: string
-  spend: number
-  conversions: number
+  spend?: number
+  conversions?: number
   cpa?: number
   text: string
   muted?: boolean // em cooldown — detectado mas sem notificação nova
