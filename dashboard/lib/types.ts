@@ -1070,6 +1070,10 @@ export interface AdsRule {
   startTime?: string // 'HH:MM'
   endTime?: string // 'HH:MM' (pode cruzar meia-noite)
   timezone?: string // IANA, default Europe/Lisbon
+  // Camada de PILOTOS (apresentação): regra pertence a uma estratégia de
+  // gestor. Preservados pelo backend (whitelist em validateRules).
+  pilot?: 'protector' | 'scaler' | 'schedule'
+  intensity?: 'conservador' | 'normal' | 'agressivo'
 }
 
 export interface AdsRuleLogEntry {

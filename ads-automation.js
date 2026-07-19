@@ -228,6 +228,11 @@ function validateRules(raw) {
       ...(r.name ? { name: String(r.name).slice(0, 80) } : {}),
       ...(r.description ? { description: String(r.description).slice(0, 200) } : {}),
       ...(r.preset ? { preset: true } : {}),
+      // Tag de PILOTO (camada de apresentação da dashboard): agrupa regras em
+      // estratégias de gestor (protetor/escalador/horário) com intensidade.
+      // Whitelist estrita — valor fora do vocabulário é descartado.
+      ...(['protector', 'scaler', 'schedule'].includes(r.pilot) ? { pilot: r.pilot } : {}),
+      ...(['conservador', 'normal', 'agressivo'].includes(r.intensity) ? { intensity: r.intensity } : {}),
       threshold: Math.max(0, Math.min(100000, Number(r.threshold) || 0)),
       // Default DIÁRIO (1): pedido do produto. Janela curta é ruidosa, mas os
       // pisos de volume (minClicks/minImpressions) protegem; a UI avisa < 3d.
