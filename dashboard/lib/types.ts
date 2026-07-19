@@ -1001,11 +1001,11 @@ export interface AdsAlertsConfig {
 }
 
 export interface AdsAlertFinding {
-  rule: 'spend_no_conv' | 'cpa_max' | 'rejected_ads'
+  rule: 'spend_no_conv' | 'cpa_max' | 'rejected_ads' | 'smart_plus_rejected'
   campaignId: string
   campaignName: string
-  spend: number
-  conversions: number
+  spend?: number
+  conversions?: number
   cpa?: number
   text: string
   muted?: boolean // em cooldown — detectado mas sem notificação nova
@@ -1070,6 +1070,10 @@ export interface AdsRule {
   startTime?: string // 'HH:MM'
   endTime?: string // 'HH:MM' (pode cruzar meia-noite)
   timezone?: string // IANA, default Europe/Lisbon
+  // Camada de PILOTOS (apresentação): regra pertence a uma estratégia de
+  // gestor. Preservados pelo backend (whitelist em validateRules).
+  pilot?: 'protector' | 'scaler' | 'schedule'
+  intensity?: 'conservador' | 'normal' | 'agressivo'
 }
 
 export interface AdsRuleLogEntry {

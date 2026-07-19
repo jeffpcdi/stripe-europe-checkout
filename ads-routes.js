@@ -950,18 +950,30 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const wantStatus = ['active', 'paused'].includes(b.status) ? b.status : null;
       const wantBudget = b.budget && Number(b.budget.amount) > 0
         ? { amount: Number(b.budget.amount), type: b.budget.type === 'lifetime' ? 'lifetime' : 'daily' } : null;
-      if (b.creative && typeof b.creative === 'object') {
-        // Edição de criativo depende de re-upload/asset ids no Pipeboard — adiado
-        // junto com a duplicação. Não silenciamos: avisamos o front.
-        return res.status(501).json({ error: 'Editar o criativo de um anúncio existente está temporariamente indisponível.', code: 'CREATIVE_EDIT_UNSUPPORTED' });
-      }
-      if (!wantStatus && !wantBudget) return res.status(400).json({ error: 'Nada para atualizar' });
+      // Edição de anúncio SEM recriar: texto, CTA, link e nome. Só se algum
+      // campo textual/CTA/URL vier — troca de vídeo continua sendo re-criar.
+      const c = (b.creative && typeof b.creative === 'object') ? b.creative : null;
+      const wantCreative = c && (
+        (typeof c.text === 'string') ||
+        (typeof c.linkUrl === 'string' && /^https?:\/\//.test(c.linkUrl)) ||
+        (typeof c.callToAction === 'string' && /^[A-Z_]{3,30}$/.test(c.callToAction)) ||
+        (typeof c.name === 'string' && c.name.trim())
+      ) ? {
+        ...(typeof c.text === 'string' ? { text: c.text } : {}),
+        ...(typeof c.linkUrl === 'string' && /^https?:\/\//.test(c.linkUrl) ? { linkUrl: withAdsTracking(String(c.linkUrl).trim().slice(0, 500)) } : {}),
+        ...(typeof c.callToAction === 'string' && /^[A-Z_]{3,30}$/.test(c.callToAction) ? { callToAction: c.callToAction } : {}),
+        ...(typeof c.name === 'string' && c.name.trim() ? { name: c.name } : {}),
+      } : null;
+      if (!wantStatus && !wantBudget && !wantCreative) return res.status(400).json({ error: 'Nada para atualizar' });
 
       // classifica no espelho (advertiser resolvido junto)
       const hint = String(b.adAccountId || '').trim() || undefined;
       const ent = await adsCache.classifyEntity(req.account.id, hint, entityId);
       if (!ent) return res.status(404).json({ error: 'Entidade não encontrada no espelho. Atualize a árvore e tente de novo.' });
       const advertiserId = ent.advertiserId;
+      if (wantCreative && ent.type !== 'ad') {
+        return res.status(422).json({ error: 'Texto, CTA e link só podem ser editados no nível do ANÚNCIO.' });
+      }
 
       // orçamento em anúncio → aplica no ad group dono
       const budgetTarget = wantBudget
@@ -974,6 +986,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const applied = {};
       if (wantStatus) applied.status = { level: ent.type, id: entityId, value: wantStatus };
       if (wantBudget) applied.budget = { level: budgetTarget.kind, id: budgetTarget.id, amount: wantBudget.amount, type: wantBudget.type };
+      if (wantCreative) applied.creative = { level: 'ad', id: entityId, fields: Object.keys(wantCreative) };
 
       // dry-run: nada chega ao TikTok.
       if (await isDryRun(req.account.id)) {
@@ -992,6 +1005,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (wantBudget) {
         if (budgetTarget.kind === 'campaign') await pipeboard.updateCampaign(advertiserId, budgetTarget.id, { budget: wantBudget });
         else await pipeboard.updateAdGroup(advertiserId, budgetTarget.id, { budget: wantBudget });
+      }
+      if (wantCreative) {
+        await pipeboard.updateAd(advertiserId, entityId, wantCreative);
       }
       adsSync.syncAfterWrite(req.account.id, advertiserId);
       stats.logEvent('info', { acc: req.account.id, title: 'Entidade TikTok atualizada (' + ent.type + ')', ref: entityId });

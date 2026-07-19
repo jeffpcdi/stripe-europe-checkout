@@ -12,6 +12,7 @@ import { ExternalLink, RefreshCw, Unplug } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsAdvertiser, AdsHealthStatus } from '@/lib/types'
+import { McpStatusDot } from './mcp-status-dot'
 
 // Sufixo textual no <option> (options não renderizam markup) + ponto colorido
 // ao lado do seletor para a conta selecionada.
@@ -94,6 +95,7 @@ export function AdsContextBar({
     <div
       role="toolbar"
       aria-label="Contexto do TikTok Ads: Business Center e conta de anúncio"
+      data-tour="ads-context"
       className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-white/5 bg-[#040406]/60 backdrop-blur-3xl px-5 py-3 text-xs shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
     >
       <span className="flex items-center gap-1.5 font-semibold text-success">
@@ -103,6 +105,8 @@ export function AdsContextBar({
         </span>
         Conectado
       </span>
+      {/* Saúde da conexão TikTok — discreta; detalhe completo no Modo avançado */}
+      <McpStatusDot active />
       <span className="hidden text-muted-foreground sm:inline">
         Conta: <strong className="text-foreground">{accountLabel}</strong>
       </span>

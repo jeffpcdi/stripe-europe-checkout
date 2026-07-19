@@ -1,25 +1,16 @@
 'use client'
 
-// Faixa "Precisa de você" — topo da aba Automações no redesenho. Substitui os
-// 4 cards fake-KPI (OpsStatusCards): aqui só aparece o que EXIGE ação humana:
-//   1. propostas pendentes do motor (F3) com Aprovar/Rejeitar inline;
-//   2. chips de alarme (fila com jobs, conta banida, alertas desligados) —
-//      com cara de botão (borda, hover, seta) e que só existem em alarme.
-// Sem nada pendente: uma linha discreta. Custo: zero requests novas — todos
-// os hooks já eram pagos pela aba (proposals, jobs, health, alerts).
+// "Precisa de você" — caixa de entrada unificada de decisões. Generaliza a
+// antiga AttentionStrip para viver na aba Hoje: aqui aparece SÓ o que exige
+// ação humana — propostas do robô (Aprovar/Rejeitar de 1 toque) + chips de
+// alarme (jobs na fila, conta banida, alertas desligados). É o ÚNICO lugar de
+// decisão do fluxo padrão (acaba com a aprovação de orçamento triplicada).
+// Custo: zero requests novas — todos os hooks já eram pagos pela aba.
 
 import { useState } from 'react'
 import {
-  Bell,
-  Check,
-  ChevronRight,
-  CircleAlert,
-  ListTodo,
-  Pause,
-  ShieldAlert,
-  TrendingDown,
-  TrendingUp,
-  X,
+  Bell, Check, ChevronRight, CircleAlert, ListTodo, Pause, ShieldAlert,
+  TrendingDown, TrendingUp, X, Inbox,
 } from 'lucide-react'
 import { useAdsProposals, useAdsOpsJobs, useAdsHealth, useAdsAlerts, apiSend } from '@/lib/api'
 import type { AdsRuleProposal } from '@/lib/types'
@@ -35,8 +26,6 @@ const ACTION_META: Record<string, { label: string; Icon: typeof Pause }> = {
 }
 
 function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => void }) {
-  // Trava os DOIS botões durante a decisão — dupla decisão é o bug clássico
-  // (o servidor também protege com transição atômica pending→decidida).
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const meta = ACTION_META[p.action] ?? { label: p.action, Icon: CircleAlert }
 
@@ -48,8 +37,6 @@ function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => vo
       toast.success(kind === 'approve' ? r.result || 'Proposta aprovada e executada' : 'Proposta rejeitada')
       onDecided()
     } catch (e) {
-      // 409 = expirada/estado mudou/guard ativo — a mensagem do servidor
-      // explica. Refetch para o estado real substituir o botão "morto".
       toast.error('Não foi possível decidir', { hint: e instanceof Error ? e.message : undefined })
       onDecided()
     } finally {
@@ -66,7 +53,7 @@ function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => vo
             {meta.label}: {cleanCampaignName(p.campaign_name || p.campaign_id)}
           </p>
           <p className="truncate text-[11px] text-muted-foreground">
-            {p.detail || p.metric} · proposta {timeAgo(p.created_at)} · expira em 6h
+            {p.detail || p.metric} · sugerida {timeAgo(p.created_at)} · expira em 6h
           </p>
         </div>
       </div>
@@ -94,13 +81,8 @@ function ProposalRow({ p, onDecided }: { p: AdsRuleProposal; onDecided: () => vo
   )
 }
 
-// Chip de alarme: existência = problema. Affordance explícita de botão —
-// borda, hover, ícone e seta (a lição dos cards antigos que pareciam KPI).
 function AlarmChip({
-  tone,
-  Icon,
-  label,
-  onClick,
+  tone, Icon, label, onClick,
 }: {
   tone: 'warning' | 'error'
   Icon: typeof Bell
@@ -125,17 +107,17 @@ function AlarmChip({
   )
 }
 
-export function AttentionStrip({
+export function NeedsYouInbox({
   active,
   onOpenOps,
   onOpenHealth,
-  onFocusAlerts,
+  onGoAutomations,
 }: {
   active: boolean
   onOpenOps: () => void
   onOpenHealth: () => void
-  /** Rola até a linha de alertas do painel e a expande para religar. */
-  onFocusAlerts: () => void
+  /** Leva à aba Automações (onde se religa os alertas). */
+  onGoAutomations: () => void
 }) {
   const { data: proposals, mutate } = useAdsProposals(active)
   const { data: jobs } = useAdsOpsJobs(active)
@@ -143,57 +125,45 @@ export function AttentionStrip({
   const { data: alertsCfg } = useAdsAlerts(active)
 
   const pending = proposals?.items ?? []
-  const activeJobs = (jobs?.jobs ?? []).filter((j) =>
-    ['queued', 'running', 'retrying'].includes(j.status),
-  ).length
+  const activeJobs = (jobs?.jobs ?? []).filter((j) => ['queued', 'running', 'retrying'].includes(j.status)).length
   const banned = (health?.health ?? []).filter((h) => h.status === 'banned').length
-  // Só alarma depois que a config CARREGOU — undefined ≠ desligado.
   const alertsOff = alertsCfg ? !alertsCfg.enabled : false
-
   const hasAlarms = activeJobs > 0 || banned > 0 || alertsOff
 
   return (
-    <GlassCard className={cn('p-4 relative overflow-hidden transition-all', pending.length > 0 && 'border-l-4 border-l-warning shadow-[0_0_15px_rgba(234,179,8,0.15)]')}>
-      {pending.length > 0 && (
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc0MCcgaGVpZ2h0PSc0MCc+CiAgPHBhdGggZD0nTTAgNDBMNDAgMEgwdicgZmlsbD0nI2VhYjMwOCcgZmlsbC1vcGFjaXR5PScwLjAzJy8+Cjwvc3ZnPg==')] opacity-50 mix-blend-overlay" aria-hidden="true" />
-      )}
+    <GlassCard
+      className={cn('p-4 relative overflow-hidden transition-all', pending.length > 0 && 'border-l-4 border-l-warning shadow-[0_0_15px_rgba(234,179,8,0.15)]')}
+      data-tour="ads-inbox"
+    >
       <div className="relative flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-foreground">Precisa de você</h3>
-        {hasAlarms ? (
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+          <Inbox className="size-4 text-primary" aria-hidden="true" />
+          Precisa de você
+        </h3>
+        {hasAlarms && (
           <div className="flex flex-wrap items-center gap-1.5">
             {activeJobs > 0 && (
-              <AlarmChip
-                tone="warning"
-                Icon={ListTodo}
-                label={activeJobs === 1 ? '1 job na fila' : `${activeJobs} jobs na fila`}
-                onClick={onOpenOps}
-              />
+              <AlarmChip tone="warning" Icon={ListTodo} label={activeJobs === 1 ? '1 tarefa na fila' : `${activeJobs} tarefas na fila`} onClick={onOpenOps} />
             )}
             {banned > 0 && (
-              <AlarmChip
-                tone="error"
-                Icon={ShieldAlert}
-                label={banned === 1 ? '1 conta banida' : `${banned} contas banidas`}
-                onClick={onOpenHealth}
-              />
+              <AlarmChip tone="error" Icon={ShieldAlert} label={banned === 1 ? '1 conta banida' : `${banned} contas banidas`} onClick={onOpenHealth} />
             )}
             {alertsOff && (
-              <AlarmChip tone="warning" Icon={Bell} label="Alertas desligados" onClick={onFocusAlerts} />
+              <AlarmChip tone="warning" Icon={Bell} label="Alertas desligados" onClick={onGoAutomations} />
             )}
           </div>
-        ) : null}
+        )}
       </div>
 
       {pending.length === 0 ? (
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Nenhuma decisão pendente — o motor propõe ações aqui quando uma regra em modo
-          &quot;Propõe&quot; dispara.
+          Tudo em dia — nada esperando sua decisão. Quando o robô sugerir pausar ou ajustar
+          orçamento, aparece aqui para você aprovar de um toque.
         </p>
       ) : (
         <>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            O motor sugere {pending.length === 1 ? 'esta ação' : 'estas ações'} — nada é executado
-            sem a sua aprovação.
+            O robô sugere {pending.length === 1 ? 'esta ação' : 'estas ações'} — nada acontece sem o seu OK.
           </p>
           <ul className="flex flex-col divide-y divide-border/60">
             {pending.map((p) => (

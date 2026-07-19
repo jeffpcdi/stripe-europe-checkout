@@ -47,7 +47,7 @@ function ActionCard({
         adAccountId,
       })
       setState('done')
-      toast.success(res.dryRun ? 'Simulado (modo dry-run ativo)' : 'Ação executada')
+      toast.success(res.dryRun ? 'Simulado (modo teste ativo)' : 'Ação executada')
       onDone()
     } catch (e) {
       setState('idle')

@@ -81,6 +81,24 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.strictEqual(rules[0].metric, 'cpa_max');
   }
 
+  // ── validateRules: passthrough de pilot/intensity (camada de pilotos) ─────
+  {
+    const [tagged] = automation.validateRules([
+      { metric: 'cpa_max', threshold: 5, pilot: 'protector', intensity: 'normal' },
+    ]);
+    assert.strictEqual(tagged.pilot, 'protector', 'pilot válido é preservado');
+    assert.strictEqual(tagged.intensity, 'normal', 'intensity válida é preservada');
+    const [untagged] = automation.validateRules([
+      { metric: 'cpa_max', threshold: 5, pilot: 'xyz', intensity: 'brutal' },
+    ]);
+    assert.strictEqual(untagged.pilot, undefined, 'pilot fora do vocabulário é descartado');
+    assert.strictEqual(untagged.intensity, undefined, 'intensity fora do vocabulário é descartada');
+    // limite duro de 10 regras: o slice é silencioso — a camada de pilotos
+    // PRECISA consumir presets ao ativar pilotos para nunca perder regra aqui
+    const eleven = automation.validateRules(Array.from({ length: 11 }, (_, i) => ({ metric: 'cpa_max', threshold: i + 1 })));
+    assert.strictEqual(eleven.length, 10, 'máximo de 10 regras (11ª é cortada)');
+  }
+
   // ── dayparting: janela normal / cruzando meia-noite / dias ────────────────
   {
     const { scheduleActiveNow } = automation._internals;
