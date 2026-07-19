@@ -33,8 +33,9 @@ const adsSync = require('./ads-sync');         // motor Pipeboard→Neon (sync e
 const automation = require('./ads-automation'); // regras/alertas/dayparting 24/7
 const adsAi = require('./ads-ai');             // copiloto/briefing/criativos/realocação (IA, leituras 100% Neon)
 const adsOps = require('./ads-ops-store');
-const catalogStore = require('./ads-catalog-store');
-const catalogFeed = require('./ads-catalog-feed');
+  const catalogStore = require('./ads-catalog-store');
+  const catalogFeed = require('./ads-catalog-feed');
+  const catalogInspect = require('./ads-catalog-inspect');
 
 // Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
@@ -94,6 +95,47 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       });
       stats.logEvent('warn', { acc: req.account.id, title: policy.killSwitch ? 'Kill switch de Ads ativado' : 'Política de segurança de Ads atualizada' });
       res.json({ policy });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/workspace', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ workspace: await adsOps.getWorkspace(req.account.id, req.query.advertiserId) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.put('/api/ads/workspace', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = String(req.body && req.body.advertiserId || '');
+      const before = await adsOps.getWorkspace(req.account.id, advertiserId);
+      const workspace = await adsOps.saveWorkspace(req.account.id, advertiserId, req.body && req.body.workspace);
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'workspace.updated',
+        targetType: 'advertiser', targetId: advertiserId, advertiserId,
+        beforeState: before, afterState: workspace, reason: 'Preferências operacionais atualizadas'
+      });
+      res.json({ workspace });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/reports', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ reports: await adsOps.listInternalReports(req.account.id, req.query.advertiserId, req.query.limit) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/reports', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = String(req.body && req.body.advertiserId || '');
+      const report = await adsOps.createInternalReport(req.account.id, advertiserId, req.body || {});
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'report.created',
+        targetType: 'report', targetId: report.id, advertiserId,
+        afterState: { kind: report.kind, title: report.title }, reason: 'Relatório interno gerado sob demanda'
+      });
+      res.status(201).json({ report });
     } catch (err) { fail(res, err); }
   });
 
@@ -957,7 +999,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Cancelar/excluir um anúncio ───────────────────────────────────────────
+  // ── Cancelar/excluir um anúncio ────────────────────────────────────────��──
   app.delete('/api/ads/:adId', dashboardAuth, async (req, res, next) => {
     if (RESERVED_AD_IDS.has(String(req.params.adId))) return next();
     try {
@@ -1926,7 +1968,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Smart+ (campanhas automatizadas do TikTok) ────────────────────────────
+  // ── Smart+ (campanhas automatizadas do TikTok) ────────────���───────────────
   // Gestão (listar/pausar/escalar) + recurso de anúncio reprovado. O appeal de
   // anúncio SÓ existe na API para anúncios Smart+ (appeal_tiktok_smart_plus_ad).
   async function resolveAdvForSmartPlus(req, hint) {
@@ -2144,6 +2186,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  app.get('/api/ads/catalogs/:catalogId/publications', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
+      res.json({ publications: await catalogStore.listPublications(req.account.id, req.params.catalogId) });
+    } catch (err) { fail(res, err); }
+  });
+
   app.put('/api/ads/catalogs/:catalogId', dashboardAuth, async (req, res) => {
     try {
       const catalog = await catalogStore.updateCatalog(req.account.id, req.params.catalogId, req.body || {});
@@ -2155,6 +2206,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       await catalogStore.deleteCatalog(req.account.id, req.params.catalogId);
       res.json({ ok: true });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Lê metadados públicos da página para preencher o editor. Não salva nada e
+  // valida DNS/redirecionamentos para impedir acesso à rede interna (SSRF).
+  app.post('/api/ads/catalogs/:catalogId/product-preview', dashboardAuth, async (req, res) => {
+    try {
+      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
+      const out = await catalogInspect.previewProduct(String((req.body || {}).url || ''));
+      const product = Object.assign({}, out.product);
+      if (product.price) product.price = product.price + (product.currency ? ' ' + product.currency : ' ' + catalog.currency);
+      delete product.currency;
+      res.json({ product, finalUrl: out.finalUrl });
     } catch (err) { fail(res, err); }
   });
 
@@ -2231,6 +2296,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalogs/:catalogId/publish', dashboardAuth, async (req, res) => {
     try {
       const out = await publishCatalogFeed(req.account.id, req.params.catalogId);
+      await catalogStore.appendPublication(req.account.id, req.params.catalogId, {
+        kind: 'feed', status: 'success', published: out.published, skipped: out.skipped, feedUrl: out.feedUrl,
+      }).catch(() => {});
       stats.logEvent('info', { acc: req.account.id, title: 'Feed de catálogo publicado (' + out.published + ' produtos)', ref: req.params.catalogId });
       res.json(out);
     } catch (err) { fail(res, err); }
@@ -2263,6 +2331,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           metadata: { bcId, feedUrl: pub.feedUrl, published: pub.published },
           title: 'Publicar catálogo no TikTok: ' + (catalog.name || catalogId),
         });
+        await catalogStore.appendPublication(accId, catalogId, {
+          kind: 'tiktok', status: 'simulated', published: pub.published, skipped: pub.skipped, feedUrl: pub.feedUrl, audit: catalog.audit || null,
+        }).catch(() => {});
         return res.json({ dryRun: true, simulated: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit: catalog.audit || null });
       }
 
@@ -2292,6 +2363,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         afterState: { tiktokCatalogId: catalog.tiktokCatalogId, bcId, published: pub.published },
         reason: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId),
         metadata: { bcId, published: pub.published },
+      }).catch(() => {});
+      await catalogStore.appendPublication(accId, catalogId, {
+        kind: 'tiktok', status: 'success', published: pub.published, skipped: pub.skipped,
+        feedUrl: pub.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId, audit,
       }).catch(() => {});
       stats.logEvent('info', { acc: accId, title: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId) + ' (' + pub.published + ' produtos)', ref: catalogId });
       res.json({ ok: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit });

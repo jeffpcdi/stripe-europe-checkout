@@ -1337,10 +1337,54 @@ export interface AdsSafetyPolicyResponse {
   policy: AdsSafetyPolicy
 }
 
+export interface AdsWorkspace {
+  goals: { roasMin: number; cpaMax: number; dailySpendCap: number; conversionsTarget: number; revenueTarget: number }
+  favorites: { type: 'campaign' | 'product' | 'rule'; id: string; label: string }[]
+  columns: string[]
+  memory: Record<string, string>
+  governance: {
+    actorRole: 'viewer' | 'analyst' | 'operator' | 'admin'
+    requiredApprovals: 1
+    dualApprovalEnabled: false
+    maxTargetsPerAction: number
+    maxTotalBudget: number
+  }
+  updatedAt?: string | null
+}
+
+export interface AdsWorkspaceResponse { workspace: AdsWorkspace }
+
+export interface AdsAuditEvent {
+  id: string
+  action: string
+  target_type: string | null
+  target_id: string | null
+  advertiser_id: string | null
+  before_state: Record<string, unknown> | null
+  after_state: Record<string, unknown> | null
+  reason: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface AdsAuditResponse { enabled: boolean; events: AdsAuditEvent[] }
+
+export interface AdsInternalReport {
+  id: string
+  advertiser_id: string
+  kind: 'daily' | 'weekly' | 'monthly'
+  title: string
+  content: Record<string, unknown>
+  created_at: string
+}
+
+export interface AdsReportsResponse { reports: AdsInternalReport[] }
+
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ────────────────────────
 // Gerimos produtos + feed aqui, publicamos um CSV TikTok-ready numa URL pública
-// (Blob) E — com o Business Center configurado — criamos o catálogo REAL no
-// TikTok e subimos os produtos, deixando-o pronto para campanha (DPA).
+// (Blob) E — com o Business Center configurado — criamos o catálogo real no
+// TikTok, subimos os produtos e consultamos a análise agregada. Product Set,
+// associação ao advertiser e campanha não fazem parte deste fluxo.
 export interface AdsCatalogAudit {
   approved: number
   pending: number
@@ -1438,4 +1482,22 @@ export interface AdsCatalogPublishResponse {
   feedUrl: string
   published: number
   skipped: number
+}
+
+export interface AdsCatalogPublication {
+  id: string
+  kind: 'feed' | 'tiktok'
+  status: 'success' | 'simulated' | 'error'
+  published: number
+  skipped: number
+  feedUrl: string | null
+  tiktokCatalogId: string | null
+  audit: AdsCatalogAudit | null
+  error: string | null
+  createdAt: string
+}
+
+export interface AdsCatalogProductPreview {
+  product: Record<string, string>
+  finalUrl: string
 }

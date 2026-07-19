@@ -4,14 +4,12 @@
 // CatalogDialog (modal 3 cliques fundo) para virar página de nível superior
 // no menu (Gestão → Catálogo). A lógica é a mesma; só o chrome de modal saiu.
 //
-// A integração de Ads NÃO publica campanhas de catálogo — então o
-// fluxo aqui é: editar produtos na dashboard → publicar um feed CSV
-// TikTok-ready numa URL pública (Blob) → o usuário cola essa URL UMA vez no
-// Catalog Manager do TikTok como feed agendado. Toda edição aqui atualiza o
-// feed (mesma URL), e o TikTok re-puxa no próximo ciclo.
+// A integração confirmada gerencia produtos, publica o feed, cria/atualiza o
+// catálogo real no TikTok e consulta a análise agregada. Ela NÃO cria Product
+// Set, associa advertiser nem publica campanha de catálogo.
 //
-// Telas: (1) lista de catálogos da conta; (2) detalhe com tabela de produtos
-// editável, importação de CSV, download e publicação + passo a passo guiado.
+// Telas: (1) lista de catálogos; (2) fluxo guiado com importação por URL,
+// editor, validação, publicação, acompanhamento e opções avançadas.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -19,10 +17,11 @@ import {
   X, Loader2, Plus, Trash2, UploadCloud, Download, Rocket,
   Copy, Check, AlertCircle, ChevronLeft, ExternalLink, PackageOpen,
   Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
+  Link2, ChevronDown, History, CopyPlus, SearchCheck,
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
-  adsCatalogImportCsv, apiSend,
+  useAdsCatalogPublications, adsCatalogImportCsv, apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
@@ -274,7 +273,7 @@ function CatalogList({
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          Cada catálogo é criado no TikTok e fica pronto para uma campanha de vendas (DPA).
+          Cadastre, valide e sincronize seus produtos com um catálogo real no TikTok.
         </p>
         {!creating && (
           <button type="button" className="btn-primary shrink-0 text-xs" onClick={() => setCreating(true)}>
@@ -398,17 +397,52 @@ function CatalogDetail({
   onDeleted: () => void
 }) {
   const { data, mutate, isLoading } = useAdsCatalogDetail(catalogId)
+  const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId)
   const fileRef = useRef<HTMLInputElement>(null)
   const [editing, setEditing] = useState<AdsCatalogProduct | 'new' | null>(null)
+  const [urlValue, setUrlValue] = useState('')
+  const [urlImporting, setUrlImporting] = useState(false)
+  const [showUrlImport, setShowUrlImport] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [auditing, setAuditing] = useState(false)
+  const [autoChecking, setAutoChecking] = useState(false)
   const [importing, setImporting] = useState(false)
   const [copied, setCopied] = useState(false)
+  // Ref síncrona: impede dois syncs concorrentes mesmo antes do React
+  // aplicar setSyncing(true) (duplo toque no iPhone / salvar + botão manual).
+  const syncLockRef = useRef(false)
+  const auditAttemptsRef = useRef(0)
 
   const catalog = data?.catalog
   const products = data?.products ?? []
+  const publications = publicationData?.publications ?? []
   const validCount = products.filter((p) => p.valid).length
+  const hasUnpublishedChanges = Boolean(catalog?.syncedAt && products.some((p) => new Date(p.updatedAt).getTime() > new Date(catalog.syncedAt as string).getTime()))
+
+  async function handleUrlPreview() {
+    if (!urlValue.trim()) return
+    setUrlImporting(true)
+    try {
+      const preview = await apiSend<{ product: Record<string, string> }>(
+        `/api/ads/catalogs/${encodeURIComponent(catalogId)}/product-preview`, 'POST', { url: urlValue.trim() },
+      )
+      const data = { ...preview.product, sku_id: generateSku(), condition: 'new', availability: preview.product.availability || 'in stock' }
+      setEditing({ id: 'preview', catalogId, skuId: data.sku_id, data, valid: false, errors: [], createdAt: '', updatedAt: '' })
+      setShowUrlImport(false)
+      setUrlValue('')
+      toast.success('Dados encontrados — revise antes de salvar')
+    } catch (e) {
+      toast.error('Não foi possível importar a página', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setUrlImporting(false)
+    }
+  }
+
+  function handleDuplicate(product: AdsCatalogProduct) {
+    const data = { ...product.data, sku_id: generateSku(), title: `${product.data.title || 'Produto'} — cópia` }
+    setEditing({ ...product, id: 'duplicate', skuId: data.sku_id, data, createdAt: '', updatedAt: '' })
+  }
 
   async function handleImport(file: File) {
     setImporting(true)
@@ -436,7 +470,7 @@ function CatalogDetail({
       toast.success(`Feed publicado com ${res.published} produto(s)`, {
         hint: res.skipped > 0 ? `${res.skipped} pulado(s) por erros de validação.` : undefined,
       })
-      mutate()
+      await Promise.all([mutate(), mutatePublications()])
     } catch (e) {
       toast.error('Falha ao publicar o feed', { hint: e instanceof Error ? e.message : undefined })
     } finally {
@@ -446,6 +480,14 @@ function CatalogDetail({
 
   // Publica direto no TikTok: cria o catálogo (se preciso) e sobe os produtos.
   async function handleSyncTiktok() {
+    if (syncLockRef.current) return
+    if (!bcConfigured) {
+      toast.info('Produto salvo, mas ainda não publicado', {
+        hint: 'Configure o Business Center no topo da aba para publicar no TikTok.',
+      })
+      return
+    }
+    syncLockRef.current = true
     setSyncing(true)
     try {
       const res = await apiSend<AdsCatalogSyncResponse>(
@@ -457,13 +499,16 @@ function CatalogDetail({
         })
       } else {
         toast.success(`Catálogo publicado no TikTok com ${res.published} produto(s)`, {
-          hint: res.audit && res.audit.pending > 0 ? 'Os produtos entram em análise do TikTok — acompanhe o status abaixo.' : undefined,
+          hint: res.audit && res.audit.pending > 0 ? 'A análise será acompanhada automaticamente nesta tela.' : undefined,
         })
+        // Um novo envio reinicia a janela de acompanhamento (até 12 consultas).
+        auditAttemptsRef.current = 0
       }
-      mutate()
+      await Promise.all([mutate(), mutatePublications()])
     } catch (e) {
       toast.error('Falha ao publicar no TikTok', { hint: e instanceof Error ? e.message : undefined })
     } finally {
+      syncLockRef.current = false
       setSyncing(false)
     }
   }
@@ -473,16 +518,48 @@ function CatalogDetail({
     try {
       const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, { credentials: 'include' })
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `Erro ${res.status}`)
+        const auditData = await res.json().catch(() => ({}))
+        throw new Error(auditData.error || `Erro ${res.status}`)
       }
-      mutate()
+      await mutate()
     } catch (e) {
       toast.error('Falha ao atualizar status', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setAuditing(false)
     }
   }
+
+  // Acompanha a análise agregada do TikTok sem exigir recarregar a página.
+  // Intervalo conservador de 20 s, no máximo 12 tentativas (~4 min). Para ao
+  // sair da tela, quando não há pendentes, quando atinge o limite ou em erro.
+  useEffect(() => {
+    const hasTikTokCatalog = Boolean(catalog?.tiktokCatalogId)
+    const needsCheck = hasTikTokCatalog && (!catalog?.audit || (catalog.audit.pending ?? 0) > 0)
+    if (!needsCheck || auditAttemptsRef.current >= 12) {
+      setAutoChecking(false)
+      return
+    }
+
+    setAutoChecking(true)
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        auditAttemptsRef.current += 1
+        const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, { credentials: 'include' })
+        if (!res.ok) throw new Error(`Erro ${res.status}`)
+        if (!cancelled) await mutate()
+      } catch {
+        // Falha silenciosa no polling: o botão manual continua disponível e
+        // evita uma sequência de toasts por instabilidade temporária da API.
+        if (!cancelled) setAutoChecking(false)
+      }
+    }, 20_000)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [catalogId, catalog?.tiktokCatalogId, catalog?.audit?.pending, catalog?.audit?.at, mutate])
 
   async function handleDelete() {
     if (!confirm('Excluir este catálogo e todos os produtos? Isso não pode ser desfeito.')) return
@@ -531,61 +608,94 @@ function CatalogDetail({
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-4">
-            <div>
-              <p className="text-sm font-semibold text-foreground">{catalog?.name}</p>
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">{catalog?.name}</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 {products.length} produto{products.length === 1 ? '' : 's'} · {validCount} válido{validCount === 1 ? '' : 's'} · {catalog?.currency}
+                {hasUnpublishedChanges && <span className="font-semibold text-warning"> · alterações não publicadas</span>}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,text/csv"
-                className="sr-only"
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) handleImport(f)
-                }}
-              />
-              <button type="button" className="btn-ghost text-xs" onClick={() => fileRef.current?.click()} disabled={importing}>
-                {importing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />}
-                Importar CSV
+            {products.length === 0 ? (
+              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={() => setShowUrlImport(true)}>
+                <Link2 className="size-3.5" aria-hidden="true" /> Importar primeiro produto
               </button>
-              <a
-                className="btn-ghost text-xs"
-                href={`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`}
-              >
-                <Download className="size-3.5" aria-hidden="true" />
-                Baixar CSV
-              </a>
-              <button type="button" className="btn-ghost text-xs" onClick={() => setEditing('new')}>
-                <Plus className="size-3.5" aria-hidden="true" />
-                Produto
+            ) : validCount === 0 ? (
+              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={() => setEditing(products[0])}>
+                <Pencil className="size-3.5" aria-hidden="true" /> Corrigir produto
               </button>
-              <button
-                type="button"
-                className="btn-ghost text-xs"
-                onClick={handlePublish}
-                disabled={publishing || validCount === 0}
-                title="Publicar só o feed CSV (URL pública) para usar como feed agendado manual"
-              >
-                {publishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />}
-                Feed manual
-              </button>
-              <button
-                type="button"
-                className="btn-primary text-xs"
-                onClick={handleSyncTiktok}
-                disabled={syncing || validCount === 0 || !bcConfigured}
-                title={!bcConfigured ? 'Configure o Business Center acima para publicar no TikTok' : undefined}
-              >
+            ) : bcConfigured ? (
+              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={handleSyncTiktok} disabled={syncing}>
                 {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
-                {catalog?.tiktokCatalogId ? 'Atualizar no TikTok' : 'Publicar no TikTok'}
+                {catalog?.tiktokCatalogId ? 'Republicar no TikTok' : 'Publicar no TikTok'}
+              </button>
+            ) : (
+              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={handlePublish} disabled={publishing}>
+                {publishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />}
+                Publicar feed
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-ghost text-xs" onClick={() => setShowUrlImport((value) => !value)} aria-expanded={showUrlImport}>
+              <Link2 className="size-3.5" aria-hidden="true" /> Importar pela URL
+            </button>
+            <button type="button" className="btn-ghost text-xs" onClick={() => setEditing('new')}>
+              <Plus className="size-3.5" aria-hidden="true" /> Adicionar manualmente
+            </button>
+          </div>
+
+          {showUrlImport && (
+            <section className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4" aria-labelledby="url-import-title">
+              <div className="flex flex-col gap-1">
+                <h3 id="url-import-title" className="text-xs font-semibold text-foreground">Preencher pela página do produto</h3>
+                <p className="text-pretty text-[11px] text-muted-foreground">Buscamos título, descrição, imagem e preço. Você revisa tudo antes de salvar.</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  className="input-base min-w-0 flex-1"
+                  value={urlValue}
+                  onChange={(event) => setUrlValue(event.target.value)}
+                  placeholder="https://sualoja.com/produto"
+                  inputMode="url"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleUrlPreview()
+                  }}
+                />
+                <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleUrlPreview} disabled={urlImporting || !urlValue.trim()}>
+                  {urlImporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <SearchCheck className="size-3.5" aria-hidden="true" />}
+                  Buscar dados
+                </button>
+              </div>
+            </section>
+          )}
+
+          <details className="rounded-xl border border-border bg-background p-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-foreground">
+              Opções avançadas <ChevronDown className="size-3.5" aria-hidden="true" />
+            </summary>
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
+              <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) handleImport(file) }} />
+              <button type="button" className="btn-ghost text-xs" onClick={() => fileRef.current?.click()} disabled={importing}>
+                {importing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />} Importar CSV
+              </button>
+              <a className="btn-ghost text-xs" href={`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`}>
+                <Download className="size-3.5" aria-hidden="true" /> Baixar CSV
+              </a>
+              <button type="button" className="btn-ghost text-xs" onClick={handlePublish} disabled={publishing || validCount === 0}>
+                <UploadCloud className="size-3.5" aria-hidden="true" /> Atualizar só o feed
               </button>
             </div>
-          </div>
+          </details>
+
+          {/* Fluxo baseado apenas em estados reais retornados pelo backend. */}
+          <CatalogProgress
+            catalog={catalog}
+            productCount={products.length}
+            validCount={validCount}
+            syncing={syncing}
+          />
 
           {/* Aviso: BC não configurado bloqueia a publicação no TikTok */}
           {!bcConfigured && (
@@ -600,7 +710,14 @@ function CatalogDetail({
           )}
 
           {/* Status do catálogo no TikTok (quando já publicado) */}
-          {catalog?.tiktokCatalogId && <TiktokStatusPanel catalog={catalog} auditing={auditing} onRefresh={handleRefreshAudit} />}
+          {catalog?.tiktokCatalogId && (
+            <TiktokStatusPanel
+              catalog={catalog}
+              auditing={auditing}
+              autoChecking={autoChecking}
+              onRefresh={handleRefreshAudit}
+            />
+          )}
 
           {/* Alternativa manual: feed agendado (para quem não usa a publicação
               direta ou prefere conectar a URL à mão no Catalog Manager) */}
@@ -684,6 +801,9 @@ function CatalogDetail({
                           <button type="button" className="btn-ghost px-2 py-1" onClick={() => setEditing(p)} aria-label="Editar">
                             Editar
                           </button>
+                          <button type="button" className="btn-ghost px-2 py-1" onClick={() => handleDuplicate(p)} aria-label="Duplicar e revisar">
+                            <CopyPlus className="size-3.5" aria-hidden="true" />
+                          </button>
                           <button type="button" className="btn-ghost px-2 py-1 text-error" onClick={() => handleDeleteProduct(p.id)} aria-label="Remover">
                             <Trash2 className="size-3.5" aria-hidden="true" />
                           </button>
@@ -694,6 +814,32 @@ function CatalogDetail({
                 </tbody>
               </table>
             </div>
+          )}
+
+          {publications.length > 0 && (
+            <details className="rounded-xl border border-border bg-background p-4">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-foreground">
+                <span className="flex items-center gap-2"><History className="size-3.5" aria-hidden="true" /> Histórico de publicações</span>
+                <span className="text-[10px] font-normal text-muted-foreground">{publications.length} registro{publications.length === 1 ? '' : 's'}</span>
+              </summary>
+              <ol className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+                {publications.slice(0, 10).map((publication) => (
+                  <li key={publication.id} className="flex items-start justify-between gap-3 rounded-lg bg-secondary/40 p-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium text-foreground">
+                        {publication.kind === 'tiktok' ? 'TikTok' : 'Feed'} · {publication.status === 'simulated' ? 'simulação' : 'publicado'}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {publication.published} enviado(s){publication.skipped > 0 ? ` · ${publication.skipped} ignorado(s)` : ''}
+                      </p>
+                    </div>
+                    <time className="shrink-0 text-[10px] text-muted-foreground" dateTime={publication.createdAt}>
+                      {new Date(publication.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}
+                    </time>
+                  </li>
+                ))}
+              </ol>
+            </details>
           )}
         </>
       )}
@@ -713,7 +859,13 @@ function CatalogDetail({
             // botões manuais continuam disponíveis para quem preferir).
             const fresh = await mutate()
             const anyValid = (fresh?.products ?? []).some((p) => p.valid)
-            if (bcConfigured && anyValid) handleSyncTiktok()
+            if (bcConfigured && anyValid) {
+              await handleSyncTiktok()
+            } else if (!bcConfigured) {
+              toast.info('Produto salvo como rascunho', {
+                hint: 'Configure o Business Center no topo para publicar no TikTok.',
+              })
+            }
           }}
         />
       )}
@@ -721,16 +873,101 @@ function CatalogDetail({
   )
 }
 
+// ── Progresso do fluxo confirmado ─────────────────────────────────────────
+function CatalogProgress({
+  catalog,
+  productCount,
+  validCount,
+  syncing,
+}: {
+  catalog: AdsCatalog | undefined
+  productCount: number
+  validCount: number
+  syncing: boolean
+}) {
+  const audit = catalog?.audit
+  const hasValidProduct = validCount > 0
+  const hasFeed = Boolean(catalog?.feedUrl)
+  const hasTikTokCatalog = Boolean(catalog?.tiktokCatalogId)
+  const reviewState = !hasTikTokCatalog
+    ? 'waiting'
+    : !audit || audit.pending > 0
+      ? 'active'
+      : audit.rejected > 0
+        ? 'error'
+        : audit.approved > 0
+          ? 'done'
+          : 'waiting'
+
+  const steps = [
+    {
+      label: 'Produto válido',
+      detail: productCount === 0 ? 'Adicione o primeiro produto' : `${validCount} de ${productCount} válido${validCount === 1 ? '' : 's'}`,
+      state: hasValidProduct ? 'done' : productCount > 0 ? 'error' : 'waiting',
+    },
+    {
+      label: 'Feed publicado',
+      detail: catalog?.feedPublishedAt ? 'URL estável atualizada' : 'Gerado automaticamente ao publicar',
+      state: hasFeed ? 'done' : syncing ? 'active' : 'waiting',
+    },
+    {
+      label: 'Catálogo TikTok',
+      detail: hasTikTokCatalog ? `ID ${catalog?.tiktokCatalogId}` : 'Criado no Business Center',
+      state: hasTikTokCatalog ? 'done' : syncing ? 'active' : 'waiting',
+    },
+    {
+      label: 'Análise dos produtos',
+      detail: audit
+        ? `${audit.approved} aprovado(s), ${audit.pending} pendente(s), ${audit.rejected} reprovado(s)`
+        : hasTikTokCatalog ? 'Aguardando retorno do TikTok' : 'Começa após a publicação',
+      state: reviewState,
+    },
+  ] as const
+
+  return (
+    <section className="rounded-xl border border-border bg-background p-4" aria-labelledby="catalog-progress-title">
+      <div className="flex flex-col gap-1">
+        <h3 id="catalog-progress-title" className="text-xs font-semibold text-foreground">Progresso da publicação</h3>
+        <p className="text-pretty text-[11px] text-muted-foreground">
+          Etapas verificadas pela dashboard. Aprovação do produto não significa que uma campanha foi criada.
+        </p>
+      </div>
+      <ol className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {steps.map((step, index) => (
+          <li key={step.label} className="flex min-w-0 items-start gap-2 rounded-lg border border-border bg-card p-3">
+            <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+              step.state === 'done'
+                ? 'bg-success/15 text-success'
+                : step.state === 'error'
+                  ? 'bg-error/15 text-error'
+                  : step.state === 'active'
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-secondary text-muted-foreground'
+            }`}>
+              {step.state === 'done' ? <Check className="size-3.5" aria-hidden="true" /> : step.state === 'active' ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : index + 1}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[11px] font-semibold text-foreground">{step.label}</span>
+              <span className="block truncate text-[10px] text-muted-foreground" title={step.detail}>{step.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
 // ── Painel de status do catálogo no TikTok ────────────────────────────────
-// Mostra que o catálogo já vive no TikTok (id real + auditoria dos produtos) e
-// se está pronto para uma campanha de vendas (DPA).
+// Mostra somente o que o provider confirma: ID real e contagens agregadas.
 function TiktokStatusPanel({
   catalog,
   auditing,
+  autoChecking,
   onRefresh,
 }: {
   catalog: AdsCatalog
   auditing: boolean
+  autoChecking: boolean
   onRefresh: () => void
 }) {
   const [copied, setCopied] = useState(false)
@@ -738,8 +975,7 @@ function TiktokStatusPanel({
   const approved = audit?.approved ?? 0
   const pending = audit?.pending ?? 0
   const rejected = audit?.rejected ?? 0
-  // "Pronto para campanha" = há produtos aprovados e nada em análise pendente.
-  const ready = approved > 0 && pending === 0
+  const catalogSynced = approved > 0 && pending === 0
   const syncedAt = catalog.syncedAt ? new Date(catalog.syncedAt) : null
 
   function copyId() {
@@ -751,16 +987,24 @@ function TiktokStatusPanel({
   }
 
   return (
-    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${ready ? 'border-success/30 bg-success/5' : 'border-primary/25 bg-primary/5'}`}>
+    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${catalogSynced ? 'border-success/30 bg-success/5' : 'border-primary/25 bg-primary/5'}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-          {ready ? (
-            <ShieldCheck className="size-4 text-success" aria-hidden="true" />
-          ) : (
-            <Clock className="size-4 text-primary" aria-hidden="true" />
+        <div className="flex flex-col gap-0.5">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            {catalogSynced ? (
+              <ShieldCheck className="size-4 text-success" aria-hidden="true" />
+            ) : (
+              <Clock className="size-4 text-primary" aria-hidden="true" />
+            )}
+            {catalogSynced ? 'Catálogo sincronizado' : 'Catálogo publicado no TikTok'}
+          </p>
+          {autoChecking && (
+            <p className="flex items-center gap-1 text-[10px] text-muted-foreground" role="status">
+              <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+              Verificando a análise automaticamente
+            </p>
           )}
-          {ready ? 'Publicado no TikTok — pronto para campanha' : 'Publicado no TikTok'}
-        </p>
+        </div>
         <button type="button" className="btn-ghost text-xs" onClick={onRefresh} disabled={auditing}>
           {auditing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />}
           Atualizar status
@@ -795,26 +1039,22 @@ function TiktokStatusPanel({
       )}
 
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-        {ready
-          ? 'Crie uma campanha de Product Sales (DPA) no TikTok Ads Manager e selecione este catálogo. As edições de produtos aqui, ao republicar, atualizam o mesmo catálogo.'
+        {catalogSynced
+          ? 'O produto está aprovado e sincronizado neste catálogo. A dashboard ainda não cria Product Set, associação com a conta de anúncios ou campanha de catálogo.'
           : rejected > 0
-            ? 'Alguns produtos foram reprovados pelo TikTok — verifique imagens (≥ 500×500), links https válidos e a moeda do preço, corrija na tabela e republique.'
-            : 'Assim que os produtos forem aprovados, o catálogo fica disponível na criação de campanhas de Product Sales (DPA).'}
+            ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
+            : 'O TikTok ainda está processando os produtos. Esta tela atualiza as contagens automaticamente enquanto houver itens pendentes.'}
       </p>
+      <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
+        <strong className="text-foreground">Limite atual da automação:</strong>{' '}
+        publicação e análise do catálogo. Nenhum anúncio é criado ou ativado por esta ação.
+      </div>
       {syncedAt && (
         <p className="text-[10px] text-muted-foreground">
           Última publicação: {syncedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+          {audit?.at ? ` · Status consultado: ${new Date(audit.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}
         </p>
       )}
-      <a
-        className="btn-ghost w-fit text-xs"
-        href="https://ads.tiktok.com/i18n/creation/campaign"
-        target="_blank"
-        rel="noreferrer"
-      >
-        <ExternalLink className="size-3.5" aria-hidden="true" />
-        Abrir criação de campanha
-      </a>
     </div>
   )
 }
@@ -974,7 +1214,7 @@ function ProductEditor({
         <div className="anim-pop-in flex max-h-[88dvh] flex-col gap-4 overflow-hidden rounded-t-2xl border border-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:max-h-[85vh] sm:rounded-2xl sm:pb-5">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-foreground">
-              {product ? 'Editar produto' : 'Novo produto'}
+              {product?.id === 'preview' ? 'Revisar dados importados' : product?.id === 'duplicate' ? 'Revisar produto duplicado' : product ? 'Editar produto' : 'Novo produto'}
             </h3>
             <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} aria-label="Fechar">
               <X className="size-4" aria-hidden="true" />
@@ -983,6 +1223,20 @@ function ProductEditor({
 
           <div className="flex flex-col gap-3 overflow-y-auto pr-1">
             {requiredFields.map(renderField)}
+
+            <div className="grid gap-2 rounded-lg border border-border bg-background p-3 sm:grid-cols-2" aria-label="Verificação preventiva">
+              {[
+                { label: 'Campos obrigatórios', ok: missingRequired.length === 0 },
+                { label: 'Página HTTPS', ok: /^https:\/\//i.test(form.link || '') },
+                { label: 'Imagem HTTPS', ok: /^https:\/\//i.test(form.image_link || '') },
+                { label: `Preço em ${currency}`, ok: Boolean(formatPriceForFeed(form.price || '', currency).match(/^\d+(?:\.\d{1,2})?\s+[A-Z]{3}$/)) },
+              ].map((item) => (
+                <span key={item.label} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  {item.ok ? <Check className="size-3 text-success" aria-hidden="true" /> : <AlertCircle className="size-3 text-warning" aria-hidden="true" />}
+                  {item.label}
+                </span>
+              ))}
+            </div>
 
             {optionalFields.length > 0 && (
               <button
@@ -1079,6 +1333,14 @@ function ImageField({
   async function handleUpload(file: File) {
     setUploading(true)
     try {
+      if (!['image/png', 'image/jpeg'].includes(file.type)) throw new Error('Use uma imagem PNG ou JPEG')
+      if (file.size > 10 * 1024 * 1024) throw new Error('A imagem deve ter no máximo 10 MB')
+      const bitmap = await createImageBitmap(file)
+      const dimensions = { width: bitmap.width, height: bitmap.height }
+      bitmap.close()
+      if (dimensions.width < 500 || dimensions.height < 500) {
+        throw new Error(`A imagem tem ${dimensions.width}×${dimensions.height}px; o mínimo é 500×500px`)
+      }
       const res = await fetch(
         `/api/ads/upload?kind=image&filename=${encodeURIComponent(file.name)}`,
         { method: 'POST', body: file, credentials: 'include' },

@@ -46,6 +46,7 @@ import { CreativeInsightsCard } from './creative-insights-card'
 import { BudgetProposalCard } from './budget-proposal-card'
 import { SmartPlusPanel } from './smart-plus-panel'
 import { CatalogManager } from './catalog-manager'
+import { OperationsCenter } from './operations-center'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export function TikTokAdsView() {
@@ -110,10 +111,24 @@ export function TikTokAdsView() {
     { value: 'ai', label: 'IA', icon: BrainCircuit },
   ]
   const [tab, setTab] = useState<TabKey>('overview')
+  const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get('tab')
-    if (t === 'campaigns' || t === 'smartplus' || t === 'catalog' || t === 'automation' || t === 'ai') setTab(t)
-  }, [])
+    const readTab = () => {
+      const value = new URLSearchParams(window.location.search).get('tab') as TabKey | null
+      setTab(value && validTabs.has(value) ? value : 'overview')
+    }
+    readTab()
+    window.addEventListener('popstate', readTab)
+    return () => window.removeEventListener('popstate', readTab)
+  }, [validTabs])
+
+  function changeTab(value: TabKey) {
+    setTab(value)
+    const url = new URL(window.location.href)
+    if (value === 'overview') url.searchParams.delete('tab')
+    else url.searchParams.set('tab', value)
+    window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`)
+  }
 
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -307,6 +322,11 @@ export function TikTokAdsView() {
         advertisers={advertisers}
         selectedAdvertiser={effectiveAdvertiser}
         refreshing={treeValidating}
+        rangeDays={rangeDays}
+        onRangeDays={(days) => {
+          setRangeDays(days)
+          setPage(1)
+        }}
         onAdvertiserChanged={(id) => {
           setAdvertiserId(id)
           setPage(1)
@@ -342,18 +362,26 @@ export function TikTokAdsView() {
         <>
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
-          <Tabs.Root value={tab} onValueChange={(v) => setTab(v as TabKey)}>
-            <Tabs.List className="flex overflow-x-auto items-center gap-1.5 rounded-2xl bg-white/[0.03] p-1.5 backdrop-blur-md border border-white/5 hide-scrollbar mx-auto w-max mb-2">
-              {SUBTABS.map((t) => (
-                <Tabs.Trigger
-                  key={t.value}
-                  value={t.value}
-                  className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-[13px] font-semibold text-muted-foreground transition-all hover:text-white data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-sm focus:outline-none"
-                >
-                  <t.icon className="size-3.5" aria-hidden="true" />
-                  {t.label}
-                </Tabs.Trigger>
-              ))}
+          <Tabs.Root value={tab} onValueChange={(value) => changeTab(value as TabKey)}>
+            <Tabs.List aria-label="Áreas do TikTok Ads" className="flex w-full items-center gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1.5 hide-scrollbar sm:w-max sm:self-center">
+              {SUBTABS.map((item) => {
+                const attentionCount = item.value === 'automation' ? bannedAccounts.length + openTickets.length : item.value === 'campaigns' && tree?.syncError ? 1 : 0
+                return (
+                  <Tabs.Trigger
+                    key={item.value}
+                    value={item.value}
+                    className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <item.icon className="size-4" aria-hidden="true" />
+                    {item.label}
+                    {attentionCount > 0 && (
+                      <span className="flex min-w-5 items-center justify-center rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
+                        {attentionCount}
+                      </span>
+                    )}
+                  </Tabs.Trigger>
+                )
+              })}
             </Tabs.List>
           </Tabs.Root>
 
@@ -415,6 +443,15 @@ export function TikTokAdsView() {
           {/* ── Aba: Visão geral — "como estou indo?" (KPIs, ROAS, briefing) ── */}
           {tab === 'overview' && (
             <>
+              <AttentionStrip
+                active={treeActive}
+                onOpenOps={() => {
+                  changeTab('automation')
+                  setOpsOpen(true)
+                }}
+                onOpenHealth={() => setHealthOpen(true)}
+                onFocusAlerts={() => changeTab('automation')}
+              />
               <KpiRow
                 kpi={kpi}
                 currency={currency}
@@ -425,6 +462,21 @@ export function TikTokAdsView() {
               />
               {/* ROAS/CPA: gasto do TikTok × vendas reais dos gateways */}
               <RoasCard active={treeActive} adAccountId={concreteAdvertiser} />
+              <OperationsCenter
+                active={treeActive}
+                advertiserId={concreteAdvertiser}
+                currency={currency}
+                campaigns={tree?.campaigns || []}
+                conversions={kpi.conversions}
+                revenue={Object.values(attribution?.byCampaign || {}).reduce((sum, item) => sum + item.revenueCents, 0) / 100}
+                onNavigate={(nextTab, id) => {
+                  changeTab(nextTab)
+                  if (nextTab === 'campaigns' && id) {
+                    const campaign = tree?.campaigns.find((item) => item.platformCampaignId === id)
+                    if (campaign) setDetailCampaign(campaign)
+                  }
+                }}
+              />
               {/* Briefing diário da IA (se auto-esconde sem AI_GATEWAY_API_KEY) */}
               <BriefingCard adAccountId={concreteAdvertiser} currency={currency} />
             </>

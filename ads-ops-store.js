@@ -206,6 +206,27 @@ async function ensureSchema() {
     // Dedup: no máximo 1 proposta PENDENTE por (conta, regra, campanha) —
     // dois sweeps concorrentes (tick + hook das rotas) não duplicam.
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_rule_proposals_pending ON ads_rule_proposals (account_id, rule_id, campaign_id) WHERE status = 'pending'`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_workspace_preferences (
+      account_id text NOT NULL,
+      advertiser_id text NOT NULL,
+      goals jsonb NOT NULL DEFAULT '{}'::jsonb,
+      favorites jsonb NOT NULL DEFAULT '[]'::jsonb,
+      columns jsonb NOT NULL DEFAULT '[]'::jsonb,
+      memory jsonb NOT NULL DEFAULT '{}'::jsonb,
+      governance jsonb NOT NULL DEFAULT '{}'::jsonb,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (account_id, advertiser_id)
+    )`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_internal_reports (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      advertiser_id text NOT NULL,
+      kind text NOT NULL,
+      title text NOT NULL,
+      content jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_internal_reports_account_idx ON ads_internal_reports (account_id, advertiser_id, created_at DESC)`;
     console.log('[ads-ops] schema verificado/criado');
     return true;
   })().catch((err) => {
@@ -586,4 +607,80 @@ async function resolveTicketsForAdvertiser(accountId, advertiserId) {
   return sql`UPDATE ads_unban_tickets SET status = 'resolved', resolved_at = now(), notes = COALESCE(notes || ' | ', '') || 'Conta reativada — resolvido automaticamente', updated_at = now() WHERE account_id = ${accountId} AND advertiser_id = ${String(advertiserId || '')} AND status IN ('open','submitted') RETURNING id, advertiser_id`;
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, PROPOSAL_TTL_MS };
+function cleanAdvertiserId(value) {
+  const advertiserId = String(value || '').trim().slice(0, 120);
+  if (!advertiserId) throw new Error('advertiserId obrigatório');
+  return advertiserId;
+}
+
+function normalizeWorkspace(input) {
+  const value = input || {};
+  const goals = value.goals || {};
+  const governance = value.governance || {};
+  const favorites = Array.isArray(value.favorites) ? value.favorites : [];
+  return {
+    goals: {
+      roasMin: Math.max(0, Number(goals.roasMin) || 0),
+      cpaMax: Math.max(0, Number(goals.cpaMax) || 0),
+      dailySpendCap: Math.max(0, Number(goals.dailySpendCap) || 0),
+      conversionsTarget: Math.max(0, Math.floor(Number(goals.conversionsTarget) || 0)),
+      revenueTarget: Math.max(0, Number(goals.revenueTarget) || 0)
+    },
+    favorites: favorites.map((item) => ({
+      type: ['campaign', 'product', 'rule'].includes(item && item.type) ? item.type : 'campaign',
+      id: String(item && item.id || '').slice(0, 160),
+      label: String(item && item.label || '').slice(0, 200)
+    })).filter((item) => item.id).slice(0, 100),
+    columns: Array.isArray(value.columns) ? [...new Set(value.columns.map(String))].slice(0, 20) : [],
+    memory: Object.fromEntries(Object.entries(value.memory && typeof value.memory === 'object' ? value.memory : {}).slice(0, 20).map(([key, val]) => [String(key).slice(0, 60), String(val).slice(0, 500)])),
+    governance: {
+      actorRole: ['viewer', 'analyst', 'operator', 'admin'].includes(governance.actorRole) ? governance.actorRole : 'admin',
+      requiredApprovals: 1,
+      dualApprovalEnabled: false,
+      maxTargetsPerAction: Math.min(100, Math.max(1, Number(governance.maxTargetsPerAction) || 20)),
+      maxTotalBudget: Math.max(0, Number(governance.maxTotalBudget) || 0)
+    }
+  };
+}
+
+async function getWorkspace(accountId, advertiserId) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) return normalizeWorkspace({});
+  await ensureSchema();
+  const rows = await sql`SELECT goals, favorites, columns, memory, governance, updated_at FROM ads_workspace_preferences WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} LIMIT 1`;
+  if (!rows.length) return { ...normalizeWorkspace({}), updatedAt: null };
+  const row = rows[0];
+  return { ...normalizeWorkspace(row), updatedAt: row.updated_at };
+}
+
+async function saveWorkspace(accountId, advertiserId, input) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const value = normalizeWorkspace(input);
+  await sql`INSERT INTO ads_workspace_preferences (account_id, advertiser_id, goals, favorites, columns, memory, governance) VALUES (${accountId}, ${advertiserId}, ${JSON.stringify(value.goals)}, ${JSON.stringify(value.favorites)}, ${JSON.stringify(value.columns)}, ${JSON.stringify(value.memory)}, ${JSON.stringify(value.governance)}) ON CONFLICT (account_id, advertiser_id) DO UPDATE SET goals = EXCLUDED.goals, favorites = EXCLUDED.favorites, columns = EXCLUDED.columns, memory = EXCLUDED.memory, governance = EXCLUDED.governance, updated_at = now()`;
+  return value;
+}
+
+async function createInternalReport(accountId, advertiserId, input) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const kind = ['daily', 'weekly', 'monthly'].includes(input && input.kind) ? input.kind : 'daily';
+  const rows = await sql`INSERT INTO ads_internal_reports (id, account_id, advertiser_id, kind, title, content) VALUES (${id('report_')}, ${accountId}, ${advertiserId}, ${kind}, ${String(input && input.title || 'Relatório TikTok Ads').slice(0, 200)}, ${JSON.stringify(input && input.content || {})}) RETURNING id, advertiser_id, kind, title, content, created_at`;
+  return rows[0];
+}
+
+async function listInternalReports(accountId, advertiserId, limit) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) return [];
+  await ensureSchema();
+  const size = Math.min(50, Math.max(1, Number(limit) || 20));
+  return sql`SELECT id, advertiser_id, kind, title, content, created_at FROM ads_internal_reports WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} ORDER BY created_at DESC LIMIT ${size}`;
+}
+
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, PROPOSAL_TTL_MS };

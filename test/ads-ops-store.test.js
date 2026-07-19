@@ -40,5 +40,22 @@ assert.strictEqual(ops.circuitBreakerOpen([true, false], 25, 10), false);
 assert.strictEqual(ops.circuitBreakerOpen([true, true, true, true, true, true, false, false, false, false], 25, 10), true);
 assert.strictEqual(ops.circuitBreakerOpen([true, true, true, true, true, true, true, true, false, false], 25, 10), false);
 
+const workspace = ops.normalizeWorkspace({
+  goals: { roasMin: -2, cpaMax: '15.5', conversionsTarget: 4.8 },
+  favorites: [{ type: 'campaign', id: 'cmp_1', label: 'Principal' }, { type: 'invalid', id: '' }],
+  columns: ['spend', 'spend', 'roas'],
+  memory: { market: 'Portugal' },
+  governance: { actorRole: 'viewer', requiredApprovals: 99, dualApprovalEnabled: true, maxTargetsPerAction: 500 },
+});
+assert.strictEqual(workspace.goals.roasMin, 0, 'metas negativas são normalizadas');
+assert.strictEqual(workspace.goals.cpaMax, 15.5);
+assert.strictEqual(workspace.goals.conversionsTarget, 4, 'conversões são inteiras');
+assert.deepStrictEqual(workspace.columns, ['spend', 'roas'], 'colunas são únicas');
+assert.strictEqual(workspace.favorites.length, 1, 'favoritos inválidos são removidos');
+assert.strictEqual(workspace.governance.actorRole, 'viewer');
+assert.strictEqual(workspace.governance.dualApprovalEnabled, false, 'aprovação dupla não pode ser ativada sem gestão real de usuários');
+assert.strictEqual(workspace.governance.requiredApprovals, 1);
+assert.strictEqual(workspace.governance.maxTargetsPerAction, 100, 'limite de alvos é clampado');
+
 if (previous) process.env.DATABASE_URL = previous;
 console.log('ads-ops-store.test.js OK — escopo, dry-run, idempotência, kill switch e limites validados');
