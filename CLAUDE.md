@@ -671,13 +671,16 @@ só no Railway (§5.2.2).
 (log de conversões/pixels/cloaker) · `/links` Links de Checkout · `/cloak` Filtro de Bots ·
 `/domains` Domínios · `/pixels` Pixel TikTok (saúde + EMQ) · `/gateways` Gateways · `/config`
 Configurações · `/ads/tiktok` **TikTok Ads** (via Pipeboard MCP; rotas `/api/ads/*` em
-`ads-routes.js`) com 6 sub-abas — Visão geral, Campanhas (ABO/CBO + estratégia de lance na
-criação; filtro "Validadas" por reviewStatus), Smart+ (listar/pausar/criar composto pausado +
-appeal de anúncio reprovado), **Catálogo** (produtos + feed CSV + publicação real no TikTok via
-Business Center), Automações (regras cpa/spend/roas/ctr/cpm/**cpc_max** + alerta de criativo
-reprovado; motor 24/7 em `ads-automation.js`) e IA. `/catalog` é só redirect para
-`/ads/tiktok?tab=catalog`. Cada página é um `page.tsx` fino que renderiza a view de
-`components/<área>/`.
+`ads-routes.js`) com **4 sub-abas** — **Hoje** (centro de comando: inbox "Precisa de você" com
+propostas 1-toque + KPIs/ROAS/briefing + feed "O que o robô fez" + atalhos), **Campanhas** (segmento
+Manuais/Smart+; ABO/CBO + estratégia de lance na criação; filtro "Validadas" por reviewStatus),
+**Automações** (Pilotos em linguagem de gestor — Protetor/Escalador/Horário com intensidade + 1
+seletor de autonomia; editor técnico de regras e IA no "Modo avançado"; motor 24/7 em
+`ads-automation.js`) e **Catálogo** (produtos + feed CSV + publicação real via Business Center).
+Pilotos são camada de apresentação (`dashboard/lib/pilots.ts`) sobre as regras — gravam via
+`PUT /api/ads/rules` com tag `pilot`/`intensity` (whitelist em `validateRules`). `/catalog` e
+`?tab=overview|smartplus|ai` são redirects/aliases legados. Cada página é um `page.tsx` fino que
+renderiza a view de `components/<área>/`.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):

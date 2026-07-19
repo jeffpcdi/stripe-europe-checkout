@@ -361,7 +361,7 @@ export function TikTokAdsView() {
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
           <Tabs.Root value={tab} onValueChange={(value) => changeTab(value as TabKey)}>
-            <Tabs.List aria-label="Áreas do TikTok Ads" className="flex w-full items-center gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1.5 hide-scrollbar sm:w-max sm:self-center">
+            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="flex w-full items-center gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1.5 hide-scrollbar sm:w-max sm:self-center">
               {SUBTABS.map((item) => {
                 const attentionCount = item.value === 'automation' ? bannedAccounts.length + openTickets.length : item.value === 'campaigns' && tree?.syncError ? 1 : 0
                 return (

@@ -95,6 +95,7 @@ export function AdsContextBar({
     <div
       role="toolbar"
       aria-label="Contexto do TikTok Ads: Business Center e conta de anúncio"
+      data-tour="ads-context"
       className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-white/5 bg-[#040406]/60 backdrop-blur-3xl px-5 py-3 text-xs shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
     >
       <span className="flex items-center gap-1.5 font-semibold text-success">

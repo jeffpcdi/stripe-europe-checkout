@@ -222,6 +222,34 @@ const CLOAK_TOUR: Tour = {
   ],
 }
 
+/** Tour da aba TikTok Ads (âncoras na aba inicial "Hoje") */
+const ADS_TOUR: Tour = {
+  key: 'ads',
+  label: 'TikTok Ads',
+  steps: [
+    {
+      target: 'ads-context',
+      title: 'Sua conta e a conexão',
+      body: 'Escolha a conta de anúncio e veja num relance se a conexão com o TikTok está saudável.',
+    },
+    {
+      target: 'ads-tabs',
+      title: 'Quatro abas, um fluxo',
+      body: 'Hoje (seu dia), Campanhas (criar e operar, inclui Smart+), Automações (o robô) e Catálogo.',
+    },
+    {
+      target: 'ads-inbox',
+      title: 'Precisa de você',
+      body: 'Aqui você decide num toque o que o robô propôs — pausar ou ajustar orçamento. Nada acontece sem o seu OK.',
+    },
+    {
+      target: 'ads-feed',
+      title: 'O que o robô fez',
+      body: 'Transparência total: cada ação e proposta do robô fica registrada, com o resultado.',
+    },
+  ],
+}
+
 /** Mapa rota → tour disponível */
 export const TOURS: Record<string, Tour> = {
   '/': OVERVIEW_TOUR,
@@ -232,6 +260,7 @@ export const TOURS: Record<string, Tour> = {
   '/gateways': GATEWAYS_TOUR,
   '/domains': DOMAINS_TOUR,
   '/cloak': CLOAK_TOUR,
+  '/ads/tiktok': ADS_TOUR,
 }
 
 /** Resolve o tour da rota atual (pathname sem basePath) */
@@ -244,6 +273,7 @@ export function tourForPath(pathname: string): Tour | null {
   if (pathname.startsWith('/gateways')) return GATEWAYS_TOUR
   if (pathname.startsWith('/domains')) return DOMAINS_TOUR
   if (pathname.startsWith('/cloak')) return CLOAK_TOUR
+  if (pathname.startsWith('/ads')) return ADS_TOUR
   return null
 }
 
