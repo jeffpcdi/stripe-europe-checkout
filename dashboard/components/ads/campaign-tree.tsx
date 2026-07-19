@@ -33,6 +33,7 @@ import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { AdEditDialog } from './ad-edit-dialog'
 import { fmtCompact, fmtPercent, cleanCampaignName } from '@/lib/format'
 
 function fmtMoney(v: number | undefined, currency: string): string {
@@ -169,6 +170,8 @@ export function CampaignTree({
   const [busyId, setBusyId] = useState<string | null>(null)
   const [deleteAd, setDeleteAd] = useState<AdsTreeAd | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // Edição de anúncio (texto/CTA/link) sem recriar
+  const [editAd, setEditAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
   // Ações em lote: seleção por checkbox → barra flutuante pausa/ativa tudo
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
@@ -673,6 +676,15 @@ export function CampaignTree({
                           )}
                           <button
                             type="button"
+                            className="btn-ghost px-1.5 py-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                            onClick={() => setEditAd({ ad, adAccountId: c.platformAdAccountId || '' })}
+                            aria-label={`Editar anúncio ${ad.name || adKey}`}
+                            title="Editar texto, botão e link"
+                          >
+                            <Pencil className="size-3" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
                             className="btn-ghost px-1.5 py-1 text-error opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
                             onClick={() => setDeleteAd(ad)}
                             aria-label={`Excluir anúncio ${ad.name || adKey}`}
@@ -1016,6 +1028,14 @@ export function CampaignTree({
         busy={deleting}
         onConfirm={handleDeleteAd}
         onClose={() => setDeleteAd(null)}
+      />
+
+      {/* Edição de anúncio (texto/CTA/link) sem recriar */}
+      <AdEditDialog
+        ad={editAd?.ad ?? null}
+        adAccountId={editAd?.adAccountId ?? ''}
+        onClose={() => setEditAd(null)}
+        onSaved={() => onMutate?.()}
       />
     </GlassCard>
   )

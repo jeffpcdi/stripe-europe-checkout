@@ -645,6 +645,27 @@ async function updateAdGroup(advertiserId, adGroupId, patch) {
   return pipeboard.callTool('update_tiktok_adgroup', args);
 }
 
+// Edita um anúncio EXISTENTE sem recriar: texto, CTA, link de destino e nome.
+// Usa update_tiktok_ad (patch rápido). Só campos textuais/CTA/URL — troca de
+// vídeo/criativo é outro fluxo (exige upload). O link recebe atribuição UTM.
+async function updateAd(advertiserId, adId, patch) {
+  const adv = String(advertiserId || '').trim();
+  const aid = String(adId || '').trim();
+  if (!adv || !aid) throw badRequest('advertiserId e adId são obrigatórios');
+  const p = patch || {};
+  const args = { advertiser_id: adv, ad_id: aid };
+  if (p.name != null && String(p.name).trim()) args.ad_name = String(p.name).trim().slice(0, 512);
+  if (p.text != null) args.ad_text = String(p.text).slice(0, 100);
+  if (p.linkUrl != null && /^https?:\/\//.test(String(p.linkUrl))) args.landing_page_url = String(p.linkUrl).slice(0, 500);
+  if (p.callToAction != null && /^[A-Z_]{3,30}$/.test(String(p.callToAction))) args.call_to_action = String(p.callToAction);
+  if (args.ad_name === undefined && args.ad_text === undefined && args.landing_page_url === undefined && args.call_to_action === undefined) {
+    throw badRequest('Nada para atualizar no anúncio');
+  }
+  const r = await pipeboard.callTool('update_tiktok_ad', args);
+  cacheBust('tree:');
+  return r;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // F1 — Criação de campanha completa (campaign → adgroup → upload → ad).
 // A Zernio tinha um endpoint único /ads/create; no Pipeboard é uma COMPOSIÇÃO
@@ -1692,6 +1713,7 @@ module.exports = {
   setAdStatus,
   updateCampaign,
   updateAdGroup,
+  updateAd,
   // criação composta (F1)
   createFullAd,
   // duplicação composta (F3)
