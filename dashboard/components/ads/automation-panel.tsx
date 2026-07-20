@@ -19,6 +19,9 @@ import {
   Plus,
   Sparkles,
   Trash2,
+  SlidersHorizontal,
+  ChevronDown,
+  ShieldCheck,
 } from 'lucide-react'
 import { useAdsRules, useAdsAlerts, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -31,9 +34,16 @@ import type {
   AdsRulesRunResponse,
 } from '@/lib/types'
 import { timeAgo, cleanCampaignName } from '@/lib/format'
+import { usePersistedState } from '@/lib/use-persisted-state'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { Switch } from '@/components/switch'
+import { PilotsPanel } from './pilots-panel'
+import { RulesLogList } from './rules-log-list'
+import { CopilotPanel } from './copilot-panel'
+import { CreativeInsightsCard } from './creative-insights-card'
+import { BudgetProposalCard } from './budget-proposal-card'
+import { McpStatusCard } from './mcp-status-card'
 import { cn } from '@/lib/utils'
 
 // ── Metadados por métrica: rótulo do limiar + unidade + guardas visíveis ────
@@ -84,7 +94,7 @@ const METRIC_META: Record<
     verb: (r) => `escala +${r.pct}% se ROAS ≥ ${r.threshold}`,
   },
   schedule: {
-    name: 'Agendamento (dayparting)',
+    name: 'Horário de funcionamento',
     thresholdLabel: '',
     unit: '',
     verb: (r) => `roda ${r.startTime || '00:00'}–${r.endTime || '23:59'}`,
@@ -397,44 +407,35 @@ function RuleForm({
   )
 }
 
-// ── Badges do log por tipo de ação ──────────────────────────────────────────
-function logBadge(l: AdsRuleLogEntry): { label: string; cls: string } {
-  if (l.simulated) return { label: 'simulada', cls: 'bg-[var(--hover)] text-muted-foreground' }
-  if (l.proposed) return { label: 'proposta', cls: 'bg-warning/15 text-warning' }
-  if (l.approvedProposal) return { label: 'aprovada por você', cls: 'bg-success/15 text-success' }
-  if (!l.ok) return { label: 'falhou', cls: 'bg-error/15 text-error' }
-  return { label: 'executada', cls: 'bg-[var(--accent-light)] text-brand-cyan' }
-}
-
-type LogFilter = 'all' | 'proposed' | 'executed' | 'failed'
-const LOG_FILTERS: [LogFilter, string][] = [
-  ['all', 'Todas'],
-  ['proposed', 'Propostas'],
-  ['executed', 'Executadas'],
-  ['failed', 'Falhas'],
-]
-
 // ═════════════════════════════════════════════════════════════════════════════
 export function AutomationPanel({
   active,
   currency = '€',
-  alertsFocusRef,
+  adAccountId = '',
+  aiEnabled = false,
+  onMutateTree,
+  onOpenLimits,
 }: {
   active: boolean
   currency?: string
-  /** A AttentionStrip rola até aqui quando o chip "Alertas desligados" é clicado. */
-  alertsFocusRef?: React.RefObject<HTMLDivElement | null>
+  adAccountId?: string
+  aiEnabled?: boolean
+  onMutateTree?: () => void
+  onOpenLimits?: () => void
 }) {
   const { data, mutate, isLoading } = useAdsRules(active)
   const { data: alertsCfg, mutate: mutateAlerts } = useAdsAlerts(active)
+  const [copilotOpen, setCopilotOpen] = usePersistedState('ads:automation:copilot', false)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<string | null>(null)
-  const [logFilter, setLogFilter] = useState<LogFilter>('all')
   const [alertsExpanded, setAlertsExpanded] = useState(false)
   const [alertsDraft, setAlertsDraft] = useState<AdsAlertsConfig | null>(null)
+  // Modo avançado: esconde o editor técnico de regras por padrão — pilotos
+  // resolvem o dia a dia; o gestor abre isto só quando quer o controle fino.
+  const [advanced, setAdvanced] = usePersistedState('ads:automation:advanced', false)
 
   const rules = data?.rules ?? []
   const log = data?.log ?? []
@@ -537,15 +538,6 @@ export function AutomationPanel({
     }
   }
 
-  const filteredLog = log
-    .filter((l) => {
-      if (logFilter === 'proposed') return !!l.proposed
-      if (logFilter === 'failed') return !l.ok && !l.proposed
-      if (logFilter === 'executed') return l.ok && !l.proposed && !l.simulated
-      return true
-    })
-    .slice(0, 12)
-
   if (isLoading && !data) {
     return (
       <div className="flex flex-col gap-3">
@@ -557,7 +549,24 @@ export function AutomationPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* ── Regras: linhas expansíveis com switch ── */}
+      {/* ── Pilotos: a cara padrão da automação (linguagem de gestor) ── */}
+      <PilotsPanel active={active} currency={currency} />
+
+      {/* ── Alterna o editor técnico de regras (escondido por padrão) ── */}
+      <button
+        type="button"
+        onClick={() => setAdvanced(!advanced)}
+        aria-expanded={advanced}
+        data-tour="ads-advanced"
+        className="flex items-center justify-center gap-1.5 self-center rounded-full border border-white/5 bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <SlidersHorizontal className="size-3" aria-hidden="true" />
+        {advanced ? 'Ocultar modo avançado' : 'Modo avançado (regras detalhadas)'}
+        <ChevronDown className={cn('size-3 transition-transform', advanced && 'rotate-180')} aria-hidden="true" />
+      </button>
+
+      {/* ── Regras: linhas expansíveis com switch (só no modo avançado) ── */}
+      {advanced && (
       <GlassCard className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -636,7 +645,15 @@ export function AutomationPanel({
                           )}
                           {executes ? 'Executa' : 'Propõe'}
                         </span>
-                        {r.preset && (
+                        {r.pilot && (
+                          <span
+                            className="flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary"
+                            title="Regra gerada por um piloto — controlada na visão simples acima"
+                          >
+                            piloto
+                          </span>
+                        )}
+                        {r.preset && !r.pilot && (
                           <span
                             className="flex items-center gap-1 rounded-full bg-[var(--hover)] px-1.5 py-0.5 text-[10px] text-muted-foreground"
                             title="Regra pré-configurada de fábrica"
@@ -682,9 +699,28 @@ export function AutomationPanel({
           </ul>
         )}
       </GlassCard>
+      )}
+
+      {/* Limites de segurança + modo teste — atalho para a política da conta */}
+      {advanced && onOpenLimits && (
+        <button
+          type="button"
+          onClick={onOpenLimits}
+          className="flex items-center gap-2 self-start rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary/40"
+        >
+          <ShieldCheck className="size-3.5 text-primary" aria-hidden="true" />
+          Limites de segurança e modo teste
+        </button>
+      )}
+
+      {/* Realocação de orçamento por IA + diagnóstico técnico — só no avançado */}
+      {advanced && adAccountId && (
+        <BudgetProposalCard adAccountId={adAccountId} currency={currency} onApplied={() => onMutateTree?.()} />
+      )}
+      {advanced && <McpStatusCard active={active} />}
 
       {/* ── Alertas: mesma linguagem — switch + expansão inline ── */}
-      <GlassCard className="p-4" ref={alertsFocusRef}>
+      <GlassCard className="p-4">
         <div className="flex items-start justify-between gap-3">
           <button
             type="button"
@@ -747,7 +783,7 @@ export function AutomationPanel({
                 checked={alertsDraft.rejectedAds === true}
                 onChange={(e) => setAlertsDraft({ ...alertsDraft, rejectedAds: e.target.checked })}
               />
-              Avisar quando um criativo for <strong>reprovado</strong> na revisão do TikTok
+              Avisar quando um criativo for <strong>reprovado</strong> na revisão do TikTok (inclui Smart+)
             </label>
             <div className="flex items-center justify-end gap-1.5">
               <button
@@ -775,75 +811,50 @@ export function AutomationPanel({
         )}
       </GlassCard>
 
-      {/* ── Histórico do motor: badges por tipo + filtro client-side ── */}
+      {/* ── O que o robô fez: feed reutilizável (Hoje reusa) ── */}
       <GlassCard className="p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <ClipboardList className="size-4 text-muted-foreground" aria-hidden="true" />
-            <h3 className="text-sm font-semibold text-foreground">Últimas ações do motor</h3>
-          </div>
-          {log.length > 0 && (
-            <div className="flex items-center gap-1" role="group" aria-label="Filtrar histórico">
-              {LOG_FILTERS.map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={logFilter === key}
-                  onClick={() => setLogFilter(key)}
-                  className={cn(
-                    'rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors',
-                    logFilter === key
-                      ? 'bg-[var(--accent-light)] text-brand-cyan'
-                      : 'text-muted-foreground hover:text-sub',
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
+        <div className="mb-2 flex items-center gap-2">
+          <ClipboardList className="size-4 text-muted-foreground" aria-hidden="true" />
+          <h3 className="text-sm font-semibold text-foreground">O que o robô fez</h3>
+        </div>
+        <RulesLogList
+          log={log}
+          limit={12}
+          filterable
+          emptyText='O robô avalia suas automações a cada poucos minutos. Nada disparou ainda — use "Testar agora" no modo avançado para rodar uma avaliação imediata.'
+        />
+      </GlassCard>
+
+      {/* ── Copiloto (IA): pergunte em linguagem natural o que fazer com a conta.
+          Colapsado por padrão — o custo de IA só é pago ao abrir. ── */}
+      {adAccountId && (
+        <GlassCard className="p-4">
+          <button
+            type="button"
+            aria-expanded={copilotOpen}
+            onClick={() => setCopilotOpen(!copilotOpen)}
+            className="flex w-full items-center justify-between gap-2 text-left"
+          >
+            <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Sparkles className="size-4 text-primary" aria-hidden="true" />
+              Copiloto (IA)
+            </span>
+            <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', copilotOpen && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {copilotOpen && (
+            <div className="mt-3 flex flex-col gap-3">
+              <CopilotPanel
+                active={active}
+                adAccountId={adAccountId}
+                currency={currency}
+                aiEnabled={aiEnabled}
+                onMutateTree={() => onMutateTree?.()}
+              />
+              <CreativeInsightsCard adAccountId={adAccountId} currency={currency} />
             </div>
           )}
-        </div>
-        {filteredLog.length === 0 ? (
-          <p className="py-4 text-center text-xs leading-relaxed text-muted-foreground">
-            {log.length === 0
-              ? 'O motor avalia suas regras a cada 10 min. Nenhuma disparou ainda — use "Testar agora" para rodar uma avaliação imediata.'
-              : 'Nada neste filtro.'}
-          </p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-border/60">
-            {filteredLog.map((l, i) => {
-              const badge = logBadge(l)
-              return (
-                <li key={`${l.at}-${i}`} className="flex items-start gap-2 py-2">
-                  <span
-                    className={cn(
-                      'mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
-                      badge.cls,
-                    )}
-                  >
-                    {badge.label}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[11px] text-sub">
-                      <span className="font-medium text-foreground">
-                        {cleanCampaignName(l.campaignName || l.campaignId)}
-                      </span>
-                      {' — '}
-                      {l.result || l.detail}
-                    </p>
-                  </div>
-                  <span
-                    className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground"
-                    title={new Date(l.at).toLocaleString('pt-PT')}
-                  >
-                    {timeAgo(l.at)}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </GlassCard>
+        </GlassCard>
+      )}
     </div>
   )
 }

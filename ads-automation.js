@@ -228,6 +228,11 @@ function validateRules(raw) {
       ...(r.name ? { name: String(r.name).slice(0, 80) } : {}),
       ...(r.description ? { description: String(r.description).slice(0, 200) } : {}),
       ...(r.preset ? { preset: true } : {}),
+      // Tag de PILOTO (camada de apresentação da dashboard): agrupa regras em
+      // estratégias de gestor (protetor/escalador/horário) com intensidade.
+      // Whitelist estrita — valor fora do vocabulário é descartado.
+      ...(['protector', 'scaler', 'schedule'].includes(r.pilot) ? { pilot: r.pilot } : {}),
+      ...(['conservador', 'normal', 'agressivo'].includes(r.intensity) ? { intensity: r.intensity } : {}),
       threshold: Math.max(0, Math.min(100000, Number(r.threshold) || 0)),
       // Default DIÁRIO (1): pedido do produto. Janela curta é ruidosa, mas os
       // pisos de volume (minClicks/minImpressions) protegem; a UI avisa < 3d.
@@ -431,6 +436,21 @@ async function runAlertSweep(accId, { force } = {}) {
         text: '"' + name + '" teve anúncio REPROVADO na revisão do TikTok — corrija o criativo ou recorra.'
       });
     });
+
+    // O robô também vigia o Smart+ (as campanhas Smart+ não vivem no espelho —
+    // leitura AO VIVO, throttled pela varredura, best-effort: qualquer falha
+    // é ignorada e nunca quebra o sweep). Recorrer é 1 clique na aba Smart+.
+    if (typeof provider.listSmartPlusAds === 'function') {
+      try {
+        const spAds = await provider.listSmartPlusAds(advertiserId);
+        (spAds || []).filter((a) => a.rejected).forEach((a) => {
+          findings.push({
+            rule: 'smart_plus_rejected', campaignId: a.adId, campaignName: a.name,
+            text: 'Smart+: o anúncio "' + a.name + '" foi REPROVADO na revisão do TikTok — recorra na aba Smart+.'
+          });
+        });
+      } catch (_) { /* Smart+ indisponível/sem permissão — segue sem alertar */ }
+    }
   }
 
   for (const f of findings) {
