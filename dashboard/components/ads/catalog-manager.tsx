@@ -706,7 +706,13 @@ function CatalogDetail({
           )}
 
           {/* Caminho manual garantido — sempre disponível, independe do Business Center */}
-          {validCount > 0 && <ManualUploadGuide catalogId={catalogId} />}
+          {validCount > 0 && (
+            <ManualUploadGuide
+              catalogId={catalogId}
+              tiktokCatalogId={catalog?.tiktokCatalogId ?? null}
+              onLinked={() => mutate()}
+            />
+          )}
 
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-ghost text-xs" onClick={() => setShowUrlImport((value) => !value)} aria-expanded={showUrlImport}>
@@ -1275,16 +1281,45 @@ function CatalogCampaignLauncher({ catalog, ready }: { catalog: AdsCatalog; read
 // Guia do caminho MANUAL garantido: baixar o CSV pronto e subir no TikTok Catalog
 // Manager, terminando numa campanha de conversão. Independe do Business Center e da
 // API — sempre funciona, mesmo quando o publish automático dá 502.
-function ManualUploadGuide({ catalogId }: { catalogId: string }) {
+function ManualUploadGuide({
+  catalogId,
+  tiktokCatalogId,
+  onLinked,
+}: {
+  catalogId: string
+  tiktokCatalogId: string | null
+  onLinked: () => void
+}) {
   const STEPS = [
     'Baixe o CSV pronto (botão acima) — já vem no formato oficial do TikTok, só com produtos válidos.',
     'No TikTok, abra o Catalog Manager (Ferramentas → Catálogo) e crie um catálogo, ou abra um existente.',
     'Em "Adicionar produtos" escolha "Fazer upload por arquivo" e envie o CSV baixado.',
     'Aguarde a análise dos produtos (fica "Ativo" quando aprovado).',
-    'Crie uma campanha de Vendas de Produtos (Product Sales / conversão) apontando para este catálogo e publique.',
+    'Copie o Catalog ID do TikTok e cole abaixo para vincular — assim a criação de campanha usa este catálogo (sem URL manual).',
   ]
+  // Vínculo manual: cola o Catalog ID do TikTok → campanhas DPA na dashboard.
+  const [linkId, setLinkId] = useState('')
+  const [linking, setLinking] = useState(false)
+  async function handleLink() {
+    const id = linkId.trim()
+    if (!/^\d{6,30}$/.test(id)) {
+      toast.error('Catalog ID inválido', { hint: 'É o ID numérico do catálogo no TikTok Catalog Manager.' })
+      return
+    }
+    setLinking(true)
+    try {
+      await apiSend(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/link`, 'POST', { tiktokCatalogId: id })
+      toast.success('Catálogo vinculado ao TikTok', { hint: 'Já dá para criar campanhas de catálogo na dashboard.' })
+      setLinkId('')
+      onLinked()
+    } catch (e) {
+      toast.error('Falha ao vincular', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setLinking(false)
+    }
+  }
   return (
-    <details className="rounded-xl border border-primary/25 bg-primary/5 p-3">
+    <details className="rounded-xl border border-primary/25 bg-primary/5 p-3" open={!tiktokCatalogId}>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-foreground">
         <span className="flex items-center gap-1.5">
           <Download className="size-3.5 text-primary" aria-hidden="true" />
@@ -1304,6 +1339,33 @@ function ManualUploadGuide({ catalogId }: { catalogId: string }) {
             </li>
           ))}
         </ol>
+        {/* Passo final: vincular o Catalog ID do TikTok a este catálogo */}
+        <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-background p-2.5">
+          <span className="text-[11px] font-semibold text-foreground">
+            {tiktokCatalogId ? 'Vinculado ao catálogo do TikTok' : 'Vincular ao catálogo do TikTok'}
+          </span>
+          {tiktokCatalogId ? (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              ID <strong className="text-foreground">{tiktokCatalogId}</strong> — na criação de campanha,
+              selecione este catálogo: o criativo e o destino vêm dos produtos (a URL do site fica indisponível).
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                className="input-neon w-44 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
+                value={linkId}
+                onChange={(e) => setLinkId(e.target.value.replace(/\D/g, ''))}
+                inputMode="numeric"
+                placeholder="Catalog ID do TikTok"
+                aria-label="Catalog ID do TikTok"
+              />
+              <button type="button" className="btn-primary !py-1.5 text-xs" onClick={handleLink} disabled={linking || !linkId.trim()}>
+                {linking ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Link2 className="size-3.5" aria-hidden="true" />}
+                Vincular
+              </button>
+            </div>
+          )}
+        </div>
         <p className="text-[10px] text-muted-foreground">
           Dica: o CSV é regenerado a cada download, então reflita sempre a versão atual dos seus produtos.
         </p>

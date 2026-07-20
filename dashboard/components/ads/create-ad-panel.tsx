@@ -23,7 +23,7 @@ import {
   FlaskConical,
   Trash2,
 } from 'lucide-react'
-import { apiSend, adsUpload, useAdsTemplates, useAdsInterests } from '@/lib/api'
+import { apiSend, adsUpload, useAdsTemplates, useAdsInterests, useAdsCatalogs, adsCreateCatalogCampaign } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsGoal, AdsIdentity, AdsTemplate } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
@@ -94,6 +94,9 @@ interface FormState {
   linkUrl: string
   callToAction: string
   useIdentity: boolean
+  // Campanha de catálogo (DPA): quando preenchido, criativo/produtos/destino
+  // vêm TODOS do catálogo — a URL do site fica indisponível por construção.
+  catalogId: string
 }
 
 const INITIAL: FormState = {
@@ -120,6 +123,7 @@ const INITIAL: FormState = {
   linkUrl: '',
   callToAction: '',
   useIdentity: true,
+  catalogId: '',
 }
 
 export function CreateAdPanel({
@@ -161,6 +165,11 @@ export function CreateAdPanel({
     return all.filter((i) => i.name.toLowerCase().includes(q)).slice(0, 8)
   }, [interestsData, interestQuery])
   const interestName = (id: string) => interestsData?.interests.find((i) => i.id === id)?.name ?? id
+  // Catálogos publicados no TikTok (fluxo CSV manual): só os vinculados a um
+  // catálogo do TikTok (tiktokCatalogId + bcId) podem virar campanha DPA.
+  const { data: catalogsData } = useAdsCatalogs(open)
+  const catalogs = catalogsData?.catalogs ?? []
+  const selectedCatalog = catalogs.find((c) => c.id === form.catalogId) ?? null
 
   useModalA11y(open, ref, submitting ? () => {} : onClose)
 
@@ -199,6 +208,9 @@ export function CreateAdPanel({
       return null
     }
     if (step === 3) {
+      // Catálogo selecionado: o criativo é gerado dos produtos (DPA) — vídeo
+      // e URL do site não se aplicam.
+      if (form.catalogId) return null
       if (!/^https:\/\/\S+/.test(form.videoUrl.trim())) return 'Adicione o vídeo do anúncio (URL https ou upload)'
       return null
     }
@@ -304,6 +316,27 @@ export function CreateAdPanel({
         .split(/[,\s]+/)
         .map((c) => c.trim().toUpperCase())
         .filter((c) => /^[A-Z]{2}$/.test(c))
+
+      // ── Campanha de CATÁLOGO (DPA): criativo, produtos e destino vêm 100%
+      // do catálogo — nada de vídeo/URL manual. Usa a rota dedicada.
+      if (form.catalogId) {
+        await adsCreateCatalogCampaign(form.catalogId, {
+          adAccountId: advertiserId,
+          name: form.name.trim(),
+          budgetAmount: Number(form.budgetAmount),
+          budgetType: form.budgetType,
+          ...(form.budgetType === 'lifetime' ? { endDate: form.endDate } : {}),
+          budgetOptimization: form.budgetOptimization,
+          bidStrategy: form.bidStrategy,
+          ...(form.bidStrategy === 'cost_cap' ? { bidAmount: Number(form.bidAmount) } : {}),
+          ...(countries.length ? { country: countries[0] } : {}),
+        })
+        toast.success('Campanha de catálogo criada (pausada)', {
+          hint: 'Criativo e destino vêm do catálogo. Revise e ative na dashboard.',
+        })
+        onCreated()
+        return
+      }
       const languages = form.languages
         .split(/[,\s]+/)
         .map((c) => c.trim().toLowerCase())
@@ -859,6 +892,45 @@ export function CreateAdPanel({
 
           {step === 3 && (
             <div className="anim-content-in flex flex-col gap-4">
+              {/* Catálogo (DPA): quando selecionado, TODO o criativo/destino vem
+                  do catálogo — vídeo, legenda e URL manuais ficam indisponíveis. */}
+              <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/20 p-3">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-foreground">Catálogo de produtos (opcional)</span>
+                  <select
+                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    value={form.catalogId}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      // Zera a URL manual ao entrar no modo catálogo — o destino
+                      // passa a ser 100% definido pelos produtos do catálogo.
+                      setForm((f) => ({ ...f, catalogId: v, ...(v ? { linkUrl: '' } : {}) }))
+                    }}
+                  >
+                    <option value="">Nenhum — anúncio com vídeo e URL própria</option>
+                    {catalogs.map((c) => (
+                      <option key={c.id} value={c.id} disabled={!c.tiktokCatalogId || !c.bcId}>
+                        {c.name} · {c.productCount} produto{c.productCount === 1 ? '' : 's'}
+                        {!c.tiktokCatalogId || !c.bcId ? ' — publique no TikTok primeiro (aba Catálogo)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {form.catalogId ? (
+                  <p className="rounded-lg bg-primary/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-primary">
+                    Campanha de catálogo (DPA): o TikTok gera o criativo e o destino a partir dos
+                    produtos do catálogo (título, imagem, preço e link de cada item do CSV). Vídeo,
+                    legenda e URL do site ficam indisponíveis neste modo.
+                  </p>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">
+                    Só aparecem habilitados os catálogos já publicados no TikTok (aba Catálogo → CSV manual).
+                  </span>
+                )}
+              </div>
+
+              {!form.catalogId && (
+              <>
               {/* Vídeo: URL ou upload */}
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium text-foreground">Vídeo do anúncio</span>
@@ -1004,17 +1076,27 @@ export function CreateAdPanel({
                 />
                 <span className="self-end text-[11px] tabular-nums text-muted-foreground">{form.body.length}/100</span>
               </label>
+              </>
+              )}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-foreground">Página de destino</span>
                   <input
-                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    value={form.linkUrl}
+                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    value={form.catalogId ? '' : form.linkUrl}
                     onChange={(e) => set('linkUrl', e.target.value)}
-                    placeholder="https://sualoja.com/oferta"
+                    placeholder={form.catalogId ? 'Indisponível — definido pelo catálogo' : 'https://sualoja.com/oferta'}
+                    disabled={!!form.catalogId}
+                    aria-disabled={!!form.catalogId}
                   />
+                  {form.catalogId && (
+                    <span className="text-[11px] text-muted-foreground">
+                      O destino de cada anúncio é o link do produto no catálogo.
+                    </span>
+                  )}
                 </label>
+                {!form.catalogId && (
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-foreground">Botão (CTA)</span>
                   <select
@@ -1029,9 +1111,10 @@ export function CreateAdPanel({
                     ))}
                   </select>
                 </label>
+                )}
               </div>
 
-              {identity && (
+              {!form.catalogId && identity && (
                 <label className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5">
                   <input
                     type="checkbox"
@@ -1106,8 +1189,16 @@ export function CreateAdPanel({
                     ? [['Interesses', form.interestIds.map(interestName).join(', ')] as [string, string]]
                     : []),
                   ...(form.goal === 'conversions' ? [['Pixel', form.pixelId] as [string, string]] : []),
-                  ['Vídeo', form.videoUrl.length > 48 ? form.videoUrl.slice(0, 48) + '…' : form.videoUrl],
-                  ['Destino', form.linkUrl || '—'],
+                  ...(selectedCatalog
+                    ? [
+                        ['Catálogo', `${selectedCatalog.name} (${selectedCatalog.productCount} produtos)`] as [string, string],
+                        ['Criativo', 'Gerado do catálogo (DPA)'] as [string, string],
+                        ['Destino', 'Links dos produtos do catálogo'] as [string, string],
+                      ]
+                    : [
+                        ['Vídeo', form.videoUrl.length > 48 ? form.videoUrl.slice(0, 48) + '…' : form.videoUrl] as [string, string],
+                        ['Destino', form.linkUrl || '—'] as [string, string],
+                      ]),
                   [
                     'Identidade',
                     form.useIdentity && identity ? identity.displayName : 'Conta conectada (TT_USER)',
@@ -1120,8 +1211,9 @@ export function CreateAdPanel({
                 ))}
               </dl>
               <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
-                Ao publicar, a campanha é criada no TikTok e entra na revisão deles (normalmente até 24h).
-                Ela nasce ativa e começa a gastar assim que aprovada.
+                {selectedCatalog
+                  ? 'A campanha de catálogo nasce PAUSADA — revise no TikTok Ads Manager e ative quando estiver pronta. O criativo e o destino vêm dos produtos do catálogo.'
+                  : 'Ao publicar, a campanha é criada no TikTok e entra na revisão deles (normalmente até 24h). Ela nasce ativa e começa a gastar assim que aprovada.'}
               </p>
             </div>
           )}
