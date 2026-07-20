@@ -341,6 +341,13 @@ function retryQueueInfo(acc) {
  * @param {object} pixel  Objeto do pixel-store (pixelCode, accessToken, testEventCode)
  * @param {object} p      Payload do evento (event, eventId, identidade, valor…)
  */
+// TikTok Access Tokens são ASCII imprimível. Remove qualquer caractere fora de
+// 0x20–0x7E (controle, não-ASCII, o "�"/0xFFFD de um token corrompido) para que
+// nunca crashe o header HTTP. Trim nas pontas.
+function headerSafeToken(v) {
+  return String(v == null ? '' : v).replace(/[^\x20-\x7E]/g, '').trim();
+}
+
 async function sendToPixel(pixel, p) {
   if (!pixel || !pixel.pixelCode || !pixel.accessToken) {
     // Antes o skip era SILENCIOSO: uma credencial faltando virava no-op invisível
@@ -371,6 +378,23 @@ async function sendToPixel(pixel, p) {
   // event_id é obrigatório para dedup — gera fallback se faltar
   const eventId = p.eventId || (p.event + '.' + crypto.randomBytes(8).toString('hex'));
 
+  // Access-Token como header HTTP: o fetch do Node exige Latin-1. Um token com
+  // caractere corrompido (ex.: 0xFFFD, o "�" de um cadastro com encoding errado)
+  // faz o fetch lançar "Cannot convert argument to a ByteString" e DERRUBA todo
+  // disparo — re-enfileirando para sempre (a fila só cresce). Removemos o que não
+  // for ASCII imprimível: recupera tokens com um caractere solto e nunca crasha.
+  const accessToken = headerSafeToken(pixel.accessToken);
+  if (!accessToken) {
+    // Token só tinha lixo → NUNCA autentica: falha determinística. Loga claro e
+    // NÃO re-enfileira (senão a fila cresce eternamente batendo no mesmo erro).
+    pushLog({
+      acc: pixel.acc || null, pixel: pixelId, event: p.event, eventId, leadId: p.leadId,
+      status: 'erro',
+      response: { message: 'Access Token inválido (caractere corrompido) — reinsira o token do pixel em Conversões › Pixels' },
+    });
+    return { error: 'Access Token inválido (caractere corrompido) — reinsira o token do pixel', code: 'BAD_TOKEN', pixel: pixelId, pixelName };
+  }
+
   const pageUrl = validUrl(p.url);
   const user = buildUser(p);
   const emq = matchScore(user);
@@ -395,7 +419,7 @@ async function sendToPixel(pixel, p) {
     try {
       const resp = await fetchWithTimeout(TIKTOK_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Access-Token': pixel.accessToken },
+        headers: { 'Content-Type': 'application/json', 'Access-Token': accessToken },
         body
       }, 6000);
       // 5xx = instabilidade do TikTok → vale retry; 4xx = erro nosso → não vale
@@ -429,9 +453,12 @@ async function sendToPixel(pixel, p) {
     emqFields: emq.fields,
     response: { message: (lastErr && lastErr.message) || 'falha desconhecida', retried: true }
   });
+  // Erro NÃO-retryável (TypeError = header/argumento inválido, não é rede): tentar
+  // de novo daria o mesmo erro e faria a fila crescer sem fim. Não re-enfileira.
+  const nonRetryable = lastErr instanceof TypeError;
   // falha de rede/5xx persistente → entra na fila de retry de longo prazo
   // (_fromRetryQueue evita re-enfileirar o que a própria fila disparou)
-  if (!p._fromRetryQueue) queueRetry(pixel, p, eventId);
+  if (!nonRetryable && !p._fromRetryQueue) queueRetry(pixel, p, eventId);
   return { error: (lastErr && lastErr.message) || 'falha desconhecida', pixel: pixelId, pixelName };
 }
 

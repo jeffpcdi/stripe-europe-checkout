@@ -38,6 +38,12 @@ function newToken() {
   return 'px_' + crypto.randomBytes(16).toString('hex');
 }
 
+// Só ASCII imprimível (0x20–0x7E) + trim: credenciais que viram header/URL HTTP
+// não podem ter caractere > 255 (o fetch do Node quebra com "ByteString").
+function cleanAscii(v) {
+  return String(v == null ? '' : v).replace(/[^\x20-\x7E]/g, '').trim();
+}
+
 // normaliza um objeto de pixel vindo de arquivo/dashboard/banco
 function normalize(slug, raw) {
   raw = raw || {};
@@ -47,9 +53,12 @@ function normalize(slug, raw) {
     acc: raw.acc || raw.accountId || null,     // conta dona (multi-tenant)
     token: raw.token || newToken(),            // token público do script /px/:token.js
     name: raw.name || slug,
-    pixelCode: String(raw.pixelCode || '').trim(),
-    accessToken: String(raw.accessToken || '').trim(),
-    testEventCode: String(raw.testEventCode || '').trim(),
+    // pixelCode/accessToken vão parar em header/URL HTTP → só ASCII imprimível.
+    // Remover controle/não-ASCII evita que um caractere corrompido (ex.: "�" de
+    // um colar com encoding errado) derrube o disparo da CAPI (ByteString).
+    pixelCode: cleanAscii(raw.pixelCode),
+    accessToken: cleanAscii(raw.accessToken),
+    testEventCode: cleanAscii(raw.testEventCode),
     active: raw.active !== false,
     // filtro de rota aposentado: o pixel vale em TODA página onde o script é colado
     routes: ['*'],

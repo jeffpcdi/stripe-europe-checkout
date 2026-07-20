@@ -1177,6 +1177,12 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, ove
     // vira orçamento diário fixo no grupo.
     args.budget_mode = 'BUDGET_MODE_DAY';
     args.budget = budgetOverride;
+  } else {
+    // CBO (orçamento na campanha) ou origem sem budget_mode capturado: o grupo
+    // herda o orçamento da campanha. O create_tiktok_adgroup EXIGE budget_mode
+    // SEMPRE (senão erro 40002 "budget_mode is required") → INFINITE. Sem isto,
+    // duplicar campanha CBO quebrava.
+    args.budget_mode = 'BUDGET_MODE_INFINITE';
   }
   const bidType = String(srcAg.bid_type || '');
   if (bidType) {

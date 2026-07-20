@@ -219,5 +219,29 @@ function baseHandlers(overrides) {
   assert.strictEqual(stubCalls.length, readsAfterFirst, 'captura cacheada: N cópias = 1 captura');
   console.log('ok 6 - captura cacheada (N cópias do job pagam 1 captura)');
 
+  // ── 7. CBO: ad group INFINITE precisa de budget_mode (bug 40002) ──────────
+  // Regressão: duplicar campanha CBO (orçamento na campanha, grupo INFINITE)
+  // ia sem budget_mode → "TikTok API error 40002: budget_mode is required".
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers({
+    get_tiktok_campaigns: async () => ({ campaigns: [{
+      campaign_id: 'src-cbo', campaign_name: 'CBO', objective_type: 'PRODUCT_SALES',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 100, budget_optimize_on: true,
+    }] }),
+    get_tiktok_adgroups: async () => ({ adgroups: [
+      { adgroup_id: 'cbo-ag1', adgroup_name: 'Grupo CBO', optimization_goal: 'CONVERT',
+        budget_mode: 'BUDGET_MODE_INFINITE', bid_type: 'BID_TYPE_NO_BID',
+        schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] } },
+    ] }),
+    get_tiktok_ads: async () => ({ ads: [] }),
+  });
+  const cboCap = await provider.captureCampaign('adv1', 'src-cbo');
+  await provider.recreateCampaign('adv1', cboCap, 'CBO (cópia)', {});
+  const cboAg = lastCall('create_tiktok_adgroup').args;
+  assert.strictEqual(cboAg.budget_mode, 'BUDGET_MODE_INFINITE', 'ad group CBO precisa mandar budget_mode INFINITE (senão 40002)');
+  assert.ok(!('budget' in cboAg), 'ad group INFINITE não manda budget (herda da campanha)');
+  console.log('ok 7 - CBO: ad group herda budget_mode INFINITE (fix 40002 na duplicação)');
+
   console.log('\nF3: todos os testes passaram');
 })().catch((e) => { console.error('FALHOU:', e); process.exit(1); });
