@@ -2372,12 +2372,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // Baixa o CSV pronto pro TikTok (sem linhas de instrução).
+  // Baixa o CSV pronto pro TikTok (sem linhas de instrução). Serve SÓ produtos
+  // válidos — inválido é rejeitado na importação do Catalog Manager, então um CSV
+  // "pronto para subir" não deve incluí-los. `?all=1` inclui todos (debug).
   app.get('/api/ads/catalogs/:catalogId/export.csv', dashboardAuth, async (req, res) => {
     try {
       const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
-      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
+      const all = await catalogStore.listProducts(req.account.id, req.params.catalogId);
+      const products = String((req.query || {}).all || '') === '1' ? all : all.filter((p) => p.valid);
       const csv = catalogFeed.buildCatalogCsv(products);
       res.set('Content-Type', 'text/csv; charset=utf-8');
       res.set('Content-Disposition', 'attachment; filename="' + (catalog.name || 'catalogo').replace(/[^a-z0-9_-]+/gi, '_') + '.csv"');
@@ -2480,7 +2483,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }).catch(() => {});
       stats.logEvent('info', { acc: accId, title: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId) + ' (' + pub.published + ' produtos)', ref: catalogId });
       res.json({ ok: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit });
-    } catch (err) { fail(res, err); }
+    } catch (err) {
+      // Log da razão REAL (o err.message do provider já traz "TikTok/Pipeboard: …")
+      // para depurar em produção pelo feed de Operações — o front cai no CSV manual.
+      stats.logEvent('warn', { acc: req.account.id, title: '[catálogo] Falha ao publicar no TikTok: ' + String(err && err.message ? err.message : 'erro').slice(0, 300), ref: req.params.catalogId });
+      fail(res, err);
+    }
   });
 
   // Reconsulta só o overview de auditoria de um catálogo já publicado no TikTok.

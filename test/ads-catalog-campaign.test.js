@@ -55,5 +55,15 @@ async function throws(fn, status, label) {
     ok(/listInterestCategories/.test(routes), 'rota de interesses chama o provider');
   }
 
+  console.log('CSV pronto + publish honesto (fallback do 502)');
+  {
+    const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
+    const csvBody = (routes.match(/export\.csv'[\s\S]*?buildCatalogCsv\(products\)/) || [''])[0];
+    ok(/all\.filter\(\(p\) => p\.valid\)/.test(csvBody), 'export.csv serve só produtos válidos (import-ready)');
+    ok(/all=1|\.all \|\| ''\) === '1'/.test(csvBody), 'export.csv aceita ?all=1 para debug (todos)');
+    // o catch do sync-tiktok loga a razão real para o feed de Operações
+    ok(/\[catálogo\] Falha ao publicar no TikTok/.test(routes), 'sync-tiktok loga a razão real no catch');
+  }
+
   console.log('\nads-catalog-campaign: ' + n + ' asserts OK');
 })().catch((e) => { console.error(e); process.exit(1); });

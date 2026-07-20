@@ -74,10 +74,26 @@ export class ApiError extends Error {
 }
 
 // Extrai { error, code, hint } de um corpo de resposta em qualquer formato.
+// Quando o corpo NÃO é o JSON do nosso app (ex.: 502/504 de borda do Railway por
+// timeout/crash), `d.error` vem vazio — em vez de um "Falha na API (502)" cru,
+// damos uma mensagem e um hint acionáveis por status.
 function parseApiError(status: number, data: unknown): ApiError {
   const d = (data ?? {}) as { error?: string; message?: string; code?: string; hint?: string }
-  const msg = d.error || d.message || `Falha na API (${status})`
-  return new ApiError(status, msg, { code: d.code, hint: d.hint })
+  const bodyMsg = d.error || d.message || ''
+  let hint = d.hint
+  let msg = bodyMsg
+  if (!msg) {
+    if (status === 502 || status === 503 || status === 504) {
+      msg = 'O servidor ou o TikTok demorou a responder'
+      hint = hint || 'Tente de novo em instantes. Se persistir, use "Baixar CSV" e suba o catálogo manualmente.'
+    } else if (status >= 500) {
+      msg = 'Erro no servidor'
+      hint = hint || 'Tente de novo; se continuar, reporte o horário para investigarmos.'
+    } else {
+      msg = `Falha na requisição (${status})`
+    }
+  }
+  return new ApiError(status, msg, { code: d.code, hint })
 }
 
 // Sessão expirada (cookie presente mas inválido no Express) → login

@@ -687,7 +687,9 @@ idade + gênero/interesses/posicionamento, com interesses lidos de `get_tiktok_i
 seletor de autonomia; editor técnico de regras e IA no "Modo avançado"; motor 24/7 em
 `ads-automation.js`) e **Catálogo** (produtos + feed CSV servido pelo próprio app em `/feed/<token>.csv`
 a partir do Neon — **sem Vercel Blob**, `ads-storage.js`/`ensureFeedToken` — + publicação real via
-Business Center +
+Business Center; se o publish direto falhar (502 por BC/permissão/timeout), a UI destaca o **caminho
+manual garantido**: `GET /api/ads/catalogs/:id/export.csv` (só produtos válidos, formato oficial) →
+importar no Catalog Manager → campanha Product Sales/conversão. +
 **lançar campanha de catálogo/DPA** direto da dashboard via `provider.createCatalogCampaign` →
 `POST /api/ads/catalogs/:id/campaign`: campanha `PRODUCT_SALES` com fonte = catálogo, todos os
 produtos, nasce PAUSADA, respeita kill switch/Modo teste; cobertura em `test/ads-catalog-campaign.test.js`).

@@ -69,6 +69,15 @@ Pré-requisitos: deploy do `main`; `PIPEBOARD_API_KEY`, `DATABASE_URL`,
       publicar responde 503 "Host público não configurado". Confirme abrindo a URL
       do feed no navegador (deve baixar o CSV). Para uploads de vídeo/imagem
       duráveis, anexe um **Volume no Railway** (senão vão para disco efêmero).
+- [ ] **9d. Publish direto pode dar 502 — CSV é o fallback garantido.** A chamada
+      real ao TikTok (`create_tiktok_catalog`/`upload_tiktok_catalog_products`)
+      depende de **BC autorizado + permissão de catálogo + timeout do proxy**. Se
+      der 502, a razão real fica no **feed de Operações** (`[catálogo] Falha ao
+      publicar…`). O caminho garantido é **"Baixar CSV pronto para o TikTok"** (só
+      produtos válidos, formato oficial) → Catalog Manager → importar por arquivo →
+      criar campanha **Product Sales (conversão)**. O painel "Subir no TikTok Ads
+      (manual)" traz o passo a passo + o download em destaque; na falha do publish
+      automático, o bloco de fallback aparece sozinho.
 - [ ] **9b. Campanha de catálogo (DPA) — NOVO** — com o catálogo sincronizado,
       botão **"Criar campanha deste catálogo"** → nome/orçamento/país/ABO-CBO →
       Modo teste: toast "Modo teste" + auditoria `catalog_campaign.simulated`

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
-  useAdsCatalogPublications, adsCatalogImportCsv, adsCreateCatalogCampaign, apiSend,
+  useAdsCatalogPublications, adsCatalogImportCsv, adsCreateCatalogCampaign, apiSend, ApiError,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
@@ -409,6 +409,9 @@ function CatalogDetail({
   const [autoChecking, setAutoChecking] = useState(false)
   const [importing, setImporting] = useState(false)
   const [copied, setCopied] = useState(false)
+  // Quando o publish automático falha (502/BC/permissão), destacamos o caminho
+  // garantido: baixar o CSV e subir manualmente no Catalog Manager.
+  const [publishFailed, setPublishFailed] = useState(false)
   // Ref síncrona: impede dois syncs concorrentes mesmo antes do React
   // aplicar setSyncing(true) (duplo toque no iPhone / salvar + botão manual).
   const syncLockRef = useRef(false)
@@ -489,6 +492,7 @@ function CatalogDetail({
     }
     syncLockRef.current = true
     setSyncing(true)
+    setPublishFailed(false)
     try {
       const res = await apiSend<AdsCatalogSyncResponse>(
         `/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-tiktok`, 'POST', {},
@@ -506,7 +510,9 @@ function CatalogDetail({
       }
       await Promise.all([mutate(), mutatePublications()])
     } catch (e) {
-      toast.error('Falha ao publicar no TikTok', { hint: e instanceof Error ? e.message : undefined })
+      setPublishFailed(true)
+      const hint = e instanceof ApiError ? e.display : e instanceof Error ? e.message : undefined
+      toast.error('Publicação automática falhou — use o CSV', { hint })
     } finally {
       syncLockRef.current = false
       setSyncing(false)
@@ -636,6 +642,26 @@ function CatalogDetail({
               </button>
             )}
           </div>
+
+          {/* Publicação automática falhou → caminho garantido em destaque */}
+          {publishFailed && validCount > 0 && (
+            <div className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-4">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <AlertCircle className="size-4 text-warning" aria-hidden="true" />
+                A publicação automática falhou — mas você não fica travado
+              </p>
+              <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
+                Baixe o CSV pronto e importe no TikTok Catalog Manager (passo a passo abaixo). O arquivo já
+                sai no formato oficial do TikTok, só com os produtos válidos.
+              </p>
+              <a className="btn-primary w-fit text-xs" href={`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`}>
+                <Download className="size-3.5" aria-hidden="true" /> Baixar CSV pronto para o TikTok
+              </a>
+            </div>
+          )}
+
+          {/* Caminho manual garantido — sempre disponível, independe do Business Center */}
+          {validCount > 0 && <ManualUploadGuide catalogId={catalogId} />}
 
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-ghost text-xs" onClick={() => setShowUrlImport((value) => !value)} aria-expanded={showUrlImport}>
@@ -1198,6 +1224,46 @@ function CatalogCampaignLauncher({ catalog, ready }: { catalog: AdsCatalog; read
         </button>
       </div>
     </div>
+  )
+}
+
+// Guia do caminho MANUAL garantido: baixar o CSV pronto e subir no TikTok Catalog
+// Manager, terminando numa campanha de conversão. Independe do Business Center e da
+// API — sempre funciona, mesmo quando o publish automático dá 502.
+function ManualUploadGuide({ catalogId }: { catalogId: string }) {
+  const STEPS = [
+    'Baixe o CSV pronto (botão acima) — já vem no formato oficial do TikTok, só com produtos válidos.',
+    'No TikTok, abra o Catalog Manager (Ferramentas → Catálogo) e crie um catálogo, ou abra um existente.',
+    'Em "Adicionar produtos" escolha "Fazer upload por arquivo" e envie o CSV baixado.',
+    'Aguarde a análise dos produtos (fica "Ativo" quando aprovado).',
+    'Crie uma campanha de Vendas de Produtos (Product Sales / conversão) apontando para este catálogo e publique.',
+  ]
+  return (
+    <details className="rounded-xl border border-primary/25 bg-primary/5 p-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-foreground">
+        <span className="flex items-center gap-1.5">
+          <Download className="size-3.5 text-primary" aria-hidden="true" />
+          Subir no TikTok Ads (manual — sempre funciona)
+        </span>
+        <ChevronDown className="size-3.5" aria-hidden="true" />
+      </summary>
+      <div className="mt-3 flex flex-col gap-3 border-t border-primary/15 pt-3">
+        <a className="btn-primary w-fit text-xs" href={`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`}>
+          <Download className="size-3.5" aria-hidden="true" /> Baixar CSV pronto para o TikTok
+        </a>
+        <ol className="flex flex-col gap-1.5">
+          {STEPS.map((s, i) => (
+            <li key={i} className="flex gap-2 text-[11px] leading-relaxed text-muted-foreground">
+              <span className="mt-px flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">{i + 1}</span>
+              <span className="text-pretty">{s}</span>
+            </li>
+          ))}
+        </ol>
+        <p className="text-[10px] text-muted-foreground">
+          Dica: o CSV é regenerado a cada download, então reflita sempre a versão atual dos seus produtos.
+        </p>
+      </div>
+    </details>
   )
 }
 
