@@ -5,6 +5,68 @@
 > verificação em PRODUÇÃO (o que só dá para provar com Pipeboard/Neon reais) e
 > **C)** roadmap de automação + refinamento. Marcar cada item ao concluir.
 
+---
+
+## 🆕 RUNBOOK DE PRODUÇÃO — pós-PR #113 (redesenho + edição + Smart+)
+
+> Tudo abaixo foi **mesclado no `main`** (PR #113) e passa em suíte/tsc/build/boot
+> no sandbox (re-confirmado em 2026-07-18: 32 blocos de teste OK, `next build` OK,
+> `/healthz` 200, rotas de escrita 401 sem sessão, deep-links `?tab=` 200,
+> `/catalog`→`?tab=catalog` 307). MAS **nenhuma escrita foi exercitada contra o
+> TikTok real.** Execute este runbook em produção NA ORDEM.
+>
+> **Passo 0 (obrigatório):** Automações → Modo avançado → Limites de segurança →
+> **Modo teste (dry-run) LIGADO**. A 1ª passada inteira NÃO publica nada; confira
+> cada ação na auditoria (Operações) antes de repetir de verdade com Modo teste OFF.
+
+Pré-requisitos: deploy do `main`; `PIPEBOARD_API_KEY`, `DATABASE_URL`,
+`BLOB_READ_WRITE_TOKEN` no Railway; ≥1 advertiser conectado (`GET /api/ads/diag`).
+
+- [ ] **1. Conexão/UI** — `/dashboard/ads/tiktok` abre na aba **Hoje**; pontinho
+      de conexão verde na barra; as 4 abas trocam e o `?tab=` muda na URL; voltar/
+      avançar do navegador respeita a aba; deep-links legados (`?tab=overview|ai|
+      smartplus`) caem na aba certa; botão "?" abre o tour (5 passos).
+- [ ] **2. Hoje** — inbox "Precisa de você" lista propostas (se houver); KPIs,
+      ROAS real e briefing carregam; OperationsCenter (metas/anomalias/timeline/
+      relatórios) renderiza; atalhos de criação abrem os diálogos.
+- [ ] **3. Editar anúncio sem recriar** — lápis num anúncio → alterar texto/CTA/
+      link → Salvar. Modo teste: toast "Modo teste" + auditoria `entity_update`
+      com `applied.creative`. Depois REAL: no Ads Manager, texto/CTA/link mudaram
+      SEM recriar o anúncio (mesmo ad_id).
+- [ ] **4. ABO/CBO + lance** — criar campanha com **CBO** + **custo-alvo** (teste →
+      real com orçamento mínimo): no Ads Manager, orçamento no nível CAMPANHA (CBO)
+      e lance custom (conversion_bid_price/bid_price) aplicados.
+- [ ] **5. Filtro Validadas** — aba Campanhas → chip "Validadas" mostra só
+      `reviewStatus=approved`; selo verde "Validada" nas aprovadas.
+- [ ] **6. Smart+** — segmento "Smart+" lista campanhas; pausar/ativar reflete no
+      Ads Manager; **criar Smart+** (teste → real, nasce PAUSADA; se falhar num
+      passo, resposta traz `step`+`createdIds` e a campanha parcial fica pausada);
+      **recorrer** de um anúncio reprovado (se existir). ⚠️ "permission required"
+      = conta não liberada p/ Smart+ (não é bug).
+- [ ] **7. Pilotos + autonomia** — ligar "Protetor de orçamento" (normal); no Modo
+      avançado, confirmar regras tagueadas `pilot`; alternar autonomia (Só avisar /
+      Propor / Agir sozinho) e ver o `mode` das regras mudar; "Testar agora" gera
+      log; regra em Propor + Modo teste OFF → proposta aparece no inbox do Hoje;
+      aprovar com Modo teste ON responde aviso de simulação; **ativar 3 pilotos
+      não passa de 10 regras** (consumo de presets).
+- [ ] **8. Vigilância Smart+ reprovado** — "avisar reprovação" ligado + um anúncio
+      Smart+ reprovado real → aguardar a varredura (≤30min) → push/log
+      "Smart+ … REPROVADO"; cooldown 6h (não repete no sweep seguinte).
+- [ ] **9. Catálogo** — configurar Business Center → criar catálogo (tipo/país/
+      moeda) → +1 produto válido → **Publicar no TikTok** → conferir
+      `tiktok_catalog_id` + auditoria (aprovados/pendentes) no Catalog Manager;
+      "Atualizar status" reconsulta.
+- [ ] **10. Guardrails** — **Pausar tudo** (kill switch) ON → qualquer escrita
+      responde 423; cap de ações/hora barra o motor após N ações reais; reverter
+      uma ação real do motor pela auditoria (Operações).
+
+**Limites conhecidos (não são bugs):** métricas de Smart+ não estão no espelho →
+o robô só VIGIA reprovação de Smart+, ainda não pausa/escala por métrica; recurso
+de CONTA suspensa não tem API (semiautomático: ticket + formulário); pagamento/
+faturamento só no TikTok.
+
+---
+
 ## A. Verificado no sandbox (evidência colhida em 18/07/2026)
 
 - [x] Suíte completa: 16 suítes verdes (`npm test`), incluindo as novas
