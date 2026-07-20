@@ -372,11 +372,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       const mcp = require('./pipeboard-mcp');
-      const [diag, syncStates, safetyPolicy] = await Promise.all([
+      const [diag, syncStates, safetyPolicy, deadLetterPending] = await Promise.all([
         mcp.getDiagnostics({ force: req.query.force === '1' }),
         adsCache.enabled ? adsCache.listSyncStates(req.account.id).catch(() => []) : Promise.resolve([]),
         adsOps.getSafetyPolicy(req.account.id).catch(() => null),
+        adsOps.countPendingActionDeadLetter(req.account.id).catch(() => 0),
       ]);
+      // Restaura a janela do breaker do Redis antes de reportá-la (idempotente).
+      await automation.ensureBreakerHydrated(req.account.id);
       const blocked = syncStates
         .filter((s) => s.status === 'blocked')
         .map((s) => {
@@ -405,6 +408,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         // fechado, taxa de falha da janela, threshold configurado). O painel usa
         // p/ mostrar quando o motor se auto-pausou por tempestade de falhas.
         breaker: automation.getBreakerState(req.account.id, safetyPolicy),
+        // Dead-letter: nº de ações reais que falharam e aguardam reprocessamento.
+        deadLetterPending,
         // IA: configuração + telemetria (chamadas 1h, tokens, briefing de hoje)
         ai: adsAi.getAiStats(),
       });
@@ -1087,7 +1092,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── KPIs agregados com comparação de período ────────────────────────────────
+  // ── KPIs agregados com comparação de período ────────────────────────────���───
   // Totais do range pedido + o range ANTERIOR de mesmo tamanho, direto do
   // espelho Neon (2 SUMs — zero chamadas à Pipeboard). Deltas em % ficam null
   // quando a base é 0 (a UI oculta a seta em vez de mostrar "+Infinity%").
@@ -1701,6 +1706,55 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         reason: row.detail || null, metadata: { proposalId: row.id, ruleId: row.rule_id, metric: row.metric },
       }).catch(() => {});
       res.json({ ok: true, proposal: { id: row.id, status: row.status } });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Dead-letter de ações do motor ───────────────────────────────────────────
+  // Ações reais que falharam ficam aqui para inspeção e reprocessamento — nada
+  // se perde no log. Listar / reprocessar (reexecuta com todos os guards) /
+  // descartar. A lógica vive em automation.* — a rota só traduz erro em HTTP.
+  app.get('/api/ads/rules/deadletter', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const [items, pending] = await Promise.all([
+        adsOps.listActionDeadLetter(req.account.id, {
+          status: req.query.status ? String(req.query.status) : undefined,
+          limit: req.query.limit,
+        }),
+        adsOps.countPendingActionDeadLetter(req.account.id),
+      ]);
+      res.json({ enabled: adsOps.enabled, pending, items });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/rules/deadletter/:id/reprocess', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json(await automation.reprocessDeadLetter(req.account.id, req.params.id));
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/rules/deadletter/:id/discard', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json(await automation.discardDeadLetter(req.account.id, req.params.id));
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Histórico de backtests ──────────────────────────────────────────────────
+  app.get('/api/ads/rules/backtest/history', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      res.json({ enabled: adsOps.enabled, items: await adsOps.listBacktestRuns(req.account.id, req.query.limit) });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/rules/backtest/:id', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const run = await adsOps.getBacktestRun(req.account.id, req.params.id);
+      if (!run) return res.status(404).json({ error: 'Backtest não encontrado' });
+      res.json(run);
     } catch (err) { fail(res, err); }
   });
 

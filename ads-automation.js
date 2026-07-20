@@ -24,6 +24,7 @@
 const provider = require('./ads-provider');
 const cache = require('./ads-cache-store');
 const adsOps = require('./ads-ops-store');
+const redis = require('./redis');
 const { sendPushcut } = require('./pushcut');
 
 // ── Configuração ────────────────────────────────────────────────────────────
@@ -329,12 +330,35 @@ function sumAccountDailyBudget(campaigns) {
 const BREAKER_MIN_SAMPLES = 10; // amostras mínimas antes de o breaker poder abrir
 const actionOutcomes = new Map(); // accId → boolean[] (true = ok)
 const breakerLastAt = new Map();  // accId → ms do último resultado registrado (p/ UI)
+const breakerHydrated = new Map(); // accId → Promise (dedupe da carga do Redis)
+
+// Hidrata a janela do breaker do Redis UMA vez por conta. Sem isto, um restart
+// zerava o histórico e o breaker "esquecia" uma tempestade de falhas em curso.
+// A memória mais nova sempre vence (não sobrescreve resultados chegados após a
+// carga). Best-effort: falha de Redis nunca quebra o motor.
+function ensureBreakerHydrated(accId) {
+  if (breakerHydrated.has(accId)) return breakerHydrated.get(accId);
+  const p = (async () => {
+    try {
+      const snap = await redis.loadBreakerSamples(accId);
+      if (snap && Array.isArray(snap.samples) && !actionOutcomes.has(accId)) {
+        actionOutcomes.set(accId, snap.samples.slice(-20));
+        if (snap.at) breakerLastAt.set(accId, snap.at);
+      }
+    } catch (_) { /* Redis indisponível — segue com janela em memória */ }
+  })();
+  breakerHydrated.set(accId, p);
+  return p;
+}
+
 function recordOutcome(accId, ok) {
   const arr = actionOutcomes.get(accId) || [];
   arr.push(!!ok);
   while (arr.length > 20) arr.shift();
   actionOutcomes.set(accId, arr);
   breakerLastAt.set(accId, Date.now());
+  // Write-through best-effort: persiste a janela para sobreviver a restart.
+  redis.saveBreakerSamples(accId, arr).catch(() => {});
 }
 function breakerOpen(accId, policy) {
   return adsOps.circuitBreakerOpen(actionOutcomes.get(accId) || [], policy.circuitBreakerErrorPct, BREAKER_MIN_SAMPLES);
@@ -620,6 +644,10 @@ async function runRulesSweep(accId, { force } = {}) {
   const advertiserId = await provider.resolveAdvertiserId(accId);
   if (!advertiserId) return { executed: [], skipped: true };
 
+  // Restaura a janela do breaker do Redis antes de avaliar — assim uma sequência
+  // de falhas de antes do restart continua contando para abrir o breaker.
+  await ensureBreakerHydrated(accId);
+
   const dryRun = !!policy.dryRun;
   const to = new Date();
   const maxLookback = Math.max(...rules.map((r) => r.lookbackDays || 1), 1);
@@ -768,6 +796,18 @@ async function runRulesSweep(accId, { force } = {}) {
         }
       } catch (e) {
         entry.result = 'falhou: ' + (e && e.message ? e.message.slice(0, 120) : 'erro');
+        // DEAD-LETTER: ação real que falhou não pode sumir no log. Persiste a
+        // intenção (plan + estados) para inspeção e reprocessamento. Best-effort:
+        // nunca re-lança. Dry-run e proposta não entram (nada foi executado).
+        if (!dryRun) {
+          const states = computeActionStates(r.action, c, plan);
+          adsOps.addActionDeadLetter(accId, {
+            ruleId: r.id, metric: r.metric, action: r.action, advertiserId,
+            campaignId: c.platformCampaignId, campaignName: name, detail,
+            plan: { ...(plan || {}), ...states },
+            error: e && e.message ? e.message.slice(0, 300) : 'erro',
+          }).catch(() => {});
+        }
       }
       if (!dryRun) recordOutcome(accId, entry.ok);       // alimenta o circuit breaker
       if (entry.ok && !dryRun) actionsThisHour += 1;      // conta p/ o cap/hora
@@ -838,7 +878,15 @@ async function backtestRules(accId, { rules, lookbackDays } = {}) {
       findings.push(finding);
     }
   }
-  return { findings, summary, window: { fromDate, toDate, lookbackDays: maxLookback }, checkedAt: new Date().toISOString() };
+  const window = { fromDate, toDate, lookbackDays: maxLookback };
+  // Histórico durável (best-effort): compara efeito de ajustes de threshold ao
+  // longo do tempo. Nunca quebra o backtest se a persistência estiver off.
+  let runId = null;
+  try {
+    const saved = await adsOps.saveBacktestRun(accId, { window, summary, findings });
+    if (saved && saved.id) runId = saved.id;
+  } catch (_) { /* persistência indisponível — devolve o resultado mesmo assim */ }
+  return { findings, summary, window, runId, checkedAt: new Date().toISOString() };
 }
 
 // ── F3: aprovação de proposta ───────────────────────────────────────────────
@@ -926,6 +974,64 @@ async function approveProposal(accId, proposalId) {
     appendRulesLog(accId, [entry]);
     const e = new Error(msg); e.status = 502; throw e;
   }
+}
+
+// ── Reprocessamento de dead-letter ──────────────────────────────────────────
+// Reexecuta uma ação que falhou, pelo MESMO caminho do motor (executeRuleAction)
+// e com os MESMOS guards da aprovação de proposta: kill switch/política, dry-run
+// recusa, circuit breaker e cap/hora. Usa o `plan` gravado (before/after já
+// computados). Sucesso → 'resolved'; falha → volta a 'pending' (mantém a
+// entrada para nova tentativa) com o erro atualizado.
+async function reprocessDeadLetter(accId, dlId) {
+  const dl = await adsOps.getActionDeadLetter(accId, dlId);
+  if (!dl) { const e = new Error('Item de dead-letter não encontrado'); e.status = 404; throw e; }
+  if (dl.status !== 'pending') { const e = new Error('Item já ' + dl.status); e.status = 409; throw e; }
+
+  const policy = await adsOps.getSafetyPolicy(accId);
+  adsOps.assertMutationAllowed(policy, { advertiserId: dl.advertiser_id, idempotencyKey: 'deadletter:' + dl.id });
+  if (policy.dryRun) { const e = new Error('Modo simulação (dry-run) ativo — desative para reprocessar'); e.status = 409; throw e; }
+  if (breakerOpen(accId, policy)) { const e = new Error('Circuit breaker aberto (muitas falhas recentes) — tente mais tarde'); e.status = 409; throw e; }
+  if (policy.maxActionsPerHour > 0) {
+    const n = await adsOps.countRecentEngineActions(accId, 3600e3);
+    if (n >= policy.maxActionsPerHour) { const e = new Error('Cap de ' + policy.maxActionsPerHour + ' ações/hora atingido — tente mais tarde'); e.status = 429; throw e; }
+  }
+
+  const plan = dl.plan || {};
+  const advertiserId = dl.advertiser_id || await provider.resolveAdvertiserId(accId);
+  // Reconstrói o "campaign" mínimo que executeRuleAction consome (id + status).
+  const campaign = { platformCampaignId: dl.campaign_id, campaignName: dl.campaign_name, status: 'active' };
+  try {
+    const done = await executeRuleAction({ advertiserId, action: dl.action, campaign, plan, dryRun: false });
+    recordOutcome(accId, done.ok); // alimenta o circuit breaker como qualquer ação real
+    if (done.ok) {
+      await auditReal(accId, {
+        action: 'rule_action', targetType: 'campaign', targetId: dl.campaign_id, advertiserId,
+        beforeState: done.beforeState, afterState: done.afterState,
+        reason: 'Dead-letter reprocessado: ' + (dl.detail || ''),
+        metadata: { deadLetterId: dl.id, ruleId: dl.rule_id, metric: dl.metric, action: dl.action, reprocessed: true },
+      });
+      await adsOps.markActionDeadLetter(accId, dl.id, 'resolved', { incrementAttempt: true });
+      syncAfterWrite(accId, advertiserId);
+      stats.logEvent('info', { acc: accId, title: '[tiktok-ads] Dead-letter reprocessado com sucesso: ' + done.result + ' — "' + (dl.campaign_name || dl.campaign_id) + '"' });
+      return { ok: true, result: done.result, deadLetterId: dl.id, status: 'resolved' };
+    }
+    // provider respondeu mas nada mudou (ex.: já no teto) — trata como falha lógica
+    await adsOps.markActionDeadLetter(accId, dl.id, 'pending', { error: done.result, incrementAttempt: true });
+    return { ok: false, result: done.result, deadLetterId: dl.id, status: 'pending' };
+  } catch (err) {
+    const msg = 'falhou: ' + String(err && err.message ? err.message : 'erro').slice(0, 200);
+    recordOutcome(accId, false);
+    await adsOps.markActionDeadLetter(accId, dl.id, 'pending', { error: msg, incrementAttempt: true });
+    const e = new Error(msg); e.status = 502; throw e;
+  }
+}
+
+// Descarta (não reprocessa) uma entrada pendente — o gestor decidiu que a ação
+// não é mais desejada. Transição pending→discarded.
+async function discardDeadLetter(accId, dlId) {
+  const row = await adsOps.markActionDeadLetter(accId, dlId, 'discarded');
+  if (!row) { const e = new Error('Item de dead-letter não encontrado ou já resolvido'); e.status = 404; throw e; }
+  return { ok: true, deadLetterId: dlId, status: 'discarded' };
 }
 
 // ── Dayparting (agendamento por dia/horário) ────────────────────────────────
@@ -1178,11 +1284,14 @@ module.exports = {
   runScheduleSweep,
   backtestRules,
   approveProposal,
+  reprocessDeadLetter,
+  discardDeadLetter,
   maybeSweep,
   markSweepNow,
   getSweepInfo,
   getBreakerState,
+  ensureBreakerHydrated,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, actionOutcomes, breakerLastAt, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates },
+  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates },
 };

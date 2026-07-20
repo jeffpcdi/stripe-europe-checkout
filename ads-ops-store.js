@@ -227,6 +227,46 @@ async function ensureSchema() {
       created_at timestamptz NOT NULL DEFAULT now()
     )`;
     await sql`CREATE INDEX IF NOT EXISTS ads_internal_reports_account_idx ON ads_internal_reports (account_id, advertiser_id, created_at DESC)`;
+    // DEAD-LETTER de ações de regra: quando uma ação REAL do motor falha (o
+    // provider recusou/caiu), a intenção não pode sumir no log. Grava aqui com o
+    // `plan` (before/after já computados) para o gestor inspecionar e reprocessar
+    // com 1 clique. status: pending → resolved | discarded | failed.
+    await sql`CREATE TABLE IF NOT EXISTS ads_action_deadletter (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      rule_id text,
+      metric text,
+      action text NOT NULL,
+      advertiser_id text,
+      campaign_id text NOT NULL,
+      campaign_name text,
+      detail text,
+      plan jsonb NOT NULL DEFAULT '{}'::jsonb,
+      error text,
+      status text NOT NULL DEFAULT 'pending',
+      attempts integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      resolved_at timestamptz
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_ads_action_deadletter_account ON ads_action_deadletter (account_id, status, created_at DESC)`;
+    // HISTÓRICO de backtests: cada simulação "e se" grava um resumo (janela +
+    // contagem de hits por ação) para comparar o efeito de ajustes de threshold
+    // ao longo do tempo, ANTES de ligar a regra. `findings` guarda a amostra
+    // (limitada) do que teria acontecido.
+    await sql`CREATE TABLE IF NOT EXISTS ads_backtest_runs (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      from_date text,
+      to_date text,
+      lookback_days integer,
+      rules_count integer NOT NULL DEFAULT 0,
+      hits integer NOT NULL DEFAULT 0,
+      summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+      findings jsonb NOT NULL DEFAULT '[]'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_ads_backtest_runs_account ON ads_backtest_runs (account_id, created_at DESC)`;
     console.log('[ads-ops] schema verificado/criado');
     return true;
   })().catch((err) => {
@@ -464,6 +504,96 @@ async function markProposalExecution(accountId, proposalId, ok, error) {
   return rows[0] || null;
 }
 
+// ── Dead-letter de ações de regra ───────────────────────────────────────────
+// Grava a ação real que FALHOU. Best-effort: nunca derruba o sweep. Devolve a
+// row criada (ou null se persistência off).
+async function addActionDeadLetter(accountId, input) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const v = input || {};
+  try {
+    const rows = await sql`INSERT INTO ads_action_deadletter (id, account_id, rule_id, metric, action, advertiser_id, campaign_id, campaign_name, detail, plan, error)
+      VALUES (${id('dl_')}, ${accountId}, ${v.ruleId ? String(v.ruleId).slice(0, 24) : null}, ${v.metric ? String(v.metric).slice(0, 40) : null}, ${String(v.action || '').slice(0, 40)}, ${v.advertiserId ? String(v.advertiserId).slice(0, 120) : null}, ${String(v.campaignId || '').slice(0, 160)}, ${v.campaignName ? String(v.campaignName).slice(0, 200) : null}, ${v.detail ? String(v.detail).slice(0, 500) : null}, ${JSON.stringify(v.plan || {})}, ${v.error ? String(v.error).slice(0, 500) : null})
+      RETURNING *`;
+    return rows[0] || null;
+  } catch (_) { return null; }
+}
+
+async function listActionDeadLetter(accountId, { status, limit } = {}) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureSchema();
+  const max = Math.min(200, Math.max(1, Number(limit) || 50));
+  if (status) {
+    return await sql`SELECT * FROM ads_action_deadletter WHERE account_id = ${accountId} AND status = ${String(status).slice(0, 20)} ORDER BY created_at DESC LIMIT ${max}`;
+  }
+  return await sql`SELECT * FROM ads_action_deadletter WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${max}`;
+}
+
+async function getActionDeadLetter(accountId, dlId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const rows = await sql`SELECT * FROM ads_action_deadletter WHERE account_id = ${accountId} AND id = ${String(dlId || '').slice(0, 160)} LIMIT 1`;
+  return rows[0] || null;
+}
+
+// Transição de status (+incrementa attempts no reprocessamento). Só sai de
+// 'pending': uma entrada já resolvida/descartada não volta atrás.
+async function markActionDeadLetter(accountId, dlId, status, { error, incrementAttempt } = {}) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  if (!['pending', 'resolved', 'discarded', 'failed'].includes(status)) throw new Error('status inválido');
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_action_deadletter
+    SET status = ${status}, error = ${error ? String(error).slice(0, 500) : null}, attempts = attempts + ${incrementAttempt ? 1 : 0}, updated_at = now(), resolved_at = CASE WHEN ${status} IN ('resolved','discarded') THEN now() ELSE resolved_at END
+    WHERE account_id = ${accountId} AND id = ${String(dlId || '').slice(0, 160)} AND status = 'pending' RETURNING *`;
+  return rows[0] || null;
+}
+
+async function countPendingActionDeadLetter(accountId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return 0;
+  await ensureSchema();
+  const rows = await sql`SELECT count(*)::int AS n FROM ads_action_deadletter WHERE account_id = ${accountId} AND status = 'pending'`;
+  return rows.length ? Number(rows[0].n) || 0 : 0;
+}
+
+// ── Histórico de backtests ──────────────────────────────────────────────────
+async function saveBacktestRun(accountId, input) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const v = input || {};
+  const window = v.window || {};
+  const summary = v.summary || {};
+  // guarda no máx. 200 findings — evita linha gigante em contas com muitas campanhas
+  const findings = Array.isArray(v.findings) ? v.findings.slice(0, 200) : [];
+  try {
+    const rows = await sql`INSERT INTO ads_backtest_runs (id, account_id, from_date, to_date, lookback_days, rules_count, hits, summary, findings)
+      VALUES (${id('bt_')}, ${accountId}, ${window.fromDate ? String(window.fromDate).slice(0, 10) : null}, ${window.toDate ? String(window.toDate).slice(0, 10) : null}, ${Number(window.lookbackDays) || null}, ${Number(summary.rules) || 0}, ${Number(summary.hits) || 0}, ${JSON.stringify(summary)}, ${JSON.stringify(findings)})
+      RETURNING id, created_at`;
+    return rows[0] || null;
+  } catch (_) { return null; }
+}
+
+async function listBacktestRuns(accountId, limit) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return [];
+  await ensureSchema();
+  const max = Math.min(100, Math.max(1, Number(limit) || 20));
+  return await sql`SELECT id, from_date, to_date, lookback_days, rules_count, hits, summary, created_at FROM ads_backtest_runs WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${max}`;
+}
+
+async function getBacktestRun(accountId, runId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const rows = await sql`SELECT * FROM ads_backtest_runs WHERE account_id = ${accountId} AND id = ${String(runId || '').slice(0, 160)} LIMIT 1`;
+  return rows[0] || null;
+}
+
 async function claimNextJob(workerId, leaseSeconds) {
   if (!enabled) return null;
   const worker = String(workerId || '').trim().slice(0, 120);
@@ -683,4 +813,4 @@ async function listInternalReports(accountId, advertiserId, limit) {
   return sql`SELECT id, advertiser_id, kind, title, content, created_at FROM ads_internal_reports WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} ORDER BY created_at DESC LIMIT ${size}`;
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, PROPOSAL_TTL_MS };
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, PROPOSAL_TTL_MS };
