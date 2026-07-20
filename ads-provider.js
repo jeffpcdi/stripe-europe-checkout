@@ -671,7 +671,7 @@ async function updateAd(advertiserId, adId, patch) {
   return r;
 }
 
-// ══════════════════════════════════════════════════════════════════�������═════════
+// ══════════════════════════════════════════════════════════════════���������═════════
 // F1 — Criação de campanha completa (campaign → adgroup → upload → ad).
 // A Zernio tinha um endpoint único /ads/create; no Pipeboard é uma COMPOSIÇÃO
 // de 4-6 tools. Toda escrita passa por aqui — rotas nunca chamam callTool.
@@ -1057,7 +1057,7 @@ async function createFullAd(advertiserId, spec, opts) {
   }
 }
 
-// ═════════════════════════════════════════════════════���═���═���══════════════════
+// ═══════════════════════════════════════════════════���═���═���═���══════════════════
 // F3 — Duplicação de campanha na MESMA conta (composição: não há tool nativa).
 // captureCampaign lê a origem COMPLETA (4 calls, cache 10min — capturar 1× por
 // job mesmo com N cópias) e recreateCampaign recria com allowlist de campos:
@@ -1558,7 +1558,38 @@ async function createTikTokCatalog(bcId, { name, catalogType, currency, country 
   };
   if (cur) args.currency = cur;
   if (region) args.country = region;
-  const out = await pipeboard.callTool('create_tiktok_catalog', args);
+  let out;
+  try {
+    out = await pipeboard.callTool('create_tiktok_catalog', args);
+  } catch (err) {
+    const msg = String(err && err.message || '');
+    // BUG conhecido do Pipeboard: a tool create_tiktok_catalog descarta o
+    // catalog_conf (schema desatualizado) e o TikTok rejeita com
+    // "catalog_conf: Missing data for required field". Não há como corrigir do
+    // nosso lado da chamada — então REUTILIZAMOS um catálogo com o mesmo nome
+    // que já exista no Business Center (criado manualmente uma única vez no
+    // TikTok Catalog Manager). O upload de produtos segue automático.
+    if (/catalog_conf/i.test(msg)) {
+      let existing = null;
+      try {
+        cacheBust('catalogs:' + bc);
+        const list = await listTikTokCatalogs(bc);
+        const want = nm.toLowerCase();
+        existing = (list || []).find((c) => {
+          const cn = String(c.catalog_name || c.name || '').trim().toLowerCase();
+          return cn && cn === want;
+        }) || null;
+      } catch (_) { /* lista é best-effort; cai no erro orientativo abaixo */ }
+      const existingId = existing ? String(existing.catalog_id || existing.id || '') : '';
+      if (existingId) return { catalogId: existingId, raw: existing, reused: true };
+      throw badRequest(
+        'A criação automática de catálogo está temporariamente indisponível (bug no Pipeboard: a tool não envia o catalog_conf que o TikTok agora exige). ' +
+        'Contorno: crie UMA VEZ um catálogo chamado "' + nm + '" no TikTok Catalog Manager (Business Center) e clique em "Publicar no TikTok" de novo — a dashboard vai reutilizá-lo e subir os produtos automaticamente.',
+        502
+      );
+    }
+    throw err;
+  }
   const catalogId = String(deepPluck(out, 'catalog_id') || '');
   if (!catalogId) throw badRequest('O TikTok não retornou o catalog_id ao criar o catálogo', 502);
   cacheBust('catalogs:' + bc);
