@@ -662,6 +662,29 @@ export function useAdsCatalogBusinessCenter(active: boolean) {
   })
 }
 
+// Categorias de interesse para o direcionamento na criação (cacheadas no server).
+// Só busca com o passo Público aberto; a lista é grande e estável.
+export function useAdsInterests(active: boolean, adAccountId: string) {
+  const qs = adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''
+  return useSWR<{ interests: { id: string; name: string }[] }>(
+    active ? `/api/ads/targeting/interests${qs}` : null,
+    fetcher,
+    { revalidateOnFocus: false, revalidateIfStale: false, shouldRetryOnError: false, keepPreviousData: true },
+  )
+}
+
+// Lança a campanha de catálogo (DPA) a partir de um catálogo já sincronizado.
+export async function adsCreateCatalogCampaign(
+  catalogId: string,
+  body: Record<string, unknown>,
+): Promise<import('./types').AdsCatalogCampaignResponse> {
+  return apiSend<import('./types').AdsCatalogCampaignResponse>(
+    `/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign`,
+    'POST',
+    body,
+  )
+}
+
 // Importa um CSV (texto cru) para um catálogo. Devolve o resumo da importação.
 export async function adsCatalogImportCsv(catalogId: string, csv: string) {
   const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/import`, {

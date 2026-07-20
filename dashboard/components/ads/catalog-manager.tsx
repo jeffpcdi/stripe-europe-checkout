@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
-  useAdsCatalogPublications, adsCatalogImportCsv, apiSend,
+  useAdsCatalogPublications, adsCatalogImportCsv, adsCreateCatalogCampaign, apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
@@ -1040,21 +1040,163 @@ function TiktokStatusPanel({
 
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
         {catalogSynced
-          ? 'O produto está aprovado e sincronizado neste catálogo. A dashboard ainda não cria Product Set, associação com a conta de anúncios ou campanha de catálogo.'
+          ? 'Produtos aprovados e sincronizados. Você já pode lançar a campanha de catálogo (DPA) daqui — sem entrar no TikTok Ads Manager.'
           : rejected > 0
             ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
             : 'O TikTok ainda está processando os produtos. Esta tela atualiza as contagens automaticamente enquanto houver itens pendentes.'}
       </p>
-      <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
-        <strong className="text-foreground">Limite atual da automação:</strong>{' '}
-        publicação e análise do catálogo. Nenhum anúncio é criado ou ativado por esta ação.
-      </div>
+
+      {/* Lançar campanha de catálogo (DPA) — fecha o loop sem sair da dashboard */}
+      <CatalogCampaignLauncher catalog={catalog} ready={catalogSynced} />
+
       {syncedAt && (
         <p className="text-[10px] text-muted-foreground">
           Última publicação: {syncedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
           {audit?.at ? ` · Status consultado: ${new Date(audit.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}
         </p>
       )}
+    </div>
+  )
+}
+
+// Lança uma campanha de catálogo (DPA / Catalog Listing Ads) a partir do catálogo
+// já sincronizado. Nasce PAUSADA; respeita Modo teste e Pausar tudo no backend.
+function CatalogCampaignLauncher({ catalog, ready }: { catalog: AdsCatalog; ready: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [budget, setBudget] = useState('')
+  const [budgetMode, setBudgetMode] = useState<'adgroup' | 'campaign'>('adgroup')
+  const [country, setCountry] = useState(catalog.country || 'BR')
+  const [busy, setBusy] = useState(false)
+  const currency = catalog.currency || 'BRL'
+
+  async function launch() {
+    if (!(Number(budget) > 0)) {
+      toast.error('Informe um orçamento maior que zero')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await adsCreateCatalogCampaign(catalog.id, {
+        name: name.trim() || catalog.name,
+        budgetAmount: Number(budget),
+        budgetType: 'daily',
+        budgetOptimization: budgetMode,
+        country: country.trim().toUpperCase(),
+      })
+      if (res.dryRun) {
+        toast.info('Modo teste: campanha simulada (nada foi criado)', { hint: 'Desligue o Modo teste em Automações → Limites de segurança para criar de verdade.' })
+      } else {
+        toast.success('Campanha de catálogo criada (PAUSADA)', { hint: 'Ative em Campanhas quando estiver pronta.' })
+      }
+      setOpen(false)
+      setName('')
+      setBudget('')
+    } catch (e) {
+      toast.error('Falha ao criar a campanha de catálogo', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <button
+          type="button"
+          className="btn-primary w-fit text-xs"
+          onClick={() => setOpen(true)}
+        >
+          <Rocket className="size-3.5" aria-hidden="true" />
+          Criar campanha deste catálogo
+        </button>
+        {!ready && (
+          <span className="text-[10px] text-muted-foreground">
+            Dica: espere os produtos serem aprovados para a campanha entregar com o catálogo completo.
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-background p-3">
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+        <Rocket className="size-3.5 text-primary" aria-hidden="true" />
+        Nova campanha de catálogo (DPA)
+      </p>
+      <label className="flex flex-col gap-1">
+        <span className="text-[11px] font-medium text-foreground">Nome</span>
+        <input
+          className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={catalog.name}
+          maxLength={120}
+        />
+      </label>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-foreground">Orçamento/dia ({currency})</span>
+          <input
+            type="number"
+            min={1}
+            step="0.01"
+            className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            placeholder="50,00"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-foreground">País (ISO-2)</span>
+          <input
+            className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm uppercase text-foreground"
+            value={country}
+            onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
+            placeholder="BR"
+            maxLength={2}
+          />
+        </label>
+      </div>
+      <fieldset className="grid grid-cols-2 gap-2">
+        {[
+          { value: 'adgroup', label: 'ABO', hint: 'Orçamento no grupo' },
+          { value: 'campaign', label: 'CBO', hint: 'TikTok distribui' },
+        ].map((o) => (
+          <label
+            key={o.value}
+            className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 transition-colors ${
+              budgetMode === o.value ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="catalogBudgetMode"
+                className="accent-primary"
+                checked={budgetMode === o.value}
+                onChange={() => setBudgetMode(o.value as 'adgroup' | 'campaign')}
+              />
+              <span className="text-xs font-semibold text-foreground">{o.label}</span>
+            </span>
+            <span className="pl-6 text-[10px] text-muted-foreground">{o.hint}</span>
+          </label>
+        ))}
+      </fieldset>
+      <p className="rounded-lg bg-secondary/60 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+        A campanha nasce <strong className="text-foreground">PAUSADA</strong> e usa todos os produtos do catálogo
+        (o TikTok gera o criativo). Ative em Campanhas quando quiser. Respeita o Modo teste.
+      </p>
+      <div className="flex items-center justify-end gap-1.5">
+        <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setOpen(false)} disabled={busy}>
+          Cancelar
+        </button>
+        <button type="button" className="btn-primary px-3.5 py-1.5 text-xs" onClick={launch} disabled={busy}>
+          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
+          Criar campanha
+        </button>
+      </div>
     </div>
   )
 }

@@ -24,6 +24,7 @@
 const provider = require('./ads-provider');
 const cache = require('./ads-cache-store');
 const adsOps = require('./ads-ops-store');
+const redis = require('./redis');
 const { sendPushcut } = require('./pushcut');
 
 // ── Configuração ────────────────────────────────────────────────────────────
@@ -33,10 +34,11 @@ const FRESHNESS_MS = Number(process.env.ADS_SWEEP_FRESHNESS_MS) || 15 * 60e3;   
 const RULE_COOLDOWN_MS = 12 * 3600e3;   // 1 ação por episódio (12h por campanha+regra)
 const SCALE_COOLDOWN_MS = 24 * 3600e3;  // roas_scale: no máx. 1 escala/dia por campanha
 const ALERT_COOLDOWN_MS = 6 * 3600e3;   // alertas: 6h por campanha+regra
+const APPEAL_COOLDOWN_MS = 7 * 24 * 3600e3; // auto-appeal Smart+: no máx. 1×/anúncio a cada 7 dias
 
 const RULE_METRICS = ['cpa_max', 'spend_no_conv', 'roas_min', 'ctr_min', 'cpm_max', 'cpc_max', 'roas_scale', 'schedule'];
 const RULE_ACTIONS = ['pause', 'budget_down', 'budget_up'];
-const ALERT_DEFAULTS = { enabled: false, spendNoConv: 20, cpaMax: 0, lookbackDays: 2, rejectedAds: false };
+const ALERT_DEFAULTS = { enabled: false, spendNoConv: 20, cpaMax: 0, lookbackDays: 2, rejectedAds: false, autoAppealSmartPlus: false };
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
 // stats é injetado pelas rotas (logEvent + getStats p/ atribuição). Antes de
@@ -329,12 +331,35 @@ function sumAccountDailyBudget(campaigns) {
 const BREAKER_MIN_SAMPLES = 10; // amostras mínimas antes de o breaker poder abrir
 const actionOutcomes = new Map(); // accId → boolean[] (true = ok)
 const breakerLastAt = new Map();  // accId → ms do último resultado registrado (p/ UI)
+const breakerHydrated = new Map(); // accId → Promise (dedupe da carga do Redis)
+
+// Hidrata a janela do breaker do Redis UMA vez por conta. Sem isto, um restart
+// zerava o histórico e o breaker "esquecia" uma tempestade de falhas em curso.
+// A memória mais nova sempre vence (não sobrescreve resultados chegados após a
+// carga). Best-effort: falha de Redis nunca quebra o motor.
+function ensureBreakerHydrated(accId) {
+  if (breakerHydrated.has(accId)) return breakerHydrated.get(accId);
+  const p = (async () => {
+    try {
+      const snap = await redis.loadBreakerSamples(accId);
+      if (snap && Array.isArray(snap.samples) && !actionOutcomes.has(accId)) {
+        actionOutcomes.set(accId, snap.samples.slice(-20));
+        if (snap.at) breakerLastAt.set(accId, snap.at);
+      }
+    } catch (_) { /* Redis indisponível — segue com janela em memória */ }
+  })();
+  breakerHydrated.set(accId, p);
+  return p;
+}
+
 function recordOutcome(accId, ok) {
   const arr = actionOutcomes.get(accId) || [];
   arr.push(!!ok);
   while (arr.length > 20) arr.shift();
   actionOutcomes.set(accId, arr);
   breakerLastAt.set(accId, Date.now());
+  // Write-through best-effort: persiste a janela para sobreviver a restart.
+  redis.saveBreakerSamples(accId, arr).catch(() => {});
 }
 function breakerOpen(accId, policy) {
   return adsOps.circuitBreakerOpen(actionOutcomes.get(accId) || [], policy.circuitBreakerErrorPct, BREAKER_MIN_SAMPLES);
@@ -408,6 +433,49 @@ async function treeForSweep(accId, advertiserId, { fromDate, toDate, status, for
 
 function isoDay(d) { return d.toISOString().slice(0, 10); }
 
+// ── Auto-appeal de anúncio Smart+ reprovado (opt-in, é AÇÃO real) ───────────
+// Diferente do resto do runAlertSweep (que só notifica), recorrer é uma escrita
+// na plataforma: obedece kill switch e Modo teste (dry-run) da política, com
+// cooldown de 7 dias por anúncio p/ nunca recorrer 2× do mesmo. Best-effort:
+// falha de um appeal não consome o cooldown (será re-tentado no próximo sweep).
+async function autoAppealRejectedSmartPlus(accId, advertiserId, rejectedAds) {
+  const policy = await adsOps.getSafetyPolicy(accId);
+  if (policy.killSwitch) {
+    stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Kill switch ATIVO: auto-recurso de Smart+ abortado' });
+    return;
+  }
+  const dryRun = !!policy.dryRun;
+  for (const a of rejectedAds) {
+    const adId = String(a.adId || '');
+    if (!adId) continue;
+    const key = 'appeal:' + adId;
+    if (await underCooldown(accId, key, APPEAL_COOLDOWN_MS)) continue;
+    const reason = 'Recurso automático (anúncio Smart+ reprovado)';
+    try {
+      if (dryRun) {
+        await auditSimulated(accId, {
+          action: 'smart_plus_appeal', targetType: 'ad', targetId: adId, advertiserId,
+          metadata: { auto: true }, title: 'Auto-recurso do anúncio Smart+ "' + a.name + '"',
+        });
+      } else {
+        await provider.appealSmartPlusAd(advertiserId, adId, reason);
+        await auditReal(accId, {
+          action: 'smart_plus_appeal', targetType: 'ad', targetId: adId, advertiserId,
+          reason: 'Auto-recurso: ' + reason, metadata: { auto: true, adName: a.name },
+        });
+      }
+      // Só marca o cooldown após sucesso (dry-run também marca: a simulação não
+      // deve re-simular o mesmo anúncio a cada varredura).
+      await markFired(accId, key, 'appeal', { auto: true });
+      stats.logEvent('info', { acc: accId, title: '[tiktok-ads] ' + (dryRun ? '[simulado] ' : '') + 'Auto-recurso enviado para o anúncio Smart+ "' + a.name + '"' });
+      sendPushcut('Aprovada', { title: 'TikTok Ads: recurso automático', text: (dryRun ? '[simulado] ' : '') + 'Anúncio Smart+ "' + a.name + '" reprovado — recurso enviado automaticamente.', sound: 'system' }, accId).catch(() => {});
+    } catch (e) {
+      // Não marca cooldown: re-tenta no próximo sweep.
+      stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Auto-recurso do Smart+ "' + a.name + '" FALHOU: ' + String(e && e.message ? e.message : 'erro').slice(0, 120) });
+    }
+  }
+}
+
 // ── Alertas (não agem — só notificam) ───────────────────────────────────────
 async function runAlertSweep(accId, { force } = {}) {
   const cfg = getAlertCfg(accId);
@@ -463,16 +531,21 @@ async function runAlertSweep(accId, { force } = {}) {
 
     // O robô também vigia o Smart+ (as campanhas Smart+ não vivem no espelho —
     // leitura AO VIVO, throttled pela varredura, best-effort: qualquer falha
-    // é ignorada e nunca quebra o sweep). Recorrer é 1 clique na aba Smart+.
+    // é ignorada e nunca quebra o sweep). Recorrer é 1 clique na aba Smart+ —
+    // ou, com autoAppealSmartPlus ligado, o robô recorre sozinho 1×/anúncio.
     if (typeof provider.listSmartPlusAds === 'function') {
       try {
         const spAds = await provider.listSmartPlusAds(advertiserId);
-        (spAds || []).filter((a) => a.rejected).forEach((a) => {
+        const rejectedSp = (spAds || []).filter((a) => a.rejected);
+        rejectedSp.forEach((a) => {
           findings.push({
             rule: 'smart_plus_rejected', campaignId: a.adId, campaignName: a.name,
             text: 'Smart+: o anúncio "' + a.name + '" foi REPROVADO na revisão do TikTok — recorra na aba Smart+.'
           });
         });
+        if (cfg.autoAppealSmartPlus && rejectedSp.length && typeof provider.appealSmartPlusAd === 'function') {
+          await autoAppealRejectedSmartPlus(accId, advertiserId, rejectedSp);
+        }
       } catch (_) { /* Smart+ indisponível/sem permissão — segue sem alertar */ }
     }
   }
@@ -505,12 +578,24 @@ function computeActionStates(action, campaign, plan) {
   };
 }
 
+// Roteia a mudança de status ao provider certo pela origem da campanha: Smart+
+// tem endpoint próprio (setSmartPlusCampaignStatus); leilão usa setCampaignStatus.
+async function setCampaignStatusByKind(campaign, advertiserId, cid, status) {
+  if (campaign && campaign.campaignKind === 'smart_plus') {
+    return provider.setSmartPlusCampaignStatus(advertiserId, [cid], status);
+  }
+  return provider.setCampaignStatus(advertiserId, [cid], status);
+}
+
 async function executeRuleAction({ advertiserId, action, campaign, plan, dryRun }) {
   const { beforeState, afterState } = computeActionStates(action, campaign, plan);
   const prefix = dryRun ? '[simulado] ' : '';
+  // Smart+ usa outro endpoint de status (ENABLE/DISABLE) — o único controle de
+  // Smart+ com API. Orçamento não é ajustável via API, então só pausa chega aqui.
+  const isSmartPlus = campaign.campaignKind === 'smart_plus';
   if (action === 'pause') {
-    if (!dryRun) await provider.setCampaignStatus(advertiserId, [campaign.platformCampaignId], 'paused');
-    return { ok: true, result: prefix + 'campanha pausada', beforeState, afterState };
+    if (!dryRun) await setCampaignStatusByKind(campaign, advertiserId, campaign.platformCampaignId, 'paused');
+    return { ok: true, result: prefix + (isSmartPlus ? 'campanha Smart+ pausada' : 'campanha pausada'), beforeState, afterState };
   }
   const { pct, cap, capped, changes } = plan;
   let changed = 0;
@@ -620,6 +705,10 @@ async function runRulesSweep(accId, { force } = {}) {
   const advertiserId = await provider.resolveAdvertiserId(accId);
   if (!advertiserId) return { executed: [], skipped: true };
 
+  // Restaura a janela do breaker do Redis antes de avaliar — assim uma sequência
+  // de falhas de antes do restart continua contando para abrir o breaker.
+  await ensureBreakerHydrated(accId);
+
   const dryRun = !!policy.dryRun;
   const to = new Date();
   const maxLookback = Math.max(...rules.map((r) => r.lookbackDays || 1), 1);
@@ -669,6 +758,23 @@ async function runRulesSweep(accId, { force } = {}) {
 
       const { hit, detail } = evaluateRule(r, ctx);
       if (!hit) continue;
+
+      // Smart+ só pode ser PAUSADO via API (o Pipeboard não expõe ajuste de
+      // orçamento de Smart+). Regras de escala/orçamento não se aplicam: registra
+      // uma vez (sob cooldown, p/ não repetir no log) e segue sem consumir o
+      // cooldown normal da regra nem tocar a plataforma.
+      if (c.campaignKind === 'smart_plus' && r.action !== 'pause') {
+        const skipKey = 'sp-nobudget:' + c.platformCampaignId + ':' + r.id;
+        if (!(await underCooldown(accId, skipKey, RULE_COOLDOWN_MS))) {
+          await markFired(accId, skipKey, 'rule', { skipped: 'smart_plus_no_budget' });
+          executed.push({
+            at: new Date().toISOString(), ruleId: r.id, metric: r.metric, action: r.action,
+            campaignId: c.platformCampaignId, campaignName: name, detail, ok: false, skipped: true,
+            result: 'Smart+ não permite ajuste de orçamento via API — só pausa',
+          });
+        }
+        continue;
+      }
 
       // Pré-computa alterações de orçamento ANTES de consumir cooldown: uma
       // recusa por teto de gasto não deve "gastar" o cooldown de 12h da regra.
@@ -768,6 +874,18 @@ async function runRulesSweep(accId, { force } = {}) {
         }
       } catch (e) {
         entry.result = 'falhou: ' + (e && e.message ? e.message.slice(0, 120) : 'erro');
+        // DEAD-LETTER: ação real que falhou não pode sumir no log. Persiste a
+        // intenção (plan + estados) para inspeção e reprocessamento. Best-effort:
+        // nunca re-lança. Dry-run e proposta não entram (nada foi executado).
+        if (!dryRun) {
+          const states = computeActionStates(r.action, c, plan);
+          adsOps.addActionDeadLetter(accId, {
+            ruleId: r.id, metric: r.metric, action: r.action, advertiserId,
+            campaignId: c.platformCampaignId, campaignName: name, detail,
+            plan: { ...(plan || {}), ...states },
+            error: e && e.message ? e.message.slice(0, 300) : 'erro',
+          }).catch(() => {});
+        }
       }
       if (!dryRun) recordOutcome(accId, entry.ok);       // alimenta o circuit breaker
       if (entry.ok && !dryRun) actionsThisHour += 1;      // conta p/ o cap/hora
@@ -838,7 +956,15 @@ async function backtestRules(accId, { rules, lookbackDays } = {}) {
       findings.push(finding);
     }
   }
-  return { findings, summary, window: { fromDate, toDate, lookbackDays: maxLookback }, checkedAt: new Date().toISOString() };
+  const window = { fromDate, toDate, lookbackDays: maxLookback };
+  // Histórico durável (best-effort): compara efeito de ajustes de threshold ao
+  // longo do tempo. Nunca quebra o backtest se a persistência estiver off.
+  let runId = null;
+  try {
+    const saved = await adsOps.saveBacktestRun(accId, { window, summary, findings });
+    if (saved && saved.id) runId = saved.id;
+  } catch (_) { /* persistência indisponível — devolve o resultado mesmo assim */ }
+  return { findings, summary, window, runId, checkedAt: new Date().toISOString() };
 }
 
 // ── F3: aprovação de proposta ───────────────────────────────────────────────
@@ -926,6 +1052,64 @@ async function approveProposal(accId, proposalId) {
     appendRulesLog(accId, [entry]);
     const e = new Error(msg); e.status = 502; throw e;
   }
+}
+
+// ── Reprocessamento de dead-letter ──────────────────────────────────────────
+// Reexecuta uma ação que falhou, pelo MESMO caminho do motor (executeRuleAction)
+// e com os MESMOS guards da aprovação de proposta: kill switch/política, dry-run
+// recusa, circuit breaker e cap/hora. Usa o `plan` gravado (before/after já
+// computados). Sucesso → 'resolved'; falha → volta a 'pending' (mantém a
+// entrada para nova tentativa) com o erro atualizado.
+async function reprocessDeadLetter(accId, dlId) {
+  const dl = await adsOps.getActionDeadLetter(accId, dlId);
+  if (!dl) { const e = new Error('Item de dead-letter não encontrado'); e.status = 404; throw e; }
+  if (dl.status !== 'pending') { const e = new Error('Item já ' + dl.status); e.status = 409; throw e; }
+
+  const policy = await adsOps.getSafetyPolicy(accId);
+  adsOps.assertMutationAllowed(policy, { advertiserId: dl.advertiser_id, idempotencyKey: 'deadletter:' + dl.id });
+  if (policy.dryRun) { const e = new Error('Modo simulação (dry-run) ativo — desative para reprocessar'); e.status = 409; throw e; }
+  if (breakerOpen(accId, policy)) { const e = new Error('Circuit breaker aberto (muitas falhas recentes) — tente mais tarde'); e.status = 409; throw e; }
+  if (policy.maxActionsPerHour > 0) {
+    const n = await adsOps.countRecentEngineActions(accId, 3600e3);
+    if (n >= policy.maxActionsPerHour) { const e = new Error('Cap de ' + policy.maxActionsPerHour + ' ações/hora atingido — tente mais tarde'); e.status = 429; throw e; }
+  }
+
+  const plan = dl.plan || {};
+  const advertiserId = dl.advertiser_id || await provider.resolveAdvertiserId(accId);
+  // Reconstrói o "campaign" mínimo que executeRuleAction consome (id + status).
+  const campaign = { platformCampaignId: dl.campaign_id, campaignName: dl.campaign_name, status: 'active' };
+  try {
+    const done = await executeRuleAction({ advertiserId, action: dl.action, campaign, plan, dryRun: false });
+    recordOutcome(accId, done.ok); // alimenta o circuit breaker como qualquer ação real
+    if (done.ok) {
+      await auditReal(accId, {
+        action: 'rule_action', targetType: 'campaign', targetId: dl.campaign_id, advertiserId,
+        beforeState: done.beforeState, afterState: done.afterState,
+        reason: 'Dead-letter reprocessado: ' + (dl.detail || ''),
+        metadata: { deadLetterId: dl.id, ruleId: dl.rule_id, metric: dl.metric, action: dl.action, reprocessed: true },
+      });
+      await adsOps.markActionDeadLetter(accId, dl.id, 'resolved', { incrementAttempt: true });
+      syncAfterWrite(accId, advertiserId);
+      stats.logEvent('info', { acc: accId, title: '[tiktok-ads] Dead-letter reprocessado com sucesso: ' + done.result + ' — "' + (dl.campaign_name || dl.campaign_id) + '"' });
+      return { ok: true, result: done.result, deadLetterId: dl.id, status: 'resolved' };
+    }
+    // provider respondeu mas nada mudou (ex.: já no teto) — trata como falha lógica
+    await adsOps.markActionDeadLetter(accId, dl.id, 'pending', { error: done.result, incrementAttempt: true });
+    return { ok: false, result: done.result, deadLetterId: dl.id, status: 'pending' };
+  } catch (err) {
+    const msg = 'falhou: ' + String(err && err.message ? err.message : 'erro').slice(0, 200);
+    recordOutcome(accId, false);
+    await adsOps.markActionDeadLetter(accId, dl.id, 'pending', { error: msg, incrementAttempt: true });
+    const e = new Error(msg); e.status = 502; throw e;
+  }
+}
+
+// Descarta (não reprocessa) uma entrada pendente — o gestor decidiu que a ação
+// não é mais desejada. Transição pending→discarded.
+async function discardDeadLetter(accId, dlId) {
+  const row = await adsOps.markActionDeadLetter(accId, dlId, 'discarded');
+  if (!row) { const e = new Error('Item de dead-letter não encontrado ou já resolvido'); e.status = 404; throw e; }
+  return { ok: true, deadLetterId: dlId, status: 'discarded' };
 }
 
 // ── Dayparting (agendamento por dia/horário) ────────────────────────────────
@@ -1036,7 +1220,7 @@ async function runScheduleSweep(accId, { force } = {}) {
         const afterState = { kind: 'status', level: 'campaign', id: cid, value: 'paused' };
         try {
           if (!dryRun) {
-            await provider.setCampaignStatus(advertiserId, [cid], 'paused');
+            await setCampaignStatusByKind(c, advertiserId, cid, 'paused');
             await markFired(accId, markKey, 'sched', { ruleId: r.id, pausedAt: new Date().toISOString() });
           }
           entry.ok = true;
@@ -1068,7 +1252,7 @@ async function runScheduleSweep(accId, { force } = {}) {
         const afterState = { kind: 'status', level: 'campaign', id: cid, value: 'active' };
         try {
           if (!dryRun) {
-            await provider.setCampaignStatus(advertiserId, [cid], 'active');
+            await setCampaignStatusByKind(c, advertiserId, cid, 'active');
             await clearFired(accId, markKey);
           }
           entry.ok = true;
@@ -1178,11 +1362,14 @@ module.exports = {
   runScheduleSweep,
   backtestRules,
   approveProposal,
+  reprocessDeadLetter,
+  discardDeadLetter,
   maybeSweep,
   markSweepNow,
   getSweepInfo,
   getBreakerState,
+  ensureBreakerHydrated,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, actionOutcomes, breakerLastAt, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates },
+  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, APPEAL_COOLDOWN_MS },
 };
