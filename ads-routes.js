@@ -703,6 +703,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const ageMin = parseInt(b.ageMin, 10); const ageMax = parseInt(b.ageMax, 10);
     if (ageMin >= 13) payload.ageMin = Math.min(ageMin, 65);
     if (ageMax >= 13) payload.ageMax = Math.min(ageMax, 65);
+    // Gênero: só entra quando o gestor restringe (all/ausente = não segmenta).
+    if (b.gender === 'male' || b.gender === 'female') payload.gender = b.gender;
+    // Interesses: IDs numéricos (de get_tiktok_interest_categories), cap 20.
+    if (Array.isArray(b.interestIds)) {
+      const ids = b.interestIds.map((x) => String(x || '').trim()).filter((x) => /^\d{1,20}$/.test(x)).slice(0, 20);
+      if (ids.length) payload.interestIds = ids;
+    }
+    // Posicionamento: 'automatic' (default) ou lista específica whitelisted.
+    if (Array.isArray(b.placements)) {
+      const ALLOWED = ['PLACEMENT_TIKTOK', 'PLACEMENT_PANGLE', 'PLACEMENT_GLOBAL_APP_BUNDLE'];
+      const ps = b.placements.map((x) => String(x || '').trim().toUpperCase()).filter((x) => ALLOWED.includes(x)).slice(0, 3);
+      if (ps.length) payload.placements = ps;
+    }
     if (budgetType === 'lifetime') {
       if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return { error: 'Orçamento lifetime exige data de término (endDate)' };
       payload.endDate = String(b.endDate).slice(0, 24);
@@ -1459,6 +1472,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         cpaMax: Math.max(0, Math.min(100000, Number(b.cpaMax) || 0)),
         lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2)),
         rejectedAds: b.rejectedAds === true, // aviso de criativo reprovado (opt-in explícito)
+        autoAppealSmartPlus: b.autoAppealSmartPlus === true, // recorre sozinho de anúncio Smart+ reprovado (ação real, opt-in explícito)
       };
       // alertsSeeded: salvar é escolha do usuário — o seed não mexe mais aqui.
       pipeboard.setState(req.account.id, { alerts: cfg, alertsSeeded: true });
@@ -2475,6 +2489,73 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const audit = await pipeboard.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
       const updated = await catalogStore.setAudit(req.account.id, req.params.catalogId, audit);
       res.json({ catalog: updated, audit });
+    } catch (err) { fail(res, err); }
+  });
+
+  // ── Lançar campanha de catálogo (DPA / Catalog Listing Ads) ───────────────
+  // Fecha o loop do catálogo: cria a campanha PRODUCT_SALES a partir do catálogo
+  // já sincronizado, sem entrar no Ads Manager. Nasce PAUSADA; respeita kill
+  // switch e dry-run como toda escrita.
+  app.post('/api/ads/catalogs/:catalogId/campaign', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const accId = req.account.id;
+      const catalog = await catalogStore.getCatalog(accId, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
+      if (!catalog.tiktokCatalogId || !catalog.bcId) {
+        return res.status(422).json({ error: 'Publique o catálogo no TikTok antes de criar a campanha (aba Catálogo → Publicar no TikTok).', code: 'NOT_SYNCED' });
+      }
+      if (await killSwitchActive(accId)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      const b = req.body || {};
+      const name = String(b.name || catalog.name || 'Catálogo').trim().slice(0, 120);
+      const budgetAmount = Number(b.budgetAmount);
+      if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Informe um orçamento maior que zero' });
+      const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
+      if (budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) {
+        return res.status(400).json({ error: 'Orçamento total exige data de término (endDate)' });
+      }
+      const country = /^[A-Z]{2}$/.test(String(b.country || '').toUpperCase()) ? String(b.country).toUpperCase() : (catalog.country || 'BR');
+      const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
+      const spec = {
+        catalogId: catalog.tiktokCatalogId, bcId: catalog.bcId, name,
+        budgetAmount, budgetType, endDate: b.endDate, country,
+        budgetOptimization: b.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup',
+        bidStrategy: b.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost',
+        bidAmount: Number(b.bidAmount) || undefined,
+      };
+
+      if (await isDryRun(accId)) {
+        await auditSimulated(accId, {
+          action: 'catalog_campaign', targetType: 'catalog', targetId: catalog.id, advertiserId,
+          metadata: { name, budgetAmount, budgetType, country, catalogId: catalog.tiktokCatalogId },
+          title: 'Criar campanha de catálogo: ' + name,
+        });
+        return res.json({ dryRun: true, simulated: true, name });
+      }
+
+      const result = await pipeboard.createCatalogCampaign(advertiserId, spec);
+      await adsOps.appendAuditEvent(accId, {
+        actorType: 'user', actorId: accId, action: 'catalog_campaign',
+        targetType: 'campaign', targetId: result.campaignId || null, advertiserId,
+        afterState: { campaignId: result.campaignId, catalogId: catalog.tiktokCatalogId },
+        reason: 'Campanha de catálogo criada (PAUSADA): ' + name,
+        metadata: { catalogId: catalog.tiktokCatalogId, budgetAmount, budgetType },
+      }).catch(() => {});
+      stats.logEvent('info', { acc: accId, title: 'Campanha de catálogo criada (PAUSADA): ' + name, ref: result.campaignId });
+      adsSync.syncAfterWrite(accId, advertiserId);
+      res.json({ ok: true, ...result });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Categorias de interesse p/ o direcionamento na criação (leitura, cacheada).
+  app.get('/api/ads/targeting/interests', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=3600');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const advertiserId = await resolveAdvForSmartPlus(req, String(req.query.adAccountId || '').trim() || null);
+      const interests = await pipeboard.listInterestCategories(advertiserId);
+      res.json({ interests });
     } catch (err) { fail(res, err); }
   });
 };

@@ -30,7 +30,7 @@ export const PILOTS: { id: PilotId; title: string; desc: string }[] = [
   {
     id: 'protector',
     title: 'Protetor de orçamento',
-    desc: 'Corta o que queima dinheiro: CPA estourado, gasto sem venda e clique caro demais.',
+    desc: 'Corta o que queima dinheiro: CPA estourado, gasto sem venda e clique caro demais. Pausa também campanhas Smart+ (o TikTok não deixa ajustar o orçamento delas por fora — só pausar).',
   },
   {
     id: 'scaler',

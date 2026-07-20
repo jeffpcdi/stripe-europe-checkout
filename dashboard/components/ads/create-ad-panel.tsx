@@ -23,7 +23,7 @@ import {
   FlaskConical,
   Trash2,
 } from 'lucide-react'
-import { apiSend, adsUpload, useAdsTemplates } from '@/lib/api'
+import { apiSend, adsUpload, useAdsTemplates, useAdsInterests } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsGoal, AdsIdentity, AdsTemplate } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
@@ -49,6 +49,19 @@ const CTAS = [
   { value: 'ORDER_NOW', label: 'Peça agora' },
 ]
 
+const GENDERS: { value: 'all' | 'male' | 'female'; label: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'male', label: 'Homens' },
+  { value: 'female', label: 'Mulheres' },
+]
+
+// Posicionamentos suportados na criação (whitelist espelhada no backend).
+const PLACEMENTS: { value: string; label: string }[] = [
+  { value: 'PLACEMENT_TIKTOK', label: 'TikTok' },
+  { value: 'PLACEMENT_PANGLE', label: 'Pangle (rede de apps)' },
+  { value: 'PLACEMENT_GLOBAL_APP_BUNDLE', label: 'Global App Bundle' },
+]
+
 const STEPS = [
   { label: 'Objetivo', icon: Target },
   { label: 'Orçamento', icon: Wallet },
@@ -70,6 +83,10 @@ interface FormState {
   languages: string
   ageMin: string
   ageMax: string
+  gender: 'all' | 'male' | 'female'
+  placementMode: 'automatic' | 'custom'
+  placements: string[]
+  interestIds: string[]
   pixelId: string
   customEventType: string
   videoUrl: string
@@ -92,6 +109,10 @@ const INITIAL: FormState = {
   languages: 'pt',
   ageMin: '',
   ageMax: '',
+  gender: 'all',
+  placementMode: 'automatic',
+  placements: [],
+  interestIds: [],
   pixelId: '',
   customEventType: '',
   videoUrl: '',
@@ -130,6 +151,16 @@ export function CreateAdPanel({
   const [variantUrls, setVariantUrls] = useState<string[]>([])
   const [variantsOpen, setVariantsOpen] = useState(false)
   const idemKey = useMemo(() => (open ? `ttads-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` : ''), [open])
+  // Interesses: só busca com o passo Público aberto (lista grande, cacheada).
+  const [interestQuery, setInterestQuery] = useState('')
+  const { data: interestsData } = useAdsInterests(open && step === 2, advertiserId)
+  const interestMatches = useMemo(() => {
+    const all = interestsData?.interests ?? []
+    const q = interestQuery.trim().toLowerCase()
+    if (!q) return [] as { id: string; name: string }[]
+    return all.filter((i) => i.name.toLowerCase().includes(q)).slice(0, 8)
+  }, [interestsData, interestQuery])
+  const interestName = (id: string) => interestsData?.interests.find((i) => i.id === id)?.name ?? id
 
   useModalA11y(open, ref, submitting ? () => {} : onClose)
 
@@ -213,6 +244,10 @@ export function CreateAdPanel({
       languages: p.languages?.join(', ') || f.languages,
       ageMin: p.ageMin ? String(p.ageMin) : f.ageMin,
       ageMax: p.ageMax ? String(p.ageMax) : f.ageMax,
+      gender: p.gender ?? f.gender,
+      interestIds: p.interestIds ?? f.interestIds,
+      placements: p.placements ?? f.placements,
+      placementMode: p.placements && p.placements.length ? 'custom' : f.placementMode,
       pixelId: p.pixelId ?? f.pixelId,
       customEventType: p.customEventType ?? f.customEventType,
     }))
@@ -237,6 +272,9 @@ export function CreateAdPanel({
           languages: form.languages.split(/[,\s]+/).filter(Boolean),
           ageMin: Number(form.ageMin) || undefined,
           ageMax: Number(form.ageMax) || undefined,
+          gender: form.gender !== 'all' ? form.gender : undefined,
+          interestIds: form.interestIds.length ? form.interestIds : undefined,
+          placements: form.placementMode === 'custom' && form.placements.length ? form.placements : undefined,
           pixelId: form.pixelId.trim() || undefined,
           customEventType: form.customEventType.trim() || undefined,
         },
@@ -284,6 +322,9 @@ export function CreateAdPanel({
       if (languages.length) basePayload.languages = languages
       if (Number(form.ageMin) >= 13) basePayload.ageMin = Number(form.ageMin)
       if (Number(form.ageMax) >= 13) basePayload.ageMax = Number(form.ageMax)
+      if (form.gender !== 'all') basePayload.gender = form.gender
+      if (form.interestIds.length) basePayload.interestIds = form.interestIds
+      if (form.placementMode === 'custom' && form.placements.length) basePayload.placements = form.placements
       if (form.body.trim()) basePayload.body = form.body.trim()
       if (/^https?:\/\//.test(form.linkUrl.trim())) basePayload.linkUrl = form.linkUrl.trim()
       if (form.callToAction) basePayload.callToAction = form.callToAction
@@ -650,6 +691,143 @@ export function CreateAdPanel({
                   />
                 </label>
               </div>
+              {/* Gênero */}
+              <fieldset className="flex flex-col gap-1.5">
+                <legend className="text-xs font-medium text-foreground">Gênero</legend>
+                <div className="grid grid-cols-3 gap-2">
+                  {GENDERS.map((g) => (
+                    <label
+                      key={g.value}
+                      className={`flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                        form.gender === g.value ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:border-primary/40'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="gender"
+                        className="sr-only"
+                        checked={form.gender === g.value}
+                        onChange={() => set('gender', g.value)}
+                      />
+                      {g.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              {/* Posicionamento */}
+              <fieldset className="flex flex-col gap-1.5">
+                <legend className="text-xs font-medium text-foreground">Posicionamento</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'automatic', label: 'Automático', hint: 'TikTok escolhe (recomendado)' },
+                    { value: 'custom', label: 'Escolher', hint: 'Selecionar manualmente' },
+                  ].map((o) => (
+                    <label
+                      key={o.value}
+                      className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 transition-colors ${
+                        form.placementMode === o.value ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="placementMode"
+                          className="accent-primary"
+                          checked={form.placementMode === o.value}
+                          onChange={() => set('placementMode', o.value as 'automatic' | 'custom')}
+                        />
+                        <span className="text-xs font-semibold text-foreground">{o.label}</span>
+                      </span>
+                      <span className="pl-6 text-[11px] text-muted-foreground">{o.hint}</span>
+                    </label>
+                  ))}
+                </div>
+                {form.placementMode === 'custom' && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {PLACEMENTS.map((p) => {
+                      const on = form.placements.includes(p.value)
+                      return (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() =>
+                            set(
+                              'placements',
+                              on ? form.placements.filter((x) => x !== p.value) : [...form.placements, p.value],
+                            )
+                          }
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                            on ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </fieldset>
+
+              {/* Interesses (opcional) */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-foreground">Interesses <span className="font-normal text-muted-foreground">(opcional)</span></span>
+                {form.interestIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {form.interestIds.map((id) => (
+                      <span key={id} className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 py-0.5 pl-2.5 pr-1 text-[11px] font-medium text-primary">
+                        {interestName(id)}
+                        <button
+                          type="button"
+                          className="btn-ghost !p-0.5"
+                          onClick={() => set('interestIds', form.interestIds.filter((x) => x !== id))}
+                          aria-label={`Remover ${interestName(id)}`}
+                        >
+                          <X className="size-3" aria-hidden="true" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                  value={interestQuery}
+                  onChange={(e) => setInterestQuery(e.target.value)}
+                  placeholder="Buscar interesse (ex.: beleza, games, fitness)…"
+                  aria-label="Buscar categoria de interesse"
+                />
+                {interestQuery.trim() && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {interestMatches.length === 0 ? (
+                      <span className="text-[11px] text-muted-foreground">
+                        {interestsData ? 'Nenhum interesse encontrado.' : 'Carregando categorias…'}
+                      </span>
+                    ) : (
+                      interestMatches
+                        .filter((m) => !form.interestIds.includes(m.id))
+                        .map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                            onClick={() => {
+                              if (form.interestIds.length >= 20) {
+                                toast.error('Máximo de 20 interesses')
+                                return
+                              }
+                              set('interestIds', [...form.interestIds, m.id])
+                              setInterestQuery('')
+                            }}
+                          >
+                            + {m.name}
+                          </button>
+                        ))
+                    )}
+                  </div>
+                )}
+                <span className="text-[11px] text-muted-foreground">Sem interesses = público aberto (o TikTok otimiza sozinho).</span>
+              </div>
+
               {form.goal === 'conversions' && (
                 <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
                   <label className="flex flex-col gap-1.5">
@@ -917,6 +1095,16 @@ export function CreateAdPanel({
                     'Idade',
                     form.ageMin || form.ageMax ? `${form.ageMin || '13'}–${form.ageMax || '65'}` : 'Todas',
                   ],
+                  ['Gênero', GENDERS.find((g) => g.value === form.gender)?.label ?? 'Todos'],
+                  [
+                    'Posicionamento',
+                    form.placementMode === 'custom' && form.placements.length
+                      ? form.placements.map((p) => PLACEMENTS.find((x) => x.value === p)?.label ?? p).join(', ')
+                      : 'Automático',
+                  ],
+                  ...(form.interestIds.length
+                    ? [['Interesses', form.interestIds.map(interestName).join(', ')] as [string, string]]
+                    : []),
                   ...(form.goal === 'conversions' ? [['Pixel', form.pixelId] as [string, string]] : []),
                   ['Vídeo', form.videoUrl.length > 48 ? form.videoUrl.slice(0, 48) + '…' : form.videoUrl],
                   ['Destino', form.linkUrl || '—'],

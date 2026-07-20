@@ -867,6 +867,9 @@ export interface AdsTreeCampaign {
   // diverge do status real da campanha na plataforma (ex.: campanha ativa
   // com todos os anúncios pausados). Presente só quando divergem.
   childStatus?: AdsNodeStatus
+  // Origem da campanha: 'auction' (leilão padrão) ou 'smart_plus' (mesclada pelo
+  // espelho). O motor de automação pausa Smart+ mas não ajusta seu orçamento.
+  campaignKind?: 'auction' | 'smart_plus'
   platformCampaignStatus?: string | null
   reviewStatus?: 'in_review' | 'approved' | 'rejected' | 'with_issues' | null
   adCount?: number
@@ -1000,6 +1003,7 @@ export interface AdsAlertsConfig {
   cpaMax: number // teto de CPA (0 = off)
   lookbackDays: number
   rejectedAds?: boolean // avisa quando um criativo é reprovado na revisão
+  autoAppealSmartPlus?: boolean // recorre sozinho 1× de anúncio Smart+ reprovado (ação real; respeita kill switch/dry-run)
 }
 
 export interface AdsAlertFinding {
@@ -1262,6 +1266,9 @@ export interface AdsTemplatePayload {
   pixelId?: string
   customEventType?: string
   identityType?: string
+  gender?: 'all' | 'male' | 'female'
+  interestIds?: string[]
+  placements?: string[]
 }
 
 export interface AdsTemplate {
@@ -1474,6 +1481,18 @@ export interface AdsCatalogSyncResponse {
   published: number
   skipped?: number
   audit: AdsCatalogAudit | null
+}
+
+// POST /api/ads/catalogs/:id/campaign — lançar campanha de catálogo (DPA)
+export interface AdsCatalogCampaignResponse {
+  ok?: boolean
+  dryRun?: boolean
+  simulated?: boolean
+  name: string
+  campaignId?: string
+  adGroupId?: string
+  adId?: string
+  warnings?: string[]
 }
 
 export interface AdsCatalogImportSummary {
