@@ -119,8 +119,20 @@ async function ensureSchema() {
 // ── Escrita (chamada pelo motor de sync) ────────────────────────────────────
 // Bulk insert parametrizado em chunks (1 round-trip HTTP por chunk) via
 // sql.query(text, params) — evita milhares de statements individuais.
+// Um INSERT multi-linha com ON CONFLICT DO UPDATE quebra ("cannot affect row a
+// second time") se o MESMO conflict-key aparecer 2× no lote. As fontes (API
+// paginada, merge de Smart+ na árvore) podem repetir chaves — então deduplicamos
+// por chave ANTES do insert, mantendo a ÚLTIMA ocorrência (mesma semântica do
+// upsert). keyFn devolve a chave composta como string.
+function dedupeByKey(arr, keyFn) {
+  const m = new Map();
+  for (const x of arr) m.set(keyFn(x), x); // última vence
+  return [...m.values()];
+}
+
 async function bulkUpsertMetrics(accountId, advertiserId, syncedAt, rows) {
   if (!rows.length) return 0;
+  rows = dedupeByKey(rows, (r) => r.level + '|' + r.entityId + '|' + r.day);
   const CHUNK = 400;
   let total = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -145,6 +157,9 @@ async function bulkUpsertMetrics(accountId, advertiserId, syncedAt, rows) {
 
 async function bulkUpsertCampaigns(accountId, advertiserId, syncedAt, campaigns) {
   if (!campaigns.length) return 0;
+  // dedup por campaign_id (o merge de Smart+ ou paginação da API pode repetir) —
+  // senão o ON CONFLICT quebra com "cannot affect row a second time".
+  campaigns = dedupeByKey(campaigns, (c) => String(c.platformCampaignId || ''));
   const CHUNK = 100;
   let total = 0;
   for (let i = 0; i < campaigns.length; i += CHUNK) {
@@ -611,4 +626,5 @@ module.exports = {
   deleteAutomationState,
   upsertBriefing,
   listBriefings,
+  _internals: { dedupeByKey },
 };

@@ -153,7 +153,15 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
     // AUCTION_CAMPAIGN, o collectDaily abaixo já as coleta pelo mesmo campaign_id
     // (nenhuma chamada extra); o readTree sobrepõe no nó automaticamente.
     const spNodes = await smartPlusNodes(advertiserId);
-    if (spNodes.length) tree.campaigns = (tree.campaigns || []).concat(spNodes);
+    if (spNodes.length) {
+      // Só adiciona Smart+ cujo campaign_id ainda NÃO está na árvore — se o mesmo
+      // ID aparecer nas duas listas, a campanha normal (mais rica, com adSets)
+      // vence; nunca duplica o campaign_id (senão o upsert do espelho quebra com
+      // "ON CONFLICT ... cannot affect row a second time").
+      const seen = new Set((tree.campaigns || []).map((c) => String(c.platformCampaignId)));
+      const novos = spNodes.filter((n) => !seen.has(String(n.platformCampaignId)));
+      if (novos.length) tree.campaigns = (tree.campaigns || []).concat(novos);
+    }
 
     // Métricas diárias dos 3 níveis (falha isolada não derruba o sync inteiro).
     const [cd, gd, ad] = await Promise.all([
