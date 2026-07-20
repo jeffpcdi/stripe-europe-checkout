@@ -671,7 +671,7 @@ async function updateAd(advertiserId, adId, patch) {
   return r;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════���═════════
 // F1 — Criação de campanha completa (campaign → adgroup → upload → ad).
 // A Zernio tinha um endpoint único /ads/create; no Pipeboard é uma COMPOSIÇÃO
 // de 4-6 tools. Toda escrita passa por aqui — rotas nunca chamam callTool.
@@ -1057,7 +1057,7 @@ async function createFullAd(advertiserId, spec, opts) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════���══════════════════
 // F3 — Duplicação de campanha na MESMA conta (composição: não há tool nativa).
 // captureCampaign lê a origem COMPLETA (4 calls, cache 10min — capturar 1× por
 // job mesmo com N cópias) e recreateCampaign recria com allowlist de campos:
@@ -1099,15 +1099,58 @@ function is40002DynamicBudget(err) {
   return /40002/.test(msg) || /dynamic\s+daily\s+budget/i.test(msg);
 }
 
+// Campos de segmentação copiáveis. O create_tiktok_adgroup os quer aninhados
+// sob `targeting`, mas o get_tiktok_adgroups os devolve ACHATADOS no topo do
+// objeto do grupo — daí reconstruímos de ambos os formatos (a causa do erro
+// "targeting is required with at least location_ids" na duplicação).
+const TARGETING_KEYS = [
+  'location_ids', 'age_groups', 'gender', 'languages',
+  'interest_category_ids', 'interest_keyword_ids',
+  'action_category_ids', 'action_scene', 'action_days',
+  'operating_systems', 'device_model_ids', 'device_price_ranges',
+  'network_types', 'carrier_ids', 'min_android_version', 'ios14_targeting',
+  'audience_ids', 'excluded_audience_ids', 'saved_audience_id',
+  'spending_power', 'household_income', 'zipcode_ids', 'isp_ids',
+  'included_pangle_audience_package_ids', 'excluded_pangle_audience_package_ids',
+];
+
+// Reconstrói o objeto `targeting` a partir do grupo de origem, aceitando tanto o
+// formato aninhado (srcAg.targeting.*) quanto o achatado (srcAg.*). Normaliza
+// location_ids para array de strings não vazias.
+function extractTargeting(srcAg) {
+  const nested = (srcAg.targeting && typeof srcAg.targeting === 'object') ? srcAg.targeting : {};
+  const t = {};
+  for (const k of TARGETING_KEYS) {
+    const v = nested[k] !== undefined ? nested[k] : srcAg[k];
+    if (v === undefined || v === null) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    t[k] = v;
+  }
+  if (t.location_ids != null && !Array.isArray(t.location_ids)) t.location_ids = [t.location_ids];
+  if (Array.isArray(t.location_ids)) t.location_ids = t.location_ids.map(String).filter(Boolean);
+  return t;
+}
+
 // Campo a campo do que É copiável de um adgroup de origem (allowlist).
 // overrides (F4 — variações): { budgetAmount? } aplicado por cima da origem.
-function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, overrides) {
+// fallbackLocationIds: usado quando este grupo específico não trouxe regiões
+// (mas outro grupo da campanha trouxe) — evita o erro de targeting vazio.
+function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, overrides, fallbackLocationIds) {
+  const targeting = extractTargeting(srcAg);
+  if (!Array.isArray(targeting.location_ids) || !targeting.location_ids.length) {
+    if (Array.isArray(fallbackLocationIds) && fallbackLocationIds.length) {
+      targeting.location_ids = fallbackLocationIds.slice();
+      warnings.push('Grupo "' + String(srcAg.adgroup_name || srcAg.name || '') + '" sem região na origem — herdou as regiões de outro grupo da campanha');
+    } else {
+      throw stepError('adgroup', 'Não foi possível ler as regiões de segmentação (location_ids) do ad group de origem — a duplicação exige pelo menos uma região', null, 422);
+    }
+  }
   const args = {
     advertiser_id: adv,
     campaign_id: newCampaignId,
     adgroup_name: String(srcAg.adgroup_name || srcAg.name || 'grupo').slice(0, 500),
     optimization_goal: String(srcAg.optimization_goal || 'CLICK'),
-    targeting: srcAg.targeting && typeof srcAg.targeting === 'object' ? srcAg.targeting : undefined,
+    targeting,
   };
   // schedule no passado NÃO é copiável: recalcula p/ agora (+10min)
   const srcStart = String(srcAg.schedule_start_time || '');
@@ -1219,11 +1262,20 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
   await report({ ...progress });
 
   try {
+    // Regiões de fallback: primeiro grupo da campanha que trouxe location_ids.
+    // Se um grupo específico vier sem região (dados parciais do GET), herda
+    // estas em vez de falhar a cópia inteira.
+    let fallbackLocationIds = [];
+    for (const srcAg of capture.adGroups) {
+      const t = extractTargeting(srcAg);
+      if (Array.isArray(t.location_ids) && t.location_ids.length) { fallbackLocationIds = t.location_ids; break; }
+    }
+
     // 2) Ad groups (todos) — cada um gravado no progresso ao nascer.
     for (const srcAg of capture.adGroups) {
       const srcAgId = String(srcAg.adgroup_id || srcAg.id || '');
       if (progress.adGroups[srcAgId]) continue; // já criado numa tentativa anterior
-      const agArgs = buildAdGroupCopyArgs(adv, progress.campaignId, srcAg, info && info.timezone, warnings, overrides);
+      const agArgs = buildAdGroupCopyArgs(adv, progress.campaignId, srcAg, info && info.timezone, warnings, overrides, fallbackLocationIds);
       const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
       const newAgId = String(deepPluck(agOut, 'adgroup_id') || '');
       if (!newAgId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id na duplicação', progress);
