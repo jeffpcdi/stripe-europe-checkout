@@ -90,7 +90,7 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
   assert.match(routes, /task\.overrides = overrides/, 'overrides embarcam no task');
   assert.match(routes, /duplicate_pb[\s\S]*?overrides: task\.overrides/, 'worker repassa overrides ao recreateCampaign');
   // A UI expõe o modo variações e o teto:
-  const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'duplicate-dialog.tsx'), 'utf8');
+  const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'duplicate-panel.tsx'), 'utf8');
   assert.match(dialog, /variations' \? 50 : 10/, 'UI: teto 50 só no modo variações');
   assert.match(dialog, /body\.variations = Array\.from/, 'UI monta o array de variações');
   console.log('ok 4 - contrato da rota (teto 50, overrides) e da UI');

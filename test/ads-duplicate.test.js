@@ -111,6 +111,33 @@ function baseHandlers(overrides) {
   assert.strictEqual(progressLog.length, 5);
   console.log('ok 1 - captura + recriação com allowlist, schedule, criativos e identidade');
 
+  // ── 1b. Targeting ACHATADO (como o get_tiktok_adgroups real devolve) ──────
+  // Regressão do erro "targeting is required with at least location_ids": o GET
+  // devolve location_ids/age_groups no TOPO do adgroup, não sob `targeting`.
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers({
+    get_tiktok_adgroups: async () => ({ adgroups: [
+      { adgroup_id: 'flat-ag1', adgroup_name: 'Grupo achatado', optimization_goal: 'CLICK',
+        budget_mode: 'BUDGET_MODE_DAY', budget: 25,
+        // SEM chave `targeting` — campos no topo, como a API real:
+        location_ids: ['123', '456'], age_groups: ['AGE_25_34'], gender: 'GENDER_FEMALE' },
+      // 2º grupo SEM região nenhuma → deve herdar as do 1º via fallback
+      { adgroup_id: 'flat-ag2', adgroup_name: 'Grupo sem região', optimization_goal: 'CLICK',
+        budget_mode: 'BUDGET_MODE_DAY', budget: 25 },
+    ] }),
+    get_tiktok_ads: async () => ({ ads: [] }),
+  });
+  const capFlat = await provider.captureCampaign('adv1', 'src-camp');
+  const rFlat = await provider.recreateCampaign('adv1', capFlat, 'Cópia achatada', {});
+  const flatAgCalls = stubCalls.filter((c) => c.name === 'create_tiktok_adgroup');
+  assert.strictEqual(flatAgCalls.length, 2, 'ambos os grupos criados');
+  assert.deepStrictEqual(flatAgCalls[0].args.targeting.location_ids, ['123', '456'], 'location_ids achatados reconstruídos sob targeting');
+  assert.strictEqual(flatAgCalls[0].args.targeting.gender, 'GENDER_FEMALE', 'demais campos de targeting também migram');
+  assert.deepStrictEqual(flatAgCalls[1].args.targeting.location_ids, ['123', '456'], 'grupo sem região herda o fallback');
+  assert.ok(rFlat.warnings.some((w) => /herdou as regiões/i.test(w)), 'warning do fallback de região');
+  console.log('ok 1b - targeting achatado reconstruído + fallback de location_ids entre grupos');
+
   // ── 2. Preflight 40002: DYNAMIC_DAILY + objetivo incompatível → DAY ───────
   stubCalls.length = 0;
   provider.cacheBust('');
