@@ -824,6 +824,47 @@ function normalizeEmqHash(h, days) {
   return rows.slice(-days);
 }
 
+// ── Circuit breaker das automações (janela rolante durável) ────────────────
+// O motor de regras mantém em memória os últimos resultados (ok/falha) por
+// conta para decidir se abre o breaker. Sem persistência, um restart zerava a
+// janela e o breaker "esquecia" uma tempestade de falhas em curso. Guardamos a
+// janela aqui (dado efêmero de janela curta, como velocity/emq) com TTL de 24h:
+// resultado com mais de 1 dia não representa a saúde atual.
+const breakerMem = new Map();
+function breakerKey(acc) { return 'breaker:' + (acc || 'default'); }
+const BREAKER_TTL = 24 * 3600;
+
+// samples: array de boolean (true = ok). Persiste o snapshot inteiro (≤20 itens)
+// — mais simples e atômico que incrementar contadores, e o volume é ínfimo.
+async function saveBreakerSamples(acc, samples) {
+  const arr = (Array.isArray(samples) ? samples : []).map(Boolean).slice(-20);
+  const payload = { samples: arr, at: Date.now() };
+  breakerMem.set(breakerKey(acc), payload);
+  if (!enabled) return true;
+  try {
+    await redis.set(breakerKey(acc), JSON.stringify(payload), { ex: BREAKER_TTL });
+    return true;
+  } catch (err) {
+    console.error('[redis] saveBreakerSamples:', err.message);
+    return false;
+  }
+}
+
+// Devolve { samples, at } ou null. Usado UMA vez por conta no boot/hidratação.
+async function loadBreakerSamples(acc) {
+  if (!enabled) return breakerMem.get(breakerKey(acc)) || null;
+  try {
+    const raw = await redis.get(breakerKey(acc));
+    if (!raw) return null;
+    const val = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!val || !Array.isArray(val.samples)) return null;
+    return { samples: val.samples.map(Boolean).slice(-20), at: Number(val.at) || 0 };
+  } catch (err) {
+    console.error('[redis] loadBreakerSamples:', err.message);
+    return null;
+  }
+}
+
 // Item 200: limpa a série de EMQ da conta (chaves emq:<acc>:<pixel>).
 async function clearEmq(acc, pixels) {
   const list = Array.isArray(pixels) ? pixels : [];
@@ -1127,6 +1168,7 @@ module.exports = {
   checkTtclidContext, bumpVelocity, clearVelocity, // Item 256
   acquireLock, releaseLock,
   bumpEmq, getEmqTrend, clearEmq, // Item 200
+  saveBreakerSamples, loadBreakerSamples, // circuit breaker das automações (durável)
   savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,
   saveGatewaySnapshot, deleteGatewaySnapshot, loadGatewaySnapshot,
   saveDomainSnapshot, deleteDomainSnapshot, loadDomainSnapshot,
