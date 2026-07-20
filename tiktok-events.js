@@ -455,7 +455,46 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
     return { dispatched: 0, blocked: 'gateway-only' };
   }
 
-  const targets = pixelStore.forEvent(acc, eventName, routeHint || '*');
+  let targets = pixelStore.forEvent(acc, eventName, routeHint || '*');
+
+  // ── Isolamento pixel ↔ gateway (eventos monetários) ──────────────────────
+  // Pixel com `gatewayIds` preenchido só aceita eventos de DINHEIRO vindos dos
+  // gateways listados. Assim 2 pixels em 2 gateways diferentes na mesma conta
+  // nunca recebem a venda um do outro. Regras:
+  //   • lista vazia = aceita de qualquer gateway (comportamento legado);
+  //   • evento COM gatewayId → pixel vinculado exige que o id esteja na lista;
+  //   • evento SEM gatewayId (ex.: /api/conversion legado) → pixel vinculado
+  //     NÃO dispara (isolamento estrito — quem vincula quer separação total).
+  // Eventos de navegador (ViewContent/AddToCart/InitiateCheckout client-side)
+  // não passam por aqui com _trusted, e o script por página já é por pixel.
+  if (MONEY_EVENTS.has(eventName)) {
+    const skipped = [];
+    targets = targets.filter((px) => {
+      const bound = Array.isArray(px.gatewayIds) ? px.gatewayIds : [];
+      if (!bound.length) return true; // sem vínculo = todos os gateways
+      const ok = !!p.gatewayId && bound.indexOf(p.gatewayId) >= 0;
+      if (!ok) skipped.push(px);
+      return ok;
+    });
+    // Diagnóstico: registra cada pixel PULADO pelo vínculo — sem isto, o
+    // operador não saberia por que a venda não chegou naquele pixel.
+    skipped.forEach((px) => {
+      pushLog({
+        acc,
+        pixel: px.name || px.slug,
+        event: eventName,
+        eventId: p.eventId,
+        leadId: p.leadId,
+        status: 'descartado',
+        response: {
+          message: p.gatewayId
+            ? 'pixel vinculado a outro(s) gateway(s) — evento veio de ' + p.gatewayId
+            : 'pixel vinculado a gateway(s) específico(s), mas o evento chegou sem identificação de gateway'
+        }
+      });
+    });
+  }
+
   if (!targets.length) {
     // Diagnóstico (item 54): descobre POR QUE não há alvo. Sem isto, um evento
     // descartado por descasamento de conta ou pixel inativo somia em silêncio.
@@ -468,6 +507,10 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
         reason = 'há pixels na conta, mas todos inativos';
       } else if (!all.some((px) => px.events && px.events[eventName])) {
         reason = 'pixels ativos existem, mas nenhum tem o evento "' + eventName + '" ligado';
+      } else if (MONEY_EVENTS.has(eventName)
+        && all.some((px) => px.active && px.events && px.events[eventName] && Array.isArray(px.gatewayIds) && px.gatewayIds.length)) {
+        reason = 'todos os pixels elegíveis estão vinculados a outro(s) gateway(s)'
+          + (p.gatewayId ? ' (evento veio de ' + p.gatewayId + ')' : ' (evento chegou sem identificação de gateway)');
       } else {
         reason = 'pixels ativos existem, mas não casaram com a rota/conta (accountId=' + (acc || 'null') + ')';
       }
