@@ -865,6 +865,9 @@ export interface AdsTreeCampaign {
   // diverge do status real da campanha na plataforma (ex.: campanha ativa
   // com todos os anúncios pausados). Presente só quando divergem.
   childStatus?: AdsNodeStatus
+  // Origem da campanha: 'auction' (leilão padrão) ou 'smart_plus' (mesclada pelo
+  // espelho). O motor de automação pausa Smart+ mas não ajusta seu orçamento.
+  campaignKind?: 'auction' | 'smart_plus'
   platformCampaignStatus?: string | null
   reviewStatus?: 'in_review' | 'approved' | 'rejected' | 'with_issues' | null
   adCount?: number
@@ -998,6 +1001,7 @@ export interface AdsAlertsConfig {
   cpaMax: number // teto de CPA (0 = off)
   lookbackDays: number
   rejectedAds?: boolean // avisa quando um criativo é reprovado na revisão
+  autoAppealSmartPlus?: boolean // recorre sozinho 1× de anúncio Smart+ reprovado (ação real; respeita kill switch/dry-run)
 }
 
 export interface AdsAlertFinding {

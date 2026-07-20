@@ -80,6 +80,29 @@ async function collectDaily(advertiserId, levelName, startDate, endDate) {
   return out;
 }
 
+// Busca as campanhas Smart+ e devolve nós no shape de campanha do espelho
+// (campaignKind:'smart_plus', sem adSets — o Pipeboard só permite pausar Smart+,
+// não ajustar orçamento). Best-effort: qualquer falha (sem permissão, API fora)
+// vira [] e o sync segue com as campanhas de leilão.
+async function smartPlusNodes(advertiserId) {
+  if (typeof provider.listSmartPlusCampaigns !== 'function') return [];
+  try {
+    const camps = await provider.listSmartPlusCampaigns(advertiserId);
+    return (camps || []).map((c) => ({
+      platformCampaignId: String(c.campaignId || ''),
+      campaignName: c.name || String(c.campaignId || ''),
+      status: c.status || 'paused',
+      platformCampaignStatus: c.rawStatus || '',
+      campaignKind: 'smart_plus',
+      budget: { amount: Number(c.budget) || 0, type: /TOTAL|LIFETIME/i.test(String(c.budgetMode || '')) ? 'lifetime' : 'daily' },
+      adSets: [],
+      reviewStatus: null,
+    })).filter((n) => n.platformCampaignId);
+  } catch (_) {
+    return []; // Smart+ indisponível/sem permissão — segue sem essas campanhas
+  }
+}
+
 // Sincroniza UM advertiser: estrutura (getDashboardTree, janela larga) +
 // métricas diárias dos 3 níveis → grava snapshot no espelho.
 async function syncAdvertiser(accountId, advertiserId, opts = {}) {
@@ -122,6 +145,15 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
 
     // Estrutura + status derivados (fresh: ignora o micro-cache de 15s do provider).
     const tree = await provider.getDashboardTree(accountId, { advertiserId, fromDate: structFrom, toDate: to, fresh: true });
+
+    // Campanhas Smart+ entram no MESMO espelho como nós de campanha (marcados
+    // campaignKind:'smart_plus'), para o motor de automação poder PAUSAR as que
+    // estouram CPA/gasto/ROAS. Best-effort: conta sem permissão Smart+ devolve []
+    // e nunca derruba o sync. Métricas: quando o TikTok reporta o Smart+ no nível
+    // AUCTION_CAMPAIGN, o collectDaily abaixo já as coleta pelo mesmo campaign_id
+    // (nenhuma chamada extra); o readTree sobrepõe no nó automaticamente.
+    const spNodes = await smartPlusNodes(advertiserId);
+    if (spNodes.length) tree.campaigns = (tree.campaigns || []).concat(spNodes);
 
     // Métricas diárias dos 3 níveis (falha isolada não derruba o sync inteiro).
     const [cd, gd, ad] = await Promise.all([

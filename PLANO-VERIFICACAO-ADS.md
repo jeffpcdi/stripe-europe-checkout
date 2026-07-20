@@ -43,15 +43,23 @@ Pré-requisitos: deploy do `main`; `PIPEBOARD_API_KEY`, `DATABASE_URL`,
       passo, resposta traz `step`+`createdIds` e a campanha parcial fica pausada);
       **recorrer** de um anúncio reprovado (se existir). ⚠️ "permission required"
       = conta não liberada p/ Smart+ (não é bug).
-- [ ] **7. Pilotos + autonomia** — ligar "Protetor de orçamento" (normal); no Modo
-      avançado, confirmar regras tagueadas `pilot`; alternar autonomia (Só avisar /
-      Propor / Agir sozinho) e ver o `mode` das regras mudar; "Testar agora" gera
-      log; regra em Propor + Modo teste OFF → proposta aparece no inbox do Hoje;
-      aprovar com Modo teste ON responde aviso de simulação; **ativar 3 pilotos
-      não passa de 10 regras** (consumo de presets).
-- [ ] **8. Vigilância Smart+ reprovado** — "avisar reprovação" ligado + um anúncio
-      Smart+ reprovado real → aguardar a varredura (≤30min) → push/log
-      "Smart+ … REPROVADO"; cooldown 6h (não repete no sweep seguinte).
+- [ ] **7. Pilotos + autonomia (+ Smart+)** — ligar "Protetor de orçamento"
+      (normal); no Modo avançado, confirmar regras tagueadas `pilot`; alternar
+      autonomia (Só avisar / Propor / Agir sozinho) e ver o `mode` das regras
+      mudar; "Testar agora" gera log; regra em Propor + Modo teste OFF → proposta
+      aparece no inbox do Hoje; aprovar com Modo teste ON responde aviso de
+      simulação; **ativar 3 pilotos não passa de 10 regras** (consumo de presets).
+      **Cobertura Smart+ (C1):** com uma campanha Smart+ gastando sem retorno, a
+      regra de pausa deve **pausar a campanha Smart+** (log/auditoria mostra
+      "campanha Smart+ pausada"); regras de **orçamento/escala** em Smart+ são
+      **puladas** com o motivo "Smart+ não permite ajuste de orçamento via API".
+      ⚠️ requer que o TikTok reporte métricas de Smart+ no nível de campanha.
+- [ ] **8. Vigilância + auto-recurso Smart+ (C3)** — "avisar reprovação" ligado +
+      um anúncio Smart+ reprovado real → aguardar a varredura (≤30min) → push/log
+      "Smart+ … REPROVADO"; cooldown 6h. **Auto-recurso:** ligar "Recorrer sozinho
+      1×"; com Modo teste ON, a auditoria mostra `smart_plus_appeal.simulated` (não
+      envia); com Modo teste OFF, o robô envia o recurso 1× e **não repete por 7
+      dias** (cooldown por anúncio); **Pausar tudo** bloqueia o auto-recurso.
 - [ ] **9. Catálogo** — configurar Business Center → criar catálogo (tipo/país/
       moeda) → +1 produto válido → **Publicar no TikTok** → conferir
       `tiktok_catalog_id` + auditoria (aprovados/pendentes) no Catalog Manager;
@@ -60,9 +68,11 @@ Pré-requisitos: deploy do `main`; `PIPEBOARD_API_KEY`, `DATABASE_URL`,
       responde 423; cap de ações/hora barra o motor após N ações reais; reverter
       uma ação real do motor pela auditoria (Operações).
 
-**Limites conhecidos (não são bugs):** métricas de Smart+ não estão no espelho →
-o robô só VIGIA reprovação de Smart+, ainda não pausa/escala por métrica; recurso
-de CONTA suspensa não tem API (semiautomático: ticket + formulário); pagamento/
+**Limites conhecidos (não são bugs):** Smart+ é **pausado** por regra/dayparting,
+mas **não escalado** (o Pipeboard não expõe tool de orçamento de Smart+); a pausa
+por métrica depende de o TikTok reportar métricas de Smart+ no nível de campanha
+(se não vierem, o nó fica sem métrica e a regra não dispara — inócuo); recurso de
+CONTA suspensa não tem API (semiautomático: ticket + formulário); pagamento/
 faturamento só no TikTok.
 
 ---
@@ -125,18 +135,20 @@ escrita; a 1ª rodada inteira pode ser validada sem tocar o TikTok.
 
 ## C. Roadmap — automação + refinamento (próximas levas, em ordem)
 
-**C1. Automação sobre Smart+** *(maior lacuna atual)* — o motor de regras/
-dayparting varre só campanhas regulares (espelho `ads-cache`). Incluir Smart+:
-sync do `get_tiktok_smart_plus_campaigns` no espelho + `setSmartPlusCampaignStatus`
-como ação de pause/dayparting. Sem isso, regras não protegem gasto Smart+.
+**C1. Automação sobre Smart+** — ✅ **ENTREGUE.** O `ads-sync` mescla as
+campanhas Smart+ no espelho (`campaignKind:'smart_plus'`) e o motor pausa Smart+
+que estoura CPA/gasto/ROAS (regras + dayparting) via `setSmartPlusCampaignStatus`;
+orçamento/escala é pulado com motivo (o Pipeboard não tem tool de orçamento de
+Smart+). Cobertura: `test/ads-smart-plus-automation.test.js`.
 
 **C2. Resumo semanal via Pushcut** — carona no briefing diário (`ads-ai`):
 domingo à noite, agregado da semana (gasto, ROAS, top 3 campanhas, propostas
-pendentes). Barato: leituras 100% do espelho.
+pendentes). Barato: leituras 100% do espelho. *(Fora do escopo atual a pedido.)*
 
-**C3. Auto-appeal opcional de Smart+ reprovado** — regra opt-in: reprovou →
-recorre sozinho 1× (cooldown 7d por anúncio) + notificação. A tool já existe
-(`appeal_tiktok_smart_plus_ad`); é ligar ao sweep de alertas.
+**C3. Auto-appeal opcional de Smart+ reprovado** — ✅ **ENTREGUE.** Opção opt-in
+`autoAppealSmartPlus` nos alertas: reprovou → recorre sozinho 1× (cooldown 7d por
+anúncio) + notificação, respeitando kill switch e Modo teste. Cobertura no mesmo
+suíte de C1.
 
 **C4. Variações A/B na criação Smart+** — mesmo padrão do criar clássico
 (vídeos extras → N campanhas com sufixo A/B/C).

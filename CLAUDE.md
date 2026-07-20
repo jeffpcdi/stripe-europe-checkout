@@ -677,6 +677,12 @@ Manuais/Smart+; ABO/CBO + estratégia de lance na criação; filtro "Validadas" 
 **Automações** (Pilotos em linguagem de gestor — Protetor/Escalador/Horário com intensidade + 1
 seletor de autonomia; editor técnico de regras e IA no "Modo avançado"; motor 24/7 em
 `ads-automation.js`) e **Catálogo** (produtos + feed CSV + publicação real via Business Center).
+O motor cobre também campanhas **Smart+**: o `ads-sync` mescla as campanhas Smart+ no espelho como
+nós `campaignKind:'smart_plus'`, e o motor **pausa** (regras de pausa + dayparting) via
+`setSmartPlusCampaignStatus` — orçamento/escala é pulado (o Pipeboard não expõe tool de orçamento de
+Smart+). Alerta opt-in `autoAppealSmartPlus` faz o robô **recorrer sozinho** 1× de anúncio Smart+
+reprovado (cooldown 7d/anúncio, respeita kill switch e Modo teste). Cobertura:
+`test/ads-smart-plus-automation.test.js`.
 Pilotos são camada de apresentação (`dashboard/lib/pilots.ts`) sobre as regras — gravam via
 `PUT /api/ads/rules` com tag `pilot`/`intensity` (whitelist em `validateRules`). `/catalog` e
 `?tab=overview|smartplus|ai` são redirects/aliases legados. Cada página é um `page.tsx` fino que

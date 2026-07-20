@@ -785,6 +785,17 @@ export function AutomationPanel({
               />
               Avisar quando um criativo for <strong>reprovado</strong> na revisão do TikTok (inclui Smart+)
             </label>
+            {alertsDraft.rejectedAds === true && (
+              <label className="ml-6 flex w-fit cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-[color:var(--primary)]"
+                  checked={alertsDraft.autoAppealSmartPlus === true}
+                  onChange={(e) => setAlertsDraft({ ...alertsDraft, autoAppealSmartPlus: e.target.checked })}
+                />
+                Recorrer <strong>sozinho</strong> 1× de anúncios Smart+ reprovados (cooldown de 7 dias por anúncio; respeita Pausar tudo e Modo teste)
+              </label>
+            )}
             <div className="flex items-center justify-end gap-1.5">
               <button
                 type="button"

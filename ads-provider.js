@@ -364,7 +364,8 @@ async function getInsights(advertiserId, { level = 'AUCTION_CAMPAIGN', startDate
 // ── Árvore no SHAPE do dashboard (contrato do frontend) ──────────────────────
 // O frontend (AdsTreeResponse em dashboard/lib/types.ts) espera:
 //   campaign: { platformCampaignId, campaignName, status(AdsNodeStatus),
-//     childStatus?, platformCampaignStatus, reviewStatus, adCount, adSetCount,
+//     childStatus?, campaignKind('auction'|'smart_plus'), platformCampaignStatus,
+//     reviewStatus, adCount, adSetCount,
 //     budget:{amount,type}, currency, metrics(AdsMetrics), platformAdAccountId,
 //     adSets:[{ platformAdSetId, adSetName, status, budget, metrics, ads:[
 //       { platformAdId, name, status, budget, metrics, creative, rejectionReason }]}] }
@@ -517,6 +518,10 @@ async function getDashboardTree(accountId, opts = {}) {
         campaignName: c.name,
         status,
         childStatus,
+        // Origem da campanha: 'auction' (leilão padrão) vs 'smart_plus' (mescladas
+        // pelo ads-sync). O motor de automação usa este campo para rotear a ação
+        // de status ao provider certo e pular ajustes de orçamento no Smart+.
+        campaignKind: 'auction',
         platformCampaignStatus: platformStatus,
         reviewStatus: review,
         adCount: allAdStatuses.length,
