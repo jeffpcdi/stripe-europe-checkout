@@ -434,6 +434,9 @@ export interface ConversionLogRow {
   currency?: string
   email?: string
   matched?: boolean
+  // Resultado do disparo CAPI POR PIXEL (explica o "erro em 1/2" sem caçar o
+  // motivo no log da aba Pixels): nome do pixel + ok + código/motivo do TikTok.
+  capi?: { pixel: string; ok: boolean; code?: number; message?: string }[]
   [k: string]: unknown
 }
 

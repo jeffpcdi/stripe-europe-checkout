@@ -476,7 +476,7 @@ export function OverviewView() {
           ) : null}
         </span>
         {emqSummary ? (
-          <Link href="/pixels" className="transition-colors hover:text-foreground">
+          <Link href="/conversions?tab=pixels" className="transition-colors hover:text-foreground">
             <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
               EMQ{' '}
             </span>

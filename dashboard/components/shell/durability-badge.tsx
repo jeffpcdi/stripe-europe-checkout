@@ -23,10 +23,10 @@ export function DurabilityBadge() {
   const capiBacklog = health.queues?.capiRetry ?? 0
   const backlog = convBacklog + capiBacklog
   if (health.db && backlog >= 20) {
-    const det = `${backlog} evento(s) aguardando processamento (conversões: ${convBacklog}, retries de pixel: ${capiBacklog}). Veja a aba Gestão.`
+    const det = `${backlog} evento(s) aguardando processamento (conversões: ${convBacklog}, retries de pixel: ${capiBacklog}). Abra Conversões para ver o motivo por pixel.`
     return (
       <Link
-        href="/"
+        href="/conversions?tab=gateways"
         title={det}
         aria-label={`Fila acumulada. ${det}`}
         className="flex items-center gap-2 rounded-full bg-[var(--warning-light)] px-3 py-1.5 text-xs font-medium text-warning transition-opacity hover:opacity-80"

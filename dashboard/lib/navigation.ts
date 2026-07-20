@@ -17,6 +17,7 @@ export type ViewId =
   | 'funnel'
   | 'geo'
   | 'links'
+  | 'conversions'
   | 'pixels'
   | 'gateways'
   | 'domains'
@@ -62,13 +63,12 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Rastreamento',
     icon: Target,
     href: '/links',
-    routes: ['/links', '/cloak', '/domains', '/pixels', '/gateways'],
+    routes: ['/links', '/cloak', '/domains', '/conversions', '/pixels', '/gateways'],
     tabs: [
       { label: 'Links de Checkout', href: '/links' },
       { label: 'Filtro de Bots', href: '/cloak' },
       { label: 'Domínios', href: '/domains' },
-      { label: 'Pixel TikTok', href: '/pixels' },
-      { label: 'Gateways', href: '/gateways' },
+      { label: 'Conversões', href: '/conversions' },
     ],
   },
   {
@@ -107,8 +107,7 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: 'Gestão',
     items: [
       { id: 'links', label: 'Links', description: 'Links e shortlinks', icon: Link2, href: '/links' },
-      { id: 'pixels', label: 'Pixels', description: 'Saúde e EMQ', icon: Target, href: '/pixels' },
-      { id: 'gateways', label: 'Gateways', description: 'Gateways de pagamento', icon: CreditCard, href: '/gateways' },
+      { id: 'conversions', label: 'Conversões', description: 'Gateways + Pixels (venda → CAPI)', icon: CreditCard, href: '/conversions' },
       { id: 'domains', label: 'Domínios', description: 'Domínios verificados', icon: Globe, href: '/domains' },
       { id: 'cloak', label: 'Cloaker', description: 'Filtros e entries', icon: ShieldAlert, href: '/cloak' },
       { id: 'ads', label: 'TikTok Ads', description: 'Campanhas, Smart+, catálogo e automações', icon: Megaphone, href: '/ads/tiktok' },

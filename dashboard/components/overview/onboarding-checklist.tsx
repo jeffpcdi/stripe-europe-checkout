@@ -40,13 +40,13 @@ export function OnboardingChecklist({
       label: 'Configure um pixel',
       desc: 'Envia conversões para a plataforma de anúncios',
       done: (pixels?.pixels?.length ?? 0) > 0,
-      href: '/pixels',
+      href: '/conversions?tab=pixels',
     },
     {
       label: 'Conecte um gateway',
       desc: 'Recebe os webhooks de pagamento',
       done: (gateways?.gateways?.length ?? 0) > 0,
-      href: '/gateways',
+      href: '/conversions?tab=gateways',
     },
     {
       label: 'Receba a primeira visita',
