@@ -671,7 +671,7 @@ async function updateAd(advertiserId, adId, patch) {
   return r;
 }
 
-// ══════════════════════════════════════════════════════════════════���═════════
+// ══════════════════════════════════════════════════════════════════�����═════════
 // F1 — Criação de campanha completa (campaign → adgroup → upload → ad).
 // A Zernio tinha um endpoint único /ads/create; no Pipeboard é uma COMPOSIÇÃO
 // de 4-6 tools. Toda escrita passa por aqui — rotas nunca chamam callTool.
@@ -1057,7 +1057,7 @@ async function createFullAd(advertiserId, spec, opts) {
   }
 }
 
-// ═════════════════════════════════════════════════════════���══════════════════
+// ═══════════════════════════════════════════════════════���═���══════════════════
 // F3 — Duplicação de campanha na MESMA conta (composição: não há tool nativa).
 // captureCampaign lê a origem COMPLETA (4 calls, cache 10min — capturar 1× por
 // job mesmo com N cópias) e recreateCampaign recria com allowlist de campos:
@@ -1493,7 +1493,16 @@ async function createSparkAd(advertiserId, spec) {
 // tool para LISTAR os BCs, então o bc_id é resolvido de: seleção persistida na
 // conta (config.pipeboardAds.bcId) → env TIKTOK_BC_ID/PIPEBOARD_BC_ID.
 const ENV_DEFAULT_BC = String(process.env.TIKTOK_BC_ID || process.env.PIPEBOARD_BC_ID || '').trim();
-const CATALOG_TYPES = ['PRODUCT_CATALOG', 'HOTEL_CATALOG', 'FLIGHT_CATALOG', 'VEHICLE_CATALOG'];
+// Tipos aceitos pelo TikTok em create_tiktok_catalog (API atual). O antigo
+// PRODUCT_CATALOG/HOTEL_CATALOG/... foi descontinuado — mapeamos os legados
+// para os novos valores para não quebrar catálogos já gravados no banco.
+const CATALOG_TYPES = ['ECOM', 'HOTEL', 'FLIGHT', 'AUTO_VEHICLE', 'AUTO_MODEL', 'COMIC', 'DESTINATION', 'ENTERTAINMENT', 'HOME_LISTING', 'MINI_SERIES', 'RECRUITMENT'];
+const LEGACY_CATALOG_TYPES = { PRODUCT_CATALOG: 'ECOM', HOTEL_CATALOG: 'HOTEL', FLIGHT_CATALOG: 'FLIGHT', VEHICLE_CATALOG: 'AUTO_VEHICLE' };
+function normalizeCatalogType(value) {
+  const t = String(value || '').trim().toUpperCase();
+  if (LEGACY_CATALOG_TYPES[t]) return LEGACY_CATALOG_TYPES[t];
+  return CATALOG_TYPES.includes(t) ? t : 'ECOM';
+}
 
 function getBusinessCenterId(accountId) {
   const st = getState(accountId);
@@ -1535,7 +1544,7 @@ async function createTikTokCatalog(bcId, { name, catalogType, currency, country 
   const args = {
     bc_id: bc,
     name: nm,
-    catalog_type: CATALOG_TYPES.includes(catalogType) ? catalogType : 'PRODUCT_CATALOG',
+    catalog_type: normalizeCatalogType(catalogType),
   };
   if (currency) args.currency = String(currency).trim().toUpperCase().slice(0, 8);
   if (country) args.country = String(country).trim().toUpperCase().slice(0, 4);

@@ -20,8 +20,8 @@ async function throws(fn, status, label) {
 console.log('CATALOG_TYPES — enum do TikTok');
 {
   ok(Array.isArray(provider.CATALOG_TYPES), 'é um array');
-  ok(provider.CATALOG_TYPES.includes('PRODUCT_CATALOG'), 'inclui PRODUCT_CATALOG');
-  eq(provider.CATALOG_TYPES.length, 4, 'quatro tipos (produto/hotel/voo/veículo)');
+  ok(provider.CATALOG_TYPES.includes('ECOM'), 'inclui ECOM (e-commerce)');
+  ok(!provider.CATALOG_TYPES.includes('PRODUCT_CATALOG'), 'não usa mais o legado PRODUCT_CATALOG');
 }
 
 console.log('Business Center — persistência por conta');
