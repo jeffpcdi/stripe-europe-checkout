@@ -752,6 +752,26 @@ async function resolveLocationIds(advertiserId, countries, objectiveType) {
   return { locationIds: ids, missingCountries: missing };
 }
 
+// Categorias de interesse p/ o direcionamento na criação. Leitura pura
+// (get_tiktok_interest_categories) com cache 24h por advertiser — a lista é
+// grande e estável. Devolve [{id,name}] achatado para o seletor da dashboard.
+async function listInterestCategories(advertiserId) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const ck = 'interests:' + adv;
+  let out = cacheGet(ck);
+  if (!out) {
+    const raw = await pipeboard.callTool('get_tiktok_interest_categories', { advertiser_id: adv });
+    const list = firstArray(raw, ['interest_categories', 'categories', 'list', 'data']);
+    out = list.map((c) => ({
+      id: String(c.interest_category_id || c.id || c.value || ''),
+      name: String(c.name || c.interest_category_name || c.label || ''),
+    })).filter((c) => c.id && c.name);
+    cacheSet(ck, out, 24 * 60 * 60 * 1000);
+  }
+  return out;
+}
+
 // Identidade do anúncio — a doc do create_tiktok_ad PROÍBE chutar: tem de vir
 // de get_tiktok_identities. Para anúncio regular (vídeo enviado, não-Spark):
 //   CUSTOMIZED_USER (clássica; criação de novas está deprecated mas as
@@ -954,6 +974,11 @@ async function createFullAd(advertiserId, spec, opts) {
       const ages = ageGroupsFor(s.ageMin, s.ageMax);
       if (ages) targeting.age_groups = ages;
       if (Array.isArray(s.languages) && s.languages.length) targeting.languages = s.languages;
+      // Gênero: 'all'/ausente = não segmenta (o TikTok assume UNLIMITED).
+      if (s.gender === 'male') targeting.gender = 'GENDER_MALE';
+      else if (s.gender === 'female') targeting.gender = 'GENDER_FEMALE';
+      // Interesses: IDs numéricos de get_tiktok_interest_categories.
+      if (Array.isArray(s.interestIds) && s.interestIds.length) targeting.interest_category_ids = s.interestIds.map(String);
       const agArgs = {
         advertiser_id: adv,
         campaign_id: campaignId,
@@ -962,6 +987,13 @@ async function createFullAd(advertiserId, spec, opts) {
         schedule_start_time: advertiserLocalTime(info && info.timezone),
         targeting,
       };
+      // Posicionamento: automático (default) ou lista específica (nível ad group).
+      if (Array.isArray(s.placements) && s.placements.length) {
+        agArgs.placement_type = 'PLACEMENT_TYPE_NORMAL';
+        agArgs.placements = s.placements.map(String);
+      } else {
+        agArgs.placement_type = 'PLACEMENT_TYPE_AUTOMATIC';
+      }
       // Orçamento: em ABO vem no ad group; em CBO fica INFINITE (gerido na
       // campanha). Lance: NO_BID (máx. entrega) ou CUSTOM (teto de custo).
       if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
@@ -1691,6 +1723,121 @@ async function createSmartPlusCampaign(advertiserId, spec) {
   }
 }
 
+// ── Campanha de catálogo (DPA / Catalog Listing Ads) ────────────────────────
+// Lança uma campanha de vendas de produto (PRODUCT_SALES) a partir de um catálogo
+// já sincronizado no TikTok — "todos os produtos" (o TikTok gera o criativo do
+// catálogo, sem vídeo/âncora manual). MVP de menor risco que tira o gestor do Ads
+// Manager. Mesmo molde à prova de órfãos do createFullAd/createSmartPlusCampaign:
+// tudo nasce PAUSED; falha no meio pausa a campanha e reporta o passo.
+//
+// ⚠️ O Pipeboard não tem tool dedicada de campanha de catálogo — usa as genéricas
+// create_tiktok_campaign/adgroup/ad com os campos de catálogo. Se a API recusar
+// algum campo, o erro carrega o passo + createdIds e o parcial fica pausado.
+//
+// spec: { catalogId, bcId, name, budgetAmount, budgetType?, endDate?, country?,
+//         budgetOptimization?, bidStrategy?, bidAmount? }
+async function createCatalogCampaign(advertiserId, spec) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const s = spec || {};
+  const catalogId = String(s.catalogId || '').trim();
+  if (!catalogId) throw badRequest('catalogId (do TikTok) é obrigatório — sincronize o catálogo primeiro');
+  const bcId = String(s.bcId || '').trim();
+  if (!bcId) throw badRequest('bcId (Business Center) é obrigatório para campanha de catálogo');
+  if (!String(s.name || '').trim()) throw badRequest('Nome da campanha é obrigatório');
+  const budget = Number(s.budgetAmount);
+  if (!(budget > 0)) throw badRequest('Orçamento inválido');
+  if (s.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || ''))) {
+    throw badRequest('Orçamento total exige data de término (endDate)');
+  }
+
+  const countries = (Array.isArray(s.countries) && s.countries.length ? s.countries : (s.country ? [s.country] : ['BR']));
+  const SHOPPING_TYPE = 'CATALOG_LISTING_ADS';
+  const [info, identity, regions] = await Promise.all([
+    getAdvertiserInfo(adv),
+    pickAdIdentity(adv).catch(() => null), // DPA pode gerar sem identidade em algumas contas
+    resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
+  ]);
+  const warnings = [];
+  if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
+  const plan = resolveBudgetPlan(s);
+  const createdIds = {};
+
+  // 1) Campanha PRODUCT_SALES (catálogo)
+  const campArgs = {
+    advertiser_id: adv,
+    campaign_name: String(s.name).slice(0, 512),
+    objective_type: 'PRODUCT_SALES',
+    shopping_ads_type: SHOPPING_TYPE,
+    catalog_id: catalogId,
+    operation_status: 'DISABLE',
+  };
+  if (plan.cbo) {
+    campArgs.budget_mode = plan.campaign.budget_mode;
+    campArgs.budget = plan.campaign.budget;
+    campArgs.budget_optimize_on = true;
+  }
+  const campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+  const campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+  if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
+  createdIds.campaignId = campaignId;
+
+  try {
+    // 2) Ad group — fonte = catálogo, todos os produtos
+    const agArgs = {
+      advertiser_id: adv,
+      campaign_id: campaignId,
+      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+      shopping_ads_type: SHOPPING_TYPE,
+      product_source: 'CATALOG',
+      catalog_id: catalogId,
+      store_authorized_bc_id: bcId,
+      optimization_goal: 'CONVERT',
+      billing_event: 'OCPM',
+      schedule_start_time: advertiserLocalTime(info && info.timezone),
+      targeting: { location_ids: regions.locationIds },
+      operation_status: 'DISABLE',
+    };
+    if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
+    if (plan.adgroup.budget != null) agArgs.budget = plan.adgroup.budget;
+    Object.assign(agArgs, plan.bid);
+    if (s.budgetType === 'lifetime' && s.endDate) agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
+    const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
+    const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+    if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id (verifique se a conta tem catálogo autorizado no BC)', createdIds);
+    createdIds.adGroupId = adGroupId;
+
+    // 3) Anúncio DPA — criativo gerado do catálogo (sem vídeo). PAUSED.
+    const adArgs = {
+      advertiser_id: adv,
+      adgroup_id: adGroupId,
+      ad_name: String(s.name).slice(0, 500),
+      ad_format: 'CATALOG_CAROUSEL',
+      catalog_id: catalogId,
+      status: 'PAUSED',
+    };
+    if (identity && identity.identityId) {
+      adArgs.identity_id = identity.identityId;
+      adArgs.identity_type = identity.identityType;
+      if (identity.identityBcId) adArgs.identity_bc_id = identity.identityBcId;
+    }
+    const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
+    const adId = String(deepPluck(adOut, 'ad_id') || '');
+    if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id para o anúncio de catálogo', createdIds);
+    createdIds.adId = adId;
+
+    warnings.push('Campanha de catálogo criada em PAUSA — ative em Campanhas quando estiver pronta');
+    cacheBust('tree:');
+    return { ...createdIds, name: s.name, warnings };
+  } catch (err) {
+    // Órfã não pode ficar entregável: pausa best-effort e devolve o passo.
+    try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    if (!err.step) err.step = 'adgroup';
+    err.createdIds = createdIds;
+    throw err;
+  }
+}
+
 module.exports = {
   enabled: pipeboard.enabled,
   // estado
@@ -1737,7 +1884,10 @@ module.exports = {
   getTikTokCatalogOverview,
   listTikTokCatalogs,
   updateTikTokCatalogName,
+  createCatalogCampaign,
   CATALOG_TYPES,
+  // direcionamento (leitura p/ a criação)
+  listInterestCategories,
   // Smart+ (gestão + appeal de anúncio + criação composta)
   listSmartPlusCampaigns,
   listSmartPlusAds,
@@ -1749,5 +1899,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories },
 };

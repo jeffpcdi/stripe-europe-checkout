@@ -64,6 +64,18 @@ Pré-requisitos: deploy do `main`; `PIPEBOARD_API_KEY`, `DATABASE_URL`,
       moeda) → +1 produto válido → **Publicar no TikTok** → conferir
       `tiktok_catalog_id` + auditoria (aprovados/pendentes) no Catalog Manager;
       "Atualizar status" reconsulta.
+- [ ] **9b. Campanha de catálogo (DPA) — NOVO** — com o catálogo sincronizado,
+      botão **"Criar campanha deste catálogo"** → nome/orçamento/país/ABO-CBO →
+      Modo teste: toast "Modo teste" + auditoria `catalog_campaign.simulated`
+      (nada criado). REAL: nasce **PAUSADA**; conferir no Ads Manager campanha
+      `PRODUCT_SALES` com fonte = catálogo (todos os produtos). ⚠️ se a API
+      recusar um campo de catálogo, a resposta traz `step`/motivo e o parcial
+      fica pausado (nada órfão ativo).
+- [ ] **9c. Direcionamento na criação — NOVO** — no criador de campanha, passo
+      Público: **gênero** (Todos/Homens/Mulheres), **posicionamento** (Automático
+      × escolher TikTok/Pangle) e **interesses** (busca → chips). Criar (Modo
+      teste ok) e conferir no Ads Manager que o grupo saiu com gênero/interesses/
+      posicionamento aplicados (antes só saía no automático).
 - [ ] **10. Guardrails** — **Pausar tudo** (kill switch) ON → qualquer escrita
       responde 423; cap de ações/hora barra o motor após N ações reais; reverter
       uma ação real do motor pela auditoria (Operações).

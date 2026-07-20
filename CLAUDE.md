@@ -673,10 +673,15 @@ só no Railway (§5.2.2).
 Configurações · `/ads/tiktok` **TikTok Ads** (via Pipeboard MCP; rotas `/api/ads/*` em
 `ads-routes.js`) com **4 sub-abas** — **Hoje** (centro de comando: inbox "Precisa de você" com
 propostas 1-toque + KPIs/ROAS/briefing + feed "O que o robô fez" + atalhos), **Campanhas** (segmento
-Manuais/Smart+; ABO/CBO + estratégia de lance na criação; filtro "Validadas" por reviewStatus),
+Manuais/Smart+; ABO/CBO + estratégia de lance na criação; **direcionamento na criação** — país/idioma/
+idade + gênero/interesses/posicionamento, com interesses lidos de `get_tiktok_interest_categories` via
+`GET /api/ads/targeting/interests`; filtro "Validadas" por reviewStatus),
 **Automações** (Pilotos em linguagem de gestor — Protetor/Escalador/Horário com intensidade + 1
 seletor de autonomia; editor técnico de regras e IA no "Modo avançado"; motor 24/7 em
-`ads-automation.js`) e **Catálogo** (produtos + feed CSV + publicação real via Business Center).
+`ads-automation.js`) e **Catálogo** (produtos + feed CSV + publicação real via Business Center +
+**lançar campanha de catálogo/DPA** direto da dashboard via `provider.createCatalogCampaign` →
+`POST /api/ads/catalogs/:id/campaign`: campanha `PRODUCT_SALES` com fonte = catálogo, todos os
+produtos, nasce PAUSADA, respeita kill switch/Modo teste; cobertura em `test/ads-catalog-campaign.test.js`).
 O motor cobre também campanhas **Smart+**: o `ads-sync` mescla as campanhas Smart+ no espelho como
 nós `campaignKind:'smart_plus'`, e o motor **pausa** (regras de pausa + dayparting) via
 `setSmartPlusCampaignStatus` — orçamento/escala é pulado (o Pipeboard não expõe tool de orçamento de

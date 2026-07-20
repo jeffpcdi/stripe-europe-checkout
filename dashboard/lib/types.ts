@@ -1264,6 +1264,9 @@ export interface AdsTemplatePayload {
   pixelId?: string
   customEventType?: string
   identityType?: string
+  gender?: 'all' | 'male' | 'female'
+  interestIds?: string[]
+  placements?: string[]
 }
 
 export interface AdsTemplate {
@@ -1476,6 +1479,18 @@ export interface AdsCatalogSyncResponse {
   published: number
   skipped?: number
   audit: AdsCatalogAudit | null
+}
+
+// POST /api/ads/catalogs/:id/campaign — lançar campanha de catálogo (DPA)
+export interface AdsCatalogCampaignResponse {
+  ok?: boolean
+  dryRun?: boolean
+  simulated?: boolean
+  name: string
+  campaignId?: string
+  adGroupId?: string
+  adId?: string
+  warnings?: string[]
 }
 
 export interface AdsCatalogImportSummary {
