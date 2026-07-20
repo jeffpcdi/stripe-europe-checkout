@@ -294,7 +294,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     }
   });
 
-  // ── Diagnóstico do cache/sync ───────────────────────────────────────────────
+  // ── Diagnóstico do cache/sync ──────────────────────────────────────��────────
   // Prova que o caminho de leitura ficou local: mostra quantas chamadas o app
   // fez ao Pipeboard (total/min/hora) — que agora só vêm do sync + escritas —
   // e o estado de sync de cada advertiser desta conta (último sync, duração,
@@ -372,9 +372,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       const mcp = require('./pipeboard-mcp');
-      const [diag, syncStates] = await Promise.all([
+      const [diag, syncStates, safetyPolicy] = await Promise.all([
         mcp.getDiagnostics({ force: req.query.force === '1' }),
         adsCache.enabled ? adsCache.listSyncStates(req.account.id).catch(() => []) : Promise.resolve([]),
+        adsOps.getSafetyPolicy(req.account.id).catch(() => null),
       ]);
       const blocked = syncStates
         .filter((s) => s.status === 'blocked')
@@ -400,6 +401,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           lastSyncAt: lastSync ? new Date(lastSync).toISOString() : null,
         },
         automation: automation.getSweepInfo(req.account.id),
+        // Circuit breaker das automações: estado observável por conta (aberto/
+        // fechado, taxa de falha da janela, threshold configurado). O painel usa
+        // p/ mostrar quando o motor se auto-pausou por tempestade de falhas.
+        breaker: automation.getBreakerState(req.account.id, safetyPolicy),
         // IA: configuração + telemetria (chamadas 1h, tokens, briefing de hoje)
         ai: adsAi.getAiStats(),
       });
@@ -1645,6 +1650,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         executed: [...(rules.executed || []), ...(schedule.executed || [])],
         checkedAt: rules.checkedAt || schedule.checkedAt || new Date().toISOString(),
       });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Backtest: "o que estas regras TERIAM feito na janela?" — simulação pura,
+  // sem executar nada. Body opcional { rules, lookbackDays }; sem `rules` usa as
+  // regras salvas da conta. Serve para revisar thresholds ANTES de ativar.
+  app.post('/api/ads/rules/backtest', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const body = req.body || {};
+      res.json(await automation.backtestRules(req.account.id, {
+        rules: Array.isArray(body.rules) ? body.rules : undefined,
+        lookbackDays: body.lookbackDays,
+      }));
     } catch (err) { fail(res, err); }
   });
 

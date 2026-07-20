@@ -326,15 +326,39 @@ function sumAccountDailyBudget(campaigns) {
 // do ar → 100% de falha → abre o breaker e o motor para de tentar naquela
 // varredura). circuitBreakerOpen vinha do ads-ops-store sem call site — aqui
 // ele ganha uso real.
+const BREAKER_MIN_SAMPLES = 10; // amostras mínimas antes de o breaker poder abrir
 const actionOutcomes = new Map(); // accId → boolean[] (true = ok)
+const breakerLastAt = new Map();  // accId → ms do último resultado registrado (p/ UI)
 function recordOutcome(accId, ok) {
   const arr = actionOutcomes.get(accId) || [];
   arr.push(!!ok);
   while (arr.length > 20) arr.shift();
   actionOutcomes.set(accId, arr);
+  breakerLastAt.set(accId, Date.now());
 }
 function breakerOpen(accId, policy) {
-  return adsOps.circuitBreakerOpen(actionOutcomes.get(accId) || [], policy.circuitBreakerErrorPct, 10);
+  return adsOps.circuitBreakerOpen(actionOutcomes.get(accId) || [], policy.circuitBreakerErrorPct, BREAKER_MIN_SAMPLES);
+}
+// Estado observável do circuit breaker por conta — o painel mostra "aberto/
+// fechado", a taxa de falha da janela e quantas amostras já entraram. É a MESMA
+// janela em memória que o motor usa para decidir parar (nada paralelo). Aceita a
+// política p/ refletir o threshold configurado na conta (default 25%).
+function getBreakerState(accId, policy) {
+  const thresholdPct = Math.min(100, Math.max(1, Number(policy && policy.circuitBreakerErrorPct) || 25));
+  const samples = actionOutcomes.get(accId) || [];
+  const failures = samples.filter((ok) => !ok).length;
+  const lastAt = breakerLastAt.get(accId) || 0;
+  return {
+    open: adsOps.circuitBreakerOpen(samples, thresholdPct, BREAKER_MIN_SAMPLES),
+    samples: samples.length,
+    failures,
+    failureRatePct: samples.length ? Math.round((failures / samples.length) * 100) : 0,
+    thresholdPct,
+    minimumSamples: BREAKER_MIN_SAMPLES,
+    // faltam amostras p/ o breaker poder abrir (abaixo do mínimo ele NUNCA abre)
+    warmingUp: samples.length < BREAKER_MIN_SAMPLES,
+    lastOutcomeAt: lastAt ? new Date(lastAt).toISOString() : null,
+  };
 }
 
 // ── Atribuição por campanha (vendas reais × campanha) ───────────────────────
@@ -502,6 +526,84 @@ async function executeRuleAction({ advertiserId, action, campaign, plan, dryRun 
   return { ok: changed > 0, result, beforeState, afterState };
 }
 
+// ── Avaliação de regra (PURA) ───────────────────────────────────────────────
+// Extraída do corpo do sweep para que o BACKTEST (simulação "e se") avalie pelo
+// MESMO caminho — mesmos thresholds, pisos de volume e guardas — sem executar,
+// sem consumir cooldown e sem reimplementar (e divergir) a lógica.
+function metricsContext(c, attribution) {
+  const m = c.metrics || {};
+  const spend = Number(m.spend) || 0;
+  const conv = Number(m.conversions) || 0;
+  const impressions = Number(m.impressions) || 0;
+  const clicks = Number(m.clicks) || 0;
+  const ctrPct = impressions > 0 ? (clicks / impressions) * 100 : null;
+  const cpm = impressions > 0 ? (spend / impressions) * 1000 : null;
+  const attr = (attribution.byCampaign || {})[c.platformCampaignId] || { revenueCents: 0, sales: 0 };
+  const roas = spend > 0 ? (attr.revenueCents / 100) / spend : null;
+  // roas_min só age com venda atribuída em ALGUMA campanha da conta (ou nesta):
+  // ROAS "0" sem nenhuma venda pode ser só atraso de webhook.
+  const anySales = Object.values(attribution.byCampaign || {}).some((a) => a.sales > 0);
+  return { spend, conv, impressions, clicks, ctrPct, cpm, attr, roas, anySales };
+}
+
+function evaluateRule(r, ctx) {
+  const { spend, conv, impressions, clicks, ctrPct, cpm, attr, roas, anySales } = ctx;
+  if (r.metric === 'cpa_max' && r.threshold > 0 && conv > 0 && spend / conv > r.threshold
+    && impressions >= (r.minImpressions || 1000) && clicks >= (r.minClicks || 30)) {
+    return { hit: true, detail: 'CPA ' + (spend / conv).toFixed(2) + ' > teto ' + r.threshold + ' (' + clicks + ' cliques, ' + impressions + ' impr.)' };
+  }
+  if (r.metric === 'spend_no_conv' && r.threshold > 0 && conv === 0 && spend >= r.threshold
+    && impressions >= (r.minImpressions || 1000) && clicks >= (r.minClicks || 30)) {
+    return { hit: true, detail: 'gastou ' + spend.toFixed(2) + ' sem conversão (' + clicks + ' cliques, ' + impressions + ' impr.)' };
+  }
+  if (r.metric === 'roas_min' && r.threshold > 0 && spend > 0 && roas !== null && roas < r.threshold) {
+    if (anySales || attr.sales > 0) return { hit: true, detail: 'ROAS ' + roas.toFixed(2) + ' < piso ' + r.threshold };
+    return { hit: false };
+  }
+  if (r.metric === 'ctr_min' && r.threshold > 0 && ctrPct !== null
+    && impressions >= (r.minImpressions || 1000) && ctrPct < r.threshold) {
+    return { hit: true, detail: 'CTR ' + ctrPct.toFixed(2) + '% < mínimo ' + r.threshold + '% (' + impressions + ' impressões)' };
+  }
+  if (r.metric === 'cpm_max' && r.threshold > 0 && cpm !== null
+    && spend >= (r.minSpend || 1) && cpm > r.threshold) {
+    return { hit: true, detail: 'CPM ' + cpm.toFixed(2) + ' > teto ' + r.threshold };
+  }
+  if (r.metric === 'cpc_max' && r.threshold > 0 && clicks >= (r.minClicks || 30)
+    && spend / clicks > r.threshold) {
+    return { hit: true, detail: 'CPC ' + (spend / clicks).toFixed(2) + ' > teto ' + r.threshold + ' (' + clicks + ' cliques)' };
+  }
+  if (r.metric === 'roas_scale' && r.threshold > 0 && roas !== null
+    && attr.sales >= (r.minSales || 2) && roas >= r.threshold) {
+    return { hit: true, detail: 'ROAS ' + roas.toFixed(2) + ' ≥ ' + r.threshold + ' com ' + attr.sales + ' venda(s) — escalando' };
+  }
+  return { hit: false };
+}
+
+// Plano de orçamento (PURO) de uma regra budget_up/budget_down sobre a campanha.
+// maxBudgetChangePct vem da política (o motor a passa; o backtest também) para o
+// passo respeitar o teto de variação configurado. Não toca a plataforma.
+function computeBudgetPlan(r, c, maxBudgetChangePct) {
+  const pctRaw = Math.max(5, Math.min(50, Number(r.pct) || 20));
+  const pct = Math.min(pctRaw, Number.isFinite(maxBudgetChangePct) ? maxBudgetChangePct : pctRaw);
+  const factor = r.action === 'budget_up' ? 1 + pct / 100 : 1 - pct / 100;
+  const cap = r.metric === 'roas_scale' ? Number(r.budgetCap) || 0 : 0;
+  const changes = []; let capped = 0; let delta = 0;
+  for (const s of (c.adSets || []).slice(0, 10)) {
+    const cur = Number((s.budget || {}).amount) || 0;
+    const adGroupId = s.platformAdSetId || s._id;
+    if (!(cur > 0) || !adGroupId) continue;
+    let amount = Math.max(1, +(cur * factor).toFixed(2));
+    if (cap > 0 && amount > cap) {
+      if (cur >= cap) { capped += 1; continue; } // já no teto: não toca
+      amount = cap; capped += 1;
+    }
+    const type = (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily';
+    changes.push({ adGroupId, cur, amount, type });
+    if (type !== 'lifetime') delta += amount - cur;
+  }
+  return { pct, cap, capped, changes, delta };
+}
+
 // ── Regras (agem: pause / budget ±) ─────────────────────────────────────────
 async function runRulesSweep(accId, { force } = {}) {
   const rules = getRules(accId).filter((r) => r.enabled && r.metric !== 'schedule');
@@ -544,16 +646,8 @@ async function runRulesSweep(accId, { force } = {}) {
   let stop = false; // cap/breaker atingido → para de agir no resto do sweep
   for (const c of campaigns) {
     if (stop) break;
-    const m = c.metrics || {};
-    const spend = Number(m.spend) || 0;
-    const conv = Number(m.conversions) || 0;
-    const impressions = Number(m.impressions) || 0;
-    const clicks = Number(m.clicks) || 0;
-    const ctrPct = impressions > 0 ? (clicks / impressions) * 100 : null;
-    const cpm = impressions > 0 ? (spend / impressions) * 1000 : null;
+    const ctx = metricsContext(c, attribution);
     const name = c.campaignName || c.platformCampaignId;
-    const attr = attribution.byCampaign[c.platformCampaignId] || { revenueCents: 0, sales: 0 };
-    const roas = spend > 0 ? (attr.revenueCents / 100) / spend : null;
 
     for (const r of rules) {
       if (stop) break;
@@ -573,59 +667,16 @@ async function runRulesSweep(accId, { force } = {}) {
         break;
       }
 
-      let hit = false; let detail = '';
-      if (r.metric === 'cpa_max' && r.threshold > 0 && conv > 0 && spend / conv > r.threshold
-        && impressions >= (r.minImpressions || 1000) && clicks >= (r.minClicks || 30)) {
-        hit = true; detail = 'CPA ' + (spend / conv).toFixed(2) + ' > teto ' + r.threshold + ' (' + clicks + ' cliques, ' + impressions + ' impr.)';
-      } else if (r.metric === 'spend_no_conv' && r.threshold > 0 && conv === 0 && spend >= r.threshold
-        && impressions >= (r.minImpressions || 1000) && clicks >= (r.minClicks || 30)) {
-        hit = true; detail = 'gastou ' + spend.toFixed(2) + ' sem conversão (' + clicks + ' cliques, ' + impressions + ' impr.)';
-      } else if (r.metric === 'roas_min' && r.threshold > 0 && spend > 0 && roas !== null && roas < r.threshold) {
-        // guarda: sem vendas atribuíveis, ROAS "0" pode ser só atraso de webhook.
-        // roas_min exige pelo menos 1 venda atribuída na conta no período OU
-        // gasto expressivo (≥ 3× o piso em unidades monetárias) p/ agir.
-        const anySales = Object.values(attribution.byCampaign).some((a) => a.sales > 0);
-        if (anySales || attr.sales > 0) { hit = true; detail = 'ROAS ' + roas.toFixed(2) + ' < piso ' + r.threshold; }
-      } else if (r.metric === 'ctr_min' && r.threshold > 0 && ctrPct !== null
-        && impressions >= (r.minImpressions || 1000) && ctrPct < r.threshold) {
-        hit = true; detail = 'CTR ' + ctrPct.toFixed(2) + '% < mínimo ' + r.threshold + '% (' + impressions + ' impressões)';
-      } else if (r.metric === 'cpm_max' && r.threshold > 0 && cpm !== null
-        && spend >= (r.minSpend || 1) && cpm > r.threshold) {
-        hit = true; detail = 'CPM ' + cpm.toFixed(2) + ' > teto ' + r.threshold;
-      } else if (r.metric === 'cpc_max' && r.threshold > 0 && clicks >= (r.minClicks || 30)
-        && spend / clicks > r.threshold) {
-        hit = true; detail = 'CPC ' + (spend / clicks).toFixed(2) + ' > teto ' + r.threshold + ' (' + clicks + ' cliques)';
-      } else if (r.metric === 'roas_scale' && r.threshold > 0 && roas !== null
-        && attr.sales >= (r.minSales || 2) && roas >= r.threshold) {
-        hit = true; detail = 'ROAS ' + roas.toFixed(2) + ' ≥ ' + r.threshold + ' com ' + attr.sales + ' venda(s) — escalando';
-      }
+      const { hit, detail } = evaluateRule(r, ctx);
       if (!hit) continue;
 
       // Pré-computa alterações de orçamento ANTES de consumir cooldown: uma
       // recusa por teto de gasto não deve "gastar" o cooldown de 12h da regra.
+      // maxBudgetChangePct da política vale para o MOTOR (antes só valia em
+      // bulk/jobs via assertMutationAllowed) — computeBudgetPlan aplica o teto.
       let plan = null;
       if (r.action !== 'pause') {
-        const pctRaw = Math.max(5, Math.min(50, Number(r.pct) || 20));
-        // GUARDA — maxBudgetChangePct da política vale para o MOTOR também
-        // (antes só valia em bulk/jobs via assertMutationAllowed).
-        const pct = Math.min(pctRaw, policy.maxBudgetChangePct);
-        const factor = r.action === 'budget_up' ? 1 + pct / 100 : 1 - pct / 100;
-        const cap = r.metric === 'roas_scale' ? Number(r.budgetCap) || 0 : 0;
-        const changes = []; let capped = 0; let delta = 0;
-        for (const s of (c.adSets || []).slice(0, 10)) {
-          const cur = Number((s.budget || {}).amount) || 0;
-          const adGroupId = s.platformAdSetId || s._id;
-          if (!(cur > 0) || !adGroupId) continue;
-          let amount = Math.max(1, +(cur * factor).toFixed(2));
-          if (cap > 0 && amount > cap) {
-            if (cur >= cap) { capped += 1; continue; } // já no teto: não toca
-            amount = cap; capped += 1;
-          }
-          const type = (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily';
-          changes.push({ adGroupId, cur, amount, type });
-          if (type !== 'lifetime') delta += amount - cur;
-        }
-        plan = { pct, cap, capped, changes, delta };
+        plan = computeBudgetPlan(r, c, policy.maxBudgetChangePct);
       }
 
       // GUARDA — teto de gasto diário: recusa budget_up que ultrapasse o teto.
@@ -729,6 +780,65 @@ async function runRulesSweep(accId, { force } = {}) {
   if (executed.some((e) => e.ok && !e.simulated && !e.proposed)) syncAfterWrite(accId, advertiserId);
   appendRulesLog(accId, executed);
   return { executed, checkedAt: new Date().toISOString() };
+}
+
+// ── Backtesting de regras (simulação "e se", sem agir) ──────────────────────
+// Responde "o que estas regras TERIAM feito na janela?" ANTES de ativá-las.
+// Lê o MESMO espelho do motor e avalia pela MESMA evaluateRule/computeBudgetPlan
+// — mas nunca executa, nunca consome cooldown, nunca audita. Aceita `rules`
+// (candidatas, validadas aqui) ou usa as regras salvas da conta. Ignora
+// 'schedule' (dayparting não tem métrica p/ backtest). Avalia regras mesmo
+// desabilitadas — o ponto do backtest é decidir se vale ligar.
+async function backtestRules(accId, { rules, lookbackDays } = {}) {
+  if (!provider.enabled) return { findings: [], skipped: true, reason: 'provider desativado' };
+  const advertiserId = await provider.resolveAdvertiserId(accId);
+  if (!advertiserId) return { findings: [], skipped: true, reason: 'sem advertiser resolvido' };
+
+  const ruleList = (Array.isArray(rules) ? validateRules(rules) : getRules(accId))
+    .filter((r) => r.metric !== 'schedule');
+  if (!ruleList.length) return { findings: [], skipped: true, reason: 'nenhuma regra para simular' };
+
+  const policy = await adsOps.getSafetyPolicy(accId);
+  const to = new Date();
+  const maxLookback = Math.max(Number(lookbackDays) || 0, ...ruleList.map((r) => r.lookbackDays || 1), 1);
+  const fromDate = isoDay(new Date(to.getTime() - maxLookback * 864e5));
+  const toDate = isoDay(to);
+
+  // Backtest é sob demanda e raro: se o espelho estiver velho, força UMA leitura
+  // fresca (exatidão > 1 request) — ao contrário do sweep, que pula em stale.
+  let t = await treeForSweep(accId, advertiserId, { fromDate, toDate, status: 'active' });
+  if (t.stale) t = await treeForSweep(accId, advertiserId, { fromDate, toDate, status: 'active', force: true });
+  const campaigns = t.campaigns || [];
+  const attribution = computeAttribution(accId, fromDate, toDate);
+
+  const findings = [];
+  const summary = { campaigns: campaigns.length, rules: ruleList.length, hits: 0, byAction: { pause: 0, budget_up: 0, budget_down: 0 } };
+  for (const c of campaigns) {
+    const ctx = metricsContext(c, attribution);
+    const name = c.campaignName || c.platformCampaignId;
+    for (const r of ruleList) {
+      const { hit, detail } = evaluateRule(r, ctx);
+      if (!hit) continue;
+      summary.hits += 1;
+      summary.byAction[r.action] = (summary.byAction[r.action] || 0) + 1;
+      const finding = {
+        ruleId: r.id, metric: r.metric, action: r.action, enabled: !!r.enabled,
+        ...(r.name ? { ruleName: r.name } : {}),
+        campaignId: c.platformCampaignId, campaignName: name, detail,
+        spend: +ctx.spend.toFixed(2), conversions: ctx.conv,
+        roas: ctx.roas != null ? +ctx.roas.toFixed(2) : null, sales: ctx.attr.sales,
+      };
+      if (r.action !== 'pause') {
+        const plan = computeBudgetPlan(r, c, policy.maxBudgetChangePct);
+        finding.projected = {
+          groups: plan.changes.length, capped: plan.capped, deltaDaily: +plan.delta.toFixed(2),
+          changes: plan.changes.map((ch) => ({ adGroupId: ch.adGroupId, from: ch.cur, to: ch.amount, type: ch.type })),
+        };
+      }
+      findings.push(finding);
+    }
+  }
+  return { findings, summary, window: { fromDate, toDate, lookbackDays: maxLookback }, checkedAt: new Date().toISOString() };
 }
 
 // ── F3: aprovação de proposta ───────────────────────────────────────────────
@@ -1066,11 +1176,13 @@ module.exports = {
   runAlertSweep,
   runRulesSweep,
   runScheduleSweep,
+  backtestRules,
   approveProposal,
   maybeSweep,
   markSweepNow,
   getSweepInfo,
+  getBreakerState,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, actionOutcomes, executeRuleAction, computeActionStates },
+  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, actionOutcomes, breakerLastAt, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates },
 };
