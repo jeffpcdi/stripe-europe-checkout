@@ -3886,6 +3886,9 @@ async function processConversion(n) {
     // gateway-only para eventos monetários (CompletePayment/AddPaymentInfo…).
     const r = await ttEvents.dispatchToAll(n.event, {
       _trusted: true,
+      // Vínculo pixel↔gateway: identifica DE QUAL gateway o evento veio para o
+      // dispatch respeitar pixels vinculados a gateways específicos.
+      gatewayId: n.gatewayId || undefined,
       eventId: evId,
       email: n.email || (lead && lead.email) || undefined,
       phone: n.phone || (lead && lead.phone) || undefined,
@@ -4569,6 +4572,17 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
         if (b.events === undefined) b.events = existing.events;
         if (b.testEventCode === undefined) b.testEventCode = existing.testEventCode;
         if (b.active === undefined) b.active = existing.active;
+        // Vínculo pixel↔gateway: campo ausente preserva o vínculo atual
+        if (b.gatewayIds === undefined) b.gatewayIds = existing.gatewayIds;
+      }
+    }
+    // Vínculo pixel↔gateway: só aceita IDs de gateways que EXISTEM nesta conta
+    // (impede vincular a gateway de outra conta ou a id digitado errado).
+    if (Array.isArray(b.gatewayIds) && b.gatewayIds.length) {
+      const valid = new Set(gatewayStore.list(req.account.id).map((g) => g.id));
+      const invalid = b.gatewayIds.filter((id) => !valid.has(String(id)));
+      if (invalid.length) {
+        return res.status(400).json({ error: 'gateway(s) inválido(s) para esta conta: ' + invalid.join(', ') });
       }
     }
     const saved = await pixelStore.save(req.account.id, b);

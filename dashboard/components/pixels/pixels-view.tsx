@@ -30,6 +30,7 @@ import {
   usePixelLog,
   usePixelDurability,
   useEmqTrend,
+  useGateways,
   apiSend,
 } from '@/lib/api'
 import type { Pixel, PixelEvents, PixelTestResult, PixelEmqTrend } from '@/lib/types'
@@ -73,6 +74,9 @@ export function PixelsView() {
   const { data: log, mutate: mutateLog } = usePixelLog()
   const { data: durability } = usePixelDurability()
   const { data: emqTrend } = useEmqTrend()
+  // Vínculo pixel↔gateway: nomes dos gateways para exibir o selo no card
+  const { data: gwData } = useGateways()
+  const gatewayNameById = new Map((gwData?.gateways ?? []).map((g) => [g.id, g.name]))
 
   // Filtros do log de disparos (item 81) e linha expandida (item 82)
   const [logPixel, setLogPixel] = useState('')
@@ -145,6 +149,7 @@ export function PixelsView() {
       accessToken: '',
       testEventCode: '',
       events: p.events,
+      gatewayIds: p.gatewayIds ?? [],
       active: false,
     })
     mutate()
@@ -387,6 +392,22 @@ export function PixelsView() {
                       </span>
                     ))}
                   </div>
+
+                  {/* Vínculo pixel↔gateway: mostra de quais gateways este pixel
+                      aceita eventos de venda (vazio = todos). */}
+                  {(p.gatewayIds?.length ?? 0) > 0 && (
+                    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <Zap className="size-3 shrink-0 text-brand-cyan" aria-hidden="true" />
+                      <span className="text-pretty">
+                        Vendas somente do gateway:{' '}
+                        <span className="font-medium text-foreground">
+                          {(p.gatewayIds ?? [])
+                            .map((id) => gatewayNameById.get(id) ?? id)
+                            .join(', ')}
+                        </span>
+                      </span>
+                    </p>
+                  )}
 
                   {/* A6.2: timeline dos últimos 5 disparos como dots coloridos
                       com tooltip (evento + hora) — leitura rápida sem abrir o log */}
@@ -1141,6 +1162,16 @@ function PixelEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Vínculo pixel↔gateway: eventos de dinheiro (Compra/Pagamento) só disparam
+  // vindos dos gateways selecionados. Vazio = aceita de todos (padrão).
+  const { data: gwData } = useGateways()
+  const gateways = gwData?.gateways ?? []
+  const [gatewayIds, setGatewayIds] = useState<string[]>(pixel?.gatewayIds ?? [])
+
+  function toggleGateway(id: string) {
+    setGatewayIds((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]))
+  }
+
   async function handleSave() {
     if (!pixelCode.trim()) {
       setError('Pixel Code é obrigatório')
@@ -1157,6 +1188,7 @@ function PixelEditor({
         testEventCode: testEventCode.trim() || undefined,
         active,
         events,
+        gatewayIds,
       })
       onSaved(r.warning)
     } catch (e) {
@@ -1320,6 +1352,54 @@ function PixelEditor({
                 </label>
               ))}
             </div>
+          </fieldset>
+
+          {/* Vínculo pixel↔gateway: isola eventos de dinheiro por gateway —
+              permite 2 pixels em 2 gateways diferentes na mesma conta sem um
+              receber a venda do outro. */}
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-xs font-medium text-muted-foreground">
+              Gateways vinculados (eventos de Compra/Pagamento)
+            </legend>
+            {gateways.length === 0 ? (
+              <span className="text-[11px] text-muted-foreground text-pretty">
+                Nenhum gateway cadastrado — este pixel aceitará eventos de venda de qualquer
+                gateway. Cadastre gateways na aba{' '}
+                <Link href="/gateways" className="font-medium text-brand-cyan hover:underline">
+                  Gateways
+                </Link>{' '}
+                para poder vinculá-los.
+              </span>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {gateways.map((g) => (
+                    <label
+                      key={g.id}
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                        gatewayIds.includes(g.id)
+                          ? 'border-brand-cyan/50 bg-brand-cyan/10 text-brand-cyan'
+                          : 'border-border text-muted-foreground'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={gatewayIds.includes(g.id)}
+                        onChange={() => toggleGateway(g.id)}
+                      />
+                      {gatewayIds.includes(g.id) ? <Check className="size-3" aria-hidden="true" /> : null}
+                      {g.name}
+                    </label>
+                  ))}
+                </div>
+                <span className="text-[11px] text-muted-foreground text-pretty">
+                  {gatewayIds.length === 0
+                    ? 'Nenhum selecionado = o pixel recebe vendas de TODOS os gateways (padrão).'
+                    : 'Este pixel só dispara Compra/Pagamento vindos do(s) gateway(s) selecionado(s) — vendas de outros gateways são ignoradas por ele.'}
+                </span>
+              </>
+            )}
           </fieldset>
 
           <label className="flex items-center gap-2 text-sm text-foreground">

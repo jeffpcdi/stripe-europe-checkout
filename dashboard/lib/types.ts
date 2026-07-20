@@ -311,6 +311,8 @@ export interface Pixel {
   testEventCode?: string
   active: boolean
   events: PixelEvents
+  /** Vínculo pixel↔gateway: IDs de gateways dos quais este pixel aceita eventos de dinheiro. Vazio = todos. */
+  gatewayIds?: string[]
   scriptUrl: string | null
   scriptTag: string | null
   updatedAt: string
