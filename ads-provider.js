@@ -671,7 +671,7 @@ async function updateAd(advertiserId, adId, patch) {
   return r;
 }
 
-// ══════════════════════════════════════════════════════════════════�����═════════
+// ══════════════════════════════════════════════════════════════════�������═════════
 // F1 — Criação de campanha completa (campaign → adgroup → upload → ad).
 // A Zernio tinha um endpoint único /ads/create; no Pipeboard é uma COMPOSIÇÃO
 // de 4-6 tools. Toda escrita passa por aqui — rotas nunca chamam callTool.
@@ -1057,7 +1057,7 @@ async function createFullAd(advertiserId, spec, opts) {
   }
 }
 
-// ═══════════════════════════════════════════════════════���═���══════════════════
+// ═════════════════════════════════════════════════════���═���═���══════════════════
 // F3 — Duplicação de campanha na MESMA conta (composição: não há tool nativa).
 // captureCampaign lê a origem COMPLETA (4 calls, cache 10min — capturar 1× por
 // job mesmo com N cópias) e recreateCampaign recria com allowlist de campos:
@@ -1541,13 +1541,23 @@ async function createTikTokCatalog(bcId, { name, catalogType, currency, country 
   if (!bc) throw badRequest('Business Center (bc_id) é obrigatório para criar o catálogo no TikTok', 422);
   const nm = String(name || '').trim().slice(0, 200);
   if (!nm) throw badRequest('Nome do catálogo é obrigatório');
+  const cur = String(currency || '').trim().toUpperCase().slice(0, 8);
+  const region = String(country || '').trim().toUpperCase().slice(0, 4);
   const args = {
     bc_id: bc,
     name: nm,
     catalog_type: normalizeCatalogType(catalogType),
   };
-  if (currency) args.currency = String(currency).trim().toUpperCase().slice(0, 8);
-  if (country) args.country = String(country).trim().toUpperCase().slice(0, 4);
+  // A API atual do TikTok (catalog/create) exige o objeto catalog_conf com
+  // region_code + currency — os campos soltos currency/country foram
+  // descontinuados. Mantemos os soltos também por compat com versões antigas
+  // da tool do Pipeboard (args extras são repassados sem erro).
+  args.catalog_conf = {
+    region_code: region || (cur === 'BRL' ? 'BR' : 'US'),
+    currency: cur || (region === 'BR' ? 'BRL' : 'USD'),
+  };
+  if (cur) args.currency = cur;
+  if (region) args.country = region;
   const out = await pipeboard.callTool('create_tiktok_catalog', args);
   const catalogId = String(deepPluck(out, 'catalog_id') || '');
   if (!catalogId) throw badRequest('O TikTok não retornou o catalog_id ao criar o catálogo', 502);
