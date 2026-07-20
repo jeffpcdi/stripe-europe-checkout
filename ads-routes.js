@@ -24,7 +24,7 @@
 //   PUT    /api/ads/:adId                → status/budget/creative
 //   DELETE /api/ads/:adId                → cancela o anúncio
 //   PATCH  /api/ads/identity             → Brand Identity (nome+avatar)
-//   POST   /api/ads/upload               → vídeo/imagem → Vercel Blob (URL pública)
+//   POST   /api/ads/upload               → vídeo/imagem → disco (/uploads, URL pública)
 // ─────────────────────────────────────────────────────────────────────────────
 const pipeboard = require('./ads-provider'); // fronteira dashboard↔Pipeboard (única integração — F6 removeu a Zernio)
 const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só /diag)
@@ -33,6 +33,7 @@ const adsSync = require('./ads-sync');         // motor Pipeboard→Neon (sync e
 const automation = require('./ads-automation'); // regras/alertas/dayparting 24/7
 const adsAi = require('./ads-ai');             // copiloto/briefing/criativos/realocação (IA, leituras 100% Neon)
 const adsOps = require('./ads-ops-store');
+const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — sem Vercel Blob
   const catalogStore = require('./ads-catalog-store');
   const catalogFeed = require('./ads-catalog-feed');
   const catalogInspect = require('./ads-catalog-inspect');
@@ -1080,14 +1081,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     });
   });
 
-  // ── Upload de criativo → Vercel Blob (retorna URL pública p/ a Zernio) ────
-  // O corpo é o binário puro (express.raw), com metadados via querystring.
+  // ── Upload de criativo → disco (Volume do Railway), servido em /uploads ────
+  // O corpo é o binário puro (express.raw), com metadados via querystring. O
+  // TikTok baixa o arquivo pela URL pública (publicOrigin + /uploads/...). Sem
+  // Vercel Blob: grava no UPLOAD_DIR (volume em produção, data/uploads local).
   app.post('/api/ads/upload', dashboardAuth, require('express').raw({ type: '*/*', limit: '500mb' }), async (req, res) => {
     try {
-      if (!process.env.BLOB_READ_WRITE_TOKEN) return res.status(503).json({ error: 'Armazenamento (Vercel Blob) não configurado' });
       const kind = req.query.kind === 'image' ? 'image' : 'video';
       const rawName = String(req.query.filename || (kind === 'image' ? 'avatar.png' : 'criativo.mp4'));
-      const safe = rawName.toLowerCase().replace(/[^a-z0-9._-]/g, '-').slice(0, 80);
+      const safe = adsStorage.safeName(rawName);
       const okExt = kind === 'image' ? /\.(png|jpe?g)$/ : /\.(mp4|mov)$/;
       if (!okExt.test(safe)) {
         return res.status(400).json({ error: kind === 'image' ? 'Envie PNG ou JPG' : 'Envie MP4 ou MOV' });
@@ -1095,13 +1097,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!req.body || !req.body.length) return res.status(400).json({ error: 'Arquivo vazio' });
       const max = kind === 'image' ? 5 * 1024 * 1024 : 500 * 1024 * 1024;
       if (req.body.length > max) return res.status(413).json({ error: 'Arquivo excede o limite de ' + (kind === 'image' ? '5 MB' : '500 MB') });
-      const { put } = require('@vercel/blob');
-      // access public: a Zernio (e o TikTok) precisam BAIXAR o arquivo pela URL
-      const blob = await put('tiktok-ads/' + req.account.id + '/' + Date.now().toString(36) + '-' + safe, req.body, {
-        access: 'public',
-        contentType: kind === 'image' ? (safe.endsWith('.png') ? 'image/png' : 'image/jpeg') : 'video/mp4'
-      });
-      res.json({ ok: true, url: blob.url });
+      const origin = adsStorage.publicOrigin(req);
+      if (!origin) return res.status(503).json({ error: 'Host público não configurado (defina PRIMARY_HOST) — o TikTok não conseguiria baixar o arquivo' });
+      const dir = await adsStorage.ensureAccountDir(req.account.id);
+      const fname = Date.now().toString(36) + '-' + safe;
+      await require('fs').promises.writeFile(require('path').join(dir, fname), req.body);
+      const url = origin + '/uploads/' + adsStorage.safeSegment(req.account.id) + '/' + fname;
+      res.json({ ok: true, url });
     } catch (err) { fail(res, err); }
   });
 
@@ -1256,36 +1258,44 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Biblioteca de criativos — vídeos já enviados ao Vercel Blob ��───────��───
+  // ── Biblioteca de criativos — vídeos já enviados ao disco (/uploads) ──────
   app.get('/api/ads/library', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      if (!process.env.BLOB_READ_WRITE_TOKEN) return res.json({ items: [] });
-      const { list } = require('@vercel/blob');
-      // prefixo POR CONTA: uma conta nunca enxerga criativos da outra
-      const { blobs } = await list({ prefix: 'tiktok-ads/' + req.account.id + '/', limit: 200 });
-      const items = (blobs || [])
-        .filter((b) => /\.(mp4|mov)$/i.test(b.pathname))
-        .sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0))
-        .map((b) => ({
-          url: b.url,
-          name: b.pathname.split('/').pop().replace(/^[a-z0-9]+-/, ''),
-          size: b.size || 0,
-          uploadedAt: b.uploadedAt || null
-        }));
+      const fs = require('fs');
+      const path = require('path');
+      const dir = adsStorage.accountDir(req.account.id);
+      let names = [];
+      try { names = await fs.promises.readdir(dir); } catch (_) { return res.json({ items: [] }); } // sem dir = sem criativos
+      const origin = adsStorage.publicOrigin(req);
+      const seg = adsStorage.safeSegment(req.account.id);
+      const items = [];
+      for (const n of names) {
+        if (!/\.(mp4|mov)$/i.test(n)) continue;
+        let st = null;
+        try { st = await fs.promises.stat(path.join(dir, n)); } catch (_) { continue; }
+        items.push({
+          url: origin + '/uploads/' + seg + '/' + n,
+          name: n.replace(/^[a-z0-9]+-/, ''),
+          size: st.size || 0,
+          uploadedAt: st.mtime ? st.mtime.toISOString() : null,
+        });
+      }
+      items.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
       res.json({ items });
     } catch (err) { fail(res, err); }
   });
 
   app.delete('/api/ads/library', dashboardAuth, async (req, res) => {
     try {
+      const fs = require('fs');
+      const path = require('path');
       const url = String((req.query || {}).url || '');
-      // só deleta blobs DO PRÓPRIO diretório da conta (o path é verificável na URL)
-      if (!url.includes('/tiktok-ads/' + req.account.id + '/')) {
-        return res.status(403).json({ error: 'Criativo não pertence a esta conta' });
-      }
-      const { del } = require('@vercel/blob');
-      await del(url);
+      const seg = adsStorage.safeSegment(req.account.id);
+      // extrai só o nome do arquivo da URL e valida que pertence à conta
+      const m = url.match(new RegExp('/uploads/' + seg.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '/([a-zA-Z0-9._-]+)$'));
+      if (!m) return res.status(403).json({ error: 'Criativo não pertence a esta conta' });
+      await fs.promises.unlink(path.join(adsStorage.accountDir(req.account.id), m[1])).catch(() => {});
       res.json({ ok: true });
     } catch (err) { fail(res, err); }
   });
@@ -2375,30 +2385,26 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // Publica o feed CSV no Blob (URL pública estável). Reutilizado por /publish e
-  // /sync-tiktok. allowOverwrite mantém a MESMA URL entre publicações — o TikTok
-  // re-puxa sozinho do mesmo endereço. Lança erros com `status` para o `fail`.
-  async function publishCatalogFeed(accountId, catalogId) {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) { const e = new Error('Armazenamento (Vercel Blob) não configurado'); e.status = 503; throw e; }
+  // Publica o feed CSV numa URL PÚBLICA servida pelo próprio app (/feed/<token>.csv),
+  // regenerada do Neon a cada fetch — SEM Vercel Blob. A URL é estável (feed_token
+  // fixo por catálogo); o TikTok re-puxa sozinho do mesmo endereço. `origin` é a
+  // origem pública (publicOrigin). Reutilizado por /publish e /sync-tiktok.
+  async function publishCatalogFeed(accountId, catalogId, origin) {
+    if (!origin) { const e = new Error('Host público não configurado (defina PRIMARY_HOST) — o TikTok não conseguiria baixar o feed'); e.status = 503; throw e; }
     const catalog = await catalogStore.getCatalog(accountId, catalogId);
     if (!catalog) { const e = new Error('Catálogo não encontrado'); e.status = 404; throw e; }
     const products = await catalogStore.listProducts(accountId, catalogId);
     const valid = products.filter((p) => p.valid);
     if (!valid.length) { const e = new Error('Nenhum produto válido para publicar. Corrija os erros primeiro.'); e.status = 400; throw e; }
-    const csv = catalogFeed.buildCatalogCsv(valid);
-    const { put } = require('@vercel/blob');
-    // path estável por conta+catálogo → URL não muda entre publicações
-    const blob = await put(
-      'tiktok-catalogs/' + accountId + '/' + catalog.id + '.csv', csv,
-      { access: 'public', contentType: 'text/csv; charset=utf-8', allowOverwrite: true, addRandomSuffix: false }
-    );
-    const updated = await catalogStore.setFeedUrl(accountId, catalog.id, blob.url);
-    return { catalog: updated, feedUrl: blob.url, published: valid.length, skipped: products.length - valid.length };
+    const token = await catalogStore.ensureFeedToken(accountId, catalog.id);
+    const feedUrl = origin + '/feed/' + token + '.csv';
+    const updated = await catalogStore.setFeedUrl(accountId, catalog.id, feedUrl);
+    return { catalog: updated, feedUrl, published: valid.length, skipped: products.length - valid.length };
   }
 
   app.post('/api/ads/catalogs/:catalogId/publish', dashboardAuth, async (req, res) => {
     try {
-      const out = await publishCatalogFeed(req.account.id, req.params.catalogId);
+      const out = await publishCatalogFeed(req.account.id, req.params.catalogId, adsStorage.publicOrigin(req));
       await catalogStore.appendPublication(req.account.id, req.params.catalogId, {
         kind: 'feed', status: 'success', published: out.published, skipped: out.skipped, feedUrl: out.feedUrl,
       }).catch(() => {});
@@ -2408,8 +2414,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   // ── Publicar direto no TikTok (o caminho "pronto para campanha") ───────────
-  // Um clique faz o ciclo completo: publica o feed no Blob → cria o catálogo no
-  // TikTok (se ainda não existe) → sobe os produtos pela URL pública → busca o
+  // Um clique faz o ciclo completo: publica o feed (URL do app) → cria o catálogo
+  // no TikTok (se ainda não existe) → sobe os produtos pela URL pública → busca o
   // overview de auditoria. Respeita killSwitch e dry-run como qualquer escrita.
   app.post('/api/ads/catalogs/:catalogId/sync-tiktok', dashboardAuth, async (req, res) => {
     try {
@@ -2422,8 +2428,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }
       if (await killSwitchActive(accId)) return res.status(423).json(KILL_SWITCH_BODY);
 
-      // 1) Publica o feed no Blob (também garante que há produtos válidos).
-      const pub = await publishCatalogFeed(accId, catalogId);
+      // 1) Publica o feed (URL do app, servida do Neon) — também garante que há
+      //    produtos válidos.
+      const pub = await publishCatalogFeed(accId, catalogId, adsStorage.publicOrigin(req));
       let catalog = pub.catalog;
 
       // dry-run: o feed foi publicado (leitura segura), mas NADA é criado/enviado

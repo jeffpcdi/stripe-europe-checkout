@@ -63,7 +63,12 @@ Pré-requisitos: deploy do `main`; `PIPEBOARD_API_KEY`, `DATABASE_URL`,
 - [ ] **9. Catálogo** — configurar Business Center → criar catálogo (tipo/país/
       moeda) → +1 produto válido → **Publicar no TikTok** → conferir
       `tiktok_catalog_id` + auditoria (aprovados/pendentes) no Catalog Manager;
-      "Atualizar status" reconsulta.
+      "Atualizar status" reconsulta. **SEM Vercel Blob:** o feed é servido pelo
+      próprio app em `https://<PRIMARY_HOST>/feed/<token>.csv` (gerado do Neon).
+      Pré-requisito: **`PRIMARY_HOST` (ou `RAILWAY_PUBLIC_DOMAIN`) setado** — senão
+      publicar responde 503 "Host público não configurado". Confirme abrindo a URL
+      do feed no navegador (deve baixar o CSV). Para uploads de vídeo/imagem
+      duráveis, anexe um **Volume no Railway** (senão vão para disco efêmero).
 - [ ] **9b. Campanha de catálogo (DPA) — NOVO** — com o catálogo sincronizado,
       botão **"Criar campanha deste catálogo"** → nome/orçamento/país/ABO-CBO →
       Modo teste: toast "Modo teste" + auditoria `catalog_campaign.simulated`

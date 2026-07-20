@@ -46,6 +46,10 @@ async function ensureSchema() {
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS tiktok_catalog_id text`;
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS synced_at timestamptz`;
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS audit jsonb`;
+    // feed_token: token público e estável que compõe a URL do feed servida pelo
+    // app (/feed/<token>.csv) — substitui a URL do Vercel Blob.
+    await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS feed_token text`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS ads_catalogs_feed_token_idx ON ads_catalogs (feed_token) WHERE feed_token IS NOT NULL`;
     await sql`CREATE TABLE IF NOT EXISTS ads_catalog_products (
       id text PRIMARY KEY,
       catalog_id text NOT NULL,
@@ -96,6 +100,7 @@ function mapCatalog(row) {
     tiktokCatalogId: row.tiktok_catalog_id || null,
     syncedAt: row.synced_at || null,
     audit: row.audit || null,
+    feedToken: row.feed_token || null,
     feedUrl: row.feed_blob_url || null,
     feedPublishedAt: row.feed_published_at || null,
     productCount: Number(row.product_count) || 0,
@@ -276,6 +281,35 @@ async function setFeedUrl(accountId, catalogId, feedUrl) {
   return mapCatalog(rows[0]);
 }
 
+// Garante um feed_token estável para o catálogo (gera na 1ª vez). O token compõe
+// a URL pública do feed servida pelo app (/feed/<token>.csv). Devolve o token.
+async function ensureFeedToken(accountId, catalogId) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const cur = await sql`SELECT feed_token FROM ads_catalogs WHERE account_id = ${accountId} AND id = ${String(catalogId)} LIMIT 1`;
+  if (cur[0] && cur[0].feed_token) return cur[0].feed_token;
+  const token = require('crypto').randomBytes(16).toString('hex');
+  const rows = await sql`UPDATE ads_catalogs SET feed_token = ${token}, updated_at = now()
+    WHERE account_id = ${accountId} AND id = ${String(catalogId)} AND feed_token IS NULL
+    RETURNING feed_token`;
+  // corrida: se outro request gravou primeiro, relê o valor efetivo
+  if (rows[0] && rows[0].feed_token) return rows[0].feed_token;
+  const again = await sql`SELECT feed_token FROM ads_catalogs WHERE account_id = ${accountId} AND id = ${String(catalogId)} LIMIT 1`;
+  return (again[0] && again[0].feed_token) || token;
+}
+
+// Resolve um catálogo SÓ pelo feed_token (rota pública /feed/:token.csv — não há
+// sessão). Devolve o catálogo (com account_id) para listar os produtos.
+async function getCatalogByFeedToken(token) {
+  if (!enabled) return null;
+  const t = String(token || '').trim();
+  if (!/^[a-f0-9]{16,64}$/.test(t)) return null;
+  await ensureSchema();
+  const rows = await sql`SELECT * FROM ads_catalogs WHERE feed_token = ${t} LIMIT 1`;
+  return mapCatalog(rows[0]);
+}
+
 // Grava o vínculo com o catálogo REAL criado no TikTok (via Pipeboard). A partir
 // daí a publicação atualiza sempre o MESMO catálogo (não recria).
 async function linkTikTokCatalog(accountId, catalogId, { tiktokCatalogId, bcId } = {}) {
@@ -349,6 +383,8 @@ module.exports = {
   bulkUpsertProducts,
   deleteProduct,
   setFeedUrl,
+  ensureFeedToken,
+  getCatalogByFeedToken,
   linkTikTokCatalog,
   setAudit,
   appendPublication,

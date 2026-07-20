@@ -478,10 +478,16 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
   ou mensagem de erro. Usa também `RAILWAY_PROJECT_ID`/`RAILWAY_ENVIRONMENT_ID`/`RAILWAY_SERVICE_ID`
   (injetados automaticamente pelo Railway em runtime). **Obs.:** se um project token for recusado para
   `customDomainCreate`, troque por um account/workspace token (Account Settings → Tokens).
-- `PRIMARY_HOST` — (opcional) host do painel/SaaS (ex.: `roi-nados.top`). Salvaguarda do guard de
+- `PRIMARY_HOST` — (recomendado) host do painel/SaaS (ex.: `roi-nados.top`). Salvaguarda do guard de
   domínio personalizado (§5.2.1): esse host — junto de `RAILWAY_PUBLIC_DOMAIN` — nunca é tratado como
-  domínio de lojista, evitando lockout do painel. Sem ele, o guard ainda funciona (o host principal
-  simplesmente não consta em `accountForDomain`), mas defini-lo é a rede de segurança recomendada.
+  domínio de lojista, evitando lockout do painel. **Também é a base de `publicOrigin` (`ads-storage.js`)**:
+  a URL pública do feed do catálogo (`/feed/<token>.csv`) e dos criativos (`/uploads/...`) que o TikTok
+  baixa. Sem `PRIMARY_HOST`/`RAILWAY_PUBLIC_DOMAIN`, cai no host do request; se nem isso houver, publicar
+  catálogo/upload responde 503 (o TikTok não conseguiria baixar).
+- `ADS_UPLOAD_DIR` — (opcional) diretório dos criativos enviados (vídeo/imagem). Padrão: se houver
+  `RAILWAY_VOLUME_MOUNT_PATH` (Volume do Railway anexado) usa `<mount>/uploads`; senão `<raiz>/data/uploads`
+  (efêmero). **Sem Vercel Blob** — os arquivos são gravados em disco e servidos pelo app em `/uploads/*`.
+  Para durabilidade em produção, anexe um Volume no Railway.
 - `PORT` — porta HTTP (padrão 3000).
 - (Legado) `DASHBOARD_PASSWORD` — antigo Basic Auth de senha única, **substituído** pela auth por conta.
 
@@ -545,6 +551,7 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── tiktok-events.js       # CAPI do TikTok (server-side)
 ├── pixel-store.js / link-store.js / gateway-store.js  # CRUD dos recursos
 ├── conversion-normalize.js # normalização de payloads de gateway (puro, testável)
+├── ads-storage.js         # uploads de criativo em disco (Volume Railway) + publicOrigin (sem Vercel Blob)
 ├── domain-provider.js     # Custom Domains na hospedagem via API (Railway; token só aqui)
 ├── presence.js / pulse-client.js   # visitantes ao vivo
 ├���─ pushcut.js             # notificações push
@@ -678,7 +685,9 @@ idade + gênero/interesses/posicionamento, com interesses lidos de `get_tiktok_i
 `GET /api/ads/targeting/interests`; filtro "Validadas" por reviewStatus),
 **Automações** (Pilotos em linguagem de gestor — Protetor/Escalador/Horário com intensidade + 1
 seletor de autonomia; editor técnico de regras e IA no "Modo avançado"; motor 24/7 em
-`ads-automation.js`) e **Catálogo** (produtos + feed CSV + publicação real via Business Center +
+`ads-automation.js`) e **Catálogo** (produtos + feed CSV servido pelo próprio app em `/feed/<token>.csv`
+a partir do Neon — **sem Vercel Blob**, `ads-storage.js`/`ensureFeedToken` — + publicação real via
+Business Center +
 **lançar campanha de catálogo/DPA** direto da dashboard via `provider.createCatalogCampaign` →
 `POST /api/ads/catalogs/:id/campaign`: campanha `PRODUCT_SALES` com fonte = catálogo, todos os
 produtos, nasce PAUSADA, respeita kill switch/Modo teste; cobertura em `test/ads-catalog-campaign.test.js`).

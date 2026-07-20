@@ -342,7 +342,7 @@ const CUSTOM_ALLOW_EXACT = new Set([
   '/t.js', '/px.js', '/px.gif',
   '/api/track', '/api/px/event', '/api/cloakcheck', '/api/conversion'
 ]);
-const CUSTOM_ALLOW_PREFIX = ['/go/', '/c/', '/l/', '/hook/', '/assets/'];
+const CUSTOM_ALLOW_PREFIX = ['/go/', '/c/', '/l/', '/hook/', '/assets/', '/uploads/', '/feed/'];
 function allowedOnCustomDomain(p) {
   if (CUSTOM_ALLOW_EXACT.has(p)) return true;
   if (/^\/px\/[^/]+\.js$/.test(p)) return true;              // /px/:token.js
@@ -2317,6 +2317,26 @@ const APP_CHECK_ID = 'roi-nados-tracker';
 app.get('/__domain-check', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ app: APP_CHECK_ID, ok: true });
+});
+
+// ── Feed público de catálogo (CSV) — servido pelo próprio app a partir do Neon,
+// substituindo o Vercel Blob. URL PÚBLICA e estável (feed_token) que o TikTok
+// baixa; regenerada a cada fetch (o TikTok re-puxa sozinho). Sem auth de
+// propósito: o token é o segredo e o conteúdo é o catálogo de produtos.
+app.get('/feed/:token.csv', async (req, res) => {
+  try {
+    const catalogStore = require('./ads-catalog-store');
+    const catalogFeed = require('./ads-catalog-feed');
+    const catalog = await catalogStore.getCatalogByFeedToken(req.params.token);
+    if (!catalog) return res.status(404).type('text/plain').send('feed não encontrado');
+    const products = await catalogStore.listProducts(catalog.accountId, catalog.id);
+    const csv = catalogFeed.buildCatalogCsv((products || []).filter((p) => p.valid));
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=300');
+    res.send(csv);
+  } catch (_) {
+    res.status(500).type('text/plain').send('erro ao gerar o feed');
+  }
 });
 
 // ── Configurações da conta (moeda padrão etc.) ���───────────────────────────
@@ -5071,6 +5091,10 @@ app.get('/termos', (req, res) => {
 
 // ── Só a pasta /assets é servida estaticamente (logo da marca) ───────
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '7d' }));
+
+// ── Criativos enviados (vídeo/imagem) — servidos do disco (Volume do Railway),
+// substituindo o Vercel Blob. URL pública que o TikTok baixa. ────────
+app.use('/uploads', express.static(require('./ads-storage').UPLOAD_DIR, { maxAge: '7d', fallthrough: true }));
 
 // ── Iniciar servidor ────────���─────────────────────────────────���──────
 // Hidrata stats, config, pixels, links e gateways a partir do Neon ANTES
