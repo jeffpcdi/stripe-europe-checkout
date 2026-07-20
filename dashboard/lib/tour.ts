@@ -269,6 +269,11 @@ export function tourForPath(pathname: string): Tour | null {
   if (pathname.startsWith('/geo')) return GEO_TOUR
   if (pathname.startsWith('/live')) return LIVE_TOUR
   if (pathname.startsWith('/links')) return LINKS_TOUR
+  // Conversões funde Gateways+Pixels; o tour segue o segmento aberto (?tab=).
+  if (pathname.startsWith('/conversions')) {
+    const seg = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
+    return seg === 'pixels' ? PIXELS_TOUR : GATEWAYS_TOUR
+  }
   if (pathname.startsWith('/pixels')) return PIXELS_TOUR
   if (pathname.startsWith('/gateways')) return GATEWAYS_TOUR
   if (pathname.startsWith('/domains')) return DOMAINS_TOUR

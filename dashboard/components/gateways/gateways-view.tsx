@@ -1,7 +1,8 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Plus,
   Copy,
@@ -17,7 +18,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
-import { useGateways, useConversionLog, apiSend } from '@/lib/api'
+import { useGateways, useConversionLog, usePixels, apiSend } from '@/lib/api'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/lib/toast'
 import type { Gateway, GatewayProvider, GatewayTestResult, GatewayRotateResult } from '@/lib/types'
@@ -81,6 +82,9 @@ function ProviderIcon({ provider, label }: { provider: string; label: string }) 
 export function GatewaysView() {
   const { data, mutate, isLoading, error } = useGateways()
   const { data: convLog, mutate: mutateLog } = useConversionLog()
+  // Pixels: para mostrar em cada gateway QUAIS pixels recebem as vendas dele
+  // (gateways e pixels trabalham juntos — o card explica o vínculo).
+  const { data: pixelsData } = usePixels()
 
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Gateway | null>(null)
@@ -100,6 +104,19 @@ export function GatewaysView() {
   const [reprocessing, setReprocessing] = useState<string | null>(null)
   // Item 233: paginação incremental do log (50 por vez, não trava a UI)
   const [logShown, setLogShown] = useState(50)
+
+  // Quais pixels recebem a VENDA de cada gateway — espelha a regra real do
+  // dispatch (tiktok-events.dispatchToAll): pixel ativo, com CompletePayment
+  // ligado, e sem vínculo (gatewayIds vazio) OU vinculado a este gateway.
+  const pixelsForGateway = useMemo(() => {
+    const eligible = (pixelsData?.pixels ?? []).filter(
+      (px) => px.active && px.events?.CompletePayment,
+    )
+    return (gatewayId: string) =>
+      eligible
+        .filter((px) => !(px.gatewayIds?.length) || px.gatewayIds!.includes(gatewayId))
+        .map((px) => px.name)
+  }, [pixelsData])
 
   async function handleReprocess(row: { id?: string }) {
     if (!row.id || reprocessing) return
@@ -430,6 +447,30 @@ export function GatewaysView() {
                       </button>
                     </div>
 
+                    {/* Vínculo gateway→pixel: quais pixels recebem as vendas deste
+                        gateway. ZERO pixels = venda não vira evento no TikTok. */}
+                    {pixelsData && (() => {
+                      const names = pixelsForGateway(g.id)
+                      return names.length > 0 ? (
+                        <p className="mt-2 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                          <Zap className="size-3 text-[color:var(--success)]" aria-hidden="true" />
+                          Vendas disparam em:{' '}
+                          <span className="font-medium text-foreground">{names.join(', ')}</span>
+                        </p>
+                      ) : (
+                        <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)]/40 bg-[color:var(--warning)]/[.06] px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                          <Info className="mt-0.5 size-3 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
+                          <span>
+                            <strong className="text-foreground">Nenhum pixel</strong> recebe as vendas deste gateway
+                            (precisa de um pixel ativo com <strong>Compra</strong> ligada, sem vínculo a outro gateway).{' '}
+                            <Link href="/conversions?tab=pixels" className="font-semibold text-[color:var(--brand-cyan)] hover:underline">
+                              Configurar pixel
+                            </Link>
+                          </span>
+                        </div>
+                      )
+                    })()}
+
                     {/* A7.3: saúde dos webhooks deste gateway — mini-barra
                         empilhada processados/outros/falhos a partir do log */}
                     {(() => {
@@ -603,6 +644,37 @@ export function GatewaysView() {
                             ? 'casou com um clique rastreado'
                             : 'não casou — venda órfã (sem leadId, e-mail ou telefone que batesse com um lead)'}
                         </dd>
+                        {/* Resultado CAPI POR PIXEL: explica o "erro em 1/2" aqui
+                            mesmo, sem caçar o motivo no log da aba Pixels. */}
+                        {Array.isArray(row.capi) && row.capi.length > 0 && (
+                          <>
+                            <dt className="text-muted-foreground">Pixels</dt>
+                            <dd className="flex flex-col gap-1">
+                              {row.capi.map((c, ci) => (
+                                <span key={ci} className="flex flex-wrap items-center gap-1.5">
+                                  <span className={c.ok ? 'text-success' : 'text-error'} aria-hidden="true">
+                                    {c.ok ? '✓' : '✗'}
+                                  </span>
+                                  <span className="font-medium text-foreground">{c.pixel}</span>
+                                  {!c.ok && (
+                                    <span className="text-muted-foreground">
+                                      {c.message || 'falha no disparo'}
+                                      {c.code != null ? ` (código ${c.code})` : ''}
+                                    </span>
+                                  )}
+                                  {!c.ok && /access.?token|40001|40105|unauthor/i.test(String(c.message ?? '')) && (
+                                    <Link
+                                      href="/conversions?tab=pixels"
+                                      className="font-semibold text-brand-cyan hover:underline"
+                                    >
+                                      Corrigir token do pixel
+                                    </Link>
+                                  )}
+                                </span>
+                              ))}
+                            </dd>
+                          </>
+                        )}
                         {/* Item 198: reenfileirar manualmente quando o disparo CAPI
                             falhou mas o pagamento é válido. Não duplica a venda no
                             painel — só re-dispara o evento para o TikTok. */}

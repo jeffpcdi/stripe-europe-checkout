@@ -676,7 +676,9 @@ só no Railway (§5.2.2).
 `/` Visão Geral (KPIs + gráfico de receita + saúde) · `/live` Ao Vivo (feed tempo real + presença) ·
 `/geo` Geografia (globo 3D) · `/funnel` Funil (etapas + tabela de leads) · `/activity` Atividade
 (log de conversões/pixels/cloaker) · `/links` Links de Checkout · `/cloak` Filtro de Bots ·
-`/domains` Domínios · `/pixels` Pixel TikTok (saúde + EMQ) · `/gateways` Gateways · `/config`
+`/domains` Domínios · `/conversions` **Conversões** (funde Gateways + Pixels, que trabalham juntos:
+venda→webhook→CAPI; 2 segmentos `?tab=gateways|pixels` + strip do fluxo; `/gateways` e `/pixels` viram
+redirects) · `/config`
 Configurações · `/ads/tiktok` **TikTok Ads** (via Pipeboard MCP; rotas `/api/ads/*` em
 `ads-routes.js`) com **4 sub-abas** — **Hoje** (centro de comando: inbox "Precisa de você" com
 propostas 1-toque + KPIs/ROAS/briefing + feed "O que o robô fez" + atalhos), **Campanhas** (segmento

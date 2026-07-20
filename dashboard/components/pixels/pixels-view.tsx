@@ -280,7 +280,7 @@ export function PixelsView() {
           {/* Mini-alerta do Gateway */}
           <div className="mb-4 flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <TriangleAlert className="size-3 text-warning" />
-            <span>O evento de Compra requer um <Link href="/gateways" className="font-semibold text-brand-cyan hover:underline">gateway conectado</Link>.</span>
+            <span>O evento de Compra requer um <Link href="/conversions?tab=gateways" className="font-semibold text-brand-cyan hover:underline">gateway conectado</Link>.</span>
           </div>
 
           {error && !data ? (
@@ -466,7 +466,7 @@ export function PixelsView() {
                           {p.events?.CompletePayment ? 'Compra' : 'Pagamento'} está ligada, mas{' '}
                           <strong>nenhum gateway está conectado</strong> — eventos de dinheiro só
                           disparam via webhook do gateway.{' '}
-                          <Link href="/gateways" className="font-semibold text-brand-cyan hover:underline">
+                          <Link href="/conversions?tab=gateways" className="font-semibold text-brand-cyan hover:underline">
                             Conectar gateway
                           </Link>
                         </span>
@@ -1365,7 +1365,7 @@ function PixelEditor({
               <span className="text-[11px] text-muted-foreground text-pretty">
                 Nenhum gateway cadastrado — este pixel aceitará eventos de venda de qualquer
                 gateway. Cadastre gateways na aba{' '}
-                <Link href="/gateways" className="font-medium text-brand-cyan hover:underline">
+                <Link href="/conversions?tab=gateways" className="font-medium text-brand-cyan hover:underline">
                   Gateways
                 </Link>{' '}
                 para poder vinculá-los.

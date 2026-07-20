@@ -3932,6 +3932,20 @@ async function processConversion(n) {
     }, '*', n.acc || (lead && lead.acc) || null);
     const errs = (r.results || []).filter((x) => x && (x.error || (x.code != null && x.code !== 0))).length;
     receipt.status = r.dispatched === 0 ? 'sem pixel' : (errs ? ('erro em ' + errs + '/' + r.dispatched) : 'ok');
+    // Detalhe POR PIXEL no recibo: qual pixel recebeu/falhou e o motivo do TikTok.
+    // Sem isto, "erro em 1/2" obriga o operador a caçar o porquê no log da aba
+    // Pixels — o feed de Gateways passa a explicar sozinho.
+    if (r.results && r.results.length) {
+      receipt.capi = r.results.map(function (x) {
+        x = x || {};
+        return {
+          pixel: x.pixelName || x.pixel || '?',
+          ok: !x.error && !x.skipped && (x.code == null || x.code === 0),
+          code: x.code != null ? x.code : undefined,
+          message: String(x.error || x.message || x.reason || '').slice(0, 180) || undefined
+        };
+      });
+    }
     // Não deixa o recibo dizer "ok" se a venda não foi contabilizada (o match
     // acima falhou): o status carrega a ressalva para não enganar o operador.
     if (receipt.saleError) receipt.status += ' — VENDA NÃO CONTABILIZADA (' + receipt.saleError + ')';

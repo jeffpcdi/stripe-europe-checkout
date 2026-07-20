@@ -357,8 +357,17 @@ async function sendToPixel(pixel, p) {
       status: 'ignorado',
       response: { message: 'config incompleta — faltando: ' + (missing.join(', ') || 'credenciais') }
     });
-    return { skipped: true, reason: 'pixel sem c��digo/token', missing };
+    return {
+      skipped: true, reason: 'pixel sem código/token', missing,
+      pixel: (pixel && (pixel.slug || pixel.pixelCode)) || 'desconhecido',
+      pixelName: (pixel && (pixel.name || pixel.slug)) || 'desconhecido',
+    };
   }
+  // Identidade do pixel nos RETORNOS (aditivo): o recibo da conversão precisa
+  // dizer QUAL pixel falhou e por quê — sem isso o operador vê "erro em 1/2" no
+  // feed de Gateways e tem de caçar o motivo no log da aba Pixels.
+  const pixelId = pixel.slug || pixel.pixelCode;
+  const pixelName = pixel.name || pixel.slug || pixel.pixelCode;
   // event_id é obrigatório para dedup — gera fallback se faltar
   const eventId = p.eventId || (p.event + '.' + crypto.randomBytes(8).toString('hex'));
 
@@ -404,7 +413,7 @@ async function sendToPixel(pixel, p) {
         emqFields: emq.fields,
         response: { code: json.code, message: json.message || json.msg, retry: attempt || undefined }
       });
-      return json;
+      return { ...json, pixel: pixelId, pixelName };
     } catch (err) {
       lastErr = err; // rede/timeout → tenta de novo uma vez
     }
@@ -423,7 +432,7 @@ async function sendToPixel(pixel, p) {
   // falha de rede/5xx persistente → entra na fila de retry de longo prazo
   // (_fromRetryQueue evita re-enfileirar o que a própria fila disparou)
   if (!p._fromRetryQueue) queueRetry(pixel, p, eventId);
-  return { error: (lastErr && lastErr.message) || 'falha desconhecida' };
+  return { error: (lastErr && lastErr.message) || 'falha desconhecida', pixel: pixelId, pixelName };
 }
 
 /**
@@ -530,7 +539,9 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
   const settled = await Promise.allSettled(
     targets.map((px) => sendToPixel(px, { ...p, event: eventName }))
   );
-  const results = settled.map((s) => (s.status === 'fulfilled' ? s.value : { error: String(s.reason) }));
+  const results = settled.map((s, i) => (s.status === 'fulfilled'
+    ? s.value
+    : { error: String(s.reason), pixel: targets[i].slug || targets[i].pixelCode, pixelName: targets[i].name || targets[i].slug }));
   return { dispatched: targets.length, results };
 }
 
