@@ -40,7 +40,12 @@ async function ensureSchema() {
     // catálogo; tiktok_catalog_id/bc_id gravam o catálogo criado na plataforma;
     // synced_at/audit guardam a última publicação e o resumo de auditoria dos
     // produtos (aprovados/pendentes/reprovados) para a UI mostrar "pronto p/ campanha".
-    await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS catalog_type text NOT NULL DEFAULT 'PRODUCT_CATALOG'`;
+    await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS catalog_type text NOT NULL DEFAULT 'ECOM'`;
+    // Migra catálogos gravados com os tipos antigos (descontinuados pelo TikTok).
+    await sql`UPDATE ads_catalogs SET catalog_type = 'ECOM' WHERE catalog_type = 'PRODUCT_CATALOG'`;
+    await sql`UPDATE ads_catalogs SET catalog_type = 'HOTEL' WHERE catalog_type = 'HOTEL_CATALOG'`;
+    await sql`UPDATE ads_catalogs SET catalog_type = 'FLIGHT' WHERE catalog_type = 'FLIGHT_CATALOG'`;
+    await sql`UPDATE ads_catalogs SET catalog_type = 'AUTO_VEHICLE' WHERE catalog_type = 'VEHICLE_CATALOG'`;
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS country text`;
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS bc_id text`;
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS tiktok_catalog_id text`;
@@ -94,7 +99,7 @@ function mapCatalog(row) {
     accountId: row.account_id,
     name: row.name,
     currency: row.currency,
-    catalogType: row.catalog_type || 'PRODUCT_CATALOG',
+    catalogType: cleanCatalogType(row.catalog_type),
     country: row.country || null,
     bcId: row.bc_id || null,
     tiktokCatalogId: row.tiktok_catalog_id || null,
@@ -109,12 +114,16 @@ function mapCatalog(row) {
   };
 }
 
-// Tipos de catálogo aceitos pelo TikTok (create_tiktok_catalog). PRODUCT_CATALOG
-// cobre e-commerce/infoproduto — o restante é nichado (hotel/voo/veículo).
-const CATALOG_TYPES = ['PRODUCT_CATALOG', 'HOTEL_CATALOG', 'FLIGHT_CATALOG', 'VEHICLE_CATALOG'];
+// Tipos de catálogo aceitos pelo TikTok (create_tiktok_catalog). ECOM cobre
+// e-commerce/infoproduto — o restante é nichado (hotel/voo/veículo/etc). Os
+// valores antigos (PRODUCT_CATALOG…) foram descontinuados pelo TikTok; mapeamos
+// os legados p/ os novos para não quebrar catálogos já gravados no banco.
+const CATALOG_TYPES = ['ECOM', 'HOTEL', 'FLIGHT', 'AUTO_VEHICLE', 'AUTO_MODEL', 'COMIC', 'DESTINATION', 'ENTERTAINMENT', 'HOME_LISTING', 'MINI_SERIES', 'RECRUITMENT'];
+const LEGACY_CATALOG_TYPES = { PRODUCT_CATALOG: 'ECOM', HOTEL_CATALOG: 'HOTEL', FLIGHT_CATALOG: 'FLIGHT', VEHICLE_CATALOG: 'AUTO_VEHICLE' };
 function cleanCatalogType(value) {
   const t = String(value || '').trim().toUpperCase();
-  return CATALOG_TYPES.includes(t) ? t : 'PRODUCT_CATALOG';
+  if (LEGACY_CATALOG_TYPES[t]) return LEGACY_CATALOG_TYPES[t];
+  return CATALOG_TYPES.includes(t) ? t : 'ECOM';
 }
 
 function mapProduct(row) {

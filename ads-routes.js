@@ -1107,7 +1107,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── KPIs agregados com comparação de período ────────────────────────────���───
+  // ── KPIs agregados com comparação de período ────────────────��───────────���───
   // Totais do range pedido + o range ANTERIOR de mesmo tamanho, direto do
   // espelho Neon (2 SUMs — zero chamadas à Pipeboard). Deltas em % ficam null
   // quando a base é 0 (a UI oculta a seta em vez de mostrar "+Infinity%").
@@ -2227,10 +2227,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Tipos de catálogo do TikTok + países comuns (hints da UI no formulário).
   const CATALOG_TYPE_LABELS = [
-    { value: 'PRODUCT_CATALOG', label: 'Produtos (e-commerce / infoproduto)' },
-    { value: 'HOTEL_CATALOG', label: 'Hotéis' },
-    { value: 'FLIGHT_CATALOG', label: 'Voos' },
-    { value: 'VEHICLE_CATALOG', label: 'Veículos' },
+    { value: 'ECOM', label: 'Produtos (e-commerce / infoproduto)' },
+    { value: 'HOTEL', label: 'Hotéis' },
+    { value: 'FLIGHT', label: 'Voos' },
+    { value: 'AUTO_VEHICLE', label: 'Veículos' },
   ];
   const CATALOG_COUNTRIES = [
     { code: 'BR', name: 'Brasil' }, { code: 'US', name: 'Estados Unidos' },

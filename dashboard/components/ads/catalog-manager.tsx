@@ -240,11 +240,11 @@ function CatalogList({
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState('USD')
-  const [catalogType, setCatalogType] = useState('PRODUCT_CATALOG')
+  const [catalogType, setCatalogType] = useState('ECOM')
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
 
-  const catalogTypes = spec?.catalogTypes ?? [{ value: 'PRODUCT_CATALOG', label: 'Produtos' }]
+  const catalogTypes = spec?.catalogTypes ?? [{ value: 'ECOM', label: 'Produtos' }]
   const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
 
   async function handleCreate() {
