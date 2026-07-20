@@ -295,7 +295,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     }
   });
 
-  // ── Diagnóstico do cache/sync ──────────────────────────────────────��────────
+  // ── Diagnóstico do cache/sync ─────���────────────────────────────────��────────
   // Prova que o caminho de leitura ficou local: mostra quantas chamadas o app
   // fez ao Pipeboard (total/min/hora) — que agora só vêm do sync + escritas —
   // e o estado de sync de cada advertiser desta conta (último sync, duração,
@@ -1107,7 +1107,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── KPIs agregados com comparação de período ────────────────��───────────���───
+  // ── KPIs agregados com comparação de período ────────────────���───────────���───
   // Totais do range pedido + o range ANTERIOR de mesmo tamanho, direto do
   // espelho Neon (2 SUMs — zero chamadas à Pipeboard). Deltas em % ficam null
   // quando a base é 0 (a UI oculta a seta em vez de mostrar "+Infinity%").
@@ -2296,6 +2296,27 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
       const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
       res.json({ catalog, products });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Vínculo MANUAL (fluxo CSV): o usuário criou o catálogo direto no TikTok
+  // Catalog Manager (importando o CSV) e cola aqui o Catalog ID do TikTok.
+  // Com o vínculo, o catálogo fica elegível para campanhas DPA na criação.
+  app.post('/api/ads/catalogs/:catalogId/link', dashboardAuth, async (req, res) => {
+    try {
+      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
+      const tiktokCatalogId = String((req.body || {}).tiktokCatalogId || '').trim();
+      if (!/^\d{6,30}$/.test(tiktokCatalogId)) {
+        return res.status(400).json({ error: 'Informe o Catalog ID numérico do TikTok (Catalog Manager → seu catálogo → ID).', code: 'INVALID_CATALOG_ID' });
+      }
+      const bcId = String((req.body || {}).bcId || '').trim() || pipeboard.getBusinessCenterId(req.account.id) || '';
+      if (!/^\d{6,30}$/.test(bcId)) {
+        return res.status(422).json({ error: 'Configure o Business Center na aba Catálogo antes de vincular.', code: 'MISSING_BC' });
+      }
+      const updated = await catalogStore.linkTikTokCatalog(req.account.id, catalog.id, { tiktokCatalogId, bcId });
+      stats.logEvent('info', { acc: req.account.id, title: 'Catálogo vinculado ao TikTok (manual): ' + catalog.name, ref: tiktokCatalogId });
+      res.json({ ok: true, catalog: updated });
     } catch (err) { fail(res, err); }
   });
 
