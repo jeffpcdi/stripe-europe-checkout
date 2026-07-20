@@ -2450,43 +2450,59 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         return res.json({ dryRun: true, simulated: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit: catalog.audit || null });
       }
 
-      // 2) Cria o catálogo no TikTok se ainda não vinculado (idempotente por
-      //    conta: uma vez criado, reusa o mesmo catalog_id nas próximas vezes).
-      if (!catalog.tiktokCatalogId) {
-        const created = await pipeboard.createTikTokCatalog(bcId, {
-          name: catalog.name, catalogType: catalog.catalogType, currency: catalog.currency, country: catalog.country,
-        });
-        catalog = await catalogStore.linkTikTokCatalog(accId, catalogId, { tiktokCatalogId: created.catalogId, bcId });
-      }
+      // O TikTok (criar catálogo + subir produtos + auditoria) pode passar do
+      // tempo da requisição → 502 de borda do Railway (o "servidor demorou a
+      // responder"). Então RESPONDEMOS JÁ que começou e fazemos a cadeia em
+      // SEGUNDO PLANO, gravando sucesso/erro no log de publicações — a UI
+      // acompanha pelo "Progresso da publicação" + poll, e um erro real do
+      // TikTok/Pipeboard aparece no banner (não mais um timeout opaco).
+      res.json({ ok: true, pending: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped });
 
-      // 3) Sobe os produtos pela URL pública do feed.
-      await pipeboard.uploadTikTokCatalogProducts(bcId, catalog.tiktokCatalogId, pub.feedUrl, 'CSV');
+      // ── Segundo plano (não bloqueia a resposta; nunca lança para fora) ──────
+      (async () => {
+        try {
+          let cat = catalog;
+          // 2) Cria o catálogo no TikTok se ainda não vinculado (idempotente).
+          if (!cat.tiktokCatalogId) {
+            const created = await pipeboard.createTikTokCatalog(bcId, {
+              name: cat.name, catalogType: cat.catalogType, currency: cat.currency, country: cat.country,
+            });
+            cat = await catalogStore.linkTikTokCatalog(accId, catalogId, { tiktokCatalogId: created.catalogId, bcId });
+          }
+          // 3) Sobe os produtos pela URL pública do feed.
+          await pipeboard.uploadTikTokCatalogProducts(bcId, cat.tiktokCatalogId, pub.feedUrl, 'CSV');
+          // 4) Overview de auditoria (best-effort — upload é assíncrono no TikTok).
+          let audit = null;
+          try {
+            audit = await pipeboard.getTikTokCatalogOverview(bcId, cat.tiktokCatalogId);
+            cat = await catalogStore.setAudit(accId, catalogId, audit);
+          } catch (_) { /* overview é opcional; o vínculo já está gravado */ }
 
-      // 4) Overview de auditoria (best-effort — o upload é assíncrono no TikTok,
-      //    então pode vir como "pendente" logo após; a UI reconsulta depois).
-      let audit = null;
-      try {
-        audit = await pipeboard.getTikTokCatalogOverview(bcId, catalog.tiktokCatalogId);
-        catalog = await catalogStore.setAudit(accId, catalogId, audit);
-      } catch (_) { /* overview é opcional; o vínculo já está gravado */ }
-
-      await adsOps.appendAuditEvent(accId, {
-        actorType: 'user', actorId: accId, action: 'catalog_sync',
-        targetType: 'catalog', targetId: catalogId, advertiserId: null,
-        afterState: { tiktokCatalogId: catalog.tiktokCatalogId, bcId, published: pub.published },
-        reason: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId),
-        metadata: { bcId, published: pub.published },
-      }).catch(() => {});
-      await catalogStore.appendPublication(accId, catalogId, {
-        kind: 'tiktok', status: 'success', published: pub.published, skipped: pub.skipped,
-        feedUrl: pub.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId, audit,
-      }).catch(() => {});
-      stats.logEvent('info', { acc: accId, title: 'Catálogo publicado no TikTok: ' + (catalog.name || catalogId) + ' (' + pub.published + ' produtos)', ref: catalogId });
-      res.json({ ok: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit });
+          await adsOps.appendAuditEvent(accId, {
+            actorType: 'user', actorId: accId, action: 'catalog_sync',
+            targetType: 'catalog', targetId: catalogId, advertiserId: null,
+            afterState: { tiktokCatalogId: cat.tiktokCatalogId, bcId, published: pub.published },
+            reason: 'Catálogo publicado no TikTok: ' + (cat.name || catalogId),
+            metadata: { bcId, published: pub.published },
+          }).catch(() => {});
+          await catalogStore.appendPublication(accId, catalogId, {
+            kind: 'tiktok', status: 'success', published: pub.published, skipped: pub.skipped,
+            feedUrl: pub.feedUrl, tiktokCatalogId: cat.tiktokCatalogId, audit,
+          }).catch(() => {});
+          stats.logEvent('info', { acc: accId, title: 'Catálogo publicado no TikTok: ' + (cat.name || catalogId) + ' (' + pub.published + ' produtos)', ref: catalogId });
+        } catch (err) {
+          // Grava o motivo REAL do TikTok/Pipeboard (err.message = "TikTok/Pipeboard: …")
+          // no log de publicações → a UI mostra no banner, sem timeout opaco.
+          const reason = String(err && err.message ? err.message : 'erro').slice(0, 300);
+          await catalogStore.appendPublication(accId, catalogId, {
+            kind: 'tiktok', status: 'error', published: 0, skipped: 0, feedUrl: pub.feedUrl, error: reason,
+          }).catch(() => {});
+          stats.logEvent('warn', { acc: accId, title: '[catálogo] Falha ao publicar no TikTok: ' + reason, ref: catalogId });
+        }
+      })();
     } catch (err) {
-      // Log da razão REAL (o err.message do provider já traz "TikTok/Pipeboard: …")
-      // para depurar em produção pelo feed de Operações — o front cai no CSV manual.
-      stats.logEvent('warn', { acc: req.account.id, title: '[catálogo] Falha ao publicar no TikTok: ' + String(err && err.message ? err.message : 'erro').slice(0, 300), ref: req.params.catalogId });
+      // Só cai aqui a falha do FEED (rápida, antes de responder). O TikTok em si
+      // roda em 2º plano e registra o erro no log de publicações.
       fail(res, err);
     }
   });

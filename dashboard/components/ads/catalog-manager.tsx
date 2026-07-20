@@ -412,6 +412,10 @@ function CatalogDetail({
   // Quando o publish automático falha (502/BC/permissão), destacamos o caminho
   // garantido: baixar o CSV e subir manualmente no Catalog Manager.
   const [publishFailed, setPublishFailed] = useState(false)
+  // A cadeia do TikTok roda em 2º plano; enquanto true, acompanhamos o log de
+  // publicações para trazer o resultado real (sucesso ou motivo do erro).
+  const [bgPublishing, setBgPublishing] = useState(false)
+  const bgPublishSinceRef = useRef(0)
   // Ref síncrona: impede dois syncs concorrentes mesmo antes do React
   // aplicar setSyncing(true) (duplo toque no iPhone / salvar + botão manual).
   const syncLockRef = useRef(false)
@@ -501,6 +505,16 @@ function CatalogDetail({
         toast.info('Modo simulação: feed publicado, mas nada foi enviado ao TikTok', {
           hint: 'Desative o modo simulação em Operações para publicar de verdade.',
         })
+      } else if (res.pending) {
+        // A cadeia do TikTok (criar catálogo + subir produtos + auditoria) roda
+        // em 2º plano para não estourar o tempo de borda. O resultado real
+        // (sucesso ou o motivo do erro) aparece no "Progresso da publicação".
+        toast.info(`Publicando no TikTok em segundo plano — ${res.published} produto(s) no feed`, {
+          hint: 'Acompanhe o resultado no "Progresso da publicação" logo abaixo.',
+        })
+        auditAttemptsRef.current = 0
+        bgPublishSinceRef.current = Date.now()
+        setBgPublishing(true)
       } else {
         toast.success(`Catálogo publicado no TikTok com ${res.published} produto(s)`, {
           hint: res.audit && res.audit.pending > 0 ? 'A análise será acompanhada automaticamente nesta tela.' : undefined,
@@ -567,6 +581,37 @@ function CatalogDetail({
     }
   }, [catalogId, catalog?.tiktokCatalogId, catalog?.audit?.pending, catalog?.audit?.at, mutate])
 
+  // Acompanha a publicação em 2º plano: a rota responde na hora (pending) e a
+  // cadeia do TikTok grava sucesso/erro no log de publicações depois. Aqui
+  // revalidamos o log a cada 8 s (até ~4 min) até aparecer um registro tiktok
+  // terminal (success/error) posterior ao início do envio — e então mostramos
+  // o resultado real (não mais um timeout opaco).
+  useEffect(() => {
+    if (!bgPublishing) return
+    const since = bgPublishSinceRef.current
+    const terminal = publications.find(
+      (p) => p.kind === 'tiktok' && (p.status === 'success' || p.status === 'error') && new Date(p.createdAt).getTime() >= since,
+    )
+    if (terminal) {
+      setBgPublishing(false)
+      if (terminal.status === 'success') {
+        setPublishFailed(false)
+        toast.success(`Catálogo publicado no TikTok com ${terminal.published} produto(s)`)
+      } else {
+        setPublishFailed(true)
+        toast.error('Publicação no TikTok falhou — use o CSV', { hint: terminal.error || undefined })
+      }
+      return
+    }
+    // Desiste depois de ~4 min: o registro terminal aparecerá no log mesmo assim.
+    if (Date.now() - since > 240_000) {
+      setBgPublishing(false)
+      return
+    }
+    const timer = window.setTimeout(() => { void mutatePublications() }, 8_000)
+    return () => window.clearTimeout(timer)
+  }, [bgPublishing, publications, mutatePublications])
+
   async function handleDelete() {
     if (!confirm('Excluir este catálogo e todos os produtos? Isso não pode ser desfeito.')) return
     try {
@@ -631,9 +676,9 @@ function CatalogDetail({
                 <Pencil className="size-3.5" aria-hidden="true" /> Corrigir produto
               </button>
             ) : bcConfigured ? (
-              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={handleSyncTiktok} disabled={syncing}>
-                {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
-                {catalog?.tiktokCatalogId ? 'Republicar no TikTok' : 'Publicar no TikTok'}
+              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={handleSyncTiktok} disabled={syncing || bgPublishing}>
+                {syncing || bgPublishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
+                {bgPublishing ? 'Publicando…' : catalog?.tiktokCatalogId ? 'Republicar no TikTok' : 'Publicar no TikTok'}
               </button>
             ) : (
               <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={handlePublish} disabled={publishing}>

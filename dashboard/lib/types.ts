@@ -1479,11 +1479,14 @@ export interface AdsCatalogSyncResponse {
   ok?: boolean
   dryRun?: boolean
   simulated?: boolean
+  // A cadeia do TikTok roda em 2º plano (para não estourar o tempo de borda);
+  // quando pending=true, o resultado real aparece no log de publicações.
+  pending?: boolean
   catalog: AdsCatalog
   feedUrl: string
   published: number
   skipped?: number
-  audit: AdsCatalogAudit | null
+  audit?: AdsCatalogAudit | null
 }
 
 // POST /api/ads/catalogs/:id/campaign — lançar campanha de catálogo (DPA)
