@@ -58,6 +58,8 @@ async function catalogCapabilitiesForSchemas(tools) {
   await throws(() => provider.createCatalogCampaign('123', { ...base, name: '' }), 400, 'exige nome');
   await throws(() => provider.createCatalogCampaign('123', { ...base, budgetAmount: 49.99 }), 400, 'exige orçamento mínimo de 50');
   await throws(() => provider.createCatalogCampaign('123', { ...base, budgetType: 'lifetime' }), 400, 'orçamento total exige data de término');
+  await throws(() => provider.createCatalogCampaign('123', base), 400, 'exige Pixel ID para CONVERT antes de tocar a rede');
+  await throws(() => provider.createCatalogCampaign('123', { ...base, pixelId: '7550683248272228369', pixelEvent: 'EVENTO_INVENTADO' }), 400, 'rejeita evento de Pixel desconhecido antes da rede');
 
   console.log('Provider — exportado e no molde composto');
   {
@@ -68,6 +70,7 @@ async function catalogCapabilitiesForSchemas(tools) {
     ok(/objective_type: 'PRODUCT_SALES'/.test(body), 'campanha usa objetivo PRODUCT_SALES');
     ok(/VIDEO_SHOPPING_ADS/.test(body), 'usa o tipo Video Shopping Ads do fluxo validado');
     ok(/product_source: 'CATALOG'/.test(body), 'ad group aponta a fonte CATALOG');
+    ok(/agArgs\.pixel_id = pixelId/.test(body) && /agArgs\.optimization_event = pixelEvent/.test(body), 'ad group sempre recebe pixel e evento validados');
     ok(/CATALOG_VIDEO/.test(body), 'mantém formato de catálogo configurável para a variação VSA');
     ok(/catalog_video_template_id/.test(body), 'aceita template de vídeo opcional quando a variação exigir');
     ok(/product_ids/.test(body), 'propaga produtos específicos');
@@ -135,6 +138,25 @@ async function catalogCapabilitiesForSchemas(tools) {
     assert.strictEqual(genericDestination.manualCatalogCampaign, false, 'campos genéricos não confirmam Product Link sem enum/const');
     n++; console.log('  ✓ schema genérico não libera Product Link sem valor semântico');
 
+    const campaignSemanticFields = Object.fromEntries([
+      'advertiser_id', 'campaign_name', 'objective_type', 'shopping_ads_type', 'catalog_id',
+      'operation_status', 'budget_mode', 'budget', 'budget_optimize_on',
+    ].map((field) => [field, {}]));
+    campaignSemanticFields.objective_type = { enum: ['PRODUCT_SALES'] };
+    campaignSemanticFields.shopping_ads_type = { enum: ['VIDEO_SHOPPING_ADS'] };
+    campaignSemanticFields.operation_status = { enum: ['DISABLE'] };
+    const adgroupSemanticFields = Object.fromEntries([
+      'advertiser_id', 'campaign_id', 'adgroup_name', 'shopping_ads_type', 'product_source',
+      'catalog_id', 'store_authorized_bc_id', 'optimization_goal', 'billing_event',
+      'schedule_start_time', 'schedule_end_time', 'targeting', 'operation_status', 'pixel_id',
+      'optimization_event', 'budget_mode', 'budget', 'bid_type', 'bid_price',
+    ].map((field) => [field, {}]));
+    adgroupSemanticFields.shopping_ads_type = { enum: ['VIDEO_SHOPPING_ADS'] };
+    adgroupSemanticFields.product_source = { enum: ['CATALOG'] };
+    adgroupSemanticFields.optimization_goal = { enum: ['CONVERT'] };
+    adgroupSemanticFields.billing_event = { enum: ['OCPM'] };
+    adgroupSemanticFields.operation_status = { enum: ['DISABLE'] };
+    adgroupSemanticFields.optimization_event = { enum: ['ON_WEB_ORDER', 'INITIATE_ORDER'] };
     const productLinkAdFields = Object.fromEntries([
       'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id', 'website_type',
       'destination_page_type', 'status', 'products_type', 'product_ids', 'product_set_id',
@@ -143,21 +165,28 @@ async function catalogCapabilitiesForSchemas(tools) {
     ].map((field) => [field, {}]));
     productLinkAdFields.website_type = { type: 'string', enum: ['PRODUCT_LINK', 'SHOP_NOW'] };
     productLinkAdFields.destination_page_type = { oneOf: [{ const: 'WEBSITE' }] };
+    productLinkAdFields.ad_format = { enum: ['CATALOG_VIDEO'] };
+    productLinkAdFields.status = { enum: ['PAUSED'] };
+    productLinkAdFields.products_type = { enum: ['ALL_PRODUCTS', 'SPECIFIC_PRODUCTS', 'PRODUCT_SET'] };
     const complete = await catalogCapabilitiesForSchemas([
-      schemaTool('create_tiktok_campaign', [
-        'advertiser_id', 'campaign_name', 'objective_type', 'shopping_ads_type', 'catalog_id',
-        'operation_status', 'budget_mode', 'budget', 'budget_optimize_on',
-      ]),
-      schemaTool('create_tiktok_adgroup', [
-        'advertiser_id', 'campaign_id', 'adgroup_name', 'shopping_ads_type', 'product_source',
-        'catalog_id', 'store_authorized_bc_id', 'optimization_goal', 'billing_event',
-        'schedule_start_time', 'schedule_end_time', 'targeting', 'operation_status', 'pixel_id',
-        'optimization_event', 'budget_mode', 'budget', 'bid_type', 'bid_price',
-      ]),
+      schemaTool('create_tiktok_campaign', campaignSemanticFields),
+      schemaTool('create_tiktok_adgroup', adgroupSemanticFields),
       schemaTool('create_tiktok_ad', productLinkAdFields),
     ]);
     assert.strictEqual(complete.manualCatalogCampaign, true, 'schema completo libera a criação Product Link');
     n++; console.log('  ✓ schema completo libera Product Link');
+
+    const wrongCampaignEnums = {
+      ...campaignSemanticFields,
+      objective_type: { enum: ['TRAFFIC'] },
+    };
+    const semanticallyIncompatible = await catalogCapabilitiesForSchemas([
+      schemaTool('create_tiktok_campaign', wrongCampaignEnums),
+      schemaTool('create_tiktok_adgroup', adgroupSemanticFields),
+      schemaTool('create_tiktok_ad', productLinkAdFields),
+    ]);
+    assert.strictEqual(semanticallyIncompatible.manualCatalogCampaign, false, 'campos presentes com enum incompatível não liberam criação parcial');
+    n++; console.log('  ✓ schema com enums incompatíveis permanece bloqueado');
 
     const noTemplateFields = { ...productLinkAdFields };
     delete noTemplateFields.product_ids;
@@ -166,16 +195,8 @@ async function catalogCapabilitiesForSchemas(tools) {
     delete noTemplateFields.ad_text;
     delete noTemplateFields.call_to_action;
     const noTemplate = await catalogCapabilitiesForSchemas([
-      schemaTool('create_tiktok_campaign', [
-        'advertiser_id', 'campaign_name', 'objective_type', 'shopping_ads_type', 'catalog_id',
-        'operation_status', 'budget_mode', 'budget', 'budget_optimize_on',
-      ]),
-      schemaTool('create_tiktok_adgroup', [
-        'advertiser_id', 'campaign_id', 'adgroup_name', 'shopping_ads_type', 'product_source',
-        'catalog_id', 'store_authorized_bc_id', 'optimization_goal', 'billing_event',
-        'schedule_start_time', 'schedule_end_time', 'targeting', 'operation_status', 'pixel_id',
-        'optimization_event', 'budget_mode', 'budget', 'bid_type', 'bid_price',
-      ]),
+      schemaTool('create_tiktok_campaign', campaignSemanticFields),
+      schemaTool('create_tiktok_adgroup', adgroupSemanticFields),
       schemaTool('create_tiktok_ad', noTemplateFields),
     ]);
     assert.strictEqual(noTemplate.manualCatalogCampaign, true, 'Product Link não depende de template, texto ou URL no anúncio');

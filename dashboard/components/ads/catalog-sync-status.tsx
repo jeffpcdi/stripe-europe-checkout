@@ -7,6 +7,7 @@ import { toast } from '@/lib/toast'
 const LABELS: Record<string, string> = {
   queued: 'Aguardando processamento',
   waiting_connector_confirmation: 'Aguardando confirmação do conector',
+  waiting_tiktok_processing: 'Aguardando processamento do TikTok',
   publishing_feed: 'Preparando o feed',
   connecting_catalog: 'Conectando o catálogo',
   uploading_products: 'Enviando produtos',
@@ -23,10 +24,13 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
   if (!run) return null
 
   const runId = run.id
-  const active = ['queued', 'waiting_connector_confirmation', 'running', 'retrying'].includes(run.status)
+  const awaitingTikTok = (
+    run.status === 'waiting_tiktok_processing'
+    || run.status === 'completed' // compatibilidade com runs legados
+  ) && run.stage === 'processing_tiktok'
+  const active = ['queued', 'waiting_connector_confirmation', 'waiting_tiktok_processing', 'running', 'retrying'].includes(run.status)
   const waitingConnector = run.status === 'waiting_connector_confirmation'
   const failed = ['failed', 'partial'].includes(run.status)
-  const awaitingTikTok = run.status === 'completed' && run.stage === 'processing_tiktok'
   const auditProgress = run.progress && typeof run.progress.audit === 'object' && run.progress.audit !== null
     ? run.progress.audit as Record<string, unknown> : null
   const auditAttempts = Math.max(0, Number(run.progress?.auditAttempts) || 0)
@@ -43,7 +47,7 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
   return (
     <section className={`rounded-xl border p-3 ${failed ? 'border-error/30 bg-error/5' : awaitingTikTok ? 'border-warning/30 bg-warning/5' : run.status === 'completed' ? 'border-success/25 bg-success/5' : 'border-primary/25 bg-primary/5'}`} aria-live="polite">
       <div className="flex items-start gap-2">
-        {active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+        {awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-foreground">{LABELS[run.stage] || run.stage}</p>
           {run.error ? (
@@ -56,12 +60,12 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
             </>
           ) : (
             <p className="mt-0.5 text-[10px] text-muted-foreground">
-              {active
-                ? run.status === 'waiting_connector_confirmation'
+              {awaitingTikTok
+                ? 'O envio terminou; falta o TikTok confirmar os produtos na auditoria.'
+                : active
+                  ? run.status === 'waiting_connector_confirmation'
                   ? 'O lote está salvo e será retomado automaticamente quando o conector confirmar a criação do catálogo.'
                   : 'Esta tarefa continua mesmo se você sair da página.'
-                : awaitingTikTok
-                  ? 'O envio terminou; falta o TikTok confirmar os produtos na auditoria.'
                   : `Atualizado em ${new Date(run.updatedAt).toLocaleString('pt-BR')}`}
             </p>
           )}

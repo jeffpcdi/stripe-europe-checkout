@@ -1660,11 +1660,19 @@ export interface AdsCatalogStructuredError {
   createdIds: Record<string, string> | null
 }
 
+export interface AdsTikTokPixel {
+  id: string
+  code: string
+  name: string
+  status: string
+  purchaseCount: number
+}
+
 export interface AdsCatalogSyncRun {
   id: string
   catalogId: string
   advertiserId: string
-  status: 'queued' | 'waiting_connector_confirmation' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  status: 'queued' | 'waiting_connector_confirmation' | 'waiting_tiktok_processing' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
   stage: string
   payload: Record<string, unknown>
   progress: Record<string, unknown>

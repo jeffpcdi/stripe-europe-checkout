@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { neon } = require('@neondatabase/serverless');
+const { TIKTOK_MIN_APPROVED_PRODUCTS } = require('./catalog/catalog-domain');
 
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const sql = URL ? neon(URL) : null;
@@ -338,7 +339,26 @@ async function deleteCatalog(accountId, advertiserId, catalogId) {
   return rows.length > 0;
 }
 
-async function listProducts(accountId, advertiserId, catalogId) {
+// Revalida também registros antigos em toda leitura crítica. A coluna `valid`
+// é um cache da spec vigente, não uma verdade eterna: quando um campo passa a
+// ser obrigatório (por exemplo `brand`), produtos persistidos como válidos não
+// podem continuar entrando no CSV público até serem corrigidos. A projeção é
+// feita em memória para o feed de até 1.500 itens continuar sendo uma leitura
+// O(n), sem um UPDATE por produto; o próximo upsert persiste a nova validação.
+function revalidateProductRows(_accountId, catalog, rows, validate) {
+  const validator = typeof validate === 'function'
+    ? validate
+    : require('./ads-catalog-feed').validateProduct;
+  const products = rows.map(mapProduct);
+  for (const product of products) {
+    const next = validator(product.data || {}, catalog || {});
+    product.valid = next.valid === true;
+    product.errors = next.errors || [];
+  }
+  return products;
+}
+
+async function listProducts(accountId, advertiserId, catalogId, validate) {
   accountId = cleanAccountId(accountId);
   advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return [];
@@ -348,7 +368,7 @@ async function listProducts(accountId, advertiserId, catalogId) {
   const rows = await sql`SELECT id, catalog_id, sku_id, data, valid, errors, created_at, updated_at
     FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId || '')}
     ORDER BY created_at ASC`;
-  return rows.map(mapProduct);
+  return revalidateProductRows(accountId, catalog, rows, validate);
 }
 
 // Grava a contagem de produtos no catálogo pai — mantém a lista consistente
@@ -472,11 +492,13 @@ async function getCatalogByFeedToken(token) {
 // A URL pública precisa continuar funcionando para catálogos legados antes de
 // alguém abrir a dashboard e reivindicar o advertiser. O token estável resolve
 // o catálogo diretamente e evita relaxar o escopo das APIs autenticadas.
-async function listProductsByFeedToken(token) {
+async function listProductsByFeedToken(token, validate) {
   if (!enabled) return [];
   const t = String(token || '').trim();
   if (!/^[a-f0-9]{16,64}$/.test(t)) return [];
   await ensureSchema();
+  const catalog = await getCatalogByFeedToken(t);
+  if (!catalog) return [];
   const rows = await sql`SELECT product.id, product.catalog_id, product.sku_id, product.data,
       product.valid, product.errors, product.created_at, product.updated_at
     FROM ads_catalog_products AS product
@@ -484,7 +506,7 @@ async function listProductsByFeedToken(token) {
       ON catalog.id = product.catalog_id AND catalog.account_id = product.account_id
     WHERE catalog.feed_token = ${t}
     ORDER BY product.created_at ASC`;
-  return rows.map(mapProduct);
+  return revalidateProductRows(catalog.accountId, catalog, rows, validate);
 }
 
 // Grava o vínculo com o catálogo REAL criado no TikTok (via Pipeboard). A partir
@@ -556,6 +578,21 @@ async function markSynced(accountId, advertiserId, catalogId) {
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalogs SET synced_at = now(), audit = null, updated_at = now()
     WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)} RETURNING *`;
+  return mapCatalog(rows[0]);
+}
+
+// O upload foi tentado, mas o TikTok não materializou nenhum produto dentro
+// da janela limitada. Mantemos vínculo e feed para diagnóstico/retomada, mas
+// removemos a falsa marca de sincronizado para a prontidão voltar a `sync`.
+async function markSyncUnconfirmed(accountId, advertiserId, catalogId) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_catalogs
+    SET synced_at = null, audit = null, updated_at = now()
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}
+    RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
@@ -698,9 +735,9 @@ async function promoteSyncRunsAwaitingConnectorConfirmation(limit = 20) {
 
 // Após o upload, o TikTok pode aceitar a chamada antes de materializar os
 // produtos no catálogo. Esta consulta devolve apenas o ÚLTIMO sync de cada
-// catálogo que ainda está nesse estado para o worker atualizar a auditoria sem
-// depender de alguém deixar a dashboard aberta. `syncRunId` e `syncProgress`
-// permitem registrar o resultado sem perder o contexto da publicação.
+// catálogo que aguarda confirmação. Inclui o estado legado
+// completed/processing_tiktok para migrar runs criados antes do contrato que
+// deixou de considerar o simples retorno do upload como sucesso.
 async function listCatalogsAwaitingTikTokAudit(limit = 5) {
   if (!enabled) return [];
   await ensureSchema();
@@ -715,7 +752,8 @@ async function listCatalogsAwaitingTikTokAudit(limit = 5) {
       ORDER BY created_at DESC
       LIMIT 1
     ) AS run ON true
-    WHERE run.status = 'completed' AND run.stage = 'processing_tiktok'
+    WHERE ((run.status = 'waiting_tiktok_processing' AND run.stage = 'processing_tiktok')
+        OR (run.status = 'completed' AND run.stage = 'processing_tiktok'))
       AND catalog.tiktok_catalog_id IS NOT NULL
       AND catalog.bc_id IS NOT NULL
       AND catalog.link_status = 'verified'
@@ -835,7 +873,7 @@ async function promoteCampaignRunsAwaitingReview(limit = 20) {
         WHEN COALESCE(catalog.audit ->> 'approved', '') ~ '^[0-9]+$'
           THEN (catalog.audit ->> 'approved')::int
         ELSE 0
-      END > 0
+      END >= ${TIKTOK_MIN_APPROVED_PRODUCTS}
     ORDER BY run.created_at ASC
     FOR UPDATE SKIP LOCKED
     LIMIT ${size}
@@ -959,6 +997,7 @@ module.exports = {
   unlinkTikTokCatalog,
   setAudit,
   markSynced,
+  markSyncUnconfirmed,
   appendPublication,
   listPublications,
   createSyncRun,
@@ -978,5 +1017,6 @@ module.exports = {
   listCatalogsAwaitingCampaignReview,
   updateCampaignRun,
   resumeCampaignRun,
-  recoverCatalogRuns
+  recoverCatalogRuns,
+  _internals: { revalidateProductRows },
 };

@@ -115,6 +115,7 @@ async function capabilities(provider) {
     catalogCreate: false,
     catalogUpload: typeof provider.uploadTikTokCatalogProducts === 'function',
     catalogAudit: typeof provider.getTikTokCatalogOverview === 'function',
+    catalogFeedRead: typeof provider.getTikTokCatalogFeeds === 'function',
     catalogLinkVerify: typeof provider.listTikTokCatalogs === 'function',
     manualCatalogCampaign: false,
     productSets: false,

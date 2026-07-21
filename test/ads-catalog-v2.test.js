@@ -17,34 +17,52 @@ function throwsCode(fn, code, label) {
 
 (async () => {
   console.log('Domínio — prontidão baseada em estados reais');
-  const products = [{ valid: true, updatedAt: '2026-07-20T10:00:00.000Z' }];
+  const products = Array.from({ length: 4 }, (_, index) => ({
+    valid: true, data: { sku_id: 'sku_' + index, brand: 'Marca real' },
+    updatedAt: '2026-07-20T10:00:00.000Z',
+  }));
   const base = {
     tiktokCatalogId: '7662123486130784016', bcId: '7550683248272228369',
     linkStatus: 'verified', linkError: null, syncedAt: '2026-07-20T11:00:00.000Z',
-    updatedAt: '2026-07-20T11:00:00.000Z', audit: { approved: 1, pending: 0, rejected: 0 },
+    updatedAt: '2026-07-20T11:00:00.000Z', audit: { approved: 4, pending: 0, rejected: 0 },
   };
   let readiness = domain.computeReadiness({}, [], {});
   eq(readiness.nextAction, 'add_products', 'catálogo vazio pede o primeiro produto');
   readiness = domain.computeReadiness({ ...base, tiktokCatalogId: null, bcId: null, linkStatus: 'unlinked', audit: null, syncedAt: null }, products, {});
   eq(readiness.nextAction, 'connect_tiktok', 'produto válido sem vínculo pede conexão');
   readiness = domain.computeReadiness(base, products, { advertiserId: '1870000000001' });
-  ok(readiness.readyForCampaign, 'aprovado, verificado e com advertiser libera campanha');
-  readiness = domain.computeReadiness(base, [{ ...products[0], updatedAt: '2026-07-20T12:00:00.000Z' }], { advertiserId: '1870000000001' });
+  ok(readiness.readyForCampaign, 'quatro aprovados, vínculo e advertiser liberam campanha');
+  const belowMinimum = domain.computeReadiness(
+    { ...base, audit: { approved: 3, pending: 0, rejected: 0 } },
+    products,
+    { advertiserId: '1870000000001' },
+  );
+  ok(!belowMinimum.readyForCampaign, 'três aprovados ainda não liberam Catalog Ads');
+  eq(belowMinimum.counts.approvedMissing, 1, 'prontidão informa quantos aprovados faltam');
+  ok(/mínimo de 4 produtos aprovados, ativos e em estoque/.test(belowMinimum.steps.find((item) => item.id === 'review').detail), 'mensagem pt-BR explica o requisito oficial');
+  readiness = domain.computeReadiness(base, products.map((product, index) => (
+    index === 0 ? { ...product, updatedAt: '2026-07-20T12:00:00.000Z' } : product
+  )), { advertiserId: '1870000000001' });
   eq(readiness.nextAction, 'sync', 'edição posterior à publicação exige nova sincronização');
   ok(!readiness.readyForCampaign, 'alteração local bloqueia campanha até sincronizar');
 
   console.log('Domínio — contrato explícito da campanha');
   const input = {
     name: 'Catálogo manual', budgetAmount: 50, productScope: 'specific',
-    productIds: ['7664730406680594184'],
+    productIds: ['7664730406680594184'], pixelId: '7550683248272228369',
   };
   const spec = domain.normalizeCampaignSpec(input, { name: 'Loja', country: 'BR' });
   eq(spec.destination, 'PRODUCT_LINK', 'destino vem do produto, sem URL manual');
   eq(spec.creativeMode, 'VSA_PRODUCT_LINK', 'spec não confunde Product Link com Catalog Video');
   eq(spec.strategy, 'vsa_product_link', 'estratégia fica explícita para o adaptador VSA');
   eq(spec.budgetOptimization, 'adgroup', 'ABO é o padrão');
+  eq(spec.pixelEvent, 'ON_WEB_ORDER', 'evento de compra canônico é o padrão');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, budgetAmount: 49.99 }, {}), 'CATALOG_CAMPAIGN_BUDGET_BELOW_MINIMUM', 'bloqueia orçamento abaixo do piso do TikTok');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, productIds: ['SKU-local'] }, {}), 'CATALOG_PRODUCT_ID_INVALID', 'não confunde SKU local com Product ID do TikTok');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelId: '' }, {}), 'CATALOG_PIXEL_REQUIRED', 'pixel é obrigatório para CONVERT');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelId: 'pixel-local' }, {}), 'CATALOG_PIXEL_ID_INVALID', 'Pixel ID precisa ser numérico');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelEvent: 'EVENTO_INVENTADO' }, {}), 'CATALOG_PIXEL_EVENT_INVALID', 'evento desconhecido não chega ao provider');
+  eq(domain.normalizeCampaignSpec({ ...input, pixelEvent: 'PURCHASE' }, {}).pixelEvent, 'ON_WEB_ORDER', 'alias legado PURCHASE é normalizado sem adivinhação');
   eq(domain.normalizeCampaignSpec({ ...input, catalogVideoTemplateId: '' }, {}).catalogVideoTemplateId, undefined, 'template de vídeo é opcional no Product Link');
 
   console.log('Gateway — vínculo verificado contra o Business Center');
@@ -107,6 +125,7 @@ function throwsCode(fn, code, label) {
   ok(/CREATE TABLE IF NOT EXISTS ads_catalog_sync_runs/.test(store), 'schema contém jobs de sincronização');
   ok(/CREATE TABLE IF NOT EXISTS ads_catalog_campaign_runs/.test(store), 'schema contém jobs da hierarquia de campanha');
   ok(/FOR UPDATE SKIP LOCKED/.test(store), 'workers reivindicam jobs sem corrida');
+  ok(/END >= \$\{TIKTOK_MIN_APPROVED_PRODUCTS\}/.test(store), 'promoção da fila só ocorre com quatro produtos aprovados');
   ok(/resumeSyncRun/.test(store) && /resumeCampaignRun/.test(store), 'falhas podem ser retomadas');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   ok(/campaign-preflight/.test(routes), 'preflight existe antes da escrita');

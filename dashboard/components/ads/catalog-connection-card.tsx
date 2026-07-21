@@ -32,7 +32,10 @@ export function CatalogConnectionCard({
   }, [catalog.tiktokCatalogId])
 
   useEffect(() => {
-    setBcValue((prev) => prev || catalog.bcId || bcId || '')
+    // Mantém o campo alinhado quando o BC é alterado no cartão superior ou
+    // confirmado por este próprio fluxo. Só roda quando o valor persistido
+    // muda, portanto não interrompe a digitação normal.
+    setBcValue(catalog.bcId || bcId || '')
   }, [catalog.bcId, bcId])
 
   async function connect() {
