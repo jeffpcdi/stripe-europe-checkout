@@ -1,12 +1,12 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, ChevronDown, Loader2, Rocket, RotateCcw, Trash2 } from 'lucide-react'
 import {
   adsCatalogApiUrl, adsCreateCatalogCampaign, adsPreflightCatalogCampaign, apiSend,
   useAdsCatalogCampaignRuns, useAdsTikTokPixels,
 } from '@/lib/api'
-import { catalogPixelLabel, catalogPixelValue } from '@/lib/catalog-pixels'
+import { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel } from '@/lib/catalog-pixels'
 import { toast } from '@/lib/toast'
 import { resolveStableIdempotencyKey, type StableIdempotencyState } from '@/lib/stable-idempotency'
 import type { AdsCatalog, AdsCatalogCampaignRun } from '@/lib/types'
@@ -155,6 +155,14 @@ export function CatalogCampaignWizard({
   const availablePixels = useMemo(() => (pixelsData?.pixels ?? [])
     .map((pixel) => ({ pixel, value: catalogPixelValue(pixel) }))
     .filter((option) => option.value), [pixelsData?.pixels])
+
+  // Auto-seleciona o melhor Pixel da conta (ativo, com mais compras em 30d)
+  // assim que a lista carrega, sem sobrescrever escolha manual do gestor.
+  useEffect(() => {
+    if (pixelId || !availablePixels.length) return
+    const best = pickDefaultCatalogPixel(pixelsData?.pixels ?? [])
+    if (best) setPixelId(best)
+  }, [pixelId, availablePixels.length, pixelsData?.pixels])
   const materialSignature = useMemo(() => JSON.stringify({
     catalogId: catalog.id,
     advertiserId,
