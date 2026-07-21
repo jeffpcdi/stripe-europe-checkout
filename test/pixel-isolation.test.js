@@ -93,8 +93,14 @@ const tracker = require('../tracker-view');
   assert.ok(client.includes("ttq.instance(CODE)"), 'loader usa instância específica do TikTok');
   assert.ok(client.includes("API+'/api/px/event'"), 'beacon usa origem absoluta da dashboard');
   assert.ok(client.includes('px:TOKEN,vid:vid'), 'beacon leva token e vid explícitos');
+  assert.ok(client.includes('roinados_px_outbox_'), 'loader mantém fila local para oscilações de rede');
+  assert.ok(client.includes('roinados_ttclid'), 'loader reaproveita ttclid persistido entre páginas');
+  assert.ok(client.includes("signalsOnly:true"), 'loader sincroniza _ttp/identidade sem criar outra pageview');
   assert.ok(!client.includes('navigator.sendBeacon("/api/px/event"'), 'não usa endpoint relativo da loja externa');
   assert.ok(tracker.includes("searchParams.get('px')"), 'tracker lê token da própria tag');
+  assert.ok(tracker.includes("data-link-domains"), 'tracker suporta passagem explícita entre hospedagens');
+  assert.ok(tracker.includes("data-roinados-link"), 'tracker permite marcar só os links autorizados');
+  assert.ok(tracker.includes("data-consent"), 'tracker integra com consentimento sem quebrar o padrão existente');
   assert.ok(!tracker.includes("window.ttq.track('ViewContent'"), 'tracker universal não dispara ttq global');
 
   console.log('[PASS] pixel-isolation: dois pixels isolados no navegador, CAPI, dedup, gateway e script externo.');

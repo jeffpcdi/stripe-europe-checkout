@@ -367,6 +367,20 @@ export interface PixelHealthResponse {
   errors: { at: string; pixel: string; event: string; message: string }[]
   retryQueue: number
   source?: 'memory' | 'neon' | 'memory+neon'
+  coverage?: PixelCoverage[]
+}
+
+export interface PixelCoverage {
+  slug: string
+  name: string
+  active: boolean
+  status: 'saudavel' | 'atencao' | 'sem_dados' | 'pausado'
+  lastBrowserAt: string | null
+  lastCapiAt: string | null
+  lastCapiStatus: string | null
+  domains: { host: string; visits: number; lastAt: string | null }[]
+  signals: Record<'ttclid' | 'email' | 'phone' | 'external_id' | 'ttp', number | null>
+  recommendations: string[]
 }
 
 // ── /api/pixels/durability — por que a config pode não estar disparando ──

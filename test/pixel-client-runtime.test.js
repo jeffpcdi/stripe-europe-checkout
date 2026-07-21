@@ -45,7 +45,9 @@ const context = vm.createContext({
   URL, URLSearchParams, Blob, TextEncoder,
   crypto: null,
   isFinite,
-  setTimeout, clearTimeout,
+  // timers de sincronização tardia (_ttp) não precisam segurar o processo;
+  // o contrato de runtime é exercitado de forma determinística abaixo.
+  setTimeout: () => 1, clearTimeout: () => {},
   console
 });
 
@@ -74,6 +76,12 @@ assert.deepStrictEqual(requests.map((r) => r.url), [
 ], 'os dois beacons usam a origem absoluta da dashboard');
 assert.deepStrictEqual(requests.map((r) => r.body.px), ['px_a', 'px_b'], 'cada beacon carrega seu token');
 assert.ok(requests.every((r) => /^ld_[a-z0-9]{6,30}$/i.test(r.body.vid)), 'vid local acompanha o beacon cross-domain');
+assert.strictEqual(
+  requests[0].body.events[0].id,
+  requests[1].body.events[0].id,
+  'dois pixels na mesma navegação compartilham event_id para Browser+CAPI sem misturar destinos'
+);
+assert.strictEqual(requests[0].body.ttclid, 'click-1', 'ttclid acompanha o evento server-side');
 
 window.RoiNadosPixel.track('px_a', 'AddToCart', { content_id: 'SKU-A', value: 97, currency: 'BRL' });
 assert.strictEqual(tracks('CODE_A').length, 2, 'API explícita acrescenta evento somente ao pixel A');
@@ -101,8 +109,11 @@ document.dispatchEvent({ type: 'click', target: markedButton('px_b') });
 assert.strictEqual(tracks('CODE_A').length, 2, 'botão destinado a B não dispara A');
 assert.strictEqual(tracks('CODE_B').length, 2, 'botão destinado a B dispara B');
 
-window.dispatchEvent({ type: 'roinados:navigation', detail: { px: 'px_b' } });
+const firstViewId = requests[1].body.events[0].id;
+window.dispatchEvent({ type: 'roinados:navigation', detail: { px: 'px_b', eventId: 'ViewContent.ld_nova.navegacao.1' } });
 assert.strictEqual(tracks('CODE_A').length, 2, 'navegação destinada a B não dispara A');
 assert.strictEqual(tracks('CODE_B').length, 3, 'navegação destinada a B dispara B');
+assert.notStrictEqual(requests.at(-1).body.events[0].id, firstViewId, 'nova navegação não colide com a visita anterior');
+assert.strictEqual(requests.at(-1).body.events[0].id, 'ViewContent.ld_nova.navegacao.1', 'tracker e loader compartilham o id explícito da navegação');
 
 console.log('[PASS] pixel-client-runtime: duas instâncias reais em VM permanecem isoladas e enviam beacon absoluto.');

@@ -706,29 +706,56 @@ app.get('/api/client-error', dashboardAuth, (_req, res) => {
 });
 
 app.post('/api/track', async (req, res) => {
-  res.json({ ok: true });                          // responde já; processa depois
+  // O tracker mantém pageviews numa fila local. Só confirma depois que a CAPI
+  // aceitou/deduplicou/enfileirou o retry; 503 conserva o item no navegador.
+  const ack = () => {
+    if (!res.headersSent) res.status(202).json({ ok: true });
+  };
   try {
     const b = req.body || {};
     const vid = VID_RE.test(String(b.vid || '')) ? String(b.vid) : null;
-    if (!vid) return;
+    if (!vid) return ack();
     // O token público da tag é a fonte de verdade do roteamento em páginas
     // externas. Sem token, o fallback só dispara se a conta tiver um único
     // pixel elegível (dispatchScoped); nunca há fan-out implícito.
-    const tokenPixel = b.px ? pixelStore.getByToken(String(b.px).slice(0, 64)) : null;
+    const suppliedToken = typeof b.px === 'string' && b.px ? String(b.px).slice(0, 64) : null;
+    const tokenPixel = suppliedToken ? pixelStore.getByToken(suppliedToken) : null;
+    if (suppliedToken && !tokenPixel) return ack(); // token antigo/de outra conta: nunca usa fallback
     const acc = tokenPixel ? (tokenPixel.acc || null) : publicAccountId(req);
-    if (rateLimited(clientIp(req), 'track', 120)) return; // bot martelando: ignora
+    if (rateLimited(clientIp(req), 'track', 120)) return ack(); // bot martelando: ignora
     checkDailyReport();                            // carona no tráfego (sem cron)
     checkEventArchive();                            // item 448: arquiva eventos antigos (máx 1x/h)
     checkSalesWatchdog();                           // item 464: alerta de zero vendas (máx 1x/h)
     checkLgpdSweep();                               // item 324/425: anonimização LGPD (máx 1x/h)
     const uaRaw = String(req.headers['user-agent'] || '');
-    if (uaTools.isBot(uaRaw)) return;              // bots não viram lead nem CAPI
+    if (uaTools.isBot(uaRaw)) return ack();        // bots não viram lead nem CAPI
+
+    // O TikTok costuma gravar o cookie _ttp depois do carregamento inicial.
+    // O tracker reenvia apenas os sinais após 1,5s/5s; este ramo enriquece o
+    // lead sem contar outra visita nem gerar outro ViewContent.
+    if (b.signalsOnly === true) {
+      const em = typeof b.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(b.email.trim())
+        ? b.email.trim().toLowerCase().slice(0, 320) : undefined;
+      const phDigits = typeof b.phone === 'string' ? b.phone.replace(/\D/g, '') : '';
+      const ph = phDigits.length >= 8 && phDigits.length <= 15 ? String(b.phone).trim().slice(0, 30) : undefined;
+      try {
+        stats.attachTracking(vid, {
+          acc,
+          pixelSlug: tokenPixel ? tokenPixel.slug : undefined,
+          ttclid: typeof b.ttclid === 'string' ? b.ttclid.slice(0, 500) : undefined,
+          ttp: typeof b.ttp === 'string' ? b.ttp.slice(0, 500) : undefined,
+          email: em,
+          phone: ph
+        });
+      } catch (_) {}
+      return ack();
+    }
 
     // Clique em elemento marcado (data-track="nome"): só um passo na jornada
     if (typeof b.click === 'string' && b.click) {
       stats.recordClickStep(vid, b.click);
       if (tokenPixel) stats.attachTracking(vid, { acc, pixelSlug: tokenPixel.slug });
-      return;
+      return ack();
     }
 
     // Advanced Matching do snippet: email/telefone digitados em formulários
@@ -742,7 +769,7 @@ app.post('/api/track', async (req, res) => {
       if (em || ph || tokenPixel) {
         try { stats.attachTracking(vid, { acc, email: em, phone: ph, pixelSlug: tokenPixel && tokenPixel.slug }); } catch (_) {}
       }
-      return;                                      // payload só de identidade: não conta page view
+      return ack();                                // payload só de identidade: não conta page view
     }
 
     const geo = geoFromReq(req);
@@ -789,13 +816,14 @@ app.post('/api/track', async (req, res) => {
       });
     }
 
-    // ViewContent server-side com dedup por hora (mesmo esquema do interno)
+    // O tracker atual fornece um ID único por navegação, compartilhado com o
+    // loader TikTok. O fallback por hora fica apenas para tags legadas.
     const suppliedEventId = typeof b.eventId === 'string' && /^[A-Za-z0-9._:-]{8,120}$/.test(b.eventId)
       ? b.eventId : null;
     const evId = suppliedEventId || ('ViewContent.' + vid + '.' + hourKey() + '.' + pixelRouteKey(pageUrl || landing));
     let lead = null;
     try { lead = stats.getLead(vid); } catch (_) {}
-    ttEvents.dispatchScoped('ViewContent', {
+    await ttEvents.dispatchScoped('ViewContent', {
       eventId: evId,
       leadId: vid,
       ip: clientIp(req),
@@ -805,8 +833,12 @@ app.post('/api/track', async (req, res) => {
       email: (lead && lead.email) || undefined,
       phone: (lead && lead.phone) || undefined,
       url: pageUrl
-    }, landing || 'externa', acc, tokenPixel ? tokenPixel.slug : (lead && lead.pixelSlug)).catch(() => {});
-  } catch (_) { /* rastreamento nunca derruba o servidor */ }
+    }, landing || 'externa', acc, tokenPixel ? tokenPixel.slug : (lead && lead.pixelSlug));
+    ack();
+  } catch (err) {
+    console.error('[server] tracker externo falhou:', err && err.message);
+    if (!res.headersSent) res.status(503).json({ ok: false });
+  }
 });
 
 // Item 484: liveness probe do Railway — sem auth, sem I/O, resposta mínima.
@@ -4470,10 +4502,13 @@ app.get('/px/:token.js', (req, res) => {
 });
 
 // ── Beacon do navegador → espelho server-side (CAPI) com o mesmo event_id.
-app.post('/api/px/event', (req, res) => {
-  // Responde IMEDIATAMENTE: sendBeacon não lê a resposta, e o disparo CAPI
-  // (com dedup) segue em background — latência zero para o navegador.
-  res.json({ ok: true });
+app.post('/api/px/event', async (req, res) => {
+  // O fetch do loader só remove o evento da fila local depois deste ACK. Por
+  // isso respondemos após a CAPI aceitar, deduplicar ou enfileirar o retry; se
+  // o processo cair antes, a conexão fecha e o navegador preserva o evento.
+  const ack = () => {
+    if (!res.headersSent) res.status(202).json({ ok: true });
+  };
   try {
     const b = req.body || {};
     // Em páginas externas o cookie do nosso domínio costuma ser bloqueado como
@@ -4481,37 +4516,75 @@ app.post('/api/px/event', (req, res) => {
     const bodyVid = VID_RE.test(String(b.vid || '')) ? String(b.vid) : null;
     const vId = bodyVid || readCookie(req, 'v_id');
     const events = Array.isArray(b.events) ? b.events.slice(0, 5) : [];
-    if (!events.length) return;
-    let route = '/';
-    try { route = new URL(b.url || 'https://x/').pathname || '/'; } catch (_) {}
     const ip = clientIp(req);
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    if (rateLimited(ip, 'pxevent', 180)) return ack();
     // b.px = token do script individual (/px/:token.js): espelha SÓ naquele
     // pixel. Sem token, dispatchScoped só aceita fallback de pixel único.
-    const tokenPixel = b.px ? pixelStore.getByToken(String(b.px).slice(0, 64)) : null;
+    const suppliedToken = typeof b.px === 'string' && b.px ? String(b.px).slice(0, 64) : null;
+    const tokenPixel = suppliedToken ? pixelStore.getByToken(suppliedToken) : null;
+    // Token explícito inválido nunca cai no pixel único da conta/domínio. Isso
+    // evita que uma tag antiga, truncada ou de outra conta contamine o destino.
+    if (suppliedToken && !tokenPixel) return ack();
     const acc = tokenPixel ? (tokenPixel.acc || null) : publicAccountId(req);
+    let route = '/', site = null, landing = 'externa';
+    try {
+      const page = new URL(b.url || 'https://x/');
+      route = page.pathname || '/';
+      landing = page.pathname.slice(0, 200) || '/';
+      site = page.hostname.slice(0, 100) || null;
+    } catch (_) {}
+    // O loader individual também cria/atualiza a visita. Assim, se /t.js for
+    // bloqueado por CSP/ad blocker, a pessoa ainda aparece no funil e a CAPI
+    // mantém o vínculo pixel↔lead. O tracker completo continua responsável por
+    // cliques, presença e decoração de links.
+    if (vId && tokenPixel && (events.some((e) => String(e && e.n) === 'ViewContent') || !stats.getLead(vId))) {
+      const geo = geoFromReq(req);
+      const dev = uaTools.parse(ua);
+      try {
+        stats.recordVisit({
+          id: vId, acc, ip, ua: ua.slice(0, 300),
+          device: dev.device, os: dev.os, browser: dev.browser,
+          referer: typeof b.referrer === 'string' ? b.referrer.slice(0, 300) : null,
+          landing, site, pixelSlug: tokenPixel.slug,
+          country: geo.country, countryName: geo.countryName, city: geo.city,
+          ttclid: typeof b.ttclid === 'string' ? b.ttclid.slice(0, 500) : null,
+          utm: {}
+        });
+      } catch (_) {}
+    }
     // guarda ttclid/_ttp no lead UMA vez (não por evento) — enriquece conversões futuras
-    if (vId && (b.ttclid || b.ttp || tokenPixel)) {
+    if (vId && (b.ttclid || b.ttp || b.email || b.phone || tokenPixel)) {
+      const email = typeof b.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(b.email.trim())
+        ? b.email.trim().toLowerCase().slice(0, 320) : undefined;
+      const phoneDigits = typeof b.phone === 'string' ? b.phone.replace(/\D/g, '') : '';
+      const phone = phoneDigits.length >= 8 && phoneDigits.length <= 15 ? String(b.phone).trim().slice(0, 30) : undefined;
       try {
         stats.attachTracking(vId, {
           acc: tokenPixel ? tokenPixel.acc : undefined,
           pixelSlug: tokenPixel ? tokenPixel.slug : undefined,
-          ttclid: b.ttclid || undefined,
-          ttp: b.ttp || undefined
+          ttclid: typeof b.ttclid === 'string' ? b.ttclid.slice(0, 500) : undefined,
+          ttp: typeof b.ttp === 'string' ? b.ttp.slice(0, 500) : undefined,
+          email,
+          phone
         });
       } catch (_) {}
     }
+    // Sincronização tardia de _ttp/ttclid/identidade: não é pageview e não
+    // deve criar outro evento no TikTok.
+    if (!events.length || b.signalsOnly === true) return ack();
     // identidade já salva no lead (email/phone do Advanced Matching, ttclid/_ttp
     // de visitas anteriores) — todo disparo sai com o sinal máximo disponível
     let leadPx = null;
     if (vId) { try { leadPx = stats.getLead(vId); } catch (_) {} }
     // dedup + disparo em PARALELO (antes era serial: 1 roundtrip Redis por evento)
+    const deliveries = [];
     events.forEach((e) => {
       const name = String(e.n || '').slice(0, 40);
       const evId = String(e.id || '').slice(0, 120);
-      if (!name || !evId) return;
+      if (!name || !/^[A-Za-z0-9._:-]{8,120}$/.test(evId)) return;
       if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) return; // whitelist
-      Promise.resolve().then(() => {
+      deliveries.push(Promise.resolve().then(() => {
         const props = e.properties && typeof e.properties === 'object' ? e.properties : {};
         const payload = {
           event: name,
@@ -4538,9 +4611,15 @@ app.post('/api/px/event', (req, res) => {
           tokenPixel ? tokenPixel.slug : (leadPx && leadPx.pixelSlug));
       }).catch((err) =>
         console.error('[server] beacon dispatch falhou (' + name + ' perdido):', err && err.message,
-          '| evId=', evId, '| vid=', vId || '—', '| acc=', acc));
+          '| evId=', evId, '| vid=', vId || '—', '| acc=', acc)));
     });
-  } catch (err) { console.error('[server] beacon erro inesperado:', err && err.message); }
+    await Promise.allSettled(deliveries);
+    ack();
+  } catch (err) {
+    console.error('[server] beacon erro inesperado:', err && err.message);
+    // 5xx mantém o item no outbox do navegador para uma nova tentativa.
+    if (!res.headersSent) res.status(503).json({ ok: false });
+  }
 });
 
 // ── APIs de gestão de pixels (dashboard, por conta) ────�����─����────────────
@@ -4846,6 +4925,30 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
     if (page.error) return res.json({ ok: false, error: page.error });
     const html = page.html || '';
     const pixels = pixelStore.list(req.account.id);
+    let targetHost = null;
+    try { targetHost = new URL(page.finalUrl).hostname.toLowerCase().replace(/^www\./, ''); } catch (_) {}
+    // Verificação estática não enxerga tags injetadas por GTM, Next/React ou
+    // consent manager. Cruzamos o HTML com visitas realmente recebidas desse
+    // host para confirmar execução — evidência mais forte que achar texto.
+    const leads = (stats.getStats(req.account.id).leads || []);
+    function runtimeFor(pixelSlug) {
+      let lastSeenAt = null;
+      let visits = 0;
+      leads.forEach((lead) => {
+        if (!lead || lead.pixelSlug !== pixelSlug) return;
+        const sites = Array.isArray(lead.sites) && lead.sites.length
+          ? lead.sites
+          : (lead.site ? [{ host: lead.site, lastAt: lead.lastSeen || lead.at, hits: 1 }] : []);
+        sites.forEach((row) => {
+          const host = String(row && row.host || '').toLowerCase().replace(/^www\./, '');
+          if (!targetHost || host !== targetHost) return;
+          visits += Math.max(1, Number(row.hits) || 1);
+          const at = row.lastAt || lead.lastSeen || lead.at;
+          if (at && (!lastSeenAt || Date.parse(at) > Date.parse(lastSeenAt))) lastSeenAt = at;
+        });
+      });
+      return { runtimeSeen: visits > 0, lastSeenAt, visits };
+    }
     // Para cada pixel da conta: o script tag (/px/<token>.js) está na página?
     // E o pixel code do TikTok (instalação nativa ttq) aparece?
     const found = pixels.map((p) => {
@@ -4853,24 +4956,31 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
       const nativeOk = !!(p.pixelCode && html.indexOf(p.pixelCode) !== -1);
       const trackerScoped = !!(p.token && (html.indexOf('/t.js?px=' + p.token) !== -1
         || html.indexOf('/t.js?px%3D' + p.token) !== -1));
+      const runtime = runtimeFor(p.slug);
       return {
         slug: p.slug, name: p.name, scriptOk, nativeOk, trackerScoped,
+        runtimeSeen: runtime.runtimeSeen,
+        lastSeenAt: runtime.lastSeenAt,
+        runtimeVisits: runtime.visits,
         // "instalado" agora significa integração completa e isolada. Encontrar
         // só o código nativo não garante jornada/CAPI nem separação multi-pixel.
-        instalado: scriptOk && trackerScoped
+        // Execução real confirma também tags dinâmicas que não aparecem no HTML.
+        instalado: (scriptOk && trackerScoped) || runtime.runtimeSeen
       };
     });
     const algum = found.some((f) => f.instalado);
     // O /t.js é quem registra a visita NA DASHBOARD. Pixel instalado sem ele =
     // eventos chegam ao TikTok mas o operador não vê os próprios visitantes —
     // exatamente a confusão mais comum. Checamos e avisamos explicitamente.
-    const trackerOk = html.indexOf('/t.js') !== -1;
-    const legacyTracker = trackerOk && !found.some((f) => f.trackerScoped);
+    const trackerStaticOk = html.indexOf('/t.js') !== -1;
+    const runtimeSeen = found.some((f) => f.runtimeSeen);
+    const trackerOk = trackerStaticOk || runtimeSeen;
+    const legacyTracker = trackerStaticOk && !found.some((f) => f.trackerScoped);
     stats.logEvent('info', {
       acc: req.account.id,
       title: 'Verificação de pixel por URL: ' + (algum ? 'instalado' : 'NÃO encontrado') + (trackerOk ? '' : ' (sem rastreamento /t.js)') + ' em ' + page.finalUrl
     });
-    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, trackerOk, legacyTracker, pixels: found });
+    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, trackerOk, trackerStaticOk, runtimeSeen, legacyTracker, pixels: found });
   } catch (err) {
     res.status(500).json({ error: 'falha na verificação' });
   }
@@ -4951,11 +5061,65 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
     at: r.at, pixel: r.pixel, event: r.event,
     message: (r.response && (r.response.message || ('code ' + r.response.code))) || 'erro'
   }));
+  // Cobertura por pixel: mostra onde o tracker executou de verdade, quando o
+  // navegador foi visto e quando a CAPI respondeu. Usa o histórico de leads
+  // (durável no Neon) para continuar útil após restart e para instalações via
+  // GTM/SPA que não aparecem numa inspeção estática do HTML.
+  const accountLeads = (stats.getStats(req.account.id).leads || []);
+  const coverage = pixelStore.list(req.account.id).map((pixel) => {
+    const domains = new Map();
+    let lastBrowserAt = null;
+    accountLeads.forEach((lead) => {
+      if (!lead || lead.pixelSlug !== pixel.slug) return;
+      const sites = Array.isArray(lead.sites) && lead.sites.length
+        ? lead.sites
+        : (lead.site ? [{ host: lead.site, lastAt: lead.lastSeen || lead.at, hits: 1 }] : []);
+      sites.forEach((site) => {
+        const host = String(site && site.host || '').toLowerCase().replace(/^www\./, '').slice(0, 100);
+        if (!host) return;
+        const at = site.lastAt || lead.lastSeen || lead.at || null;
+        const current = domains.get(host) || { host, visits: 0, lastAt: null };
+        current.visits += Math.max(1, Number(site.hits) || 1);
+        if (at && (!current.lastAt || Date.parse(at) > Date.parse(current.lastAt))) current.lastAt = at;
+        domains.set(host, current);
+        if (at && (!lastBrowserAt || Date.parse(at) > Date.parse(lastBrowserAt))) lastBrowserAt = at;
+      });
+    });
+    const pixelRows = rows.filter((row) => row.pixel === pixel.slug || row.pixel === pixel.name || row.pixel === pixel.pixelCode);
+    const latest = pixelRows[0] || null;
+    const successful = pixelRows.filter((row) => row.status === 'ok');
+    const signalKeys = ['ttclid', 'email', 'phone', 'external_id', 'ttp'];
+    const signals = {};
+    signalKeys.forEach((key) => {
+      const hits = successful.filter((row) => Array.isArray(row.emqFields) && row.emqFields.includes(key)).length;
+      signals[key] = successful.length ? Math.round((hits / successful.length) * 100) : null;
+    });
+    const recommendations = [];
+    if (!lastBrowserAt) recommendations.push('Instale o bloco em todas as páginas e faça uma visita real.');
+    if (lastBrowserAt && !latest) recommendations.push('O navegador chegou, mas ainda não há resposta da CAPI; confira o Access Token.');
+    if (latest && latest.status !== 'ok') recommendations.push('O último disparo falhou; abra o log para ver a resposta do TikTok.');
+    if (successful.length && (signals.ttclid || 0) < 20) recommendations.push('Poucos eventos têm ttclid; preserve a query entre landing, checkout e upsell.');
+    if (successful.length && (signals.email || 0) + (signals.phone || 0) < 20) recommendations.push('Advanced Matching baixo; identifique e-mail ou telefone com consentimento.');
+    return {
+      slug: pixel.slug,
+      name: pixel.name,
+      active: pixel.active,
+      status: !pixel.active ? 'pausado' : latest && latest.status !== 'ok' ? 'atencao' : (lastBrowserAt && latest ? 'saudavel' : 'sem_dados'),
+      lastBrowserAt,
+      lastCapiAt: latest ? latest.at : null,
+      lastCapiStatus: latest ? latest.status : null,
+      domains: Array.from(domains.values())
+        .sort((a, b) => Date.parse(b.lastAt || '') - Date.parse(a.lastAt || ''))
+        .slice(0, 6),
+      signals,
+      recommendations: recommendations.slice(0, 3)
+    };
+  });
   res.json({
     ok: true, total, success: ok,
     rate: total ? Math.round((ok / total) * 100) : null,
     emq: emqN ? Math.round((emqSum / emqN) * 10) / 10 : null,
-    events, errors, source,
+    events, errors, source, coverage,
     retryQueue: ttEvents.retryQueueSize()
   });
 });

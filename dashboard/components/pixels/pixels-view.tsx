@@ -26,6 +26,9 @@ import {
   Code2,
   ShieldCheck,
   ExternalLink,
+  Globe2,
+  Activity,
+  Waypoints,
 } from 'lucide-react'
 import {
   usePixels,
@@ -57,8 +60,20 @@ type UrlCheck = {
   algumInstalado?: boolean
   /** O /t.js (rastreamento da dashboard) está na página? Sem ele a visita não aparece no funil. */
   trackerOk?: boolean
+  trackerStaticOk?: boolean
+  runtimeSeen?: boolean
   legacyTracker?: boolean
-  pixels?: { slug: string; name: string; scriptOk: boolean; nativeOk: boolean; trackerScoped?: boolean; instalado: boolean }[]
+  pixels?: {
+    slug: string
+    name: string
+    scriptOk: boolean
+    nativeOk: boolean
+    trackerScoped?: boolean
+    runtimeSeen?: boolean
+    lastSeenAt?: string | null
+    runtimeVisits?: number
+    instalado: boolean
+  }[]
   error?: string
 }
 
@@ -719,7 +734,9 @@ export function PixelsView() {
                       )}
                       <span className="text-pretty">
                         {urlCheck.algumInstalado
-                          ? 'Pixel encontrado na página!'
+                          ? urlCheck.runtimeSeen
+                            ? 'Execução confirmada: esta página já enviou dados para a dashboard.'
+                            : 'Código completo encontrado. Abra a página uma vez para confirmar a execução.'
                           : 'Nenhum pixel seu foi encontrado nessa página. Cole o bloco logo após <body> e tente de novo.'}
                       </span>
                     </p>
@@ -747,7 +764,9 @@ export function PixelsView() {
                     {urlCheck.trackerOk === true && (
                       <p className="flex items-center justify-between gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-[11px]">
                         <span className="truncate font-medium text-foreground">Rastreamento da dashboard (/t.js)</span>
-                        <span className="shrink-0 font-mono text-success">instalado</span>
+                        <span className="shrink-0 font-mono text-success">
+                          {urlCheck.runtimeSeen && !urlCheck.trackerStaticOk ? 'execução confirmada' : 'instalado'}
+                        </span>
                       </p>
                     )}
                     {(urlCheck.pixels ?? []).map((p) => (
@@ -755,7 +774,9 @@ export function PixelsView() {
                         <span className="truncate font-medium text-foreground">{p.name}</span>
                         <span className={`shrink-0 font-mono ${p.instalado ? 'text-success' : 'text-muted-foreground'}`}>
                           {p.instalado
-                            ? 'completo e isolado'
+                            ? p.runtimeSeen
+                              ? `executou ${p.lastSeenAt ? timeAgo(p.lastSeenAt) : 'recentemente'}`
+                              : 'código completo encontrado'
                             : p.scriptOk
                               ? 'falta rastreador vinculado'
                               : p.nativeOk
@@ -832,6 +853,87 @@ export function PixelsView() {
               </div>
             )}
           </GlassCard>
+
+          {(health?.coverage?.length ?? 0) > 0 && (
+            <GlassCard className="p-5">
+              <div className="mb-4">
+                <SectionTitle>Cobertura real</SectionTitle>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Execução observada por hospedagem, não apenas código encontrado no HTML.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                {(health?.coverage ?? []).map((item) => {
+                  const healthy = item.status === 'saudavel'
+                  const attention = item.status === 'atencao'
+                  return (
+                    <details key={item.slug} className="group rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <span
+                            className={`size-2 shrink-0 rounded-full ${
+                              healthy ? 'bg-success' : attention ? 'bg-error' : item.status === 'pausado' ? 'bg-muted-foreground' : 'bg-warning'
+                            }`}
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-semibold text-foreground">{item.name}</span>
+                            <span className="block truncate text-[10px] text-muted-foreground">
+                              {item.domains.length > 0
+                                ? `${item.domains.length} ${item.domains.length === 1 ? 'hospedagem ativa' : 'hospedagens ativas'}`
+                                : 'nenhuma hospedagem observada'}
+                            </span>
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-3 text-[10px] text-muted-foreground">
+                          <span title="Última execução do navegador" className="flex items-center gap-1">
+                            <Activity className="size-3 text-brand-cyan" aria-hidden="true" />
+                            {item.lastBrowserAt ? timeAgo(item.lastBrowserAt) : '—'}
+                          </span>
+                          <span title="Última resposta da CAPI" className="flex items-center gap-1">
+                            <Waypoints className="size-3 text-brand-pink" aria-hidden="true" />
+                            {item.lastCapiAt ? timeAgo(item.lastCapiAt) : '—'}
+                          </span>
+                          <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+                        </span>
+                      </summary>
+                      <div className="mt-3 border-t border-border/70 pt-3">
+                        {item.domains.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.domains.map((domain) => (
+                              <span key={domain.host} className="inline-flex items-center gap-1 rounded-md bg-input px-2 py-1 text-[10px] text-foreground">
+                                <Globe2 className="size-3 text-brand-cyan" aria-hidden="true" />
+                                {domain.host}
+                                <span className="text-muted-foreground">· {domain.visits}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                          {[
+                            ['ttclid', item.signals.ttclid],
+                            ['e-mail', item.signals.email],
+                            ['telefone', item.signals.phone],
+                            ['_ttp', item.signals.ttp],
+                          ].map(([label, value]) => (
+                            <span key={String(label)} className="rounded-md border border-border px-2 py-1 text-muted-foreground">
+                              {label}: <strong className="font-mono text-foreground">{value == null ? '—' : `${value}%`}</strong>
+                            </span>
+                          ))}
+                        </div>
+                        {item.recommendations[0] && (
+                          <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-warning">
+                            <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+                            {item.recommendations[0]}
+                          </p>
+                        )}
+                      </div>
+                    </details>
+                  )
+                })}
+              </div>
+            </GlassCard>
+          )}
 
           {/* Tendência de EMQ (item 79): o backend já calcula, mas nada exibia.
               Sparkline por pixel + alerta de EMQ baixo ou em queda. */}
@@ -1064,7 +1166,7 @@ export function PixelsView() {
         <PixelInstallModal
           pixel={installing}
           onClose={() => setInstalling(null)}
-          onCopy={() => handleCopy(`${installing.slug}:modal`, cleanInstallCode(installing.scriptTag), 'Código de instalação')}
+          onCopy={(code) => handleCopy(`${installing.slug}:modal`, code, 'Código de instalação')}
           copied={copied === `${installing.slug}:modal`}
         />
       )}
@@ -1086,10 +1188,44 @@ function PixelInstallModal({
 }: {
   pixel: Pixel
   onClose: () => void
-  onCopy: () => void
+  onCopy: (code: string) => void
   copied: boolean
 }) {
-  const code = cleanInstallCode(pixel.scriptTag)
+  const [mode, setMode] = useState<'html' | 'gtm' | 'next' | 'domains'>('html')
+  const pixelUrl = pixel.scriptUrl ?? ''
+  const origin = pixelUrl.includes('/px/') ? pixelUrl.split('/px/')[0] : ''
+  const trackerUrl = `${origin}/t.js?px=${pixel.token}`
+  const htmlCode = cleanInstallCode(pixel.scriptTag)
+  const gtmCode = `<script src="${trackerUrl}" defer></script>\n<script src="${pixelUrl}" defer></script>`
+  const nextCode = `import Script from 'next/script'\n\n<Script src="${trackerUrl}" strategy="afterInteractive" />\n<Script src="${pixelUrl}" strategy="afterInteractive" />`
+  const domainsCode = `<script src="${trackerUrl}"\n  data-link-domains="checkout.seudominio.com,upsell.seudominio.com"\n  defer></script>\n<script src="${pixelUrl}" defer></script>`
+  const modes = {
+    html: {
+      label: 'HTML',
+      title: 'Bloco completo',
+      hint: 'Cole logo após <body> em cada arquivo HTML do produto.',
+      code: htmlCode,
+    },
+    gtm: {
+      label: 'Google Tag Manager',
+      title: 'Tag HTML personalizada',
+      hint: 'Crie uma tag HTML personalizada, use o acionador “All Pages” e publique o container.',
+      code: gtmCode,
+    },
+    next: {
+      label: 'Next / React',
+      title: 'Layout raiz',
+      hint: 'Adicione uma vez no layout compartilhado; trocas de rota de SPA são rastreadas automaticamente.',
+      code: nextCode,
+    },
+    domains: {
+      label: 'Vários domínios',
+      title: 'Identidade entre hospedagens',
+      hint: 'Liste os outros hosts do funil em todas as tags. Links recebem vid, ttclid e UTMs sem expor dados pessoais.',
+      code: domainsCode,
+    },
+  } as const
+  const selected = modes[mode]
   const dialogRef = useRef<HTMLDivElement>(null)
   useModalA11y(true, dialogRef, onClose)
   return (
@@ -1122,11 +1258,28 @@ function PixelInstallModal({
         </div>
 
         <div className="flex flex-col gap-5 px-5 py-5">
+          <div className="flex flex-wrap gap-1 rounded-xl bg-secondary/45 p-1" role="tablist" aria-label="Tipo de instalação">
+            {(Object.keys(modes) as Array<keyof typeof modes>).map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={mode === key}
+                onClick={() => setMode(key)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  mode === key ? 'bg-brand-cyan text-black' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                }`}
+              >
+                {modes[key].label}
+              </button>
+            ))}
+          </div>
+
           <ol className="grid gap-3 sm:grid-cols-3">
             {[
-              ['1', 'Copie o bloco', 'Use o botão abaixo sem editar o token ou as URLs.'],
-              ['2', 'Cole uma vez', `Adicione logo após <body> em todas as páginas deste produto/site.`],
-              ['3', 'Valide', 'Publique a página, verifique a URL e faça um disparo de teste.'],
+              ['1', 'Copie', 'Não altere o token nem misture blocos de pixels diferentes.'],
+              ['2', 'Publique', selected.hint],
+              ['3', 'Confirme', 'Abra a página, verifique a URL e valide um evento de teste.'],
             ].map(([n, title, body]) => (
               <li key={n} className="rounded-xl border border-border bg-secondary/35 p-3">
                 <span className="flex size-6 items-center justify-center rounded-full bg-brand-cyan/15 text-xs font-bold text-brand-cyan">{n}</span>
@@ -1138,17 +1291,17 @@ function PixelInstallModal({
 
           <div className="overflow-hidden rounded-xl border border-border bg-input">
             <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-              <span className="text-xs font-medium text-foreground">Bloco completo</span>
+              <span className="text-xs font-medium text-foreground">{selected.title}</span>
               <button
                 type="button"
-                onClick={onCopy}
+                onClick={() => onCopy(selected.code)}
                 className="flex items-center gap-1.5 rounded-md bg-brand-cyan px-2.5 py-1.5 text-xs font-semibold text-black"
               >
                 {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
                 {copied ? 'Copiado' : 'Copiar bloco'}
               </button>
             </div>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all px-3 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">{code}</pre>
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all px-3 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">{selected.code}</pre>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -1157,7 +1310,7 @@ function PixelInstallModal({
                 <CircleCheck className="size-3.5 text-success" aria-hidden="true" /> Cobertura automática
               </p>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
-                Visita/ViewContent, navegação de SPA, UTMs, ttclid, _ttp, jornada, cliques marcados e identificação do lead. Pagamento e Compra chegam pelo gateway conectado.
+                Visita única por navegação, SPA, conteúdo/preço da página, UTMs, ttclid, _ttp, jornada, cliques e Advanced Matching. Uma fila local reenvia eventos de navegação após oscilações de rede.
               </p>
             </div>
             <div className="rounded-xl border border-border p-3">
@@ -1165,7 +1318,7 @@ function PixelInstallModal({
                 <ShieldCheck className="size-3.5 text-brand-cyan" aria-hidden="true" /> Regra para dois pixels
               </p>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
-                Use o bloco de cada pixel apenas nas páginas do produto correspondente. Não use o loader genérico <code>/px.js</code> nem um <code>/t.js</code> sem <code>?px=TOKEN</code>.
+                Carrinho e Checkout podem sair do navegador; Pagamento e Compra só saem do webhook do gateway. Use sempre o mesmo Pixel Code, token e moeda em toda a jornada.
               </p>
             </div>
           </div>
@@ -1184,6 +1337,42 @@ function PixelInstallModal({
             <p className="mt-2 text-[11px] text-muted-foreground">
               Para código próprio: <code>RoiNadosPixel.track(&apos;{pixel.token}&apos;, &apos;AddToCart&apos;, {'{'} content_id: &apos;SKU-123&apos; {'}'})</code>.
             </p>
+          </details>
+
+          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
+            <summary className="cursor-pointer text-xs font-semibold text-foreground">Conectar arquivos e hospedagens diferentes</summary>
+            <div className="mt-2 space-y-2 text-[11px] leading-relaxed text-muted-foreground">
+              <p>
+                Repita o mesmo bloco em cada HTML ou layout. Para links entre domínios seus, use a opção <strong className="text-foreground">Vários domínios</strong>; o tracker transfere o identificador do visitante, <code>ttclid</code> e UTMs.
+              </p>
+              <p>
+                Se não puder editar a tag, marque apenas o link de saída: <code>{'<a data-roinados-link href="https://checkout...">'}</code>. Links para terceiros não marcados nunca são decorados.
+              </p>
+            </div>
+          </details>
+
+          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
+            <summary className="cursor-pointer text-xs font-semibold text-foreground">Consentimento e identificação do lead</summary>
+            <div className="mt-2 space-y-2 text-[11px] leading-relaxed text-muted-foreground">
+              <p>
+                Para aguardar sua CMP, adicione <code>data-consent=&quot;required&quot;</code> nas duas tags e, após o aceite, chame <code>RoiNadosPixel.consent(&apos;grant&apos;)</code>. Para revogar, use <code>&apos;revoke&apos;</code>.
+              </p>
+              <p>
+                E-mail e telefone de campos reconhecidos alimentam o Advanced Matching. Use <code>data-roinados-ignore</code> no campo ou formulário que não deve ser lido, ou <code>data-advanced-matching=&quot;off&quot;</code> no tracker. Em integração própria: <code>RoiNadosPixel.identify({'{'} email, phone {'}'})</code>.
+              </p>
+            </div>
+          </details>
+
+          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
+            <summary className="cursor-pointer text-xs font-semibold text-foreground">Se um evento não aparecer</summary>
+            <ul className="mt-2 grid gap-1.5 text-[11px] leading-relaxed text-muted-foreground sm:grid-cols-2">
+              <li>• confirme a tag em todas as páginas e no layout da SPA;</li>
+              <li>• publique o GTM e limpe cache/CDN da versão antiga;</li>
+              <li>• preserve <code>ttclid</code>, <code>vid</code> e UTMs entre hosts;</li>
+              <li>• libere os domínios do TikTok e da dashboard na CSP;</li>
+              <li>• teste sem bloqueador de anúncios e com consentimento aceito;</li>
+              <li>• para Compra, confirme gateway, moeda, valor e vínculo do pixel.</li>
+            </ul>
           </details>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">

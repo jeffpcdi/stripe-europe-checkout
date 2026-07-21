@@ -444,6 +444,10 @@ function recordVisit(data) {
       city: data.city || null,
       landing: data.landing || null,
       site: data.site || null, // domínio da página externa — separa funis/produtos
+      // Histórico compacto de hospedagens vistas pelo mesmo visitante. O campo
+      // `site` legado guarda só a primeira; `sites` permite diagnosticar a
+      // passagem por landing, VSL, checkout e upsell em domínios diferentes.
+      sites: data.site ? [{ host: String(data.site).slice(0, 100), firstAt: nowIso, lastAt: nowIso, hits: 1 }] : [],
       pixelSlug: data.pixelSlug || null, // destino TikTok que originou esta jornada
       ttclid: data.ttclid || null,
       utm: data.utm || {}
@@ -460,6 +464,28 @@ function recordVisit(data) {
     // A tag específica é uma evidência explícita de roteamento. Mantemos a
     // última tag vista para que checkout e webhook continuem no mesmo pixel.
     if (data.pixelSlug) lead.pixelSlug = String(data.pixelSlug).slice(0, 40);
+    if (data.site) {
+      const host = String(data.site).slice(0, 100);
+      lead.sites = Array.isArray(lead.sites) ? lead.sites : [];
+      if (!lead.sites.length && lead.site) {
+        lead.sites.push({ host: String(lead.site).slice(0, 100), firstAt: lead.at || nowIso, lastAt: lead.lastSeen || nowIso, hits: 1 });
+      }
+      let siteRow = lead.sites.find((row) => row && row.host === host);
+      if (!siteRow) {
+        siteRow = { host, firstAt: nowIso, lastAt: nowIso, hits: 1 };
+        lead.sites.push(siteRow);
+      } else {
+        const previous = Date.parse(siteRow.lastAt || '') || 0;
+        // /t.js e /px/TOKEN.js podem registrar a mesma visita quase juntos.
+        // Uma janela curta impede contar as duas entregas como duas pageviews.
+        if (Date.now() - previous > 2000) siteRow.hits = Math.max(1, Number(siteRow.hits) || 1) + 1;
+        siteRow.lastAt = nowIso;
+      }
+      lead.sites = lead.sites
+        .filter((row) => row && row.host)
+        .sort((a, b) => Date.parse(b.lastAt || '') - Date.parse(a.lastAt || ''))
+        .slice(0, 10);
+    }
     lead.lastSeen = nowIso;
   }
   // Risco 4: registra o clique pago no histórico (last-click pago).
