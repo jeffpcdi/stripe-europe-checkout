@@ -177,7 +177,7 @@ export function CatalogBatchDialog({
                 className="input-base mt-1 min-h-44 w-full resize-y font-mono text-[11px]"
                 value={source}
                 onChange={(event) => dirty(event.target.value)}
-                placeholder={'catalogo\tsku\ttitulo\tpreco\tmarca\tlink\timagem\tcampanha\torcamento\tpixel_id\tevento\nLoja Verão\tSKU-001\tCamiseta\t79,90\tMinha Marca\thttps://loja.com/camiseta\thttps://cdn.com/camiseta.jpg\tVerão — todos\t50\t1234567890123456789\tON_WEB_ORDER'}
+                placeholder={'catalogo\tsku\ttitulo\tpreco\tmarca\tlink\timagem\tcampanha\torcamento\tpixel_id\tvideo\tcapa\nLoja Verão\tSKU-001\tCamiseta\t79,90\tMinha Marca\thttps://loja.com/camiseta\thttps://cdn.com/camiseta.jpg\tVerão — todos\t50\t1234567890123456789\tv10033g50000abc\ttos-alisg-p/capa'}
               />
               {source.trim() && plan.message && (
                 <span className="mt-1 flex items-start gap-1.5 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning" role="alert">
@@ -207,6 +207,7 @@ export function CatalogBatchDialog({
               <input className="mt-0.5 accent-primary" type="checkbox" checked={scheduleCampaigns} onChange={(event) => { setScheduleCampaigns(event.target.checked); invalidatePlan() }} />
               <span><strong className="text-foreground">Preparar campanhas Product Link pausadas</strong><br />{preview?.automation.productLinkNote || 'Valide o lote para consultar o conector Product Link.'}</span>
             </label>
+            {scheduleCampaigns && <p className="rounded-md bg-background/70 px-2 py-1.5 text-[10px] text-muted-foreground">Cada campanha vira um <strong className="text-foreground">Video Shopping Ads de catálogo</strong>, pausado. Colunas por campanha: <strong className="text-foreground">pixel_id</strong> (6–30 dígitos), <strong className="text-foreground">video</strong> (o video_id do seu criativo) e <strong className="text-foreground">capa</strong> (image_id da capa). O destino é o <strong className="text-foreground">Product Link</strong> — cada produto usa o próprio <strong className="text-foreground">link</strong> do catálogo; você nunca digita URL no anúncio.</p>}
             {scheduleCampaigns && (
               <div className="grid gap-2 rounded-md bg-background/70 p-2 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-[10px] text-muted-foreground">
