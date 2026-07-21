@@ -239,24 +239,43 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `account_id + advertiser_id`; nunca autorize uma operação só porque o `catalogId` ou `runId` existe.
   A sincronização é durável (`catalog/catalog-sync-worker.js`) e verifica o catálogo remoto em
   todo envio: se o ID salvo não existir mais no BC atual, recria apenas o vínculo remoto e preserva
-  catálogo/produtos/feed locais. Produtos são revalidados contra a spec atual em toda leitura crítica e
+  catálogo/produtos/feed locais. Cada run usa um snapshot CSV imutável (`ads_catalog_feed_snapshots`)
+  identificado por hash na URL `?v=`; a limpeza nunca remove revisões referenciadas por runs duráveis.
+  Sucesso exige o `feed_log_id` do upload atual em `SUCCESS` com
+  `error_count=0` **e** overview com exatamente a quantidade enviada; produtos antigos no catálogo nunca
+  confirmam o run atual. `synced_at` só muda depois dessas duas provas, enquanto uma leitura isolada do
+  overview atualiza apenas `audit`. Produtos são revalidados contra a spec atual em toda leitura crítica e
   no feed público: `brand` é o 9º campo obrigatório (nunca inferido) e o enum correto é
   `available for order` (não `available`). Assim, registros antigos com `valid=true` não furam a regra.
-  A campanha VSA Product Link exige orçamento mínimo 50, Pixel ID numérico + evento canônico
-  (`ON_WEB_ORDER` por padrão) e pelo menos **4 produtos aprovados, ativos e em estoque**, mas **não exige
-  Catalog Video Template ID nem URL no anúncio**: o destino é o `link` individual de cada produto.
+  A campanha Catalog Ads Product Link exige orçamento mínimo 50, Pixel ID numérico + evento canônico
+  (`ON_WEB_ORDER` por padrão) e pelo menos **4 produtos aprovados no overview agregado**. Esse overview
+  não comprova sozinho estoque/disponibilidade por SKU, portanto a UI não deve alegar essa verificação.
+  Product Link **não exige URL no anúncio nem, por si só, um Catalog Video Template ID**: o destino é
+  o `link` individual de cada produto. Isso não dispensa a fonte criativa exigida pelo formato escolhido;
+  a dashboard só deve anunciar Catalog Video/Dynamic Formats quando o schema do conector comprovar esse
+  formato e seus campos.
   O lote aceita TSV ou CSV (vírgula/ponto e vírgula), normaliza orçamento pt-BR como `1.000,00` e recebe
   exclusivamente o `link` HTTPS de cada produto; URL manual no anúncio é bloqueada em duas barreiras
   (preview + executor). O parser de `/api/ads/catalogs/batch` é montado antes do JSON global e aceita
   até 25 MB (o restante da API continua em 200 KB). A confirmação Product Link só vale quando o JSON Schema do Pipeboard
   declara explicitamente todos os valores enviados nos três níveis (incluindo `PRODUCT_SALES`,
-  `VIDEO_SHOPPING_ADS`, `CATALOG`, `CONVERT`, pausa, `website_type=PRODUCT_LINK` e
-  `destination_page_type=WEBSITE`); campos presentes com enums incompatíveis não liberam anúncio.
+  `shopping_ads_type=VIDEO`, `CATALOG`, `catalog_authorized_bc_id`, `CONVERT`, pausa,
+  `website_type=PRODUCT_LINK`, `destination_page_type=WEBSITE`, identidade `BC_AUTH_TT` e dark post);
+  `store_authorized_bc_id` é de TikTok Shop e não deve ser usado para o catálogo. O preflight também
+  exige as três tools de readback, respeita `inputSchema.required` e valida o evento escolhido antes da
+  primeira escrita. A leitura final confirma formato, escopo de produtos, Pixel/evento, identidade/BC,
+  template/texto/CTA enviados, Product Link, ausência de URL manual e pausa nos três níveis.
   Quando o conector ainda não confirma catálogo ou Product Link, sync/campanhas ficam
   em `waiting_connector_confirmation` e são retomados automaticamente; depois a campanha segue para
   `waiting_catalog_review` e só é promovida após auditoria aprovar o catálogo. Assim o lote pode ser
   preparado agora, mas nenhum fallback com URL global é criado nem anúncio é enviado antes da confirmação
   explícita do schema Pipeboard.
+  **Estado atual do Pipeboard (2026-07-21):** o conector expõe criação/upload/auditoria de catálogo e
+  status por `feed_log_id`, mas as tools genéricas ainda não declaram o contrato de Catalog Ads/Product
+  Link nem Video Template; por isso `manualCatalogCampaign=false` e nenhuma campanha/conjunto/anúncio
+  de catálogo é enviado. O contrato pretendido atual é `CATALOG_VIDEO`; ele não deve ser apresentado como
+  prova de que o modo **Dynamic Formats** multiformato foi ativado. O comportamento correto é manter o run preparado em espera, nunca degradar para
+  vídeo comum ou URL global.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
   **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação
@@ -264,12 +283,16 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   não tem BC/origem/permissões. O resumo terminal informa também campanhas preparadas, aguardando
   Product Link/análise, ignoradas e com falha. Enquanto `manualCatalogCampaign=false`, o hook de
   capabilities reconsulta em baixa frequência (60s) para remover o banner sem exigir reload; os
-  cards de run exibem nome, escopo, orçamento e a verificação final (hierarquia, Product Link, sem
-  URL manual e tudo pausado). Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
+  cards de run exibem nome, escopo, orçamento, avisos e a verificação final completa. Polling de campanha
+  usa 4s em execução, 15s aguardando análise, 60s aguardando o conector e para em estado terminal.
+  Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
   O parser do lote exige a coluna `marca`/`brand` e envia `brand` por produto; valor ausente bloqueia
   a prévia com as linhas exatas, pois a marca real é obrigatória no TikTok e nunca deve ser inferida.
   Ao preparar campanhas, o lote também lê `pixel_id` (6–30 dígitos) e `evento` (padrão canônico
   `ON_WEB_ORDER`) por campanha; o wizard manual expõe os mesmos campos obrigatórios para `CONVERT`.
+  No wizard dedicado, escopo específico, Product Set, template, texto e CTA só aparecem quando o
+  schema atual os confirma; IDs são numéricos, avisos do run ficam visíveis e falhas não retomáveis
+  oferecem apenas a limpeza da estrutura parcial. Sem `manualCatalogCampaign`, nada é enviado ao TikTok.
   Quando `GET /api/ads/pixels?adAccountId=...` retorna Pixels, o wizard usa uma lista autenticada
   com nome e compras dos últimos 30 dias; sem dados/na falha, preserva input numérico manual.
   Nomes diferentes que geram a mesma key normalizada bloqueiam a prévia com nomes e linhas, em vez

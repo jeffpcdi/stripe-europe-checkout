@@ -21,7 +21,11 @@ const unconfirmed = [];
 let created = 0;
 let overviewCalls = 0;
 let overview = { approved: 0, pending: 4, rejected: 0, total: 4 };
-let uploadResponse = { job_id: 'job_1', file_format: 'CSV' };
+let uploadResponse = { job_id: 'job_1', feed_log_id: 'feed_log_1', file_format: 'CSV' };
+let uploadStatus = {
+  feedLogId: 'feed_log_1', processStatus: 'SUCCESS', processing: false,
+  succeeded: true, failed: false, errorCount: 0, warningCount: 0,
+};
 let remoteFeeds = { total: 0, feeds: [], raw: { total_feeds: 0 } };
 let productRows = Array.from({ length: 4 }, (_, index) => ({
   id: 'prod_' + index, valid: true,
@@ -84,13 +88,19 @@ require.cache[providerPath] = {
   id: providerPath, filename: providerPath, loaded: true,
   exports: {
     enabled: true,
-    async getCatalogCapabilities() { return { catalogCreate: true }; },
+    async getCatalogCapabilities() {
+      return {
+        catalogCreate: true, catalogUpload: true, catalogUploadStatus: true,
+        catalogAudit: true, catalogLinkVerify: true,
+      };
+    },
     async createTikTokCatalog() { created += 1; return { catalogId: '7999000000000000001' }; },
     async uploadTikTokCatalogProducts(bcId, catalogId, feedUrl) {
       uploads.push({ bcId, catalogId, feedUrl });
       return uploadResponse;
     },
     async getTikTokCatalogOverview() { overviewCalls += 1; return overview; },
+    async getTikTokCatalogUploadStatus() { return uploadStatus; },
     async getTikTokCatalogFeeds() { return remoteFeeds; },
   },
 };
@@ -118,6 +128,27 @@ delete require.cache[workerPath];
 const worker = require(workerPath);
 
 (async () => {
+  assert.strictEqual(worker._internals.syncCapabilitiesReady({
+    catalogCreate: true, catalogUpload: true, catalogUploadStatus: true,
+    catalogAudit: true, catalogLinkVerify: true,
+  }), true, 'contrato completo libera a sincronização');
+  assert.strictEqual(worker._internals.syncCapabilitiesReady({
+    catalogCreate: true, catalogUpload: false, catalogUploadStatus: true,
+    catalogAudit: true, catalogLinkVerify: true,
+  }), false, 'status sem upload não promove o job');
+  assert.strictEqual(worker._internals.syncCapabilitiesReady({
+    catalogCreate: true, catalogUpload: true, catalogUploadStatus: true,
+    catalogAudit: false, catalogLinkVerify: true,
+  }), false, 'upload sem auditoria não pode declarar sincronização');
+  assert.strictEqual(worker._internals.syncCapabilitiesReady({
+    catalogCreate: false, catalogUpload: true, catalogUploadStatus: true,
+    catalogAudit: true, catalogLinkVerify: true,
+  }, { requireCreate: false }), true, 'catálogo já vinculado não depende da tool de criação');
+  assert.strictEqual(
+    worker._internals.uploadReceiptMismatchError(new Error("Invalid value for 'feed_id': Not matched with the Catalog.")).code,
+    'CATALOG_UPLOAD_RECEIPT_MISMATCH',
+    'recibo de outro catálogo falha imediatamente em vez de aguardar overview antigo',
+  );
   await worker.processRun({
     id: 'run_1', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_local',
     payload: { bcId: localCatalog.bcId, feedUrl: 'https://example.com/feed.csv', published: 4, skipped: 0 },
@@ -135,6 +166,7 @@ const worker = require(workerPath);
   assert.strictEqual(updates.at(-1).status, 'completed');
   assert.strictEqual(updates.at(-1).patch.stage, 'reviewed_tiktok');
   assert.strictEqual(updates.at(-1).patch.progress.uploadReceipt.jobId, 'job_1', 'recibo do upload fica persistido');
+  assert.strictEqual(updates.at(-1).patch.progress.uploadReceipt.feedLogId, 'feed_log_1', 'feed_log_id identifica o upload confirmado');
   assert.ok(updates.some((entry) => entry.patch.stage === 'connecting_catalog'));
 
   // Se a criação remota ainda não estiver confirmada, o lote não falha nem
@@ -179,9 +211,8 @@ const worker = require(workerPath);
     id: 'prod_' + index, valid: true, data: { sku_id: 'sku_' + index, brand: 'Marca real' },
   }));
 
-  // Resposta sem identificador (caso real: job_id:null) + overview zerado não
-  // pode virar sucesso. Feeds remotos zerados são apenas diagnóstico porque o
-  // upload direto por arquivo não cria necessariamente um feed recorrente.
+  // O recibo pode estar presente e o processamento continuar assíncrono. O
+  // overview antigo não antecipa o sucesso enquanto o feed_log está pendente.
   updates.length = 0;
   uploads.length = 0;
   publications.length = 0;
@@ -190,7 +221,11 @@ const worker = require(workerPath);
     created += 1;
     return { catalogId: '7999000000000000001' };
   };
-  uploadResponse = { job_id: null, file_format: 'CSV' };
+  uploadResponse = { job_id: null, feed_log_id: 'feed_log_processing', file_format: 'CSV' };
+  uploadStatus = {
+    feedLogId: 'feed_log_processing', processStatus: 'PROCESSING', processing: true,
+    succeeded: false, failed: false, errorCount: 0, warningCount: 0,
+  };
   remoteFeeds = { total: 0, feeds: [], raw: { total_feeds: 0 } };
   overview = { approved: 0, pending: 0, rejected: 0, total: 0 };
   await worker.processRun({
@@ -200,10 +235,29 @@ const worker = require(workerPath);
   assert.strictEqual(publications.at(-1).status, 'processing', 'upload inconclusivo é registrado como processando');
   assert.strictEqual(updates.at(-1).status, 'waiting_tiktok_processing', 'run não recebe sucesso definitivo');
   assert.strictEqual(updates.at(-1).patch.release, true, 'espera libera o lock do worker');
-  assert.strictEqual(updates.at(-1).patch.progress.uploadReceipt.provable, false, 'job_id nulo fica explícito no diagnóstico');
+  assert.strictEqual(updates.at(-1).patch.progress.uploadReceipt.provable, true, 'feed_log_id torna o upload verificável mesmo sem job_id');
   assert.deepStrictEqual(updates.at(-1).patch.progress.uploadReceipt.response, uploadResponse, 'resposta crua do upload é preservada');
   assert.strictEqual(updates.at(-1).patch.progress.remoteFeeds.total, 0, 'zero feeds é guardado sem bloquear por si só');
   assert.ok(Date.parse(updates.at(-1).patch.progress.nextAuditAt) > Date.now(), 'próxima consulta usa backoff persistido');
+
+  // SUCCESS com erros por produto é falha retomável, nunca sincronização
+  // concluída só porque o overview ainda contém produtos antigos.
+  updates.length = 0;
+  publications.length = 0;
+  uploadResponse = { feed_log_id: 'feed_log_partial', file_format: 'CSV' };
+  uploadStatus = {
+    feedLogId: 'feed_log_partial', processStatus: 'SUCCESS', processing: false,
+    succeeded: false, failed: true, errorCount: 2, warningCount: 0,
+    errors: [{ field: 'brand', issue: 'missing' }],
+  };
+  overview = { approved: 20, pending: 0, rejected: 0, total: 20 };
+  await worker.processRun({
+    id: 'run_partial', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_local',
+    payload: { bcId: localCatalog.bcId, feedUrl: 'https://example.com/feed.csv', published: 4, skipped: 0 },
+  });
+  assert.strictEqual(updates.at(-1).status, 'failed', 'erros do feed_log bloqueiam sucesso apesar de produtos antigos no overview');
+  assert.strictEqual(updates.at(-1).patch.error.code, 'CATALOG_UPLOAD_REJECTED');
+  assert.strictEqual(updates.at(-1).patch.progress.uploadStatus.errorCount, 2);
 
   // Sem campanha dependente e sem tela aberta, o worker também atualiza a
   // auditoria do catálogo. Quando o TikTok finalmente expõe os produtos, o run
@@ -211,8 +265,15 @@ const worker = require(workerPath);
   pendingAuditCatalogs.push({
     id: 'cat_audit', accountId: 'acc_1', advertiserId: 'adv_1',
     tiktokCatalogId: '7999000000000000001', bcId: localCatalog.bcId,
-    syncRunId: 'sync_audit', syncProgress: { published: 4, tiktokCatalogId: '7999000000000000001' },
+    syncRunId: 'sync_audit', syncProgress: {
+      published: 4, tiktokCatalogId: '7999000000000000001',
+      uploadReceipt: { feedLogId: 'feed_log_audit' },
+    },
   });
+  uploadStatus = {
+    feedLogId: 'feed_log_audit', processStatus: 'SUCCESS', processing: false,
+    succeeded: true, failed: false, errorCount: 0, warningCount: 1,
+  };
   overview = { approved: 3, pending: 1, rejected: 0, total: 4 };
   const refreshed = await worker._internals.refreshPendingTikTokAudits();
   assert.strictEqual(refreshed, 1, 'auditoria pendente é consultada automaticamente');
@@ -226,7 +287,7 @@ const worker = require(workerPath);
   pendingAuditCatalogs.push({
     id: 'cat_empty', accountId: 'acc_1', advertiserId: 'adv_1',
     tiktokCatalogId: '7999000000000000002', bcId: localCatalog.bcId,
-    syncRunId: 'sync_empty', syncProgress: { published: 4, auditAttempts: 2 },
+    syncRunId: 'sync_empty', syncProgress: { published: 4, auditAttempts: 2, uploadReceipt: { feedLogId: 'feed_log_empty' } },
   });
   overview = { approved: 0, pending: 0, rejected: 0, total: 0 };
   assert.strictEqual(await worker._internals.refreshPendingTikTokAudits(), 1, 'catálogo remoto vazio continua em auditoria automática');

@@ -5,8 +5,9 @@ const CAMPAIGN_STAGES = Object.freeze([
   'verifying_entities', 'ready_paused', 'partial', 'failed', 'cancelled',
 ]);
 const TIKTOK_MIN_DAILY_BUDGET = 50;
-// Catalog Ads (manual e Smart+) só ficam elegíveis quando o TikTok confirma
-// pelo menos quatro produtos aprovados, ativos e em estoque.
+// O overview disponível confirma apenas a contagem agregada de aprovados.
+// Quatro é o piso para preparar Catalog Ads; disponibilidade/estoque por SKU
+// ainda precisam ser validados pelo TikTok quando o conector expuser detalhe.
 const TIKTOK_MIN_APPROVED_PRODUCTS = 4;
 const TIKTOK_PIXEL_EVENTS = Object.freeze([
   'ON_WEB_ORDER', 'INITIATE_ORDER', 'ON_WEB_CART', 'ON_WEB_DETAIL',
@@ -92,14 +93,14 @@ function computeReadiness(catalog, products, context) {
       hasUnpublishedChanges
         ? 'Há alterações locais ainda não sincronizadas'
         : hasMinimumApproved
-          ? `${approved} aprovado(s), ativos e em estoque`
+          ? `${approved} aprovado(s) no resumo do TikTok`
           : approved > 0
-            ? `${approved} aprovado(s); faltam ${approvedMissing} para o mínimo de ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados, ativos e em estoque`
+            ? `${approved} aprovado(s); faltam ${approvedMissing} para o mínimo de ${TIKTOK_MIN_APPROVED_PRODUCTS}`
             : pending > 0
-              ? `${pending} em análise; são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados, ativos e em estoque`
+              ? `${pending} em análise; são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados`
               : rejected > 0
-                ? `${rejected} rejeitado(s); são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados, ativos e em estoque`
-                : `Aguardando no mínimo ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados, ativos e em estoque`),
+                ? `${rejected} rejeitado(s); são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados`
+                : `Aguardando no mínimo ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados`),
     step('advertiser', 'Conta de anúncio', advertiserReady ? 'done' : 'waiting',
       advertiserReady ? `Advertiser ${ctx.advertiserId}` : 'Selecione a conta que criará a campanha'),
   ];

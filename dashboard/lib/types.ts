@@ -1609,6 +1609,31 @@ export interface AdsCatalogBusinessCenter {
   fromEnv: boolean
 }
 
+export interface AdsCatalogCapabilities {
+  catalogCreate: boolean
+  catalogUpload: boolean
+  catalogUploadStatus: boolean
+  catalogAudit: boolean
+  catalogFeedRead: boolean
+  catalogLinkVerify: boolean
+  manualCatalogCampaign: boolean
+  productSets: boolean
+  specificProducts: boolean
+  catalogVideoTemplates: boolean
+  adText: boolean
+  callToAction: boolean
+  optimizationEvents: string[]
+  callToActions: string[]
+  structuralReadback: boolean
+  shoppingAdsType: string | null
+  adFormat: string | null
+  note: string
+}
+
+export interface AdsCatalogCapabilitiesResponse {
+  capabilities: AdsCatalogCapabilities
+}
+
 export interface AdsCatalogSyncResponse {
   ok?: boolean
   dryRun?: boolean
@@ -1619,6 +1644,7 @@ export interface AdsCatalogSyncResponse {
   run?: AdsCatalogSyncRun
   catalog: AdsCatalog
   feedUrl: string
+  feedRevision?: string
   published: number
   skipped?: number
   audit?: AdsCatalogAudit | null
@@ -1707,6 +1733,7 @@ export interface AdsCatalogImportSummary {
 export interface AdsCatalogPublishResponse {
   catalog: AdsCatalog
   feedUrl: string
+  feedRevision: string
   published: number
   skipped: number
 }

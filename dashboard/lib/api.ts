@@ -55,9 +55,10 @@ import type {
   AdsBriefingResponse,
   AdsCreativeInsights,
   AdsBudgetProposal,
+  AdsCatalogCapabilitiesResponse,
   CopilotEvent,
 } from './types'
-import { catalogSyncRunsRefreshInterval } from './catalog-run-polling'
+import { catalogCampaignRunsRefreshInterval, catalogSyncRunsRefreshInterval } from './catalog-run-polling'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
 // `hint` traz a orientação pt-BR do que fazer; `code` é estável para lógica.
@@ -737,7 +738,7 @@ export function useAdsCatalogReadiness(catalogId: string | null, adAccountId: st
 }
 
 export function useAdsCatalogCapabilities(active: boolean, adAccountId: string) {
-  return useSWR<{ capabilities: Record<string, boolean | string> }>(
+  return useSWR<AdsCatalogCapabilitiesResponse>(
     active && adAccountId ? adsCatalogApiUrl('/api/ads/catalogs/capabilities', adAccountId) : null,
     fetcher,
     {
@@ -777,7 +778,7 @@ export function useAdsCatalogCampaignRuns(catalogId: string | null, adAccountId:
     catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-runs`, adAccountId) : null,
     fetcher,
     {
-      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
+      refreshInterval: (latest) => catalogCampaignRunsRefreshInterval(latest?.runs),
       revalidateOnFocus: true, keepPreviousData: false,
     },
   )

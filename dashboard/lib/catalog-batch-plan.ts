@@ -29,8 +29,11 @@ const HEADERS: Record<string, string[]> = {
   image: ['imagem', 'image', 'image_link', 'link_imagem', 'url_imagem'],
   campaign: ['campanha', 'campaign', 'campaign_name', 'nome_campanha'],
   budget: ['orcamento', 'orçamento', 'budget', 'daily_budget', 'orcamento_diario'],
+  budgetType: ['tipo_orcamento', 'tipo_de_orcamento', 'budget_type', 'budget_mode'],
   pixelId: ['pixel_id', 'pixel', 'id_pixel', 'pixel_tiktok', 'tiktok_pixel_id'],
   pixelEvent: ['evento', 'evento_pixel', 'pixel_event', 'optimization_event', 'evento_otimizacao'],
+  country: ['pais', 'país', 'country', 'country_code'],
+  period: ['periodo', 'período', 'data_fim', 'end_date', 'schedule_end_date'],
 }
 
 function normalizeHeader(value: string) {
@@ -105,6 +108,35 @@ function campaignBudget(value: string) {
   return Number(normalized) || undefined
 }
 
+function campaignBudgetType(value: string): 'daily' | 'lifetime' {
+  const normalized = normalizeHeader(value)
+  return ['lifetime', 'total', 'orcamento_total', 'orçamento_total'].includes(normalized) ? 'lifetime' : 'daily'
+}
+
+type CampaignConfig = {
+  budgetAmount: number | undefined
+  budgetType: 'daily' | 'lifetime'
+  pixelId: string
+  pixelEvent: string
+  country: string
+  endDate: string
+}
+
+const CAMPAIGN_CONFIG_LABELS: Record<keyof CampaignConfig, string> = {
+  budgetAmount: 'orçamento',
+  budgetType: 'tipo de orçamento',
+  pixelId: 'Pixel ID',
+  pixelEvent: 'evento',
+  country: 'país',
+  endDate: 'período',
+}
+
+function conflictingCampaignFields(first: CampaignConfig, next: CampaignConfig) {
+  return (Object.keys(CAMPAIGN_CONFIG_LABELS) as (keyof CampaignConfig)[])
+    .filter((field) => first[field] !== next[field])
+    .map((field) => CAMPAIGN_CONFIG_LABELS[field])
+}
+
 export function buildCatalogBatchPlan(raw: string, currency: string, options: CatalogBatchPlanOptions = {}): CatalogBatchPlan {
   const rows = parseDelimited(raw)
   if (rows.length < 2) {
@@ -116,7 +148,8 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
   const idx = {
     catalog: indexFor('catalog'), sku: indexFor('sku'), title: indexFor('title'), description: indexFor('description'),
     price: indexFor('price'), brand: indexFor('brand'), link: indexFor('link'), image: indexFor('image'), campaign: indexFor('campaign'), budget: indexFor('budget'),
-    pixelId: indexFor('pixelId'), pixelEvent: indexFor('pixelEvent'),
+    pixelId: indexFor('pixelId'), pixelEvent: indexFor('pixelEvent'), budgetType: indexFor('budgetType'),
+    country: indexFor('country'), period: indexFor('period'),
   }
   if (idx.brand < 0) {
     return {
@@ -130,7 +163,8 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
   const catalogOrigins = new Map<string, { identity: string; name: string; line: number }>()
   const collisionSignatures = new Set<string>()
   const catalogCollisions: { key: string; first: { name: string; line: number }; next: { name: string; line: number } }[] = []
-  const campaignKeys = new Set<string>()
+  const campaignOrigins = new Map<string, { line: number; name: string; catalogName: string; config: CampaignConfig }>()
+  const campaignConflicts: { first: { line: number }; next: { line: number }; name: string; catalogName: string; fields: string[] }[] = []
   const missingBrandRows: number[] = []
   const missingCampaignPixelRows: number[] = []
   const invalidCampaignPixelRows: number[] = []
@@ -181,18 +215,39 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
 
     const campaignName = valueAt(row, idx.campaign)
     const campaignKey = `${key}:${campaignName}`
-    if (campaignName && !campaignKeys.has(campaignKey)) {
-      campaignKeys.add(campaignKey)
+    if (campaignName) {
       const pixelId = valueAt(row, idx.pixelId)
       if (!pixelId) missingCampaignPixelRows.push(line)
       else if (!/^\d{6,30}$/.test(pixelId)) invalidCampaignPixelRows.push(line)
-      catalog.campaigns.push({
-        name: campaignName,
+      const campaignConfig: CampaignConfig = {
         budgetAmount: campaignBudget(valueAt(row, idx.budget)),
-        budgetType: 'daily',
-        productScope: 'all',
+        budgetType: campaignBudgetType(valueAt(row, idx.budgetType)),
         pixelId,
         pixelEvent: valueAt(row, idx.pixelEvent).toUpperCase() || 'ON_WEB_ORDER',
+        country: valueAt(row, idx.country).toUpperCase() || catalog.country,
+        endDate: valueAt(row, idx.period),
+      }
+      const firstCampaign = campaignOrigins.get(campaignKey)
+      if (firstCampaign) {
+        const fields = conflictingCampaignFields(firstCampaign.config, campaignConfig)
+        if (fields.length) {
+          campaignConflicts.push({
+            first: { line: firstCampaign.line }, next: { line }, name: campaignName,
+            catalogName, fields,
+          })
+        }
+        return
+      }
+      campaignOrigins.set(campaignKey, { line, name: campaignName, catalogName, config: campaignConfig })
+      catalog.campaigns.push({
+        name: campaignName,
+        budgetAmount: campaignConfig.budgetAmount,
+        budgetType: campaignConfig.budgetType,
+        productScope: 'all',
+        pixelId: campaignConfig.pixelId,
+        pixelEvent: campaignConfig.pixelEvent,
+        country: campaignConfig.country,
+        ...(campaignConfig.endDate ? { endDate: campaignConfig.endDate } : {}),
       })
     }
   })
@@ -206,6 +261,12 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
       `“${collision.first.name}” (linha ${collision.first.line}) e “${collision.next.name}” (linha ${collision.next.line}) usam a chave “${collision.key}”`,
     )
     messages.push(`Nomes de catálogo diferentes não podem ser agrupados: ${examples.join('; ')}${catalogCollisions.length > 4 ? '; …' : ''}. Renomeie um deles.`)
+  }
+  if (campaignConflicts.length) {
+    const examples = campaignConflicts.slice(0, 4).map((conflict) =>
+      `“${conflict.name}” do catálogo “${conflict.catalogName}” nas linhas ${conflict.first.line} e ${conflict.next.line} (${conflict.fields.join(', ')})`,
+    )
+    messages.push(`A mesma campanha não pode ter configurações diferentes: ${examples.join('; ')}${campaignConflicts.length > 4 ? '; …' : ''}. Mantenha a mesma configuração em todas as linhas ou use outro nome de campanha.`)
   }
   if (options.requireCampaignPixel && missingCampaignPixelRows.length) {
     messages.push(`Informe o Pixel ID do TikTok nas campanhas das linhas ${missingCampaignPixelRows.slice(0, 6).join(', ')}${missingCampaignPixelRows.length > 6 ? '…' : ''}. Use a coluna “pixel_id” com 6 a 30 dígitos.`)

@@ -243,7 +243,7 @@ export function DuplicatePanel({
           {crossAccount && (
             <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
               Duplicar para OUTRA conta ainda não é suportado: os criativos (vídeos) são escopados à conta de
-              origem no TikTok. Use &quot;Subir em massa&quot; com o vídeo da biblioteca na conta destino.
+              origem no TikTok. Use &quot;Vídeos em massa&quot; com o vídeo da biblioteca na conta destino.
             </p>
           )}
           {mode === 'variations' && (

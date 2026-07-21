@@ -18,7 +18,7 @@ import {
   adsCatalogApiUrl, apiSend, ApiError,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
+import type { AdsCatalog, AdsCatalogCapabilities, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ErrorState } from '@/components/error-state'
@@ -140,7 +140,7 @@ export function CatalogManager({
           advertiserLabel={advertiserLabel}
           bcId={bc?.bcId ?? ''}
           bcConfigured={Boolean(bc?.bcId)}
-          campaignCreateSupported={capabilitiesData?.capabilities.manualCatalogCampaign === true}
+          catalogCapabilities={capabilitiesData?.capabilities ?? null}
           onBusinessCenterChanged={mutateBc}
           onBack={() => {
             setSelectedId(null)
@@ -436,7 +436,7 @@ function CatalogDetail({
   spec,
   bcId,
   bcConfigured,
-  campaignCreateSupported,
+  catalogCapabilities,
   onBusinessCenterChanged,
   onBack,
   onDeleted,
@@ -447,11 +447,12 @@ function CatalogDetail({
   advertiserLabel: string
   bcId: string
   bcConfigured: boolean
-  campaignCreateSupported: boolean
+  catalogCapabilities: AdsCatalogCapabilities | null
   onBusinessCenterChanged: () => void | Promise<unknown>
   onBack: () => void
   onDeleted: () => void
 }) {
+  const campaignCreateSupported = catalogCapabilities?.manualCatalogCampaign === true
   const { data, mutate, isLoading, error: detailError } = useAdsCatalogDetail(catalogId, advertiserId)
   const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId, advertiserId)
   const { data: readinessData, mutate: mutateReadiness, isLoading: readinessLoading } = useAdsCatalogReadiness(catalogId, advertiserId)
@@ -894,7 +895,7 @@ function CatalogDetail({
               catalog={catalog}
               advertiserId={advertiserId}
               ready={Boolean(readinessData?.readiness.readyForCampaign)}
-              supported={campaignCreateSupported}
+              capabilities={catalogCapabilities}
             />
           )}
 

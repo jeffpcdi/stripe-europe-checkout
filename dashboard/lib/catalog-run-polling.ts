@@ -3,6 +3,10 @@ type CatalogSyncRunPollingState = {
   stage: string
 }
 
+type CatalogCampaignRunPollingState = {
+  status: string
+}
+
 export function catalogSyncRunsRefreshInterval(runs: readonly CatalogSyncRunPollingState[] | undefined) {
   const current = runs ?? []
   if (current.some((run) => ['queued', 'waiting_connector_confirmation', 'running', 'retrying'].includes(run.status))) {
@@ -17,5 +21,13 @@ export function catalogSyncRunsRefreshInterval(runs: readonly CatalogSyncRunPoll
   ) && run.stage === 'processing_tiktok')) {
     return 15_000
   }
+  return 0
+}
+
+export function catalogCampaignRunsRefreshInterval(runs: readonly CatalogCampaignRunPollingState[] | undefined) {
+  const current = runs ?? []
+  if (current.some((run) => ['queued', 'running', 'retrying'].includes(run.status))) return 4_000
+  if (current.some((run) => run.status === 'waiting_catalog_review')) return 15_000
+  if (current.some((run) => run.status === 'waiting_connector_confirmation')) return 60_000
   return 0
 }

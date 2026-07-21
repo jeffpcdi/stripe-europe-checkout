@@ -48,6 +48,17 @@ console.log('createTikTokCatalog — validação antes da rede');
   await throws(() => provider.uploadTikTokCatalogProducts('', 'cat1', 'https://x/f.csv'), 400, 'sem bc/catalog → 400');
   await throws(() => provider.uploadTikTokCatalogProducts('7012345678901234567', 'cat1', 'ftp://x/f.csv'), 400, 'URL não-https → 400');
 
+  console.log('getTikTokCatalogUploadStatus — feed_log é a prova do upload atual');
+  await throws(() => provider.getTikTokCatalogUploadStatus('7012345678901234567', 'cat1', ''), 400, 'sem feed_log_id → 400');
+  const partialUpload = provider._internals.normalizeCatalogUploadStatus({
+    feed_log_id: 'log_1', process_status: 'SUCCESS', add_count: 6,
+    error_count: 4, warn_count: 1,
+    feed_log_data: { error_affected_products: [{ field: 'brand', issue: 'missing' }] },
+  });
+  eq(partialUpload.failed, true, 'SUCCESS com erro por produto não vira sucesso');
+  eq(partialUpload.succeeded, false, 'ingestão parcial fica inconclusiva para sincronização');
+  eq(partialUpload.errors.length, 1, 'preserva diagnóstico acionável do produto');
+
   console.log('getTikTokCatalogOverview — exige bc_id e catalog_id');
   await throws(() => provider.getTikTokCatalogOverview('', ''), 400, 'sem ids → 400');
 

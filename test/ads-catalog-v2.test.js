@@ -39,7 +39,9 @@ function throwsCode(fn, code, label) {
   );
   ok(!belowMinimum.readyForCampaign, 'três aprovados ainda não liberam Catalog Ads');
   eq(belowMinimum.counts.approvedMissing, 1, 'prontidão informa quantos aprovados faltam');
-  ok(/mínimo de 4 produtos aprovados, ativos e em estoque/.test(belowMinimum.steps.find((item) => item.id === 'review').detail), 'mensagem pt-BR explica o requisito oficial');
+  const reviewDetail = belowMinimum.steps.find((item) => item.id === 'review').detail;
+  ok(/mínimo de 4/.test(reviewDetail), 'mensagem pt-BR explica o piso de aprovação');
+  ok(!/ativos e em estoque/.test(reviewDetail), 'overview agregado não promete disponibilidade por SKU sem prova');
   readiness = domain.computeReadiness(base, products.map((product, index) => (
     index === 0 ? { ...product, updatedAt: '2026-07-20T12:00:00.000Z' } : product
   )), { advertiserId: '1870000000001' });

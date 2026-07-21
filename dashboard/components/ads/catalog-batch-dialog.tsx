@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, Loader2, PackageOpen, Rocket, UploadCloud } from 'lucide-react'
+import { AlertCircle, Check, Download, FileUp, Loader2, PackageOpen, Rocket, UploadCloud } from 'lucide-react'
 import { adsCreateCatalogBatch, adsPreviewCatalogBatch } from '@/lib/api'
 import { buildCatalogBatchPlan } from '@/lib/catalog-batch-plan'
 import type { AdsCatalogBatchPreviewResponse } from '@/lib/types'
@@ -11,6 +11,27 @@ function randomKey() {
   return typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : `catalog-batch-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+const CATALOG_BATCH_TEMPLATE = [
+  ['catalogo', 'sku', 'titulo', 'descricao', 'preco', 'marca', 'link', 'imagem', 'campanha', 'orcamento', 'tipo_orcamento', 'pixel_id', 'evento', 'pais', 'periodo'],
+  ['Loja Verão', 'SKU-001', 'Camiseta azul', 'Camiseta de algodão azul', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-azul', 'https://cdn.exemplo.com/camiseta-azul.jpg', 'Verão — todos', '50', 'daily', '1234567890123456789', 'ON_WEB_ORDER', 'BR', ''],
+  ['Loja Verão', 'SKU-002', 'Camiseta preta', 'Camiseta de algodão preta', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-preta', 'https://cdn.exemplo.com/camiseta-preta.jpg', 'Verão — todos', '50', 'daily', '1234567890123456789', 'ON_WEB_ORDER', 'BR', ''],
+  ['Loja Verão', 'SKU-003', 'Camiseta branca', 'Camiseta de algodão branca', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-branca', 'https://cdn.exemplo.com/camiseta-branca.jpg', 'Verão — todos', '50', 'daily', '1234567890123456789', 'ON_WEB_ORDER', 'BR', ''],
+  ['Loja Verão', 'SKU-004', 'Camiseta verde', 'Camiseta de algodão verde', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-verde', 'https://cdn.exemplo.com/camiseta-verde.jpg', 'Verão — todos', '50', 'daily', '1234567890123456789', 'ON_WEB_ORDER', 'BR', ''],
+].map((row) => row.join('\t')).join('\n')
+
+function campaignSummary(campaign: Record<string, unknown>, currency: string) {
+  const amount = typeof campaign.budgetAmount === 'number' ? campaign.budgetAmount : Number(campaign.budgetAmount)
+  const budget = Number.isFinite(amount)
+    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(amount)
+    : 'Orçamento não informado'
+  return {
+    name: String(campaign.name || 'Campanha sem nome'),
+    budget: `${budget} ${campaign.budgetType === 'lifetime' ? 'total' : 'por dia'}`,
+    pixel: String(campaign.pixelId || 'Pixel não informado'),
+    event: String(campaign.pixelEvent || 'ON_WEB_ORDER'),
+  }
 }
 
 export function CatalogBatchDialog({
@@ -28,6 +49,7 @@ export function CatalogBatchDialog({
   const [preview, setPreview] = useState<AdsCatalogBatchPreviewResponse | null>(null)
   const [busy, setBusy] = useState<'preview' | 'create' | null>(null)
   const idempotencyKeyRef = useRef<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const plan = useMemo(
     () => buildCatalogBatchPlan(source, currency, { requireCampaignPixel: scheduleCampaigns }),
@@ -48,6 +70,35 @@ export function CatalogBatchDialog({
   function invalidatePlan() {
     idempotencyKeyRef.current = null
     setPreview(null)
+  }
+
+  async function importFile(file: File) {
+    if (!/\.(csv|tsv|txt)$/i.test(file.name)) {
+      toast.error('Formato não aceito', { hint: 'Escolha um arquivo .csv, .tsv ou .txt.' })
+      return
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      toast.error('Arquivo maior que 25 MB', { hint: 'Divida o lote em arquivos menores antes de importar.' })
+      return
+    }
+    try {
+      const text = (await file.text()).replace(/^\uFEFF/, '')
+      if (!text.trim()) throw new Error('O arquivo está vazio.')
+      dirty(text)
+      toast.success('Arquivo importado', { hint: `${file.name} está pronto para validação.` })
+    } catch (error) {
+      toast.error('Não foi possível ler o arquivo', { hint: error instanceof Error ? error.message : undefined })
+    }
+  }
+
+  function downloadTemplate() {
+    const blob = new Blob([CATALOG_BATCH_TEMPLATE], { type: 'text/tab-separated-values;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'modelo-catalogos-em-massa.tsv'
+    anchor.click()
+    URL.revokeObjectURL(url)
   }
 
   async function validate() {
@@ -131,13 +182,13 @@ export function CatalogBatchDialog({
   return (
     <div className="relative w-full sm:w-auto">
       <button type="button" className="btn-ghost shrink-0 self-start text-xs sm:self-auto" onClick={() => setOpen((value) => !value)}>
-        <UploadCloud className="size-3.5" aria-hidden="true" /> Lote rápido
+        <UploadCloud className="size-3.5" aria-hidden="true" /> Catálogos em massa
       </button>
       {open && (
         <section className="mt-3 w-full rounded-xl border border-primary/30 bg-background p-4 text-left shadow-xl sm:absolute sm:right-0 sm:z-20 sm:mt-2 sm:w-[min(760px,calc(100vw-2rem))]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold text-foreground">Lote rápido de catálogos</h3>
+              <h3 className="text-sm font-semibold text-foreground">Catálogos em massa</h3>
               <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
                 O <strong className="text-foreground">Link do produto</strong> é o único destino usado; não existe campo de URL no nível do anúncio.
               </p>
@@ -146,9 +197,31 @@ export function CatalogBatchDialog({
           </div>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
-            <label className="text-[11px] text-muted-foreground">
-              Cole TSV do Excel/Sheets ou CSV (vírgula ou ponto e vírgula)
+            <div className="text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label htmlFor="catalog-batch-source">Cole TSV do Excel/Sheets ou CSV (vírgula ou ponto e vírgula)</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <input
+                    ref={fileInputRef}
+                    className="sr-only"
+                    type="file"
+                    accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) void importFile(file)
+                      event.target.value = ''
+                    }}
+                  />
+                  <button type="button" className="btn-ghost px-2 py-1 text-[10px]" onClick={() => fileInputRef.current?.click()}>
+                    <FileUp className="size-3" aria-hidden="true" /> Importar arquivo
+                  </button>
+                  <button type="button" className="btn-ghost px-2 py-1 text-[10px]" onClick={downloadTemplate}>
+                    <Download className="size-3" aria-hidden="true" /> Baixar modelo TSV
+                  </button>
+                </div>
+              </div>
               <textarea
+                id="catalog-batch-source"
                 className="input-base mt-1 min-h-44 w-full resize-y font-mono text-[11px]"
                 value={source}
                 onChange={(event) => dirty(event.target.value)}
@@ -159,7 +232,7 @@ export function CatalogBatchDialog({
                   <AlertCircle className="mt-0.5 size-3 shrink-0" aria-hidden="true" /> {plan.message}
                 </span>
               )}
-            </label>
+            </div>
             <div className="flex gap-3 sm:flex-col">
               <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">Moeda
                 <select className="input-base" value={currency} onChange={(event) => { setCurrency(event.target.value); invalidatePlan() }}>
@@ -182,7 +255,7 @@ export function CatalogBatchDialog({
               <input className="mt-0.5 accent-primary" type="checkbox" checked={scheduleCampaigns} onChange={(event) => { setScheduleCampaigns(event.target.checked); invalidatePlan() }} />
               <span><strong className="text-foreground">Preparar campanhas Product Link pausadas</strong><br />{preview?.automation.productLinkNote || 'Valide o lote para consultar o conector Product Link.'}</span>
             </label>
-            {scheduleCampaigns && <p className="rounded-md bg-background/70 px-2 py-1.5 text-[10px] text-muted-foreground">O lote prepara somente o Product Link. Cada campanha precisa da coluna <strong className="text-foreground">pixel_id</strong> (6 a 30 dígitos); <strong className="text-foreground">evento</strong> usa ON_WEB_ORDER por padrão. Nenhuma URL ou template é obrigatório no nível do anúncio.</p>}
+            {scheduleCampaigns && <p className="rounded-md bg-background/70 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">Cada campanha precisa da coluna <strong className="text-foreground">pixel_id</strong> (6 a 30 dígitos); <strong className="text-foreground">evento</strong> usa ON_WEB_ORDER por padrão. O criativo de catálogo só será enviado quando o conector confirmar <strong className="text-foreground">Product Link e o formato do anúncio</strong>, e o catálogo estiver aprovado. Até lá, os runs ficam apenas preparados.</p>}
             {campaignRequiresSync && (
               <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
                 Para preparar campanhas, mantenha “Sincronizar automaticamente com o TikTok” ligado.
@@ -210,6 +283,42 @@ export function CatalogBatchDialog({
                   A sincronização ainda não está pronta. Confira o Business Center, a origem pública e as permissões do conector.
                 </p>
               )}
+              {preview.ok && scheduleCampaigns && (
+                <p className={`mt-2 rounded-md border px-2 py-1.5 leading-relaxed ${preview.automation.productLinkCampaign ? 'border-success/20 bg-success/5 text-muted-foreground' : 'border-warning/30 bg-warning/10 text-warning'}`}>
+                  {preview.automation.productLinkCampaign
+                    ? 'Product Link e o formato foram confirmados. Depois da aprovação, o TikTok montará o anúncio com os produtos e seus próprios links; nenhuma URL manual será enviada.'
+                    : 'Product Link ainda não foi confirmado pelo conector. As campanhas ficarão preparadas, mas nenhum criativo de catálogo será enviado ao TikTok até essa confirmação.'}
+                </p>
+              )}
+              {preview.ok && (
+                <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Resumo por catálogo</p>
+                  <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
+                    {plan.catalogs.map((catalog) => (
+                      <div key={catalog.key} className="rounded-md bg-secondary/40 p-2">
+                        <div className="flex flex-wrap items-baseline justify-between gap-1">
+                          <strong className="text-foreground">{catalog.name}</strong>
+                          <span className="text-[10px] text-muted-foreground">{catalog.products.length} produto(s) · {catalog.campaigns.length} campanha(s)</span>
+                        </div>
+                        {catalog.campaigns.length > 0 ? (
+                          <ul className="mt-1.5 space-y-1">
+                            {catalog.campaigns.map((campaign, index) => {
+                              const summary = campaignSummary(campaign, catalog.currency)
+                              return (
+                                <li key={`${summary.name}-${index}`} className="grid gap-0.5 border-t border-border/50 pt-1.5 first:border-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-3">
+                                  <span className="truncate font-medium text-foreground">{summary.name}</span>
+                                  <span className="text-muted-foreground sm:text-right">{summary.budget}</span>
+                                  <span className="truncate text-[10px] text-muted-foreground sm:col-span-2">Pixel {summary.pixel} · {summary.event}</span>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        ) : <p className="mt-1 text-[10px] text-muted-foreground">Somente catálogo e produtos; nenhuma campanha foi solicitada.</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -231,7 +340,7 @@ export function CatalogBatchDialog({
                     ? 'Adicione ao menos uma campanha ao lote.'
                     : undefined}
             >
-              {busy === 'create' ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />} Criar lote
+              {busy === 'create' ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />} Criar em massa
             </button>
           </div>
           {campaignCount > 0 && <p className="mt-2 text-[10px] text-muted-foreground">As campanhas do lote usam todos os produtos do catálogo e sempre nascem pausadas.</p>}

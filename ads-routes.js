@@ -2694,10 +2694,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // Publica o feed CSV numa URL PÚBLICA servida pelo próprio app (/feed/<token>.csv),
-  // regenerada do Neon a cada fetch — SEM Vercel Blob. A URL é estável (feed_token
-  // fixo por catálogo); o TikTok re-puxa sozinho do mesmo endereço. `origin` é a
-  // origem pública (publicOrigin). Reutilizado por /publish e /sync-tiktok.
+  // Publica um snapshot CSV imutável. A revisão é o hash do conteúdo e faz
+  // parte da URL; editar produtos depois de enfileirar não muda o arquivo que
+  // aquele run mandará ao TikTok.
   async function publishCatalogFeed(accountId, advertiserId, catalogId, origin) {
     if (!origin) { const e = new Error('Host público não configurado (defina PRIMARY_HOST) — o TikTok não conseguiria baixar o feed'); e.status = 503; throw e; }
     const catalog = await catalogStore.getCatalog(accountId, advertiserId, catalogId);
@@ -2706,9 +2705,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const valid = products.filter((p) => p.valid);
     if (!valid.length) { const e = new Error('Nenhum produto válido para publicar. Corrija os erros primeiro.'); e.status = 400; throw e; }
     const token = await catalogStore.ensureFeedToken(accountId, advertiserId, catalog.id);
-    const feedUrl = origin + '/feed/' + token + '.csv';
+    const csv = catalogFeed.buildCatalogCsv(valid);
+    const revision = crypto.createHash('sha256').update(csv).digest('hex');
+    await catalogStore.saveFeedSnapshot(accountId, advertiserId, catalog.id, token, revision, csv, valid.length);
+    const feedUrl = origin + '/feed/' + token + '.csv?v=' + revision;
     const updated = await catalogStore.setFeedUrl(accountId, advertiserId, catalog.id, feedUrl);
-    return { catalog: updated, feedUrl, published: valid.length, skipped: products.length - valid.length };
+    return { catalog: updated, feedUrl, feedRevision: revision, published: valid.length, skipped: products.length - valid.length };
   }
 
   // ── Lote rápido de catálogo ──────────────────────────────────────────────
@@ -2742,7 +2744,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const bcId = pipeboard.getBusinessCenterId(accountId, advertiserId);
     const catalogCreate = capabilities.catalogCreate === true;
     const catalogSync = Boolean(
-      pipeboard.enabled && capabilities.catalogUpload && capabilities.catalogLinkVerify && bcId && origin
+      pipeboard.enabled && capabilities.catalogUpload && capabilities.catalogUploadStatus
+      && capabilities.catalogAudit && capabilities.catalogLinkVerify && bcId && origin
     );
     // `manualCatalogCampaign` só fica true quando o schema remoto confirma o
     // contrato integral de Product Link. Não inferimos isso de Smart+ nem da
@@ -2891,9 +2894,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
             status: syncQueueStatus, stage: syncQueueStatus,
             payload: {
               bcId: pipeboard.getBusinessCenterId(accountId, advertiserId), feedUrl: published.feedUrl,
+              feedRevision: published.feedRevision,
               published: published.published, skipped: published.skipped, batchId,
             },
-            progress: { published: 0, skipped: published.skipped, batchId },
+            progress: { published: 0, skipped: published.skipped, feedRevision: published.feedRevision, batchId },
           });
         },
         enqueueCampaign: async (context, catalog, campaign) => {
@@ -2984,16 +2988,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const requestedKey = String(req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '').trim();
       const idempotencyKey = scopedCatalogRunIdempotencyKey(
         advertiserId,
-        requestedKey || ['catalog-sync', accId, catalogId, catalog.updatedAt || Date.now()].join(':'),
+        requestedKey || ['catalog-sync', accId, catalogId, pub.feedRevision].join(':'),
       );
       const capabilities = await catalogGateway.capabilities(pipeboard);
-      const syncQueueStatus = !catalog.tiktokCatalogId && capabilities.catalogCreate !== true
+      const syncQueueStatus = capabilities.catalogUpload !== true
+        || (!catalog.tiktokCatalogId && capabilities.catalogCreate !== true)
         ? 'waiting_connector_confirmation' : 'queued';
       const run = await catalogStore.createSyncRun(accId, advertiserId, catalogId, {
         idempotencyKey,
         status: syncQueueStatus, stage: syncQueueStatus,
-        payload: { bcId, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped },
-        progress: { published: 0, skipped: pub.skipped },
+        payload: { bcId, feedUrl: pub.feedUrl, feedRevision: pub.feedRevision, published: pub.published, skipped: pub.skipped },
+        progress: { published: 0, skipped: pub.skipped, feedRevision: pub.feedRevision },
       });
       return res.status(202).json({
         ok: true, pending: true, run, catalog, feedUrl: pub.feedUrl,
