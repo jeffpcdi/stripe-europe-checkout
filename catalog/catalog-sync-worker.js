@@ -10,6 +10,70 @@ const { serializeCatalogError } = require('./catalog-domain');
 const workerId = 'catalog-sync-' + crypto.randomBytes(4).toString('hex');
 let timer = null;
 let busy = false;
+let connectorCheckedAt = 0;
+const CONNECTOR_REFRESH_MS = 60 * 1000;
+const auditCheckedAt = new Map();
+const AUDIT_REFRESH_MS = 60 * 1000;
+
+// O lote pode chegar antes de a tool remota confirmar o contrato de criação
+// de catálogo. Nesse caso, mantemos o feed e os produtos locais preservados e
+// só recolocamos o job na fila quando a confirmação for explícita.
+async function refreshWaitingConnectorConfirmations() {
+  if (!store.enabled || !provider.enabled
+    || typeof provider.getCatalogCapabilities !== 'function'
+    || typeof store.promoteSyncRunsAwaitingConnectorConfirmation !== 'function') return 0;
+  const now = Date.now();
+  if (now - connectorCheckedAt < CONNECTOR_REFRESH_MS) return 0;
+  connectorCheckedAt = now;
+  try {
+    const capabilities = await provider.getCatalogCapabilities();
+    if (!capabilities || !capabilities.catalogCreate) return 0;
+    const promoted = await store.promoteSyncRunsAwaitingConnectorConfirmation(20);
+    return Array.isArray(promoted) ? promoted.length : 0;
+  } catch (_) {
+    // Indisponibilidade transitória não falha o lote: a próxima janela
+    // consulta a capacidade novamente e retoma sem intervenção manual.
+    return 0;
+  }
+}
+
+// O upload aceito não significa que os itens já apareceram no Catalog Manager.
+// Consultamos em baixa frequência os syncs cujo último estado é
+// `processing_tiktok`; quando os números surgem, a auditoria e o run são
+// atualizados automaticamente. Assim, um lote não depende da dashboard aberta.
+async function refreshPendingTikTokAudits() {
+  if (!store.enabled || !provider.enabled
+    || typeof store.listCatalogsAwaitingTikTokAudit !== 'function'
+    || typeof provider.getTikTokCatalogOverview !== 'function') return 0;
+  const catalogs = await store.listCatalogsAwaitingTikTokAudit(5);
+  const now = Date.now();
+  let refreshed = 0;
+  for (const catalog of catalogs) {
+    const key = String(catalog && catalog.id || '');
+    if (!key || now - (auditCheckedAt.get(key) || 0) < AUDIT_REFRESH_MS) continue;
+    auditCheckedAt.set(key, now);
+    try {
+      const audit = await provider.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
+      await store.setAudit(catalog.accountId, catalog.advertiserId, catalog.id, audit);
+      const total = Number(audit && audit.total) || 0;
+      const auditAttempts = Math.max(0, Number(catalog.syncProgress && catalog.syncProgress.auditAttempts) || 0) + 1;
+      if (catalog.syncRunId) {
+        await store.updateSyncRun(catalog.accountId, catalog.syncRunId, 'completed', {
+          stage: total > 0 ? 'reviewed_tiktok' : 'processing_tiktok',
+          progress: {
+            ...(catalog.syncProgress || {}), audit, auditAttempts,
+            lastAuditAt: new Date().toISOString(),
+          },
+        });
+      }
+      refreshed += 1;
+    } catch (_) {
+      // O próprio TikTok pode levar minutos para disponibilizar a auditoria.
+      // Mantemos o estado processando e tentamos novamente no próximo ciclo.
+    }
+  }
+  return refreshed;
+}
 
 async function processRun(row) {
   const accountId = String(row.account_id);
@@ -91,6 +155,12 @@ async function processRun(row) {
     return completed;
   } catch (err) {
     const structured = serializeCatalogError(err, 'sync_tiktok');
+    if (err && err.code === 'CATALOG_CREATE_CONNECTOR_CONFIRMATION_REQUIRED') {
+      await store.updateSyncRun(accountId, runId, 'waiting_connector_confirmation', {
+        stage: 'waiting_connector_confirmation', error: structured, release: true,
+      });
+      return null;
+    }
     if (advertiserId) await store.appendPublication(accountId, advertiserId, row.catalog_id, {
       kind: 'tiktok', status: 'error', feedUrl: payload.feedUrl, error: structured.userMessage,
     }).catch(() => {});
@@ -103,6 +173,8 @@ async function tick() {
   if (busy || !store.enabled || !provider.enabled) return;
   busy = true;
   try {
+    await refreshWaitingConnectorConfirmations();
+    await refreshPendingTikTokAudits();
     const row = await store.claimNextSyncRun(workerId);
     if (row) await processRun(row);
   } catch (err) {
@@ -126,4 +198,7 @@ function stop() {
   timer = null;
 }
 
-module.exports = { start, stop, tick, processRun };
+module.exports = {
+  start, stop, tick, processRun,
+  _internals: { refreshWaitingConnectorConfirmations, refreshPendingTikTokAudits },
+};

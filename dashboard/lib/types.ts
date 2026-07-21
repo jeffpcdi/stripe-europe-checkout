@@ -1659,7 +1659,7 @@ export interface AdsCatalogSyncRun {
   id: string
   catalogId: string
   advertiserId: string
-  status: 'queued' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  status: 'queued' | 'waiting_connector_confirmation' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
   stage: string
   payload: Record<string, unknown>
   progress: Record<string, unknown>
@@ -1673,7 +1673,7 @@ export interface AdsCatalogCampaignRun {
   id: string
   catalogId: string
   advertiserId: string
-  status: 'queued' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  status: 'queued' | 'waiting_connector_confirmation' | 'waiting_catalog_review' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
   stage: string
   spec: Record<string, unknown>
   createdIds: { campaignId?: string; adGroupId?: string; adId?: string }
@@ -1714,4 +1714,70 @@ export interface AdsCatalogPublication {
 export interface AdsCatalogProductPreview {
   product: Record<string, string>
   finalUrl: string
+}
+
+// Lote rápido: o plano usa apenas o Link de cada produto. A API devolve este
+// preview antes de qualquer persistência para a tela apontar exatamente a
+// linha/coluna que precisa de correção.
+export interface AdsCatalogBatchIssue {
+  code: string
+  message: string
+  field?: string
+  path?: string | null
+  source?: string
+  index?: number | null
+  catalogKey?: string | null
+}
+
+export interface AdsCatalogBatchPreview {
+  ok: boolean
+  summary: {
+    catalogs: { total: number; valid: number; invalid: number }
+    products: { total: number; valid: number; invalid: number }
+    campaigns: { total: number; valid: number; invalid: number }
+    errors: number
+    valid: boolean
+    normalizedCatalogs: number
+    normalizedProducts: number
+    normalizedCampaigns: number
+  }
+  errors: AdsCatalogBatchIssue[]
+  plan: { catalogs: Record<string, unknown>[] }
+}
+
+export interface AdsCatalogBatchAutomation {
+  catalogSync: boolean
+  catalogCreationStatus: 'ready' | 'awaiting_connector_confirmation'
+  catalogCreationNote: string
+  productLinkCampaign: boolean
+  businessCenterConfigured: boolean
+  productLinkStatus: 'ready' | 'awaiting_connector_confirmation'
+  productLinkNote: string
+}
+
+export interface AdsCatalogBatchPreviewResponse {
+  ok: boolean
+  preview: AdsCatalogBatchPreview
+  campaignSpecErrors?: AdsCatalogBatchIssue[]
+  limits: { catalogs: number; products: number; campaigns: number }
+  tooLarge: { counts: Record<string, number>; problems: string[] } | null
+  automation: AdsCatalogBatchAutomation
+}
+
+export interface AdsCatalogBatchExecutionResponse {
+  ok: boolean
+  batchId: string
+  preview: AdsCatalogBatchPreview
+  automation: AdsCatalogBatchAutomation
+  execution?: {
+    summary: {
+      catalogs: { total: number; completed: number; failed: number }
+      products: { total: number; upserted: number; failed: number; skipped: number }
+      sync: { requested: number; queued: number; failed: number }
+      campaigns: { total: number; queued: number; failed: number; skipped: number }
+    }
+    results: Record<string, unknown>[]
+  }
+  dryRun?: boolean
+  simulated?: boolean
 }

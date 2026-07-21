@@ -8,9 +8,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X, Loader2, Plus, Trash2, UploadCloud, Download, Rocket,
-  Copy, Check, AlertCircle, ChevronLeft, ExternalLink, PackageOpen,
+  Copy, Check, AlertCircle, ChevronLeft, PackageOpen,
   Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
-  Link2, ChevronDown, History, CopyPlus, SearchCheck,
+  Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw,
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
@@ -25,6 +25,7 @@ import { ErrorState } from '@/components/error-state'
 import { CatalogReadinessCard } from './catalog-readiness-card'
 import { CatalogConnectionCard } from './catalog-connection-card'
 import { CatalogCampaignWizard } from './catalog-campaign-wizard'
+import { CatalogBatchDialog } from './catalog-batch-dialog'
 import { CatalogSyncStatus } from './catalog-sync-status'
 
 const CURRENCIES = ['USD', 'BRL', 'EUR', 'GBP', 'MXN', 'CAD', 'AUD', 'JPY']
@@ -139,7 +140,6 @@ export function CatalogManager({
           advertiserLabel={advertiserLabel}
           bcId={bc?.bcId ?? ''}
           bcConfigured={Boolean(bc?.bcId)}
-          catalogCreateSupported={capabilitiesData?.capabilities.catalogCreate === true}
           campaignCreateSupported={capabilitiesData?.capabilities.manualCatalogCampaign === true}
           onBack={() => {
             setSelectedId(null)
@@ -281,7 +281,7 @@ function CatalogList({
 }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
-  const [currency, setCurrency] = useState('USD')
+  const [currency, setCurrency] = useState('BRL')
   const [catalogType, setCatalogType] = useState('ECOM')
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
@@ -318,10 +318,13 @@ function CatalogList({
           Produtos, feed e vínculo com o TikTok em um só lugar.
         </p>
         {!creating && (
-          <button type="button" className="btn-primary shrink-0 self-start text-xs sm:self-auto" onClick={() => setCreating(true)}>
-            <Plus className="size-3.5" aria-hidden="true" />
-            Novo catálogo
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <CatalogBatchDialog advertiserId={advertiserId} onCreated={onChanged} />
+            <button type="button" className="btn-primary shrink-0 text-xs" onClick={() => setCreating(true)}>
+              <Plus className="size-3.5" aria-hidden="true" />
+              Novo catálogo
+            </button>
+          </div>
         )}
       </div>
 
@@ -432,7 +435,6 @@ function CatalogDetail({
   spec,
   bcId,
   bcConfigured,
-  catalogCreateSupported,
   campaignCreateSupported,
   onBack,
   onDeleted,
@@ -443,7 +445,6 @@ function CatalogDetail({
   advertiserLabel: string
   bcId: string
   bcConfigured: boolean
-  catalogCreateSupported: boolean
   campaignCreateSupported: boolean
   onBack: () => void
   onDeleted: () => void
@@ -573,18 +574,6 @@ function CatalogDetail({
   // Publica direto no TikTok: cria o catálogo (se preciso) e sobe os produtos.
   async function handleSyncTiktok() {
     if (syncLockRef.current) return
-    if (catalog?.linkStatus === 'error' && !catalogCreateSupported) {
-      toast.info('Informe um catálogo válido do TikTok', {
-        hint: 'O catálogo remoto salvo não existe mais neste Business Center. Crie ou abra um catálogo no TikTok e conecte o novo Catalog ID sem apagar seus produtos locais.',
-      })
-      return
-    }
-    if (!catalog?.tiktokCatalogId && !catalogCreateSupported) {
-      toast.info('Conecte um catálogo criado no TikTok', {
-        hint: 'A API atual não consegue criar o catálogo com segurança. Crie-o no Catalog Manager e valide os IDs no cartão Conexão TikTok.',
-      })
-      return
-    }
     if (!bcConfigured) {
       toast.info('Produto salvo, mas ainda não publicado', {
         hint: 'Configure o Business Center no topo da aba para publicar no TikTok.',
@@ -623,7 +612,7 @@ function CatalogDetail({
     } catch (e) {
       setPublishFailed(true)
       const hint = e instanceof ApiError ? e.display : e instanceof Error ? e.message : undefined
-      toast.error('Publicação automática falhou — use o CSV', { hint })
+      toast.error('Não foi possível iniciar a sincronização automática', { hint })
     } finally {
       syncLockRef.current = false
       setSyncing(false)
@@ -698,7 +687,7 @@ function CatalogDetail({
         toast.success(`Envio aceito pelo TikTok para ${terminal.published} produto(s)`)
       } else {
         setPublishFailed(true)
-        toast.error('Publicação no TikTok falhou — use o CSV', { hint: terminal.error || undefined })
+        toast.error('A sincronização automática precisa ser retomada', { hint: terminal.error || undefined })
       }
       return
     }
@@ -749,13 +738,7 @@ function CatalogDetail({
   function handleReadinessAction(action: NonNullable<typeof readinessData>['readiness']['nextAction']) {
     if (action === 'add_products') setShowUrlImport(true)
     else if (action === 'fix_products' && products[0]) setEditing(products.find((product) => !product.valid) || products[0])
-    else if (action === 'sync') {
-      if (catalog?.tiktokCatalogId || catalogCreateSupported) void handleSyncTiktok()
-      else {
-        void handlePublish()
-        toast.info('Feed pronto para conectar', { hint: 'Depois, informe o Catalog ID no cartão Conexão TikTok.' })
-      }
-    }
+    else if (action === 'sync') void handleSyncTiktok()
     else if (action === 'refresh_audit') void handleRefreshAudit()
     else if (action === 'select_advertiser') toast.info('Selecione uma conta de anúncios no topo da aba TikTok Ads.')
     else if (action === 'connect_tiktok' || action === 'verify_link') toast.info('Use o cartão Conexão com o TikTok logo abaixo.')
@@ -791,19 +774,20 @@ function CatalogDetail({
             </div>
           </div>
 
-          {/* Publicação automática falhou → caminho garantido em destaque */}
+          {/* Falha de início não apaga o catálogo nem o feed; o usuário pode
+              reenfileirar a automação sem reimportar os produtos. */}
           {publishFailed && validCount > 0 && (
             <div className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-4">
               <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                 <AlertCircle className="size-4 text-warning" aria-hidden="true" />
-                Não foi possível enviar automaticamente
+                Sincronização automática não iniciada
               </p>
               <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                Baixe o CSV pronto para importar no TikTok Catalog Manager. Ele contém somente os produtos válidos.
+                Os produtos e o feed permanecem salvos. Tente novamente para recolocar a automação na fila.
               </p>
-              <a className="btn-primary w-fit text-xs" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
-                <Download className="size-3.5" aria-hidden="true" /> Baixar CSV pronto para o TikTok
-              </a>
+              <button type="button" className="btn-primary w-fit text-xs" onClick={handleSyncTiktok} disabled={syncing}>
+                {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RotateCcw className="size-3.5" aria-hidden="true" />} Tentar sincronização automática
+              </button>
             </div>
           )}
 
@@ -908,12 +892,12 @@ function CatalogDetail({
             />
           )}
 
-          {/* Alternativa manual: feed agendado (para quem não usa a publicação
-              direta ou prefere conectar a URL à mão no Catalog Manager) */}
+          {/* URL técnica: é consumida pela automação e pode ser copiada apenas
+              para diagnóstico; nunca é URL de anúncio. */}
           {catalog?.feedUrl && (
             <details className="rounded-xl border border-border bg-background p-4">
               <summary className="cursor-pointer text-xs font-semibold text-foreground">
-                Feed agendado (URL pública)
+                URL técnica do feed
               </summary>
               <div className="mt-3 flex flex-col gap-2">
                 <div className="flex items-center gap-2">
@@ -924,20 +908,9 @@ function CatalogDetail({
                     {copied ? <Check className="size-3.5 text-success" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
                   </button>
                 </div>
-                <ol className="ml-4 list-decimal text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                  <li>Abra o <strong className="text-foreground">TikTok Business Center → Catalog Manager</strong> e crie/abra um catálogo.</li>
-                  <li>Em <strong className="text-foreground">Data source → Scheduled feed</strong>, cole a URL acima e defina a frequência de atualização.</li>
-                  <li>Cada vez que você editar produtos aqui e clicar em <strong className="text-foreground">Feed manual</strong>, a URL continua a mesma — o TikTok re-puxa sozinho.</li>
-                </ol>
-                <a
-                  className="btn-ghost w-fit text-xs"
-                  href="https://ads.tiktok.com/help/article?aid=10001006"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <ExternalLink className="size-3.5" aria-hidden="true" />
-                  Guia oficial do TikTok
-                </a>
+                <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
+                  Esta URL é usada automaticamente para sincronizar os produtos. Ela não é usada no anúncio e não precisa ser preenchida em nenhuma campanha.
+                </p>
               </div>
             </details>
           )}
@@ -1051,7 +1024,7 @@ function CatalogDetail({
           advertiserId={advertiserId}
           spec={spec}
           product={editing === 'new' ? null : editing}
-          currency={catalog?.currency || 'USD'}
+          currency={catalog?.currency || 'BRL'}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null)
@@ -1166,7 +1139,7 @@ function TiktokStatusPanel({
 
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
         {catalogSynced
-          ? 'O vínculo e os produtos foram confirmados. A campanha pode usar este catálogo; se a criação automática não estiver disponível, siga o atalho para o TikTok Ads Manager abaixo.'
+          ? 'O vínculo e os produtos foram confirmados. Assim que o conector validar Product Link, a campanha poderá ser criada aqui sem URL no anúncio.'
           : rejected > 0
             ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
             : productsNotConfirmed

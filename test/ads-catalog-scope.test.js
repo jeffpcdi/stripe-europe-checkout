@@ -6,10 +6,39 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const routes = fs.readFileSync(path.join(root, 'ads-routes.js'), 'utf8');
+const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const storeSource = fs.readFileSync(path.join(root, 'ads-catalog-store.js'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'dashboard/lib/api.ts'), 'utf8');
 const manager = fs.readFileSync(path.join(root, 'dashboard/components/ads/catalog-manager.tsx'), 'utf8');
 const types = fs.readFileSync(path.join(root, 'dashboard/lib/types.ts'), 'utf8');
+const batchDialog = fs.readFileSync(path.join(root, 'dashboard/components/ads/catalog-batch-dialog.tsx'), 'utf8');
+
+// O parser vive no componente client-side. Transpilamos apenas seu trecho puro
+// para validar os formatos de planilha sem montar React/Next no teste Node.
+const typescript = require(path.join(root, 'dashboard/node_modules/typescript'));
+function loadBatchParser() {
+  const start = batchDialog.indexOf('type BatchCatalog');
+  const end = batchDialog.indexOf('function randomKey');
+  assert.ok(start >= 0 && end > start, 'trecho puro do parser de lote encontrado');
+  const source = batchDialog.slice(start, end) + '\nmodule.exports = { parseDelimited, buildPlan };';
+  const transpiled = typescript.transpileModule(source, {
+    compilerOptions: { module: typescript.ModuleKind.CommonJS, target: typescript.ScriptTarget.ES2022 },
+  }).outputText;
+  const sandbox = { module: { exports: {} }, exports: {} };
+  require('vm').runInNewContext(transpiled, sandbox, { filename: 'catalog-batch-parser.ts' });
+  return sandbox.module.exports;
+}
+const batchParser = loadBatchParser();
+
+const semicolonPlan = batchParser.buildPlan([
+  'catalogo;sku;titulo;preco;link;imagem;campanha;orcamento',
+  'Loja Verão;SKU-001;Camiseta;79,90;https://loja.example/camiseta;https://cdn.example/camiseta.jpg;Verão;1.000,00',
+].join('\n'), 'BRL', '');
+assert.strictEqual(semicolonPlan.catalogs.length, 1, 'CSV separado por ponto e vírgula forma um catálogo');
+assert.strictEqual(semicolonPlan.catalogs[0].products[0].data.price, '79.90 BRL', 'preço pt-BR continua normalizado');
+assert.strictEqual(semicolonPlan.catalogs[0].campaigns[0].budgetAmount, 1000, 'orçamento pt-BR com milhar vira número');
+assert.strictEqual(batchParser.parseDelimited('a,b\nc,d')[0].length, 2, 'CSV separado por vírgula continua aceito');
+assert.strictEqual(batchParser.parseDelimited('a\tb\nc\td')[0].length, 2, 'TSV continua aceito');
 
 // Contrato estrutural: a migração é aditiva/anulável e todos os handlers de
 // catálogo passam pela validação do advertiser antes de acessar o store.
@@ -21,18 +50,57 @@ assert.match(storeSource, /WHERE account_id = \$\{accountId\} AND advertiser_id 
 
 const catalogSection = routes.slice(routes.indexOf("app.get('/api/ads/catalogs/spec'"));
 const handlers = [...catalogSection.matchAll(/app\.(?:get|post|put|delete)\('(\/api\/ads\/catalogs[^']*)'/g)];
-assert.strictEqual(handlers.length, 26, 'todas as 26 rotas do fluxo v2 de catálogo continuam registradas');
+assert.strictEqual(handlers.length, 28, 'todas as 28 rotas do fluxo de catálogo, incluindo lote, continuam registradas');
 for (let index = 0; index < handlers.length; index++) {
   const start = handlers[index].index;
   const end = index + 1 < handlers.length ? handlers[index + 1].index : catalogSection.indexOf('\n};', start);
   const body = catalogSection.slice(start, end);
-  assert.match(body, /catalogAdvertiserId\(req\)|prepareCatalogCampaign\(req\)|enqueueCatalogCampaign/, `${handlers[index][1]} valida advertiser explícito`);
+  assert.match(body, /catalogAdvertiserId\(req\)|prepareCatalogCampaign\(req\)|enqueueCatalogCampaign|previewCatalogBatch\(req\)/, `${handlers[index][1]} valida advertiser explícito`);
 }
 assert.match(catalogSection, /catalogStore\.listCatalogs\(req\.account\.id, advertiserId\)/);
 assert.match(catalogSection, /catalogStore\.listProducts\(req\.account\.id, advertiserId,/);
 assert.match(catalogSection, /catalogStore\.setFeedUrl\(accountId, advertiserId,/);
 assert.match(storeSource, /ads_catalog_sync_runs[\s\S]*advertiser_id text/);
 assert.match(storeSource, /listCampaignRuns\(accountId, advertiserId,/);
+assert.match(catalogSection, /app\.post\('\/api\/ads\/catalogs\/batch\/preview'/);
+assert.match(catalogSection, /app\.post\('\/api\/ads\/catalogs\/batch'/);
+assert.match(catalogSection, /catalogBatchExecutor\.executeCatalogBatch/);
+assert.match(catalogSection, /waiting_connector_confirmation/);
+assert.match(catalogSection, /batchCampaignSpecErrors/);
+assert.match(storeSource, /promoteCampaignRunsAwaitingConnectorConfirmation/);
+
+// A chave de idempotência dos runs precisa ser única também por advertiser.
+// Testa o helper real e confirma que os três pontos de escrita das rotas o
+// aplicam antes de persistir sync/campaign runs.
+const registerAdsRoutes = require('../ads-routes');
+const scopedKey = registerAdsRoutes.scopedCatalogRunIdempotencyKey;
+assert.strictEqual(typeof scopedKey, 'function');
+assert.strictEqual(scopedKey('adv_a', 'mesma-chave'), scopedKey('adv_a', 'mesma-chave'));
+assert.notStrictEqual(scopedKey('adv_a', 'mesma-chave'), scopedKey('adv_b', 'mesma-chave'));
+assert.ok(scopedKey('adv_a', 'x'.repeat(200)).length <= 200);
+assert.match(catalogSection, /idempotencyKey: scopedCatalogRunIdempotencyKey\([\s\S]*?catalog-batch-sync/);
+assert.match(catalogSection, /idempotencyKey: scopedCatalogRunIdempotencyKey\([\s\S]*?catalog-batch-campaign/);
+assert.match(catalogSection, /const idempotencyKey = scopedCatalogRunIdempotencyKey\(\s*advertiserId/);
+assert.match(catalogSection, /const key = scopedCatalogRunIdempotencyKey\(\s*prepared\.advertiserId/);
+
+// O parser do lote vem antes do global de 200 KB, preservando o limite global
+// e permitindo o máximo anunciado de 1.500 produtos.
+const batchParserAt = server.indexOf("app.use('/api/ads/catalogs/batch', express.json({ limit: '25mb' }));");
+const globalParserAt = server.indexOf('app.use(express.json({');
+assert.ok(batchParserAt >= 0 && batchParserAt < globalParserAt, 'parser ampliado do lote é montado antes do parser global');
+const batchProduct = (index) => ({ data: {
+  sku_id: 'sku-' + index,
+  title: 'Produto ' + index,
+  description: 'Descrição ' + index,
+  availability: 'in stock',
+  condition: 'new',
+  price: '50.00 BRL',
+  link: 'https://loja.example/produto-' + index,
+  image_link: 'https://cdn.example/imagem-' + index + '.jpg',
+} });
+const fullBatch = { catalogs: [{ key: 'lote', name: 'Lote', products: Array.from({ length: 1500 }, (_, index) => batchProduct(index)) }] };
+assert.ok(Buffer.byteLength(JSON.stringify(fullBatch)) > 200 * 1024, 'lote válido de 1.500 produtos ultrapassa o limite global de 200 KB');
+assert.ok(Buffer.byteLength(JSON.stringify(fullBatch)) < 25 * 1024 * 1024, 'lote válido de 1.500 produtos cabe no parser específico');
 
 // Contrato do cliente: troca de advertiser muda a chave SWR e todas as
 // mutações/downloads usam o helper que inclui adAccountId na URL.
@@ -45,6 +113,9 @@ assert.match(manager, /adsCatalogImportCsv\(catalogId, advertiserId, text\)/);
 assert.match(manager, /href=\{adsCatalogApiUrl\(/);
 assert.doesNotMatch(manager, /(?:fetch|apiSend)\(`?\/api\/ads\/catalogs/);
 assert.match(types, /export interface AdsCatalog \{[\s\S]*advertiserId: string/);
+assert.match(types, /waiting_connector_confirmation/);
+assert.match(batchDialog, /Preparar campanhas Product Link pausadas/);
+assert.doesNotMatch(batchDialog, /checked=\{scheduleCampaigns\} disabled=/);
 
 // Exercita a estratégia de compatibilidade com um Neon em memória: o catálogo
 // legado mantém ID/conteúdo, é atribuído uma única vez e nunca aparece no

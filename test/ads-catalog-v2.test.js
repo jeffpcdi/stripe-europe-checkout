@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const domain = require('../catalog/catalog-domain');
 const gateway = require('../catalog/catalog-tiktok-gateway');
+const adsProvider = require('../ads-provider');
 
 let n = 0;
 function ok(value, label) { assert.ok(value, label); n += 1; console.log('  ✓ ' + label); }
@@ -35,15 +36,16 @@ function throwsCode(fn, code, label) {
   console.log('Domínio — contrato explícito da campanha');
   const input = {
     name: 'Catálogo manual', budgetAmount: 50, productScope: 'specific',
-    productIds: ['7664730406680594184'], catalogVideoTemplateId: '4983c351template',
+    productIds: ['7664730406680594184'],
   };
   const spec = domain.normalizeCampaignSpec(input, { name: 'Loja', country: 'BR' });
   eq(spec.destination, 'PRODUCT_LINK', 'destino vem do produto, sem URL manual');
-  eq(spec.creativeMode, 'CATALOG_VIDEO', 'criativo usa vídeo de catálogo');
+  eq(spec.creativeMode, 'VSA_PRODUCT_LINK', 'spec não confunde Product Link com Catalog Video');
+  eq(spec.strategy, 'vsa_product_link', 'estratégia fica explícita para o adaptador VSA');
   eq(spec.budgetOptimization, 'adgroup', 'ABO é o padrão');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, budgetAmount: 49.99 }, {}), 'CATALOG_CAMPAIGN_BUDGET_BELOW_MINIMUM', 'bloqueia orçamento abaixo do piso do TikTok');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, productIds: ['SKU-local'] }, {}), 'CATALOG_PRODUCT_ID_INVALID', 'não confunde SKU local com Product ID do TikTok');
-  throwsCode(() => domain.normalizeCampaignSpec({ ...input, catalogVideoTemplateId: '' }, {}), 'CATALOG_VIDEO_TEMPLATE_REQUIRED', 'template de vídeo é pré-requisito explícito');
+  eq(domain.normalizeCampaignSpec({ ...input, catalogVideoTemplateId: '' }, {}).catalogVideoTemplateId, undefined, 'template de vídeo é opcional no Product Link');
 
   console.log('Gateway — vínculo verificado contra o Business Center');
   const remote = await gateway.verifyCatalogLink({
@@ -75,6 +77,23 @@ function throwsCode(fn, code, label) {
     ok(/1 catálogo/.test(error.userMessage), 'mensagem informa quantos catálogos o BC tinha');
   }
 
+  const overviewFallback = await gateway.verifyCatalogLink({
+    async listTikTokCatalogs() { return []; },
+    async getTikTokCatalogOverview() {
+      return { total: 3, raw: { catalog_id: '7662123486130784016' } };
+    },
+  }, { bcId: '7550683248272228369', catalogId: '7662123486130784016' });
+  eq(overviewFallback.id, '7662123486130784016', 'overview com catalog_id confirma vínculo quando a listagem está vazia');
+  eq(overviewFallback.productCount, 3, 'fallback preserva total do overview');
+
+  const overview = adsProvider._internals.normalizeCatalogOverview({
+    approved_products: 2, pending_products: 3, disapproved_products: 4, total_products: 9,
+  });
+  eq(overview.approved, 2, 'normaliza approved_products do conector vivo');
+  eq(overview.pending, 3, 'normaliza pending_products do conector vivo');
+  eq(overview.rejected, 4, 'normaliza disapproved_products do conector vivo');
+  eq(overview.total, 9, 'normaliza total_products do conector vivo');
+
   const blockedCapabilities = await gateway.capabilities({
     async getCatalogCapabilities() {
       return { catalogCreate: false, manualCatalogCampaign: false, catalogUpload: true };
@@ -91,7 +110,7 @@ function throwsCode(fn, code, label) {
   ok(/resumeSyncRun/.test(store) && /resumeCampaignRun/.test(store), 'falhas podem ser retomadas');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   ok(/campaign-preflight/.test(routes), 'preflight existe antes da escrita');
-  ok(/CATALOG_CAMPAIGN_UNSUPPORTED/.test(routes), 'preflight bloqueia antes de criar hierarquia parcial');
+  ok(/PRODUCT_LINK_CONNECTOR_CONFIRMATION_REQUIRED/.test(routes), 'preflight bloqueia antes de criar hierarquia parcial');
   ok(/catalog-sync-runs\/:runId\/resume/.test(routes), 'sincronização falha tem endpoint de retomada');
   ok(/CATALOG_CAMPAIGN_NOT_CLEANABLE/.test(routes), 'cleanup não remove campanha concluída');
   const manager = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-manager.tsx'), 'utf8');

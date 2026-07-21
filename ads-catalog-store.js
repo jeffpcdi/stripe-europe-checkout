@@ -34,7 +34,7 @@ async function ensureSchema() {
       account_id text NOT NULL,
       advertiser_id text,
       name text NOT NULL,
-      currency text NOT NULL DEFAULT 'USD',
+      currency text NOT NULL DEFAULT 'BRL',
       feed_blob_url text,
       feed_published_at timestamptz,
       product_count integer NOT NULL DEFAULT 0,
@@ -42,6 +42,9 @@ async function ensureSchema() {
       updated_at timestamptz NOT NULL DEFAULT now()
     )`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalogs_account_idx ON ads_catalogs (account_id, created_at DESC)`;
+    // O painel é BRL por padrão. A alteração é só para novos registros: nunca
+    // troca a moeda já escolhida por um catálogo existente.
+    await sql`ALTER TABLE ads_catalogs ALTER COLUMN currency SET DEFAULT 'BRL'`;
     // Colunas do vínculo com o TikTok real (idempotentes — mesmo padrão do db.js).
     // catalog_type/country/currency são a config que o TikTok exige na criação do
     // catálogo; tiktok_catalog_id/bc_id gravam o catálogo criado na plataforma;
@@ -75,6 +78,12 @@ async function ensureSchema() {
     // duplicar catálogo/produto/feed existente.
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS advertiser_id text`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalogs_account_advertiser_idx ON ads_catalogs (account_id, advertiser_id, created_at DESC)`;
+    // A chave de lote torna a criação reexecutável: se a conexão cair depois
+    // de persistir um catálogo, o mesmo lote reaproveita o registro em vez de
+    // duplicar produtos e feeds no retry.
+    await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS batch_key text`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS ads_catalogs_batch_key_idx
+      ON ads_catalogs (account_id, advertiser_id, batch_key) WHERE batch_key IS NOT NULL`;
     await sql`CREATE TABLE IF NOT EXISTS ads_catalog_products (
       id text PRIMARY KEY,
       catalog_id text NOT NULL,
@@ -165,6 +174,7 @@ function mapCatalog(row) {
     id: row.id,
     accountId: row.account_id,
     advertiserId: row.advertiser_id || null,
+    batchKey: row.batch_key || null,
     name: row.name,
     currency: row.currency,
     catalogType: cleanCatalogType(row.catalog_type),
@@ -265,14 +275,22 @@ async function createCatalog(accountId, advertiserId, input) {
   const value = input || {};
   const name = String(value.name || '').trim().slice(0, 200);
   if (!name) throw new Error('Nome do catálogo obrigatório');
-  const currency = String(value.currency || 'USD').trim().toUpperCase().slice(0, 8) || 'USD';
+  const currency = String(value.currency || 'BRL').trim().toUpperCase().slice(0, 8) || 'BRL';
   const catalogType = cleanCatalogType(value.catalogType);
   const country = value.country ? String(value.country).trim().toUpperCase().slice(0, 4) || null : null;
+  const batchKey = value.batchKey ? String(value.batchKey).trim().slice(0, 200) || null : null;
   const catalogId = id('cat_');
-  const rows = await sql`INSERT INTO ads_catalogs
-    (id, account_id, advertiser_id, name, currency, catalog_type, country)
-    VALUES (${catalogId}, ${accountId}, ${advertiserId}, ${name}, ${currency}, ${catalogType}, ${country})
-    RETURNING *`;
+  const rows = batchKey
+    ? await sql`INSERT INTO ads_catalogs
+      (id, account_id, advertiser_id, name, currency, catalog_type, country, batch_key)
+      VALUES (${catalogId}, ${accountId}, ${advertiserId}, ${name}, ${currency}, ${catalogType}, ${country}, ${batchKey})
+      ON CONFLICT (account_id, advertiser_id, batch_key) WHERE batch_key IS NOT NULL
+      DO UPDATE SET updated_at = now()
+      RETURNING *`
+    : await sql`INSERT INTO ads_catalogs
+      (id, account_id, advertiser_id, name, currency, catalog_type, country)
+      VALUES (${catalogId}, ${accountId}, ${advertiserId}, ${name}, ${currency}, ${catalogType}, ${country})
+      RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
@@ -605,9 +623,12 @@ async function createSyncRun(accountId, advertiserId, catalogId, input) {
   const value = input || {};
   const key = String(value.idempotencyKey || '').trim().slice(0, 200);
   if (!key) throw new Error('Idempotency key obrigatória');
+  const status = ['queued', 'waiting_connector_confirmation'].includes(String(value.status || ''))
+    ? String(value.status) : 'queued';
+  const stage = String(value.stage || status).trim().slice(0, 120) || status;
   const rows = await sql`INSERT INTO ads_catalog_sync_runs
-    (id, account_id, catalog_id, advertiser_id, idempotency_key, payload, progress)
-    VALUES (${id('catsync_')}, ${accountId}, ${String(catalogId)}, ${advertiserId}, ${key}, ${JSON.stringify(value.payload || {})}, ${JSON.stringify(value.progress || {})})
+    (id, account_id, catalog_id, advertiser_id, status, stage, idempotency_key, payload, progress)
+    VALUES (${id('catsync_')}, ${accountId}, ${String(catalogId)}, ${advertiserId}, ${status}, ${stage}, ${key}, ${JSON.stringify(value.payload || {})}, ${JSON.stringify(value.progress || {})})
     ON CONFLICT (account_id, idempotency_key) DO UPDATE SET updated_at = ads_catalog_sync_runs.updated_at
     RETURNING *`;
   return mapSyncRun(rows[0]);
@@ -653,6 +674,59 @@ async function claimNextSyncRun(workerId) {
   return rows[0] || null;
 }
 
+// Um lote pode publicar o feed local e ficar pronto antes de a tool remota
+// confirmar o contrato de criação do catálogo. Esses jobs não são claimáveis
+// até a confirmação; a promoção atômica evita duplicar a sincronização em
+// workers concorrentes.
+async function promoteSyncRunsAwaitingConnectorConfirmation(limit = 20) {
+  if (!enabled) return [];
+  await ensureSchema();
+  const size = Math.max(1, Math.min(100, Number(limit) || 20));
+  const rows = await sql`WITH candidate AS (
+    SELECT id FROM ads_catalog_sync_runs
+    WHERE status = 'waiting_connector_confirmation'
+    ORDER BY created_at ASC
+    FOR UPDATE SKIP LOCKED
+    LIMIT ${size}
+  ) UPDATE ads_catalog_sync_runs AS run
+    SET status = 'queued', stage = 'queued', error = null,
+        locked_at = null, locked_by = null, completed_at = null, updated_at = now()
+    FROM candidate WHERE run.id = candidate.id
+    RETURNING run.*`;
+  return rows.map(mapSyncRun);
+}
+
+// Após o upload, o TikTok pode aceitar a chamada antes de materializar os
+// produtos no catálogo. Esta consulta devolve apenas o ÚLTIMO sync de cada
+// catálogo que ainda está nesse estado para o worker atualizar a auditoria sem
+// depender de alguém deixar a dashboard aberta. `syncRunId` e `syncProgress`
+// permitem registrar o resultado sem perder o contexto da publicação.
+async function listCatalogsAwaitingTikTokAudit(limit = 5) {
+  if (!enabled) return [];
+  await ensureSchema();
+  const size = Math.max(1, Math.min(20, Number(limit) || 5));
+  const rows = await sql`SELECT catalog.*, run.id AS sync_run_id, run.progress AS sync_progress
+    FROM ads_catalogs AS catalog
+    INNER JOIN LATERAL (
+      SELECT id, status, stage, progress
+      FROM ads_catalog_sync_runs
+      WHERE account_id = catalog.account_id AND advertiser_id = catalog.advertiser_id
+        AND catalog_id = catalog.id
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) AS run ON true
+    WHERE run.status = 'completed' AND run.stage = 'processing_tiktok'
+      AND catalog.tiktok_catalog_id IS NOT NULL
+      AND catalog.bc_id IS NOT NULL
+      AND catalog.link_status = 'verified'
+    ORDER BY catalog.updated_at ASC
+    LIMIT ${size}`;
+  return rows.map((row) => Object.assign(mapCatalog(row), {
+    syncRunId: row.sync_run_id || null,
+    syncProgress: row.sync_progress || {},
+  }));
+}
+
 async function updateSyncRun(accountId, runId, status, patch) {
   accountId = cleanAccountId(accountId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
@@ -691,9 +765,12 @@ async function createCampaignRun(accountId, advertiserId, catalogId, input) {
   const value = input || {};
   const key = String(value.idempotencyKey || '').trim().slice(0, 200);
   if (!key) throw new Error('Idempotency key obrigatória');
+  const status = ['queued', 'waiting_catalog_review', 'waiting_connector_confirmation'].includes(String(value.status || ''))
+    ? String(value.status) : 'queued';
+  const stage = String(value.stage || status).trim().slice(0, 120) || status;
   const rows = await sql`INSERT INTO ads_catalog_campaign_runs
-    (id, account_id, catalog_id, advertiser_id, idempotency_key, spec)
-    VALUES (${id('catcamp_')}, ${accountId}, ${String(catalogId)}, ${advertiserId}, ${key}, ${JSON.stringify(value.spec || {})})
+    (id, account_id, catalog_id, advertiser_id, status, stage, idempotency_key, spec)
+    VALUES (${id('catcamp_')}, ${accountId}, ${String(catalogId)}, ${advertiserId}, ${status}, ${stage}, ${key}, ${JSON.stringify(value.spec || {})})
     ON CONFLICT (account_id, idempotency_key) DO UPDATE SET updated_at = ads_catalog_campaign_runs.updated_at
     RETURNING *`;
   return mapCampaignRun(rows[0]);
@@ -735,6 +812,83 @@ async function claimNextCampaignRun(workerId) {
         locked_at = now(), locked_by = ${worker}, updated_at = now()
     FROM candidate WHERE run.id = candidate.id RETURNING run.*`;
   return rows[0] || null;
+}
+
+// Campanhas enfileiradas por um lote não podem sair antes de o TikTok aceitar
+// os produtos do catálogo. Esta promoção é atômica: vários workers podem
+// consultar ao mesmo tempo, mas cada run muda de espera para fila uma vez só.
+async function promoteCampaignRunsAwaitingReview(limit = 20) {
+  if (!enabled) return [];
+  await ensureSchema();
+  const size = Math.max(1, Math.min(100, Number(limit) || 20));
+  const rows = await sql`WITH candidate AS (
+    SELECT run.id
+    FROM ads_catalog_campaign_runs AS run
+    INNER JOIN ads_catalogs AS catalog
+      ON catalog.id = run.catalog_id AND catalog.account_id = run.account_id
+        AND catalog.advertiser_id = run.advertiser_id
+    WHERE run.status = 'waiting_catalog_review'
+      AND catalog.tiktok_catalog_id IS NOT NULL
+      AND catalog.bc_id IS NOT NULL
+      AND catalog.link_status = 'verified'
+      AND CASE
+        WHEN COALESCE(catalog.audit ->> 'approved', '') ~ '^[0-9]+$'
+          THEN (catalog.audit ->> 'approved')::int
+        ELSE 0
+      END > 0
+    ORDER BY run.created_at ASC
+    FOR UPDATE SKIP LOCKED
+    LIMIT ${size}
+  ) UPDATE ads_catalog_campaign_runs AS run
+    SET status = 'queued', stage = 'validating', error = null,
+        locked_at = null, locked_by = null, completed_at = null, updated_at = now()
+    FROM candidate WHERE run.id = candidate.id
+    RETURNING run.*`;
+  return rows.map(mapCampaignRun);
+}
+
+// Um lote pode ser preparado antes de o Pipeboard expor o contrato completo
+// de Product Link. Esses jobs não são claimáveis nem saem para o TikTok até a
+// capacidade ser confirmada pelo worker; a promoção é atômica para vários
+// workers não liberarem o mesmo run duas vezes.
+async function promoteCampaignRunsAwaitingConnectorConfirmation(limit = 20) {
+  if (!enabled) return [];
+  await ensureSchema();
+  const size = Math.max(1, Math.min(100, Number(limit) || 20));
+  const rows = await sql`WITH candidate AS (
+    SELECT id FROM ads_catalog_campaign_runs
+    WHERE status = 'waiting_connector_confirmation'
+    ORDER BY created_at ASC
+    FOR UPDATE SKIP LOCKED
+    LIMIT ${size}
+  ) UPDATE ads_catalog_campaign_runs AS run
+    SET status = 'waiting_catalog_review', stage = 'waiting_catalog_review', error = null,
+        locked_at = null, locked_by = null, completed_at = null, updated_at = now()
+    FROM candidate WHERE run.id = candidate.id
+    RETURNING run.*`;
+  return rows.map(mapCampaignRun);
+}
+
+// Só devolve catálogos que realmente têm campanhas esperando. O worker usa a
+// lista para atualizar a auditoria do TikTok em ritmo lento e liberar o lote
+// assim que houver produto aprovado, sem depender de alguém manter a tela
+// aberta no navegador.
+async function listCatalogsAwaitingCampaignReview(limit = 5) {
+  if (!enabled) return [];
+  await ensureSchema();
+  const size = Math.max(1, Math.min(20, Number(limit) || 5));
+  const rows = await sql`SELECT DISTINCT ON (catalog.id) catalog.*
+    FROM ads_catalogs AS catalog
+    INNER JOIN ads_catalog_campaign_runs AS run
+      ON run.catalog_id = catalog.id AND run.account_id = catalog.account_id
+        AND run.advertiser_id = catalog.advertiser_id
+    WHERE run.status = 'waiting_catalog_review'
+      AND catalog.tiktok_catalog_id IS NOT NULL
+      AND catalog.bc_id IS NOT NULL
+      AND catalog.link_status = 'verified'
+    ORDER BY catalog.id, catalog.updated_at ASC
+    LIMIT ${size}`;
+  return rows.map(mapCatalog);
 }
 
 async function updateCampaignRun(accountId, runId, status, patch) {
@@ -811,12 +965,17 @@ module.exports = {
   getSyncRun,
   listSyncRuns,
   claimNextSyncRun,
+  promoteSyncRunsAwaitingConnectorConfirmation,
+  listCatalogsAwaitingTikTokAudit,
   updateSyncRun,
   resumeSyncRun,
   createCampaignRun,
   getCampaignRun,
   listCampaignRuns,
   claimNextCampaignRun,
+  promoteCampaignRunsAwaitingReview,
+  promoteCampaignRunsAwaitingConnectorConfirmation,
+  listCatalogsAwaitingCampaignReview,
   updateCampaignRun,
   resumeCampaignRun,
   recoverCatalogRuns

@@ -1,7 +1,9 @@
 node_modules/
 .DS_Store
 .env
+.env.*
 .env*.local
+!.env.example
 
 # Build output do Next.js — nunca versionar (é regenerado a cada deploy/build)
 .next/

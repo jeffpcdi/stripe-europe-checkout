@@ -101,7 +101,6 @@ interface FormState {
   // Campanha de catálogo (DPA): quando preenchido, criativo/produtos/destino
   // vêm TODOS do catálogo — a URL do site fica indisponível por construção.
   catalogId: string
-  catalogVideoTemplateId: string
 }
 
 const INITIAL: FormState = {
@@ -128,7 +127,6 @@ const INITIAL: FormState = {
   linkUrl: '',
   callToAction: '',
   catalogId: '',
-  catalogVideoTemplateId: '',
 }
 
 export function CreateAdPanel({
@@ -236,7 +234,6 @@ export function CreateAdPanel({
       // Catálogo selecionado: o criativo é gerado dos produtos (DPA) — vídeo
       // e URL do site não se aplicam.
       if (form.catalogId) {
-        if (!form.catalogVideoTemplateId.trim()) return 'Informe o Catalog Video Template ID'
         return null
       }
       if (!/^https:\/\/\S+/.test(form.videoUrl.trim())) return 'Adicione o vídeo do anúncio (URL https ou upload)'
@@ -372,7 +369,6 @@ export function CreateAdPanel({
           ...(form.bidStrategy === 'cost_cap' ? { bidAmount: Number(form.bidAmount) } : {}),
           ...(countries.length ? { country: countries[0] } : {}),
           productScope: 'all',
-          catalogVideoTemplateId: form.catalogVideoTemplateId.trim(),
         })
         toast.success('Criação da campanha de catálogo iniciada', {
           hint: 'A campanha, o conjunto e o anúncio serão verificados e permanecerão pausados.',
@@ -993,17 +989,8 @@ export function CreateAdPanel({
                 {form.catalogId ? (
                   <div className="flex flex-col gap-2">
                     <p className="rounded-lg bg-primary/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-primary">
-                      A campanha usará todos os produtos aprovados. O destino vem do link de cada produto; o TikTok monta o vídeo com um template aprovado.
+                      A campanha usará todos os produtos aprovados. O destino vem do link de cada produto; não há URL nem template obrigatório neste nível.
                     </p>
-                    <label className="flex flex-col gap-1.5">
-                      <span className="text-xs font-medium text-foreground">Catalog Video Template ID</span>
-                      <input
-                        className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                        value={form.catalogVideoTemplateId}
-                        onChange={(event) => set('catalogVideoTemplateId', event.target.value.replace(/\s/g, ''))}
-                        placeholder="ID do template aprovado no Catalog Manager"
-                      />
-                    </label>
                   </div>
                 ) : (
                   <span className="text-[11px] text-muted-foreground">

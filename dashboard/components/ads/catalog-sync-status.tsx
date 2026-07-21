@@ -6,11 +6,13 @@ import { toast } from '@/lib/toast'
 
 const LABELS: Record<string, string> = {
   queued: 'Aguardando processamento',
+  waiting_connector_confirmation: 'Aguardando confirmação do conector',
   publishing_feed: 'Preparando o feed',
   connecting_catalog: 'Conectando o catálogo',
   uploading_products: 'Enviando produtos',
   auditing_products: 'Consultando a análise',
   processing_tiktok: 'TikTok processando os produtos',
+  reviewed_tiktok: 'Análise atualizada no TikTok',
   completed: 'Sincronização concluída',
   failed: 'Sincronização interrompida',
 }
@@ -21,9 +23,14 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
   if (!run) return null
 
   const runId = run.id
-  const active = ['queued', 'running', 'retrying'].includes(run.status)
+  const active = ['queued', 'waiting_connector_confirmation', 'running', 'retrying'].includes(run.status)
+  const waitingConnector = run.status === 'waiting_connector_confirmation'
   const failed = ['failed', 'partial'].includes(run.status)
   const awaitingTikTok = run.status === 'completed' && run.stage === 'processing_tiktok'
+  const auditProgress = run.progress && typeof run.progress.audit === 'object' && run.progress.audit !== null
+    ? run.progress.audit as Record<string, unknown> : null
+  const auditAttempts = Math.max(0, Number(run.progress?.auditAttempts) || 0)
+  const remoteStillEmpty = awaitingTikTok && auditAttempts >= 3 && Number(auditProgress?.total) === 0
   async function resume() {
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalog-sync-runs/${encodeURIComponent(runId)}/resume`, advertiserId), 'POST', {})
@@ -42,7 +49,7 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
           {run.error ? (
             <>
               <p className="mt-1 text-pretty text-[10px] leading-relaxed text-muted-foreground">
-                <span className="font-semibold text-error">{run.error.userMessage}</span>
+                <span className={`font-semibold ${waitingConnector ? 'text-primary' : 'text-error'}`}>{run.error.userMessage}</span>
                 {run.error.suggestedAction ? ` ${run.error.suggestedAction}` : ''}
               </p>
               {failed && run.error.retryable && <button type="button" className="btn-primary mt-2 !py-1.5 text-xs" onClick={resume}><RotateCcw className="size-3.5" /> Retomar</button>}
@@ -50,10 +57,17 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
           ) : (
             <p className="mt-0.5 text-[10px] text-muted-foreground">
               {active
-                ? 'Esta tarefa continua mesmo se você sair da página.'
+                ? run.status === 'waiting_connector_confirmation'
+                  ? 'O lote está salvo e será retomado automaticamente quando o conector confirmar a criação do catálogo.'
+                  : 'Esta tarefa continua mesmo se você sair da página.'
                 : awaitingTikTok
                   ? 'O envio terminou; falta o TikTok confirmar os produtos na auditoria.'
                   : `Atualizado em ${new Date(run.updatedAt).toLocaleString('pt-BR')}`}
+            </p>
+          )}
+          {remoteStillEmpty && (
+            <p className="mt-2 rounded-md bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
+              O TikTok ainda retornou 0 produtos após {auditAttempts} verificações automáticas. O lote continua preservado, mas nenhum anúncio será criado até a auditoria mostrar produtos.
             </p>
           )}
         </div>

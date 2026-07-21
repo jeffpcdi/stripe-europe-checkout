@@ -45,6 +45,8 @@ import type {
   AdsCatalogDetailResponse,
   AdsCatalogSpecResponse,
   AdsCatalogBusinessCenter,
+  AdsCatalogBatchPreviewResponse,
+  AdsCatalogBatchExecutionResponse,
   AdsSmartPlusResponse,
   AdsSmartPlusAdsResponse,
   AdsMcpStatusResponse,
@@ -745,7 +747,7 @@ export function useAdsCatalogSyncRuns(catalogId: string | null, adAccountId: str
     catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-runs`, adAccountId) : null,
     fetcher,
     {
-      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
+      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'waiting_connector_confirmation', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
       revalidateOnFocus: true, keepPreviousData: false,
     },
   )
@@ -756,7 +758,7 @@ export function useAdsCatalogCampaignRuns(catalogId: string | null, adAccountId:
     catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-runs`, adAccountId) : null,
     fetcher,
     {
-      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
+      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
       revalidateOnFocus: true, keepPreviousData: false,
     },
   )
@@ -812,6 +814,31 @@ export async function adsPreflightCatalogCampaign(
 ): Promise<{ ok: boolean; readiness: import('./types').AdsCatalogReadiness; spec: Record<string, unknown>; capabilities: Record<string, boolean | string> }> {
   return apiSend(
     adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-preflight`, adAccountId),
+    'POST',
+    body,
+  )
+}
+
+// Lote rápido: primeiro valida o plano e depois grava/enfileira tudo com a
+// mesma chave de idempotência. Nenhum campo de URL do anúncio existe neste
+// contrato; o destino vem do `link` de cada produto.
+export async function adsPreviewCatalogBatch(
+  adAccountId: string,
+  body: Record<string, unknown>,
+): Promise<AdsCatalogBatchPreviewResponse> {
+  return apiSend<AdsCatalogBatchPreviewResponse>(
+    adsCatalogApiUrl('/api/ads/catalogs/batch/preview', adAccountId),
+    'POST',
+    body,
+  )
+}
+
+export async function adsCreateCatalogBatch(
+  adAccountId: string,
+  body: Record<string, unknown>,
+): Promise<AdsCatalogBatchExecutionResponse> {
+  return apiSend<AdsCatalogBatchExecutionResponse>(
+    adsCatalogApiUrl('/api/ads/catalogs/batch', adAccountId),
     'POST',
     body,
   )

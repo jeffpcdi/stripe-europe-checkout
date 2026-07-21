@@ -56,6 +56,30 @@ async function verifyCatalogLink(provider, input) {
     const catalogs = (Array.isArray(rows) ? rows : []).map(normalizeRemoteCatalog);
     seen = catalogs;
     found = catalogs.find((catalog) => catalog.id === catalogId) || null;
+    // Algumas respostas atuais de get_tiktok_catalogs voltam vazias mesmo
+    // quando o endpoint de overview enxerga o mesmo catálogo no BC. Antes de
+    // recriar um catálogo remoto já existente, usamos esse segundo endpoint
+    // como prova somente quando ele ecoa o catalog_id solicitado.
+    if (!found && typeof provider.getTikTokCatalogOverview === 'function') {
+      try {
+        const overview = await provider.getTikTokCatalogOverview(bcId, catalogId);
+        const raw = overview && overview.raw;
+        const overviewId = String(deepValue(raw, ['catalog_id', 'catalogId', 'id'], 0) || '');
+        if (overviewId === catalogId) {
+          found = {
+            id: catalogId,
+            name: '',
+            currency: '',
+            country: '',
+            catalogType: '',
+            productCount: Number(overview && overview.total) || 0,
+          };
+        }
+      } catch (_) {
+        // A lista continua sendo a fonte principal. Falha de overview não
+        // transforma um vínculo inexistente em válido.
+      }
+    }
     if (!found && attempt < attempts - 1 && delayMs) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }

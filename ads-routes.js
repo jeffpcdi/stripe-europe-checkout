@@ -26,6 +26,7 @@
 //   DELETE /api/ads/:adId                → cancela o anúncio
 //   POST   /api/ads/upload               → vídeo/imagem → disco (/uploads, URL pública)
 // ─────────────────────────────────────────────────────────────────────────────
+const crypto = require('crypto');
 const pipeboard = require('./ads-provider'); // fronteira dashboard↔Pipeboard (única integração — F6 removeu a Zernio)
 const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só /diag)
 const adsCache = require('./ads-cache-store'); // espelho durável no Neon (leitura)
@@ -39,6 +40,8 @@ const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — s
   const catalogInspect = require('./ads-catalog-inspect');
 const catalogDomain = require('./catalog/catalog-domain');
 const catalogGateway = require('./catalog/catalog-tiktok-gateway');
+const catalogBatchDomain = require('./catalog/catalog-batch-domain');
+const catalogBatchExecutor = require('./catalog/catalog-batch-executor');
 const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 
 const ADS_DAY_FORMAT = new Intl.DateTimeFormat('en-CA', {
@@ -62,6 +65,20 @@ function fail(res, err) {
   if (err.createdIds) out.createdIds = err.createdIds;
   if (err.currentRevision != null) out.currentRevision = err.currentRevision;
   res.status(status).json(out);
+}
+
+// A unicidade durável dos runs legados é account_id + idempotency_key. Cada
+// rota já valida o advertiser, mas a mesma chave enviada em dois advertisers
+// da mesma conta ainda poderia reutilizar o run errado. Derivamos uma chave
+// opaca e estável que inclui o advertiser antes de gravá-la; o limite da
+// coluna (200) continua folgadamente atendido.
+function scopedCatalogRunIdempotencyKey(advertiserId, value) {
+  const advertiser = String(advertiserId || '').trim();
+  const key = String(value || '').trim();
+  if (!advertiser || !key) return key.slice(0, 200);
+  return crypto.createHash('sha256')
+    .update('catalog-run-v1\u0000' + advertiser + '\u0000' + key)
+    .digest('hex');
 }
 
 module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
@@ -2631,6 +2648,247 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return { catalog: updated, feedUrl, published: valid.length, skipped: products.length - valid.length };
   }
 
+  // ── Lote rápido de catálogo ──────────────────────────────────────────────
+  // A entrada do lote é validada em duas barreiras: o domínio normaliza
+  // produtos/campanhas e o executor rejeita novamente qualquer URL de anúncio
+  // antes do primeiro INSERT. Assim, o único destino aceito é o `link` de cada
+  // produto do feed — nunca um link global no anúncio.
+  const BATCH_LIMITS = { catalogs: 25, products: 1500, campaigns: 100 };
+
+  function batchInput(req) {
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
+    const plan = body.plan && typeof body.plan === 'object' && !Array.isArray(body.plan) ? body.plan : body;
+    return { body, plan };
+  }
+
+  function batchTooLarge(preview) {
+    const summary = preview && preview.summary || {};
+    const counts = {
+      catalogs: Number(summary.catalogs && summary.catalogs.total) || 0,
+      products: Number(summary.products && summary.products.total) || 0,
+      campaigns: Number(summary.campaigns && summary.campaigns.total) || 0,
+    };
+    const problems = [];
+    for (const key of Object.keys(BATCH_LIMITS)) {
+      if (counts[key] > BATCH_LIMITS[key]) problems.push(key + ': máximo de ' + BATCH_LIMITS[key]);
+    }
+    return problems.length ? { counts, problems } : null;
+  }
+
+  function batchAutomationState(capabilities, accountId, advertiserId, origin) {
+    const bcId = pipeboard.getBusinessCenterId(accountId, advertiserId);
+    const catalogCreate = capabilities.catalogCreate === true;
+    const catalogSync = Boolean(
+      pipeboard.enabled && capabilities.catalogUpload && capabilities.catalogLinkVerify && bcId && origin
+    );
+    // `manualCatalogCampaign` só fica true quando o schema remoto confirma o
+    // contrato integral de Product Link. Não inferimos isso de Smart+ nem da
+    // simples ausência de landing_page_url_list.
+    const productLinkCampaign = capabilities.manualCatalogCampaign === true;
+    return {
+      catalogSync,
+      catalogCreationStatus: catalogCreate ? 'ready' : 'awaiting_connector_confirmation',
+      catalogCreationNote: catalogCreate
+        ? 'O catálogo remoto será criado e vinculado automaticamente antes do envio dos produtos.'
+        : 'O lote publica o feed e preserva os produtos. A criação remota fica em fila e continua automaticamente quando o conector confirmar o contrato do catálogo.',
+      productLinkCampaign,
+      businessCenterConfigured: Boolean(bcId),
+      productLinkStatus: productLinkCampaign ? 'ready' : 'awaiting_connector_confirmation',
+      productLinkNote: productLinkCampaign
+        ? 'Campanhas de catálogo usarão Product Link; a URL vem exclusivamente de cada produto do feed.'
+        : 'O lote cria catálogo, produtos, feed e deixa as campanhas Product Link pausadas na fila. Elas iniciam automaticamente quando o conector confirmar esse destino.',
+    };
+  }
+
+  function batchCampaignSpecErrors(plan) {
+    const catalogs = Array.isArray(plan && plan.catalogs) ? plan.catalogs : [];
+    const errors = [];
+    for (let catalogIndex = 0; catalogIndex < catalogs.length; catalogIndex += 1) {
+      const catalog = catalogs[catalogIndex] || {};
+      const campaigns = Array.isArray(catalog.campaigns) ? catalog.campaigns : [];
+      for (let campaignIndex = 0; campaignIndex < campaigns.length; campaignIndex += 1) {
+        try {
+          // Confere orçamento e escopo antes de criar qualquer catálogo do
+          // lote. Product Link usa o `link` de cada produto e não exige
+          // template nem URL no anúncio; a chamada no executor é repetida por
+          // defesa.
+          catalogDomain.normalizeCampaignSpec(campaigns[campaignIndex], catalog);
+        } catch (err) {
+          errors.push({
+            code: String(err && err.code || 'CATALOG_BATCH_CAMPAIGN_SPEC_INVALID'),
+            message: String(err && (err.userMessage || err.message) || 'A campanha do lote é inválida.'),
+            path: 'catalogs[' + catalogIndex + '].campaigns[' + campaignIndex + ']',
+            catalogKey: String(catalog.key || ''),
+          });
+        }
+      }
+    }
+    return errors;
+  }
+
+  async function previewCatalogBatch(req) {
+    const advertiserId = await catalogAdvertiserId(req);
+    const input = batchInput(req);
+    const preview = catalogBatchDomain.previewBatchPlan(input.plan);
+    const capabilities = await catalogGateway.capabilities(pipeboard);
+    const campaignSpecErrors = input.body.scheduleCampaigns === true
+      ? batchCampaignSpecErrors(preview.plan) : [];
+    return {
+      advertiserId,
+      body: input.body,
+      preview,
+      campaignSpecErrors,
+      tooLarge: batchTooLarge(preview),
+      automation: batchAutomationState(capabilities, req.account.id, advertiserId, adsStorage.publicOrigin(req)),
+      capabilities,
+    };
+  }
+
+  // Preview não grava nada: a UI usa a mesma resposta para mostrar quantos
+  // catálogos, produtos e campanhas pausadas serão preparados no lote.
+  app.post('/api/ads/catalogs/batch/preview', dashboardAuth, async (req, res) => {
+    try {
+      const out = await previewCatalogBatch(req);
+      res.json({
+        ok: out.preview.ok && !out.tooLarge && out.campaignSpecErrors.length === 0,
+        preview: out.preview,
+        campaignSpecErrors: out.campaignSpecErrors,
+        limits: BATCH_LIMITS,
+        tooLarge: out.tooLarge,
+        automation: out.automation,
+        capabilities: out.capabilities,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Cria vários catálogos locais de uma vez, sobe os produtos e enfileira a
+  // publicação. Quando Product Link estiver confirmado pelo conector, as
+  // campanhas também ficam em espera até o TikTok aprovar os produtos.
+  app.post('/api/ads/catalogs/batch', dashboardAuth, async (req, res) => {
+    try {
+      const out = await previewCatalogBatch(req);
+      if (!out.preview.ok) {
+        return res.status(422).json({
+          error: 'Revise os itens marcados antes de criar o lote.',
+          code: 'CATALOG_BATCH_VALIDATION_FAILED', preview: out.preview,
+        });
+      }
+      if (out.tooLarge) {
+        return res.status(422).json({
+          error: 'O lote excede o limite seguro de processamento.',
+          code: 'CATALOG_BATCH_LIMIT_EXCEEDED', limits: BATCH_LIMITS, tooLarge: out.tooLarge,
+        });
+      }
+      if (out.campaignSpecErrors.length) {
+        return res.status(422).json({
+          error: 'Revise as campanhas do lote antes de criar os catálogos.',
+          code: 'CATALOG_BATCH_CAMPAIGN_SPEC_INVALID', campaignSpecErrors: out.campaignSpecErrors,
+        });
+      }
+      if (!catalogStore.enabled) {
+        return res.status(503).json({ error: 'Persistência Neon indisponível para criar o lote.', code: 'CATALOG_BATCH_STORAGE_DISABLED' });
+      }
+
+      const syncToTikTok = out.body.syncToTikTok !== false;
+      const scheduleCampaigns = out.body.scheduleCampaigns === true;
+      if (scheduleCampaigns && !syncToTikTok) {
+        return res.status(422).json({
+          error: 'Para agendar campanhas, sincronize os catálogos primeiro.',
+          code: 'CATALOG_BATCH_CAMPAIGN_REQUIRES_SYNC',
+        });
+      }
+      if (syncToTikTok && !out.automation.catalogSync) {
+        return res.status(422).json({
+          error: 'Configure o Business Center e a origem pública antes de sincronizar este lote com o TikTok.',
+          code: 'CATALOG_BATCH_SYNC_NOT_READY', automation: out.automation,
+        });
+      }
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+
+      const requestedKey = String(req.get('Idempotency-Key') || out.body.idempotencyKey || '').trim();
+      const batchId = (requestedKey || ('catalog-batch-' + crypto.randomUUID())).slice(0, 160);
+      const batchToken = crypto.createHash('sha256').update(batchId).digest('hex').slice(0, 40);
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'catalog_batch', targetType: 'catalog_batch', targetId: batchId, advertiserId: out.advertiserId,
+          metadata: { summary: out.preview.summary, syncToTikTok, scheduleCampaigns },
+          title: 'Criar lote de catálogos: ' + out.preview.summary.normalizedCatalogs,
+        });
+        return res.json({
+          ok: true, dryRun: true, simulated: true, batchId, preview: out.preview,
+          automation: out.automation,
+        });
+      }
+
+      const accountId = req.account.id;
+      const advertiserId = out.advertiserId;
+      const origin = adsStorage.publicOrigin(req);
+      const campaignQueueStatus = out.automation.productLinkCampaign
+        ? 'waiting_catalog_review' : 'waiting_connector_confirmation';
+      const syncQueueStatus = out.automation.catalogCreationStatus === 'ready'
+        ? 'queued' : 'waiting_connector_confirmation';
+      const execution = await catalogBatchExecutor.executeCatalogBatch(out.preview.plan, {
+        createCatalog: async (context, catalog) => catalogStore.createCatalog(accountId, advertiserId, {
+          ...catalog,
+          batchKey: ['catalog-batch', batchToken, context.catalogKey].join(':'),
+        }),
+        upsertProduct: async (_context, catalog, product) => catalogStore.upsertProduct(
+          accountId, advertiserId, catalog.id, product, catalogFeed.validateProduct,
+        ),
+        enqueueSync: async (context, catalog) => {
+          const published = await publishCatalogFeed(accountId, advertiserId, catalog.id, origin);
+          await catalogStore.appendPublication(accountId, advertiserId, catalog.id, {
+            kind: 'feed', status: 'success', published: published.published, skipped: published.skipped, feedUrl: published.feedUrl,
+          }).catch(() => {});
+          return catalogStore.createSyncRun(accountId, advertiserId, catalog.id, {
+            idempotencyKey: scopedCatalogRunIdempotencyKey(
+              advertiserId,
+              ['catalog-batch-sync', batchToken, context.catalogKey].join(':'),
+            ),
+            status: syncQueueStatus, stage: syncQueueStatus,
+            payload: {
+              bcId: pipeboard.getBusinessCenterId(accountId, advertiserId), feedUrl: published.feedUrl,
+              published: published.published, skipped: published.skipped, batchId,
+            },
+            progress: { published: 0, skipped: published.skipped, batchId },
+          });
+        },
+        enqueueCampaign: async (context, catalog, campaign) => {
+          const spec = catalogDomain.normalizeCampaignSpec(campaign, catalog);
+          return catalogStore.createCampaignRun(accountId, advertiserId, catalog.id, {
+            idempotencyKey: scopedCatalogRunIdempotencyKey(
+              advertiserId,
+              ['catalog-batch-campaign', batchToken, context.catalogKey, context.campaignIndex].join(':'),
+            ),
+            status: campaignQueueStatus, stage: campaignQueueStatus, spec: { ...spec, batchId },
+          });
+        },
+      }, {
+        accountId, advertiserId, batchId,
+        metadata: { source: 'dashboard_batch' },
+        concurrency: Math.max(1, Math.min(4, Number(out.body.concurrency) || 2)),
+        queueSync: syncToTikTok,
+        queueCampaigns: scheduleCampaigns,
+      });
+
+      stats.logEvent('info', {
+        acc: accountId,
+        title: 'Lote de catálogo criado: ' + execution.summary.catalogs.completed + '/' + execution.summary.catalogs.total,
+        ref: batchId,
+      });
+      await adsOps.appendAuditEvent(accountId, {
+        actorType: 'user', actorId: accountId, action: 'catalog_batch.created',
+        targetType: 'catalog_batch', targetId: batchId, advertiserId,
+        afterState: execution.summary,
+        reason: 'Lote criado com destino Product Link sem URL manual de anúncio',
+      }).catch(() => {});
+      res.status(execution.ok ? 201 : 207).json({
+        ok: execution.ok, batchId, execution, preview: out.preview,
+        automation: out.automation,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
   app.post('/api/ads/catalogs/:catalogId/publish', dashboardAuth, async (req, res) => {
     try {
       const advertiserId = await catalogAdvertiserId(req);
@@ -2681,9 +2939,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // V2: a publicação deixa de viver numa Promise solta dentro da request.
       // O worker durável lê este run no Neon e pode retomá-lo após restart.
       const requestedKey = String(req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '').trim();
-      const idempotencyKey = requestedKey || ['catalog-sync', accId, catalogId, catalog.updatedAt || Date.now()].join(':');
+      const idempotencyKey = scopedCatalogRunIdempotencyKey(
+        advertiserId,
+        requestedKey || ['catalog-sync', accId, catalogId, catalog.updatedAt || Date.now()].join(':'),
+      );
+      const capabilities = await catalogGateway.capabilities(pipeboard);
+      const syncQueueStatus = !catalog.tiktokCatalogId && capabilities.catalogCreate !== true
+        ? 'waiting_connector_confirmation' : 'queued';
       const run = await catalogStore.createSyncRun(accId, advertiserId, catalogId, {
         idempotencyKey,
+        status: syncQueueStatus, stage: syncQueueStatus,
         payload: { bcId, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped },
         progress: { published: 0, skipped: pub.skipped },
       });
@@ -2748,9 +3013,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (!pipeboard.enabled) throw catalogDomain.catalogError('PIPEBOARD_DISABLED', 'Pipeboard não configurado no servidor.', { status: 409 });
     const capabilities = await catalogGateway.capabilities(pipeboard);
     if (!capabilities.manualCatalogCampaign) {
-      throw catalogDomain.catalogError('CATALOG_CAMPAIGN_UNSUPPORTED', 'A API atual não expõe todos os campos necessários para criar campanha, conjunto e anúncio de catálogo.', {
+      throw catalogDomain.catalogError('PRODUCT_LINK_CONNECTOR_CONFIRMATION_REQUIRED', 'O conector ainda não confirmou o destino Product Link para esta criação.', {
         status: 501, retryable: false,
-        suggestedAction: 'Crie a campanha Product Sales no TikTok Ads Manager usando este catálogo. A dashboard bloqueou a automação para não deixar uma campanha parcial.',
+        suggestedAction: 'O catálogo continua pronto com o Link de cada produto. A dashboard não criará uma campanha com URL global; aguarde a confirmação explícita de Product Link pelo conector.',
       });
     }
     const accId = req.account.id;
@@ -2795,7 +3060,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         return res.json({ dryRun: true, simulated: true, name: prepared.spec.name });
       }
       const requestedKey = String(req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '').trim();
-      const key = requestedKey || ['catalog-campaign', prepared.accId, prepared.catalog.id, prepared.spec.name].join(':');
+      const key = scopedCatalogRunIdempotencyKey(
+        prepared.advertiserId,
+        requestedKey || ['catalog-campaign', prepared.accId, prepared.catalog.id, prepared.spec.name].join(':'),
+      );
       const run = await catalogStore.createCampaignRun(prepared.accId, prepared.advertiserId, prepared.catalog.id, {
         idempotencyKey: key, spec: prepared.spec,
       });
@@ -2869,3 +3137,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 };
+
+// Exposta apenas para o teste unitário do isolamento da chave. O export
+// principal continua sendo a função de registro das rotas.
+module.exports.scopedCatalogRunIdempotencyKey = scopedCatalogRunIdempotencyKey;

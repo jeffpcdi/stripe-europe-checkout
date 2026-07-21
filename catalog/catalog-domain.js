@@ -45,7 +45,7 @@ function humanizeStage(stage) {
 
 function suggestedAction(stage) {
   if (stage === 'adgroup') return 'Revise catálogo, Business Center, pixel, evento e o tipo de Catalog Ads antes de retomar.';
-  if (stage === 'ad') return 'Revise produto, identidade, template de vídeo, texto e CTA antes de retomar.';
+  if (stage === 'ad') return 'Revise produto, identidade, texto e CTA antes de retomar. Product Link não usa URL manual.';
   if (stage === 'verify') return 'Atualize a conexão e tente verificar novamente.';
   return 'Revise os campos destacados e tente novamente.';
 }
@@ -141,10 +141,12 @@ function normalizeCampaignSpec(input, catalog) {
   if (productScope === 'product_set' && !/^\d{6,30}$/.test(productSetId)) {
     throw catalogError('CATALOG_PRODUCT_SET_INVALID', 'Informe um Product Set ID numérico válido do TikTok.');
   }
+  // Product Link não é uma URL do anúncio: é o destino individual guardado no
+  // campo `link` de cada item do catálogo. Um template de vídeo pode ser útil
+  // em uma variação Catalog Video, mas não pode ser pré-requisito do lote
+  // Product Link (nem do VSA Carousel), pois esses formatos não compartilham
+  // o mesmo criativo.
   const catalogVideoTemplateId = String(value.catalogVideoTemplateId || '').trim();
-  if (!catalogVideoTemplateId) {
-    throw catalogError('CATALOG_VIDEO_TEMPLATE_REQUIRED', 'Informe o Catalog Video Template ID aprovado no TikTok.');
-  }
   const identityType = String(value.identityType || '').trim().toUpperCase();
   const identityId = String(value.identityId || '').trim();
   if ((identityId && !identityType) || (!identityId && identityType)) {
@@ -157,14 +159,14 @@ function normalizeCampaignSpec(input, catalog) {
     bidAmount: Number(value.bidAmount) || undefined,
     country: String(value.country || cat.country || 'BR').trim().toUpperCase(),
     productScope, productIds, productSetId: productSetId || undefined,
-    catalogVideoTemplateId,
+    catalogVideoTemplateId: catalogVideoTemplateId || undefined,
     identityId: identityId || undefined, identityType: identityType || undefined,
     identityBcId: String(value.identityBcId || '').trim() || undefined,
     pixelId: String(value.pixelId || '').trim() || undefined,
     pixelEvent: String(value.pixelEvent || '').trim() || undefined,
     text: String(value.text || '').trim().slice(0, 100) || undefined,
     callToAction: String(value.callToAction || 'LEARN_MORE').trim().toUpperCase(),
-    destination: 'PRODUCT_LINK', creativeMode: 'CATALOG_VIDEO', status: 'paused',
+    strategy: 'vsa_product_link', destination: 'PRODUCT_LINK', creativeMode: 'VSA_PRODUCT_LINK', status: 'paused',
   };
 }
 

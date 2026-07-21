@@ -288,6 +288,11 @@ app.use(
 // ganha um parser próprio de 5mb ANTES do parser global de 200kb (webhooks
 // reais de gateway têm poucos KB — 200kb já é folga generosa).
 app.use('/api/backup/import', express.json({ limit: '5mb' }));
+// O lote de catálogo aceita até 1.500 produtos. Um payload válido nessa escala
+// passa de 200 KB, então recebe parser próprio ANTES do parser global. O teto
+// global permanece em 200 KB para todas as demais APIs; 25 MB acompanha o
+// limite já usado na importação CSV do catálogo.
+app.use('/api/ads/catalogs/batch', express.json({ limit: '25mb' }));
 app.use(express.json({
   limit: '200kb',
   verify: (req, _res, buf) => { req.rawBody = buf ? buf.toString('utf8') : ''; }

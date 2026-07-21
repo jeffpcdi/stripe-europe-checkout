@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { AlertCircle, Check, ChevronDown, ExternalLink, Loader2, Rocket, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, Loader2, Rocket, RotateCcw, Trash2 } from 'lucide-react'
 import {
   adsCatalogApiUrl, adsCreateCatalogCampaign, adsPreflightCatalogCampaign, apiSend,
   useAdsCatalogCampaignRuns,
@@ -15,16 +15,18 @@ const STAGES: Record<string, string> = {
   queued: 'Na fila', validating: 'Validando pré-requisitos', creating_campaign: 'Criando campanha',
   creating_adgroup: 'Criando conjunto', creating_ad: 'Criando anúncio',
   verifying_entities: 'Verificando a hierarquia', ready_paused: 'Pronta e pausada',
+  waiting_connector_confirmation: 'Aguardando confirmação Product Link',
+  waiting_catalog_review: 'Aguardando aprovação do catálogo',
   campaign: 'Criação da campanha', adgroup: 'Criação do conjunto', ad: 'Criação do anúncio', verify: 'Verificação',
 }
 
 const RUN_STATUS: Record<AdsCatalogCampaignRun['status'], string> = {
-  queued: 'Na fila', running: 'Em andamento', retrying: 'Tentando novamente',
+  queued: 'Na fila', waiting_connector_confirmation: 'Aguardando conector', waiting_catalog_review: 'Aguardando catálogo', running: 'Em andamento', retrying: 'Tentando novamente',
   completed: 'Concluída', partial: 'Parcial', failed: 'Falhou', cancelled: 'Cancelada',
 }
 
 function RunCard({ run, advertiserId, mutate }: { run: AdsCatalogCampaignRun; advertiserId: string; mutate: () => void }) {
-  const active = ['queued', 'running', 'retrying'].includes(run.status)
+  const active = ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)
   const [confirmCleanup, setConfirmCleanup] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
   async function action(kind: 'resume' | 'cleanup') {
@@ -107,7 +109,7 @@ export function CatalogCampaignWizard({
   const [text, setText] = useState('')
   const [cta, setCta] = useState('LEARN_MORE')
 
-  const activeRun = useMemo(() => runs.find((run) => ['queued', 'running', 'retrying'].includes(run.status)), [runs])
+  const activeRun = useMemo(() => runs.find((run) => ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)), [runs])
 
   function payload() {
     return {
@@ -128,7 +130,6 @@ export function CatalogCampaignWizard({
   async function create() {
     if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return toast.error(tiktokMinimumBudgetMessage(catalog.currency, ' por dia'))
     if (productScope === 'specific' && !productIds.trim()) return toast.error('Informe ao menos um Product ID do TikTok')
-    if (!templateId.trim()) return toast.error('Informe o Catalog Video Template ID usado pelo anúncio')
     setBusy(true)
     try {
       const body = payload()
@@ -150,27 +151,18 @@ export function CatalogCampaignWizard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-xs font-semibold text-foreground">Campanhas deste catálogo</h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Video Shopping Ads · Catalog video · destino obtido do produto.</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Video Shopping Ads · Product Link individual de cada produto do catálogo.</p>
         </div>
         {supported ? (
           <button type="button" className="btn-primary text-xs" onClick={() => setOpen((value) => !value)} disabled={!ready || Boolean(activeRun)}>
             <Rocket className="size-3.5" /> {activeRun ? 'Criação em andamento' : 'Nova campanha'} <ChevronDown className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
           </button>
-        ) : (
-          <a className="btn-primary text-xs" href="https://ads.tiktok.com/" target="_blank" rel="noreferrer">
-            <ExternalLink className="size-3.5" /> Abrir TikTok Ads Manager
-          </a>
-        )}
+        ) : <span className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[10px] font-medium text-warning">Modo VSA Product Link em validação</span>}
       </div>
       {!supported && (
         <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
-          <p className="font-semibold text-warning">Finalize a campanha no TikTok Ads Manager</p>
-          <p className="mt-1">A API atual não aceita todos os campos de Product Sales com segurança. Seus produtos já ficam prontos aqui; conclua somente a campanha no gerenciador.</p>
-          <ol className="mt-2 ml-4 list-decimal space-y-1">
-            <li>Abra o Ads Manager e escolha <strong className="text-foreground">Product Sales / Video Shopping Ads</strong>.</li>
-            <li>Use o Catalog ID <code className="rounded bg-background px-1 py-0.5 text-foreground">{catalog.tiktokCatalogId || 'ainda não conectado'}</code>.</li>
-            <li>Publique pausada; depois ela aparecerá automaticamente na lista de campanhas desta dashboard.</li>
-          </ol>
+          <p className="font-semibold text-warning">VSA Product Link ainda não foi declarado pelo conector</p>
+          <p className="mt-1">Este catálogo já usa o <strong className="text-foreground">Link</strong> de cada produto. A dashboard preserva esse destino e não troca por URL global nem cria anúncio comum como alternativa. Os lotes ficam preparados e serão retomados automaticamente quando o contrato VSA Product Link estiver disponível.</p>
         </div>
       )}
       {supported && !ready && <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[10px] text-warning">Conclua o checklist de prontidão antes de criar uma campanha.</p>}
@@ -189,10 +181,10 @@ export function CatalogCampaignWizard({
           </fieldset>
           {productScope === 'specific' && <label className="block text-[11px] text-muted-foreground">Product IDs do TikTok, separados por vírgula<input className="input-base mt-1 w-full" value={productIds} onChange={(e) => setProductIds(e.target.value)} placeholder="7664730406680594184" /></label>}
           {productScope === 'product_set' && <label className="block text-[11px] text-muted-foreground">Product Set ID<input className="input-base mt-1 w-full" value={productSetId} onChange={(e) => setProductSetId(e.target.value)} /></label>}
-          <label className="block text-[11px] text-muted-foreground">Catalog Video Template ID<input className="input-base mt-1 w-full" value={templateId} onChange={(e) => setTemplateId(e.target.value)} placeholder="ID do template aprovado no Catalog Manager" /></label>
           <details className="rounded-lg border border-border p-3">
-            <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Identidade, pixel e criativo</summary>
+            <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Identidade, pixel e criativo avançado</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="text-[11px] text-muted-foreground">Catalog Video Template ID (opcional)<input className="input-base mt-1 w-full" value={templateId} onChange={(e) => setTemplateId(e.target.value.replace(/\s/g, ''))} placeholder="Somente se a variação VSA exigir template" /></label>
               <label className="text-[11px] text-muted-foreground">Identity ID<input className="input-base mt-1 w-full" value={identityId} onChange={(e) => setIdentityId(e.target.value)} placeholder="Opcional: autodetectar" /></label>
               <label className="text-[11px] text-muted-foreground">Tipo<select className="input-base mt-1 w-full" value={identityType} onChange={(e) => setIdentityType(e.target.value)}><option>CUSTOMIZED_USER</option><option>BC_AUTH_TT</option></select></label>
               <label className="text-[11px] text-muted-foreground">Pixel ID<input className="input-base mt-1 w-full" value={pixelId} onChange={(e) => setPixelId(e.target.value)} placeholder="Numérico ou alfanumérico" /></label>

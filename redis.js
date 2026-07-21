@@ -18,7 +18,7 @@ try {
     || process.env.UPSTASH_FOR_REDIS_KV_REST_API_TOKEN;
   if (url && token) {
     redis = new Redis({ url, token });
-    console.log('[redis] Upstash conectado:', url.slice(0, 40) + '...');
+    console.log('[redis] Upstash conectado.');
   } else {
     console.log('[redis] Variáveis não encontradas — modo memória ativado');
   }
