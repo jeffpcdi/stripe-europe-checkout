@@ -12,6 +12,43 @@ export function catalogPixelLabel(pixel: AdsTikTokPixel) {
   return `${name} · ${purchases} ${purchases === 1 ? 'compra' : 'compras'} em 30d${value ? ` · ID ${value}` : ''}`
 }
 
+// Aceita o que o gestor colar — ID numérico OU o código alfanumérico do
+// Events Manager (ex.: D9F2J3JC77U5KEVKQB80) — e resolve para o pixel_id
+// numérico que a API do TikTok exige. Sem conversão manual.
+export type CatalogPixelResolution = {
+  // ID numérico pronto para a API ('' quando não resolvido)
+  id: string
+  // Como o valor foi interpretado
+  kind: 'numeric' | 'code' | 'empty' | 'unresolved'
+  // Mensagem amigável quando o código não pôde ser convertido
+  error?: string
+}
+
+export function resolveCatalogPixelInput(raw: string, pixels: AdsTikTokPixel[]): CatalogPixelResolution {
+  const value = String(raw || '').trim()
+  if (!value) return { id: '', kind: 'empty' }
+  if (/^\d{6,30}$/.test(value)) return { id: value, kind: 'numeric' }
+  // Código do Events Manager: alfanumérico com pelo menos uma letra.
+  if (/^[A-Za-z0-9]{10,30}$/.test(value) && /[A-Za-z]/.test(value)) {
+    const needle = value.toUpperCase()
+    const match = (Array.isArray(pixels) ? pixels : []).find(
+      (pixel) => String(pixel.code || '').trim().toUpperCase() === needle,
+    )
+    const matchId = match ? catalogPixelValue(match) : ''
+    if (matchId) return { id: matchId, kind: 'code' }
+    return {
+      id: '',
+      kind: 'unresolved',
+      error: `“${value}” é o código do Events Manager, mas não encontrei esse Pixel na conta de anúncio conectada. Confira se o Pixel pertence a esta conta ou informe o ID numérico (Ads Manager → Ferramentas → Eventos).`,
+    }
+  }
+  return {
+    id: '',
+    kind: 'unresolved',
+    error: 'Informe o ID numérico do Pixel (6 a 30 dígitos) ou o código do Events Manager (letras e números).',
+  }
+}
+
 // Escolhe automaticamente o melhor Pixel da conta: prioriza pixels ativos e,
 // entre eles, o que registrou mais compras nos últimos 30 dias. Retorna o valor
 // numérico pronto para usar como pixel_id, ou '' quando nenhum pixel é utilizável.
