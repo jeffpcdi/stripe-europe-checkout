@@ -51,36 +51,42 @@ async function catalogCapabilitiesForSchemas(tools) {
 
 (async () => {
   console.log('Provider — validação antes da rede (createCatalogCampaign)');
-  const base = { catalogId: 'cat_1', bcId: 'bc_1', name: 'Catálogo X', budgetAmount: 50 };
+  // Receita Smart+ validada ao vivo: catálogo + Product Link (o Link de cada
+  // produto vem do catálogo, não de URL global) + vídeo do gestor por campanha.
+  const base = {
+    catalogId: '7662123486130784016', catalogBcId: '7550683248272228369', name: 'Catálogo X',
+    budgetAmount: 50, pixelId: '7664608179090620423', videoId: 'v10033g50000abc',
+    coverImageId: 'tos-alisg-p/cover', landingPageUrl: 'https://loja.example/pages/produto-1',
+    identityId: 'bda0f384-c67e', identityType: 'BC_AUTH_TT',
+  };
   await throws(() => provider.createCatalogCampaign('', base), 400, 'exige advertiser');
   await throws(() => provider.createCatalogCampaign('123', { ...base, catalogId: '' }), 400, 'exige catalogId do TikTok');
-  await throws(() => provider.createCatalogCampaign('123', { ...base, bcId: '' }), 400, 'exige bcId (Business Center)');
+  await throws(() => provider.createCatalogCampaign('123', { ...base, catalogBcId: '', bcId: '' }), 400, 'exige Business Center do catálogo');
   await throws(() => provider.createCatalogCampaign('123', { ...base, name: '' }), 400, 'exige nome');
-  await throws(() => provider.createCatalogCampaign('123', { ...base, budgetAmount: 49.99 }), 400, 'exige orçamento mínimo de 50');
-  await throws(() => provider.createCatalogCampaign('123', { ...base, budgetType: 'lifetime' }), 400, 'orçamento total exige data de término');
-  await throws(() => provider.createCatalogCampaign('123', base), 400, 'exige Pixel ID para CONVERT antes de tocar a rede');
-  await throws(() => provider.createCatalogCampaign('123', { ...base, pixelId: '7550683248272228369', pixelEvent: 'EVENTO_INVENTADO' }), 400, 'rejeita evento de Pixel desconhecido antes da rede');
+  await throws(() => provider.createCatalogCampaign('123', { ...base, budgetAmount: 4.99 }), 400, 'exige orçamento mínimo');
+  await throws(() => provider.createCatalogCampaign('123', { ...base, pixelId: '' }), 400, 'exige Pixel ID para CONVERT antes de tocar a rede');
+  await throws(() => provider.createCatalogCampaign('123', { ...base, videoId: '' }), 400, 'exige vídeo do anúncio (criativo por campanha)');
+  await throws(() => provider.createCatalogCampaign('123', { ...base, coverImageId: '' }), 400, 'exige capa do vídeo');
+  await throws(() => provider.createCatalogCampaign('123', { ...base, landingPageUrl: 'http://inseguro' }), 400, 'Product Link precisa ser https (derivado do Link do produto)');
 
-  console.log('Provider — exportado e no molde composto');
+  console.log('Provider — receita Smart+ Product Link (validada ao vivo)');
   {
     const src = fs.readFileSync(path.join(__dirname, '..', 'ads-provider.js'), 'utf8');
     ok(typeof provider.createCatalogCampaign === 'function', 'createCatalogCampaign exportado');
     ok(typeof provider.listInterestCategories === 'function', 'listInterestCategories exportado');
     const body = src.match(/async function createCatalogCampaign[\s\S]*?\n}\n/)[0];
-    ok(/objective_type: 'PRODUCT_SALES'/.test(body), 'campanha usa objetivo PRODUCT_SALES');
-    ok(/VIDEO_SHOPPING_ADS/.test(body), 'usa o tipo Video Shopping Ads do fluxo validado');
-    ok(/product_source: 'CATALOG'/.test(body), 'ad group aponta a fonte CATALOG');
-    ok(/agArgs\.pixel_id = pixelId/.test(body) && /agArgs\.optimization_event = pixelEvent/.test(body), 'ad group sempre recebe pixel e evento validados');
-    ok(/CATALOG_VIDEO/.test(body), 'mantém formato de catálogo configurável para a variação VSA');
-    ok(/catalog_video_template_id/.test(body), 'aceita template de vídeo opcional quando a variação exigir');
-    ok(/product_ids/.test(body), 'propaga produtos específicos');
-    ok(/website_type: 'PRODUCT_LINK'/.test(body), 'seleciona Product Link como destino');
-    ok(!/landing_page_url/.test(body), 'não envia URL manual no anúncio de catálogo');
-    ok(/operation_status: 'DISABLE'|status: 'PAUSED'/.test(body), 'nasce pausada');
-    ok(/setCampaignStatus\(adv, \[campaignId\], 'paused'\)/.test(body), 'órfã é pausada no catch (à prova de órfãos)');
+    ok(/create_tiktok_smart_plus_campaign/.test(body), 'campanha via Smart+ (único caminho de catálogo na API)');
+    ok(/objective_type: 'WEB_CONVERSIONS'/.test(body) && /catalog_enabled: true/.test(body) && /catalog_type: 'ECOMMERCE'/.test(body), 'campanha catalog_enabled ECOMMERCE');
+    ok(/create_tiktok_smart_plus_adgroup/.test(body) && /promotion_type: 'WEBSITE'/.test(body), 'grupo Smart+ promotion WEBSITE');
+    ok(/catalog_authorized_bc_id/.test(body) && /product_source: 'CATALOG'/.test(body), 'grupo usa catalog_authorized_bc_id + product_source CATALOG');
+    ok(/bid_type: 'BID_TYPE_NO_BID'/.test(body) && /optimization_event: optimizationEvent/.test(body), 'grupo NO_BID + evento de otimização');
+    ok(/ad_format: 'SINGLE_VIDEO'/.test(body) && /video_info: \{ video_id: videoId \}/.test(body), 'anúncio de VÍDEO (criativo do gestor, com áudio)');
+    ok(/catalog_media_settings: \['VIDEO'\]/.test(body), 'usa o vídeo do produto do catálogo (sem música)');
+    ok(/product_info_enabled: 'CATALOG'/.test(body), 'Product Link: cada produto usa o seu próprio Link');
+    ok(/landing_page_url_list: \[\{ landing_page_url: landing \}\]/.test(body), 'URL base derivada do Link do produto (nunca URL global digitada)');
+    ok(/operation_status: 'DISABLE'/.test(body), 'nasce pausada');
+    ok(/setSmartPlusCampaignStatus\(adv, \[campaignId\], 'paused'\)/.test(body), 'órfã é pausada no catch (à prova de órfãos)');
     ok(/stepError\('adgroup'/.test(body), 'reporta o passo em falha de ad group');
-    ok(/verifying_entities/.test(body), 'confirma campanha, conjunto e anúncio antes do sucesso');
-    ok(/verifyCatalogProductLinkHierarchy/.test(body), 'confirma catálogo, Product Link, pausa e ausência de URL manual na leitura');
   }
 
   console.log('Provider — leitura dos três níveis não aceita falso positivo');
