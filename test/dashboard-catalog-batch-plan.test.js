@@ -32,7 +32,7 @@ const { resolveStableIdempotencyKey } = loadTypeScriptModule(
 const { catalogSyncRunsRefreshInterval } = loadTypeScriptModule(
   path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-run-polling.ts'),
 );
-const { catalogPixelLabel, catalogPixelValue } = loadTypeScriptModule(
+const { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel } = loadTypeScriptModule(
   path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-pixels.ts'),
 );
 
@@ -114,6 +114,64 @@ console.log('dashboard-catalog-batch-plan — contrato do Pixel');
     row('Loja A', 'sku-1', 'Campanha A', '1234567890123456789', ''),
   ].join('\n'), 'BRL', { requireCampaignPixel: true });
   eq(plan.catalogs[0].campaigns[0].pixelEvent, 'ON_WEB_ORDER', 'evento vazio recebe o padrão canônico');
+}
+
+console.log('dashboard-catalog-batch-plan — Pixel padrão automático');
+{
+  const withoutPixel = [
+    header,
+    row('Loja A', 'sku-1', 'Campanha A', '', ''),
+    row('Loja B', 'sku-2', 'Campanha B', '', ''),
+  ].join('\n');
+  const plan = buildCatalogBatchPlan(withoutPixel, 'BRL', {
+    requireCampaignPixel: true,
+    defaultPixelId: '9876543210987654321',
+  });
+  eq(plan.message, '', 'Pixel padrão elimina a exigência da coluna pixel_id');
+  eq(plan.catalogs[0].campaigns[0].pixelId, '9876543210987654321', 'campanha sem pixel_id herda o Pixel padrão');
+  eq(plan.catalogs[1].campaigns[0].pixelId, '9876543210987654321', 'todas as campanhas do lote herdam o padrão');
+  eq(plan.catalogs[0].campaigns[0].pixelEvent, 'ON_WEB_ORDER', 'evento vazio segue o canônico mesmo com Pixel padrão');
+}
+{
+  const plan = buildCatalogBatchPlan([
+    header,
+    row('Loja A', 'sku-1', 'Campanha A', '1111110000000000001'),
+  ].join('\n'), 'BRL', { requireCampaignPixel: true, defaultPixelId: '9876543210987654321' });
+  eq(plan.catalogs[0].campaigns[0].pixelId, '1111110000000000001', 'coluna pixel_id preenchida vence o Pixel padrão');
+}
+{
+  const plan = buildCatalogBatchPlan([
+    header,
+    row('Loja A', 'sku-1', 'Campanha A', '', ''),
+  ].join('\n'), 'BRL', { requireCampaignPixel: true, defaultPixelId: 'pixel-abc' });
+  ok(plan.message.includes('pixel_id'), 'Pixel padrão inválido é ignorado e a exigência volta a valer');
+}
+{
+  const plan = buildCatalogBatchPlan([
+    header,
+    row('Loja A', 'sku-1', 'Campanha A', '', ''),
+  ].join('\n'), 'BRL', { requireCampaignPixel: true, defaultPixelId: '9876543210987654321', defaultPixelEvent: 'initiate_order' });
+  eq(plan.catalogs[0].campaigns[0].pixelEvent, 'INITIATE_ORDER', 'evento padrão customizado é normalizado para maiúsculas');
+}
+{
+  const plan = buildCatalogBatchPlan([
+    header,
+    row('Loja A', 'sku-1', 'Campanha A', '', 'ON_WEB_CART'),
+  ].join('\n'), 'BRL', { requireCampaignPixel: true, defaultPixelId: '9876543210987654321', defaultPixelEvent: 'INITIATE_ORDER' });
+  eq(plan.catalogs[0].campaigns[0].pixelEvent, 'ON_WEB_CART', 'coluna evento preenchida vence o evento padrão');
+}
+{
+  const pixels = [
+    { id: '1000000000000000001', code: 'A', name: 'Antigo', status: 'inactive', purchaseCount: 90 },
+    { id: '1000000000000000002', code: 'B', name: 'Principal', status: 'active', purchaseCount: 42 },
+    { id: '1000000000000000003', code: 'C', name: 'Secundário', status: 'active', purchaseCount: 7 },
+  ];
+  eq(pickDefaultCatalogPixel(pixels), '1000000000000000002', 'auto-seleção prefere pixel ativo com mais compras em 30d');
+  eq(pickDefaultCatalogPixel([]), '', 'lista vazia não seleciona Pixel');
+  eq(pickDefaultCatalogPixel([{ id: 'abc', code: 'x', name: 'Sem ID', status: 'active', purchaseCount: 5 }]), '', 'pixel sem ID numérico é descartado da auto-seleção');
+  eq(pickDefaultCatalogPixel([
+    { id: 'local', code: '2000000000000000009', name: 'Só código', status: 'active', purchaseCount: 1 },
+  ]), '2000000000000000009', 'código numérico serve de fallback na auto-seleção');
 }
 
 console.log('dashboard-catalog-batch-plan — retry e polling');

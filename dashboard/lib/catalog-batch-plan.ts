@@ -16,6 +16,11 @@ export type CatalogBatchPlan = {
 
 export type CatalogBatchPlanOptions = {
   requireCampaignPixel?: boolean
+  // Pixel aplicado automaticamente a toda campanha sem a coluna pixel_id.
+  // Vem da lista autenticada de Pixels da conta de anúncio (auto-seleção).
+  defaultPixelId?: string
+  // Evento aplicado quando a coluna "evento" está vazia (padrão ON_WEB_ORDER).
+  defaultPixelEvent?: string
 }
 
 const HEADERS: Record<string, string[]> = {
@@ -108,6 +113,10 @@ function campaignBudget(value: string) {
 }
 
 export function buildCatalogBatchPlan(raw: string, currency: string, options: CatalogBatchPlanOptions = {}): CatalogBatchPlan {
+  const defaultPixelId = /^\d{6,30}$/.test(String(options.defaultPixelId || '').trim())
+    ? String(options.defaultPixelId).trim()
+    : ''
+  const defaultPixelEvent = String(options.defaultPixelEvent || '').trim().toUpperCase() || 'ON_WEB_ORDER'
   const rows = parseDelimited(raw)
   if (rows.length < 2) {
     return { catalogs: [], rows: 0, message: 'Cole o cabeçalho e pelo menos uma linha de produto.' }
@@ -185,7 +194,9 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
     const campaignKey = `${key}:${campaignName}`
     if (campaignName && !campaignKeys.has(campaignKey)) {
       campaignKeys.add(campaignKey)
-      const pixelId = valueAt(row, idx.pixelId)
+      // Pixel automático: linha sem pixel_id herda o Pixel padrão da conta,
+      // eliminando a digitação manual em cada linha do lote.
+      const pixelId = valueAt(row, idx.pixelId) || defaultPixelId
       if (!pixelId) missingCampaignPixelRows.push(line)
       else if (!/^\d{6,30}$/.test(pixelId)) invalidCampaignPixelRows.push(line)
       catalog.campaigns.push({
@@ -194,7 +205,7 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
         budgetType: 'daily',
         productScope: 'all',
         pixelId,
-        pixelEvent: valueAt(row, idx.pixelEvent).toUpperCase() || 'ON_WEB_ORDER',
+        pixelEvent: valueAt(row, idx.pixelEvent).toUpperCase() || defaultPixelEvent,
         // Criativo de VÍDEO por campanha (o gestor escolheu 1 vídeo por campanha).
         videoId: valueAt(row, idx.video),
         coverImageId: valueAt(row, idx.cover),
@@ -213,7 +224,7 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
     messages.push(`Nomes de catálogo diferentes não podem ser agrupados: ${examples.join('; ')}${catalogCollisions.length > 4 ? '; …' : ''}. Renomeie um deles.`)
   }
   if (options.requireCampaignPixel && missingCampaignPixelRows.length) {
-    messages.push(`Informe o Pixel ID do TikTok nas campanhas das linhas ${missingCampaignPixelRows.slice(0, 6).join(', ')}${missingCampaignPixelRows.length > 6 ? '…' : ''}. Use a coluna “pixel_id” com 6 a 30 dígitos.`)
+    messages.push(`Informe o Pixel ID do TikTok nas campanhas das linhas ${missingCampaignPixelRows.slice(0, 6).join(', ')}${missingCampaignPixelRows.length > 6 ? '…' : ''}. Selecione um Pixel padrão acima ou preencha a coluna “pixel_id” com 6 a 30 dígitos.`)
   }
   if (options.requireCampaignPixel && invalidCampaignPixelRows.length) {
     messages.push(`Corrija o Pixel ID nas linhas ${invalidCampaignPixelRows.slice(0, 6).join(', ')}${invalidCampaignPixelRows.length > 6 ? '…' : ''}: ele deve conter somente 6 a 30 dígitos.`)
