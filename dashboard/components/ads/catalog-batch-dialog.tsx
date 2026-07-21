@@ -50,13 +50,25 @@ export function CatalogBatchDialog({
     }
   }, [scheduleCampaigns, defaultPixelId, availablePixels.length, pixelsData?.pixels])
 
+  // Converte códigos do Events Manager (colados no campo padrão ou na coluna
+  // pixel_id) para o ID numérico usando a lista autenticada da conta.
+  const pixelCodeMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const { pixel, value } of availablePixels) {
+      const code = String(pixel.code || '').trim().toUpperCase()
+      if (code && !/^\d+$/.test(code)) map[code] = value
+    }
+    return map
+  }, [availablePixels])
+
   const plan = useMemo(
     () => buildCatalogBatchPlan(source, currency, {
       requireCampaignPixel: scheduleCampaigns,
       defaultPixelId: scheduleCampaigns ? defaultPixelId : '',
       defaultPixelEvent,
+      pixelCodeMap,
     }),
-    [source, currency, scheduleCampaigns, defaultPixelId, defaultPixelEvent],
+    [source, currency, scheduleCampaigns, defaultPixelId, defaultPixelEvent, pixelCodeMap],
   )
   const campaignCount = plan.catalogs.reduce((total, catalog) => total + catalog.campaigns.length, 0)
   const canSubmit = plan.catalogs.length > 0 && !plan.message && !busy
@@ -229,13 +241,10 @@ export function CatalogBatchDialog({
                   ) : (
                     <input
                       className="input-base text-[11px]"
-                      inputMode="numeric"
-                      pattern="[0-9]{6,30}"
-                      minLength={6}
                       maxLength={30}
                       value={defaultPixelId}
-                      onChange={(event) => { setDefaultPixelId(event.target.value.replace(/\D/g, '').slice(0, 30)); invalidatePlan() }}
-                      placeholder={pixelsLoading ? 'Carregando Pixels da conta…' : pixelsError ? 'Lista indisponível — informe os dígitos do Pixel' : '1234567890123456789'}
+                      onChange={(event) => { setDefaultPixelId(event.target.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 30)); invalidatePlan() }}
+                      placeholder={pixelsLoading ? 'Carregando Pixels da conta…' : pixelsError ? 'Lista indisponível — cole o ID numérico do Pixel' : 'ID numérico ou código (ex.: D9F2J3JC77U5KEVKQB80)'}
                     />
                   )}
                 </label>
@@ -254,7 +263,7 @@ export function CatalogBatchDialog({
                     ? 'O Pixel com mais compras em 30 dias já vem selecionado. As colunas pixel_id e evento continuam valendo como exceção por linha.'
                     : pixelsLoading
                       ? 'Buscando os Pixels da conta de anúncio…'
-                      : 'A lista de Pixels da conta não pôde ser carregada; informe os 6 a 30 dígitos do Pixel ou use a coluna pixel_id.'}
+                      : 'A lista de Pixels da conta não pôde ser carregada; cole o ID numérico (6 a 30 dígitos) do Pixel ou use a coluna pixel_id.'}
                   {' '}Nenhuma URL ou template é obrigatório no nível do anúncio.
                 </p>
               </div>

@@ -32,7 +32,7 @@ const { resolveStableIdempotencyKey } = loadTypeScriptModule(
 const { catalogSyncRunsRefreshInterval } = loadTypeScriptModule(
   path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-run-polling.ts'),
 );
-const { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel } = loadTypeScriptModule(
+const { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel, resolveCatalogPixelInput } = loadTypeScriptModule(
   path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-pixels.ts'),
 );
 
@@ -106,7 +106,7 @@ console.log('dashboard-catalog-batch-plan — contrato do Pixel');
     header,
     row('Loja A', 'sku-1', 'Campanha A', 'pixel-123'),
   ].join('\n'), 'BRL', { requireCampaignPixel: true });
-  ok(plan.message.includes('somente 6 a 30 dígitos'), 'Pixel alfanumérico é bloqueado antes do preview');
+  ok(plan.message.includes('ID numérico (6 a 30 dígitos)'), 'Pixel inválido segue bloqueado, com orientação sobre ID numérico ou código da conta');
 }
 {
   const plan = buildCatalogBatchPlan([
@@ -172,6 +172,45 @@ console.log('dashboard-catalog-batch-plan — Pixel padrão automático');
   eq(pickDefaultCatalogPixel([
     { id: 'local', code: '2000000000000000009', name: 'Só código', status: 'active', purchaseCount: 1 },
   ]), '2000000000000000009', 'código numérico serve de fallback na auto-seleção');
+}
+
+console.log('dashboard-catalog-batch-plan — código do Events Manager resolve para ID numérico');
+{
+  const pixels = [
+    { id: '7411223344556677889', code: 'D9F2J3JC77U5KEVKQB80', name: 'Loja principal', status: 'active', purchaseCount: 30 },
+  ];
+  eq(resolveCatalogPixelInput('7411223344556677889', pixels).id, '7411223344556677889', 'ID numérico passa direto');
+  const fromCode = resolveCatalogPixelInput('D9F2J3JC77U5KEVKQB80', pixels);
+  eq(fromCode.id, '7411223344556677889', 'código do Events Manager resolve para o ID numérico da conta');
+  eq(fromCode.kind, 'code', 'resolução informa que veio de um código');
+  eq(resolveCatalogPixelInput('d9f2j3jc77u5kevkqb80', pixels).id, '7411223344556677889', 'código em minúsculas também resolve');
+  const unknown = resolveCatalogPixelInput('ZZZZJ3JC77U5KEVKQB80', pixels);
+  eq(unknown.id, '', 'código desconhecido não resolve');
+  ok(unknown.error.includes('Events Manager'), 'código desconhecido explica que é o código do Events Manager');
+  eq(resolveCatalogPixelInput('', pixels).kind, 'empty', 'entrada vazia é neutra');
+  ok(resolveCatalogPixelInput('12ab', pixels).error, 'entrada curta demais gera orientação');
+}
+{
+  const plan = buildCatalogBatchPlan([
+    header,
+    row('Loja A', 'sku-1', 'Campanha A', 'D9F2J3JC77U5KEVKQB80', ''),
+  ].join('\n'), 'BRL', {
+    requireCampaignPixel: true,
+    pixelCodeMap: { D9F2J3JC77U5KEVKQB80: '7411223344556677889' },
+  });
+  eq(plan.message, '', 'código conhecido na coluna pixel_id não bloqueia o lote');
+  eq(plan.catalogs[0].campaigns[0].pixelId, '7411223344556677889', 'coluna pixel_id com código resolve para o ID numérico');
+}
+{
+  const plan = buildCatalogBatchPlan([
+    header,
+    row('Loja A', 'sku-1', 'Campanha A', '', ''),
+  ].join('\n'), 'BRL', {
+    requireCampaignPixel: true,
+    defaultPixelId: 'D9F2J3JC77U5KEVKQB80',
+    pixelCodeMap: { D9F2J3JC77U5KEVKQB80: '7411223344556677889' },
+  });
+  eq(plan.catalogs[0].campaigns[0].pixelId, '7411223344556677889', 'Pixel padrão informado como código resolve para o ID numérico');
 }
 
 console.log('dashboard-catalog-batch-plan — retry e polling');

@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, ChevronDown, Loader2, Rocket, Zap } from 'lucide-react'
 import { adsCreateCatalogCampaignBatch, useAdsTikTokPixels } from '@/lib/api'
-import { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel } from '@/lib/catalog-pixels'
+import { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel, resolveCatalogPixelInput } from '@/lib/catalog-pixels'
 import { TIKTOK_MIN_BUDGET, TIKTOK_PIXEL_EVENTS, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog } from '@/lib/types'
 import { toast } from '@/lib/toast'
@@ -37,6 +37,9 @@ export function CatalogQuickCampaignsDialog({
   const [count, setCount] = useState(10)
   const [budget, setBudget] = useState('50')
   const [pixelId, setPixelId] = useState('')
+  // Entrada manual: aceita ID numérico OU código do Events Manager
+  // (ex.: D9F2J3JC77U5KEVKQB80) e resolve para o ID numérico automaticamente.
+  const [pixelManual, setPixelManual] = useState(false)
   const [pixelEvent, setPixelEvent] = useState('ON_WEB_ORDER')
   const [namePrefix, setNamePrefix] = useState('')
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -74,7 +77,12 @@ export function CatalogQuickCampaignsDialog({
 
   const budgetNumber = Number(String(budget).replace(',', '.'))
   const budgetValid = Number.isFinite(budgetNumber) && budgetNumber >= TIKTOK_MIN_BUDGET
-  const pixelValid = /^\d{6,30}$/.test(pixelId.trim())
+  // Resolve o que foi digitado/selecionado (ID ou código) para o ID numérico.
+  const pixelResolution = useMemo(
+    () => resolveCatalogPixelInput(pixelId, pixelsData?.pixels ?? []),
+    [pixelId, pixelsData?.pixels],
+  )
+  const pixelValid = Boolean(pixelResolution.id)
   const countValid = Number.isInteger(count) && count >= 1 && count <= MAX_COUNT
   const canCreate = countValid && budgetValid && pixelValid && !busy
 
@@ -91,7 +99,7 @@ export function CatalogQuickCampaignsDialog({
     if (!budgetValid) return toast.error(tiktokMinimumBudgetMessage(catalog.currency, ' por dia'))
     if (!pixelValid) {
       return toast.error('Selecione o Pixel do TikTok', {
-        hint: 'Escolha um Pixel da lista ou informe os 6 a 30 dígitos do Events Manager.',
+        hint: pixelResolution.error || 'Escolha um Pixel da lista ou cole o ID numérico/código do Events Manager.',
       })
     }
     setBusy(true)
@@ -103,7 +111,7 @@ export function CatalogQuickCampaignsDialog({
         budgetType: 'daily',
         budgetOptimization: 'adgroup',
         productScope: 'all',
-        pixelId: pixelId.trim(),
+        pixelId: pixelResolution.id,
         pixelEvent,
         namePrefix: effectivePrefix,
         idempotencyKey: idempotencyKeyRef.current || (idempotencyKeyRef.current = randomKey()),
@@ -202,33 +210,64 @@ export function CatalogQuickCampaignsDialog({
 
         <div className="flex flex-col gap-1.5 text-xs">
           <span className="font-medium text-foreground">Pixel do TikTok</span>
-          {availablePixels.length > 0 ? (
-            <select className="input-base" value={pixelId} onChange={(event) => setPixelIdM(event.target.value)}>
+          {availablePixels.length > 0 && !pixelManual ? (
+            <select
+              className="input-base"
+              value={pixelId}
+              onChange={(event) => {
+                if (event.target.value === '__manual__') {
+                  setPixelManual(true)
+                  setPixelIdM('')
+                  return
+                }
+                setPixelIdM(event.target.value)
+              }}
+            >
               {pixelId && !availablePixels.some((option) => option.value === pixelId) && (
                 <option value={pixelId}>Pixel informado manualmente · ID {pixelId}</option>
               )}
               {availablePixels.map(({ pixel, value }) => (
                 <option key={`${pixel.id}:${value}`} value={value}>{catalogPixelLabel(pixel)}</option>
               ))}
+              <option value="__manual__">Outro Pixel — colar ID ou código…</option>
             </select>
           ) : (
-            <input
-              className="input-base"
-              inputMode="numeric"
-              pattern="[0-9]{6,30}"
-              minLength={6}
-              maxLength={30}
-              value={pixelId}
-              onChange={(event) => setPixelIdM(event.target.value.replace(/\D/g, '').slice(0, 30))}
-              placeholder={pixelsLoading ? 'Carregando Pixels da conta…' : pixelsError ? 'Lista indisponível — informe os dígitos do Pixel' : '1234567890123456789'}
-            />
+            <div className="flex items-center gap-1.5">
+              <input
+                className="input-base flex-1"
+                maxLength={30}
+                value={pixelId}
+                onChange={(event) => setPixelIdM(event.target.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 30))}
+                placeholder={pixelsLoading ? 'Carregando Pixels da conta…' : 'ID numérico ou código (ex.: D9F2J3JC77U5KEVKQB80)'}
+                aria-label="ID numérico ou código do Pixel TikTok"
+              />
+              {availablePixels.length > 0 && (
+                <button
+                  type="button"
+                  className="btn-ghost shrink-0 text-[10px]"
+                  onClick={() => { setPixelManual(false); setPixelIdM('') }}
+                >
+                  Voltar à lista
+                </button>
+              )}
+            </div>
+          )}
+          {pixelResolution.kind === 'code' && (
+            <span className="text-[10px] text-success" role="status">
+              Código do Events Manager reconhecido — usando o ID numérico {pixelResolution.id}.
+            </span>
+          )}
+          {pixelResolution.error && pixelId.trim() !== '' && (
+            <span className="flex items-start gap-1 text-[10px] text-warning" role="alert">
+              <AlertCircle className="mt-0.5 size-3 shrink-0" aria-hidden="true" /> {pixelResolution.error}
+            </span>
           )}
           <span className="text-[10px] text-muted-foreground">
-            {availablePixels.length > 0
+            {availablePixels.length > 0 && !pixelManual
               ? 'O Pixel com mais compras em 30 dias já vem selecionado.'
               : pixelsLoading
                 ? 'Buscando os Pixels da conta de anúncio…'
-                : 'Não foi possível listar os Pixels; informe os dígitos do Events Manager.'}
+                : 'Aceita o ID numérico ou o código alfanumérico do Events Manager.'}
           </span>
         </div>
 

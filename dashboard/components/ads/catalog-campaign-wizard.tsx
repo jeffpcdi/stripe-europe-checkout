@@ -6,7 +6,7 @@ import {
   adsCatalogApiUrl, adsCreateCatalogCampaign, adsPreflightCatalogCampaign, apiSend,
   useAdsCatalogCampaignRuns, useAdsTikTokPixels,
 } from '@/lib/api'
-import { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel } from '@/lib/catalog-pixels'
+import { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel, resolveCatalogPixelInput } from '@/lib/catalog-pixels'
 import { toast } from '@/lib/toast'
 import { resolveStableIdempotencyKey, type StableIdempotencyState } from '@/lib/stable-idempotency'
 import type { AdsCatalog, AdsCatalogCampaignRun } from '@/lib/types'
@@ -163,6 +163,12 @@ export function CatalogCampaignWizard({
     const best = pickDefaultCatalogPixel(pixelsData?.pixels ?? [])
     if (best) setPixelId(best)
   }, [pixelId, availablePixels.length, pixelsData?.pixels])
+  // Aceita ID numérico ou código do Events Manager e resolve para o ID
+  // numérico exigido pela API — o gestor cola o que tiver em mãos.
+  const pixelResolution = useMemo(
+    () => resolveCatalogPixelInput(pixelId, pixelsData?.pixels ?? []),
+    [pixelId, pixelsData?.pixels],
+  )
   const materialSignature = useMemo(() => JSON.stringify({
     catalogId: catalog.id,
     advertiserId,
@@ -172,11 +178,11 @@ export function CatalogCampaignWizard({
     productIds: productIds.split(',').map((id) => id.trim()).filter(Boolean),
     productSetId: productSetId.trim(),
     templateId: templateId.trim(),
-    pixelId: pixelId.trim(),
+    pixelId: pixelResolution.id || pixelId.trim(),
     pixelEvent: pixelEvent.trim(),
     text: text.trim(),
     cta,
-  }), [advertiserId, budget, catalog.id, catalog.name, cta, name, pixelEvent, pixelId, productIds, productScope, productSetId, templateId, text])
+  }), [advertiserId, budget, catalog.id, catalog.name, cta, name, pixelEvent, pixelId, pixelResolution.id, productIds, productScope, productSetId, templateId, text])
 
   function idempotencyKey() {
     idempotencyRef.current = resolveStableIdempotencyKey(
@@ -198,7 +204,7 @@ export function CatalogCampaignWizard({
       productIds: productIds.split(',').map((id) => id.trim()).filter(Boolean),
       productSetId: productSetId.trim() || undefined,
       catalogVideoTemplateId: templateId.trim() || undefined,
-      pixelId: pixelId.trim(), pixelEvent: pixelEvent.trim(),
+      pixelId: pixelResolution.id, pixelEvent: pixelEvent.trim(),
       text: text.trim() || undefined, callToAction: cta,
       idempotencyKey: idempotencyKey(),
     }
@@ -207,8 +213,10 @@ export function CatalogCampaignWizard({
   async function create() {
     if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return toast.error(tiktokMinimumBudgetMessage(catalog.currency, ' por dia'))
     if (productScope === 'specific' && !productIds.trim()) return toast.error('Informe ao menos um Product ID do TikTok')
-    if (!/^\d{6,30}$/.test(pixelId.trim())) {
-      return toast.error('Informe um Pixel ID válido do TikTok', { hint: 'Use somente os 6 a 30 dígitos exibidos no TikTok Events Manager.' })
+    if (!pixelResolution.id) {
+      return toast.error('Informe um Pixel válido do TikTok', {
+        hint: pixelResolution.error || 'Cole o ID numérico (6 a 30 dígitos) ou o código do Events Manager.',
+      })
     }
     if (!TIKTOK_PIXEL_EVENTS.some((event) => event.value === pixelEvent)) {
       return toast.error('Selecione um evento de otimização válido do Pixel TikTok')
@@ -274,12 +282,18 @@ export function CatalogCampaignWizard({
                   {availablePixels.map(({ pixel, value }) => <option key={`${pixel.id}:${value}`} value={value}>{catalogPixelLabel(pixel)}</option>)}
                 </select>
               ) : (
-                <input className="input-base mt-1 w-full" inputMode="numeric" pattern="[0-9]{6,30}" minLength={6} maxLength={30} value={pixelId} onChange={(e) => setPixelId(e.target.value.replace(/\D/g, '').slice(0, 30))} placeholder={pixelsLoading ? 'Carregando Pixels da conta…' : '1234567890123456789'} aria-describedby="catalog-pixel-hint" />
+                <input className="input-base mt-1 w-full" maxLength={30} value={pixelId} onChange={(e) => setPixelId(e.target.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 30))} placeholder={pixelsLoading ? 'Carregando Pixels da conta…' : 'ID numérico ou código (ex.: D9F2J3JC77U5KEVKQB80)'} aria-describedby="catalog-pixel-hint" />
               )}
             </label>
             <label className="text-[11px] text-muted-foreground">Evento de otimização <span className="text-error">*</span><select className="input-base mt-1 w-full" value={pixelEvent} onChange={(e) => setPixelEvent(e.target.value)}>{TIKTOK_PIXEL_EVENTS.map((event) => <option key={event.value} value={event.value}>{event.label}</option>)}</select></label>
           </div>
-          <p id="catalog-pixel-hint" className="-mt-2 text-[10px] text-muted-foreground">Campanhas Product Link usam CONVERT. {availablePixels.length > 0 ? 'Os Pixels listados pertencem à conta de anúncio selecionada.' : pixelsError ? 'A lista da conta não pôde ser carregada; informe somente os dígitos do Pixel.' : 'Informe somente os dígitos do Pixel.'} O padrão é Compra concluída (ON_WEB_ORDER).</p>
+          {pixelResolution.kind === 'code' && (
+        <p className="-mt-2 text-[10px] text-success" role="status">Código do Events Manager reconhecido — usando o ID numérico {pixelResolution.id}.</p>
+      )}
+      {pixelResolution.error && pixelId.trim() !== '' && (
+        <p className="-mt-2 text-[10px] text-warning" role="alert">{pixelResolution.error}</p>
+      )}
+      <p id="catalog-pixel-hint" className="-mt-2 text-[10px] text-muted-foreground">Campanhas Product Link usam CONVERT. {availablePixels.length > 0 ? 'Os Pixels listados pertencem à conta de anúncio selecionada.' : pixelsError ? 'A lista da conta não pôde ser carregada; cole o ID numérico ou o código do Events Manager.' : 'Cole o ID numérico ou o código do Events Manager.'} O padrão é Compra concluída (ON_WEB_ORDER).</p>
           <details className="rounded-lg border border-border p-3">
             <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Criativo avançado</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">

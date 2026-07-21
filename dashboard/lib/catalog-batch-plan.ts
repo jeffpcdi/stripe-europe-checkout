@@ -21,6 +21,9 @@ export type CatalogBatchPlanOptions = {
   defaultPixelId?: string
   // Evento aplicado quando a coluna "evento" está vazia (padrão ON_WEB_ORDER).
   defaultPixelEvent?: string
+  // Converte códigos do Events Manager (ex.: D9F2J3JC77U5KEVKQB80) colados na
+  // coluna pixel_id para o ID numérico exigido pela API. Chaves em MAIÚSCULAS.
+  pixelCodeMap?: Record<string, string>
 }
 
 const HEADERS: Record<string, string[]> = {
@@ -113,8 +116,16 @@ function campaignBudget(value: string) {
 }
 
 export function buildCatalogBatchPlan(raw: string, currency: string, options: CatalogBatchPlanOptions = {}): CatalogBatchPlan {
-  const defaultPixelId = /^\d{6,30}$/.test(String(options.defaultPixelId || '').trim())
-    ? String(options.defaultPixelId).trim()
+  const pixelCodeMap = options.pixelCodeMap || {}
+  // Aceita ID numérico direto ou código do Events Manager resolvível pela conta.
+  const resolvePixel = (value: string) => {
+    const trimmed = String(value || '').trim()
+    if (!trimmed) return ''
+    if (/^\d{6,30}$/.test(trimmed)) return trimmed
+    return pixelCodeMap[trimmed.toUpperCase()] || trimmed
+  }
+  const defaultPixelId = /^\d{6,30}$/.test(resolvePixel(String(options.defaultPixelId || '')))
+    ? resolvePixel(String(options.defaultPixelId || ''))
     : ''
   const defaultPixelEvent = String(options.defaultPixelEvent || '').trim().toUpperCase() || 'ON_WEB_ORDER'
   const rows = parseDelimited(raw)
@@ -195,8 +206,9 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
     if (campaignName && !campaignKeys.has(campaignKey)) {
       campaignKeys.add(campaignKey)
       // Pixel automático: linha sem pixel_id herda o Pixel padrão da conta,
-      // eliminando a digitação manual em cada linha do lote.
-      const pixelId = valueAt(row, idx.pixelId) || defaultPixelId
+      // eliminando a digitação manual em cada linha do lote. Códigos do
+      // Events Manager são convertidos para o ID numérico via pixelCodeMap.
+      const pixelId = resolvePixel(valueAt(row, idx.pixelId)) || defaultPixelId
       if (!pixelId) missingCampaignPixelRows.push(line)
       else if (!/^\d{6,30}$/.test(pixelId)) invalidCampaignPixelRows.push(line)
       catalog.campaigns.push({
@@ -227,7 +239,7 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
     messages.push(`Informe o Pixel ID do TikTok nas campanhas das linhas ${missingCampaignPixelRows.slice(0, 6).join(', ')}${missingCampaignPixelRows.length > 6 ? '…' : ''}. Selecione um Pixel padrão acima ou preencha a coluna “pixel_id” com 6 a 30 dígitos.`)
   }
   if (options.requireCampaignPixel && invalidCampaignPixelRows.length) {
-    messages.push(`Corrija o Pixel ID nas linhas ${invalidCampaignPixelRows.slice(0, 6).join(', ')}${invalidCampaignPixelRows.length > 6 ? '…' : ''}: ele deve conter somente 6 a 30 dígitos.`)
+    messages.push(`Corrija o Pixel nas linhas ${invalidCampaignPixelRows.slice(0, 6).join(', ')}${invalidCampaignPixelRows.length > 6 ? '…' : ''}: use o ID numérico (6 a 30 dígitos) ou um código do Events Manager que pertença a esta conta de anúncio.`)
   }
 
   // Product Link: a URL base de cada campanha vem do LINK do 1º produto válido do
