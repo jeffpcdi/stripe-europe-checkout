@@ -15,6 +15,12 @@ function cleanAccountId(value) {
   return accountId.slice(0, 120);
 }
 
+function cleanAdvertiserId(value) {
+  const advertiserId = String(value || '').trim();
+  if (!advertiserId || advertiserId === '__all__') throw new Error('advertiserId específico é obrigatório');
+  return advertiserId.slice(0, 120);
+}
+
 // Autocura de schema: mesmo padrão de ads-ops-store. As tabelas de catálogo
 // precisam existir sempre que o app conectar (qualquer branch/banco). Roda no
 // boot e é idempotente — CREATE TABLE IF NOT EXISTS nunca destrói dados.
@@ -26,6 +32,7 @@ async function ensureSchema() {
     await sql`CREATE TABLE IF NOT EXISTS ads_catalogs (
       id text PRIMARY KEY,
       account_id text NOT NULL,
+      advertiser_id text,
       name text NOT NULL,
       currency text NOT NULL DEFAULT 'USD',
       feed_blob_url text,
@@ -62,6 +69,12 @@ async function ensureSchema() {
     // app (/feed/<token>.csv) — substitui a URL do Vercel Blob.
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS feed_token text`;
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS ads_catalogs_feed_token_idx ON ads_catalogs (feed_token) WHERE feed_token IS NOT NULL`;
+    // A coluna nasce anulável para bancos que já possuem catálogos. Esses
+    // registros legados são reivindicados atomicamente pelo primeiro
+    // advertiser selecionado da conta (claimLegacyCatalogs), sem apagar nem
+    // duplicar catálogo/produto/feed existente.
+    await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS advertiser_id text`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_catalogs_account_advertiser_idx ON ads_catalogs (account_id, advertiser_id, created_at DESC)`;
     await sql`CREATE TABLE IF NOT EXISTS ads_catalog_products (
       id text PRIMARY KEY,
       catalog_id text NOT NULL,
@@ -96,6 +109,7 @@ async function ensureSchema() {
       id text PRIMARY KEY,
       account_id text NOT NULL,
       catalog_id text NOT NULL,
+      advertiser_id text,
       status text NOT NULL DEFAULT 'queued',
       stage text NOT NULL DEFAULT 'queued',
       idempotency_key text NOT NULL,
@@ -109,7 +123,13 @@ async function ensureSchema() {
       completed_at timestamptz,
       UNIQUE (account_id, idempotency_key)
     )`;
+    await sql`ALTER TABLE ads_catalog_sync_runs ADD COLUMN IF NOT EXISTS advertiser_id text`;
+    await sql`UPDATE ads_catalog_sync_runs AS run SET advertiser_id = catalog.advertiser_id
+      FROM ads_catalogs AS catalog
+      WHERE run.account_id = catalog.account_id AND run.catalog_id = catalog.id
+        AND run.advertiser_id IS NULL AND catalog.advertiser_id IS NOT NULL`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_sync_runs_idx ON ads_catalog_sync_runs (account_id, catalog_id, created_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_catalog_sync_runs_advertiser_idx ON ads_catalog_sync_runs (account_id, advertiser_id, created_at DESC)`;
     await sql`CREATE TABLE IF NOT EXISTS ads_catalog_campaign_runs (
       id text PRIMARY KEY,
       account_id text NOT NULL,
@@ -144,6 +164,7 @@ function mapCatalog(row) {
   return {
     id: row.id,
     accountId: row.account_id,
+    advertiserId: row.advertiser_id || null,
     name: row.name,
     currency: row.currency,
     catalogType: cleanCatalogType(row.catalog_type),
@@ -191,24 +212,54 @@ function mapProduct(row) {
   };
 }
 
-async function listCatalogs(accountId) {
+// Catálogos anteriores à segmentação não têm advertiser_id. No primeiro
+// acesso já escopado, a atualização condicional atribui todos ao advertiser
+// selecionado. Em concorrência, o Postgres reavalia o WHERE após o lock: cada
+// linha só pode ser reivindicada uma vez e nunca troca de advertiser depois.
+async function claimLegacyCatalogs(accountId, advertiserId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) return 0;
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_catalogs SET advertiser_id = ${advertiserId}
+    WHERE account_id = ${accountId} AND advertiser_id IS NULL
+    RETURNING id`;
+  if (rows.length) {
+    await sql`UPDATE ads_catalog_sync_runs AS run SET advertiser_id = ${advertiserId}
+      WHERE run.account_id = ${accountId} AND run.advertiser_id IS NULL
+        AND run.catalog_id IN (SELECT id FROM ads_catalogs WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId})`;
+  }
+  return rows.length;
+}
+
+async function listCatalogs(accountId, advertiserId) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return [];
   await ensureSchema();
-  const rows = await sql`SELECT * FROM ads_catalogs WHERE account_id = ${accountId} ORDER BY created_at DESC`;
+  await claimLegacyCatalogs(accountId, advertiserId);
+  const rows = await sql`SELECT * FROM ads_catalogs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+    ORDER BY created_at DESC`;
   return rows.map(mapCatalog);
 }
 
-async function getCatalog(accountId, catalogId) {
+async function getCatalog(accountId, advertiserId, catalogId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return null;
   await ensureSchema();
-  const rows = await sql`SELECT * FROM ads_catalogs WHERE account_id = ${accountId} AND id = ${String(catalogId || '')} LIMIT 1`;
+  await claimLegacyCatalogs(accountId, advertiserId);
+  const rows = await sql`SELECT * FROM ads_catalogs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND id = ${String(catalogId || '')}
+    LIMIT 1`;
   return mapCatalog(rows[0]);
 }
 
-async function createCatalog(accountId, input) {
+async function createCatalog(accountId, advertiserId, input) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const value = input || {};
@@ -218,18 +269,20 @@ async function createCatalog(accountId, input) {
   const catalogType = cleanCatalogType(value.catalogType);
   const country = value.country ? String(value.country).trim().toUpperCase().slice(0, 4) || null : null;
   const catalogId = id('cat_');
-  const rows = await sql`INSERT INTO ads_catalogs (id, account_id, name, currency, catalog_type, country)
-    VALUES (${catalogId}, ${accountId}, ${name}, ${currency}, ${catalogType}, ${country})
+  const rows = await sql`INSERT INTO ads_catalogs
+    (id, account_id, advertiser_id, name, currency, catalog_type, country)
+    VALUES (${catalogId}, ${accountId}, ${advertiserId}, ${name}, ${currency}, ${catalogType}, ${country})
     RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
-async function updateCatalog(accountId, catalogId, input) {
+async function updateCatalog(accountId, advertiserId, catalogId, input) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const value = input || {};
-  const existing = await getCatalog(accountId, catalogId);
+  const existing = await getCatalog(accountId, advertiserId, catalogId);
   if (!existing) throw new Error('Catálogo não encontrado');
   const name = value.name != null ? String(value.name).trim().slice(0, 200) || existing.name : existing.name;
   const currency = value.currency != null ? (String(value.currency).trim().toUpperCase().slice(0, 8) || existing.currency) : existing.currency;
@@ -239,31 +292,41 @@ async function updateCatalog(accountId, catalogId, input) {
     : existing.country;
   const rows = await sql`UPDATE ads_catalogs
     SET name = ${name}, currency = ${currency}, catalog_type = ${catalogType}, country = ${country}, updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(catalogId)}
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}
     RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
-async function deleteCatalog(accountId, catalogId) {
+async function deleteCatalog(accountId, advertiserId, catalogId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return false;
   await ensureSchema();
   const value = String(catalogId);
+  const catalog = await getCatalog(accountId, advertiserId, value);
+  if (!catalog) return false;
   // As tabelas foram criadas sem FK para preservar compatibilidade com bancos
   // antigos. Por isso a limpeza precisa ser explícita: antes, excluir o
   // catálogo deixava publicações e jobs órfãos no Neon.
-  await sql`DELETE FROM ads_catalog_campaign_runs WHERE account_id = ${accountId} AND catalog_id = ${value}`;
-  await sql`DELETE FROM ads_catalog_sync_runs WHERE account_id = ${accountId} AND catalog_id = ${value}`;
+  await sql`DELETE FROM ads_catalog_campaign_runs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`;
+  await sql`DELETE FROM ads_catalog_sync_runs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`;
   await sql`DELETE FROM ads_catalog_publications WHERE account_id = ${accountId} AND catalog_id = ${value}`;
   await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${value}`;
-  const rows = await sql`DELETE FROM ads_catalogs WHERE account_id = ${accountId} AND id = ${value} RETURNING id`;
+  const rows = await sql`DELETE FROM ads_catalogs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${value}
+    RETURNING id`;
   return rows.length > 0;
 }
 
-async function listProducts(accountId, catalogId) {
+async function listProducts(accountId, advertiserId, catalogId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return [];
   await ensureSchema();
+  const catalog = await getCatalog(accountId, advertiserId, catalogId);
+  if (!catalog) return [];
   const rows = await sql`SELECT id, catalog_id, sku_id, data, valid, errors, created_at, updated_at
     FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId || '')}
     ORDER BY created_at ASC`;
@@ -272,20 +335,22 @@ async function listProducts(accountId, catalogId) {
 
 // Grava a contagem de produtos no catálogo pai — mantém a lista consistente
 // sem uma segunda consulta a cada leitura.
-async function refreshProductCount(accountId, catalogId) {
+async function refreshProductCount(accountId, advertiserId, catalogId) {
   const rows = await sql`SELECT count(*)::int AS n FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)}`;
   const n = (rows[0] && rows[0].n) || 0;
-  await sql`UPDATE ads_catalogs SET product_count = ${n}, updated_at = now() WHERE account_id = ${accountId} AND id = ${String(catalogId)}`;
+  await sql`UPDATE ads_catalogs SET product_count = ${n}, updated_at = now()
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}`;
   return n;
 }
 
 // Upsert de um produto. `validate` é injetado pelo chamador (ads-catalog-feed)
 // para não acoplar o store à lógica de validação.
-async function upsertProduct(accountId, catalogId, product, validate) {
+async function upsertProduct(accountId, advertiserId, catalogId, product, validate) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
-  const catalog = await getCatalog(accountId, catalogId);
+  const catalog = await getCatalog(accountId, advertiserId, catalogId);
   if (!catalog) throw new Error('Catálogo não encontrado');
   const data = (product && product.data) || {};
   const skuId = String(data.sku_id || (product && product.skuId) || '').trim().slice(0, 100);
@@ -297,17 +362,18 @@ async function upsertProduct(accountId, catalogId, product, validate) {
     ON CONFLICT (catalog_id, sku_id) DO UPDATE SET
       data = EXCLUDED.data, valid = EXCLUDED.valid, errors = EXCLUDED.errors, updated_at = now()
     RETURNING id, catalog_id, sku_id, data, valid, errors, created_at, updated_at`;
-  await refreshProductCount(accountId, catalogId);
+  await refreshProductCount(accountId, advertiserId, catalogId);
   return mapProduct(rows[0]);
 }
 
 // Importa muitos produtos de uma vez (CSV). Revalida cada linha e devolve o
 // resumo. Usa upsert por SKU — reimportar atualiza em vez de duplicar.
-async function bulkUpsertProducts(accountId, catalogId, products, validate) {
+async function bulkUpsertProducts(accountId, advertiserId, catalogId, products, validate) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
-  const catalog = await getCatalog(accountId, catalogId);
+  const catalog = await getCatalog(accountId, advertiserId, catalogId);
   if (!catalog) throw new Error('Catálogo não encontrado');
   let imported = 0;
   let validCount = 0;
@@ -325,44 +391,52 @@ async function bulkUpsertProducts(accountId, catalogId, products, validate) {
     imported += 1;
     if (result.valid) validCount += 1;
   }
-  await refreshProductCount(accountId, catalogId);
+  await refreshProductCount(accountId, advertiserId, catalogId);
   return { imported, valid: validCount, invalid: imported - validCount, skipped };
 }
 
-async function deleteProduct(accountId, catalogId, productId) {
+async function deleteProduct(accountId, advertiserId, catalogId, productId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return false;
   await ensureSchema();
-  await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)} AND id = ${String(productId)}`;
-  await refreshProductCount(accountId, catalogId);
-  return true;
+  const catalog = await getCatalog(accountId, advertiserId, catalogId);
+  if (!catalog) return false;
+  const rows = await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)} AND id = ${String(productId)} RETURNING id`;
+  await refreshProductCount(accountId, advertiserId, catalogId);
+  return rows.length > 0;
 }
 
-async function setFeedUrl(accountId, catalogId, feedUrl) {
+async function setFeedUrl(accountId, advertiserId, catalogId, feedUrl) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalogs SET feed_blob_url = ${String(feedUrl || '')}, feed_published_at = now(), updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(catalogId)}
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}
     RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
 // Garante um feed_token estável para o catálogo (gera na 1ª vez). O token compõe
 // a URL pública do feed servida pelo app (/feed/<token>.csv). Devolve o token.
-async function ensureFeedToken(accountId, catalogId) {
+async function ensureFeedToken(accountId, advertiserId, catalogId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
-  const cur = await sql`SELECT feed_token FROM ads_catalogs WHERE account_id = ${accountId} AND id = ${String(catalogId)} LIMIT 1`;
+  const cur = await sql`SELECT feed_token FROM ads_catalogs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)} LIMIT 1`;
   if (cur[0] && cur[0].feed_token) return cur[0].feed_token;
   const token = require('crypto').randomBytes(16).toString('hex');
   const rows = await sql`UPDATE ads_catalogs SET feed_token = ${token}, updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(catalogId)} AND feed_token IS NULL
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND id = ${String(catalogId)} AND feed_token IS NULL
     RETURNING feed_token`;
   // corrida: se outro request gravou primeiro, relê o valor efetivo
   if (rows[0] && rows[0].feed_token) return rows[0].feed_token;
-  const again = await sql`SELECT feed_token FROM ads_catalogs WHERE account_id = ${accountId} AND id = ${String(catalogId)} LIMIT 1`;
+  const again = await sql`SELECT feed_token FROM ads_catalogs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)} LIMIT 1`;
   return (again[0] && again[0].feed_token) || token;
 }
 
@@ -377,10 +451,29 @@ async function getCatalogByFeedToken(token) {
   return mapCatalog(rows[0]);
 }
 
+// A URL pública precisa continuar funcionando para catálogos legados antes de
+// alguém abrir a dashboard e reivindicar o advertiser. O token estável resolve
+// o catálogo diretamente e evita relaxar o escopo das APIs autenticadas.
+async function listProductsByFeedToken(token) {
+  if (!enabled) return [];
+  const t = String(token || '').trim();
+  if (!/^[a-f0-9]{16,64}$/.test(t)) return [];
+  await ensureSchema();
+  const rows = await sql`SELECT product.id, product.catalog_id, product.sku_id, product.data,
+      product.valid, product.errors, product.created_at, product.updated_at
+    FROM ads_catalog_products AS product
+    INNER JOIN ads_catalogs AS catalog
+      ON catalog.id = product.catalog_id AND catalog.account_id = product.account_id
+    WHERE catalog.feed_token = ${t}
+    ORDER BY product.created_at ASC`;
+  return rows.map(mapProduct);
+}
+
 // Grava o vínculo com o catálogo REAL criado no TikTok (via Pipeboard). A partir
 // daí a publicação atualiza sempre o MESMO catálogo (não recria).
-async function linkTikTokCatalog(accountId, catalogId, { tiktokCatalogId, bcId, verified, remoteSnapshot } = {}) {
+async function linkTikTokCatalog(accountId, advertiserId, catalogId, { tiktokCatalogId, bcId, verified, remoteSnapshot } = {}) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const remoteId = String(tiktokCatalogId || '');
@@ -393,61 +486,67 @@ async function linkTikTokCatalog(accountId, catalogId, { tiktokCatalogId, bcId, 
         link_error = null,
         remote_snapshot = ${remoteSnapshot ? JSON.stringify(remoteSnapshot) : null},
         updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(catalogId)}
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}
     RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
-async function markTikTokCatalogLinkError(accountId, catalogId, error) {
+async function markTikTokCatalogLinkError(accountId, advertiserId, catalogId, error) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalogs
     SET link_status = 'error', link_error = ${String(error || 'Falha ao verificar vínculo').slice(0, 500)},
         link_verified_at = null, updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(catalogId)} RETURNING *`;
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)} RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
-async function unlinkTikTokCatalog(accountId, catalogId) {
+async function unlinkTikTokCatalog(accountId, advertiserId, catalogId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalogs
     SET tiktok_catalog_id = null, bc_id = null, link_status = 'unlinked',
         link_verified_at = null, link_error = null, remote_snapshot = null,
         audit = null, synced_at = null, updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(catalogId)} RETURNING *`;
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)} RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
 // Snapshot da auditoria dos produtos no TikTok (aprovados/pendentes/reprovados).
-async function setAudit(accountId, catalogId, audit) {
+async function setAudit(accountId, advertiserId, catalogId, audit) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const snapshot = audit && typeof audit === 'object'
     ? { approved: Number(audit.approved) || 0, pending: Number(audit.pending) || 0, rejected: Number(audit.rejected) || 0, total: Number(audit.total) || 0, at: new Date().toISOString() }
     : null;
   const rows = await sql`UPDATE ads_catalogs SET audit = ${snapshot ? JSON.stringify(snapshot) : null}, synced_at = now(), updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(catalogId)}
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}
     RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
-async function markSynced(accountId, catalogId) {
+async function markSynced(accountId, advertiserId, catalogId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalogs SET synced_at = now(), audit = null, updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(catalogId)} RETURNING *`;
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)} RETURNING *`;
   return mapCatalog(rows[0]);
 }
 
-async function appendPublication(accountId, catalogId, event) {
+async function appendPublication(accountId, advertiserId, catalogId, event) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return null;
   await ensureSchema();
+  if (!await getCatalog(accountId, advertiserId, catalogId)) return null;
   const value = event || {};
   const audit = value.audit && typeof value.audit === 'object' ? value.audit : null;
   const rows = await sql`INSERT INTO ads_catalog_publications
@@ -459,10 +558,12 @@ async function appendPublication(accountId, catalogId, event) {
   return rows[0] || null;
 }
 
-async function listPublications(accountId, catalogId, limit = 20) {
+async function listPublications(accountId, advertiserId, catalogId, limit = 20) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return [];
   await ensureSchema();
+  if (!await getCatalog(accountId, advertiserId, catalogId)) return [];
   const safeLimit = Math.max(1, Math.min(50, Number(limit) || 20));
   const rows = await sql`SELECT id, kind, status, published, skipped, feed_url, tiktok_catalog_id, audit, error, created_at
     FROM ads_catalog_publications WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)}
@@ -478,7 +579,8 @@ async function listPublications(accountId, catalogId, limit = 20) {
 function mapSyncRun(row) {
   if (!row) return null;
   return {
-    id: row.id, catalogId: row.catalog_id, status: row.status, stage: row.stage,
+    id: row.id, catalogId: row.catalog_id, advertiserId: row.advertiser_id || null,
+    status: row.status, stage: row.stage,
     payload: row.payload || {}, progress: row.progress || {}, error: row.error || null,
     createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || null,
   };
@@ -494,35 +596,42 @@ function mapCampaignRun(row) {
   };
 }
 
-async function createSyncRun(accountId, catalogId, input) {
+async function createSyncRun(accountId, advertiserId, catalogId, input) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
+  if (!await getCatalog(accountId, advertiserId, catalogId)) throw new Error('Catálogo não encontrado');
   const value = input || {};
   const key = String(value.idempotencyKey || '').trim().slice(0, 200);
   if (!key) throw new Error('Idempotency key obrigatória');
   const rows = await sql`INSERT INTO ads_catalog_sync_runs
-    (id, account_id, catalog_id, idempotency_key, payload, progress)
-    VALUES (${id('catsync_')}, ${accountId}, ${String(catalogId)}, ${key}, ${JSON.stringify(value.payload || {})}, ${JSON.stringify(value.progress || {})})
+    (id, account_id, catalog_id, advertiser_id, idempotency_key, payload, progress)
+    VALUES (${id('catsync_')}, ${accountId}, ${String(catalogId)}, ${advertiserId}, ${key}, ${JSON.stringify(value.payload || {})}, ${JSON.stringify(value.progress || {})})
     ON CONFLICT (account_id, idempotency_key) DO UPDATE SET updated_at = ads_catalog_sync_runs.updated_at
     RETURNING *`;
   return mapSyncRun(rows[0]);
 }
 
-async function getSyncRun(accountId, runId) {
+async function getSyncRun(accountId, advertiserId, runId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return null;
   await ensureSchema();
-  const rows = await sql`SELECT * FROM ads_catalog_sync_runs WHERE account_id = ${accountId} AND id = ${String(runId || '')} LIMIT 1`;
+  const rows = await sql`SELECT * FROM ads_catalog_sync_runs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(runId || '')} LIMIT 1`;
   return mapSyncRun(rows[0]);
 }
 
-async function listSyncRuns(accountId, catalogId, limit = 20) {
+async function listSyncRuns(accountId, advertiserId, catalogId, limit = 20) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return [];
   await ensureSchema();
   const size = Math.max(1, Math.min(50, Number(limit) || 20));
-  const rows = await sql`SELECT * FROM ads_catalog_sync_runs WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)} ORDER BY created_at DESC LIMIT ${size}`;
+  const rows = await sql`SELECT * FROM ads_catalog_sync_runs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${String(catalogId)}
+    ORDER BY created_at DESC LIMIT ${size}`;
   return rows.map(mapSyncRun);
 }
 
@@ -532,8 +641,10 @@ async function claimNextSyncRun(workerId) {
   const worker = String(workerId || '').trim().slice(0, 120);
   const rows = await sql`WITH candidate AS (
     SELECT id FROM ads_catalog_sync_runs
-    WHERE (status IN ('queued','retrying') AND (locked_at IS NULL OR locked_at < now() - interval '5 minutes'))
+    WHERE advertiser_id IS NOT NULL AND (
+      (status IN ('queued','retrying') AND (locked_at IS NULL OR locked_at < now() - interval '5 minutes'))
        OR (status = 'running' AND locked_at < now() - interval '5 minutes')
+    )
     ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1
   ) UPDATE ads_catalog_sync_runs AS run
     SET status = 'running', stage = CASE WHEN run.stage = 'queued' THEN 'publishing_feed' ELSE run.stage END,
@@ -559,25 +670,27 @@ async function updateSyncRun(accountId, runId, status, patch) {
   return mapSyncRun(rows[0]);
 }
 
-async function resumeSyncRun(accountId, runId) {
+async function resumeSyncRun(accountId, advertiserId, runId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalog_sync_runs SET status = 'queued', stage = 'queued',
     error = null, locked_at = null, locked_by = null, completed_at = null, updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(runId)} AND status IN ('partial','failed') RETURNING *`;
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND id = ${String(runId)} AND status IN ('partial','failed') RETURNING *`;
   return mapSyncRun(rows[0]);
 }
 
-async function createCampaignRun(accountId, catalogId, input) {
+async function createCampaignRun(accountId, advertiserId, catalogId, input) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
+  if (!await getCatalog(accountId, advertiserId, catalogId)) throw new Error('Catálogo não encontrado');
   const value = input || {};
   const key = String(value.idempotencyKey || '').trim().slice(0, 200);
-  const advertiserId = String(value.advertiserId || '').trim().slice(0, 120);
   if (!key) throw new Error('Idempotency key obrigatória');
-  if (!advertiserId) throw new Error('advertiserId obrigatório');
   const rows = await sql`INSERT INTO ads_catalog_campaign_runs
     (id, account_id, catalog_id, advertiser_id, idempotency_key, spec)
     VALUES (${id('catcamp_')}, ${accountId}, ${String(catalogId)}, ${advertiserId}, ${key}, ${JSON.stringify(value.spec || {})})
@@ -586,20 +699,25 @@ async function createCampaignRun(accountId, catalogId, input) {
   return mapCampaignRun(rows[0]);
 }
 
-async function getCampaignRun(accountId, runId) {
+async function getCampaignRun(accountId, advertiserId, runId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return null;
   await ensureSchema();
-  const rows = await sql`SELECT * FROM ads_catalog_campaign_runs WHERE account_id = ${accountId} AND id = ${String(runId || '')} LIMIT 1`;
+  const rows = await sql`SELECT * FROM ads_catalog_campaign_runs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(runId || '')} LIMIT 1`;
   return mapCampaignRun(rows[0]);
 }
 
-async function listCampaignRuns(accountId, catalogId, limit = 20) {
+async function listCampaignRuns(accountId, advertiserId, catalogId, limit = 20) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) return [];
   await ensureSchema();
   const size = Math.max(1, Math.min(50, Number(limit) || 20));
-  const rows = await sql`SELECT * FROM ads_catalog_campaign_runs WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)} ORDER BY created_at DESC LIMIT ${size}`;
+  const rows = await sql`SELECT * FROM ads_catalog_campaign_runs
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${String(catalogId)}
+    ORDER BY created_at DESC LIMIT ${size}`;
   return rows.map(mapCampaignRun);
 }
 
@@ -637,14 +755,16 @@ async function updateCampaignRun(accountId, runId, status, patch) {
   return mapCampaignRun(rows[0]);
 }
 
-async function resumeCampaignRun(accountId, runId) {
+async function resumeCampaignRun(accountId, advertiserId, runId) {
   accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
   if (!enabled) throw new Error('Persistência Neon indisponível');
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalog_campaign_runs SET status = 'queued',
     stage = CASE WHEN created_ids ? 'adGroupId' THEN 'creating_ad' WHEN created_ids ? 'campaignId' THEN 'creating_adgroup' ELSE 'validating' END,
     error = null, locked_at = null, locked_by = null, completed_at = null, updated_at = now()
-    WHERE account_id = ${accountId} AND id = ${String(runId)} AND status IN ('partial','failed') RETURNING *`;
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
+      AND id = ${String(runId)} AND status IN ('partial','failed') RETURNING *`;
   return mapCampaignRun(rows[0]);
 }
 
@@ -665,6 +785,8 @@ module.exports = {
   ensureSchema,
   cleanAccountId,
   CATALOG_TYPES,
+  cleanAdvertiserId,
+  claimLegacyCatalogs,
   listCatalogs,
   getCatalog,
   createCatalog,
@@ -677,6 +799,7 @@ module.exports = {
   setFeedUrl,
   ensureFeedToken,
   getCatalogByFeedToken,
+  listProductsByFeedToken,
   linkTikTokCatalog,
   markTikTokCatalogLinkError,
   unlinkTikTokCatalog,

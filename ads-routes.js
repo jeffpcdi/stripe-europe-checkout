@@ -2320,19 +2320,42 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     { code: 'AU', name: 'Austrália' }, { code: 'JP', name: 'Japão' },
   ];
 
-  // Spec das colunas/campos p/ a UI montar o formulário e validar ao vivo.
-  app.get('/api/ads/catalogs/spec', dashboardAuth, (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    res.json({
-      columns: catalogFeed.COLUMNS, required: catalogFeed.REQUIRED,
-      enums: catalogFeed.ENUMS, fields: catalogFeed.FIELD_META,
-      catalogTypes: CATALOG_TYPE_LABELS, countries: CATALOG_COUNTRIES,
-    });
-  });
+  // Escopo duplo por conta logada + advertiser selecionado. O advertiser vem
+  // explicitamente em toda chamada e é validado contra o token do Pipeboard;
+  // nunca inferimos o escopo de uma mutação só pelo catalogId.
 
-  app.get('/api/ads/catalogs/capabilities', dashboardAuth, async (_req, res) => {
+  async function catalogAdvertiserId(req) {
+    const query = req.query || {};
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
+    const values = [query.adAccountId, query.advertiserId, body.adAccountId, body.advertiserId]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    const distinct = [...new Set(values)];
+    if (distinct.length > 1) {
+      const err = new Error('O advertiser da URL e do corpo da requisição não pode divergir');
+      err.status = 400;
+      throw err;
+    }
+    return (await requireAdvertiser(req.account.id, null, distinct[0], null)).advertiserId;
+  }
+
+  // Spec das colunas/campos p/ a UI montar o formulário e validar ao vivo.
+  app.get('/api/ads/catalogs/spec', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
+      await catalogAdvertiserId(req);
+      res.json({
+        columns: catalogFeed.COLUMNS, required: catalogFeed.REQUIRED,
+        enums: catalogFeed.ENUMS, fields: catalogFeed.FIELD_META,
+        catalogTypes: CATALOG_TYPE_LABELS, countries: CATALOG_COUNTRIES,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/catalogs/capabilities', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      await catalogAdvertiserId(req);
       res.json({ capabilities: await catalogGateway.capabilities(pipeboard) });
     } catch (err) { fail(res, err); }
   });
@@ -2340,17 +2363,21 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // Business Center usado para os catálogos desta conta. O TikTok prende
   // catálogos ao BC (não ao advertiser) e não há tool para listar BCs — então o
   // usuário informa o ID uma vez (persistido) ou vem do env TIKTOK_BC_ID.
-  app.get('/api/ads/catalogs/business-center', dashboardAuth, (req, res) => {
+  app.get('/api/ads/catalogs/business-center', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({
-      enabled: pipeboard.enabled,
-      bcId: pipeboard.getBusinessCenterId(req.account.id) || '',
-      fromEnv: pipeboard.businessCenterFromEnv(req.account.id),
-    });
+    try {
+      await catalogAdvertiserId(req);
+      res.json({
+        enabled: pipeboard.enabled,
+        bcId: pipeboard.getBusinessCenterId(req.account.id) || '',
+        fromEnv: pipeboard.businessCenterFromEnv(req.account.id),
+      });
+    } catch (err) { fail(res, err); }
   });
 
-  app.post('/api/ads/catalogs/business-center', dashboardAuth, (req, res) => {
+  app.post('/api/ads/catalogs/business-center', dashboardAuth, async (req, res) => {
     try {
+      await catalogAdvertiserId(req);
       const raw = String((req.body || {}).bcId || '').trim();
       if (raw && !/^\d{6,30}$/.test(raw)) {
         return res.status(400).json({ error: 'O ID do Business Center deve ser numérico (ex.: 7012345678901234567).', code: 'INVALID_BC_ID' });
@@ -2363,13 +2390,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/catalogs', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      res.json({ enabled: catalogStore.enabled, catalogs: await catalogStore.listCatalogs(req.account.id) });
+      const advertiserId = await catalogAdvertiserId(req);
+      res.json({ enabled: catalogStore.enabled, catalogs: await catalogStore.listCatalogs(req.account.id, advertiserId) });
     } catch (err) { fail(res, err); }
   });
 
   app.post('/api/ads/catalogs', dashboardAuth, async (req, res) => {
     try {
-      const catalog = await catalogStore.createCatalog(req.account.id, req.body || {});
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.createCatalog(req.account.id, advertiserId, req.body || {});
       stats.logEvent('info', { acc: req.account.id, title: 'Catálogo de produtos criado', ref: catalog.id });
       res.status(201).json({ catalog });
     } catch (err) { fail(res, err); }
@@ -2378,9 +2407,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/catalogs/:catalogId', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
-      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
+      const products = await catalogStore.listProducts(req.account.id, advertiserId, req.params.catalogId);
       res.json({ catalog, products });
     } catch (err) { fail(res, err); }
   });
@@ -2388,10 +2418,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/catalogs/:catalogId/readiness', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado', code: 'CATALOG_NOT_FOUND' });
-      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
-      const advertiserId = String(req.query.adAccountId || '').trim();
+      const products = await catalogStore.listProducts(req.account.id, advertiserId, req.params.catalogId);
       res.json({ readiness: catalogDomain.computeReadiness(catalog, products, { advertiserId }) });
     } catch (err) { fail(res, err); }
   });
@@ -2401,7 +2431,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // Com o vínculo, o catálogo fica elegível para campanhas DPA na criação.
   app.post('/api/ads/catalogs/:catalogId/link', dashboardAuth, async (req, res) => {
     try {
-      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
       const tiktokCatalogId = String((req.body || {}).tiktokCatalogId || '').trim();
       if (!/^\d{6,30}$/.test(tiktokCatalogId)) {
@@ -2415,17 +2446,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       try {
         remote = await catalogGateway.verifyCatalogLink(pipeboard, { catalogId: tiktokCatalogId, bcId });
       } catch (err) {
-        await catalogStore.markTikTokCatalogLinkError(req.account.id, catalog.id, err.userMessage || err.message).catch(() => {});
+        await catalogStore.markTikTokCatalogLinkError(req.account.id, advertiserId, catalog.id, err.userMessage || err.message).catch(() => {});
         throw err;
       }
       if (remote.currency && catalog.currency && remote.currency !== String(catalog.currency).toUpperCase()) {
         const mismatch = catalogDomain.catalogError('CATALOG_CURRENCY_MISMATCH', `A moeda do catálogo TikTok (${remote.currency}) não corresponde ao catálogo local (${catalog.currency}).`, {
           status: 422, retryable: false, suggestedAction: 'Ajuste a moeda do catálogo local ou conecte o catálogo TikTok correto.',
         });
-        await catalogStore.markTikTokCatalogLinkError(req.account.id, catalog.id, mismatch.userMessage).catch(() => {});
+        await catalogStore.markTikTokCatalogLinkError(req.account.id, advertiserId, catalog.id, mismatch.userMessage).catch(() => {});
         throw mismatch;
       }
-      const updated = await catalogStore.linkTikTokCatalog(req.account.id, catalog.id, {
+      const updated = await catalogStore.linkTikTokCatalog(req.account.id, advertiserId, catalog.id, {
         tiktokCatalogId, bcId, verified: true, remoteSnapshot: remote,
       });
       stats.logEvent('info', { acc: req.account.id, title: 'Catálogo vinculado ao TikTok (manual): ' + catalog.name, ref: tiktokCatalogId });
@@ -2435,7 +2466,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.delete('/api/ads/catalogs/:catalogId/link', dashboardAuth, async (req, res) => {
     try {
-      const catalog = await catalogStore.unlinkTikTokCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.unlinkTikTokCatalog(req.account.id, advertiserId, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado', code: 'CATALOG_NOT_FOUND' });
       res.json({ ok: true, catalog });
     } catch (err) { fail(res, err); }
@@ -2444,22 +2476,26 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/catalogs/:catalogId/publications', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
-      res.json({ publications: await catalogStore.listPublications(req.account.id, req.params.catalogId) });
+      res.json({ publications: await catalogStore.listPublications(req.account.id, advertiserId, req.params.catalogId) });
     } catch (err) { fail(res, err); }
   });
 
   app.put('/api/ads/catalogs/:catalogId', dashboardAuth, async (req, res) => {
     try {
-      const catalog = await catalogStore.updateCatalog(req.account.id, req.params.catalogId, req.body || {});
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.updateCatalog(req.account.id, advertiserId, req.params.catalogId, req.body || {});
       res.json({ catalog });
     } catch (err) { fail(res, err); }
   });
 
   app.delete('/api/ads/catalogs/:catalogId', dashboardAuth, async (req, res) => {
     try {
-      await catalogStore.deleteCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const deleted = await catalogStore.deleteCatalog(req.account.id, advertiserId, req.params.catalogId);
+      if (!deleted) return res.status(404).json({ error: 'Catálogo não encontrado' });
       res.json({ ok: true });
     } catch (err) { fail(res, err); }
   });
@@ -2468,7 +2504,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // valida DNS/redirecionamentos para impedir acesso à rede interna (SSRF).
   app.post('/api/ads/catalogs/:catalogId/product-preview', dashboardAuth, async (req, res) => {
     try {
-      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
       const out = await catalogInspect.previewProduct(String((req.body || {}).url || ''));
       const product = Object.assign({}, out.product);
@@ -2481,9 +2518,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // Cria/atualiza um produto (upsert por SKU). Revalida contra a spec.
   app.post('/api/ads/catalogs/:catalogId/products', dashboardAuth, async (req, res) => {
     try {
+      const advertiserId = await catalogAdvertiserId(req);
       const body = req.body || {};
       const product = await catalogStore.upsertProduct(
-        req.account.id, req.params.catalogId,
+        req.account.id, advertiserId, req.params.catalogId,
         { data: body.data || body }, catalogFeed.validateProduct
       );
       res.json({ product });
@@ -2492,7 +2530,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.delete('/api/ads/catalogs/:catalogId/products/:productId', dashboardAuth, async (req, res) => {
     try {
-      await catalogStore.deleteProduct(req.account.id, req.params.catalogId, req.params.productId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const deleted = await catalogStore.deleteProduct(req.account.id, advertiserId, req.params.catalogId, req.params.productId);
+      if (!deleted) return res.status(404).json({ error: 'Produto ou catálogo não encontrado' });
       res.json({ ok: true });
     } catch (err) { fail(res, err); }
   });
@@ -2502,12 +2542,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // atualiza em vez de duplicar.
   app.post('/api/ads/catalogs/:catalogId/import', dashboardAuth, require('express').text({ type: '*/*', limit: '25mb' }), async (req, res) => {
     try {
+      const advertiserId = await catalogAdvertiserId(req);
       const text = typeof req.body === 'string' ? req.body : String((req.body && req.body.csv) || '');
       if (!text.trim()) return res.status(400).json({ error: 'CSV vazio' });
       const parsed = catalogFeed.parseCatalogCsv(text);
       if (!parsed.products.length) return res.status(400).json({ error: 'Nenhum produto encontrado no CSV' });
       const summary = await catalogStore.bulkUpsertProducts(
-        req.account.id, req.params.catalogId, parsed.products, catalogFeed.validateProduct
+        req.account.id, advertiserId, req.params.catalogId, parsed.products, catalogFeed.validateProduct
       );
       stats.logEvent('info', { acc: req.account.id, title: 'Produtos importados no catálogo: ' + summary.imported, ref: req.params.catalogId });
       res.json({ summary });
@@ -2519,9 +2560,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // "pronto para subir" não deve incluí-los. `?all=1` inclui todos (debug).
   app.get('/api/ads/catalogs/:catalogId/export.csv', dashboardAuth, async (req, res) => {
     try {
-      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
-      const all = await catalogStore.listProducts(req.account.id, req.params.catalogId);
+      const all = await catalogStore.listProducts(req.account.id, advertiserId, req.params.catalogId);
       const products = String((req.query || {}).all || '') === '1' ? all : all.filter((p) => p.valid);
       const csv = catalogFeed.buildCatalogCsv(products);
       res.set('Content-Type', 'text/csv; charset=utf-8');
@@ -2534,23 +2576,24 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // regenerada do Neon a cada fetch — SEM Vercel Blob. A URL é estável (feed_token
   // fixo por catálogo); o TikTok re-puxa sozinho do mesmo endereço. `origin` é a
   // origem pública (publicOrigin). Reutilizado por /publish e /sync-tiktok.
-  async function publishCatalogFeed(accountId, catalogId, origin) {
+  async function publishCatalogFeed(accountId, advertiserId, catalogId, origin) {
     if (!origin) { const e = new Error('Host público não configurado (defina PRIMARY_HOST) — o TikTok não conseguiria baixar o feed'); e.status = 503; throw e; }
-    const catalog = await catalogStore.getCatalog(accountId, catalogId);
+    const catalog = await catalogStore.getCatalog(accountId, advertiserId, catalogId);
     if (!catalog) { const e = new Error('Catálogo não encontrado'); e.status = 404; throw e; }
-    const products = await catalogStore.listProducts(accountId, catalogId);
+    const products = await catalogStore.listProducts(accountId, advertiserId, catalogId);
     const valid = products.filter((p) => p.valid);
     if (!valid.length) { const e = new Error('Nenhum produto válido para publicar. Corrija os erros primeiro.'); e.status = 400; throw e; }
-    const token = await catalogStore.ensureFeedToken(accountId, catalog.id);
+    const token = await catalogStore.ensureFeedToken(accountId, advertiserId, catalog.id);
     const feedUrl = origin + '/feed/' + token + '.csv';
-    const updated = await catalogStore.setFeedUrl(accountId, catalog.id, feedUrl);
+    const updated = await catalogStore.setFeedUrl(accountId, advertiserId, catalog.id, feedUrl);
     return { catalog: updated, feedUrl, published: valid.length, skipped: products.length - valid.length };
   }
 
   app.post('/api/ads/catalogs/:catalogId/publish', dashboardAuth, async (req, res) => {
     try {
-      const out = await publishCatalogFeed(req.account.id, req.params.catalogId, adsStorage.publicOrigin(req));
-      await catalogStore.appendPublication(req.account.id, req.params.catalogId, {
+      const advertiserId = await catalogAdvertiserId(req);
+      const out = await publishCatalogFeed(req.account.id, advertiserId, req.params.catalogId, adsStorage.publicOrigin(req));
+      await catalogStore.appendPublication(req.account.id, advertiserId, req.params.catalogId, {
         kind: 'feed', status: 'success', published: out.published, skipped: out.skipped, feedUrl: out.feedUrl,
       }).catch(() => {});
       stats.logEvent('info', { acc: req.account.id, title: 'Feed de catálogo publicado (' + out.published + ' produtos)', ref: req.params.catalogId });
@@ -2566,6 +2609,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       const accId = req.account.id;
+      const advertiserId = await catalogAdvertiserId(req);
       const catalogId = req.params.catalogId;
       const bcId = pipeboard.getBusinessCenterId(accId);
       if (!bcId) {
@@ -2575,18 +2619,18 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       // 1) Publica o feed (URL do app, servida do Neon) — também garante que há
       //    produtos válidos.
-      const pub = await publishCatalogFeed(accId, catalogId, adsStorage.publicOrigin(req));
+      const pub = await publishCatalogFeed(accId, advertiserId, catalogId, adsStorage.publicOrigin(req));
       const catalog = pub.catalog;
 
       // dry-run: o feed foi publicado (leitura segura), mas NADA é criado/enviado
       // ao TikTok. Devolve o catálogo + a URL para o usuário conferir.
       if (await isDryRun(accId)) {
         await auditSimulated(accId, {
-          action: 'catalog_sync', targetType: 'catalog', targetId: catalogId, advertiserId: null,
+          action: 'catalog_sync', targetType: 'catalog', targetId: catalogId, advertiserId,
           metadata: { bcId, feedUrl: pub.feedUrl, published: pub.published },
           title: 'Publicar catálogo no TikTok: ' + (catalog.name || catalogId),
         });
-        await catalogStore.appendPublication(accId, catalogId, {
+        await catalogStore.appendPublication(accId, advertiserId, catalogId, {
           kind: 'tiktok', status: 'simulated', published: pub.published, skipped: pub.skipped, feedUrl: pub.feedUrl, audit: catalog.audit || null,
         }).catch(() => {});
         return res.json({ dryRun: true, simulated: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit: catalog.audit || null });
@@ -2596,7 +2640,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // O worker durável lê este run no Neon e pode retomá-lo após restart.
       const requestedKey = String(req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '').trim();
       const idempotencyKey = requestedKey || ['catalog-sync', accId, catalogId, catalog.updatedAt || Date.now()].join(':');
-      const run = await catalogStore.createSyncRun(accId, catalogId, {
+      const run = await catalogStore.createSyncRun(accId, advertiserId, catalogId, {
         idempotencyKey,
         payload: { bcId, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped },
         progress: { published: 0, skipped: pub.skipped },
@@ -2613,7 +2657,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/catalogs/:catalogId/sync-runs', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const runs = await catalogStore.listSyncRuns(req.account.id, req.params.catalogId, req.query.limit);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado', code: 'CATALOG_NOT_FOUND' });
+      const runs = await catalogStore.listSyncRuns(req.account.id, advertiserId, req.params.catalogId, req.query.limit);
       res.json({ runs });
     } catch (err) { fail(res, err); }
   });
@@ -2621,7 +2668,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/catalog-sync-runs/:runId', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const run = await catalogStore.getSyncRun(req.account.id, req.params.runId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const run = await catalogStore.getSyncRun(req.account.id, advertiserId, req.params.runId);
       if (!run) return res.status(404).json({ error: 'Publicação não encontrada', code: 'CATALOG_SYNC_RUN_NOT_FOUND' });
       res.json({ run });
     } catch (err) { fail(res, err); }
@@ -2630,7 +2678,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalog-sync-runs/:runId/resume', dashboardAuth, async (req, res) => {
     try {
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
-      const run = await catalogStore.resumeSyncRun(req.account.id, req.params.runId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const run = await catalogStore.resumeSyncRun(req.account.id, advertiserId, req.params.runId);
       if (!run) return res.status(409).json({ error: 'Esta sincronização não pode ser retomada', code: 'CATALOG_SYNC_NOT_RESUMABLE' });
       res.json({ ok: true, run });
     } catch (err) { fail(res, err); }
@@ -2641,13 +2690,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
-      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
       if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
       if (!catalog.tiktokCatalogId || !catalog.bcId) {
         return res.status(422).json({ error: 'Catálogo ainda não publicado no TikTok.', code: 'NOT_SYNCED' });
       }
       const audit = await pipeboard.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
-      const updated = await catalogStore.setAudit(req.account.id, req.params.catalogId, audit);
+      const updated = await catalogStore.setAudit(req.account.id, advertiserId, req.params.catalogId, audit);
       res.json({ catalog: updated, audit });
     } catch (err) { fail(res, err); }
   });
@@ -2662,15 +2712,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       });
     }
     const accId = req.account.id;
-    const catalog = await catalogStore.getCatalog(accId, req.params.catalogId);
+    const advertiserId = await catalogAdvertiserId(req);
+    const catalog = await catalogStore.getCatalog(accId, advertiserId, req.params.catalogId);
     if (!catalog) throw catalogDomain.catalogError('CATALOG_NOT_FOUND', 'Catálogo não encontrado.', { status: 404, retryable: false });
     if (!catalog.tiktokCatalogId || !catalog.bcId || catalog.linkStatus !== 'verified') {
       throw catalogDomain.catalogError('CATALOG_LINK_NOT_VERIFIED', 'Conecte e verifique o catálogo TikTok antes de criar a campanha.', {
         status: 422, retryable: false, suggestedAction: 'Abra Conexão TikTok e verifique o Catalog ID e o Business Center.',
       });
     }
-    const advertiserId = await resolveAdvForSmartPlus(req, String(req.body && req.body.adAccountId || '').trim() || null);
-    const products = await catalogStore.listProducts(accId, catalog.id);
+    const products = await catalogStore.listProducts(accId, advertiserId, catalog.id);
     const readiness = catalogDomain.computeReadiness(catalog, products, { advertiserId });
     if (!readiness.readyForCampaign) {
       throw catalogDomain.catalogError('CATALOG_NOT_READY', 'O catálogo ainda não está pronto para criar campanhas.', {
@@ -2704,8 +2754,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }
       const requestedKey = String(req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '').trim();
       const key = requestedKey || ['catalog-campaign', prepared.accId, prepared.catalog.id, prepared.spec.name].join(':');
-      const run = await catalogStore.createCampaignRun(prepared.accId, prepared.catalog.id, {
-        advertiserId: prepared.advertiserId, idempotencyKey: key, spec: prepared.spec,
+      const run = await catalogStore.createCampaignRun(prepared.accId, prepared.advertiserId, prepared.catalog.id, {
+        idempotencyKey: key, spec: prepared.spec,
       });
       res.status(202).json({ ok: true, pending: true, run });
     } catch (err) { fail(res, err); }
@@ -2717,14 +2767,20 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.get('/api/ads/catalogs/:catalogId/campaign-runs', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    try { res.json({ runs: await catalogStore.listCampaignRuns(req.account.id, req.params.catalogId, req.query.limit) }); }
+    try {
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado', code: 'CATALOG_NOT_FOUND' });
+      res.json({ runs: await catalogStore.listCampaignRuns(req.account.id, advertiserId, req.params.catalogId, req.query.limit) });
+    }
     catch (err) { fail(res, err); }
   });
 
   app.get('/api/ads/catalog-campaign-runs/:runId', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const run = await catalogStore.getCampaignRun(req.account.id, req.params.runId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const run = await catalogStore.getCampaignRun(req.account.id, advertiserId, req.params.runId);
       if (!run) return res.status(404).json({ error: 'Criação não encontrada', code: 'CATALOG_CAMPAIGN_RUN_NOT_FOUND' });
       res.json({ run });
     } catch (err) { fail(res, err); }
@@ -2733,7 +2789,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalog-campaign-runs/:runId/resume', dashboardAuth, async (req, res) => {
     try {
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
-      const run = await catalogStore.resumeCampaignRun(req.account.id, req.params.runId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const run = await catalogStore.resumeCampaignRun(req.account.id, advertiserId, req.params.runId);
       if (!run) return res.status(409).json({ error: 'Esta criação não pode ser retomada', code: 'CATALOG_CAMPAIGN_NOT_RESUMABLE' });
       res.json({ ok: true, run });
     } catch (err) { fail(res, err); }
@@ -2742,7 +2799,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalog-campaign-runs/:runId/cleanup', dashboardAuth, async (req, res) => {
     try {
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
-      const run = await catalogStore.getCampaignRun(req.account.id, req.params.runId);
+      const advertiserId = await catalogAdvertiserId(req);
+      const run = await catalogStore.getCampaignRun(req.account.id, advertiserId, req.params.runId);
       if (!run) return res.status(404).json({ error: 'Criação não encontrada', code: 'CATALOG_CAMPAIGN_RUN_NOT_FOUND' });
       if (!['partial', 'failed'].includes(run.status)) {
         return res.status(409).json({ error: 'Somente criações parciais ou com falha podem ser limpas', code: 'CATALOG_CAMPAIGN_NOT_CLEANABLE' });

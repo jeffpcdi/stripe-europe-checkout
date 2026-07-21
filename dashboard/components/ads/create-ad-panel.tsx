@@ -92,6 +92,7 @@ interface FormState {
   // Campanha de catálogo (DPA): quando preenchido, criativo/produtos/destino
   // vêm TODOS do catálogo — a URL do site fica indisponível por construção.
   catalogId: string
+  catalogVideoTemplateId: string
 }
 
 const INITIAL: FormState = {
@@ -118,6 +119,7 @@ const INITIAL: FormState = {
   linkUrl: '',
   callToAction: '',
   catalogId: '',
+  catalogVideoTemplateId: '',
 }
 
 export function CreateAdPanel({
@@ -159,8 +161,8 @@ export function CreateAdPanel({
   const interestName = (id: string) => interestsData?.interests.find((i) => i.id === id)?.name ?? id
   // Catálogos publicados no TikTok (fluxo CSV manual): só os vinculados a um
   // catálogo do TikTok (tiktokCatalogId + bcId) podem virar campanha DPA.
-  const { data: catalogsData } = useAdsCatalogs(open)
-  const { data: catalogCapabilitiesData } = useAdsCatalogCapabilities(open)
+  const { data: catalogsData } = useAdsCatalogs(open, advertiserId)
+  const { data: catalogCapabilitiesData } = useAdsCatalogCapabilities(open, advertiserId)
   const catalogs = catalogsData?.catalogs ?? []
   const catalogCampaignSupported = catalogCapabilitiesData?.capabilities.manualCatalogCampaign === true
   const selectedCatalog = catalogs.find((c) => c.id === form.catalogId) ?? null
@@ -189,7 +191,7 @@ export function CreateAdPanel({
       return null
     }
     if (step === 1) {
-      if (!(Number(form.budgetAmount) > 0)) return 'Informe o orçamento'
+      if (!(Number(form.budgetAmount) >= 50)) return `O orçamento mínimo do TikTok é ${currency} 50`
       if (form.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(form.endDate))
         return 'Orçamento total exige data de término'
       if (form.budgetType === 'lifetime' && form.endDate <= toLocalIsoDate(new Date()))
@@ -217,14 +219,17 @@ export function CreateAdPanel({
     if (step === 4) {
       // Catálogo selecionado: o criativo é gerado dos produtos (DPA) — vídeo
       // e URL do site não se aplicam.
-      if (form.catalogId) return null
+      if (form.catalogId) {
+        if (!form.catalogVideoTemplateId.trim()) return 'Informe o Catalog Video Template ID'
+        return null
+      }
       if (!/^https:\/\/\S+/.test(form.videoUrl.trim())) return 'Adicione o vídeo do anúncio (URL https ou upload)'
       if (form.goal === 'lead_generation' && !/^https:\/\/\S+/.test(form.linkUrl.trim()))
         return 'Leads exige a URL HTTPS da página de captura'
       return null
     }
     return null
-  }, [step, form])
+  }, [step, form, currency])
 
   async function handleUpload(file: File) {
     if (!file.type.startsWith('video/')) {
@@ -329,7 +334,7 @@ export function CreateAdPanel({
       // ── Campanha de CATÁLOGO (DPA): criativo, produtos e destino vêm 100%
       // do catálogo — nada de vídeo/URL manual. Usa a rota dedicada.
       if (form.catalogId) {
-        await adsCreateCatalogCampaign(form.catalogId, {
+        await adsCreateCatalogCampaign(form.catalogId, advertiserId, {
           adAccountId: advertiserId,
           name: form.name.trim(),
           budgetAmount: Number(form.budgetAmount),
@@ -339,9 +344,11 @@ export function CreateAdPanel({
           bidStrategy: form.bidStrategy,
           ...(form.bidStrategy === 'cost_cap' ? { bidAmount: Number(form.bidAmount) } : {}),
           ...(countries.length ? { country: countries[0] } : {}),
+          productScope: 'all',
+          catalogVideoTemplateId: form.catalogVideoTemplateId.trim(),
         })
-        toast.success('Campanha de catálogo criada (pausada)', {
-          hint: 'Criativo e destino vêm do catálogo. Revise e ative na dashboard.',
+        toast.success('Criação da campanha de catálogo iniciada', {
+          hint: 'A campanha, o conjunto e o anúncio serão verificados e permanecerão pausados.',
         })
         onCreated()
         return
@@ -567,7 +574,7 @@ export function CreateAdPanel({
                   <span className="text-xs font-medium text-foreground">Orçamento ({currency})</span>
                   <input
                     type="number"
-                    min={1}
+                    min={50}
                     step="0.01"
                     className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={form.budgetAmount}
@@ -944,20 +951,30 @@ export function CreateAdPanel({
                     }}
                   >
                     <option value="">Nenhum — anúncio com vídeo e URL própria</option>
-                    {catalogs.map((c) => (
-                      <option key={c.id} value={c.id} disabled={!c.tiktokCatalogId || !c.bcId}>
+                    {catalogs.map((c) => {
+                      const ready = Boolean(c.tiktokCatalogId && c.bcId && c.linkStatus === 'verified' && (c.audit?.approved ?? 0) > 0)
+                      return <option key={c.id} value={c.id} disabled={!ready}>
                         {c.name} · {c.productCount} produto{c.productCount === 1 ? '' : 's'}
-                        {!c.tiktokCatalogId || !c.bcId ? ' — publique no TikTok primeiro (aba Catálogo)' : ''}
+                        {!ready ? ' — conclua a sincronização na aba Catálogo' : ''}
                       </option>
-                    ))}
+                    })}
                   </select>
                 </label>
                 {form.catalogId ? (
-                  <p className="rounded-lg bg-primary/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-primary">
-                    Campanha de catálogo (DPA): o TikTok gera o criativo e o destino a partir dos
-                    produtos do catálogo (título, imagem, preço e link de cada item do CSV). Vídeo,
-                    legenda e URL do site ficam indisponíveis neste modo.
-                  </p>
+                  <div className="flex flex-col gap-2">
+                    <p className="rounded-lg bg-primary/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-primary">
+                      A campanha usará todos os produtos aprovados. O destino vem do link de cada produto; o TikTok monta o vídeo com um template aprovado.
+                    </p>
+                    <label className="flex flex-col gap-1.5">
+                      <span className="text-xs font-medium text-foreground">Catalog Video Template ID</span>
+                      <input
+                        className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        value={form.catalogVideoTemplateId}
+                        onChange={(event) => set('catalogVideoTemplateId', event.target.value.replace(/\s/g, ''))}
+                        placeholder="ID do template aprovado no Catalog Manager"
+                      />
+                    </label>
+                  </div>
                 ) : (
                   <span className="text-[11px] text-muted-foreground">
                     Só aparecem habilitados os catálogos já publicados no TikTok (aba Catálogo → CSV manual).

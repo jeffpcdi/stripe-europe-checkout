@@ -52,7 +52,8 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
     overrides: { budgetAmount: 12.5, adText: 'Texto novo da variação' },
   });
   assert.strictEqual(r1.campaignId, 'var-camp');
-  assert.strictEqual(lastCall('create_tiktok_adgroup').args.budget, 12.5, 'override de orçamento no grupo');
+  assert.strictEqual(lastCall('create_tiktok_adgroup').args.budget, 50, 'override abaixo do piso é ajustado para 50');
+  assert.ok(r1.warnings.some((warning) => /mínimo aceito/.test(warning)), 'ajuste do orçamento não é silencioso');
   assert.strictEqual(lastCall('create_tiktok_ad').args.ad_text, 'Texto novo da variação', 'override de texto no anúncio');
   assert.strictEqual(lastCall('create_tiktok_ad').args.video_id, 'vid-1', 'criativo do template reaproveitado');
   assert.strictEqual(lastCall('create_tiktok_ad').args.status, 'PAUSED');
@@ -63,7 +64,7 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
   provider.cacheBust('');
   const cap2 = await provider.captureCampaign('adv1', 'tpl');
   await provider.recreateCampaign('adv1', cap2, 'Template (cópia)', {});
-  assert.strictEqual(lastCall('create_tiktok_adgroup').args.budget, 40, 'sem override: herda o orçamento da origem');
+  assert.strictEqual(lastCall('create_tiktok_adgroup').args.budget, 50, 'orçamento legado abaixo do piso é ajustado');
   assert.strictEqual(lastCall('create_tiktok_ad').args.ad_text, 'Texto original');
   console.log('ok 2 - sem overrides herda orçamento e texto da origem');
 
@@ -76,8 +77,8 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
   await provider.recreateCampaign('adv1', cap3, 'Var 3', { overrides: { budgetAmount: 7 } });
   const ag3 = lastCall('create_tiktok_adgroup').args;
   assert.strictEqual(ag3.budget_mode, 'BUDGET_MODE_DAY', 'INFINITE + override vira DAY');
-  assert.strictEqual(ag3.budget, 7);
-  console.log('ok 3 - origem sem orçamento no grupo + override vira orçamento diário fixo');
+  assert.strictEqual(ag3.budget, 50);
+  console.log('ok 3 - origem sem orçamento no grupo + override vira orçamento diário fixo no piso do TikTok');
 
   // ── 4. Contrato da rota: teto de 50, overrides no task, worker repassa ────
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');

@@ -13,9 +13,10 @@ let busy = false;
 
 async function processRun(row) {
   const accountId = String(row.account_id);
+  const advertiserId = String(row.advertiser_id || '');
   const runId = String(row.id);
   const payload = row.payload || {};
-  let catalog = await store.getCatalog(accountId, row.catalog_id);
+  let catalog = advertiserId ? await store.getCatalog(accountId, advertiserId, row.catalog_id) : null;
   if (!catalog) {
     await store.updateSyncRun(accountId, runId, 'failed', {
       stage: 'failed', error: { code: 'CATALOG_NOT_FOUND', userMessage: 'Catálogo não encontrado.', retryable: false },
@@ -24,21 +25,37 @@ async function processRun(row) {
   }
   try {
     await store.updateSyncRun(accountId, runId, 'running', { stage: 'connecting_catalog', workerId });
-    if (!catalog.tiktokCatalogId) {
+    const createAndLinkCatalog = async () => {
       const created = await provider.createTikTokCatalog(payload.bcId, {
         name: catalog.name, catalogType: catalog.catalogType, currency: catalog.currency, country: catalog.country,
       });
       const remote = await gateway.verifyCatalogLink(provider, {
         bcId: payload.bcId, catalogId: created.catalogId, attempts: 3, delayMs: 750,
       });
-      catalog = await store.linkTikTokCatalog(accountId, catalog.id, {
+      catalog = await store.linkTikTokCatalog(accountId, advertiserId, catalog.id, {
         tiktokCatalogId: created.catalogId, bcId: payload.bcId, verified: true, remoteSnapshot: remote,
       });
-    } else if (catalog.linkStatus !== 'verified') {
-      const remote = await gateway.verifyCatalogLink(provider, { bcId: catalog.bcId || payload.bcId, catalogId: catalog.tiktokCatalogId });
-      catalog = await store.linkTikTokCatalog(accountId, catalog.id, {
-        tiktokCatalogId: catalog.tiktokCatalogId, bcId: catalog.bcId || payload.bcId, verified: true, remoteSnapshot: remote,
-      });
+    };
+    if (!catalog.tiktokCatalogId) {
+      await createAndLinkCatalog();
+    } else {
+      // Verifica em toda sincronização. Um ID salvo pode ter sido excluído ou
+      // pertencer ao Business Center anterior; nesse caso recriamos somente o
+      // catálogo remoto e preservamos catálogo, produtos e feed locais.
+      try {
+        const remote = await gateway.verifyCatalogLink(provider, {
+          bcId: payload.bcId, catalogId: catalog.tiktokCatalogId,
+        });
+        catalog = await store.linkTikTokCatalog(accountId, advertiserId, catalog.id, {
+          tiktokCatalogId: catalog.tiktokCatalogId, bcId: payload.bcId, verified: true, remoteSnapshot: remote,
+        });
+      } catch (err) {
+        if (err && err.code === 'CATALOG_NOT_FOUND_IN_BC') {
+          await createAndLinkCatalog();
+        } else {
+          throw err;
+        }
+      }
     }
 
     await store.updateSyncRun(accountId, runId, 'running', {
@@ -46,16 +63,16 @@ async function processRun(row) {
       progress: { published: payload.published || 0, skipped: payload.skipped || 0, tiktokCatalogId: catalog.tiktokCatalogId },
     });
     await provider.uploadTikTokCatalogProducts(catalog.bcId, catalog.tiktokCatalogId, payload.feedUrl, 'CSV');
-    catalog = await store.markSynced(accountId, catalog.id);
+    catalog = await store.markSynced(accountId, advertiserId, catalog.id);
 
     await store.updateSyncRun(accountId, runId, 'running', { stage: 'auditing_products', workerId });
     let audit = null;
     try {
       audit = await provider.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
-      catalog = await store.setAudit(accountId, catalog.id, audit);
+      catalog = await store.setAudit(accountId, advertiserId, catalog.id, audit);
     } catch (_) { /* o upload do TikTok pode continuar processando */ }
 
-    await store.appendPublication(accountId, catalog.id, {
+    await store.appendPublication(accountId, advertiserId, catalog.id, {
       kind: 'tiktok', status: 'success', published: payload.published, skipped: payload.skipped,
       feedUrl: payload.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId, audit,
     });
@@ -74,7 +91,7 @@ async function processRun(row) {
     return completed;
   } catch (err) {
     const structured = serializeCatalogError(err, 'sync_tiktok');
-    await store.appendPublication(accountId, row.catalog_id, {
+    if (advertiserId) await store.appendPublication(accountId, advertiserId, row.catalog_id, {
       kind: 'tiktok', status: 'error', feedUrl: payload.feedUrl, error: structured.userMessage,
     }).catch(() => {});
     await store.updateSyncRun(accountId, runId, 'failed', { stage: structured.stage, error: structured });

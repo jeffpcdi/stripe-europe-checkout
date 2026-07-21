@@ -41,6 +41,7 @@ function throwsCode(fn, code, label) {
   eq(spec.destination, 'PRODUCT_LINK', 'destino vem do produto, sem URL manual');
   eq(spec.creativeMode, 'CATALOG_VIDEO', 'criativo usa vídeo de catálogo');
   eq(spec.budgetOptimization, 'adgroup', 'ABO é o padrão');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, budgetAmount: 49.99 }, {}), 'CATALOG_CAMPAIGN_BUDGET_BELOW_MINIMUM', 'bloqueia orçamento abaixo do piso do TikTok');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, productIds: ['SKU-local'] }, {}), 'CATALOG_PRODUCT_ID_INVALID', 'não confunde SKU local com Product ID do TikTok');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, catalogVideoTemplateId: '' }, {}), 'CATALOG_VIDEO_TEMPLATE_REQUIRED', 'template de vídeo é pré-requisito explícito');
 

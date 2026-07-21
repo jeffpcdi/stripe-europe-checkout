@@ -2,16 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { AlertCircle, Check, Link2, Loader2, Unlink } from 'lucide-react'
-import { apiSend, ApiError } from '@/lib/api'
+import { adsCatalogApiUrl, apiSend, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog } from '@/lib/types'
 
 export function CatalogConnectionCard({
   catalog,
+  advertiserId,
   bcId,
   onChanged,
 }: {
   catalog: AdsCatalog
+  advertiserId: string
   bcId: string
   onChanged: () => void | Promise<unknown>
 }) {
@@ -31,7 +33,7 @@ export function CatalogConnectionCard({
     setBusy(true)
     try {
       const result = await apiSend<{ catalog: AdsCatalog; remote: { name?: string; productCount?: number } }>(
-        `/api/ads/catalogs/${encodeURIComponent(catalog.id)}/link`, 'POST',
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalog.id)}/link`, advertiserId), 'POST',
         { tiktokCatalogId: catalogId.trim(), bcId },
       )
       toast.success('Catálogo TikTok verificado', { hint: result.remote?.name ? `${result.remote.name} · ${result.remote.productCount ?? 0} produto(s)` : undefined })
@@ -46,7 +48,7 @@ export function CatalogConnectionCard({
   async function disconnect() {
     setBusy(true)
     try {
-      await apiSend(`/api/ads/catalogs/${encodeURIComponent(catalog.id)}/link`, 'DELETE')
+      await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalog.id)}/link`, advertiserId), 'DELETE')
       setCatalogId('')
       toast.success('Vínculo removido')
       await onChanged()

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { AlertCircle, Check, ChevronDown, Loader2, Rocket, RotateCcw, Trash2 } from 'lucide-react'
 import {
-  adsCreateCatalogCampaign, adsPreflightCatalogCampaign, apiSend,
+  adsCatalogApiUrl, adsCreateCatalogCampaign, adsPreflightCatalogCampaign, apiSend,
   useAdsCatalogCampaignRuns,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -16,11 +16,11 @@ const STAGES: Record<string, string> = {
   campaign: 'Criação da campanha', adgroup: 'Criação do conjunto', ad: 'Criação do anúncio', verify: 'Verificação',
 }
 
-function RunCard({ run, mutate }: { run: AdsCatalogCampaignRun; mutate: () => void }) {
+function RunCard({ run, advertiserId, mutate }: { run: AdsCatalogCampaignRun; advertiserId: string; mutate: () => void }) {
   const active = ['queued', 'running', 'retrying'].includes(run.status)
   async function action(kind: 'resume' | 'cleanup') {
     try {
-      await apiSend(`/api/ads/catalog-campaign-runs/${encodeURIComponent(run.id)}/${kind}`, 'POST', {})
+      await apiSend(adsCatalogApiUrl(`/api/ads/catalog-campaign-runs/${encodeURIComponent(run.id)}/${kind}`, advertiserId), 'POST', {})
       toast.success(kind === 'resume' ? 'Criação colocada novamente na fila' : 'Estrutura parcial removida')
       mutate()
     } catch (error) {
@@ -66,13 +66,13 @@ export function CatalogCampaignWizard({
   ready: boolean
   supported: boolean
 }) {
-  const { data: runsData, mutate: mutateRuns } = useAdsCatalogCampaignRuns(catalog.id)
+  const { data: runsData, mutate: mutateRuns } = useAdsCatalogCampaignRuns(catalog.id, advertiserId)
   const runs = runsData?.runs ?? []
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState(catalog.name)
   const [budget, setBudget] = useState('')
-  const [productScope, setProductScope] = useState<'all' | 'product_set' | 'specific'>('specific')
+  const [productScope, setProductScope] = useState<'all' | 'product_set' | 'specific'>('all')
   const [productIds, setProductIds] = useState('')
   const [productSetId, setProductSetId] = useState('')
   const [templateId, setTemplateId] = useState('')
@@ -102,14 +102,14 @@ export function CatalogCampaignWizard({
   }
 
   async function create() {
-    if (!(Number(budget) > 0)) return toast.error('Informe um orçamento maior que zero')
+    if (!(Number(budget) >= 50)) return toast.error(`O orçamento mínimo do TikTok é ${catalog.currency} 50 por dia`)
     if (productScope === 'specific' && !productIds.trim()) return toast.error('Informe ao menos um Product ID do TikTok')
     if (!templateId.trim()) return toast.error('Informe o Catalog Video Template ID usado pelo anúncio')
     setBusy(true)
     try {
       const body = payload()
-      await adsPreflightCatalogCampaign(catalog.id, body)
-      const result = await adsCreateCatalogCampaign(catalog.id, body)
+      await adsPreflightCatalogCampaign(catalog.id, advertiserId, body)
+      const result = await adsCreateCatalogCampaign(catalog.id, advertiserId, body)
       if (result.dryRun) toast.info('Modo teste: criação validada sem publicar no TikTok')
       else toast.success('Criação iniciada', { hint: 'A campanha, o conjunto e o anúncio serão verificados antes da conclusão.' })
       setOpen(false)
@@ -144,7 +144,7 @@ export function CatalogCampaignWizard({
         <div className="mt-4 space-y-3 border-t border-border pt-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-[11px] text-muted-foreground">Nome<input className="input-base mt-1 w-full" value={name} onChange={(e) => setName(e.target.value)} /></label>
-            <label className="text-[11px] text-muted-foreground">Orçamento diário ({catalog.currency})<input className="input-base mt-1 w-full" type="number" min="1" step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} /></label>
+            <label className="text-[11px] text-muted-foreground">Orçamento diário ({catalog.currency})<input className="input-base mt-1 w-full" type="number" min="50" step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="50,00" /></label>
           </div>
           <fieldset>
             <legend className="text-[11px] font-medium text-foreground">Produtos</legend>
@@ -171,7 +171,7 @@ export function CatalogCampaignWizard({
         </div>
       )}
 
-      {runs.length > 0 && <div className="mt-4 space-y-2 border-t border-border pt-4">{runs.slice(0, 5).map((run) => <RunCard key={run.id} run={run} mutate={() => { void mutateRuns() }} />)}</div>}
+      {runs.length > 0 && <div className="mt-4 space-y-2 border-t border-border pt-4">{runs.slice(0, 5).map((run) => <RunCard key={run.id} run={run} advertiserId={advertiserId} mutate={() => { void mutateRuns() }} />)}</div>}
     </section>
   )
 }

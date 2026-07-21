@@ -1455,6 +1455,7 @@ export interface AdsCatalogAudit {
 export interface AdsCatalog {
   id: string
   accountId: string
+  advertiserId: string
   name: string
   currency: string
   catalogType: string
@@ -1583,6 +1584,7 @@ export interface AdsCatalogStructuredError {
 export interface AdsCatalogSyncRun {
   id: string
   catalogId: string
+  advertiserId: string
   status: 'queued' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
   stage: string
   payload: Record<string, unknown>

@@ -1,7 +1,7 @@
 'use client'
 
 import { AlertCircle, Check, Loader2, RotateCcw, UploadCloud } from 'lucide-react'
-import { apiSend, useAdsCatalogSyncRuns } from '@/lib/api'
+import { adsCatalogApiUrl, apiSend, useAdsCatalogSyncRuns } from '@/lib/api'
 import { toast } from '@/lib/toast'
 
 const LABELS: Record<string, string> = {
@@ -15,8 +15,8 @@ const LABELS: Record<string, string> = {
   failed: 'Sincronização interrompida',
 }
 
-export function CatalogSyncStatus({ catalogId }: { catalogId: string }) {
-  const { data, mutate } = useAdsCatalogSyncRuns(catalogId)
+export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: string; advertiserId: string }) {
+  const { data, mutate } = useAdsCatalogSyncRuns(catalogId, advertiserId)
   const run = data?.runs?.[0]
   if (!run) return null
 
@@ -25,7 +25,7 @@ export function CatalogSyncStatus({ catalogId }: { catalogId: string }) {
   const failed = ['failed', 'partial'].includes(run.status)
   async function resume() {
     try {
-      await apiSend(`/api/ads/catalog-sync-runs/${encodeURIComponent(runId)}/resume`, 'POST', {})
+      await apiSend(adsCatalogApiUrl(`/api/ads/catalog-sync-runs/${encodeURIComponent(runId)}/resume`, advertiserId), 'POST', {})
       toast.success('Sincronização colocada novamente na fila')
       await mutate()
     } catch (error) {

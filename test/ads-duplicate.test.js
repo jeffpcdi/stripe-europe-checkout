@@ -243,5 +243,48 @@ function baseHandlers(overrides) {
   assert.ok(!('budget' in cboAg), 'ad group INFINITE não manda budget (herda da campanha)');
   console.log('ok 7 - CBO: ad group herda budget_mode INFINITE (fix 40002 na duplicação)');
 
+  // ── 8. Orçamento antigo abaixo do piso atual é autocorrigido ─────────────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers({
+    get_tiktok_campaigns: async () => ({ campaigns: [{
+      campaign_id: 'src-low', campaign_name: 'Orçamento antigo', objective_type: 'TRAFFIC',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 10,
+    }] }),
+    get_tiktok_adgroups: async () => ({ adgroups: [{
+      adgroup_id: 'low-ag', adgroup_name: 'Grupo antigo', optimization_goal: 'CLICK',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 10,
+      schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] },
+    }] }),
+    get_tiktok_ads: async () => ({ ads: [] }),
+  });
+  const lowResult = await provider.recreateCampaign('adv1', await provider.captureCampaign('adv1', 'src-low'), 'Orçamento antigo (cópia)', {});
+  assert.strictEqual(lastCall('create_tiktok_campaign').args.budget, 50, 'campanha respeita o piso atual');
+  assert.strictEqual(lastCall('create_tiktok_adgroup').args.budget, 50, 'grupo respeita o piso atual');
+  assert.ok(lowResult.warnings.some((warning) => /mínimo aceito/.test(warning)), 'ajuste aparece nos avisos');
+  console.log('ok 8 - orçamento legado abaixo de 50 é ajustado antes da duplicação');
+
+  // ── 9. Erro transitório 40002/Could not acquire IP ganha retry ───────────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  let ipAttempts = 0;
+  stubHandlers = baseHandlers({
+    get_tiktok_adgroups: async () => ({ adgroups: [{
+      adgroup_id: 'ip-ag', adgroup_name: 'Grupo instável', optimization_goal: 'CLICK',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 50,
+      schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] },
+    }] }),
+    get_tiktok_ads: async () => ({ ads: [] }),
+    create_tiktok_adgroup: async () => {
+      ipAttempts += 1;
+      if (ipAttempts === 1) throw new Error('TikTok API error 40002: Could not acquire IP. Please try again later');
+      return { adgroup_id: 'new-ip-ag' };
+    },
+  });
+  const ipResult = await provider.recreateCampaign('adv1', await provider.captureCampaign('adv1', 'src-camp'), 'Cópia com retry', {});
+  assert.strictEqual(ipAttempts, 2, 'retry automático ocorre sem duplicar o passo');
+  assert.ok(ipResult.warnings.some((warning) => /nova tentativa automática/.test(warning)), 'retry aparece nos avisos');
+  console.log('ok 9 - erro transitório de IP é repetido automaticamente');
+
   console.log('\nF3: todos os testes passaram');
 })().catch((e) => { console.error('FALHOU:', e); process.exit(1); });

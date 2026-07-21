@@ -4,6 +4,7 @@ const CAMPAIGN_STAGES = Object.freeze([
   'queued', 'validating', 'creating_campaign', 'creating_adgroup', 'creating_ad',
   'verifying_entities', 'ready_paused', 'partial', 'failed', 'cancelled',
 ]);
+const TIKTOK_MIN_DAILY_BUDGET = 50;
 
 function catalogError(code, userMessage, options) {
   const opts = options || {};
@@ -113,7 +114,13 @@ function normalizeCampaignSpec(input, catalog) {
   const name = String(value.name || cat.name || 'Catálogo').trim().slice(0, 120);
   const budgetAmount = Number(value.budgetAmount);
   if (!name) throw catalogError('CATALOG_CAMPAIGN_NAME_REQUIRED', 'Informe o nome da campanha.');
-  if (!(budgetAmount > 0)) throw catalogError('CATALOG_CAMPAIGN_BUDGET_INVALID', 'Informe um orçamento maior que zero.');
+  if (!(budgetAmount >= TIKTOK_MIN_DAILY_BUDGET)) {
+    throw catalogError(
+      'CATALOG_CAMPAIGN_BUDGET_BELOW_MINIMUM',
+      `O orçamento mínimo aceito pelo TikTok é ${cat.currency || 'USD'} ${TIKTOK_MIN_DAILY_BUDGET} por dia.`,
+      { status: 400, retryable: false },
+    );
+  }
   const budgetType = value.budgetType === 'lifetime' ? 'lifetime' : 'daily';
   if (budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(value.endDate || ''))) {
     throw catalogError('CATALOG_CAMPAIGN_END_DATE_REQUIRED', 'Orçamento total exige data de término.');
@@ -163,6 +170,7 @@ function normalizeCampaignSpec(input, catalog) {
 
 module.exports = {
   CAMPAIGN_STAGES,
+  TIKTOK_MIN_DAILY_BUDGET,
   catalogError,
   serializeCatalogError,
   computeReadiness,

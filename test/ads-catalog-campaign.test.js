@@ -24,7 +24,7 @@ async function throws(fn, status, label) {
   await throws(() => provider.createCatalogCampaign('123', { ...base, catalogId: '' }), 400, 'exige catalogId do TikTok');
   await throws(() => provider.createCatalogCampaign('123', { ...base, bcId: '' }), 400, 'exige bcId (Business Center)');
   await throws(() => provider.createCatalogCampaign('123', { ...base, name: '' }), 400, 'exige nome');
-  await throws(() => provider.createCatalogCampaign('123', { ...base, budgetAmount: 0 }), 400, 'exige orçamento > 0');
+  await throws(() => provider.createCatalogCampaign('123', { ...base, budgetAmount: 49.99 }), 400, 'exige orçamento mínimo de 50');
   await throws(() => provider.createCatalogCampaign('123', { ...base, budgetType: 'lifetime' }), 400, 'orçamento total exige data de término');
 
   console.log('Provider — exportado e no molde composto');

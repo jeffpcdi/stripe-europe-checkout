@@ -87,7 +87,7 @@ export function DuplicatePanel({
     if (!(n >= 1 && n <= maxCount)) return `Número de ${mode === 'variations' ? 'variações' : 'cópias'} deve ser entre 1 e ${maxCount}`
     if (!target) return 'Selecione a conta destino'
     if (crossAccount) return 'Duplicar para outra conta ainda não é suportado — os criativos são escopados à conta de origem no TikTok'
-    if (mode === 'variations' && varBudget && !(parseFloat(varBudget) > 0)) return 'Orçamento por variação deve ser maior que zero'
+    if (mode === 'variations' && varBudget && !(parseFloat(varBudget) >= 50)) return 'Orçamento por variação deve ser no mínimo 50 (regra do TikTok)'
     return null
   }, [count, target, crossAccount, mode, maxCount, varBudget])
 
@@ -252,7 +252,7 @@ export function DuplicatePanel({
                 <span className="text-xs font-medium text-foreground">Orçamento por variação (opcional)</span>
                 <input
                   type="number"
-                  min={0}
+                  min={50}
                   step="0.01"
                   className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                   value={varBudget}
@@ -276,8 +276,8 @@ export function DuplicatePanel({
           {!crossAccount && (
             <p className="rounded-lg bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
               {mode === 'variations'
-                ? 'Cada variação recria a campanha completa a partir do template, com os overrides acima aplicados. Tudo chega pausado — revise e ative.'
-                : 'Cópia completa (campanha → grupos → anúncios) na mesma conta. As cópias chegam pausadas — revise e ative.'}
+                ? 'Cada variação recria a campanha completa a partir do template, com os overrides acima aplicados. O mínimo de orçamento é 50. Tudo chega pausado — revise e ative.'
+                : 'Cópia completa (campanha → grupos → anúncios) na mesma conta. Orçamentos antigos abaixo do mínimo atual são ajustados para 50. As cópias chegam pausadas — revise e ative.'}
             </p>
           )}
 

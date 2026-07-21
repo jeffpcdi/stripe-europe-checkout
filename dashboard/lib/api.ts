@@ -654,51 +654,65 @@ export function useAdsSmartPlusAds(active: boolean, adAccountId?: string) {
 }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ──
-// Lista de catálogos da conta. `active` suspende quando a aba está fechada.
-export function useAdsCatalogs(active: boolean) {
-  return useSWR<AdsCatalogsResponse>(active ? '/api/ads/catalogs' : null, fetcher, {
-    revalidateOnFocus: true,
-    keepPreviousData: true,
-  })
+// Toda URL carrega o advertiser selecionado explicitamente. O backend valida
+// esse valor no Pipeboard e combina conta+advertiser antes de tocar catálogo,
+// produto ou feed.
+export function adsCatalogApiUrl(path: string, adAccountId: string) {
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}adAccountId=${encodeURIComponent(adAccountId)}`
+}
+
+// Lista de catálogos do advertiser. `active` suspende quando a aba está fechada.
+export function useAdsCatalogs(active: boolean, adAccountId: string) {
+  return useSWR<AdsCatalogsResponse>(
+    active && adAccountId ? adsCatalogApiUrl('/api/ads/catalogs', adAccountId) : null,
+    fetcher,
+    {
+      revalidateOnFocus: true,
+      // Nunca mantenha a lista do advertiser anterior visível durante a troca.
+      keepPreviousData: false,
+    },
+  )
 }
 
 // Detalhe de um catálogo (metadados + produtos). null = suspende.
-export function useAdsCatalogDetail(catalogId: string | null) {
+export function useAdsCatalogDetail(catalogId: string | null, adAccountId: string) {
   return useSWR<AdsCatalogDetailResponse>(
-    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}` : null,
+    catalogId && adAccountId
+      ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}`, adAccountId)
+      : null,
     fetcher,
-    { revalidateOnFocus: true, keepPreviousData: true },
+    { revalidateOnFocus: true, keepPreviousData: false },
   )
 }
 
-export function useAdsCatalogPublications(catalogId: string | null) {
+export function useAdsCatalogPublications(catalogId: string | null, adAccountId: string) {
   return useSWR<{ publications: import('./types').AdsCatalogPublication[] }>(
-    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}/publications` : null,
+    catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/publications`, adAccountId) : null,
     fetcher,
     { revalidateOnFocus: true, keepPreviousData: true },
   )
 }
 
-export function useAdsCatalogReadiness(catalogId: string | null, adAccountId?: string) {
-  const qs = adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''
+export function useAdsCatalogReadiness(catalogId: string | null, adAccountId: string) {
   return useSWR<{ readiness: import('./types').AdsCatalogReadiness }>(
-    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}/readiness${qs}` : null,
+    catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/readiness`, adAccountId) : null,
     fetcher,
     { revalidateOnFocus: true, keepPreviousData: true },
   )
 }
 
-export function useAdsCatalogCapabilities(active: boolean) {
+export function useAdsCatalogCapabilities(active: boolean, adAccountId: string) {
   return useSWR<{ capabilities: Record<string, boolean | string> }>(
-    active ? '/api/ads/catalogs/capabilities' : null,
+    active && adAccountId ? adsCatalogApiUrl('/api/ads/catalogs/capabilities', adAccountId) : null,
     fetcher,
     { revalidateOnFocus: false, revalidateIfStale: false },
   )
 }
 
-export function useAdsCatalogSyncRuns(catalogId: string | null) {
+export function useAdsCatalogSyncRuns(catalogId: string | null, adAccountId: string) {
   return useSWR<{ runs: import('./types').AdsCatalogSyncRun[] }>(
-    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-runs` : null,
+    catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-runs`, adAccountId) : null,
     fetcher,
     {
       refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
@@ -707,9 +721,9 @@ export function useAdsCatalogSyncRuns(catalogId: string | null) {
   )
 }
 
-export function useAdsCatalogCampaignRuns(catalogId: string | null) {
+export function useAdsCatalogCampaignRuns(catalogId: string | null, adAccountId: string) {
   return useSWR<{ runs: import('./types').AdsCatalogCampaignRun[] }>(
-    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-runs` : null,
+    catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-runs`, adAccountId) : null,
     fetcher,
     {
       refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
@@ -719,16 +733,20 @@ export function useAdsCatalogCampaignRuns(catalogId: string | null) {
 }
 
 // Spec das colunas/campos — estável; carrega uma vez enquanto o dialog abre.
-export function useAdsCatalogSpec(active: boolean) {
-  return useSWR<AdsCatalogSpecResponse>(active ? '/api/ads/catalogs/spec' : null, fetcher, {
-    revalidateOnFocus: false,
-    revalidateIfStale: false,
-  })
+export function useAdsCatalogSpec(active: boolean, adAccountId: string) {
+  return useSWR<AdsCatalogSpecResponse>(
+    active && adAccountId ? adsCatalogApiUrl('/api/ads/catalogs/spec', adAccountId) : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+    },
+  )
 }
 
 // Business Center usado para publicar catálogos no TikTok (persistido por conta).
-export function useAdsCatalogBusinessCenter(active: boolean) {
-  return useSWR<AdsCatalogBusinessCenter>(active ? '/api/ads/catalogs/business-center' : null, fetcher, {
+export function useAdsCatalogBusinessCenter(active: boolean, adAccountId: string) {
+  return useSWR<AdsCatalogBusinessCenter>(active && adAccountId ? adsCatalogApiUrl('/api/ads/catalogs/business-center', adAccountId) : null, fetcher, {
     revalidateOnFocus: false,
   })
 }
@@ -747,10 +765,11 @@ export function useAdsInterests(active: boolean, adAccountId: string) {
 // Lança a campanha de catálogo (DPA) a partir de um catálogo já sincronizado.
 export async function adsCreateCatalogCampaign(
   catalogId: string,
+  adAccountId: string,
   body: Record<string, unknown>,
 ): Promise<import('./types').AdsCatalogCampaignResponse> {
   return apiSend<import('./types').AdsCatalogCampaignResponse>(
-    `/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign`,
+    adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign`, adAccountId),
     'POST',
     body,
   )
@@ -758,23 +777,27 @@ export async function adsCreateCatalogCampaign(
 
 export async function adsPreflightCatalogCampaign(
   catalogId: string,
+  adAccountId: string,
   body: Record<string, unknown>,
 ): Promise<{ ok: boolean; readiness: import('./types').AdsCatalogReadiness; spec: Record<string, unknown>; capabilities: Record<string, boolean | string> }> {
   return apiSend(
-    `/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-preflight`,
+    adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-preflight`, adAccountId),
     'POST',
     body,
   )
 }
 
 // Importa um CSV (texto cru) para um catálogo. Devolve o resumo da importação.
-export async function adsCatalogImportCsv(catalogId: string, csv: string) {
-  const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/import`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'text/csv' },
-    body: csv,
-  })
+export async function adsCatalogImportCsv(catalogId: string, adAccountId: string, csv: string) {
+  const res = await fetch(
+    adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/import`, adAccountId),
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'text/csv' },
+      body: csv,
+    },
+  )
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     if (res.status === 401) handleUnauthorized()

@@ -14,7 +14,8 @@ import {
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
-  useAdsCatalogPublications, useAdsCatalogReadiness, useAdsCatalogCapabilities, adsCatalogImportCsv, apiSend, ApiError,
+  useAdsCatalogPublications, useAdsCatalogReadiness, useAdsCatalogCapabilities, adsCatalogImportCsv,
+  adsCatalogApiUrl, apiSend, ApiError,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
@@ -74,11 +75,15 @@ export function CatalogManager({
   advertiserId: string
   advertiserLabel: string
 }) {
-  const { data: list, mutate: mutateList, isLoading: listLoading } = useAdsCatalogs(true)
-  const { data: spec } = useAdsCatalogSpec(true)
-  const { data: bc, mutate: mutateBc } = useAdsCatalogBusinessCenter(true)
-  const { data: capabilitiesData } = useAdsCatalogCapabilities(true)
+  const { data: list, mutate: mutateList, isLoading: listLoading } = useAdsCatalogs(true, advertiserId)
+  const { data: spec } = useAdsCatalogSpec(true, advertiserId)
+  const { data: bc, mutate: mutateBc } = useAdsCatalogBusinessCenter(true, advertiserId)
+  const { data: capabilitiesData } = useAdsCatalogCapabilities(true, advertiserId)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // Um catalogId só é válido dentro do advertiser que o criou. Ao trocar a
+  // seleção global, voltamos à lista antes de qualquer request de detalhe.
+  useEffect(() => setSelectedId(null), [advertiserId])
 
   const enabled = list?.enabled !== false
 
@@ -97,7 +102,7 @@ export function CatalogManager({
 
   return (
     <div className="flex flex-col gap-3">
-      <BusinessCenterBar bcId={bc?.bcId ?? ''} fromEnv={Boolean(bc?.fromEnv)} onChanged={mutateBc} />
+      <BusinessCenterBar advertiserId={advertiserId} bcId={bc?.bcId ?? ''} fromEnv={Boolean(bc?.fromEnv)} onChanged={mutateBc} />
       {selectedId ? (
         <CatalogDetail
           catalogId={selectedId}
@@ -120,6 +125,7 @@ export function CatalogManager({
       ) : (
         <CatalogList
           catalogs={list?.catalogs ?? []}
+          advertiserId={advertiserId}
           spec={spec ?? null}
           loading={listLoading && !list}
           onOpen={setSelectedId}
@@ -134,10 +140,12 @@ export function CatalogManager({
 // O TikTok prende catálogos ao Business Center, não ao advertiser, e não há
 // API para listar BCs — então o usuário informa o ID uma vez (persistido).
 function BusinessCenterBar({
+  advertiserId,
   bcId,
   fromEnv,
   onChanged,
 }: {
+  advertiserId: string
   bcId: string
   fromEnv: boolean
   onChanged: () => void
@@ -150,7 +158,7 @@ function BusinessCenterBar({
   async function save() {
     setBusy(true)
     try {
-      await apiSend('/api/ads/catalogs/business-center', 'POST', { bcId: value.trim() })
+      await apiSend(adsCatalogApiUrl('/api/ads/catalogs/business-center', advertiserId), 'POST', { bcId: value.trim() })
       toast.success('Business Center salvo')
       setEditing(false)
       onChanged()
@@ -229,12 +237,14 @@ function BusinessCenterBar({
 // ── Tela 1: lista + criação ──────────────────────────────────────────────
 function CatalogList({
   catalogs,
+  advertiserId,
   spec,
   loading,
   onOpen,
   onChanged,
 }: {
   catalogs: AdsCatalog[]
+  advertiserId: string
   spec: CatalogSpec | null
   loading: boolean
   onOpen: (id: string) => void
@@ -254,7 +264,7 @@ function CatalogList({
     if (!name.trim()) return
     setBusy(true)
     try {
-      const res = await apiSend<{ catalog: AdsCatalog }>('/api/ads/catalogs', 'POST', {
+      const res = await apiSend<{ catalog: AdsCatalog }>(adsCatalogApiUrl('/api/ads/catalogs', advertiserId), 'POST', {
         name: name.trim(),
         currency,
         catalogType,
@@ -388,9 +398,9 @@ function CatalogList({
 // ── Tela 2: detalhe (produtos + import + publicar) ────────────────────────
 function CatalogDetail({
   catalogId,
-  spec,
   advertiserId,
   advertiserLabel,
+  spec,
   bcId,
   bcConfigured,
   catalogCreateSupported,
@@ -409,8 +419,8 @@ function CatalogDetail({
   onBack: () => void
   onDeleted: () => void
 }) {
-  const { data, mutate, isLoading } = useAdsCatalogDetail(catalogId)
-  const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId)
+  const { data, mutate, isLoading } = useAdsCatalogDetail(catalogId, advertiserId)
+  const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId, advertiserId)
   const { data: readinessData, mutate: mutateReadiness, isLoading: readinessLoading } = useAdsCatalogReadiness(catalogId, advertiserId)
   const fileRef = useRef<HTMLInputElement>(null)
   const [editing, setEditing] = useState<AdsCatalogProduct | 'new' | null>(null)
@@ -446,7 +456,7 @@ function CatalogDetail({
     setUrlImporting(true)
     try {
       const preview = await apiSend<{ product: Record<string, string> }>(
-        `/api/ads/catalogs/${encodeURIComponent(catalogId)}/product-preview`, 'POST', { url: urlValue.trim() },
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/product-preview`, advertiserId), 'POST', { url: urlValue.trim() },
       )
       const data = { ...preview.product, sku_id: generateSku(), condition: 'new', availability: preview.product.availability || 'in stock' }
       setEditing({ id: 'preview', catalogId, skuId: data.sku_id, data, valid: false, errors: [], createdAt: '', updatedAt: '' })
@@ -469,7 +479,7 @@ function CatalogDetail({
     setImporting(true)
     try {
       const text = await file.text()
-      const { summary } = await adsCatalogImportCsv(catalogId, text)
+      const { summary } = await adsCatalogImportCsv(catalogId, advertiserId, text)
       toast.success(`${summary.imported} produto(s) importado(s)`, {
         hint: summary.invalid > 0 ? `${summary.invalid} com erros de validação — revise na tabela.` : undefined,
       })
@@ -486,7 +496,7 @@ function CatalogDetail({
     setPublishing(true)
     try {
       const res = await apiSend<{ feedUrl: string; published: number; skipped: number }>(
-        `/api/ads/catalogs/${encodeURIComponent(catalogId)}/publish`, 'POST', {},
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/publish`, advertiserId), 'POST', {},
       )
       toast.success(`Feed publicado com ${res.published} produto(s)`, {
         hint: res.skipped > 0 ? `${res.skipped} pulado(s) por erros de validação.` : undefined,
@@ -520,7 +530,7 @@ function CatalogDetail({
     setPublishFailed(false)
     try {
       const res = await apiSend<AdsCatalogSyncResponse>(
-        `/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-tiktok`, 'POST', {},
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-tiktok`, advertiserId), 'POST', {},
       )
       if (res.dryRun) {
         toast.info('Modo simulação: feed publicado, mas nada foi enviado ao TikTok', {
@@ -557,7 +567,7 @@ function CatalogDetail({
   async function handleRefreshAudit() {
     setAuditing(true)
     try {
-      const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, { credentials: 'include' })
+      const res = await fetch(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, advertiserId), { credentials: 'include' })
       if (!res.ok) {
         const auditData = await res.json().catch(() => ({}))
         throw new Error(auditData.error || `Erro ${res.status}`)
@@ -586,7 +596,7 @@ function CatalogDetail({
     const timer = window.setTimeout(async () => {
       try {
         auditAttemptsRef.current += 1
-        const res = await fetch(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, { credentials: 'include' })
+        const res = await fetch(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/audit`, advertiserId), { credentials: 'include' })
         if (!res.ok) throw new Error(`Erro ${res.status}`)
         if (!cancelled) await Promise.all([mutate(), mutateReadiness()])
       } catch {
@@ -636,7 +646,7 @@ function CatalogDetail({
   async function handleDelete() {
     if (!confirm('Excluir este catálogo e todos os produtos? Isso não pode ser desfeito.')) return
     try {
-      await apiSend(`/api/ads/catalogs/${encodeURIComponent(catalogId)}`, 'DELETE')
+      await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}`, advertiserId), 'DELETE')
       toast.success('Catálogo excluído')
       onDeleted()
     } catch (e) {
@@ -646,7 +656,10 @@ function CatalogDetail({
 
   async function handleDeleteProduct(productId: string) {
     try {
-      await apiSend(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products/${encodeURIComponent(productId)}`, 'DELETE')
+      await apiSend(
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products/${encodeURIComponent(productId)}`, advertiserId),
+        'DELETE',
+      )
       await Promise.all([mutate(), mutateReadiness()])
     } catch (e) {
       toast.error('Falha ao remover produto', { hint: e instanceof Error ? e.message : undefined })
@@ -717,7 +730,7 @@ function CatalogDetail({
                 Baixe o CSV pronto e importe no TikTok Catalog Manager (passo a passo abaixo). O arquivo já
                 sai no formato oficial do TikTok, só com os produtos válidos.
               </p>
-              <a className="btn-primary w-fit text-xs" href={`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`}>
+              <a className="btn-primary w-fit text-xs" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
                 <Download className="size-3.5" aria-hidden="true" /> Baixar CSV pronto para o TikTok
               </a>
             </div>
@@ -731,11 +744,12 @@ function CatalogDetail({
               : handleReadinessAction}
           />
 
-          <CatalogSyncStatus catalogId={catalogId} />
+          <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} />
 
           {catalog && (
             <CatalogConnectionCard
               catalog={catalog}
+              advertiserId={advertiserId}
               bcId={bcId}
               onChanged={() => Promise.all([mutate(), mutateReadiness()])}
             />
@@ -784,7 +798,7 @@ function CatalogDetail({
               <button type="button" className="btn-ghost text-xs" onClick={() => fileRef.current?.click()} disabled={importing}>
                 {importing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />} Importar CSV
               </button>
-              <a className="btn-ghost text-xs" href={`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`}>
+              <a className="btn-ghost text-xs" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
                 <Download className="size-3.5" aria-hidden="true" /> Baixar CSV
               </a>
               <button type="button" className="btn-ghost text-xs" onClick={handlePublish} disabled={publishing || validCount === 0}>
@@ -952,6 +966,7 @@ function CatalogDetail({
       {editing && (
         <ProductEditor
           catalogId={catalogId}
+          advertiserId={advertiserId}
           spec={spec}
           product={editing === 'new' ? null : editing}
           currency={catalog?.currency || 'USD'}
@@ -1142,6 +1157,7 @@ function stripCurrency(price: string): string {
 
 function ProductEditor({
   catalogId,
+  advertiserId,
   spec,
   product,
   currency,
@@ -1149,6 +1165,7 @@ function ProductEditor({
   onSaved,
 }: {
   catalogId: string
+  advertiserId: string
   spec: { columns: string[]; required: string[]; enums: Record<string, string[]>; fields: { key: string; required: boolean; enum: string[] | null }[] } | null
   product: AdsCatalogProduct | null
   currency: string
@@ -1184,7 +1201,11 @@ function ProductEditor({
       const data: Record<string, string> = { ...form }
       if (data.price) data.price = formatPriceForFeed(data.price, currency)
       if (data.sale_price) data.sale_price = formatPriceForFeed(data.sale_price, currency)
-      await apiSend(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products`, 'POST', { data })
+      await apiSend(
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products`, advertiserId),
+        'POST',
+        { data },
+      )
       toast.success('Produto salvo como rascunho', { hint: 'Use Sincronizar quando quiser enviar as alterações ao TikTok.' })
       onSaved()
     } catch (e) {

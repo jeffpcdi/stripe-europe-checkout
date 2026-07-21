@@ -745,6 +745,39 @@ function stepError(step, msg, createdIds, status) {
   return e;
 }
 
+const TIKTOK_MIN_BUDGET = 50;
+
+function clampTikTokBudget(value, warnings, label) {
+  const amount = Number(value);
+  if (!(amount > 0)) return amount;
+  if (amount >= TIKTOK_MIN_BUDGET) return amount;
+  if (Array.isArray(warnings)) {
+    warnings.push((label || 'Orçamento') + ' ajustado de ' + amount + ' para ' + TIKTOK_MIN_BUDGET + ' (mínimo aceito pelo TikTok)');
+  }
+  return TIKTOK_MIN_BUDGET;
+}
+
+function isTransientTikTokWriteError(err) {
+  const message = String(err && err.message || '');
+  return /could not acquire ip/i.test(message) || (/40002/.test(message) && /try again later|temporar/i.test(message));
+}
+
+async function callTikTokWriteWithRetry(toolName, args, onRetry) {
+  const delays = [600, 1800, 3600];
+  let lastError;
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await pipeboard.callTool(toolName, args);
+    } catch (err) {
+      lastError = err;
+      if (!isTransientTikTokWriteError(err) || attempt >= delays.length) throw err;
+      if (attempt === 0 && typeof onRetry === 'function') onRetry();
+      await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+    }
+  }
+  throw lastError;
+}
+
 // ISO country codes → location_ids do TikTok. O TikTok NÃO aceita "PT"/"BR"
 // direto — exige os IDs de get_tiktok_targeting_regions. Cache 24h por
 // advertiser+objetivo (a lista de países não muda no dia a dia).
@@ -1152,7 +1185,7 @@ async function captureCampaign(advertiserId, campaignId) {
 // assim. Nunca falha silenciosa: toda conversão vira warning no resultado.
 function is40002DynamicBudget(err) {
   const msg = String((err && err.message) || '');
-  return /40002/.test(msg) || /dynamic\s+daily\s+budget/i.test(msg);
+  return /dynamic\s+daily\s+budget/i.test(msg) || (/40002/.test(msg) && /budget[_\s-]*mode/i.test(msg));
 }
 
 // Campos de segmentação copiáveis. O create_tiktok_adgroup os quer aninhados
@@ -1226,13 +1259,13 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, ove
     // adgroup NÃO aceita DYNAMIC_DAILY (enum do create só tem DAY/TOTAL/INFINITE)
     args.budget_mode = mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET' ? 'BUDGET_MODE_DAY' : mode;
     if (mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET') warnings.push('Orçamento dinâmico do grupo convertido para diário fixo (não suportado na recriação)');
-    if (budgetOverride) args.budget = budgetOverride;
-    else if (Number(srcAg.budget) > 0) args.budget = Number(srcAg.budget);
+    if (budgetOverride) args.budget = clampTikTokBudget(budgetOverride, warnings, 'Orçamento do grupo');
+    else if (Number(srcAg.budget) > 0) args.budget = clampTikTokBudget(srcAg.budget, warnings, 'Orçamento do grupo');
   } else if (budgetOverride) {
     // Origem sem orçamento no grupo (INFINITE/CBO) mas a variação pede um:
     // vira orçamento diário fixo no grupo.
     args.budget_mode = 'BUDGET_MODE_DAY';
-    args.budget = budgetOverride;
+    args.budget = clampTikTokBudget(budgetOverride, warnings, 'Orçamento do grupo');
   } else {
     // CBO (orçamento na campanha) ou origem sem budget_mode capturado: o grupo
     // herda o orçamento da campanha. O create_tiktok_adgroup EXIGE budget_mode
@@ -1299,23 +1332,23 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
     // vendas (onde se sabe que existe); fora disso converte já no preflight.
     if (srcMode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET' && !/CONVERSIONS|PRODUCT_SALES|SHOP_PURCHASES|APP_PROMOTION/.test(campArgs.objective_type)) {
       campArgs.budget_mode = 'BUDGET_MODE_DAY';
-      if (Number(src.budget) > 0) campArgs.budget = Number(src.budget);
+      if (Number(src.budget) > 0) campArgs.budget = clampTikTokBudget(src.budget, warnings, 'Orçamento da campanha');
       warnings.push('Orçamento dinâmico diário convertido para diário fixo (objetivo ' + campArgs.objective_type + ' não o suporta — preflight 40002)');
     } else if (srcMode && srcMode !== 'BUDGET_MODE_INFINITE') {
       campArgs.budget_mode = srcMode;
-      if (Number(src.budget) > 0) campArgs.budget = Number(src.budget);
+      if (Number(src.budget) > 0) campArgs.budget = clampTikTokBudget(src.budget, warnings, 'Orçamento da campanha');
     }
     if (src.budget_optimize_on === true) campArgs.budget_optimize_on = true;
     if (src.pixel_id) { campArgs.pixel_id = String(src.pixel_id); if (src.optimization_event) campArgs.optimization_event = String(src.optimization_event); }
     let campOut;
     try {
-      campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+      campOut = await callTikTokWriteWithRetry('create_tiktok_campaign', campArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'));
     } catch (err) {
       // Fallback 40002: o TikTok recusou o modo dinâmico → retry ÚNICO com DAY.
       if (is40002DynamicBudget(err) && campArgs.budget_mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET') {
         campArgs.budget_mode = 'BUDGET_MODE_DAY';
         warnings.push('TikTok recusou orçamento dinâmico (40002) — recriada com orçamento diário fixo');
-        campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+        campOut = await callTikTokWriteWithRetry('create_tiktok_campaign', campArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'));
       } else { err.step = err.step || 'campaign'; throw err; }
     }
     progress.campaignId = String(deepPluck(campOut, 'campaign_id') || '');
@@ -1338,7 +1371,7 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
       const srcAgId = String(srcAg.adgroup_id || srcAg.id || '');
       if (progress.adGroups[srcAgId]) continue; // já criado numa tentativa anterior
       const agArgs = buildAdGroupCopyArgs(adv, progress.campaignId, srcAg, info && info.timezone, warnings, overrides, fallbackLocationIds);
-      const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
+      const agOut = await callTikTokWriteWithRetry('create_tiktok_adgroup', agArgs, () => warnings.push('TikTok não conseguiu alocar a criação do grupo — nova tentativa automática'));
       const newAgId = String(deepPluck(agOut, 'adgroup_id') || '');
       if (!newAgId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id na duplicação', progress);
       progress.adGroups[srcAgId] = newAgId;
@@ -1388,7 +1421,7 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
       else if (srcAd.call_to_action_id) adArgs.call_to_action_id = String(srcAd.call_to_action_id);
       if (Array.isArray(srcAd.utm_params) && srcAd.utm_params.length) adArgs.utm_params = srcAd.utm_params;
       if (Array.isArray(srcAd.deeplink_utm_params) && srcAd.deeplink_utm_params.length) adArgs.deeplink_utm_params = srcAd.deeplink_utm_params;
-      const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
+      const adOut = await callTikTokWriteWithRetry('create_tiktok_ad', adArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar o anúncio — nova tentativa automática'));
       const newAdId = String(deepPluck(adOut, 'ad_id') || '');
       if (!newAdId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id na duplicação', progress);
       progress.ads[srcAdId] = newAdId;
@@ -2011,7 +2044,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   if (!bcId) throw badRequest('bcId (Business Center) é obrigatório para campanha de catálogo');
   if (!String(s.name || '').trim()) throw badRequest('Nome da campanha é obrigatório');
   const budget = Number(s.budgetAmount);
-  if (!(budget > 0)) throw badRequest('Orçamento inválido');
+  if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' por dia');
   if (s.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || ''))) {
     throw badRequest('Orçamento total exige data de término (endDate)');
   }
@@ -2057,7 +2090,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   try {
     await report('creating_campaign');
     if (!campaignId) {
-      const campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+      const campOut = await callTikTokWriteWithRetry('create_tiktok_campaign', campArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'));
       campaignId = String(deepPluck(campOut, 'campaign_id') || '');
       if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
       createdIds.campaignId = campaignId;
@@ -2088,7 +2121,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     if (s.budgetType === 'lifetime' && s.endDate) agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
     await report('creating_adgroup');
     if (!createdIds.adGroupId) {
-      const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
+      const agOut = await callTikTokWriteWithRetry('create_tiktok_adgroup', agArgs, () => warnings.push('TikTok não conseguiu alocar a criação do grupo — nova tentativa automática'));
       const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
       if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id (verifique catálogo, BC, pixel e tipo de Shopping Ads)', createdIds);
       createdIds.adGroupId = adGroupId;
@@ -2123,7 +2156,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     }
     await report('creating_ad');
     if (!createdIds.adId) {
-      const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
+      const adOut = await callTikTokWriteWithRetry('create_tiktok_ad', adArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar o anúncio — nova tentativa automática'));
       const adId = String(deepPluck(adOut, 'ad_id') || '');
       if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id para o anúncio de catálogo', createdIds);
       createdIds.adId = adId;

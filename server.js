@@ -2379,7 +2379,7 @@ app.get('/feed/:token.csv', async (req, res) => {
     const catalogFeed = require('./ads-catalog-feed');
     const catalog = await catalogStore.getCatalogByFeedToken(req.params.token);
     if (!catalog) return res.status(404).type('text/plain').send('feed não encontrado');
-    const products = await catalogStore.listProducts(catalog.accountId, catalog.id);
+    const products = await catalogStore.listProductsByFeedToken(req.params.token);
     const csv = catalogFeed.buildCatalogCsv((products || []).filter((p) => p.valid));
     res.set('Content-Type', 'text/csv; charset=utf-8');
     res.set('Cache-Control', 'public, max-age=300');
