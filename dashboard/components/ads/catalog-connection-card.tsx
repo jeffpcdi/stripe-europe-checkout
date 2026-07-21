@@ -19,6 +19,10 @@ export function CatalogConnectionCard({
   onChanged: () => void | Promise<unknown>
 }) {
   const [catalogId, setCatalogId] = useState(catalog.tiktokCatalogId ?? '')
+  // O Business Center precisa ser o MESMO onde o catálogo vive. Deixamos editável
+  // aqui (pré-preenchido com o BC da conta) para o usuário corrigir a incompatibilidade
+  // exatamente onde o erro aparece — e persistimos como padrão da conta.
+  const [bcValue, setBcValue] = useState(catalog.bcId || bcId || '')
   const [busy, setBusy] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const verified = catalog.linkStatus === 'verified'
@@ -27,16 +31,30 @@ export function CatalogConnectionCard({
     setCatalogId(catalog.tiktokCatalogId ?? '')
   }, [catalog.tiktokCatalogId])
 
+  useEffect(() => {
+    setBcValue((prev) => prev || catalog.bcId || bcId || '')
+  }, [catalog.bcId, bcId])
+
   async function connect() {
     if (!/^\d{6,30}$/.test(catalogId.trim())) {
       toast.error('Catalog ID inválido')
       return
     }
+    const bc = bcValue.trim()
+    if (!/^\d{6,30}$/.test(bc)) {
+      toast.error('Business Center ID inválido', { hint: 'É o ID numérico do Business Center onde o catálogo está.' })
+      return
+    }
     setBusy(true)
     try {
+      // Persiste o BC como padrão da conta quando o usuário o corrige aqui — assim
+      // publicação do feed e criação de campanha usam o mesmo Business Center.
+      if (bc !== bcId) {
+        await apiSend(adsCatalogApiUrl('/api/ads/catalogs/business-center', advertiserId), 'POST', { bcId: bc })
+      }
       const result = await apiSend<{ catalog: AdsCatalog; remote: { name?: string; productCount?: number } }>(
         adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalog.id)}/link`, advertiserId), 'POST',
-        { tiktokCatalogId: catalogId.trim(), bcId },
+        { tiktokCatalogId: catalogId.trim(), bcId: bc },
       )
       toast.success('Catálogo TikTok verificado', { hint: result.remote?.name ? `${result.remote.name} · ${result.remote.productCount ?? 0} produto(s)` : undefined })
       await onChanged()
@@ -93,27 +111,43 @@ export function CatalogConnectionCard({
         </p>
       )}
 
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <input
-          className="input-neon min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground"
-          value={catalogId}
-          onChange={(event) => setCatalogId(event.target.value.replace(/\D/g, '').slice(0, 30))}
-          inputMode="numeric"
-          placeholder="Catalog ID do TikTok"
-          aria-label="Catalog ID do TikTok"
-          disabled={busy || verified}
-        />
-        {verified ? (
-          <button type="button" className="btn-ghost text-xs text-error" onClick={() => setConfirmDisconnect(true)} disabled={busy}>
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Unlink className="size-3.5" />} Desconectar
-          </button>
-        ) : (
-          <button type="button" className="btn-primary text-xs" onClick={connect} disabled={busy || !bcId || !catalogId}>
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />} Verificar e conectar
-          </button>
+      <div className="mt-3 flex flex-col gap-2">
+        {!verified && (
+          <label className="text-[10px] text-muted-foreground">
+            Business Center do catálogo
+            <input
+              className="input-neon mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground"
+              value={bcValue}
+              onChange={(event) => setBcValue(event.target.value.replace(/\D/g, '').slice(0, 30))}
+              inputMode="numeric"
+              placeholder="ID do Business Center onde o catálogo está"
+              aria-label="Business Center ID do catálogo"
+              disabled={busy}
+            />
+          </label>
         )}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            className="input-neon min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground"
+            value={catalogId}
+            onChange={(event) => setCatalogId(event.target.value.replace(/\D/g, '').slice(0, 30))}
+            inputMode="numeric"
+            placeholder="Catalog ID do TikTok"
+            aria-label="Catalog ID do TikTok"
+            disabled={busy || verified}
+          />
+          {verified ? (
+            <button type="button" className="btn-ghost text-xs text-error" onClick={() => setConfirmDisconnect(true)} disabled={busy}>
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Unlink className="size-3.5" />} Desconectar
+            </button>
+          ) : (
+            <button type="button" className="btn-primary text-xs" onClick={connect} disabled={busy || !bcValue || !catalogId}>
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />} Verificar e conectar
+            </button>
+          )}
+        </div>
       </div>
-      {!bcId && <p className="mt-2 text-[10px] text-warning">Configure o Business Center antes de verificar o catálogo.</p>}
+      <p className="mt-2 text-[10px] text-muted-foreground">O Catalog ID e o Business Center precisam ser do mesmo par (Catalog Manager → seu catálogo → ID; e o BC dono do catálogo).</p>
     </section>
     <ConfirmDialog
       open={confirmDisconnect}

@@ -59,6 +59,20 @@ function throwsCode(fn, code, label) {
   } catch (error) {
     eq(error.code, 'CATALOG_NOT_FOUND_IN_BC', 'ID copiado não vira vínculo sem confirmação remota');
     eq(error.retryable, false, 'erro de ID/BC não é retry cego');
+    // BC devolveu ZERO catálogos → aponta para acesso do token/BC errado.
+    ok(/nenhum catálogo/i.test(error.userMessage), 'zero visíveis: mensagem fala em BC sem catálogos/acesso do token');
+    ok(error.userMessage.includes('7550683248272228369'), 'mensagem nomeia o BC consultado');
+  }
+  try {
+    // BC com catálogos, mas nenhum com o ID pedido → o Catalog ID é que está errado.
+    await gateway.verifyCatalogLink({
+      async listTikTokCatalogs() { return [{ catalog_id: '9999999999999999999', catalog_name: 'outro' }]; },
+    }, { bcId: '7550683248272228369', catalogId: '7662123486130784016' });
+    ok(false, 'ID inexistente no BC deveria falhar');
+  } catch (error) {
+    eq(error.code, 'CATALOG_NOT_FOUND_IN_BC', 'ID que não está no BC não vira vínculo');
+    ok(error.userMessage.includes('7662123486130784016'), 'mensagem nomeia o Catalog ID pedido');
+    ok(/1 catálogo/.test(error.userMessage), 'mensagem informa quantos catálogos o BC tinha');
   }
 
   const blockedCapabilities = await gateway.capabilities({

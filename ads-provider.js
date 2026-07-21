@@ -1817,8 +1817,18 @@ async function listTikTokCatalogs(bcId) {
   const ck = 'catalogs:' + bc;
   const hit = cacheGet(ck);
   if (hit) return hit;
-  const out = await pipeboard.callTool('get_tiktok_catalogs', { bc_id: bc, page: 1, page_size: 50 });
-  const list = firstArray(out, ['catalogs', 'catalog_list', 'list', 'data']);
+  // Pagina TODAS as páginas: a verificação de vínculo procura o catálogo pelo
+  // ID exato, então um catálogo além da 1ª página levava a um falso
+  // "catálogo não encontrado neste Business Center". Teto de 20 páginas × 50
+  // (1000 catálogos) como salvaguarda contra loop infinito.
+  const PAGE_SIZE = 50;
+  const list = [];
+  for (let page = 1; page <= 20; page += 1) {
+    const out = await pipeboard.callTool('get_tiktok_catalogs', { bc_id: bc, page, page_size: PAGE_SIZE });
+    const chunk = firstArray(out, ['catalogs', 'catalog_list', 'list', 'data']);
+    if (Array.isArray(chunk) && chunk.length) list.push(...chunk);
+    if (!Array.isArray(chunk) || chunk.length < PAGE_SIZE) break;
+  }
   return cacheSet(ck, list, 60 * 1000);
 }
 
