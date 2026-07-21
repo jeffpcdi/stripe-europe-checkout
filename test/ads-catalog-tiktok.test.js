@@ -24,7 +24,7 @@ console.log('CATALOG_TYPES — enum do TikTok');
   ok(!provider.CATALOG_TYPES.includes('PRODUCT_CATALOG'), 'não usa mais o legado PRODUCT_CATALOG');
 }
 
-console.log('Business Center — persistência por conta');
+console.log('Business Center — persistência por conta + advertiser');
 {
   eq(provider.getBusinessCenterId('cat-test-acc'), '', 'conta nova não tem BC');
   provider.setBusinessCenterId('cat-test-acc', '  7012345678901234567  ');
@@ -32,6 +32,11 @@ console.log('Business Center — persistência por conta');
   eq(provider.businessCenterFromEnv('cat-test-acc'), false, 'não veio do env (a conta gravou o seu)');
   // contas são isoladas
   eq(provider.getBusinessCenterId('cat-test-outra'), '', 'BC é por conta (não vaza)');
+  provider.setBusinessCenterId('cat-test-acc', 'adv-a', '7011111111111111111');
+  provider.setBusinessCenterId('cat-test-acc', 'adv-b', '7022222222222222222');
+  eq(provider.getBusinessCenterId('cat-test-acc', 'adv-a'), '7011111111111111111', 'BC específico do advertiser A');
+  eq(provider.getBusinessCenterId('cat-test-acc', 'adv-b'), '7022222222222222222', 'BC específico do advertiser B');
+  eq(provider.getBusinessCenterId('cat-test-acc', 'adv-legado'), '7012345678901234567', 'advertiser sem valor usa o BC legado preservado');
 }
 
 console.log('createTikTokCatalog — validação antes da rede');

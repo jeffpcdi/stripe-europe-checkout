@@ -21,6 +21,9 @@ const eq = (a, b, msg) => { assert.strictEqual(a, b, msg); asserts += 1; };
   ok(!/require\(\s*['"]\.\/ads-provider['"]\s*\)/.test(src), 'ads-ai não pode importar ads-provider');
   ok(!/require\(\s*['"]\.\/zernio['"]\s*\)/.test(src), 'ads-ai não pode importar zernio');
   ok(!/callTool|listTools/.test(src), 'ads-ai não pode chamar tools MCP diretamente');
+  ok(/const scopeKey = String\(accId\) \+ '\|' \+ String\(advertiserId\)/.test(src), 'briefing diário é idempotente por conta + advertiser');
+  ok(/listBriefings\(accId, advertiserId, 'daily'/.test(src), 'briefing diário consulta apenas o advertiser atual');
+  ok(/listBriefings\(accId, advertiserId, 'creatives'/.test(src), 'insights criativos consultam apenas o advertiser atual');
   console.log('A. regra de ouro (zero Pipeboard em ads-ai.js) OK');
 }
 

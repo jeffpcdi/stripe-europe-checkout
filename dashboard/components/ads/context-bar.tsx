@@ -12,7 +12,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { ExternalLink, MoreHorizontal, RefreshCw, Unplug } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsAdvertiser, AdsHealthStatus } from '@/lib/types'
+import type { AdsAdvertiser, AdsHealthStatus, AdsSyncAdvertiserState } from '@/lib/types'
 import { McpStatusDot } from './mcp-status-dot'
 
 // Sufixo textual no <option> (options não renderizam markup) + ponto colorido
@@ -35,6 +35,7 @@ const STATUS_DOT: Partial<Record<AdsHealthStatus, { className: string; label: st
 export function AdsContextBar({
   advertisers,
   selectedAdvertiser,
+  syncState,
   refreshing,
   rangeDays,
   onRangeDays,
@@ -44,6 +45,7 @@ export function AdsContextBar({
 }: {
   advertisers: AdsAdvertiser[]
   selectedAdvertiser: string
+  syncState?: AdsSyncAdvertiserState
   refreshing: boolean
   rangeDays: number
   onRangeDays: (days: number) => void
@@ -54,6 +56,19 @@ export function AdsContextBar({
   onDisconnect: (() => void) | null
 }) {
   const [switchingAdvertiser, setSwitchingAdvertiser] = useState(false)
+
+  const syncMeta = (() => {
+    if (!selectedAdvertiser) return { label: 'Selecione uma conta', tone: 'text-muted-foreground' }
+    if (refreshing || syncState?.status === 'syncing') return { label: 'Sincronizando…', tone: 'text-primary' }
+    if (syncState?.status === 'blocked') return { label: 'Acesso bloqueado', tone: 'text-warning' }
+    if (syncState?.status === 'unauthorized') return { label: 'Sem acesso', tone: 'text-error' }
+    if (syncState?.status === 'error') return { label: 'Sincronização falhou', tone: 'text-error' }
+    if (!syncState?.lastSyncedAt) return { label: 'Aguardando 1ª sincronização', tone: 'text-muted-foreground' }
+    const elapsed = Math.max(0, Date.now() - new Date(syncState.lastSyncedAt).getTime())
+    const minutes = Math.floor(elapsed / 60_000)
+    const label = minutes < 1 ? 'Sincronizado agora' : minutes < 60 ? `Sincronizado há ${minutes} min` : `Sincronizado há ${Math.floor(minutes / 60)} h`
+    return { label, tone: minutes >= 10 ? 'text-warning' : 'text-muted-foreground' }
+  })()
 
   async function handleSelectAdvertiser(id: string) {
     if (!id || switchingAdvertiser) return
@@ -99,6 +114,14 @@ export function AdsContextBar({
     >
       {/* Um único indicador substitui os três estados redundantes antigos. */}
       <McpStatusDot active />
+
+      <span
+        className={`hidden shrink-0 lg:inline ${syncMeta.tone}`}
+        title={syncState?.lastError || syncMeta.label}
+        aria-live="polite"
+      >
+        {syncMeta.label}
+      </span>
 
       {/* Seletor de conta de anúncio (advertiser) */}
       <label className="col-span-2 flex min-w-0 items-center gap-2 text-muted-foreground sm:col-span-1 sm:flex-1">
@@ -158,7 +181,9 @@ export function AdsContextBar({
           type="button"
           className="btn-ghost size-8 p-0 text-xs"
           onClick={onRefresh}
-          aria-label="Atualizar dados"
+          disabled={refreshing || !selectedAdvertiser}
+          aria-label={syncMeta.label}
+          title={`${syncMeta.label}. Atualizar dados do TikTok agora.`}
         >
           <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
         </button>

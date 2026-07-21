@@ -82,7 +82,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/ops/jobs', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const jobs = await adsOps.listJobs(req.account.id, req.query.limit);
+      const hint = String((req.query || {}).adAccountId || '').trim();
+      const advertiserId = hint ? (await requireAdvertiser(req.account.id, null, hint, null)).advertiserId : '';
+      const jobs = await adsOps.listJobs(req.account.id, req.query.limit, advertiserId);
       res.json({ enabled: adsOps.enabled, jobs });
     } catch (err) { fail(res, err); }
   });
@@ -314,12 +316,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       const calls = pipeboardMcp.getCallStats ? pipeboardMcp.getCallStats() : null;
+      const hint = String((req.query || {}).adAccountId || '').trim();
+      const advertiserId = hint ? (await requireAdvertiser(req.account.id, null, hint, null)).advertiserId : '';
       const states = adsCache.enabled ? await adsCache.listSyncStates(req.account.id) : [];
       res.json({
         cacheEnabled: !!adsCache.enabled,
         syncConfig: adsSync._config || null,
         calls, // { total, lastMinute, lastHour, byTool }
-        advertisers: (states || []).map((s) => ({
+        advertisers: (states || []).filter((s) => !advertiserId || String(s.advertiser_id) === advertiserId).map((s) => ({
           advertiserId: s.advertiser_id,
           status: s.status,
           lastSyncedAt: s.last_synced_at,
@@ -592,12 +596,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // é o único gatilho manual de leitura ao provider fora do loop de sync.
   app.post('/api/ads/tree/refresh', dashboardAuth, async (req, res) => {
     try {
-      if (!adsCache.enabled) { pipeboard.cacheBust('dashtree:' + req.account.id); return res.status(204).end(); }
       const q = req.query || {};
-      let advertiserId = q.adAccountId ? String(q.adAccountId).trim() : await pipeboard.resolveAdvertiserId(req.account.id);
+      let advertiserId;
+      if (q.adAccountId) advertiserId = (await requireAdvertiser(req.account.id, null, String(q.adAccountId).trim(), null)).advertiserId;
+      else advertiserId = await pipeboard.resolveAdvertiserId(req.account.id);
       if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
+      if (!adsCache.enabled) { pipeboard.cacheBust('dashtree:' + req.account.id); return res.status(204).end(); }
       const r = await adsSync.refreshNow(req.account.id, advertiserId);
       if (r && r.throttled) return res.status(429).json({ error: 'Aguarde antes de atualizar novamente', retryInMs: r.retryInMs });
+      if (!r || !r.ok) {
+        const code = r && r.blocked ? 'ACCOUNT_BLOCKED' : r && r.unauthorized ? 'ADVERTISER_UNAUTHORIZED' : 'SYNC_FAILED';
+        const status = r && r.blocked ? 423 : r && r.unauthorized ? 403 : 502;
+        return res.status(status).json({ error: (r && r.error) || 'Falha ao sincronizar com o TikTok', code });
+      }
       res.json({ ok: true, synced: !!(r && r.ok), campaigns: r && r.campaigns, metrics: r && r.metrics });
     } catch (err) { fail(res, err); }
   });
@@ -1043,8 +1054,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!wantStatus && !wantBudget && !wantCreative) return res.status(400).json({ error: 'Nada para atualizar' });
 
       // classifica no espelho (advertiser resolvido junto)
-      const hint = String(b.adAccountId || '').trim() || undefined;
-      const ent = await adsCache.classifyEntity(req.account.id, hint, entityId);
+      const hint = String(b.adAccountId || '').trim();
+      const validatedHint = hint ? (await requireAdvertiser(req.account.id, null, hint, null)).advertiserId : undefined;
+      const ent = await adsCache.classifyEntity(req.account.id, validatedHint, entityId);
       if (!ent) return res.status(404).json({ error: 'Entidade não encontrada no espelho. Atualize a árvore e tente de novo.' });
       const advertiserId = ent.advertiserId;
       if (wantCreative && ent.type !== 'ad') {
@@ -1098,8 +1110,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const adId = String(req.params.adId || '');
-      const hint = String((req.body || {}).adAccountId || '').trim() || undefined;
-      const ent = await adsCache.classifyEntity(req.account.id, hint, adId);
+      const hint = String((req.body || {}).adAccountId || '').trim();
+      const validatedHint = hint ? (await requireAdvertiser(req.account.id, null, hint, null)).advertiserId : undefined;
+      const ent = await adsCache.classifyEntity(req.account.id, validatedHint, adId);
       if (!ent) return res.status(404).json({ error: 'Entidade não encontrada no espelho. Atualize a árvore e tente de novo.' });
       const advertiserId = ent.advertiserId;
       // dry-run: não exclui de verdade.
@@ -1467,12 +1480,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/briefing', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      const briefings = await adsCache.listBriefings(req.account.id, 'daily', 7);
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      const briefings = await adsCache.listBriefings(req.account.id, advertiserId, 'daily', 7);
       res.json({ ai: adsAi.enabled(), briefings });
     } catch (err) { fail(res, err); }
   });
 
-  // Gerar briefing agora (botão na UI) — sobrescreve o de hoje (PK account+date).
+  // Gerar briefing agora — sobrescreve só o de hoje deste advertiser.
   app.post('/api/ads/briefing/run', dashboardAuth, async (req, res) => {
     if (!adsAi.enabled()) return res.status(503).json(AI_OFF);
     try {
@@ -1853,15 +1867,21 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // ── Templates de campanha ──────────────────���─��─────���───────────────────────
   // Guarda a CONFIGURAÇÃO (objetivo, orçamento, público, CTA, link, pixel…) —
   // nunca o vídeo. Criar do template = wizard pré-preenchido, só troca o vídeo.
-  app.get('/api/ads/templates', dashboardAuth, (req, res) => {
+  app.get('/api/ads/templates', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    const st = pipeboard.getState(req.account.id);
-    res.json({ items: Array.isArray(st.templates) ? st.templates : [] });
+    try {
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      const st = pipeboard.getState(req.account.id);
+      const items = (Array.isArray(st.templates) ? st.templates : [])
+        .filter((item) => !item.advertiserId || String(item.advertiserId) === advertiserId);
+      res.json({ items });
+    } catch (err) { fail(res, err); }
   });
 
-  app.post('/api/ads/templates', dashboardAuth, (req, res) => {
+  app.post('/api/ads/templates', dashboardAuth, async (req, res) => {
     try {
       const b = req.body || {};
+      const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
       const name = String(b.name || '').trim().slice(0, 60);
       if (!name) return res.status(400).json({ error: 'Nome do template é obrigatório' });
       const p = (b.payload && typeof b.payload === 'object') ? b.payload : {};
@@ -1890,17 +1910,21 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       const st = pipeboard.getState(req.account.id);
       const items = Array.isArray(st.templates) ? st.templates.slice(0, 19) : [];
-      const item = { id: 't' + Date.now().toString(36), name, payload, createdAt: new Date().toISOString() };
+      const item = { id: 't' + Date.now().toString(36), name, payload, advertiserId, createdAt: new Date().toISOString() };
       pipeboard.setState(req.account.id, { templates: [item, ...items] });
       res.status(201).json(item);
     } catch (err) { fail(res, err); }
   });
 
-  app.delete('/api/ads/templates', dashboardAuth, (req, res) => {
+  app.delete('/api/ads/templates', dashboardAuth, async (req, res) => {
     try {
       const id = String((req.query || {}).id || '');
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
       const st = pipeboard.getState(req.account.id);
-      const items = (Array.isArray(st.templates) ? st.templates : []).filter((t) => t.id !== id);
+      const source = Array.isArray(st.templates) ? st.templates : [];
+      const exists = source.some((item) => item.id === id && (!item.advertiserId || String(item.advertiserId) === advertiserId));
+      if (!exists) return res.status(404).json({ error: 'Template não encontrado nesta conta de anúncio' });
+      const items = source.filter((item) => item.id !== id);
       pipeboard.setState(req.account.id, { templates: items });
       res.json({ ok: true });
     } catch (err) { fail(res, err); }
@@ -1953,6 +1977,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         reason: 'Bulk item ' + env.idx + ' do job ' + env.jobId,
       }).catch(() => {});
       pipeboard.cacheBust('tree:');
+      adsSync.syncAfterWrite(env.accountId, p.adAccountId);
       return { resultId: result.campaignId || null };
     }
     if (task.kind === 'duplicate_pb') {
@@ -1976,6 +2001,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         metadata: { warnings: result.warnings },
       }).catch(() => {});
       pipeboard.cacheBust('tree:');
+      adsSync.syncAfterWrite(env.accountId, task.advertiserId);
       return { resultId: result.campaignId || null };
     }
     throw new Error('Tipo de tarefa desconhecido: ' + String(task.kind || ''));
@@ -2374,23 +2400,23 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/catalogs/business-center', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
-      await catalogAdvertiserId(req);
+      const advertiserId = await catalogAdvertiserId(req);
       res.json({
         enabled: pipeboard.enabled,
-        bcId: pipeboard.getBusinessCenterId(req.account.id) || '',
-        fromEnv: pipeboard.businessCenterFromEnv(req.account.id),
+        bcId: pipeboard.getBusinessCenterId(req.account.id, advertiserId) || '',
+        fromEnv: pipeboard.businessCenterFromEnv(req.account.id, advertiserId),
       });
     } catch (err) { fail(res, err); }
   });
 
   app.post('/api/ads/catalogs/business-center', dashboardAuth, async (req, res) => {
     try {
-      await catalogAdvertiserId(req);
+      const advertiserId = await catalogAdvertiserId(req);
       const raw = String((req.body || {}).bcId || '').trim();
       if (raw && !/^\d{6,30}$/.test(raw)) {
         return res.status(400).json({ error: 'O ID do Business Center deve ser numérico (ex.: 7012345678901234567).', code: 'INVALID_BC_ID' });
       }
-      const bcId = pipeboard.setBusinessCenterId(req.account.id, raw);
+      const bcId = pipeboard.setBusinessCenterId(req.account.id, advertiserId, raw);
       res.json({ ok: true, bcId });
     } catch (err) { fail(res, err); }
   });
@@ -2446,7 +2472,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!/^\d{6,30}$/.test(tiktokCatalogId)) {
         return res.status(400).json({ error: 'Informe o Catalog ID numérico do TikTok (Catalog Manager → seu catálogo → ID).', code: 'INVALID_CATALOG_ID' });
       }
-      const bcId = String((req.body || {}).bcId || '').trim() || pipeboard.getBusinessCenterId(req.account.id) || '';
+      const bcId = String((req.body || {}).bcId || '').trim() || pipeboard.getBusinessCenterId(req.account.id, advertiserId) || '';
       if (!/^\d{6,30}$/.test(bcId)) {
         return res.status(422).json({ error: 'Configure o Business Center na aba Catálogo antes de vincular.', code: 'MISSING_BC' });
       }
@@ -2619,7 +2645,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const accId = req.account.id;
       const advertiserId = await catalogAdvertiserId(req);
       const catalogId = req.params.catalogId;
-      const bcId = pipeboard.getBusinessCenterId(accId);
+      const bcId = pipeboard.getBusinessCenterId(accId, advertiserId);
       if (!bcId) {
         return res.status(422).json({ error: 'Informe o ID do Business Center do TikTok antes de publicar (aba Catálogo → Business Center).', code: 'NO_BUSINESS_CENTER' });
       }

@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/skeleton'
 import { StatusPill } from '@/components/ads/campaign-tree'
 import type { AdsMetrics, AdsTreeCampaign } from '@/lib/types'
+import { toLocalIsoDate } from './tiktok-contracts'
 
 type Metric = 'spend' | 'conversions' | 'ctr'
 
@@ -37,12 +38,10 @@ const RANGES = [
   { days: 30, label: '30d' },
 ] as const
 
-const isoDay = (d: Date) => d.toISOString().slice(0, 10)
-
 function rangeDates(days: number, offsetPeriods = 0) {
   const to = new Date(Date.now() - offsetPeriods * days * 864e5)
   const from = new Date(to.getTime() - (days - 1) * 864e5)
-  return { fromDate: isoDay(from), toDate: isoDay(to) }
+  return { fromDate: toLocalIsoDate(from), toDate: toLocalIsoDate(to) }
 }
 
 function fmtDay(day: unknown) {
@@ -136,11 +135,13 @@ function pctDelta(cur: number, prev: number): number | null {
 
 export function CampaignDrawer({
   campaign,
+  advertiserId,
   currency,
   onClose,
   attribution,
 }: {
   campaign: AdsTreeCampaign | null
+  advertiserId: string
   currency: string
   onClose: () => void
   // vendas reais desta campanha (leads convertidos com utm_campaign = ID)
@@ -154,9 +155,9 @@ export function CampaignDrawer({
   const cur = useMemo(() => rangeDates(days), [days])
   const prev = useMemo(() => rangeDates(days, 1), [days])
 
-  const { data, isLoading, error } = useAdsCampaignAnalytics(id, cur)
+  const { data, isLoading, error } = useAdsCampaignAnalytics(id, advertiserId, cur)
   // comparação: mesmo tamanho de janela, imediatamente anterior
-  const { data: prevData } = useAdsCampaignAnalytics(id, prev)
+  const { data: prevData } = useAdsCampaignAnalytics(id, advertiserId, prev)
 
   useEffect(() => {
     if (!id) return

@@ -64,19 +64,21 @@ function JobStatusIcon({ status }: { status: AdsOpsJob['status'] }) {
 export function OpsDialog({
   open,
   onClose,
+  advertiserId,
   currency,
   initialTab = 'jobs',
   onPolicyChanged,
 }: {
   open: boolean
   onClose: () => void
+  advertiserId: string
   currency: string
   initialTab?: 'jobs' | 'safety'
   // revalida o badge dry-run na view principal
   onPolicyChanged?: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const { data: jobsData, mutate: mutateJobs } = useAdsOpsJobs(open)
+  const { data: jobsData, mutate: mutateJobs } = useAdsOpsJobs(open, advertiserId)
   const { data: policyData, mutate: mutatePolicy } = useAdsSafetyPolicy(open)
 
   const [tab, setTab] = useState<'jobs' | 'safety'>('jobs')

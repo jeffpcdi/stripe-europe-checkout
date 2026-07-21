@@ -49,6 +49,9 @@ console.log('ads-sync — merge de Smart+ não duplica campaign_id');
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'ads-sync.js'), 'utf8');
   ok(/const seen = new Set\(\(tree\.campaigns \|\| \[\]\)\.map/.test(src), 'merge só adiciona Smart+ com ID novo (campanha normal vence)');
+  ok(/const postWriteSync = new Map\(\)/.test(src), 'sync pós-escrita mantém estado por advertiser');
+  ok(/while \(state\.dirty\)/.test(src), 'escritas concorrentes provocam nova passagem depois do sync em voo');
+  ok(/dedupSync\(accountId, advertiserId, \{ force: true \}\)/.test(src), 'sync pós-escrita força leitura fresca da plataforma');
 }
 
 console.log('\nads-cache-dedup: ' + n + ' asserts OK');

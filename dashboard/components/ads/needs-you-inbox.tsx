@@ -123,7 +123,7 @@ export function NeedsYouInbox({
   onGoAutomations: () => void
 }) {
   const { data: proposals, mutate } = useAdsProposals(active, 'pending', adAccountId)
-  const { data: jobs } = useAdsOpsJobs(active)
+  const { data: jobs } = useAdsOpsJobs(active, adAccountId)
   const { data: health } = useAdsHealth(active)
   const { data: alertsCfg } = useAdsAlerts(active, adAccountId)
 

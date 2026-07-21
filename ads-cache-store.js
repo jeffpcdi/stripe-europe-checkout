@@ -559,7 +559,9 @@ async function readDailySeries(accountId, advertiserId, fromDate, toDate) {
 }
 
 // ── Conteúdo gerado por IA (briefings diários, insights de criativos) ───────
-// kind: 'daily' | 'creatives'. PK (account, date, kind) = idempotência natural:
+// kind: 'daily' | 'creatives'. Escopo (account, advertiser, date, kind):
+// cada conta de anúncio tem análises próprias; linhas legadas ficam preservadas
+// com advertiser_id='' e servem de fallback até cada advertiser gerar a sua.
 // gerar 2× no mesmo dia sobrescreve em vez de duplicar. content = texto pronto
 // para a UI; meta = payload estruturado (anomalias, variações, proposta).
 let briefingSchemaReady = null;
@@ -569,40 +571,58 @@ async function ensureBriefingSchema() {
   briefingSchemaReady = (async () => {
     await sql`CREATE TABLE IF NOT EXISTS ads_briefings (
       account_id text NOT NULL,
+      advertiser_id text NOT NULL DEFAULT '',
       date date NOT NULL,
       kind text NOT NULL DEFAULT 'daily',
       content text NOT NULL DEFAULT '',
       meta jsonb NOT NULL DEFAULT '{}'::jsonb,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      PRIMARY KEY (account_id, date, kind)
+      created_at timestamptz NOT NULL DEFAULT now()
     )`;
+    await sql`ALTER TABLE ads_briefings ADD COLUMN IF NOT EXISTS advertiser_id text NOT NULL DEFAULT ''`;
+    // A PK antiga (account_id,date,kind) impediria dois advertisers no mesmo
+    // dia. Removê-la não apaga linhas; o índice novo mantém a idempotência.
+    await sql`ALTER TABLE ads_briefings DROP CONSTRAINT IF EXISTS ads_briefings_pkey`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS ads_briefings_scope_unique ON ads_briefings (account_id, advertiser_id, date, kind)`;
     return true;
   })().catch((err) => { briefingSchemaReady = null; throw err; });
   return briefingSchemaReady;
 }
 
-async function upsertBriefing(accountId, date, kind, content, meta) {
+async function upsertBriefing(accountId, advertiserId, date, kind, content, meta) {
   accountId = cleanAccountId(accountId);
+  advertiserId = String(advertiserId || '').trim().slice(0, 120);
+  if (!advertiserId) throw new Error('advertiserId específico é obrigatório para briefing');
   if (!enabled) return null;
   await ensureBriefingSchema();
   await sql`
-    INSERT INTO ads_briefings (account_id, date, kind, content, meta)
-    VALUES (${accountId}, ${date}, ${String(kind || 'daily').slice(0, 20)}, ${String(content || '')}, ${JSON.stringify(meta || {})}::jsonb)
-    ON CONFLICT (account_id, date, kind) DO UPDATE SET
+    INSERT INTO ads_briefings (account_id, advertiser_id, date, kind, content, meta)
+    VALUES (${accountId}, ${advertiserId}, ${date}, ${String(kind || 'daily').slice(0, 20)}, ${String(content || '')}, ${JSON.stringify(meta || {})}::jsonb)
+    ON CONFLICT (account_id, advertiser_id, date, kind) DO UPDATE SET
       content = EXCLUDED.content, meta = EXCLUDED.meta, created_at = now()`;
   return true;
 }
 
 // Últimos N briefings de um tipo (default: 7 dias de 'daily' para o card).
-async function listBriefings(accountId, kind, limit = 7) {
+async function listBriefings(accountId, advertiserId, kind, limit = 7) {
   accountId = cleanAccountId(accountId);
+  advertiserId = String(advertiserId || '').trim().slice(0, 120);
+  if (!advertiserId) throw new Error('advertiserId específico é obrigatório para briefing');
   if (!enabled) return [];
   await ensureBriefingSchema();
-  const rows = await sql`
+  let rows = await sql`
     SELECT date::text AS date, kind, content, meta, created_at
     FROM ads_briefings
-    WHERE account_id = ${accountId} AND kind = ${String(kind || 'daily')}
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND kind = ${String(kind || 'daily')}
     ORDER BY date DESC LIMIT ${Math.min(Math.max(1, limit), 30)}`;
+  // Compatibilidade segura: dados anteriores à segmentação nunca são apagados.
+  // Só aparecem quando ainda não existe nenhum briefing no escopo selecionado.
+  if (!rows.length) {
+    rows = await sql`
+      SELECT date::text AS date, kind, content, meta, created_at
+      FROM ads_briefings
+      WHERE account_id = ${accountId} AND advertiser_id = '' AND kind = ${String(kind || 'daily')}
+      ORDER BY date DESC LIMIT ${Math.min(Math.max(1, limit), 30)}`;
+  }
   return rows.map((r) => ({ date: r.date, kind: r.kind, content: r.content, meta: r.meta || {}, createdAt: r.created_at }));
 }
 

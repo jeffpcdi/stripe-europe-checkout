@@ -152,7 +152,7 @@ export function CreateAdPanel({
   const [uploadPct, setUploadPct] = useState(0)
   const [libraryOpen, setLibraryOpen] = useState(false)
   // Templates: configurações salvas (sem vídeo) para pré-preencher o wizard
-  const { data: templatesData, mutate: mutateTemplates } = useAdsTemplates(open)
+  const { data: templatesData, mutate: mutateTemplates } = useAdsTemplates(open, advertiserId)
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [templateNaming, setTemplateNaming] = useState(false)
   const [templateName, setTemplateName] = useState('')
@@ -301,6 +301,7 @@ export function CreateAdPanel({
     setSavingTemplate(true)
     try {
       await apiSend('/api/ads/templates', 'POST', {
+        adAccountId: advertiserId,
         name: templateName.trim(),
         payload: {
           goal: form.goal,
@@ -335,7 +336,10 @@ export function CreateAdPanel({
     if (!deleteTemplate) return
     setDeletingTemplate(true)
     try {
-      await apiSend(`/api/ads/templates?id=${encodeURIComponent(deleteTemplate.id)}`, 'DELETE')
+      await apiSend(
+        `/api/ads/templates?id=${encodeURIComponent(deleteTemplate.id)}&adAccountId=${encodeURIComponent(advertiserId)}`,
+        'DELETE',
+      )
       mutateTemplates()
       toast.success('Template excluído')
     } catch (error) {

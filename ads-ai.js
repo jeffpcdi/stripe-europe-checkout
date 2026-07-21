@@ -487,7 +487,7 @@ async function generateDailyBriefing(accId, advertiserId, currency) {
     content = fallback();
   }
 
-  await cache.upsertBriefing(accId, today, 'daily', content, { anomalies, usedAi, advertiserId });
+  await cache.upsertBriefing(accId, advertiserId, today, 'daily', content, { anomalies, usedAi, advertiserId });
   const badCount = anomalies.filter((a) => a.severity === 'bad').length;
   await sendPushcut(
     'Briefing TikTok Ads',
@@ -501,18 +501,19 @@ async function generateDailyBriefing(accId, advertiserId, currency) {
 // Wrapper idempotente para o tick 24/7 do ads-sync: gera no máximo 1 briefing
 // por conta/dia (checa o Neon antes; memória local só evita corrida no mesmo
 // processo). Nunca lança — falha de briefing jamais derruba o sync.
-const briefingRan = new Map(); // accId -> 'YYYY-MM-DD' (cache local do dia)
+const briefingRan = new Map(); // accId|advertiserId -> 'YYYY-MM-DD'
 function maybeDailyBriefing(accId, advertiserId, currency) {
   const today = isoDay(new Date());
-  if (briefingRan.get(accId) === today) return;
-  briefingRan.set(accId, today); // marca antes: corrida no pior caso pula 1 dia, nunca duplica
+  const scopeKey = String(accId) + '|' + String(advertiserId);
+  if (briefingRan.get(scopeKey) === today) return;
+  briefingRan.set(scopeKey, today); // marca antes: corrida no pior caso pula 1 dia, nunca duplica
   (async () => {
-    const existing = await cache.listBriefings(accId, 'daily', 1).catch(() => []);
-    if (existing[0] && existing[0].date === today) return; // já gerado (outro processo/manual)
+    const existing = await cache.listBriefings(accId, advertiserId, 'daily', 1).catch(() => []);
+    if (existing[0] && existing[0].date === today && String(existing[0].meta && existing[0].meta.advertiserId || '') === String(advertiserId)) return;
     await generateDailyBriefing(accId, advertiserId, currency || 'USD');
-    console.log('[ads-ai] briefing diário gerado para ' + accId + ' (' + today + ')');
+    console.log('[ads-ai] briefing diário gerado para ' + accId + '/' + advertiserId + ' (' + today + ')');
   })().catch((err) => {
-    briefingRan.delete(accId); // permite re-tentar no próximo tick
+    briefingRan.delete(scopeKey); // permite re-tentar no próximo tick
     console.error('[ads-ai] briefing falhou (re-tenta no próximo tick):', err.message);
   });
 }
@@ -526,7 +527,7 @@ function maybeDailyBriefing(accId, advertiserId, currency) {
 async function creativeInsights(accId, advertiserId, { force } = {}) {
   const today = isoDay(new Date());
   if (!force) {
-    const cached = await cache.listBriefings(accId, 'creatives', 1);
+    const cached = await cache.listBriefings(accId, advertiserId, 'creatives', 1);
     if (cached[0] && cached[0].date === today) {
       return Object.assign({ cached: true }, cached[0].meta, { content: cached[0].content });
     }
@@ -561,12 +562,12 @@ async function creativeInsights(accId, advertiserId, { force } = {}) {
       parsed = { patterns: r.text.slice(0, 1500), variations: [] };
     }
     const meta = { topAds: top, windowDays, patterns: parsed.patterns || '', variations: parsed.variations || [] };
-    await cache.upsertBriefing(accId, today, 'creatives', String(parsed.patterns || '').slice(0, 4000), meta);
+    await cache.upsertBriefing(accId, advertiserId, today, 'creatives', String(parsed.patterns || '').slice(0, 4000), Object.assign({ advertiserId }, meta));
     return Object.assign({ cached: false }, meta, { content: meta.patterns });
   } catch (err) {
     bumpAi(false, err);
     // degradação: cache antigo se existir
-    const stale = await cache.listBriefings(accId, 'creatives', 1);
+    const stale = await cache.listBriefings(accId, advertiserId, 'creatives', 1);
     if (stale[0]) return Object.assign({ cached: true, stale: true }, stale[0].meta, { content: stale[0].content });
     throw err;
   }

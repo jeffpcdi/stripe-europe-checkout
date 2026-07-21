@@ -16,6 +16,7 @@ import {
   useAdsSafetyPolicy,
   useAdsHealth,
   useAdsBriefing,
+  useAdsSyncStatus,
   apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -159,6 +160,8 @@ export function TikTokAdsView() {
   const [disconnecting, setDisconnecting] = useState(false)
 
   const concreteAdvertiser = effectiveAdvertiser
+  const { data: syncStatus, mutate: mutateSyncStatus } = useAdsSyncStatus(treeActive, concreteAdvertiser)
+  const selectedSyncState = syncStatus?.advertisers?.find((state) => state.advertiserId === concreteAdvertiser)
 
   function openWriteFlow(setOpen: (open: boolean) => void) {
     if (!concreteAdvertiser) {
@@ -175,7 +178,7 @@ export function TikTokAdsView() {
 
   // IA configurada no servidor? (resposta do briefing carrega a flag `ai`;
   // SWR dedupa com o fetch do BriefingCard — custo zero extra)
-  const { data: briefingData } = useAdsBriefing(treeActive)
+  const { data: briefingData } = useAdsBriefing(treeActive, concreteAdvertiser)
   const aiEnabled = briefingData?.ai ?? false
 
   // KPIs agregados sobre a página atual da árvore + série p/ sparkline
@@ -322,6 +325,7 @@ export function TikTokAdsView() {
       <AdsContextBar
         advertisers={advertisers}
         selectedAdvertiser={effectiveAdvertiser}
+        syncState={selectedSyncState}
         refreshing={treeValidating}
         rangeDays={rangeDays}
         onRangeDays={(days) => {
@@ -334,15 +338,20 @@ export function TikTokAdsView() {
           mutateAccounts()
         }}
         onRefresh={async () => {
-          // Derruba o cache do servidor ANTES de revalidar — sem isso o
-          // mutate() só re-lia o mesmo cache de 45s e o status parecia velho.
           try {
-            await apiSend('/api/ads/tree/refresh', 'POST', {})
-          } catch {
-            /* cache-bust é melhor-esforço; a revalidação abaixo roda igual */
+            await apiSend(
+              `/api/ads/tree/refresh?adAccountId=${encodeURIComponent(concreteAdvertiser)}`,
+              'POST',
+              {},
+            )
+            toast.success('Dados sincronizados com o TikTok')
+          } catch (e) {
+            toast.error('Não foi possível sincronizar agora', {
+              hint: e instanceof Error ? e.message : undefined,
+            })
+          } finally {
+            await Promise.all([mutateTree(), mutateAccounts(), mutateSyncStatus()])
           }
-          mutateTree()
-          mutateAccounts()
         }}
         onDisconnect={status?.capabilities?.oauthConnect === false ? null : () => setConfirmDisconnect(true)}
       />
@@ -612,6 +621,7 @@ export function TikTokAdsView() {
       <OpsDialog
         open={opsOpen}
         onClose={() => setOpsOpen(false)}
+        advertiserId={concreteAdvertiser}
         currency={currency}
         initialTab={opsInitialTab}
         onPolicyChanged={() => mutateSafety()}
@@ -626,6 +636,7 @@ export function TikTokAdsView() {
       />
       <CampaignDrawer
         campaign={detailCampaign}
+        advertiserId={detailCampaign?.platformAdAccountId || concreteAdvertiser}
         currency={currency}
         onClose={() => setDetailCampaign(null)}
         attribution={detailCampaign ? attribution?.byCampaign?.[detailCampaign.platformCampaignId] : undefined}

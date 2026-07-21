@@ -319,11 +319,15 @@ async function findJobByIdempotencyKey(accountId, key) {
   return rows[0] || null;
 }
 
-async function listJobs(accountId, limit) {
+async function listJobs(accountId, limit, advertiserId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
   await ensureSchema();
   const size = Math.min(100, Math.max(1, Number(limit) || 30));
+  const scope = String(advertiserId || '').trim().slice(0, 120);
+  if (scope) {
+    return sql`SELECT id, kind, status, advertiser_id, progress, error, attempts, created_at, updated_at, completed_at FROM ads_jobs WHERE account_id = ${accountId} AND advertiser_id = ${scope} ORDER BY created_at DESC LIMIT ${size}`;
+  }
   return sql`SELECT id, kind, status, advertiser_id, progress, error, attempts, created_at, updated_at, completed_at FROM ads_jobs WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${size}`;
 }
 

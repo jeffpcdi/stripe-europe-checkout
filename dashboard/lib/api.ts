@@ -396,15 +396,20 @@ export function useAdsTree(
 }
 
 // Analytics de uma campanha (drawer de detalhe). id nulo = hook inativo.
-export function useAdsCampaignAnalytics(id: string | null, range?: { fromDate?: string; toDate?: string }) {
+export function useAdsCampaignAnalytics(
+  id: string | null,
+  adAccountId: string,
+  range?: { fromDate?: string; toDate?: string },
+) {
   const params = new URLSearchParams()
+  if (adAccountId) params.set('adAccountId', adAccountId)
   if (range?.fromDate) params.set('fromDate', range.fromDate)
   if (range?.toDate) params.set('toDate', range.toDate)
   const qs = params.toString()
   return useSWR<AdsCampaignAnalyticsResponse>(
-    id ? `/api/ads/campaigns/${encodeURIComponent(id)}/analytics${qs ? `?${qs}` : ''}` : null,
+    id && adAccountId ? `/api/ads/campaigns/${encodeURIComponent(id)}/analytics?${qs}` : null,
     fetcher,
-    { refreshInterval: 60_000, keepPreviousData: true },
+    { refreshInterval: 60_000, keepPreviousData: false },
   )
 }
 
@@ -473,7 +478,7 @@ export function useAdsProposals(active: boolean, status: 'pending' | '' = 'pendi
   return useSWR<AdsProposalsResponse>(active ? `/api/ads/proposals?${params.toString()}` : null, fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: false,
-    keepPreviousData: true,
+    keepPreviousData: false,
   })
 }
 
@@ -485,7 +490,7 @@ export function useAdsMcpStatus(active: boolean, adAccountId = '') {
   return useSWR<AdsMcpStatusResponse>(key, fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: false,
-    keepPreviousData: true,
+    keepPreviousData: false,
   })
 }
 
@@ -493,10 +498,11 @@ export function useAdsMcpStatus(active: boolean, adAccountId = '') {
 
 // Briefing diário (gerado 1×/dia pelo servidor; histórico 7d). Sem polling —
 // muda 1×/dia; o botão "Gerar agora" revalida via mutate().
-export function useAdsBriefing(active: boolean) {
-  return useSWR<AdsBriefingResponse>(active ? '/api/ads/briefing' : null, fetcher, {
+export function useAdsBriefing(active: boolean, adAccountId: string) {
+  const key = active && adAccountId ? `/api/ads/briefing?adAccountId=${encodeURIComponent(adAccountId)}` : null
+  return useSWR<AdsBriefingResponse>(key, fetcher, {
     revalidateOnFocus: false,
-    keepPreviousData: true,
+    keepPreviousData: false,
   })
 }
 
@@ -505,9 +511,9 @@ export function useAdsBriefing(active: boolean) {
 export function useAdsCreativeInsights(active: boolean, adAccountId: string) {
   const qs = adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''
   return useSWR<AdsCreativeInsights>(
-    active ? `/api/ads/creatives/insights${qs}` : null,
+    active && adAccountId ? `/api/ads/creatives/insights${qs}` : null,
     fetcher,
-    { revalidateOnFocus: false, keepPreviousData: true, shouldRetryOnError: false },
+    { revalidateOnFocus: false, keepPreviousData: false, shouldRetryOnError: false },
   )
 }
 
@@ -518,9 +524,9 @@ export function useAdsBudgetProposal(active: boolean, adAccountId: string, curre
   if (currency) params.set('currency', currency)
   if (days !== 1) params.set('days', String(days))
   return useSWR<AdsBudgetProposal>(
-    active ? `/api/ads/budget/proposal?${params.toString()}` : null,
+    active && adAccountId ? `/api/ads/budget/proposal?${params.toString()}` : null,
     fetcher,
-    { revalidateOnFocus: false, keepPreviousData: true, shouldRetryOnError: false },
+    { revalidateOnFocus: false, keepPreviousData: false, shouldRetryOnError: false },
   )
 }
 
@@ -578,24 +584,39 @@ export function useAdsKpis(
   return useSWR<AdsKpisResponse>(
     active && adAccountId ? `/api/ads/kpis?${params.toString()}` : null,
     fetcher,
-    { revalidateOnFocus: false, keepPreviousData: true },
+    { revalidateOnFocus: false, keepPreviousData: false },
   )
 }
 
 // Templates de campanha salvos da conta.
-export function useAdsTemplates(active: boolean) {
-  return useSWR<AdsTemplatesResponse>(active ? '/api/ads/templates' : null, fetcher, {
+export function useAdsTemplates(active: boolean, adAccountId: string) {
+  const key = active && adAccountId ? `/api/ads/templates?adAccountId=${encodeURIComponent(adAccountId)}` : null
+  return useSWR<AdsTemplatesResponse>(key, fetcher, {
     revalidateOnFocus: false,
+    keepPreviousData: false,
   })
 }
 
 // Jobs duráveis (bulk/duplicação) persistidos no Neon — histórico com
 // progresso e erros por job. Poll no ritmo padrão só com o painel aberto.
-export function useAdsOpsJobs(active: boolean) {
-  return useSWR<AdsOpsJobsResponse>(active ? '/api/ads/ops/jobs' : null, fetcher, {
+export function useAdsOpsJobs(active: boolean, adAccountId: string) {
+  const key = active && adAccountId ? `/api/ads/ops/jobs?adAccountId=${encodeURIComponent(adAccountId)}` : null
+  return useSWR<AdsOpsJobsResponse>(key, fetcher, {
     refreshInterval: POLL_MS,
     revalidateOnFocus: true,
-    keepPreviousData: true,
+    keepPreviousData: false,
+  })
+}
+
+// Estado do espelho Pipeboard -> Neon para a conta atualmente selecionada.
+// Fica separado da arvore para o operador enxergar atraso/erro mesmo quando o
+// ultimo snapshot ainda pode ser exibido normalmente.
+export function useAdsSyncStatus(active: boolean, adAccountId: string) {
+  const key = active && adAccountId ? `/api/ads/sync-status?adAccountId=${encodeURIComponent(adAccountId)}` : null
+  return useSWR<import('./types').AdsSyncStatusResponse>(key, fetcher, {
+    refreshInterval: 15_000,
+    revalidateOnFocus: true,
+    keepPreviousData: false,
   })
 }
 
@@ -643,14 +664,14 @@ export function useAdsReports(active: boolean, advertiserId: string) {
 }
 
 // ── Smart+ (campanhas automatizadas do TikTok) ──
-export function useAdsSmartPlus(active: boolean, adAccountId?: string) {
-  const key = active ? `/api/ads/smart-plus${adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''}` : null
-  return useSWR<AdsSmartPlusResponse>(key, fetcher, { revalidateOnFocus: true, keepPreviousData: true })
+export function useAdsSmartPlus(active: boolean, adAccountId: string) {
+  const key = active && adAccountId ? `/api/ads/smart-plus?adAccountId=${encodeURIComponent(adAccountId)}` : null
+  return useSWR<AdsSmartPlusResponse>(key, fetcher, { revalidateOnFocus: true, keepPreviousData: false })
 }
 
-export function useAdsSmartPlusAds(active: boolean, adAccountId?: string) {
-  const key = active ? `/api/ads/smart-plus/ads${adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''}` : null
-  return useSWR<AdsSmartPlusAdsResponse>(key, fetcher, { revalidateOnFocus: true, keepPreviousData: true })
+export function useAdsSmartPlusAds(active: boolean, adAccountId: string) {
+  const key = active && adAccountId ? `/api/ads/smart-plus/ads?adAccountId=${encodeURIComponent(adAccountId)}` : null
+  return useSWR<AdsSmartPlusAdsResponse>(key, fetcher, { revalidateOnFocus: true, keepPreviousData: false })
 }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ──
@@ -690,7 +711,7 @@ export function useAdsCatalogPublications(catalogId: string | null, adAccountId:
   return useSWR<{ publications: import('./types').AdsCatalogPublication[] }>(
     catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/publications`, adAccountId) : null,
     fetcher,
-    { revalidateOnFocus: true, keepPreviousData: true },
+    { revalidateOnFocus: true, keepPreviousData: false },
   )
 }
 
@@ -698,7 +719,7 @@ export function useAdsCatalogReadiness(catalogId: string | null, adAccountId: st
   return useSWR<{ readiness: import('./types').AdsCatalogReadiness }>(
     catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/readiness`, adAccountId) : null,
     fetcher,
-    { revalidateOnFocus: true, keepPreviousData: true },
+    { revalidateOnFocus: true, keepPreviousData: false },
   )
 }
 
@@ -716,7 +737,7 @@ export function useAdsCatalogSyncRuns(catalogId: string | null, adAccountId: str
     fetcher,
     {
       refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
-      revalidateOnFocus: true, keepPreviousData: true,
+      revalidateOnFocus: true, keepPreviousData: false,
     },
   )
 }
@@ -727,7 +748,7 @@ export function useAdsCatalogCampaignRuns(catalogId: string | null, adAccountId:
     fetcher,
     {
       refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
-      revalidateOnFocus: true, keepPreviousData: true,
+      revalidateOnFocus: true, keepPreviousData: false,
     },
   )
 }
@@ -756,9 +777,9 @@ export function useAdsCatalogBusinessCenter(active: boolean, adAccountId: string
 export function useAdsInterests(active: boolean, adAccountId: string) {
   const qs = adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''
   return useSWR<{ interests: { id: string; name: string }[] }>(
-    active ? `/api/ads/targeting/interests${qs}` : null,
+    active && adAccountId ? `/api/ads/targeting/interests${qs}` : null,
     fetcher,
-    { revalidateOnFocus: false, revalidateIfStale: false, shouldRetryOnError: false, keepPreviousData: true },
+    { revalidateOnFocus: false, revalidateIfStale: false, shouldRetryOnError: false, keepPreviousData: false },
   )
 }
 

@@ -1594,7 +1594,8 @@ async function createSparkAd(advertiserId, spec) {
 // Fronteira sobre as tools de catálogo do Pipeboard. Todas exigem o Business
 // Center (bc_id): o TikTok prende catálogos ao BC, não ao advertiser. Não há
 // tool para LISTAR os BCs, então o bc_id é resolvido de: seleção persistida na
-// conta (config.pipeboardAds.bcId) → env TIKTOK_BC_ID/PIPEBOARD_BC_ID.
+// conta+advertiser (config.pipeboardAds.bcByAdvertiser) → valor legado da
+// conta (bcId) → env TIKTOK_BC_ID/PIPEBOARD_BC_ID.
 const ENV_DEFAULT_BC = String(process.env.TIKTOK_BC_ID || process.env.PIPEBOARD_BC_ID || '').trim();
 // Tipos aceitos pelo TikTok em create_tiktok_catalog (API atual). O antigo
 // PRODUCT_CATALOG/HOTEL_CATALOG/... foi descontinuado — mapeamos os legados
@@ -1607,17 +1608,36 @@ function normalizeCatalogType(value) {
   return CATALOG_TYPES.includes(t) ? t : 'ECOM';
 }
 
-function getBusinessCenterId(accountId) {
+function getBusinessCenterId(accountId, advertiserId) {
   const st = getState(accountId);
+  const scope = String(advertiserId || '').trim();
+  const scoped = st.bcByAdvertiser && typeof st.bcByAdvertiser === 'object' ? st.bcByAdvertiser : {};
+  if (scope && String(scoped[scope] || '').trim()) return String(scoped[scope]).trim();
   return String(st.bcId || '').trim() || ENV_DEFAULT_BC;
 }
-function businessCenterFromEnv(accountId) {
-  // true quando o bc_id efetivo vem só do env (a conta não gravou o seu).
-  return !String(getState(accountId).bcId || '').trim() && !!ENV_DEFAULT_BC;
+function businessCenterFromEnv(accountId, advertiserId) {
+  // true quando o bc_id efetivo vem só do env (nem o escopo nem o legado gravaram).
+  const st = getState(accountId);
+  const scope = String(advertiserId || '').trim();
+  const scoped = st.bcByAdvertiser && typeof st.bcByAdvertiser === 'object' ? st.bcByAdvertiser : {};
+  return !(scope && String(scoped[scope] || '').trim()) && !String(st.bcId || '').trim() && !!ENV_DEFAULT_BC;
 }
-function setBusinessCenterId(accountId, bcId) {
+function setBusinessCenterId(accountId, advertiserId, bcId) {
+  // Compatibilidade com chamadas antigas setBusinessCenterId(accountId, bcId).
+  if (bcId === undefined) {
+    bcId = advertiserId;
+    advertiserId = '';
+  }
   const clean = String(bcId || '').trim().slice(0, 40);
-  setState(accountId, { bcId: clean });
+  const scope = String(advertiserId || '').trim().slice(0, 120);
+  if (!scope) setState(accountId, { bcId: clean });
+  else {
+    const st = getState(accountId);
+    const bcByAdvertiser = Object.assign({}, st.bcByAdvertiser && typeof st.bcByAdvertiser === 'object' ? st.bcByAdvertiser : {});
+    if (clean) bcByAdvertiser[scope] = clean;
+    else delete bcByAdvertiser[scope];
+    setState(accountId, { bcByAdvertiser });
+  }
   return clean;
 }
 

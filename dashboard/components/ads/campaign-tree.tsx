@@ -156,7 +156,7 @@ export function CampaignTree({
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [deleteAd, setDeleteAd] = useState<AdsTreeAd | null>(null)
+  const [deleteAd, setDeleteAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
   // Edição de anúncio (texto/CTA/link) sem recriar
   const [editAd, setEditAd] = useState<{ ad: AdsTreeAd; adAccountId: string } | null>(null)
@@ -220,7 +220,7 @@ export function CampaignTree({
 
   // Salva o orçamento do grupo via 1º anúncio do grupo (o backend aplica o
   // budget no ad group dono do anúncio — não existe PUT direto de grupo).
-  async function saveBudget(groupKey: string, adId: string, type: 'daily' | 'lifetime') {
+  async function saveBudget(groupKey: string, adId: string, type: 'daily' | 'lifetime', adAccountId: string) {
     const amount = Number(budgetValue.replace(',', '.'))
     if (!Number.isFinite(amount) || amount < TIKTOK_MIN_BUDGET) {
       toast.error(tiktokMinimumBudgetMessage(currency))
@@ -228,7 +228,7 @@ export function CampaignTree({
     }
     setBudgetBusy(true)
     try {
-      await apiSend(`/api/ads/${encodeURIComponent(adId)}`, 'PUT', { budget: { amount, type } })
+      await apiSend(`/api/ads/${encodeURIComponent(adId)}`, 'PUT', { budget: { amount, type }, adAccountId })
       toast.success('Orçamento atualizado')
       setEditingBudget(null)
       onMutate()
@@ -269,12 +269,12 @@ export function CampaignTree({
   }
 
   async function handleDeleteAd() {
-    const ad = deleteAd
+    const ad = deleteAd?.ad
     const adId = ad?.platformAdId || ad?._id
     if (!adId) return
     setDeleting(true)
     try {
-      await apiSend(`/api/ads/${encodeURIComponent(adId)}`, 'DELETE')
+      await apiSend(`/api/ads/${encodeURIComponent(adId)}`, 'DELETE', { adAccountId: deleteAd?.adAccountId })
       toast.success('Anúncio excluído')
       setDeleteAd(null)
       onMutate()
@@ -580,7 +580,7 @@ export function CampaignTree({
                               value={budgetValue}
                               onChange={(e) => setBudgetValue(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') saveBudget(groupKey, firstAdId, budgetType)
+                                if (e.key === 'Enter') saveBudget(groupKey, firstAdId, budgetType, c.platformAdAccountId || '')
                                 if (e.key === 'Escape') setEditingBudget(null)
                               }}
                               autoFocus
@@ -591,7 +591,7 @@ export function CampaignTree({
                             <button
                               type="button"
                               className="btn-ghost !p-1 text-success"
-                              onClick={() => saveBudget(groupKey, firstAdId, budgetType)}
+                              onClick={() => saveBudget(groupKey, firstAdId, budgetType, c.platformAdAccountId || '')}
                               disabled={budgetBusy}
                               aria-label="Salvar orçamento"
                             >
@@ -683,7 +683,7 @@ export function CampaignTree({
                           <button
                             type="button"
                             className="btn-ghost px-1.5 py-1 text-error opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                            onClick={() => setDeleteAd(ad)}
+                            onClick={() => setDeleteAd({ ad, adAccountId: c.platformAdAccountId || '' })}
                             aria-label={`Excluir anúncio ${ad.name || adKey}`}
                             title="Excluir anúncio"
                           >
@@ -1025,7 +1025,7 @@ export function CampaignTree({
         title="Excluir este anúncio?"
         description={
           <>
-            O anúncio <strong>{deleteAd?.name || deleteAd?.platformAdId}</strong> será removido do TikTok Ads.
+            O anúncio <strong>{deleteAd?.ad.name || deleteAd?.ad.platformAdId}</strong> será removido do TikTok Ads.
             Essa ação não pode ser desfeita.
           </>
         }

@@ -125,6 +125,8 @@ function saveProgress(key) {
     assert.match(exec, /adsOps\.getBulkProgress\(/, 'executor LÊ o progresso antes de criar (retomada)');
     assert.match(exec, /adsOps\.saveBulkProgress\(/, 'executor GRAVA o progresso a cada passo');
     assert.match(exec, /dedupeByName: true/, 'cinto extra ligado no bulk');
+    assert.match(exec, /adsSync\.syncAfterWrite\(env\.accountId, p\.adAccountId\)/, 'bulk concluído atualiza o espelho do advertiser');
+    assert.match(exec, /adsSync\.syncAfterWrite\(env\.accountId, task\.advertiserId\)/, 'duplicação concluída atualiza o espelho do advertiser');
     // F6: os kinds da era Zernio saíram do worker inteiro — nada de zernio.api
     // em NENHUM branch, e duplicate_same/duplicate_cross não existem mais.
     assert.ok(!/zernio\.api\(/.test(exec), 'worker não chama mais zernio.api em nenhum branch');

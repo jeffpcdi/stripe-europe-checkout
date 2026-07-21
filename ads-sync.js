@@ -283,7 +283,7 @@ async function tick() {
     for (const scope of scopes) {
       const accId = scope.accountId;
       try { automation.maybeSweep(accId, scope.advertiserId); } catch (_) { /* sweep nunca derruba o sync */ }
-      // Briefing diário com IA: 1×/dia por conta, idempotente via Neon,
+      // Briefing diário com IA: 1×/dia por conta + advertiser, idempotente via Neon,
       // fire-and-forget (nunca atrasa nem derruba o tick). Lazy require pelo
       // mesmo motivo do automation acima (sem risco de ciclo no boot).
       try {
@@ -317,10 +317,40 @@ function stop() { if (timer) { clearInterval(timer); timer = null; } }
 // Após uma ESCRITA (pausar/ativar/orçamento), o espelho fica defasado. Isto
 // força um sync imediato da conta (sem throttle) p/ a dashboard refletir a
 // mudança. Best-effort e não-bloqueante: a rota já respondeu ao usuário.
+const postWriteSync = new Map();
 function syncAfterWrite(accountId, advertiserId) {
   advertiserId = String(advertiserId || '').trim();
   if (!cache.enabled || !provider.enabled || !advertiserId) return;
-  dedupSync(accountId, advertiserId).catch((e) => console.warn('[ads-sync] sync pós-escrita falhou:', e.message));
+  const key = syncKey(accountId, advertiserId);
+  let state = postWriteSync.get(key);
+  if (!state) {
+    state = { dirty: false, running: false };
+    postWriteSync.set(key, state);
+  }
+  // Toda escrita marca o espelho como sujo. Se outra escrita chegar enquanto
+  // um sync está em voo, o loop executa uma segunda passagem depois dele, em
+  // vez de considerar a promessa compartilhada suficiente e perder a mudança.
+  state.dirty = true;
+  if (state.running) return;
+  state.running = true;
+  (async () => {
+    while (state.dirty) {
+      state.dirty = false;
+      const result = await dedupSync(accountId, advertiserId, { force: true });
+      if (!result || !result.ok) throw new Error((result && result.error) || 'sync pós-escrita não concluído');
+    }
+  })().catch((e) => {
+    console.warn('[ads-sync] sync pós-escrita falhou:', e.message);
+  }).finally(() => {
+    state.running = false;
+    // Uma escrita pode marcar dirty entre o fim do while e o finally.
+    if (state.dirty) {
+      postWriteSync.delete(key);
+      syncAfterWrite(accountId, advertiserId);
+    } else {
+      postWriteSync.delete(key);
+    }
+  });
 }
 
 module.exports = {

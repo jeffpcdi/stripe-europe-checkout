@@ -61,7 +61,7 @@ function BriefingBody({ b }: { b: AdsBriefing }) {
 }
 
 export function BriefingCard({ adAccountId, currency }: { adAccountId: string; currency: string }) {
-  const { data, mutate } = useAdsBriefing(true)
+  const { data, mutate } = useAdsBriefing(Boolean(adAccountId), adAccountId)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
@@ -70,7 +70,9 @@ export function BriefingCard({ adAccountId, currency }: { adAccountId: string; c
   if (!data || !data.ai) return null
 
   const briefings = data.briefings
-  const today = new Date().toISOString().slice(0, 10)
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date())
   const latest = briefings[0]
   const isToday = latest?.date === today
   const history = briefings.filter((b) => b !== latest)

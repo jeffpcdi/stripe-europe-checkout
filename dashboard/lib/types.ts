@@ -756,6 +756,23 @@ export interface AdsAccountsResponse {
   selected: string
 }
 
+export interface AdsSyncAdvertiserState {
+  advertiserId: string
+  status: 'never' | 'syncing' | 'ok' | 'error' | 'blocked' | 'unauthorized' | string
+  lastSyncedAt: string | null
+  lastDurationMs?: number | null
+  callsUsed?: number | null
+  windowFrom?: string | null
+  windowTo?: string | null
+  lastError?: string | null
+  requestedAt?: string | null
+}
+
+export interface AdsSyncStatusResponse {
+  cacheEnabled: boolean
+  advertisers: AdsSyncAdvertiserState[]
+}
+
 // ── /api/ads/health — saúde das contas + tickets de desbanimento ──
 export interface AdsAccountHealth {
   advertiser_id: string
@@ -1323,6 +1340,7 @@ export interface AdsTemplate {
   id: string
   name: string
   payload: AdsTemplatePayload
+  advertiserId?: string
   createdAt: string
 }
 

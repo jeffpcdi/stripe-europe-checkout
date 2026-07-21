@@ -8,6 +8,10 @@ const contextBar = fs.readFileSync(
   path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'context-bar.tsx'),
   'utf8',
 );
+const view = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'tiktok-ads-view.tsx'), 'utf8');
+const campaignTree = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'campaign-tree.tsx'), 'utf8');
+const drawer = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'campaign-drawer.tsx'), 'utf8');
+const cacheStore = fs.readFileSync(path.join(__dirname, '..', 'ads-cache-store.js'), 'utf8');
 
 function routeBody(method, route, nextRouteMarker) {
   const start = routes.indexOf(`app.${method}('${route}'`);
@@ -21,6 +25,11 @@ const tree = routeBody('get', '/api/ads/tree', "app.get('/api/ads/campaigns/:id/
 const roas = routeBody('get', '/api/ads/roas', "app.get('/api/ads/library'");
 const select = routeBody('post', '/api/ads/accounts/select', '// ── Árvore campanha');
 const attribution = routeBody('get', '/api/ads/attribution', '// ── Regras automáticas');
+const refresh = routeBody('post', '/api/ads/tree/refresh', "app.get('/api/ads/campaigns/:id/analytics'");
+const analytics = routeBody('get', '/api/ads/campaigns/:id/analytics', '// ── ROAS');
+const jobs = routeBody('get', '/api/ads/ops/jobs', "app.get('/api/ads/ops/safety-policy'");
+const briefing = routeBody('get', '/api/ads/briefing', "app.post('/api/ads/briefing/run'");
+const templates = routeBody('get', '/api/ads/templates', "app.post('/api/ads/templates'");
 
 // Contrato: quando o cliente manda adAccountId, a rota valida a autorização
 // via requireAdvertiser e usa o advertiser VALIDADO (nunca o texto cru do
@@ -50,4 +59,24 @@ assert.doesNotMatch(contextBar, /value="__all__"/);
 assert.match(api, /keepPreviousData: false/);
 assert.match(api, /params\.set\('adAccountId', adAccountId\)/);
 
-console.log('ads-account-scope.test.js OK — árvore, ROAS e seletor exigem uma conta válida e isolada');
+// Todas as leituras/ações sensíveis da UI levam a conta que está visível.
+assert.match(view, /tree\/refresh\?adAccountId=/);
+assert.match(view, /useAdsBriefing\(treeActive, concreteAdvertiser\)/);
+assert.match(drawer, /useAdsCampaignAnalytics\(id, advertiserId, cur\)/);
+assert.match(campaignTree, /budget: \{ amount, type \}, adAccountId/);
+assert.match(campaignTree, /'DELETE', \{ adAccountId:/);
+
+// O backend não confia no hint: valida antes de ler ou sincronizar.
+assert.match(refresh, /requireAdvertiser[\s\S]*refreshNow\(req\.account\.id, advertiserId\)/);
+assert.match(refresh, /SYNC_FAILED/);
+assert.match(analytics, /requireAdvertiser[\s\S]*readCampaignAnalytics\(req\.account\.id, advertiserId/);
+assert.match(jobs, /requireAdvertiser[\s\S]*listJobs\(req\.account\.id, req\.query\.limit, advertiserId\)/);
+assert.match(briefing, /resolveAdv[\s\S]*listBriefings\(req\.account\.id, advertiserId/);
+assert.match(templates, /resolveAdv[\s\S]*item\.advertiserId[\s\S]*advertiserId/);
+assert.match(api, /useAdsTemplates\(active: boolean, adAccountId: string\)/);
+
+// Migração preserva as linhas antigas, mas a chave nova separa advertisers.
+assert.match(cacheStore, /ads_briefings_scope_unique[\s\S]*account_id, advertiser_id, date, kind/);
+assert.match(cacheStore, /advertiser_id = ''/);
+
+console.log('ads-account-scope.test.js OK — leituras, mutações, sync, jobs e briefings isolam a conta selecionada');
