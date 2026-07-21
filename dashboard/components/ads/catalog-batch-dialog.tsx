@@ -1,9 +1,11 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, Loader2, PackageOpen, Rocket, UploadCloud } from 'lucide-react'
-import { adsCreateCatalogBatch, adsPreviewCatalogBatch } from '@/lib/api'
+import { adsCreateCatalogBatch, adsPreviewCatalogBatch, useAdsTikTokPixels } from '@/lib/api'
 import { buildCatalogBatchPlan } from '@/lib/catalog-batch-plan'
+import { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel } from '@/lib/catalog-pixels'
+import { TIKTOK_PIXEL_EVENTS } from './tiktok-contracts'
 import type { AdsCatalogBatchPreviewResponse } from '@/lib/types'
 import { toast } from '@/lib/toast'
 
@@ -27,11 +29,34 @@ export function CatalogBatchDialog({
   const [scheduleCampaigns, setScheduleCampaigns] = useState(false)
   const [preview, setPreview] = useState<AdsCatalogBatchPreviewResponse | null>(null)
   const [busy, setBusy] = useState<'preview' | 'create' | null>(null)
+  const [defaultPixelId, setDefaultPixelId] = useState('')
+  const [defaultPixelEvent, setDefaultPixelEvent] = useState('ON_WEB_ORDER')
   const idempotencyKeyRef = useRef<string | null>(null)
 
+  // Pixels da conta: carregados automaticamente quando o gestor decide preparar
+  // campanhas, para que o Pixel venha selecionado sem digitação manual.
+  const { data: pixelsData, error: pixelsError, isLoading: pixelsLoading } = useAdsTikTokPixels(open && scheduleCampaigns, advertiserId)
+  const availablePixels = useMemo(() => (pixelsData?.pixels ?? [])
+    .map((pixel) => ({ pixel, value: catalogPixelValue(pixel) }))
+    .filter((option) => option.value), [pixelsData?.pixels])
+
+  useEffect(() => {
+    if (!scheduleCampaigns || defaultPixelId || !availablePixels.length) return
+    const best = pickDefaultCatalogPixel(pixelsData?.pixels ?? [])
+    if (best) {
+      setDefaultPixelId(best)
+      idempotencyKeyRef.current = null
+      setPreview(null)
+    }
+  }, [scheduleCampaigns, defaultPixelId, availablePixels.length, pixelsData?.pixels])
+
   const plan = useMemo(
-    () => buildCatalogBatchPlan(source, currency, { requireCampaignPixel: scheduleCampaigns }),
-    [source, currency, scheduleCampaigns],
+    () => buildCatalogBatchPlan(source, currency, {
+      requireCampaignPixel: scheduleCampaigns,
+      defaultPixelId: scheduleCampaigns ? defaultPixelId : '',
+      defaultPixelEvent,
+    }),
+    [source, currency, scheduleCampaigns, defaultPixelId, defaultPixelEvent],
   )
   const campaignCount = plan.catalogs.reduce((total, catalog) => total + catalog.campaigns.length, 0)
   const canSubmit = plan.catalogs.length > 0 && !plan.message && !busy
@@ -183,6 +208,57 @@ export function CatalogBatchDialog({
               <span><strong className="text-foreground">Preparar campanhas Product Link pausadas</strong><br />{preview?.automation.productLinkNote || 'Valide o lote para consultar o conector Product Link.'}</span>
             </label>
             {scheduleCampaigns && <p className="rounded-md bg-background/70 px-2 py-1.5 text-[10px] text-muted-foreground">Cada campanha vira um <strong className="text-foreground">Video Shopping Ads de catálogo</strong>, pausado. Colunas por campanha: <strong className="text-foreground">pixel_id</strong> (6–30 dígitos), <strong className="text-foreground">video</strong> (o video_id do seu criativo) e <strong className="text-foreground">capa</strong> (image_id da capa). O destino é o <strong className="text-foreground">Product Link</strong> — cada produto usa o próprio <strong className="text-foreground">link</strong> do catálogo; você nunca digita URL no anúncio.</p>}
+            {scheduleCampaigns && (
+              <div className="grid gap-2 rounded-md bg-background/70 p-2 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-[10px] text-muted-foreground">
+                  <span><strong className="text-foreground">Pixel padrão do lote</strong> (aplicado a linhas sem pixel_id)</span>
+                  {availablePixels.length > 0 ? (
+                    <select
+                      className="input-base text-[11px]"
+                      value={defaultPixelId}
+                      onChange={(event) => { setDefaultPixelId(event.target.value); invalidatePlan() }}
+                    >
+                      <option value="">Sem Pixel padrão — usar somente a coluna pixel_id</option>
+                      {defaultPixelId && !availablePixels.some((option) => option.value === defaultPixelId) && (
+                        <option value={defaultPixelId}>Pixel informado manualmente · ID {defaultPixelId}</option>
+                      )}
+                      {availablePixels.map(({ pixel, value }) => (
+                        <option key={`${pixel.id}:${value}`} value={value}>{catalogPixelLabel(pixel)}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className="input-base text-[11px]"
+                      inputMode="numeric"
+                      pattern="[0-9]{6,30}"
+                      minLength={6}
+                      maxLength={30}
+                      value={defaultPixelId}
+                      onChange={(event) => { setDefaultPixelId(event.target.value.replace(/\D/g, '').slice(0, 30)); invalidatePlan() }}
+                      placeholder={pixelsLoading ? 'Carregando Pixels da conta…' : pixelsError ? 'Lista indisponível — informe os dígitos do Pixel' : '1234567890123456789'}
+                    />
+                  )}
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] text-muted-foreground">
+                  <span><strong className="text-foreground">Evento padrão</strong> (linhas sem a coluna evento)</span>
+                  <select
+                    className="input-base text-[11px]"
+                    value={defaultPixelEvent}
+                    onChange={(event) => { setDefaultPixelEvent(event.target.value); invalidatePlan() }}
+                  >
+                    {TIKTOK_PIXEL_EVENTS.map((event) => <option key={event.value} value={event.value}>{event.label}</option>)}
+                  </select>
+                </label>
+                <p className="text-[10px] leading-relaxed text-muted-foreground sm:col-span-2">
+                  {availablePixels.length > 0
+                    ? 'O Pixel com mais compras em 30 dias já vem selecionado. As colunas pixel_id e evento continuam valendo como exceção por linha.'
+                    : pixelsLoading
+                      ? 'Buscando os Pixels da conta de anúncio…'
+                      : 'A lista de Pixels da conta não pôde ser carregada; informe os 6 a 30 dígitos do Pixel ou use a coluna pixel_id.'}
+                  {' '}Nenhuma URL ou template é obrigatório no nível do anúncio.
+                </p>
+              </div>
+            )}
             {campaignRequiresSync && (
               <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
                 Para preparar campanhas, mantenha “Sincronizar automaticamente com o TikTok” ligado.
