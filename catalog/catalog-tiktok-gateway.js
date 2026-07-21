@@ -42,6 +42,7 @@ async function verifyCatalogLink(provider, input) {
   const attempts = Math.max(1, Math.min(5, Number(input && input.attempts) || 1));
   const delayMs = Math.max(0, Math.min(3000, Number(input && input.delayMs) || 0));
   let found = null;
+  let seen = [];
   for (let attempt = 0; attempt < attempts && !found; attempt += 1) {
     let rows;
     try {
@@ -53,15 +54,28 @@ async function verifyCatalogLink(provider, input) {
       });
     }
     const catalogs = (Array.isArray(rows) ? rows : []).map(normalizeRemoteCatalog);
+    seen = catalogs;
     found = catalogs.find((catalog) => catalog.id === catalogId) || null;
     if (!found && attempt < attempts - 1 && delayMs) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
   if (!found) {
-    throw catalogError('CATALOG_NOT_FOUND_IN_BC', 'O catálogo não foi encontrado neste Business Center.', {
+    // Diagnóstico acionável: quantos catálogos o token enxergou neste BC muda
+    // o motivo. Zero = o token/BC não têm acesso um ao outro (o BC está errado
+    // ou o token do Pipeboard não é do mesmo Business Center). Alguns visíveis
+    // = o Catalog ID informado é que está errado (ou é de outro BC).
+    const visibleIds = seen.map((c) => c.id).filter(Boolean);
+    const zero = visibleIds.length === 0;
+    const userMessage = zero
+      ? 'O Business Center ' + bcId + ' não devolveu nenhum catálogo — confirme se esse é o Business Center do catálogo e se o token do Pipeboard tem acesso a ele.'
+      : 'O catálogo ' + catalogId + ' não está no Business Center ' + bcId + ' (vi ' + visibleIds.length + ' catálogo(s) nele). Confira se o Catalog ID e o Business Center são do mesmo par.';
+    throw catalogError('CATALOG_NOT_FOUND_IN_BC', userMessage, {
       status: 422, retryable: false,
-      suggestedAction: 'Confira o Catalog ID, o Business Center e se o token possui acesso aos dois.',
+      suggestedAction: zero
+        ? 'Ajuste o Business Center (aba Catálogo → Business Center) para o mesmo do catálogo, ou peça acesso do token a esse BC.'
+        : 'Confira o Catalog ID no TikTok Catalog Manager — ele precisa ser do Business Center ' + bcId + '.',
+      createdIds: null,
     });
   }
   return found;

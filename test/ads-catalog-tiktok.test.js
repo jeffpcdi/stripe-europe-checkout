@@ -51,5 +51,25 @@ console.log('createTikTokCatalog — validação antes da rede');
   console.log('getTikTokCatalogOverview — exige bc_id e catalog_id');
   await throws(() => provider.getTikTokCatalogOverview('', ''), 400, 'sem ids → 400');
 
+  console.log('listTikTokCatalogs — pagina TODAS as páginas (catálogo além da 1ª não some)');
+  {
+    const pipeboard = require('../pipeboard-mcp');
+    const orig = pipeboard.callTool;
+    const pagesSeen = [];
+    pipeboard.callTool = async (name, args) => {
+      pagesSeen.push(args.page);
+      if (name !== 'get_tiktok_catalogs') return {};
+      if (args.page === 1) return { catalogs: Array.from({ length: 50 }, (_, i) => ({ catalog_id: 'p1_' + i, catalog_name: 'c' + i })) };
+      if (args.page === 2) return { catalogs: [{ catalog_id: 'alvo7662', catalog_name: 'está na 2ª página' }] };
+      return { catalogs: [] };
+    };
+    try {
+      const list = await provider.listTikTokCatalogs('7099999999999999999');
+      eq(list.length, 51, 'agrega página 1 (50 cheia) + página 2 (1)');
+      ok(list.some((c) => (c.catalog_id || c.id) === 'alvo7662'), 'acha o catálogo que estava na 2ª página');
+      ok(pagesSeen.includes(2), 'consultou a página 2 (não parou na 1ª cheia)');
+    } finally { pipeboard.callTool = orig; }
+  }
+
   console.log('\nads-catalog-tiktok: ' + n + ' asserts OK');
 })().catch((e) => { console.error(e); process.exit(1); });
