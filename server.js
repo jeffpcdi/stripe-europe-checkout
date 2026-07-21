@@ -51,6 +51,7 @@ const auth = require('./auth');
  const db = require('./db');
 const redis = require('./redis'); // contadores de decisão do cloaker (offer/white)
 const { loginPage, registerPage } = require('./auth-view');
+const { buildOverviewHealth } = require('./overview-health');
 
 // ── Resolução da conta para tráfego PÚBLICO (multi-tenant) ────────────────
 // Rotas públicas (/go, /t.js, /px.js, /l, /px.gif, /api/track) não têm sessão.
@@ -2150,6 +2151,22 @@ app.get('/api/leads/:id', dashboardAuth, (req, res) => {
       journey: Array.isArray(lead.journey) ? lead.journey : [],
     },
   });
+});
+
+// Diagnóstico consolidado da Visão Geral. Não chama fornecedores externos:
+// cruza o snapshot escopado com a configuração já hidratada em memória. Assim
+// a home explica cobertura, frescor e próximos passos com uma única request e
+// sem expor credenciais, PII ou dados de outra conta.
+app.get('/api/overview/health', dashboardAuth, (req, res) => {
+  res.set('Cache-Control', 'private, no-cache');
+  const acc = req.account.id;
+  const body = buildOverviewHealth({
+    snapshot: stats.getStats(acc),
+    links: linkStore.list(acc),
+    pixels: pixelStore.list(acc),
+    gateways: gatewayStore.list(acc)
+  });
+  res.json(body);
 });
 
 // ── API: heartbeat de presença (chamado por todas as páginas do funil) ─

@@ -3,16 +3,14 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useOncePerSession } from '@/lib/motion'
-import { ShieldAlert } from 'lucide-react'
 import { useStats, useEmqTrend, useAdsStatus, useAdsRoas } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
-import { aggregate, money, periodStart } from '@/lib/metrics'
-import { countryFlag, fmtPercent } from '@/lib/format'
+import { aggregate, appDateKey, money, periodStart } from '@/lib/metrics'
+import { countryFlag } from '@/lib/format'
 import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { Skeleton } from '@/components/skeleton'
-import { GlassCard } from '@/components/glass-card'
 import { TopSources } from './top-sources'
 import { DecideStrip } from './decide-strip'
 import { AdsOverviewCard } from './ads-card'
@@ -23,11 +21,11 @@ import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
 import { LiveFeed } from './live-feed'
 import { FunnelCompact } from './funnel-compact'
-import dynamic from 'next/dynamic'
-const LeadsTable = dynamic(() => import('@/components/funnel/leads-table').then(m => m.LeadsTable), {
-  ssr: false,
-  loading: () => <Skeleton className="h-[400px] w-full rounded-2xl" />
-})// Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
+import { DataConfidence } from './data-confidence'
+import { OnboardingChecklist } from './onboarding-checklist'
+import { ErrorState } from '@/components/error-state'
+
+// Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
 // resto do app — formata direto sem dividir por 100.
 function fmtAdsMoney(v: number, currency: string): string {
   try {
@@ -42,16 +40,16 @@ function fmtAdsMoney(v: number, currency: string): string {
 }
 
 // Fase 3: o PeriodPicker único também governa a janela do ROAS de Ads. O
-// endpoint /api/ads/roas aceita fromDate/toDate (YYYY-MM-DD); 'all' omite o
-// range e usa o default do servidor. A troca de período só refaz essa request
-// na INTERAÇÃO do usuário — no load ela dispara uma única vez, pós-first-paint.
-function periodToAdsRange(period: Period): { fromDate?: string; toDate?: string } | undefined {
-  if (period === 'all') return undefined
+// endpoint /api/ads/roas aceita fromDate/toDate (YYYY-MM-DD). Em "tudo", Ads
+// usa os 90 dias que o sincronizador mantém e deixa esse limite explícito; omitir
+// o range faria o backend cair no default diário e misturar períodos.
+function periodToAdsRange(period: Period): { fromDate?: string; toDate?: string } {
   const to = new Date()
-  const from = periodStart(period) ?? to
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  return { fromDate: fmt(from), toDate: fmt(to) }
+  const from =
+    period === 'all'
+      ? new Date((periodStart('today', to) ?? to).getTime() - 89 * 86_400_000)
+      : periodStart(period) ?? to
+  return { fromDate: appDateKey(from), toDate: appDateKey(to) }
 }
 
 const PERIODS: Period[] = ['today', '7d', '30d', 'all']
@@ -113,7 +111,7 @@ function HeroKpi({
       </p>
       {sub ? (
         <p
-          className="mt-1.5 whitespace-nowrap font-mono text-[11px] font-medium leading-none tabular-nums text-white/45"
+          className="mt-1.5 max-w-full whitespace-normal break-words font-mono text-[11px] font-medium leading-relaxed tabular-nums text-white/45"
           {...(sensitive ? { 'data-sensitive': true } : {})}
         >
           {sub}
@@ -125,7 +123,7 @@ function HeroKpi({
 
 export function OverviewView() {
   const [period, setPeriodState] = useState<Period>(initialPeriod)
-  const { data, error, isLoading } = useStats()
+  const { data, error, isLoading, isValidating, mutate } = useStats()
   // A1.1: entrada orquestrada roda UMA vez por sessão — navegações seguintes
   // pulam a cascata (os cards aparecem direto, sem re-animar).
   const firstEnter = useOncePerSession('overview-enter')
@@ -177,9 +175,7 @@ export function OverviewView() {
 
   // Países dos leads de HOJE — colorem o globo (mesma história do mundo real).
   const todayCountries = useMemo(() => {
-    const start = new Date()
-    start.setHours(0, 0, 0, 0)
-    const t = start.getTime()
+    const t = periodStart('today')?.getTime() ?? 0
     const byCountry = new Map<string, number>()
     for (const l of data?.leads ?? []) {
       const at = new Date(l.at).getTime()
@@ -206,12 +202,12 @@ export function OverviewView() {
 
   if (error) {
     return (
-      <GlassCard className="flex min-h-64 flex-col items-center justify-center gap-2 p-8 text-center">
-        <p className="text-sm font-medium text-error">Falha ao carregar as métricas</p>
-        <p className="text-sm text-muted-foreground text-pretty">
-          Verifique se o servidor Express está rodando e se você está autenticado.
-        </p>
-      </GlassCard>
+      <ErrorState
+        title="Não foi possível carregar a Visão Geral"
+        description="Os dados preservados não foram alterados. Tente atualizar a conexão com o servidor."
+        onRetry={() => mutate()}
+        retrying={isValidating}
+      />
     )
   }
 
@@ -223,7 +219,7 @@ export function OverviewView() {
           <Skeleton className="h-8 w-64 rounded-full" />
         </div>
         {/* hero: globo full-width com overlays */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-[#040406]" style={{ minHeight: 680 }}>
+        <div className="relative min-h-[520px] overflow-hidden rounded-2xl border border-white/[0.06] bg-background">
           <div className="flex items-center justify-center p-16">
             <Skeleton className="aspect-square w-full max-w-[440px] rounded-full" />
           </div>
@@ -291,6 +287,7 @@ export function OverviewView() {
   const hasSources = cur.topCampaigns.length > 0 || cur.topLinks.length > 0
 
   const revSeries = cur.series.map((s) => s.revenue)
+  const hasAnyData = (data?.leads?.length ?? 0) > 0 || (data?.events?.length ?? 0) > 0
 
   return (
     /* A1.5: fundo com profundidade. A1.1: cascata só na primeira entrada. */
@@ -299,7 +296,7 @@ export function OverviewView() {
           título + badge AO VIVO. Sem card "Operacional" separado (a saúde vive
           no rodapé). Item 171: sticky em mobile. */}
       <div
-        className="picker-sticky flex items-center justify-end gap-2"
+        className="picker-sticky flex flex-wrap items-center justify-end gap-2"
         data-tour="period"
         style={{ ['--i' as string]: 0 }}
       >
@@ -322,6 +319,12 @@ export function OverviewView() {
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
+      <DataConfidence />
+
+      {!hasAnyData ? (
+        <OnboardingChecklist hasVisits={false} hasSales={false} />
+      ) : null}
+
 
 
       {/* ── BLOCO HERO IMERSIVO — desktop (lg+): globo full-bleed com KPIs e
@@ -338,7 +341,7 @@ export function OverviewView() {
 
         {/* Globo — mobile: bloco compacto (~340px) no topo do fluxo;
             desktop: fundo absoluto ocupando 100% do painel */}
-        <div className="relative z-0 h-[340px] w-full overflow-hidden lg:absolute lg:inset-0 lg:h-auto lg:overflow-visible">
+        <div className="relative z-0 h-[280px] w-full overflow-hidden sm:h-[320px] lg:absolute lg:inset-0 lg:h-auto lg:overflow-visible">
           <HeroGlobe countries={todayCountries} lastLeadAt={lastLeadAt} />
         </div>
 
@@ -378,15 +381,16 @@ export function OverviewView() {
             />
             </div>
             <HeroKpi
-              label="Gasto"
+              label={period === 'all' ? 'Gasto (90 dias)' : 'Gasto'}
               dim={!roas}
               sensitive
               value={roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
+              sub={period === 'all' ? 'limite do histórico sincronizado do TikTok' : undefined}
             />
             {/* F2: moeda do gasto ≠ moeda da receita → ROAS seria número
                 errado (R$ ÷ US$). Mostra o porquê em vez de calcular. */}
             <HeroKpi
-              label="ROAS"
+              label={period === 'all' ? 'ROAS (90 dias)' : 'ROAS'}
               dim={!roas || roas.roas === null || currencyMismatch}
               colorClass="text-success"
               value={
@@ -426,7 +430,10 @@ export function OverviewView() {
           style={{ ['--i' as string]: 2 }}
         >
           <DecideStrip active={adsConnected && afterFirstPaint} />
-          <AdsOverviewCard range={adsRange} rangeLabel={PERIOD_LABEL[period]} />
+          <AdsOverviewCard
+            range={adsRange}
+            rangeLabel={period === 'all' ? 'histórico sincronizado (90 dias)' : PERIOD_LABEL[period]}
+          />
         </section>
       ) : null}
 
@@ -441,20 +448,11 @@ export function OverviewView() {
         {hasSources && <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />}
       </section>
 
-      {/* ── Abaixo: Integração do Funil (Leads Table) ─────────────────── */}
-      <section
-        aria-label="Tabela de Leads Integrada"
-        className="animate-in-up delay-3 w-full"
-        style={{ ['--i' as string]: 4 }}
-      >
-        <LeadsTable leads={data?.leads ?? []} periodStart={periodStart(period)} />
-      </section>
-
       {/* ── Rodapé — Países ativos · EMQ, em linha, discreto ───────────── */}
       <section
         aria-label="Presença e qualidade dos eventos"
         className="glass animate-in-up delay-4 inline-flex flex-wrap items-center gap-x-5 gap-y-2 rounded-full px-5 py-2.5 font-mono text-[11px] tabular-nums text-muted-foreground self-start"
-        style={{ ['--i' as string]: 5 }}
+        style={{ ['--i' as string]: 4 }}
       >
         <HealthDot />
         <span>

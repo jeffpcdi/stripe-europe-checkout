@@ -2397,7 +2397,7 @@ input:focus, textarea:focus {
    conteúdo (globo compacto + KPIs + feed), sem min-height forçado. */
 @media (min-width: 1024px) {
   .hero-globe-section {
-    min-height: 680px;
+    min-height: 580px;
   }
 }
 

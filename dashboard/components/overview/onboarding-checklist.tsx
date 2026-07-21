@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { CircleCheck, Circle, ArrowRight, Rocket } from 'lucide-react'
-import { useLinks, usePixels, useGateways } from '@/lib/api'
+import { useOverviewHealth } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { cn } from '@/lib/utils'
 
@@ -25,27 +25,25 @@ export function OnboardingChecklist({
   hasVisits: boolean
   hasSales: boolean
 }) {
-  const { data: links } = useLinks()
-  const { data: pixels } = usePixels()
-  const { data: gateways } = useGateways()
+  const { data: health } = useOverviewHealth()
 
   const steps: Step[] = [
     {
       label: 'Crie um link rastreado',
       desc: 'É por ele que o tráfego entra com atribuição',
-      done: (links?.links?.length ?? 0) > 0,
+      done: (health?.setup.links.active ?? 0) > 0,
       href: '/links',
     },
     {
       label: 'Configure um pixel',
       desc: 'Envia conversões para a plataforma de anúncios',
-      done: (pixels?.pixels?.length ?? 0) > 0,
+      done: (health?.setup.pixels.ready ?? 0) > 0,
       href: '/conversions?tab=pixels',
     },
     {
       label: 'Conecte um gateway',
       desc: 'Recebe os webhooks de pagamento',
-      done: (gateways?.gateways?.length ?? 0) > 0,
+      done: (health?.setup.gateways.total ?? 0) > 0,
       href: '/conversions?tab=gateways',
     },
     {
@@ -69,7 +67,7 @@ export function OnboardingChecklist({
     <GlassCard className="p-6" role="region" aria-label="Primeiros passos">
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-[10px] bg-[rgba(37,244,238,.1)] text-[#25f4ee]">
+          <span className="flex size-9 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
             <Rocket className="size-4.5" aria-hidden="true" />
           </span>
           <div>

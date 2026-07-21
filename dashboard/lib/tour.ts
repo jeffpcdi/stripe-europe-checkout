@@ -31,17 +31,22 @@ const OVERVIEW_TOUR: Tour = {
     {
       target: 'period',
       title: 'Período',
-      body: 'Todos os números da página respeitam o período escolhido: hoje, 7 dias, 30 dias ou tudo.',
+      body: 'Receita, gasto, ROAS e funil usam a mesma janela no fuso de Brasília: hoje, 7 dias, 30 dias ou tudo.',
+    },
+    {
+      target: 'confidence',
+      title: 'Confiança dos dados',
+      body: 'Abra este diagnóstico para conferir vendas ligadas à jornada, origem, hospedagens, pixels e gateways. Cada alerta leva direto à correção.',
     },
     {
       target: 'kpis',
       title: 'Indicadores',
-      body: 'Receita, vendas, aprovação e visitas do período. Em telas pequenas, deslize para o lado.',
+      body: 'Receita confirmada pelo gateway, gasto do TikTok Ads e ROAS do período. Moedas diferentes nunca são somadas nem divididas.',
     },
     {
       target: 'chart',
-      title: 'Desempenho',
-      body: 'Curva de receita, vendas ou leads dia a dia. Toque nas abas para trocar a métrica.',
+      title: 'Operação agora',
+      body: 'O globo mostra presença em tempo real; os indicadores ao redor mostram o período selecionado. São ritmos diferentes e ficam identificados.',
     },
     {
       target: 'live-badge',

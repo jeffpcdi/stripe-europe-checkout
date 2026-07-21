@@ -41,6 +41,14 @@ const catalogDomain = require('./catalog/catalog-domain');
 const catalogGateway = require('./catalog/catalog-tiktok-gateway');
 const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 
+const ADS_DAY_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+});
+function adsDay(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? ADS_DAY_FORMAT.format(date) : '';
+}
+
 // Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
   const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
@@ -1229,8 +1237,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const today = new Date();
       const defFrom = today; // padrão diário: sem ?fromDate, a janela é HOJE
       const iso = (d) => d.toISOString().slice(0, 10);
-      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(defFrom);
-      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : adsDay(defFrom);
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : adsDay(today);
 
       // 1) Gasto do TikTok por DIA — do espelho no Neon (instantâneo). A receita
       // vem do stats interno, então a leitura local do gasto é agregada aqui.
@@ -1268,7 +1276,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         const snap = stats.getStats(req.account.id) || {};
         (snap.leads || []).forEach((l) => {
           if (l.stage !== 'purchased' || !l.convertedAt) return;
-          const day = String(l.convertedAt).slice(0, 10);
+          const day = adsDay(l.convertedAt);
           if (day < fromDate || day > toDate) return;
           const cents = Number(l.reportedAmount) || 0;
           revenueCents += cents; sales += 1;

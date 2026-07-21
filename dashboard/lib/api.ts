@@ -3,6 +3,7 @@
 import useSWR from 'swr'
 import type {
   StatsResponse,
+  OverviewHealthResponse,
   HealthResponse,
   OpsResponse,
   LiveResponse,
@@ -139,6 +140,14 @@ const LIST_POLL_MS = 30_000
 
 export function useStats() {
   return useSWR<StatsResponse>('/api/stats', fetcher, {
+    refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+  })
+}
+
+export function useOverviewHealth(active = true) {
+  return useSWR<OverviewHealthResponse>(active ? '/api/overview/health' : null, fetcher, {
     refreshInterval: POLL_MS,
     revalidateOnFocus: true,
     keepPreviousData: true,

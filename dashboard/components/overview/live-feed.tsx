@@ -14,6 +14,12 @@ import { SectionTitle } from '@/components/section-title'
 
 const MAX_ROWS = 5
 
+const STAGE_LABEL: Record<string, string> = {
+  visit: 'visita',
+  checkout: 'checkout',
+  purchased: 'compra',
+}
+
 function label(lead: Lead): string {
   const place = lead.city || lead.countryName || lead.country || ''
   return place || 'Visitante'
@@ -59,7 +65,7 @@ export function LiveFeed({ leads }: { leads: Lead[] }) {
                     lead.stage === 'checkout' ? "bg-warning/15 text-warning drop-shadow-[0_0_8px_rgba(251,191,36,0.6)] border border-warning/30" :
                     "bg-primary/15 text-primary drop-shadow-[0_0_8px_rgba(37,244,238,0.6)] border border-primary/30"
                   )}>
-                    {lead.stage}
+                    {STAGE_LABEL[lead.stage] || lead.stage}
                   </span>
                   {bought ? (
                     <span

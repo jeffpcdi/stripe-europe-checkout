@@ -148,7 +148,7 @@ export function TourGuide() {
         <button
           type="button"
           onClick={() => start(currentTour)}
-          className="glass fixed bottom-20 right-4 z-40 flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-brand-cyan md:bottom-6 md:right-6"
+          className="glass fixed bottom-4 right-4 z-40 flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-brand-cyan md:bottom-6 md:right-6 md:size-10"
           aria-label={`Rever tour da página ${currentTour.label}`}
           title="Rever o tour desta página"
         >

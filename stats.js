@@ -806,7 +806,23 @@ function getStats(accountId) {
   // Filtra eventos e leads pela conta (accountId null = visão global/legado)
   const allEvents = (state.events || []).filter((e) => !accountId || e.acc === accountId);
   const allLeads = (state.leads || []).filter((l) => !accountId || l.acc === accountId);
-  const out = { events: allEvents, updatedAt: state.updatedAt };
+  // `state.updatedAt` é global ao processo. Expô-lo numa resposta escopada fazia
+  // a conta A parecer atualizada quando só a conta B recebeu tráfego e ainda
+  // invalidava o ETag de A. O frescor agora nasce exclusivamente dos dados da
+  // própria conta, preservando isolamento também nos metadados.
+  let scopedUpdatedAt = null, scopedUpdatedMs = -Infinity;
+  const considerScopedUpdate = (at) => {
+    const ms = Date.parse(at || '');
+    if (Number.isFinite(ms) && ms > scopedUpdatedMs) {
+      scopedUpdatedMs = ms;
+      scopedUpdatedAt = at;
+    }
+  };
+  allEvents.forEach((e) => considerScopedUpdate(e.at));
+  allLeads.forEach((l) => {
+    [l.lastSeen, l.purchasedAt, l.checkoutAt, l.at].forEach(considerScopedUpdate);
+  });
+  const out = { events: allEvents, updatedAt: scopedUpdatedAt };
 
   // ── Totais (derivados do feed de eventos da conta) ──
   const revenue = {};

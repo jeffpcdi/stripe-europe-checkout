@@ -71,16 +71,66 @@ export interface SourceRank {
   conv: number
 }
 
+export const APP_TIME_ZONE = 'America/Sao_Paulo'
+
+const appDayFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: APP_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+const appPartsFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: APP_TIME_ZONE,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+})
+
+function appParts(date: Date) {
+  const parts = Object.fromEntries(
+    appPartsFormatter.formatToParts(date).map((part) => [part.type, part.value]),
+  )
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    second: Number(parts.second),
+  }
+}
+
+function appOffsetMs(date: Date) {
+  const p = appParts(date)
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - date.getTime()
+}
+
+function appMidnight(year: number, month: number, day: number) {
+  const utc = Date.UTC(year, month - 1, day)
+  let result = new Date(utc - appOffsetMs(new Date(utc)))
+  // Uma segunda passagem cobre transições de horário de verão caso a regra do
+  // fuso mude no futuro; hoje Brasília não aplica DST.
+  result = new Date(utc - appOffsetMs(result))
+  return result
+}
+
+export function appDateKey(date: Date): string {
+  return appDayFormatter.format(date)
+}
+
 export function periodStart(period: Period, now = new Date()): Date | null {
   if (period === 'all') return null
-  const d = new Date(now)
-  if (period === 'today') {
-    d.setHours(0, 0, 0, 0)
-    return d
-  }
-  const days = period === '7d' ? 7 : 30
-  d.setDate(d.getDate() - days)
-  return d
+  const p = appParts(now)
+  // Janelas de calendário inclusivas e coerentes com o TikTok Ads:
+  // hoje = 00:00 de Brasília; 7d = hoje + 6 dias anteriores; 30d = +29.
+  const back = period === 'today' ? 0 : period === '7d' ? 6 : 29
+  const target = new Date(Date.UTC(p.year, p.month - 1, p.day - back))
+  return appMidnight(target.getUTCFullYear(), target.getUTCMonth() + 1, target.getUTCDate())
 }
 
 export function prevWindow(period: Period, now = new Date()) {
@@ -97,6 +147,7 @@ export function prevWindow(period: Period, now = new Date()) {
 
 function within(at: string, from: Date | null, to: Date | null) {
   const t = new Date(at).getTime()
+  if (!Number.isFinite(t)) return false
   if (from && t < from.getTime()) return false
   if (to && t > to.getTime()) return false
   return true
@@ -124,15 +175,9 @@ export function aggregate(
   // Brasília (01h UTC do dia seguinte) caía no dia errado do gráfico.
   // O corte diário agora é no fuso de Brasília ('en-CA' → YYYY-MM-DD).
   const dayMap = new Map<string, { revenue: number; sales: number; visits: number }>()
-  const dayFmt = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
   const dayOf = (at: string) => {
     const t = new Date(at)
-    return Number.isNaN(t.getTime()) ? at.slice(0, 10) : dayFmt.format(t)
+    return Number.isNaN(t.getTime()) ? at.slice(0, 10) : appDateKey(t)
   }
   const bump = (at: string, key: 'revenue' | 'sales' | 'visits', v: number) => {
     const d = dayOf(at)

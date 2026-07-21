@@ -81,6 +81,11 @@ export interface Lead {
   /** Item 310: telefone reportado pelo gateway (quando existe) */
   phone?: string
   referer?: string
+  /** Cobertura real do loader em páginas/hospedagens externas. */
+  site?: string
+  sites?: { host: string; firstAt?: string; lastAt?: string; hits?: number }[]
+  pixelSlug?: string
+  lastSeen?: string | null
   checkoutHits?: { at: string; gateway?: string }[]
   reportedAmount?: number
   reportedCurrency?: string
@@ -129,6 +134,43 @@ export interface StatsResponse {
   }
   countries: CountryStat[]
   leads: Lead[]
+}
+
+// ── /api/overview/health — confiança e cobertura da Visão Geral ──
+export interface OverviewHealthAction {
+  id: string
+  severity: 'critical' | 'warning'
+  title: string
+  detail: string
+  href: string
+}
+
+export interface OverviewHealthResponse {
+  ok: boolean
+  status: 'healthy' | 'warning' | 'critical'
+  freshness: {
+    lastDataAt: string | null
+    lastTrafficAt: string | null
+    lastPaymentAt: string | null
+    pollSeconds: number
+    timezone: 'America/Sao_Paulo'
+  }
+  setup: {
+    links: { total: number; active: number }
+    pixels: { total: number; active: number; ready: number; incomplete: number }
+    gateways: { total: number; lastEventAt: string | null }
+  }
+  coverage: {
+    purchases: { total: number; tracked: number; orphan: number; rate: number | null }
+    attribution: { total: number; identified: number; rate: number | null }
+    geography: { total: number; identified: number; rate: number | null }
+    hosts: {
+      total: number
+      uncovered: number
+      items: { host: string; visits: number; lastAt: string | null; pixels: string[] }[]
+    }
+  }
+  actions: OverviewHealthAction[]
 }
 
 export interface HealthResponse {
