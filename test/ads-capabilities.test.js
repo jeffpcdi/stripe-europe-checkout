@@ -8,8 +8,8 @@
 //    em vez de prometer.
 // 3. Rotas de conexão têm semântica Pipeboard: connect devolve
 //    alreadyConnected/NO_ADVERTISER_VISIBLE, disconnect é 410
-//    SERVER_KEY_MANAGED, identity é 410 CUSTOM_IDENTITY_DEPRECATED.
-// 4. A UI esconde identidade e desconectar via capabilities.
+//    SERVER_KEY_MANAGED; a rota e o diálogo obsoletos de identidade não existem.
+// 4. A UI remove identidade e esconde desconectar via capabilities.
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -44,13 +44,14 @@ console.log('ok: capabilities com true/false honestos no /status');
 assert.match(routes, /startConnect[\s\S]*?pipeboard\.getStatus/, 'connect consulta o Pipeboard');
 assert.match(routes, /NO_ADVERTISER_VISIBLE/, 'connect explica quando não há advertiser (sem URL de OAuth falsa)');
 assert.match(routes, /'\/api\/ads\/disconnect'[\s\S]*?410[\s\S]*?SERVER_KEY_MANAGED/, 'disconnect é 410 honesto (chave de servidor)');
-assert.match(routes, /'\/api\/ads\/identity'[\s\S]*?410[\s\S]*?CUSTOM_IDENTITY_DEPRECATED/, 'identity é 410 (deprecated na plataforma)');
+assert.ok(!routes.includes("app.patch('/api/ads/identity'"), 'rota obsoleta de identidade foi removida');
 assert.ok(!/authUrl: data\.authUrl/.test(routes), 'nenhuma URL de OAuth da Zernio sobrou');
 console.log('ok: conexão com semântica Pipeboard (410/422 honestos)');
 
-// ── 4. UI esconde o que capabilities nega ────────────────────────────────────
+// ── 4. UI remove o que capabilities nega ─────────────────────────────────────
 const view = fs.readFileSync(path.join(root, 'dashboard/components/ads/tiktok-ads-view.tsx'), 'utf8');
-assert.match(view, /capabilities\?\.customIdentity !== false &&/, 'menu de identidade é condicionado à capability');
+assert.ok(!/IdentityDialog|Brand Identity|identityOpen/.test(view), 'menu e diálogo de identidade foram removidos');
+assert.ok(!fs.existsSync(path.join(root, 'dashboard/components/ads/identity-dialog.tsx')), 'componente obsoleto de identidade foi removido');
 assert.match(view, /capabilities\?\.oauthConnect === false \? null/, 'botão desconectar é condicionado à capability');
 const bar = fs.readFileSync(path.join(root, 'dashboard/components/ads/context-bar.tsx'), 'utf8');
 assert.match(bar, /onDisconnect: \(\(\) => void\) \| null/, 'context-bar aceita onDisconnect null (esconde botão)');

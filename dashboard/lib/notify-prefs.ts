@@ -42,6 +42,7 @@ export function eventToGroup(event: string): SoundGroup {
     case 'ads_cap':
       return 'ads'
     default:
+      if (event.startsWith('ads_')) return 'ads'
       // daily, watchdog e desconhecidos caem em "system"
       return 'system'
   }
@@ -54,10 +55,10 @@ const DEFAULTS: SoundPrefs = {
   failed: true,
   refund: true,
   dispute: true,
-  checkout: true,
+  checkout: false,
   login: true,
   ads: true,
-  system: true,
+  system: false,
 }
 
 export function getSoundPrefs(): SoundPrefs {

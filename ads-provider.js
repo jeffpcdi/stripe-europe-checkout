@@ -1,6 +1,5 @@
 // ads-provider.js — camada de leitura do TikTok Ads sobre o Pipeboard MCP.
 //
-// [Gate 2 da migração Zernio → Pipeboard]
 // Este módulo é a ÚNICA fronteira entre o shape que o dashboard espera e o
 // protocolo MCP do Pipeboard. As rotas (ads-routes.js) NÃO devem falar com o
 // pipeboard-mcp diretamente — elas chamam este provider, que:
@@ -10,19 +9,17 @@
 //   • cacheia leituras com TTL curto (o Pipeboard cobra por chamada e a lista
 //     de advertisers só traz IDs — nomes exigem 1 chamada/conta).
 //
-// DESCOBERTAS DO GATE 1 que moldam este arquivo:
-//   • 155 advertisers autorizados (NÃO conta única). list_tiktok_advertisers
+// Contratos do Pipeboard que moldam este arquivo:
+//   • múltiplos advertisers autorizados. list_tiktok_advertisers
 //     devolve { total_advertisers, advertiser_ids:[...] } — só IDs, sem nome.
 //     Nome/moeda/status vêm de get_tiktok_advertiser_info (1 chamada/id) →
 //     enriquecimento é preguiçoso e cacheado; nunca 155 de uma vez.
 //   • Não há OAuth/SocialAccount/profile: "conectado" = chave presente no
 //     servidor + advertiser resolvido.
-//
-// Este gate é aditivo: o módulo existe e é testável isoladamente, mas ainda
-// NÃO está plugado nas rotas (isso é o Gate 3). Assim o gate é reversível.
 
 const pipeboard = require('./pipeboard-mcp');
 const config = require('./config');
+const { SPARK_GOALS } = require('./ads-contracts');
 
 // ── Estado por conta (multi-tenant) ──────────────────────────────────────────
 // Guardado em config.get(accountId).pipeboardAds = { advertiserId }.
@@ -251,10 +248,17 @@ function mapAd(a) {
 
 async function getCampaigns(advertiserId, { pageSize = 100, campaignIds } = {}) {
   const id = String(advertiserId);
-  const args = { advertiser_id: id, page: 1, page_size: pageSize };
-  if (Array.isArray(campaignIds) && campaignIds.length) args.campaign_ids = campaignIds.map(String);
+  const wanted = Array.isArray(campaignIds) && campaignIds.length
+    ? new Set(campaignIds.map(String))
+    : null;
+  // Ao contrário das tools de ad group/anúncio, get_tiktok_campaigns não
+  // aceita campaign_ids. Enviar esse campo era inócuo no MCP e fazia a
+  // verificação pós-criação consultar a página errada. Buscamos uma página
+  // ampla e filtramos localmente.
+  const args = { advertiser_id: id, page: 1, page_size: wanted ? 1000 : pageSize };
   const out = await pipeboard.callTool('get_tiktok_campaigns', args);
-  return (out.campaigns || []).map(mapCampaign);
+  const rows = (out.campaigns || []).map(mapCampaign);
+  return wanted ? rows.filter((campaign) => wanted.has(String(campaign.id))) : rows;
 }
 async function getAdGroups(advertiserId, campaignIds, { pageSize = 500 } = {}) {
   const id = String(advertiserId);
@@ -713,9 +717,23 @@ function deepPluck(obj, key, depth) {
 // Primeiro array encontrado na resposta (regions/identities vêm embrulhados
 // com nomes variados: .regions, .identity_list, .list, .data.list…).
 function firstArray(obj, keys) {
+  if (Array.isArray(obj)) return obj;
+  function findArray(value, key, depth) {
+    if (!value || typeof value !== 'object' || depth > 6) return null;
+    if (Array.isArray(value[key]) && value[key].length) return value[key];
+    // Algumas tools repetem o mesmo envelope (ex. interest_categories.
+    // interest_categories). Não pare no primeiro objeto com o nome pedido:
+    // continue procurando até encontrar o array real.
+    for (const child of Object.values(value)) {
+      if (!child || typeof child !== 'object') continue;
+      const found = findArray(child, key, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
   for (const k of keys) {
-    const v = deepPluck(obj, k);
-    if (Array.isArray(v) && v.length) return v;
+    const found = findArray(obj, k, 0);
+    if (found) return found;
   }
   return [];
 }
@@ -816,9 +834,23 @@ async function uploadVideoAndWait(advertiserId, videoUrl, createdIds) {
   throw stepError('upload', 'Vídeo enviado (video_id ' + videoId + ') mas não ficou processado/displayable a tempo — tente de novo em instantes (o re-upload reaproveita o mesmo vídeo)', createdIds);
 }
 
+async function uploadImage(advertiserId, imageUrl, createdIds) {
+  const url = String(imageUrl || '').trim();
+  if (!/^https:\/\/[^\s]+/.test(url)) throw stepError('cover', 'A capa do vídeo precisa ser uma URL https pública', createdIds, 400);
+  const out = await pipeboard.callTool('upload_tiktok_image', {
+    advertiser_id: advertiserId,
+    image_url: url,
+  });
+  const imageId = String(deepPluck(out, 'image_id') || deepPluck(out, 'web_uri') || '');
+  if (!imageId) throw stepError('cover', 'Upload da capa não retornou image_id', createdIds);
+  return imageId;
+}
+
 // "YYYY-MM-DD HH:MM:SS" no fuso do ADVERTISER (exigência do schedule_start_time).
 function advertiserLocalTime(timezone, date) {
-  const d = date || new Date(Date.now() + 10 * 60 * 1000); // +10min: "must be in the future"
+  // O schema atual exige pelo menos 30 minutos de antecedência. Usamos 45
+  // para absorver latência do upload, fila e diferença de relógio do TikTok.
+  const d = date || new Date(Date.now() + 45 * 60 * 1000);
   try {
     const s = new Intl.DateTimeFormat('sv-SE', {
       timeZone: timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -901,7 +933,7 @@ function resolveBudgetPlan(spec) {
   if (s.bidStrategy === 'cost_cap' && Number(s.bidAmount) > 0) {
     bid.bid_type = 'BID_TYPE_CUSTOM';
     // CONVERT + OCPM usa conversion_bid_price; demais objetivos usam bid_price.
-    if (s.goal === 'conversions') bid.conversion_bid_price = Number(s.bidAmount);
+    if (s.goal === 'conversions' || s.goal === 'lead_generation') bid.conversion_bid_price = Number(s.bidAmount);
     else bid.bid_price = Number(s.bidAmount);
   }
   return { cbo, campaign, adgroup, bid };
@@ -916,9 +948,19 @@ async function createFullAd(advertiserId, spec, opts) {
   const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
   const goal = GOAL_MAP[s.goal];
   if (!goal) throw badRequest('Objetivo "' + s.goal + '" ainda não suportado na criação via Pipeboard' + (s.goal === 'app_promotion' ? ' (exige app_id, que a UI ainda não coleta)' : ''));
-  if (s.goal === 'conversions') {
+  if (s.budgetType === 'lifetime') {
+    const endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : '';
+    const endAt = endDate ? new Date(endDate + 'T23:59:59Z').getTime() : NaN;
+    if (!endDate || !Number.isFinite(endAt) || endAt <= Date.now() + 60 * 60 * 1000) {
+      throw badRequest('Orçamento total exige uma data de término futura');
+    }
+  }
+  const pixelGoal = s.goal === 'conversions' || s.goal === 'lead_generation';
+  if (pixelGoal) {
+    const pixelId = String((s.promotedObject || {}).pixelId || '').trim();
     const evt = String((s.promotedObject || {}).customEventType || '').trim();
-    if (!evt) throw badRequest('Objetivo Conversões exige o evento de otimização (customEventType) — o TikTok não aceita CONVERT sem optimization_event');
+    if (!/^\d{5,30}$/.test(pixelId)) throw badRequest('Este objetivo exige o Pixel ID numérico do TikTok');
+    if (!evt) throw badRequest('Este objetivo exige o evento de otimização do Pixel (customEventType)');
   }
   const warnings = [];
   const createdIds = {};
@@ -956,7 +998,7 @@ async function createFullAd(advertiserId, spec, opts) {
       // CBO: orçamento + budget_optimize_on vivem na campanha (plan.campaign
       // fica vazio em ABO, então nada muda no caminho padrão).
       Object.assign(campArgs, plan.campaign);
-      if (s.goal === 'conversions') {
+      if (pixelGoal) {
         campArgs.pixel_id = String(s.promotedObject.pixelId);
         campArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
       }
@@ -1005,8 +1047,20 @@ async function createFullAd(advertiserId, spec, opts) {
       if (s.budgetType === 'lifetime' && s.endDate) {
         agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
       }
-      if (s.goal === 'conversions') agArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
-      if (s.goal === 'lead_generation') { agArgs.promotion_type = 'LEAD_GENERATION'; agArgs.promotion_target_type = 'EXTERNAL_WEBSITE'; }
+      if (pixelGoal) {
+        agArgs.pixel_id = String(s.promotedObject.pixelId);
+        agArgs.optimization_event = String(s.promotedObject.customEventType).toUpperCase();
+      }
+      if (s.goal === 'lead_generation') {
+        // O Pipeboard não expõe formulários instantâneos. O caminho suportado
+        // é geração de leads no site, com Pixel e placement exclusivo TikTok.
+        agArgs.optimization_goal = 'CONVERT';
+        agArgs.promotion_type = 'LEAD_GENERATION';
+        agArgs.promotion_target_type = 'EXTERNAL_WEBSITE';
+        agArgs.placement_type = 'PLACEMENT_TYPE_NORMAL';
+        agArgs.placements = ['PLACEMENT_TIKTOK'];
+        agArgs.billing_event = 'OCPM';
+      }
       const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
       adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
       if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id', createdIds);
@@ -1417,8 +1471,19 @@ async function createSparkAd(advertiserId, spec) {
   const adv = String(advertiserId || '').trim();
   if (!adv) throw badRequest('advertiserId é obrigatório');
   const s = spec || {};
+  if (!String(s.name || '').trim()) throw badRequest('Nome da campanha é obrigatório');
+  if (!SPARK_GOALS.has(s.goal)) throw badRequest('Objetivo "' + s.goal + '" não suportado para Spark Ads');
   const goal = GOAL_MAP[s.goal];
-  if (!goal) throw badRequest('Objetivo "' + s.goal + '" não suportado para Spark Ads');
+  const budgetAmount = Number(s.budgetAmount);
+  if (!(budgetAmount > 0)) throw badRequest('Orçamento inválido');
+  let endDate;
+  if (s.budgetType === 'lifetime') {
+    endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : '';
+    const endAt = endDate ? new Date(endDate + 'T23:59:59Z').getTime() : NaN;
+    if (!endDate || !Number.isFinite(endAt) || endAt <= Date.now() + 60 * 60 * 1000) {
+      throw badRequest('Orçamento total exige uma data de término futura (endDate)');
+    }
+  }
   const identityId = String(s.identityId || '').trim();
   const identityType = String(s.identityType || '').toUpperCase();
   const itemId = String(s.itemId || '').trim();
@@ -1444,17 +1509,19 @@ async function createSparkAd(advertiserId, spec) {
   createdIds.campaignId = campaignId;
 
   try {
-    const agOut = await pipeboard.callTool('create_tiktok_adgroup', {
+    const adgroupArgs = {
       advertiser_id: adv,
       campaign_id: campaignId,
       adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
       optimization_goal: goal.optimizationGoal,
       budget_mode: s.budgetType === 'lifetime' ? 'BUDGET_MODE_TOTAL' : 'BUDGET_MODE_DAY',
-      budget: Number(s.budgetAmount),
+      budget: budgetAmount,
       schedule_start_time: advertiserLocalTime(info && info.timezone),
       targeting: { location_ids: regions.locationIds },
       bid_type: 'BID_TYPE_NO_BID',
-    });
+    };
+    if (endDate) adgroupArgs.schedule_end_time = endDate + ' 23:59:59';
+    const agOut = await pipeboard.callTool('create_tiktok_adgroup', adgroupArgs);
     const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
     if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id', createdIds);
     createdIds.adGroupId = adGroupId;
@@ -1537,12 +1604,83 @@ function normalizeCatalogOverview(out) {
   };
 }
 
+let catalogCapabilitiesCache = null;
+
+// As tools do Pipeboard mudam independentemente deste repositório. Ter uma
+// função JS com o nome certo não significa que o schema MCP aceite os campos
+// necessários. Este preflight lê os schemas reais e só libera fluxos que
+// conseguem chegar até o fim sem criar estruturas parciais no TikTok.
+async function getCatalogCapabilities({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && catalogCapabilitiesCache && catalogCapabilitiesCache.expiresAt > now) {
+    return catalogCapabilitiesCache.value;
+  }
+  const unavailable = {
+    catalogCreate: false,
+    catalogUpload: false,
+    catalogAudit: false,
+    catalogLinkVerify: false,
+    manualCatalogCampaign: false,
+    productSets: false,
+    catalogVideoTemplates: false,
+    note: 'Não foi possível confirmar as capacidades atuais do Pipeboard.',
+  };
+  if (!pipeboard.enabled || typeof pipeboard.listTools !== 'function') return unavailable;
+  try {
+    const listed = await pipeboard.listTools();
+    const tools = Array.isArray(listed && listed.tools) ? listed.tools : [];
+    const byName = new Map(tools.map((tool) => [String(tool && tool.name || ''), tool]));
+    const fields = (name) => {
+      const tool = byName.get(name) || {};
+      const schema = tool.inputSchema || tool.input_schema || {};
+      return new Set(Object.keys(schema.properties || {}));
+    };
+    const hasFields = (name, required) => {
+      const present = fields(name);
+      return required.every((field) => present.has(field));
+    };
+    const catalogCreate = hasFields('create_tiktok_catalog', ['bc_id', 'name', 'catalog_type', 'catalog_conf']);
+    const catalogUpload = byName.has('upload_tiktok_catalog_products');
+    const catalogAudit = byName.has('get_tiktok_catalog_overview');
+    const catalogLinkVerify = byName.has('get_tiktok_catalogs');
+    const campaignFields = hasFields('create_tiktok_campaign', ['advertiser_id', 'campaign_name', 'objective_type', 'catalog_id', 'shopping_ads_type']);
+    const adgroupFields = hasFields('create_tiktok_adgroup', ['advertiser_id', 'campaign_id', 'catalog_id', 'shopping_ads_type', 'product_source', 'store_authorized_bc_id']);
+    const adFields = hasFields('create_tiktok_ad', ['advertiser_id', 'adgroup_id', 'catalog_id', 'catalog_video_template_id']);
+    const manualCatalogCampaign = campaignFields && adgroupFields && adFields;
+    const value = {
+      catalogCreate,
+      catalogUpload,
+      catalogAudit,
+      catalogLinkVerify,
+      manualCatalogCampaign,
+      productSets: false,
+      catalogVideoTemplates: false,
+      note: manualCatalogCampaign
+        ? 'Campanhas de catálogo estão disponíveis pelos schemas atuais do Pipeboard.'
+        : 'O Pipeboard atual não expõe todos os campos de Product Sales nas tools genéricas. Crie a campanha no TikTok Ads Manager para evitar campanha parcial.',
+    };
+    catalogCapabilitiesCache = { value, expiresAt: now + 5 * 60 * 1000 };
+    return value;
+  } catch (_) {
+    return unavailable;
+  }
+}
+
 // Cria um catálogo no TikTok. Devolve { catalogId, raw }.
 async function createTikTokCatalog(bcId, { name, catalogType, currency, country } = {}) {
   const bc = String(bcId || '').trim();
   if (!bc) throw badRequest('Business Center (bc_id) é obrigatório para criar o catálogo no TikTok', 422);
   const nm = String(name || '').trim().slice(0, 200);
   if (!nm) throw badRequest('Nome do catálogo é obrigatório');
+  const capabilities = await getCatalogCapabilities();
+  if (!capabilities.catalogCreate) {
+    const err = badRequest('A criação automática de catálogo não é suportada pelo schema atual do Pipeboard. Crie o catálogo no TikTok Catalog Manager e conecte o Catalog ID nesta dashboard.', 501);
+    err.code = 'CATALOG_CREATE_UNSUPPORTED';
+    err.userMessage = err.message;
+    err.suggestedAction = 'Crie o catálogo no TikTok Catalog Manager e use Conexão TikTok para validar o Catalog ID e o Business Center.';
+    err.retryable = false;
+    throw err;
+  }
   const cur = String(currency || '').trim().toUpperCase().slice(0, 8);
   const region = String(country || '').trim().toUpperCase().slice(0, 4);
   const args = {
@@ -1732,13 +1870,22 @@ async function createSmartPlusCampaign(advertiserId, spec) {
   const g = SMART_PLUS_GOALS[s.goal];
   if (!g) throw badRequest('Objetivo Smart+ não suportado: "' + s.goal + '" (use conversions ou traffic)');
   if (!/^https:\/\/[^\s]+/.test(String(s.videoUrl || ''))) throw badRequest('Vídeo (URL https) é obrigatório');
+  if (!/^https:\/\/[^\s]+/.test(String(s.coverUrl || ''))) throw badRequest('Capa do vídeo (URL https) é obrigatória para Smart+');
+  if (!/^https:\/\/[^\s]+/.test(String(s.linkUrl || ''))) throw badRequest('Link de destino (URL https) é obrigatório para Smart+');
   const budget = Number(s.budgetAmount);
   if (!(budget > 0)) throw badRequest('Orçamento total inválido');
   if (s.goal === 'conversions' && !/^\d{5,30}$/.test(String(s.pixelId || ''))) {
     throw badRequest('Conversões exigem o Pixel ID NUMÉRICO do TikTok');
   }
+  if (s.goal === 'conversions' && !/^[A-Z_]{3,40}$/.test(String(s.customEventType || ''))) {
+    throw badRequest('Conversões exigem o evento de otimização do Pixel');
+  }
   const endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : null;
   if (!endDate) throw badRequest('Smart+ usa orçamento total — informe a data de término (endDate)');
+  const endAt = new Date(endDate + 'T23:59:59Z').getTime();
+  if (!Number.isFinite(endAt) || endAt <= Date.now() + 60 * 60 * 1000) {
+    throw badRequest('A data de término da Smart+ precisa estar no futuro');
+  }
 
   const [info, identity, regions] = await Promise.all([
     getAdvertiserInfo(adv),
@@ -1794,12 +1941,18 @@ async function createSmartPlusCampaign(advertiserId, spec) {
     if (!adGroupId) throw stepError('adgroup', 'create_tiktok_smart_plus_adgroup não retornou adgroup_id', createdIds);
     createdIds.adGroupId = adGroupId;
 
-    // 3) Vídeo (URL pública → TikTok; dedupe por md5 no retry)
+    // 3) Vídeo + capa. O schema Smart+ exige image_info mesmo para vídeo.
     const videoId = await uploadVideoAndWait(adv, String(s.videoUrl), createdIds);
     createdIds.videoId = videoId;
+    const coverId = await uploadImage(adv, String(s.coverUrl), createdIds);
+    createdIds.coverId = coverId;
 
     // 4) Asset group (anúncio) — identidade DENTRO do creative_info (schema real)
-    const creativeInfo = { ad_format: 'SINGLE_VIDEO', video_info: { video_id: videoId } };
+    const creativeInfo = {
+      ad_format: 'SINGLE_VIDEO',
+      video_info: { video_id: videoId },
+      image_info: [{ web_uri: coverId }],
+    };
     if (identity.identityId) {
       creativeInfo.identity_id = identity.identityId;
       creativeInfo.identity_type = identity.identityType;
@@ -2060,6 +2213,7 @@ module.exports = {
   getTikTokCatalogOverview,
   listTikTokCatalogs,
   updateTikTokCatalogName,
+  getCatalogCapabilities,
   createCatalogCampaign,
   CATALOG_TYPES,
   // direcionamento (leitura p/ a criação)
@@ -2075,5 +2229,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities },
 };

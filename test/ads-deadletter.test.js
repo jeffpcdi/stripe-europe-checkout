@@ -132,7 +132,7 @@ function reset(accId) {
     assert.strictEqual(row.status, 'resolved', 'entrada resolvida no store');
     assert.strictEqual(row.attempts, 1, 'attempts incrementado');
     // breaker alimentado com sucesso
-    assert.deepStrictEqual(automation._internals.actionOutcomes.get(acc), [true], 'sucesso alimenta o breaker');
+    assert.deepStrictEqual(automation._internals.actionOutcomes.get(acc + ':adv1'), [true], 'sucesso alimenta o breaker do advertiser');
   }
 
   // ── 4: reprocessar com falha → volta a pending + attempts++ ────────────────

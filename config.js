@@ -62,10 +62,15 @@ function defaults() {
     // Item 419: scope controla o que o token expõe — 'stats' (só agregados)
     // ou 'stats+leads' (agregados + lista de leads mascarada).
     api: { token: '', scope: 'stats' },
-    // Notificações Web Push nativas (iPhone/Android/desktop, sem Pushcut).
+    // Notificações Web Push nativas (canal principal no iPhone/PWA).
     // subs: aparelhos inscritos [{id, endpoint, keys:{p256dh,auth}, ua, createdAt}]
-    // funMode: copy humorada (notify-copy.js); false = texto sóbrio.
-    webPush: { subs: [], funMode: true },
+    // preferences: três escolhas claras em vez de uma matriz por evento.
+    // funMode é opt-in; o padrão direto reduz ruído nas mensagens.
+    webPush: {
+      subs: [],
+      funMode: false,
+      preferences: { sales: true, risks: true, automation: true }
+    },
     lastDailyReport: '',
     updatedAt: null
   };
@@ -222,7 +227,7 @@ function set(accountId, patch) {
   const url = String(pc.url || '').trim();
   pc.url = /^https:\/\/api\.pushcut\.io\/.+/i.test(url) ? url.slice(0, 300) : '';
   const ev = Object.assign(
-    { sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false },
+    { sale: true, failed: true, refund: true, dispute: true, checkout: false, daily: false, login: false, watchdog: false },
     pc.events || {}
   );
   pc.events = {
@@ -231,13 +236,15 @@ function set(accountId, patch) {
     refund: ev.refund !== false,
     dispute: ev.dispute !== false,
     checkout: ev.checkout === true,
-    daily: ev.daily === true
+    daily: ev.daily === true,
+    login: ev.login === true,
+    watchdog: ev.watchdog === true
   };
   next.pushcut = pc;
 
-  // Sanitização do bloco Web Push (aparelhos inscritos + modo zoeira)
+  // Sanitização do bloco Web Push (aparelhos + preferências simples)
   {
-    const wp = Object.assign({ subs: [], funMode: true }, next.webPush || {});
+    const wp = Object.assign({ subs: [], funMode: false }, next.webPush || {});
     if (!Array.isArray(wp.subs)) wp.subs = [];
     wp.subs = wp.subs.slice(0, 10).map((s) => ({
       id: String((s && s.id) || '').slice(0, 40),
@@ -249,7 +256,13 @@ function set(accountId, patch) {
       ua: String((s && s.ua) || '').slice(0, 120),
       createdAt: (s && s.createdAt) || new Date().toISOString()
     })).filter((s) => /^https:\/\//i.test(s.endpoint) && s.keys.p256dh && s.keys.auth);
-    wp.funMode = wp.funMode !== false;
+    wp.funMode = wp.funMode === true;
+    const pref = Object.assign({ sales: true, risks: true, automation: true }, wp.preferences || {});
+    wp.preferences = {
+      sales: pref.sales !== false,
+      risks: pref.risks !== false,
+      automation: pref.automation !== false
+    };
     next.webPush = wp;
   }
 
@@ -320,9 +333,11 @@ function set(accountId, patch) {
     // pode ser enviado
     const drh = Math.round(Number(s.dailyReportHour));
     if (Number.isFinite(drh) && drh >= 0 && drh <= 23) out.dailyReportHour = drh;
-    // Item 429: preset de mensagem do Pushcut com variáveis ({{valor}} etc.)
-    if (typeof s.pushcutTemplate === 'string' && s.pushcutTemplate.trim()) {
-      out.pushcutTemplate = s.pushcutTemplate.trim().slice(0, 300);
+    // Modelo da venda na notificação nativa. `pushcutTemplate` é aceito só
+    // para migrar configurações já existentes sem perder a mensagem do usuário.
+    const notificationTemplate = s.notificationTemplate || s.pushcutTemplate;
+    if (typeof notificationTemplate === 'string' && notificationTemplate.trim()) {
+      out.notificationTemplate = notificationTemplate.trim().slice(0, 300);
     }
     next.settings = out;
   }

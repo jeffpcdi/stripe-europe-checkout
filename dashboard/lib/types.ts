@@ -311,15 +311,22 @@ export interface Pixel {
   testEventCode?: string
   active: boolean
   events: PixelEvents
-  /** Vínculo pixel↔gateway: IDs de gateways dos quais este pixel aceita eventos de dinheiro. Vazio = todos. */
+  /** Vínculo pixel↔gateway. Com múltiplos pixels, vazio não autoriza fan-out ambíguo. */
   gatewayIds?: string[]
   scriptUrl: string | null
   scriptTag: string | null
+  scriptTagTracker?: string | null
+  scriptTagNative?: string | null
+  scriptTagEnrich?: string | null
   updatedAt: string
 }
 
 export interface PixelsResponse {
   pixels: Pixel[]
+  meta?: {
+    strictIsolation?: boolean
+    paymentNote?: string
+  }
 }
 
 // ── /api/pixels/log — disparos CAPI recentes ──
@@ -330,8 +337,9 @@ export interface PixelLogRow {
   event: string
   eventId?: string
   leadId?: string
-  status: 'ok' | 'error' | string
+  status: 'ok' | 'erro' | 'descartado' | 'bloqueado' | 'ignorado' | string
   emq?: number | null
+  emqFields?: string[]
   response?: { code?: number; message?: string } | null
 }
 
@@ -358,6 +366,7 @@ export interface PixelHealthResponse {
   events: PixelEventHealth[]
   errors: { at: string; pixel: string; event: string; message: string }[]
   retryQueue: number
+  source?: 'memory' | 'neon' | 'memory+neon'
 }
 
 // ── /api/pixels/durability — por que a config pode não estar disparando ──
@@ -369,6 +378,9 @@ export interface PixelDurabilityResponse {
   lastError: string | null
   trustedGateways: number
   salePixels: number
+  strictIsolation?: boolean
+  ambiguousSaleRouting?: boolean
+  unboundSalePixels?: { slug: string; name: string }[]
   incomplete: { slug: string; name: string; missing: string[] }[]
   warnings: string[]
 }
@@ -644,6 +656,7 @@ export interface PixelVerifyUrlPixel {
   name: string
   scriptOk: boolean // script /px/<token>.js presente na página
   nativeOk: boolean // pixelCode nativo (ttq) presente
+  trackerScoped?: boolean // /t.js?px=TOKEN aponta para este pixel
   instalado: boolean // scriptOk || nativeOk
 }
 export interface PixelVerifyUrlResult {
@@ -1007,6 +1020,10 @@ export interface AdsAlertsConfig {
   lookbackDays: number
   rejectedAds?: boolean // avisa quando um criativo é reprovado na revisão
   autoAppealSmartPlus?: boolean // recorre sozinho 1× de anúncio Smart+ reprovado (ação real; respeita kill switch/dry-run)
+  advertiserId?: string
+  revision?: number
+  autonomy?: AdsAutomationAutonomy | 'custom'
+  updatedAt?: string
 }
 
 export interface AdsAlertFinding {
@@ -1102,8 +1119,31 @@ export interface AdsRuleLogEntry {
 }
 
 export interface AdsRulesResponse {
+  advertiserId: string
+  revision: number
+  autonomy: AdsAutomationAutonomy | 'custom'
+  updatedAt: string
   rules: AdsRule[]
   log: AdsRuleLogEntry[]
+  alerts: AdsAlertsConfig
+  engine: AdsAutomationEngine
+}
+
+export type AdsAutomationAutonomy = 'notify' | 'propose' | 'auto'
+
+export interface AdsAutomationEngine {
+  advertiserId: string
+  revision: number
+  autonomy: AdsAutomationAutonomy | 'custom'
+  updatedAt: string
+  status: 'active' | 'idle'
+  lastSweepAt: string | null
+  lastScheduleSweepAt: string | null
+  nextSweepAt: string | null
+  rulesEnabled: number
+  schedulesEnabled: number
+  alertsEnabled: boolean
+  lastAction: { at: string; result?: string; campaignName?: string; ok: boolean } | null
 }
 
 export interface AdsRulesRunResponse {
@@ -1133,8 +1173,14 @@ export interface AdsMcpStatusResponse {
     lastSyncAt: string | null
   }
   automation: {
+    advertiserId?: string
+    revision?: number
+    autonomy?: AdsAutomationAutonomy | 'custom'
+    updatedAt?: string
+    status?: 'active' | 'idle'
     lastSweepAt: string | null
     lastScheduleSweepAt: string | null
+    nextSweepAt?: string | null
     rulesEnabled: number
     schedulesEnabled: number
     alertsEnabled: boolean
@@ -1268,7 +1314,6 @@ export interface AdsTemplatePayload {
   ageMax?: number
   pixelId?: string
   customEventType?: string
-  identityType?: string
   gender?: 'all' | 'male' | 'female'
   interestIds?: string[]
   placements?: string[]

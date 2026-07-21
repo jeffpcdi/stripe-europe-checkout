@@ -45,11 +45,11 @@ function fmtMoney(v: number | undefined, currency: string): string {
   }
 }
 
-// ── Status → cor/rótulo (dot pulsante para ativo, âmbar para revisão) ──
-const STATUS_META: Record<string, { label: string; cls: string; dot: string; pulse?: boolean }> = {
-  active: { label: 'Ativa', cls: 'text-success', dot: 'bg-[color:var(--success)]', pulse: true },
+// ── Status → cor/rótulo ──
+const STATUS_META: Record<string, { label: string; cls: string; dot: string }> = {
+  active: { label: 'Ativa', cls: 'text-success', dot: 'bg-[color:var(--success)]' },
   paused: { label: 'Pausada', cls: 'text-muted-foreground', dot: 'bg-muted-foreground' },
-  pending_review: { label: 'Em revisão', cls: 'text-warning', dot: 'bg-[color:var(--warning)]', pulse: true },
+  pending_review: { label: 'Em revisão', cls: 'text-warning', dot: 'bg-[color:var(--warning)]' },
   rejected: { label: 'Rejeitado', cls: 'text-error', dot: 'bg-[color:var(--error)]' },
   error: { label: 'Erro', cls: 'text-error', dot: 'bg-[color:var(--error)]' },
   completed: { label: 'Concluída', cls: 'text-muted-foreground', dot: 'bg-muted-foreground' },
@@ -64,21 +64,14 @@ export function StatusPill({ status }: { status?: AdsNodeStatus }) {
   }
   
   let bgClass = 'bg-white/5 border-white/5'
-  if (status === 'active') bgClass = 'bg-success/15 border-success/20 text-success shadow-[0_0_10px_rgba(34,197,94,0.1)]'
-  else if (status === 'pending_review') bgClass = 'bg-warning/15 border-warning/20 text-warning shadow-[0_0_10px_rgba(234,179,8,0.1)]'
-  else if (status === 'rejected' || status === 'error') bgClass = 'bg-error/15 border-error/20 text-error shadow-[0_0_10px_rgba(239,68,68,0.1)]'
+  if (status === 'active') bgClass = 'bg-success/10 border-success/20 text-success'
+  else if (status === 'pending_review') bgClass = 'bg-warning/10 border-warning/20 text-warning'
+  else if (status === 'rejected' || status === 'error') bgClass = 'bg-error/10 border-error/20 text-error'
   else bgClass = 'bg-muted/10 border-white/5 text-muted-foreground'
 
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold tracking-wide backdrop-blur-sm ${bgClass}`}>
-      {meta.pulse ? (
-        <span className="relative flex size-1.5">
-          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${meta.dot}`} aria-hidden="true" />
-          <span className={`relative inline-flex size-1.5 rounded-full ${meta.dot} drop-shadow-md`} aria-hidden="true" />
-        </span>
-      ) : (
-        <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
-      )}
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${bgClass}`}>
+      <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
       {meta.label}
     </span>
   )
@@ -136,8 +129,6 @@ export function CampaignTree({
   onSort,
   page,
   onPage,
-  rangeDays,
-  onRangeDays,
   onMutate,
   onRetry,
   onOpenDetail,
@@ -154,14 +145,10 @@ export function CampaignTree({
   onSort: (s: string) => void
   page: number
   onPage: (p: number) => void
-  // Janela de descoberta/métricas — campanhas fora do período não aparecem
-  rangeDays?: number
-  onRangeDays?: (d: number) => void
   onMutate: () => void
   onRetry: () => void
   onOpenDetail?: (c: AdsTreeCampaign) => void
-  // Abre o dialog de duplicação (N cópias, mesma conta ou outra conta do BC).
-  // Sem a prop, cai no comportamento antigo: 1 cópia rápida na mesma conta.
+  // Abre o dialog de duplicação durável na mesma conta de anúncio.
   onDuplicate?: (c: AdsTreeCampaign) => void
   // Vendas reais por campanha (utm_campaign=__CAMPAIGN_ID__ → lead comprado)
   attribution?: Record<string, { revenueCents: number; sales: number }>
@@ -175,6 +162,7 @@ export function CampaignTree({
   // Ações em lote: seleção por checkbox → barra flutuante pausa/ativa tudo
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [activation, setActivation] = useState<{ kind: 'single'; campaign: AdsTreeCampaign } | { kind: 'bulk' } | null>(null)
   // Edição inline de orçamento: chave do grupo em edição + valor digitado
   const [editingBudget, setEditingBudget] = useState<string | null>(null)
   const [budgetValue, setBudgetValue] = useState('')
@@ -189,7 +177,7 @@ export function CampaignTree({
   // do contrário, ações poderiam atingir campanhas que já não estão visíveis.
   useEffect(() => {
     setSelected(new Set())
-  }, [page, statusFilter, sort, rangeDays, tree, query, onlyWithSpend])
+  }, [page, statusFilter, sort, tree, query, onlyWithSpend])
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -207,7 +195,11 @@ export function CampaignTree({
       const r = await apiSend<{ totals?: { updated: number; skipped: number; failed: number } }>(
         '/api/ads/campaigns/bulk-status',
         'POST',
-        { campaigns: Array.from(selected).map((id) => ({ platformCampaignId: id })), status },
+        {
+          campaigns: Array.from(selected).map((id) => ({ platformCampaignId: id })),
+          status,
+          adAccountId: campaigns.find((campaign) => selected.has(campaign.platformCampaignId))?.platformAdAccountId,
+        },
       )
       const t = r.totals
       toast.success(
@@ -216,8 +208,10 @@ export function CampaignTree({
       )
       setSelected(new Set())
       onMutate()
+      return true
     } catch (e) {
       toast.error('Falha na ação em lote', { hint: e instanceof Error ? e.message : undefined })
+      return false
     } finally {
       setBulkBusy(false)
     }
@@ -260,11 +254,14 @@ export function CampaignTree({
       await apiSend('/api/ads/campaigns/bulk-status', 'POST', {
         campaigns: [{ platformCampaignId: id }],
         status,
+        adAccountId: c.platformAdAccountId,
       })
       toast.success(status === 'paused' ? 'Campanha pausada' : 'Campanha ativada')
       onMutate()
+      return true
     } catch (e) {
       toast.error('Falha ao alterar status', { hint: e instanceof Error ? e.message : undefined })
+      return false
     } finally {
       setBusyId(null)
     }
@@ -386,7 +383,7 @@ export function CampaignTree({
   // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>) {
     return (
-      <p className="label-mono flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] text-muted-foreground shadow-[inset_2px_0_0_var(--brand-cyan)] transition-colors hover:bg-white/[0.02]">
+      <p className="flex h-9 items-center border-b border-border bg-secondary/40 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
         {(GROUP_LABELS[row.groupIdx] ?? 'Outras') + ` (${row.count})`}
       </p>
     )
@@ -415,8 +412,7 @@ export function CampaignTree({
       <div className={`border-b border-border/70 ${isError ? 'bg-error/10' : ''}`}>
         {/* Linha compacta — ações aparecem no hover/focus (sm+), sempre
             visíveis no mobile (não há hover no touch) */}
-        <div className="group relative flex items-center gap-2 px-3 transition-all duration-300 hover:bg-white/[0.04] overflow-hidden">
-          <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-brand-cyan/0 transition-colors duration-300 group-hover:bg-brand-cyan/50" aria-hidden="true" />
+        <div className="group flex items-center gap-2 overflow-hidden px-3 hover:bg-secondary/40">
           <input
             type="checkbox"
             checked={selected.has(id)}
@@ -436,7 +432,7 @@ export function CampaignTree({
               aria-hidden="true"
             />
             <span
-              className={`size-1.5 shrink-0 rounded-full ${meta.dot} ${meta.pulse ? 'animate-pulse' : ''}`}
+              className={`size-1.5 shrink-0 rounded-full ${meta.dot}`}
               aria-hidden="true"
               title={meta.label}
             />
@@ -490,22 +486,22 @@ export function CampaignTree({
                 {c.status === 'active' ? (
                   <button
                     type="button"
-                    className="flex h-6 w-6 items-center justify-center rounded-md transition-all sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100 hover:bg-white/10 hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] text-foreground"
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground hover:bg-secondary sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
                     onClick={() => setCampaignStatus(c, 'paused')}
                     aria-label={`Pausar campanha ${c.campaignName || id}`}
                     title="Pausar"
                   >
-                    <Pause className="size-3.5 transition-transform hover:scale-110" aria-hidden="true" />
+                    <Pause className="size-3.5" aria-hidden="true" />
                   </button>
                 ) : c.status === 'paused' ? (
                   <button
                     type="button"
-                    className="flex h-6 w-6 items-center justify-center rounded-md transition-all sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100 hover:bg-white/10 hover:shadow-[0_0_12px_rgba(255,255,255,0.1)] text-foreground"
-                    onClick={() => setCampaignStatus(c, 'active')}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground hover:bg-secondary sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
+                    onClick={() => setActivation({ kind: 'single', campaign: c })}
                     aria-label={`Ativar campanha ${c.campaignName || id}`}
                     title="Ativar"
                   >
-                    <Play className="size-3.5 transition-transform hover:scale-110" aria-hidden="true" />
+                    <Play className="size-3.5" aria-hidden="true" />
                   </button>
                 ) : (
                   <span className="size-6" aria-hidden="true" />
@@ -644,9 +640,9 @@ export function CampaignTree({
                       return (
                         <li
                           key={adKey}
-                          className="group flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 transition-all duration-300 hover:bg-white/[0.03]"
+                          className="group flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-secondary/40"
                         >
-                          <Clapperboard className="size-3.5 shrink-0 text-muted-foreground transition-all duration-300 group-hover:scale-125 group-hover:text-brand-cyan group-hover:drop-shadow-[0_0_8px_rgba(37,244,238,0.6)]" aria-hidden="true" />
+                          <Clapperboard className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                           <span className="min-w-0 flex-1 truncate text-xs text-foreground">{ad.name || adKey}</span>
                           {ad.adType === 'boost' && (
                             <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
@@ -713,7 +709,7 @@ export function CampaignTree({
   }
 
   return (
-    <GlassCard className="anim-content-in overflow-hidden p-0">
+    <GlassCard className="overflow-hidden p-0">
       {/* Toolbar em 2 linhas: busca (com contagem) em cima; status + filtros
           de dados embaixo. Antes tudo disputava uma linha só e nada respirava. */}
       <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
@@ -770,24 +766,6 @@ export function CampaignTree({
             >
               Só com gasto
             </button>
-            {onRangeDays && (
-              <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                Período:
-                <select
-                  className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
-                  value={String(rangeDays ?? 365)}
-                  onChange={(e) => onRangeDays(Number(e.target.value))}
-                  aria-label="Período de métricas e descoberta de campanhas"
-                >
-                  <option value="1">Hoje (1 dia)</option>
-                  <option value="7">7 dias</option>
-                  <option value="30">30 dias</option>
-                  <option value="90">90 dias</option>
-                  <option value="365">12 meses</option>
-                  <option value="730">24 meses</option>
-                </select>
-              </label>
-            )}
             <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
               Ordenar:
               <select
@@ -849,7 +827,7 @@ export function CampaignTree({
             <button
               type="button"
               className="btn-ghost !px-2.5 !py-1 text-[11px]"
-              onClick={() => bulkStatus('active')}
+              onClick={() => setActivation({ kind: 'bulk' })}
               disabled={bulkBusy}
             >
               {bulkBusy ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Play className="size-3" aria-hidden="true" />}
@@ -945,11 +923,6 @@ export function CampaignTree({
                 ? 'Ajuste o filtro acima para ver as demais campanhas do advertiser.'
                 : 'Esta conta de anúncio não tem campanhas neste período. Aumente o Período acima ou crie a primeira campanha no botão "Nova campanha".'}
             </p>
-            {!statusFilter && onRangeDays && (rangeDays ?? 365) < 730 && (
-              <button type="button" className="btn-ghost text-xs" onClick={() => onRangeDays(730)}>
-                Buscar nos últimos 24 meses
-              </button>
-            )}
           </div>
         )
       ) : (
@@ -1015,6 +988,23 @@ export function CampaignTree({
       )}
 
       {/* Confirmação de exclusão de anúncio */}
+      <ConfirmDialog
+        open={Boolean(activation)}
+        title={activation?.kind === 'bulk' ? `Ativar ${selected.size} campanhas?` : 'Ativar esta campanha?'}
+        description="Campanhas aprovadas poderão começar a gastar imediatamente. Confirme somente após revisar orçamento, público e criativo."
+        confirmLabel="Ativar"
+        busy={activation?.kind === 'bulk' ? bulkBusy : Boolean(activation?.kind === 'single' && busyId === activation.campaign.platformCampaignId)}
+        onConfirm={async () => {
+          const ok = activation?.kind === 'bulk'
+            ? await bulkStatus('active')
+            : activation?.kind === 'single'
+              ? await setCampaignStatus(activation.campaign, 'active')
+              : false
+          if (ok) setActivation(null)
+        }}
+        onClose={() => setActivation(null)}
+      />
+
       <ConfirmDialog
         open={Boolean(deleteAd)}
         title="Excluir este anúncio?"

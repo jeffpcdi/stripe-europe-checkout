@@ -55,13 +55,17 @@ function RoasTooltip({
 export function RoasCard({
   active,
   adAccountId,
+  fromDate,
+  toDate,
   delay = 0,
 }: {
   active: boolean
   adAccountId: string
+  fromDate?: string
+  toDate?: string
   delay?: number
 }) {
-  const { data, isLoading } = useAdsRoas(active, adAccountId)
+  const { data, isLoading } = useAdsRoas(active, adAccountId, { fromDate, toDate })
 
   if (!active) return null
 
@@ -80,14 +84,12 @@ export function RoasCard({
   const profitable = data.roas !== null && data.roas >= 1
 
   return (
-    /* V2-93: card ROAS com hover-glow profundo + aura verde-lucro quando profitable */
     <GlassCard
-      className={cn('group anim-kpi-in p-4 relative overflow-hidden transition-all duration-500 border border-white/5 bg-[#040406]/80 backdrop-blur-3xl hover:shadow-[0_12px_50px_rgba(0,0,0,0.6)] hover:-translate-y-0.5', profitable && 'shadow-[0_0_30px_rgba(34,197,94,0.15)] ring-1 ring-success/20')}
+      className={cn('p-4', profitable && 'border-success/20')}
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="absolute inset-0 bg-gradient-to-t from-success/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" aria-hidden="true" />
-      <div className="relative flex items-center justify-between gap-2">
-        <p className="label-mono label-mono--gradient text-[10px]">ROAS real · {data.daily.length <= 1 ? 'hoje' : `últimos ${data.daily.length} dias`}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">ROAS real · {data.daily.length <= 1 ? 'hoje' : `últimos ${data.daily.length} dias`}</p>
         <HandCoins className="size-4 text-muted-foreground" aria-hidden="true" />
       </div>
 
@@ -153,7 +155,7 @@ export function RoasCard({
         </div>
       )}
 
-      <p className="relative mt-2 text-[10px] leading-relaxed text-faint">
+      <p className="mt-2 text-[10px] leading-relaxed text-faint">
         Receita real dos gateways cruzada com o gasto do TikTok — não é a conversão estimada do pixel.
       </p>
     </GlassCard>

@@ -1,7 +1,7 @@
 'use client'
 
-// Slide-over de criação de campanha TikTok Ads — wizard de 5 etapas:
-// 1) Objetivo  2) Orçamento  3) Público  4) Criativo (vídeo)  5) Revisão.
+// Slide-over de criação de campanha TikTok Ads — wizard de 6 etapas:
+// objetivo, orçamento, público, Pixel, criativo e revisão.
 // Espelha as validações do backend (/api/ads/create) para dar feedback
 // imediato, e envia Idempotency-Key para retry seguro de rede.
 
@@ -23,11 +23,12 @@ import {
   FlaskConical,
   Trash2,
 } from 'lucide-react'
-import { apiSend, adsUpload, useAdsTemplates, useAdsInterests, useAdsCatalogs, adsCreateCatalogCampaign } from '@/lib/api'
+import { apiSend, adsUpload, useAdsTemplates, useAdsInterests, useAdsCatalogs, useAdsCatalogCapabilities, adsCreateCatalogCampaign } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsGoal, AdsIdentity, AdsTemplate } from '@/lib/types'
+import type { AdsGoal, AdsTemplate } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { CreativeLibrary } from './creative-library'
+import { TIKTOK_CTA_OPTIONS, TIKTOK_PIXEL_EVENTS, tomorrowLocalIsoDate, toLocalIsoDate } from './tiktok-contracts'
 
 const GOALS: { value: AdsGoal; label: string; hint: string }[] = [
   { value: 'traffic', label: 'Tráfego', hint: 'Levar cliques para sua página' },
@@ -35,18 +36,12 @@ const GOALS: { value: AdsGoal; label: string; hint: string }[] = [
   { value: 'video_views', label: 'Views de vídeo', hint: 'Maximizar visualizações' },
   { value: 'awareness', label: 'Alcance', hint: 'Mostrar para o máximo de pessoas' },
   { value: 'engagement', label: 'Engajamento', hint: 'Curtidas, comentários e follows' },
-  { value: 'lead_generation', label: 'Leads', hint: 'Formulários nativos do TikTok' },
+  { value: 'lead_generation', label: 'Leads', hint: 'Captar leads no site usando o Pixel' },
 ]
 
 const CTAS = [
   { value: '', label: 'Automático' },
-  { value: 'LEARN_MORE', label: 'Saiba mais' },
-  { value: 'SHOP_NOW', label: 'Compre agora' },
-  { value: 'SIGN_UP', label: 'Cadastre-se' },
-  { value: 'DOWNLOAD_NOW', label: 'Baixe agora' },
-  { value: 'CONTACT_US', label: 'Fale conosco' },
-  { value: 'BOOK_NOW', label: 'Reserve agora' },
-  { value: 'ORDER_NOW', label: 'Peça agora' },
+  ...TIKTOK_CTA_OPTIONS,
 ]
 
 const GENDERS: { value: 'all' | 'male' | 'female'; label: string }[] = [
@@ -66,6 +61,7 @@ const STEPS = [
   { label: 'Objetivo', icon: Target },
   { label: 'Orçamento', icon: Wallet },
   { label: 'Público', icon: Users },
+  { label: 'Pixel', icon: Link2 },
   { label: 'Criativo', icon: Clapperboard },
   { label: 'Revisão', icon: CheckCircle2 },
 ]
@@ -93,7 +89,6 @@ interface FormState {
   body: string
   linkUrl: string
   callToAction: string
-  useIdentity: boolean
   // Campanha de catálogo (DPA): quando preenchido, criativo/produtos/destino
   // vêm TODOS do catálogo — a URL do site fica indisponível por construção.
   catalogId: string
@@ -122,7 +117,6 @@ const INITIAL: FormState = {
   body: '',
   linkUrl: '',
   callToAction: '',
-  useIdentity: true,
   catalogId: '',
 }
 
@@ -131,14 +125,12 @@ export function CreateAdPanel({
   onClose,
   advertiserId,
   currency,
-  identity,
   onCreated,
 }: {
   open: boolean
   onClose: () => void
   advertiserId: string
   currency: string
-  identity: AdsIdentity | null
   onCreated: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -168,7 +160,9 @@ export function CreateAdPanel({
   // Catálogos publicados no TikTok (fluxo CSV manual): só os vinculados a um
   // catálogo do TikTok (tiktokCatalogId + bcId) podem virar campanha DPA.
   const { data: catalogsData } = useAdsCatalogs(open)
+  const { data: catalogCapabilitiesData } = useAdsCatalogCapabilities(open)
   const catalogs = catalogsData?.catalogs ?? []
+  const catalogCampaignSupported = catalogCapabilitiesData?.capabilities.manualCatalogCampaign === true
   const selectedCatalog = catalogs.find((c) => c.id === form.catalogId) ?? null
 
   useModalA11y(open, ref, submitting ? () => {} : onClose)
@@ -198,20 +192,35 @@ export function CreateAdPanel({
       if (!(Number(form.budgetAmount) > 0)) return 'Informe o orçamento'
       if (form.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(form.endDate))
         return 'Orçamento total exige data de término'
+      if (form.budgetType === 'lifetime' && form.endDate <= toLocalIsoDate(new Date()))
+        return 'A data de término precisa ser futura'
       if (form.bidStrategy === 'cost_cap' && !(Number(form.bidAmount) > 0))
         return 'Custo-alvo exige um valor de lance maior que zero'
       return null
     }
     if (step === 2) {
-      if (form.goal === 'conversions' && !/^\d{5,30}$/.test(form.pixelId.trim()))
-        return 'Conversões exigem o Pixel ID numérico do TikTok'
+      if (Number(form.ageMin) >= 13 && Number(form.ageMax) >= 13 && Number(form.ageMin) > Number(form.ageMax))
+        return 'A idade mínima não pode ser maior que a máxima'
+      if (form.placementMode === 'custom' && form.placements.length === 0)
+        return 'Escolha ao menos um posicionamento ou use o modo automático'
       return null
     }
     if (step === 3) {
+      if (form.goal === 'conversions' || form.goal === 'lead_generation') {
+        if (!/^\d{5,30}$/.test(form.pixelId.trim()))
+          return `${form.goal === 'lead_generation' ? 'Leads' : 'Conversões'} exige o Pixel ID numérico do TikTok`
+        if (!TIKTOK_PIXEL_EVENTS.some((event) => event.value === form.customEventType))
+          return 'Selecione o evento do Pixel usado para otimização'
+      }
+      return null
+    }
+    if (step === 4) {
       // Catálogo selecionado: o criativo é gerado dos produtos (DPA) — vídeo
       // e URL do site não se aplicam.
       if (form.catalogId) return null
       if (!/^https:\/\/\S+/.test(form.videoUrl.trim())) return 'Adicione o vídeo do anúncio (URL https ou upload)'
+      if (form.goal === 'lead_generation' && !/^https:\/\/\S+/.test(form.linkUrl.trim()))
+        return 'Leads exige a URL HTTPS da página de captura'
       return null
     }
     return null
@@ -361,20 +370,20 @@ export function CreateAdPanel({
       if (form.body.trim()) basePayload.body = form.body.trim()
       if (/^https?:\/\//.test(form.linkUrl.trim())) basePayload.linkUrl = form.linkUrl.trim()
       if (form.callToAction) basePayload.callToAction = form.callToAction
-      if (form.goal === 'conversions') {
+      if (form.goal === 'conversions' || form.goal === 'lead_generation') {
         basePayload.promotedObject = {
           pixelId: form.pixelId.trim(),
-          ...(form.customEventType.trim() ? { customEventType: form.customEventType.trim().toUpperCase() } : {}),
+          customEventType: form.customEventType.trim().toUpperCase(),
         }
       }
-      if (form.useIdentity && identity) {
-        basePayload.identityType = 'CUSTOMIZED_USER'
-        basePayload.brandIdentity = { displayName: identity.displayName, imageUrl: identity.imageUrl }
-      }
-
       // Variações A/B: vídeo principal + extras = 1 campanha por vídeo
       // (sufixo A/B/C… no nome). Sequencial para respeitar rate limits.
       const videos = [form.videoUrl.trim(), ...variantUrls.filter((u) => /^https:\/\/\S+/.test(u))]
+      await apiSend('/api/ads/create/preflight', 'POST', {
+        ...basePayload,
+        name: form.name.trim(),
+        videoUrl: videos[0],
+      })
       const results: { ok: boolean; label: string; error?: string }[] = []
       for (let i = 0; i < videos.length; i++) {
         const label = videos.length > 1 ? String.fromCharCode(65 + i) : ''
@@ -583,6 +592,7 @@ export function CreateAdPanel({
                   <span className="text-xs font-medium text-foreground">Data de término</span>
                   <input
                     type="date"
+                    min={tomorrowLocalIsoDate()}
                     className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={form.endDate}
                     onChange={(e) => set('endDate', e.target.value)}
@@ -861,10 +871,21 @@ export function CreateAdPanel({
                 <span className="text-[11px] text-muted-foreground">Sem interesses = público aberto (o TikTok otimiza sozinho).</span>
               </div>
 
-              {form.goal === 'conversions' && (
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="anim-content-in flex flex-col gap-4">
+              {form.goal === 'conversions' || form.goal === 'lead_generation' ? (
                 <div className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Rastreamento e otimização</h3>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      O TikTok usa este evento para otimizar a entrega. Confirme os dados antes de publicar.
+                    </p>
+                  </div>
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-xs font-medium text-foreground">Pixel ID do TikTok (numérico)</span>
+                    <span className="text-xs font-medium text-foreground">Pixel ID do TikTok</span>
                     <input
                       className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                       value={form.pixelId}
@@ -872,28 +893,43 @@ export function CreateAdPanel({
                       inputMode="numeric"
                       placeholder="7123456789012345678"
                     />
-                    <span className="text-[11px] text-muted-foreground">
-                      É o ID numérico do pixel — não o código alfanumérico (CJ0D3…) do Events Manager.
-                    </span>
+                    <span className="text-[11px] text-muted-foreground">Use o ID numérico exibido no Events Manager.</span>
                   </label>
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-xs font-medium text-foreground">Evento de otimização (opcional)</span>
-                    <input
+                    <span className="text-xs font-medium text-foreground">Evento de otimização</span>
+                    <select
                       className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                       value={form.customEventType}
-                      onChange={(e) => set('customEventType', e.target.value.toUpperCase())}
-                      placeholder="COMPLETE_PAYMENT"
-                    />
+                      onChange={(e) => set('customEventType', e.target.value)}
+                    >
+                      <option value="">Selecione o evento…</option>
+                      {TIKTOK_PIXEL_EVENTS.map((event) => (
+                        <option key={event.value} value={event.value}>{event.label}</option>
+                      ))}
+                    </select>
                   </label>
+                  {form.goal === 'lead_generation' && (
+                    <p className="rounded-lg bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                      Leads usa a página de captura do seu site. Formulários nativos não estão disponíveis nesta integração.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-border bg-secondary/30 p-4">
+                  <h3 className="text-sm font-semibold text-foreground">Pixel não é necessário</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Este objetivo otimiza entrega e engajamento diretamente no TikTok. Você pode avançar sem configurar evento.
+                  </p>
                 </div>
               )}
             </div>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <div className="anim-content-in flex flex-col gap-4">
               {/* Catálogo (DPA): quando selecionado, TODO o criativo/destino vem
                   do catálogo — vídeo, legenda e URL manuais ficam indisponíveis. */}
+              {catalogCampaignSupported && (
               <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/20 p-3">
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-foreground">Catálogo de produtos (opcional)</span>
@@ -928,6 +964,7 @@ export function CreateAdPanel({
                   </span>
                 )}
               </div>
+              )}
 
               {!form.catalogId && (
               <>
@@ -1081,7 +1118,9 @@ export function CreateAdPanel({
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-foreground">Página de destino</span>
+                  <span className="text-xs font-medium text-foreground">
+                    Página de destino{form.goal === 'lead_generation' ? ' (obrigatória)' : ''}
+                  </span>
                   <input
                     className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     value={form.catalogId ? '' : form.linkUrl}
@@ -1114,28 +1153,10 @@ export function CreateAdPanel({
                 )}
               </div>
 
-              {!form.catalogId && identity && (
-                <label className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={form.useIdentity}
-                    onChange={(e) => set('useIdentity', e.target.checked)}
-                    className="size-4 accent-[color:var(--primary)]"
-                  />
-                  <img
-                    src={identity.imageUrl || '/dashboard/roi-nados-logo.png'}
-                    alt=""
-                    className="size-6 rounded-full object-cover"
-                  />
-                  <span className="text-xs text-foreground">
-                    Anunciar como <strong>{identity.displayName}</strong>
-                  </span>
-                </label>
-              )}
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="anim-content-in flex flex-col gap-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground">Confira tudo antes de publicar:</p>
@@ -1188,7 +1209,12 @@ export function CreateAdPanel({
                   ...(form.interestIds.length
                     ? [['Interesses', form.interestIds.map(interestName).join(', ')] as [string, string]]
                     : []),
-                  ...(form.goal === 'conversions' ? [['Pixel', form.pixelId] as [string, string]] : []),
+                  ...(form.goal === 'conversions' || form.goal === 'lead_generation'
+                    ? [
+                        ['Pixel', form.pixelId] as [string, string],
+                        ['Evento', TIKTOK_PIXEL_EVENTS.find((event) => event.value === form.customEventType)?.label || form.customEventType] as [string, string],
+                      ]
+                    : []),
                   ...(selectedCatalog
                     ? [
                         ['Catálogo', `${selectedCatalog.name} (${selectedCatalog.productCount} produtos)`] as [string, string],
@@ -1199,10 +1225,6 @@ export function CreateAdPanel({
                         ['Vídeo', form.videoUrl.length > 48 ? form.videoUrl.slice(0, 48) + '…' : form.videoUrl] as [string, string],
                         ['Destino', form.linkUrl || '—'] as [string, string],
                       ]),
-                  [
-                    'Identidade',
-                    form.useIdentity && identity ? identity.displayName : 'Conta conectada (TT_USER)',
-                  ],
                 ].map(([k, v]) => (
                   <div key={k} className="flex items-center justify-between gap-4 px-3 py-2">
                     <dt className="shrink-0 text-muted-foreground">{k}</dt>
@@ -1213,7 +1235,7 @@ export function CreateAdPanel({
               <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
                 {selectedCatalog
                   ? 'A campanha de catálogo nasce PAUSADA — revise no TikTok Ads Manager e ative quando estiver pronta. O criativo e o destino vêm dos produtos do catálogo.'
-                  : 'Ao publicar, a campanha é criada no TikTok e entra na revisão deles (normalmente até 24h). Ela nasce ativa e começa a gastar assim que aprovada.'}
+                  : 'A campanha é criada pausada. Revise a estrutura e ative somente quando estiver pronta para veicular.'}
               </p>
             </div>
           )}

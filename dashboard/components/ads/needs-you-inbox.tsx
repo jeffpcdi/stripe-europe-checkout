@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 
 const ACTION_META: Record<string, { label: string; Icon: typeof Pause }> = {
   pause: { label: 'Pausar', Icon: Pause },
+  activate: { label: 'Reativar', Icon: TrendingUp },
   budget_up: { label: 'Aumentar orçamento', Icon: TrendingUp },
   budget_down: { label: 'Reduzir orçamento', Icon: TrendingDown },
 }
@@ -109,20 +110,22 @@ function AlarmChip({
 
 export function NeedsYouInbox({
   active,
+  adAccountId,
   onOpenOps,
   onOpenHealth,
   onGoAutomations,
 }: {
   active: boolean
+  adAccountId: string
   onOpenOps: () => void
   onOpenHealth: () => void
   /** Leva à aba Automações (onde se religa os alertas). */
   onGoAutomations: () => void
 }) {
-  const { data: proposals, mutate } = useAdsProposals(active)
+  const { data: proposals, mutate } = useAdsProposals(active, 'pending', adAccountId)
   const { data: jobs } = useAdsOpsJobs(active)
   const { data: health } = useAdsHealth(active)
-  const { data: alertsCfg } = useAdsAlerts(active)
+  const { data: alertsCfg } = useAdsAlerts(active, adAccountId)
 
   const pending = proposals?.items ?? []
   const activeJobs = (jobs?.jobs ?? []).filter((j) => ['queued', 'running', 'retrying'].includes(j.status)).length
@@ -132,7 +135,7 @@ export function NeedsYouInbox({
 
   return (
     <GlassCard
-      className={cn('p-4 relative overflow-hidden transition-all', pending.length > 0 && 'border-l-4 border-l-warning shadow-[0_0_15px_rgba(234,179,8,0.15)]')}
+      className={cn('p-4', pending.length > 0 && 'border-l-4 border-l-warning')}
       data-tour="ads-inbox"
     >
       <div className="relative flex flex-wrap items-center justify-between gap-2">
@@ -156,10 +159,7 @@ export function NeedsYouInbox({
       </div>
 
       {pending.length === 0 ? (
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Tudo em dia — nada esperando sua decisão. Quando o robô sugerir pausar ou ajustar
-          orçamento, aparece aqui para você aprovar de um toque.
-        </p>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">Tudo em dia. Nenhuma decisão pendente.</p>
       ) : (
         <>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">

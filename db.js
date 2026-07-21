@@ -29,7 +29,7 @@ let ready = false;
 
 // Item 249: status por migração — o /api/health reporta se a tabela
 // custom_domains e a coluna accounts.currency migraram com sucesso no boot.
-const migrations = { customDomains: false, accountCurrency: false, quarantine: false };
+const migrations = { customDomains: false, accountCurrency: false, quarantine: false, notifications: false };
 
 // Chave namespaced por conta para tabelas keyed-by-name.
 function nsKey(accountId, name) {
@@ -145,6 +145,23 @@ async function init() {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS account_audit_acc_at_idx ON account_audit (account_id, at DESC)`;
 
+    // Central nativa de notificações. Redis continua como cache rápido, mas o
+    // sino não perde o histórico quando o processo reinicia ou o Redis está off.
+    await sql`CREATE TABLE IF NOT EXISTS notifications (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      event text NOT NULL DEFAULT '',
+      priority text NOT NULL DEFAULT 'normal',
+      title text NOT NULL,
+      body text,
+      url text NOT NULL DEFAULT '/dashboard',
+      dedupe_key text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS notifications_acc_at_idx ON notifications (account_id, created_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS notifications_dedupe_idx ON notifications (account_id, dedupe_key, created_at DESC)`;
+    migrations.notifications = true;
+
     // ── Quarentena de webhooks REJEITADOS (prioridade máxima do handoff) ──
     // Antes, um webhook rejeitado na normalização tinha o corpo DESCARTADO (só
     // os nomes das chaves iam para o log) — a evidência sumia e o erro ficava
@@ -248,6 +265,8 @@ async function init() {
     await sql`ALTER TABLE pixels ADD COLUMN IF NOT EXISTS account_id text`;
     await sql`ALTER TABLE links ADD COLUMN IF NOT EXISTS account_id text`;
     await sql`ALTER TABLE pixel_events ADD COLUMN IF NOT EXISTS account_id text`;
+    await sql`ALTER TABLE pixel_events ADD COLUMN IF NOT EXISTS emq integer`;
+    await sql`ALTER TABLE pixel_events ADD COLUMN IF NOT EXISTS emq_fields jsonb NOT NULL DEFAULT '[]'::jsonb`;
     await sql`CREATE INDEX IF NOT EXISTS leads_account_idx ON leads (account_id, created_at DESC)`;
     await sql`CREATE INDEX IF NOT EXISTS events_account_idx ON events (account_id, at DESC)`;
     await sql`CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions (account_id, last_seen DESC)`;
@@ -539,6 +558,7 @@ async function deleteAccountCascade(accountId) {
   try {
     await sql`DELETE FROM account_sessions WHERE account_id = ${accountId}`;
     await sql`DELETE FROM account_audit   WHERE account_id = ${accountId}`;
+    await sql`DELETE FROM notifications   WHERE account_id = ${accountId}`;
     await sql`DELETE FROM leads           WHERE account_id = ${accountId}`;
     await sql`DELETE FROM events          WHERE account_id = ${accountId}`;
     await sql`DELETE FROM events_archive  WHERE account_id = ${accountId}`;
@@ -809,6 +829,62 @@ async function listAudit(accountId, limit) {
       FROM account_audit WHERE account_id = ${accountId}
       ORDER BY at DESC LIMIT ${n}`;
   } catch (err) { console.error('[db] listAudit:', err.message); return []; }
+}
+
+// ── Central nativa de notificações ────────────────────────────────────────
+async function insertNotification(accountId, entry) {
+  if (!enabled || !accountId || !entry || !entry.title) return null;
+  const id = crypto.randomUUID();
+  const event = String(entry.event || '').slice(0, 40);
+  const priority = entry.priority === 'critical' ? 'critical' : 'normal';
+  const title = String(entry.title).slice(0, 120);
+  const body = String(entry.body || '').slice(0, 240) || null;
+  const url = String(entry.url || '/dashboard').slice(0, 200);
+  const dedupeKey = String(entry.dedupeKey || '').slice(0, 160) || null;
+  try {
+    const rows = dedupeKey
+      ? await sql`INSERT INTO notifications (id, account_id, event, priority, title, body, url, dedupe_key)
+          SELECT ${id}, ${accountId}, ${event}, ${priority}, ${title}, ${body}, ${url}, ${dedupeKey}
+          WHERE NOT EXISTS (
+            SELECT 1 FROM notifications
+            WHERE account_id = ${accountId} AND dedupe_key = ${dedupeKey}
+              AND created_at > now() - interval '5 minutes'
+          )
+          RETURNING id`
+      : await sql`INSERT INTO notifications (id, account_id, event, priority, title, body, url, dedupe_key)
+          VALUES (${id}, ${accountId}, ${event}, ${priority}, ${title}, ${body}, ${url}, null)
+          RETURNING id`;
+    if (rows.length) {
+      sql`DELETE FROM notifications
+        WHERE account_id = ${accountId} AND created_at < now() - interval '30 days'`.catch(() => {});
+    }
+    return rows.length ? rows[0].id : null;
+  } catch (err) {
+    console.error('[db] insertNotification:', err.message);
+    return null;
+  }
+}
+
+async function listNotifications(accountId, limit) {
+  if (!enabled || !accountId) return [];
+  const n = Math.max(1, Math.min(100, Number(limit) || 20));
+  try {
+    const rows = await sql`SELECT id, event, priority, title, body, url, created_at
+      FROM notifications WHERE account_id = ${accountId}
+      ORDER BY created_at DESC LIMIT ${n}`;
+    return rows.map((r) => ({
+      id: r.id,
+      at: new Date(r.created_at).getTime(),
+      event: r.event || '',
+      priority: r.priority || 'normal',
+      title: r.title || '',
+      body: r.body || '',
+      url: r.url || '/dashboard',
+    }));
+  } catch (err) {
+    console.error('[db] listNotifications:', err.message);
+    return [];
+  }
 }
 
 // ── Quarentena de webhooks rejeitados ──────────────────────────────────────
@@ -1235,9 +1311,10 @@ async function loadLinks(accountId) {
 async function insertPixelEvent(accountId, evt) {
   if (!enabled || !evt || !evt.id) return;
   try {
-    await sql`INSERT INTO pixel_events (id, account_id, pixel, event, event_id, lead_id, status, response, at)
+    await sql`INSERT INTO pixel_events (id, account_id, pixel, event, event_id, lead_id, status, emq, emq_fields, response, at)
       VALUES (${evt.id}, ${accountId || null}, ${evt.pixel || null}, ${evt.event || null}, ${evt.eventId || null},
-              ${evt.leadId || null}, ${evt.status || null},
+              ${evt.leadId || null}, ${evt.status || null}, ${evt.emq == null ? null : evt.emq},
+              ${JSON.stringify(evt.emqFields || [])}::jsonb,
               ${JSON.stringify(evt.response || {})}::jsonb, ${evt.at || new Date().toISOString()})
       ON CONFLICT (id) DO NOTHING`;
   } catch (err) { console.error('[db] insertPixelEvent:', err.message); }
@@ -1247,9 +1324,9 @@ async function loadPixelEvents(accountId, limit) {
   if (!enabled) return null;
   try {
     const rows = accountId
-      ? await sql`SELECT id, pixel, event, event_id, lead_id, status, response, at
+      ? await sql`SELECT id, pixel, event, event_id, lead_id, status, emq, emq_fields, response, at
           FROM pixel_events WHERE account_id = ${accountId} ORDER BY at DESC LIMIT ${limit || 200}`
-      : await sql`SELECT id, pixel, event, event_id, lead_id, status, response, at
+      : await sql`SELECT id, pixel, event, event_id, lead_id, status, emq, emq_fields, response, at
           FROM pixel_events ORDER BY at DESC LIMIT ${limit || 200}`;
     return rows;
   } catch (err) {
@@ -1313,7 +1390,7 @@ module.exports = {
   // gateways
   upsertGateway, deleteGateway, loadGateways, getGatewayByToken, touchGateway,
   // dados por conta
-  upsertLead, findLeadsByContact, insertEvent, archiveOldEvents, aggregateDaily, readDaily, insertAudit, listAudit, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
+  upsertLead, findLeadsByContact, insertEvent, archiveOldEvents, aggregateDaily, readDaily, insertAudit, listAudit, insertNotification, listNotifications, touchAuthSession, updateAccountPassword, deleteOtherAuthSessions, upsertVariant, loadState, reset, upsertSession,
   // quarentena de webhooks rejeitados
   insertQuarantine, listQuarantine, countQuarantine, resolveQuarantine, pruneQuarantine,
   // dedup durável de receita por pedido (Risco 5)

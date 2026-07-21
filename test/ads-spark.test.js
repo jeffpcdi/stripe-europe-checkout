@@ -100,6 +100,19 @@ const baseResponders = () => ({
   assert.ok(!callNames().includes('get_tiktok_identities'), 'identidade veio da UI — não re-lista no create');
   console.log('ok 3 - createSparkAd compõe sem upload e nasce PAUSED');
 
+  // ── 3b. Orçamento total exige fim futuro e o envia ao conjunto ─────────────
+  resetCalls();
+  responders = baseResponders();
+  await provider.createSparkAd('adv1', {
+    name: 'Spark total', goal: 'video_views',
+    budgetAmount: 250, budgetType: 'lifetime', endDate: '2099-12-31',
+    identityId: 'i-tt', identityType: 'TT_USER', itemId: 'post-8',
+  });
+  const lifetimeGroup = calls.find((c) => c.name === 'create_tiktok_adgroup');
+  assert.strictEqual(lifetimeGroup.args.budget_mode, 'BUDGET_MODE_TOTAL');
+  assert.strictEqual(lifetimeGroup.args.schedule_end_time, '2099-12-31 23:59:59');
+  console.log('ok 3b - Spark total envia schedule_end_time');
+
   // ── 4. Falha parcial pausa a campanha órfã ─────────────────────────────────
   resetCalls();
   responders = { ...baseResponders(), create_tiktok_ad: () => { throw new Error('review rejected'); } };
@@ -122,6 +135,8 @@ const baseResponders = () => ({
   await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 10, identityType: 'TT_USER', itemId: '' }), /identityId e itemId/);
   await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 10, identityId: 'i', identityType: 'BANANA', itemId: 'p' }), /identityType/);
   await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 10, identityId: 'i-bc', identityType: 'BC_AUTH_TT', itemId: 'p' }), /Business Center/);
+  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 10, budgetType: 'lifetime', endDate: '2020-01-01', identityId: 'i', identityType: 'TT_USER', itemId: 'p' }), /data de término futura/);
+  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'conversions', budgetAmount: 10, identityId: 'i', identityType: 'TT_USER', itemId: 'p' }), /não suportado para Spark/);
   assert.strictEqual(calls.length, 0, 'nenhuma chamada à plataforma nas validações');
   console.log('ok 5 - validações não tocam a plataforma');
 

@@ -9,16 +9,12 @@
 
 import { useState } from 'react'
 import { Bell, MessagesSquare, Rocket, ShieldCheck, TrendingUp, Clock3, Loader2 } from 'lucide-react'
-import { useAdsRules, useAdsAlerts, apiSend } from '@/lib/api'
-import { toast } from '@/lib/toast'
-import { usePersistedState } from '@/lib/use-persisted-state'
-import type { AdsRule, AdsRulesResponse, AdsAlertsConfig } from '@/lib/types'
+import type { AdsAutomationAutonomy, AdsRule } from '@/lib/types'
 import {
-  PILOTS, INTENSITIES, detectPilots, detectAutonomy, applyPilot, applyAutonomy,
-  type PilotId, type Intensity, type Autonomy,
+  PILOTS, INTENSITIES, detectPilots,
+  type PilotId, type Intensity,
 } from '@/lib/pilots'
 import { GlassCard } from '@/components/glass-card'
-import { Skeleton } from '@/components/skeleton'
 import { Switch } from '@/components/switch'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
@@ -44,81 +40,34 @@ function pilotSummary(pilot: PilotId, intensity: Intensity | 'custom', cur: stri
   return `Campanhas ligadas ${t} (horário de Brasília); fora disso, pausadas.`
 }
 
-const AUTONOMY_OPTIONS: { value: Autonomy; label: string; hint: string; icon: typeof Bell }[] = [
+const AUTONOMY_OPTIONS: { value: AdsAutomationAutonomy; label: string; hint: string; icon: typeof Bell }[] = [
   { value: 'notify', label: 'Só avisar', hint: 'O robô nunca mexe — só notifica', icon: Bell },
   { value: 'propose', label: 'Propor e eu aprovo', hint: 'Sugere e espera seu OK de 1 toque', icon: MessagesSquare },
   { value: 'auto', label: 'Agir sozinho', hint: 'Age nos limites e avisa depois', icon: Rocket },
 ]
 
-export function PilotsPanel({ active, currency }: { active: boolean; currency: string }) {
-  const { data, mutate, isLoading } = useAdsRules(active)
-  const { data: alertsCfg, mutate: mutateAlerts } = useAdsAlerts(active)
-  const [saving, setSaving] = useState(false)
+export function PilotsPanel({
+  currency,
+  rules,
+  autonomy,
+  saving,
+  onSetPilot,
+  onSetAutonomy,
+}: {
+  currency: string
+  rules: AdsRule[]
+  autonomy: AdsAutomationAutonomy | 'custom'
+  saving: boolean
+  onSetPilot: (pilot: PilotId, opts: { enabled: boolean; intensity: Intensity }) => Promise<void>
+  onSetAutonomy: (autonomy: AdsAutomationAutonomy) => Promise<void>
+}) {
   const [confirmAuto, setConfirmAuto] = useState(false)
-  // Memoriza quais regras-piloto estavam ativas antes de "Só avisar", para o
-  // retorno a propor/agir religar exatamente elas (best-effort, por navegador).
-  const [lastActive, setLastActive] = usePersistedState<string[]>('ads:pilots:last-active', [])
-
-  const rules = data?.rules ?? []
   const pilots = detectPilots(rules)
-  const autonomy = detectAutonomy(rules, alertsCfg?.enabled ?? false)
-  const anyPilot = rules.some((r) => r.pilot)
 
-  // Mesmo padrão otimista do automation-panel: PUT da lista completa + rollback.
-  async function saveRules(next: AdsRule[], okMsg: string): Promise<boolean> {
-    setSaving(true)
-    const prev = data
-    mutate(prev ? { ...prev, rules: next } : undefined, { revalidate: false })
-    try {
-      const r = await apiSend<AdsRulesResponse>('/api/ads/rules', 'PUT', { rules: next })
-      mutate(r, { revalidate: false })
-      toast.success(okMsg)
-      return true
-    } catch (e) {
-      mutate(prev, { revalidate: false })
-      toast.error('Falha ao salvar', { hint: e instanceof Error ? e.message : undefined })
-      return false
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function setPilot(pilot: PilotId, opts: { enabled: boolean; intensity: Intensity }) {
-    const mode = autonomy === 'auto' ? 'execute' as const : 'proposal' as const
-    const next = applyPilot(rules, pilot, { ...opts, mode })
-    const title = PILOTS.find((p) => p.id === pilot)?.title ?? pilot
-    await saveRules(next, opts.enabled ? `${title} ligado (${opts.intensity})` : `${title} desligado`)
-  }
-
-  async function setAutonomy(next: Autonomy) {
+  async function setAutonomy(next: AdsAutomationAutonomy) {
     if (next === autonomy) return
     if (next === 'auto') { setConfirmAuto(true); return }
-    await applyAutonomyNow(next)
-  }
-
-  async function applyAutonomyNow(next: Autonomy) {
-    if (next === 'notify') {
-      // guarda o que estava ligado para o caminho de volta
-      setLastActive(rules.filter((r) => r.pilot && r.enabled).map((r) => r.id))
-    }
-    const nextRules = applyAutonomy(rules, next, next === 'notify' ? undefined : lastActive)
-    const ok = await saveRules(nextRules, {
-      notify: 'Modo "Só avisar": o robô não mexe em nada',
-      propose: 'Modo "Propor": o robô sugere e você aprova',
-      auto: 'Modo "Agir sozinho": o robô age dentro dos limites',
-    }[next])
-    // Só avisar exige os alertas LIGADOS (senão vira "nem avisa").
-    if (ok && next === 'notify' && alertsCfg && !alertsCfg.enabled) {
-      try {
-        const cfg: AdsAlertsConfig = { ...alertsCfg, enabled: true }
-        await apiSend('/api/ads/alerts', 'PUT', cfg)
-        mutateAlerts(cfg, { revalidate: false })
-      } catch { /* alertas seguem como estavam; o card abaixo permite ligar */ }
-    }
-  }
-
-  if (isLoading && !data) {
-    return <Skeleton className="h-56 rounded-2xl" />
+    await onSetAutonomy(next)
   }
 
   return (
@@ -128,7 +77,7 @@ export function PilotsPanel({ active, currency }: { active: boolean; currency: s
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-xs font-semibold text-foreground">Como o robô deve trabalhar?</h3>
           {saving && <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-hidden="true" />}
-          {autonomy === 'custom' && anyPilot && (
+          {autonomy === 'custom' && (
             <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
               Personalizado
             </span>
@@ -183,7 +132,7 @@ export function PilotsPanel({ active, currency }: { active: boolean; currency: s
                 <Switch
                   checked={st.active}
                   disabled={saving}
-                  onCheckedChange={(on) => setPilot(p.id, { enabled: on, intensity: effective })}
+                  onCheckedChange={(on) => onSetPilot(p.id, { enabled: on, intensity: effective })}
                   aria-label={st.active ? `Desligar ${p.title}` : `Ligar ${p.title}`}
                 />
               </div>
@@ -195,7 +144,7 @@ export function PilotsPanel({ active, currency }: { active: boolean; currency: s
                       type="button"
                       disabled={saving}
                       aria-pressed={st.intensity === i.value}
-                      onClick={() => setPilot(p.id, { enabled: true, intensity: i.value })}
+                      onClick={() => onSetPilot(p.id, { enabled: true, intensity: i.value })}
                       className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
                         st.intensity === i.value
                           ? 'bg-primary/15 text-primary'
@@ -215,11 +164,6 @@ export function PilotsPanel({ active, currency }: { active: boolean; currency: s
         })}
       </div>
 
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Os valores usam a moeda da conta ({currency}). Regras criadas no Modo avançado não são
-        alteradas pelos pilotos nem pelo seletor acima.
-      </p>
-
       {/* Confirmação para autonomia total — é a única escolha que age sem OK */}
       <ConfirmDialog
         open={confirmAuto}
@@ -234,7 +178,7 @@ export function PilotsPanel({ active, currency }: { active: boolean; currency: s
         confirmLabel="Ativar"
         busy={saving}
         onConfirm={async () => {
-          await applyAutonomyNow('auto')
+          await onSetAutonomy('auto')
           setConfirmAuto(false)
         }}
         onClose={() => setConfirmAuto(false)}

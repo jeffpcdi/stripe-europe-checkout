@@ -1096,18 +1096,25 @@ function notifLogKey(accountId) { return 'notiflog:' + (accountId || 'default');
 async function pushNotifLog(accountId, entry) {
   if (!entry) return false;
   const row = {
+    id: String(entry.id || (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8))).slice(0, 80),
     at: Date.now(),
     event: String(entry.event || '').slice(0, 30),
+    priority: entry.priority === 'critical' ? 'critical' : 'normal',
     title: String(entry.title || '').slice(0, 120),
     body: String(entry.body || '').slice(0, 240),
-    url: String(entry.url || '/dashboard').slice(0, 120),
+    url: String(entry.url || '/dashboard').slice(0, 200),
+    dedupeKey: String(entry.dedupeKey || '').slice(0, 160),
   };
   const key = notifLogKey(accountId);
   const arr = notifLogMem.get(key) || [];
-  arr.unshift(row);
-  if (arr.length > NOTIF_LOG_MAX) arr.length = NOTIF_LOG_MAX;
+  const duplicate = row.dedupeKey && arr.some((r) => r.dedupeKey === row.dedupeKey && row.at - r.at < 5 * 60e3);
+  if (!duplicate) {
+    arr.unshift(row);
+    if (arr.length > NOTIF_LOG_MAX) arr.length = NOTIF_LOG_MAX;
+  }
   notifLogMem.set(key, arr);
-  if (!enabled) return true;
+  try { await require('./db').insertNotification(accountId, row); } catch (_) {}
+  if (!enabled || duplicate) return true;
   try {
     const pipe = redis.pipeline();
     pipe.lpush(key, JSON.stringify(row));
@@ -1124,6 +1131,13 @@ async function pushNotifLog(accountId, entry) {
 async function loadNotifLog(accountId, limit) {
   const n = Math.min(limit || 50, NOTIF_LOG_MAX);
   const key = notifLogKey(accountId);
+  try {
+    const db = require('./db');
+    if (db.enabled) {
+      const durable = await db.listNotifications(accountId, n);
+      if (durable.length) return durable;
+    }
+  } catch (_) {}
   if (!enabled) return (notifLogMem.get(key) || []).slice(0, n);
   try {
     const raw = await redis.lrange(key, 0, n - 1);

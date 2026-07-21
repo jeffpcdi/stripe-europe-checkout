@@ -102,7 +102,8 @@ async function sendWebPush(accountId, note) {
     sound: String(note.sound || '').slice(0, 20),
     // evento original (sale, failed, checkout…) — usado pelas preferências
     // de som por evento no painel (notify-prefs)
-    event: String(note.event || '').slice(0, 30)
+    event: String(note.event || '').slice(0, 30),
+    priority: note.priority === 'critical' ? 'critical' : 'normal'
   });
   let delivered = 0;
   await Promise.all(subs.map(async (sub) => {
@@ -112,7 +113,11 @@ async function sendWebPush(accountId, note) {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: sub.keys },
         payload,
-        { TTL: 3600, timeout: 8000 }
+        {
+          TTL: note.priority === 'critical' ? 86400 : 3600,
+          timeout: 8000,
+          headers: { Urgency: note.priority === 'critical' ? 'high' : 'normal' }
+        }
       );
       delivered++;
     } catch (err) {

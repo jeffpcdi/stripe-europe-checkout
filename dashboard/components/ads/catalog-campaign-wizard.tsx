@@ -59,10 +59,12 @@ export function CatalogCampaignWizard({
   catalog,
   advertiserId,
   ready,
+  supported,
 }: {
   catalog: AdsCatalog
   advertiserId: string
   ready: boolean
+  supported: boolean
 }) {
   const { data: runsData, mutate: mutateRuns } = useAdsCatalogCampaignRuns(catalog.id)
   const runs = runsData?.runs ?? []
@@ -126,11 +128,17 @@ export function CatalogCampaignWizard({
           <h3 className="text-xs font-semibold text-foreground">Campanhas deste catálogo</h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground">Video Shopping Ads · Catalog video · destino obtido do produto.</p>
         </div>
-        <button type="button" className="btn-primary text-xs" onClick={() => setOpen((value) => !value)} disabled={!ready || Boolean(activeRun)}>
+        <button type="button" className="btn-primary text-xs" onClick={() => setOpen((value) => !value)} disabled={!supported || !ready || Boolean(activeRun)}>
           <Rocket className="size-3.5" /> {activeRun ? 'Criação em andamento' : 'Nova campanha'} <ChevronDown className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
       </div>
-      {!ready && <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[10px] text-warning">Conclua o checklist de prontidão antes de criar uma campanha.</p>}
+      {!supported && (
+        <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
+          <p className="font-semibold text-warning">Criação automática temporariamente indisponível</p>
+          <p className="mt-1">A API atual não aceita todos os campos de Product Sales. Crie a campanha no TikTok Ads Manager usando este catálogo; a dashboard bloqueia o fluxo para não deixar apenas uma campanha parcial.</p>
+        </div>
+      )}
+      {supported && !ready && <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[10px] text-warning">Conclua o checklist de prontidão antes de criar uma campanha.</p>}
 
       {open && (
         <div className="mt-4 space-y-3 border-t border-border pt-4">

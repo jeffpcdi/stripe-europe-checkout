@@ -27,7 +27,7 @@ function normalizePolicy(input) {
     // Number(null) === 0 transformaria "sem teto" em "teto zero" (bloqueia tudo).
     dailySpendCap: value.dailySpendCap != null && value.dailySpendCap !== '' && Number.isFinite(Number(value.dailySpendCap)) && Number(value.dailySpendCap) >= 0 ? Number(value.dailySpendCap) : null,
     maxBudgetChangePct: Math.min(100, Math.max(0, Number(value.maxBudgetChangePct) || 20)),
-    // Cap global de ações reais do motor por hora/conta. Trava o loop
+    // Cap de ações reais do motor por hora/advertiser. Trava o loop
     // "regra pausa → outra reativa → repete". Default 10; 0 = desligado.
     maxActionsPerHour: value.maxActionsPerHour != null && value.maxActionsPerHour !== '' && Number.isFinite(Number(value.maxActionsPerHour)) && Number(value.maxActionsPerHour) >= 0 ? Math.min(1000, Math.floor(Number(value.maxActionsPerHour))) : 10,
     cooldownMinutes: Math.min(10080, Math.max(0, Math.floor(Number(value.cooldownMinutes) || 60))),
@@ -422,10 +422,10 @@ async function listAuditEvents(accountId, limit) {
 }
 
 // Conta ações REAIS do motor de regras na última janela (default 1h). É a base
-// durável do cap global de ações/hora (sobrevive a restart, ao contrário de um
+// durável do cap de ações/hora por advertiser (sobrevive a restart, ao contrário de um
 // contador em memória). Só conta ações reais — os sufixos '.simulated' (dry-run)
 // não entram, senão o dry-run travaria o motor sem nunca tocar a plataforma.
-async function countRecentEngineActions(accountId, sinceMs) {
+async function countRecentEngineActions(accountId, sinceMs, advertiserId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return 0;
   await ensureSchema();
@@ -434,7 +434,10 @@ async function countRecentEngineActions(accountId, sinceMs) {
   // 'rule_proposal.approved' entra: aprovar executa uma ação REAL na
   // plataforma — o cap/hora vale para ela como para qualquer outra. Propostas
   // criadas ('rule_proposal.created') NÃO entram: nada foi executado.
-  const rows = await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'schedule_action', 'rule_proposal.approved') AND created_at > now() - make_interval(secs => ${seconds})`;
+  const adv = advertiserId ? String(advertiserId).slice(0, 120) : null;
+  const rows = adv
+    ? await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND advertiser_id = ${adv} AND actor_type = 'system' AND action IN ('rule_action', 'schedule_action', 'rule_proposal.approved') AND created_at > now() - make_interval(secs => ${seconds})`
+    : await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'schedule_action', 'rule_proposal.approved') AND created_at > now() - make_interval(secs => ${seconds})`;
   return rows.length ? Number(rows[0].n) || 0 : 0;
 }
 
@@ -458,15 +461,20 @@ const PROPOSAL_TTL_MS = 6 * 3600e3; // 6h — depois disso o dado do plan está 
 
 // Lista propostas da conta. Antes de listar, expira as pendentes velhas —
 // a UI nunca mostra uma proposta "aprovável" com dados de ontem.
-async function listRuleProposals(accountId, { status, limit } = {}) {
+async function listRuleProposals(accountId, { status, limit, advertiserId } = {}) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
   await ensureSchema();
   await sql`UPDATE ads_rule_proposals SET status = 'expired', decided_at = now() WHERE account_id = ${accountId} AND status = 'pending' AND created_at < now() - make_interval(secs => ${PROPOSAL_TTL_MS / 1000})`;
   const max = Math.min(200, Math.max(1, Number(limit) || 50));
+  const adv = advertiserId ? String(advertiserId).slice(0, 120) : null;
+  if (status && adv) {
+    return await sql`SELECT * FROM ads_rule_proposals WHERE account_id = ${accountId} AND advertiser_id = ${adv} AND status = ${String(status).slice(0, 20)} ORDER BY created_at DESC LIMIT ${max}`;
+  }
   if (status) {
     return await sql`SELECT * FROM ads_rule_proposals WHERE account_id = ${accountId} AND status = ${String(status).slice(0, 20)} ORDER BY created_at DESC LIMIT ${max}`;
   }
+  if (adv) return await sql`SELECT * FROM ads_rule_proposals WHERE account_id = ${accountId} AND advertiser_id = ${adv} ORDER BY created_at DESC LIMIT ${max}`;
   return await sql`SELECT * FROM ads_rule_proposals WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT ${max}`;
 }
 

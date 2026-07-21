@@ -116,7 +116,7 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Sistema',
     items: [
-      { id: 'config', label: 'Configurações', description: 'Pushcut, notas, reset', icon: Settings, href: '/config' },
+      { id: 'config', label: 'Configurações', description: 'iPhone, conta e segurança', icon: Settings, href: '/config' },
     ],
   },
 ]

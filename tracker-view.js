@@ -1,12 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────
 // Snippet universal de rastreamento (servido em GET /t.js)
 // Qualquer página EXTERNA (presell, VSL, arquivo hospedado em outro
-// domínio) inclui:  <script src="https://SEU-DOMINIO/t.js" defer></script>
+// domínio) inclui a tag específica exibida no painel:
+//   <script src="https://SEU-DOMINIO/t.js?px=TOKEN_DO_PIXEL" defer></script>
 //
 // O que ele faz, sem depender de cookie cross-site:
 //   1. Gera/recupera um vid estável no localStorage (mesmo formato ld_*)
 //   2. Captura ttclid (URL), _ttp (cookie do pixel TikTok), UTMs, referrer
-//   3. POST /api/track → registra o lead no funil + ViewContent via CAPI
+//   3. POST /api/track → registra o lead e roteia CAPI só ao pixel da tag
 //   4. Decora TODOS os links para /go/ com vid+ttclid+utms → o clique no
 //      checkout é atribuído ao MESMO lead (costura de identidade)
 //   5. Heartbeat de presença (aparece no "Ao Vivo" da dashboard)
@@ -15,11 +16,13 @@
 
 module.exports = `(function(){
   if (window.__roinadosLoaded) return; window.__roinadosLoaded = 1;
-  var API = (function(){
-    // origem do próprio script: <script src="https://dominio/t.js">
+  var SCRIPT_URL = (function(){
+    // origem/token do próprio script: <script src="https://dominio/t.js?px=...">
     var s = document.currentScript || (function(){ var a=document.getElementsByTagName('script'); return a[a.length-1]; })();
-    try { return new URL(s.src).origin; } catch(_) { return ''; }
+    try { return new URL(s.src); } catch(_) { return null; }
   })();
+  var API = SCRIPT_URL ? SCRIPT_URL.origin : '';
+  var PIXEL_TOKEN = SCRIPT_URL ? (SCRIPT_URL.searchParams.get('px') || '').slice(0,64) : '';
   if (!API) return;
 
   // ── vid estável (URL ?vid= > localStorage > novo) ──
@@ -33,28 +36,15 @@ module.exports = `(function(){
   if (!vid || !VID_OK.test(vid)) vid = newVid();
   try { localStorage.setItem('roinados_vid', vid); } catch(_){}
 
-  // ── external_id (EMQ): MESMO hash do servidor → SHA-256('lead:'+vid).
-  // Liga o ViewContent do NAVEGADOR ao evento server-side (CAPI) e às
-  // conversões da mesma pessoa (o servidor usa hash('lead:'+vid) idêntico).
-  // Sem crypto.subtle (contexto inseguro/browser antigo) NÃO enviamos nada:
-  // um external_id malformado derruba o Event Match Quality mais do que a
-  // simples ausência. extIdReady libera o disparo assim que o hash resolve (~1ms).
-  var extIdHash = null, extIdReady = false;
-  (function(){
-    try {
-      if (!(window.crypto && window.crypto.subtle && window.TextEncoder)) { extIdReady = true; return; }
-      var data = new TextEncoder().encode(('lead:' + vid).toLowerCase());
-      window.crypto.subtle.digest('SHA-256', data).then(function(buf){
-        var b = new Uint8Array(buf), h = '';
-        for (var i=0;i<b.length;i++) h += (b[i] < 16 ? '0' : '') + b[i].toString(16);
-        extIdHash = h; extIdReady = true;
-      }).catch(function(){ extIdReady = true; });
-    } catch(_){ extIdReady = true; }
-  })();
-
   // ── sinais de identidade ──
   function qs(name){ try { return new URLSearchParams(location.search).get(name); } catch(_){ return null; } }
   function ck(name){ var m=document.cookie.match(new RegExp('(?:^|; )'+name+'=([^;]*)')); return m?decodeURIComponent(m[1]):null; }
+  function routeKey(){
+    var s=(location.pathname||'/')+(location.search||''),h=2166136261;
+    for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}
+    return (h>>>0).toString(36);
+  }
+  function utcHourKey(){ return new Date().toISOString().slice(0,13).replace(/[-T]/g,''); }
   var ttclid = qs('ttclid') || null;
   // persiste o ttclid da primeira visita (o lead pode navegar entre páginas)
   try {
@@ -64,6 +54,8 @@ module.exports = `(function(){
   function buildPayload(){
     return {
       vid: vid,
+      px: PIXEL_TOKEN || undefined,
+      eventId: 'ViewContent.' + vid + '.' + utcHourKey() + '.' + routeKey(),
       url: location.href.slice(0,500),
       title: (document.title||'').slice(0,200),
       referrer: (document.referrer||'').slice(0,300),
@@ -90,33 +82,9 @@ module.exports = `(function(){
   }
   send('/api/track', payload);
 
-  // ── 1a. dedup com o pixel do navegador: se a página TAMBÉM tiver o pixel
-  // JS do TikTok (ttq), dispara o ViewContent com o MESMO event_id que o
-  // servidor usa ('ViewContent.vid.horaUTC') — o TikTok deduplica sozinho
-  // e o evento não conta dobrado (browser + CAPI).
-  function utcHourKey(){ return new Date().toISOString().slice(0,13).replace(/[-T]/g,''); }
-  function fireBrowserPixel(){
-    try {
-      if (!extIdReady) return false;                 // aguarda o hash (~1ms) p/ enviar external_id junto do ViewContent
-      if (window.ttq && typeof window.ttq.track === 'function') {
-        // external_id ANTES do track: o ttq aplica a identidade aos eventos
-        // seguintes. Mesmo hash do servidor → dedup browser+CAPI com identidade.
-        if (extIdHash && typeof window.ttq.identify === 'function') {
-          try { window.ttq.identify({ external_id: extIdHash }); } catch(_){}
-        }
-        window.ttq.track('ViewContent', {}, { event_id: 'ViewContent.' + vid + '.' + utcHourKey() });
-        return true;
-      }
-    } catch(_){}
-    return false;
-  }
-  // ttq pode carregar depois de nós: tenta já + re-tenta por até 6s
-  if (!fireBrowserPixel()) {
-    var ttqTries = 0;
-    var ttqIv = setInterval(function(){
-      if (fireBrowserPixel() || ++ttqTries >= 12) clearInterval(ttqIv);
-    }, 500);
-  }
+  // O disparo no navegador vive no loader /px/TOKEN.js, que usa
+  // ttq.instance(PIXEL_CODE). O tracker universal não chama ttq.track global:
+  // numa página com mais de um pixel isso enviaria o evento ao destino errado.
 
   // ── 1b. SPA: cada troca de "página" (pushState/replaceState/popstate)
   // re-registra a visita → a jornada do lead fica completa mesmo em
@@ -128,7 +96,7 @@ module.exports = `(function(){
     lastPath = now;
     payload = buildPayload();
     send('/api/track', payload);
-    fireBrowserPixel(); // mesmo event_id → TikTok deduplica com a CAPI
+    try { window.dispatchEvent(new CustomEvent('roinados:navigation', { detail: { px: PIXEL_TOKEN } })); } catch(_){}
   }
   try {
     var _push = history.pushState, _repl = history.replaceState;
@@ -192,7 +160,7 @@ module.exports = `(function(){
       var now = Date.now();
       if (lastClickSent[name] && now - lastClickSent[name] < 2000) return; // anti clique duplo
       lastClickSent[name] = now;
-      send('/api/track', { vid: vid, click: name });
+      send('/api/track', { vid: vid, px: PIXEL_TOKEN || undefined, click: name });
     } catch(_){}
   }, true);
 
@@ -211,13 +179,13 @@ module.exports = `(function(){
       if (type === 'email' || /e-?mail/.test(hint)) {
         if (v.indexOf('@') > 0 && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(v) && v.toLowerCase() !== amSent.email) {
           amSent.email = v.toLowerCase();
-          send('/api/track', { vid: vid, email: v });
+          send('/api/track', { vid: vid, px: PIXEL_TOKEN || undefined, email: v });
         }
       } else if (type === 'tel' || /phone|telefone|celular|whats|mobile|movel/.test(hint)) {
         var digits = v.replace(/[^0-9]/g, '');
         if (digits.length >= 8 && digits.length <= 15 && digits !== amSent.phone) {
           amSent.phone = digits;
-          send('/api/track', { vid: vid, phone: v });
+          send('/api/track', { vid: vid, px: PIXEL_TOKEN || undefined, phone: v });
         }
       }
     } catch(_){}

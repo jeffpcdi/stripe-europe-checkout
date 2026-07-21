@@ -21,7 +21,7 @@ const provider = require('../ads-provider.js');
 // ── 1. presets são estáveis sob validateRules (sem mutação) ─────────────────
 {
   const presets = automation.buildRulePresets();
-  assert.strictEqual(presets.length, 8, 'pacote tem 8 regras');
+  assert.strictEqual(presets.length, 9, 'pacote tem 9 regras');
   const revalidated = automation.validateRules(presets);
   assert.deepStrictEqual(revalidated, presets, 'validateRules(presets) é identidade — preset já nasce válido');
 
@@ -50,20 +50,21 @@ const provider = require('../ads-provider.js');
 // ── 2. seed automático na primeira leitura ───────────────────────────────────
 {
   const acc = 'acc_fresh_' + Date.now().toString(36);
-  const rules = automation.getRules(acc);
-  assert.strictEqual(rules.length, 8, 'conta nova é semeada com o pacote');
+  const advertiserId = 'adv_fresh';
+  const rules = automation.getRules(acc, advertiserId);
+  assert.strictEqual(rules.length, 9, 'conta nova é semeada com o pacote');
   assert.ok(rules.every((r) => r.enabled === false), 'tudo semeado pausado');
-  assert.strictEqual(provider.getState(acc).rulesSeeded, true, 'flag rulesSeeded setada');
+  assert.ok(provider.getState(acc).automationProfiles[advertiserId], 'perfil do advertiser persistido');
 
   // segunda leitura NÃO re-semeia (mesmo se o usuário apagar tudo depois)
-  provider.setState(acc, { rules: [] });
-  assert.deepStrictEqual(automation.getRules(acc), [], 'lista vazia salva é respeitada (flag impede re-seed)');
+  const profile = automation.getAutomationProfile(acc, advertiserId);
+  automation.saveRules(acc, advertiserId, [], profile.revision);
+  assert.deepStrictEqual(automation.getRules(acc, advertiserId), [], 'lista vazia salva é respeitada');
 
-  const cfg = automation.getAlertCfg(acc);
+  const cfg = automation.getAlertCfg(acc, advertiserId);
   assert.strictEqual(cfg.enabled, true, 'alertas nascem LIGADOS (só notificam)');
   assert.strictEqual(cfg.cpaMax, 15, 'alerta de CPA vem calibrado');
   assert.strictEqual(cfg.spendNoConv, 20, 'alerta de gasto sem venda vem calibrado');
-  assert.strictEqual(provider.getState(acc).alertsSeeded, true, 'flag alertsSeeded setada');
   console.log('ok: seed 1x em conta nova; lista vazia respeitada; alertas ligados');
 }
 
@@ -74,12 +75,12 @@ const provider = require('../ads-provider.js');
   const own = automation.validateRules([{ id: 'minha', metric: 'cpa_max', threshold: 99, enabled: true }]);
   provider.setState(acc, { rules: own, alerts: { enabled: false, spendNoConv: 50, cpaMax: 0, lookbackDays: 7 } });
 
-  const rules = automation.getRules(acc);
+  const rules = automation.getRules(acc, 'adv_veteran');
   assert.strictEqual(rules.length, 1, 'regras existentes preservadas (não substituídas por presets)');
   assert.strictEqual(rules[0].id, 'minha');
-  assert.strictEqual(provider.getState(acc).rulesSeeded, true, 'flag marcada sem tocar nos dados');
+  assert.strictEqual(provider.getState(acc).automationLegacyMigratedTo, 'adv_veteran', 'migração legada marcada sem tocar nos dados');
 
-  const cfg = automation.getAlertCfg(acc);
+  const cfg = automation.getAlertCfg(acc, 'adv_veteran');
   assert.strictEqual(cfg.enabled, false, 'alertas desligados de propósito seguem desligados');
   assert.strictEqual(cfg.spendNoConv, 50, 'config própria preservada');
   console.log('ok: conta veterana intocada (só ganha a flag)');
@@ -104,8 +105,8 @@ const provider = require('../ads-provider.js');
 {
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   assert.match(routes, /app\.get\('\/api\/ads\/rules\/presets'/, 'endpoint GET /rules/presets existe');
-  assert.match(routes, /rules, rulesSeeded: true/, 'PUT /rules marca a flag (lista vazia é escolha)');
-  assert.match(routes, /alerts: cfg, alertsSeeded: true/, 'PUT /alerts marca a flag');
+  assert.match(routes, /automation\.saveRules/, 'PUT /rules usa perfil versionado');
+  assert.match(routes, /automation\.saveAlerts/, 'PUT /alerts usa perfil versionado');
   console.log('ok: contrato das rotas');
 }
 

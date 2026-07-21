@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import {
   useAdsCatalogs, useAdsCatalogDetail, useAdsCatalogSpec, useAdsCatalogBusinessCenter,
-  useAdsCatalogPublications, useAdsCatalogReadiness, adsCatalogImportCsv, apiSend, ApiError,
+  useAdsCatalogPublications, useAdsCatalogReadiness, useAdsCatalogCapabilities, adsCatalogImportCsv, apiSend, ApiError,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
@@ -77,6 +77,7 @@ export function CatalogManager({
   const { data: list, mutate: mutateList, isLoading: listLoading } = useAdsCatalogs(true)
   const { data: spec } = useAdsCatalogSpec(true)
   const { data: bc, mutate: mutateBc } = useAdsCatalogBusinessCenter(true)
+  const { data: capabilitiesData } = useAdsCatalogCapabilities(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const enabled = list?.enabled !== false
@@ -105,6 +106,8 @@ export function CatalogManager({
           advertiserLabel={advertiserLabel}
           bcId={bc?.bcId ?? ''}
           bcConfigured={Boolean(bc?.bcId)}
+          catalogCreateSupported={capabilitiesData?.capabilities.catalogCreate === true}
+          campaignCreateSupported={capabilitiesData?.capabilities.manualCatalogCampaign === true}
           onBack={() => {
             setSelectedId(null)
             mutateList()
@@ -390,6 +393,8 @@ function CatalogDetail({
   advertiserLabel,
   bcId,
   bcConfigured,
+  catalogCreateSupported,
+  campaignCreateSupported,
   onBack,
   onDeleted,
 }: {
@@ -399,6 +404,8 @@ function CatalogDetail({
   advertiserLabel: string
   bcId: string
   bcConfigured: boolean
+  catalogCreateSupported: boolean
+  campaignCreateSupported: boolean
   onBack: () => void
   onDeleted: () => void
 }) {
@@ -496,6 +503,12 @@ function CatalogDetail({
   // Publica direto no TikTok: cria o catálogo (se preciso) e sobe os produtos.
   async function handleSyncTiktok() {
     if (syncLockRef.current) return
+    if (!catalog?.tiktokCatalogId && !catalogCreateSupported) {
+      toast.info('Conecte um catálogo criado no TikTok', {
+        hint: 'A API atual não consegue criar o catálogo com segurança. Crie-o no Catalog Manager e valide os IDs no cartão Conexão TikTok.',
+      })
+      return
+    }
     if (!bcConfigured) {
       toast.info('Produto salvo, mas ainda não publicado', {
         hint: 'Configure o Business Center no topo da aba para publicar no TikTok.',
@@ -651,7 +664,13 @@ function CatalogDetail({
   function handleReadinessAction(action: NonNullable<typeof readinessData>['readiness']['nextAction']) {
     if (action === 'add_products') setShowUrlImport(true)
     else if (action === 'fix_products' && products[0]) setEditing(products.find((product) => !product.valid) || products[0])
-    else if (action === 'sync') void handleSyncTiktok()
+    else if (action === 'sync') {
+      if (catalog?.tiktokCatalogId || catalogCreateSupported) void handleSyncTiktok()
+      else {
+        void handlePublish()
+        toast.info('Feed pronto para conectar', { hint: 'Depois, informe o Catalog ID no cartão Conexão TikTok.' })
+      }
+    }
     else if (action === 'refresh_audit') void handleRefreshAudit()
     else if (action === 'select_advertiser') toast.info('Selecione uma conta de anúncios no topo da aba TikTok Ads.')
     else if (action === 'connect_tiktok' || action === 'verify_link') toast.info('Use o cartão Conexão com o TikTok logo abaixo.')
@@ -677,7 +696,7 @@ function CatalogDetail({
         </div>
       ) : (
         <>
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="rounded-xl border border-border bg-background p-4">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-foreground">{catalog?.name}</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -685,33 +704,6 @@ function CatalogDetail({
                 {hasUnpublishedChanges && <span className="font-semibold text-warning"> · alterações não publicadas</span>}
               </p>
             </div>
-            {products.length === 0 ? (
-              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={() => setShowUrlImport(true)}>
-                <Link2 className="size-3.5" aria-hidden="true" /> Importar primeiro produto
-              </button>
-            ) : validCount === 0 ? (
-              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={() => setEditing(products[0])}>
-                <Pencil className="size-3.5" aria-hidden="true" /> Corrigir produto
-              </button>
-            ) : readinessData?.readiness.nextAction === 'create_campaign' ? (
-              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={() => handleReadinessAction('create_campaign')}>
-                <Rocket className="size-3.5" aria-hidden="true" /> Criar campanha
-              </button>
-            ) : readinessData?.readiness.nextAction === 'refresh_audit' ? (
-              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={handleRefreshAudit} disabled={auditing}>
-                {auditing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />} Atualizar análise
-              </button>
-            ) : bcConfigured ? (
-              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={handleSyncTiktok} disabled={syncing || bgPublishing}>
-                {syncing || bgPublishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
-                {bgPublishing ? 'Publicando…' : catalog?.tiktokCatalogId ? 'Sincronizar alterações' : 'Criar e sincronizar no TikTok'}
-              </button>
-            ) : (
-              <button type="button" className="btn-primary w-full text-xs sm:w-auto" onClick={handlePublish} disabled={publishing}>
-                {publishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />}
-                Publicar feed
-              </button>
-            )}
           </div>
 
           {/* Publicação automática falhou → caminho garantido em destaque */}
@@ -734,7 +726,9 @@ function CatalogDetail({
           <CatalogReadinessCard
             readiness={readinessData?.readiness}
             loading={readinessLoading}
-            onAction={handleReadinessAction}
+            onAction={readinessData?.readiness.nextAction === 'create_campaign' && !campaignCreateSupported
+              ? undefined
+              : handleReadinessAction}
           />
 
           <CatalogSyncStatus catalogId={catalogId} />
@@ -826,6 +820,7 @@ function CatalogDetail({
               catalog={catalog}
               advertiserId={advertiserId}
               ready={Boolean(readinessData?.readiness.readyForCampaign)}
+              supported={campaignCreateSupported}
             />
           )}
 
@@ -1319,8 +1314,8 @@ function PriceField({
 }
 
 // ── Campo de imagem com upload ─────────────────────────────────────────────
-// Botão "Enviar foto" sobe a imagem para o Vercel Blob (rota /api/ads/upload
-// já existente) e preenche a URL sozinho; colar URL continua funcionando.
+// Botão "Enviar foto" usa /api/ads/upload, que abstrai o storage público do
+// servidor, e preenche a URL sozinho; colar URL continua funcionando.
 // Preview aparece quando a URL é válida.
 function ImageField({
   field,

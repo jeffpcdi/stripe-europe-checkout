@@ -35,6 +35,7 @@ export function ConversionsView() {
     if (value === 'gateways') url.searchParams.delete('tab')
     else url.searchParams.set('tab', value)
     window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    window.dispatchEvent(new Event('roinados:conversions-tab'))
   }
 
   return (

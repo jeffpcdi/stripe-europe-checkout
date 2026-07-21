@@ -277,17 +277,17 @@ async function tick() {
       }
     }
     // Varreduras de automação 24/7: rodam DEPOIS do sync (espelho fresco),
-    // uma vez por conta, lendo SÓ do Neon — zero chamadas extras à Pipeboard.
+    // uma vez por advertiser, lendo SÓ do Neon — zero chamadas extras à Pipeboard.
     // Throttle vive dentro do módulo (compartilhado com o hook das rotas).
-    const accounts = [...new Set(actives.map((a) => a.accountId))];
-    for (const accId of accounts) {
-      try { automation.maybeSweep(accId); } catch (_) { /* sweep nunca derruba o sync */ }
+    const scopes = [...new Map(actives.map((a) => [a.accountId + ':' + a.advertiserId, a])).values()];
+    for (const scope of scopes) {
+      const accId = scope.accountId;
+      try { automation.maybeSweep(accId, scope.advertiserId); } catch (_) { /* sweep nunca derruba o sync */ }
       // Briefing diário com IA: 1×/dia por conta, idempotente via Neon,
       // fire-and-forget (nunca atrasa nem derruba o tick). Lazy require pelo
       // mesmo motivo do automation acima (sem risco de ciclo no boot).
       try {
-        const adv = actives.find((a) => a.accountId === accId);
-        if (adv) require('./ads-ai').maybeDailyBriefing(accId, adv.advertiserId, adv.currency || 'USD');
+        require('./ads-ai').maybeDailyBriefing(accId, scope.advertiserId, scope.currency || 'USD');
       } catch (_) { /* briefing nunca derruba o sync */ }
     }
   } catch (err) {

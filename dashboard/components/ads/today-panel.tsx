@@ -5,7 +5,7 @@
 // (2) como estou indo? (KPIs + ROAS real + briefing) → (3) o que o robô fez?
 // (feed). Mais atalhos de criação. Tudo é REUSO — zero lógica nova de dados.
 
-import { Plus, Zap, Layers, Sparkles, ChevronRight } from 'lucide-react'
+import { Plus, Sparkles, ChevronRight } from 'lucide-react'
 import { useAdsRules } from '@/lib/api'
 import type { KpiRowData } from './kpi-row'
 import { GlassCard } from '@/components/glass-card'
@@ -26,8 +26,6 @@ export function TodayPanel({
   onOpenHealth,
   onGoAutomations,
   onCreate,
-  onBulk,
-  onSpark,
   onNewSmartPlus,
 }: {
   active: boolean
@@ -40,17 +38,16 @@ export function TodayPanel({
   onOpenHealth: () => void
   onGoAutomations: () => void
   onCreate: () => void
-  onBulk: () => void
-  onSpark: () => void
   onNewSmartPlus: () => void
 }) {
-  const { data: rulesData } = useAdsRules(active)
+  const { data: rulesData } = useAdsRules(active, adAccountId)
 
   return (
     <div className="flex flex-col gap-4">
       {/* 1) O que precisa de mim */}
       <NeedsYouInbox
         active={active}
+        adAccountId={adAccountId}
         onOpenOps={onOpenOps}
         onOpenHealth={onOpenHealth}
         onGoAutomations={onGoAutomations}
@@ -64,17 +61,11 @@ export function TodayPanel({
         <button type="button" className="btn-ghost text-xs" onClick={onNewSmartPlus}>
           <Sparkles className="size-3.5" aria-hidden="true" /> Nova Smart+
         </button>
-        <button type="button" className="btn-ghost text-xs" onClick={onBulk}>
-          <Layers className="size-3.5" aria-hidden="true" /> Subir em massa
-        </button>
-        <button type="button" className="btn-ghost text-xs" onClick={onSpark}>
-          <Zap className="size-3.5" aria-hidden="true" /> Spark Ads
-        </button>
       </div>
 
       {/* 2) Como estou indo */}
       <KpiRow kpi={kpi} currency={currency} active={active} adAccountId={adAccountId} fromDate={fromDate} toDate={toDate} />
-      <RoasCard active={active} adAccountId={adAccountId} />
+      <RoasCard active={active} adAccountId={adAccountId} fromDate={fromDate} toDate={toDate} />
       <BriefingCard adAccountId={adAccountId} currency={currency} />
 
       {/* 3) O que o robô fez */}

@@ -54,6 +54,10 @@ function campaign(over = {}) {
 }
 function resetCalls() { calls.status.length = 0; calls.budget.length = 0; calls.upserts.length = 0; calls.deletes.length = 0; }
 function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
+function configureRules(accId, rules, advertiserId = 'adv1') {
+  const profile = automation.getAutomationProfile(accId, advertiserId);
+  return automation.saveRules(accId, advertiserId, rules, profile.revision);
+}
 
 (async () => {
   // ── validateRules: defaults seguros + campos novos ────────────────────────
@@ -79,6 +83,57 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.strictEqual(rules.find((r) => r.metric === 'invented'), undefined, 'métrica inválida vira cpa_max');
     // regra antiga avalia sem lançar (campos novos ausentes → defaults)
     assert.strictEqual(rules[0].metric, 'cpa_max');
+  }
+
+  // ── perfil por advertiser + revisão + autonomia realmente global ─────────
+  {
+    const acc = 'acc_profiles';
+    const a0 = automation.getAutomationProfile(acc, 'advA');
+    const a1 = automation.saveRules(acc, 'advA', [
+      { id: 'advanced', enabled: true, metric: 'spend_no_conv', threshold: 20, mode: 'execute' },
+      { id: 'pilot', enabled: true, metric: 'cpa_max', threshold: 15, mode: 'execute', pilot: 'protector', intensity: 'normal' },
+      { id: 'schedule', enabled: true, metric: 'schedule', days: [1, 2, 3], startTime: '09:00', endTime: '18:00', mode: 'execute' },
+    ], a0.revision);
+    const b0 = automation.getAutomationProfile(acc, 'advB');
+    assert.notDeepStrictEqual(a1.rules.map((r) => r.id), b0.rules.map((r) => r.id), 'advertiser B não herda regras do advertiser A');
+
+    assert.throws(
+      () => automation.saveRules(acc, 'advA', a1.rules, a0.revision),
+      (e) => e.status === 409 && e.code === 'AUTOMATION_REVISION_CONFLICT',
+      'revisão antiga é recusada com 409',
+    );
+
+    const withAppeal = automation.saveAlerts(acc, 'advA', { ...a1.alerts, enabled: true, autoAppealSmartPlus: true }, a1.revision);
+    const notify = automation.setGlobalAutonomy(acc, 'advA', 'notify', withAppeal.revision);
+    assert.strictEqual(notify.revision, withAppeal.revision + 1, 'mudança global incrementa uma única revisão');
+    assert.ok(notify.rules.every((r) => !r.enabled), 'Só avisar desliga piloto, regra avançada e agendamento');
+    assert.strictEqual(notify.alerts.enabled, true, 'Só avisar liga alertas na mesma gravação');
+    assert.strictEqual(notify.alerts.autoAppealSmartPlus, false, 'Só avisar também desliga o auto-recurso, que é uma ação real');
+    const propose = automation.setGlobalAutonomy(acc, 'advA', 'propose', notify.revision);
+    assert.ok(propose.rules.every((r) => r.enabled && r.mode === 'proposal'), 'Propor restaura as regras e alcança todos os tipos');
+    assert.strictEqual(propose.alerts.autoAppealSmartPlus, false, 'Propor não deixa auto-recurso agir sem aprovação');
+    const auto = automation.setGlobalAutonomy(acc, 'advA', 'auto', propose.revision);
+    assert.ok(auto.rules.every((r) => r.enabled && r.mode === 'execute'), 'Agir sozinho muda todas as regras para execução');
+    assert.strictEqual(auto.alerts.autoAppealSmartPlus, true, 'Agir sozinho restaura o auto-recurso previamente autorizado');
+  }
+
+  // O estado legado só é migrado para o primeiro advertiser aberto.
+  {
+    const acc = 'acc_legacy_profile';
+    provider.setState(acc, { rules: [{ id: 'legacy', enabled: true, metric: 'cpa_max', threshold: 9, mode: 'proposal' }] });
+    const first = automation.getAutomationProfile(acc, 'advLegacyA');
+    const second = automation.getAutomationProfile(acc, 'advLegacyB');
+    assert.ok(first.rules.some((r) => r.id === 'legacy'), 'primeiro advertiser recebe a configuração legada');
+    assert.ok(!second.rules.some((r) => r.id === 'legacy'), 'segundo advertiser nasce isolado');
+  }
+
+  // Falhas e circuit breaker de um advertiser não congelam outro.
+  {
+    const acc = 'acc_breaker_scope';
+    const policy = adsOps.normalizePolicy({ circuitBreakerErrorPct: 25 });
+    for (let i = 0; i < 10; i += 1) automation._internals.recordOutcome(acc, false, 'advA');
+    assert.strictEqual(automation.getBreakerState(acc, policy, 'advA').open, true, 'breaker abre no advertiser com falhas');
+    assert.strictEqual(automation.getBreakerState(acc, policy, 'advB').open, false, 'outro advertiser permanece independente');
   }
 
   // ── validateRules: passthrough de pilot/intensity (camada de pilotos) ─────
@@ -119,7 +174,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   // ── ctr_min: guarda de impressões mínimas ─────────────────────────────────
   {
     const acc = 'acc_ctr';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'ctr_min', threshold: 1, minImpressions: 1000, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'ctr_min', threshold: 1, minImpressions: 1000, mode: 'execute' }]);
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 5, conversions: 0, impressions: 200, clicks: 0 } })];
     let out = await automation.runRulesSweep(acc, { force: true });
@@ -135,7 +190,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   // ── cpm_max: guarda de gasto mínimo ───────────────────────────────────────
   {
     const acc = 'acc_cpm';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'cpm_max', threshold: 10, minSpend: 2, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'cpm_max', threshold: 10, minSpend: 2, mode: 'execute' }]);
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 0.5, conversions: 0, impressions: 10, clicks: 0 } })]; // CPM 50 mas gasto 0.5
     let out = await automation.runRulesSweep(acc, { force: true });
@@ -152,7 +207,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     // atenção: a atribuição só casa utm.campaign com ID NUMÉRICO (macro
     // __CAMPAIGN_ID__ do TikTok) — por isso o ID aqui é numérico de verdade
     const campId = '1234567890123';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 60, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 60, mode: 'execute' }]);
     leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }]; // 100 de receita
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ platformCampaignId: campId, metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })]; // ROAS 10
@@ -175,7 +230,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   // ── roas_min: sem vendas atribuíveis não age ──────────────────────────────
   {
     const acc = 'acc_roas';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_min', threshold: 2 }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'roas_min', threshold: 2 }]);
     leads = []; // NENHUMA venda atribuída
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 100, conversions: 0, impressions: 1000, clicks: 50 } })];
@@ -186,12 +241,12 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   // ── cooldown: write-through no Neon (persistência) ────────────────────────
   {
     const acc = 'acc_cd';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]);
     resetCalls(); clearCooldowns(acc);
     // volume acima dos pisos default (1000 impr. / 30 cliques) p/ a regra agir
     treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } })];
     await automation.runRulesSweep(acc, { force: true });
-    const ruleUpserts = calls.upserts.filter((u) => u.key.startsWith('rule:'));
+    const ruleUpserts = calls.upserts.filter((u) => u.key.includes(':rule:'));
     assert.strictEqual(ruleUpserts.length, 1, 'cooldown gravado no Neon (write-through)');
     assert.strictEqual(ruleUpserts[0].acc, acc);
     // simula "restart": memória limpa, mas o Neon devolve o cooldown → não re-age
@@ -209,7 +264,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     // janela impossível agora: 1 minuto em dia que não é hoje (UTC)
     const now = new Date();
     const notToday = (now.getUTCDay() + 3) % 7;
-    provider.setState(acc, { rules: automation.validateRules([{ id: 's1', enabled: true, metric: 'schedule', days: [notToday], startTime: '03:00', endTime: '03:01', timezone: 'UTC' }]) });
+    configureRules(acc, [{ id: 's1', enabled: true, metric: 'schedule', days: [notToday], startTime: '03:00', endTime: '03:01', timezone: 'UTC', mode: 'execute' }]);
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [
       campaign({ platformCampaignId: 'c1', status: 'active' }),
@@ -219,10 +274,10 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.strictEqual(out.executed.length, 1, 'fora da janela: pausa só a ativa');
     assert.deepStrictEqual(calls.status[0].ids, ['c1']);
     assert.strictEqual(calls.status[0].status, 'paused');
-    assert.ok(calls.upserts.some((u) => u.key === 'sched:s1:c1'), 'autoria da pausa persistida');
+    assert.ok(calls.upserts.some((u) => u.key === 'adv:adv1:sched:s1:c1'), 'autoria da pausa persistida por advertiser');
 
     // agora janela SEMPRE ativa: só reativa c1 (que ELE pausou); c2 fica quieta
-    provider.setState(acc, { rules: automation.validateRules([{ id: 's1', enabled: true, metric: 'schedule', days: [0, 1, 2, 3, 4, 5, 6], startTime: '00:00', endTime: '23:59', timezone: 'UTC' }]) });
+    configureRules(acc, [{ id: 's1', enabled: true, metric: 'schedule', days: [0, 1, 2, 3, 4, 5, 6], startTime: '00:00', endTime: '23:59', timezone: 'UTC', mode: 'execute' }]);
     resetCalls();
     treeCampaigns = [
       campaign({ platformCampaignId: 'c1', status: 'paused' }),
@@ -232,7 +287,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.strictEqual(out.executed.length, 1, 'só reativa a campanha que o agendamento pausou');
     assert.deepStrictEqual(calls.status[0].ids, ['c1']);
     assert.strictEqual(calls.status[0].status, 'active');
-    assert.ok(calls.deletes.some((d) => d.key === 'sched:s1:c1'), 'marcação de autoria limpa após reativar');
+    assert.ok(calls.deletes.some((d) => d.key === 'adv:adv1:sched:s1:c1'), 'marcação de autoria limpa após reativar');
 
     // idempotência: estado já correto → zero chamadas
     resetCalls();
@@ -241,11 +296,26 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.strictEqual(calls.status.length, 0, 'status já correto: nenhuma chamada à API');
   }
 
+  // ── dayparting respeita “Propor”: não executa por fora da autonomia ──────
+  {
+    const acc = 'acc_sched_proposal';
+    const now = new Date();
+    const notToday = (now.getUTCDay() + 3) % 7;
+    configureRules(acc, [{ id: 's1', enabled: true, metric: 'schedule', days: [notToday], startTime: '03:00', endTime: '03:01', timezone: 'UTC', mode: 'proposal' }]);
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({ platformCampaignId: 'c-proposal', status: 'active' })];
+    const out = await automation.runScheduleSweep(acc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(calls.status.length, 0, 'agendamento em Propor não toca a plataforma');
+    assert.strictEqual(out.executed.length, 1, 'agendamento registra a intenção');
+    assert.strictEqual(out.executed[0].proposed, true, 'intenção marcada como proposta');
+    assert.ok(!calls.upserts.some((u) => u.key.includes('sched:s1:c-proposal')), 'autoria da pausa só nasce após aprovação real');
+  }
+
   // ── dry-run: avalia e loga, mas NÃO toca a plataforma ─────────────────────
   {
     policyOverride = { dryRun: true };
     const acc = 'acc_dry';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]);
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } })];
     const out = await automation.runRulesSweep(acc, { force: true });
@@ -259,7 +329,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   {
     policyOverride = { dryRun: false, killSwitch: true };
     const acc = 'acc_kill';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]);
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ metrics: { spend: 999, conversions: 0, impressions: 5000, clicks: 100 } })];
     const out = await automation.runRulesSweep(acc, { force: true });
@@ -267,7 +337,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.strictEqual(out.executed.length, 0, 'kill switch: nada avaliado nem executado');
     assert.strictEqual(calls.status.length, 0, 'kill switch: nenhuma escrita');
     // schedule também respeita o kill switch
-    provider.setState(acc, { rules: automation.validateRules([{ id: 's1', enabled: true, metric: 'schedule', days: [0, 1, 2, 3, 4, 5, 6], startTime: '00:00', endTime: '23:59', timezone: 'UTC' }]) });
+    configureRules(acc, [{ id: 's1', enabled: true, metric: 'schedule', days: [0, 1, 2, 3, 4, 5, 6], startTime: '00:00', endTime: '23:59', timezone: 'UTC', mode: 'execute' }]);
     treeCampaigns = [campaign({ platformCampaignId: 'c1', status: 'active' })];
     const outS = await automation.runScheduleSweep(acc, { force: true });
     assert.strictEqual(outS.killSwitch, true, 'dayparting também aborta com kill switch');
@@ -282,7 +352,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     const acc = 'acc_cap';
     // roas_scale quer +50% em cima de 50 = 75; conta já gasta 50/dia; teto 60
     const campId = '9990000000001';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500, mode: 'execute' }]);
     leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }];
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ platformCampaignId: campId, adSets: [{ platformAdSetId: 'g1', budget: { amount: 50, type: 'daily' } }], metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })];
@@ -303,7 +373,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     policyOverride = { dryRun: false, maxActionsPerHour: 2 };
     recentActions = 2; // já bateu o teto antes de começar
     const acc = 'acc_rate';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]);
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [
       campaign({ platformCampaignId: 'c1', metrics: { spend: 10, conversions: 0, impressions: 2000, clicks: 40 } }),
@@ -320,7 +390,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
   {
     policyOverride = { dryRun: false };
     const acc = 'acc_vol';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, minClicks: 30, minImpressions: 1000, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, minClicks: 30, minImpressions: 1000, mode: 'execute' }]);
     resetCalls(); clearCooldowns(acc);
     // gastou acima do limiar mas com pouquíssimo volume (3 cliques) → NÃO age
     treeCampaigns = [campaign({ metrics: { spend: 10, conversions: 0, impressions: 100, clicks: 3 } })];
@@ -338,7 +408,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     policyOverride = { dryRun: false, maxBudgetChangePct: 10 }; // teto 10% mesmo a regra pedindo 50%
     const acc = 'acc_step';
     const campId = '5550000000002';
-    provider.setState(acc, { rules: automation.validateRules([{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500, mode: 'execute' }]) });
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'roas_scale', threshold: 2, minSales: 1, pct: 50, budgetCap: 500, mode: 'execute' }]);
     leads = [{ stage: 'purchased', convertedAt: new Date().toISOString(), utm: { source: 'tiktok', campaign: campId }, reportedAmount: 10000 }];
     resetCalls(); clearCooldowns(acc);
     treeCampaigns = [campaign({ platformCampaignId: campId, adSets: [{ platformAdSetId: 'g1', budget: { amount: 100, type: 'daily' } }], metrics: { spend: 10, conversions: 1, impressions: 100, clicks: 5 } })];
@@ -356,6 +426,8 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.match(routes, /automation\.init\(\{ stats, syncAfterWrite: adsSync\.syncAfterWrite \}\)/, 'motor inicializado com stats + syncAfterWrite injetados');
     assert.match(routes, /automation\.validateRules/, 'PUT /rules valida via motor');
     assert.match(routes, /automation\.runRulesSweep/, 'POST /rules/run delega ao motor');
+    assert.match(routes, /automation\.setGlobalAutonomy/, 'autonomia global delega ao contrato atômico do motor');
+    assert.match(routes, /AUTOMATION_REVISION_CONFLICT|currentRevision/, 'conflito de revisão tem resposta estruturada');
     assert.match(routes, /adsSweepHook\.fn = automation\.maybeSweep/, 'hook das rotas aponta pro motor');
     // Guardas de kill switch nas rotas de escrita individuais + rollback
     assert.match(routes, /async function killSwitchActive/, 'helper de kill switch existe nas rotas');
@@ -366,7 +438,7 @@ function clearCooldowns(accId) { automation._internals.memState.delete(accId); }
     assert.match(routes, /adsOps\.listAuditEvents/, 'GET /ops/audit usa listAuditEvents');
     assert.match(routes, /adsOps\.getAuditEvent/, 'rollback lê o evento pelo id');
     const sync = fs.readFileSync(path.join(__dirname, '..', 'ads-sync.js'), 'utf8');
-    assert.match(sync, /automation\.maybeSweep\(accId\)/, 'tick do sync varre automações 24/7');
+    assert.match(sync, /automation\.maybeSweep\(accId, scope\.advertiserId\)/, 'tick do sync varre automações 24/7 por advertiser explícito');
     assert.match(sync, /automation\.noteRecovery/, 'auto-recuperação de conta bloqueada ligada no tick');
     const auto = fs.readFileSync(path.join(__dirname, '..', 'ads-automation.js'), 'utf8');
     assert.doesNotMatch(auto, /require\('\.\/ads-sync'\)/, 'sem require circular: automation não importa ads-sync');

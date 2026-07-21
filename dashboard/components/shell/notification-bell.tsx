@@ -14,8 +14,10 @@ import { cn } from '@/lib/utils'
    que o último "visto" (timestamp em localStorage, por aparelho). */
 
 type NotifItem = {
+  id?: string
   at: number
   event: string
+  priority?: 'normal' | 'critical'
   title: string
   body: string
   url: string
@@ -57,6 +59,10 @@ function EventIcon({ event }: { event: string }) {
     case 'login':
       return <LogIn className={cn(cls, 'text-brand-cyan')} aria-hidden="true" />
     case 'ads':
+    case 'ads_attention':
+    case 'ads_rejected':
+    case 'ads_proposal':
+    case 'ads_failure':
     case 'ads_breaker':
     case 'ads_cap':
       return <Megaphone className={cn(cls, 'text-brand-cyan')} aria-hidden="true" />
@@ -85,7 +91,7 @@ function toHref(url: string): string {
 }
 
 export function NotificationBell() {
-  const { data } = useSWR<NotifResponse>('/api/notifications?limit=30', fetcher, {
+  const { data } = useSWR<NotifResponse>('/api/notifications?limit=12', fetcher, {
     refreshInterval: 30_000,
     revalidateOnFocus: true,
     keepPreviousData: true,
@@ -129,27 +135,27 @@ export function NotificationBell() {
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          className="glass glass-thick anim-pop-in z-50 w-[min(92vw,340px)] rounded-[12px] p-1.5"
+          className="glass glass-thick anim-pop-in z-50 w-[min(92vw,320px)] rounded-[12px] p-1.5"
         >
-          <div className="border-b border-[var(--border)] px-2.5 pb-2 pt-1">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-2.5 pb-2 pt-1">
             <p className="text-xs font-semibold text-foreground">Notificações</p>
-            <p className="text-[11px] text-muted-foreground">
-              {items.length === 0 ? 'Nada por aqui ainda' : 'Últimas notificações da conta'}
-            </p>
+            {unread > 0 && <span className="text-[10px] font-medium text-[color:var(--brand-cyan)]">{unread} nova{unread === 1 ? '' : 's'}</span>}
           </div>
           <div className="max-h-[min(60vh,380px)] overflow-y-auto overscroll-contain">
             {items.length === 0 ? (
               <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">
-                Quando uma venda, recusa ou alerta acontecer, aparece aqui.
+                Alertas importantes aparecem aqui.
               </p>
             ) : (
               <ul className="mt-1 flex flex-col">
                 {items.map((item, idx) => (
-                  <li key={`${item.at}-${idx}`}>
+                  <li key={item.id || `${item.at}-${idx}`}>
                     <DropdownMenu.Item asChild>
                       <Link
                         href={toHref(item.url)}
-                        className="flex cursor-pointer items-start gap-2.5 rounded-[8px] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--hover)]"
+                        className={`flex cursor-pointer items-start gap-2.5 rounded-[8px] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--hover)] ${
+                          item.priority === 'critical' ? 'bg-destructive/[0.04]' : ''
+                        }`}
                       >
                         <span className="mt-0.5">
                           <EventIcon event={item.event} />
@@ -164,7 +170,7 @@ export function NotificationBell() {
                             </span>
                           </span>
                           {item.body ? (
-                            <span className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground" data-sensitive>
+                            <span className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-muted-foreground" data-sensitive>
                               {item.body}
                             </span>
                           ) : null}

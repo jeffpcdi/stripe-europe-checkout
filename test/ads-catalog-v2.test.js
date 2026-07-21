@@ -60,6 +60,14 @@ function throwsCode(fn, code, label) {
     eq(error.retryable, false, 'erro de ID/BC não é retry cego');
   }
 
+  const blockedCapabilities = await gateway.capabilities({
+    async getCatalogCapabilities() {
+      return { catalogCreate: false, manualCatalogCampaign: false, catalogUpload: true };
+    },
+  });
+  eq(blockedCapabilities.manualCatalogCampaign, false, 'capability real bloqueia campanha parcial');
+  eq(blockedCapabilities.catalogCreate, false, 'capability real não promete criação sem catalog_conf');
+
   console.log('Persistência e UI — jobs retomáveis e componentes separados');
   const store = fs.readFileSync(path.join(__dirname, '..', 'ads-catalog-store.js'), 'utf8');
   ok(/CREATE TABLE IF NOT EXISTS ads_catalog_sync_runs/.test(store), 'schema contém jobs de sincronização');
@@ -68,12 +76,15 @@ function throwsCode(fn, code, label) {
   ok(/resumeSyncRun/.test(store) && /resumeCampaignRun/.test(store), 'falhas podem ser retomadas');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   ok(/campaign-preflight/.test(routes), 'preflight existe antes da escrita');
+  ok(/CATALOG_CAMPAIGN_UNSUPPORTED/.test(routes), 'preflight bloqueia antes de criar hierarquia parcial');
   ok(/catalog-sync-runs\/:runId\/resume/.test(routes), 'sincronização falha tem endpoint de retomada');
   ok(/CATALOG_CAMPAIGN_NOT_CLEANABLE/.test(routes), 'cleanup não remove campanha concluída');
   const manager = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-manager.tsx'), 'utf8');
   ok(/CatalogReadinessCard/.test(manager), 'UI usa checklist de prontidão');
   ok(/CatalogConnectionCard/.test(manager), 'UI separa conexão remota');
   ok(/CatalogCampaignWizard/.test(manager), 'UI usa assistente da campanha completa');
+  ok(/campaignCreateSupported/.test(manager), 'UI condiciona criação ao schema atual do Pipeboard');
+  ok(/DELETE FROM ads_catalog_campaign_runs/.test(store) && /DELETE FROM ads_catalog_publications/.test(store), 'exclusão remove jobs e publicações órfãos');
   ok(!/autoPublish=\{bcConfigured\}/.test(manager), 'salvar produto não publica silenciosamente');
 
   console.log('\nads-catalog-v2: ' + n + ' asserts OK');

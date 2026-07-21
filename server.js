@@ -25,7 +25,11 @@ const compression = require('compression'); // gzip/brotli nas respostas (HTML g
 const path = require('path');
 const ttEvents = require('./tiktok-events');
 const pixelStore = require('./pixel-store');
-const { sendPushcut } = require('./pushcut');
+const {
+  sendPushcut,
+  nativePreferencesFor,
+  nativePreferenceEnabled,
+} = require('./pushcut');
 const stats = require('./stats');
 const presence = require('./presence');
 const { injectPulse } = require('./pulse-client');
@@ -39,6 +43,7 @@ const uaTools = require('./ua');
 const botFilter = require('./bot-filter');
 const cloakTestProfiles = require('./cloak-test-profiles'); // item 165/208: simulador de perfis
 const TRACKER_JS = require('./tracker-view');
+const { TTQ_STUB, buildPixelClient } = require('./pixel-client');
 const auth = require('./auth');
  const gatewayStore = require('./gateway-store');
  const { normalizeConversion } = require('./conversion-normalize');
@@ -82,6 +87,22 @@ function hourKey(d) {
   const t = d || new Date();
   return t.toISOString().slice(0, 13).replace(/[-T]/g, ''); // yyyymmddhh
 }
+// FNV-1a curto e determinístico da rota. Incluí-lo no event_id preserva a
+// deduplicação Browser+CAPI da mesma página, sem apagar uma segunda página/SPA
+// visitada pelo mesmo lead dentro da mesma hora.
+function pixelRouteKey(raw) {
+  let value = String(raw || '/');
+  try {
+    const u = new URL(value, 'https://local.invalid');
+    value = (u.pathname || '/') + (u.search || '');
+  } catch (_) {}
+  let h = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
 // Dedup em memória: evita re-disparar o mesmo event_id via CAPI (beacon do
 // navegador + middleware podem gerar o mesmo id). TTL de 2h.
 // Dedup de event_id: Redis quando disponível (sobrevive a restarts, multi-instância),
@@ -107,11 +128,25 @@ async function seenPixelEvent(eventId) {
   _seenPx.set(eventId, now);
   return false;
 }
+// Origem pública do request. Em produção continuamos seguros por padrão
+// (HTTPS), mas localhost precisa manter HTTP; caso contrário o painel copiava
+// tags https://localhost que nunca carregavam na loja de teste.
+function requestOrigin(req) {
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+    .split(',')[0].trim();
+  const forwarded = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0].trim().toLowerCase();
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(?::|$)/i.test(host);
+  const proto = forwarded === 'http' || forwarded === 'https'
+    ? forwarded
+    : (local ? 'http' : 'https');
+  return { host, proto, origin: host ? proto + '://' + host : '' };
+}
+
 // URL completa do request (para o campo page.url do TikTok)
 function fullUrl(req) {
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-  return host ? proto + '://' + host + req.originalUrl : null;
+  const { origin } = requestOrigin(req);
+  return origin ? origin + req.originalUrl : null;
 }
 
 // Nomes de países (ISO-2 → PT) para exibição amigável
@@ -417,24 +452,22 @@ app.use(async (req, res, next) => {
 
       // ── TikTok CAPI: ViewContent server-side (cobre até quem bloqueia JS).
       // event_id determinístico = mesmo id que o pixel do navegador → dedup.
-      const evId = 'ViewContent.' + id + '.' + hourKey();
-      if (!(await seenPixelEvent(evId))) {
-        // enriquece com ttclid/_ttp/email já salvos no lead (visitas anteriores)
-        // — quanto mais sinal de identidade, maior o Event Match Quality
-        let leadVc = null;
-        try { leadVc = stats.getLead(id); } catch (_) {}
-        ttEvents.dispatchToAll('ViewContent', {
-          eventId: evId,
-          leadId: id,
-          ip: clientIp(req),
-          userAgent: uaRaw.slice(0, 500),
-          ttclid: q.ttclid || (leadVc && leadVc.ttclid) || null,
-          ttp: (leadVc && leadVc.ttp) || null,
-          email: (leadVc && leadVc.email) || undefined,
-          phone: (leadVc && leadVc.phone) || undefined,
-          url: fullUrl(req)
-        }, p).catch(() => {});
-      }
+      const evId = 'ViewContent.' + id + '.' + hourKey() + '.' + pixelRouteKey(p);
+      // enriquece com ttclid/_ttp/email já salvos no lead (visitas anteriores)
+      // — quanto mais sinal de identidade, maior o Event Match Quality
+      let leadVc = null;
+      try { leadVc = stats.getLead(id); } catch (_) {}
+      ttEvents.dispatchScoped('ViewContent', {
+        eventId: evId,
+        leadId: id,
+        ip: clientIp(req),
+        userAgent: uaRaw.slice(0, 500),
+        ttclid: q.ttclid || (leadVc && leadVc.ttclid) || null,
+        ttp: (leadVc && leadVc.ttp) || null,
+        email: (leadVc && leadVc.email) || undefined,
+        phone: (leadVc && leadVc.phone) || undefined,
+        url: fullUrl(req)
+      }, p, acc, leadVc && leadVc.pixelSlug).catch(() => {});
     } else {
       // visitante recorrente: só registra o passo na jornada (páginas internas)
       stats.recordVisit({ id, landing: p });
@@ -615,24 +648,26 @@ app.get('/px.gif', (req, res) => {
     }
     const geo = geoFromReq(req);
     const dev = uaTools.parse(uaRaw);
-    const acc = publicAccountId(req);
+    const tokenPixel = req.query.px ? pixelStore.getByToken(String(req.query.px).slice(0, 64)) : null;
+    const acc = tokenPixel ? (tokenPixel.acc || null) : publicAccountId(req);
     const ref = typeof req.headers.referer === 'string' ? req.headers.referer.slice(0, 300) : null;
     let landing = 'externa (sem JS)';
     try { if (ref) landing = new URL(ref).pathname.slice(0, 200); } catch (_) {}
     stats.recordVisit({
       id: vid, acc, ip: clientIp(req), ua: uaRaw.slice(0, 300),
       device: dev.device, os: dev.os, browser: dev.browser,
-      referer: ref, landing,
+      referer: ref, landing, pixelSlug: tokenPixel ? tokenPixel.slug : undefined,
       country: geo.country, countryName: geo.countryName, city: geo.city
     });
     // ViewContent com o mesmo esquema de dedup por hora
-    const evId = 'ViewContent.' + vid + '.' + hourKey();
-    seenPixelEvent(evId).then((seen) => {
-      if (seen) return;
-      ttEvents.dispatchToAll('ViewContent', {
+    const evId = 'ViewContent.' + vid + '.' + hourKey() + '.' + pixelRouteKey(ref || landing);
+    Promise.resolve().then(() => {
+      const noJsLead = stats.getLead(vid) || {};
+      ttEvents.dispatchScoped('ViewContent', {
         eventId: evId, leadId: vid, ip: clientIp(req),
         userAgent: uaRaw.slice(0, 500), url: ref || undefined
-      }, landing, acc).catch((err) =>
+      }, landing, tokenPixel ? tokenPixel.acc : acc,
+      tokenPixel ? tokenPixel.slug : noJsLead.pixelSlug).catch((err) =>
         console.error('[server] ViewContent (pixel img) dispatch falhou:', err && err.message, '| vid=', vid, '| acc=', acc));
     }).catch((err) =>
       console.error('[server] ViewContent seenPixelEvent falhou:', err && err.message, '| vid=', vid));
@@ -676,6 +711,11 @@ app.post('/api/track', async (req, res) => {
     const b = req.body || {};
     const vid = VID_RE.test(String(b.vid || '')) ? String(b.vid) : null;
     if (!vid) return;
+    // O token público da tag é a fonte de verdade do roteamento em páginas
+    // externas. Sem token, o fallback só dispara se a conta tiver um único
+    // pixel elegível (dispatchScoped); nunca há fan-out implícito.
+    const tokenPixel = b.px ? pixelStore.getByToken(String(b.px).slice(0, 64)) : null;
+    const acc = tokenPixel ? (tokenPixel.acc || null) : publicAccountId(req);
     if (rateLimited(clientIp(req), 'track', 120)) return; // bot martelando: ignora
     checkDailyReport();                            // carona no tráfego (sem cron)
     checkEventArchive();                            // item 448: arquiva eventos antigos (máx 1x/h)
@@ -687,6 +727,7 @@ app.post('/api/track', async (req, res) => {
     // Clique em elemento marcado (data-track="nome"): só um passo na jornada
     if (typeof b.click === 'string' && b.click) {
       stats.recordClickStep(vid, b.click);
+      if (tokenPixel) stats.attachTracking(vid, { acc, pixelSlug: tokenPixel.slug });
       return;
     }
 
@@ -698,13 +739,14 @@ app.post('/api/track', async (req, res) => {
         ? b.email.trim().toLowerCase().slice(0, 320) : undefined;
       const phDigits = typeof b.phone === 'string' ? b.phone.replace(/\D/g, '') : '';
       const ph = phDigits.length >= 8 && phDigits.length <= 15 ? String(b.phone).trim().slice(0, 30) : undefined;
-      if (em || ph) { try { stats.attachTracking(vid, { email: em, phone: ph }); } catch (_) {} }
+      if (em || ph || tokenPixel) {
+        try { stats.attachTracking(vid, { acc, email: em, phone: ph, pixelSlug: tokenPixel && tokenPixel.slug }); } catch (_) {}
+      }
       return;                                      // payload só de identidade: não conta page view
     }
 
     const geo = geoFromReq(req);
     const dev = uaTools.parse(uaRaw);
-    const acc = publicAccountId(req);
     const utm = (b.utm && typeof b.utm === 'object') ? b.utm : {};
     const pageUrl = typeof b.url === 'string' ? b.url.slice(0, 500) : null;
     let landing = pageUrl, site = null;
@@ -728,6 +770,7 @@ app.post('/api/track', async (req, res) => {
       referer: typeof b.referrer === 'string' ? b.referrer.slice(0, 300) : null,
       landing: landing || 'externa',
       site,
+      pixelSlug: tokenPixel ? tokenPixel.slug : undefined,
       country: geo.country, countryName: geo.countryName, city: geo.city,
       ttclid: typeof b.ttclid === 'string' ? b.ttclid.slice(0, 500) : null,
       utm: buildUtm(utm)
@@ -747,22 +790,22 @@ app.post('/api/track', async (req, res) => {
     }
 
     // ViewContent server-side com dedup por hora (mesmo esquema do interno)
-    const evId = 'ViewContent.' + vid + '.' + hourKey();
-    if (!(await seenPixelEvent(evId))) {
-      let lead = null;
-      try { lead = stats.getLead(vid); } catch (_) {}
-      ttEvents.dispatchToAll('ViewContent', {
-        eventId: evId,
-        leadId: vid,
-        ip: clientIp(req),
-        userAgent: uaRaw.slice(0, 500),
-        ttclid: (typeof b.ttclid === 'string' && b.ttclid) || (lead && lead.ttclid) || null,
-        ttp: (typeof b.ttp === 'string' && b.ttp) || (lead && lead.ttp) || null,
-        email: (lead && lead.email) || undefined,
-        phone: (lead && lead.phone) || undefined,
-        url: pageUrl
-      }, landing || 'externa', acc).catch(() => {});
-    }
+    const suppliedEventId = typeof b.eventId === 'string' && /^[A-Za-z0-9._:-]{8,120}$/.test(b.eventId)
+      ? b.eventId : null;
+    const evId = suppliedEventId || ('ViewContent.' + vid + '.' + hourKey() + '.' + pixelRouteKey(pageUrl || landing));
+    let lead = null;
+    try { lead = stats.getLead(vid); } catch (_) {}
+    ttEvents.dispatchScoped('ViewContent', {
+      eventId: evId,
+      leadId: vid,
+      ip: clientIp(req),
+      userAgent: uaRaw.slice(0, 500),
+      ttclid: (typeof b.ttclid === 'string' && b.ttclid) || (lead && lead.ttclid) || null,
+      ttp: (typeof b.ttp === 'string' && b.ttp) || (lead && lead.ttp) || null,
+      email: (lead && lead.email) || undefined,
+      phone: (lead && lead.phone) || undefined,
+      url: pageUrl
+    }, landing || 'externa', acc, tokenPixel ? tokenPixel.slug : (lead && lead.pixelSlug)).catch(() => {});
   } catch (_) { /* rastreamento nunca derruba o servidor */ }
 });
 
@@ -1044,16 +1087,15 @@ app.get('/go/:slug', async (req, res) => {
     })
   });
   // guarda o link/variante no lead — atribuição da conversão no webhook universal
-  try { stats.attachTracking(visitorId, { acc, linkSlug: link.slug, linkVariant: variant.id }); } catch (_) {}
+  try { stats.attachTracking(visitorId, { acc, linkSlug: link.slug, linkVariant: variant.id, pixelSlug: link.pixelSlug || undefined }); } catch (_) {}
 
   // TikTok CAPI: InitiateCheckout server-side (checkout externo não tem pixel nosso).
   // Este disparo acontece DEPOIS dos gates de bot/país, então só pessoas reais
   // que seguem para a offer geram evento — o pixel fica sincronizado com o filtro.
   try {
     const lead = stats.getLead(visitorId) || {};
-    const evId = 'InitiateCheckout.' + visitorId + '.' + hourKey();
-    if (!(await seenPixelEvent(evId))) {
-      const payload = {
+    const evId = 'InitiateCheckout.' + visitorId + '.' + hourKey() + '.' + pixelRouteKey('/go/' + link.slug);
+    const payload = {
         eventId: evId,
         leadId: visitorId,
         email: lead.email || undefined,
@@ -1063,17 +1105,9 @@ app.get('/go/:slug', async (req, res) => {
         ttclid: q.ttclid || lead.ttclid || null,
         ttp: lead.ttp || null,
         url: fullUrl(req)
-      };
-      // "Pixel do link vence": se o link tem um pixel escolhido e ele está
-      // ativo, dispara só nele; senão cai no comportamento por rota (todos os
-      // pixels que casam /go/<slug>).
-      const linkPixel = link.pixelSlug ? pixelStore.get(acc, link.pixelSlug) : null;
-      if (linkPixel && linkPixel.active && linkPixel.pixelCode && linkPixel.events && linkPixel.events.InitiateCheckout !== false) {
-        ttEvents.sendToPixel(linkPixel, Object.assign({ event: 'InitiateCheckout' }, payload)).catch(() => {});
-      } else {
-        ttEvents.dispatchToAll('InitiateCheckout', payload, '/go/' + link.slug, acc).catch(() => {});
-      }
-    }
+    };
+    ttEvents.dispatchScoped('InitiateCheckout', payload, '/go/' + link.slug, acc,
+      link.pixelSlug || (lead && lead.pixelSlug)).catch(() => {});
   } catch (_) { /* rastreamento nunca bloqueia o redirect */ }
 
   stats.logEvent('lead', {
@@ -1522,7 +1556,8 @@ function checkSalesWatchdog() {
   for (const accId of config.accountIds()) {
     try {
       const pc = (config.get(accId).pushcut || {});
-      if (!pc.url || (pc.events || {}).watchdog !== true) continue;
+      const legacyEnabled = !!pc.url && (pc.events || {}).watchdog === true;
+      if (!legacyEnabled && !nativePreferenceEnabled(accId, 'watchdog')) continue;
       if (now - (watchdogNotified.get(accId) || 0) < 12 * 3600e3) continue; // anti-spam
       const s = stats.getStats(accId);
       const sales = (s.events || []).filter((e) => e.type === 'sale');
@@ -1541,7 +1576,11 @@ function checkSalesWatchdog() {
         text: 'Nenhuma venda nas últimas ' + WATCHDOG_WINDOW_H + 'h, mas a média da semana é ~' +
           Math.round(weekSales.length / 7) + '/dia. Vale conferir o gateway e o webhook.',
         sound: 'system'
-      }, accId).catch(() => {});
+      }, accId, {
+        event: 'watchdog',
+        priority: 'critical',
+        dedupeKey: 'watchdog:no-sales',
+      }).catch(() => {});
     } catch (_) { /* watchdog nunca derruba a request que pegou a carona */ }
   }
 }
@@ -1772,18 +1811,19 @@ app.post('/login', async (req, res) => {
     res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
     // Item 417: login entra na trilha de auditoria da conta.
     audit(req, result.account.id, 'login', 'Login no painel');
-    // Item 442: aviso de novo login via Pushcut (opt-in explícito). Depois da
-    // resposta — nunca atrasa o login. IP mascarado (sem PII completa).
+    // Aviso nativo de novo login. Depois da resposta — nunca atrasa o login.
+    // O adaptador Pushcut legado recebe apenas se estiver habilitado nele.
     try {
-      const pcCfg = (config.get(result.account.id).pushcut || {});
-      if (pcCfg.url && (pcCfg.events || {}).login === true) {
-        const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-        const maskedIp = ip.includes(':') ? ip.split(':').slice(0, 3).join(':') + ':…' : ip.replace(/\.\d+$/, '.xxx');
-        sendPushcut('Login', {
-          title: 'Novo login no painel',
-          text: 'Acesso à sua conta em ' + new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) + ' (IP ' + (maskedIp || 'desconhecido') + '). Se não foi você, troque a senha.'
-        }, result.account.id).catch(() => {});
-      }
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      const maskedIp = ip.includes(':') ? ip.split(':').slice(0, 3).join(':') + ':…' : ip.replace(/\.\d+$/, '.xxx');
+      sendPushcut('Login', {
+        title: 'Novo login no painel',
+        text: 'Acesso à sua conta em ' + new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) + ' (IP ' + (maskedIp || 'desconhecido') + '). Se não foi você, troque a senha.'
+      }, result.account.id, {
+        event: 'login',
+        priority: 'critical',
+        dedupeKey: 'login:' + maskedIp,
+      }).catch(() => {});
     } catch (_) { /* aviso é melhor-esforço */ }
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Erro ao entrar.' });
@@ -1800,6 +1840,16 @@ app.post('/login/2fa', async (req, res) => {
     appendCookie(res, auth.sessionCookie(result.token));
     res.json({ ok: true, account: { email: result.account.email, name: result.account.name } });
     audit(req, result.account.id, 'login', 'Login no painel (com 2FA)');
+    try {
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      const maskedIp = ip.includes(':') ? ip.split(':').slice(0, 3).join(':') + ':…' : ip.replace(/\.\d+$/, '.xxx');
+      sendPushcut('Login', {
+        title: 'Novo login no painel',
+        text: 'Acesso com 2FA em ' + new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) + ' (IP ' + (maskedIp || 'desconhecido') + '). Se não foi você, troque a senha.',
+      }, result.account.id, {
+        event: 'login', priority: 'critical', dedupeKey: 'login:' + maskedIp,
+      }).catch(() => {});
+    } catch (_) {}
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Erro ao verificar o código.' });
   }
@@ -2358,7 +2408,8 @@ app.get('/api/settings', dashboardAuth, (req, res) => {
     outboundWebhook: s.outboundWebhook || '',
     lgpdDays: s.lgpdDays || 0,
     dailyReportHour: Number.isFinite(s.dailyReportHour) ? s.dailyReportHour : 0,
-    pushcutTemplate: s.pushcutTemplate || '',
+    notificationTemplate: s.notificationTemplate || s.pushcutTemplate || '',
+    pushcutTemplate: s.notificationTemplate || s.pushcutTemplate || '', // compatibilidade com UI antiga
     // Item 419: escopo atual do token público (para a UI refletir o valor)
     apiScope: (config.get(req.account.id).api || {}).scope || 'stats',
     raw: { defaultCurrency: s.defaultCurrency || null }
@@ -2369,7 +2420,7 @@ app.post('/api/settings', dashboardAuth, (req, res) => {
   const body = req.body || {};
   // Itens 422/423/424/425/429/430: campos opcionais — só sobrescreve o que
   // veio no body; a sanitização final é do config.set (fonte única de regras).
-  const patchable = ['timezone', 'revenueGoal', 'outboundWebhook', 'lgpdDays', 'dailyReportHour', 'pushcutTemplate'];
+  const patchable = ['timezone', 'revenueGoal', 'outboundWebhook', 'lgpdDays', 'dailyReportHour', 'notificationTemplate', 'pushcutTemplate'];
   const hasExtra = patchable.some((k) => Object.prototype.hasOwnProperty.call(body, k));
   if (hasExtra && !body.defaultCurrency) {
     const s = Object.assign({}, config.get(req.account.id).settings || {});
@@ -3282,7 +3333,7 @@ app.post('/api/pushcut/test', dashboardAuth, async (req, res) => {
     title: 'Teste de notificação — ROI-NADOS',
     text: 'Se você recebeu isto, o Pushcut está configurado corretamente.\nData: ' + fmtDate(),
     sound: 'system'
-  }, req.account.id);
+  }, req.account.id, { event: 'legacy_test' });
   res.json({ ok });
 });
 
@@ -3304,7 +3355,7 @@ app.post('/api/webpush/subscribe', dashboardAuth, (req, res) => {
   if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
     return res.status(400).json({ ok: false, error: 'subscription inválida' });
   }
-  const wp = config.get(req.account.id).webPush || { subs: [], funMode: true };
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
   const subs = (wp.subs || []).filter((s) => s.endpoint !== sub.endpoint);
   if (subs.length >= 10) return res.status(400).json({ ok: false, error: 'Máximo de 10 aparelhos por conta' });
   subs.push({
@@ -3329,68 +3380,78 @@ app.post('/api/webpush/unsubscribe', dashboardAuth, (req, res) => {
   res.json({ ok: true, devices: subs.length });
 });
 
-// Status: aparelhos inscritos + modo zoeira
+// Status único da experiência nativa: aparelhos, tom e três preferências.
 app.get('/api/webpush/status', dashboardAuth, (req, res) => {
-  const wp = config.get(req.account.id).webPush || { subs: [], funMode: true };
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
   res.set('Cache-Control', 'no-store');
-  res.json({ ok: true, devices: (wp.subs || []).length, funMode: wp.funMode !== false });
+  res.json({
+    ok: true,
+    devices: (wp.subs || []).length,
+    funMode: wp.funMode === true,
+    preferences: nativePreferencesFor(req.account.id),
+  });
 });
 
-// Liga/desliga a copy humorada (modo zoeira)
+// Tom descontraído é opcional; o padrão é curto e direto.
 app.post('/api/webpush/funmode', dashboardAuth, (req, res) => {
-  const wp = config.get(req.account.id).webPush || { subs: [], funMode: true };
-  const funMode = (req.body || {}).funMode !== false;
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
+  const funMode = (req.body || {}).funMode === true;
   config.set(req.account.id, { webPush: Object.assign({}, wp, { funMode }) });
   res.json({ ok: true, funMode });
 });
 
-// ── Preferências de push por evento (canal Web Push, independe do Pushcut) ─
-// Grupos: sale, failed, refund, dispute, checkout, login, ads, system.
-// Default: tudo ligado exceto checkout (ruidoso). Persistido em webPush.events.
-const WEBPUSH_EVENT_GROUPS = ['sale', 'failed', 'refund', 'dispute', 'checkout', 'login', 'ads', 'system'];
+const NATIVE_PREFERENCE_GROUPS = ['sales', 'risks', 'automation'];
 
-function webPushEventsFor(accountId) {
-  const saved = (config.get(accountId).webPush || {}).events || {};
-  const out = {};
-  for (const g of WEBPUSH_EVENT_GROUPS) {
-    out[g] = typeof saved[g] === 'boolean' ? saved[g] : g !== 'checkout';
+app.post('/api/webpush/preferences', dashboardAuth, (req, res) => {
+  const body = (req.body || {}).preferences || {};
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
+  const preferences = Object.assign({}, nativePreferencesFor(req.account.id));
+  for (const group of NATIVE_PREFERENCE_GROUPS) {
+    if (typeof body[group] === 'boolean') preferences[group] = body[group];
   }
-  return out;
-}
+  config.set(req.account.id, { webPush: Object.assign({}, wp, { preferences }) });
+  res.json({ ok: true, preferences: nativePreferencesFor(req.account.id) });
+});
 
+// Compatibilidade temporária para clientes antigos da dashboard. O backend já
+// opera com os três grupos simples acima.
 app.get('/api/webpush/events', dashboardAuth, (req, res) => {
+  const p = nativePreferencesFor(req.account.id);
   res.set('Cache-Control', 'no-store');
-  res.json({ ok: true, events: webPushEventsFor(req.account.id) });
+  res.json({ ok: true, events: {
+    sale: p.sales, failed: p.risks, refund: p.risks, dispute: p.risks,
+    checkout: false, login: p.risks, ads: p.automation, system: p.risks,
+  } });
 });
 
 app.post('/api/webpush/events', dashboardAuth, (req, res) => {
   const body = (req.body || {}).events || {};
-  const wp = config.get(req.account.id).webPush || { subs: [], funMode: true };
-  const events = Object.assign({}, wp.events || {});
-  for (const g of WEBPUSH_EVENT_GROUPS) {
-    if (typeof body[g] === 'boolean') events[g] = body[g];
+  const wp = config.get(req.account.id).webPush || { subs: [], funMode: false };
+  const preferences = Object.assign({}, nativePreferencesFor(req.account.id));
+  if (typeof body.sale === 'boolean') preferences.sales = body.sale;
+  if ([body.failed, body.refund, body.dispute, body.login, body.system].some((v) => typeof v === 'boolean')) {
+    preferences.risks = [body.failed, body.refund, body.dispute, body.login, body.system].some((v) => v === true);
   }
-  config.set(req.account.id, { webPush: Object.assign({}, wp, { events }) });
-  res.json({ ok: true, events: webPushEventsFor(req.account.id) });
+  if (typeof body.ads === 'boolean') preferences.automation = body.ads;
+  config.set(req.account.id, { webPush: Object.assign({}, wp, { preferences }) });
+  res.json({ ok: true, preferences: nativePreferencesFor(req.account.id) });
 });
 
-// Teste: dispara uma notificação engraçada só pelo canal Web Push
+// Teste nativo não entra no sino — evita poluir o histórico real.
 app.post('/api/webpush/test', dashboardAuth, async (req, res) => {
   const wp = config.get(req.account.id).webPush || {};
   if (!(wp.subs || []).length) return res.json({ ok: false, error: 'Nenhum aparelho inscrito ainda' });
   const note = require('./notify-copy').build({
     name: 'Teste', payload: { title: 'Teste — ROI-NADOS', text: 'Notificação de teste.' },
-    meta: { event: 'test' }, funMode: wp.funMode !== false, accountId: req.account.id
+    meta: { event: 'test' }, funMode: wp.funMode === true, accountId: req.account.id
   });
-  rdb.pushNotifLog(req.account.id, note).catch(() => {}); // aparece no sino também
   const ok = await webPushNotify.sendWebPush(req.account.id, note);
   res.json({ ok });
 });
 
 // ── Central de notificações do painel (sino no header) ──────────────
-// Histórico das notificações emitidas (Web Push), gravado no fan-out
-// (pushcut.js → redis.pushNotifLog). Redis quando disponível; fallback
-// em memória (zera no restart, aceitável para um feed de conveniência).
+// Histórico enxuto dos alertas relevantes. Redis é cache; Neon é a camada
+// durável quando configurado (redis.loadNotifLog faz o fallback automaticamente).
 app.get('/api/notifications', dashboardAuth, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
   const items = await rdb.loadNotifLog(req.account.id, limit);
@@ -3649,12 +3710,11 @@ function notifyPushcut(event, n) {
   if (event === 'CompletePayment') fireOutboundWebhook(n);
   const map = PUSHCUT_EVENT_MAP[event];
   if (!map) return;
-  const cfg = config.get(n.acc).pushcut || {};
-  const events = Object.assign({ sale: true, failed: true, refund: true, dispute: true, checkout: false }, cfg.events || {});
-  if (!events[map.key]) return;
   const valor = fmtMoney(n.amountCents, n.currency);
-  // Item 429: preset custom só para VENDA (o caso que o dono personaliza).
-  const tpl = (config.get(n.acc).settings || {}).pushcutTemplate;
+  // Modelo custom só para VENDA. `pushcutTemplate` é lido como legado para
+  // contas existentes, mas o recurso agora pertence à notificação nativa.
+  const settings = config.get(n.acc).settings || {};
+  const tpl = settings.notificationTemplate || settings.pushcutTemplate;
   const titles = {
     sale: (map.key === 'sale' && tpl) ? (applyPushcutTemplate(tpl, n, valor) || `Venda aprovada — ${valor}`) : `Venda aprovada — ${valor}`,
     failed: `Pagamento recusado — ${valor}`,
@@ -3909,6 +3969,9 @@ async function processConversion(n) {
       // Vínculo pixel↔gateway: identifica DE QUAL gateway o evento veio para o
       // dispatch respeitar pixels vinculados a gateways específicos.
       gatewayId: n.gatewayId || undefined,
+      // A tag/link específico fica persistido no lead. Essa evidência vence o
+      // fallback genérico e mantém Compra/Pagamento no mesmo pixel da jornada.
+      pixelSlug: (lead && lead.pixelSlug) || undefined,
       eventId: evId,
       email: n.email || (lead && lead.email) || undefined,
       phone: n.phone || (lead && lead.phone) || undefined,
@@ -4354,72 +4417,26 @@ app.post('/api/conversion/quarantine/resolve', dashboardAuth, async (req, res) =
 
 // ���─ API: zerar estatísticas ─────���───────���──────────────────────���─────
 // ═══ TikTok multi-pixel ══════════════════════════���══════════════════��═
-// ── /px.js: loader dinâmico do pixel — as páginas só referenciam ESTE
-// script; o servidor injeta todos os pixels ativos da rota. Adicionar ou
-// editar um pixel (arquivo em pixels/ ou painel) atualiza todas as p��ginas.
-// Snippet oficial (stub) do ttq — idempotente: reaproveita window.ttq se já
-// existir. Usado tanto no snippet NATIVO inline (recomendado no <head>) quanto
-// como fallback nos scripts servidos por nós, para instalações de tag única.
-const TTQ_STUB = '!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)}}(window,document,"ttq");';
-
+// ── /px.js: compatibilidade do loader legado. Com mais de um pixel, exige
+// ?px=TOKEN; o comportamento antigo de injetar todos foi removido porque era a
+// origem do cruzamento de eventos entre destinos.
 app.get('/px.js', (req, res) => {
-  // Cache PRIVADO (nunca compartilhado): o script embute dados do visitante
-  // (external_id + event_id com o v_id), então não pode ser servido a outro
-  // visitante. `private` mantém no cache do PRÓPRIO navegador; max-age=300
-  // elimina o roundtrip por pageview; stale-while-revalidate=3600 permite usar
-  // a cópia antiga (mesmo se o nosso servidor cair) enquanto revalida em 2º
-  // plano. O ETag abaixo torna a revalidação barata (304 sem corpo).
-  res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'private, max-age=300, stale-while-revalidate=3600' });
-  // rota da página que pediu o script (Referer) — decide QUAIS pixels carregar
+  res.set({
+    'Content-Type': 'application/javascript; charset=utf-8',
+    'Cache-Control': 'private, max-age=300, stale-while-revalidate=3600',
+    'Access-Control-Allow-Origin': '*'
+  });
   let route = '/';
   try { route = new URL(req.headers.referer || 'https://x/').pathname || '/'; } catch (_) {}
   if (req.query.p) route = String(req.query.p);
-
-  const pixels = pixelStore.forRoute(publicAccountId(req), route);
+  const requested = req.query.px ? pixelStore.getByToken(String(req.query.px).slice(0, 64)) : null;
+  const pixels = requested ? [requested] : pixelStore.forRoute(publicAccountId(req), route);
   if (!pixels.length) return res.send('/* nenhum pixel ativo para esta rota */');
-
-  const vId = readCookie(req, 'v_id') || '';
-  const extId = vId ? ttEvents.externalIdFromLead(vId) : '';
-  const hk = hourKey();
-  const isCheckout = route.indexOf('/checkout') === 0;
-
-  // eventos do navegador com event_id DETERMINÍSTICO (= mesmo id do servidor → dedup)
-  const evs = [];
-  if (vId && pixels.some((px) => px.events.ViewContent)) {
-    evs.push({ n: 'ViewContent', id: 'ViewContent.' + vId + '.' + hk });
+  if (!requested && pixels.length > 1) {
+    return res.send('/* múltiplos pixels encontrados: use a tag individual /px/TOKEN.js exibida em Conversões > Pixels */');
   }
-  if (vId && isCheckout && pixels.some((px) => px.events.InitiateCheckout)) {
-    evs.push({ n: 'InitiateCheckout', id: 'InitiateCheckout.' + vId + '.' + hk });
-  }
-
-  const js = [
-    // Resiliência: só inicializa/carrega o ttq se ele ainda NÃO existir. Em
-    // instalações de duas partes o snippet nativo já está no <head> e este
-    // bloco é pulado — o pixel nativo funciona mesmo que ESTE script (servido
-    // pelo nosso domínio) não carregue. Fallback para instalações de tag única.
-    'if(!window.ttq){' + TTQ_STUB + '\n' +
-      pixels.map((px) => 'ttq.load(' + JSON.stringify(px.pixelCode) + ');').join('') +
-      'ttq.page();}',
-    // identidade: external_id = hash do id único do lead (igual ao servidor)
-    extId ? 'window.ttq.identify({external_id:' + JSON.stringify(extId) + '});' : '',
-    // eventos com event_id determinístico + espelho server-side via beacon
-    evs.map((e) =>
-      'window.ttq.track(' + JSON.stringify(e.n) + ',{},{event_id:' + JSON.stringify(e.id) + '});'
-    ).join('\n'),
-    // beacon: o servidor re-dispara via CAPI com o MESMO event_id (dedup),
-    // acrescentando ip/ua/ttclid/_ttp — o sinal mais completo possível
-    'try{',
-    '  var _c=function(n){var m=document.cookie.match(new RegExp("(?:^|; )"+n+"=([^;]*)"));return m?decodeURIComponent(m[1]):null};',
-    '  var _q=new URLSearchParams(location.search);',
-    '  var _p={events:' + JSON.stringify(evs.map((e) => ({ n: e.n, id: e.id }))) + ',url:location.href,ttclid:_q.get("ttclid")||_c("ttclid")||null,ttp:_c("_ttp")||null};',
-    '  if(_p.events.length){var _b=JSON.stringify(_p);',
-    '    if(navigator.sendBeacon){navigator.sendBeacon("/api/px/event",new Blob([_b],{type:"application/json"}))}',
-    '    else{fetch("/api/px/event",{method:"POST",headers:{"Content-Type":"application/json"},body:_b,keepalive:true})}',
-    '  }',
-    '}catch(_){}'
-  ].filter(Boolean).join('\n');
-
-  // ETag forte do conteúdo → revalidação barata (If-None-Match → 304 sem corpo)
+  const px = pixels[0];
+  const js = buildPixelClient(px, px.token);
   const etag = '"' + crypto.createHash('md5').update(js).digest('hex') + '"';
   res.set('ETag', etag);
   if (req.headers['if-none-match'] === etag) return res.status(304).end();
@@ -4432,13 +4449,11 @@ app.get('/px.js', (req, res) => {
 // O script carrega SÓ aquele pixel, identifica o visitante e espelha os
 // eventos no servidor (CAPI) com dedup — independe de rotas configuradas.
 app.get('/px/:token.js', (req, res) => {
-  // Cache PRIVADO + SWR + ETag (mesma razão do /px.js: o corpo varia por
-  // visitante, então nunca 'public'). Vary: Cookie garante que caches que
-  // porventura ignorem 'private' ao menos segmentem pelo v_id do visitante.
+  // O corpo não embute mais dados do visitante; vid/event_id são calculados no
+  // runtime da página. Cache curto é seguro e alterações do pixel propagam.
   res.set({
     'Content-Type': 'application/javascript; charset=utf-8',
-    'Cache-Control': 'private, max-age=300, stale-while-revalidate=3600',
-    'Vary': 'Cookie',
+    'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
     'Access-Control-Allow-Origin': '*'   // páginas externas podem carregar
   });
   const token = String(req.params.token || '').slice(0, 64);
@@ -4446,34 +4461,7 @@ app.get('/px/:token.js', (req, res) => {
   if (!px || px.active === false || !px.pixelCode) {
     return res.send('/* pixel não encontrado ou inativo */');
   }
-  const vId = readCookie(req, 'v_id') || '';
-  const extId = vId ? ttEvents.externalIdFromLead(vId) : '';
-  const hk = hourKey();
-  const evs = [];
-  if (vId && px.events && px.events.ViewContent) {
-    evs.push({ n: 'ViewContent', id: 'ViewContent.' + vId + '.' + hk });
-  }
-
-  const js = [
-    // Resiliência (ver /px.js): não recarrega o ttq se o snippet nativo inline
-    // já o inicializou no <head>. Se o snippet nativo estiver presente, ele
-    // segue funcionando mesmo que ESTE script não carregue.
-    'if(!window.ttq){' + TTQ_STUB + 'ttq.load(' + JSON.stringify(px.pixelCode) + ');ttq.page();}',
-    extId ? 'window.ttq.identify({external_id:' + JSON.stringify(extId) + '});' : '',
-    evs.map((e) =>
-      'window.ttq.track(' + JSON.stringify(e.n) + ',{},{event_id:' + JSON.stringify(e.id) + '});'
-    ).join('\n'),
-    // beacon → espelho server-side (CAPI) apontando para ESTE pixel (token)
-    'try{',
-    '  var _c=function(n){var m=document.cookie.match(new RegExp("(?:^|; )"+n+"=([^;]*)"));return m?decodeURIComponent(m[1]):null};',
-    '  var _q=new URLSearchParams(location.search);',
-    '  var _p={px:' + JSON.stringify(token) + ',events:' + JSON.stringify(evs.map((e) => ({ n: e.n, id: e.id }))) + ',url:location.href,ttclid:_q.get("ttclid")||_c("ttclid")||null,ttp:_c("_ttp")||null};',
-    '  if(_p.events.length){var _b=JSON.stringify(_p);',
-    '    if(navigator.sendBeacon){navigator.sendBeacon("/api/px/event",new Blob([_b],{type:"application/json"}))}',
-    '    else{fetch("/api/px/event",{method:"POST",headers:{"Content-Type":"application/json"},body:_b,keepalive:true})}',
-    '  }',
-    '}catch(_){}'
-  ].filter(Boolean).join('\n');
+  const js = buildPixelClient(px, token);
 
   const etag = '"' + crypto.createHash('md5').update(js).digest('hex') + '"';
   res.set('ETag', etag);
@@ -4487,34 +4475,44 @@ app.post('/api/px/event', (req, res) => {
   // (com dedup) segue em background — latência zero para o navegador.
   res.json({ ok: true });
   try {
-    const vId = readCookie(req, 'v_id');
     const b = req.body || {};
+    // Em páginas externas o cookie do nosso domínio costuma ser bloqueado como
+    // third-party. O loader envia o mesmo vid do localStorage no corpo.
+    const bodyVid = VID_RE.test(String(b.vid || '')) ? String(b.vid) : null;
+    const vId = bodyVid || readCookie(req, 'v_id');
     const events = Array.isArray(b.events) ? b.events.slice(0, 5) : [];
     if (!events.length) return;
     let route = '/';
     try { route = new URL(b.url || 'https://x/').pathname || '/'; } catch (_) {}
     const ip = clientIp(req);
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    // b.px = token do script individual (/px/:token.js): espelha SÓ naquele
+    // pixel. Sem token, dispatchScoped só aceita fallback de pixel único.
+    const tokenPixel = b.px ? pixelStore.getByToken(String(b.px).slice(0, 64)) : null;
+    const acc = tokenPixel ? (tokenPixel.acc || null) : publicAccountId(req);
     // guarda ttclid/_ttp no lead UMA vez (não por evento) — enriquece conversões futuras
-    if (vId && (b.ttclid || b.ttp)) {
-      try { stats.attachTracking(vId, { ttclid: b.ttclid || undefined, ttp: b.ttp || undefined }); } catch (_) {}
+    if (vId && (b.ttclid || b.ttp || tokenPixel)) {
+      try {
+        stats.attachTracking(vId, {
+          acc: tokenPixel ? tokenPixel.acc : undefined,
+          pixelSlug: tokenPixel ? tokenPixel.slug : undefined,
+          ttclid: b.ttclid || undefined,
+          ttp: b.ttp || undefined
+        });
+      } catch (_) {}
     }
     // identidade já salva no lead (email/phone do Advanced Matching, ttclid/_ttp
     // de visitas anteriores) — todo disparo sai com o sinal máximo disponível
     let leadPx = null;
     if (vId) { try { leadPx = stats.getLead(vId); } catch (_) {} }
-    // b.px = token do script individual (/px/:token.js): espelha SÓ naquele
-    // pixel. Sem token (loader /px.js por rota): dispatchToAll da conta.
-    const tokenPixel = b.px ? pixelStore.getByToken(String(b.px).slice(0, 64)) : null;
-    const acc = tokenPixel ? (tokenPixel.acc || null) : publicAccountId(req);
     // dedup + disparo em PARALELO (antes era serial: 1 roundtrip Redis por evento)
     events.forEach((e) => {
       const name = String(e.n || '').slice(0, 40);
       const evId = String(e.id || '').slice(0, 120);
       if (!name || !evId) return;
       if (!/^(ViewContent|InitiateCheckout|AddToCart)$/.test(name)) return; // whitelist
-      seenPixelEvent(evId).then((seen) => {
-        if (seen) return; // já disparado pelo middleware/rota
+      Promise.resolve().then(() => {
+        const props = e.properties && typeof e.properties === 'object' ? e.properties : {};
         const payload = {
           event: name,
           eventId: evId,
@@ -4525,10 +4523,19 @@ app.post('/api/px/event', (req, res) => {
           userAgent: ua,
           ttclid: (b.ttclid ? String(b.ttclid).slice(0, 500) : undefined) || (leadPx && leadPx.ttclid) || undefined,
           ttp: (b.ttp ? String(b.ttp).slice(0, 500) : undefined) || (leadPx && leadPx.ttp) || undefined,
-          url: b.url ? String(b.url).slice(0, 500) : undefined
+          url: b.url ? String(b.url).slice(0, 500) : undefined,
+          value: props.value,
+          currency: props.currency,
+          contents: Array.isArray(props.contents) ? props.contents : ((props.content_id || props.content_name) ? [{
+            content_id: props.content_id,
+            content_name: props.content_name,
+            content_category: props.content_category,
+            price: props.price,
+            quantity: props.quantity
+          }] : undefined)
         };
-        if (tokenPixel) return ttEvents.sendToPixel(tokenPixel, payload);
-        return ttEvents.dispatchToAll(name, payload, route, acc);
+        return ttEvents.dispatchScoped(name, payload, route, acc,
+          tokenPixel ? tokenPixel.slug : (leadPx && leadPx.pixelSlug));
       }).catch((err) =>
         console.error('[server] beacon dispatch falhou (' + name + ' perdido):', err && err.message,
           '| evId=', evId, '| vid=', vId || '—', '| acc=', acc));
@@ -4539,12 +4546,11 @@ app.post('/api/px/event', (req, res) => {
 // ── APIs de gestão de pixels (dashboard, por conta) ────�����─����────────────
 app.get('/api/pixels', dashboardAuth, (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+  const { host, proto } = requestOrigin(req);
   // mascara o token na listagem (só mostra últimos 4 chars)
   const list = pixelStore.list(req.account.id).map((p) => ({
     ...p,
-    accessToken: p.accessToken ? '�����••' + p.accessToken.slice(-4) : '',
+    accessToken: p.accessToken ? '••••' + p.accessToken.slice(-4) : '',
     hasToken: !!p.accessToken,
     // script individual deste pixel (estilo Xtracky): cole em qualquer página
     scriptUrl: p.token ? proto + '://' + host + '/px/' + p.token + '.js' : null,
@@ -4557,31 +4563,32 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
     // (funil, leads, geo, jornada). Sem ele o visitante fica invisível para o
     // operador, mesmo com o pixel disparando para o TikTok. Um por página,
     // independe de qual pixel — por isso a mesma tag em todos.
-    scriptTagTracker: '<!-- 1) ROI-NADOS Rastreamento — registra a visita na SUA dashboard (funil, leads, jornada) -->\n<script src="' + proto + '://' + host + '/t.js" defer></script>',
+    scriptTagTracker: '<script src="' + proto + '://' + host + '/t.js?px=' + p.token + '" defer></script>',
     scriptTagNative: p.pixelCode
       ? '<!-- 2) TikTok Pixel (nativo) — cole no <head>, funciona mesmo se nosso servidor cair -->\n<script>\n' + TTQ_STUB + '\nttq.load(' + JSON.stringify(p.pixelCode) + ');\nttq.page();\n</script>'
       : null,
     scriptTagEnrich: p.token
       ? '<!-- 3) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
       : null,
-    // Compatibilidade: scriptTag entrega o bloco COMPLETO (as TRÊS partes).
-    // A parte 1 (/t.js) faltava aqui — quem instalava só o que a página mandava
-    // não via as próprias visitas na dashboard.
+    // Instalação recomendada: duas tags curtas, ambas escopadas pelo token do
+    // pixel. A primeira registra jornada/identidade; a segunda carrega o Pixel
+    // TikTok e espelha os eventos via CAPI. O fallback sem JS mantém a visita.
     scriptTag: p.token && p.pixelCode
-      ? '<!-- 1) ROI-NADOS Rastreamento — registra a visita na SUA dashboard (funil, leads, jornada) -->\n<script src="' + proto + '://' + host + '/t.js" defer></script>\n\n<!-- 2) TikTok Pixel (nativo) — cole no <head>, funciona mesmo se nosso servidor cair -->\n<script>\n' + TTQ_STUB + '\nttq.load(' + JSON.stringify(p.pixelCode) + ');\nttq.page();\n</script>\n\n<!-- 3) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
-      : (p.token ? '<script src="' + proto + '://' + host + '/t.js" defer></script>\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>' : null)
+      ? '<!-- ' + p.name.replace(/--/g, '') + ': não reutilize este bloco em outro produto/pixel -->\n<script src="' + proto + '://' + host + '/t.js?px=' + p.token + '" defer></script>\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>\n<noscript><img src="' + proto + '://' + host + '/px.gif?px=' + p.token + '" width="1" height="1" alt="" style="display:none"></noscript>'
+      : null
   }));
-  // Item 6: snippet BASE do loader (dispara para todos os pixels da conta) e
-  // orientação clara — eventos de pagamento exigem gateway, nunca o navegador.
+  // O loader genérico fica apenas como URL legada; novas instalações sempre
+  // usam o token individual retornado em cada item da lista.
   const base = proto + '://' + host + '/px.js';
   res.json({
     pixels: list,
     dir: 'pixels/',
     meta: {
       loaderUrl: base,
-      loaderTag: '<script src="' + base + '" defer></script>',
+      loaderTag: null,
+      strictIsolation: true,
       trackerUrl: proto + '://' + host + '/t.js',
-      trackerTag: '<script src="' + proto + '://' + host + '/t.js" defer></script>',
+      trackerTag: null,
       paymentNote: 'Este script cobre Visita, Carrinho e Checkout. O evento de Compra (CompletePayment) só dispara quando um gateway confirma o pagamento via webhook — conecte um gateway na aba Gateways.'
     }
   });
@@ -4610,6 +4617,20 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
         if (b.gatewayIds === undefined) b.gatewayIds = existing.gatewayIds;
       }
     }
+    // Um mesmo Pixel Code cadastrado duas vezes cria eventos aparentemente
+    // duplicados e diagnósticos impossíveis de interpretar. Bloqueia a cópia
+    // acidental, mas permite editar o próprio registro.
+    if (b.pixelCode) {
+      const normalizedCode = String(b.pixelCode).trim();
+      const currentSlug = b.slug ? pixelStore.slugify(b.slug) : null;
+      const duplicate = pixelStore.list(req.account.id).find((p) => p.pixelCode === normalizedCode && p.slug !== currentSlug);
+      if (duplicate) {
+        return apiError(res, 409,
+          'Este Pixel Code já está cadastrado como "' + duplicate.name + '".',
+          'duplicate_pixel_code',
+          'Edite o pixel existente ou use um Pixel Code diferente.');
+      }
+    }
     // Vínculo pixel↔gateway: só aceita IDs de gateways que EXISTEM nesta conta
     // (impede vincular a gateway de outra conta ou a id digitado errado).
     if (Array.isArray(b.gatewayIds) && b.gatewayIds.length) {
@@ -4625,8 +4646,7 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
       title: (saved._durable ? 'Pixel TikTok salvo: ' : 'Pixel salvo SÓ EM MEMÓRIA (não durável): ') + saved.name,
       ref: saved.slug
     });
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-    const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+    const { host, proto } = requestOrigin(req);
     res.json({
       ok: true,
       // Avisa o painel quando a gravação NÃO foi durável — evita o cenário
@@ -4637,7 +4657,7 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
         ...saved,
         accessToken: saved.accessToken ? '••••' + saved.accessToken.slice(-4) : '',
         scriptUrl: saved.token ? proto + '://' + host + '/px/' + saved.token + '.js' : null,
-        scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>' : null
+        scriptTag: saved.token ? '<script src="' + proto + '://' + host + '/t.js?px=' + saved.token + '" defer></script>\n<script src="' + proto + '://' + host + '/px/' + saved.token + '.js" defer></script>\n<noscript><img src="' + proto + '://' + host + '/px.gif?px=' + saved.token + '" width="1" height="1" alt="" style="display:none"></noscript>' : null
       }
     });
   } catch (err) {
@@ -4683,6 +4703,14 @@ app.get('/api/pixels/durability', dashboardAuth, (req, res) => {
     .filter((p) => p.active && (!p.pixelCode || !p.accessToken))
     .map((p) => ({ slug: p.slug, name: p.name, missing: [!p.pixelCode && 'pixelCode', !p.accessToken && 'accessToken'].filter(Boolean) }));
   if (incomplete.length) warnings.push(incomplete.length + ' pixel(s) ativo(s) com credencial incompleta (não disparam).');
+  const unboundSalePixels = pixels
+    .filter((p) => p.active && p.events && (p.events.CompletePayment || p.events.AddPaymentInfo)
+      && (!Array.isArray(p.gatewayIds) || p.gatewayIds.length === 0))
+    .map((p) => ({ slug: p.slug, name: p.name }));
+  const ambiguousSaleRouting = unboundSalePixels.length > 1;
+  if (ambiguousSaleRouting) {
+    warnings.push('Há mais de um pixel de venda sem gateway vinculado. Por segurança, webhooks sem lead/pixel identificado não serão enviados para todos. Vincule cada pixel ao gateway correto.');
+  }
   res.json({
     durable: h.durable,
     dbEnabled: h.dbEnabled,
@@ -4691,6 +4719,9 @@ app.get('/api/pixels/durability', dashboardAuth, (req, res) => {
     lastError: h.lastError,
     trustedGateways,
     salePixels,
+    strictIsolation: true,
+    ambiguousSaleRouting,
+    unboundSalePixels,
     incomplete,
     warnings
   });
@@ -4712,12 +4743,19 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
     if (!pixel.accessToken) {
       return res.status(400).json({ ok: false, error: 'Configure o Access Token da Events API para testar este pixel.' });
     }
+    const requestedEvent = String(req.body.event || 'ViewContent');
+    if ((requestedEvent === 'CompletePayment' || requestedEvent === 'AddPaymentInfo') && !pixel.testEventCode) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Para testar Compra/Pagamento sem contaminar dados reais, configure primeiro o Test Event Code do TikTok.'
+      });
+    }
     // ip/ua de quem clicou: a Events API exige identidade de usuário no evento.
     // Evento e moeda são escolhíveis pelo painel (default ViewContent / moeda da conta).
     const result = await ttEvents.testPixel(pixel, {
       ip: clientIp(req),
       userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
-      event: String(req.body.event || ''),
+      event: requestedEvent,
       currency: accountCurrency(req.account.id)
     });
     res.json(result);
@@ -4813,18 +4851,26 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
     const found = pixels.map((p) => {
       const scriptOk = !!(p.token && html.indexOf('/px/' + p.token + '.js') !== -1);
       const nativeOk = !!(p.pixelCode && html.indexOf(p.pixelCode) !== -1);
-      return { slug: p.slug, name: p.name, scriptOk, nativeOk, instalado: scriptOk || nativeOk };
+      const trackerScoped = !!(p.token && (html.indexOf('/t.js?px=' + p.token) !== -1
+        || html.indexOf('/t.js?px%3D' + p.token) !== -1));
+      return {
+        slug: p.slug, name: p.name, scriptOk, nativeOk, trackerScoped,
+        // "instalado" agora significa integração completa e isolada. Encontrar
+        // só o código nativo não garante jornada/CAPI nem separação multi-pixel.
+        instalado: scriptOk && trackerScoped
+      };
     });
     const algum = found.some((f) => f.instalado);
     // O /t.js é quem registra a visita NA DASHBOARD. Pixel instalado sem ele =
     // eventos chegam ao TikTok mas o operador não vê os próprios visitantes —
     // exatamente a confusão mais comum. Checamos e avisamos explicitamente.
     const trackerOk = html.indexOf('/t.js') !== -1;
+    const legacyTracker = trackerOk && !found.some((f) => f.trackerScoped);
     stats.logEvent('info', {
       acc: req.account.id,
       title: 'Verificação de pixel por URL: ' + (algum ? 'instalado' : 'NÃO encontrado') + (trackerOk ? '' : ' (sem rastreamento /t.js)') + ' em ' + page.finalUrl
     });
-    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, trackerOk, pixels: found });
+    res.json({ ok: true, url: page.finalUrl, algumInstalado: algum, trackerOk, legacyTracker, pixels: found });
   } catch (err) {
     res.status(500).json({ error: 'falha na verificação' });
   }
@@ -4840,7 +4886,10 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
   const dbRows = await db.loadPixelEvents(req.account.id, 100);
   res.json({ log: (dbRows || []).map((r) => ({
     id: r.id, at: r.at, pixel: r.pixel, event: r.event,
-    eventId: r.event_id, leadId: r.lead_id, status: r.status, response: r.response
+    eventId: r.event_id, leadId: r.lead_id, status: r.status,
+    emq: r.emq == null ? null : Number(r.emq),
+    emqFields: Array.isArray(r.emq_fields) ? r.emq_fields : [],
+    response: r.response
   })), source: 'neon' });
 });
 
@@ -4848,7 +4897,38 @@ app.get('/api/pixels/log', dashboardAuth, async (req, res) => {
 // tamanho da fila de retry ��� visão imediata de "está tudo disparando?"
 app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const rows = await ttEvents.recentLogAsync(200, req.account.id);
+  const volatileRows = await ttEvents.recentLogAsync(200, req.account.id);
+  // O buffer rápido só contém o processo atual. Mesclamos sempre o Neon para
+  // que um único evento novo não esconda o restante das últimas 24 horas.
+  const dbRows = await db.loadPixelEvents(req.account.id, 200);
+  const durableRows = (dbRows || []).map((r) => ({
+      id: r.id,
+      at: r.at,
+      pixel: r.pixel,
+      event: r.event,
+      eventId: r.event_id,
+      leadId: r.lead_id,
+      status: r.status,
+      emq: r.emq == null ? null : Number(r.emq),
+      emqFields: Array.isArray(r.emq_fields) ? r.emq_fields : [],
+      response: r.response
+    }));
+  const byId = new Map();
+  durableRows.concat(volatileRows).forEach((r) => {
+    const key = r.id || [r.pixel, r.event, r.eventId, r.at].join(':');
+    byId.set(key, r);
+  });
+  const recent = Array.from(byId.values())
+    .sort((a, b) => Date.parse(b.at || '') - Date.parse(a.at || ''))
+    .slice(0, 200);
+  const source = durableRows.length && volatileRows.length
+    ? 'memory+neon'
+    : (durableRows.length ? 'neon' : 'memory');
+  const cutoff = Date.now() - 24 * 3600e3;
+  const rows = recent.filter((r) => {
+    const at = Date.parse(r.at || '');
+    return Number.isFinite(at) && at >= cutoff;
+  });
   const total = rows.length;
   const ok = rows.filter((r) => r.status === 'ok').length;
   const byEvent = {};
@@ -4875,7 +4955,7 @@ app.get('/api/pixels/health', dashboardAuth, async (req, res) => {
     ok: true, total, success: ok,
     rate: total ? Math.round((ok / total) * 100) : null,
     emq: emqN ? Math.round((emqSum / emqN) * 10) / 10 : null,
-    events, errors,
+    events, errors, source,
     retryQueue: ttEvents.retryQueueSize()
   });
 });
