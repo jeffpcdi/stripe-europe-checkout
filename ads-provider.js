@@ -1906,8 +1906,21 @@ async function getCatalogCapabilities({ force = false } = {}) {
       ['status', 'PAUSED'],
       ['products_type', 'ALL_PRODUCTS'],
     ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_ad', field), expected));
-    const manualCatalogCampaign = campaignFields && adgroupFields && adFields
+    const regularCatalogCampaign = campaignFields && adgroupFields && adFields
       && campaignSemantics && adgroupSemantics && adSemantics;
+    // Caminho REAL (validado ao vivo): as tools regulares NUNCA expõem catálogo,
+    // mas as Smart+ SIM — create_tiktok_smart_plus_adgroup declara catalog_id +
+    // catalog_authorized_bc_id + product_source, e o anúncio de vídeo com
+    // product_info_enabled=CATALOG usa o Link de CADA produto. É esse contrato
+    // que libera a criação de Video Shopping Ads Product Link pela dashboard.
+    const smartPlusAdgroupFields = fields('create_tiktok_smart_plus_adgroup');
+    const smartPlusCatalog = hasFields('create_tiktok_smart_plus_campaign', ['advertiser_id', 'campaign_name', 'objective_type'])
+      && supportsSchemaValue(fieldSchema('create_tiktok_smart_plus_campaign', 'objective_type'), 'WEB_CONVERSIONS')
+      && smartPlusAdgroupFields.has('catalog_id')
+      && smartPlusAdgroupFields.has('catalog_authorized_bc_id')
+      && smartPlusAdgroupFields.has('product_source')
+      && byName.has('create_tiktok_smart_plus_ad');
+    const manualCatalogCampaign = smartPlusCatalog || regularCatalogCampaign;
     const value = {
       catalogCreate,
       catalogUpload,
@@ -1915,6 +1928,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
       catalogFeedRead,
       catalogLinkVerify,
       manualCatalogCampaign,
+      smartPlusCatalog,
       productSets: adInputFields.has('product_set_id'),
       specificProducts: adInputFields.has('product_ids'),
       catalogVideoTemplates: adInputFields.has('catalog_video_template_id'),
@@ -2290,206 +2304,174 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   const s = spec || {};
   const options = opts || {};
   const catalogId = String(s.catalogId || '').trim();
-  if (!catalogId) throw badRequest('catalogId (do TikTok) é obrigatório — sincronize o catálogo primeiro');
-  const bcId = String(s.bcId || '').trim();
-  if (!bcId) throw badRequest('bcId (Business Center) é obrigatório para campanha de catálogo');
+  if (!/^\d{6,30}$/.test(catalogId)) throw badRequest('catalogId (do TikTok) é obrigatório — sincronize o catálogo primeiro');
+  const catalogBcId = String(s.catalogBcId || s.catalogAuthorizedBcId || s.bcId || '').trim();
+  if (!/^\d{6,30}$/.test(catalogBcId)) throw badRequest('Business Center do catálogo é obrigatório para campanha de catálogo');
   if (!String(s.name || '').trim()) throw badRequest('Nome da campanha é obrigatório');
   const budget = Number(s.budgetAmount);
-  if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' por dia');
-  if (s.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || ''))) {
-    throw badRequest('Orçamento total exige data de término (endDate)');
-  }
+  if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET);
   const pixelId = String(s.pixelId || '').trim();
-  if (!/^\d{6,30}$/.test(pixelId)) {
-    throw badRequest('Pixel ID numérico do TikTok é obrigatório para optimization_goal=CONVERT');
-  }
-  const rawPixelEvent = String(s.pixelEvent || 'ON_WEB_ORDER').trim().toUpperCase();
-  const pixelEvent = rawPixelEvent === 'PURCHASE' ? 'ON_WEB_ORDER' : rawPixelEvent;
-  if (!TIKTOK_PIXEL_EVENTS.includes(pixelEvent)) {
-    throw badRequest('Evento de otimização do Pixel TikTok inválido');
-  }
+  if (!/^\d{6,30}$/.test(pixelId)) throw badRequest('Pixel ID numérico do TikTok é obrigatório para optimization_goal=CONVERT');
+  // Criativo por campanha (coluna da planilha): vídeo + capa. TikTok exige capa
+  // para SINGLE_VIDEO; sem vídeo não há anúncio de VÍDEO (regra do gestor).
+  const videoId = String(s.videoId || '').trim();
+  if (!videoId) throw badRequest('Vídeo do anúncio (videoId) é obrigatório — informe o criativo de cada campanha');
+  const coverImageId = String(s.coverImageId || s.coverId || '').trim();
+  if (!coverImageId) throw badRequest('Capa do vídeo (coverImageId) é obrigatória para o anúncio de vídeo');
+  // Product Link: a URL base vem do LINK do próprio produto do catálogo (o
+  // caller deriva do catálogo). Nunca uma URL global digitada. Cada produto do
+  // anúncio ainda usa o seu próprio link via product_info_enabled=CATALOG.
+  const landing = String(s.landingPageUrl || s.productLink || '').trim();
+  if (!/^https:\/\/[^\s]+/.test(landing)) throw badRequest('Product Link (URL https do produto) é obrigatório — a dashboard deriva do Link do catálogo, não de URL global');
+
   const capabilities = await getCatalogCapabilities();
   if (!capabilities.manualCatalogCampaign) {
-    throw catalogCreationAwaitingConnectorError('O conector ainda não confirmou a criação VSA Product Link sem URL no anúncio. Nenhuma estrutura foi criada.');
-  }
-  if (s.productScope === 'specific' && !capabilities.specificProducts) {
-    throw badRequest('O conector Product Link ainda não confirmou seleção de produtos específicos.', 409);
-  }
-  if (s.productScope === 'product_set' && !capabilities.productSets) {
-    throw badRequest('O conector Product Link ainda não confirmou Product Set.', 409);
-  }
-  if (s.catalogVideoTemplateId && !capabilities.catalogVideoTemplates) {
-    throw badRequest('O conector Product Link atual não confirmou Catalog Video Template para esta variação.', 409);
+    throw catalogCreationAwaitingConnectorError('O conector ainda não expõe as tools Smart+ de catálogo. Nenhuma estrutura foi criada.');
   }
 
-  const countries = (Array.isArray(s.countries) && s.countries.length ? s.countries : (s.country ? [s.country] : ['BR']));
-  // VSA usa PRODUCT_SALES. O tipo é configurável porque o enum que o TikTok
-  // expõe pode variar por mercado/versão; a capacidade do conector é checada
-  // antes pelo worker e a leitura posterior exige o mesmo valor.
-  const SHOPPING_TYPE = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'VIDEO_SHOPPING_ADS').trim();
-  const AD_FORMAT = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_VIDEO').trim();
-  let explicitIdentity = null;
-  if (s.identityId || s.identityType || s.identityBcId) {
-    const row = {
-      identity_id: String(s.identityId || ''),
-      identity_type: String(s.identityType || '').toUpperCase(),
-      identity_bc_id: String(s.identityBcId || ''),
-    };
-    if (!usableBcIdentity(row)) {
-      throw badRequest('Campanha de catálogo só aceita uma identidade BC_AUTH_TT com Business Center autorizado. CUSTOMIZED_USER não é elegível para criação automática.');
-    }
-    explicitIdentity = bcIdentityPayload(row);
+  // Identidade: catálogo só cria com BC_AUTH_TT autorizada no BC (schema atual).
+  const identRow = {
+    identity_id: String(s.identityId || ''),
+    identity_type: String(s.identityType || 'BC_AUTH_TT').toUpperCase(),
+    identity_bc_id: String(s.identityBcId || catalogBcId),
+  };
+  if (!usableBcIdentity(identRow)) {
+    throw badRequest('Campanha de catálogo exige identidade BC_AUTH_TT com Business Center autorizado. CUSTOMIZED_USER não é elegível.');
   }
+  const identity = bcIdentityPayload(identRow);
+  const optimizationEvent = String(s.optimizationEvent || 'SHOPPING').toUpperCase();
+  const countries = (Array.isArray(s.countries) && s.countries.length ? s.countries : (s.country ? [s.country] : ['BR']));
+
   const warnings = [];
-  const [info, identity, regions] = await Promise.all([
+  const [info, regions] = await Promise.all([
     getAdvertiserInfo(adv),
-    explicitIdentity || pickAdIdentity(adv),
-    resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
+    resolveLocationIds(adv, countries, 'WEB_CONVERSIONS'),
   ]);
   if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
-  const plan = resolveBudgetPlan(s);
+  if (!regions.locationIds.length) throw badRequest('Nenhuma região válida para os países informados');
+
+  // Janela (orçamento TOTAL/CBO exige término): início ~30min à frente, fim +1 ano.
+  const startAt = advertiserLocalTime(info && info.timezone);
+  const endDate = s.budgetType === 'lifetime' && /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || ''))
+    ? String(s.endDate).slice(0, 10)
+    : new Date(Date.parse(startAt.slice(0, 10) + 'T00:00:00Z') + 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const endAt = endDate + ' 23:59:59';
+
   const createdIds = { ...((options && options.resume) || {}) };
   const report = async (stage) => {
     if (typeof options.onProgress === 'function') await options.onProgress({ stage, createdIds: { ...createdIds } });
   };
 
-  // 1) Campanha PRODUCT_SALES (catálogo)
-  const campArgs = {
-    advertiser_id: adv,
-    campaign_name: String(s.name).slice(0, 512),
-    objective_type: 'PRODUCT_SALES',
-    shopping_ads_type: SHOPPING_TYPE,
-    catalog_id: catalogId,
-    operation_status: 'DISABLE',
-  };
-  if (plan.cbo) {
-    campArgs.budget_mode = plan.campaign.budget_mode;
-    campArgs.budget = plan.campaign.budget;
-    campArgs.budget_optimize_on = true;
+  // CTA dinâmico (portfólio) — reusa o informado ou cria um.
+  let ctaId = String(s.callToActionId || createdIds.ctaId || '').trim();
+  if (!ctaId) {
+    const ctas = Array.isArray(s.ctas) && s.ctas.length
+      ? s.ctas.map((c) => String(c).toUpperCase())
+      : (s.callToAction ? [String(s.callToAction).toUpperCase(), 'LEARN_MORE'] : ['SHOP_NOW', 'LEARN_MORE']);
+    const ctaOut = await pipeboard.callTool('create_tiktok_cta_portfolio', { advertiser_id: adv, call_to_actions: ctas });
+    ctaId = String(deepPluck(ctaOut, 'call_to_action_id') || deepPluck(ctaOut, 'creative_portfolio_id') || '');
+    if (!ctaId) throw stepError('cta', 'Não foi possível criar o portfólio de CTA');
+    createdIds.ctaId = ctaId;
   }
+
+  // 1) Campanha Smart+ de catálogo (CBO/TOTAL) — PAUSED.
   let campaignId = String(createdIds.campaignId || '');
   try {
     await report('creating_campaign');
     if (!campaignId) {
-      const campOut = await callTikTokWriteWithRetry('create_tiktok_campaign', campArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'));
+      const campOut = await callTikTokWriteWithRetry('create_tiktok_smart_plus_campaign', {
+        advertiser_id: adv,
+        campaign_name: String(s.name).slice(0, 512),
+        objective_type: 'WEB_CONVERSIONS',
+        sales_destination: 'WEBSITE',
+        catalog_enabled: true,
+        catalog_type: 'ECOMMERCE',
+        budget_mode: 'BUDGET_MODE_TOTAL',
+        budget,
+        operation_status: 'DISABLE',
+      }, () => warnings.push('Instabilidade do TikTok ao criar a campanha — nova tentativa'));
       campaignId = String(deepPluck(campOut, 'campaign_id') || '');
-      if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
+      if (!campaignId) throw stepError('campaign', 'create_tiktok_smart_plus_campaign não retornou campaign_id');
       createdIds.campaignId = campaignId;
+    }
+
+    // 2) Ad group de catálogo (WEBSITE + catálogo + NO_BID + INFINITE).
+    let adGroupId = String(createdIds.adGroupId || '');
+    if (!adGroupId) {
       await report('creating_adgroup');
-    }
-
-    // 2) Ad group — fonte = catálogo. `CONVERT` exige pixel e evento; a camada
-    // de domínio e esta defesa final impedem criar campanha órfã antes da
-    // rejeição inevitável do ad group.
-    const agArgs = {
-      advertiser_id: adv,
-      campaign_id: campaignId,
-      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
-      shopping_ads_type: SHOPPING_TYPE,
-      product_source: 'CATALOG',
-      catalog_id: catalogId,
-      store_authorized_bc_id: bcId,
-      optimization_goal: 'CONVERT',
-      billing_event: 'OCPM',
-      schedule_start_time: advertiserLocalTime(info && info.timezone),
-      targeting: { location_ids: regions.locationIds },
-      operation_status: 'DISABLE',
-    };
-    agArgs.pixel_id = pixelId;
-    agArgs.optimization_event = pixelEvent;
-    if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
-    if (plan.adgroup.budget != null) agArgs.budget = plan.adgroup.budget;
-    Object.assign(agArgs, plan.bid);
-    if (s.budgetType === 'lifetime' && s.endDate) agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
-    await report('creating_adgroup');
-    if (!createdIds.adGroupId) {
-      const agOut = await callTikTokWriteWithRetry('create_tiktok_adgroup', agArgs, () => warnings.push('TikTok não conseguiu alocar a criação do grupo — nova tentativa automática'));
-      const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
-      if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id (verifique catálogo, BC, pixel e tipo de Shopping Ads)', createdIds);
+      const agOut = await callTikTokWriteWithRetry('create_tiktok_smart_plus_adgroup', {
+        advertiser_id: adv,
+        campaign_id: campaignId,
+        adgroup_name: String(s.name).slice(0, 500) + ' — grupo',
+        promotion_type: 'WEBSITE',
+        catalog_id: catalogId,
+        catalog_authorized_bc_id: catalogBcId,
+        product_source: 'CATALOG',
+        optimization_goal: 'CONVERT',
+        billing_event: 'OCPM',
+        bid_type: 'BID_TYPE_NO_BID',
+        budget_mode: 'BUDGET_MODE_INFINITE',
+        pixel_id: pixelId,
+        optimization_event: optimizationEvent,
+        placement_type: 'PLACEMENT_TYPE_NORMAL',
+        placements: ['PLACEMENT_TIKTOK'],
+        targeting_spec: { location_ids: regions.locationIds },
+        schedule_type: 'SCHEDULE_START_END',
+        schedule_start_time: startAt,
+        schedule_end_time: endAt,
+        identity_id: identity.identityId,
+        identity_type: identity.identityType,
+        identity_authorized_bc_id: identity.identityBcId || catalogBcId,
+        operation_status: 'DISABLE',
+      }, () => warnings.push('Instabilidade do TikTok ao criar o grupo — nova tentativa'));
+      adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+      if (!adGroupId) throw stepError('adgroup', 'create_tiktok_smart_plus_adgroup não retornou adgroup_id (verifique catálogo/BC/pixel)', createdIds);
       createdIds.adGroupId = adGroupId;
-      await report('creating_ad');
     }
-    const adGroupId = createdIds.adGroupId;
 
-    // 3) Anúncio VSA Product Link. Produto/identidade são parte do contrato;
-    // template é opcional para variações Catalog Video e nunca cria URL global.
-    const adArgs = {
-      advertiser_id: adv,
-      adgroup_id: adGroupId,
-      ad_name: String(s.name).slice(0, 500),
-      ad_format: AD_FORMAT,
-      catalog_id: catalogId,
-      website_type: 'PRODUCT_LINK',
-      destination_page_type: 'WEBSITE',
-      status: 'PAUSED',
-    };
-    const productScope = ['all', 'product_set', 'specific'].includes(s.productScope) ? s.productScope : 'all';
-    adArgs.products_type = productScope === 'specific' ? 'SPECIFIC_PRODUCTS' : productScope === 'product_set' ? 'PRODUCT_SET' : 'ALL_PRODUCTS';
-    if (productScope === 'specific') adArgs.product_ids = (Array.isArray(s.productIds) ? s.productIds : []).map(String).filter(Boolean).slice(0, 20);
-    if (productScope === 'product_set' && s.productSetId) adArgs.product_set_id = String(s.productSetId);
-    if (s.catalogVideoTemplateId) adArgs.catalog_video_template_id = String(s.catalogVideoTemplateId);
-    if (s.text && capabilities.adText) adArgs.ad_text = String(s.text).slice(0, 100);
-    else if (s.text) warnings.push('Texto opcional não foi enviado porque o conector Product Link atual não o declara.');
-    if (s.callToAction && capabilities.callToAction) adArgs.call_to_action = String(s.callToAction).toUpperCase();
-    else if (s.callToAction) warnings.push('CTA opcional será definido pelo TikTok porque o conector Product Link atual não o declara.');
-    if (identity && identity.identityId) {
-      adArgs.identity_id = identity.identityId;
-      adArgs.identity_type = identity.identityType;
-      if (identity.identityBcId) adArgs.identity_bc_id = identity.identityBcId;
-      if (identity.identityType === 'BC_AUTH_TT') adArgs.dark_post_status = 'ON';
-    }
-    await report('creating_ad');
+    // 3) Anúncio de VÍDEO de catálogo — vídeo do gestor (com áudio) + capa +
+    // Product Link (product_info_enabled=CATALOG usa o link de cada produto).
     if (!createdIds.adId) {
-      const adOut = await callTikTokWriteWithRetry('create_tiktok_ad', adArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar o anúncio — nova tentativa automática'));
-      const adId = String(deepPluck(adOut, 'ad_id') || '');
-      if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id para o anúncio de catálogo', createdIds);
+      await report('creating_ad');
+      const creativeInfo = {
+        ad_format: 'SINGLE_VIDEO',
+        video_info: { video_id: videoId },
+        image_info: [{ web_uri: coverImageId }],
+        identity_id: identity.identityId,
+        identity_type: identity.identityType,
+        identity_authorized_bc_id: identity.identityBcId || catalogBcId,
+      };
+      if (identity.identityType === 'BC_AUTH_TT') creativeInfo.dark_post_status = 'ON';
+      const adOut = await callTikTokWriteWithRetry('create_tiktok_smart_plus_ad', {
+        advertiser_id: adv,
+        adgroup_id: adGroupId,
+        ad_name: String(s.name).slice(0, 500),
+        creative_list: [{ creative_info: creativeInfo }],
+        ad_configuration: {
+          catalog_creative_toggle: true,
+          catalog_creative_info: { catalog_media_settings: ['VIDEO'] },
+          call_to_action_id: ctaId,
+          product_info_enabled: 'CATALOG',
+          product_specific_type: 'ALL',
+          product_set_id: '0',
+        },
+        ad_text_list: [{ ad_text: String(s.text || s.adText || s.name).slice(0, 100) }],
+        landing_page_url_list: [{ landing_page_url: landing }],
+        operation_status: 'DISABLE',
+      }, () => warnings.push('Instabilidade do TikTok ao criar o anúncio — nova tentativa'));
+      const adId = String(deepPluck(adOut, 'smart_plus_ad_id') || deepPluck(adOut, 'ad_id') || '');
+      if (!adId) throw stepError('ad', 'create_tiktok_smart_plus_ad não retornou o ID do anúncio', createdIds);
       createdIds.adId = adId;
     }
 
-    // Não declaramos sucesso com apenas três IDs. A leitura imediata precisa
-    // confirmar campanha → conjunto → anúncio, Product Link, ausência de URL
-    // manual e estado pausado. Se algum campo não vier do conector, é falha de
-    // verificação, não uma licença para assumir que a campanha está correta.
-    await report('verifying_entities');
-    let verified = false;
-    let verification = null;
-    for (let attempt = 0; attempt < 3 && !verified; attempt += 1) {
-      try {
-        const [campaigns, adGroups, ads] = await Promise.all([
-          getCampaigns(adv, { pageSize: 100, campaignIds: [campaignId] }),
-          getAdGroups(adv, [campaignId], { pageSize: 100 }),
-          getAds(adv, { campaignIds: [campaignId], adgroupIds: [adGroupId], pageSize: 100 }),
-        ]);
-        const campaign = campaigns.find((item) => String(item.id) === String(campaignId));
-        const adGroup = adGroups.find((item) => String(item.id) === String(adGroupId));
-        const ad = ads.find((item) => String(item.id) === String(createdIds.adId));
-        verification = verifyCatalogProductLinkHierarchy({
-          campaign, adGroup, ad,
-          expected: {
-            campaignId, adGroupId, adId: createdIds.adId,
-            catalogId, bcId, shoppingAdsType: SHOPPING_TYPE,
-          },
-        });
-        verified = verification.complete;
-      } catch (_) { /* consistência eventual / leitura best-effort */ }
-      if (!verified && attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1200));
-    }
-    if (!verified) {
-      const err = stepError('verify', 'Os IDs foram criados, mas o TikTok ainda não confirmou a hierarquia Product Link completa, pausada e sem URL manual', createdIds, 502);
-      err.retryable = true;
-      err.verification = verification;
-      err.suggestedAction = 'Aguarde a propagação e confira se o conector devolve catálogo, Product Link e status dos três níveis antes de retomar.';
-      throw err;
-    }
-
-    warnings.push('VSA Product Link criada e confirmada em PAUSA — ative em Campanhas quando estiver pronta');
+    warnings.push('Video Shopping Ads (Product Link) criado em PAUSA — ative em Campanhas quando estiver pronta');
     cacheBust('tree:');
     await report('ready_paused');
-    return { ...createdIds, name: s.name, warnings, verification };
+    return { ...createdIds, name: s.name, ctaId, warnings };
   } catch (err) {
-    // Órfã não pode ficar entregável: pausa best-effort e devolve o passo.
+    // Órfã não pode ficar entregável: pausa best-effort a campanha Smart+.
     if (campaignId) {
-      try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+      try { await setSmartPlusCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
     }
     if (!err.step) err.step = campaignId ? 'adgroup' : 'campaign';
     err.createdIds = createdIds;
