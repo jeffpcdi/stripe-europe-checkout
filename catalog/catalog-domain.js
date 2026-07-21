@@ -209,6 +209,13 @@ function normalizeCampaignSpec(input, catalog) {
     pixelEvent,
     text: String(value.text || '').trim().slice(0, 100) || undefined,
     callToAction: String(value.callToAction || 'LEARN_MORE').trim().toUpperCase(),
+    // Criativo de VÍDEO por campanha + Product Link derivado do Link do produto.
+    // landingPageUrl NÃO é URL manual: é o `link` do próprio produto do catálogo
+    // (o batch proíbe URL manual; product_info_enabled=CATALOG usa o link de cada
+    // produto). O TikTok exige uma URL base — usamos o Link do produto.
+    videoId: String(value.videoId || '').trim() || undefined,
+    coverImageId: String(value.coverImageId || value.coverId || '').trim() || undefined,
+    landingPageUrl: String(value.productLink || '').trim() || undefined,
     strategy: 'vsa_product_link', destination: 'PRODUCT_LINK', creativeMode: 'VSA_PRODUCT_LINK', status: 'paused',
   };
 }

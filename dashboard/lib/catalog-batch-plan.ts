@@ -31,6 +31,8 @@ const HEADERS: Record<string, string[]> = {
   budget: ['orcamento', 'orçamento', 'budget', 'daily_budget', 'orcamento_diario'],
   pixelId: ['pixel_id', 'pixel', 'id_pixel', 'pixel_tiktok', 'tiktok_pixel_id'],
   pixelEvent: ['evento', 'evento_pixel', 'pixel_event', 'optimization_event', 'evento_otimizacao'],
+  video: ['video', 'video_id', 'criativo', 'video_tiktok', 'id_video'],
+  cover: ['capa', 'cover', 'cover_id', 'image_id', 'thumb', 'capa_id'],
 }
 
 function normalizeHeader(value: string) {
@@ -116,7 +118,7 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
   const idx = {
     catalog: indexFor('catalog'), sku: indexFor('sku'), title: indexFor('title'), description: indexFor('description'),
     price: indexFor('price'), brand: indexFor('brand'), link: indexFor('link'), image: indexFor('image'), campaign: indexFor('campaign'), budget: indexFor('budget'),
-    pixelId: indexFor('pixelId'), pixelEvent: indexFor('pixelEvent'),
+    pixelId: indexFor('pixelId'), pixelEvent: indexFor('pixelEvent'), video: indexFor('video'), cover: indexFor('cover'),
   }
   if (idx.brand < 0) {
     return {
@@ -193,6 +195,9 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
         productScope: 'all',
         pixelId,
         pixelEvent: valueAt(row, idx.pixelEvent).toUpperCase() || 'ON_WEB_ORDER',
+        // Criativo de VÍDEO por campanha (o gestor escolheu 1 vídeo por campanha).
+        videoId: valueAt(row, idx.video),
+        coverImageId: valueAt(row, idx.cover),
       })
     }
   })
@@ -212,6 +217,17 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
   }
   if (options.requireCampaignPixel && invalidCampaignPixelRows.length) {
     messages.push(`Corrija o Pixel ID nas linhas ${invalidCampaignPixelRows.slice(0, 6).join(', ')}${invalidCampaignPixelRows.length > 6 ? '…' : ''}: ele deve conter somente 6 a 30 dígitos.`)
+  }
+
+  // Product Link: a URL base de cada campanha vem do LINK do 1º produto válido do
+  // catálogo. Não é URL global digitada — é o próprio Link do catálogo; e no
+  // anúncio product_info_enabled=CATALOG faz CADA produto usar o SEU link.
+  for (const catalog of byKey.values()) {
+    const firstLink = (catalog.products.find((product) => (product.data.link || '').trim())?.data.link || '').trim()
+    if (!firstLink) continue
+    for (const campaign of catalog.campaigns) {
+      ;(campaign as Record<string, unknown>).productLink = firstLink
+    }
   }
 
   return {
