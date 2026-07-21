@@ -148,7 +148,9 @@ export function CreateAdPanel({
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadPct, setUploadPct] = useState(0)
-  const [libraryOpen, setLibraryOpen] = useState(false)
+  // A biblioteca pode preencher o vídeo principal ou cada variação do lote.
+  // `main` evita um booleano paralelo e o índice aponta para A/B/C.
+  const [libraryTarget, setLibraryTarget] = useState<'main' | number | null>(null)
   // Templates: configurações salvas (sem vídeo) para pré-preencher o wizard
   const { data: templatesData, mutate: mutateTemplates } = useAdsTemplates(open, advertiserId)
   const [savingTemplate, setSavingTemplate] = useState(false)
@@ -160,6 +162,7 @@ export function CreateAdPanel({
   // Variações A/B: vídeos EXTRAS além do principal → 1 campanha por vídeo
   const [variantUrls, setVariantUrls] = useState<string[]>([])
   const [variantsOpen, setVariantsOpen] = useState(false)
+  const [uploadingVariant, setUploadingVariant] = useState<number | null>(null)
   const idemKey = useMemo(() => (open ? `ttads-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` : ''), [open])
   // Interesses: só busca com o passo Público aberto (lista grande, cacheada).
   const [interestQuery, setInterestQuery] = useState('')
@@ -188,6 +191,8 @@ export function CreateAdPanel({
       setUploadPct(0)
       setVariantUrls([])
       setVariantsOpen(false)
+      setUploadingVariant(null)
+      setLibraryTarget(null)
       setTemplateNaming(false)
       setTemplateName('')
       setDeleteTemplate(null)
@@ -265,6 +270,27 @@ export function CreateAdPanel({
       setUploadPct(0)
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function handleVariantUpload(index: number, file: File) {
+    if (!file.type.startsWith('video/')) {
+      toast.error('Envie um arquivo de vídeo (MP4)')
+      return
+    }
+    if (file.size > 500 * 1024 * 1024) {
+      toast.error('Vídeo acima de 500 MB', { hint: 'O TikTok aceita vídeos de até 500 MB.' })
+      return
+    }
+    setUploadingVariant(index)
+    try {
+      const { url } = await adsUpload(file, 'video')
+      setVariantUrls((current) => current.map((value, currentIndex) => currentIndex === index ? url : value))
+      toast.success(`Vídeo ${String.fromCharCode(66 + index)} enviado`, { hint: 'Pronto para entrar no lote.' })
+    } catch (e) {
+      toast.error('Falha no upload do vídeo', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setUploadingVariant(null)
     }
   }
 
@@ -1052,15 +1078,24 @@ export function CreateAdPanel({
                   )}
                 </div>
 
-                {/* Biblioteca: reaproveitar vídeos já enviados ao Blob */}
-                {libraryOpen ? (
+                {/* Biblioteca: reaproveitar vídeos já enviados nesta conta. */}
+                {libraryTarget !== null ? (
                   <CreativeLibrary
-                    open={libraryOpen}
-                    onClose={() => setLibraryOpen(false)}
-                    selectedUrl={form.videoUrl}
+                    open
+                    onClose={() => setLibraryTarget(null)}
+                    selectedUrl={
+                      libraryTarget === 'main'
+                        ? form.videoUrl
+                        : variantUrls[libraryTarget]
+                    }
                     onConfirmOpenChange={setNestedModalOpen}
                     onPick={(item) => {
-                      set('videoUrl', item.url)
+                      if (libraryTarget === 'main') {
+                        set('videoUrl', item.url)
+                      } else {
+                        setVariantUrls((current) => current.map((value, index) => index === libraryTarget ? item.url : value))
+                      }
+                      setLibraryTarget(null)
                       toast.success('Criativo selecionado', { hint: item.name })
                     }}
                   />
@@ -1068,7 +1103,7 @@ export function CreateAdPanel({
                   <button
                     type="button"
                     className="btn-ghost self-start text-[11px]"
-                    onClick={() => setLibraryOpen(true)}
+                    onClick={() => setLibraryTarget('main')}
                   >
                     <Clapperboard className="size-3.5" aria-hidden="true" />
                     Escolher da biblioteca
@@ -1076,12 +1111,12 @@ export function CreateAdPanel({
                 )}
               </div>
 
-              {/* Variações A/B: vídeos extras → 1 campanha idêntica por vídeo */}
+              {/* Lote de criativos: cada vídeo vira uma campanha pausada. */}
               <div className="flex flex-col gap-2 rounded-xl border border-border bg-secondary/20 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
                     <FlaskConical className="size-3.5 text-primary" aria-hidden="true" />
-                    Teste A/B de criativos
+                    Lote de criativos
                     {variantUrls.length > 0 && (
                       <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
                         {variantUrls.length + 1} campanhas
@@ -1090,15 +1125,14 @@ export function CreateAdPanel({
                   </span>
                   {!variantsOpen && variantUrls.length === 0 && (
                     <button type="button" className="btn-ghost !py-1 text-[11px]" onClick={() => setVariantsOpen(true)}>
-                      Adicionar variações
+                      Adicionar vídeos
                     </button>
                   )}
                 </div>
                 {(variantsOpen || variantUrls.length > 0) && (
                   <>
                     <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      Cada vídeo extra cria uma campanha idêntica (sufixo A/B/C…) — mesma verba, público e
-                      destino. Compare o desempenho e pause as perdedoras.
+                      Cada vídeo cria uma campanha pausada com a mesma configuração (A/B/C). Envie, reutilize ou cole a URL.
                     </p>
                     {variantUrls.map((u, i) => (
                       <div key={i} className="flex items-center gap-2">
@@ -1114,6 +1148,36 @@ export function CreateAdPanel({
                           placeholder="https://…/video-b.mp4"
                           aria-label={`URL do vídeo da variação ${String.fromCharCode(66 + i)}`}
                         />
+                        <button
+                          type="button"
+                          className="btn-ghost shrink-0 !p-1.5 text-muted-foreground"
+                          onClick={() => setLibraryTarget(i)}
+                          aria-label={`Escolher o vídeo ${String.fromCharCode(66 + i)} da biblioteca`}
+                          title="Escolher da biblioteca"
+                        >
+                          <Clapperboard className="size-3.5" aria-hidden="true" />
+                        </button>
+                        <label
+                          className="btn-ghost shrink-0 !p-1.5 text-muted-foreground"
+                          title={`Enviar o vídeo ${String.fromCharCode(66 + i)}`}
+                        >
+                          <input
+                            type="file"
+                            accept="video/mp4,video/*"
+                            className="sr-only"
+                            disabled={uploadingVariant !== null}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0]
+                              if (file) void handleVariantUpload(i, file)
+                              event.target.value = ''
+                            }}
+                          />
+                          {uploadingVariant === i ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <UploadCloud className="size-3.5" aria-hidden="true" />
+                          )}
+                        </label>
                         <button
                           type="button"
                           className="btn-ghost !p-1.5 text-muted-foreground"
@@ -1151,42 +1215,40 @@ export function CreateAdPanel({
               </>
               )}
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-foreground">
-                    Página de destino{form.goal === 'lead_generation' ? ' (obrigatória)' : ''}
-                  </span>
-                  <input
-                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                    value={form.catalogId ? '' : form.linkUrl}
-                    onChange={(e) => set('linkUrl', e.target.value)}
-                    placeholder={form.catalogId ? 'Indisponível — definido pelo catálogo' : 'https://sualoja.com/oferta'}
-                    disabled={!!form.catalogId}
-                    aria-disabled={!!form.catalogId}
-                  />
-                  {form.catalogId && (
-                    <span className="text-[11px] text-muted-foreground">
-                      O destino de cada anúncio é o link do produto no catálogo.
+              {form.catalogId ? (
+                <p className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] text-primary">
+                  <Link2 className="size-3.5 shrink-0" aria-hidden="true" />
+                  Destinos: links dos produtos do catálogo.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-foreground">
+                      Página de destino{form.goal === 'lead_generation' ? ' (obrigatória)' : ''}
                     </span>
-                  )}
-                </label>
-                {!form.catalogId && (
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-medium text-foreground">Botão (CTA)</span>
-                  <select
-                    className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    value={form.callToAction}
-                    onChange={(e) => set('callToAction', e.target.value)}
-                  >
-                    {CTAS.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                )}
-              </div>
+                    <input
+                      className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                      value={form.linkUrl}
+                      onChange={(e) => set('linkUrl', e.target.value)}
+                      placeholder="https://sualoja.com/oferta"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-foreground">Botão (CTA)</span>
+                    <select
+                      className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                      value={form.callToAction}
+                      onChange={(e) => set('callToAction', e.target.value)}
+                    >
+                      {CTAS.map((c) => (
+                        <option key={c.value} value={c.value}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
 
             </div>
           )}
@@ -1239,7 +1301,7 @@ export function CreateAdPanel({
               )}
               {variantUrls.filter((u) => /^https:\/\/\S+/.test(u)).length > 0 && (
                 <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[11px] font-medium leading-relaxed text-primary">
-                  Teste A/B: serão criadas{' '}
+                  Lote de criativos: serão criadas{' '}
                   {variantUrls.filter((u) => /^https:\/\/\S+/.test(u)).length + 1} campanhas idênticas, uma
                   por vídeo (sufixos A, B{variantUrls.length > 1 ? ', C' : ''}).
                 </p>

@@ -11,7 +11,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLive } from '@/lib/api'
 import { timeAgo } from '@/lib/format'
 import { CountUp } from '@/components/count-up'
-import { ShootingStars } from './shooting-stars'
 import type { GeoPulse } from '@/components/geo/globe'
 import type { LiveCountry } from '@/lib/types'
 
@@ -125,7 +124,7 @@ export function HeroGlobe({
       Nenhuma visita registrada ainda — configurar rastreamento
     </Link>
   ) : (
-    <span className="anim-breathe rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
+    <span className="rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs text-muted-foreground">
       Aguardando visitantes · última visita {timeAgo(lastLeadAt)}
     </span>
   )
@@ -146,20 +145,12 @@ export function HeroGlobe({
     /* O globo agora ocupa TODA a largura/altura do hero. Sem max-w — o
        container externo (overview-view) controla o tamanho. */
     <div
-      className="hero-globe-container absolute inset-0 bg-breathe"
+      className="hero-globe-container absolute inset-0"
       aria-label={`Presença ao vivo: ${onlineNow} online agora em ${activeCountries} ${activeCountries === 1 ? 'país' : 'países'}`}
     >
-      {/* Glow atmosférico e Elementos Orbitais (Mega Plano).
-          No mobile (<lg) os anéis orbitais e stardust ficam ocultos: os anéis
-          têm inset negativo (-30%/-45%) e vazavam para fora do wrapper
-          compacto, sobrepondo os KPIs — além de custo de GPU no iPhone. */}
-      <div className="hero-globe-glow-outer" aria-hidden="true" />
+      {/* Uma única luz ambiente deixa o globo em foco sem competir com os
+          dados, os KPIs e o feed ao vivo. */}
       <div className="hero-globe-glow-core" aria-hidden="true" />
-      <div className="hero-stardust float-dust max-lg:hidden" aria-hidden="true" />
-      <ShootingStars />
-
-      <div className="hero-orbit-ring max-lg:hidden" aria-hidden="true" />
-      <div className="hero-orbit-ring outer max-lg:hidden" aria-hidden="true" />
 
       {/* Totens/pontos guiados pelo AO VIVO: com 0 online o globo fica limpo
           ("Aguardando tráfego"), consistente com o contador logo acima. Arcos
@@ -175,7 +166,7 @@ export function HeroGlobe({
       {/* Badge glassmorphism sobreposto na base — "ONLINE AGORA · N PAÍSES".
           pointer-events-none para não interceptar arraste/zoom do globo. */}
       <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex flex-col items-center gap-1.5 text-center lg:top-6">
-        <div className="hero-globe-badge pulse-cyan pointer-events-auto inline-flex flex-col items-center gap-1 rounded-[20px] border border-primary/20 px-4 py-2 shadow-[0_0_25px_rgba(37,244,238,0.3)] backdrop-blur-xl transition-all lg:gap-1.5 lg:px-6 lg:py-2.5">
+        <div className="hero-globe-badge pointer-events-auto inline-flex flex-col items-center gap-1 rounded-[20px] border border-primary/20 px-4 py-2 shadow-[0_0_25px_rgba(37,244,238,0.22)] backdrop-blur-xl transition-colors lg:gap-1.5 lg:px-6 lg:py-2.5">
           <div className="flex items-center gap-2">
             <span className="live-dot" aria-hidden="true" />
             <p

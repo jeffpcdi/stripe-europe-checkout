@@ -1087,6 +1087,27 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (wantCreative && ent.type !== 'ad') {
         return res.status(422).json({ error: 'Texto, CTA e link só podem ser editados no nível do ANÚNCIO.' });
       }
+      if (wantCreative && wantCreative.linkUrl && ent.type === 'ad') {
+        // A árvore pode estar alguns segundos atrás do TikTok após uma criação.
+        // Antes de qualquer PATCH de URL, lê o anúncio remoto do próprio grupo:
+        // se a semântica Product Link estiver presente no cache OU no TikTok,
+        // falha fechada e nunca grava landing_page_url nesse anúncio.
+        let remoteAd = null;
+        try {
+          const remoteAds = await pipeboard.getAds(advertiserId, { adgroupIds: ent.adGroupId ? [ent.adGroupId] : undefined });
+          remoteAd = remoteAds.find((ad) => String(ad.id || '') === entityId) || null;
+        } catch (_) {
+          return res.status(503).json({ error: 'Não foi possível confirmar o destino atual no TikTok. A URL não foi alterada; atualize a árvore e tente de novo.' });
+        }
+        if (!remoteAd) {
+          return res.status(409).json({ error: 'Não foi possível localizar o anúncio remoto para confirmar o destino. A URL não foi alterada.' });
+        }
+        const productLink = (String(ent.websiteType || '').toUpperCase() === 'PRODUCT_LINK' && ent.catalogId)
+          || (String(remoteAd.websiteType || '').toUpperCase() === 'PRODUCT_LINK' && remoteAd.catalogId);
+        if (productLink) {
+          return res.status(422).json({ error: 'Anúncio Product Link usa o Link de cada produto do catálogo. Remova a URL manual para preservar esse destino.' });
+        }
+      }
 
       // orçamento em anúncio → aplica no ad group dono
       const budgetTarget = wantBudget

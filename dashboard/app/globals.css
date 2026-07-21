@@ -502,8 +502,8 @@ html[data-tv] main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 9px;
   color: var(--text-sub);
   background: rgba(8, 8, 10, 0.72);
@@ -523,6 +523,17 @@ html[data-tv] main {
 }
 .globe-ctl:active {
   transform: scale(0.94);
+}
+.globe-ctl:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  .globe-ctl {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+  }
 }
 
 /* Item 93: borda "energia" — gradiente ciano-rosa no perímetro.
@@ -848,42 +859,6 @@ html[data-anim='off'] *::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
-}
-
-/* Shooting Stars Background */
-@keyframes shooting-star {
-  0% { transform: translateX(0) translateY(0) rotate(45deg); opacity: 1; }
-  100% { transform: translateX(-1000px) translateY(1000px) rotate(45deg); opacity: 0; }
-}
-.star-container {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0;
-}
-.shooting-star {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 100px;
-  height: 2px;
-  background: linear-gradient(-45deg, rgba(37, 244, 238, 1), rgba(0, 0, 255, 0));
-  border-radius: 999px;
-  filter: drop-shadow(0 0 6px rgba(37, 244, 238, 1));
-  animation: shooting-star 3s linear infinite;
-  opacity: 0;
-}
-.shooting-star::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 30px;
-  height: 2px;
-  background: rgba(37, 244, 238, 1);
-  border-radius: 100%;
-  box-shadow: 0 0 10px rgba(37, 244, 238, 1), 0 0 20px rgba(37, 244, 238, 1);
 }
 
 /* Item 125: modo apresentação — borra valores sensíveis */
@@ -2490,7 +2465,7 @@ input:focus, textarea:focus {
   z-index: 0;
   pointer-events: none;
   background: radial-gradient(circle at 50% 50%, rgba(37, 244, 238, 0.15) 0%, transparent 70%);
-  animation: heroGlobeGlow 3s ease-in-out infinite alternate;
+  animation: heroGlobeGlow 12s var(--ease) infinite alternate;
 }
 .hero-globe-glow-outer {
   position: absolute;
@@ -2498,11 +2473,11 @@ input:focus, textarea:focus {
   z-index: 0;
   pointer-events: none;
   background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.12) 0%, transparent 75%);
-  animation: heroGlobeGlow 5s ease-in-out infinite alternate-reverse;
+  animation: heroGlobeGlow 16s var(--ease) infinite alternate-reverse;
 }
 @keyframes heroGlobeGlow {
-  from { opacity: 0.5; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1.05); }
+  from { opacity: 0.42; }
+  to { opacity: 0.72; }
 }
 
 /* 2. Scrollbar Invisível / Fina (Padrão macOS escuro) */
@@ -2570,25 +2545,6 @@ input:focus, textarea:focus {
 /* ============================================================
    Fase 6: Ultra Neon - Novas Animações
    ============================================================ */
-
-/* Shooting Stars */
-.shooting-star {
-  position: absolute;
-  width: 100px;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(37,244,238,0), rgba(37,244,238,1), rgba(255,255,255,1));
-  border-radius: 999px;
-  box-shadow: 0 0 15px 3px rgba(37,244,238,0.5);
-  animation: shootingStar 4s linear infinite;
-  opacity: 0;
-  pointer-events: none;
-}
-@keyframes shootingStar {
-  0% { transform: translateX(0) translateY(0) rotate(-45deg); opacity: 0; }
-  10% { opacity: 1; }
-  20% { transform: translateX(-300px) translateY(300px) rotate(-45deg); opacity: 0; }
-  100% { transform: translateX(-300px) translateY(300px) rotate(-45deg); opacity: 0; }
-}
 
 /* Dust Particles */
 .float-dust {

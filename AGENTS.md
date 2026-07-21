@@ -111,6 +111,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   a campanha pausada só é liberada após auditoria dos produtos
   e confirmação semântica de Product Link pelo conector. Sucesso exige leitura dos três níveis
   (campanha → conjunto → anúncio), todos pausados, com o catálogo correto, `PRODUCT_LINK` e sem URL manual.
+- **ads-provider.js + ads-routes.js** — toda criação automática regular, Smart+ e de catálogo só usa
+  identidade `BC_AUTH_TT` com `identity_bc_id` e dark post habilitado; nunca escolhe
+  `CUSTOMIZED_USER`/`TT_USER`/`AUTH_CODE` automaticamente. Duplicação pré-valida esse fallback antes
+  de criar a campanha. A árvore e o editor carregam `catalogId`/`websiteType`; se for `PRODUCT_LINK`,
+  não exibem nem aceitam `landing_page_url` (inclusive por API), pois o destino é o `Link` de cada produto.
 - **bot-filter.js** — cloaking multicamadas (score 0–100). Modelo de score em §8. Lookup de ASN (Cymru
   via DNS) com teto de latência (`deadlineMs`, padrão 120ms via `Promise.race`) e cache 2 camadas
   (memória + Redis `asn:<ip>`) para redirect quase instant��neo.
@@ -727,7 +732,12 @@ Configurações. Cada página é um `page.tsx` fino que renderiza a view de `com
   ativo ciano-rosa) — substituiu as pills do topo; header com título da página, data e badge
   "Ao vivo"; conteúdo em `main` com container central. Mobile: `mobile-nav.tsx` (menu deslizante).
 - **Globo 3D** (`components/geo/globe.tsx`): textura blue-marble local (`/assets/`), polígonos de
-  países (`countries.geojson`), pontos de tráfego, controles de zoom e modal fullscreen.
+  países (`countries.geojson`), pontos de tráfego, controles de zoom e modal fullscreen. O movimento é
+  deliberadamente discreto (máx. 3 anéis, 3 arcos e 2 rótulos), respeita `prefers-reduced-motion` e
+  não usa estrelas decorativas; a entrada curta só roda uma vez por sessão.
+- **Notificações:** `NotificationBell` mostra no máximo 8 itens, diferencia prioridade crítica sem
+  multiplicar alertas e sincroniza o visto entre os sinos de desktop/mobile. Eventos de automação TikTok
+  devem apontar para `/dashboard/ads/tiktok?tab=automation` (o cliente ainda aceita o alias legado `view`).
 - **Plano de refinamento pendente:** `docs/PLANO-REFINAMENTO-VISUAL.md` — 206 alterações numeradas
 em 28 blocos (A–AB) com ordem de execução em 12 fases. **Executar na ordem** (coerência primeiro).
 - **Plano ativo (570 modificações):** `PLANO-PRAGMATIC-FLOW.md` (raiz; antes `v0_plans/pragmatic-flow.md`,

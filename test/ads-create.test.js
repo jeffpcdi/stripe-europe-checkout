@@ -17,7 +17,8 @@ const responses = {
   get_tiktok_identities: () => ({
     identities: [
       { identity_type: 'TT_USER', identity_id: 'tt_1' }, // Spark-only: NÃO pode ser escolhida
-      { identity_type: 'CUSTOMIZED_USER', identity_id: 'cu_1' },
+      { identity_type: 'CUSTOMIZED_USER', identity_id: 'cu_legacy' }, // nunca escolhida automaticamente
+      { identity_type: 'BC_AUTH_TT', identity_id: 'bc_tt_1', identity_authorized_bc_id: 'bc_1' },
     ],
   }),
   get_tiktok_targeting_regions: () => ({ regions: [{ region_code: 'PT', location_id: '620' }, { region_code: 'BR', location_id: '76' }] }),
@@ -73,8 +74,10 @@ const baseSpec = {
 
     const ad = callsTo('create_tiktok_ad')[0].args;
     assert.strictEqual(ad.status, 'PAUSED', 'anúncio SEMPRE nasce PAUSED');
-    assert.strictEqual(ad.identity_id, 'cu_1', 'CUSTOMIZED_USER preferida (TT_USER é Spark-only)');
-    assert.strictEqual(ad.identity_type, 'CUSTOMIZED_USER');
+    assert.strictEqual(ad.identity_id, 'bc_tt_1', 'BC_AUTH_TT é preferida; CUSTOMIZED_USER não é selecionada');
+    assert.strictEqual(ad.identity_type, 'BC_AUTH_TT');
+    assert.strictEqual(ad.identity_bc_id, 'bc_1');
+    assert.strictEqual(ad.dark_post_status, 'ON');
     assert.strictEqual(ad.video_id, 'v_1');
     assert.strictEqual(ad.landing_page_url, 'https://example.com/lp');
 
@@ -118,6 +121,36 @@ const baseSpec = {
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'conversions', promotedObject: { pixelId: '12345678' } }), /customEventType|optimization_event/, 'CONVERT sem evento é rejeitado cedo');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, budgetType: 'lifetime', endDate: '2020-01-01' }), /data de término futura/, 'orçamento total com data passada é rejeitado cedo');
     assert.strictEqual(toolCalls.length, 0, 'validação falha SEM tocar a plataforma');
+  }
+
+  // ── identidade: CUSTOMIZED_USER nunca é fallback automático ───────────────
+  {
+    const originalIdentities = responses.get_tiktok_identities;
+    try {
+      responses.get_tiktok_identities = () => ({
+        identities: [{ identity_type: 'CUSTOMIZED_USER', identity_id: 'cu_legacy' }],
+      });
+      resetCalls();
+      await assert.rejects(
+        () => provider.createFullAd('adv1', { ...baseSpec }),
+        /BC_AUTH_TT elegível/i,
+        'sem identidade BC autorizada a criação falha fechada',
+      );
+      assert.strictEqual(callsTo('create_tiktok_campaign').length, 0, 'sem identidade válida não cria estrutura parcial');
+
+      responses.get_tiktok_identities = () => ({
+        identities: [{ identity_type: 'BC_AUTH_TT', identity_id: 'bc_off', identity_authorized_bc_id: 'bc_1', dark_post_status: 'OFF' }],
+      });
+      resetCalls();
+      await assert.rejects(
+        () => provider.createFullAd('adv1', { ...baseSpec }),
+        /BC_AUTH_TT elegível/i,
+        'BC com dark post explicitamente desligado também não é usada',
+      );
+      assert.strictEqual(callsTo('create_tiktok_campaign').length, 0, 'dark post desligado não cria estrutura parcial');
+    } finally {
+      responses.get_tiktok_identities = originalIdentities;
+    }
   }
 
   // ── conversões: pixel + optimization_event na campanha e no adgroup ────────

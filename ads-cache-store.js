@@ -471,6 +471,8 @@ async function listSyncStates(accountId) {
 // estrutura. Orçamento no TikTok vive em campanha OU ad group, nunca no anúncio
 // — o PUT de orçamento usa isto p/ rotear ao tool certo sem tocar no front.
 // Retorna { type, advertiserId, campaignId } ou null se o ID não está no cache.
+// Para anúncio, preserva também a semântica Product Link; a rota de edição usa
+// isso para nunca aceitar uma landing_page_url manual nesse formato.
 // advertiserId é opcional: se omitido, procura em TODOS os advertisers da conta
 // (o front não passa o advertiser no PUT/DELETE de entidade) e devolve o dono.
 async function classifyEntity(accountId, advertiserId, entityId) {
@@ -494,7 +496,11 @@ async function classifyEntity(accountId, advertiserId, entityId) {
       }
       for (const a of (g.ads || [])) {
         if (String(a.platformAdId || '') === entityId) {
-          return { type: 'ad', advertiserId: adv, campaignId: String(c.platformCampaignId || ''), adGroupId: String(g.platformAdSetId || ''), adId: entityId };
+          return {
+            type: 'ad', advertiserId: adv, campaignId: String(c.platformCampaignId || ''),
+            adGroupId: String(g.platformAdSetId || ''), adId: entityId,
+            catalogId: String(a.catalogId || ''), websiteType: String(a.websiteType || ''),
+          };
         }
       }
     }

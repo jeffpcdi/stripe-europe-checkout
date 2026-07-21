@@ -37,7 +37,7 @@ function baseHandlers(overrides) {
   const h = {
     get_tiktok_advertisers: async () => ({ advertisers: [{ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR', status: 'STATUS_ENABLE' }] }),
     get_tiktok_advertiser_info: async () => ({ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR' }),
-    get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-custom', identity_type: 'CUSTOMIZED_USER', display_name: 'Marca' }] }),
+    get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1', display_name: 'Marca' }] }),
     get_tiktok_campaigns: async () => ({ campaigns: [{
       campaign_id: 'src-camp', campaign_name: 'Origem', objective_type: 'TRAFFIC',
       budget_mode: 'BUDGET_MODE_DAY', budget: 50, create_time: '2026-01-01 10:00:00',
@@ -104,8 +104,9 @@ function baseHandlers(overrides) {
   const adCalls = stubCalls.filter((c) => c.name === 'create_tiktok_ad');
   assert.strictEqual(adCalls[0].args.video_id, 'vid-1', 'video_id da origem reaproveitado');
   assert.strictEqual(adCalls[0].args.status, 'PAUSED');
-  assert.strictEqual(adCalls[0].args.identity_id, 'id-custom');
-  assert.strictEqual(adCalls[1].args.identity_id, 'id-custom', 'Spark (TT_USER) deve cair no fallback');
+  assert.strictEqual(adCalls[0].args.identity_id, 'id-bc', 'CUSTOMIZED_USER da origem cai na BC_AUTH_TT');
+  assert.strictEqual(adCalls[0].args.identity_bc_id, 'bc-1');
+  assert.strictEqual(adCalls[1].args.identity_id, 'id-bc', 'Spark (TT_USER) cai na BC_AUTH_TT');
   assert.ok(result.warnings.some((w) => /spark/i.test(w)), 'warning do Spark');
   // progresso reportado a cada passo (1 camp + 2 ags + 2 ads = 5)
   assert.strictEqual(progressLog.length, 5);

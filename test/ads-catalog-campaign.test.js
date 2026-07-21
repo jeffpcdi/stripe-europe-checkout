@@ -205,6 +205,11 @@ async function catalogCapabilitiesForSchemas(tools) {
     ok(/Modo VSA Product Link em validação/.test(wizard) && /não troca por URL global/.test(wizard), 'UI não troca Product Link por URL manual');
     const genericWizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'create-ad-panel.tsx'), 'utf8');
     ok(!/Informe o Catalog Video Template ID/.test(genericWizard) && !/catalogVideoTemplateId/.test(genericWizard), 'wizard geral também não exige template para Product Link');
+    const tree = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'campaign-tree.tsx'), 'utf8');
+    ok(/function isProductLinkAd/.test(tree) && /Link do catálogo/.test(tree), 'árvore identifica Product Link e não mostra URL global');
+    const editDialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'ad-edit-dialog.tsx'), 'utf8');
+    ok(/const productLink/.test(editDialog) && /!productLink && linkUrl/.test(editDialog), 'editor não envia URL quando o anúncio usa Product Link');
+    ok(/Anúncio Product Link usa o Link de cada produto do catálogo/.test(routes) && /await pipeboard\.getAds\(advertiserId/.test(routes), 'API revalida e bloqueia URL manual para anúncio Product Link');
   }
 
   console.log('CSV pronto + publish honesto (fallback do 502)');

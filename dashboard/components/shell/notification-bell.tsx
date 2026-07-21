@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Bell, ShoppingCart, CircleX, Undo2, Gavel, LogIn, Megaphone, Info } from 'lucide-react'
+import { ArrowRight, Bell, ShoppingCart, CircleX, Undo2, Gavel, LogIn, Megaphone, Info } from 'lucide-react'
 import { fetcher } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -26,6 +26,8 @@ type NotifItem = {
 type NotifResponse = { ok: boolean; items: NotifItem[] }
 
 const SEEN_KEY = 'roi:notif-seen'
+const SEEN_EVENT = 'roi:notifications-seen'
+const MAX_VISIBLE_ITEMS = 8
 
 function lastSeen(): number {
   try {
@@ -35,12 +37,16 @@ function lastSeen(): number {
   }
 }
 
-function markSeen() {
+function markSeen(at = Date.now()): number {
   try {
-    localStorage.setItem(SEEN_KEY, String(Date.now()))
+    localStorage.setItem(SEEN_KEY, String(at))
+    // TopNav e Header montam o mesmo sino em breakpoints diferentes. Sincronizar
+    // o estado evita que uma troca de tamanho de tela ressuscite o badge.
+    window.dispatchEvent(new CustomEvent(SEEN_EVENT, { detail: at }))
   } catch {
     /* storage bloqueado: o badge continua — inofensivo */
   }
+  return at
 }
 
 /* Ícone por tipo de evento (mesma taxonomia do notify-copy) */
@@ -65,6 +71,8 @@ function EventIcon({ event }: { event: string }) {
     case 'ads_failure':
     case 'ads_breaker':
     case 'ads_cap':
+    case 'ads_briefing':
+    case 'ads_routine':
       return <Megaphone className={cn(cls, 'text-brand-cyan')} aria-hidden="true" />
     default:
       return <Info className={cn(cls, 'text-muted-foreground')} aria-hidden="true" />
@@ -97,18 +105,35 @@ export function NotificationBell() {
     keepPreviousData: true,
   })
   const [seenAt, setSeenAt] = useState<number>(Number.POSITIVE_INFINITY) // evita flash do badge no SSR
+  const titleId = useId()
+
   useEffect(() => {
     setSeenAt(lastSeen())
   }, [])
 
-  const items = data?.items ?? []
-  const unread = items.filter((i) => i.at > seenAt).length
+  useEffect(() => {
+    function syncSeen(event: Event) {
+      if (event instanceof StorageEvent && event.key !== SEEN_KEY) return
+      const next = event instanceof CustomEvent ? Number(event.detail) : lastSeen()
+      setSeenAt(Number.isFinite(next) ? next : lastSeen())
+    }
+    window.addEventListener(SEEN_EVENT, syncSeen)
+    window.addEventListener('storage', syncSeen)
+    return () => {
+      window.removeEventListener(SEEN_EVENT, syncSeen)
+      window.removeEventListener('storage', syncSeen)
+    }
+  }, [])
+
+  const allItems = data?.items ?? []
+  const items = allItems.slice(0, MAX_VISIBLE_ITEMS)
+  const unread = allItems.filter((i) => i.at > seenAt).length
 
   function onOpenChange(open: boolean) {
     if (open) {
-      markSeen()
+      const now = markSeen()
       // badge some ao abrir; a lista continua mostrando tudo
-      setSeenAt(Date.now())
+      setSeenAt(now)
     }
   }
 
@@ -135,16 +160,17 @@ export function NotificationBell() {
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
+          aria-labelledby={titleId}
           className="glass glass-thick anim-pop-in z-50 w-[min(92vw,320px)] rounded-[12px] p-1.5"
         >
           <div className="flex items-center justify-between border-b border-[var(--border)] px-2.5 pb-2 pt-1">
-            <p className="text-xs font-semibold text-foreground">Notificações</p>
+            <p id={titleId} className="text-xs font-semibold text-foreground">Notificações</p>
             {unread > 0 && <span className="text-[10px] font-medium text-[color:var(--brand-cyan)]">{unread} nova{unread === 1 ? '' : 's'}</span>}
           </div>
           <div className="max-h-[min(60vh,380px)] overflow-y-auto overscroll-contain">
             {items.length === 0 ? (
               <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">
-                Alertas importantes aparecem aqui.
+                Sem alertas por aqui.
               </p>
             ) : (
               <ul className="mt-1 flex flex-col">
@@ -153,9 +179,10 @@ export function NotificationBell() {
                     <DropdownMenu.Item asChild>
                       <Link
                         href={toHref(item.url)}
-                        className={`flex cursor-pointer items-start gap-2.5 rounded-[8px] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--hover)] ${
-                          item.priority === 'critical' ? 'bg-destructive/[0.04]' : ''
-                        }`}
+                        className={cn(
+                          'flex cursor-pointer items-start gap-2.5 rounded-[8px] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--hover)]',
+                          item.priority === 'critical' && 'border-l-2 border-l-destructive bg-destructive/[0.06] pl-2',
+                        )}
                       >
                         <span className="mt-0.5">
                           <EventIcon event={item.event} />
@@ -180,6 +207,19 @@ export function NotificationBell() {
                   </li>
                 ))}
               </ul>
+            )}
+            {allItems.length > items.length && (
+              <div className="mt-1 border-t border-[var(--border)] px-1 pt-1">
+                <DropdownMenu.Item asChild>
+                  <Link
+                    href="/activity"
+                    className="flex items-center justify-between rounded-[8px] px-2 py-2 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                  >
+                    Ver atividade
+                    <ArrowRight className="size-3.5" aria-hidden="true" />
+                  </Link>
+                </DropdownMenu.Item>
+              </div>
             )}
           </div>
         </DropdownMenu.Content>

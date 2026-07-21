@@ -160,16 +160,18 @@ test('central nativa: preserva prioridade e deduplica alertas repetidos', async 
   assert.strictEqual(rows[0].event, 'ads_breaker');
 });
 
-test('notify-copy: automação acionável abre diretamente a área de automação', () => {
-  const note = notifyCopy.build({
-    name: 'Aprovada',
-    payload: { title: 'Automação aguardando você', text: 'Revise no painel.' },
-    meta: { event: 'ads_proposal' },
-    funMode: false,
-    accountId: 'acc1',
-  });
-  assert.strictEqual(note.event, 'ads_proposal');
-  assert.strictEqual(note.url, '/dashboard/ads/tiktok?view=automation');
+test('notify-copy: automações abrem diretamente a área de automação', () => {
+  for (const event of ['ads_proposal', 'ads_failure', 'ads_routine']) {
+    const note = notifyCopy.build({
+      name: 'Automação',
+      payload: { title: 'Automação aguardando você', text: 'Revise no painel.' },
+      meta: { event },
+      funMode: false,
+      accountId: 'acc1',
+    });
+    assert.strictEqual(note.event, event);
+    assert.strictEqual(note.url, '/dashboard/ads/tiktok?tab=automation');
+  }
 });
 
 test('web-push-notify: sem aparelhos inscritos retorna false sem tocar rede', async () => {

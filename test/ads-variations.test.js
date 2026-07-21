@@ -30,7 +30,7 @@ function baseHandlers() {
   return {
     get_tiktok_advertisers: async () => ({ advertisers: [{ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR', status: 'STATUS_ENABLE' }] }),
     get_tiktok_advertiser_info: async () => ({ advertiser_id: 'adv1', timezone: 'Europe/Lisbon' }),
-    get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-1', identity_type: 'CUSTOMIZED_USER' }] }),
+    get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1' }] }),
     get_tiktok_campaigns: async () => ({ campaigns: [{ campaign_id: 'tpl', campaign_name: 'Template', objective_type: 'TRAFFIC', budget_mode: 'BUDGET_MODE_DAY', budget: 100 }] }),
     get_tiktok_adgroups: async () => ({ adgroups: [{ adgroup_id: 'tpl-ag', adgroup_name: 'Grupo', optimization_goal: 'CLICK', budget_mode: 'BUDGET_MODE_DAY', budget: 40, schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] } }] }),
     get_tiktok_ads: async () => ({ ads: [{ ad_id: 'tpl-ad', adgroup_id: 'tpl-ag', ad_name: 'Ad tpl', ad_format: 'SINGLE_VIDEO', ad_text: 'Texto original', video_id: 'vid-1', identity_id: 'id-1', identity_type: 'CUSTOMIZED_USER' }] }),

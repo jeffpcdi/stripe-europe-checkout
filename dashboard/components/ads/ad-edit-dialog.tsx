@@ -33,15 +33,16 @@ export function AdEditDialog({
 
   if (!ad) return null
   const adId = ad.platformAdId || ad._id || ''
+  const productLink = String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK' && Boolean(ad.catalogId)
 
-  const linkInvalid = linkUrl.trim() !== '' && !/^https?:\/\/\S+/.test(linkUrl.trim())
+  const linkInvalid = !productLink && linkUrl.trim() !== '' && !/^https?:\/\/\S+/.test(linkUrl.trim())
 
   async function handleSave() {
     if (linkInvalid) return
     const creative: Record<string, string> = {}
     if (name.trim() && name.trim() !== ad!.name) creative.name = name.trim()
     if (text !== (ad!.creative?.body ?? '')) creative.text = text
-    if (linkUrl.trim() && linkUrl.trim() !== (ad!.creative?.linkUrl ?? '')) creative.linkUrl = linkUrl.trim()
+    if (!productLink && linkUrl.trim() && linkUrl.trim() !== (ad!.creative?.linkUrl ?? '')) creative.linkUrl = linkUrl.trim()
     if (cta) creative.callToAction = cta
     if (Object.keys(creative).length === 0) {
       toast.info('Nada mudou — edite algum campo antes de salvar.')
@@ -94,7 +95,7 @@ export function AdEditDialog({
             <span className="text-[10px] text-muted-foreground">{text.length}/100</span>
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={`grid gap-3 ${productLink ? '' : 'grid-cols-2'}`}>
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Botão (CTA)</span>
               <select className={field} value={cta} onChange={(e) => setCta(e.target.value)}>
@@ -104,15 +105,17 @@ export function AdEditDialog({
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Link de destino</span>
-              <input className={`${field} ${linkInvalid ? 'border-error/60' : ''}`} value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://…" />
-            </label>
+            {!productLink && (
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="font-medium text-foreground">Link de destino</span>
+                <input className={`${field} ${linkInvalid ? 'border-error/60' : ''}`} value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://…" />
+              </label>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
             <p className="text-[11px] text-muted-foreground">
-              {linkInvalid ? 'Link deve começar com http(s)://' : 'Só os campos alterados são enviados.'}
+              {productLink ? 'Destino: Link de cada produto no catálogo.' : linkInvalid ? 'Link deve começar com http(s)://' : 'Só os campos alterados são enviados.'}
             </p>
             <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSave} disabled={saving || linkInvalid}>
               {saving ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}

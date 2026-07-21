@@ -66,28 +66,57 @@ const ALT_MIN = 1.2
 const ALT_MAX = 3.5
 const ALT_DEFAULT = 2.0
 const ALT_STEP = 0.45
-// Item 15: entrada cinematográfica aprimorada — mais distante e mais lenta
-const ALT_ENTRY = 5.5
-const ENTRY_MS = 1800
+// Entrada curta e suave: dá profundidade sem atrasar a leitura dos dados.
+const ALT_ENTRY = 3.4
+const ENTRY_MS = 1200
 
-// Item 14: rotação mais suave e lenta — sensação de globo flutuando elegantemente
-const SPIN_IDLE = 0.25
-const SPIN_HOVER = 0.7
-const RESUME_AFTER_MS = 3000
+// Movimento propositalmente contido: o globo deve sustentar a leitura, não
+// competir com os números e a lista de atividade sobre ele.
+const SPIN_IDLE = 0.18
+const SPIN_HOVER = 0.32
+const RESUME_AFTER_MS = 4000
+const MAX_AMBIENT_RINGS = 3
+const MAX_LABELS = 2
+const MAX_ARCS = 3
+
+function escapeHtml(value: string): string {
+  return String(value).replace(/[&<>'"]/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  })[char] ?? char)
+}
+
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false)
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const update = () => setReduced(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+
+  return reduced
+}
 
 function buildPoints(
   countries: GlobePanelProps['countries'],
   metric: 'visits' | 'sales' = 'visits',
   pulses: GeoPulse[] = [],
 ) {
-  // Fase 5: países ativos sem coordenadas no mapa são omitidos silenciosamente
-  // do render — mas contabilizamos para diagnosticar falta de cobertura.
-  const omitted: string[] = []
-  for (const c of countries) {
-    if (!COUNTRY_COORDS[c.code?.toUpperCase() ?? '']) omitted.push(c.code)
-  }
-  // Item 163: em "vendas" só países com compra pontuam, em verde
-  const base = metric === 'sales' ? countries.filter((c) => c.purchased > 0) : countries
+  // Em "vendas" só países com compra pontuam, em verde. Ordenar aqui evita
+  // que rings/arcos deem destaque a um país diferente do ponto dominante.
+  const base = (metric === 'sales' ? countries.filter((c) => c.purchased > 0) : countries)
+    .slice()
+    .sort((a, b) => {
+      const av = metric === 'sales' ? a.purchased : a.count
+      const bv = metric === 'sales' ? b.purchased : b.count
+      return bv - av
+    })
   const max = Math.max(1, ...base.map((c) => (metric === 'sales' ? c.purchased : c.count)))
   const points: GeoPoint[] = base.flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
@@ -100,48 +129,51 @@ function buildPoints(
         // Demanda visível: base menor (0.4→0.22) e range maior (0.8→1.1)
         size: 0.22 + (Math.log1p(value) / Math.log1p(max)) * 1.1,
         color: metric === 'sales' ? '#22c55e' : c.purchased > 0 ? PINK : CYAN,
-        label: `<div style="background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(37,244,238,0.6); box-shadow: 0 0 20px rgba(37,244,238,0.4); font-family: monospace; font-size: 11px; color: #fff;">${c.name}: ${c.count} visitas${c.purchased ? ` <span style="color:#22c55e;text-shadow:0 0 8px rgba(34,197,94,0.6)">· ${c.purchased} vendas</span>` : ''}</div>`,
+        label: `<div style="background: rgba(0, 0, 0, 0.68); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 7px 10px; border-radius: 10px; border: 1px solid rgba(37,244,238,0.4); font-family: monospace; font-size: 11px; color: #fff;">${escapeHtml(c.name)}: ${c.count} visitas${c.purchased ? ` <span style="color:#22c55e">· ${c.purchased} vendas</span>` : ''}</div>`,
       },
     ]
   })
 
-  // V2-41: anéis de pulso agora nos 5 países com mais tráfego (era 3) —
-  // o globo parece mais vivo com múltiplas ondas simultâneas.
-  const topRinged = countries.slice(0, 5)
-  const topMax = Math.max(1, ...topRinged.map((c) => c.count))
+  // Três ondas dão contexto sem formar uma malha de movimento contínua.
+  const topRinged = base.slice(0, MAX_AMBIENT_RINGS)
+  const topMax = Math.max(1, ...topRinged.map((c) => (metric === 'sales' ? c.purchased : c.count)))
   const rings: GeoRing[] = topRinged.flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
-    return [{ lat: coords[0], lng: coords[1], intensity: c.count / topMax }]
+    const value = metric === 'sales' ? c.purchased : c.count
+    return [{ lat: coords[0], lng: coords[1], intensity: value / topMax }]
   })
 
   // Fase 5: cada pulso de lead novo vira um anel temporário em intensidade
   // máxima (onda ampla e nítida). O TTL é gerido pelo pai (hero-globe) — quando
   // o pulso sai da lista, o anel some no próximo render.
-  for (const p of pulses) {
+  for (const p of pulses.slice(-2)) {
     const coords = COUNTRY_COORDS[p.code?.toUpperCase() ?? '']
     if (coords) rings.push({ lat: coords[0], lng: coords[1], intensity: 1 })
   }
 
-  // V2-42: labels dos 3 maiores, maiores e mais legíveis (0.85 → 1.0)
-  const labels: GeoLabel[] = countries.slice(0, 3).flatMap((c) => {
+  // Duas etiquetas bastam para orientar a leitura; o restante é explorável
+  // pelo hover nos pontos.
+  const labels: GeoLabel[] = base.slice(0, MAX_LABELS).flatMap((c) => {
     const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
     if (!coords) return []
     return [
       {
         lat: coords[0],
         lng: coords[1],
-        text: `${c.name} · ${c.count}`,
+        // `labelText` é desenhado no canvas, não interpretado como HTML.
+        // Escapar aqui exibiria entidades (&amp;) para o operador.
+        text: `${c.name} · ${metric === 'sales' ? c.purchased : c.count}`,
         size: 1.0,
       },
     ]
   })
 
-  // V2-43: mais arcos de tráfego — até 8 origens (era 5) convergindo ao líder
-  const leader = countries[0]
+  // No máximo três arcos: além disso, as linhas se cruzam e deixam de informar.
+  const leader = base[0]
   const leaderCoords = leader ? COUNTRY_COORDS[leader.code?.toUpperCase() ?? ''] : null
   const arcs: GeoArc[] = leaderCoords
-    ? countries.slice(1, 9).flatMap((c) => {
+    ? base.slice(1, MAX_ARCS + 1).flatMap((c) => {
         const coords = COUNTRY_COORDS[c.code?.toUpperCase() ?? '']
         if (!coords) return []
         return [
@@ -154,7 +186,7 @@ function buildPoints(
         ]
       })
     : []
-  return { points, rings, arcs, labels, omitted }
+  return { points, rings, arcs, labels }
 }
 
 /** True apenas na primeira montagem do globo nesta sessão do navegador. */
@@ -177,10 +209,12 @@ function GlobeCanvas({
   metric = 'visits',
   pulses = [],
   showArcs = true,
+  reducedMotion,
 }: GlobePanelProps & {
   width: number
   height: number
   globeRef: React.MutableRefObject<any>
+  reducedMotion: boolean
 }) {
   // Libera o contexto WebGL ao desmontar. O navegador limita a
   // ~8-16 contextos simultâneos — sem dispose, navegar entre abas
@@ -201,11 +235,6 @@ function GlobeCanvas({
     }
   }, [globeRef])
 
-  // Item 289: com prefers-reduced-motion o globo fica estático (sem
-  // auto-rotação nem zoom de entrada) — a interação manual continua livre.
-  const reducedMotion =
-    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
   useEffect(() => {
     const g = globeRef.current
     if (!g) return
@@ -223,11 +252,9 @@ function GlobeCanvas({
       /* renderer indisponível nesta versão */
     }
 
-    // V2-44: entrada cinematográfica aprimorada — além do zoom 4.0→2.2, o
-    // globo agora gira 60° de longitude durante a aproximação (efeito
-    // "chegando da órbita"). Única por sessão; reduced-motion pula direto.
-    // Item 15: entrada cinematográfica — zoom distante (5.5) desacelera suavemente
-    // até a posição final em 1.8s. Longitude -45 mostra mais Europa/Brasil.
+    // Uma entrada curta dá sensação de profundidade uma única vez na sessão;
+    // reduced-motion vai direto à posição final. Longitude -45 mostra
+    // Europa e Brasil sem exigir interação inicial.
     if (!reducedMotion && firstGlobeEntryThisSession()) {
       g.pointOfView({ lat: 8, lng: -90, altitude: ALT_ENTRY }, 0)
       window.setTimeout(() => {
@@ -314,7 +341,7 @@ function GlobeCanvas({
   // /api/live a cada 5s), forçando o three-globe a reconstruir tudo.
   // Fase 5: `pulses` entra na dependência — muda só quando um ping é
   // adicionado/expira (cadência do poll de 5s), nunca por frame.
-  const { points, rings, arcs, labels, omitted } = useMemo(
+  const { points, rings, arcs, labels } = useMemo(
     () => buildPoints(countries, metric, pulses),
     [countries, metric, pulses],
   )
@@ -323,19 +350,6 @@ function GlobeCanvas({
   // Memoizado para manter identidade estável — trocar a referência a cada render
   // faria o three-globe reconstruir a camada de arcos continuamente.
   const visibleArcs = useMemo(() => (showArcs ? arcs : []), [showArcs, arcs])
-
-  // Fase 5: alerta de cobertura — quantos países ativos ficaram fora do mapa
-  // por falta de coordenadas em country-coords.ts. Só loga quando o conjunto
-  // muda (assinatura), evitando ruído a cada poll.
-  const omittedSig = omitted.join(',')
-  useEffect(() => {
-    if (omitted.length > 0) {
-      console.warn(
-        `[globo] ${omitted.length} país(es) ativos sem coordenadas foram omitidos do mapa: ${omitted.join(', ')}. Amplie country-coords.ts para cobri-los.`,
-      )
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [omittedSig])
 
   return (
     <GlobeGL
@@ -351,11 +365,10 @@ function GlobeCanvas({
          earth-night deixava o globo escuro demais no card do overview */
       globeImageUrl="/dashboard/textures/earth-blue-marble.jpg"
       bumpImageUrl="/dashboard/textures/earth-topology.png"
-      /* V2-47: atmosfera mais volumosa (0.18 → 0.22) — halo ciano visível */
       showAtmosphere
       atmosphereColor={CYAN}
-      /* Item 11: atmosfera mais volumosa — halo ciano envolvente */
-      atmosphereAltitude={0.35}
+      /* Halo presente, mas sem "névoa" sobre os dados. */
+      atmosphereAltitude={0.22}
       pointsData={points}
       pointLat="lat"
       pointLng="lng"
@@ -367,13 +380,13 @@ function GlobeCanvas({
       pointsMerge={false}
       /* V2-49: transição suave quando os dados do poll mudam */
       pointsTransitionDuration={600}
-      /* Refino 5 + V2-41: ondas concêntricas nos 5 hotspots, raio ∝ tráfego */
+      /* Ondas suaves nos três hotspots; pulsos recentes entram acima delas. */
       ringsData={rings}
-      ringColor={() => (t: number) => metric === 'sales' ? `rgba(254,44,85,${(1 - t) * 0.85})` : `rgba(37,244,238,${(1 - t) * 0.85})`}
-      ringMaxRadius={(d: object) => 2.0 + (d as GeoRing).intensity * 3.0}
-      ringPropagationSpeed={1.5}
-      ringRepeatPeriod={1400}
-      /* V2-42: labels mono maiores com dot mais visível */
+      ringColor={() => (t: number) => metric === 'sales' ? `rgba(34,197,94,${(1 - t) * 0.68})` : `rgba(37,244,238,${(1 - t) * 0.68})`}
+      ringMaxRadius={(d: object) => 1.6 + (d as GeoRing).intensity * 2.5}
+      ringPropagationSpeed={0.85}
+      ringRepeatPeriod={2600}
+      /* Etiquetas enxutas para os dois pontos dominantes. */
       labelsData={labels}
       labelLat="lat"
       labelLng="lng"
@@ -383,20 +396,17 @@ function GlobeCanvas({
       labelDotRadius={0.34}
       labelAltitude={0.014}
       labelResolution={2}
-      /* V2-50: arcos mais grossos (0.4 → 0.5) e dash mais rápido (2s → 1.4s)
-         — o fluxo de tráfego rumo ao líder fica óbvio à primeira vista */
       arcsData={visibleArcs}
       arcStartLat="startLat"
       arcStartLng="startLng"
       arcEndLat="endLat"
       arcEndLng="endLng"
       arcColor={() => [CYAN, PINK]}
-      /* Item 13: arcos mais grossos e visíveis, animação mais fluida */
       arcAltitudeAutoScale={0.4}
-      arcStroke={0.65}
-      arcDashLength={0.4}
-      arcDashGap={0.5}
-      arcDashAnimateTime={1200}
+      arcStroke={0.48}
+      arcDashLength={0.35}
+      arcDashGap={0.65}
+      arcDashAnimateTime={2200}
       arcsTransitionDuration={600}
     />
   )
@@ -430,8 +440,9 @@ function GlobeControls({
       <button
         type="button"
         onClick={onFullscreen}
-        className="globe-ctl transition-transform hover:scale-110 focus:scale-110 active:scale-95 animate-pulse border-brand-cyan/50 shadow-[0_0_10px_rgba(37,244,238,0.2)]"
+        className="globe-ctl border-brand-cyan/50 shadow-[0_0_10px_rgba(37,244,238,0.16)]"
         aria-label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+        aria-pressed={isFullscreen}
       >
         {isFullscreen ? (
           <Minimize2 className="size-4" aria-hidden="true" />
@@ -448,7 +459,6 @@ function GlobeControls({
 function GlobeHud({ empty, note }: { empty?: boolean; note?: React.ReactNode }) {
   return (
     <>
-      <span className="hud-corner hud-corner--tl" aria-hidden="true" />
       {/* V2-51: vinheta radial interna — bordas escurecem, globo salta */}
       <span
         className="pointer-events-none absolute inset-0 z-[2]"
@@ -457,12 +467,6 @@ function GlobeHud({ empty, note }: { empty?: boolean; note?: React.ReactNode }) 
           background:
             'radial-gradient(ellipse 75% 70% at 50% 48%, transparent 62%, rgba(0,0,0,0.42) 100%)',
         }}
-      />
-      {/* V2-52: anel orbital decorativo girando atrás dos controles */}
-      <span
-        className="anim-orbit-slow pointer-events-none absolute left-1/2 top-1/2 z-[1] hidden size-[68%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed sm:block"
-        aria-hidden="true"
-        style={{ borderColor: 'rgba(37,244,238,0.08)' }}
       />
       {/* Estado vazio: o chamador pode passar uma nota contextual (HeroGlobe
           distingue "sem tracking" / "sem visitantes agora" / "erro de fetch").
@@ -502,6 +506,8 @@ export default function GlobePanel({
   const globeRef = useRef<any>(null)
   const [size, setSize] = useState({ w: 0, h: 320 })
   const resumeTimer = useRef<number | null>(null)
+  const reducedMotion = useReducedMotion()
+  const reducedMotionRef = useRef(reducedMotion)
   // Tela cheia nativa no container — o ResizeObserver já redimensiona o canvas
   const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -551,19 +557,30 @@ export default function GlobePanel({
     if (resumeTimer.current) window.clearTimeout(resumeTimer.current)
   }, [])
 
-  // Refino 9: interação magnética — hover acelera a rotação; arrastar pausa;
-  // retoma sozinho após 3s de inatividade.
+  useEffect(() => {
+    reducedMotionRef.current = reducedMotion
+    if (!reducedMotion) return
+    if (resumeTimer.current) window.clearTimeout(resumeTimer.current)
+    const globe = globeRef.current
+    if (globe) globe.controls().autoRotate = false
+  }, [reducedMotion])
+
+  // Interação contida: hover acelera levemente; arrastar pausa e só retoma
+  // após quatro segundos sem ação.
   function setSpin(speed: number) {
+    if (reducedMotion) return
     const g = globeRef.current
     if (!g) return
     g.controls().autoRotateSpeed = speed
   }
   function pauseSpin() {
+    if (reducedMotion) return
     const g = globeRef.current
     if (!g) return
     g.controls().autoRotate = false
     if (resumeTimer.current) window.clearTimeout(resumeTimer.current)
     resumeTimer.current = window.setTimeout(() => {
+      if (reducedMotionRef.current) return
       const g2 = globeRef.current
       if (!g2) return
       g2.controls().autoRotate = true
@@ -574,17 +591,14 @@ export default function GlobePanel({
   return (
     <div
       ref={containerRef}
-      className="globe-stage relative h-full w-full overflow-hidden bg-[radial-gradient(ellipse_at_center,rgba(37,244,238,0.06)_0%,transparent_70%)]"
+      className="globe-stage relative h-full w-full overflow-hidden bg-[radial-gradient(ellipse_at_center,rgba(37,244,238,0.05)_0%,transparent_70%)]"
       data-tour="globe"
+      role="region"
+      aria-label={empty ? 'Globo de tráfego: aguardando dados' : `Globo de tráfego: ${countries.length} ${countries.length === 1 ? 'país ativo' : 'países ativos'}`}
       onPointerEnter={() => setSpin(SPIN_HOVER)}
       onPointerLeave={() => setSpin(SPIN_IDLE)}
       onPointerDown={pauseSpin}
     >
-      <div className="star-container">
-        <div className="shooting-star" style={{ top: '20%', left: '30%', animationDelay: '0s' }} />
-        <div className="shooting-star" style={{ top: '40%', left: '80%', animationDelay: '1.5s' }} />
-        <div className="shooting-star" style={{ top: '70%', left: '10%', animationDelay: '2.7s' }} />
-      </div>
       {size.w > 0 && (
         <GlobeCanvas
           countries={countries}
@@ -594,18 +608,10 @@ export default function GlobePanel({
           metric={metric}
           pulses={pulses}
           showArcs={showArcs}
+          reducedMotion={reducedMotion}
         />
       )}
       <GlobeHud empty={empty} note={emptyNote} />
-      {/* Redesign: os números da base saíram daqui — agora moram no overlay do
-          HeroGlobe (contagem grande DENTRO do globo). Só fica o selo "ao vivo"
-          quando há pulso de lead novo (Fase 5). */}
-      {pulses.length > 0 && (
-        <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 font-mono text-[10.5px] tabular-nums text-emerald-400/90">
-          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-          ao vivo
-        </div>
-      )}
       <GlobeControls
         onZoomIn={() => zoomBy(globeRef, -ALT_STEP)}
         onZoomOut={() => zoomBy(globeRef, ALT_STEP)}

@@ -111,7 +111,10 @@ export function TikTokAdsView() {
     // compatibilidade dos aliases antigos (overview→today, ai→automation,
     // smartplus→campanhas+segmento) para não quebrar favoritos e deep-links.
     const readTab = () => {
-      const t = new URLSearchParams(window.location.search).get('tab')
+      const query = new URLSearchParams(window.location.search)
+      // `view` saiu em pushes antigos. Mantê-lo como fallback garante que uma
+      // notificação já entregue ainda abra a decisão certa.
+      const t = query.get('tab') || query.get('view')
       if (t && validTabs.has(t as TabKey)) setTab(t as TabKey)
       else if (t === 'overview') setTab('today')
       else if (t === 'ai') setTab('automation')
@@ -154,6 +157,7 @@ export function TikTokAdsView() {
   const { data: adsHealth } = useAdsHealth(connected)
   const bannedAccounts = (adsHealth?.health ?? []).filter((h) => h.status === 'banned')
   const openTickets = (adsHealth?.tickets ?? []).filter((t) => t.status === 'open' || t.status === 'submitted')
+  const hasAccountAlert = dryRunActive || killSwitchActive || bannedAccounts.length > 0
   const [detailCampaign, setDetailCampaign] = useState<AdsTreeCampaign | null>(null)
   const [duplicateCampaign, setDuplicateCampaign] = useState<AdsTreeCampaign | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
@@ -278,8 +282,9 @@ export function TikTokAdsView() {
 
   return (
     <div className="min-w-0 flex flex-col gap-4">
-      {/* Cabeçalho: título + conta conectada + ações principais */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Só existe quando há um estado que exige atenção — sem uma faixa vazia
+          acima do contexto da conta. */}
+      {hasAccountAlert && (
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Badge de guardrail ativo — o usuário entende por que nada publica */}
           {killSwitchActive ? (
@@ -316,10 +321,7 @@ export function TikTokAdsView() {
             </button>
           )}
         </div>
-        {/* O header ficou só com identidade + estado (badges). As AÇÕES moram
-            nas abas onde são usadas: criar/subir/Spark na aba Campanhas, saúde
-            na aba Automações — antes 6 ações disputavam o topo da página. */}
-      </div>
+      )}
 
       {/* Barra de contexto: conta de anúncio + deep-link + desconectar */}
       <AdsContextBar
@@ -357,15 +359,12 @@ export function TikTokAdsView() {
       />
 
       {!effectiveAdvertiser ? (
-        <GlassCard className="flex flex-col items-center gap-3 p-10 text-center">
+        <GlassCard className="flex flex-col items-center gap-2 p-6 text-center">
           <span className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary">
             <Megaphone className="size-5" aria-hidden="true" />
           </span>
           <p className="text-sm font-medium text-foreground">Selecione um advertiser</p>
-          <p className="max-w-md text-pretty text-xs text-muted-foreground">
-            Escolha acima qual conta de anúncio do TikTok você quer gerenciar. As campanhas, métricas e a
-            criação de anúncios valem para o advertiser selecionado.
-          </p>
+          <p className="max-w-md text-pretty text-xs text-muted-foreground">Escolha uma conta acima para ver e operar as campanhas.</p>
         </GlassCard>
       ) : (
         <>
@@ -411,12 +410,9 @@ export function TikTokAdsView() {
                   {tree.syncError.code === 'ACCOUNT_BLOCKED' ? (
                     <>
                       <p className="text-pretty text-xs leading-relaxed text-muted-foreground">
-                        O Pipeboard limita o time a 10 contas de anúncio por mês (limite compartilhado por
-                        todos, não por pessoa). Esta conta ficou fora do limite
-                        {tree.syncError.blockedUntil ? ` e volta a liberar em ${tree.syncError.blockedUntil}` : ''}.
-                        Por isso as campanhas e métricas aparecem zeradas — os dados existem no TikTok, mas o
-                        acesso via API está bloqueado. O servidor re-testa sozinho a cada 30 min; se o estado
-                        estiver apenas desatualizado, o botão abaixo destrava na hora.
+                        O Pipeboard ainda não liberou os dados desta conta. Suas campanhas seguem intactas no TikTok;
+                        o painel tenta de novo automaticamente.
+                        {tree.syncError.blockedUntil ? ` Nova tentativa após ${tree.syncError.blockedUntil}.` : ''}
                       </p>
                       <button
                         type="button"
@@ -563,11 +559,7 @@ export function TikTokAdsView() {
           {/* ── Aba: Catálogo — produtos + feed + publicação no TikTok (DPA).
               Antes era página própria no menu; agora vive onde é usado. ── */}
           {tab === 'catalog' && (
-            <section className="min-w-0 flex flex-col gap-3" aria-labelledby="catalog-heading">
-              <h2 id="catalog-heading" className="flex items-center gap-2 px-1 text-sm font-semibold text-foreground">
-                <ShoppingBag className="size-4 text-primary" aria-hidden="true" />
-                Catálogos
-              </h2>
+            <section className="min-w-0" aria-label="Catálogos">
               <CatalogManager
                 advertiserId={concreteAdvertiser}
                 advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}

@@ -88,6 +88,10 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
+function isProductLinkAd(ad: AdsTreeAd): boolean {
+  return String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK' && Boolean(ad.catalogId)
+}
+
 // Métricas que saíram da linha compacta e vivem agora no expand.
 function SecondaryMetrics({ m, currency }: { m?: AdsMetrics; currency: string }) {
   return (
@@ -659,7 +663,11 @@ export function CampaignTree({
                           <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">
                             {fmtMoney(ad.metrics?.spend, currency)} · {fmtCompact(ad.metrics?.impressions)} impr.
                           </span>
-                          {ad.creative?.linkUrl && (
+                          {isProductLinkAd(ad) ? (
+                            <span className="hidden rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary sm:inline" title="O destino vem do campo Link dos produtos deste catálogo">
+                              Link do catálogo
+                            </span>
+                          ) : ad.creative?.linkUrl && (
                             <a
                               href={ad.creative.linkUrl}
                               target="_blank"
@@ -676,7 +684,7 @@ export function CampaignTree({
                             className="btn-ghost px-1.5 py-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
                             onClick={() => setEditAd({ ad, adAccountId: c.platformAdAccountId || '' })}
                             aria-label={`Editar anúncio ${ad.name || adKey}`}
-                            title="Editar texto, botão e link"
+                            title={isProductLinkAd(ad) ? 'Editar texto e botão' : 'Editar texto, botão e link'}
                           >
                             <Pencil className="size-3" aria-hidden="true" />
                           </button>

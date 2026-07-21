@@ -928,6 +928,11 @@ export interface AdsTreeAd {
   platformAdId?: string
   name?: string
   status?: AdsNodeStatus
+  // Product Link não possui URL no nível do anúncio: o destino é o campo
+  // Link do produto no catálogo. A árvore expõe a semântica para que a UI não
+  // ofereça uma edição de URL que quebraria esse contrato.
+  catalogId?: string
+  websiteType?: string
   adType?: 'boost' | 'standalone' | string
   goal?: string
   isExternal?: boolean

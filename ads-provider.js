@@ -563,6 +563,8 @@ async function getDashboardTree(accountId, opts = {}) {
         platformAdId: ad.id,
         name: ad.name,
         status: tiktokStatusToNode(ad.status, ad.secondaryStatus),
+        catalogId: ad.catalogId || undefined,
+        websiteType: ad.websiteType || undefined,
         budget: null,
         metrics: aMet.get(ad.id) || Object.assign({}, EMPTY_METRICS),
         creative: {
@@ -911,25 +913,47 @@ async function listInterestCategories(advertiserId) {
 }
 
 // Identidade do anúncio — a doc do create_tiktok_ad PROÍBE chutar: tem de vir
-// de get_tiktok_identities. Para anúncio regular (vídeo enviado, não-Spark):
-//   CUSTOMIZED_USER (clássica; criação de novas está deprecated mas as
-//   existentes seguem utilizáveis) > BC_AUTH_TT (exige identity_bc_id e
-//   dark_post_status ON). TT_USER/AUTH_CODE são Spark-only (exigem post).
+// de get_tiktok_identities. Para criação automática regular/Smart+/catálogo,
+// só BC_AUTH_TT é elegível: o schema atual do conector marca CUSTOMIZED_USER
+// como rejeitável. TT_USER/AUTH_CODE são Spark-only (exigem post). Falhar
+// fechado é melhor que criar uma estrutura pausada que jamais passa da revisão.
+function identityIdOf(row) {
+  return String((row && (row.identity_id || row.id)) || '').trim();
+}
+
+function identityBcIdOf(row) {
+  return String((row && (
+    row.identity_authorized_bc_id || row.identity_bc_id || row.bc_id || deepPluck(row, 'bc_id')
+  )) || '').trim();
+}
+
+function darkPostDisabled(row) {
+  const value = String((row && (row.dark_post_status || row.darkPostStatus)) || '').trim().toUpperCase();
+  return ['OFF', 'DISABLE', 'DISABLED', 'FALSE', '0'].includes(value);
+}
+
+function usableBcIdentity(row) {
+  return String((row && row.identity_type) || '').toUpperCase() === 'BC_AUTH_TT'
+    && Boolean(identityIdOf(row))
+    && Boolean(identityBcIdOf(row))
+    && !darkPostDisabled(row);
+}
+
+function bcIdentityPayload(row) {
+  return {
+    identityId: identityIdOf(row),
+    identityType: 'BC_AUTH_TT',
+    identityBcId: identityBcIdOf(row),
+    darkPost: true,
+  };
+}
+
 async function pickAdIdentity(advertiserId) {
   const out = await pipeboard.callTool('get_tiktok_identities', { advertiser_id: advertiserId });
   const list = firstArray(out, ['identities', 'identity_list', 'list', 'data']);
-  const byType = (t) => list.find((i) => String(i.identity_type || '').toUpperCase() === t && (i.identity_id || i.id));
-  const custom = byType('CUSTOMIZED_USER');
-  if (custom) return { identityId: String(custom.identity_id || custom.id), identityType: 'CUSTOMIZED_USER' };
-  const bc = byType('BC_AUTH_TT');
-  if (bc) {
-    return {
-      identityId: String(bc.identity_id || bc.id), identityType: 'BC_AUTH_TT',
-      identityBcId: String(bc.identity_authorized_bc_id || bc.bc_id || deepPluck(bc, 'bc_id') || '') || undefined,
-      darkPost: true,
-    };
-  }
-  throw stepError('identity', 'Nenhuma identidade utilizável para anúncio regular neste advertiser (é preciso uma identidade CUSTOMIZED_USER existente ou BC_AUTH_TT). TT_USER/AUTH_CODE servem só para Spark Ads.', null, 409);
+  const bc = list.find(usableBcIdentity);
+  if (bc) return bcIdentityPayload(bc);
+  throw stepError('identity', 'Nenhuma identidade BC_AUTH_TT elegível foi encontrada para criar anúncio. Conecte uma identidade autorizada ao Business Center com dark post habilitado; CUSTOMIZED_USER, TT_USER e AUTH_CODE não são escolhidos automaticamente.', null, 409);
 }
 
 // Upload por URL + polling canônico: get_tiktok_video_info a cada ~5s até
@@ -1397,9 +1421,13 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
     ads: { ...(resume.ads || {}) },
   };
 
+  // Se algum anúncio não trouxer uma identidade BC válida, a identidade de
+  // fallback é pré-validada ANTES de criar a campanha. Assim uma cópia de
+  // Spark/CUSTOMIZED_USER sem BC autorizado falha fechada, sem deixar órfão.
+  const needsFallbackIdentity = (capture.ads || []).some((ad) => !usableBcIdentity(ad));
   const [info, fallbackIdentity] = await Promise.all([
     getAdvertiserInfo(adv),
-    pickAdIdentity(adv).catch(() => null),
+    needsFallbackIdentity ? pickAdIdentity(adv) : Promise.resolve(null),
   ]);
 
   // 1) Campanha
@@ -1486,24 +1514,24 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
       if (vid) adArgs.video_id = vid;
       else if (Array.isArray(imgs) && imgs.length) adArgs.image_ids = imgs;
       else { warnings.push('Anúncio ' + srcAdId + ' ignorado: origem não expõe video_id/image_ids'); continue; }
-      // Identidade: a da origem se exposta; senão a utilizável da conta.
-      const srcIdentityId = String(srcAd.identity_id || '');
+      // Uma cópia nunca reaproveita CUSTOMIZED_USER automaticamente. Só uma
+      // identidade BC_AUTH_TT verificável pode acompanhar o anúncio de origem;
+      // Spark e identidades legadas caem na BC_AUTH_TT selecionada da conta.
       const srcIdentityType = String(srcAd.identity_type || '').toUpperCase();
-      if (srcIdentityId && srcIdentityType && srcIdentityType !== 'TT_USER' && srcIdentityType !== 'AUTH_CODE') {
-        adArgs.identity_id = srcIdentityId;
-        adArgs.identity_type = srcIdentityType;
-        if (srcAd.identity_authorized_bc_id) adArgs.identity_authorized_bc_id = String(srcAd.identity_authorized_bc_id);
-        if (srcIdentityType === 'BC_AUTH_TT') {
-          if (srcAd.identity_bc_id) adArgs.identity_bc_id = String(srcAd.identity_bc_id);
-          adArgs.dark_post_status = 'ON';
-        }
-      } else if (fallbackIdentity) {
-        adArgs.identity_id = fallbackIdentity.identityId;
-        adArgs.identity_type = fallbackIdentity.identityType;
-        if (fallbackIdentity.identityBcId) adArgs.identity_bc_id = fallbackIdentity.identityBcId;
-        if (fallbackIdentity.darkPost) adArgs.dark_post_status = 'ON';
-        if (srcIdentityType === 'TT_USER' || srcIdentityType === 'AUTH_CODE') warnings.push('Anúncio ' + srcAdId + ' era Spark (identidade não copiável) — recriado com a identidade padrão da conta');
-      } else { warnings.push('Anúncio ' + srcAdId + ' ignorado: nenhuma identidade utilizável'); continue; }
+      const identity = usableBcIdentity(srcAd) ? bcIdentityPayload(srcAd) : fallbackIdentity;
+      if (!identity) {
+        throw stepError('identity', 'Nenhuma identidade BC_AUTH_TT elegível para recriar o anúncio ' + srcAdId + '. A cópia foi interrompida antes de publicar o anúncio.', progress, 409);
+      }
+      adArgs.identity_id = identity.identityId;
+      adArgs.identity_type = identity.identityType;
+      adArgs.identity_bc_id = identity.identityBcId;
+      adArgs.dark_post_status = 'ON';
+      if (!usableBcIdentity(srcAd)) {
+        const sourceIdentityLabel = ['TT_USER', 'AUTH_CODE'].includes(srcIdentityType)
+          ? 'identidade Spark (' + srcIdentityType + ')'
+          : 'identidade ' + (srcIdentityType || 'não identificada');
+        warnings.push('Anúncio ' + srcAdId + ' usava ' + sourceIdentityLabel + ' — recriado com a identidade BC autorizada da conta');
+      }
       if (srcAd.landing_page_url) adArgs.landing_page_url = String(srcAd.landing_page_url).slice(0, 500);
       if (srcAd.call_to_action) adArgs.call_to_action = String(srcAd.call_to_action);
       else if (srcAd.call_to_action_id) adArgs.call_to_action_id = String(srcAd.call_to_action_id);
@@ -2240,14 +2268,22 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   // antes pelo worker e a leitura posterior exige o mesmo valor.
   const SHOPPING_TYPE = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'VIDEO_SHOPPING_ADS').trim();
   const AD_FORMAT = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_VIDEO').trim();
-  const explicitIdentity = s.identityId && s.identityType ? {
-    identityId: String(s.identityId), identityType: String(s.identityType).toUpperCase(),
-    identityBcId: s.identityBcId ? String(s.identityBcId) : undefined,
-  } : null;
+  let explicitIdentity = null;
+  if (s.identityId || s.identityType || s.identityBcId) {
+    const row = {
+      identity_id: String(s.identityId || ''),
+      identity_type: String(s.identityType || '').toUpperCase(),
+      identity_bc_id: String(s.identityBcId || ''),
+    };
+    if (!usableBcIdentity(row)) {
+      throw badRequest('Campanha de catálogo só aceita uma identidade BC_AUTH_TT com Business Center autorizado. CUSTOMIZED_USER não é elegível para criação automática.');
+    }
+    explicitIdentity = bcIdentityPayload(row);
+  }
   const warnings = [];
   const [info, identity, regions] = await Promise.all([
     getAdvertiserInfo(adv),
-    explicitIdentity || pickAdIdentity(adv).catch(() => null),
+    explicitIdentity || pickAdIdentity(adv),
     resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
   ]);
   if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));

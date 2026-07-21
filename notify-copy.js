@@ -177,12 +177,14 @@ const URLS = {
   ads: '/dashboard/ads/tiktok',
   ads_attention: '/dashboard/ads/tiktok',
   ads_rejected: '/dashboard/ads/tiktok',
-  ads_proposal: '/dashboard/ads/tiktok?view=automation',
-  ads_failure: '/dashboard/ads/tiktok?view=automation',
+  // A dashboard usa `tab=automation` (não o alias legado `view`). Esses
+  // alertas são acionáveis; o deep link precisa abrir a superfície certa.
+  ads_proposal: '/dashboard/ads/tiktok?tab=automation',
+  ads_failure: '/dashboard/ads/tiktok?tab=automation',
   ads_breaker: '/dashboard/ads/tiktok',
   ads_cap: '/dashboard/ads/tiktok',
   ads_briefing: '/dashboard/ads/tiktok',
-  ads_routine: '/dashboard/ads/tiktok?view=automation',
+  ads_routine: '/dashboard/ads/tiktok?tab=automation',
   test: '/dashboard/config'
 };
 

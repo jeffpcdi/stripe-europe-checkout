@@ -102,8 +102,6 @@ export function CatalogCampaignWizard({
   const [productIds, setProductIds] = useState('')
   const [productSetId, setProductSetId] = useState('')
   const [templateId, setTemplateId] = useState('')
-  const [identityId, setIdentityId] = useState('')
-  const [identityType, setIdentityType] = useState('CUSTOMIZED_USER')
   const [pixelId, setPixelId] = useState('')
   const [pixelEvent, setPixelEvent] = useState('PURCHASE')
   const [text, setText] = useState('')
@@ -120,7 +118,6 @@ export function CatalogCampaignWizard({
       productIds: productIds.split(',').map((id) => id.trim()).filter(Boolean),
       productSetId: productSetId.trim() || undefined,
       catalogVideoTemplateId: templateId.trim() || undefined,
-      identityId: identityId.trim() || undefined, identityType: identityId.trim() ? identityType : undefined,
       pixelId: pixelId.trim() || undefined, pixelEvent: pixelId.trim() ? pixelEvent.trim() : undefined,
       text: text.trim() || undefined, callToAction: cta,
       idempotencyKey: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${catalog.id}:${Date.now()}`,
@@ -182,11 +179,9 @@ export function CatalogCampaignWizard({
           {productScope === 'specific' && <label className="block text-[11px] text-muted-foreground">Product IDs do TikTok, separados por vírgula<input className="input-base mt-1 w-full" value={productIds} onChange={(e) => setProductIds(e.target.value)} placeholder="7664730406680594184" /></label>}
           {productScope === 'product_set' && <label className="block text-[11px] text-muted-foreground">Product Set ID<input className="input-base mt-1 w-full" value={productSetId} onChange={(e) => setProductSetId(e.target.value)} /></label>}
           <details className="rounded-lg border border-border p-3">
-            <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Identidade, pixel e criativo avançado</summary>
+            <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Pixel e criativo avançado</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="text-[11px] text-muted-foreground">Catalog Video Template ID (opcional)<input className="input-base mt-1 w-full" value={templateId} onChange={(e) => setTemplateId(e.target.value.replace(/\s/g, ''))} placeholder="Somente se a variação VSA exigir template" /></label>
-              <label className="text-[11px] text-muted-foreground">Identity ID<input className="input-base mt-1 w-full" value={identityId} onChange={(e) => setIdentityId(e.target.value)} placeholder="Opcional: autodetectar" /></label>
-              <label className="text-[11px] text-muted-foreground">Tipo<select className="input-base mt-1 w-full" value={identityType} onChange={(e) => setIdentityType(e.target.value)}><option>CUSTOMIZED_USER</option><option>BC_AUTH_TT</option></select></label>
               <label className="text-[11px] text-muted-foreground">Pixel ID<input className="input-base mt-1 w-full" value={pixelId} onChange={(e) => setPixelId(e.target.value)} placeholder="Numérico ou alfanumérico" /></label>
               <label className="text-[11px] text-muted-foreground">Evento<input className="input-base mt-1 w-full" value={pixelEvent} onChange={(e) => setPixelEvent(e.target.value)} /></label>
               <label className="text-[11px] text-muted-foreground">Texto<input className="input-base mt-1 w-full" value={text} onChange={(e) => setText(e.target.value)} /></label>
