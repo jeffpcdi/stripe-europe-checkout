@@ -47,6 +47,7 @@ import type {
   AdsCatalogBusinessCenter,
   AdsCatalogBatchPreviewResponse,
   AdsCatalogBatchExecutionResponse,
+  AdsTikTokPixel,
   AdsSmartPlusResponse,
   AdsSmartPlusAdsResponse,
   AdsMcpStatusResponse,
@@ -56,6 +57,7 @@ import type {
   AdsBudgetProposal,
   CopilotEvent,
 } from './types'
+import { catalogSyncRunsRefreshInterval } from './catalog-run-polling'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
 // `hint` traz a orientação pt-BR do que fazer; `code` é estável para lógica.
@@ -738,7 +740,24 @@ export function useAdsCatalogCapabilities(active: boolean, adAccountId: string) 
   return useSWR<{ capabilities: Record<string, boolean | string> }>(
     active && adAccountId ? adsCatalogApiUrl('/api/ads/catalogs/capabilities', adAccountId) : null,
     fetcher,
-    { revalidateOnFocus: false, revalidateIfStale: false },
+    {
+      // O conector pode ganhar o contrato Product Link sem a tela ser
+      // recarregada. Enquanto a capacidade ainda estiver bloqueada, reconsulta
+      // em baixa frequência; assim o banner e o botão acompanham a mesma
+      // liberação que os workers duráveis usam no backend.
+      refreshInterval: (latest) => latest?.capabilities.manualCatalogCampaign === true ? 0 : 60_000,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      keepPreviousData: false,
+    },
+  )
+}
+
+export function useAdsTikTokPixels(active: boolean, adAccountId: string) {
+  return useSWR<{ pixels: AdsTikTokPixel[] }>(
+    active && adAccountId ? adsCatalogApiUrl('/api/ads/pixels', adAccountId) : null,
+    fetcher,
+    { revalidateOnFocus: true, revalidateOnReconnect: true, keepPreviousData: false },
   )
 }
 
@@ -747,7 +766,7 @@ export function useAdsCatalogSyncRuns(catalogId: string | null, adAccountId: str
     catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-runs`, adAccountId) : null,
     fetcher,
     {
-      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'waiting_connector_confirmation', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
+      refreshInterval: (latest) => catalogSyncRunsRefreshInterval(latest?.runs),
       revalidateOnFocus: true, keepPreviousData: false,
     },
   )

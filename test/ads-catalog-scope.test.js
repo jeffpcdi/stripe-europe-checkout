@@ -12,28 +12,26 @@ const api = fs.readFileSync(path.join(root, 'dashboard/lib/api.ts'), 'utf8');
 const manager = fs.readFileSync(path.join(root, 'dashboard/components/ads/catalog-manager.tsx'), 'utf8');
 const types = fs.readFileSync(path.join(root, 'dashboard/lib/types.ts'), 'utf8');
 const batchDialog = fs.readFileSync(path.join(root, 'dashboard/components/ads/catalog-batch-dialog.tsx'), 'utf8');
+const batchPlanSource = fs.readFileSync(path.join(root, 'dashboard/lib/catalog-batch-plan.ts'), 'utf8');
 
-// O parser vive no componente client-side. Transpilamos apenas seu trecho puro
-// para validar os formatos de planilha sem montar React/Next no teste Node.
+// O parser é um módulo puro da dashboard; transpilamos sem montar React/Next
+// para validar os formatos de planilha no teste Node.
 const typescript = require(path.join(root, 'dashboard/node_modules/typescript'));
 function loadBatchParser() {
-  const start = batchDialog.indexOf('type BatchCatalog');
-  const end = batchDialog.indexOf('function randomKey');
-  assert.ok(start >= 0 && end > start, 'trecho puro do parser de lote encontrado');
-  const source = batchDialog.slice(start, end) + '\nmodule.exports = { parseDelimited, buildPlan };';
-  const transpiled = typescript.transpileModule(source, {
+  const transpiled = typescript.transpileModule(batchPlanSource, {
     compilerOptions: { module: typescript.ModuleKind.CommonJS, target: typescript.ScriptTarget.ES2022 },
   }).outputText;
-  const sandbox = { module: { exports: {} }, exports: {} };
+  const sandbox = { module: { exports: {} } };
+  sandbox.exports = sandbox.module.exports;
   require('vm').runInNewContext(transpiled, sandbox, { filename: 'catalog-batch-parser.ts' });
   return sandbox.module.exports;
 }
 const batchParser = loadBatchParser();
 
-const semicolonPlan = batchParser.buildPlan([
-  'catalogo;sku;titulo;preco;link;imagem;campanha;orcamento',
-  'Loja Verão;SKU-001;Camiseta;79,90;https://loja.example/camiseta;https://cdn.example/camiseta.jpg;Verão;1.000,00',
-].join('\n'), 'BRL', '');
+const semicolonPlan = batchParser.buildCatalogBatchPlan([
+  'catalogo;sku;titulo;preco;link;imagem;marca;campanha;orcamento',
+  'Loja Verão;SKU-001;Camiseta;79,90;https://loja.example/camiseta;https://cdn.example/camiseta.jpg;Marca Real;Verão;1.000,00',
+].join('\n'), 'BRL');
 assert.strictEqual(semicolonPlan.catalogs.length, 1, 'CSV separado por ponto e vírgula forma um catálogo');
 assert.strictEqual(semicolonPlan.catalogs[0].products[0].data.price, '79.90 BRL', 'preço pt-BR continua normalizado');
 assert.strictEqual(semicolonPlan.catalogs[0].campaigns[0].budgetAmount, 1000, 'orçamento pt-BR com milhar vira número');
@@ -78,6 +76,26 @@ assert.strictEqual(typeof scopedKey, 'function');
 assert.strictEqual(scopedKey('adv_a', 'mesma-chave'), scopedKey('adv_a', 'mesma-chave'));
 assert.notStrictEqual(scopedKey('adv_a', 'mesma-chave'), scopedKey('adv_b', 'mesma-chave'));
 assert.ok(scopedKey('adv_a', 'x'.repeat(200)).length <= 200);
+const minErrors = registerAdsRoutes.catalogBatchMinimumErrors({ catalogs: [{
+  key: 'curto', products: Array.from({ length: 3 }, () => ({ data: { availability: 'in stock' } })), campaigns: [{ name: 'Campanha' }],
+}] });
+assert.strictEqual(minErrors.length, 1, 'lote com campanha e só três produtos é bloqueado no preview');
+assert.strictEqual(minErrors[0].code, 'CATALOG_CAMPAIGN_MIN_PRODUCTS_REQUIRED');
+assert.strictEqual(registerAdsRoutes.catalogBatchMinimumErrors({ catalogs: [{
+  key: 'pronto', products: Array.from({ length: 4 }, () => ({ data: { availability: 'in stock' } })), campaigns: [{ name: 'Campanha' }],
+}] }).length, 0, 'quatro produtos válidos passam pela barreira inicial');
+const batchCampaignBase = {
+  key: 'pixel', name: 'Catálogo Pixel', currency: 'BRL', country: 'BR',
+  products: Array.from({ length: 4 }, () => ({ data: { availability: 'in stock' } })),
+  campaigns: [{ name: 'Campanha', budgetAmount: 50 }],
+};
+const missingPixel = registerAdsRoutes.catalogBatchCampaignSpecErrors({ catalogs: [batchCampaignBase] });
+assert.ok(missingPixel.some((error) => error.code === 'CATALOG_PIXEL_REQUIRED'), 'preview em massa exige pixel antes de criar qualquer catálogo');
+const withPixel = registerAdsRoutes.catalogBatchCampaignSpecErrors({ catalogs: [{
+  ...batchCampaignBase,
+  campaigns: [{ name: 'Campanha', budgetAmount: 50, pixelId: '7550683248272228369' }],
+}] });
+assert.strictEqual(withPixel.length, 0, 'lote com quatro produtos e pixel válido passa pelo contrato de campanha');
 assert.match(catalogSection, /idempotencyKey: scopedCatalogRunIdempotencyKey\([\s\S]*?catalog-batch-sync/);
 assert.match(catalogSection, /idempotencyKey: scopedCatalogRunIdempotencyKey\([\s\S]*?catalog-batch-campaign/);
 assert.match(catalogSection, /const idempotencyKey = scopedCatalogRunIdempotencyKey\(\s*advertiserId/);
@@ -97,6 +115,7 @@ const batchProduct = (index) => ({ data: {
   price: '50.00 BRL',
   link: 'https://loja.example/produto-' + index,
   image_link: 'https://cdn.example/imagem-' + index + '.jpg',
+  brand: 'Marca ' + index,
 } });
 const fullBatch = { catalogs: [{ key: 'lote', name: 'Lote', products: Array.from({ length: 1500 }, (_, index) => batchProduct(index)) }] };
 assert.ok(Buffer.byteLength(JSON.stringify(fullBatch)) > 200 * 1024, 'lote válido de 1.500 produtos ultrapassa o limite global de 200 KB');

@@ -85,7 +85,7 @@ async function main() {
     const harness = withWorker({
       store: {
         enabled: true,
-        async getCatalog() { return catalog({ approved: 2, pending: 0 }); },
+        async getCatalog() { return catalog({ approved: 4, pending: 0 }); },
         async listProducts() { return [{ valid: true, updatedAt: '2026-07-21T10:00:00.000Z' }]; },
         async updateCampaignRun(_acc, _run, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
       },
@@ -131,7 +131,7 @@ async function main() {
     const harness = withWorker({
       store: {
         enabled: true,
-        async getCatalog() { return catalog({ approved: 2, pending: 0 }); },
+        async getCatalog() { return catalog({ approved: 4, pending: 0 }); },
         async listProducts() { return [{ valid: true, updatedAt: '2026-07-21T10:00:00.000Z' }]; },
         async updateCampaignRun(_acc, _run, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
       },
@@ -168,7 +168,7 @@ async function main() {
     const harness = withWorker({
       store: {
         enabled: true,
-        async getCatalog() { return catalog({ approved: 2, pending: 0 }); },
+        async getCatalog() { return catalog({ approved: 4, pending: 0 }); },
         async listProducts() { return [{ valid: true, updatedAt: '2026-07-21T10:00:00.000Z' }]; },
         async updateCampaignRun(_acc, _run, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
       },

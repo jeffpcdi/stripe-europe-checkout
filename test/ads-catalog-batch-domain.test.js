@@ -25,6 +25,7 @@ function product(overrides) {
     price: '19.90 BRL',
     link: 'https://loja.example/produto',
     image_link: 'https://cdn.example/produto.jpg',
+    brand: 'Marca real',
     ...overrides,
   };
 }

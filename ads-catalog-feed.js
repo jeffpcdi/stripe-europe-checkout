@@ -15,11 +15,14 @@ const COLUMNS = [
   'custom_label_3', 'custom_label_4'
 ];
 
-const REQUIRED = ['sku_id', 'title', 'description', 'availability', 'condition', 'price', 'link', 'image_link'];
+// O template oficial trata `brand` como o 9º campo obrigatório. Não inferimos
+// marca a partir de título, domínio ou nome do catálogo: isso criaria dados
+// comerciais incorretos e o TikTok pode rejeitar o produto na auditoria.
+const REQUIRED = ['sku_id', 'title', 'description', 'availability', 'condition', 'price', 'link', 'image_link', 'brand'];
 
 // Enums aceitos pelo TikTok (case-insensitive na validação).
 const ENUMS = {
-  availability: ['in stock', 'available', 'preorder', 'out of stock', 'discontinued'],
+  availability: ['in stock', 'available for order', 'preorder', 'out of stock', 'discontinued'],
   condition: ['new', 'refurbished', 'used'],
   age_group: ['newborn', 'infant', 'toddler', 'kids', 'adult'],
   gender: ['male', 'female', 'unisex']

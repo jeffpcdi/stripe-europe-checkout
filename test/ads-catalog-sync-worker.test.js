@@ -17,9 +17,16 @@ const publications = [];
 const syncPromotions = [];
 const pendingAuditCatalogs = [];
 const auditRefreshes = [];
+const unconfirmed = [];
 let created = 0;
 let overviewCalls = 0;
 let overview = { approved: 0, pending: 4, rejected: 0, total: 4 };
+let uploadResponse = { job_id: 'job_1', file_format: 'CSV' };
+let remoteFeeds = { total: 0, feeds: [], raw: { total_feeds: 0 } };
+let productRows = Array.from({ length: 4 }, (_, index) => ({
+  id: 'prod_' + index, valid: true,
+  data: { sku_id: 'sku_' + index, brand: 'Marca real' },
+}));
 
 const localCatalog = {
   id: 'cat_local', advertiserId: 'adv_1', name: 'Catálogo preservado',
@@ -27,6 +34,7 @@ const localCatalog = {
   tiktokCatalogId: '7662123486130784016', bcId: '7550683248272228369',
   linkStatus: 'error', productCount: 4,
 };
+const deletedRemoteCatalogId = localCatalog.tiktokCatalogId;
 
 require.cache[storePath] = {
   id: storePath, filename: storePath, loaded: true,
@@ -37,6 +45,10 @@ require.cache[storePath] = {
       assert.strictEqual(advertiserId, 'adv_1');
       assert.strictEqual(catalogId, 'cat_local');
       return { ...localCatalog };
+    },
+    async listProducts(_accountId, advertiserId) {
+      assert.strictEqual(advertiserId, 'adv_1');
+      return productRows;
     },
     async updateSyncRun(_accountId, _runId, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
     async promoteSyncRunsAwaitingConnectorConfirmation(limit) {
@@ -57,6 +69,9 @@ require.cache[storePath] = {
       auditRefreshes.push(audit);
       return { ...localCatalog, tiktokCatalogId: '7999000000000000001', bcId: localCatalog.bcId, linkStatus: 'verified', audit };
     },
+    async markSyncUnconfirmed(accountId, advertiserId, catalogId) {
+      unconfirmed.push({ accountId, advertiserId, catalogId });
+    },
     async listCatalogsAwaitingTikTokAudit() { return pendingAuditCatalogs.slice(); },
     async appendPublication(_accountId, advertiserId, _catalogId, event) {
       assert.strictEqual(advertiserId, 'adv_1');
@@ -71,8 +86,12 @@ require.cache[providerPath] = {
     enabled: true,
     async getCatalogCapabilities() { return { catalogCreate: true }; },
     async createTikTokCatalog() { created += 1; return { catalogId: '7999000000000000001' }; },
-    async uploadTikTokCatalogProducts(bcId, catalogId, feedUrl) { uploads.push({ bcId, catalogId, feedUrl }); },
+    async uploadTikTokCatalogProducts(bcId, catalogId, feedUrl) {
+      uploads.push({ bcId, catalogId, feedUrl });
+      return uploadResponse;
+    },
     async getTikTokCatalogOverview() { overviewCalls += 1; return overview; },
+    async getTikTokCatalogFeeds() { return remoteFeeds; },
   },
 };
 
@@ -80,7 +99,7 @@ require.cache[gatewayPath] = {
   id: gatewayPath, filename: gatewayPath, loaded: true,
   exports: {
     async verifyCatalogLink(_provider, { catalogId }) {
-      if (catalogId === localCatalog.tiktokCatalogId) {
+      if (catalogId === deletedRemoteCatalogId) {
         const error = new Error('O catálogo não foi encontrado neste Business Center.');
         error.code = 'CATALOG_NOT_FOUND_IN_BC';
         throw error;
@@ -114,6 +133,8 @@ const worker = require(workerPath);
   });
   assert.strictEqual(publications.at(-1).status, 'success');
   assert.strictEqual(updates.at(-1).status, 'completed');
+  assert.strictEqual(updates.at(-1).patch.stage, 'reviewed_tiktok');
+  assert.strictEqual(updates.at(-1).patch.progress.uploadReceipt.jobId, 'job_1', 'recibo do upload fica persistido');
   assert.ok(updates.some((entry) => entry.patch.stage === 'connecting_catalog'));
 
   // Se a criação remota ainda não estiver confirmada, o lote não falha nem
@@ -140,6 +161,50 @@ const worker = require(workerPath);
   await worker._internals.refreshWaitingConnectorConfirmations();
   assert.deepStrictEqual(syncPromotions, [20], 'capacidade confirmada promove a sincronização automaticamente');
 
+  // Um run antigo não pode confiar no valid=true persistido. O store real
+  // revalida a marca e o worker encerra antes de tocar o TikTok se nada restar.
+  updates.length = 0;
+  uploads.length = 0;
+  publications.length = 0;
+  productRows = [{ id: 'prod_sem_marca', valid: false, errors: [{ field: 'brand', message: 'obrigatório' }], data: { sku_id: 'sem-marca' } }];
+  await worker.processRun({
+    id: 'run_invalid', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_local',
+    payload: { bcId: localCatalog.bcId, feedUrl: 'https://example.com/feed.csv', published: 1, skipped: 0 },
+  });
+  assert.strictEqual(uploads.length, 0, 'produto legado inválido não é reenviado');
+  assert.strictEqual(updates.at(-1).status, 'failed');
+  assert.strictEqual(updates.at(-1).patch.error.code, 'CATALOG_NO_VALID_PRODUCTS');
+  assert.strictEqual(unconfirmed.at(-1).catalogId, 'cat_local', 'falha de validação remove a falsa marca de sincronizado');
+  productRows = Array.from({ length: 4 }, (_, index) => ({
+    id: 'prod_' + index, valid: true, data: { sku_id: 'sku_' + index, brand: 'Marca real' },
+  }));
+
+  // Resposta sem identificador (caso real: job_id:null) + overview zerado não
+  // pode virar sucesso. Feeds remotos zerados são apenas diagnóstico porque o
+  // upload direto por arquivo não cria necessariamente um feed recorrente.
+  updates.length = 0;
+  uploads.length = 0;
+  publications.length = 0;
+  localCatalog.tiktokCatalogId = '7999000000000000001';
+  require.cache[providerPath].exports.createTikTokCatalog = async () => {
+    created += 1;
+    return { catalogId: '7999000000000000001' };
+  };
+  uploadResponse = { job_id: null, file_format: 'CSV' };
+  remoteFeeds = { total: 0, feeds: [], raw: { total_feeds: 0 } };
+  overview = { approved: 0, pending: 0, rejected: 0, total: 0 };
+  await worker.processRun({
+    id: 'run_zero', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_local',
+    payload: { bcId: localCatalog.bcId, feedUrl: 'https://example.com/feed.csv', published: 4, skipped: 0 },
+  });
+  assert.strictEqual(publications.at(-1).status, 'processing', 'upload inconclusivo é registrado como processando');
+  assert.strictEqual(updates.at(-1).status, 'waiting_tiktok_processing', 'run não recebe sucesso definitivo');
+  assert.strictEqual(updates.at(-1).patch.release, true, 'espera libera o lock do worker');
+  assert.strictEqual(updates.at(-1).patch.progress.uploadReceipt.provable, false, 'job_id nulo fica explícito no diagnóstico');
+  assert.deepStrictEqual(updates.at(-1).patch.progress.uploadReceipt.response, uploadResponse, 'resposta crua do upload é preservada');
+  assert.strictEqual(updates.at(-1).patch.progress.remoteFeeds.total, 0, 'zero feeds é guardado sem bloquear por si só');
+  assert.ok(Date.parse(updates.at(-1).patch.progress.nextAuditAt) > Date.now(), 'próxima consulta usa backoff persistido');
+
   // Sem campanha dependente e sem tela aberta, o worker também atualiza a
   // auditoria do catálogo. Quando o TikTok finalmente expõe os produtos, o run
   // sai de "processando" para um snapshot explícito de análise.
@@ -155,6 +220,7 @@ const worker = require(workerPath);
   assert.deepStrictEqual(auditRefreshes.at(-1), overview, 'persiste os números retornados pelo TikTok');
   assert.strictEqual(updates.at(-1).patch.stage, 'reviewed_tiktok', 'run registra que a análise ficou disponível');
   assert.strictEqual(updates.at(-1).patch.progress.audit.approved, 3, 'snapshot preserva produtos aprovados');
+  assert.strictEqual(publications.at(-1).status, 'success', 'sucesso só é registrado depois de produtos visíveis');
   assert.strictEqual(await worker._internals.refreshPendingTikTokAudits(), 0, 'não consulta o mesmo catálogo duas vezes no intervalo');
 
   pendingAuditCatalogs.push({
@@ -164,9 +230,24 @@ const worker = require(workerPath);
   });
   overview = { approved: 0, pending: 0, rejected: 0, total: 0 };
   assert.strictEqual(await worker._internals.refreshPendingTikTokAudits(), 1, 'catálogo remoto vazio continua em auditoria automática');
+  assert.strictEqual(updates.at(-1).status, 'waiting_tiktok_processing', 'zero produtos permanece em espera explícita');
   assert.strictEqual(updates.at(-1).patch.stage, 'processing_tiktok', 'zero produtos não é mascarado como revisão concluída');
   assert.strictEqual(updates.at(-1).patch.progress.auditAttempts, 3, 'tentativas de auditoria ficam visíveis para diagnóstico');
   assert.strictEqual(updates.at(-1).patch.progress.audit.total, 0, 'snapshot registra o zero retornado pelo TikTok');
+
+  const callsBeforeTimeout = overviewCalls;
+  pendingAuditCatalogs.push({
+    id: 'cat_timeout', accountId: 'acc_1', advertiserId: 'adv_1',
+    tiktokCatalogId: '7999000000000000003', bcId: localCatalog.bcId,
+    syncRunId: 'sync_timeout',
+    syncProgress: { published: 4, auditAttempts: worker._internals.AUDIT_MAX_ATTEMPTS, feedUrl: 'https://example.com/feed.csv' },
+  });
+  assert.strictEqual(await worker._internals.refreshPendingTikTokAudits(), 1, 'espera acima do limite é encerrada');
+  assert.strictEqual(overviewCalls, callsBeforeTimeout, 'limite evita nova chamada remota inútil');
+  assert.strictEqual(updates.at(-1).status, 'failed', 'timeout vira falha retomável, não polling infinito');
+  assert.strictEqual(updates.at(-1).patch.error.code, 'CATALOG_UPLOAD_NOT_VISIBLE');
+  assert.strictEqual(updates.at(-1).patch.error.retryable, true);
+  assert.deepStrictEqual(unconfirmed.at(-1), { accountId: 'acc_1', advertiserId: 'adv_1', catalogId: 'cat_timeout' }, 'timeout limpa a falsa marca de sincronizado no mesmo escopo');
   console.log('ads-catalog-sync-worker.test.js OK — vínculo remoto ausente é recriado; espera do conector é retomada sem ação manual');
 })().catch((error) => {
   console.error(error.stack || error.message);

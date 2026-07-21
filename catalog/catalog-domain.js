@@ -5,6 +5,13 @@ const CAMPAIGN_STAGES = Object.freeze([
   'verifying_entities', 'ready_paused', 'partial', 'failed', 'cancelled',
 ]);
 const TIKTOK_MIN_DAILY_BUDGET = 50;
+// Catalog Ads (manual e Smart+) só ficam elegíveis quando o TikTok confirma
+// pelo menos quatro produtos aprovados, ativos e em estoque.
+const TIKTOK_MIN_APPROVED_PRODUCTS = 4;
+const TIKTOK_PIXEL_EVENTS = Object.freeze([
+  'ON_WEB_ORDER', 'INITIATE_ORDER', 'ON_WEB_CART', 'ON_WEB_DETAIL',
+  'ON_WEB_REGISTER', 'LANDING_PAGE_VIEW',
+]);
 
 function catalogError(code, userMessage, options) {
   const opts = options || {};
@@ -64,6 +71,8 @@ function computeReadiness(catalog, products, context) {
   const approved = Number(audit && audit.approved) || 0;
   const pending = Number(audit && audit.pending) || 0;
   const rejected = Number(audit && audit.rejected) || 0;
+  const approvedMissing = Math.max(0, TIKTOK_MIN_APPROVED_PRODUCTS - approved);
+  const hasMinimumApproved = approved >= TIKTOK_MIN_APPROVED_PRODUCTS;
   const linked = Boolean(cat.tiktokCatalogId && cat.bcId);
   const verified = linked && cat.linkStatus === 'verified';
   const advertiserReady = Boolean(ctx.advertiserId);
@@ -79,8 +88,18 @@ function computeReadiness(catalog, products, context) {
       validCount > 0 ? `${validCount} produto(s) válido(s)` : rows.length ? `${invalidCount} produto(s) precisam de correção` : 'Importe o primeiro produto'),
     step('link', 'Catálogo TikTok', verified ? 'done' : cat.linkStatus === 'error' ? 'blocked' : linked ? 'active' : 'waiting',
       verified ? `ID ${cat.tiktokCatalogId} verificado` : cat.linkError || (linked ? 'Vínculo ainda não verificado' : 'Conecte um catálogo existente')),
-    step('review', 'Análise do TikTok', hasUnpublishedChanges ? 'active' : approved > 0 ? 'done' : pending > 0 ? 'active' : 'waiting',
-      hasUnpublishedChanges ? 'Há alterações locais ainda não sincronizadas' : approved > 0 ? `${approved} aprovado(s)` : pending > 0 ? `${pending} em análise` : rejected > 0 ? `${rejected} rejeitado(s)` : 'Aguardando sincronização'),
+    step('review', 'Análise do TikTok', hasUnpublishedChanges ? 'active' : hasMinimumApproved ? 'done' : pending > 0 ? 'active' : approved > 0 || rejected > 0 ? 'blocked' : 'waiting',
+      hasUnpublishedChanges
+        ? 'Há alterações locais ainda não sincronizadas'
+        : hasMinimumApproved
+          ? `${approved} aprovado(s), ativos e em estoque`
+          : approved > 0
+            ? `${approved} aprovado(s); faltam ${approvedMissing} para o mínimo de ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados, ativos e em estoque`
+            : pending > 0
+              ? `${pending} em análise; são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados, ativos e em estoque`
+              : rejected > 0
+                ? `${rejected} rejeitado(s); são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados, ativos e em estoque`
+                : `Aguardando no mínimo ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados, ativos e em estoque`),
     step('advertiser', 'Conta de anúncio', advertiserReady ? 'done' : 'waiting',
       advertiserReady ? `Advertiser ${ctx.advertiserId}` : 'Selecione a conta que criará a campanha'),
   ];
@@ -94,7 +113,7 @@ function computeReadiness(catalog, products, context) {
   else if (verified && (hasUnpublishedChanges || (!audit && !syncedAt))) { state = 'ready_to_sync'; nextAction = 'sync'; }
   else if (verified && !audit) { state = 'processing_tiktok'; nextAction = 'refresh_audit'; }
   else if (verified && pending > 0) { state = 'processing_tiktok'; nextAction = 'refresh_audit'; }
-  else if (verified && approved <= 0) { state = 'blocked'; nextAction = rejected > 0 ? 'fix_products' : 'sync'; }
+  else if (verified && !hasMinimumApproved) { state = 'blocked'; nextAction = approved > 0 || rejected > 0 ? 'fix_products' : 'sync'; }
   else if (!advertiserReady) { state = 'ready_tiktok'; nextAction = 'select_advertiser'; }
   else { state = 'ready_for_campaign'; nextAction = 'create_campaign'; }
 
@@ -102,7 +121,10 @@ function computeReadiness(catalog, products, context) {
     state,
     readyForCampaign: state === 'ready_for_campaign',
     nextAction,
-    counts: { total: rows.length, valid: validCount, invalid: invalidCount, approved, pending, rejected },
+    counts: {
+      total: rows.length, valid: validCount, invalid: invalidCount,
+      approved, pending, rejected, minimumApproved: TIKTOK_MIN_APPROVED_PRODUCTS, approvedMissing,
+    },
     hasUnpublishedChanges,
     steps,
   };
@@ -152,6 +174,27 @@ function normalizeCampaignSpec(input, catalog) {
   if ((identityId && !identityType) || (!identityId && identityType)) {
     throw catalogError('CATALOG_IDENTITY_INCOMPLETE', 'Informe a identidade e o tipo de identidade juntos.');
   }
+  const pixelId = String(value.pixelId || '').trim();
+  if (!/^\d{6,30}$/.test(pixelId)) {
+    throw catalogError(
+      pixelId ? 'CATALOG_PIXEL_ID_INVALID' : 'CATALOG_PIXEL_REQUIRED',
+      pixelId
+        ? 'Informe um Pixel ID numérico válido do TikTok.'
+        : 'Informe o Pixel ID do TikTok para otimizar a campanha para conversão.',
+      { status: 400, retryable: false },
+    );
+  }
+  const rawPixelEvent = String(value.pixelEvent || 'ON_WEB_ORDER').trim().toUpperCase();
+  // `PURCHASE` aparecia em versões antigas da UI; convertemos para o enum
+  // canônico exigido pelo TikTok sem adivinhar eventos desconhecidos.
+  const pixelEvent = rawPixelEvent === 'PURCHASE' ? 'ON_WEB_ORDER' : rawPixelEvent;
+  if (!TIKTOK_PIXEL_EVENTS.includes(pixelEvent)) {
+    throw catalogError(
+      'CATALOG_PIXEL_EVENT_INVALID',
+      'Selecione um evento de otimização válido do Pixel TikTok.',
+      { status: 400, retryable: false },
+    );
+  }
   return {
     name, budgetAmount, budgetType, endDate: value.endDate || undefined,
     budgetOptimization: value.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup',
@@ -162,8 +205,8 @@ function normalizeCampaignSpec(input, catalog) {
     catalogVideoTemplateId: catalogVideoTemplateId || undefined,
     identityId: identityId || undefined, identityType: identityType || undefined,
     identityBcId: String(value.identityBcId || '').trim() || undefined,
-    pixelId: String(value.pixelId || '').trim() || undefined,
-    pixelEvent: String(value.pixelEvent || '').trim() || undefined,
+    pixelId,
+    pixelEvent,
     text: String(value.text || '').trim().slice(0, 100) || undefined,
     callToAction: String(value.callToAction || 'LEARN_MORE').trim().toUpperCase(),
     strategy: 'vsa_product_link', destination: 'PRODUCT_LINK', creativeMode: 'VSA_PRODUCT_LINK', status: 'paused',
@@ -173,6 +216,8 @@ function normalizeCampaignSpec(input, catalog) {
 module.exports = {
   CAMPAIGN_STAGES,
   TIKTOK_MIN_DAILY_BUDGET,
+  TIKTOK_MIN_APPROVED_PRODUCTS,
+  TIKTOK_PIXEL_EVENTS,
   catalogError,
   serializeCatalogError,
   computeReadiness,

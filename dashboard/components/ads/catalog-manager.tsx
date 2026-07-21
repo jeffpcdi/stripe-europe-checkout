@@ -141,6 +141,7 @@ export function CatalogManager({
           bcId={bc?.bcId ?? ''}
           bcConfigured={Boolean(bc?.bcId)}
           campaignCreateSupported={capabilitiesData?.capabilities.manualCatalogCampaign === true}
+          onBusinessCenterChanged={mutateBc}
           onBack={() => {
             setSelectedId(null)
             mutateList()
@@ -436,6 +437,7 @@ function CatalogDetail({
   bcId,
   bcConfigured,
   campaignCreateSupported,
+  onBusinessCenterChanged,
   onBack,
   onDeleted,
 }: {
@@ -446,6 +448,7 @@ function CatalogDetail({
   bcId: string
   bcConfigured: boolean
   campaignCreateSupported: boolean
+  onBusinessCenterChanged: () => void | Promise<unknown>
   onBack: () => void
   onDeleted: () => void
 }) {
@@ -806,7 +809,10 @@ function CatalogDetail({
               catalog={catalog}
               advertiserId={advertiserId}
               bcId={bcId}
-              onChanged={() => Promise.all([mutate(), mutateReadiness()])}
+              // O cartão também pode salvar/corrigir o BC. Revalida o estado
+              // pai junto do catálogo para `bcConfigured` não continuar falso
+              // e bloquear a sincronização até um reload.
+              onChanged={() => Promise.all([mutate(), mutateReadiness(), onBusinessCenterChanged()])}
             />
           )}
 

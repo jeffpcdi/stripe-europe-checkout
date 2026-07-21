@@ -20,6 +20,7 @@
 const pipeboard = require('./pipeboard-mcp');
 const config = require('./config');
 const { SPARK_GOALS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
+const { TIKTOK_PIXEL_EVENTS } = require('./catalog/catalog-domain');
 
 // ── Estado por conta (multi-tenant) ──────────────────────────────────────────
 // Guardado em config.get(accountId).pipeboardAds = { advertiserId }.
@@ -1777,6 +1778,19 @@ function normalizeCatalogOverview(out) {
   };
 }
 
+// Leitura diagnóstica dos feeds remotos. O upload direto por arquivo usa
+// `/catalog/product/file/` e pode legitimamente não criar um feed recorrente;
+// portanto `total=0` nunca é tratado sozinho como falha de publicação.
+function normalizeCatalogFeeds(out) {
+  const feeds = firstArray(out, ['feeds', 'feed_list', 'catalog_feeds', 'list']);
+  const totalValue = deepPluck(out, 'total') ?? deepPluck(out, 'total_count') ?? deepPluck(out, 'total_feeds');
+  return {
+    total: totalValue == null || totalValue === '' ? feeds.length : Number(totalValue) || 0,
+    feeds,
+    raw: out,
+  };
+}
+
 let catalogCapabilitiesCache = null;
 
 // A automação de catálogo usa um contrato central diferente da criação comum.
@@ -1815,6 +1829,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
     catalogCreate: false,
     catalogUpload: false,
     catalogAudit: false,
+    catalogFeedRead: false,
     catalogLinkVerify: false,
     manualCatalogCampaign: false,
     productSets: false,
@@ -1860,18 +1875,44 @@ async function getCatalogCapabilities({ force = false } = {}) {
     const catalogCreate = hasFields('create_tiktok_catalog', ['bc_id', 'name', 'catalog_type', 'catalog_conf']);
     const catalogUpload = byName.has('upload_tiktok_catalog_products');
     const catalogAudit = byName.has('get_tiktok_catalog_overview');
+    const catalogFeedRead = byName.has('get_tiktok_catalog_feeds');
     const catalogLinkVerify = byName.has('get_tiktok_catalogs');
     const campaignFields = hasFields('create_tiktok_campaign', CATALOG_CAMPAIGN_SCHEMA_FIELDS.campaign);
     const adgroupFields = hasFields('create_tiktok_adgroup', CATALOG_CAMPAIGN_SCHEMA_FIELDS.adgroup);
     const adFields = hasFields('create_tiktok_ad', CATALOG_CAMPAIGN_SCHEMA_FIELDS.ad);
     const adInputFields = fields('create_tiktok_ad');
-    const productLinkDestination = supportsSchemaValue(fieldSchema('create_tiktok_ad', 'website_type'), 'PRODUCT_LINK')
-      && supportsSchemaValue(fieldSchema('create_tiktok_ad', 'destination_page_type'), 'WEBSITE');
-    const manualCatalogCampaign = campaignFields && adgroupFields && adFields && productLinkDestination;
+    const shoppingType = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'VIDEO_SHOPPING_ADS').trim();
+    const adFormat = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_VIDEO').trim();
+    // Não basta o campo existir: o schema precisa aceitar os valores que esta
+    // implementação realmente envia. Sem isso, um enum incompatível poderia
+    // liberar a campanha, criar o primeiro nível e falhar no seguinte.
+    const campaignSemantics = [
+      ['objective_type', 'PRODUCT_SALES'],
+      ['shopping_ads_type', shoppingType],
+      ['operation_status', 'DISABLE'],
+    ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_campaign', field), expected));
+    const adgroupSemantics = [
+      ['shopping_ads_type', shoppingType],
+      ['product_source', 'CATALOG'],
+      ['optimization_goal', 'CONVERT'],
+      ['billing_event', 'OCPM'],
+      ['operation_status', 'DISABLE'],
+      ['optimization_event', 'ON_WEB_ORDER'],
+    ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_adgroup', field), expected));
+    const adSemantics = [
+      ['ad_format', adFormat],
+      ['website_type', 'PRODUCT_LINK'],
+      ['destination_page_type', 'WEBSITE'],
+      ['status', 'PAUSED'],
+      ['products_type', 'ALL_PRODUCTS'],
+    ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_ad', field), expected));
+    const manualCatalogCampaign = campaignFields && adgroupFields && adFields
+      && campaignSemantics && adgroupSemantics && adSemantics;
     const value = {
       catalogCreate,
       catalogUpload,
       catalogAudit,
+      catalogFeedRead,
       catalogLinkVerify,
       manualCatalogCampaign,
       productSets: adInputFields.has('product_set_id'),
@@ -1981,6 +2022,16 @@ async function getTikTokCatalogOverview(bcId, catalogId) {
   if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
   const out = await pipeboard.callTool('get_tiktok_catalog_overview', { bc_id: bc, catalog_id: cid });
   return normalizeCatalogOverview(out);
+}
+
+// Lista feeds remotos apenas para diagnóstico. Zero feeds é compatível com o
+// upload direto de arquivo e não substitui a confirmação por overview.
+async function getTikTokCatalogFeeds(bcId, catalogId) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
+  const out = await pipeboard.callTool('get_tiktok_catalog_feeds', { bc_id: bc, catalog_id: cid });
+  return normalizeCatalogFeeds(out);
 }
 
 // Lista os catálogos existentes no Business Center (cache curto).
@@ -2248,6 +2299,15 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   if (s.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || ''))) {
     throw badRequest('Orçamento total exige data de término (endDate)');
   }
+  const pixelId = String(s.pixelId || '').trim();
+  if (!/^\d{6,30}$/.test(pixelId)) {
+    throw badRequest('Pixel ID numérico do TikTok é obrigatório para optimization_goal=CONVERT');
+  }
+  const rawPixelEvent = String(s.pixelEvent || 'ON_WEB_ORDER').trim().toUpperCase();
+  const pixelEvent = rawPixelEvent === 'PURCHASE' ? 'ON_WEB_ORDER' : rawPixelEvent;
+  if (!TIKTOK_PIXEL_EVENTS.includes(pixelEvent)) {
+    throw badRequest('Evento de otimização do Pixel TikTok inválido');
+  }
   const capabilities = await getCatalogCapabilities();
   if (!capabilities.manualCatalogCampaign) {
     throw catalogCreationAwaitingConnectorError('O conector ainda não confirmou a criação VSA Product Link sem URL no anúncio. Nenhuma estrutura foi criada.');
@@ -2318,8 +2378,9 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
       await report('creating_adgroup');
     }
 
-    // 2) Ad group — fonte = catálogo. O pixel é um identificador opaco: alguns
-    // exports usam código alfanumérico, portanto não aplicamos regex numérica.
+    // 2) Ad group — fonte = catálogo. `CONVERT` exige pixel e evento; a camada
+    // de domínio e esta defesa final impedem criar campanha órfã antes da
+    // rejeição inevitável do ad group.
     const agArgs = {
       advertiser_id: adv,
       campaign_id: campaignId,
@@ -2334,8 +2395,8 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
       targeting: { location_ids: regions.locationIds },
       operation_status: 'DISABLE',
     };
-    if (s.pixelId) agArgs.pixel_id = String(s.pixelId);
-    if (s.pixelEvent) agArgs.optimization_event = String(s.pixelEvent);
+    agArgs.pixel_id = pixelId;
+    agArgs.optimization_event = pixelEvent;
     if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
     if (plan.adgroup.budget != null) agArgs.budget = plan.adgroup.budget;
     Object.assign(agArgs, plan.bid);
@@ -2480,6 +2541,7 @@ module.exports = {
   createTikTokCatalog,
   uploadTikTokCatalogProducts,
   getTikTokCatalogOverview,
+  getTikTokCatalogFeeds,
   listTikTokCatalogs,
   updateTikTokCatalogName,
   getCatalogCapabilities,
@@ -2498,5 +2560,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, verifyCatalogProductLinkHierarchy, pausedReadback },
 };

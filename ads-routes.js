@@ -81,6 +81,48 @@ function scopedCatalogRunIdempotencyKey(advertiserId, value) {
     .digest('hex');
 }
 
+function catalogBatchMinimumErrors(plan) {
+  const catalogs = Array.isArray(plan && plan.catalogs) ? plan.catalogs : [];
+  const errors = [];
+  for (let catalogIndex = 0; catalogIndex < catalogs.length; catalogIndex += 1) {
+    const catalog = catalogs[catalogIndex] || {};
+    const campaigns = Array.isArray(catalog.campaigns) ? catalog.campaigns : [];
+    const products = Array.isArray(catalog.products) ? catalog.products : [];
+    const deliverable = products.filter((product) => String(product && product.data && product.data.availability || '').trim().toLowerCase() === 'in stock');
+    if (!campaigns.length || deliverable.length >= catalogDomain.TIKTOK_MIN_APPROVED_PRODUCTS) continue;
+    errors.push({
+      code: 'CATALOG_CAMPAIGN_MIN_PRODUCTS_REQUIRED',
+      message: 'Inclua pelo menos ' + catalogDomain.TIKTOK_MIN_APPROVED_PRODUCTS
+        + ' produtos válidos; o TikTok exige quatro produtos aprovados, ativos e em estoque para Catalog Ads.',
+      path: 'catalogs[' + catalogIndex + '].products',
+      catalogKey: String(catalog.key || ''),
+    });
+  }
+  return errors;
+}
+
+function catalogBatchCampaignSpecErrors(plan) {
+  const catalogs = Array.isArray(plan && plan.catalogs) ? plan.catalogs : [];
+  const errors = catalogBatchMinimumErrors(plan);
+  for (let catalogIndex = 0; catalogIndex < catalogs.length; catalogIndex += 1) {
+    const catalog = catalogs[catalogIndex] || {};
+    const campaigns = Array.isArray(catalog.campaigns) ? catalog.campaigns : [];
+    for (let campaignIndex = 0; campaignIndex < campaigns.length; campaignIndex += 1) {
+      try {
+        catalogDomain.normalizeCampaignSpec(campaigns[campaignIndex], catalog);
+      } catch (err) {
+        errors.push({
+          code: String(err && err.code || 'CATALOG_BATCH_CAMPAIGN_SPEC_INVALID'),
+          message: String(err && (err.userMessage || err.message) || 'A campanha do lote é inválida.'),
+          path: 'catalogs[' + catalogIndex + '].campaigns[' + campaignIndex + ']',
+          catalogKey: String(catalog.key || ''),
+        });
+      }
+    }
+  }
+  return errors;
+}
+
 module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   const stats = (deps && deps.stats) || { logEvent() {} };
 
@@ -2722,29 +2764,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   }
 
   function batchCampaignSpecErrors(plan) {
-    const catalogs = Array.isArray(plan && plan.catalogs) ? plan.catalogs : [];
-    const errors = [];
-    for (let catalogIndex = 0; catalogIndex < catalogs.length; catalogIndex += 1) {
-      const catalog = catalogs[catalogIndex] || {};
-      const campaigns = Array.isArray(catalog.campaigns) ? catalog.campaigns : [];
-      for (let campaignIndex = 0; campaignIndex < campaigns.length; campaignIndex += 1) {
-        try {
-          // Confere orçamento e escopo antes de criar qualquer catálogo do
-          // lote. Product Link usa o `link` de cada produto e não exige
-          // template nem URL no anúncio; a chamada no executor é repetida por
-          // defesa.
-          catalogDomain.normalizeCampaignSpec(campaigns[campaignIndex], catalog);
-        } catch (err) {
-          errors.push({
-            code: String(err && err.code || 'CATALOG_BATCH_CAMPAIGN_SPEC_INVALID'),
-            message: String(err && (err.userMessage || err.message) || 'A campanha do lote é inválida.'),
-            path: 'catalogs[' + catalogIndex + '].campaigns[' + campaignIndex + ']',
-            catalogKey: String(catalog.key || ''),
-          });
-        }
-      }
-    }
-    return errors;
+    // Confere mínimo de produtos, orçamento, pixel e escopo antes de criar
+    // qualquer catálogo. O executor repete as defesas de URL Product Link.
+    return catalogBatchCampaignSpecErrors(plan);
   }
 
   async function previewCatalogBatch(req) {
@@ -3162,3 +3184,5 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 // Exposta apenas para o teste unitário do isolamento da chave. O export
 // principal continua sendo a função de registro das rotas.
 module.exports.scopedCatalogRunIdempotencyKey = scopedCatalogRunIdempotencyKey;
+module.exports.catalogBatchMinimumErrors = catalogBatchMinimumErrors;
+module.exports.catalogBatchCampaignSpecErrors = catalogBatchCampaignSpecErrors;

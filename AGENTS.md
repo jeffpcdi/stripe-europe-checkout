@@ -106,8 +106,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   durável de campanhas. `catalog-batch-domain.js` valida/normaliza lotes sem efeitos e rejeita toda URL
   de anúncio; `catalog-batch-executor.js` cria catálogos/produtos com concorrência limitada e
   idempotência; `catalog-sync-worker.js` e `catalog-campaign-worker.js` deixam jobs em
-  `waiting_connector_confirmation` e os retomam automaticamente. O sync reconsulta em baixa frequência
-  a auditoria remota mesmo com a tela fechada e expõe contagem/tentativas se o TikTok continuar em zero;
+  `waiting_connector_confirmation` e os retomam automaticamente. Depois do upload, o sync só conclui
+  quando o overview remoto mostra produtos; até lá fica em `waiting_tiktok_processing`, preserva a resposta
+  do upload e o diagnóstico de feeds, e reconsulta com backoff persistido (máximo 8 tentativas). Zero feeds
+  é diagnóstico apenas, pois upload direto por arquivo pode não criar feed recorrente. No limite, o run
+  falha como `CATALOG_UPLOAD_NOT_VISIBLE`, limpa a falsa marca `synced_at` e pode ser retomado;
   a campanha pausada só é liberada após auditoria dos produtos
   e confirmação semântica de Product Link pelo conector. Sucesso exige leitura dos três níveis
   (campanha → conjunto → anúncio), todos pausados, com o catálogo correto, `PRODUCT_LINK` e sem URL manual.
@@ -236,20 +239,44 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `account_id + advertiser_id`; nunca autorize uma operação só porque o `catalogId` ou `runId` existe.
   A sincronização é durável (`catalog/catalog-sync-worker.js`) e verifica o catálogo remoto em
   todo envio: se o ID salvo não existir mais no BC atual, recria apenas o vínculo remoto e preserva
-  catálogo/produtos/feed locais. A campanha VSA Product Link exige orçamento mínimo 50, mas **não exige
+  catálogo/produtos/feed locais. Produtos são revalidados contra a spec atual em toda leitura crítica e
+  no feed público: `brand` é o 9º campo obrigatório (nunca inferido) e o enum correto é
+  `available for order` (não `available`). Assim, registros antigos com `valid=true` não furam a regra.
+  A campanha VSA Product Link exige orçamento mínimo 50, Pixel ID numérico + evento canônico
+  (`ON_WEB_ORDER` por padrão) e pelo menos **4 produtos aprovados, ativos e em estoque**, mas **não exige
   Catalog Video Template ID nem URL no anúncio**: o destino é o `link` individual de cada produto.
   O lote aceita TSV ou CSV (vírgula/ponto e vírgula), normaliza orçamento pt-BR como `1.000,00` e recebe
   exclusivamente o `link` HTTPS de cada produto; URL manual no anúncio é bloqueada em duas barreiras
   (preview + executor). O parser de `/api/ads/catalogs/batch` é montado antes do JSON global e aceita
   até 25 MB (o restante da API continua em 200 KB). A confirmação Product Link só vale quando o JSON Schema do Pipeboard
-  declara explicitamente `website_type=PRODUCT_LINK` e `destination_page_type=WEBSITE`; campos genéricos
-  não liberam anúncio. Quando o conector ainda não confirma catálogo ou Product Link, sync/campanhas ficam
+  declara explicitamente todos os valores enviados nos três níveis (incluindo `PRODUCT_SALES`,
+  `VIDEO_SHOPPING_ADS`, `CATALOG`, `CONVERT`, pausa, `website_type=PRODUCT_LINK` e
+  `destination_page_type=WEBSITE`); campos presentes com enums incompatíveis não liberam anúncio.
+  Quando o conector ainda não confirma catálogo ou Product Link, sync/campanhas ficam
   em `waiting_connector_confirmation` e são retomados automaticamente; depois a campanha segue para
   `waiting_catalog_review` e só é promovida após auditoria aprovar o catálogo. Assim o lote pode ser
   preparado agora, mas nenhum fallback com URL global é criado nem anúncio é enviado antes da confirmação
   explícita do schema Pipeboard.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
+  **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação
+  fica bloqueado quando campanhas foram pedidas sem sincronização ou quando a sincronização ainda
+  não tem BC/origem/permissões. O resumo terminal informa também campanhas preparadas, aguardando
+  Product Link/análise, ignoradas e com falha. Enquanto `manualCatalogCampaign=false`, o hook de
+  capabilities reconsulta em baixa frequência (60s) para remover o banner sem exigir reload; os
+  cards de run exibem nome, escopo, orçamento e a verificação final (hierarquia, Product Link, sem
+  URL manual e tudo pausado). Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
+  O parser do lote exige a coluna `marca`/`brand` e envia `brand` por produto; valor ausente bloqueia
+  a prévia com as linhas exatas, pois a marca real é obrigatória no TikTok e nunca deve ser inferida.
+  Ao preparar campanhas, o lote também lê `pixel_id` (6–30 dígitos) e `evento` (padrão canônico
+  `ON_WEB_ORDER`) por campanha; o wizard manual expõe os mesmos campos obrigatórios para `CONVERT`.
+  Quando `GET /api/ads/pixels?adAccountId=...` retorna Pixels, o wizard usa uma lista autenticada
+  com nome e compras dos últimos 30 dias; sem dados/na falha, preserva input numérico manual.
+  Nomes diferentes que geram a mesma key normalizada bloqueiam a prévia com nomes e linhas, em vez
+  de fundir produtos silenciosamente. A idempotency key do wizard é preservada entre timeout/retry e
+  só muda após sucesso ou alteração material do formulário. Runs
+  `waiting_tiktok_processing/processing_tiktok` (e o legado `completed/processing_tiktok`)
+  continuam em polling lento (15s) até `reviewed_tiktok` ou outro estado terminal acionável.
 - **Convers����������es:** `GET /api/conversion/log`, `POST /api/conversion/test`.
 - **Domínios:** `GET/POST /api/domains`, `GET/DELETE /api/domains/:host`, `POST /api/domains/verify`.
   **Mecanismo de verificaç��o (2 passos, mas s�� o 2º decide):** (1) DNS — `resolveCname`/`resolve4`

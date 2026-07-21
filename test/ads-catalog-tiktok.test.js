@@ -51,6 +51,12 @@ console.log('createTikTokCatalog — validação antes da rede');
   console.log('getTikTokCatalogOverview — exige bc_id e catalog_id');
   await throws(() => provider.getTikTokCatalogOverview('', ''), 400, 'sem ids → 400');
 
+  console.log('getTikTokCatalogFeeds — leitura diagnóstica não confunde zero com falha');
+  await throws(() => provider.getTikTokCatalogFeeds('', ''), 400, 'feeds sem ids → 400');
+  const emptyFeeds = provider._internals.normalizeCatalogFeeds({ total_feeds: 0, feeds: [] });
+  eq(emptyFeeds.total, 0, 'zero feeds é preservado como diagnóstico');
+  eq(emptyFeeds.feeds.length, 0, 'lista vazia não ganha feed sintético');
+
   console.log('listTikTokCatalogs — pagina TODAS as páginas (catálogo além da 1ª não some)');
   {
     const pipeboard = require('../pipeboard-mcp');

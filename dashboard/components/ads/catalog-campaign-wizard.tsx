@@ -1,15 +1,17 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, ChevronDown, Loader2, Rocket, RotateCcw, Trash2 } from 'lucide-react'
 import {
   adsCatalogApiUrl, adsCreateCatalogCampaign, adsPreflightCatalogCampaign, apiSend,
-  useAdsCatalogCampaignRuns,
+  useAdsCatalogCampaignRuns, useAdsTikTokPixels,
 } from '@/lib/api'
+import { catalogPixelLabel, catalogPixelValue } from '@/lib/catalog-pixels'
 import { toast } from '@/lib/toast'
+import { resolveStableIdempotencyKey, type StableIdempotencyState } from '@/lib/stable-idempotency'
 import type { AdsCatalog, AdsCatalogCampaignRun } from '@/lib/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { TIKTOK_CTA_OPTIONS, TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
+import { TIKTOK_CTA_OPTIONS, TIKTOK_MIN_BUDGET, TIKTOK_PIXEL_EVENTS, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 
 const STAGES: Record<string, string> = {
   queued: 'Na fila', validating: 'Validando pré-requisitos', creating_campaign: 'Criando campanha',
@@ -25,10 +27,41 @@ const RUN_STATUS: Record<AdsCatalogCampaignRun['status'], string> = {
   completed: 'Concluída', partial: 'Parcial', failed: 'Falhou', cancelled: 'Cancelada',
 }
 
-function RunCard({ run, advertiserId, mutate }: { run: AdsCatalogCampaignRun; advertiserId: string; mutate: () => void }) {
+function RunCard({
+  run,
+  advertiserId,
+  currency,
+  mutate,
+}: {
+  run: AdsCatalogCampaignRun
+  advertiserId: string
+  currency: string
+  mutate: () => void
+}) {
   const active = ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)
   const [confirmCleanup, setConfirmCleanup] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const campaignName = String(run.spec.name || 'Campanha sem nome')
+  const scope = String(run.spec.productScope || 'all')
+  const ids = Array.isArray(run.spec.productIds) ? run.spec.productIds : []
+  const scopeLabel = scope === 'specific'
+    ? `${ids.length} produto(s) específico(s)`
+    : scope === 'product_set'
+      ? `Product set ${String(run.spec.productSetId || 'informado')}`
+      : 'Todos os produtos'
+  const budgetAmount = Number(run.spec.budgetAmount)
+  const budgetLabel = Number.isFinite(budgetAmount) && budgetAmount > 0
+    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency, maximumFractionDigits: 2 }).format(budgetAmount) + '/dia'
+    : null
+  const verification = run.result && typeof run.result.verification === 'object' && run.result.verification !== null
+    ? run.result.verification as Record<string, unknown>
+    : null
+  const verificationLabels = verification ? [
+    verification.hierarchy === true && 'hierarquia completa',
+    verification.productLink === true && 'Product Link',
+    verification.noManualUrl === true && 'sem URL manual',
+    verification.paused === true && 'tudo pausado',
+  ].filter(Boolean) as string[] : []
   async function action(kind: 'resume' | 'cleanup') {
     setActionBusy(true)
     try {
@@ -46,15 +79,24 @@ function RunCard({ run, advertiserId, mutate }: { run: AdsCatalogCampaignRun; ad
     <>
     <div className={`rounded-lg border p-3 ${run.status === 'completed' ? 'border-success/30 bg-success/5' : run.status === 'partial' || run.status === 'failed' ? 'border-error/30 bg-error/5' : 'border-border bg-card'}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-semibold text-foreground" title={campaignName}>{campaignName}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
             {active ? <Loader2 className="size-3.5 animate-spin text-primary" /> : run.status === 'completed' ? <Check className="size-3.5 text-success" /> : <AlertCircle className="size-3.5 text-error" />}
             {STAGES[run.stage] || run.stage}
           </p>
-          <p className="mt-1 text-[10px] text-muted-foreground">Campanha {run.createdIds.campaignId || '—'} · Conjunto {run.createdIds.adGroupId || '—'} · Anúncio {run.createdIds.adId || '—'}</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">{scopeLabel}{budgetLabel ? ` · ${budgetLabel}` : ''}</p>
+          {(run.createdIds.campaignId || run.createdIds.adGroupId || run.createdIds.adId) && (
+            <p className="mt-1 break-all text-[10px] text-muted-foreground">Campanha {run.createdIds.campaignId || '—'} · Conjunto {run.createdIds.adGroupId || '—'} · Anúncio {run.createdIds.adId || '—'}</p>
+          )}
         </div>
         <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{RUN_STATUS[run.status]}</span>
       </div>
+      {verificationLabels.length > 0 && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-success/20 bg-success/5 p-2 text-[10px] leading-relaxed text-success">
+          <Check className="mt-0.5 size-3 shrink-0" /> Verificada: {verificationLabels.join(' · ')}
+        </p>
+      )}
       {run.error && (
         <div className="mt-2 rounded-lg bg-background/70 p-2 text-[10px] leading-relaxed text-muted-foreground">
           <p className="font-semibold text-error">{run.error.userMessage}</p>
@@ -103,11 +145,41 @@ export function CatalogCampaignWizard({
   const [productSetId, setProductSetId] = useState('')
   const [templateId, setTemplateId] = useState('')
   const [pixelId, setPixelId] = useState('')
-  const [pixelEvent, setPixelEvent] = useState('PURCHASE')
+  const [pixelEvent, setPixelEvent] = useState('ON_WEB_ORDER')
   const [text, setText] = useState('')
   const [cta, setCta] = useState('LEARN_MORE')
+  const idempotencyRef = useRef<StableIdempotencyState | null>(null)
+  const { data: pixelsData, error: pixelsError, isLoading: pixelsLoading } = useAdsTikTokPixels(open, advertiserId)
 
   const activeRun = useMemo(() => runs.find((run) => ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)), [runs])
+  const availablePixels = useMemo(() => (pixelsData?.pixels ?? [])
+    .map((pixel) => ({ pixel, value: catalogPixelValue(pixel) }))
+    .filter((option) => option.value), [pixelsData?.pixels])
+  const materialSignature = useMemo(() => JSON.stringify({
+    catalogId: catalog.id,
+    advertiserId,
+    name: name.trim() || catalog.name,
+    budget: Number(budget),
+    productScope,
+    productIds: productIds.split(',').map((id) => id.trim()).filter(Boolean),
+    productSetId: productSetId.trim(),
+    templateId: templateId.trim(),
+    pixelId: pixelId.trim(),
+    pixelEvent: pixelEvent.trim(),
+    text: text.trim(),
+    cta,
+  }), [advertiserId, budget, catalog.id, catalog.name, cta, name, pixelEvent, pixelId, productIds, productScope, productSetId, templateId, text])
+
+  function idempotencyKey() {
+    idempotencyRef.current = resolveStableIdempotencyKey(
+      idempotencyRef.current,
+      materialSignature,
+      () => typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${catalog.id}:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+    )
+    return idempotencyRef.current.key
+  }
 
   function payload() {
     return {
@@ -118,20 +190,27 @@ export function CatalogCampaignWizard({
       productIds: productIds.split(',').map((id) => id.trim()).filter(Boolean),
       productSetId: productSetId.trim() || undefined,
       catalogVideoTemplateId: templateId.trim() || undefined,
-      pixelId: pixelId.trim() || undefined, pixelEvent: pixelId.trim() ? pixelEvent.trim() : undefined,
+      pixelId: pixelId.trim(), pixelEvent: pixelEvent.trim(),
       text: text.trim() || undefined, callToAction: cta,
-      idempotencyKey: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${catalog.id}:${Date.now()}`,
+      idempotencyKey: idempotencyKey(),
     }
   }
 
   async function create() {
     if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return toast.error(tiktokMinimumBudgetMessage(catalog.currency, ' por dia'))
     if (productScope === 'specific' && !productIds.trim()) return toast.error('Informe ao menos um Product ID do TikTok')
+    if (!/^\d{6,30}$/.test(pixelId.trim())) {
+      return toast.error('Informe um Pixel ID válido do TikTok', { hint: 'Use somente os 6 a 30 dígitos exibidos no TikTok Events Manager.' })
+    }
+    if (!TIKTOK_PIXEL_EVENTS.some((event) => event.value === pixelEvent)) {
+      return toast.error('Selecione um evento de otimização válido do Pixel TikTok')
+    }
     setBusy(true)
     try {
       const body = payload()
       await adsPreflightCatalogCampaign(catalog.id, advertiserId, body)
       const result = await adsCreateCatalogCampaign(catalog.id, advertiserId, body)
+      idempotencyRef.current = null
       if (result.dryRun) toast.info('Modo teste: criação validada sem publicar no TikTok')
       else toast.success('Criação iniciada', { hint: 'A campanha, o conjunto e o anúncio serão verificados antes da conclusão.' })
       setOpen(false)
@@ -178,12 +257,25 @@ export function CatalogCampaignWizard({
           </fieldset>
           {productScope === 'specific' && <label className="block text-[11px] text-muted-foreground">Product IDs do TikTok, separados por vírgula<input className="input-base mt-1 w-full" value={productIds} onChange={(e) => setProductIds(e.target.value)} placeholder="7664730406680594184" /></label>}
           {productScope === 'product_set' && <label className="block text-[11px] text-muted-foreground">Product Set ID<input className="input-base mt-1 w-full" value={productSetId} onChange={(e) => setProductSetId(e.target.value)} /></label>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-[11px] text-muted-foreground">Pixel ID do TikTok <span className="text-error">*</span>
+              {availablePixels.length > 0 ? (
+                <select className="input-base mt-1 w-full" value={pixelId} onChange={(e) => setPixelId(e.target.value)} aria-describedby="catalog-pixel-hint">
+                  <option value="">Selecione um Pixel da conta</option>
+                  {pixelId && !availablePixels.some((option) => option.value === pixelId) && <option value={pixelId}>Pixel informado manualmente · ID {pixelId}</option>}
+                  {availablePixels.map(({ pixel, value }) => <option key={`${pixel.id}:${value}`} value={value}>{catalogPixelLabel(pixel)}</option>)}
+                </select>
+              ) : (
+                <input className="input-base mt-1 w-full" inputMode="numeric" pattern="[0-9]{6,30}" minLength={6} maxLength={30} value={pixelId} onChange={(e) => setPixelId(e.target.value.replace(/\D/g, '').slice(0, 30))} placeholder={pixelsLoading ? 'Carregando Pixels da conta…' : '1234567890123456789'} aria-describedby="catalog-pixel-hint" />
+              )}
+            </label>
+            <label className="text-[11px] text-muted-foreground">Evento de otimização <span className="text-error">*</span><select className="input-base mt-1 w-full" value={pixelEvent} onChange={(e) => setPixelEvent(e.target.value)}>{TIKTOK_PIXEL_EVENTS.map((event) => <option key={event.value} value={event.value}>{event.label}</option>)}</select></label>
+          </div>
+          <p id="catalog-pixel-hint" className="-mt-2 text-[10px] text-muted-foreground">Campanhas Product Link usam CONVERT. {availablePixels.length > 0 ? 'Os Pixels listados pertencem à conta de anúncio selecionada.' : pixelsError ? 'A lista da conta não pôde ser carregada; informe somente os dígitos do Pixel.' : 'Informe somente os dígitos do Pixel.'} O padrão é Compra concluída (ON_WEB_ORDER).</p>
           <details className="rounded-lg border border-border p-3">
-            <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Pixel e criativo avançado</summary>
+            <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Criativo avançado</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="text-[11px] text-muted-foreground">Catalog Video Template ID (opcional)<input className="input-base mt-1 w-full" value={templateId} onChange={(e) => setTemplateId(e.target.value.replace(/\s/g, ''))} placeholder="Somente se a variação VSA exigir template" /></label>
-              <label className="text-[11px] text-muted-foreground">Pixel ID<input className="input-base mt-1 w-full" value={pixelId} onChange={(e) => setPixelId(e.target.value)} placeholder="Numérico ou alfanumérico" /></label>
-              <label className="text-[11px] text-muted-foreground">Evento<input className="input-base mt-1 w-full" value={pixelEvent} onChange={(e) => setPixelEvent(e.target.value)} /></label>
               <label className="text-[11px] text-muted-foreground">Texto<input className="input-base mt-1 w-full" value={text} onChange={(e) => setText(e.target.value)} /></label>
               <label className="text-[11px] text-muted-foreground">CTA<select className="input-base mt-1 w-full" value={cta} onChange={(e) => setCta(e.target.value)}>{TIKTOK_CTA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             </div>
@@ -193,7 +285,14 @@ export function CatalogCampaignWizard({
         </div>
       )}
 
-      {runs.length > 0 && <div className="mt-4 space-y-2 border-t border-border pt-4">{runs.slice(0, 5).map((run) => <RunCard key={run.id} run={run} advertiserId={advertiserId} mutate={() => { void mutateRuns() }} />)}</div>}
+      {runs.length > 0 && (
+        <div className="mt-4 space-y-2 border-t border-border pt-4">
+          <p className="text-[10px] font-medium text-muted-foreground">Histórico recente · {runs.length} campanha(s)</p>
+          {runs.slice(0, 20).map((run) => (
+            <RunCard key={run.id} run={run} advertiserId={advertiserId} currency={catalog.currency} mutate={() => { void mutateRuns() }} />
+          ))}
+        </div>
+      )}
     </section>
   )
 }
