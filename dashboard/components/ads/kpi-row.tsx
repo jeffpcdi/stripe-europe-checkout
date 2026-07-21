@@ -74,15 +74,15 @@ export function KpiRow({
   const cpm = cur?.cpm ?? kpi.cpm
 
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <GlassCard className="p-4">
+    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+      <GlassCard className="p-3 sm:p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Investimento</p>
               <Delta value={deltas?.spend} />
             </div>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+            <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
               <CountUp value={spend} format={(v) => fmtSpend(v, currency)} />
             </p>
           </div>
@@ -94,22 +94,22 @@ export function KpiRow({
         </div>
       </GlassCard>
       
-      <GlassCard className="p-4">
+      <GlassCard className="p-3 sm:p-4">
         <div className="flex items-center gap-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Impressões</p>
           <Delta value={deltas?.impressions} />
         </div>
-        <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+        <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
           <CountUp value={impressions} format={fmtCompact} />
         </p>
       </GlassCard>
 
-      <GlassCard className="p-4">
+      <GlassCard className="p-3 sm:p-4">
         <div className="flex items-center gap-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">CTR</p>
           <Delta value={deltas?.ctr} />
         </div>
-        <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+        <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
           <CountUp value={ctr} format={(v) => fmtPercent(v)} />
         </p>
         <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -117,13 +117,13 @@ export function KpiRow({
         </p>
       </GlassCard>
 
-      <GlassCard className="p-4">
+      <GlassCard className="p-3 sm:p-4">
         <div className="flex items-center gap-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">CPM</p>
           {/* CPM subir é ruim: cor invertida */}
           <Delta value={deltas?.cpm} goodWhenUp={false} />
         </div>
-        <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+        <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
           <CountUp value={cpm} format={(v) => fmtSpend(v, currency)} />
         </p>
         <p className="mt-0.5 text-[11px] text-muted-foreground">

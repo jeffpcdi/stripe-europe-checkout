@@ -30,17 +30,17 @@ export const PILOTS: { id: PilotId; title: string; desc: string }[] = [
   {
     id: 'protector',
     title: 'Protetor de orçamento',
-    desc: 'Corta o que queima dinheiro: CPA estourado, gasto sem venda e clique caro demais. Pausa também campanhas Smart+ (o TikTok não deixa ajustar o orçamento delas por fora — só pausar).',
+    desc: 'Pausa campanhas com CPA alto ou gasto sem venda e reduz CPC caro.',
   },
   {
     id: 'scaler',
     title: 'Escalador de vencedoras',
-    desc: 'Aumenta o orçamento das campanhas com ROAS comprovado — sempre com teto por dia.',
+    desc: 'Escala campanhas com ROAS comprovado, sempre com teto diário.',
   },
   {
     id: 'schedule',
     title: 'Horário de funcionamento',
-    desc: 'Liga e pausa as campanhas nos dias e horários que você definir.',
+    desc: 'Liga e pausa campanhas nos dias e horários escolhidos.',
   },
 ]
 

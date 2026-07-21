@@ -24,12 +24,9 @@ export function CatalogReadinessCard({
   onAction?: (action: AdsCatalogReadiness['nextAction']) => void
 }) {
   return (
-    <section className="rounded-xl border border-border bg-background p-4" aria-labelledby="catalog-readiness-title">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 id="catalog-readiness-title" className="text-xs font-semibold text-foreground">Prontidão do catálogo</h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">A campanha só é liberada quando as dependências reais estão confirmadas.</p>
-        </div>
+    <section className="rounded-xl border border-border bg-background p-3.5 sm:p-4" aria-labelledby="catalog-readiness-title">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id="catalog-readiness-title" className="text-xs font-semibold text-foreground">Prontidão</h3>
         {readiness && onAction && (
           <button type="button" className="btn-primary text-xs" onClick={() => onAction(readiness.nextAction)}>
             {ACTION_LABEL[readiness.nextAction]}
@@ -39,9 +36,9 @@ export function CatalogReadinessCard({
       {loading && !readiness ? (
         <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Verificando…</div>
       ) : (
-        <ol className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <ol className="mt-3 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
           {(readiness?.steps ?? []).map((item) => (
-            <li key={item.id} className={`rounded-lg border p-3 ${item.state === 'blocked' ? 'border-error/30 bg-error/5' : item.state === 'done' ? 'border-success/25 bg-success/5' : 'border-border bg-card'}`}>
+            <li key={item.id} className={`rounded-lg border p-2.5 ${item.state === 'blocked' ? 'border-error/30 bg-error/5' : item.state === 'done' ? 'border-success/25 bg-success/5' : 'border-border bg-card'}`}>
               <div className="flex items-start gap-2">
                 {item.state === 'done' ? <Check className="mt-0.5 size-3.5 text-success" /> : item.state === 'active' ? <Loader2 className="mt-0.5 size-3.5 animate-spin text-primary" /> : item.state === 'blocked' ? <AlertCircle className="mt-0.5 size-3.5 text-error" /> : <Circle className="mt-0.5 size-3.5 text-muted-foreground" />}
                 <div className="min-w-0">

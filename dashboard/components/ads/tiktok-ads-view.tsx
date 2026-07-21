@@ -95,11 +95,11 @@ export function TikTokAdsView() {
   // Automações (absorve IA) · Catálogo. Smart+ e IA deixaram de ser abas — o
   // gestor não deve caçar em 6 portas o que é um fluxo só.
   type TabKey = 'today' | 'campaigns' | 'automation' | 'catalog'
-  const SUBTABS: { value: TabKey; label: string; icon: typeof Gauge }[] = [
-    { value: 'today', label: 'Hoje', icon: Gauge },
-    { value: 'campaigns', label: 'Campanhas', icon: Megaphone },
-    { value: 'automation', label: 'Automações', icon: Bot },
-    { value: 'catalog', label: 'Catálogo', icon: ShoppingBag },
+  const SUBTABS: { value: TabKey; label: string; compactLabel: string; icon: typeof Gauge }[] = [
+    { value: 'today', label: 'Hoje', compactLabel: 'Hoje', icon: Gauge },
+    { value: 'campaigns', label: 'Campanhas', compactLabel: 'Campanhas', icon: Megaphone },
+    { value: 'automation', label: 'Automações', compactLabel: 'Robô', icon: Bot },
+    { value: 'catalog', label: 'Catálogo', compactLabel: 'Catálogo', icon: ShoppingBag },
   ]
   const [tab, setTab] = useState<TabKey>('today')
   // Dentro de Campanhas: "Manuais" (árvore + criação) ou "Smart+".
@@ -274,7 +274,7 @@ export function TikTokAdsView() {
   const advertisers = accounts?.accounts ?? []
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="min-w-0 flex flex-col gap-4">
       {/* Cabeçalho: título + conta conectada + ações principais */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
@@ -363,17 +363,18 @@ export function TikTokAdsView() {
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
           <Tabs.Root value={tab} onValueChange={(value) => changeTab(value as TabKey)}>
-            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="flex w-full items-center gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1 hide-scrollbar sm:w-max sm:self-center">
+            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-4 items-center gap-1 rounded-xl border border-border bg-card p-1 sm:w-max sm:self-center">
               {SUBTABS.map((item) => {
                 const attentionCount = item.value === 'automation' ? bannedAccounts.length + openTickets.length : item.value === 'campaigns' && tree?.syncError ? 1 : 0
                 return (
                   <Tabs.Trigger
                     key={item.value}
                     value={item.value}
-                    className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg px-1 text-[11px] font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-[inset_0_0_0_1px_rgba(37,244,238,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm"
                   >
-                    <item.icon className="size-4" aria-hidden="true" />
-                    {item.label}
+                    <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
+                    <span className="truncate sm:hidden">{item.compactLabel}</span>
+                    <span className="hidden sm:inline">{item.label}</span>
                     {attentionCount > 0 && (
                       <span className="flex min-w-5 items-center justify-center rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
                         {attentionCount}
@@ -463,7 +464,7 @@ export function TikTokAdsView() {
           {tab === 'campaigns' && (
             <>
               {/* Segmento: campanhas manuais × Smart+ (o antigo tab absorvido) */}
-              <div className="flex items-center gap-1 self-start rounded-xl border border-border bg-card p-1 text-xs" role="tablist" aria-label="Tipo de campanha">
+              <div className="grid w-full grid-cols-2 items-center gap-1 self-start rounded-xl border border-border bg-card p-1 text-xs sm:w-auto" role="tablist" aria-label="Tipo de campanha">
                 {([['manual', 'Manuais'], ['smartplus', 'Smart+']] as const).map(([v, label]) => (
                   <button
                     key={v}
@@ -471,8 +472,8 @@ export function TikTokAdsView() {
                     role="tab"
                     aria-selected={campaignsView === v}
                     onClick={() => setCampaignsView(v)}
-                    className={`rounded-lg px-3 py-1 font-semibold transition-colors ${
-                      campaignsView === v ? 'bg-white/10 text-white' : 'text-muted-foreground hover:text-white'
+                    className={`rounded-lg px-3 py-1.5 font-semibold transition-colors ${
+                      campaignsView === v ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
                     }`}
                   >
                     {label}
@@ -486,14 +487,14 @@ export function TikTokAdsView() {
               <>
               {/* Barra de criação: tudo que PUBLICA vive junto da lista que
                   mostra o resultado. Primário = Nova campanha; o resto apoia. */}
-              <div className="flex flex-wrap items-center gap-2">
-                <button type="button" className="btn-primary text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
+              <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
+                <button type="button" className="btn-primary justify-center text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
                   <Plus className="size-3.5" aria-hidden="true" />
                   Nova campanha
                 </button>
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
-                    <button type="button" className="btn-ghost text-xs" aria-label="Mais ações de criação">
+                    <button type="button" className="btn-ghost w-full justify-center border-border/80 bg-card text-xs sm:w-auto" aria-label="Mais ações de criação">
                       <MoreHorizontal className="size-3.5" aria-hidden="true" />
                       Mais ações
                     </button>
@@ -553,16 +554,16 @@ export function TikTokAdsView() {
           {/* ── Aba: Catálogo — produtos + feed + publicação no TikTok (DPA).
               Antes era página própria no menu; agora vive onde é usado. ── */}
           {tab === 'catalog' && (
-            <GlassCard className="flex flex-col gap-4 p-5">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <section className="min-w-0 flex flex-col gap-3" aria-labelledby="catalog-heading">
+              <h2 id="catalog-heading" className="flex items-center gap-2 px-1 text-sm font-semibold text-foreground">
                 <ShoppingBag className="size-4 text-primary" aria-hidden="true" />
-                Catálogos de produtos
+                Catálogos
               </h2>
               <CatalogManager
                 advertiserId={concreteAdvertiser}
                 advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
               />
-            </GlassCard>
+            </section>
           )}
 
           {/* ── Aba: Automações — Pilotos + Modo avançado + Copiloto (IA). O

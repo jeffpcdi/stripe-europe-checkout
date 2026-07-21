@@ -135,7 +135,7 @@ export function NeedsYouInbox({
 
   return (
     <GlassCard
-      className={cn('p-4', pending.length > 0 && 'border-l-4 border-l-warning')}
+      className={cn('p-3.5 sm:p-4', pending.length > 0 && 'border-l-4 border-l-warning')}
       data-tour="ads-inbox"
     >
       <div className="relative flex flex-wrap items-center justify-between gap-2">

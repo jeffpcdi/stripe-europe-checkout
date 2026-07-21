@@ -85,7 +85,7 @@ export function RoasCard({
 
   return (
     <GlassCard
-      className={cn('p-4', profitable && 'border-success/20')}
+      className={cn('p-3.5 sm:p-4', profitable && 'border-success/20')}
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center justify-between gap-2">
@@ -93,8 +93,8 @@ export function RoasCard({
         <HandCoins className="size-4 text-muted-foreground" aria-hidden="true" />
       </div>
 
-      <div className="mt-2 flex flex-wrap items-end gap-x-5 gap-y-2">
-        <div>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 sm:flex sm:flex-wrap sm:items-end sm:gap-x-5">
+        <div className="col-span-2 sm:col-span-1">
           <p
             className={cn(
               'font-mono text-2xl font-bold tabular-nums',

@@ -651,18 +651,11 @@ export function AutomationPanel({
       {/* Transparência operacional: deixa explícitos escopo, versão e pulso
           do motor sem transformar a tela num console técnico. */}
       {data && (
-        <div className="grid gap-2 rounded-xl border border-border bg-card px-3 py-2.5 sm:grid-cols-3" aria-label="Estado da automação">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-2.5 sm:flex-row sm:items-center" aria-label={`Estado da automação da conta ${data.advertiserId}`}>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className={cn('size-2 shrink-0 rounded-full', data.engine.status === 'active' ? 'bg-success' : 'bg-muted-foreground')} aria-hidden="true" />
             <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Escopo</p>
-              <p className="truncate font-mono text-[11px] text-foreground" title={data.advertiserId}>Conta {data.advertiserId}</p>
-            </div>
-          </div>
-          <div className="flex min-w-0 items-center gap-2 sm:border-l sm:border-border sm:pl-3">
-            <Activity className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Motor 24/7</p>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Motor {data.engine.status === 'active' ? 'ativo' : 'ocioso'}</p>
               <p className="truncate text-[11px] text-foreground" title={data.engine.nextSweepAt ? `Próxima avaliação em ${timeUntil(data.engine.nextSweepAt)}` : undefined}>
                 {data.engine.lastSweepAt
                   ? `avaliou ${timeAgo(data.engine.lastSweepAt)} · próxima em ${timeUntil(data.engine.nextSweepAt)}`
@@ -673,9 +666,9 @@ export function AutomationPanel({
           <div className="flex min-w-0 items-center gap-2 sm:border-l sm:border-border sm:pl-3">
             <Clock3 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Configuração</p>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Última configuração</p>
               <p className="truncate text-[11px] text-foreground" title={new Date(data.updatedAt).toLocaleString('pt-BR')}>
-                revisão {data.revision} · salva {timeAgo(data.updatedAt)}
+                salva {timeAgo(data.updatedAt)} · revisão {data.revision}
               </p>
             </div>
           </div>
@@ -691,22 +684,22 @@ export function AutomationPanel({
         className="flex items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
       >
         <SlidersHorizontal className="size-3" aria-hidden="true" />
-        {advanced ? 'Ocultar modo avançado' : 'Modo avançado (regras detalhadas)'}
+        {advanced ? 'Ocultar configurações' : 'Configurações avançadas'}
         <ChevronDown className={cn('size-3 transition-transform', advanced && 'rotate-180')} aria-hidden="true" />
       </button>
 
       {/* ── Regras: linhas expansíveis com switch (só no modo avançado) ── */}
       {advanced && (
       <GlassCard className="p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-foreground">Regras automáticas</h3>
             <span className="rounded-full bg-[var(--hover)] px-2 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
               {enabledCount} de {rules.length} ativas
             </span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <button type="button" className="btn-ghost gap-1 text-xs" onClick={testNow} disabled={testing}>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-1.5">
+            <button type="button" className="btn-ghost justify-center gap-1 text-xs" onClick={testNow} disabled={testing}>
               {testing ? (
                 <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               ) : (
@@ -714,7 +707,7 @@ export function AutomationPanel({
               )}
               Avaliar agora
             </button>
-            <button type="button" className="btn-primary gap-1 text-xs" onClick={addRule} disabled={saving || rules.length >= 10} title={rules.length >= 10 ? 'Limite de 10 regras por conta' : undefined}>
+            <button type="button" className="btn-primary justify-center gap-1 text-xs" onClick={addRule} disabled={saving || rules.length >= 10} title={rules.length >= 10 ? 'Limite de 10 regras por conta' : undefined}>
               <Plus className="size-3.5" aria-hidden="true" />
               Nova regra
             </button>

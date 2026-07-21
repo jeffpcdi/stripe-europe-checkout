@@ -43,7 +43,7 @@ export function TodayPanel({
   const { data: rulesData } = useAdsRules(active, adAccountId)
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       {/* 1) O que precisa de mim */}
       <NeedsYouInbox
         active={active}
@@ -54,11 +54,11 @@ export function TodayPanel({
       />
 
       {/* Atalhos de criação — a ação mais comum a um clique */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="btn-primary text-xs" onClick={onCreate}>
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+        <button type="button" className="btn-primary justify-center text-xs" onClick={onCreate}>
           <Plus className="size-3.5" aria-hidden="true" /> Nova campanha
         </button>
-        <button type="button" className="btn-ghost text-xs" onClick={onNewSmartPlus}>
+        <button type="button" className="btn-ghost justify-center border-border/80 bg-card text-xs" onClick={onNewSmartPlus}>
           <Sparkles className="size-3.5" aria-hidden="true" /> Nova Smart+
         </button>
       </div>
@@ -69,7 +69,7 @@ export function TodayPanel({
       <BriefingCard adAccountId={adAccountId} currency={currency} />
 
       {/* 3) O que o robô fez */}
-      <GlassCard className="p-4" data-tour="ads-feed">
+      <GlassCard className="p-3.5 sm:p-4" data-tour="ads-feed">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-foreground">O que o robô fez</h3>
           <button type="button" className="btn-ghost gap-1 text-[11px]" onClick={onGoAutomations}>

@@ -65,7 +65,7 @@ export function CatalogConnectionCard({
 
   return (
     <>
-    <section className={`rounded-xl border p-4 ${verified ? 'border-success/30 bg-success/5' : catalog.linkStatus === 'error' ? 'border-error/30 bg-error/5' : 'border-primary/25 bg-primary/5'}`}>
+    <section className={`rounded-xl border p-3.5 sm:p-4 ${verified ? 'border-success/30 bg-success/5' : catalog.linkStatus === 'error' ? 'border-error/30 bg-error/5' : 'border-primary/25 bg-primary/5'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
@@ -89,7 +89,7 @@ export function CatalogConnectionCard({
 
       {catalog.linkStatus === 'error' && (
         <p className="mt-3 rounded-lg border border-error/20 bg-background/60 p-2.5 text-pretty text-[10px] leading-relaxed text-muted-foreground">
-          Seus produtos locais continuam salvos. Se o catálogo remoto foi excluído, crie ou abra outro no TikTok Catalog Manager e substitua o Catalog ID abaixo.
+          Seus produtos estão seguros. Se o catálogo remoto foi excluído, informe abaixo o ID de outro catálogo do mesmo Business Center.
         </p>
       )}
 

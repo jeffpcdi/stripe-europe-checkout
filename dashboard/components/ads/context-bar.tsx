@@ -95,16 +95,17 @@ export function AdsContextBar({
       role="toolbar"
       aria-label="Contexto do TikTok Ads"
       data-tour="ads-context"
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-card px-4 py-2.5 text-xs"
+      className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-border bg-card p-3 text-xs sm:flex sm:gap-x-4 sm:px-4 sm:py-2.5"
     >
       {/* Um único indicador substitui os três estados redundantes antigos. */}
       <McpStatusDot active />
 
       {/* Seletor de conta de anúncio (advertiser) */}
-      <label className="flex items-center gap-2 text-muted-foreground">
-        <span>Conta de anúncio:</span>
+      <label className="col-span-2 flex min-w-0 items-center gap-2 text-muted-foreground sm:col-span-1 sm:flex-1">
+        <span className="shrink-0 sm:hidden">Conta</span>
+        <span className="hidden shrink-0 sm:inline">Conta de anúncio</span>
         <select
-          className="input-neon rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+          className="input-neon w-0 min-w-0 max-w-full flex-1 truncate rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground sm:max-w-xl"
           value={selectedAdvertiser}
           disabled={switchingAdvertiser || advertisers.length === 0}
           onChange={(e) => handleSelectAdvertiser(e.target.value)}
@@ -135,10 +136,10 @@ export function AdsContextBar({
         })()}
       </label>
 
-      <label className="flex items-center gap-2 text-muted-foreground">
-        <span>Período:</span>
+      <label className="flex min-w-0 items-center gap-2 text-muted-foreground">
+        <span className="shrink-0">Período</span>
         <select
-          className="input-neon rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+          className="input-neon min-w-0 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground sm:text-sm"
           value={rangeDays}
           onChange={(event) => onRangeDays(Number(event.target.value))}
           aria-label="Período global das métricas"
@@ -155,7 +156,7 @@ export function AdsContextBar({
       <div className="ml-auto flex items-center gap-1">
         <button
           type="button"
-          className="btn-ghost px-2 py-1 text-xs"
+          className="btn-ghost size-8 p-0 text-xs"
           onClick={onRefresh}
           aria-label="Atualizar dados"
         >
@@ -163,7 +164,7 @@ export function AdsContextBar({
         </button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
-            <button type="button" className="btn-ghost px-2 py-1 text-xs" aria-label="Mais ações da conta">
+            <button type="button" className="btn-ghost size-8 p-0 text-xs" aria-label="Mais ações da conta">
               <MoreHorizontal className="size-3.5" aria-hidden="true" />
             </button>
           </DropdownMenu.Trigger>

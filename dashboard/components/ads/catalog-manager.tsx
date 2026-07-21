@@ -200,11 +200,12 @@ function BusinessCenterBar({
   if (!editing) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3">
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex min-w-0 items-center gap-2 text-xs">
           <Building2 className={`size-4 ${configured ? 'text-primary' : 'text-muted-foreground'}`} aria-hidden="true" />
           {configured ? (
-            <span className="text-foreground">
-              Business Center <code className="rounded bg-secondary px-1.5 py-0.5 text-[11px]">{bcId}</code>
+            <span className="flex min-w-0 flex-wrap items-center gap-1 text-foreground">
+              <span>Business Center</span>
+              <code className="max-w-full truncate rounded bg-secondary px-1.5 py-0.5 text-[11px]">{bcId}</code>
               {fromEnv && <span className="ml-1 text-[11px] text-muted-foreground">(do servidor)</span>}
             </span>
           ) : (
@@ -312,12 +313,12 @@ function CatalogList({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
-          Cadastre, valide e sincronize seus produtos com um catálogo real no TikTok.
+          Produtos, feed e vínculo com o TikTok em um só lugar.
         </p>
         {!creating && (
-          <button type="button" className="btn-primary shrink-0 text-xs" onClick={() => setCreating(true)}>
+          <button type="button" className="btn-primary shrink-0 self-start text-xs sm:self-auto" onClick={() => setCreating(true)}>
             <Plus className="size-3.5" aria-hidden="true" />
             Novo catálogo
           </button>
@@ -409,7 +410,6 @@ function CatalogList({
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {c.productCount} produto{c.productCount === 1 ? '' : 's'} · {c.currency}
                     {c.country ? ` · ${c.country}` : ''}
-                    {' · '}{status.summary}
                   </p>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.className}`}>
@@ -781,11 +781,11 @@ function CatalogDetail({
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-border bg-background p-4">
+          <div className="px-1 py-1">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-foreground">{catalog?.name}</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {products.length} produto{products.length === 1 ? '' : 's'} · {validCount} válido{validCount === 1 ? '' : 's'} · {catalog?.currency} · conta {advertiserLabel || advertiserId || 'não selecionada'}
+                {products.length} produto{products.length === 1 ? '' : 's'} · {validCount} válido{validCount === 1 ? '' : 's'} · {catalog?.currency}
                 {hasUnpublishedChanges && <span className="font-semibold text-warning"> · alterações não publicadas</span>}
               </p>
             </div>
@@ -796,11 +796,10 @@ function CatalogDetail({
             <div className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-4">
               <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                 <AlertCircle className="size-4 text-warning" aria-hidden="true" />
-                A publicação automática falhou — mas você não fica travado
+                Não foi possível enviar automaticamente
               </p>
               <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                Baixe o CSV pronto e importe no TikTok Catalog Manager (passo a passo abaixo). O arquivo já
-                sai no formato oficial do TikTok, só com os produtos válidos.
+                Baixe o CSV pronto para importar no TikTok Catalog Manager. Ele contém somente os produtos válidos.
               </p>
               <a className="btn-primary w-fit text-xs" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
                 <Download className="size-3.5" aria-hidden="true" /> Baixar CSV pronto para o TikTok
@@ -827,11 +826,11 @@ function CatalogDetail({
             />
           )}
 
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-ghost text-xs" onClick={() => setShowUrlImport((value) => !value)} aria-expanded={showUrlImport}>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <button type="button" className="btn-ghost justify-center text-xs" onClick={() => setShowUrlImport((value) => !value)} aria-expanded={showUrlImport}>
               <Link2 className="size-3.5" aria-hidden="true" /> Importar pela URL
             </button>
-            <button type="button" className="btn-ghost text-xs" onClick={() => setEditing('new')}>
+            <button type="button" className="btn-ghost justify-center text-xs" onClick={() => setEditing('new')}>
               <Plus className="size-3.5" aria-hidden="true" /> Adicionar manualmente
             </button>
           </div>
@@ -884,9 +883,8 @@ function CatalogDetail({
             <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-[11px] text-muted-foreground">
               <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
               <span className="text-pretty">
-                Configure o <strong className="text-foreground">Business Center</strong> no topo desta aba para
-                publicar o catálogo direto no TikTok. Sem ele, você ainda pode gerar o <strong className="text-foreground">feed manual</strong> e
-                conectá-lo no Catalog Manager.
+                Configure o <strong className="text-foreground">Business Center</strong> para enviar direto ao TikTok.
+                Sem ele, o <strong className="text-foreground">feed manual</strong> continua disponível.
               </span>
             </div>
           )}
@@ -915,7 +913,7 @@ function CatalogDetail({
           {catalog?.feedUrl && (
             <details className="rounded-xl border border-border bg-background p-4">
               <summary className="cursor-pointer text-xs font-semibold text-foreground">
-                Alternativa: feed agendado manual (URL pública)
+                Feed agendado (URL pública)
               </summary>
               <div className="mt-3 flex flex-col gap-2">
                 <div className="flex items-center gap-2">

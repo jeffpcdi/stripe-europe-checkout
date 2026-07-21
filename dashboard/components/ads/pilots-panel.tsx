@@ -27,23 +27,23 @@ const PILOT_ICONS: Record<PilotId, typeof ShieldCheck> = {
 // Frase-resumo do que o piloto FAZ na intensidade escolhida — em linguagem de
 // gestor, com a moeda da conta (nunca símbolo fixo).
 function pilotSummary(pilot: PilotId, intensity: Intensity | 'custom', cur: string): string {
-  if (intensity === 'custom') return 'Configuração personalizada (editada no Modo avançado).'
+  if (intensity === 'custom') return 'Configuração personalizada no modo avançado.'
   if (pilot === 'protector') {
     const t = { conservador: [20, 30, 1.5], normal: [15, 20, 1], agressivo: [12, 15, 0.8] }[intensity]
-    return `Pausa com CPA acima de ${t[0]} ${cur} ou ${t[1]} ${cur} gastos sem venda; reduz orçamento com clique acima de ${t[2]} ${cur}.`
+    return `Pausa acima de ${t[0]} ${cur} de CPA ou ${t[1]} ${cur} sem venda; reduz com CPC acima de ${t[2]} ${cur}.`
   }
   if (pilot === 'scaler') {
     const t = { conservador: [3, 10, 50], normal: [2, 20, 100], agressivo: [1.8, 30, 200] }[intensity]
-    return `Aumenta ${t[1]}% o orçamento quando o ROAS passa de ${t[0]} — teto de ${t[2]} ${cur}/dia por campanha.`
+    return `Escala ${t[1]}% com ROAS ≥ ${t[0]}, até ${t[2]} ${cur}/dia.`
   }
   const t = { conservador: 'seg–sex, 09:00–18:00', normal: 'seg–sex, 09:00–23:00', agressivo: 'todos os dias, 08:00–00:00' }[intensity]
-  return `Campanhas ligadas ${t} (horário de Brasília); fora disso, pausadas.`
+  return `Ativas ${t}; pausadas fora desse horário.`
 }
 
 const AUTONOMY_OPTIONS: { value: AdsAutomationAutonomy; label: string; hint: string; icon: typeof Bell }[] = [
-  { value: 'notify', label: 'Só avisar', hint: 'O robô nunca mexe — só notifica', icon: Bell },
-  { value: 'propose', label: 'Propor e eu aprovo', hint: 'Sugere e espera seu OK de 1 toque', icon: MessagesSquare },
-  { value: 'auto', label: 'Agir sozinho', hint: 'Age nos limites e avisa depois', icon: Rocket },
+  { value: 'notify', label: 'Só avisar', hint: 'Apenas notifica', icon: Bell },
+  { value: 'propose', label: 'Propor', hint: 'Aguarda seu OK', icon: MessagesSquare },
+  { value: 'auto', label: 'Agir sozinho', hint: 'Age nos limites', icon: Rocket },
 ]
 
 export function PilotsPanel({
@@ -75,7 +75,7 @@ export function PilotsPanel({
       {/* ── Seletor único de autonomia ── */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-semibold text-foreground">Como o robô deve trabalhar?</h3>
+          <h3 className="text-sm font-semibold text-foreground">Autonomia</h3>
           {saving && <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-hidden="true" />}
           {autonomy === 'custom' && (
             <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
@@ -94,8 +94,8 @@ export function PilotsPanel({
                 aria-checked={selected}
                 disabled={saving}
                 onClick={() => setAutonomy(o.value)}
-                className={`flex flex-col gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors ${
-                  selected ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                className={`flex flex-col gap-0.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                  selected ? 'border-primary/50 bg-primary/10 shadow-[inset_0_0_0_1px_rgba(37,244,238,0.08)]' : 'border-border bg-background hover:border-primary/40'
                 }`}
               >
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
@@ -124,7 +124,7 @@ export function PilotsPanel({
                   </span>
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground">{p.title}</p>
-                    <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
+                    <p className="line-clamp-2 text-pretty text-[11px] leading-relaxed text-muted-foreground">
                       {st.active ? pilotSummary(p.id, st.intensity, currency) : p.desc}
                     </p>
                   </div>
@@ -137,7 +137,7 @@ export function PilotsPanel({
                 />
               </div>
               {st.active && (
-                <div className="flex flex-wrap items-center gap-1.5 pl-10">
+                <div className="grid grid-cols-3 items-center gap-1.5 sm:flex sm:flex-wrap sm:pl-10">
                   {INTENSITIES.map((i) => (
                     <button
                       key={i.value}
@@ -145,17 +145,17 @@ export function PilotsPanel({
                       disabled={saving}
                       aria-pressed={st.intensity === i.value}
                       onClick={() => onSetPilot(p.id, { enabled: true, intensity: i.value })}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                      className={`w-full rounded-lg px-2 py-1.5 text-[10px] font-medium transition-colors sm:w-auto sm:rounded-full sm:px-2.5 sm:py-1 sm:text-[11px] ${
                         st.intensity === i.value
-                          ? 'bg-primary/15 text-primary'
-                          : 'bg-secondary text-muted-foreground hover:text-foreground'
+                          ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
+                          : 'bg-secondary/70 text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       {i.label}
                     </button>
                   ))}
                   {st.intensity === 'custom' && (
-                    <span className="text-[10px] text-muted-foreground">personalizado no Modo avançado</span>
+                    <span className="col-span-3 text-[10px] text-muted-foreground">Personalizado no modo avançado</span>
                   )}
                 </div>
               )}

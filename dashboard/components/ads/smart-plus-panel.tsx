@@ -129,13 +129,13 @@ export function SmartPlusPanel({
         </GlassCard>
       )}
 
-      <GlassCard className="flex flex-col gap-4 p-5">
+      <GlassCard className="flex flex-col gap-3 p-3.5 sm:p-5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Sparkles className="size-4 text-primary" aria-hidden="true" />
             Campanhas Smart+
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button type="button" className="btn-ghost px-2 text-xs" aria-label="Atualizar Smart+" title="Atualizar" onClick={() => { mutate(); mutateAds() }}>
               <RefreshCw className="size-3.5" aria-hidden="true" />
             </button>
@@ -166,10 +166,10 @@ export function SmartPlusPanel({
               const meta = STATUS_META[c.status] ?? { label: c.status, cls: 'text-muted-foreground', dot: 'bg-muted-foreground' }
               const busy = busyId === c.campaignId
               return (
-                <li key={c.campaignId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3">
+                <li key={c.campaignId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-foreground" title={c.name}>{c.name}</p>
-                    <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                       <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
                       <span className={meta.cls}>{meta.label}</span>
                       <span>· {OBJECTIVE_LABEL[c.objective] || c.objective || '—'}</span>

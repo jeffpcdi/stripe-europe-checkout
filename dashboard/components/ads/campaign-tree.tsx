@@ -376,10 +376,10 @@ export function CampaignTree({
 
   // Colunas numéricas alinhadas — mesmas larguras no cabeçalho e nas linhas
   // (tabular-nums + largura fixa evitam o truncamento "US..." do layout antigo).
-  const colGasto = 'w-24 shrink-0 text-right tabular-nums'
+  const colGasto = 'w-20 shrink-0 text-right tabular-nums sm:w-24'
   const colRoas = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
   const colConv = 'hidden w-16 shrink-0 text-right tabular-nums sm:block'
-  const colActions = 'flex w-[4.75rem] shrink-0 items-center justify-end gap-0.5'
+  const colActions = 'flex w-14 shrink-0 items-center justify-end gap-0.5 sm:w-[4.75rem]'
 
   // Cabeçalho de grupo (Ativas/Pausadas/…), reutilizado nos dois modos de render
   function renderGroupHeader(row: Extract<FlatRow, { kind: 'group' }>) {
@@ -413,7 +413,7 @@ export function CampaignTree({
       <div className={`border-b border-border/70 ${isError ? 'bg-error/10' : ''}`}>
         {/* Linha compacta — ações aparecem no hover/focus (sm+), sempre
             visíveis no mobile (não há hover no touch) */}
-        <div className="group flex items-center gap-2 overflow-hidden px-3 hover:bg-secondary/40">
+        <div className="group flex items-center gap-1.5 overflow-hidden px-2 hover:bg-secondary/40 sm:gap-2 sm:px-3">
           <input
             type="checkbox"
             checked={selected.has(id)}
@@ -426,7 +426,7 @@ export function CampaignTree({
             onClick={() => toggle(id)}
             aria-expanded={isOpen}
             aria-label={`${isOpen ? 'Recolher' : 'Expandir'} campanha ${c.campaignName || id}`}
-            className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left"
+            className="flex min-w-0 flex-1 items-center gap-1.5 py-2 text-left sm:gap-2"
           >
             <ChevronRight
               className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -459,7 +459,7 @@ export function CampaignTree({
                     title="Anúncios validados pelo TikTok"
                   >
                     <BadgeCheck className="size-2.5" aria-hidden="true" />
-                    Validada
+                    <span className="hidden sm:inline">Validada</span>
                   </span>
                 )}
               </span>
@@ -710,10 +710,10 @@ export function CampaignTree({
   }
 
   return (
-    <GlassCard className="overflow-hidden p-0">
+    <GlassCard className="min-w-0 overflow-hidden p-0">
       {/* Toolbar em 2 linhas: busca (com contagem) em cima; status + filtros
           de dados embaixo. Antes tudo disputava uma linha só e nada respirava. */}
-      <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
+      <div className="flex flex-col gap-2 border-b border-border px-3 py-3 sm:px-4">
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-xs">
             <Search
@@ -735,8 +735,21 @@ export function CampaignTree({
               : `${campaigns.length} campanha${campaigns.length === 1 ? '' : 's'}`}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrar por status">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <label className="sm:hidden">
+            <span className="sr-only">Filtrar campanhas por status</span>
+            <select
+              className="input-neon w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
+              value={statusFilter}
+              onChange={(event) => onStatusFilter(event.target.value)}
+              aria-label="Filtrar campanhas por status"
+            >
+              {STATUS_FILTERS.map((filter) => (
+                <option key={filter.value || 'all'} value={filter.value}>{filter.label}</option>
+              ))}
+            </select>
+          </label>
+          <div className="hidden flex-wrap items-center gap-1 sm:flex" role="group" aria-label="Filtrar por status">
             {STATUS_FILTERS.map((f) => (
               <button
                 key={f.value}
@@ -753,26 +766,27 @@ export function CampaignTree({
               </button>
             ))}
           </div>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
+          <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-wrap sm:items-center sm:gap-3">
             {/* Esconde as dezenas de campanhas zeradas (testes) com 1 clique */}
             <button
               type="button"
               onClick={() => setOnlyWithSpend((v) => !v)}
               aria-pressed={onlyWithSpend}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                 onlyWithSpend
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                  ? 'border-primary/30 bg-primary/15 text-primary'
+                  : 'border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground'
               }`}
             >
               Só com gasto
             </button>
-            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              Ordenar:
+            <label className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="sr-only">Ordenar campanhas</span>
               <select
-                className="input-neon rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+                className="input-neon w-full min-w-0 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] text-foreground"
                 value={sort}
                 onChange={(e) => onSort(e.target.value)}
+                aria-label="Ordenar campanhas"
               >
                 {SORTS.map((s) => (
                   <option key={s.value} value={s.value}>
