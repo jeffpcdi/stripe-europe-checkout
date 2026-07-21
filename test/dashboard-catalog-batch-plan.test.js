@@ -106,7 +106,7 @@ console.log('dashboard-catalog-batch-plan — contrato do Pixel');
     header,
     row('Loja A', 'sku-1', 'Campanha A', 'pixel-123'),
   ].join('\n'), 'BRL', { requireCampaignPixel: true });
-  ok(plan.message.includes('somente 6 a 30 dígitos'), 'Pixel alfanumérico é bloqueado antes do preview');
+  ok(plan.message.includes('ID numérico (6 a 30 dígitos)'), 'Pixel inválido segue bloqueado, com orientação sobre ID numérico ou código da conta');
 }
 {
   const plan = buildCatalogBatchPlan([
