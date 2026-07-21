@@ -67,16 +67,21 @@ async function verifyCatalogLink(provider, input) {
   return found;
 }
 
-function capabilities(provider) {
+async function capabilities(provider) {
+  if (provider && typeof provider.getCatalogCapabilities === 'function') {
+    return provider.getCatalogCapabilities();
+  }
   return {
-    catalogCreate: typeof provider.createTikTokCatalog === 'function',
+    // Fallback conservador para providers antigos: leitura/upload podem ser
+    // inferidos pelo método, mas criar catálogo/campanha exige schema remoto.
+    catalogCreate: false,
     catalogUpload: typeof provider.uploadTikTokCatalogProducts === 'function',
     catalogAudit: typeof provider.getTikTokCatalogOverview === 'function',
     catalogLinkVerify: typeof provider.listTikTokCatalogs === 'function',
-    manualCatalogCampaign: typeof provider.createCatalogCampaign === 'function',
+    manualCatalogCampaign: false,
     productSets: false,
     catalogVideoTemplates: false,
-    note: 'Product sets e templates podem ser vinculados por ID; criação/listagem depende de novas tools do Pipeboard.',
+    note: 'A criação só é liberada depois de confirmar os campos nos schemas atuais do Pipeboard.',
   };
 }
 

@@ -7,12 +7,12 @@
 
 import { useMemo, useState } from 'react'
 import {
-  Sparkles, Loader2, Play, Pause, ShieldQuestion, RefreshCw, AlertCircle, Info, Plus,
+  Sparkles, Loader2, Play, Pause, ShieldQuestion, RefreshCw, Plus,
 } from 'lucide-react'
 import { useAdsSmartPlus, useAdsSmartPlusAds, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { fmtSpend } from '@/lib/format'
-import type { SmartPlusAd } from '@/lib/types'
+import type { SmartPlusAd, SmartPlusCampaign } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
@@ -53,6 +53,7 @@ export function SmartPlusPanel({
   const [appealTarget, setAppealTarget] = useState<SmartPlusAd | null>(null)
   const [appealReason, setAppealReason] = useState('')
   const [appealBusy, setAppealBusy] = useState(false)
+  const [activateTarget, setActivateTarget] = useState<SmartPlusCampaign | null>(null)
 
   const campaigns = data?.campaigns ?? []
   const rejectedAds = useMemo(() => (adsData?.ads ?? []).filter((a) => a.rejected), [adsData])
@@ -67,8 +68,10 @@ export function SmartPlusPanel({
       if (res.dryRun) toast.info('Modo simulação: nada foi alterado no TikTok')
       else toast.success(status === 'active' ? 'Campanha Smart+ ativada' : 'Campanha Smart+ pausada')
       mutate()
+      return true
     } catch (e) {
       toast.error('Falha ao alterar status', { hint: e instanceof Error ? e.message : undefined })
+      return false
     } finally {
       setBusyId(null)
     }
@@ -133,9 +136,8 @@ export function SmartPlusPanel({
             Campanhas Smart+
           </h2>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn-ghost text-xs" onClick={() => { mutate(); mutateAds() }}>
+            <button type="button" className="btn-ghost px-2 text-xs" aria-label="Atualizar Smart+" title="Atualizar" onClick={() => { mutate(); mutateAds() }}>
               <RefreshCw className="size-3.5" aria-hidden="true" />
-              Atualizar
             </button>
             <button
               type="button"
@@ -156,15 +158,7 @@ export function SmartPlusPanel({
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-background p-8 text-center">
             <Sparkles className="size-6 text-muted-foreground" aria-hidden="true" />
             <p className="text-sm font-medium text-foreground">Nenhuma campanha Smart+</p>
-            <p className="max-w-md text-pretty text-xs text-muted-foreground">
-              Smart+ é o tipo de campanha em que o TikTok automatiza targeting, lance, orçamento e criativo.
-              Clique em <strong className="text-foreground">Nova Smart+</strong> para criar uma direto por aqui —
-              e depois pause, escale e recorra de anúncios reprovados sem entrar no Ads Manager.
-            </p>
-            <button type="button" className="btn-primary mt-1 text-xs" onClick={() => setCreateOpen(true)}>
-              <Plus className="size-3.5" aria-hidden="true" />
-              Nova campanha Smart+
-            </button>
+            <p className="max-w-md text-pretty text-xs text-muted-foreground">Crie a primeira campanha usando a ação no topo. Ela nascerá pausada para revisão.</p>
           </div>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -190,7 +184,7 @@ export function SmartPlusPanel({
                         <Pause className="size-3.5" aria-hidden="true" /> Pausar
                       </button>
                     ) : (
-                      <button type="button" className="btn-ghost text-xs" onClick={() => setStatus(c.campaignId, 'active')}>
+                      <button type="button" className="btn-ghost text-xs" onClick={() => setActivateTarget(c)}>
                         <Play className="size-3.5" aria-hidden="true" /> Ativar
                       </button>
                     )}
@@ -201,12 +195,24 @@ export function SmartPlusPanel({
           </ul>
         )}
 
-        <p className="flex items-start gap-2 rounded-lg bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-          <Info className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
-          As campanhas Smart+ nascem pausadas — nada veicula até você revisar e ativar. O TikTok cuida de
-          targeting, lance, orçamento e criativo; você só define objetivo, orçamento e o vídeo.
-        </p>
       </GlassCard>
+
+      <ConfirmDialog
+        open={Boolean(activateTarget)}
+        title="Ativar esta campanha Smart+?"
+        description={
+          <p className="text-xs text-muted-foreground">
+            <strong className="text-foreground">{activateTarget?.name}</strong> poderá começar a gastar após a revisão do TikTok.
+          </p>
+        }
+        confirmLabel="Ativar campanha"
+        busy={Boolean(activateTarget && busyId === activateTarget.campaignId)}
+        onConfirm={async () => {
+          if (!activateTarget) return
+          if (await setStatus(activateTarget.campaignId, 'active')) setActivateTarget(null)
+        }}
+        onClose={() => setActivateTarget(null)}
+      />
 
       {/* Diálogo de recurso */}
       <ConfirmDialog
@@ -236,13 +242,6 @@ export function SmartPlusPanel({
         onConfirm={submitAppeal}
         onClose={() => { setAppealTarget(null); setAppealReason('') }}
       />
-
-      {!isLoading && campaigns.length > 0 && rejectedAds.length === 0 && (
-        <p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-          <AlertCircle className="size-3" aria-hidden="true" />
-          Nenhum anúncio Smart+ reprovado no momento.
-        </p>
-      )}
 
       <SmartPlusCreateDialog
         open={createOpen}

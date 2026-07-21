@@ -10,8 +10,7 @@ import { X, Loader2, Sparkles, UploadCloud, Check } from 'lucide-react'
 import { apiSend, adsUpload } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { useModalA11y } from '@/lib/use-modal-a11y'
-
-const CTAS = ['SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'ORDER_NOW', 'DOWNLOAD', 'CONTACT_US', 'GET_QUOTE']
+import { TIKTOK_CTA_OPTIONS, TIKTOK_PIXEL_EVENTS, tomorrowLocalIsoDate } from './tiktok-contracts'
 
 export function SmartPlusCreateDialog({
   open,
@@ -33,23 +32,32 @@ export function SmartPlusCreateDialog({
   const [endDate, setEndDate] = useState('')
   const [countries, setCountries] = useState('BR')
   const [videoUrl, setVideoUrl] = useState('')
+  const [coverUrl, setCoverUrl] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
   const [body, setBody] = useState('')
   const [cta, setCta] = useState('SHOP_NOW')
   const [pixelId, setPixelId] = useState('')
+  const [customEventType, setCustomEventType] = useState('ON_WEB_ORDER')
   const [uploading, setUploading] = useState(false)
+  const [coverUploading, setCoverUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   useModalA11y(open, ref, submitting ? () => {} : onClose)
 
   if (!open) return null
 
+  const tomorrow = tomorrowLocalIsoDate()
+  const endDateInFuture = /^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate >= tomorrow
+
   const error =
     !name.trim() ? 'Dê um nome à campanha'
       : !(Number(budget) > 0) ? 'Informe o orçamento total'
-        : !/^\d{4}-\d{2}-\d{2}/.test(endDate) ? 'Informe a data de término'
+        : !endDateInFuture ? 'Escolha uma data de término a partir de amanhã'
           : !/^https:\/\/\S+/.test(videoUrl.trim()) ? 'Adicione o vídeo (URL https ou upload)'
-            : goal === 'conversions' && !/^\d{5,30}$/.test(pixelId.trim()) ? 'Conversões exigem o Pixel ID numérico'
-              : null
+            : !/^https:\/\/\S+/.test(coverUrl.trim()) ? 'Adicione a capa do vídeo (JPG, PNG ou WebP)'
+              : !/^https:\/\/\S+/.test(linkUrl.trim()) ? 'Informe o link de destino'
+                : goal === 'conversions' && !/^\d{5,30}$/.test(pixelId.trim()) ? 'Conversões exigem o Pixel ID numérico'
+                  : goal === 'conversions' && !TIKTOK_PIXEL_EVENTS.some((event) => event.value === customEventType) ? 'Selecione o evento de conversão'
+                    : null
 
   async function handleUpload(file: File) {
     if (!file.type.startsWith('video/')) { toast.error('Envie um arquivo de vídeo (MP4)'); return }
@@ -66,6 +74,21 @@ export function SmartPlusCreateDialog({
     }
   }
 
+  async function handleCoverUpload(file: File) {
+    if (!file.type.startsWith('image/')) { toast.error('Envie uma imagem JPG, PNG ou WebP'); return }
+    if (file.size > 5 * 1024 * 1024) { toast.error('Imagem acima de 5 MB'); return }
+    setCoverUploading(true)
+    try {
+      const { url } = await adsUpload(file, 'image')
+      setCoverUrl(url)
+      toast.success('Capa enviada')
+    } catch (e) {
+      toast.error('Falha no upload da capa', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setCoverUploading(false)
+    }
+  }
+
   async function handleSubmit() {
     if (error) return
     setSubmitting(true)
@@ -79,14 +102,17 @@ export function SmartPlusCreateDialog({
         endDate,
         countries: parsedCountries,
         videoUrl: videoUrl.trim(),
+        coverUrl: coverUrl.trim(),
         linkUrl: linkUrl.trim() || undefined,
         body: body.trim() || undefined,
         callToAction: cta,
         pixelId: goal === 'conversions' ? pixelId.trim() : undefined,
+        customEventType: goal === 'conversions' ? customEventType : undefined,
       })
       if (res.dryRun) toast.info('Modo simulação: nada foi criado no TikTok')
       else toast.success('Campanha Smart+ criada (pausada)', { hint: 'Revise e ative na aba Smart+.' })
       onCreated()
+      setName(''); setGoal('conversions'); setBudget(''); setEndDate(''); setCountries('BR'); setVideoUrl(''); setCoverUrl(''); setLinkUrl(''); setBody(''); setCta('SHOP_NOW'); setPixelId(''); setCustomEventType('ON_WEB_ORDER')
       onClose()
     } catch (e) {
       toast.error('Falha ao criar Smart+', { hint: e instanceof Error ? e.message : undefined })
@@ -145,15 +171,25 @@ export function SmartPlusCreateDialog({
               </label>
               <label className="flex flex-col gap-1 text-xs">
                 <span className="font-medium text-foreground">Término</span>
-                <input type="date" className={field} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                <input type="date" min={tomorrow} className={field} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </label>
             </div>
 
             {goal === 'conversions' && (
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="font-medium text-foreground">Pixel ID (numérico)</span>
-                <input className={field} value={pixelId} onChange={(e) => setPixelId(e.target.value)} placeholder="Ex.: 7012345678901234567" inputMode="numeric" />
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-foreground">Pixel ID (numérico)</span>
+                  <input className={field} value={pixelId} onChange={(e) => setPixelId(e.target.value.replace(/\D/g, ''))} placeholder="Ex.: 7012345678901234567" inputMode="numeric" />
+                </label>
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-foreground">Evento</span>
+                  <select className={field} value={customEventType} onChange={(e) => setCustomEventType(e.target.value)}>
+                    {TIKTOK_PIXEL_EVENTS.map((event) => (
+                      <option key={event.value} value={event.value}>{event.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             )}
 
             <label className="flex flex-col gap-1 text-xs">
@@ -173,6 +209,19 @@ export function SmartPlusCreateDialog({
               </div>
             </div>
 
+            <div className="flex flex-col gap-1 text-xs">
+              <span className="font-medium text-foreground">Capa do vídeo</span>
+              <div className="flex gap-2">
+                <input className={field} value={coverUrl} onChange={(e) => setCoverUrl(e.target.value)} placeholder="https://… (JPG/PNG) ou envie" />
+                <label className="btn-ghost shrink-0 cursor-pointer text-xs">
+                  {coverUploading ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />}
+                  Enviar
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCoverUpload(f) }} />
+                </label>
+              </div>
+              <span className="text-[10px] text-muted-foreground">Obrigatória pelo TikTok para criativos Smart+ em vídeo.</span>
+            </div>
+
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Link de destino</span>
               <input className={field} value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://seusite.com/oferta" />
@@ -186,7 +235,9 @@ export function SmartPlusCreateDialog({
               <label className="flex flex-col gap-1 text-xs">
                 <span className="font-medium text-foreground">Botão (CTA)</span>
                 <select className={field} value={cta} onChange={(e) => setCta(e.target.value)}>
-                  {CTAS.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                  {TIKTOK_CTA_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </label>
             </div>
@@ -194,7 +245,7 @@ export function SmartPlusCreateDialog({
 
           <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
             <p className="text-[11px] text-muted-foreground">{error || 'Cria pausada — revise antes de ativar.'}</p>
-            <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSubmit} disabled={Boolean(error) || submitting || uploading}>
+            <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleSubmit} disabled={Boolean(error) || submitting || uploading || coverUploading}>
               {submitting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
               Criar campanha
             </button>

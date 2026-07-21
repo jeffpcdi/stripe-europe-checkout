@@ -22,8 +22,8 @@ function timeAgo(iso: string | null): string {
   return `há ${Math.round(s / 86_400)} d`
 }
 
-export function McpStatusCard({ active }: { active: boolean }) {
-  const { data, isLoading } = useAdsMcpStatus(active)
+export function McpStatusCard({ active, adAccountId = '' }: { active: boolean; adAccountId?: string }) {
+  const { data, isLoading } = useAdsMcpStatus(active, adAccountId)
   const { mutate } = useSWRConfig()
   const [open, setOpen] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -38,10 +38,14 @@ export function McpStatusCard({ active }: { active: boolean }) {
     if (testing) return
     setTesting(true)
     try {
-      const res = await fetch('/api/ads/mcp/status?force=1', { credentials: 'include' })
+      const params = new URLSearchParams({ force: '1' })
+      if (adAccountId) params.set('adAccountId', adAccountId)
+      const key = `/api/ads/mcp/status?${params.toString()}`
+      const cacheKey = `/api/ads/mcp/status${adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''}`
+      const res = await fetch(key, { credentials: 'include' })
       const fresh = await res.json()
       // injeta a resposta forçada no cache do SWR (sem segunda chamada)
-      mutate('/api/ads/mcp/status', fresh, { revalidate: false })
+      mutate(cacheKey, fresh, { revalidate: false })
       if (fresh.connected) toast.success(`Pipeboard conectado · ${fresh.toolCount} tools`)
       else toast.error('Pipeboard fora do ar', { hint: fresh.error || undefined })
     } catch {
@@ -53,7 +57,7 @@ export function McpStatusCard({ active }: { active: boolean }) {
   }
 
   return (
-    <GlassCard className="p-0 border border-brand-cyan/20 bg-background/30 shadow-[0_0_10px_rgba(37,244,238,0.1)] overflow-hidden transition-all hover:border-brand-cyan/40 hover:shadow-[0_0_15px_rgba(37,244,238,0.2)]">
+    <GlassCard className="overflow-hidden border border-border bg-background p-0">
       {/* Linha compacta sempre visível */}
       <button
         type="button"
@@ -63,7 +67,7 @@ export function McpStatusCard({ active }: { active: boolean }) {
       >
         <span
           className={`size-2 shrink-0 rounded-full ${
-            connected ? 'bg-brand-cyan shadow-[0_0_8px_rgba(37,244,238,0.6)] animate-pulse' : 'bg-error shadow-[0_0_6px_var(--error)]'
+            connected ? 'bg-success' : 'bg-error'
           }`}
           aria-hidden="true"
         />

@@ -444,6 +444,7 @@ function recordVisit(data) {
       city: data.city || null,
       landing: data.landing || null,
       site: data.site || null, // domínio da página externa — separa funis/produtos
+      pixelSlug: data.pixelSlug || null, // destino TikTok que originou esta jornada
       ttclid: data.ttclid || null,
       utm: data.utm || {}
     });
@@ -456,6 +457,9 @@ function recordVisit(data) {
     // organico (sem ttclid): rede de segurança p/ não perder o 1º utm orgânico.
     // Um clique pago posterior sempre sobrepõe via applyLastClickPaid.
     if (!data.ttclid && data.utm && (!lead.utm || !lead.utm.source) && data.utm.source) lead.utm = data.utm;
+    // A tag específica é uma evidência explícita de roteamento. Mantemos a
+    // última tag vista para que checkout e webhook continuem no mesmo pixel.
+    if (data.pixelSlug) lead.pixelSlug = String(data.pixelSlug).slice(0, 40);
     lead.lastSeen = nowIso;
   }
   // Risco 4: registra o clique pago no histórico (last-click pago).
@@ -487,6 +491,7 @@ function recordCheckoutEntry(id, gateway, data) {
       country: data.country || null,
       countryName: data.countryName || null,
       city: data.city || null,
+      pixelSlug: data.pixelSlug || null,
       ttclid: data.ttclid || null,
       utm: data.utm || {}
     });
@@ -500,6 +505,7 @@ function recordCheckoutEntry(id, gateway, data) {
       if (!lead[k] && data[k]) lead[k] = data[k];
     });
     if (!data.ttclid && data.utm && data.utm.source && (!lead.utm || !lead.utm.source)) lead.utm = data.utm;
+    if (data.pixelSlug) lead.pixelSlug = String(data.pixelSlug).slice(0, 40);
   }
   // Risco 4: o clique do /go é o ÚLTIMO clique pago antes do checkout. Registra
   // ANTES de setar checkoutAt para que ele vire o vencedor (last-click pago);
@@ -552,6 +558,7 @@ function attachTracking(id, patch) {
   // atribuição de link de checkout (/go/:slug) — usada no webhook universal
   if (patch.linkSlug) lead.linkSlug = String(patch.linkSlug).slice(0, 80);
   if (patch.linkVariant) lead.linkVariant = String(patch.linkVariant).slice(0, 80);
+  if (patch.pixelSlug) lead.pixelSlug = String(patch.pixelSlug).slice(0, 40);
   markDirty();
   db.upsertLead(lead.acc || null, lead);
   return lead;

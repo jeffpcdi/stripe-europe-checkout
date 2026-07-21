@@ -115,6 +115,7 @@ const baseSpec = {
     resetCalls();
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'app_promotion' }), /app_id/, 'app_promotion rejeitado com explicação (exige app_id)');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'conversions', promotedObject: { pixelId: '12345678' } }), /customEventType|optimization_event/, 'CONVERT sem evento é rejeitado cedo');
+    await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, budgetType: 'lifetime', endDate: '2020-01-01' }), /data de término futura/, 'orçamento total com data passada é rejeitado cedo');
     assert.strictEqual(toolCalls.length, 0, 'validação falha SEM tocar a plataforma');
   }
 

@@ -248,9 +248,16 @@ async function deleteCatalog(accountId, catalogId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return false;
   await ensureSchema();
-  await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${String(catalogId)}`;
-  await sql`DELETE FROM ads_catalogs WHERE account_id = ${accountId} AND id = ${String(catalogId)}`;
-  return true;
+  const value = String(catalogId);
+  // As tabelas foram criadas sem FK para preservar compatibilidade com bancos
+  // antigos. Por isso a limpeza precisa ser explícita: antes, excluir o
+  // catálogo deixava publicações e jobs órfãos no Neon.
+  await sql`DELETE FROM ads_catalog_campaign_runs WHERE account_id = ${accountId} AND catalog_id = ${value}`;
+  await sql`DELETE FROM ads_catalog_sync_runs WHERE account_id = ${accountId} AND catalog_id = ${value}`;
+  await sql`DELETE FROM ads_catalog_publications WHERE account_id = ${accountId} AND catalog_id = ${value}`;
+  await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${value}`;
+  const rows = await sql`DELETE FROM ads_catalogs WHERE account_id = ${accountId} AND id = ${value} RETURNING id`;
+  return rows.length > 0;
 }
 
 async function listProducts(accountId, catalogId) {

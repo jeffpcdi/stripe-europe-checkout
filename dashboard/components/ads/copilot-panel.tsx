@@ -9,7 +9,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Bot, Send, Loader2, Check, X, Wrench, Sparkles } from 'lucide-react'
 import { copilotSend, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import { GlassCard } from '@/components/glass-card'
 import { cn } from '@/lib/utils'
 import type { CopilotEvent, ProposedAction } from '@/lib/types'
 
@@ -59,7 +58,7 @@ function ActionCard({
     <div className="mt-2 relative overflow-hidden rounded-xl border border-brand-cyan/30 bg-gradient-to-br from-brand-cyan/10 to-transparent p-3 shadow-[0_0_15px_rgba(37,244,238,0.1)]">
       <div className="absolute inset-0 bg-gradient-to-br from-brand-cyan/5 to-transparent opacity-50 mix-blend-overlay" aria-hidden="true" />
       <div className="relative flex items-center gap-2">
-        <Sparkles className="size-3.5 shrink-0 text-brand-cyan animate-pulse" aria-hidden="true" />
+        <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
         <p className="text-xs font-semibold text-foreground">{ACTION_LABEL[action.type]}</p>
       </div>
       <p className="relative mt-1 text-pretty text-xs leading-relaxed text-muted-foreground">{action.summary}</p>
@@ -202,21 +201,20 @@ export function CopilotPanel({
   }
 
   return (
-    <GlassCard className="p-4">
+    <div className="rounded-xl border border-border bg-background p-3">
       <button
         type="button"
         className="flex w-full items-center gap-2 text-left"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
-        <span className="relative flex size-7 items-center justify-center rounded-lg bg-brand-cyan/10 text-brand-cyan shadow-[0_0_10px_rgba(37,244,238,0.2)]">
-          <span className="absolute inset-0 rounded-lg ring-1 ring-brand-cyan/30 animate-pulse" aria-hidden="true" />
-          <Bot className={cn('size-4', busy && 'animate-bounce')} aria-hidden="true" />
+        <span className="flex size-7 items-center justify-center rounded-lg bg-[var(--accent-light)] text-primary">
+          <Bot className="size-4" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground bg-gradient-to-r from-brand-cyan to-white bg-clip-text text-transparent">Copiloto de tráfego</p>
+          <p className="text-sm font-semibold text-foreground">Copiloto de tráfego</p>
           <p className="truncate text-[11px] text-muted-foreground">
-            Pergunte sobre suas campanhas — respostas com dados reais, ações s�� com sua aprovação
+            Pergunte sobre suas campanhas — respostas com dados reais, ações só com sua aprovação
           </p>
         </div>
         <span className="text-[11px] text-muted-foreground">{expanded ? 'Recolher' : 'Abrir'}</span>
@@ -238,8 +236,8 @@ export function CopilotPanel({
                     )}
                   >
                     {m.toolsUsed.length > 0 && (
-                      <p className="mb-1 flex flex-wrap items-center gap-1 text-[10px] text-brand-cyan drop-shadow-[0_0_5px_rgba(37,244,238,0.3)]">
-                        <Wrench className="size-3 animate-spin" aria-hidden="true" />
+                      <p className="mb-1 flex flex-wrap items-center gap-1 text-[10px] text-primary">
+                        <Wrench className="size-3" aria-hidden="true" />
                         {[...new Set(m.toolsUsed)].join(' · ')}
                       </p>
                     )}
@@ -310,6 +308,6 @@ export function CopilotPanel({
           </form>
         </div>
       )}
-    </GlassCard>
+    </div>
   )
 }

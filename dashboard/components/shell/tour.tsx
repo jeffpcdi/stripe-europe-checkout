@@ -30,13 +30,28 @@ function targetRect(target: string): Rect | null {
 
 export function TourGuide() {
   const pathname = usePathname()
+  const [search, setSearch] = useState('')
   const [tour, setTour] = useState<Tour | null>(null)
   const [step, setStep] = useState(0)
   const [rect, setRect] = useState<Rect | null>(null)
   const openerRef = useRef<HTMLElement | null>(null)
 
   const active = tour !== null
-  const currentTour = tourForPath(pathname)
+  const currentTour = tourForPath(pathname, search)
+
+  // A query só é lida depois da hidratação. Isso mantém o HTML do servidor e
+  // do primeiro render idênticos, sem deixar o botão anunciar "Gateways"
+  // enquanto a aba Pixels já está aberta.
+  useEffect(() => {
+    const read = () => setSearch(window.location.search)
+    read()
+    window.addEventListener('popstate', read)
+    window.addEventListener('roinados:conversions-tab', read)
+    return () => {
+      window.removeEventListener('popstate', read)
+      window.removeEventListener('roinados:conversions-tab', read)
+    }
+  }, [pathname])
 
   const close = useCallback(
     (completed: boolean) => {

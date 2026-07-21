@@ -310,7 +310,10 @@ export function Header() {
           <div className="flex items-center gap-2">
             {/* Item 186: alerta global de durabilidade (só aparece se o banco cair) */}
             <DurabilityBadge />
-            <NotificationBell />
+            {/* O TopNav já exibe o sino no mobile; aqui ele pertence só ao desktop. */}
+            <span className="hidden md:block">
+              <NotificationBell />
+            </span>
             <PrivacyButton />
             <RefreshButton />
             <LiveBadge />

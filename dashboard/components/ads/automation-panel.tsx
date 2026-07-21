@@ -14,7 +14,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Bell,
   ClipboardList,
-  FlaskConical,
   Loader2,
   Plus,
   Sparkles,
@@ -22,8 +21,10 @@ import {
   SlidersHorizontal,
   ChevronDown,
   ShieldCheck,
+  Activity,
+  Clock3,
 } from 'lucide-react'
-import { useAdsRules, useAdsAlerts, apiSend } from '@/lib/api'
+import { ApiError, useAdsRules, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type {
   AdsAlertsConfig,
@@ -32,6 +33,7 @@ import type {
   AdsRuleMetric,
   AdsRulesResponse,
   AdsRulesRunResponse,
+  AdsAutomationAutonomy,
 } from '@/lib/types'
 import { timeAgo, cleanCampaignName } from '@/lib/format'
 import { usePersistedState } from '@/lib/use-persisted-state'
@@ -45,6 +47,7 @@ import { CreativeInsightsCard } from './creative-insights-card'
 import { BudgetProposalCard } from './budget-proposal-card'
 import { McpStatusCard } from './mcp-status-card'
 import { cn } from '@/lib/utils'
+import { applyPilot, PILOTS, type Intensity, type PilotId } from '@/lib/pilots'
 
 // ── Metadados por métrica: rótulo do limiar + unidade + guardas visíveis ────
 const METRIC_META: Record<
@@ -110,6 +113,19 @@ const ACTION_LABEL: Record<string, string> = {
 
 const DAY_LABELS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
 
+function ruleTitle(rule: AdsRule): string {
+  if (rule.pilot === 'protector') {
+    if (rule.metric === 'cpa_max') return `Protetor: CPA acima de ${rule.threshold} → pausar`
+    if (rule.metric === 'spend_no_conv') return `Protetor: gastou ${rule.threshold} sem venda → pausar`
+    if (rule.metric === 'cpc_max') return `Protetor: CPC acima de ${rule.threshold} → reduzir orçamento`
+  }
+  if (rule.pilot === 'scaler') {
+    return `Escalador: ROAS ≥ ${rule.threshold} → +${rule.pct}% (teto ${rule.budgetCap || 0}/dia)`
+  }
+  if (rule.pilot === 'schedule') return `Horário: ${rule.startTime || '00:00'}–${rule.endTime || '23:59'}`
+  return rule.name || METRIC_META[rule.metric]?.name || rule.metric
+}
+
 // Sentença humana da linha fechada: "pausa a campanha se CPA > 15€ · janela 2d
 // · min. 30 cliques". Uma linha, escaneável — o design inteiro depende dela.
 function summarize(r: AdsRule, currency: string): string {
@@ -139,6 +155,14 @@ function lastAction(ruleId: string, log: AdsRuleLogEntry[]): string | null {
   const kind = e.proposed ? 'propôs' : e.simulated ? 'simulou' : e.ok ? 'executou' : 'falhou ao'
   const what = ACTION_LABEL[e.action]?.replace('a campanha', '').trim() || e.action
   return `disparou ${timeAgo(e.at)} — ${kind} ${what} "${cleanCampaignName(e.campaignName || e.campaignId)}"`
+}
+
+function timeUntil(iso: string | null): string {
+  if (!iso) return 'ciclo automático'
+  const seconds = Math.max(0, (new Date(iso).getTime() - Date.now()) / 1000)
+  if (seconds < 60) return 'menos de 1 min'
+  if (seconds < 3600) return `${Math.ceil(seconds / 60)} min`
+  return `${Math.ceil(seconds / 3600)} h`
 }
 
 // Clamps do motor espelhados no cliente (validateRules): salvar nunca
@@ -423,8 +447,7 @@ export function AutomationPanel({
   onMutateTree?: () => void
   onOpenLimits?: () => void
 }) {
-  const { data, mutate, isLoading } = useAdsRules(active)
-  const { data: alertsCfg, mutate: mutateAlerts } = useAdsAlerts(active)
+  const { data, mutate, isLoading } = useAdsRules(active, adAccountId)
   const [copilotOpen, setCopilotOpen] = usePersistedState('ads:automation:copilot', false)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -439,7 +462,17 @@ export function AutomationPanel({
 
   const rules = data?.rules ?? []
   const log = data?.log ?? []
+  const alertsCfg = data?.alerts
   const enabledCount = rules.filter((r) => r.enabled).length
+
+  async function handleSaveError(error: unknown, fallback: string) {
+    if (error instanceof ApiError && error.code === 'AUTOMATION_REVISION_CONFLICT') {
+      await mutate()
+      toast.error('Configuração atualizada em outra aba', { hint: 'Recarregamos a versão mais recente. Revise e tente novamente.' })
+      return
+    }
+    toast.error(fallback, { hint: error instanceof Error ? error.message : undefined })
+  }
 
   // PUT da lista COMPLETA (contrato da rota) com update otimista + rollback.
   async function saveRules(next: AdsRule[], okMsg: string) {
@@ -447,13 +480,17 @@ export function AutomationPanel({
     const prev = data
     mutate(prev ? { ...prev, rules: next } : undefined, { revalidate: false })
     try {
-      const r = await apiSend<AdsRulesResponse>('/api/ads/rules', 'PUT', { rules: next })
+      const r = await apiSend<AdsRulesResponse>('/api/ads/rules', 'PUT', {
+        adAccountId,
+        revision: data?.revision,
+        rules: next,
+      })
       mutate(r, { revalidate: false })
       toast.success(okMsg)
       return true
     } catch (e) {
       mutate(prev, { revalidate: false }) // rollback — a UI nunca mente
-      toast.error('Falha ao salvar', { hint: e instanceof Error ? e.message : undefined })
+      await handleSaveError(e, 'Falha ao salvar')
       return false
     } finally {
       setSaving(false)
@@ -463,8 +500,37 @@ export function AutomationPanel({
   async function toggleRule(rule: AdsRule, on: boolean) {
     await saveRules(
       rules.map((r) => (r.id === rule.id ? { ...r, enabled: on } : r)),
-      on ? `Regra ativada: ${rule.name || METRIC_META[rule.metric]?.name}` : `Regra pausada: ${rule.name || METRIC_META[rule.metric]?.name}`,
+      on ? `Regra ativada: ${ruleTitle(rule)}` : `Regra pausada: ${ruleTitle(rule)}`,
     )
+  }
+
+  async function setPilot(pilot: PilotId, opts: { enabled: boolean; intensity: Intensity }) {
+    const mode = data?.autonomy === 'auto' ? 'execute' as const : 'proposal' as const
+    const next = applyPilot(rules, pilot, { ...opts, mode })
+    const title = PILOTS.find((item) => item.id === pilot)?.title ?? pilot
+    await saveRules(next, opts.enabled ? `${title} ligado (${opts.intensity})` : `${title} desligado`)
+  }
+
+  async function setAutonomy(autonomy: AdsAutomationAutonomy) {
+    if (!data || saving || autonomy === data.autonomy) return
+    setSaving(true)
+    try {
+      const next = await apiSend<AdsRulesResponse>('/api/ads/automation/autonomy', 'PUT', {
+        adAccountId,
+        revision: data.revision,
+        autonomy,
+      })
+      mutate(next, { revalidate: false })
+      toast.success({
+        notify: 'Só avisar: nenhuma regra pode agir; alertas estão ligados',
+        propose: 'Propor: toda regra aguarda sua aprovação',
+        auto: 'Agir sozinho: toda regra executa dentro dos limites',
+      }[autonomy])
+    } catch (error) {
+      await handleSaveError(error, 'Falha ao alterar a autonomia')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function saveRule(updated: AdsRule) {
@@ -482,6 +548,10 @@ export function AutomationPanel({
   }
 
   function addRule() {
+    if (rules.length >= 10) {
+      toast.error('Limite de 10 regras atingido', { hint: 'Remova uma regra que não usa antes de criar outra.' })
+      return
+    }
     const draft: AdsRule = {
       id: `rule_${Date.now().toString(36)}`,
       enabled: false,
@@ -499,14 +569,15 @@ export function AutomationPanel({
     setExpandedId(draft.id)
   }
 
-  // "Testar agora" — roda o sweep completo (rules + schedule) e resume o
-  // resultado inline. O poder antes enterrado no diálogo.
+  // “Avaliar agora” roda o ciclo REAL conforme a autonomia atual: em Propor,
+  // cria propostas; em Agir sozinho, pode executar. O nome evita a falsa
+  // promessa de simulação que o antigo “Testar agora” transmitia.
   async function testNow() {
     if (testing) return
     setTesting(true)
     setTestResult(null)
     try {
-      const r = await apiSend<AdsRulesRunResponse>('/api/ads/rules/run', 'POST')
+      const r = await apiSend<AdsRulesRunResponse>('/api/ads/rules/run', 'POST', { adAccountId })
       const executed = r.executed ?? []
       const proposals = executed.filter((e) => e.proposed).length
       setTestResult(
@@ -525,14 +596,32 @@ export function AutomationPanel({
   async function saveAlerts(cfg: AdsAlertsConfig) {
     setSaving(true)
     try {
-      await apiSend<AdsAlertsConfig>('/api/ads/alerts', 'PUT', cfg)
-      mutateAlerts(cfg, { revalidate: false })
+      const saved = await apiSend<AdsAlertsConfig>('/api/ads/alerts', 'PUT', {
+        ...cfg,
+        adAccountId,
+        revision: data?.revision,
+      })
+      if (data) {
+        mutate({
+          ...data,
+          alerts: saved,
+          revision: saved.revision ?? data.revision,
+          autonomy: saved.autonomy ?? data.autonomy,
+          updatedAt: saved.updatedAt ?? data.updatedAt,
+          engine: {
+            ...data.engine,
+            revision: saved.revision ?? data.revision,
+            autonomy: saved.autonomy ?? data.autonomy,
+            alertsEnabled: saved.enabled,
+            status: saved.enabled || data.engine.rulesEnabled > 0 || data.engine.schedulesEnabled > 0 ? 'active' : 'idle',
+          },
+        }, { revalidate: false })
+      }
       toast.success(cfg.enabled ? 'Alertas ativados' : 'Alertas desligados')
       setAlertsExpanded(false)
       setAlertsDraft(null)
     } catch (e) {
-      toast.error('Falha ao salvar alertas', { hint: e instanceof Error ? e.message : undefined })
-      mutateAlerts()
+      await handleSaveError(e, 'Falha ao salvar alertas')
     } finally {
       setSaving(false)
     }
@@ -550,7 +639,48 @@ export function AutomationPanel({
   return (
     <div className="flex flex-col gap-3">
       {/* ── Pilotos: a cara padrão da automação (linguagem de gestor) ── */}
-      <PilotsPanel active={active} currency={currency} />
+      <PilotsPanel
+        currency={currency}
+        rules={rules}
+        autonomy={data?.autonomy ?? 'custom'}
+        saving={saving}
+        onSetPilot={setPilot}
+        onSetAutonomy={setAutonomy}
+      />
+
+      {/* Transparência operacional: deixa explícitos escopo, versão e pulso
+          do motor sem transformar a tela num console técnico. */}
+      {data && (
+        <div className="grid gap-2 rounded-xl border border-border bg-card px-3 py-2.5 sm:grid-cols-3" aria-label="Estado da automação">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={cn('size-2 shrink-0 rounded-full', data.engine.status === 'active' ? 'bg-success' : 'bg-muted-foreground')} aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Escopo</p>
+              <p className="truncate font-mono text-[11px] text-foreground" title={data.advertiserId}>Conta {data.advertiserId}</p>
+            </div>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 sm:border-l sm:border-border sm:pl-3">
+            <Activity className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Motor 24/7</p>
+              <p className="truncate text-[11px] text-foreground" title={data.engine.nextSweepAt ? `Próxima avaliação em ${timeUntil(data.engine.nextSweepAt)}` : undefined}>
+                {data.engine.lastSweepAt
+                  ? `avaliou ${timeAgo(data.engine.lastSweepAt)} · próxima em ${timeUntil(data.engine.nextSweepAt)}`
+                  : 'aguardando a primeira avaliação'}
+              </p>
+            </div>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 sm:border-l sm:border-border sm:pl-3">
+            <Clock3 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Configuração</p>
+              <p className="truncate text-[11px] text-foreground" title={new Date(data.updatedAt).toLocaleString('pt-BR')}>
+                revisão {data.revision} · salva {timeAgo(data.updatedAt)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Alterna o editor técnico de regras (escondido por padrão) ── */}
       <button
@@ -558,7 +688,7 @@ export function AutomationPanel({
         onClick={() => setAdvanced(!advanced)}
         aria-expanded={advanced}
         data-tour="ads-advanced"
-        className="flex items-center justify-center gap-1.5 self-center rounded-full border border-white/5 bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        className="flex items-center justify-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
       >
         <SlidersHorizontal className="size-3" aria-hidden="true" />
         {advanced ? 'Ocultar modo avançado' : 'Modo avançado (regras detalhadas)'}
@@ -580,11 +710,11 @@ export function AutomationPanel({
               {testing ? (
                 <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               ) : (
-                <FlaskConical className="size-3.5" aria-hidden="true" />
+                <Activity className="size-3.5" aria-hidden="true" />
               )}
-              Testar agora
+              Avaliar agora
             </button>
-            <button type="button" className="btn-primary gap-1 text-xs shadow-[0_0_15px_rgba(37,244,238,0.4)] ring-1 ring-brand-cyan hover:shadow-[0_0_25px_rgba(37,244,238,0.6)]" onClick={addRule} disabled={saving}>
+            <button type="button" className="btn-primary gap-1 text-xs" onClick={addRule} disabled={saving || rules.length >= 10} title={rules.length >= 10 ? 'Limite de 10 regras por conta' : undefined}>
               <Plus className="size-3.5" aria-hidden="true" />
               Nova regra
             </button>
@@ -610,9 +740,8 @@ export function AutomationPanel({
               const last = lastAction(r.id, log)
               const executes = r.mode === 'execute'
               return (
-                <GlassCard key={r.id} hover className="p-3 relative overflow-hidden group border border-white/5 bg-background/20 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
-                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-brand-cyan/0 transition-colors duration-300 group-hover:bg-brand-cyan/50" aria-hidden="true" />
-                  <div className="flex items-start justify-between gap-3 relative">
+                <li key={r.id} className="rounded-xl border border-border bg-background p-3">
+                  <div className="flex items-start justify-between gap-3">
                     {/* Cabeçalho da linha = botão do acordeão */}
                     <button
                       type="button"
@@ -622,12 +751,12 @@ export function AutomationPanel({
                     >
                       <span className="flex flex-wrap items-center gap-1.5">
                         <span className="text-xs font-medium text-foreground">
-                          {r.name || meta?.name || r.metric}
+                          {ruleTitle(r)}
                         </span>
                         <span
                           className={cn(
-                            'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide border',
-                            executes ? 'bg-brand-cyan/15 text-brand-cyan border-brand-cyan/20 shadow-[0_0_10px_rgba(37,244,238,0.15)]' : 'bg-warning/15 text-warning border-warning/20 shadow-[0_0_10px_rgba(234,179,8,0.15)]',
+                            'flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+                            executes ? 'border-primary/20 bg-primary/10 text-primary' : 'border-warning/20 bg-warning/10 text-warning',
                           )}
                           title={
                             executes
@@ -635,14 +764,7 @@ export function AutomationPanel({
                               : 'Grava proposta — você aprova antes de agir'
                           }
                         >
-                          {executes ? (
-                            <span className="relative flex size-1.5">
-                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 bg-brand-cyan" aria-hidden="true" />
-                              <span className="relative inline-flex size-1.5 rounded-full bg-brand-cyan drop-shadow-md" aria-hidden="true" />
-                            </span>
-                          ) : (
-                            <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
-                          )}
+                          <span className={cn('size-1.5 rounded-full', executes ? 'bg-primary' : 'bg-warning')} aria-hidden="true" />
                           {executes ? 'Executa' : 'Propõe'}
                         </span>
                         {r.pilot && (
@@ -674,7 +796,7 @@ export function AutomationPanel({
                       checked={r.enabled}
                       disabled={saving}
                       onCheckedChange={(on) => toggleRule(r, on)}
-                      aria-label={`${r.enabled ? 'Pausar' : 'Ativar'} regra: ${r.name || meta?.name || r.metric}`}
+                      aria-label={`${r.enabled ? 'Pausar' : 'Ativar'} regra: ${ruleTitle(r)}`}
                       className="mt-0.5"
                     />
                   </div>
@@ -693,7 +815,7 @@ export function AutomationPanel({
                       />
                     </div>
                   )}
-                </GlassCard>
+                </li>
               )
             })}
           </ul>
@@ -709,7 +831,7 @@ export function AutomationPanel({
           className="flex items-center gap-2 self-start rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary/40"
         >
           <ShieldCheck className="size-3.5 text-primary" aria-hidden="true" />
-          Limites de segurança e modo teste
+          Limites de segurança
         </button>
       )}
 
@@ -717,7 +839,7 @@ export function AutomationPanel({
       {advanced && adAccountId && (
         <BudgetProposalCard adAccountId={adAccountId} currency={currency} onApplied={() => onMutateTree?.()} />
       )}
-      {advanced && <McpStatusCard active={active} />}
+      {advanced && <McpStatusCard active={active} adAccountId={adAccountId} />}
 
       {/* ── Alertas: mesma linguagem — switch + expansão inline ── */}
       <GlassCard className="p-4">
@@ -738,8 +860,8 @@ export function AutomationPanel({
               <span className="block text-xs font-semibold text-foreground">Alertas de performance</span>
               <span className="block text-[11px] text-muted-foreground">
                 {alertsCfg?.enabled
-                  ? `Avisam com ${alertsCfg.spendNoConv}${currency} gastos sem venda ou CPA acima de ${alertsCfg.cpaMax}${currency}${alertsCfg.rejectedAds ? ' + criativo reprovado' : ''} — só notificam, nunca agem`
-                  : 'Desligados — você não recebe aviso de campanha queimando dinheiro'}
+                  ? `Ativos · gasto sem venda, CPA${alertsCfg.rejectedAds ? ' e reprovações' : ''}`
+                  : 'Desligados · nenhuma notificação de performance'}
               </span>
             </span>
           </button>
@@ -786,14 +908,17 @@ export function AutomationPanel({
               Avisar quando um criativo for <strong>reprovado</strong> na revisão do TikTok (inclui Smart+)
             </label>
             {alertsDraft.rejectedAds === true && (
-              <label className="ml-6 flex w-fit cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+              <label className={cn('ml-6 flex w-fit items-center gap-2 text-xs text-muted-foreground', data?.autonomy === 'auto' ? 'cursor-pointer' : 'cursor-not-allowed opacity-70')}>
                 <input
                   type="checkbox"
                   className="size-3.5 accent-[color:var(--primary)]"
                   checked={alertsDraft.autoAppealSmartPlus === true}
+                  disabled={data?.autonomy !== 'auto'}
                   onChange={(e) => setAlertsDraft({ ...alertsDraft, autoAppealSmartPlus: e.target.checked })}
                 />
-                Recorrer <strong>sozinho</strong> 1× de anúncios Smart+ reprovados (cooldown de 7 dias por anúncio; respeita Pausar tudo e Modo teste)
+                {data?.autonomy === 'auto'
+                  ? <>Recorrer <strong>sozinho</strong> 1× de anúncios Smart+ reprovados (cooldown de 7 dias)</>
+                  : <>Recurso automático só fica disponível em <strong>Agir sozinho</strong></>}
               </label>
             )}
             <div className="flex items-center justify-end gap-1.5">
@@ -832,7 +957,7 @@ export function AutomationPanel({
           log={log}
           limit={12}
           filterable
-          emptyText='O robô avalia suas automações a cada poucos minutos. Nada disparou ainda — use "Testar agora" no modo avançado para rodar uma avaliação imediata.'
+          emptyText='Nenhuma automação executada neste período.'
         />
       </GlassCard>
 

@@ -39,7 +39,8 @@ self.addEventListener("push", (event) => {
     // Som customizado em push fechado não é permitido pela Apple — os sons
     // por evento tocam nas abas abertas via postMessage abaixo.
     silent: false,
-    vibrate: VIBRATE[data.sound] || [200, 100, 200],
+    vibrate: data.priority === "critical" ? VIBRATE.alert : (VIBRATE[data.sound] || [150]),
+    renotify: data.priority === "critical" && Boolean(data.tag),
     // Botões de ação (Android/desktop; iOS ignora — limite da Apple)
     actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : [],
   }

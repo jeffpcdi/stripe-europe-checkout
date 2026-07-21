@@ -263,15 +263,16 @@ export const TOURS: Record<string, Tour> = {
   '/ads/tiktok': ADS_TOUR,
 }
 
-/** Resolve o tour da rota atual (pathname sem basePath) */
-export function tourForPath(pathname: string): Tour | null {
+/** Resolve o tour da rota atual (pathname sem basePath). A busca vem do
+ * componente para que SSR e a primeira hidratação usem a mesma entrada. */
+export function tourForPath(pathname: string, search = ''): Tour | null {
   if (pathname === '/' || pathname === '') return OVERVIEW_TOUR
   if (pathname.startsWith('/geo')) return GEO_TOUR
   if (pathname.startsWith('/live')) return LIVE_TOUR
   if (pathname.startsWith('/links')) return LINKS_TOUR
   // Conversões funde Gateways+Pixels; o tour segue o segmento aberto (?tab=).
   if (pathname.startsWith('/conversions')) {
-    const seg = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
+    const seg = new URLSearchParams(search).get('tab')
     return seg === 'pixels' ? PIXELS_TOUR : GATEWAYS_TOUR
   }
   if (pathname.startsWith('/pixels')) return PIXELS_TOUR

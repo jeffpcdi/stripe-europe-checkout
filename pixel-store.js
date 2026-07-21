@@ -64,11 +64,9 @@ function normalize(slug, raw) {
     routes: ['*'],
     // ── Vínculo pixel ↔ gateway (isolamento de eventos monetários) ────────
     // Lista de IDs de gateway (gw_…) dos quais este pixel aceita eventos de
-    // DINHEIRO (CompletePayment/AddPaymentInfo/Refund/Dispute). Lista VAZIA =
-    // aceita de todos os gateways (comportamento legado). Permite rodar 2
-    // infoprodutos com 2 pixels em gateways distintos na mesma conta sem um
-    // receber a venda do outro. Eventos de navegador (ViewContent etc.) não
-    // são afetados — cada pixel já tem script próprio por página.
+    // DINHEIRO (CompletePayment/AddPaymentInfo/Refund/Dispute). Lista vazia é
+    // fallback apenas quando o destino já veio da tag/link ou há um único pixel
+    // elegível. Com vários pixels, nunca significa "enviar a todos".
     gatewayIds: Array.isArray(raw.gatewayIds)
       ? [...new Set(raw.gatewayIds.map((g) => String(g || '').trim()).filter(Boolean))].slice(0, 50)
       : [],

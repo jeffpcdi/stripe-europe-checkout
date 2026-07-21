@@ -16,8 +16,11 @@ let n = 0;
 function ok(cond, label) { assert.ok(cond, label); n++; console.log('  ✓ ' + label); }
 
 const ACC = 'acc-capi';
-const PIX_OK = { slug: 'p-ok', acc: ACC, name: 'Pixel OK', pixelCode: 'CODEOK', accessToken: 'TOKOK', active: true, events: { CompletePayment: true }, gatewayIds: [] };
-const PIX_BAD = { slug: 'p-bad', acc: ACC, name: 'Pixel Ruim', pixelCode: 'CODEBAD', accessToken: 'TOKBAD', active: true, events: { CompletePayment: true }, gatewayIds: [] };
+const GW = 'gw_receipt';
+// Os dois destinos compartilham o mesmo vínculo de propósito; fan-out só é
+// permitido quando explícito, nunca por duas listas vazias ambíguas.
+const PIX_OK = { slug: 'p-ok', acc: ACC, name: 'Pixel OK', pixelCode: 'CODEOK', accessToken: 'TOKOK', active: true, events: { CompletePayment: true }, gatewayIds: [GW] };
+const PIX_BAD = { slug: 'p-bad', acc: ACC, name: 'Pixel Ruim', pixelCode: 'CODEBAD', accessToken: 'TOKBAD', active: true, events: { CompletePayment: true }, gatewayIds: [GW] };
 
 const psPath = require.resolve('../pixel-store');
 require.cache[psPath] = {
@@ -51,7 +54,7 @@ const tt = require('../tiktok-events');
 
 (async () => {
   console.log('dispatchToAll — identidade do pixel em cada result (ok e falha)');
-  const r = await tt.dispatchToAll('CompletePayment', { _trusted: true, eventId: 'CompletePayment.abc', value: 50, currency: 'BRL' }, '*', ACC);
+  const r = await tt.dispatchToAll('CompletePayment', { _trusted: true, gatewayId: GW, eventId: 'CompletePayment.abc', value: 50, currency: 'BRL' }, '*', ACC);
   ok(r.dispatched === 2, 'disparou nos 2 pixels');
   const byName = Object.fromEntries((r.results || []).map((x) => [x.pixelName, x]));
   ok(byName['Pixel OK'] && byName['Pixel OK'].code === 0, 'pixel OK devolve code 0 + pixelName');

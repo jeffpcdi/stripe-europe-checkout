@@ -143,15 +143,21 @@ const SOUNDS = {
   login: 'ping',
   daily: 'info',
   ads: 'info',
+  ads_attention: 'info',
+  ads_rejected: 'alert',
+  ads_proposal: 'ping',
+  ads_failure: 'alert',
   ads_breaker: 'info',
-  ads_cap: 'info'
+  ads_cap: 'info',
+  ads_briefing: 'info',
+  ads_routine: 'info'
 };
 
 // Agrupamento por tag: notificação com a MESMA tag substitui a anterior na
 // tela de bloqueio. Eventos financeiros e de segurança EMPILHAM (tag única
 // por notificação — você nunca perde uma venda porque outra chegou depois);
 // eventos de status SUBSTITUEM (tag fixa — só a última importa, sem poluir).
-const STACKED = new Set(['sale', 'failed', 'refund', 'dispute', 'login']);
+const STACKED = new Set(['sale', 'failed', 'refund', 'dispute', 'login', 'ads_proposal', 'ads_failure']);
 function tagFor(event) {
   const ev = event || 'geral';
   if (STACKED.has(ev)) return 'roinados-' + ev + '-' + Date.now().toString(36);
@@ -169,8 +175,14 @@ const URLS = {
   daily: '/dashboard',
   watchdog: '/dashboard',
   ads: '/dashboard/ads/tiktok',
+  ads_attention: '/dashboard/ads/tiktok',
+  ads_rejected: '/dashboard/ads/tiktok',
+  ads_proposal: '/dashboard/ads/tiktok?view=automation',
+  ads_failure: '/dashboard/ads/tiktok?view=automation',
   ads_breaker: '/dashboard/ads/tiktok',
   ads_cap: '/dashboard/ads/tiktok',
+  ads_briefing: '/dashboard/ads/tiktok',
+  ads_routine: '/dashboard/ads/tiktok?view=automation',
   test: '/dashboard/config'
 };
 

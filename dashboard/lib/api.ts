@@ -429,8 +429,9 @@ export function useAdsLibrary(active: boolean) {
 }
 
 // Config de alertas de performance da conta.
-export function useAdsAlerts(active: boolean) {
-  return useSWR<AdsAlertsConfig>(active ? '/api/ads/alerts' : null, fetcher, {
+export function useAdsAlerts(active: boolean, adAccountId = '') {
+  const key = active && adAccountId ? `/api/ads/alerts?adAccountId=${encodeURIComponent(adAccountId)}` : null
+  return useSWR<AdsAlertsConfig>(key, fetcher, {
     revalidateOnFocus: false,
   })
 }
@@ -455,8 +456,9 @@ export function useAdsAttribution(
 }
 
 // Regras automáticas de otimização (config + histórico de execuções).
-export function useAdsRules(active: boolean) {
-  return useSWR<AdsRulesResponse>(active ? '/api/ads/rules' : null, fetcher, {
+export function useAdsRules(active: boolean, adAccountId = '') {
+  const key = active && adAccountId ? `/api/ads/rules?adAccountId=${encodeURIComponent(adAccountId)}` : null
+  return useSWR<AdsRulesResponse>(key, fetcher, {
     revalidateOnFocus: false,
   })
 }
@@ -464,9 +466,11 @@ export function useAdsRules(active: boolean) {
 // F4: propostas pendentes do motor (modo proposta). Chave null enquanto
 // inactive — na home só resolve pós-first-paint E com Ads conectado, para
 // não entrar no orçamento de requests do load de quem não usa Ads.
-export function useAdsProposals(active: boolean, status: 'pending' | '' = 'pending') {
-  const qs = status ? `?status=${status}` : ''
-  return useSWR<AdsProposalsResponse>(active ? `/api/ads/proposals${qs}` : null, fetcher, {
+export function useAdsProposals(active: boolean, status: 'pending' | '' = 'pending', adAccountId = '') {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+  if (adAccountId) params.set('adAccountId', adAccountId)
+  return useSWR<AdsProposalsResponse>(active ? `/api/ads/proposals?${params.toString()}` : null, fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: false,
     keepPreviousData: true,
@@ -476,8 +480,9 @@ export function useAdsProposals(active: boolean, status: 'pending' | '' = 'pendi
 // Diagnóstico da conexão MCP Pipeboard (conexão, tools, chamadas/erros 1h,
 // contas bloqueadas, estado do motor de automações). O backend cacheia o
 // ping por 5min — o refresh de 60s aqui não gera chamadas reais extras.
-export function useAdsMcpStatus(active: boolean) {
-  return useSWR<AdsMcpStatusResponse>(active ? '/api/ads/mcp/status' : null, fetcher, {
+export function useAdsMcpStatus(active: boolean, adAccountId = '') {
+  const key = active ? `/api/ads/mcp/status${adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''}` : null
+  return useSWR<AdsMcpStatusResponse>(key, fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: false,
     keepPreviousData: true,

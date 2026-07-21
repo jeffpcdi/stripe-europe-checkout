@@ -6,7 +6,7 @@
 // formulário oficial — aqui o usuário revisa, copia e envia com 1 clique.
 // Reativação detectada resolve o ticket automaticamente.
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   HeartPulse,
   Loader2,
@@ -19,10 +19,12 @@ import {
   ExternalLink,
   RotateCcw,
   Send,
+  X,
 } from 'lucide-react'
 import { useAdsHealth, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsAccountHealth, AdsHealthStatus, AdsUnbanTicket } from '@/lib/types'
+import { useModalA11y } from '@/lib/use-modal-a11y'
 
 const STATUS_META: Record<AdsHealthStatus, { label: string; tone: string; chip: string }> = {
   approved: { label: 'aprovada', tone: 'text-success', chip: 'border-success/30 bg-success/10 text-success' },
@@ -110,7 +112,7 @@ function TicketCard({
   }
 
   return (
-    <li className="anim-row-in flex flex-col gap-2 rounded-xl border border-border bg-background p-3">
+    <li className="flex flex-col gap-2 rounded-xl border border-border bg-background p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">
@@ -195,7 +197,9 @@ function TicketCard({
 }
 
 export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
   const { data, mutate, isLoading } = useAdsHealth(open)
+  useModalA11y(open, ref, onClose)
 
   if (!open) return null
 
@@ -207,9 +211,6 @@ export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => 
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="ads-health-title"
     >
       <button
         type="button"
@@ -218,7 +219,7 @@ export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => 
         aria-label="Fechar"
         tabIndex={-1}
       />
-      <div className="anim-pop-in relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-card shadow-2xl">
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="ads-health-title" tabIndex={-1} className="anim-pop-in relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-card shadow-2xl outline-none">
         <div className="flex items-center justify-between gap-3 border-b border-border/50 px-5 py-4">
           <div className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
@@ -236,6 +237,9 @@ export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => 
           <button type="button" className="btn-ghost text-xs" onClick={() => mutate()}>
             <RotateCcw className="size-3.5" aria-hidden="true" />
             Verificar agora
+          </button>
+          <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} aria-label="Fechar">
+            <X className="size-4" aria-hidden="true" />
           </button>
         </div>
 

@@ -446,7 +446,7 @@ interface SettingsData {
   outboundWebhook: string
   lgpdDays: number
   dailyReportHour: number
-  pushcutTemplate: string
+  notificationTemplate: string
   apiScope: string
 }
 
@@ -472,7 +472,7 @@ export function AccountPrefsCard() {
         revenueGoal: Number(v('revenueGoal')) || 0,
         dailyReportHour: Number(v('dailyReportHour')) || 0,
         lgpdDays: Number(v('lgpdDays')) || 0,
-        pushcutTemplate: String(v('pushcutTemplate') ?? '').trim(),
+        notificationTemplate: String(v('notificationTemplate') ?? '').trim(),
         outboundWebhook: String(v('outboundWebhook') ?? '').trim(),
       })
       await mutate()
@@ -589,18 +589,18 @@ export function AccountPrefsCard() {
       </div>
 
       <div className="mt-4 border-t border-border pt-4">
-        <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-pctpl">
-          Mensagem da venda no Pushcut
+        <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="pref-notification-template">
+          Mensagem da venda no iPhone
           <span className="font-normal"> — variáveis: {'{{valor}} {{pais}} {{produto}} {{gateway}} {{cliente}} {{pedido}}'}</span>
         </label>
         <input
-          id="pref-pctpl"
+          id="pref-notification-template"
           className={`${inputCls} font-mono text-xs`}
           maxLength={300}
-          value={v('pushcutTemplate') ?? ''}
-          placeholder="ex.: Cha-ching! {{valor}} de {{pais}} no {{gateway}}"
+          value={v('notificationTemplate') ?? ''}
+          placeholder="ex.: Venda de {{valor}} aprovada no {{gateway}}"
           disabled={!data}
-          onChange={(e) => setDraft((d) => ({ ...d, pushcutTemplate: e.target.value }))}
+          onChange={(e) => setDraft((d) => ({ ...d, notificationTemplate: e.target.value }))}
         />
       </div>
 

@@ -94,9 +94,8 @@ const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus,
   {
     eq(automation.ALERT_DEFAULTS.autoAppealSmartPlus, false, 'autoAppealSmartPlus nasce desligado (opt-in)');
     ok(APPEAL_COOLDOWN_MS === 7 * 24 * 3600e3, 'cooldown de auto-recurso é 7 dias');
-    const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
-    ok(/autoAppealSmartPlus: b\.autoAppealSmartPlus === true/.test(routes), 'PUT /api/ads/alerts aceita autoAppealSmartPlus (opt-in explícito)');
     const src = fs.readFileSync(path.join(__dirname, '..', 'ads-automation.js'), 'utf8');
+    ok(/autoAppealSmartPlus: b\.autoAppealSmartPlus === true/.test(src), 'contrato versionado de alertas aceita autoAppealSmartPlus (opt-in explícito)');
     ok(/cfg\.autoAppealSmartPlus && rejectedSp\.length/.test(src), 'sweep só auto-recorre com a opção ligada e havendo reprovação');
   }
 

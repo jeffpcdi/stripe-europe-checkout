@@ -105,6 +105,7 @@ test('config: sanitização do bloco webPush (subs inválidas caem fora)', () =>
   config.set('wp-test', {
     webPush: {
       funMode: false,
+      preferences: { sales: true, risks: false, automation: true },
       subs: [
         { id: 'a', endpoint: 'https://push.example/ok', keys: { p256dh: 'k1', auth: 'a1' } },
         { id: 'b', endpoint: 'http://inseguro.example', keys: { p256dh: 'k2', auth: 'a2' } }, // http → fora
@@ -116,6 +117,59 @@ test('config: sanitização do bloco webPush (subs inválidas caem fora)', () =>
   assert.strictEqual(wp.subs.length, 1, 'só a inscrição válida sobrevive');
   assert.strictEqual(wp.subs[0].endpoint, 'https://push.example/ok');
   assert.strictEqual(wp.funMode, false, 'funMode persiste');
+  assert.deepStrictEqual(wp.preferences, { sales: true, risks: false, automation: true });
+});
+
+test('notificações nativas: preferências são simples e independentes do Pushcut', () => {
+  const config = require('../config');
+  const notifications = require('../pushcut');
+  config.set('native-only', {
+    pushcut: { url: '', events: { sale: false } },
+    webPush: { preferences: { sales: true, risks: false, automation: true } },
+  });
+  assert.deepStrictEqual(notifications.nativePreferencesFor('native-only'), {
+    sales: true, risks: false, automation: true,
+  });
+  assert.strictEqual(notifications.nativePreferenceEnabled('native-only', 'sale'), true);
+  assert.strictEqual(notifications.nativePreferenceEnabled('native-only', 'dispute'), false);
+  assert.strictEqual(notifications.nativePreferenceEnabled('native-only', 'ads_proposal'), true);
+});
+
+test('notificações nativas: rotina e simulação não poluem o sino', () => {
+  const notifications = require('../pushcut');
+  assert.strictEqual(notifications._shouldRecord('ads_proposal'), true);
+  assert.strictEqual(notifications._shouldRecord('ads_failure'), true);
+  assert.strictEqual(notifications._shouldRecord('ads_routine'), false);
+  assert.strictEqual(notifications._shouldRecord('ads_briefing'), false);
+  assert.strictEqual(notifications._shouldRecord('checkout'), false);
+  assert.strictEqual(notifications._shouldRecord('test'), false);
+});
+
+test('central nativa: preserva prioridade e deduplica alertas repetidos', async () => {
+  const redis = require('../redis');
+  const accountId = 'notif-log-test';
+  const note = {
+    event: 'ads_breaker', priority: 'critical', title: 'Automação pausada',
+    body: 'Muitas falhas.', url: '/dashboard/ads/tiktok', dedupeKey: 'breaker:adv-1',
+  };
+  await redis.pushNotifLog(accountId, note);
+  await redis.pushNotifLog(accountId, note);
+  const rows = await redis.loadNotifLog(accountId, 10);
+  assert.strictEqual(rows.length, 1, 'o mesmo freio não aparece duas vezes em 5 minutos');
+  assert.strictEqual(rows[0].priority, 'critical');
+  assert.strictEqual(rows[0].event, 'ads_breaker');
+});
+
+test('notify-copy: automação acionável abre diretamente a área de automação', () => {
+  const note = notifyCopy.build({
+    name: 'Aprovada',
+    payload: { title: 'Automação aguardando você', text: 'Revise no painel.' },
+    meta: { event: 'ads_proposal' },
+    funMode: false,
+    accountId: 'acc1',
+  });
+  assert.strictEqual(note.event, 'ads_proposal');
+  assert.strictEqual(note.url, '/dashboard/ads/tiktok?view=automation');
 });
 
 test('web-push-notify: sem aparelhos inscritos retorna false sem tocar rede', async () => {

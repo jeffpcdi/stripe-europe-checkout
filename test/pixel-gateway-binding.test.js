@@ -9,7 +9,7 @@
  * Regras testadas:
  *  1. Evento do gateway A → só dispara no pixel vinculado ao gateway A;
  *  2. Evento do gateway B → só dispara no pixel vinculado ao gateway B;
- *  3. Pixel SEM vínculo (lista vazia) → recebe de qualquer gateway (legado);
+ *  3. Pixel SEM vínculo só é fallback quando não há vínculo explícito;
  *  4. Evento SEM gatewayId → pixel vinculado NÃO dispara (isolamento estrito),
  *     mas pixel sem vínculo dispara normalmente;
  *  5. Eventos de navegador (ViewContent) ignoram o vínculo.
@@ -77,23 +77,23 @@ function firedCodes() {
 const tk = require('../tiktok-events');
 
 (async () => {
-  // 1) Venda vinda do gateway A → só pixel A + pixel livre
+  // 1) Venda vinda do gateway A → só pixel A (vínculo explícito vence livre)
   fetchCalls = [];
   const r1 = await tk.dispatchToAll('CompletePayment', {
     _trusted: true, acc: ACC, gatewayId: GW_A,
     eventId: 'CompletePayment.gwa', value: 97, currency: 'BRL'
   }, '*', ACC);
-  assert.strictEqual(r1.dispatched, 2, 'gateway A deve atingir 2 pixels (A + livre)');
-  assert.deepStrictEqual(firedCodes(), ['PXA', 'PXL'], 'pixel B NÃO pode receber venda do gateway A');
+  assert.strictEqual(r1.dispatched, 1, 'gateway A deve atingir somente o pixel A');
+  assert.deepStrictEqual(firedCodes(), ['PXA'], 'pixels B/livre NÃO podem receber venda do gateway A');
 
-  // 2) Venda vinda do gateway B → só pixel B + pixel livre
+  // 2) Venda vinda do gateway B → só pixel B
   fetchCalls = [];
   const r2 = await tk.dispatchToAll('CompletePayment', {
     _trusted: true, acc: ACC, gatewayId: GW_B,
     eventId: 'CompletePayment.gwb', value: 147, currency: 'BRL'
   }, '*', ACC);
-  assert.strictEqual(r2.dispatched, 2, 'gateway B deve atingir 2 pixels (B + livre)');
-  assert.deepStrictEqual(firedCodes(), ['PXB', 'PXL'], 'pixel A NÃO pode receber venda do gateway B');
+  assert.strictEqual(r2.dispatched, 1, 'gateway B deve atingir somente o pixel B');
+  assert.deepStrictEqual(firedCodes(), ['PXB'], 'pixels A/livre NÃO podem receber venda do gateway B');
 
   // 3) Venda SEM gatewayId (ex.: /api/conversion legado) → só o pixel livre
   fetchCalls = [];
@@ -117,7 +117,7 @@ const tk = require('../tiktok-events');
     _trusted: true, acc: ACC, gatewayId: GW_A,
     eventId: 'AddPaymentInfo.gwa'
   }, '*', ACC);
-  assert.deepStrictEqual(firedCodes(), ['PXA', 'PXL'], 'AddPaymentInfo do gateway A não vai ao pixel B');
+  assert.deepStrictEqual(firedCodes(), ['PXA'], 'AddPaymentInfo do gateway A só vai ao pixel A');
 
   console.log('[OK] vínculo pixel↔gateway: vendas isoladas por gateway; navegador livre; legado preservado.');
   process.exit(0);

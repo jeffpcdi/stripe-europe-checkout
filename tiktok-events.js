@@ -41,6 +41,7 @@ function externalIdFromLead(vId) {
 // ── Log de disparos em memória (feed rápido do painel) ────────────────────
 const LOG_MAX = 200;
 const log = [];
+const scopedDedup = new Map();
 function pushLog(entry) {
   const row = {
     id: crypto.randomBytes(8).toString('hex'),
@@ -86,16 +87,20 @@ async function clearLog(accountId) {
 
 // Versão async: usa Redis como fallback se memória local estiver vazia
 async function recentLogAsync(n, accountId) {
-  let rows = log;
+  let rows = accountId ? log.filter((r) => r.acc === accountId) : log.slice();
   if (!rows.length) {
     // após restart: busca do Redis e re-popula memória local
     const redisRows = await rdb.loadPixelLog(200);
     if (redisRows && redisRows.length) {
-      log.push(...redisRows.slice(0, LOG_MAX));
-      rows = log;
+      // Evita duplicar linhas que já chegaram de outra conta na memória.
+      const known = new Set(log.map((r) => r.id));
+      for (const row of redisRows.slice(0, LOG_MAX)) {
+        if (!known.has(row.id)) log.push(row);
+      }
+      if (log.length > LOG_MAX) log.length = LOG_MAX;
+      rows = accountId ? log.filter((r) => r.acc === accountId) : log.slice();
     }
   }
-  if (accountId) rows = rows.filter((r) => r.acc === accountId);
   return rows.slice(0, n || 100);
 }
 
@@ -462,6 +467,90 @@ async function sendToPixel(pixel, p) {
   return { error: (lastErr && lastErr.message) || 'falha desconhecida', pixel: pixelId, pixelName };
 }
 
+// Envia um evento de navegador para UM destino inequívoco. Este é o caminho
+// seguro para páginas, SPAs e scripts externos: um token/slug explícito vence;
+// sem ele, só há fallback quando existe exatamente um pixel elegível na conta.
+// Nunca fazemos fan-out implícito entre dois pixels para eventos de navegação.
+//
+// A deduplicação também é escopada pelo pixel. O TikTok considera Pixel Code,
+// nome do evento e event_id em conjunto; uma chave global por event_id fazia o
+// evento do pixel A impedir o espelho CAPI do pixel B (ou, conforme a ordem,
+// fazia um dispatch genérico atingir ambos). O prefixo por token/slug elimina
+// essa colisão sem alterar o event_id que chega ao TikTok.
+async function dispatchScoped(eventName, p, routeHint, accountId, targetSlug) {
+  const acc = accountId || (p && p.acc) || null;
+  const payload = p || {};
+  if (MONEY_EVENTS.has(eventName) && !payload._trusted) {
+    pushLog({
+      acc, pixel: targetSlug || 'dispatch', event: eventName,
+      eventId: payload.eventId, leadId: payload.leadId, status: 'bloqueado',
+      response: { message: 'evento monetário sem origem de gateway (gateway-only)' }
+    });
+    return { dispatched: 0, blocked: 'gateway-only' };
+  }
+
+  const eligible = pixelStore.forEvent(acc, eventName, routeHint || '*');
+  let target = null;
+  if (targetSlug) {
+    // Token/slug explícito vem da tag individual e é mais específico que as
+    // rotas legadas. A página pode ser /produto-x mesmo que o pixel ainda tenha
+    // routes=['*'] ou uma configuração antiga; só exigimos configuração válida.
+    const exists = pixelStore.get(acc, targetSlug);
+    target = exists && exists.active !== false && !!exists.pixelCode
+      && !!(exists.events && exists.events[eventName]) ? exists : null;
+    if (!target) {
+      let reason = 'o pixel escolhido não existe nesta conta';
+      if (exists && exists.active === false) reason = 'o pixel escolhido está inativo';
+      else if (exists && !exists.pixelCode) reason = 'o pixel escolhido está sem Pixel Code';
+      else if (exists) reason = 'o evento "' + eventName + '" está desligado no pixel escolhido';
+      pushLog({
+        acc, pixel: targetSlug, event: eventName, eventId: payload.eventId,
+        leadId: payload.leadId, status: 'descartado', response: { message: reason }
+      });
+      return { dispatched: 0, reason, target: targetSlug };
+    }
+  } else if (eligible.length === 1) {
+    target = eligible[0];
+  } else if (eligible.length > 1) {
+    const reason = 'evento sem pixel de origem; há ' + eligible.length
+      + ' pixels elegíveis e o envio para todos foi bloqueado para evitar cruzamento';
+    pushLog({
+      acc, pixel: 'roteamento', event: eventName, eventId: payload.eventId,
+      leadId: payload.leadId, status: 'descartado', response: { message: reason }
+    });
+    return { dispatched: 0, reason, ambiguous: true };
+  } else {
+    const reason = 'nenhum pixel ativo aceita este evento';
+    pushLog({
+      acc, pixel: targetSlug || 'roteamento', event: eventName,
+      eventId: payload.eventId, leadId: payload.leadId,
+      status: 'descartado', response: { message: reason }
+    });
+    return { dispatched: 0, reason };
+  }
+
+  if (payload.eventId) {
+    const scope = target.token || ((target.acc || acc || 'legacy') + ':' + (target.slug || target.pixelCode));
+    const dedupKey = 'pixel:' + scope + ':' + payload.eventId;
+    let seen = false;
+    if (rdb.enabled) {
+      seen = await rdb.seenEventId(dedupKey).catch(() => false);
+    } else {
+      const now = Date.now();
+      if (scopedDedup.size > 5000) {
+        for (const [key, at] of scopedDedup) {
+          if (now - at > 2 * 3600e3) scopedDedup.delete(key);
+        }
+      }
+      seen = scopedDedup.has(dedupKey);
+      if (!seen) scopedDedup.set(dedupKey, now);
+    }
+    if (seen) return { dispatched: 0, deduplicated: true, pixel: target.slug };
+  }
+  const result = await sendToPixel(target, { ...payload, event: eventName });
+  return { dispatched: 1, pixel: target.slug, results: [result] };
+}
+
 /**
  * Dispara um evento para TODOS os pixels ativos que aceitam esse evento na rota.
  * Multi-tenant: quando accountId é informado, só dispara para os pixels da conta.
@@ -496,22 +585,47 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
   // ── Isolamento pixel ↔ gateway (eventos monetários) ──────────────────────
   // Pixel com `gatewayIds` preenchido só aceita eventos de DINHEIRO vindos dos
   // gateways listados. Assim 2 pixels em 2 gateways diferentes na mesma conta
-  // nunca recebem a venda um do outro. Regras:
-  //   • lista vazia = aceita de qualquer gateway (comportamento legado);
-  //   • evento COM gatewayId → pixel vinculado exige que o id esteja na lista;
-  //   • evento SEM gatewayId (ex.: /api/conversion legado) → pixel vinculado
-  //     NÃO dispara (isolamento estrito — quem vincula quer separação total).
-  // Eventos de navegador (ViewContent/AddToCart/InitiateCheckout client-side)
-  // não passam por aqui com _trusted, e o script por página já é por pixel.
+  // nunca recebem a venda um do outro. A ordem de decisão é: pixel persistido
+  // no lead/link → vínculo explícito do gateway → único pixel livre. Dois ou
+  // mais pixels livres são ambíguos e não recebem fan-out.
   if (MONEY_EVENTS.has(eventName)) {
     const skipped = [];
-    targets = targets.filter((px) => {
-      const bound = Array.isArray(px.gatewayIds) ? px.gatewayIds : [];
-      if (!bound.length) return true; // sem vínculo = todos os gateways
-      const ok = !!p.gatewayId && bound.indexOf(p.gatewayId) >= 0;
-      if (!ok) skipped.push(px);
-      return ok;
-    });
+    const requestedSlug = cleanStr(p.pixelSlug, 40);
+    const requested = requestedSlug ? targets.find((px) => px.slug === requestedSlug) : null;
+    if (requested) {
+      // A origem do lead/link é a evidência mais específica. Um vínculo de
+      // gateway explícito ainda precisa casar; não ignoramos uma restrição que
+      // o operador configurou de propósito.
+      const bound = Array.isArray(requested.gatewayIds) ? requested.gatewayIds : [];
+      const allowed = !bound.length || (!!p.gatewayId && bound.indexOf(p.gatewayId) >= 0);
+      targets.forEach((px) => { if (px !== requested || !allowed) skipped.push(px); });
+      targets = allowed ? [requested] : [];
+    } else {
+      const boundMatches = targets.filter((px) => {
+        const bound = Array.isArray(px.gatewayIds) ? px.gatewayIds : [];
+        return bound.length > 0 && !!p.gatewayId && bound.indexOf(p.gatewayId) >= 0;
+      });
+      const unbound = targets.filter((px) => !Array.isArray(px.gatewayIds) || px.gatewayIds.length === 0);
+      if (boundMatches.length) {
+        // Havendo vínculo explícito para o gateway, ele é a fonte da verdade;
+        // pixels livres não recebem uma cópia adicional.
+        targets.forEach((px) => { if (!boundMatches.includes(px)) skipped.push(px); });
+        targets = boundMatches;
+      } else if (unbound.length === 1) {
+        // Compatibilidade segura para contas com um único pixel sem vínculo.
+        targets.forEach((px) => { if (px !== unbound[0]) skipped.push(px); });
+        targets = unbound;
+      } else if (unbound.length > 1) {
+        // Dois pixels livres são ambíguos. O comportamento antigo enviava a
+        // mesma venda para ambos; agora bloqueamos até que o lead ou gateway
+        // identifique o destino.
+        skipped.push(...targets);
+        targets = [];
+      } else {
+        skipped.push(...targets);
+        targets = [];
+      }
+    }
     // Diagnóstico: registra cada pixel PULADO pelo vínculo — sem isto, o
     // operador não saberia por que a venda não chegou naquele pixel.
     skipped.forEach((px) => {
@@ -523,9 +637,11 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
         leadId: p.leadId,
         status: 'descartado',
         response: {
-          message: p.gatewayId
-            ? 'pixel vinculado a outro(s) gateway(s) — evento veio de ' + p.gatewayId
-            : 'pixel vinculado a gateway(s) específico(s), mas o evento chegou sem identificação de gateway'
+          message: requestedSlug && px.slug !== requestedSlug
+            ? 'evento atribuído ao pixel ' + requestedSlug + '; fan-out bloqueado'
+            : (p.gatewayId
+              ? 'pixel não é o destino explícito do gateway ' + p.gatewayId + '; fan-out bloqueado'
+              : 'evento sem pixel/gateway inequívoco; fan-out bloqueado para evitar cruzamento')
         }
       });
     });
@@ -543,10 +659,10 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
         reason = 'há pixels na conta, mas todos inativos';
       } else if (!all.some((px) => px.events && px.events[eventName])) {
         reason = 'pixels ativos existem, mas nenhum tem o evento "' + eventName + '" ligado';
-      } else if (MONEY_EVENTS.has(eventName)
-        && all.some((px) => px.active && px.events && px.events[eventName] && Array.isArray(px.gatewayIds) && px.gatewayIds.length)) {
-        reason = 'todos os pixels elegíveis estão vinculados a outro(s) gateway(s)'
-          + (p.gatewayId ? ' (evento veio de ' + p.gatewayId + ')' : ' (evento chegou sem identificação de gateway)');
+      } else if (MONEY_EVENTS.has(eventName)) {
+        reason = requestedSlug
+          ? 'o pixel atribuído ao lead não aceita este gateway/evento'
+          : 'destino ambíguo: vincule cada pixel a um gateway ou instale a tag específica para atribuir o lead';
       } else {
         reason = 'pixels ativos existem, mas não casaram com a rota/conta (accountId=' + (acc || 'null') + ')';
       }
@@ -621,7 +737,7 @@ async function sendTikTokEvent(p) {
 
 module.exports = {
   hash, hashPhone, externalIdFromLead,
-  sendToPixel, dispatchToAll, testPixel, sendTikTokEvent,
+  sendToPixel, dispatchScoped, dispatchToAll, testPixel, sendTikTokEvent,
   recentLog, recentLogAsync, clearLog, // Item 200
   retryQueueSize, drainRetryQueue, retryQueueInfo
 };

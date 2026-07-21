@@ -6,8 +6,8 @@
 // PUT /api/ads/rules de sempre. Nada aqui fala com a rede — módulo puro,
 // testável, sem React. Quem orquestra as escritas é o pilots-panel.
 //
-// Regras SEM tag `pilot` (criadas no Modo avançado) NUNCA são tocadas por
-// estas funções — o gestor avançado não perde nada ao usar pilotos.
+// Ativar/editar um piloto preserva regras sem tag. A autonomia, porém, é
+// deliberadamente global: deve alcançar também regras do Modo avançado.
 //
 // LIMITE DE 10 REGRAS (validateRules faz slice(0,10) silencioso): contas
 // semeadas já têm 9 presets de fábrica. Ao ativar um piloto, applyPilot
@@ -164,13 +164,24 @@ export function detectPilots(rules: AdsRule[]): Record<PilotId, PilotState> {
     const mine = (rules || []).filter((r) => r.pilot === p.id)
     const enabled = mine.filter((r) => r.enabled)
     const intensities = new Set(mine.map((r) => r.intensity ?? 'custom'))
+    const declared = intensities.size === 1 ? [...intensities][0] : 'custom'
+    let intensity = declared as Intensity | 'custom'
+    if (intensity !== 'custom' && mine.length > 0) {
+      const expected = buildPilotRules(p.id, intensity)
+      const fields: (keyof AdsRule)[] = [
+        'metric', 'threshold', 'action', 'pct', 'lookbackDays', 'minClicks',
+        'minImpressions', 'minSpend', 'minSales', 'budgetCap', 'days',
+        'startTime', 'endTime', 'timezone',
+      ]
+      const same = expected.length === mine.length && expected.every((wanted) => {
+        const actual = mine.find((rule) => rule.id === wanted.id)
+        return !!actual && fields.every((field) => JSON.stringify(actual[field]) === JSON.stringify(wanted[field]))
+      })
+      if (!same) intensity = 'custom'
+    }
     out[p.id] = {
       active: mine.length > 0 && enabled.length === mine.length,
-      intensity: mine.length === 0
-        ? 'custom'
-        : intensities.size === 1
-          ? ([...intensities][0] as Intensity | 'custom')
-          : 'custom',
+      intensity,
       ruleIds: mine.map((r) => r.id),
     }
   }
@@ -195,28 +206,26 @@ export function applyPilot(
   return [...keep, ...buildPilotRules(pilot, opts.intensity, opts.mode ?? 'proposal')]
 }
 
-// Autonomia efetiva a partir das regras-piloto + config de alertas:
-//  - notify  → nenhum piloto habilitado e alertas ligados (o robô só avisa);
-//  - propose → todo piloto habilitado propõe;
-//  - auto    → todo piloto habilitado executa;
+// Autonomia efetiva a partir de TODAS as regras + config de alertas:
+//  - notify  → nenhuma regra habilitada e alertas ligados (o robô só avisa);
+//  - propose → toda regra habilitada propõe;
+//  - auto    → toda regra habilitada executa;
 //  - custom  → mistura (ou nada configurado).
 export function detectAutonomy(rules: AdsRule[], alertsEnabled: boolean): Autonomy | 'custom' {
-  const pilotRules = (rules || []).filter((r) => r.pilot)
-  const enabled = pilotRules.filter((r) => r.enabled)
-  if (!enabled.length) return alertsEnabled && pilotRules.length > 0 ? 'notify' : 'custom'
+  const enabled = (rules || []).filter((r) => r.enabled)
+  if (!enabled.length) return alertsEnabled ? 'notify' : 'custom'
   const modes = new Set(enabled.map((r) => (r.mode === 'execute' ? 'execute' : 'proposal')))
   if (modes.size > 1) return 'custom'
   return modes.has('execute') ? 'auto' : 'propose'
 }
 
-// Aplica o seletor de autonomia SOBRE AS REGRAS-PILOTO (as demais ficam):
-//  - notify  → desabilita as regras-piloto (quem avisa são os alertas);
+// Helper puro equivalente ao contrato GLOBAL do backend:
+//  - notify  → desabilita todas as regras (quem avisa são os alertas);
 //  - propose → habilita (as de reenableIds, se vier de notify) com mode proposal;
 //  - auto    → idem com mode execute.
 export function applyAutonomy(rules: AdsRule[], autonomy: Autonomy, reenableIds?: string[]): AdsRule[] {
   const reenable = new Set(reenableIds ?? [])
   return (rules || []).map((r) => {
-    if (!r.pilot) return r
     if (autonomy === 'notify') return { ...r, enabled: false }
     const enabled = r.enabled || reenable.size === 0 || reenable.has(r.id)
     return { ...r, enabled, mode: autonomy === 'auto' ? 'execute' as const : 'proposal' as const }

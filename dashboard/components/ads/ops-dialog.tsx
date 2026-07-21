@@ -7,7 +7,7 @@
 //    diário e % máxima de mudança de orçamento — vale para TODA ação de
 //    escrita (manual, automação e IA).
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ShieldCheck,
   Loader2,
@@ -17,10 +17,12 @@ import {
   RotateCcw,
   ListChecks,
   OctagonAlert,
+  X,
 } from 'lucide-react'
 import { useAdsOpsJobs, useAdsSafetyPolicy, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsOpsJob, AdsSafetyPolicy } from '@/lib/types'
+import { useModalA11y } from '@/lib/use-modal-a11y'
 
 const STATUS_META: Record<AdsOpsJob['status'], { label: string; tone: string }> = {
   queued: { label: 'na fila', tone: 'text-muted-foreground' },
@@ -71,12 +73,14 @@ export function OpsDialog({
   // revalida o badge dry-run na view principal
   onPolicyChanged?: () => void
 }) {
+  const ref = useRef<HTMLDivElement>(null)
   const { data: jobsData, mutate: mutateJobs } = useAdsOpsJobs(open)
   const { data: policyData, mutate: mutatePolicy } = useAdsSafetyPolicy(open)
 
   const [tab, setTab] = useState<'jobs' | 'safety'>('jobs')
   const [draft, setDraft] = useState<AdsSafetyPolicy | null>(null)
   const [saving, setSaving] = useState(false)
+  useModalA11y(open, ref, saving ? () => {} : onClose)
 
   // Sincroniza o rascunho quando a política salva chega
   useEffect(() => {
@@ -120,18 +124,16 @@ export function OpsDialog({
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="ads-ops-title"
     >
       <button
         type="button"
         className="absolute inset-0 cursor-default"
         onClick={onClose}
+        disabled={saving}
         aria-label="Fechar"
         tabIndex={-1}
       />
-      <div className="anim-pop-in relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-card shadow-2xl">
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="ads-ops-title" tabIndex={-1} className="anim-pop-in relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-card shadow-2xl outline-none">
         <div className="flex items-center justify-between gap-3 border-b border-border/50 px-5 py-4">
           <div className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10">
@@ -166,6 +168,9 @@ export function OpsDialog({
               Segurança
             </button>
           </div>
+          <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} disabled={saving} aria-label="Fechar">
+            <X className="size-4" aria-hidden="true" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -192,7 +197,7 @@ export function OpsDialog({
                     return (
                       <li
                         key={j.id}
-                        className="anim-row-in flex items-start gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs"
+                        className="flex items-start gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs"
                       >
                         <JobStatusIcon status={j.status} />
                         <div className="min-w-0 flex-1">

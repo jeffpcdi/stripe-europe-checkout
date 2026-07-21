@@ -12,6 +12,7 @@ import { apiSend, adsUpload, useAdsBulkJob } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsGoal, AdsBulkStartResponse } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
+import { TIKTOK_PIXEL_EVENTS, tomorrowLocalIsoDate, toLocalIsoDate } from './tiktok-contracts'
 
 const GOALS: { value: AdsGoal; label: string }[] = [
   { value: 'traffic', label: 'Tráfego' },
@@ -55,6 +56,7 @@ export function BulkUploadDialog({
   const [linkUrl, setLinkUrl] = useState('')
   const [body, setBody] = useState('')
   const [pixelId, setPixelId] = useState('')
+  const [customEventType, setCustomEventType] = useState('')
 
   const [items, setItems] = useState<BulkFormItem[]>([])
   const [submitting, setSubmitting] = useState(false)
@@ -78,6 +80,7 @@ export function BulkUploadDialog({
       setLinkUrl('')
       setBody('')
       setPixelId('')
+      setCustomEventType('')
       setItems([])
       setJobId(null)
       notifiedRef.current = false
@@ -110,9 +113,12 @@ export function BulkUploadDialog({
     if (items.some((i) => !i.name.trim())) return 'Todo anúncio precisa de um nome'
     if (!(Number(budget) > 0)) return 'Informe o orçamento (vale para cada anúncio)'
     if (budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(endDate)) return 'Orçamento total exige data de término'
-    if (goal === 'conversions' && !/^\d{5,30}$/.test(pixelId.trim())) return 'Conversões exigem o Pixel ID numérico'
+    if (budgetType === 'lifetime' && endDate <= toLocalIsoDate(new Date())) return 'A data de término precisa ser futura'
+    if ((goal === 'conversions' || goal === 'lead_generation') && !/^\d{5,30}$/.test(pixelId.trim())) return `${goal === 'lead_generation' ? 'Leads' : 'Conversões'} exige o Pixel ID numérico`
+    if ((goal === 'conversions' || goal === 'lead_generation') && !TIKTOK_PIXEL_EVENTS.some((event) => event.value === customEventType)) return 'Selecione o evento de otimização do Pixel'
+    if (goal === 'lead_generation' && !/^https:\/\/\S+/.test(linkUrl.trim())) return 'Leads exige a URL HTTPS da página de captura'
     return null
-  }, [items, uploadingCount, budget, budgetType, endDate, goal, pixelId])
+  }, [items, uploadingCount, budget, budgetType, endDate, goal, pixelId, customEventType, linkUrl])
 
   async function handleFiles(files: FileList | File[]) {
     const list = Array.from(files).slice(0, 20 - items.length)
@@ -154,7 +160,10 @@ export function BulkUploadDialog({
       if (countryList.length) common.countries = countryList
       if (/^https?:\/\//.test(linkUrl.trim())) common.linkUrl = linkUrl.trim()
       if (body.trim()) common.body = body.trim()
-      if (goal === 'conversions') common.pixelId = pixelId.trim()
+      if (goal === 'conversions' || goal === 'lead_generation') {
+        common.pixelId = pixelId.trim()
+        common.customEventType = customEventType
+      }
 
       const idempotencyKey = `bulk:${advertiserId}:${Date.now()}:${items.map((item) => item.key).join(',')}`
       const res = await apiSend<AdsBulkStartResponse>('/api/ads/bulk', 'POST', {
@@ -372,6 +381,7 @@ export function BulkUploadDialog({
                     <span className="text-xs font-medium text-foreground">Data de término</span>
                     <input
                       type="date"
+                      min={tomorrowLocalIsoDate()}
                       className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
@@ -398,16 +408,32 @@ export function BulkUploadDialog({
                     />
                   </label>
                 </div>
-                {goal === 'conversions' && (
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-xs font-medium text-foreground">Pixel ID numérico do TikTok</span>
-                    <input
-                      className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                      value={pixelId}
-                      onChange={(e) => setPixelId(e.target.value)}
-                      placeholder="7012345678901234567"
-                    />
-                  </label>
+                {(goal === 'conversions' || goal === 'lead_generation') && (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1.5">
+                      <span className="text-xs font-medium text-foreground">Pixel ID do TikTok</span>
+                      <input
+                        className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        value={pixelId}
+                        onChange={(e) => setPixelId(e.target.value.replace(/\D/g, ''))}
+                        inputMode="numeric"
+                        placeholder="7012345678901234567"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1.5">
+                      <span className="text-xs font-medium text-foreground">Evento de otimização</span>
+                      <select
+                        className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        value={customEventType}
+                        onChange={(e) => setCustomEventType(e.target.value)}
+                      >
+                        <option value="">Selecione…</option>
+                        {TIKTOK_PIXEL_EVENTS.map((event) => (
+                          <option key={event.value} value={event.value}>{event.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 )}
                 <label className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium text-foreground">Texto do anúncio (opcional, até 100 caracteres)</span>

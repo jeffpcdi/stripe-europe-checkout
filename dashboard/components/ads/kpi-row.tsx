@@ -74,63 +74,59 @@ export function KpiRow({
   const cpm = cur?.cpm ?? kpi.cpm
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      <GlassCard hover className="group relative overflow-hidden anim-kpi-in p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(0,0,0,0.6)] hover:ring-1 hover:ring-white/10" style={{ animationDelay: '0ms' }}>
-        <div className="absolute inset-0 bg-gradient-to-br from-white/[0.04] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
-        <div className="relative flex items-start justify-between gap-2">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <GlassCard className="p-4">
+        <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <p className="label-mono label-mono--gradient">Investimento</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Investimento</p>
               <Delta value={deltas?.spend} />
             </div>
-            <p className="kpi-value-hero mt-1 text-2xl font-bold tracking-tight text-foreground drop-shadow-sm transition-transform group-hover:scale-[1.02] origin-left">
+            <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
               <CountUp value={spend} format={(v) => fmtSpend(v, currency)} />
             </p>
           </div>
           {kpi.spendSeries.length > 1 && (
-            <div className="transition-opacity group-hover:opacity-80">
+            <div className="opacity-70">
               <SparkLine data={kpi.spendSeries} color="var(--brand-cyan, #25f4ee)" width={72} height={26} />
             </div>
           )}
         </div>
       </GlassCard>
       
-      <GlassCard hover className="group relative overflow-hidden anim-kpi-in p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(0,0,0,0.6)] hover:ring-1 hover:ring-white/10" style={{ animationDelay: '40ms' }}>
-        <div className="absolute inset-0 bg-gradient-to-br from-white/[0.04] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
-        <div className="relative flex items-center gap-2">
-          <p className="label-mono label-mono--gradient">Impressões</p>
+      <GlassCard className="p-4">
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Impressões</p>
           <Delta value={deltas?.impressions} />
         </div>
-        <p className="kpi-value-hero relative mt-1 text-2xl font-bold tracking-tight text-foreground drop-shadow-sm transition-transform group-hover:scale-[1.02] origin-left">
+        <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
           <CountUp value={impressions} format={fmtCompact} />
         </p>
       </GlassCard>
 
-      <GlassCard hover className="group relative overflow-hidden anim-kpi-in p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(0,0,0,0.6)] hover:ring-1 hover:ring-white/10" style={{ animationDelay: '80ms' }}>
-        <div className="absolute inset-0 bg-gradient-to-br from-white/[0.04] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
-        <div className="relative flex items-center gap-2">
-          <p className="label-mono label-mono--gradient">CTR</p>
+      <GlassCard className="p-4">
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">CTR</p>
           <Delta value={deltas?.ctr} />
         </div>
-        <p className="kpi-value-hero relative mt-1 text-2xl font-bold tracking-tight text-foreground drop-shadow-sm transition-transform group-hover:scale-[1.02] origin-left">
+        <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
           <CountUp value={ctr} format={(v) => fmtPercent(v)} />
         </p>
-        <p className="relative mt-0.5 text-[11px] font-medium text-muted-foreground transition-colors group-hover:text-sub">
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
           {fmtCompact(clicks)} clique{clicks === 1 ? '' : 's'}
         </p>
       </GlassCard>
 
-      <GlassCard hover className="group relative overflow-hidden anim-kpi-in p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(0,0,0,0.6)] hover:ring-1 hover:ring-white/10" style={{ animationDelay: '120ms' }}>
-        <div className="absolute inset-0 bg-gradient-to-br from-white/[0.04] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
-        <div className="relative flex items-center gap-2">
-          <p className="label-mono label-mono--gradient">CPM</p>
+      <GlassCard className="p-4">
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">CPM</p>
           {/* CPM subir é ruim: cor invertida */}
           <Delta value={deltas?.cpm} goodWhenUp={false} />
         </div>
-        <p className="kpi-value-hero relative mt-1 text-2xl font-bold tracking-tight text-foreground drop-shadow-sm transition-transform group-hover:scale-[1.02] origin-left">
+        <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
           <CountUp value={cpm} format={(v) => fmtSpend(v, currency)} />
         </p>
-        <p className="relative mt-0.5 text-[11px] font-medium text-muted-foreground transition-colors group-hover:text-sub">
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
           {kpi.activeCount} campanha{kpi.activeCount === 1 ? '' : 's'} ativa{kpi.activeCount === 1 ? '' : 's'}
         </p>
       </GlassCard>

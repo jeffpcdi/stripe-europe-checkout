@@ -10,8 +10,7 @@ import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import type { AdsTreeAd } from '@/lib/types'
-
-const CTAS = ['', 'SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'ORDER_NOW', 'DOWNLOAD', 'CONTACT_US', 'GET_QUOTE', 'BOOK_NOW']
+import { TIKTOK_CTA_OPTIONS } from './tiktok-contracts'
 
 export function AdEditDialog({
   ad,
@@ -99,7 +98,10 @@ export function AdEditDialog({
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Botão (CTA)</span>
               <select className={field} value={cta} onChange={(e) => setCta(e.target.value)}>
-                {CTAS.map((c) => <option key={c || 'keep'} value={c}>{c ? c.replace(/_/g, ' ') : 'Manter atual'}</option>)}
+                <option value="">Manter atual</option>
+                {TIKTOK_CTA_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs">

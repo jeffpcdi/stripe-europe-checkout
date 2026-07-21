@@ -8,7 +8,8 @@
 // re-sincroniza e a conta nova aparece.
 
 import { useState } from 'react'
-import { ExternalLink, RefreshCw, Unplug } from 'lucide-react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { ExternalLink, MoreHorizontal, RefreshCw, Unplug } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsAdvertiser, AdsHealthStatus } from '@/lib/types'
@@ -32,7 +33,6 @@ const STATUS_DOT: Partial<Record<AdsHealthStatus, { className: string; label: st
 }
 
 export function AdsContextBar({
-  accountLabel,
   advertisers,
   selectedAdvertiser,
   refreshing,
@@ -42,7 +42,6 @@ export function AdsContextBar({
   onRefresh,
   onDisconnect,
 }: {
-  accountLabel: string
   advertisers: AdsAdvertiser[]
   selectedAdvertiser: string
   refreshing: boolean
@@ -94,22 +93,12 @@ export function AdsContextBar({
   return (
     <div
       role="toolbar"
-      aria-label="Contexto do TikTok Ads: Business Center e conta de anúncio"
+      aria-label="Contexto do TikTok Ads"
       data-tour="ads-context"
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-white/5 bg-[#040406]/60 backdrop-blur-3xl px-5 py-3 text-xs shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-card px-4 py-2.5 text-xs"
     >
-      <span className="flex items-center gap-1.5 font-semibold text-success">
-        <span className="relative flex size-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" aria-hidden="true" />
-          <span className="relative inline-flex size-2 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.8)]" aria-hidden="true" />
-        </span>
-        Conectado
-      </span>
-      {/* Saúde da conexão TikTok — discreta; detalhe completo no Modo avançado */}
+      {/* Um único indicador substitui os três estados redundantes antigos. */}
       <McpStatusDot active />
-      <span className="hidden text-muted-foreground sm:inline">
-        Conta: <strong className="text-foreground">{accountLabel}</strong>
-      </span>
 
       {/* Seletor de conta de anúncio (advertiser) */}
       <label className="flex items-center gap-2 text-muted-foreground">
@@ -163,16 +152,6 @@ export function AdsContextBar({
         </select>
       </label>
 
-      <button
-        type="button"
-        className="flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-        onClick={openCreateAccount}
-        title="Abre o TikTok Business Center em nova aba — a criação de conta não tem API"
-      >
-        <ExternalLink className="size-3.5 text-muted-foreground" aria-hidden="true" />
-        Criar conta de anúncio
-      </button>
-
       <div className="ml-auto flex items-center gap-1">
         <button
           type="button"
@@ -182,16 +161,33 @@ export function AdsContextBar({
         >
           <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
         </button>
-        {onDisconnect && (
-          <button
-            type="button"
-            className="btn-ghost px-2 py-1 text-xs text-muted-foreground"
-            onClick={onDisconnect}
-          >
-            <Unplug className="size-3.5" aria-hidden="true" />
-            Desconectar
-          </button>
-        )}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button type="button" className="btn-ghost px-2 py-1 text-xs" aria-label="Mais ações da conta">
+              <MoreHorizontal className="size-3.5" aria-hidden="true" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="end" sideOffset={8} className="glass glass-thick anim-pop-in z-50 min-w-52 rounded-[12px] p-1.5">
+              <DropdownMenu.Item
+                className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                onSelect={openCreateAccount}
+              >
+                <ExternalLink className="size-3.5" aria-hidden="true" />
+                Criar conta no TikTok
+              </DropdownMenu.Item>
+              {onDisconnect && (
+                <DropdownMenu.Item
+                  className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-muted-foreground outline-none data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-error"
+                  onSelect={onDisconnect}
+                >
+                  <Unplug className="size-3.5" aria-hidden="true" />
+                  Desconectar
+                </DropdownMenu.Item>
+              )}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
     </div>
   )

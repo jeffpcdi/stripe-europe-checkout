@@ -1,15 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// ads-routes.js — Rotas /api/ads/* do painel (TikTok Ads via Zernio).
+// ads-routes.js — Rotas /api/ads/* do painel (TikTok Ads via Pipeboard).
 //
 // Registradas pelo server.js com o MESMO dashboardAuth das demais APIs.
-// Toda chamada é escopada à conta logada (req.account.id): profile Zernio,
-// SocialAccount tiktokads e advertiser selecionado vivem na config da conta.
+// Toda chamada é escopada à conta logada (req.account.id) e ao advertiser
+// autorizado pelo token do servidor. Mutações nunca confiam apenas no ID
+// recebido do navegador: requireAdvertiser confirma o escopo antes da escrita.
 //
-// Fluxo de conexão (OAuth):
+// Fluxo de conexão (token gerenciado no servidor):
 //   GET  /api/ads/status     → estado geral (conectado? advertiser? identity?)
-//   GET  /api/ads/connect    → { authUrl } (TikTok Business OAuth via Zernio)
-//   POST /api/ads/connected  → callback do painel pós-OAuth: descobre a conta
-//   POST /api/ads/disconnect → esquece a conexão local (não revoga na Zernio)
+//   GET  /api/ads/connect    → verifica advertisers visíveis no Pipeboard
+//   POST /api/ads/connected  → revalida a conta selecionada
+//   POST /api/ads/disconnect → indisponível enquanto a chave é server-managed
 //
 // Leitura:
 //   GET /api/ads/accounts    → advertisers do token
@@ -20,10 +21,9 @@
 //   POST   /api/ads/create               → campanha completa (vídeo)
 //   POST   /api/ads/boost                → Spark Ads
 //   POST   /api/ads/campaigns/bulk-status→ pausa/ativa em lote
-//   POST   /api/ads/campaigns/:id/duplicate
+//   POST   /api/ads/duplicate            → duplicação durável (1–50 cópias)
 //   PUT    /api/ads/:adId                → status/budget/creative
 //   DELETE /api/ads/:adId                → cancela o anúncio
-//   PATCH  /api/ads/identity             → Brand Identity (nome+avatar)
 //   POST   /api/ads/upload               → vídeo/imagem → disco (/uploads, URL pública)
 // ─────────────────────────────────────────────────────────────────────────────
 const pipeboard = require('./ads-provider'); // fronteira dashboard↔Pipeboard (única integração — F6 removeu a Zernio)
@@ -39,6 +39,7 @@ const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — s
   const catalogInspect = require('./ads-catalog-inspect');
 const catalogDomain = require('./catalog/catalog-domain');
 const catalogGateway = require('./catalog/catalog-tiktok-gateway');
+const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS } = require('./ads-contracts');
 
 // Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
@@ -51,6 +52,7 @@ function fail(res, err) {
   if (err.suggestedAction) out.suggestedAction = err.suggestedAction;
   if (err.providerRequestId) out.providerRequestId = err.providerRequestId;
   if (err.createdIds) out.createdIds = err.createdIds;
+  if (err.currentRevision != null) out.currentRevision = err.currentRevision;
   res.status(status).json(out);
 }
 
@@ -381,6 +383,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       const mcp = require('./pipeboard-mcp');
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
       const [diag, syncStates, safetyPolicy, deadLetterPending] = await Promise.all([
         mcp.getDiagnostics({ force: req.query.force === '1' }),
         adsCache.enabled ? adsCache.listSyncStates(req.account.id).catch(() => []) : Promise.resolve([]),
@@ -388,7 +391,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         adsOps.countPendingActionDeadLetter(req.account.id).catch(() => 0),
       ]);
       // Restaura a janela do breaker do Redis antes de reportá-la (idempotente).
-      await automation.ensureBreakerHydrated(req.account.id);
+      await automation.ensureBreakerHydrated(req.account.id, advertiserId);
       const blocked = syncStates
         .filter((s) => s.status === 'blocked')
         .map((s) => {
@@ -412,11 +415,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           blocked,
           lastSyncAt: lastSync ? new Date(lastSync).toISOString() : null,
         },
-        automation: automation.getSweepInfo(req.account.id),
+        automation: automation.getSweepInfo(req.account.id, advertiserId),
         // Circuit breaker das automações: estado observável por conta (aberto/
         // fechado, taxa de falha da janela, threshold configurado). O painel usa
         // p/ mostrar quando o motor se auto-pausou por tempestade de falhas.
-        breaker: automation.getBreakerState(req.account.id, safetyPolicy),
+        breaker: automation.getBreakerState(req.account.id, safetyPolicy, advertiserId),
         // Dead-letter: nº de ações reais que falharam e aguardam reprocessamento.
         deadLetterPending,
         // IA: configuração + telemetria (chamadas 1h, tokens, briefing de hoje)
@@ -668,7 +671,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (!adAccountId || adAccountId === '__all__') return { error: 'Selecione um advertiser específico (adAccountId)' };
     const name = String(b.name || '').trim().slice(0, 120);
     if (!name) return { error: 'Nome da campanha é obrigatório' };
-    const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions', 'app_promotion'].includes(b.goal) ? b.goal : '';
+    const goal = CAMPAIGN_GOALS.has(b.goal) ? b.goal : '';
     if (!goal) return { error: 'Objetivo (goal) inválido' };
     const videoUrl = String(b.videoUrl || '').trim();
     if (!/^https:\/\/[^\s]+/.test(videoUrl)) return { error: 'URL do vídeo é obrigatória (MP4 9:16, 5–60s, até 500 MB)' };
@@ -701,7 +704,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       imageUrl: videoUrl,
       body: String(b.body || '').trim().slice(0, 100) || undefined,
       linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
-      callToAction: /^[A-Z_]{3,30}$/.test(String(b.callToAction || '')) ? b.callToAction : undefined,
+      callToAction: CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : undefined,
       countries: Array.isArray(b.countries)
         ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30)
         : undefined,
@@ -710,6 +713,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         : undefined
     };
     const ageMin = parseInt(b.ageMin, 10); const ageMax = parseInt(b.ageMax, 10);
+    if (ageMin >= 13 && ageMax >= 13 && ageMin > ageMax) return { error: 'A idade mínima não pode ser maior que a idade máxima' };
     if (ageMin >= 13) payload.ageMin = Math.min(ageMin, 65);
     if (ageMax >= 13) payload.ageMax = Math.min(ageMax, 65);
     // Gênero: só entra quando o gestor restringe (all/ausente = não segmenta).
@@ -727,28 +731,62 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     }
     if (budgetType === 'lifetime') {
       if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return { error: 'Orçamento lifetime exige data de término (endDate)' };
-      payload.endDate = String(b.endDate).slice(0, 24);
+      const endDate = String(b.endDate).slice(0, 10);
+      const endAt = new Date(endDate + 'T23:59:59Z').getTime();
+      if (!Number.isFinite(endAt) || endAt <= Date.now() + 60 * 60 * 1000) return { error: 'Orçamento total exige uma data de término futura' };
+      payload.endDate = endDate;
     }
-    // Conversões: pixel numérico do TikTok obrigatório
-    if (goal === 'conversions') {
+    // Conversões e Leads são otimizados no site via Pixel. O Pipeboard atual
+    // não expõe Instant Forms nativos; ambos exigem pixel + evento e Leads
+    // também exige a página de destino.
+    if (goal === 'conversions' || goal === 'lead_generation') {
       const pixelId = String((b.promotedObject || {}).pixelId || b.pixelId || '').trim();
       if (!/^\d{5,30}$/.test(pixelId)) {
-        return { error: 'Objetivo Conversões exige o Pixel ID NUMÉRICO do TikTok (não o código alfanumérico do Events Manager)' };
+        return { error: (goal === 'lead_generation' ? 'Objetivo Leads' : 'Objetivo Conversões') + ' exige o Pixel ID NUMÉRICO do TikTok (não o código alfanumérico do Events Manager)' };
       }
-      payload.promotedObject = { pixelId };
       const evt = String((b.promotedObject || {}).customEventType || b.customEventType || '').trim().toUpperCase();
-      if (/^[A-Z_]{3,40}$/.test(evt)) payload.promotedObject.customEventType = evt;
-    }
-    // Identidade do anúncio: TT_USER (conta de posting) ou CUSTOMIZED_USER (Brand Identity)
-    if (['TT_USER', 'CUSTOMIZED_USER'].includes(b.identityType)) payload.identityType = b.identityType;
-    if (b.brandIdentity && b.brandIdentity.displayName && b.brandIdentity.imageUrl) {
-      payload.brandIdentity = {
-        displayName: String(b.brandIdentity.displayName).trim().slice(0, 100),
-        imageUrl: String(b.brandIdentity.imageUrl).trim().slice(0, 500)
-      };
+      if (!PIXEL_EVENTS.has(evt)) return { error: 'Selecione um evento de otimização válido do Pixel TikTok' };
+      if (goal === 'lead_generation' && !payload.linkUrl) return { error: 'Objetivo Leads exige a URL HTTPS da página de captura' };
+      payload.promotedObject = { pixelId, customEventType: evt };
     }
     return { payload };
   }
+
+  async function prepareManualCampaign(req, body) {
+    const b = body || {};
+    const requestedAdvertiserId = String(b.adAccountId || '').trim();
+    const selected = await requireAdvertiser(req.account.id, null, requestedAdvertiserId || undefined, b.businessCenterId);
+    const built = buildCreatePayload({ accountId: req.account.id, advertiserId: selected.advertiserId }, b);
+    if (built.error) {
+      const err = new Error(built.error);
+      err.status = 400;
+      throw err;
+    }
+    return { advertiserId: selected.advertiserId, payload: built.payload };
+  }
+
+  // Valida todo o formulário e o escopo da conta sem criar recursos no TikTok.
+  // A UI chama antes da confirmação para mostrar erros baratos sem órfãos.
+  app.post('/api/ads/create/preflight', dashboardAuth, async (req, res) => {
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const prepared = await prepareManualCampaign(req, req.body);
+      res.json({
+        ok: true,
+        advertiserId: prepared.advertiserId,
+        summary: {
+          goal: prepared.payload.goal,
+          budgetType: prepared.payload.budgetType,
+          budgetOptimization: prepared.payload.budgetOptimization,
+          targeting: {
+            countries: prepared.payload.countries || [],
+            placements: prepared.payload.placements || [],
+            interests: (prepared.payload.interestIds || []).length,
+          },
+        },
+      });
+    } catch (err) { fail(res, err); }
+  });
 
   app.post('/api/ads/create', dashboardAuth, async (req, res) => {
     try {
@@ -756,20 +794,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // st.accountId deixaria a rota em 409 p/ sempre). O buildCreatePayload
       // recebe um "st" sintético com o advertiser resolvido pelo provider.
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
-      const advertiserId = await pipeboard.resolveAdvertiserId(req.account.id);
-      if (!advertiserId) return res.status(409).json({ error: 'Nenhum advertiser TikTok autorizado — conecte no Pipeboard primeiro' });
-      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
-      const st = { accountId: req.account.id, advertiserId };
-      const built = buildCreatePayload(st, b);
-      if (built.error) return res.status(400).json({ error: built.error });
-      const payload = built.payload;
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const prepared = await prepareManualCampaign(req, b);
+      const payload = prepared.payload;
       const name = payload.name;
 
       // dry-run: não cria nada no TikTok.
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
-          action: 'campaign_create', targetType: 'campaign', advertiserId: payload.adAccountId || st.advertiserId,
+          action: 'campaign_create', targetType: 'campaign', advertiserId: payload.adAccountId || prepared.advertiserId,
           metadata: { name, goal: payload.goal }, title: 'Criar campanha ' + name
         });
         return res.status(200).json({ dryRun: true, simulated: true, id: 'dry-run', name });
@@ -795,6 +829,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         languages: payload.languages,
         ageMin: payload.ageMin,
         ageMax: payload.ageMax,
+        gender: payload.gender,
+        interestIds: payload.interestIds,
+        placements: payload.placements,
         promotedObject: payload.promotedObject,
         status: 'paused',
       });
@@ -856,11 +893,22 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const adAccountId = selected.advertiserId;
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
-      const goal = ['engagement', 'traffic', 'awareness', 'video_views', 'lead_generation', 'conversions'].includes(b.goal) ? b.goal : '';
+      const goal = SPARK_GOALS.has(b.goal) ? b.goal : '';
       if (!goal) return res.status(400).json({ error: 'Objetivo (goal) inválido' });
       const budgetAmount = Number((b.budget || {}).amount || b.budgetAmount);
       if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento inválido' });
       const budgetType = ((b.budget || {}).type || b.budgetType) === 'lifetime' ? 'lifetime' : 'daily';
+      let endDate;
+      if (budgetType === 'lifetime') {
+        if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) {
+          return res.status(400).json({ error: 'Orçamento total exige data de término (endDate)' });
+        }
+        endDate = String(b.endDate).slice(0, 10);
+        const endAt = new Date(endDate + 'T23:59:59Z').getTime();
+        if (!Number.isFinite(endAt) || endAt <= Date.now() + 60 * 60 * 1000) {
+          return res.status(400).json({ error: 'A data de término precisa estar no futuro' });
+        }
+      }
 
       // Spark Code cru NÃO é conversível via API (nenhum tool de resgate no
       // MCP — verificado no dump dos 74 tools): o resgate é feito no TikTok
@@ -881,7 +929,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       const spec = {
         name, goal,
-        budgetAmount, budgetType,
+        budgetAmount, budgetType, endDate,
         identityId, identityType, itemId,
         bcId: String(b.bcId || '').trim() || undefined,
       };
@@ -930,8 +978,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         .map((c) => String((c || {}).platformCampaignId || '').slice(0, 60)).filter(Boolean);
       if (!ids.length) return res.status(400).json({ error: 'Nenhuma campanha informada' });
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
-      // advertiser: do corpo (adAccountId) ou o resolvido no token
-      const advertiserId = b.adAccountId ? String(b.adAccountId).trim() : await pipeboard.resolveAdvertiserId(req.account.id);
+      // advertiser: qualquer hint do navegador é validado contra o token.
+      const advertiserHint = String(b.adAccountId || '').trim();
+      const advertiserId = advertiserHint
+        ? (await requireAdvertiser(req.account.id, null, advertiserHint, null)).advertiserId
+        : await pipeboard.resolveAdvertiserId(req.account.id);
       if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
       // dry-run: não toca o Pipeboard. Mesma forma de resposta ({ totals }).
       if (await isDryRun(req.account.id)) {
@@ -947,18 +998,6 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       stats.logEvent('info', { acc: req.account.id, title: 'Campanhas TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + ids.length });
       res.json({ ok: true, totals: { updated: ids.length, skipped: 0, failed: 0 } });
     } catch (err) { fail(res, err); }
-  });
-
-  // ── Duplicar campanha ─────��───────────────────────────────────────────────
-  // ADIADO na migração p/ Pipeboard: o provider não expõe uma tool de "duplicar"
-  // (o zernio fazia deep-copy nativo). Reconstruir via create_* + re-upload de
-  // vídeo é um gate próprio. Até lá, respondemos 501 com mensagem clara — a UI
-  // desabilita o botão e mostra este texto.
-  app.post('/api/ads/campaigns/:id/duplicate', dashboardAuth, async (req, res) => {
-    return res.status(501).json({
-      error: 'Duplicar campanha está temporariamente indisponível nesta versão. Crie uma nova campanha manualmente ou aguarde a próxima atualização.',
-      code: 'DUPLICATE_UNSUPPORTED',
-    });
   });
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
@@ -988,12 +1027,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const wantCreative = c && (
         (typeof c.text === 'string') ||
         (typeof c.linkUrl === 'string' && /^https?:\/\//.test(c.linkUrl)) ||
-        (typeof c.callToAction === 'string' && /^[A-Z_]{3,30}$/.test(c.callToAction)) ||
+        (typeof c.callToAction === 'string' && CALL_TO_ACTIONS.has(c.callToAction)) ||
         (typeof c.name === 'string' && c.name.trim())
       ) ? {
         ...(typeof c.text === 'string' ? { text: c.text } : {}),
         ...(typeof c.linkUrl === 'string' && /^https?:\/\//.test(c.linkUrl) ? { linkUrl: withAdsTracking(String(c.linkUrl).trim().slice(0, 500)) } : {}),
-        ...(typeof c.callToAction === 'string' && /^[A-Z_]{3,30}$/.test(c.callToAction) ? { callToAction: c.callToAction } : {}),
+        ...(typeof c.callToAction === 'string' && CALL_TO_ACTIONS.has(c.callToAction) ? { callToAction: c.callToAction } : {}),
         ...(typeof c.name === 'string' && c.name.trim() ? { name: c.name } : {}),
       } : null;
       if (!wantStatus && !wantBudget && !wantCreative) return res.status(400).json({ error: 'Nada para atualizar' });
@@ -1075,20 +1114,6 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Brand Identity (CUSTOMIZED_USER) — F6: deprecated NA PLATAFORMA ───────
-  // O TikTok não aceita mais identidades customizadas na criação de anúncios
-  // (2026): anúncios criados com CUSTOMIZED_USER são REJEITADOS. O próprio
-  // create_tiktok_identity do MCP está marcado deprecated. As identidades
-  // agora vêm de get_tiktok_identities (TT_USER/AUTH_CODE/BC_AUTH_TT) — é o
-  // que a criação (F1) e o Spark (F5) já usam. 410 honesto; a UI esconde o
-  // diálogo via capabilities.customIdentity=false.
-  app.patch('/api/ads/identity', dashboardAuth, async (_req, res) => {
-    res.status(410).json({
-      error: 'Identidade customizada (nome + avatar próprios) foi descontinuada pelo TikTok — anúncios com ela são rejeitados. Os anúncios usam a identidade da conta TikTok vinculada ao advertiser (automático).',
-      code: 'CUSTOM_IDENTITY_DEPRECATED',
-    });
-  });
-
   // ── Upload de criativo → disco (Volume do Railway), servido em /uploads ────
   // O corpo é o binário puro (express.raw), com metadados via querystring. O
   // TikTok baixa o arquivo pela URL pública (publicOrigin + /uploads/...). Sem
@@ -1098,9 +1123,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const kind = req.query.kind === 'image' ? 'image' : 'video';
       const rawName = String(req.query.filename || (kind === 'image' ? 'avatar.png' : 'criativo.mp4'));
       const safe = adsStorage.safeName(rawName);
-      const okExt = kind === 'image' ? /\.(png|jpe?g)$/ : /\.(mp4|mov)$/;
+      const okExt = kind === 'image' ? /\.(png|jpe?g|webp)$/ : /\.(mp4|mov)$/;
       if (!okExt.test(safe)) {
-        return res.status(400).json({ error: kind === 'image' ? 'Envie PNG ou JPG' : 'Envie MP4 ou MOV' });
+        return res.status(400).json({ error: kind === 'image' ? 'Envie PNG, JPG ou WebP' : 'Envie MP4 ou MOV' });
       }
       if (!req.body || !req.body.length) return res.status(400).json({ error: 'Arquivo vazio' });
       const max = kind === 'image' ? 5 * 1024 * 1024 : 500 * 1024 * 1024;
@@ -1420,10 +1445,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       if (action.type === 'create_rule') {
         // validateRules aplica clamps/drop de regra inválida — mesma via do PUT.
-        const current = automation.getRules(req.account.id);
+        const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+        const current = snapshot.rules;
         const merged = automation.validateRules(current.concat([Object.assign({ enabled: true }, v.params.rule)]));
         if (merged.length === current.length) return res.status(400).json({ error: 'Regra proposta é inválida (rejeitada pela validação do motor)' });
-        pipeboard.setState(req.account.id, { rules: merged });
+        automation.saveRules(req.account.id, advertiserId, merged, snapshot.revision);
         stats.logEvent('info', { acc: req.account.id, title: '[Copiloto] Regra de automação criada' });
         return res.json({ ok: true, rules: merged });
       }
@@ -1476,33 +1502,30 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  app.get('/api/ads/alerts', dashboardAuth, (req, res) => {
+  app.get('/api/ads/alerts', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json(automation.getAlertCfg(req.account.id));
+    try {
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+      res.json({ ...snapshot.alerts, advertiserId, revision: snapshot.revision, autonomy: snapshot.autonomy, updatedAt: snapshot.updatedAt });
+    } catch (err) { fail(res, err); }
   });
 
-  app.put('/api/ads/alerts', dashboardAuth, (req, res) => {
+  app.put('/api/ads/alerts', dashboardAuth, async (req, res) => {
     try {
       const b = req.body || {};
-      const cfg = {
-        enabled: !!b.enabled,
-        spendNoConv: Math.max(0, Math.min(100000, Number(b.spendNoConv) || 0)),
-        cpaMax: Math.max(0, Math.min(100000, Number(b.cpaMax) || 0)),
-        lookbackDays: Math.max(1, Math.min(30, parseInt(b.lookbackDays, 10) || 2)),
-        rejectedAds: b.rejectedAds === true, // aviso de criativo reprovado (opt-in explícito)
-        autoAppealSmartPlus: b.autoAppealSmartPlus === true, // recorre sozinho de anúncio Smart+ reprovado (ação real, opt-in explícito)
-      };
-      // alertsSeeded: salvar é escolha do usuário — o seed não mexe mais aqui.
-      pipeboard.setState(req.account.id, { alerts: cfg, alertsSeeded: true });
-      res.json(cfg);
+      const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
+      const profile = automation.saveAlerts(req.account.id, advertiserId, b, b.revision);
+      res.json({ ...profile.alerts, advertiserId, revision: profile.revision, autonomy: profile.autonomy, updatedAt: profile.updatedAt });
     } catch (err) { fail(res, err); }
   });
 
   // “verificar agora” — roda a varredura na hora e devolve o que encontrou
   app.post('/api/ads/alerts/check', dashboardAuth, async (req, res) => {
     try {
-      automation.markSweepNow(req.account.id);
-      const result = await automation.runAlertSweep(req.account.id, { force: true });
+      const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
+      automation.markSweepNow(req.account.id, advertiserId);
+      const result = await automation.runAlertSweep(req.account.id, { force: true, advertiserId });
       res.json(result);
     } catch (err) { fail(res, err); }
   });
@@ -1653,9 +1676,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  app.get('/api/ads/rules', dashboardAuth, (req, res) => {
+  app.get('/api/ads/rules', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ rules: automation.getRules(req.account.id), log: automation.getRulesLog(req.account.id) });
+    try {
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+      res.json({
+        advertiserId, revision: snapshot.revision, autonomy: snapshot.autonomy,
+        updatedAt: snapshot.updatedAt, rules: snapshot.rules, log: snapshot.log,
+        alerts: snapshot.alerts, engine: snapshot.engine,
+      });
+    } catch (err) { fail(res, err); }
   });
 
   // Pacote de presets de fábrica — a UI usa para "adicionar preset" individual
@@ -1665,23 +1696,43 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.json({ presets: automation.buildRulePresets() });
   });
 
-  app.put('/api/ads/rules', dashboardAuth, (req, res) => {
+  app.put('/api/ads/rules', dashboardAuth, async (req, res) => {
     try {
-      // validação/clamps (inclusive dos campos novos) centralizada no motor.
-      // rulesSeeded junto: salvar (mesmo lista vazia) é escolha do usuário —
-      // o seed automático nunca mais mexe nesta conta.
-      const rules = automation.validateRules((req.body || {}).rules);
-      pipeboard.setState(req.account.id, { rules, rulesSeeded: true });
-      res.json({ rules, log: automation.getRulesLog(req.account.id) });
+      const b = req.body || {};
+      const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
+      automation.saveRules(req.account.id, advertiserId, b.rules, b.revision);
+      const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+      res.json({
+        advertiserId, revision: snapshot.revision, autonomy: snapshot.autonomy,
+        updatedAt: snapshot.updatedAt, rules: snapshot.rules, log: snapshot.log,
+        alerts: snapshot.alerts, engine: snapshot.engine,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Seletor global: uma única gravação cobre regras simples/avançadas,
+  // agendamento e alertas. Evita o estado parcial que existia com dois PUTs.
+  app.put('/api/ads/automation/autonomy', dashboardAuth, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
+      automation.setGlobalAutonomy(req.account.id, advertiserId, String(b.autonomy || ''), b.revision);
+      const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+      res.json({
+        advertiserId, revision: snapshot.revision, autonomy: snapshot.autonomy,
+        updatedAt: snapshot.updatedAt, rules: snapshot.rules, log: snapshot.log,
+        alerts: snapshot.alerts, engine: snapshot.engine,
+      });
     } catch (err) { fail(res, err); }
   });
 
   app.post('/api/ads/rules/run', dashboardAuth, async (req, res) => {
     try {
-      automation.markSweepNow(req.account.id);
+      const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
+      automation.markSweepNow(req.account.id, advertiserId);
       const [rules, schedule] = await Promise.all([
-        automation.runRulesSweep(req.account.id, { force: true }),
-        automation.runScheduleSweep(req.account.id, { force: true }),
+        automation.runRulesSweep(req.account.id, { force: true, advertiserId }),
+        automation.runScheduleSweep(req.account.id, { force: true, advertiserId }),
       ]);
       res.json({
         executed: [...(rules.executed || []), ...(schedule.executed || [])],
@@ -1697,9 +1748,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       const body = req.body || {};
+      const advertiserId = await resolveAdv(req, String(body.adAccountId || '').trim());
       res.json(await automation.backtestRules(req.account.id, {
         rules: Array.isArray(body.rules) ? body.rules : undefined,
         lookbackDays: body.lookbackDays,
+        advertiserId,
       }));
     } catch (err) { fail(res, err); }
   });
@@ -1710,9 +1763,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.get('/api/ads/proposals', dashboardAuth, async (req, res) => {
     try {
       res.set('Cache-Control', 'no-store');
+      const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
       const items = await adsOps.listRuleProposals(req.account.id, {
         status: req.query.status ? String(req.query.status) : undefined,
         limit: req.query.limit,
+        advertiserId,
       });
       res.json({ enabled: adsOps.enabled, items });
     } catch (err) { fail(res, err); }
@@ -1807,19 +1862,26 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const p = (b.payload && typeof b.payload === 'object') ? b.payload : {};
       // whitelist estrita — nada além da config do wizard entra no template
       const payload = {};
-      if (typeof p.goal === 'string') payload.goal = p.goal.slice(0, 30);
+      if (CAMPAIGN_GOALS.has(p.goal)) payload.goal = p.goal;
       if (Number(p.budgetAmount) > 0) payload.budgetAmount = Number(p.budgetAmount);
       if (['daily', 'lifetime'].includes(p.budgetType)) payload.budgetType = p.budgetType;
       if (typeof p.body === 'string') payload.body = p.body.slice(0, 100);
       if (typeof p.linkUrl === 'string') payload.linkUrl = p.linkUrl.slice(0, 500);
-      if (typeof p.callToAction === 'string') payload.callToAction = p.callToAction.slice(0, 30);
-      if (Array.isArray(p.countries)) payload.countries = p.countries.slice(0, 30);
-      if (Array.isArray(p.languages)) payload.languages = p.languages.slice(0, 10);
+      if (CALL_TO_ACTIONS.has(p.callToAction)) payload.callToAction = p.callToAction;
+      if (Array.isArray(p.countries)) payload.countries = p.countries.map((value) => String(value).trim().toUpperCase()).filter((value) => /^[A-Z]{2}$/.test(value)).slice(0, 30);
+      if (Array.isArray(p.languages)) payload.languages = p.languages.map((value) => String(value).trim().toLowerCase().split('-')[0]).filter((value) => /^[a-z]{2}$/.test(value)).slice(0, 10);
       if (p.ageMin) payload.ageMin = parseInt(p.ageMin, 10) || undefined;
       if (p.ageMax) payload.ageMax = parseInt(p.ageMax, 10) || undefined;
-      if (typeof p.pixelId === 'string') payload.pixelId = p.pixelId.slice(0, 30);
-      if (typeof p.customEventType === 'string') payload.customEventType = p.customEventType.slice(0, 40);
-      if (typeof p.identityType === 'string') payload.identityType = p.identityType.slice(0, 30);
+      if (/^\d{5,30}$/.test(String(p.pixelId || ''))) payload.pixelId = String(p.pixelId);
+      if (PIXEL_EVENTS.has(p.customEventType)) payload.customEventType = p.customEventType;
+      if (p.gender === 'male' || p.gender === 'female') payload.gender = p.gender;
+      if (Array.isArray(p.interestIds)) {
+        payload.interestIds = p.interestIds.map((value) => String(value).trim()).filter((value) => /^\d{1,20}$/.test(value)).slice(0, 20);
+      }
+      if (Array.isArray(p.placements)) {
+        const allowedPlacements = new Set(['PLACEMENT_TIKTOK', 'PLACEMENT_PANGLE', 'PLACEMENT_GLOBAL_APP_BUNDLE']);
+        payload.placements = p.placements.map((value) => String(value).trim().toUpperCase()).filter((value) => allowedPlacements.has(value)).slice(0, 3);
+      }
 
       const st = pipeboard.getState(req.account.id);
       const items = Array.isArray(st.templates) ? st.templates.slice(0, 19) : [];
@@ -1869,7 +1931,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         budgetOptimization: p.budgetOptimization, bidStrategy: p.bidStrategy, bidAmount: p.bidAmount,
         body: p.body, linkUrl: p.linkUrl, callToAction: p.callToAction,
         countries: p.countries, languages: p.languages,
-        ageMin: p.ageMin, ageMax: p.ageMax, promotedObject: p.promotedObject,
+        ageMin: p.ageMin, ageMax: p.ageMax,
+        gender: p.gender, interestIds: p.interestIds, placements: p.placements,
+        promotedObject: p.promotedObject,
         status: 'paused',
       }, {
         resume,
@@ -2130,15 +2194,21 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
       if (!/^https:\/\/[^\s]+/.test(String(b.videoUrl || ''))) return res.status(400).json({ error: 'URL do vídeo é obrigatória (MP4)' });
+      if (!/^https:\/\/[^\s]+/.test(String(b.coverUrl || ''))) return res.status(400).json({ error: 'A capa do vídeo é obrigatória (JPG, PNG ou WebP em URL https)' });
+      if (!/^https:\/\/[^\s]+/.test(String(b.linkUrl || ''))) return res.status(400).json({ error: 'O link de destino é obrigatório (URL https)' });
       const budgetAmount = Number(b.budgetAmount);
       if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento total inválido' });
       if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return res.status(400).json({ error: 'Informe a data de término (Smart+ usa orçamento total)' });
+      const endAt = new Date(String(b.endDate).slice(0, 10) + 'T23:59:59Z').getTime();
+      if (!Number.isFinite(endAt) || endAt <= Date.now() + 60 * 60 * 1000) {
+        return res.status(400).json({ error: 'A data de término da Smart+ precisa estar no futuro' });
+      }
       const spec = {
-        name, goal, videoUrl: String(b.videoUrl).trim(),
+        name, goal, videoUrl: String(b.videoUrl).trim(), coverUrl: String(b.coverUrl).trim(),
         budgetAmount, endDate: String(b.endDate).slice(0, 10),
         body: String(b.body || '').trim().slice(0, 100) || undefined,
-        linkUrl: /^https?:\/\//.test(String(b.linkUrl || '')) ? withAdsTracking(String(b.linkUrl).trim().slice(0, 500)) : undefined,
-        callToAction: /^[A-Z_]{3,30}$/.test(String(b.callToAction || '')) ? b.callToAction : undefined,
+        linkUrl: withAdsTracking(String(b.linkUrl).trim().slice(0, 500)),
+        callToAction: CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : 'LEARN_MORE',
         countries: Array.isArray(b.countries) ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30) : undefined,
       };
       if (goal === 'conversions') {
@@ -2146,7 +2216,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         if (!/^\d{5,30}$/.test(pixelId)) return res.status(400).json({ error: 'Conversões exigem o Pixel ID NUMÉRICO do TikTok' });
         spec.pixelId = pixelId;
         const evt = String(b.customEventType || '').trim().toUpperCase();
-        if (/^[A-Z_]{3,40}$/.test(evt)) spec.customEventType = evt;
+        if (!PIXEL_EVENTS.has(evt)) return res.status(400).json({ error: 'Conversões exigem um evento de otimização válido do Pixel' });
+        spec.customEventType = evt;
       }
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
@@ -2259,9 +2330,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     });
   });
 
-  app.get('/api/ads/catalogs/capabilities', dashboardAuth, (_req, res) => {
+  app.get('/api/ads/catalogs/capabilities', dashboardAuth, async (_req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ capabilities: catalogGateway.capabilities(pipeboard) });
+    try {
+      res.json({ capabilities: await catalogGateway.capabilities(pipeboard) });
+    } catch (err) { fail(res, err); }
   });
 
   // Business Center usado para os catálogos desta conta. O TikTok prende
@@ -2581,6 +2654,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   async function prepareCatalogCampaign(req) {
     if (!pipeboard.enabled) throw catalogDomain.catalogError('PIPEBOARD_DISABLED', 'Pipeboard não configurado no servidor.', { status: 409 });
+    const capabilities = await catalogGateway.capabilities(pipeboard);
+    if (!capabilities.manualCatalogCampaign) {
+      throw catalogDomain.catalogError('CATALOG_CAMPAIGN_UNSUPPORTED', 'A API atual não expõe todos os campos necessários para criar campanha, conjunto e anúncio de catálogo.', {
+        status: 501, retryable: false,
+        suggestedAction: 'Crie a campanha Product Sales no TikTok Ads Manager usando este catálogo. A dashboard bloqueou a automação para não deixar uma campanha parcial.',
+      });
+    }
     const accId = req.account.id;
     const catalog = await catalogStore.getCatalog(accId, req.params.catalogId);
     if (!catalog) throw catalogDomain.catalogError('CATALOG_NOT_FOUND', 'Catálogo não encontrado.', { status: 404, retryable: false });
@@ -2599,7 +2679,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     }
     const normalized = catalogDomain.normalizeCampaignSpec(req.body || {}, catalog);
     return {
-      accId, catalog, advertiserId, readiness,
+      accId, catalog, advertiserId, readiness, capabilities,
       spec: { ...normalized, catalogId: catalog.tiktokCatalogId, bcId: catalog.bcId },
     };
   }
@@ -2607,7 +2687,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalogs/:catalogId/campaign-preflight', dashboardAuth, async (req, res) => {
     try {
       const prepared = await prepareCatalogCampaign(req);
-      res.json({ ok: true, readiness: prepared.readiness, spec: prepared.spec, capabilities: catalogGateway.capabilities(pipeboard) });
+      res.json({ ok: true, readiness: prepared.readiness, spec: prepared.spec, capabilities: prepared.capabilities });
     } catch (err) { fail(res, err); }
   });
 

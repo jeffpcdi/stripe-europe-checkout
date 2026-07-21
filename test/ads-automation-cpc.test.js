@@ -48,8 +48,7 @@ console.log('Alerta de criativo reprovado');
   ok(/cfg\.rejectedAds/.test(src), 'alerta é condicionado à config rejectedAds');
   ok(/status: 'rejected'/.test(src), 'segunda leitura do espelho com status rejected');
   ok(/rule: 'rejected_ads'/.test(src), 'finding com regra rejected_ads');
-  const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
-  ok(/rejectedAds: b\.rejectedAds === true/.test(routes), 'PUT /api/ads/alerts aceita rejectedAds (opt-in explícito)');
+  ok(/rejectedAds: b\.rejectedAds === true/.test(src), 'contrato versionado de alertas aceita rejectedAds (opt-in explícito)');
 }
 
 console.log('Automação cobrindo Smart+ (vigilância de reprovação)');

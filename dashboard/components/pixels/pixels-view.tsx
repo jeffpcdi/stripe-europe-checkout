@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -23,6 +23,9 @@ import {
   Eye,
   EyeOff,
   ClipboardPaste,
+  Code2,
+  ShieldCheck,
+  ExternalLink,
 } from 'lucide-react'
 import {
   usePixels,
@@ -45,6 +48,7 @@ import { toast } from '@/lib/toast'
 import { readClipboardText } from '@/lib/clipboard'
 import { useConfirm } from '@/lib/use-confirm'
 import { cn } from '@/lib/utils'
+import { useModalA11y } from '@/lib/use-modal-a11y'
 
 // Resultado da verificação de instalação por URL (server-side)
 type UrlCheck = {
@@ -53,7 +57,8 @@ type UrlCheck = {
   algumInstalado?: boolean
   /** O /t.js (rastreamento da dashboard) está na página? Sem ele a visita não aparece no funil. */
   trackerOk?: boolean
-  pixels?: { slug: string; name: string; scriptOk: boolean; nativeOk: boolean; instalado: boolean }[]
+  legacyTracker?: boolean
+  pixels?: { slug: string; name: string; scriptOk: boolean; nativeOk: boolean; trackerScoped?: boolean; instalado: boolean }[]
   error?: string
 }
 
@@ -67,6 +72,10 @@ const EVENT_LABELS: { key: keyof PixelEvents; label: string }[] = [
   { key: 'AddPaymentInfo', label: 'Pagamento' },
   { key: 'CompletePayment', label: 'Compra' },
 ]
+
+function isPixelErrorStatus(status: string) {
+  return status === 'erro' || status === 'error'
+}
 
 export function PixelsView() {
   const { data, mutate, isLoading, error } = usePixels()
@@ -88,6 +97,7 @@ export function PixelsView() {
   const [copiedEventId, setCopiedEventId] = useState<string | null>(null)
 
   const [editing, setEditing] = useState<Pixel | null>(null)
+  const [installing, setInstalling] = useState<Pixel | null>(null)
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
@@ -254,6 +264,18 @@ export function PixelsView() {
         </div>
       )}
 
+      {pixels.length > 1 && (
+        <div className="flex items-start gap-3 rounded-xl border border-brand-cyan/25 bg-brand-cyan/8 px-4 py-3">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-brand-cyan" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-foreground">Isolamento entre pixels ativado</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground text-pretty">
+              Cada tag envia eventos somente ao seu próprio pixel. Eventos de gateway usam o vínculo configurado ou o pixel gravado na jornada do lead; envios ambíguos para todos são bloqueados.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
         {/* Pixels cadastrados — min-w-0 para o script longo truncar em vez de
             alargar a coluna além da viewport no mobile */}
@@ -319,6 +341,14 @@ export function PixelsView() {
                   pixelRows.length > 0
                     ? (pixelRows.filter((r) => r.status === 'ok').length / pixelRows.length) * 100
                     : null
+                // Presença de token não significa credencial válida. O último
+                // retorno real da Events API é a evidência: sucesso valida;
+                // uma rejeição explícita pede troca do token.
+                const latestApiRow = pixelRows.find((r) => r.status === 'ok' || isPixelErrorStatus(r.status))
+                const latestApiMessage = String(latestApiRow?.response?.message ?? '').toLowerCase()
+                const tokenRejected = !!latestApiRow && isPixelErrorStatus(latestApiRow.status)
+                  && /access token|unauthori[sz]ed|revoked/.test(latestApiMessage)
+                const tokenValidated = latestApiRow?.status === 'ok'
                 return (
                 <li key={p.slug} style={{ animationDelay: `${Math.min(index * 75, 1500)}ms` }} className={cn("hover-float animate-in-up rounded-xl border bg-secondary/40 p-4 transition-all duration-300 border-l-[3px] border-l-transparent hover:border-l-[color:var(--brand-cyan)]", p.active ? "border-[color:var(--brand-cyan)]/50 shadow-[0_0_15px_rgba(37,244,238,0.15)] bg-gradient-to-br from-[rgba(37,244,238,0.05)] to-transparent" : "border-border opacity-70")}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -369,8 +399,12 @@ export function PixelsView() {
                       <StatusBadge status={p.active ? 'success' : 'neutral'} dot={p.active}>
                         {p.active ? 'ativo' : 'pausado'}
                       </StatusBadge>
-                      {p.hasToken ? (
-                        <StatusBadge status="info">token ok</StatusBadge>
+                      {tokenRejected ? (
+                        <StatusBadge status="error">token rejeitado</StatusBadge>
+                      ) : tokenValidated ? (
+                        <StatusBadge status="success">token validado</StatusBadge>
+                      ) : p.hasToken ? (
+                        <StatusBadge status="info">token salvo</StatusBadge>
                       ) : (
                         <StatusBadge status="warning">sem token</StatusBadge>
                       )}
@@ -421,15 +455,15 @@ export function PixelsView() {
                             className={`size-2 rounded-full ${
                               r.status === 'ok'
                                 ? 'bg-[color:var(--success)]'
-                                : r.status === 'error'
+                                : isPixelErrorStatus(r.status)
                                   ? 'bg-[color:var(--error)]'
                                   : 'bg-[color:var(--warning)]'
                             }`}
                             title={`${r.event} · ${timeAgo(r.at)} · ${
-                              r.status === 'ok' ? 'aceito' : r.status === 'error' ? 'erro' : 'descartado'
+                            r.status === 'ok' ? 'aceito' : isPixelErrorStatus(r.status) ? 'erro' : 'descartado'
                             }`}
                             role="img"
-                            aria-label={`${r.event}, ${r.status === 'ok' ? 'aceito' : r.status === 'error' ? 'erro' : 'descartado'}, ${timeAgo(r.at)}`}
+                            aria-label={`${r.event}, ${r.status === 'ok' ? 'aceito' : isPixelErrorStatus(r.status) ? 'erro' : 'descartado'}, ${timeAgo(r.at)}`}
                           />
                         ))}
                       </div>
@@ -453,6 +487,18 @@ export function PixelsView() {
                     </p>
                   )}
 
+                  {tokenRejected && (
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-error/10 px-3 py-2 text-xs text-error">
+                      <span className="flex min-w-0 items-start gap-2 text-pretty">
+                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                        O TikTok rejeitou o Access Token mais recente. Gere outro no Events Manager e atualize este pixel.
+                      </span>
+                      <button type="button" onClick={() => setEditing(p)} className="shrink-0 font-semibold underline underline-offset-2">
+                        Atualizar token
+                      </button>
+                    </div>
+                  )}
+
                   {/* Item 86: eventos de dinheiro ligados sem nenhum gateway
                       conectado — CompletePayment/AddPaymentInfo só saem do
                       webhook do gateway (trava trusted), então nunca disparam. */}
@@ -473,20 +519,24 @@ export function PixelsView() {
                       </p>
                     )}
 
-                  {/* Instalação — o básico bem feito: instrução de UMA frase,
-                      código completo legível (multi-linha, rolável) e UM botão.
-                      Antes: 3 scripts truncados numa linha + 2 botões = confusão. */}
+                  {/* Instalação fica em um fluxo dedicado. Manter blocos longos
+                      abertos em cada card poluía a lista e induzia a misturar tags. */}
                   {p.scriptTag && (
-                    <div className="mt-3 overflow-hidden rounded-lg border border-border bg-input border-t-2 border-t-brand-cyan shadow-[0_-2px_10px_rgba(37,244,238,0.2)]">
-                      <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-                        <p className="min-w-0 text-xs leading-relaxed text-muted-foreground text-pretty">
-                          Copie e cole antes do <code className="text-foreground">{'</head>'}</code> da sua
-                          página.
-                        </p>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-input px-3 py-2.5">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-cyan/10 text-brand-cyan">
+                          <Code2 className="size-4" aria-hidden="true" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-foreground">Tag exclusiva deste pixel</p>
+                          <p className="truncate text-[11px] text-muted-foreground">Página + CAPI + jornada, sem cruzar com outro pixel</p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${p.slug}:tag`, p.scriptTag ? p.scriptTag.replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*[\r\n]/gm, '').trim() : '', 'Código de instalação')}
-                          className="flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-brand-cyan transition-colors hover:bg-secondary/70"
+                          onClick={() => handleCopy(`${p.slug}:tag`, cleanInstallCode(p.scriptTag), 'Código de instalação')}
+                          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         >
                           <span className="copy-morph" data-copied={copied === `${p.slug}:tag`}>
                             <Copy className="size-3.5" aria-hidden="true" />
@@ -494,10 +544,14 @@ export function PixelsView() {
                           </span>
                           {copied === `${p.slug}:tag` ? 'Copiado' : 'Copiar código'}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setInstalling(p)}
+                          className="rounded-md bg-brand-cyan px-2.5 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
+                        >
+                          Como instalar
+                        </button>
                       </div>
-                      <pre className="max-h-44 overflow-auto whitespace-pre px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
-                        {p.scriptTag ? p.scriptTag.replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*[\r\n]/gm, '').trim() : ''}
-                      </pre>
                     </div>
                   )}
 
@@ -556,7 +610,11 @@ export function PixelsView() {
                       className="mr-auto rounded-md border border-border bg-input px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
                     >
                       {EVENT_LABELS.map(({ key, label }) => (
-                        <option key={key} value={key}>
+                        <option
+                          key={key}
+                          value={key}
+                          disabled={(key === 'AddPaymentInfo' || key === 'CompletePayment') && !p.testEventCode}
+                        >
                           {label}
                         </option>
                       ))}
@@ -571,26 +629,33 @@ export function PixelsView() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDuplicate(p)}
-                      title="Clona nome, código e eventos — sem o Access Token (para outra conta de anúncio)"
-                      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <CopyPlus className="size-3.5" /> Duplicar
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => setEditing(p)}
                       className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                     >
                       <Pencil className="size-3.5" /> Editar
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(p)}
-                      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
-                    >
-                      <Trash2 className="size-3.5" /> Remover
-                    </button>
+                    <details className="group relative">
+                      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+                        Mais <ChevronDown className="size-3 transition-transform group-open:rotate-180" aria-hidden="true" />
+                      </summary>
+                      <div className="absolute right-0 z-20 mt-1 flex w-40 flex-col rounded-lg border border-border bg-popover p-1 shadow-xl">
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicate(p)}
+                          title="Clona sem o Access Token"
+                          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        >
+                          <CopyPlus className="size-3.5" /> Duplicar pixel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(p)}
+                          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                        >
+                          <Trash2 className="size-3.5" /> Remover pixel
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 </li>
                 )
@@ -655,7 +720,7 @@ export function PixelsView() {
                       <span className="text-pretty">
                         {urlCheck.algumInstalado
                           ? 'Pixel encontrado na página!'
-                          : 'Nenhum pixel seu foi encontrado nessa página. Cole a tag do script antes do </head> e tente de novo.'}
+                          : 'Nenhum pixel seu foi encontrado nessa página. Cole o bloco logo após <body> e tente de novo.'}
                       </span>
                     </p>
                     {/* O caso mais confuso: pixel ok mas SEM o /t.js — os eventos vão
@@ -666,8 +731,16 @@ export function PixelsView() {
                         <span className="text-pretty">
                           O script de <strong>Rastreamento</strong> (<code>/t.js</code>) não está nessa página —
                           por isso as visitas <strong>não aparecem na sua dashboard</strong> (funil, leads).
-                          Copie o bloco completo do pixel (a parte 1 é o rastreamento) e cole antes do{' '}
-                          <code>{'</head>'}</code>.
+                          Copie o bloco completo do pixel (a parte 1 é o rastreamento) e cole logo após{' '}
+                          <code>{'<body>'}</code>.
+                        </span>
+                      </p>
+                    )}
+                    {urlCheck.legacyTracker && (
+                      <p className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                        <span className="text-pretty">
+                          Foi encontrado um <code>/t.js</code> antigo, sem o token <code>?px=...</code>. Ele registra a jornada, mas não identifica com segurança qual pixel deve receber a CAPI. Substitua pelo bloco atual de instalação.
                         </span>
                       </p>
                     )}
@@ -681,7 +754,13 @@ export function PixelsView() {
                       <p key={p.slug} className="flex items-center justify-between gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-[11px]">
                         <span className="truncate font-medium text-foreground">{p.name}</span>
                         <span className={`shrink-0 font-mono ${p.instalado ? 'text-success' : 'text-muted-foreground'}`}>
-                          {p.instalado ? (p.scriptOk ? 'script ok' : 'pixel nativo ok') : 'não encontrado'}
+                          {p.instalado
+                            ? 'completo e isolado'
+                            : p.scriptOk
+                              ? 'falta rastreador vinculado'
+                              : p.nativeOk
+                                ? 'somente pixel nativo'
+                                : 'não encontrado'}
                         </span>
                       </p>
                     ))}
@@ -717,6 +796,9 @@ export function PixelsView() {
                   {/* A6.3: EMQ como gauge semicircular 0–10 com faixa de cor */}
                   {health.emq != null && <EmqGauge value={health.emq} />}
                 </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Janela móvel de 24h; falhas antigas saem desta taxa automaticamente.
+                </p>
                 {health.events.map((ev) => (
                   <div key={ev.event} className="flex items-center justify-between gap-2 text-xs">
                     <span className="truncate text-muted-foreground">{ev.event}</span>
@@ -786,8 +868,10 @@ export function PixelsView() {
                     (!logEvent || r.event === logEvent) &&
                     (!logStatus ||
                       (logStatus === 'descarte'
-                        ? r.status !== 'ok' && r.status !== 'error'
-                        : r.status === logStatus)),
+                        ? r.status !== 'ok' && !isPixelErrorStatus(r.status)
+                        : logStatus === 'erro'
+                          ? isPixelErrorStatus(r.status)
+                          : r.status === logStatus)),
                 )
                 return (
                   <>
@@ -826,7 +910,7 @@ export function PixelsView() {
                       >
                         <option value="">Qualquer status</option>
                         <option value="ok">Sucesso</option>
-                        <option value="error">Erro</option>
+                        <option value="erro">Erro</option>
                         <option value="descarte">Descarte</option>
                       </select>
                     </div>
@@ -853,7 +937,7 @@ export function PixelsView() {
                                     className={`size-1.5 shrink-0 rounded-full ${
                                       row.status === 'ok'
                                         ? 'bg-success'
-                                        : row.status === 'error'
+                                        : isPixelErrorStatus(row.status)
                                           ? 'bg-error'
                                           : 'bg-warning'
                                     }`}
@@ -970,12 +1054,153 @@ export function PixelsView() {
             setCreating(false)
             setEditing(null)
             mutate()
-            if (warning) window.alert(warning)
+            if (warning) toast.info('Pixel salvo com aviso', { hint: warning, duration: 7000 })
+            else toast.success('Pixel salvo')
           }}
         />
       )}
 
+      {installing && (
+        <PixelInstallModal
+          pixel={installing}
+          onClose={() => setInstalling(null)}
+          onCopy={() => handleCopy(`${installing.slug}:modal`, cleanInstallCode(installing.scriptTag), 'Código de instalação')}
+          copied={copied === `${installing.slug}:modal`}
+        />
+      )}
+
       <ConfirmDialog {...dialogProps} />
+    </div>
+  )
+}
+
+function cleanInstallCode(code?: string | null) {
+  return (code ?? '').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*[\r\n]/gm, '').trim()
+}
+
+function PixelInstallModal({
+  pixel,
+  onClose,
+  onCopy,
+  copied,
+}: {
+  pixel: Pixel
+  onClose: () => void
+  onCopy: () => void
+  copied: boolean
+}) {
+  const code = cleanInstallCode(pixel.scriptTag)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalA11y(true, dialogRef, onClose)
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/65 p-4 backdrop-blur-sm md:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Instalar ${pixel.name}`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <GlassCard ref={dialogRef} tabIndex={-1} variant="thick" className="my-8 w-full max-w-2xl p-0 outline-none">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-wider text-brand-cyan">Instalação isolada</p>
+            <h2 className="mt-0.5 text-base font-semibold text-foreground">{pixel.name}</h2>
+            <p className="mt-1 text-xs text-muted-foreground text-pretty">
+              Este bloco pertence somente ao Pixel Code <code className="font-mono text-foreground">{pixel.pixelCode}</code>.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar instalação"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <CircleX className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-5 px-5 py-5">
+          <ol className="grid gap-3 sm:grid-cols-3">
+            {[
+              ['1', 'Copie o bloco', 'Use o botão abaixo sem editar o token ou as URLs.'],
+              ['2', 'Cole uma vez', `Adicione logo após <body> em todas as páginas deste produto/site.`],
+              ['3', 'Valide', 'Publique a página, verifique a URL e faça um disparo de teste.'],
+            ].map(([n, title, body]) => (
+              <li key={n} className="rounded-xl border border-border bg-secondary/35 p-3">
+                <span className="flex size-6 items-center justify-center rounded-full bg-brand-cyan/15 text-xs font-bold text-brand-cyan">{n}</span>
+                <p className="mt-2 text-xs font-semibold text-foreground">{title}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground text-pretty">{body}</p>
+              </li>
+            ))}
+          </ol>
+
+          <div className="overflow-hidden rounded-xl border border-border bg-input">
+            <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+              <span className="text-xs font-medium text-foreground">Bloco completo</span>
+              <button
+                type="button"
+                onClick={onCopy}
+                className="flex items-center gap-1.5 rounded-md bg-brand-cyan px-2.5 py-1.5 text-xs font-semibold text-black"
+              >
+                {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
+                {copied ? 'Copiado' : 'Copiar bloco'}
+              </button>
+            </div>
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all px-3 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">{code}</pre>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-border p-3">
+              <p className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <CircleCheck className="size-3.5 text-success" aria-hidden="true" /> Cobertura automática
+              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
+                Visita/ViewContent, navegação de SPA, UTMs, ttclid, _ttp, jornada, cliques marcados e identificação do lead. Pagamento e Compra chegam pelo gateway conectado.
+              </p>
+            </div>
+            <div className="rounded-xl border border-border p-3">
+              <p className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <ShieldCheck className="size-3.5 text-brand-cyan" aria-hidden="true" /> Regra para dois pixels
+              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
+                Use o bloco de cada pixel apenas nas páginas do produto correspondente. Não use o loader genérico <code>/px.js</code> nem um <code>/t.js</code> sem <code>?px=TOKEN</code>.
+              </p>
+            </div>
+          </div>
+
+          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
+            <summary className="cursor-pointer text-xs font-semibold text-foreground">Rastrear Carrinho ou Checkout em um botão</summary>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              Marque o elemento; o loader usa o token deste pixel e envia os mesmos <code>event_id</code> no navegador e na Events API.
+            </p>
+            <pre className="mt-2 overflow-auto rounded-lg bg-input px-3 py-2 font-mono text-[11px] text-brand-cyan">{`<button data-tiktok-event="AddToCart"
+  data-pixel-token="${pixel.token}"
+  data-content-id="SKU-123"
+  data-content-name="Produto"
+  data-value="97.00"
+  data-currency="BRL">Comprar</button>`}</pre>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Para código próprio: <code>RoiNadosPixel.track(&apos;{pixel.token}&apos;, &apos;AddToCart&apos;, {'{'} content_id: &apos;SKU-123&apos; {'}'})</code>.
+            </p>
+          </details>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            <a
+              href="https://ads.tiktok.com/help/article/get-started-pixel"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs font-medium text-brand-cyan hover:underline"
+            >
+              Guia oficial do TikTok <ExternalLink className="size-3" aria-hidden="true" />
+            </a>
+            <button type="button" onClick={onClose} className="rounded-lg bg-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-secondary/70">
+              Concluir
+            </button>
+          </div>
+        </div>
+      </GlassCard>
     </div>
   )
 }
@@ -1143,6 +1368,8 @@ function PixelEditor({
   onClose: () => void
   onSaved: (warning?: string | null) => void
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalA11y(true, dialogRef, onClose)
   const [name, setName] = useState(pixel?.name ?? '')
   const [pixelCode, setPixelCode] = useState(pixel?.pixelCode ?? '')
   const [accessToken, setAccessToken] = useState(pixel?.accessToken ?? '')
@@ -1207,12 +1434,31 @@ function PixelEditor({
       role="dialog"
       aria-modal="true"
       aria-label={pixel ? 'Editar pixel' : 'Novo pixel'}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose()
+      }}
     >
-      <GlassCard variant="thick" className="my-8 w-full max-w-lg p-6">
+      <GlassCard ref={dialogRef} tabIndex={-1} variant="thick" className="my-8 w-full max-w-lg p-6 outline-none">
         <h2 className="mb-5 text-base font-semibold text-foreground">
           {pixel ? `Editar pixel: ${pixel.name}` : 'Novo pixel TikTok'}
         </h2>
         <div className="flex flex-col gap-4">
+          {!pixel && (
+            <div className="rounded-xl border border-brand-cyan/25 bg-brand-cyan/8 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+              <p className="font-semibold text-foreground">Antes de começar</p>
+              <p className="mt-1 text-pretty">
+                No TikTok Ads Manager, abra <strong>Ferramentas → Eventos → Fontes de dados → Web</strong>. Copie o <strong>Pixel ID/Code</strong> e gere o <strong>Access Token</strong> da Events API no mesmo pixel. Depois salve aqui; a tag exclusiva será criada automaticamente.
+              </p>
+              <a
+                href="https://ads.tiktok.com/help/article/how-to-create-and-access-tiktok-pixel-id"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 font-medium text-brand-cyan hover:underline"
+              >
+                Ver caminho oficial <ExternalLink className="size-3" aria-hidden="true" />
+              </a>
+            </div>
+          )}
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Nome</span>
             <input
@@ -1395,7 +1641,7 @@ function PixelEditor({
                 </div>
                 <span className="text-[11px] text-muted-foreground text-pretty">
                   {gatewayIds.length === 0
-                    ? 'Nenhum selecionado = o pixel recebe vendas de TODOS os gateways (padrão).'
+                    ? 'Sem vínculo: jornadas identificadas pela tag/link continuam neste pixel. Se houver vários pixels e o webhook não puder identificar a jornada, o envio para todos será bloqueado por segurança.'
                     : 'Este pixel só dispara Compra/Pagamento vindos do(s) gateway(s) selecionado(s) — vendas de outros gateways são ignoradas por ele.'}
                 </span>
               </>

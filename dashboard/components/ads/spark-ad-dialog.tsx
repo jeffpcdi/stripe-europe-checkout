@@ -14,6 +14,7 @@ import { toast } from '@/lib/toast'
 import type { AdsGoal } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { useModalA11y } from '@/lib/use-modal-a11y'
+import { tomorrowLocalIsoDate } from './tiktok-contracts'
 
 const GOALS: { value: AdsGoal; label: string }[] = [
   { value: 'engagement', label: 'Engajamento' },
@@ -63,6 +64,7 @@ export function SparkAdDialog({
   const [itemId, setItemId] = useState('')
   const [budget, setBudget] = useState('')
   const [budgetType, setBudgetType] = useState<'daily' | 'lifetime'>('daily')
+  const [endDate, setEndDate] = useState('')
   const [countries, setCountries] = useState('BR')
   const [linkUrl, setLinkUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -77,6 +79,7 @@ export function SparkAdDialog({
       setItemId('')
       setBudget('')
       setBudgetType('daily')
+      setEndDate('')
       setCountries('BR')
       setLinkUrl('')
     }
@@ -110,8 +113,14 @@ export function SparkAdDialog({
     if (!identity) return 'Selecione a identidade (conta ou criador autorizado)'
     if (!itemId) return 'Selecione o post a impulsionar'
     if (!(Number(budget) > 0)) return 'Informe o orçamento'
+    if (budgetType === 'lifetime') {
+      if (!endDate) return 'Informe a data de término'
+      if (new Date(`${endDate}T23:59:59`).getTime() <= Date.now() + 60 * 60 * 1000) {
+        return 'A data de término precisa estar no futuro'
+      }
+    }
     return null
-  }, [name, identity, itemId, budget])
+  }, [name, identity, itemId, budget, budgetType, endDate])
 
   async function handleSubmit() {
     if (!identity) return
@@ -131,6 +140,7 @@ export function SparkAdDialog({
         itemId,
       }
       if (identity.bcId) payload.bcId = identity.bcId
+      if (budgetType === 'lifetime') payload.endDate = endDate
       if (countryList.length) payload.countries = countryList
       if (/^https?:\/\//.test(linkUrl.trim())) payload.linkUrl = linkUrl.trim()
 
@@ -316,6 +326,19 @@ export function SparkAdDialog({
               </select>
             </label>
           </div>
+
+          {budgetType === 'lifetime' && (
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-foreground">Data de término</span>
+              <input
+                type="date"
+                min={tomorrowLocalIsoDate()}
+                className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </label>
+          )}
 
           {goal === 'traffic' && (
             <label className="flex flex-col gap-1.5">

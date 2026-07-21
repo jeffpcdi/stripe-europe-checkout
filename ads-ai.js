@@ -321,7 +321,7 @@ async function copilotTurn({ accId, advertiserId, currency, sessionId, message, 
     get_rules: tool({
       description: 'Regras de automação configuradas e últimas execuções do motor 24/7.',
       inputSchema: z.object({}),
-      execute: async () => ({ rules: getRules(accId), recentLog: (getRulesLog(accId) || []).slice(0, 10) }),
+      execute: async () => ({ rules: getRules(accId, advertiserId), recentLog: (getRulesLog(accId, advertiserId) || []).slice(0, 10) }),
     }),
     // ── Ações: NUNCA executam. Devolvem proposta p/ card de aprovação. ──────
     propose_pause_campaigns: tool({
@@ -432,7 +432,7 @@ async function generateDailyBriefing(accId, advertiserId, currency) {
     roasByCampaign(accId, advertiserId, 7),
   ]);
   const anomalies = detectAnomalies(series);
-  const recentActions = (getRulesLog(accId) || []).filter((l) => {
+  const recentActions = (getRulesLog(accId, advertiserId) || []).filter((l) => {
     const at = new Date(l.at || 0).getTime();
     return Date.now() - at < 24 * 3600e3;
   });
@@ -493,6 +493,7 @@ async function generateDailyBriefing(accId, advertiserId, currency) {
     'Briefing TikTok Ads',
     { title: 'Briefing diário' + (badCount ? ` — ${badCount} alerta(s)` : ''), text: content.slice(0, 400) },
     accId,
+    { event: 'ads_briefing' },
   ).catch(() => {});
   return { date: today, content, anomalies, usedAi };
 }
