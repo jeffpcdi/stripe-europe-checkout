@@ -10,7 +10,13 @@ import { X, Loader2, Sparkles, UploadCloud, Check } from 'lucide-react'
 import { apiSend, adsUpload } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { useModalA11y } from '@/lib/use-modal-a11y'
-import { TIKTOK_CTA_OPTIONS, TIKTOK_PIXEL_EVENTS, tomorrowLocalIsoDate } from './tiktok-contracts'
+import {
+  TIKTOK_CTA_OPTIONS,
+  TIKTOK_MIN_BUDGET,
+  TIKTOK_PIXEL_EVENTS,
+  tiktokMinimumBudgetMessage,
+  tomorrowLocalIsoDate,
+} from './tiktok-contracts'
 
 export function SmartPlusCreateDialog({
   open,
@@ -50,7 +56,7 @@ export function SmartPlusCreateDialog({
 
   const error =
     !name.trim() ? 'Dê um nome à campanha'
-      : !(Number(budget) > 0) ? 'Informe o orçamento total'
+      : !(Number(budget) >= TIKTOK_MIN_BUDGET) ? tiktokMinimumBudgetMessage(currency, ' no total')
         : !endDateInFuture ? 'Escolha uma data de término a partir de amanhã'
           : !/^https:\/\/\S+/.test(videoUrl.trim()) ? 'Adicione o vídeo (URL https ou upload)'
             : !/^https:\/\/\S+/.test(coverUrl.trim()) ? 'Adicione a capa do vídeo (JPG, PNG ou WebP)'
@@ -167,7 +173,8 @@ export function SmartPlusCreateDialog({
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs">
                 <span className="font-medium text-foreground">Orçamento total ({currency})</span>
-                <input type="number" min={1} step="0.01" className={field} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="200,00" />
+                <input type="number" min={TIKTOK_MIN_BUDGET} step="0.01" className={field} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="200,00" />
+                <span className="text-[10px] text-muted-foreground">Mínimo aceito pelo TikTok: {currency} {TIKTOK_MIN_BUDGET}.</span>
               </label>
               <label className="flex flex-col gap-1 text-xs">
                 <span className="font-medium text-foreground">Término</span>

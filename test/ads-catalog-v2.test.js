@@ -85,6 +85,9 @@ function throwsCode(fn, code, label) {
   ok(/CatalogConnectionCard/.test(manager), 'UI separa conexão remota');
   ok(/CatalogCampaignWizard/.test(manager), 'UI usa assistente da campanha completa');
   ok(/campaignCreateSupported/.test(manager), 'UI condiciona criação ao schema atual do Pipeboard');
+  ok(/catalog\.linkStatus === 'verified'/.test(manager) && /Vínculo com erro/.test(manager), 'UI não anuncia vínculo quebrado como catálogo publicado');
+  ok(/ConfirmDialog/.test(manager) && !/\bconfirm\(/.test(manager), 'exclusões usam confirmação acessível e não confirm nativo');
+  ok(/envio aceito/.test(manager), 'histórico distingue envio aceito de aprovação do TikTok');
   ok(/DELETE FROM ads_catalog_campaign_runs/.test(store) && /DELETE FROM ads_catalog_publications/.test(store), 'exclusão remove jobs e publicações órfãos');
   ok(!/autoPublish=\{bcConfigured\}/.test(manager), 'salvar produto não publica silenciosamente');
 

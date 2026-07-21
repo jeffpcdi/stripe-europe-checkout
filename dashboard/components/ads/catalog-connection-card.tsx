@@ -5,6 +5,7 @@ import { AlertCircle, Check, Link2, Loader2, Unlink } from 'lucide-react'
 import { adsCatalogApiUrl, apiSend, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog } from '@/lib/types'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export function CatalogConnectionCard({
   catalog,
@@ -19,6 +20,7 @@ export function CatalogConnectionCard({
 }) {
   const [catalogId, setCatalogId] = useState(catalog.tiktokCatalogId ?? '')
   const [busy, setBusy] = useState(false)
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const verified = catalog.linkStatus === 'verified'
 
   useEffect(() => {
@@ -40,6 +42,7 @@ export function CatalogConnectionCard({
       await onChanged()
     } catch (error) {
       toast.error('Não foi possível verificar o catálogo', { hint: error instanceof ApiError ? error.display : error instanceof Error ? error.message : undefined })
+      await onChanged()
     } finally {
       setBusy(false)
     }
@@ -56,10 +59,12 @@ export function CatalogConnectionCard({
       toast.error('Falha ao remover vínculo', { hint: error instanceof Error ? error.message : undefined })
     } finally {
       setBusy(false)
+      setConfirmDisconnect(false)
     }
   }
 
   return (
+    <>
     <section className={`rounded-xl border p-4 ${verified ? 'border-success/30 bg-success/5' : catalog.linkStatus === 'error' ? 'border-error/30 bg-error/5' : 'border-primary/25 bg-primary/5'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -82,6 +87,12 @@ export function CatalogConnectionCard({
         </dl>
       )}
 
+      {catalog.linkStatus === 'error' && (
+        <p className="mt-3 rounded-lg border border-error/20 bg-background/60 p-2.5 text-pretty text-[10px] leading-relaxed text-muted-foreground">
+          Seus produtos locais continuam salvos. Se o catálogo remoto foi excluído, crie ou abra outro no TikTok Catalog Manager e substitua o Catalog ID abaixo.
+        </p>
+      )}
+
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <input
           className="input-neon min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground"
@@ -93,7 +104,7 @@ export function CatalogConnectionCard({
           disabled={busy || verified}
         />
         {verified ? (
-          <button type="button" className="btn-ghost text-xs text-error" onClick={disconnect} disabled={busy}>
+          <button type="button" className="btn-ghost text-xs text-error" onClick={() => setConfirmDisconnect(true)} disabled={busy}>
             {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Unlink className="size-3.5" />} Desconectar
           </button>
         ) : (
@@ -104,5 +115,15 @@ export function CatalogConnectionCard({
       </div>
       {!bcId && <p className="mt-2 text-[10px] text-warning">Configure o Business Center antes de verificar o catálogo.</p>}
     </section>
+    <ConfirmDialog
+      open={confirmDisconnect}
+      title="Remover vínculo com o TikTok?"
+      description="O Catalog ID será removido desta dashboard. Seus produtos locais, feed e o catálogo remoto no TikTok serão preservados."
+      confirmLabel="Remover vínculo"
+      busy={busy}
+      onConfirm={disconnect}
+      onClose={() => setConfirmDisconnect(false)}
+    />
+    </>
   )
 }

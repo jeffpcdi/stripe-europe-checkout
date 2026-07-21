@@ -1,13 +1,15 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { AlertCircle, Check, ChevronDown, Loader2, Rocket, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, ExternalLink, Loader2, Rocket, RotateCcw, Trash2 } from 'lucide-react'
 import {
   adsCatalogApiUrl, adsCreateCatalogCampaign, adsPreflightCatalogCampaign, apiSend,
   useAdsCatalogCampaignRuns,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogCampaignRun } from '@/lib/types'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { TIKTOK_CTA_OPTIONS, TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 
 const STAGES: Record<string, string> = {
   queued: 'Na fila', validating: 'Validando pré-requisitos', creating_campaign: 'Criando campanha',
@@ -16,18 +18,30 @@ const STAGES: Record<string, string> = {
   campaign: 'Criação da campanha', adgroup: 'Criação do conjunto', ad: 'Criação do anúncio', verify: 'Verificação',
 }
 
+const RUN_STATUS: Record<AdsCatalogCampaignRun['status'], string> = {
+  queued: 'Na fila', running: 'Em andamento', retrying: 'Tentando novamente',
+  completed: 'Concluída', partial: 'Parcial', failed: 'Falhou', cancelled: 'Cancelada',
+}
+
 function RunCard({ run, advertiserId, mutate }: { run: AdsCatalogCampaignRun; advertiserId: string; mutate: () => void }) {
   const active = ['queued', 'running', 'retrying'].includes(run.status)
+  const [confirmCleanup, setConfirmCleanup] = useState(false)
+  const [actionBusy, setActionBusy] = useState(false)
   async function action(kind: 'resume' | 'cleanup') {
+    setActionBusy(true)
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalog-campaign-runs/${encodeURIComponent(run.id)}/${kind}`, advertiserId), 'POST', {})
       toast.success(kind === 'resume' ? 'Criação colocada novamente na fila' : 'Estrutura parcial removida')
       mutate()
     } catch (error) {
       toast.error('Ação não concluída', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setActionBusy(false)
+      setConfirmCleanup(false)
     }
   }
   return (
+    <>
     <div className={`rounded-lg border p-3 ${run.status === 'completed' ? 'border-success/30 bg-success/5' : run.status === 'partial' || run.status === 'failed' ? 'border-error/30 bg-error/5' : 'border-border bg-card'}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -37,7 +51,7 @@ function RunCard({ run, advertiserId, mutate }: { run: AdsCatalogCampaignRun; ad
           </p>
           <p className="mt-1 text-[10px] text-muted-foreground">Campanha {run.createdIds.campaignId || '—'} · Conjunto {run.createdIds.adGroupId || '—'} · Anúncio {run.createdIds.adId || '—'}</p>
         </div>
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{run.status}</span>
+        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{RUN_STATUS[run.status]}</span>
       </div>
       {run.error && (
         <div className="mt-2 rounded-lg bg-background/70 p-2 text-[10px] leading-relaxed text-muted-foreground">
@@ -47,11 +61,21 @@ function RunCard({ run, advertiserId, mutate }: { run: AdsCatalogCampaignRun; ad
       )}
       {(run.status === 'partial' || run.status === 'failed') && (
         <div className="mt-2 flex flex-wrap gap-2">
-          <button type="button" className="btn-primary !py-1.5 text-xs" onClick={() => action('resume')}><RotateCcw className="size-3.5" /> Retomar</button>
-          {run.createdIds.campaignId && <button type="button" className="btn-ghost !py-1.5 text-xs text-error" onClick={() => action('cleanup')}><Trash2 className="size-3.5" /> Excluir parcial</button>}
+          <button type="button" className="btn-primary !py-1.5 text-xs" onClick={() => action('resume')} disabled={actionBusy}><RotateCcw className="size-3.5" /> Retomar</button>
+          {run.createdIds.campaignId && <button type="button" className="btn-ghost !py-1.5 text-xs text-error" onClick={() => setConfirmCleanup(true)} disabled={actionBusy}><Trash2 className="size-3.5" /> Excluir parcial</button>}
         </div>
       )}
     </div>
+    <ConfirmDialog
+      open={confirmCleanup}
+      title="Excluir estrutura parcial?"
+      description="A campanha e os recursos que já foram criados por esta tentativa serão removidos do TikTok. Use Retomar se quiser continuar de onde parou."
+      confirmLabel="Excluir parcial"
+      busy={actionBusy}
+      onConfirm={() => action('cleanup')}
+      onClose={() => setConfirmCleanup(false)}
+    />
+    </>
   )
 }
 
@@ -102,7 +126,7 @@ export function CatalogCampaignWizard({
   }
 
   async function create() {
-    if (!(Number(budget) >= 50)) return toast.error(`O orçamento mínimo do TikTok é ${catalog.currency} 50 por dia`)
+    if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return toast.error(tiktokMinimumBudgetMessage(catalog.currency, ' por dia'))
     if (productScope === 'specific' && !productIds.trim()) return toast.error('Informe ao menos um Product ID do TikTok')
     if (!templateId.trim()) return toast.error('Informe o Catalog Video Template ID usado pelo anúncio')
     setBusy(true)
@@ -128,14 +152,25 @@ export function CatalogCampaignWizard({
           <h3 className="text-xs font-semibold text-foreground">Campanhas deste catálogo</h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground">Video Shopping Ads · Catalog video · destino obtido do produto.</p>
         </div>
-        <button type="button" className="btn-primary text-xs" onClick={() => setOpen((value) => !value)} disabled={!supported || !ready || Boolean(activeRun)}>
-          <Rocket className="size-3.5" /> {activeRun ? 'Criação em andamento' : 'Nova campanha'} <ChevronDown className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
-        </button>
+        {supported ? (
+          <button type="button" className="btn-primary text-xs" onClick={() => setOpen((value) => !value)} disabled={!ready || Boolean(activeRun)}>
+            <Rocket className="size-3.5" /> {activeRun ? 'Criação em andamento' : 'Nova campanha'} <ChevronDown className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+          </button>
+        ) : (
+          <a className="btn-primary text-xs" href="https://ads.tiktok.com/" target="_blank" rel="noreferrer">
+            <ExternalLink className="size-3.5" /> Abrir TikTok Ads Manager
+          </a>
+        )}
       </div>
       {!supported && (
         <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
-          <p className="font-semibold text-warning">Criação automática temporariamente indisponível</p>
-          <p className="mt-1">A API atual não aceita todos os campos de Product Sales. Crie a campanha no TikTok Ads Manager usando este catálogo; a dashboard bloqueia o fluxo para não deixar apenas uma campanha parcial.</p>
+          <p className="font-semibold text-warning">Finalize a campanha no TikTok Ads Manager</p>
+          <p className="mt-1">A API atual não aceita todos os campos de Product Sales com segurança. Seus produtos já ficam prontos aqui; conclua somente a campanha no gerenciador.</p>
+          <ol className="mt-2 ml-4 list-decimal space-y-1">
+            <li>Abra o Ads Manager e escolha <strong className="text-foreground">Product Sales / Video Shopping Ads</strong>.</li>
+            <li>Use o Catalog ID <code className="rounded bg-background px-1 py-0.5 text-foreground">{catalog.tiktokCatalogId || 'ainda não conectado'}</code>.</li>
+            <li>Publique pausada; depois ela aparecerá automaticamente na lista de campanhas desta dashboard.</li>
+          </ol>
         </div>
       )}
       {supported && !ready && <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[10px] text-warning">Conclua o checklist de prontidão antes de criar uma campanha.</p>}
@@ -144,7 +179,7 @@ export function CatalogCampaignWizard({
         <div className="mt-4 space-y-3 border-t border-border pt-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-[11px] text-muted-foreground">Nome<input className="input-base mt-1 w-full" value={name} onChange={(e) => setName(e.target.value)} /></label>
-            <label className="text-[11px] text-muted-foreground">Orçamento diário ({catalog.currency})<input className="input-base mt-1 w-full" type="number" min="50" step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="50,00" /></label>
+            <label className="text-[11px] text-muted-foreground">Orçamento diário ({catalog.currency})<input className="input-base mt-1 w-full" type="number" min={TIKTOK_MIN_BUDGET} step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="50,00" /></label>
           </div>
           <fieldset>
             <legend className="text-[11px] font-medium text-foreground">Produtos</legend>
@@ -163,7 +198,7 @@ export function CatalogCampaignWizard({
               <label className="text-[11px] text-muted-foreground">Pixel ID<input className="input-base mt-1 w-full" value={pixelId} onChange={(e) => setPixelId(e.target.value)} placeholder="Numérico ou alfanumérico" /></label>
               <label className="text-[11px] text-muted-foreground">Evento<input className="input-base mt-1 w-full" value={pixelEvent} onChange={(e) => setPixelEvent(e.target.value)} /></label>
               <label className="text-[11px] text-muted-foreground">Texto<input className="input-base mt-1 w-full" value={text} onChange={(e) => setText(e.target.value)} /></label>
-              <label className="text-[11px] text-muted-foreground">CTA<select className="input-base mt-1 w-full" value={cta} onChange={(e) => setCta(e.target.value)}><option value="LEARN_MORE">Learn more</option><option value="SHOP_NOW">Shop now</option></select></label>
+              <label className="text-[11px] text-muted-foreground">CTA<select className="input-base mt-1 w-full" value={cta} onChange={(e) => setCta(e.target.value)}>{TIKTOK_CTA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             </div>
           </details>
           <p className="rounded-lg bg-secondary/60 p-2.5 text-[10px] leading-relaxed text-muted-foreground">ABO · menor custo · TikTok placement · Product link. Não é necessário informar URL: cada clique usa o link do produto no catálogo. Tudo nasce pausado.</p>

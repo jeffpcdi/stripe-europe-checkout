@@ -19,7 +19,7 @@
 
 const pipeboard = require('./pipeboard-mcp');
 const config = require('./config');
-const { SPARK_GOALS } = require('./ads-contracts');
+const { SPARK_GOALS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 
 // ── Estado por conta (multi-tenant) ──────────────────────────────────────────
 // Guardado em config.get(accountId).pipeboardAds = { advertiserId }.
@@ -745,8 +745,6 @@ function stepError(step, msg, createdIds, status) {
   return e;
 }
 
-const TIKTOK_MIN_BUDGET = 50;
-
 function clampTikTokBudget(value, warnings, label) {
   const amount = Number(value);
   if (!(amount > 0)) return amount;
@@ -981,6 +979,9 @@ async function createFullAd(advertiserId, spec, opts) {
   const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
   const goal = GOAL_MAP[s.goal];
   if (!goal) throw badRequest('Objetivo "' + s.goal + '" ainda não suportado na criação via Pipeboard' + (s.goal === 'app_promotion' ? ' (exige app_id, que a UI ainda não coleta)' : ''));
+  if (!(Number(s.budgetAmount) >= TIKTOK_MIN_BUDGET)) {
+    throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET);
+  }
   if (s.budgetType === 'lifetime') {
     const endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : '';
     const endAt = endDate ? new Date(endDate + 'T23:59:59Z').getTime() : NaN;
@@ -1508,7 +1509,7 @@ async function createSparkAd(advertiserId, spec) {
   if (!SPARK_GOALS.has(s.goal)) throw badRequest('Objetivo "' + s.goal + '" não suportado para Spark Ads');
   const goal = GOAL_MAP[s.goal];
   const budgetAmount = Number(s.budgetAmount);
-  if (!(budgetAmount > 0)) throw badRequest('Orçamento inválido');
+  if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET);
   let endDate;
   if (s.budgetType === 'lifetime') {
     endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : '';
@@ -1906,7 +1907,7 @@ async function createSmartPlusCampaign(advertiserId, spec) {
   if (!/^https:\/\/[^\s]+/.test(String(s.coverUrl || ''))) throw badRequest('Capa do vídeo (URL https) é obrigatória para Smart+');
   if (!/^https:\/\/[^\s]+/.test(String(s.linkUrl || ''))) throw badRequest('Link de destino (URL https) é obrigatório para Smart+');
   const budget = Number(s.budgetAmount);
-  if (!(budget > 0)) throw badRequest('Orçamento total inválido');
+  if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' no total');
   if (s.goal === 'conversions' && !/^\d{5,30}$/.test(String(s.pixelId || ''))) {
     throw badRequest('Conversões exigem o Pixel ID NUMÉRICO do TikTok');
   }

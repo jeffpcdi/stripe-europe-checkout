@@ -65,11 +65,13 @@ export function OpsDialog({
   open,
   onClose,
   currency,
+  initialTab = 'jobs',
   onPolicyChanged,
 }: {
   open: boolean
   onClose: () => void
   currency: string
+  initialTab?: 'jobs' | 'safety'
   // revalida o badge dry-run na view principal
   onPolicyChanged?: () => void
 }) {
@@ -88,8 +90,8 @@ export function OpsDialog({
   }, [policyData])
 
   useEffect(() => {
-    if (!open) setTab('jobs')
-  }, [open])
+    if (open) setTab(initialTab)
+  }, [open, initialTab])
 
   if (!open) return null
 

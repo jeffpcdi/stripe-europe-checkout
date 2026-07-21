@@ -135,7 +135,13 @@ export function TikTokAdsView() {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
   const [opsOpen, setOpsOpen] = useState(false)
+  const [opsInitialTab, setOpsInitialTab] = useState<'jobs' | 'safety'>('jobs')
   const [healthOpen, setHealthOpen] = useState(false)
+
+  function openOps(initialTab: 'jobs' | 'safety' = 'jobs') {
+    setOpsInitialTab(initialTab)
+    setOpsOpen(true)
+  }
 
   // Política de segurança — alimenta o badge de simulação/kill switch
   const { data: safety, mutate: mutateSafety } = useAdsSafetyPolicy(connected)
@@ -277,7 +283,7 @@ export function TikTokAdsView() {
             <button
               type="button"
               className="flex items-center gap-1.5 rounded-full border border-error/40 bg-error/10 px-2.5 py-1 text-[11px] font-semibold text-error"
-              onClick={() => setOpsOpen(true)}
+              onClick={() => openOps('safety')}
               title="Tudo pausado: nenhuma ação automática ou manual é publicada. Clique para gerenciar."
             >
               <OctagonAlert className="size-3" aria-hidden="true" />
@@ -287,7 +293,7 @@ export function TikTokAdsView() {
             <button
               type="button"
               className="flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning"
-              onClick={() => setOpsOpen(true)}
+              onClick={() => openOps('safety')}
               title="Modo teste: o robô roda mas nada é publicado no TikTok. Clique para gerenciar."
             >
               <FlaskConical className="size-3" aria-hidden="true" />
@@ -444,7 +450,7 @@ export function TikTokAdsView() {
               kpi={kpi}
               fromDate={fromDate}
               toDate={toDate}
-              onOpenOps={() => setOpsOpen(true)}
+              onOpenOps={() => openOps('jobs')}
               onOpenHealth={() => setHealthOpen(true)}
               onGoAutomations={() => changeTab('automation')}
               onCreate={() => openWriteFlow(setCreateOpen)}
@@ -568,7 +574,7 @@ export function TikTokAdsView() {
               adAccountId={concreteAdvertiser}
               aiEnabled={aiEnabled}
               onMutateTree={() => mutateTree()}
-              onOpenLimits={() => setOpsOpen(true)}
+              onOpenLimits={() => openOps('safety')}
             />
           )}
         </>
@@ -606,6 +612,7 @@ export function TikTokAdsView() {
         open={opsOpen}
         onClose={() => setOpsOpen(false)}
         currency={currency}
+        initialTab={opsInitialTab}
         onPolicyChanged={() => mutateSafety()}
       />
       <HealthDialog open={healthOpen} onClose={() => setHealthOpen(false)} />

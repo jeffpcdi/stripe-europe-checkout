@@ -81,4 +81,16 @@ console.log('Período global — uma única fonte para métricas e atribuição'
   ok(/toLocalIsoDate/.test(view), 'datas usam o fuso local do operador');
 }
 
+console.log('UX compartilhada — orçamento mínimo e busca de interesses');
+{
+  const contracts = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/tiktok-contracts.ts'), 'utf8');
+  const create = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/create-ad-panel.tsx'), 'utf8');
+  ok(/TIKTOK_MIN_BUDGET = 50/.test(contracts), 'frontend centraliza o piso de orçamento do TikTok');
+  ok(/beleza:\s*\[[^\]]*'beauty'/.test(contracts), 'busca em português traduz beleza para categorias em inglês');
+  ok(/normalize\('NFD'\)/.test(contracts), 'busca de interesses ignora acentos');
+  ok(/matchesTikTokInterest\(interest\.name, interestQuery\)/.test(create), 'wizard usa o comparador traduzido');
+  ok(/traduzidas automaticamente/.test(create), 'wizard explica que o TikTok pode devolver nomes em inglês');
+  ok(/budgetAmount >= TIKTOK_MIN_BUDGET/.test(routes), 'backend rejeita criação abaixo do piso antes de chamar o provider');
+}
+
 console.log('\nads-targeting: ' + n + ' asserts OK');

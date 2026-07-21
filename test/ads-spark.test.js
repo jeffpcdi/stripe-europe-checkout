@@ -86,7 +86,7 @@ const baseResponders = () => ({
   responders = baseResponders();
   const result = await provider.createSparkAd('adv1', {
     name: 'Spark viral', goal: 'engagement',
-    budgetAmount: 25, budgetType: 'daily',
+    budgetAmount: 50, budgetType: 'daily',
     identityId: 'i-tt', identityType: 'TT_USER', itemId: 'post-7',
     countries: ['BR'],
   });
@@ -118,7 +118,7 @@ const baseResponders = () => ({
   responders = { ...baseResponders(), create_tiktok_ad: () => { throw new Error('review rejected'); } };
   await assert.rejects(
     () => provider.createSparkAd('adv1', {
-      name: 'Spark falha', goal: 'engagement', budgetAmount: 10, budgetType: 'daily',
+      name: 'Spark falha', goal: 'engagement', budgetAmount: 50, budgetType: 'daily',
       identityId: 'i-tt', identityType: 'TT_USER', itemId: 'post-9',
     }),
     (err) => {
@@ -132,11 +132,12 @@ const baseResponders = () => ({
   // ── 5. Validações baratas NÃO tocam a plataforma ───────────────────────────
   resetCalls();
   responders = {};
-  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 10, identityType: 'TT_USER', itemId: '' }), /identityId e itemId/);
-  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 10, identityId: 'i', identityType: 'BANANA', itemId: 'p' }), /identityType/);
-  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 10, identityId: 'i-bc', identityType: 'BC_AUTH_TT', itemId: 'p' }), /Business Center/);
-  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 10, budgetType: 'lifetime', endDate: '2020-01-01', identityId: 'i', identityType: 'TT_USER', itemId: 'p' }), /data de término futura/);
-  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'conversions', budgetAmount: 10, identityId: 'i', identityType: 'TT_USER', itemId: 'p' }), /não suportado para Spark/);
+  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 49.99, identityId: 'i', identityType: 'TT_USER', itemId: 'p' }), /orçamento mínimo/i);
+  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 50, identityType: 'TT_USER', itemId: '' }), /identityId e itemId/);
+  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 50, identityId: 'i', identityType: 'BANANA', itemId: 'p' }), /identityType/);
+  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 50, identityId: 'i-bc', identityType: 'BC_AUTH_TT', itemId: 'p' }), /Business Center/);
+  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'engagement', budgetAmount: 50, budgetType: 'lifetime', endDate: '2020-01-01', identityId: 'i', identityType: 'TT_USER', itemId: 'p' }), /data de término futura/);
+  await assert.rejects(() => provider.createSparkAd('adv1', { name: 'x', goal: 'conversions', budgetAmount: 50, identityId: 'i', identityType: 'TT_USER', itemId: 'p' }), /não suportado para Spark/);
   assert.strictEqual(calls.length, 0, 'nenhuma chamada à plataforma nas validações');
   console.log('ok 5 - validações não tocam a plataforma');
 

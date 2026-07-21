@@ -20,6 +20,8 @@ import {
 import { toast } from '@/lib/toast'
 import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { ErrorState } from '@/components/error-state'
 import { CatalogReadinessCard } from './catalog-readiness-card'
 import { CatalogConnectionCard } from './catalog-connection-card'
 import { CatalogCampaignWizard } from './catalog-campaign-wizard'
@@ -68,6 +70,22 @@ const FIELD_PLACEHOLDERS: Record<string, string> = {
 
 type CatalogSpec = AdsCatalogSpecResponse
 
+function catalogStatusMeta(catalog: AdsCatalog) {
+  if (catalog.linkStatus === 'verified') {
+    return { label: 'Conectado', summary: 'TikTok verificado', className: 'bg-success/15 text-success' }
+  }
+  if (catalog.linkStatus === 'error') {
+    return { label: 'Vínculo com erro', summary: 'vínculo requer correção', className: 'bg-error/15 text-error' }
+  }
+  if (catalog.tiktokCatalogId) {
+    return { label: 'A verificar', summary: 'vínculo não verificado', className: 'bg-warning/15 text-warning' }
+  }
+  if (catalog.feedUrl) {
+    return { label: 'Feed pronto', summary: 'feed atualizado', className: 'bg-primary/15 text-primary' }
+  }
+  return { label: 'Rascunho', summary: 'rascunho', className: 'bg-secondary text-muted-foreground' }
+}
+
 export function CatalogManager({
   advertiserId,
   advertiserLabel,
@@ -75,7 +93,7 @@ export function CatalogManager({
   advertiserId: string
   advertiserLabel: string
 }) {
-  const { data: list, mutate: mutateList, isLoading: listLoading } = useAdsCatalogs(true, advertiserId)
+  const { data: list, mutate: mutateList, isLoading: listLoading, error: listError } = useAdsCatalogs(true, advertiserId)
   const { data: spec } = useAdsCatalogSpec(true, advertiserId)
   const { data: bc, mutate: mutateBc } = useAdsCatalogBusinessCenter(true, advertiserId)
   const { data: capabilitiesData } = useAdsCatalogCapabilities(true, advertiserId)
@@ -97,6 +115,16 @@ export function CatalogManager({
           Neon nas configurações do projeto para usar este recurso.
         </p>
       </div>
+    )
+  }
+
+  if (listError) {
+    return (
+      <ErrorState
+        title="Não foi possível carregar os catálogos"
+        description="A seleção da conta foi preservada. Tente novamente sem criar ou apagar nada."
+        onRetry={() => mutateList()}
+      />
     )
   }
 
@@ -368,8 +396,9 @@ function CatalogList({
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
-          {catalogs.map((c) => (
-            <li key={c.id}>
+          {catalogs.map((c) => {
+            const status = catalogStatusMeta(c)
+            return <li key={c.id}>
               <button
                 type="button"
                 onClick={() => onOpen(c.id)}
@@ -380,15 +409,15 @@ function CatalogList({
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {c.productCount} produto{c.productCount === 1 ? '' : 's'} · {c.currency}
                     {c.country ? ` · ${c.country}` : ''}
-                    {c.tiktokCatalogId ? ' · no TikTok' : c.feedUrl ? ' · feed publicado' : ' · rascunho'}
+                    {' · '}{status.summary}
                   </p>
                 </div>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${c.tiktokCatalogId ? 'bg-success/15 text-success' : c.feedUrl ? 'bg-primary/15 text-primary' : 'bg-secondary text-muted-foreground'}`}>
-                  {c.tiktokCatalogId ? 'No TikTok' : c.feedUrl ? 'Feed' : 'Rascunho'}
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.className}`}>
+                  {status.label}
                 </span>
               </button>
             </li>
-          ))}
+          })}
         </ul>
       )}
     </div>
@@ -419,7 +448,7 @@ function CatalogDetail({
   onBack: () => void
   onDeleted: () => void
 }) {
-  const { data, mutate, isLoading } = useAdsCatalogDetail(catalogId, advertiserId)
+  const { data, mutate, isLoading, error: detailError } = useAdsCatalogDetail(catalogId, advertiserId)
   const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId, advertiserId)
   const { data: readinessData, mutate: mutateReadiness, isLoading: readinessLoading } = useAdsCatalogReadiness(catalogId, advertiserId)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -433,6 +462,10 @@ function CatalogDetail({
   const [autoChecking, setAutoChecking] = useState(false)
   const [importing, setImporting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<
+    { kind: 'catalog'; name: string } | { kind: 'product'; id: string; name: string } | null
+  >(null)
+  const [deleting, setDeleting] = useState(false)
   // Quando o publish automático falha (502/BC/permissão), destacamos o caminho
   // garantido: baixar o CSV e subir manualmente no Catalog Manager.
   const [publishFailed, setPublishFailed] = useState(false)
@@ -451,6 +484,21 @@ function CatalogDetail({
   const validCount = products.filter((p) => p.valid).length
   const hasUnpublishedChanges = Boolean(catalog?.syncedAt && products.some((p) => new Date(p.updatedAt).getTime() > new Date(catalog.syncedAt as string).getTime()))
 
+  if (detailError) {
+    return (
+      <div className="flex flex-col gap-3">
+        <button type="button" className="btn-ghost w-fit text-xs" onClick={onBack}>
+          <ChevronLeft className="size-3.5" aria-hidden="true" /> Voltar aos catálogos
+        </button>
+        <ErrorState
+          title="Não foi possível carregar este catálogo"
+          description="Nenhum produto foi alterado. Confirme a conta de anúncio selecionada e tente novamente."
+          onRetry={() => mutate()}
+        />
+      </div>
+    )
+  }
+
   async function handleUrlPreview() {
     if (!urlValue.trim()) return
     setUrlImporting(true)
@@ -458,11 +506,23 @@ function CatalogDetail({
       const preview = await apiSend<{ product: Record<string, string> }>(
         adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/product-preview`, advertiserId), 'POST', { url: urlValue.trim() },
       )
-      const data = { ...preview.product, sku_id: generateSku(), condition: 'new', availability: preview.product.availability || 'in stock' }
-      setEditing({ id: 'preview', catalogId, skuId: data.sku_id, data, valid: false, errors: [], createdAt: '', updatedAt: '' })
+      const productData: Record<string, string> = {
+        ...preview.product,
+        sku_id: generateSku(),
+        condition: 'new',
+        availability: preview.product.availability || 'in stock',
+      }
+      setEditing({ id: 'preview', catalogId, skuId: productData.sku_id, data: productData, valid: false, errors: [], createdAt: '', updatedAt: '' })
       setShowUrlImport(false)
       setUrlValue('')
-      toast.success('Dados encontrados — revise antes de salvar')
+      const missing = [!productData.price && 'preço', !productData.image_link && 'imagem'].filter(Boolean)
+      if (missing.length) {
+        toast.info('Importação parcial — revise antes de salvar', {
+          hint: `A página não expôs ${missing.join(' e ')} no HTML. Preencha manualmente no editor.`,
+        })
+      } else {
+        toast.success('Dados encontrados — revise antes de salvar')
+      }
     } catch (e) {
       toast.error('Não foi possível importar a página', { hint: e instanceof Error ? e.message : undefined })
     } finally {
@@ -513,6 +573,12 @@ function CatalogDetail({
   // Publica direto no TikTok: cria o catálogo (se preciso) e sobe os produtos.
   async function handleSyncTiktok() {
     if (syncLockRef.current) return
+    if (catalog?.linkStatus === 'error' && !catalogCreateSupported) {
+      toast.info('Informe um catálogo válido do TikTok', {
+        hint: 'O catálogo remoto salvo não existe mais neste Business Center. Crie ou abra um catálogo no TikTok e conecte o novo Catalog ID sem apagar seus produtos locais.',
+      })
+      return
+    }
     if (!catalog?.tiktokCatalogId && !catalogCreateSupported) {
       toast.info('Conecte um catálogo criado no TikTok', {
         hint: 'A API atual não consegue criar o catálogo com segurança. Crie-o no Catalog Manager e valide os IDs no cartão Conexão TikTok.',
@@ -547,7 +613,7 @@ function CatalogDetail({
         bgPublishSinceRef.current = Date.now()
         setBgPublishing(true)
       } else {
-        toast.success(`Catálogo publicado no TikTok com ${res.published} produto(s)`, {
+        toast.success(`Envio aceito pelo TikTok para ${res.published} produto(s)`, {
           hint: res.audit && res.audit.pending > 0 ? 'A análise será acompanhada automaticamente nesta tela.' : undefined,
         })
         // Um novo envio reinicia a janela de acompanhamento (até 12 consultas).
@@ -584,8 +650,10 @@ function CatalogDetail({
   // Intervalo conservador de 20 s, no máximo 12 tentativas (~4 min). Para ao
   // sair da tela, quando não há pendentes, quando atinge o limite ou em erro.
   useEffect(() => {
-    const hasTikTokCatalog = Boolean(catalog?.tiktokCatalogId)
-    const needsCheck = hasTikTokCatalog && (!catalog?.audit || (catalog.audit.pending ?? 0) > 0)
+    const hasTikTokCatalog = Boolean(catalog?.tiktokCatalogId && catalog.linkStatus === 'verified')
+    const needsCheck = hasTikTokCatalog && (
+      !catalog?.audit || (catalog.audit.total ?? 0) === 0 || (catalog.audit.pending ?? 0) > 0
+    )
     if (!needsCheck || auditAttemptsRef.current >= 12) {
       setAutoChecking(false)
       return
@@ -610,7 +678,7 @@ function CatalogDetail({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [catalogId, catalog?.tiktokCatalogId, catalog?.audit?.pending, catalog?.audit?.at, mutate, mutateReadiness])
+  }, [catalogId, catalog?.tiktokCatalogId, catalog?.linkStatus, catalog?.audit?.pending, catalog?.audit?.at, mutate, mutateReadiness])
 
   // Acompanha a publicação em 2º plano: a rota responde na hora (pending) e a
   // cadeia do TikTok grava sucesso/erro no log de publicações depois. Aqui
@@ -627,7 +695,7 @@ function CatalogDetail({
       setBgPublishing(false)
       if (terminal.status === 'success') {
         setPublishFailed(false)
-        toast.success(`Catálogo publicado no TikTok com ${terminal.published} produto(s)`)
+        toast.success(`Envio aceito pelo TikTok para ${terminal.published} produto(s)`)
       } else {
         setPublishFailed(true)
         toast.error('Publicação no TikTok falhou — use o CSV', { hint: terminal.error || undefined })
@@ -643,26 +711,30 @@ function CatalogDetail({
     return () => window.clearTimeout(timer)
   }, [bgPublishing, publications, mutatePublications])
 
-  async function handleDelete() {
-    if (!confirm('Excluir este catálogo e todos os produtos? Isso não pode ser desfeito.')) return
+  async function confirmDelete() {
+    const target = deleteTarget
+    if (!target) return
+    setDeleting(true)
     try {
-      await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}`, advertiserId), 'DELETE')
-      toast.success('Catálogo excluído')
-      onDeleted()
+      if (target.kind === 'catalog') {
+        await apiSend(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}`, advertiserId), 'DELETE')
+        toast.success('Catálogo local excluído', { hint: 'O catálogo remoto do TikTok não foi apagado.' })
+        onDeleted()
+      } else {
+        await apiSend(
+          adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products/${encodeURIComponent(target.id)}`, advertiserId),
+          'DELETE',
+        )
+        toast.success('Produto removido')
+        await Promise.all([mutate(), mutateReadiness()])
+      }
     } catch (e) {
-      toast.error('Falha ao excluir', { hint: e instanceof Error ? e.message : undefined })
-    }
-  }
-
-  async function handleDeleteProduct(productId: string) {
-    try {
-      await apiSend(
-        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/products/${encodeURIComponent(productId)}`, advertiserId),
-        'DELETE',
-      )
-      await Promise.all([mutate(), mutateReadiness()])
-    } catch (e) {
-      toast.error('Falha ao remover produto', { hint: e instanceof Error ? e.message : undefined })
+      toast.error(target.kind === 'catalog' ? 'Falha ao excluir catálogo' : 'Falha ao remover produto', {
+        hint: e instanceof Error ? e.message : undefined,
+      })
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
     }
   }
 
@@ -697,7 +769,7 @@ function CatalogDetail({
           <ChevronLeft className="size-3.5" aria-hidden="true" />
           Voltar
         </button>
-        <button type="button" className="btn-ghost text-xs text-error" onClick={handleDelete}>
+        <button type="button" className="btn-ghost text-xs text-error" onClick={() => setDeleteTarget({ kind: 'catalog', name: catalog?.name || 'catálogo' })}>
           <Trash2 className="size-3.5" aria-hidden="true" />
           Excluir catálogo
         </button>
@@ -820,7 +892,7 @@ function CatalogDetail({
           )}
 
           {/* Status do catálogo no TikTok (quando já publicado) */}
-          {catalog?.tiktokCatalogId && (
+          {catalog?.tiktokCatalogId && catalog.linkStatus === 'verified' && (
             <TiktokStatusPanel
               catalog={catalog}
               auditing={auditing}
@@ -923,7 +995,7 @@ function CatalogDetail({
                           <button type="button" className="btn-ghost px-2 py-1" onClick={() => handleDuplicate(p)} aria-label="Duplicar e revisar">
                             <CopyPlus className="size-3.5" aria-hidden="true" />
                           </button>
-                          <button type="button" className="btn-ghost px-2 py-1 text-error" onClick={() => handleDeleteProduct(p.id)} aria-label="Remover">
+                          <button type="button" className="btn-ghost px-2 py-1 text-error" onClick={() => setDeleteTarget({ kind: 'product', id: p.id, name: p.data.title || p.skuId })} aria-label="Remover">
                             <Trash2 className="size-3.5" aria-hidden="true" />
                           </button>
                         </div>
@@ -946,10 +1018,22 @@ function CatalogDetail({
                   <li key={publication.id} className="flex items-start justify-between gap-3 rounded-lg bg-secondary/40 p-3">
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium text-foreground">
-                        {publication.kind === 'tiktok' ? 'TikTok' : 'Feed'} · {publication.status === 'simulated' ? 'simulação' : 'publicado'}
+                        {publication.kind === 'tiktok' ? 'TikTok' : 'Feed'} · {
+                          publication.status === 'simulated'
+                            ? 'simulação'
+                            : publication.status === 'error'
+                              ? 'falhou'
+                              : publication.kind === 'tiktok'
+                                ? 'envio aceito'
+                                : 'atualizado'
+                        }
                       </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {publication.published} enviado(s){publication.skipped > 0 ? ` · ${publication.skipped} ignorado(s)` : ''}
+                      <p className={`text-[10px] ${publication.status === 'error' ? 'text-error' : publication.kind === 'tiktok' && publication.published === 0 ? 'text-warning' : 'text-muted-foreground'}`}>
+                        {publication.status === 'error'
+                          ? publication.error || 'O TikTok recusou o envio.'
+                          : publication.published > 0
+                            ? `${publication.published} enviado(s)${publication.skipped > 0 ? ` · ${publication.skipped} ignorado(s)` : ''}`
+                            : 'Nenhum produto foi enviado'}
                       </p>
                     </div>
                     <time className="shrink-0 text-[10px] text-muted-foreground" dateTime={publication.createdAt}>
@@ -977,6 +1061,18 @@ function CatalogDetail({
           }}
         />
       )}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title={deleteTarget?.kind === 'catalog' ? 'Excluir catálogo local?' : 'Remover produto do catálogo?'}
+        description={deleteTarget?.kind === 'catalog'
+          ? <>Todos os produtos e o histórico local serão removidos. O catálogo remoto no TikTok não será apagado. Essa ação não pode ser desfeita.</>
+          : <>O produto <strong className="text-foreground">{deleteTarget?.name}</strong> será removido deste catálogo. O catálogo remoto só muda na próxima sincronização.</>}
+        confirmLabel={deleteTarget?.kind === 'catalog' ? 'Excluir catálogo' : 'Remover produto'}
+        confirmText={deleteTarget?.kind === 'catalog' ? deleteTarget.name : undefined}
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }
@@ -999,7 +1095,9 @@ function TiktokStatusPanel({
   const approved = audit?.approved ?? 0
   const pending = audit?.pending ?? 0
   const rejected = audit?.rejected ?? 0
-  const catalogSynced = approved > 0 && pending === 0
+  const total = audit?.total ?? approved + pending + rejected
+  const catalogSynced = total > 0 && approved > 0 && pending === 0 && rejected === 0
+  const productsNotConfirmed = Boolean(audit && total === 0)
   const syncedAt = catalog.syncedAt ? new Date(catalog.syncedAt) : null
 
   function copyId() {
@@ -1011,16 +1109,20 @@ function TiktokStatusPanel({
   }
 
   return (
-    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${catalogSynced ? 'border-success/30 bg-success/5' : 'border-primary/25 bg-primary/5'}`}>
+    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${catalogSynced ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
             {catalogSynced ? (
               <ShieldCheck className="size-4 text-success" aria-hidden="true" />
             ) : (
-              <Clock className="size-4 text-primary" aria-hidden="true" />
+              <Clock className="size-4 text-warning" aria-hidden="true" />
             )}
-            {catalogSynced ? 'Catálogo sincronizado' : 'Catálogo publicado no TikTok'}
+            {catalogSynced
+              ? 'Produtos confirmados no TikTok'
+              : productsNotConfirmed
+                ? 'Catálogo conectado — produtos ainda não confirmados'
+                : 'TikTok analisando os produtos'}
           </p>
           {autoChecking && (
             <p className="flex items-center gap-1 text-[10px] text-muted-foreground" role="status">
@@ -1044,7 +1146,7 @@ function TiktokStatusPanel({
       </div>
 
       {/* Auditoria dos produtos */}
-      {audit ? (
+      {audit && total > 0 ? (
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-semibold text-success">
             {approved} aprovado{approved === 1 ? '' : 's'}
@@ -1058,16 +1160,20 @@ function TiktokStatusPanel({
         </div>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          Produtos enviados — a auditoria do TikTok pode levar alguns minutos. Clique em “Atualizar status”.
+          {productsNotConfirmed
+            ? 'O TikTok ainda não devolveu nenhum produto para este catálogo. Sincronize novamente ou atualize o status; “0” não significa que a publicação foi concluída.'
+            : 'O envio foi aceito, mas a auditoria ainda não retornou contagens. Clique em “Atualizar status”.'}
         </p>
       )}
 
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
         {catalogSynced
-          ? 'Produtos aprovados e sincronizados. Você já pode lançar a campanha de catálogo (DPA) daqui — sem entrar no TikTok Ads Manager.'
+          ? 'O vínculo e os produtos foram confirmados. A campanha pode usar este catálogo; se a criação automática não estiver disponível, siga o atalho para o TikTok Ads Manager abaixo.'
           : rejected > 0
             ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
-            : 'O TikTok ainda está processando os produtos. Esta tela atualiza as contagens automaticamente enquanto houver itens pendentes.'}
+            : productsNotConfirmed
+              ? 'Nenhum produto remoto foi confirmado ainda. Seus produtos locais continuam preservados; tente sincronizar novamente antes de criar a campanha.'
+              : 'O TikTok ainda está processando os produtos. Esta tela atualiza as contagens automaticamente enquanto houver itens pendentes.'}
       </p>
 
       {syncedAt && (

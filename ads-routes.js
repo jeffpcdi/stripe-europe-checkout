@@ -39,7 +39,7 @@ const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — s
   const catalogInspect = require('./ads-catalog-inspect');
 const catalogDomain = require('./catalog/catalog-domain');
 const catalogGateway = require('./catalog/catalog-tiktok-gateway');
-const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS } = require('./ads-contracts');
+const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 
 // Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
@@ -676,7 +676,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const videoUrl = String(b.videoUrl || '').trim();
     if (!/^https:\/\/[^\s]+/.test(videoUrl)) return { error: 'URL do vídeo é obrigatória (MP4 9:16, 5–60s, até 500 MB)' };
     const budgetAmount = Number(b.budgetAmount);
-    if (!(budgetAmount > 0)) return { error: 'Orçamento inválido' };
+    if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) return { error: 'O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET };
     const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
     // ABO/CBO: 'campaign' = orçamento otimizado na campanha (CBO); qualquer
     // outro valor cai em ABO (orçamento no ad group) — o padrão histórico.
@@ -896,7 +896,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const goal = SPARK_GOALS.has(b.goal) ? b.goal : '';
       if (!goal) return res.status(400).json({ error: 'Objetivo (goal) inválido' });
       const budgetAmount = Number((b.budget || {}).amount || b.budgetAmount);
-      if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento inválido' });
+      if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) return res.status(400).json({ error: 'O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET });
       const budgetType = ((b.budget || {}).type || b.budgetType) === 'lifetime' ? 'lifetime' : 'daily';
       let endDate;
       if (budgetType === 'lifetime') {
@@ -1019,8 +1019,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const b = req.body || {};
       const entityId = String(req.params.adId || '');
       const wantStatus = ['active', 'paused'].includes(b.status) ? b.status : null;
-      const wantBudget = b.budget && Number(b.budget.amount) > 0
-        ? { amount: Number(b.budget.amount), type: b.budget.type === 'lifetime' ? 'lifetime' : 'daily' } : null;
+      const budgetRequested = b.budget && typeof b.budget === 'object';
+      const requestedBudgetAmount = budgetRequested ? Number(b.budget.amount) : NaN;
+      if (budgetRequested && !(requestedBudgetAmount >= TIKTOK_MIN_BUDGET)) {
+        return res.status(400).json({ error: 'O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET });
+      }
+      const wantBudget = budgetRequested
+        ? { amount: requestedBudgetAmount, type: b.budget.type === 'lifetime' ? 'lifetime' : 'daily' } : null;
       // Edição de anúncio SEM recriar: texto, CTA, link e nome. Só se algum
       // campo textual/CTA/URL vier — troca de vídeo continua sendo re-criar.
       const c = (b.creative && typeof b.creative === 'object') ? b.creative : null;
@@ -1863,7 +1868,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // whitelist estrita — nada além da config do wizard entra no template
       const payload = {};
       if (CAMPAIGN_GOALS.has(p.goal)) payload.goal = p.goal;
-      if (Number(p.budgetAmount) > 0) payload.budgetAmount = Number(p.budgetAmount);
+      if (Number(p.budgetAmount) >= TIKTOK_MIN_BUDGET) payload.budgetAmount = Number(p.budgetAmount);
       if (['daily', 'lifetime'].includes(p.budgetType)) payload.budgetType = p.budgetType;
       if (typeof p.body === 'string') payload.body = p.body.slice(0, 100);
       if (typeof p.linkUrl === 'string') payload.linkUrl = p.linkUrl.slice(0, 500);
@@ -2125,6 +2130,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         const task = { kind: 'duplicate_pb', sourceId, advertiserId: selected.advertiserId, newName };
         if (v) {
           const overrides = {};
+          if (Number(v.budgetAmount) > 0 && Number(v.budgetAmount) < TIKTOK_MIN_BUDGET) {
+            return res.status(400).json({ error: 'Variação ' + (i + 1) + ': o orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET });
+          }
           if (Number(v.budgetAmount) > 0) overrides.budgetAmount = Math.min(100000, Number(v.budgetAmount));
           if (v.adText) overrides.adText = String(v.adText).slice(0, 100);
           if (Object.keys(overrides).length) task.overrides = overrides;
@@ -2197,7 +2205,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!/^https:\/\/[^\s]+/.test(String(b.coverUrl || ''))) return res.status(400).json({ error: 'A capa do vídeo é obrigatória (JPG, PNG ou WebP em URL https)' });
       if (!/^https:\/\/[^\s]+/.test(String(b.linkUrl || ''))) return res.status(400).json({ error: 'O link de destino é obrigatório (URL https)' });
       const budgetAmount = Number(b.budgetAmount);
-      if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Orçamento total inválido' });
+      if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) return res.status(400).json({ error: 'O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' no total' });
       if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return res.status(400).json({ error: 'Informe a data de término (Smart+ usa orçamento total)' });
       const endAt = new Date(String(b.endDate).slice(0, 10) + 'T23:59:59Z').getTime();
       if (!Number.isFinite(endAt) || endAt <= Date.now() + 60 * 60 * 1000) {

@@ -4,11 +4,12 @@
 // Usada dentro do editor de campanha e do Spark Ads para reaproveitar um
 // vídeo sem precisar subir de novo. Popover inline (não é rota própria).
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Clapperboard, Loader2, Trash2, Check, X } from 'lucide-react'
 import { useAdsLibrary } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsLibraryItem } from '@/lib/types'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 function fmtSize(bytes: number): string {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`
@@ -31,18 +32,28 @@ export function CreativeLibrary({
   onClose,
   onPick,
   selectedUrl,
+  onConfirmOpenChange,
 }: {
   open: boolean
   onClose: () => void
   onPick: (item: AdsLibraryItem) => void
   selectedUrl?: string
+  onConfirmOpenChange?: (open: boolean) => void
 }) {
   const { data, mutate, isLoading } = useAdsLibrary(open)
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<AdsLibraryItem | null>(null)
+
+  useEffect(() => {
+    onConfirmOpenChange?.(Boolean(pendingDelete))
+    return () => onConfirmOpenChange?.(false)
+  }, [pendingDelete, onConfirmOpenChange])
 
   if (!open) return null
 
-  async function handleDelete(item: AdsLibraryItem) {
+  async function handleDelete() {
+    const item = pendingDelete
+    if (!item) return
     setDeletingUrl(item.url)
     try {
       const res = await fetch(`/api/ads/library?url=${encodeURIComponent(item.url)}`, {
@@ -59,6 +70,7 @@ export function CreativeLibrary({
       toast.error('Falha ao remover criativo', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setDeletingUrl(null)
+      setPendingDelete(null)
     }
   }
 
@@ -126,7 +138,7 @@ export function CreativeLibrary({
                   <button
                     type="button"
                     className="btn-ghost !p-1 text-muted-foreground hover:text-destructive"
-                    onClick={() => handleDelete(item)}
+                    onClick={() => setPendingDelete(item)}
                     disabled={isDeleting}
                     aria-label={`Excluir ${item.name} da biblioteca`}
                   >
@@ -142,6 +154,15 @@ export function CreativeLibrary({
           })}
         </ul>
       )}
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Excluir criativo da biblioteca?"
+        description={<>O vídeo <strong className="text-foreground">{pendingDelete?.name}</strong> será removido da biblioteca. Anúncios já criados no TikTok não serão alterados.</>}
+        confirmLabel="Excluir criativo"
+        busy={Boolean(deletingUrl)}
+        onConfirm={handleDelete}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   )
 }

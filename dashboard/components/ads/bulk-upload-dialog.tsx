@@ -12,7 +12,13 @@ import { apiSend, adsUpload, useAdsBulkJob } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { AdsGoal, AdsBulkStartResponse } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
-import { TIKTOK_PIXEL_EVENTS, tomorrowLocalIsoDate, toLocalIsoDate } from './tiktok-contracts'
+import {
+  TIKTOK_MIN_BUDGET,
+  TIKTOK_PIXEL_EVENTS,
+  tiktokMinimumBudgetMessage,
+  tomorrowLocalIsoDate,
+  toLocalIsoDate,
+} from './tiktok-contracts'
 
 const GOALS: { value: AdsGoal; label: string }[] = [
   { value: 'traffic', label: 'Tráfego' },
@@ -111,7 +117,7 @@ export function BulkUploadDialog({
     if (uploadingCount > 0) return `Aguarde: ${uploadingCount} upload(s) em andamento`
     if (items.some((i) => !i.videoUrl)) return 'Há vídeos sem URL (upload falhou) — remova-os ou re-envie'
     if (items.some((i) => !i.name.trim())) return 'Todo anúncio precisa de um nome'
-    if (!(Number(budget) > 0)) return 'Informe o orçamento (vale para cada anúncio)'
+    if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return tiktokMinimumBudgetMessage(currency, ' para cada anúncio')
     if (budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(endDate)) return 'Orçamento total exige data de término'
     if (budgetType === 'lifetime' && endDate <= toLocalIsoDate(new Date())) return 'A data de término precisa ser futura'
     if ((goal === 'conversions' || goal === 'lead_generation') && !/^\d{5,30}$/.test(pixelId.trim())) return `${goal === 'lead_generation' ? 'Leads' : 'Conversões'} exige o Pixel ID numérico`
@@ -356,13 +362,14 @@ export function BulkUploadDialog({
                     <span className="text-xs font-medium text-foreground">Orçamento ({currency})</span>
                     <input
                       type="number"
-                      min={1}
+                      min={TIKTOK_MIN_BUDGET}
                       step="0.01"
                       className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                       value={budget}
                       onChange={(e) => setBudget(e.target.value)}
                       placeholder="50,00"
                     />
+                    <span className="text-[10px] text-muted-foreground">Mínimo por anúncio: {currency} {TIKTOK_MIN_BUDGET}.</span>
                   </label>
                   <label className="flex flex-col gap-1.5">
                     <span className="text-xs font-medium text-foreground">Tipo</span>

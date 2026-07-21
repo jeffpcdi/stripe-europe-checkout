@@ -27,6 +27,29 @@ assert.equal(product.currency, 'BRL');
 assert.equal(product.availability, 'in stock');
 assert.equal(product.link, 'https://example.com/produto');
 
+const nestedHtml = `<!doctype html><html><head>
+<script type="application/ld+json">{
+  "@context":"https://schema.org", "@graph":[{"@type":"WebPage"},{
+    "mainEntity":{"@type":"Product","name":"Produto aninhado",
+    "image":{"@type":"ImageObject","contentUrl":"https://cdn.example.com/nested.webp"},
+    "offers":{"@type":"AggregateOffer","lowPrice":"108.90","priceCurrency":"BRL"}}
+  }]
+}</script></head></html>`;
+const nested = inspect.extractProduct(nestedHtml, 'https://example.com/aninhado');
+assert.equal(nested.title, 'Produto aninhado');
+assert.equal(nested.image_link, 'https://cdn.example.com/nested.webp');
+assert.equal(nested.price, '108.90');
+assert.equal(nested.currency, 'BRL');
+
+const itempropHtml = `<html><head><title>Fallback</title>
+<meta itemprop="image" content="https://cdn.example.com/fallback.png">
+<meta itemprop="price" content="29.90"><meta itemprop="priceCurrency" content="BRL">
+</head></html>`;
+const itemprop = inspect.extractProduct(itempropHtml, 'https://example.com/fallback');
+assert.equal(itemprop.image_link, 'https://cdn.example.com/fallback.png');
+assert.equal(itemprop.price, '29.90');
+assert.equal(itemprop.currency, 'BRL');
+
 Promise.all([
   inspect.assertPublicUrl('http://127.0.0.1').then(() => assert.fail('localhost deveria ser bloqueado'), (error) => assert.match(error.message, /público/)),
   inspect.assertPublicUrl('ftp://example.com').then(() => assert.fail('FTP deveria ser bloqueado'), (error) => assert.match(error.message, /HTTP/)),

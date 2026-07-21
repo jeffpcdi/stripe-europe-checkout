@@ -28,7 +28,16 @@ import { toast } from '@/lib/toast'
 import type { AdsGoal, AdsTemplate } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { CreativeLibrary } from './creative-library'
-import { TIKTOK_CTA_OPTIONS, TIKTOK_PIXEL_EVENTS, tomorrowLocalIsoDate, toLocalIsoDate } from './tiktok-contracts'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import {
+  TIKTOK_CTA_OPTIONS,
+  TIKTOK_MIN_BUDGET,
+  TIKTOK_PIXEL_EVENTS,
+  matchesTikTokInterest,
+  tiktokMinimumBudgetMessage,
+  tomorrowLocalIsoDate,
+  toLocalIsoDate,
+} from './tiktok-contracts'
 
 const GOALS: { value: AdsGoal; label: string; hint: string }[] = [
   { value: 'traffic', label: 'Tráfego', hint: 'Levar cliques para sua página' },
@@ -145,6 +154,11 @@ export function CreateAdPanel({
   // Templates: configurações salvas (sem vídeo) para pré-preencher o wizard
   const { data: templatesData, mutate: mutateTemplates } = useAdsTemplates(open)
   const [savingTemplate, setSavingTemplate] = useState(false)
+  const [templateNaming, setTemplateNaming] = useState(false)
+  const [templateName, setTemplateName] = useState('')
+  const [deleteTemplate, setDeleteTemplate] = useState<{ id: string; name: string } | null>(null)
+  const [deletingTemplate, setDeletingTemplate] = useState(false)
+  const [nestedModalOpen, setNestedModalOpen] = useState(false)
   // Variações A/B: vídeos EXTRAS além do principal → 1 campanha por vídeo
   const [variantUrls, setVariantUrls] = useState<string[]>([])
   const [variantsOpen, setVariantsOpen] = useState(false)
@@ -154,9 +168,8 @@ export function CreateAdPanel({
   const { data: interestsData } = useAdsInterests(open && step === 2, advertiserId)
   const interestMatches = useMemo(() => {
     const all = interestsData?.interests ?? []
-    const q = interestQuery.trim().toLowerCase()
-    if (!q) return [] as { id: string; name: string }[]
-    return all.filter((i) => i.name.toLowerCase().includes(q)).slice(0, 8)
+    if (!interestQuery.trim()) return [] as { id: string; name: string }[]
+    return all.filter((interest) => matchesTikTokInterest(interest.name, interestQuery)).slice(0, 8)
   }, [interestsData, interestQuery])
   const interestName = (id: string) => interestsData?.interests.find((i) => i.id === id)?.name ?? id
   // Catálogos publicados no TikTok (fluxo CSV manual): só os vinculados a um
@@ -167,7 +180,7 @@ export function CreateAdPanel({
   const catalogCampaignSupported = catalogCapabilitiesData?.capabilities.manualCatalogCampaign === true
   const selectedCatalog = catalogs.find((c) => c.id === form.catalogId) ?? null
 
-  useModalA11y(open, ref, submitting ? () => {} : onClose)
+  useModalA11y(open && !deleteTemplate && !nestedModalOpen, ref, submitting ? () => {} : onClose)
 
   // Reset ao reabrir
   useEffect(() => {
@@ -177,6 +190,9 @@ export function CreateAdPanel({
       setUploadPct(0)
       setVariantUrls([])
       setVariantsOpen(false)
+      setTemplateNaming(false)
+      setTemplateName('')
+      setDeleteTemplate(null)
     }
   }, [open])
 
@@ -191,7 +207,7 @@ export function CreateAdPanel({
       return null
     }
     if (step === 1) {
-      if (!(Number(form.budgetAmount) >= 50)) return `O orçamento mínimo do TikTok é ${currency} 50`
+      if (!(Number(form.budgetAmount) >= TIKTOK_MIN_BUDGET)) return tiktokMinimumBudgetMessage(currency)
       if (form.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(form.endDate))
         return 'Orçamento total exige data de término'
       if (form.budgetType === 'lifetime' && form.endDate <= toLocalIsoDate(new Date()))
@@ -281,12 +297,11 @@ export function CreateAdPanel({
   }
 
   async function handleSaveTemplate() {
-    const name = window.prompt('Nome do template (ex.: "Conversões BR 50/dia"):', form.name || '')
-    if (!name?.trim()) return
+    if (!templateName.trim()) return
     setSavingTemplate(true)
     try {
       await apiSend('/api/ads/templates', 'POST', {
-        name: name.trim(),
+        name: templateName.trim(),
         payload: {
           goal: form.goal,
           budgetAmount: Number(form.budgetAmount) || undefined,
@@ -307,6 +322,8 @@ export function CreateAdPanel({
       })
       mutateTemplates()
       toast.success('Template salvo', { hint: 'Disponível na próxima campanha.' })
+      setTemplateNaming(false)
+      setTemplateName('')
     } catch (e) {
       toast.error('Falha ao salvar template', { hint: e instanceof Error ? e.message : undefined })
     } finally {
@@ -314,12 +331,18 @@ export function CreateAdPanel({
     }
   }
 
-  async function handleDeleteTemplate(id: string) {
+  async function handleDeleteTemplate() {
+    if (!deleteTemplate) return
+    setDeletingTemplate(true)
     try {
-      await apiSend(`/api/ads/templates?id=${encodeURIComponent(id)}`, 'DELETE')
+      await apiSend(`/api/ads/templates?id=${encodeURIComponent(deleteTemplate.id)}`, 'DELETE')
       mutateTemplates()
-    } catch {
-      // silencioso: lista revalida sozinha
+      toast.success('Template excluído')
+    } catch (error) {
+      toast.error('Falha ao excluir template', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setDeletingTemplate(false)
+      setDeleteTemplate(null)
     }
   }
 
@@ -517,7 +540,7 @@ export function CreateAdPanel({
                         <button
                           type="button"
                           className="btn-ghost !p-0.5 text-muted-foreground"
-                          onClick={() => handleDeleteTemplate(t.id)}
+                          onClick={() => setDeleteTemplate({ id: t.id, name: t.name })}
                           aria-label={`Excluir template ${t.name}`}
                           title="Excluir template"
                         >
@@ -846,6 +869,9 @@ export function CreateAdPanel({
                   placeholder="Buscar interesse (ex.: beleza, games, fitness)…"
                   aria-label="Buscar categoria de interesse"
                 />
+                <span className="text-[10px] text-muted-foreground">
+                  O TikTok pode devolver nomes em inglês; buscas comuns em português são traduzidas automaticamente.
+                </span>
                 {interestQuery.trim() && (
                   <div className="flex flex-wrap gap-1.5">
                     {interestMatches.length === 0 ? (
@@ -1041,6 +1067,7 @@ export function CreateAdPanel({
                     open={libraryOpen}
                     onClose={() => setLibraryOpen(false)}
                     selectedUrl={form.videoUrl}
+                    onConfirmOpenChange={setNestedModalOpen}
                     onPick={(item) => {
                       set('videoUrl', item.url)
                       toast.success('Criativo selecionado', { hint: item.name })
@@ -1180,7 +1207,10 @@ export function CreateAdPanel({
                 <button
                   type="button"
                   className="btn-ghost !py-1 text-[11px]"
-                  onClick={handleSaveTemplate}
+                  onClick={() => {
+                    setTemplateName(form.name || '')
+                    setTemplateNaming(true)
+                  }}
                   disabled={savingTemplate}
                 >
                   {savingTemplate ? (
@@ -1191,6 +1221,31 @@ export function CreateAdPanel({
                   Salvar como template
                 </button>
               </div>
+              {templateNaming && (
+                <div className="flex flex-col gap-2 rounded-xl border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-end">
+                  <label className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                    Nome do template
+                    <input
+                      autoFocus
+                      className="input-base mt-1 w-full"
+                      value={templateName}
+                      onChange={(event) => setTemplateName(event.target.value)}
+                      maxLength={60}
+                      placeholder="Ex.: Conversões BR 50/dia"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) void handleSaveTemplate()
+                        if (event.key === 'Escape') setTemplateNaming(false)
+                      }}
+                    />
+                  </label>
+                  <div className="flex justify-end gap-2">
+                    <button type="button" className="btn-ghost text-xs" onClick={() => setTemplateNaming(false)} disabled={savingTemplate}>Cancelar</button>
+                    <button type="button" className="btn-primary text-xs" onClick={handleSaveTemplate} disabled={savingTemplate || !templateName.trim()}>
+                      {savingTemplate && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />} Salvar template
+                    </button>
+                  </div>
+                </div>
+              )}
               {variantUrls.filter((u) => /^https:\/\/\S+/.test(u)).length > 0 && (
                 <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[11px] font-medium leading-relaxed text-primary">
                   Teste A/B: serão criadas{' '}
@@ -1308,6 +1363,15 @@ export function CreateAdPanel({
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={Boolean(deleteTemplate)}
+        title="Excluir template?"
+        description={<>O template <strong className="text-foreground">{deleteTemplate?.name}</strong> será removido. Campanhas já criadas não serão alteradas.</>}
+        confirmLabel="Excluir template"
+        busy={deletingTemplate}
+        onConfirm={handleDeleteTemplate}
+        onClose={() => setDeleteTemplate(null)}
+      />
     </div>
   )
 }

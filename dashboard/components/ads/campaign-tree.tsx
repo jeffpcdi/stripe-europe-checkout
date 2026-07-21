@@ -34,6 +34,7 @@ import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { AdEditDialog } from './ad-edit-dialog'
+import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import { fmtCompact, fmtPercent, cleanCampaignName } from '@/lib/format'
 
 function fmtMoney(v: number | undefined, currency: string): string {
@@ -221,8 +222,8 @@ export function CampaignTree({
   // budget no ad group dono do anúncio — não existe PUT direto de grupo).
   async function saveBudget(groupKey: string, adId: string, type: 'daily' | 'lifetime') {
     const amount = Number(budgetValue.replace(',', '.'))
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error('Informe um valor de orçamento válido')
+    if (!Number.isFinite(amount) || amount < TIKTOK_MIN_BUDGET) {
+      toast.error(tiktokMinimumBudgetMessage(currency))
       return
     }
     setBudgetBusy(true)
@@ -574,7 +575,7 @@ export function CampaignTree({
                             <input
                               type="number"
                               inputMode="decimal"
-                              min={1}
+                              min={TIKTOK_MIN_BUDGET}
                               step="0.01"
                               value={budgetValue}
                               onChange={(e) => setBudgetValue(e.target.value)}

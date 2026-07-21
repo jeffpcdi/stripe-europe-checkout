@@ -34,6 +34,7 @@ console.log('Provider — validação antes da rede');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, videoUrl: 'ftp://x' }), 400, 'vídeo não-https reprova');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, coverUrl: '' }), 400, 'Smart+ exige capa de vídeo');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, linkUrl: '' }), 400, 'Smart+ exige destino');
+  await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, budgetAmount: 49.99 }), 400, 'Smart+ exige orçamento mínimo de 50');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, endDate: '' }), 400, 'Smart+ exige data de término (orçamento total)');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, endDate: '2020-01-01' }), 400, 'Smart+ rejeita término no passado');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, goal: 'conversions' }), 400, 'conversões exigem pixel numérico');

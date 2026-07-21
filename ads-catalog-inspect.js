@@ -43,8 +43,8 @@ function decodeHtml(value) {
 function meta(html, key) {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const patterns = [
-    new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']*)["'][^>]*>`, 'i'),
-    new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${escaped}["'][^>]*>`, 'i'),
+    new RegExp(`<meta[^>]+(?:property|name|itemprop)=["']${escaped}["'][^>]+content=["']([^"']*)["'][^>]*>`, 'i'),
+    new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name|itemprop)=["']${escaped}["'][^>]*>`, 'i'),
   ];
   for (const pattern of patterns) { const match = html.match(pattern); if (match) return decodeHtml(match[1]); }
   return '';
@@ -55,8 +55,32 @@ function findProductJson(value) {
   if (Array.isArray(value)) { for (const child of value) { const found = findProductJson(child); if (found) return found; } return null; }
   const type = value['@type'];
   if (type === 'Product' || (Array.isArray(type) && type.includes('Product'))) return value;
-  if (value['@graph']) return findProductJson(value['@graph']);
+  for (const child of Object.values(value)) {
+    const found = findProductJson(child);
+    if (found) return found;
+  }
   return null;
+}
+
+function firstValue(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstValue(item);
+      if (found) return found;
+    }
+    return '';
+  }
+  if (value && typeof value === 'object') {
+    return firstValue(value.url || value.contentUrl || value.value || '');
+  }
+  return String(value || '').trim();
+}
+
+function firstOffer(value) {
+  const offer = Array.isArray(value) ? value[0] : value;
+  if (!offer || typeof offer !== 'object') return {};
+  if (offer.price || offer.lowPrice || offer.highPrice || offer.priceSpecification) return offer;
+  return firstOffer(offer.offers);
 }
 
 function extractProduct(html, sourceUrl) {
@@ -66,15 +90,16 @@ function extractProduct(html, sourceUrl) {
     try { structured = findProductJson(JSON.parse(match[1].trim())); } catch (_) { /* ignora JSON-LD inválido */ }
     if (structured) break;
   }
-  const offer = Array.isArray(structured?.offers) ? structured.offers[0] : structured?.offers || {};
-  const image = Array.isArray(structured?.image) ? structured.image[0] : (structured?.image?.url || structured?.image || '');
+  const offer = firstOffer(structured?.offers);
+  const priceSpec = firstOffer(offer.priceSpecification);
+  const image = firstValue(structured?.image);
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   return {
     title: decodeHtml(structured?.name || meta(html, 'og:title') || (titleMatch && titleMatch[1]) || ''),
     description: decodeHtml(structured?.description || meta(html, 'og:description') || meta(html, 'description') || ''),
-    image_link: String(image || meta(html, 'og:image') || '').trim(),
-    price: String(offer.price || meta(html, 'product:price:amount') || '').trim(),
-    currency: String(offer.priceCurrency || meta(html, 'product:price:currency') || '').trim().toUpperCase(),
+    image_link: String(image || meta(html, 'og:image') || meta(html, 'image') || '').trim(),
+    price: String(offer.price || offer.lowPrice || offer.highPrice || priceSpec.price || meta(html, 'product:price:amount') || meta(html, 'price') || '').trim(),
+    currency: String(offer.priceCurrency || priceSpec.priceCurrency || meta(html, 'product:price:currency') || meta(html, 'priceCurrency') || '').trim().toUpperCase(),
     availability: /outofstock/i.test(String(offer.availability || '')) ? 'out of stock' : 'in stock',
     link: sourceUrl,
   };

@@ -44,7 +44,7 @@ function resetCalls() { toolCalls.length = 0; failOn = null; }
 
 const baseSpec = {
   name: 'Campanha F1', goal: 'traffic', videoUrl: 'https://blob.example/video.mp4',
-  budgetAmount: 20, budgetType: 'daily', body: 'Texto do anúncio',
+  budgetAmount: 50, budgetType: 'daily', body: 'Texto do anúncio',
   linkUrl: 'https://example.com/lp', countries: ['PT'], ageMin: 18, ageMax: 34,
 };
 
@@ -67,7 +67,7 @@ const baseSpec = {
     assert.deepStrictEqual(ag.targeting.age_groups, ['AGE_18_24', 'AGE_25_34'], '18–34 → dois buckets');
     assert.strictEqual(ag.optimization_goal, 'CLICK');
     assert.strictEqual(ag.budget_mode, 'BUDGET_MODE_DAY');
-    assert.strictEqual(ag.budget, 20);
+    assert.strictEqual(ag.budget, 50);
     assert.match(ag.schedule_start_time, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, 'schedule no formato do advertiser');
     assert.strictEqual(ag.bid_type, 'BID_TYPE_NO_BID');
 
@@ -113,6 +113,7 @@ const baseSpec = {
   // ── validações ANTES de qualquer tool call (zero órfãos) ───────────────────
   {
     resetCalls();
+    await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, budgetAmount: 49.99 }), /orçamento mínimo/i, 'orçamento abaixo de 50 é rejeitado cedo');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'app_promotion' }), /app_id/, 'app_promotion rejeitado com explicação (exige app_id)');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'conversions', promotedObject: { pixelId: '12345678' } }), /customEventType|optimization_event/, 'CONVERT sem evento é rejeitado cedo');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, budgetType: 'lifetime', endDate: '2020-01-01' }), /data de término futura/, 'orçamento total com data passada é rejeitado cedo');

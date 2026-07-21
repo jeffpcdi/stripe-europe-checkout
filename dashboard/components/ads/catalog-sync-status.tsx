@@ -1,6 +1,6 @@
 'use client'
 
-import { AlertCircle, Check, Loader2, RotateCcw, UploadCloud } from 'lucide-react'
+import { AlertCircle, Check, Clock, Loader2, RotateCcw, UploadCloud } from 'lucide-react'
 import { adsCatalogApiUrl, apiSend, useAdsCatalogSyncRuns } from '@/lib/api'
 import { toast } from '@/lib/toast'
 
@@ -23,6 +23,7 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
   const runId = run.id
   const active = ['queued', 'running', 'retrying'].includes(run.status)
   const failed = ['failed', 'partial'].includes(run.status)
+  const awaitingTikTok = run.status === 'completed' && run.stage === 'processing_tiktok'
   async function resume() {
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalog-sync-runs/${encodeURIComponent(runId)}/resume`, advertiserId), 'POST', {})
@@ -33,9 +34,9 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
     }
   }
   return (
-    <section className={`rounded-xl border p-3 ${failed ? 'border-error/30 bg-error/5' : run.status === 'completed' ? 'border-success/25 bg-success/5' : 'border-primary/25 bg-primary/5'}`} aria-live="polite">
+    <section className={`rounded-xl border p-3 ${failed ? 'border-error/30 bg-error/5' : awaitingTikTok ? 'border-warning/30 bg-warning/5' : run.status === 'completed' ? 'border-success/25 bg-success/5' : 'border-primary/25 bg-primary/5'}`} aria-live="polite">
       <div className="flex items-start gap-2">
-        {active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+        {active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-foreground">{LABELS[run.stage] || run.stage}</p>
           {run.error ? (
@@ -48,7 +49,11 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
             </>
           ) : (
             <p className="mt-0.5 text-[10px] text-muted-foreground">
-              {active ? 'Esta tarefa continua mesmo se você sair da página.' : `Atualizado em ${new Date(run.updatedAt).toLocaleString('pt-BR')}`}
+              {active
+                ? 'Esta tarefa continua mesmo se você sair da página.'
+                : awaitingTikTok
+                  ? 'O envio terminou; falta o TikTok confirmar os produtos na auditoria.'
+                  : `Atualizado em ${new Date(run.updatedAt).toLocaleString('pt-BR')}`}
             </p>
           )}
         </div>

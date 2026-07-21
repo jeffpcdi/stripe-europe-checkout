@@ -14,7 +14,7 @@ import { toast } from '@/lib/toast'
 import type { AdsGoal } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { useModalA11y } from '@/lib/use-modal-a11y'
-import { tomorrowLocalIsoDate } from './tiktok-contracts'
+import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage, tomorrowLocalIsoDate } from './tiktok-contracts'
 
 const GOALS: { value: AdsGoal; label: string }[] = [
   { value: 'engagement', label: 'Engajamento' },
@@ -112,7 +112,7 @@ export function SparkAdDialog({
     if (!name.trim()) return 'Dê um nome à campanha'
     if (!identity) return 'Selecione a identidade (conta ou criador autorizado)'
     if (!itemId) return 'Selecione o post a impulsionar'
-    if (!(Number(budget) > 0)) return 'Informe o orçamento'
+    if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return tiktokMinimumBudgetMessage(currency)
     if (budgetType === 'lifetime') {
       if (!endDate) return 'Informe a data de término'
       if (new Date(`${endDate}T23:59:59`).getTime() <= Date.now() + 60 * 60 * 1000) {
@@ -306,13 +306,14 @@ export function SparkAdDialog({
               <span className="text-xs font-medium text-foreground">Orçamento ({currency})</span>
               <input
                 type="number"
-                min={1}
+                min={TIKTOK_MIN_BUDGET}
                 step="0.01"
                 className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={budget}
                 onChange={(e) => setBudget(e.target.value)}
                 placeholder="50,00"
               />
+              <span className="text-[10px] text-muted-foreground">Mínimo: {currency} {TIKTOK_MIN_BUDGET}.</span>
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-foreground">Tipo</span>

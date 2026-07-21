@@ -38,7 +38,7 @@ function resetCalls() { toolCalls.length = 0; failOn = null; }
 
 const spec = {
   name: 'Bulk item 0', goal: 'traffic', videoUrl: 'https://blob.example/v.mp4',
-  budgetAmount: 20, budgetType: 'daily', countries: ['PT'],
+  budgetAmount: 50, budgetType: 'daily', countries: ['PT'],
 };
 
 // "Neon" em memória: o mesmo papel do ads_bulk_progress (merge por item)

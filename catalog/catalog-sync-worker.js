@@ -86,7 +86,7 @@ async function processRun(row) {
       actorType: 'user', actorId: accountId, action: 'catalog_sync.completed',
       targetType: 'catalog', targetId: catalog.id, jobId: runId,
       afterState: { tiktokCatalogId: catalog.tiktokCatalogId, audit },
-      reason: 'Catálogo publicado no TikTok',
+      reason: 'Envio do catálogo aceito pelo TikTok; aguardando confirmação dos produtos',
     }).catch(() => {});
     return completed;
   } catch (err) {
