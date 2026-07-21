@@ -26,6 +26,7 @@ import { CatalogReadinessCard } from './catalog-readiness-card'
 import { CatalogConnectionCard } from './catalog-connection-card'
 import { CatalogCampaignWizard } from './catalog-campaign-wizard'
 import { CatalogBatchDialog } from './catalog-batch-dialog'
+import { CatalogQuickCampaignsDialog } from './catalog-quick-campaigns-dialog'
 import { CatalogSyncStatus } from './catalog-sync-status'
 
 const CURRENCIES = ['USD', 'BRL', 'EUR', 'GBP', 'MXN', 'CAD', 'AUD', 'JPY']
@@ -286,6 +287,8 @@ function CatalogList({
   const [catalogType, setCatalogType] = useState('ECOM')
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
+  // Modo Turbo: catálogo escolhido para criar campanhas em massa em 1 clique.
+  const [turboCatalog, setTurboCatalog] = useState<AdsCatalog | null>(null)
 
   const catalogTypes = spec?.catalogTypes ?? [{ value: 'ECOM', label: 'Produtos' }]
   const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
@@ -403,11 +406,12 @@ function CatalogList({
         <ul className="flex flex-col gap-2">
           {catalogs.map((c) => {
             const status = catalogStatusMeta(c)
-            return <li key={c.id}>
+            const turboReady = c.linkStatus === 'verified'
+            return <li key={c.id} className="flex items-stretch gap-2">
               <button
                 type="button"
                 onClick={() => onOpen(c.id)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3 text-left transition-colors hover:border-primary/50"
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3 text-left transition-colors hover:border-primary/50"
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
@@ -420,9 +424,30 @@ function CatalogList({
                   {status.label}
                 </span>
               </button>
+              {turboReady && (
+                <button
+                  type="button"
+                  className="btn-primary shrink-0 self-center text-xs"
+                  onClick={() => setTurboCatalog(c)}
+                  title={`Criar campanhas em massa do catálogo ${c.name}`}
+                >
+                  <Rocket className="size-3.5" aria-hidden="true" />
+                  <span className="hidden sm:inline">Criar campanhas</span>
+                </button>
+              )}
             </li>
           })}
         </ul>
+      )}
+
+      {turboCatalog && (
+        <CatalogQuickCampaignsDialog
+          catalog={turboCatalog}
+          advertiserId={advertiserId}
+          open
+          onClose={() => setTurboCatalog(null)}
+          onCreated={onChanged}
+        />
       )}
     </div>
   )
