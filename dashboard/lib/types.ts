@@ -1397,10 +1397,8 @@ export interface AdsInternalReport {
 export interface AdsReportsResponse { reports: AdsInternalReport[] }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ────────────────────────
-// Gerimos produtos + feed aqui, publicamos um CSV TikTok-ready numa URL pública
-// (Blob) E — com o Business Center configurado — criamos o catálogo real no
-// TikTok, subimos os produtos e consultamos a análise agregada. Product Set,
-// associação ao advertiser e campanha não fazem parte deste fluxo.
+// O módulo gerencia produtos, conexão verificada com o catálogo remoto, jobs de
+// sincronização e a hierarquia completa campanha → conjunto → anúncio.
 export interface AdsCatalogAudit {
   approved: number
   pending: number
@@ -1418,6 +1416,17 @@ export interface AdsCatalog {
   country: string | null
   bcId: string | null
   tiktokCatalogId: string | null
+  linkStatus: 'unlinked' | 'unverified' | 'verified' | 'error'
+  linkVerifiedAt: string | null
+  linkError: string | null
+  remoteSnapshot: {
+    id: string
+    name: string
+    currency: string
+    country: string
+    catalogType: string
+    productCount: number
+  } | null
   syncedAt: string | null
   audit: AdsCatalogAudit | null
   feedUrl: string | null
@@ -1482,6 +1491,7 @@ export interface AdsCatalogSyncResponse {
   // A cadeia do TikTok roda em 2º plano (para não estourar o tempo de borda);
   // quando pending=true, o resultado real aparece no log de publicações.
   pending?: boolean
+  run?: AdsCatalogSyncRun
   catalog: AdsCatalog
   feedUrl: string
   published: number
@@ -1494,11 +1504,63 @@ export interface AdsCatalogCampaignResponse {
   ok?: boolean
   dryRun?: boolean
   simulated?: boolean
+  pending?: boolean
+  run?: AdsCatalogCampaignRun
   name: string
   campaignId?: string
   adGroupId?: string
   adId?: string
   warnings?: string[]
+}
+
+export type AdsCatalogStepState = 'done' | 'active' | 'waiting' | 'blocked'
+
+export interface AdsCatalogReadiness {
+  state: 'draft' | 'needs_review' | 'ready_local' | 'verifying_link' | 'ready_to_sync' | 'processing_tiktok' | 'ready_tiktok' | 'ready_for_campaign' | 'blocked'
+  readyForCampaign: boolean
+  hasUnpublishedChanges: boolean
+  nextAction: 'add_products' | 'fix_products' | 'connect_tiktok' | 'verify_link' | 'sync' | 'refresh_audit' | 'select_advertiser' | 'create_campaign'
+  counts: { total: number; valid: number; invalid: number; approved: number; pending: number; rejected: number }
+  steps: { id: string; label: string; state: AdsCatalogStepState; detail: string }[]
+}
+
+export interface AdsCatalogStructuredError {
+  code: string
+  stage: string
+  message: string
+  userMessage: string
+  retryable: boolean
+  suggestedAction: string | null
+  providerRequestId: string | null
+  createdIds: Record<string, string> | null
+}
+
+export interface AdsCatalogSyncRun {
+  id: string
+  catalogId: string
+  status: 'queued' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  stage: string
+  payload: Record<string, unknown>
+  progress: Record<string, unknown>
+  error: AdsCatalogStructuredError | null
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+}
+
+export interface AdsCatalogCampaignRun {
+  id: string
+  catalogId: string
+  advertiserId: string
+  status: 'queued' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  stage: string
+  spec: Record<string, unknown>
+  createdIds: { campaignId?: string; adGroupId?: string; adId?: string }
+  result: Record<string, unknown> | null
+  error: AdsCatalogStructuredError | null
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
 }
 
 export interface AdsCatalogImportSummary {

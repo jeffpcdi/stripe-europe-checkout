@@ -37,12 +37,20 @@ const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — s
   const catalogStore = require('./ads-catalog-store');
   const catalogFeed = require('./ads-catalog-feed');
   const catalogInspect = require('./ads-catalog-inspect');
+const catalogDomain = require('./catalog/catalog-domain');
+const catalogGateway = require('./catalog/catalog-tiktok-gateway');
 
 // Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
 function fail(res, err) {
   const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
   const out = { error: String(err.message || 'erro inesperado').slice(0, 500) };
   if (err.step) out.step = err.step;
+  if (err.code) out.code = err.code;
+  if (err.userMessage) out.userMessage = err.userMessage;
+  if (err.retryable != null) out.retryable = Boolean(err.retryable);
+  if (err.suggestedAction) out.suggestedAction = err.suggestedAction;
+  if (err.providerRequestId) out.providerRequestId = err.providerRequestId;
+  if (err.createdIds) out.createdIds = err.createdIds;
   res.status(status).json(out);
 }
 
@@ -2251,6 +2259,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     });
   });
 
+  app.get('/api/ads/catalogs/capabilities', dashboardAuth, (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ capabilities: catalogGateway.capabilities(pipeboard) });
+  });
+
   // Business Center usado para os catálogos desta conta. O TikTok prende
   // catálogos ao BC (não ao advertiser) e não há tool para listar BCs — então o
   // usuário informa o ID uma vez (persistido) ou vem do env TIKTOK_BC_ID.
@@ -2299,6 +2312,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  app.get('/api/ads/catalogs/:catalogId/readiness', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const catalog = await catalogStore.getCatalog(req.account.id, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado', code: 'CATALOG_NOT_FOUND' });
+      const products = await catalogStore.listProducts(req.account.id, req.params.catalogId);
+      const advertiserId = String(req.query.adAccountId || '').trim();
+      res.json({ readiness: catalogDomain.computeReadiness(catalog, products, { advertiserId }) });
+    } catch (err) { fail(res, err); }
+  });
+
   // Vínculo MANUAL (fluxo CSV): o usuário criou o catálogo direto no TikTok
   // Catalog Manager (importando o CSV) e cola aqui o Catalog ID do TikTok.
   // Com o vínculo, o catálogo fica elegível para campanhas DPA na criação.
@@ -2314,9 +2338,33 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!/^\d{6,30}$/.test(bcId)) {
         return res.status(422).json({ error: 'Configure o Business Center na aba Catálogo antes de vincular.', code: 'MISSING_BC' });
       }
-      const updated = await catalogStore.linkTikTokCatalog(req.account.id, catalog.id, { tiktokCatalogId, bcId });
+      let remote;
+      try {
+        remote = await catalogGateway.verifyCatalogLink(pipeboard, { catalogId: tiktokCatalogId, bcId });
+      } catch (err) {
+        await catalogStore.markTikTokCatalogLinkError(req.account.id, catalog.id, err.userMessage || err.message).catch(() => {});
+        throw err;
+      }
+      if (remote.currency && catalog.currency && remote.currency !== String(catalog.currency).toUpperCase()) {
+        const mismatch = catalogDomain.catalogError('CATALOG_CURRENCY_MISMATCH', `A moeda do catálogo TikTok (${remote.currency}) não corresponde ao catálogo local (${catalog.currency}).`, {
+          status: 422, retryable: false, suggestedAction: 'Ajuste a moeda do catálogo local ou conecte o catálogo TikTok correto.',
+        });
+        await catalogStore.markTikTokCatalogLinkError(req.account.id, catalog.id, mismatch.userMessage).catch(() => {});
+        throw mismatch;
+      }
+      const updated = await catalogStore.linkTikTokCatalog(req.account.id, catalog.id, {
+        tiktokCatalogId, bcId, verified: true, remoteSnapshot: remote,
+      });
       stats.logEvent('info', { acc: req.account.id, title: 'Catálogo vinculado ao TikTok (manual): ' + catalog.name, ref: tiktokCatalogId });
-      res.json({ ok: true, catalog: updated });
+      res.json({ ok: true, catalog: updated, remote });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.delete('/api/ads/catalogs/:catalogId/link', dashboardAuth, async (req, res) => {
+    try {
+      const catalog = await catalogStore.unlinkTikTokCatalog(req.account.id, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado', code: 'CATALOG_NOT_FOUND' });
+      res.json({ ok: true, catalog });
     } catch (err) { fail(res, err); }
   });
 
@@ -2455,7 +2503,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       // 1) Publica o feed (URL do app, servida do Neon) — também garante que há
       //    produtos válidos.
       const pub = await publishCatalogFeed(accId, catalogId, adsStorage.publicOrigin(req));
-      let catalog = pub.catalog;
+      const catalog = pub.catalog;
 
       // dry-run: o feed foi publicado (leitura segura), mas NADA é criado/enviado
       // ao TikTok. Devolve o catálogo + a URL para o usuário conferir.
@@ -2471,61 +2519,48 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         return res.json({ dryRun: true, simulated: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped, audit: catalog.audit || null });
       }
 
-      // O TikTok (criar catálogo + subir produtos + auditoria) pode passar do
-      // tempo da requisição → 502 de borda do Railway (o "servidor demorou a
-      // responder"). Então RESPONDEMOS JÁ que começou e fazemos a cadeia em
-      // SEGUNDO PLANO, gravando sucesso/erro no log de publicações — a UI
-      // acompanha pelo "Progresso da publicação" + poll, e um erro real do
-      // TikTok/Pipeboard aparece no banner (não mais um timeout opaco).
-      res.json({ ok: true, pending: true, catalog, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped });
-
-      // ── Segundo plano (não bloqueia a resposta; nunca lança para fora) ──────
-      (async () => {
-        try {
-          let cat = catalog;
-          // 2) Cria o catálogo no TikTok se ainda não vinculado (idempotente).
-          if (!cat.tiktokCatalogId) {
-            const created = await pipeboard.createTikTokCatalog(bcId, {
-              name: cat.name, catalogType: cat.catalogType, currency: cat.currency, country: cat.country,
-            });
-            cat = await catalogStore.linkTikTokCatalog(accId, catalogId, { tiktokCatalogId: created.catalogId, bcId });
-          }
-          // 3) Sobe os produtos pela URL pública do feed.
-          await pipeboard.uploadTikTokCatalogProducts(bcId, cat.tiktokCatalogId, pub.feedUrl, 'CSV');
-          // 4) Overview de auditoria (best-effort — upload é assíncrono no TikTok).
-          let audit = null;
-          try {
-            audit = await pipeboard.getTikTokCatalogOverview(bcId, cat.tiktokCatalogId);
-            cat = await catalogStore.setAudit(accId, catalogId, audit);
-          } catch (_) { /* overview é opcional; o vínculo já está gravado */ }
-
-          await adsOps.appendAuditEvent(accId, {
-            actorType: 'user', actorId: accId, action: 'catalog_sync',
-            targetType: 'catalog', targetId: catalogId, advertiserId: null,
-            afterState: { tiktokCatalogId: cat.tiktokCatalogId, bcId, published: pub.published },
-            reason: 'Catálogo publicado no TikTok: ' + (cat.name || catalogId),
-            metadata: { bcId, published: pub.published },
-          }).catch(() => {});
-          await catalogStore.appendPublication(accId, catalogId, {
-            kind: 'tiktok', status: 'success', published: pub.published, skipped: pub.skipped,
-            feedUrl: pub.feedUrl, tiktokCatalogId: cat.tiktokCatalogId, audit,
-          }).catch(() => {});
-          stats.logEvent('info', { acc: accId, title: 'Catálogo publicado no TikTok: ' + (cat.name || catalogId) + ' (' + pub.published + ' produtos)', ref: catalogId });
-        } catch (err) {
-          // Grava o motivo REAL do TikTok/Pipeboard (err.message = "TikTok/Pipeboard: …")
-          // no log de publicações → a UI mostra no banner, sem timeout opaco.
-          const reason = String(err && err.message ? err.message : 'erro').slice(0, 300);
-          await catalogStore.appendPublication(accId, catalogId, {
-            kind: 'tiktok', status: 'error', published: 0, skipped: 0, feedUrl: pub.feedUrl, error: reason,
-          }).catch(() => {});
-          stats.logEvent('warn', { acc: accId, title: '[catálogo] Falha ao publicar no TikTok: ' + reason, ref: catalogId });
-        }
-      })();
+      // V2: a publicação deixa de viver numa Promise solta dentro da request.
+      // O worker durável lê este run no Neon e pode retomá-lo após restart.
+      const requestedKey = String(req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '').trim();
+      const idempotencyKey = requestedKey || ['catalog-sync', accId, catalogId, catalog.updatedAt || Date.now()].join(':');
+      const run = await catalogStore.createSyncRun(accId, catalogId, {
+        idempotencyKey,
+        payload: { bcId, feedUrl: pub.feedUrl, published: pub.published, skipped: pub.skipped },
+        progress: { published: 0, skipped: pub.skipped },
+      });
+      return res.status(202).json({
+        ok: true, pending: true, run, catalog, feedUrl: pub.feedUrl,
+        published: pub.published, skipped: pub.skipped,
+      });
     } catch (err) {
-      // Só cai aqui a falha do FEED (rápida, antes de responder). O TikTok em si
-      // roda em 2º plano e registra o erro no log de publicações.
       fail(res, err);
     }
+  });
+
+  app.get('/api/ads/catalogs/:catalogId/sync-runs', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const runs = await catalogStore.listSyncRuns(req.account.id, req.params.catalogId, req.query.limit);
+      res.json({ runs });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/catalog-sync-runs/:runId', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const run = await catalogStore.getSyncRun(req.account.id, req.params.runId);
+      if (!run) return res.status(404).json({ error: 'Publicação não encontrada', code: 'CATALOG_SYNC_RUN_NOT_FOUND' });
+      res.json({ run });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/catalog-sync-runs/:runId/resume', dashboardAuth, async (req, res) => {
+    try {
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const run = await catalogStore.resumeSyncRun(req.account.id, req.params.runId);
+      if (!run) return res.status(409).json({ error: 'Esta sincronização não pode ser retomada', code: 'CATALOG_SYNC_NOT_RESUMABLE' });
+      res.json({ ok: true, run });
+    } catch (err) { fail(res, err); }
   });
 
   // Reconsulta só o overview de auditoria de um catálogo já publicado no TikTok.
@@ -2544,59 +2579,102 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Lançar campanha de catálogo (DPA / Catalog Listing Ads) ───────────────
-  // Fecha o loop do catálogo: cria a campanha PRODUCT_SALES a partir do catálogo
-  // já sincronizado, sem entrar no Ads Manager. Nasce PAUSADA; respeita kill
-  // switch e dry-run como toda escrita.
-  app.post('/api/ads/catalogs/:catalogId/campaign', dashboardAuth, async (req, res) => {
+  async function prepareCatalogCampaign(req) {
+    if (!pipeboard.enabled) throw catalogDomain.catalogError('PIPEBOARD_DISABLED', 'Pipeboard não configurado no servidor.', { status: 409 });
+    const accId = req.account.id;
+    const catalog = await catalogStore.getCatalog(accId, req.params.catalogId);
+    if (!catalog) throw catalogDomain.catalogError('CATALOG_NOT_FOUND', 'Catálogo não encontrado.', { status: 404, retryable: false });
+    if (!catalog.tiktokCatalogId || !catalog.bcId || catalog.linkStatus !== 'verified') {
+      throw catalogDomain.catalogError('CATALOG_LINK_NOT_VERIFIED', 'Conecte e verifique o catálogo TikTok antes de criar a campanha.', {
+        status: 422, retryable: false, suggestedAction: 'Abra Conexão TikTok e verifique o Catalog ID e o Business Center.',
+      });
+    }
+    const advertiserId = await resolveAdvForSmartPlus(req, String(req.body && req.body.adAccountId || '').trim() || null);
+    const products = await catalogStore.listProducts(accId, catalog.id);
+    const readiness = catalogDomain.computeReadiness(catalog, products, { advertiserId });
+    if (!readiness.readyForCampaign) {
+      throw catalogDomain.catalogError('CATALOG_NOT_READY', 'O catálogo ainda não está pronto para criar campanhas.', {
+        status: 422, retryable: false, suggestedAction: 'Conclua a etapa indicada no checklist de prontidão.',
+      });
+    }
+    const normalized = catalogDomain.normalizeCampaignSpec(req.body || {}, catalog);
+    return {
+      accId, catalog, advertiserId, readiness,
+      spec: { ...normalized, catalogId: catalog.tiktokCatalogId, bcId: catalog.bcId },
+    };
+  }
+
+  app.post('/api/ads/catalogs/:catalogId/campaign-preflight', dashboardAuth, async (req, res) => {
     try {
-      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
-      const accId = req.account.id;
-      const catalog = await catalogStore.getCatalog(accId, req.params.catalogId);
-      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
-      if (!catalog.tiktokCatalogId || !catalog.bcId) {
-        return res.status(422).json({ error: 'Publique o catálogo no TikTok antes de criar a campanha (aba Catálogo → Publicar no TikTok).', code: 'NOT_SYNCED' });
-      }
-      if (await killSwitchActive(accId)) return res.status(423).json(KILL_SWITCH_BODY);
+      const prepared = await prepareCatalogCampaign(req);
+      res.json({ ok: true, readiness: prepared.readiness, spec: prepared.spec, capabilities: catalogGateway.capabilities(pipeboard) });
+    } catch (err) { fail(res, err); }
+  });
 
-      const b = req.body || {};
-      const name = String(b.name || catalog.name || 'Catálogo').trim().slice(0, 120);
-      const budgetAmount = Number(b.budgetAmount);
-      if (!(budgetAmount > 0)) return res.status(400).json({ error: 'Informe um orçamento maior que zero' });
-      const budgetType = b.budgetType === 'lifetime' ? 'lifetime' : 'daily';
-      if (budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) {
-        return res.status(400).json({ error: 'Orçamento total exige data de término (endDate)' });
-      }
-      const country = /^[A-Z]{2}$/.test(String(b.country || '').toUpperCase()) ? String(b.country).toUpperCase() : (catalog.country || 'BR');
-      const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
-      const spec = {
-        catalogId: catalog.tiktokCatalogId, bcId: catalog.bcId, name,
-        budgetAmount, budgetType, endDate: b.endDate, country,
-        budgetOptimization: b.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup',
-        bidStrategy: b.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost',
-        bidAmount: Number(b.bidAmount) || undefined,
-      };
-
-      if (await isDryRun(accId)) {
-        await auditSimulated(accId, {
-          action: 'catalog_campaign', targetType: 'catalog', targetId: catalog.id, advertiserId,
-          metadata: { name, budgetAmount, budgetType, country, catalogId: catalog.tiktokCatalogId },
-          title: 'Criar campanha de catálogo: ' + name,
+  async function enqueueCatalogCampaign(req, res) {
+    try {
+      const prepared = await prepareCatalogCampaign(req);
+      if (await killSwitchActive(prepared.accId)) return res.status(423).json(KILL_SWITCH_BODY);
+      if (await isDryRun(prepared.accId)) {
+        await auditSimulated(prepared.accId, {
+          action: 'catalog_campaign', targetType: 'catalog', targetId: prepared.catalog.id, advertiserId: prepared.advertiserId,
+          metadata: prepared.spec, title: 'Criar campanha de catálogo: ' + prepared.spec.name,
         });
-        return res.json({ dryRun: true, simulated: true, name });
+        return res.json({ dryRun: true, simulated: true, name: prepared.spec.name });
       }
+      const requestedKey = String(req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '').trim();
+      const key = requestedKey || ['catalog-campaign', prepared.accId, prepared.catalog.id, prepared.spec.name].join(':');
+      const run = await catalogStore.createCampaignRun(prepared.accId, prepared.catalog.id, {
+        advertiserId: prepared.advertiserId, idempotencyKey: key, spec: prepared.spec,
+      });
+      res.status(202).json({ ok: true, pending: true, run });
+    } catch (err) { fail(res, err); }
+  }
 
-      const result = await pipeboard.createCatalogCampaign(advertiserId, spec);
-      await adsOps.appendAuditEvent(accId, {
-        actorType: 'user', actorId: accId, action: 'catalog_campaign',
-        targetType: 'campaign', targetId: result.campaignId || null, advertiserId,
-        afterState: { campaignId: result.campaignId, catalogId: catalog.tiktokCatalogId },
-        reason: 'Campanha de catálogo criada (PAUSADA): ' + name,
-        metadata: { catalogId: catalog.tiktokCatalogId, budgetAmount, budgetType },
-      }).catch(() => {});
-      stats.logEvent('info', { acc: accId, title: 'Campanha de catálogo criada (PAUSADA): ' + name, ref: result.campaignId });
-      adsSync.syncAfterWrite(accId, advertiserId);
-      res.json({ ok: true, ...result });
+  // Compatibilidade: o launcher antigo passa a usar o mesmo job durável.
+  app.post('/api/ads/catalogs/:catalogId/campaign', dashboardAuth, enqueueCatalogCampaign);
+  app.post('/api/ads/catalogs/:catalogId/campaign-runs', dashboardAuth, enqueueCatalogCampaign);
+
+  app.get('/api/ads/catalogs/:catalogId/campaign-runs', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try { res.json({ runs: await catalogStore.listCampaignRuns(req.account.id, req.params.catalogId, req.query.limit) }); }
+    catch (err) { fail(res, err); }
+  });
+
+  app.get('/api/ads/catalog-campaign-runs/:runId', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const run = await catalogStore.getCampaignRun(req.account.id, req.params.runId);
+      if (!run) return res.status(404).json({ error: 'Criação não encontrada', code: 'CATALOG_CAMPAIGN_RUN_NOT_FOUND' });
+      res.json({ run });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/catalog-campaign-runs/:runId/resume', dashboardAuth, async (req, res) => {
+    try {
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const run = await catalogStore.resumeCampaignRun(req.account.id, req.params.runId);
+      if (!run) return res.status(409).json({ error: 'Esta criação não pode ser retomada', code: 'CATALOG_CAMPAIGN_NOT_RESUMABLE' });
+      res.json({ ok: true, run });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/catalog-campaign-runs/:runId/cleanup', dashboardAuth, async (req, res) => {
+    try {
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const run = await catalogStore.getCampaignRun(req.account.id, req.params.runId);
+      if (!run) return res.status(404).json({ error: 'Criação não encontrada', code: 'CATALOG_CAMPAIGN_RUN_NOT_FOUND' });
+      if (!['partial', 'failed'].includes(run.status)) {
+        return res.status(409).json({ error: 'Somente criações parciais ou com falha podem ser limpas', code: 'CATALOG_CAMPAIGN_NOT_CLEANABLE' });
+      }
+      if (!run.createdIds || !run.createdIds.campaignId) return res.status(422).json({ error: 'A criação não possui campanha parcial para limpar', code: 'NO_PARTIAL_CAMPAIGN' });
+      if (!(await isDryRun(req.account.id))) {
+        await pipeboard.setCampaignStatus(run.advertiserId, [run.createdIds.campaignId], 'deleted');
+      }
+      const updated = await catalogStore.updateCampaignRun(req.account.id, run.id, 'cancelled', {
+        stage: 'cancelled', result: { cleanedCampaignId: run.createdIds.campaignId },
+      });
+      res.json({ ok: true, run: updated });
     } catch (err) { fail(res, err); }
   });
 

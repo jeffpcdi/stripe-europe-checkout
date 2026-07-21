@@ -1,0 +1,170 @@
+'use strict';
+
+const CAMPAIGN_STAGES = Object.freeze([
+  'queued', 'validating', 'creating_campaign', 'creating_adgroup', 'creating_ad',
+  'verifying_entities', 'ready_paused', 'partial', 'failed', 'cancelled',
+]);
+
+function catalogError(code, userMessage, options) {
+  const opts = options || {};
+  const err = new Error(opts.message || userMessage);
+  err.code = String(code || 'CATALOG_ERROR');
+  err.status = Number(opts.status) || 400;
+  err.step = opts.stage || null;
+  err.userMessage = String(userMessage || 'Não foi possível concluir a operação.');
+  err.retryable = opts.retryable === true;
+  err.suggestedAction = opts.suggestedAction || null;
+  err.providerRequestId = opts.providerRequestId || null;
+  err.createdIds = opts.createdIds || null;
+  return err;
+}
+
+function serializeCatalogError(err, fallbackStage) {
+  const value = err || {};
+  const stage = value.step || fallbackStage || 'failed';
+  return {
+    code: String(value.code || ('CATALOG_' + String(stage).toUpperCase() + '_FAILED')).slice(0, 120),
+    stage,
+    message: String(value.message || 'erro inesperado').slice(0, 500),
+    userMessage: String(value.userMessage || humanizeStage(stage)).slice(0, 500),
+    retryable: value.retryable !== false,
+    suggestedAction: value.suggestedAction || suggestedAction(stage),
+    providerRequestId: value.providerRequestId || null,
+    createdIds: value.createdIds || null,
+  };
+}
+
+function humanizeStage(stage) {
+  if (stage === 'campaign') return 'A campanha não pôde ser criada no TikTok.';
+  if (stage === 'adgroup') return 'A campanha foi criada, mas o TikTok recusou o conjunto de anúncios.';
+  if (stage === 'ad') return 'A campanha e o conjunto foram criados, mas o TikTok recusou o anúncio.';
+  if (stage === 'verify') return 'A estrutura foi criada, mas não foi possível confirmá-la no TikTok.';
+  return 'Não foi possível concluir a operação de catálogo.';
+}
+
+function suggestedAction(stage) {
+  if (stage === 'adgroup') return 'Revise catálogo, Business Center, pixel, evento e o tipo de Catalog Ads antes de retomar.';
+  if (stage === 'ad') return 'Revise produto, identidade, template de vídeo, texto e CTA antes de retomar.';
+  if (stage === 'verify') return 'Atualize a conexão e tente verificar novamente.';
+  return 'Revise os campos destacados e tente novamente.';
+}
+
+function step(id, label, state, detail) {
+  return { id, label, state, detail: detail || '' };
+}
+
+function computeReadiness(catalog, products, context) {
+  const cat = catalog || {};
+  const rows = Array.isArray(products) ? products : [];
+  const ctx = context || {};
+  const validCount = rows.filter((p) => p && p.valid).length;
+  const invalidCount = Math.max(0, rows.length - validCount);
+  const audit = cat.audit || null;
+  const approved = Number(audit && audit.approved) || 0;
+  const pending = Number(audit && audit.pending) || 0;
+  const rejected = Number(audit && audit.rejected) || 0;
+  const linked = Boolean(cat.tiktokCatalogId && cat.bcId);
+  const verified = linked && cat.linkStatus === 'verified';
+  const advertiserReady = Boolean(ctx.advertiserId);
+  const syncedAt = cat.syncedAt ? new Date(cat.syncedAt).getTime() : 0;
+  const catalogUpdatedAt = cat.updatedAt ? new Date(cat.updatedAt).getTime() : 0;
+  const hasUnpublishedChanges = verified && ((!syncedAt || catalogUpdatedAt > syncedAt) || rows.some((product) => {
+    const updatedAt = product && product.updatedAt ? new Date(product.updatedAt).getTime() : 0;
+    return !syncedAt || updatedAt > syncedAt;
+  }));
+
+  const steps = [
+    step('products', 'Produtos', validCount > 0 ? 'done' : rows.length ? 'blocked' : 'waiting',
+      validCount > 0 ? `${validCount} produto(s) válido(s)` : rows.length ? `${invalidCount} produto(s) precisam de correção` : 'Importe o primeiro produto'),
+    step('link', 'Catálogo TikTok', verified ? 'done' : cat.linkStatus === 'error' ? 'blocked' : linked ? 'active' : 'waiting',
+      verified ? `ID ${cat.tiktokCatalogId} verificado` : cat.linkError || (linked ? 'Vínculo ainda não verificado' : 'Conecte um catálogo existente')),
+    step('review', 'Análise do TikTok', hasUnpublishedChanges ? 'active' : approved > 0 ? 'done' : pending > 0 ? 'active' : 'waiting',
+      hasUnpublishedChanges ? 'Há alterações locais ainda não sincronizadas' : approved > 0 ? `${approved} aprovado(s)` : pending > 0 ? `${pending} em análise` : rejected > 0 ? `${rejected} rejeitado(s)` : 'Aguardando sincronização'),
+    step('advertiser', 'Conta de anúncio', advertiserReady ? 'done' : 'waiting',
+      advertiserReady ? `Advertiser ${ctx.advertiserId}` : 'Selecione a conta que criará a campanha'),
+  ];
+
+  let state = 'draft';
+  let nextAction = 'add_products';
+  if (!rows.length) { state = 'draft'; nextAction = 'add_products'; }
+  else if (!validCount) { state = 'needs_review'; nextAction = 'fix_products'; }
+  else if (validCount && !linked) { state = 'ready_local'; nextAction = 'connect_tiktok'; }
+  else if (linked && !verified) { state = cat.linkStatus === 'error' ? 'blocked' : 'verifying_link'; nextAction = 'verify_link'; }
+  else if (verified && (hasUnpublishedChanges || (!audit && !syncedAt))) { state = 'ready_to_sync'; nextAction = 'sync'; }
+  else if (verified && !audit) { state = 'processing_tiktok'; nextAction = 'refresh_audit'; }
+  else if (verified && pending > 0) { state = 'processing_tiktok'; nextAction = 'refresh_audit'; }
+  else if (verified && approved <= 0) { state = 'blocked'; nextAction = rejected > 0 ? 'fix_products' : 'sync'; }
+  else if (!advertiserReady) { state = 'ready_tiktok'; nextAction = 'select_advertiser'; }
+  else { state = 'ready_for_campaign'; nextAction = 'create_campaign'; }
+
+  return {
+    state,
+    readyForCampaign: state === 'ready_for_campaign',
+    nextAction,
+    counts: { total: rows.length, valid: validCount, invalid: invalidCount, approved, pending, rejected },
+    hasUnpublishedChanges,
+    steps,
+  };
+}
+
+function normalizeCampaignSpec(input, catalog) {
+  const value = input || {};
+  const cat = catalog || {};
+  const name = String(value.name || cat.name || 'Catálogo').trim().slice(0, 120);
+  const budgetAmount = Number(value.budgetAmount);
+  if (!name) throw catalogError('CATALOG_CAMPAIGN_NAME_REQUIRED', 'Informe o nome da campanha.');
+  if (!(budgetAmount > 0)) throw catalogError('CATALOG_CAMPAIGN_BUDGET_INVALID', 'Informe um orçamento maior que zero.');
+  const budgetType = value.budgetType === 'lifetime' ? 'lifetime' : 'daily';
+  if (budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(value.endDate || ''))) {
+    throw catalogError('CATALOG_CAMPAIGN_END_DATE_REQUIRED', 'Orçamento total exige data de término.');
+  }
+  const productScope = ['all', 'product_set', 'specific'].includes(value.productScope) ? value.productScope : 'all';
+  const productIds = Array.isArray(value.productIds)
+    ? value.productIds.map((v) => String(v || '').trim()).filter(Boolean).slice(0, 20) : [];
+  if (productScope === 'specific' && !productIds.length) {
+    throw catalogError('CATALOG_PRODUCTS_REQUIRED', 'Selecione ao menos um produto para o anúncio.');
+  }
+  if (productScope === 'specific' && productIds.some((productId) => !/^\d{6,30}$/.test(productId))) {
+    throw catalogError('CATALOG_PRODUCT_ID_INVALID', 'Os Product IDs devem ser os IDs numéricos exibidos no TikTok Catalog Manager.');
+  }
+  const productSetId = String(value.productSetId || '').trim();
+  if (productScope === 'product_set' && !productSetId) {
+    throw catalogError('CATALOG_PRODUCT_SET_REQUIRED', 'Informe o conjunto de produtos do TikTok.');
+  }
+  if (productScope === 'product_set' && !/^\d{6,30}$/.test(productSetId)) {
+    throw catalogError('CATALOG_PRODUCT_SET_INVALID', 'Informe um Product Set ID numérico válido do TikTok.');
+  }
+  const catalogVideoTemplateId = String(value.catalogVideoTemplateId || '').trim();
+  if (!catalogVideoTemplateId) {
+    throw catalogError('CATALOG_VIDEO_TEMPLATE_REQUIRED', 'Informe o Catalog Video Template ID aprovado no TikTok.');
+  }
+  const identityType = String(value.identityType || '').trim().toUpperCase();
+  const identityId = String(value.identityId || '').trim();
+  if ((identityId && !identityType) || (!identityId && identityType)) {
+    throw catalogError('CATALOG_IDENTITY_INCOMPLETE', 'Informe a identidade e o tipo de identidade juntos.');
+  }
+  return {
+    name, budgetAmount, budgetType, endDate: value.endDate || undefined,
+    budgetOptimization: value.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup',
+    bidStrategy: value.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost',
+    bidAmount: Number(value.bidAmount) || undefined,
+    country: String(value.country || cat.country || 'BR').trim().toUpperCase(),
+    productScope, productIds, productSetId: productSetId || undefined,
+    catalogVideoTemplateId,
+    identityId: identityId || undefined, identityType: identityType || undefined,
+    identityBcId: String(value.identityBcId || '').trim() || undefined,
+    pixelId: String(value.pixelId || '').trim() || undefined,
+    pixelEvent: String(value.pixelEvent || '').trim() || undefined,
+    text: String(value.text || '').trim().slice(0, 100) || undefined,
+    callToAction: String(value.callToAction || 'LEARN_MORE').trim().toUpperCase(),
+    destination: 'PRODUCT_LINK', creativeMode: 'CATALOG_VIDEO', status: 'paused',
+  };
+}
+
+module.exports = {
+  CAMPAIGN_STAGES,
+  catalogError,
+  serializeCatalogError,
+  computeReadiness,
+  normalizeCampaignSpec,
+};

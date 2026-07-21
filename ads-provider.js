@@ -249,9 +249,11 @@ function mapAd(a) {
   };
 }
 
-async function getCampaigns(advertiserId, { pageSize = 100 } = {}) {
+async function getCampaigns(advertiserId, { pageSize = 100, campaignIds } = {}) {
   const id = String(advertiserId);
-  const out = await pipeboard.callTool('get_tiktok_campaigns', { advertiser_id: id, page: 1, page_size: pageSize });
+  const args = { advertiser_id: id, page: 1, page_size: pageSize };
+  if (Array.isArray(campaignIds) && campaignIds.length) args.campaign_ids = campaignIds.map(String);
+  const out = await pipeboard.callTool('get_tiktok_campaigns', args);
   return (out.campaigns || []).map(mapCampaign);
 }
 async function getAdGroups(advertiserId, campaignIds, { pageSize = 500 } = {}) {
@@ -1842,12 +1844,14 @@ async function createSmartPlusCampaign(advertiserId, spec) {
 // create_tiktok_campaign/adgroup/ad com os campos de catálogo. Se a API recusar
 // algum campo, o erro carrega o passo + createdIds e o parcial fica pausado.
 //
-// spec: { catalogId, bcId, name, budgetAmount, budgetType?, endDate?, country?,
-//         budgetOptimization?, bidStrategy?, bidAmount? }
-async function createCatalogCampaign(advertiserId, spec) {
+// spec V2: inclui o escopo de produtos, identidade, pixel e template que o
+// fluxo funcional do Ads Manager exige. `opts.resume` + `opts.onProgress`
+// tornam a composição retomável por um worker durável.
+async function createCatalogCampaign(advertiserId, spec, opts) {
   const adv = String(advertiserId || '').trim();
   if (!adv) throw badRequest('advertiserId é obrigatório');
   const s = spec || {};
+  const options = opts || {};
   const catalogId = String(s.catalogId || '').trim();
   if (!catalogId) throw badRequest('catalogId (do TikTok) é obrigatório — sincronize o catálogo primeiro');
   const bcId = String(s.bcId || '').trim();
@@ -1860,16 +1864,27 @@ async function createCatalogCampaign(advertiserId, spec) {
   }
 
   const countries = (Array.isArray(s.countries) && s.countries.length ? s.countries : (s.country ? [s.country] : ['BR']));
-  const SHOPPING_TYPE = 'CATALOG_LISTING_ADS';
+  // O export que funciona no Ads Manager identifica o conjunto como Video
+  // Shopping Ads e o anúncio como Catalog video. Os overrides permitem ajustar
+  // o enum sem release caso o schema do Pipeboard mude novamente.
+  const SHOPPING_TYPE = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'VIDEO_SHOPPING_ADS').trim();
+  const AD_FORMAT = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_VIDEO').trim();
+  const explicitIdentity = s.identityId && s.identityType ? {
+    identityId: String(s.identityId), identityType: String(s.identityType).toUpperCase(),
+    identityBcId: s.identityBcId ? String(s.identityBcId) : undefined,
+  } : null;
   const [info, identity, regions] = await Promise.all([
     getAdvertiserInfo(adv),
-    pickAdIdentity(adv).catch(() => null), // DPA pode gerar sem identidade em algumas contas
+    explicitIdentity || pickAdIdentity(adv).catch(() => null),
     resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
   ]);
   const warnings = [];
   if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
   const plan = resolveBudgetPlan(s);
-  const createdIds = {};
+  const createdIds = { ...((options && options.resume) || {}) };
+  const report = async (stage) => {
+    if (typeof options.onProgress === 'function') await options.onProgress({ stage, createdIds: { ...createdIds } });
+  };
 
   // 1) Campanha PRODUCT_SALES (catálogo)
   const campArgs = {
@@ -1885,13 +1900,19 @@ async function createCatalogCampaign(advertiserId, spec) {
     campArgs.budget = plan.campaign.budget;
     campArgs.budget_optimize_on = true;
   }
-  const campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
-  const campaignId = String(deepPluck(campOut, 'campaign_id') || '');
-  if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
-  createdIds.campaignId = campaignId;
-
+  let campaignId = String(createdIds.campaignId || '');
   try {
-    // 2) Ad group — fonte = catálogo, todos os produtos
+    await report('creating_campaign');
+    if (!campaignId) {
+      const campOut = await pipeboard.callTool('create_tiktok_campaign', campArgs);
+      campaignId = String(deepPluck(campOut, 'campaign_id') || '');
+      if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
+      createdIds.campaignId = campaignId;
+      await report('creating_adgroup');
+    }
+
+    // 2) Ad group — fonte = catálogo. O pixel é um identificador opaco: alguns
+    // exports usam código alfanumérico, portanto não aplicamos regex numérica.
     const agArgs = {
       advertiser_id: adv,
       campaign_id: campaignId,
@@ -1906,41 +1927,88 @@ async function createCatalogCampaign(advertiserId, spec) {
       targeting: { location_ids: regions.locationIds },
       operation_status: 'DISABLE',
     };
+    if (s.pixelId) agArgs.pixel_id = String(s.pixelId);
+    if (s.pixelEvent) agArgs.optimization_event = String(s.pixelEvent);
     if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
     if (plan.adgroup.budget != null) agArgs.budget = plan.adgroup.budget;
     Object.assign(agArgs, plan.bid);
     if (s.budgetType === 'lifetime' && s.endDate) agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
-    const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
-    const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
-    if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id (verifique se a conta tem catálogo autorizado no BC)', createdIds);
-    createdIds.adGroupId = adGroupId;
+    await report('creating_adgroup');
+    if (!createdIds.adGroupId) {
+      const agOut = await pipeboard.callTool('create_tiktok_adgroup', agArgs);
+      const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+      if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id (verifique catálogo, BC, pixel e tipo de Shopping Ads)', createdIds);
+      createdIds.adGroupId = adGroupId;
+      await report('creating_ad');
+    }
+    const adGroupId = createdIds.adGroupId;
 
-    // 3) Anúncio DPA — criativo gerado do catálogo (sem vídeo). PAUSED.
+    // 3) Anúncio de catálogo. Produto/template/identidade são parte do contrato,
+    // em vez de depender de defaults invisíveis do Ads Manager.
     const adArgs = {
       advertiser_id: adv,
       adgroup_id: adGroupId,
       ad_name: String(s.name).slice(0, 500),
-      ad_format: 'CATALOG_CAROUSEL',
+      ad_format: AD_FORMAT,
       catalog_id: catalogId,
+      website_type: 'PRODUCT_LINK',
+      destination_page_type: 'WEBSITE',
       status: 'PAUSED',
     };
+    const productScope = ['all', 'product_set', 'specific'].includes(s.productScope) ? s.productScope : 'all';
+    adArgs.products_type = productScope === 'specific' ? 'SPECIFIC_PRODUCTS' : productScope === 'product_set' ? 'PRODUCT_SET' : 'ALL_PRODUCTS';
+    if (productScope === 'specific') adArgs.product_ids = (Array.isArray(s.productIds) ? s.productIds : []).map(String).filter(Boolean).slice(0, 20);
+    if (productScope === 'product_set' && s.productSetId) adArgs.product_set_id = String(s.productSetId);
+    if (s.catalogVideoTemplateId) adArgs.catalog_video_template_id = String(s.catalogVideoTemplateId);
+    if (s.text) adArgs.ad_text = String(s.text).slice(0, 100);
+    if (s.callToAction) adArgs.call_to_action = String(s.callToAction).toUpperCase();
     if (identity && identity.identityId) {
       adArgs.identity_id = identity.identityId;
       adArgs.identity_type = identity.identityType;
       if (identity.identityBcId) adArgs.identity_bc_id = identity.identityBcId;
+      if (identity.identityType === 'BC_AUTH_TT') adArgs.dark_post_status = 'ON';
     }
-    const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
-    const adId = String(deepPluck(adOut, 'ad_id') || '');
-    if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id para o anúncio de catálogo', createdIds);
-    createdIds.adId = adId;
+    await report('creating_ad');
+    if (!createdIds.adId) {
+      const adOut = await pipeboard.callTool('create_tiktok_ad', adArgs);
+      const adId = String(deepPluck(adOut, 'ad_id') || '');
+      if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id para o anúncio de catálogo', createdIds);
+      createdIds.adId = adId;
+    }
+
+    // Não declaramos sucesso com apenas um campaign_id. A leitura imediata
+    // pode ter atraso eventual; tentamos três vezes antes de sinalizar verify.
+    await report('verifying_entities');
+    let verified = false;
+    for (let attempt = 0; attempt < 3 && !verified; attempt += 1) {
+      try {
+        const [campaigns, adGroups, ads] = await Promise.all([
+          getCampaigns(adv, { pageSize: 100, campaignIds: [campaignId] }),
+          getAdGroups(adv, [campaignId], { pageSize: 100 }),
+          getAds(adv, { campaignIds: [campaignId], adgroupIds: [adGroupId], pageSize: 100 }),
+        ]);
+        verified = campaigns.some((item) => String(item.id) === String(campaignId))
+          && adGroups.some((item) => String(item.id) === String(adGroupId))
+          && ads.some((item) => String(item.id) === String(createdIds.adId));
+      } catch (_) { /* consistência eventual / leitura best-effort */ }
+      if (!verified && attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+    if (!verified) {
+      const err = stepError('verify', 'Os IDs foram criados, mas a hierarquia completa ainda não apareceu na leitura do TikTok', createdIds, 502);
+      err.retryable = true;
+      throw err;
+    }
 
     warnings.push('Campanha de catálogo criada em PAUSA — ative em Campanhas quando estiver pronta');
     cacheBust('tree:');
+    await report('ready_paused');
     return { ...createdIds, name: s.name, warnings };
   } catch (err) {
     // Órfã não pode ficar entregável: pausa best-effort e devolve o passo.
-    try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
-    if (!err.step) err.step = 'adgroup';
+    if (campaignId) {
+      try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    }
+    if (!err.step) err.step = campaignId ? 'adgroup' : 'campaign';
     err.createdIds = createdIds;
     throw err;
   }

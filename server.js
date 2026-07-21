@@ -5130,6 +5130,15 @@ stats.hydrate()
   .then(() => require('./ads-catalog-store').ensureSchema().catch((e) => {
     console.warn('[ads-catalog] ensureSchema falhou:', e.message);
   }))
+  // V2 Catálogo: recupera runs interrompidos e liga workers duráveis de
+  // publicação e criação de campanha. Cada etapa/ID parcial fica no Neon.
+  .then(() => require('./ads-catalog-store').recoverCatalogRuns().catch((e) => {
+    console.warn('[ads-catalog] recuperação de runs falhou:', e.message);
+  }))
+  .then(() => {
+    try { require('./catalog/catalog-sync-worker').start(); } catch (e) { console.warn('[catalog-sync-worker] start falhou:', e.message); }
+    try { require('./catalog/catalog-campaign-worker').start(); } catch (e) { console.warn('[catalog-campaign-worker] start falhou:', e.message); }
+  })
   // Espelho durável do Pipeboard (ads_campaigns_cache / _metrics_cache /
   // _sync_state). A dashboard lê daqui; o motor de sync escreve aqui.
   .then(() => require('./ads-cache-store').ensureSchema().catch((e) => {

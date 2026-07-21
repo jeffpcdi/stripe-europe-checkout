@@ -61,11 +61,19 @@ export class ApiError extends Error {
   status: number
   code?: string
   hint?: string
-  constructor(status: number, message: string, opts?: { code?: string; hint?: string }) {
+  stage?: string
+  retryable?: boolean
+  providerRequestId?: string
+  createdIds?: Record<string, string>
+  constructor(status: number, message: string, opts?: { code?: string; hint?: string; stage?: string; retryable?: boolean; providerRequestId?: string; createdIds?: Record<string, string> }) {
     super(message)
     this.status = status
     this.code = opts?.code
     this.hint = opts?.hint
+    this.stage = opts?.stage
+    this.retryable = opts?.retryable
+    this.providerRequestId = opts?.providerRequestId
+    this.createdIds = opts?.createdIds
   }
   // Mensagem pronta para exibir: prioriza a orientação (hint) quando existe.
   get display(): string {
@@ -78,9 +86,9 @@ export class ApiError extends Error {
 // timeout/crash), `d.error` vem vazio — em vez de um "Falha na API (502)" cru,
 // damos uma mensagem e um hint acionáveis por status.
 function parseApiError(status: number, data: unknown): ApiError {
-  const d = (data ?? {}) as { error?: string; message?: string; code?: string; hint?: string }
-  const bodyMsg = d.error || d.message || ''
-  let hint = d.hint
+  const d = (data ?? {}) as { error?: string; message?: string; userMessage?: string; code?: string; hint?: string; suggestedAction?: string; step?: string; stage?: string; retryable?: boolean; providerRequestId?: string; createdIds?: Record<string, string> }
+  const bodyMsg = d.userMessage || d.error || d.message || ''
+  let hint = d.suggestedAction || d.hint
   let msg = bodyMsg
   if (!msg) {
     if (status === 502 || status === 503 || status === 504) {
@@ -93,7 +101,10 @@ function parseApiError(status: number, data: unknown): ApiError {
       msg = `Falha na requisição (${status})`
     }
   }
-  return new ApiError(status, msg, { code: d.code, hint })
+  return new ApiError(status, msg, {
+    code: d.code, hint, stage: d.stage || d.step, retryable: d.retryable,
+    providerRequestId: d.providerRequestId, createdIds: d.createdIds,
+  })
 }
 
 // Sessão expirada (cookie presente mas inválido no Express) → login
@@ -663,6 +674,45 @@ export function useAdsCatalogPublications(catalogId: string | null) {
   )
 }
 
+export function useAdsCatalogReadiness(catalogId: string | null, adAccountId?: string) {
+  const qs = adAccountId ? `?adAccountId=${encodeURIComponent(adAccountId)}` : ''
+  return useSWR<{ readiness: import('./types').AdsCatalogReadiness }>(
+    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}/readiness${qs}` : null,
+    fetcher,
+    { revalidateOnFocus: true, keepPreviousData: true },
+  )
+}
+
+export function useAdsCatalogCapabilities(active: boolean) {
+  return useSWR<{ capabilities: Record<string, boolean | string> }>(
+    active ? '/api/ads/catalogs/capabilities' : null,
+    fetcher,
+    { revalidateOnFocus: false, revalidateIfStale: false },
+  )
+}
+
+export function useAdsCatalogSyncRuns(catalogId: string | null) {
+  return useSWR<{ runs: import('./types').AdsCatalogSyncRun[] }>(
+    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-runs` : null,
+    fetcher,
+    {
+      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
+      revalidateOnFocus: true, keepPreviousData: true,
+    },
+  )
+}
+
+export function useAdsCatalogCampaignRuns(catalogId: string | null) {
+  return useSWR<{ runs: import('./types').AdsCatalogCampaignRun[] }>(
+    catalogId ? `/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-runs` : null,
+    fetcher,
+    {
+      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
+      revalidateOnFocus: true, keepPreviousData: true,
+    },
+  )
+}
+
 // Spec das colunas/campos — estável; carrega uma vez enquanto o dialog abre.
 export function useAdsCatalogSpec(active: boolean) {
   return useSWR<AdsCatalogSpecResponse>(active ? '/api/ads/catalogs/spec' : null, fetcher, {
@@ -696,6 +746,17 @@ export async function adsCreateCatalogCampaign(
 ): Promise<import('./types').AdsCatalogCampaignResponse> {
   return apiSend<import('./types').AdsCatalogCampaignResponse>(
     `/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign`,
+    'POST',
+    body,
+  )
+}
+
+export async function adsPreflightCatalogCampaign(
+  catalogId: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; readiness: import('./types').AdsCatalogReadiness; spec: Record<string, unknown>; capabilities: Record<string, boolean | string> }> {
+  return apiSend(
+    `/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-preflight`,
     'POST',
     body,
   )

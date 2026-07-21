@@ -1,6 +1,6 @@
 'use strict';
 /*
- * Parte B — lançar campanha de catálogo (DPA / Catalog Listing Ads) da dashboard.
+ * Lançar a hierarquia completa de Catalog Video Ads pela dashboard.
  * O composto valida TUDO antes de tocar a rede (advertiser/catalogId/bcId/nome/
  * orçamento) e a rota respeita os guardrails (kill switch, dry-run) + exige o
  * catálogo já sincronizado. Sem chave da API, a criação real fica no runbook.
@@ -34,22 +34,30 @@ async function throws(fn, status, label) {
     ok(typeof provider.listInterestCategories === 'function', 'listInterestCategories exportado');
     const body = src.match(/async function createCatalogCampaign[\s\S]*?\n}\n/)[0];
     ok(/objective_type: 'PRODUCT_SALES'/.test(body), 'campanha usa objetivo PRODUCT_SALES');
+    ok(/VIDEO_SHOPPING_ADS/.test(body), 'usa o tipo Video Shopping Ads do fluxo validado');
     ok(/product_source: 'CATALOG'/.test(body), 'ad group aponta a fonte CATALOG');
+    ok(/CATALOG_VIDEO/.test(body), 'anúncio usa Catalog video');
+    ok(/catalog_video_template_id/.test(body), 'propaga o template de vídeo do catálogo');
+    ok(/product_ids/.test(body), 'propaga produtos específicos');
     ok(/operation_status: 'DISABLE'|status: 'PAUSED'/.test(body), 'nasce pausada');
     ok(/setCampaignStatus\(adv, \[campaignId\], 'paused'\)/.test(body), 'órfã é pausada no catch (à prova de órfãos)');
     ok(/stepError\('adgroup'/.test(body), 'reporta o passo em falha de ad group');
+    ok(/verifying_entities/.test(body), 'confirma campanha, conjunto e anúncio antes do sucesso');
   }
 
   console.log('Rota — guardrails e pré-requisitos');
   {
     const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
     ok(/app\.post\('\/api\/ads\/catalogs\/:catalogId\/campaign'/.test(routes), 'POST /catalogs/:id/campaign registrado');
-    const body = (routes.match(/app\.post\('\/api\/ads\/catalogs\/:catalogId\/campaign'[\s\S]*?\n  }\);/) || [''])[0];
+    const body = (routes.match(/async function prepareCatalogCampaign[\s\S]*?app\.post\('\/api\/ads\/catalogs\/:catalogId\/campaign-runs[^\n]*/) || [''])[0];
     ok(/killSwitchActive/.test(body), 'respeita kill switch (Pausar tudo)');
     ok(/isDryRun/.test(body), 'respeita Modo teste (dry-run)');
-    ok(/NOT_SYNCED/.test(body), 'exige catálogo já sincronizado (tiktokCatalogId + bcId)');
-    ok(/createCatalogCampaign/.test(body), 'chama o composto do provider');
+    ok(/CATALOG_LINK_NOT_VERIFIED/.test(body), 'exige vínculo remoto verificado');
+    ok(/createCampaignRun/.test(body), 'enfileira um job durável e idempotente');
     ok(/auditSimulated/.test(body), 'dry-run audita a simulação');
+    const worker = fs.readFileSync(path.join(__dirname, '..', 'catalog', 'catalog-campaign-worker.js'), 'utf8');
+    ok(/provider\.createCatalogCampaign/.test(worker), 'worker chama o composto do provider');
+    ok(/status = Object\.keys\(createdIds\)\.length \? 'partial' : 'failed'/.test(worker), 'falha parcial preserva IDs criados');
     // interesses (Parte A, leitura)
     ok(/app\.get\('\/api\/ads\/targeting\/interests'/.test(routes), 'GET /targeting/interests registrado');
     ok(/listInterestCategories/.test(routes), 'rota de interesses chama o provider');
@@ -61,8 +69,8 @@ async function throws(fn, status, label) {
     const csvBody = (routes.match(/export\.csv'[\s\S]*?buildCatalogCsv\(products\)/) || [''])[0];
     ok(/all\.filter\(\(p\) => p\.valid\)/.test(csvBody), 'export.csv serve só produtos válidos (import-ready)');
     ok(/all=1|\.all \|\| ''\) === '1'/.test(csvBody), 'export.csv aceita ?all=1 para debug (todos)');
-    // o catch do sync-tiktok loga a razão real para o feed de Operações
-    ok(/\[catálogo\] Falha ao publicar no TikTok/.test(routes), 'sync-tiktok loga a razão real no catch');
+    const worker = fs.readFileSync(path.join(__dirname, '..', 'catalog', 'catalog-sync-worker.js'), 'utf8');
+    ok(/appendPublication[\s\S]*status: 'error'/.test(worker), 'worker persiste a razão real da falha de sincronização');
   }
 
   console.log('\nads-catalog-campaign: ' + n + ' asserts OK');
