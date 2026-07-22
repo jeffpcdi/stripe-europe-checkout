@@ -34,7 +34,8 @@ const FRESHNESS_MS = Number(process.env.ADS_SWEEP_FRESHNESS_MS) || 15 * 60e3;   
 const RULE_COOLDOWN_MS = 12 * 3600e3;   // 1 ação por episódio (12h por campanha+regra)
 const SCALE_COOLDOWN_MS = 24 * 3600e3;  // roas_scale: no máx. 1 escala/dia por campanha
 const ALERT_COOLDOWN_MS = 6 * 3600e3;   // alertas: 6h por campanha+regra
-const APPEAL_COOLDOWN_MS = 7 * 24 * 3600e3; // auto-appeal Smart+: no máx. 1×/anúncio a cada 7 dias
+const APPEAL_COOLDOWN_MS = 7 * 24 * 3600e3; // auto-appeal Smart+: no máx. 1×/incidente a cada 7 dias
+const APPEAL_RETRY_MS = 60 * 60e3; // falha transitória: espera 1h antes de tentar o mesmo incidente
 
 const RULE_METRICS = ['cpa_max', 'spend_no_conv', 'roas_min', 'ctr_min', 'cpm_max', 'cpc_max', 'roas_scale', 'schedule'];
 const RULE_ACTIONS = ['pause', 'budget_down', 'budget_up'];
@@ -458,6 +459,11 @@ async function auditReal(accId, { action, targetType, targetId, advertiserId, be
 function sumAccountDailyBudget(campaigns) {
   let total = 0;
   for (const c of campaigns || []) {
+    if (c.budgetOwner === 'campaign') {
+      const b = c.budget || {};
+      if ((b.type || 'daily') !== 'lifetime') total += Number(b.amount) || 0;
+      continue;
+    }
     for (const s of (c.adSets || [])) {
       const b = s.budget || {};
       if ((b.type || 'daily') !== 'lifetime') total += Number(b.amount) || 0;
@@ -583,8 +589,8 @@ function isoDay(d) { return d.toISOString().slice(0, 10); }
 // ── Auto-appeal de anúncio Smart+ reprovado (opt-in, é AÇÃO real) ───────────
 // Diferente do resto do runAlertSweep (que só notifica), recorrer é uma escrita
 // na plataforma: obedece kill switch e Modo teste (dry-run) da política, com
-// cooldown de 7 dias por anúncio p/ nunca recorrer 2× do mesmo. Best-effort:
-// falha de um appeal não consome o cooldown (será re-tentado no próximo sweep).
+// deduplicação por INCIDENTE/grupo p/ nunca recorrer duas vezes da mesma
+// reprovação. O estado é gravado na central durável antes da chamada externa.
 async function autoAppealRejectedSmartPlus(accId, advertiserId, rejectedAds) {
   const policy = await adsOps.getSafetyPolicy(accId);
   if (policy.killSwitch) {
@@ -594,34 +600,49 @@ async function autoAppealRejectedSmartPlus(accId, advertiserId, rejectedAds) {
   const dryRun = !!policy.dryRun;
   for (const a of rejectedAds) {
     const adId = String(a.adId || '');
-    if (!adId) continue;
-    const key = scopedStateKey(advertiserId, 'appeal:' + adId);
+    const itemName = String(a.adGroupName || a.adName || a.name || a.adGroupId || adId);
+    if (!adId || (a.campaignKind && a.campaignKind !== 'smart_plus')) continue;
+    const incidentId = String(a.id || a.adGroupId || adId);
+    const key = scopedStateKey(advertiserId, 'appeal:' + incidentId);
+    const failureKey = scopedStateKey(advertiserId, 'appeal-failure:' + incidentId);
     if (await underCooldown(accId, key, APPEAL_COOLDOWN_MS)) continue;
-    const reason = 'Recurso automático (anúncio Smart+ reprovado)';
+    if (await underCooldown(accId, failureKey, APPEAL_RETRY_MS)) continue;
+    let reserved = null;
+    if (a.id && !dryRun) {
+      reserved = await adsOps.reserveAdAppeal(accId, a.id, { auto: true });
+      if (!reserved) continue;
+    }
+    const reason = reserved
+      ? reserved.appealText
+      : adsOps.buildAdAppealText(a);
     try {
       if (dryRun) {
         await auditSimulated(accId, {
-          action: 'smart_plus_appeal', targetType: 'ad', targetId: adId, advertiserId,
-          metadata: { auto: true }, title: 'Auto-recurso do anúncio Smart+ "' + a.name + '"',
+          action: 'smart_plus_appeal', targetType: 'adgroup', targetId: a.adGroupId || adId, advertiserId,
+          metadata: { auto: true, adId }, title: 'Auto-recurso do grupo Smart+ "' + itemName + '"',
         });
       } else {
-        await provider.appealSmartPlusAd(advertiserId, adId, reason);
+        await provider.appealSmartPlusAd(advertiserId, adId, reason, reserved && reserved.appealAttachments);
+        if (a.id) await adsOps.finishAdAppeal(accId, a.id, { ok: true });
         await auditReal(accId, {
-          action: 'smart_plus_appeal', targetType: 'ad', targetId: adId, advertiserId,
-          reason: 'Auto-recurso: ' + reason, metadata: { auto: true, adName: a.name },
+          action: 'smart_plus_appeal', targetType: 'adgroup', targetId: a.adGroupId || adId, advertiserId,
+          reason: 'Auto-recurso: ' + reason, metadata: { auto: true, adId, adName: a.adName || a.name || '' },
         });
       }
       // Só marca o cooldown após sucesso (dry-run também marca: a simulação não
       // deve re-simular o mesmo anúncio a cada varredura).
       await markFired(accId, key, 'appeal', { auto: true });
-      stats.logEvent('info', { acc: accId, title: '[tiktok-ads] ' + (dryRun ? '[simulado] ' : '') + 'Auto-recurso enviado para o anúncio Smart+ "' + a.name + '"' });
+      stats.logEvent('info', { acc: accId, title: '[tiktok-ads] ' + (dryRun ? '[simulado] ' : '') + 'Auto-recurso enviado para o grupo Smart+ "' + itemName + '"' });
     } catch (e) {
-      // Não marca cooldown: re-tenta no próximo sweep.
-      stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Auto-recurso do Smart+ "' + a.name + '" FALHOU: ' + String(e && e.message ? e.message : 'erro').slice(0, 120) });
+      if (a.id) await adsOps.finishAdAppeal(accId, a.id, { ok: false, error: e && e.message });
+      // Evita martelar o endpoint de recurso em toda varredura; o usuário ainda
+      // pode tentar manualmente na central durante esta janela.
+      await markFired(accId, failureKey, 'appeal_failure', { auto: true, error: String(e && e.message || '').slice(0, 160) }).catch(() => {});
+      stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Auto-recurso do Smart+ "' + itemName + '" FALHOU: ' + String(e && e.message ? e.message : 'erro').slice(0, 120) });
       if (!dryRun) {
         sendPushcut('Aprovada', {
           title: 'Automação do TikTok Ads falhou',
-          text: 'Não consegui recorrer do anúncio Smart+ "' + a.name + '". Revise na aba Smart+.',
+          text: 'Não consegui recorrer do grupo Smart+ "' + itemName + '". Revise em Automações.',
           sound: 'system',
         }, accId, {
           event: 'ads_failure', priority: 'critical', dedupeKey: 'ads:appeal-failed:' + adId,
@@ -676,32 +697,34 @@ async function runAlertSweep(accId, { force, advertiserId: advertiserHint } = {}
     const { campaigns: rejected } = await treeForSweep(accId, advertiserId, {
       fromDate: isoDay(from), toDate: isoDay(to), status: 'rejected', force,
     });
-    (rejected || []).forEach((c) => {
-      const name = c.campaignName || c.platformCampaignId;
-      findings.push({
-        rule: 'rejected_ads', campaignId: c.platformCampaignId, campaignName: name,
-        text: '"' + name + '" teve anúncio REPROVADO na revisão do TikTok — corrija o criativo ou recorra.'
-      });
-    });
-
-    // O robô também vigia o Smart+ (as campanhas Smart+ não vivem no espelho —
-    // leitura AO VIVO, throttled pela varredura, best-effort: qualquer falha
-    // é ignorada e nunca quebra o sweep). Recorrer é 1 clique na aba Smart+ —
-    // ou, com autoAppealSmartPlus ligado, o robô recorre sozinho 1×/anúncio.
-    if (typeof provider.listSmartPlusAds === 'function') {
-      try {
-        const spAds = await provider.listSmartPlusAds(advertiserId);
-        const rejectedSp = (spAds || []).filter((a) => a.rejected);
-        rejectedSp.forEach((a) => {
-          findings.push({
-            rule: 'smart_plus_rejected', campaignId: a.adId, campaignName: a.name,
-            text: 'Smart+: o anúncio "' + a.name + '" foi REPROVADO na revisão do TikTok — recorra na aba Smart+.'
-          });
+    // O sincronizador alimenta a central com a árvore COMPLETA. Nunca grave
+    // aqui a lista parcial filtrada por status: campanhas pausadas com anúncio
+    // reprovado ficariam de fora e seriam marcadas como resolvidas por engano.
+    // A central agrupa por grupo e evita dois alertas para a mesma reprovação.
+    let centralUsada = false;
+    try {
+      const open = await adsOps.listAdRejections(accId, { advertiserId, status: 'open' });
+      centralUsada = open.length > 0 || !(rejected || []).length;
+      open.forEach((item) => findings.push({
+        rule: item.campaignKind === 'smart_plus' ? 'smart_plus_rejected' : 'rejected_ads',
+        campaignId: item.campaignId || item.adId,
+        campaignName: item.campaignName || item.adName,
+        text: (item.campaignKind === 'smart_plus' ? 'Smart+: o grupo ' : 'O grupo ')
+          + '"' + (item.adGroupName || item.adName) + '" foi REPROVADO — corrija ou acompanhe o recurso na central.',
+      }));
+      const smart = open.filter((item) => item.campaignKind === 'smart_plus');
+      if (cfg.autoAppealSmartPlus && smart.length && typeof provider.appealSmartPlusAd === 'function') {
+        await autoAppealRejectedSmartPlus(accId, advertiserId, smart);
+      }
+    } catch (_) { /* central indisponível — alertas de campanha já foram gerados */ }
+    if (!centralUsada) {
+      (rejected || []).forEach((c) => {
+        const name = c.campaignName || c.platformCampaignId;
+        findings.push({
+          rule: 'rejected_ads', campaignId: c.platformCampaignId, campaignName: name,
+          text: '"' + name + '" teve anúncio REPROVADO na revisão do TikTok — corrija o criativo ou recorra.',
         });
-        if (cfg.autoAppealSmartPlus && rejectedSp.length && typeof provider.appealSmartPlusAd === 'function') {
-          await autoAppealRejectedSmartPlus(accId, advertiserId, rejectedSp);
-        }
-      } catch (_) { /* Smart+ indisponível/sem permissão — segue sem alertar */ }
+      });
     }
   }
 
@@ -747,8 +770,8 @@ function computeActionStates(action, campaign, plan) {
   }
   const changes = (plan && plan.changes) || [];
   return {
-    beforeState: { kind: 'budget', adGroups: changes.map((ch) => ({ id: ch.adGroupId, amount: ch.cur, type: ch.type })) },
-    afterState: { kind: 'budget', adGroups: changes.map((ch) => ({ id: ch.adGroupId, amount: ch.amount, type: ch.type })) },
+    beforeState: { kind: 'budget', targets: changes.map((ch) => ({ level: ch.targetType || 'adgroup', id: ch.targetId || ch.adGroupId, amount: ch.cur, type: ch.type })) },
+    afterState: { kind: 'budget', targets: changes.map((ch) => ({ level: ch.targetType || 'adgroup', id: ch.targetId || ch.adGroupId, amount: ch.amount, type: ch.type })) },
   };
 }
 
@@ -764,8 +787,8 @@ async function setCampaignStatusByKind(campaign, advertiserId, cid, status) {
 async function executeRuleAction({ advertiserId, action, campaign, plan, dryRun }) {
   const { beforeState, afterState } = computeActionStates(action, campaign, plan);
   const prefix = dryRun ? '[simulado] ' : '';
-  // Smart+ usa outro endpoint de status (ENABLE/DISABLE) — o único controle de
-  // Smart+ com API. Orçamento não é ajustável via API, então só pausa chega aqui.
+  // Smart+ usa endpoints próprios para status e orçamento. O plano preserva o
+  // dono do orçamento: campanha em CBO e grupo em ABO.
   const isSmartPlus = campaign.campaignKind === 'smart_plus';
   if (action === 'pause' || action === 'activate') {
     const status = action === 'pause' ? 'paused' : 'active';
@@ -779,11 +802,20 @@ async function executeRuleAction({ advertiserId, action, campaign, plan, dryRun 
   let changed = 0;
   for (const ch of changes) {
     if (!dryRun) {
-      await provider.updateAdGroup(advertiserId, ch.adGroupId, { budget: { amount: ch.amount, type: ch.type } });
+      const targetType = ch.targetType || (ch.campaignId ? 'campaign' : 'adgroup');
+      const targetId = ch.targetId || ch.campaignId || ch.adGroupId;
+      if (targetType === 'campaign') {
+        if (isSmartPlus) await provider.updateSmartPlusCampaign(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+        else await provider.updateCampaign(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+      } else if (isSmartPlus) {
+        await provider.updateSmartPlusAdGroup(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+      } else {
+        await provider.updateAdGroup(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+      }
     }
     changed += 1;
   }
-  let result = prefix + 'orçamento ' + (action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' grupo(s)'
+  let result = prefix + 'orçamento ' + (action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' nível(is)'
     + (capped ? ' (teto ' + cap + ' aplicado em ' + capped + ')' : '');
   if (!changed && capped) result = prefix + 'todos os grupos já no teto de ' + cap;
   return { ok: changed > 0, result, beforeState, afterState };
@@ -851,17 +883,27 @@ function computeBudgetPlan(r, c, maxBudgetChangePct) {
   const factor = r.action === 'budget_up' ? 1 + pct / 100 : 1 - pct / 100;
   const cap = r.metric === 'roas_scale' ? Number(r.budgetCap) || 0 : 0;
   const changes = []; let capped = 0; let delta = 0;
-  for (const s of (c.adSets || []).slice(0, 10)) {
-    const cur = Number((s.budget || {}).amount) || 0;
-    const adGroupId = s.platformAdSetId || s._id;
-    if (!(cur > 0) || !adGroupId) continue;
+  const targets = c.budgetOwner === 'campaign'
+    ? [{ targetType: 'campaign', targetId: c.platformCampaignId, budget: c.budget || {} }]
+    : (c.adSets || []).slice(0, 10).map((set) => ({
+      targetType: 'adgroup', targetId: set.platformAdSetId || set._id, budget: set.budget || {},
+    }));
+  for (const target of targets) {
+    const cur = Number(target.budget.amount) || 0;
+    if (!(cur > 0) || !target.targetId) continue;
     let amount = Math.max(1, +(cur * factor).toFixed(2));
     if (cap > 0 && amount > cap) {
       if (cur >= cap) { capped += 1; continue; } // já no teto: não toca
       amount = cap; capped += 1;
     }
-    const type = (s.budget || {}).type === 'lifetime' ? 'lifetime' : 'daily';
-    changes.push({ adGroupId, cur, amount, type });
+    const type = target.budget.type === 'lifetime' ? 'lifetime' : 'daily';
+    changes.push({
+      targetType: target.targetType,
+      targetId: target.targetId,
+      campaignId: target.targetType === 'campaign' ? target.targetId : undefined,
+      adGroupId: target.targetType === 'adgroup' ? target.targetId : undefined,
+      cur, amount, type,
+    });
     if (type !== 'lifetime') delta += amount - cur;
   }
   return { pct, cap, capped, changes, delta };
@@ -935,23 +977,6 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint } = {}
 
       const { hit, detail } = evaluateRule(r, ctx);
       if (!hit) continue;
-
-      // Smart+ só pode ser PAUSADO via API (o Pipeboard não expõe ajuste de
-      // orçamento de Smart+). Regras de escala/orçamento não se aplicam: registra
-      // uma vez (sob cooldown, p/ não repetir no log) e segue sem consumir o
-      // cooldown normal da regra nem tocar a plataforma.
-      if (c.campaignKind === 'smart_plus' && r.action !== 'pause') {
-        const skipKey = scopedStateKey(advertiserId, 'sp-nobudget:' + c.platformCampaignId + ':' + r.id);
-        if (!(await underCooldown(accId, skipKey, RULE_COOLDOWN_MS))) {
-          await markFired(accId, skipKey, 'rule', { skipped: 'smart_plus_no_budget' });
-          executed.push({
-            at: new Date().toISOString(), ruleId: r.id, metric: r.metric, action: r.action,
-            campaignId: c.platformCampaignId, campaignName: name, detail, ok: false, skipped: true,
-            result: 'Smart+ não permite ajuste de orçamento via API — só pausa',
-          });
-        }
-        continue;
-      }
 
       // Pré-computa alterações de orçamento ANTES de consumir cooldown: uma
       // recusa por teto de gasto não deve "gastar" o cooldown de 12h da regra.
@@ -1637,5 +1662,5 @@ module.exports = {
   ensureBreakerHydrated,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, APPEAL_COOLDOWN_MS },
+  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, APPEAL_COOLDOWN_MS, APPEAL_RETRY_MS },
 };

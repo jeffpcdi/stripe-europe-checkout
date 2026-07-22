@@ -222,6 +222,7 @@ function mapCampaign(c) {
     shoppingAdsType: textField(row.shopping_ads_type, row.shoppingAdsType),
     budget: Number(row.budget || 0),
     budgetMode: textField(row.budget_mode, row.budgetMode),
+    budgetOptimizeOn: row.budget_optimize_on === true || row.budgetOptimizeOn === true,
     campaignType: textField(row.campaign_type, row.campaignType),
     createTime: textField(row.create_time, row.createTime),
     modifyTime: textField(row.modify_time, row.modifyTime),
@@ -249,6 +250,16 @@ function mapAdGroup(g) {
     optimizationGoal: textField(row.optimization_goal, row.optimizationGoal),
     pixelId: textField(row.pixel_id, row.pixelId),
     optimizationEvent: textField(row.optimization_event, row.optimizationEvent),
+    bidType: textField(row.bid_type, row.bidType),
+    bidPrice: Number(row.bid_price || row.bidPrice || 0),
+    conversionBidPrice: Number(row.conversion_bid_price || row.conversionBidPrice || 0),
+    billingEvent: textField(row.billing_event, row.billingEvent),
+    placementType: textField(row.placement_type, row.placementType),
+    placements: Array.isArray(row.placements) ? row.placements.map(String) : [],
+    targeting: row.targeting && typeof row.targeting === 'object' ? row.targeting : null,
+    scheduleType: textField(row.schedule_type, row.scheduleType),
+    scheduleStartTime: textField(row.schedule_start_time, row.scheduleStartTime),
+    scheduleEndTime: textField(row.schedule_end_time, row.scheduleEndTime),
     createTime: textField(row.create_time, row.createTime),
     modifyTime: textField(row.modify_time, row.modifyTime),
   };
@@ -267,7 +278,9 @@ function mapAd(a) {
     destinationPageType: textField(row.destination_page_type, row.destinationPageType),
     adFormat: textField(row.ad_format, row.adFormat),
     productsType: textField(row.products_type, row.productsType),
+    productSpecificType: textField(row.product_specific_type, row.productSpecificType),
     productIds: (Array.isArray(row.product_ids) ? row.product_ids : Array.isArray(row.productIds) ? row.productIds : []).map(String),
+    skuIds: (Array.isArray(row.sku_ids) ? row.sku_ids : Array.isArray(row.skuIds) ? row.skuIds : []).map(String),
     productSetId: textField(row.product_set_id, row.productSetId),
     itemGroupIds: (Array.isArray(row.item_group_ids) ? row.item_group_ids : Array.isArray(row.itemGroupIds) ? row.itemGroupIds : []).map(String),
     musicId: textField(row.music_id, row.musicId),
@@ -281,6 +294,9 @@ function mapAd(a) {
     videoId: textField(row.video_id, row.videoId),
     imageIds: Array.isArray(row.image_ids) ? row.image_ids.map(String) : Array.isArray(row.imageIds) ? row.imageIds.map(String) : [],
     landingPageUrl: textField(row.landing_page_url, row.landingPageUrl, row.landing_url, row.landingUrl),
+    trackingPixelId: textField(row.tracking_pixel_id, row.trackingPixelId),
+    utmParams: Array.isArray(row.utm_params) ? row.utm_params : [],
+    deeplinkUtmParams: Array.isArray(row.deeplink_utm_params) ? row.deeplink_utm_params : [],
     createTime: textField(row.create_time, row.createTime),
     modifyTime: textField(row.modify_time, row.modifyTime),
   };
@@ -352,6 +368,7 @@ function verifyCatalogProductLinkHierarchy(input) {
   );
   const creative = Boolean(
     equalsEnum(ad.adFormat, expected.adFormat)
+    && equalsEnum(ad.productSpecificType, expected.productSpecificType)
     && (!expected.productSetId || ad.productSetId === textField(expected.productSetId))
     && (!itemGroupIds.length || JSON.stringify(readItemGroupIds) === JSON.stringify(itemGroupIds))
     && (!expected.musicId || ad.musicId === textField(expected.musicId))
@@ -372,9 +389,48 @@ function verifyCatalogProductLinkHierarchy(input) {
     checks: {
       campaign: { id: campaign.id || null, status: campaign.status || null, catalogId: campaign.catalogId || null, productSource: campaign.productSource || null, shoppingAdsType: campaign.shoppingAdsType || null },
       adGroup: { id: adGroup.id || null, campaignId: adGroup.campaignId || null, status: adGroup.status || null, catalogId: adGroup.catalogId || null, catalogAuthorizedBcId: adGroup.catalogAuthorizedBcId || null, promotionType: adGroup.promotionType || null, shoppingAdsRetargetingType: adGroup.shoppingAdsRetargetingType || null, pixelId: adGroup.pixelId || null, optimizationEvent: adGroup.optimizationEvent || null },
-      ad: { id: ad.id || null, adgroupId: ad.adgroupId || null, status: ad.status || null, catalogId: ad.catalogId || null, landingPageUrl: ad.landingPageUrl || null, adFormat: ad.adFormat || null, itemGroupIds: ad.itemGroupIds || [], productSetId: ad.productSetId || null, musicId: ad.musicId || null, identityType: ad.identityType || null, identityBcId: ad.identityBcId || null },
+      ad: { id: ad.id || null, adgroupId: ad.adgroupId || null, status: ad.status || null, catalogId: ad.catalogId || null, landingPageUrl: ad.landingPageUrl || null, adFormat: ad.adFormat || null, productSpecificType: ad.productSpecificType || null, itemGroupIds: ad.itemGroupIds || [], productSetId: ad.productSetId || null, musicId: ad.musicId || null, identityType: ad.identityType || null, identityBcId: ad.identityBcId || null },
     },
   };
+}
+
+function paginationInfo(value) {
+  const out = value || {};
+  const info = out.page_info || out.pageInfo || (out.data && (out.data.page_info || out.data.pageInfo)) || {};
+  return {
+    page: Number(info.page || info.current_page || 0),
+    pageSize: Number(info.page_size || info.pageSize || 0),
+    totalPage: Number(info.total_page || info.totalPage || 0),
+    totalNumber: Number(info.total_number || info.totalNumber || 0),
+  };
+}
+
+// As contas reais passam facilmente do limite de uma página (a conta usada na
+// validação tinha 1.272 anúncios). Uma leitura parcial é perigosa: apaga itens
+// do espelho e faz a automação decidir sobre uma árvore incompleta. Este helper
+// pagina até o total declarado pelo TikTok e, na ausência de page_info, só
+// continua enquanto a página vier cheia. O teto evita loop em resposta ruim.
+async function listAllPages(toolName, baseArgs, keys, opts = {}) {
+  const pageSize = Math.max(1, Number(opts.pageSize) || 100);
+  const maxPages = Math.max(1, Math.min(200, Number(opts.maxPages) || 100));
+  const rows = [];
+  let page = 1;
+  while (page <= maxPages) {
+    const out = await pipeboard.callTool(toolName, { ...baseArgs, page, page_size: pageSize });
+    const current = firstArray(out, keys);
+    rows.push(...current);
+    const info = paginationInfo(out);
+    if (info.totalPage > 0) {
+      if (page >= info.totalPage) break;
+    } else if (info.totalNumber > 0) {
+      if (rows.length >= info.totalNumber) break;
+    } else if (current.length < pageSize) {
+      break;
+    }
+    if (!current.length) break;
+    page += 1;
+  }
+  return rows;
 }
 
 async function getCampaigns(advertiserId, { pageSize = 100, campaignIds } = {}) {
@@ -386,25 +442,30 @@ async function getCampaigns(advertiserId, { pageSize = 100, campaignIds } = {}) 
   // aceita campaign_ids. Enviar esse campo era inócuo no MCP e fazia a
   // verificação pós-criação consultar a página errada. Buscamos uma página
   // ampla e filtramos localmente.
-  const args = { advertiser_id: id, page: 1, page_size: wanted ? 1000 : pageSize };
-  const out = await pipeboard.callTool('get_tiktok_campaigns', args);
-  const rows = (out.campaigns || []).map(mapCampaign);
+  const rows = (await listAllPages(
+    'get_tiktok_campaigns',
+    { advertiser_id: id },
+    ['campaigns', 'campaign_list', 'list', 'data'],
+    { pageSize: wanted ? 1000 : pageSize },
+  )).map(mapCampaign);
   return wanted ? rows.filter((campaign) => wanted.has(String(campaign.id))) : rows;
 }
 async function getAdGroups(advertiserId, campaignIds, { pageSize = 500 } = {}) {
   const id = String(advertiserId);
-  const args = { advertiser_id: id, page: 1, page_size: pageSize };
+  const args = { advertiser_id: id };
   if (Array.isArray(campaignIds) && campaignIds.length) args.campaign_ids = campaignIds.map(String);
-  const out = await pipeboard.callTool('get_tiktok_adgroups', args);
-  return (out.adgroups || out.ad_groups || []).map(mapAdGroup);
+  return (await listAllPages(
+    'get_tiktok_adgroups', args, ['adgroups', 'ad_groups', 'adgroup_list', 'list', 'data'], { pageSize },
+  )).map(mapAdGroup);
 }
 async function getAds(advertiserId, { campaignIds, adgroupIds, pageSize = 500 } = {}) {
   const id = String(advertiserId);
-  const args = { advertiser_id: id, page: 1, page_size: pageSize };
+  const args = { advertiser_id: id };
   if (Array.isArray(campaignIds) && campaignIds.length) args.campaign_ids = campaignIds.map(String);
   if (Array.isArray(adgroupIds) && adgroupIds.length) args.adgroup_ids = adgroupIds.map(String);
-  const out = await pipeboard.callTool('get_tiktok_ads', args);
-  return (out.ads || []).map(mapAd);
+  return (await listAllPages(
+    'get_tiktok_ads', args, ['ads', 'ad_list', 'list', 'data'], { pageSize },
+  )).map(mapAd);
 }
 
 // Árvore completa campanha → adgroup → ad. Cache 60s por (conta, advertiser).
@@ -606,7 +667,12 @@ async function getDashboardTree(accountId, opts = {}) {
       const node = {
         platformAdId: ad.id,
         name: ad.name,
+        campaignKind: 'auction',
+        campaignId: ad.campaignId,
+        adGroupId: ad.adgroupId,
         status: tiktokStatusToNode(ad.status, ad.secondaryStatus),
+        platformStatus: ad.status,
+        secondaryStatus: ad.secondaryStatus,
         catalogId: ad.catalogId || undefined,
         websiteType: ad.websiteType || undefined,
         adFormat: ad.adFormat || undefined,
@@ -632,8 +698,15 @@ async function getDashboardTree(accountId, opts = {}) {
         platformAdSetId: g.id,
         adSetName: g.name,
         name: g.name,
+        campaignKind: 'auction',
+        campaignId: g.campaignId,
         status: tiktokStatusToNode(g.status, g.secondaryStatus),
+        platformStatus: g.status,
+        secondaryStatus: g.secondaryStatus,
         budget: budgetObj(g.budget, g.budgetMode),
+        pixelId: g.pixelId || undefined,
+        optimizationEvent: g.optimizationEvent || undefined,
+        optimizationGoal: g.optimizationGoal || undefined,
         metrics: gMet.get(g.id) || Object.assign({}, EMPTY_METRICS),
         ads: gAds,
       };
@@ -649,6 +722,7 @@ async function getDashboardTree(accountId, opts = {}) {
       // reviewStatus vem dos anúncios; se a campanha está "active" mas os anúncios
       // divergem, preservamos o status próprio em childStatus (igual ao legado).
       const review = deriveReviewStatus(allAdStatuses);
+      const budgetOwner = c.budgetOptimizeOn || Number(c.budget) > 0 ? 'campaign' : 'adgroup';
       let status = ownStatus;
       let childStatus;
       if (ownStatus === 'active' && review === 'in_review') { status = 'pending_review'; childStatus = ownStatus; }
@@ -662,6 +736,8 @@ async function getDashboardTree(accountId, opts = {}) {
         // pelo ads-sync). O motor de automação usa este campo para rotear a ação
         // de status ao provider certo e pular ajustes de orçamento no Smart+.
         campaignKind: 'auction',
+        budgetOwner,
+        budgetOptimizeOn: c.budgetOptimizeOn,
         platformCampaignStatus: platformStatus,
         reviewStatus: review,
         adCount: allAdStatuses.length,
@@ -1392,17 +1468,40 @@ async function captureCampaign(advertiserId, campaignId) {
   const cached = cacheGet(ck);
   if (cached) return cached;
 
-  const [campsOut, agsOut, adsOut] = await Promise.all([
-    pipeboard.callTool('get_tiktok_campaigns', { advertiser_id: adv, page: 1, page_size: 1000 }),
-    pipeboard.callTool('get_tiktok_adgroups', { advertiser_id: adv, campaign_ids: [cid], page: 1, page_size: 1000 }),
-    pipeboard.callTool('get_tiktok_ads', { advertiser_id: adv, campaign_ids: [cid], page: 1, page_size: 1000 }),
+  // Smart+ também aparece nos endpoints genéricos, mas aquelas linhas são
+  // criativos agregados e não podem ser recriadas como leilão comum. Detecta a
+  // origem pelo endpoint dedicado e captura a hierarquia própria.
+  try {
+    const smartCampaigns = await listSmartPlusCampaigns(adv, { campaignIds: [cid] });
+    const smartCampaign = smartCampaigns.find((item) => item.campaignId === cid);
+    if (smartCampaign) {
+      const [adGroups, ads] = await Promise.all([
+        listSmartPlusAdGroups(adv, { campaignIds: [cid] }),
+        listSmartPlusAds(adv, { campaignIds: [cid] }),
+      ]);
+      if (!adGroups.length) throw stepError('capture', 'A campanha Smart+ de origem não tem grupo de anúncios legível', null, 422);
+      const capture = { campaignKind: 'smart_plus', campaign: smartCampaign, adGroups, ads };
+      cacheSet(ck, capture, 10 * 60 * 1000);
+      return capture;
+    }
+  } catch (err) {
+    // O endpoint genérico também devolve Smart+, mas o marca como campanha
+    // regular. Se a leitura dedicada falhar, seguir adiante poderia recriar um
+    // Smart+ como leilão comum e perder toda a hierarquia. Falha fechada.
+    if (err && err.step === 'capture') throw err;
+    const safe = stepError('capture', 'Não foi possível confirmar se a campanha é Smart+. A duplicação foi interrompida sem criar nada; atualize a conexão e tente novamente.', null, 503);
+    safe.code = 'SMART_PLUS_CLASSIFICATION_UNAVAILABLE';
+    throw safe;
+  }
+
+  const [campaignRows, adGroups, ads] = await Promise.all([
+    listAllPages('get_tiktok_campaigns', { advertiser_id: adv }, ['campaigns', 'campaign_list', 'list', 'data'], { pageSize: 100 }),
+    listAllPages('get_tiktok_adgroups', { advertiser_id: adv, campaign_ids: [cid] }, ['adgroups', 'ad_groups', 'adgroup_list', 'list', 'data'], { pageSize: 500 }),
+    listAllPages('get_tiktok_ads', { advertiser_id: adv, campaign_ids: [cid] }, ['ads', 'ad_list', 'list', 'data'], { pageSize: 500 }),
   ]);
-  const campaign = firstArray(campsOut, ['campaigns', 'campaign_list', 'list', 'data'])
-    .find((c) => String(c.campaign_id || c.id || '') === cid);
+  const campaign = campaignRows.find((c) => String(c.campaign_id || c.id || '') === cid);
   if (!campaign) throw stepError('capture', 'Campanha de origem ' + cid + ' não encontrada neste advertiser', null, 404);
-  const adGroups = firstArray(agsOut, ['adgroups', 'adgroup_list', 'list', 'data']);
   if (!adGroups.length) throw stepError('capture', 'A campanha de origem não tem nenhum ad group — nada a duplicar', null, 422);
-  const ads = firstArray(adsOut, ['ads', 'ad_list', 'list', 'data']);
   const capture = { campaign, adGroups, ads };
   cacheSet(ck, capture, 10 * 60 * 1000);
   return capture;
@@ -1490,7 +1589,7 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, ove
     if (mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET') warnings.push('Orçamento dinâmico do grupo convertido para diário fixo (não suportado na recriação)');
     if (budgetOverride) args.budget = clampTikTokBudget(budgetOverride, warnings, 'Orçamento do grupo');
     else if (Number(srcAg.budget) > 0) args.budget = clampTikTokBudget(srcAg.budget, warnings, 'Orçamento do grupo');
-  } else if (budgetOverride) {
+  } else if (budgetOverride && !(overrides || {}).campaignBudgetOwner) {
     // Origem sem orçamento no grupo (INFINITE/CBO) mas a variação pede um:
     // vira orçamento diário fixo no grupo.
     args.budget_mode = 'BUDGET_MODE_DAY';
@@ -1512,11 +1611,230 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, ove
   }
   if (srcAg.billing_event) args.billing_event = String(srcAg.billing_event);
   if (srcAg.optimization_event) args.optimization_event = String(srcAg.optimization_event);
+  if (srcAg.pixel_id) args.pixel_id = String(srcAg.pixel_id);
   if (srcAg.promotion_type) args.promotion_type = String(srcAg.promotion_type);
   if (srcAg.promotion_target_type) args.promotion_target_type = String(srcAg.promotion_target_type);
   if (srcAg.placement_type) args.placement_type = String(srcAg.placement_type);
   if (Array.isArray(srcAg.placements) && srcAg.placements.length) args.placements = srcAg.placements;
+  for (const key of ['catalog_id', 'catalog_authorized_bc_id', 'product_source', 'store_id', 'store_authorized_bc_id', 'shopping_ads_type', 'shopping_ads_retargeting_type']) {
+    if (srcAg[key] !== undefined && srcAg[key] !== null && String(srcAg[key]).trim()) args[key] = srcAg[key];
+  }
+  if (Number(srcAg.shopping_ads_retargeting_actions_days) > 0) args.shopping_ads_retargeting_actions_days = Number(srcAg.shopping_ads_retargeting_actions_days);
+  args.operation_status = 'DISABLE';
   return args;
+}
+
+function cloneJson(value, fallback) {
+  try { return JSON.parse(JSON.stringify(value)); } catch (_) { return fallback; }
+}
+
+// Product Sales exige product_specific_type no anúncio, inclusive em
+// SINGLE_VIDEO. O GET do conector ainda pode omitir o campo; nesse caso a
+// própria seleção de produtos da origem permite reconstruí-lo sem chute:
+// SKU/produto explícito = CUSTOMIZED_PRODUCTS, Product Set/SPUs = PRODUCT_SET
+// e catálogo sem recorte = ALL.
+function productSpecificTypeForCopy(srcAd) {
+  const explicit = String(srcAd.product_specific_type || srcAd.productSpecificType || '').trim().toUpperCase();
+  if (['ALL', 'PRODUCT_SET', 'CUSTOMIZED_PRODUCTS'].includes(explicit)) return { value: explicit, inferred: false };
+  const skuIds = Array.isArray(srcAd.sku_ids) ? srcAd.sku_ids : Array.isArray(srcAd.skuIds) ? srcAd.skuIds : [];
+  const productIds = Array.isArray(srcAd.product_ids) ? srcAd.product_ids : Array.isArray(srcAd.productIds) ? srcAd.productIds : [];
+  if (skuIds.length || productIds.length) return { value: 'CUSTOMIZED_PRODUCTS', inferred: true };
+  const itemGroupIds = Array.isArray(srcAd.item_group_ids) ? srcAd.item_group_ids : Array.isArray(srcAd.itemGroupIds) ? srcAd.itemGroupIds : [];
+  if (srcAd.product_set_id || srcAd.productSetId || itemGroupIds.length) return { value: 'PRODUCT_SET', inferred: true };
+  if (srcAd.catalog_id || srcAd.catalogId) return { value: 'ALL', inferred: true };
+  return { value: '', inferred: false };
+}
+
+function smartScheduleValue(value, timezone, fallbackDate) {
+  const raw = String(value || '');
+  const parsed = Date.parse(raw.replace(' ', 'T'));
+  if (Number.isFinite(parsed) && parsed > Date.now() + 30 * 60 * 1000) return raw;
+  return advertiserLocalTime(timezone, fallbackDate);
+}
+
+// Duplicação Smart+ usa a hierarquia dedicada. Recriar a linha genérica
+// AUCTION_AD perderia asset groups, textos e variações. Todos os três níveis
+// nascem DISABLE e são pausados novamente no final como cinto de segurança.
+async function recreateSmartPlusCampaign(advertiserId, capture, newName, opts) {
+  const adv = String(advertiserId || '').trim();
+  const value = opts || {};
+  const overrides = value.overrides && typeof value.overrides === 'object' ? value.overrides : {};
+  const resume = value.resume && typeof value.resume === 'object' ? value.resume : {};
+  const report = typeof value.onProgress === 'function' ? value.onProgress : async () => {};
+  const source = capture.campaign || {};
+  const warnings = [];
+  const progress = {
+    campaignId: String(resume.campaignId || '') || null,
+    adGroups: { ...(resume.adGroups || {}) },
+    ads: { ...(resume.ads || {}) },
+  };
+  const info = await getAdvertiserInfo(adv).catch(() => null);
+  const campaignBudgetOwner = source.budgetOptimizeOn || Number(source.budget) > 0;
+
+  if (!progress.campaignId && value.dedupeByName) {
+    const existing = (await listSmartPlusCampaigns(adv)).find((item) => item.name === String(newName).slice(0, 512));
+    if (existing) {
+      progress.campaignId = existing.campaignId;
+      warnings.push('Cópia Smart+ "' + newName + '" já existia e foi retomada');
+    }
+  }
+  if (!progress.campaignId) {
+    const args = {
+      advertiser_id: adv,
+      campaign_name: String(newName).slice(0, 512),
+      objective_type: String(source.objective || 'WEB_CONVERSIONS'),
+      operation_status: 'DISABLE',
+    };
+    if (source.budgetMode) args.budget_mode = source.budgetMode;
+    const campaignBudget = Number(overrides.budgetAmount) > 0 && campaignBudgetOwner
+      ? Number(overrides.budgetAmount) : Number(source.budget || 0);
+    if (campaignBudget > 0 && source.budgetMode !== 'BUDGET_MODE_INFINITE') args.budget = clampTikTokBudget(campaignBudget, warnings, 'Orçamento Smart+');
+    if (source.budgetOptimizeOn) args.budget_optimize_on = true;
+    if (source.salesDestination) args.sales_destination = source.salesDestination;
+    if (source.campaignType) args.campaign_type = source.campaignType;
+    if (source.catalogEnabled) args.catalog_enabled = true;
+    if (source.catalogType) args.catalog_type = source.catalogType;
+    if (source.isPromotionalCampaign) args.is_promotional_campaign = true;
+    const out = await callTikTokWriteWithRetry('create_tiktok_smart_plus_campaign', args, () => warnings.push('Instabilidade temporária ao criar a campanha Smart+ — nova tentativa automática'));
+    progress.campaignId = String(deepPluck(out, 'campaign_id') || '');
+    if (!progress.campaignId) throw stepError('campaign', 'A criação Smart+ não retornou campaign_id', progress);
+  }
+  await report({ ...progress });
+
+  try {
+    for (const group of capture.adGroups || []) {
+      const sourceId = String(group.adGroupId || '');
+      if (!sourceId || progress.adGroups[sourceId]) continue;
+      const targeting = cloneJson(group.targetingSpec || {}, {});
+      delete targeting.smart_audience_enabled;
+      delete targeting.smart_interest_behavior_enabled;
+      if (!Array.isArray(targeting.location_ids) || !targeting.location_ids.length) {
+        throw stepError('adgroup', 'O grupo Smart+ "' + group.name + '" não expôs location_ids; a cópia foi interrompida antes de publicar', progress, 422);
+      }
+      const start = smartScheduleValue(group.scheduleStartTime, info && info.timezone);
+      const end = smartScheduleValue(group.scheduleEndTime, info && info.timezone, new Date(Date.now() + 7 * 864e5));
+      const args = {
+        advertiser_id: adv,
+        campaign_id: progress.campaignId,
+        adgroup_name: String(group.name || 'Grupo Smart+').slice(0, 512),
+        promotion_type: group.promotionType || 'WEBSITE',
+        targeting_spec: targeting,
+        schedule_type: 'SCHEDULE_START_END',
+        schedule_start_time: start,
+        schedule_end_time: end,
+        optimization_goal: group.optimizationGoal || 'CONVERT',
+        billing_event: group.billingEvent || 'OCPM',
+        operation_status: 'DISABLE',
+      };
+      if (!campaignBudgetOwner) {
+        const groupBudget = Number(overrides.budgetAmount) > 0 ? Number(overrides.budgetAmount) : Number(group.budget || 0);
+        if (group.budgetMode) args.budget_mode = group.budgetMode;
+        if (groupBudget > 0) args.budget = clampTikTokBudget(groupBudget, warnings, 'Orçamento do grupo Smart+');
+      }
+      if (group.bidType) args.bid_type = group.bidType;
+      if (group.bidPrice > 0) args.bid_price = group.bidPrice;
+      if (group.conversionBidPrice > 0) args.conversion_bid_price = group.conversionBidPrice;
+      if (group.minBudget > 0) args.min_budget = group.minBudget;
+      if (group.roasBid > 0) args.roas_bid = group.roasBid;
+      if (group.pixelId) args.pixel_id = group.pixelId;
+      if (group.optimizationEvent) args.optimization_event = group.optimizationEvent;
+      if (group.placementType) args.placement_type = group.placementType;
+      if (group.placements.length) args.placements = group.placements;
+      if (group.dayparting) args.dayparting = group.dayparting;
+      if (group.productSource) args.product_source = group.productSource;
+      if (group.promotionTargetType) args.promotion_target_type = group.promotionTargetType;
+      if (group.promotionWebsiteType) args.promotion_website_type = group.promotionWebsiteType;
+      for (const [target, fieldValue] of [
+        ['app_id', group.appId],
+        ['catalog_id', group.catalogId],
+        ['catalog_authorized_bc_id', group.catalogAuthorizedBcId],
+        ['custom_conversion_id', group.customConversionId],
+        ['identity_authorized_bc_id', group.identityAuthorizedBcId],
+        ['identity_id', group.identityId],
+        ['identity_type', group.identityType],
+        ['deep_bid_type', group.deepBidType],
+        ['deep_funnel_event_source', group.deepFunnelEventSource],
+        ['deep_funnel_event_source_id', group.deepFunnelEventSourceId],
+        ['deep_funnel_optimization_event', group.deepFunnelOptimizationEvent],
+        ['deep_funnel_optimization_status', group.deepFunnelOptimizationStatus],
+      ]) {
+        if (fieldValue !== undefined && fieldValue !== null && String(fieldValue).trim()) args[target] = fieldValue;
+      }
+      for (const [target, fieldValue] of [
+        ['attribution_event_count', group.attributionEventCount],
+        ['click_attribution_window', group.clickAttributionWindow],
+        ['engaged_view_attribution_window', group.engagedViewAttributionWindow],
+        ['view_attribution_window', group.viewAttributionWindow],
+        ['deep_cpabid', group.deepCpaBid],
+      ]) {
+        if (Number(fieldValue) > 0) args[target] = Number(fieldValue);
+      }
+      args.comment_disabled = group.commentDisabled;
+      args.share_disabled = group.shareDisabled;
+      args.video_download_disabled = group.videoDownloadDisabled;
+      args.suggestion_audience_enabled = group.suggestionAudienceEnabled;
+      if (group.targetingOptimizationMode) args.targeting_optimization_mode = group.targetingOptimizationMode;
+      const out = await callTikTokWriteWithRetry('create_tiktok_smart_plus_adgroup', args, () => warnings.push('Instabilidade temporária ao criar o grupo Smart+ — nova tentativa automática'));
+      const id = String(deepPluck(out, 'adgroup_id') || '');
+      if (!id) throw stepError('adgroup', 'A criação Smart+ não retornou adgroup_id', progress);
+      progress.adGroups[sourceId] = id;
+      await report({ ...progress });
+    }
+
+    for (const ad of capture.ads || []) {
+      const sourceId = String(ad.adId || '');
+      if (!sourceId || progress.ads[sourceId]) continue;
+      const groupId = progress.adGroups[String(ad.adGroupId || '')];
+      if (!groupId) { warnings.push('Asset group Smart+ ' + sourceId + ' ignorado: grupo pai não foi mapeado'); continue; }
+      const creativeList = (ad.creativeList || []).map((item) => ({
+        creative_info: cloneJson(item && item.creative_info, null),
+      })).filter((item) => item.creative_info);
+      if (!creativeList.length) throw stepError('ad', 'O asset group Smart+ "' + ad.name + '" não expôs criativos reutilizáveis', progress, 422);
+      const args = {
+        advertiser_id: adv,
+        adgroup_id: groupId,
+        ad_name: String(ad.name || newName).slice(0, 512),
+        creative_list: creativeList,
+        operation_status: 'DISABLE',
+      };
+      const adTextList = cloneJson(ad.adTextList || [], []);
+      if (overrides.adText) {
+        args.ad_text_list = adTextList.length
+          ? [{ ...adTextList[0], ad_text: String(overrides.adText).slice(0, 100) }, ...adTextList.slice(1)]
+          : [{ ad_text: String(overrides.adText).slice(0, 100) }];
+      } else if (adTextList.length) args.ad_text_list = adTextList;
+      for (const [target, sourceKey] of [
+        ['landing_page_url_list', 'landingPageUrlList'],
+        ['call_to_action_list', 'callToActionList'],
+        ['deeplink_list', 'deeplinkList'],
+        ['page_list', 'pageList'],
+        ['interactive_add_on_list', 'interactiveAddOnList'],
+      ]) {
+        const list = cloneJson(ad[sourceKey] || [], []);
+        if (list.length) args[target] = list;
+      }
+      if (ad.adConfiguration && Object.keys(ad.adConfiguration).length) args.ad_configuration = cloneJson(ad.adConfiguration, {});
+      const out = await callTikTokWriteWithRetry('create_tiktok_smart_plus_ad', args, () => warnings.push('Instabilidade temporária ao criar o anúncio Smart+ — nova tentativa automática'));
+      const id = String(deepPluck(out, 'smart_plus_ad_id') || deepPluck(out, 'ad_id') || '');
+      if (!id) throw stepError('ad', 'A criação Smart+ não retornou smart_plus_ad_id', progress);
+      progress.ads[sourceId] = id;
+      await report({ ...progress });
+    }
+
+    await setSmartPlusCampaignStatus(adv, [progress.campaignId], 'paused');
+    const groupIds = Object.values(progress.adGroups);
+    const adIds = Object.values(progress.ads);
+    if (groupIds.length) await setSmartPlusAdGroupStatus(adv, groupIds, 'paused');
+    if (adIds.length) await setSmartPlusAdStatus(adv, adIds, 'paused');
+    return { campaignId: progress.campaignId, adGroupIds: groupIds, adIds, name: newName, warnings, campaignKind: 'smart_plus' };
+  } catch (err) {
+    if (progress.campaignId) {
+      try { await setSmartPlusCampaignStatus(adv, [progress.campaignId], 'paused'); } catch (_) { /* best-effort */ }
+    }
+    if (!err.step) err.step = 'adgroup';
+    err.createdIds = progress;
+    throw err;
+  }
 }
 
 // Recria a campanha capturada. newName é o nome da CÓPIA (já com sufixo).
@@ -1525,18 +1843,41 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, ove
 // opts.overrides (F4 — variações): { budgetAmount?, adText? } aplicado por
 // cima da origem em CADA grupo/anúncio da variação.
 async function recreateCampaign(advertiserId, capture, newName, opts) {
+  if (capture && capture.campaignKind === 'smart_plus') {
+    return recreateSmartPlusCampaign(advertiserId, capture, newName, opts);
+  }
   const adv = String(advertiserId || '').trim();
   const o = opts || {};
   const overrides = (o.overrides && typeof o.overrides === 'object') ? o.overrides : {};
   const resume = (o.resume && typeof o.resume === 'object') ? o.resume : {};
   const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
   const src = capture.campaign;
+  const campaignBudgetOwner = src.budget_optimize_on === true || Number(src.budget) > 0;
   const warnings = [];
   const progress = {
     campaignId: String(resume.campaignId || '') || null,
     adGroups: { ...(resume.adGroups || {}) },
     ads: { ...(resume.ads || {}) },
   };
+
+  // Product Sales exige product_specific_type em cada anúncio. O conector
+  // precisa declarar o campo porque versões que não o declaram também o
+  // descartam silenciosamente antes de chamar o TikTok (40002 no último
+  // nível). Falhamos antes da campanha para não deixar estrutura parcial.
+  if (String(src.objective_type || src.objective || '').toUpperCase() === 'PRODUCT_SALES') {
+    const capabilities = await getCatalogCapabilities();
+    if (!capabilities.productSpecificType) {
+      const err = stepError(
+        'preflight',
+        'O conector ainda não encaminha o escopo de produtos exigido pelo TikTok para duplicar Product Sales. Nada foi criado; tente novamente após a atualização do Pipeboard.',
+        null,
+        409,
+      );
+      err.code = 'PRODUCT_SALES_DUPLICATION_CONNECTOR_UNSUPPORTED';
+      err.retryable = true;
+      throw err;
+    }
+  }
 
   // Se algum anúncio não trouxer uma identidade BC válida, a identidade de
   // fallback é pré-validada ANTES de criar a campanha. Assim uma cópia de
@@ -1559,20 +1900,26 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
       advertiser_id: adv,
       campaign_name: String(newName).slice(0, 512),
       objective_type: String(src.objective_type || src.objective || 'TRAFFIC'),
+      operation_status: 'DISABLE',
     };
     const srcMode = String(src.budget_mode || '');
     // Preflight 40002: DYNAMIC_DAILY só entra se o objetivo for de conversão/
     // vendas (onde se sabe que existe); fora disso converte já no preflight.
     if (srcMode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET' && !/CONVERSIONS|PRODUCT_SALES|SHOP_PURCHASES|APP_PROMOTION/.test(campArgs.objective_type)) {
       campArgs.budget_mode = 'BUDGET_MODE_DAY';
-      if (Number(src.budget) > 0) campArgs.budget = clampTikTokBudget(src.budget, warnings, 'Orçamento da campanha');
+      if (Number(overrides.budgetAmount) > 0 && campaignBudgetOwner) campArgs.budget = clampTikTokBudget(overrides.budgetAmount, warnings, 'Orçamento da campanha');
+      else if (Number(src.budget) > 0) campArgs.budget = clampTikTokBudget(src.budget, warnings, 'Orçamento da campanha');
       warnings.push('Orçamento dinâmico diário convertido para diário fixo (objetivo ' + campArgs.objective_type + ' não o suporta — preflight 40002)');
     } else if (srcMode && srcMode !== 'BUDGET_MODE_INFINITE') {
       campArgs.budget_mode = srcMode;
-      if (Number(src.budget) > 0) campArgs.budget = clampTikTokBudget(src.budget, warnings, 'Orçamento da campanha');
+      if (Number(overrides.budgetAmount) > 0 && campaignBudgetOwner) campArgs.budget = clampTikTokBudget(overrides.budgetAmount, warnings, 'Orçamento da campanha');
+      else if (Number(src.budget) > 0) campArgs.budget = clampTikTokBudget(src.budget, warnings, 'Orçamento da campanha');
     }
     if (src.budget_optimize_on === true) campArgs.budget_optimize_on = true;
     if (src.pixel_id) { campArgs.pixel_id = String(src.pixel_id); if (src.optimization_event) campArgs.optimization_event = String(src.optimization_event); }
+    for (const key of ['campaign_type', 'catalog_id', 'product_source', 'shopping_ads_type']) {
+      if (src[key] !== undefined && src[key] !== null && String(src[key]).trim()) campArgs[key] = src[key];
+    }
     let campOut;
     try {
       campOut = await callTikTokWriteWithRetry('create_tiktok_campaign', campArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'));
@@ -1603,7 +1950,7 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
     for (const srcAg of capture.adGroups) {
       const srcAgId = String(srcAg.adgroup_id || srcAg.id || '');
       if (progress.adGroups[srcAgId]) continue; // já criado numa tentativa anterior
-      const agArgs = buildAdGroupCopyArgs(adv, progress.campaignId, srcAg, info && info.timezone, warnings, overrides, fallbackLocationIds);
+      const agArgs = buildAdGroupCopyArgs(adv, progress.campaignId, srcAg, info && info.timezone, warnings, { ...overrides, campaignBudgetOwner }, fallbackLocationIds);
       const agOut = await callTikTokWriteWithRetry('create_tiktok_adgroup', agArgs, () => warnings.push('TikTok não conseguiu alocar a criação do grupo — nova tentativa automática'));
       const newAgId = String(deepPluck(agOut, 'adgroup_id') || '');
       if (!newAgId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id na duplicação', progress);
@@ -1628,9 +1975,10 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
       };
       const vid = String(srcAd.video_id || deepPluck(srcAd, 'video_id') || '');
       const imgs = srcAd.image_ids || deepPluck(srcAd, 'image_ids');
+      const catalogId = String(srcAd.catalog_id || '');
       if (vid) adArgs.video_id = vid;
       else if (Array.isArray(imgs) && imgs.length) adArgs.image_ids = imgs;
-      else { warnings.push('Anúncio ' + srcAdId + ' ignorado: origem não expõe video_id/image_ids'); continue; }
+      else if (!catalogId) { warnings.push('Anúncio ' + srcAdId + ' ignorado: origem não expõe video_id/image_ids'); continue; }
       // Uma cópia nunca reaproveita CUSTOMIZED_USER automaticamente. Só uma
       // identidade BC_AUTH_TT verificável pode acompanhar o anúncio de origem;
       // Spark e identidades legadas caem na BC_AUTH_TT selecionada da conta.
@@ -1649,11 +1997,32 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
           : 'identidade ' + (srcIdentityType || 'não identificada');
         warnings.push('Anúncio ' + srcAdId + ' usava ' + sourceIdentityLabel + ' — recriado com a identidade BC autorizada da conta');
       }
-      if (srcAd.landing_page_url) adArgs.landing_page_url = String(srcAd.landing_page_url).slice(0, 500);
+      const isProductLink = catalogId && (
+        String(srcAd.website_type || '').toUpperCase() === 'PRODUCT_LINK'
+        || String(srcAd.ad_format || '').toUpperCase() === 'CATALOG_CAROUSEL'
+      );
+      if (srcAd.landing_page_url && !isProductLink) adArgs.landing_page_url = String(srcAd.landing_page_url).slice(0, 500);
       if (srcAd.call_to_action) adArgs.call_to_action = String(srcAd.call_to_action);
       else if (srcAd.call_to_action_id) adArgs.call_to_action_id = String(srcAd.call_to_action_id);
       if (Array.isArray(srcAd.utm_params) && srcAd.utm_params.length) adArgs.utm_params = srcAd.utm_params;
       if (Array.isArray(srcAd.deeplink_utm_params) && srcAd.deeplink_utm_params.length) adArgs.deeplink_utm_params = srcAd.deeplink_utm_params;
+      if (catalogId) adArgs.catalog_id = catalogId;
+      if (catalogId) {
+        const productSpecific = productSpecificTypeForCopy(srcAd);
+        if (!productSpecific.value) {
+          throw stepError('ad', 'O anúncio de catálogo ' + srcAdId + ' não expôs o escopo de produtos exigido pelo TikTok', progress, 422);
+        }
+        adArgs.product_specific_type = productSpecific.value;
+        if (productSpecific.inferred) warnings.push('Escopo de produtos do anúncio ' + srcAdId + ' reconstruído como ' + productSpecific.value + ' a partir da seleção salva');
+      }
+      if (Array.isArray(srcAd.item_group_ids) && srcAd.item_group_ids.length) adArgs.item_group_ids = srcAd.item_group_ids.map(String);
+      if (srcAd.product_set_id) adArgs.product_set_id = String(srcAd.product_set_id);
+      if (Array.isArray(srcAd.sku_ids) && srcAd.sku_ids.length) adArgs.sku_ids = srcAd.sku_ids.map(String);
+      if (Array.isArray(srcAd.product_ids) && srcAd.product_ids.length) adArgs.product_ids = srcAd.product_ids.map(String);
+      if (srcAd.music_id) adArgs.music_id = String(srcAd.music_id);
+      if (srcAd.shopping_ads_deeplink_type) adArgs.shopping_ads_deeplink_type = String(srcAd.shopping_ads_deeplink_type);
+      if (srcAd.shopping_ads_fallback_type) adArgs.shopping_ads_fallback_type = String(srcAd.shopping_ads_fallback_type);
+      if (srcAd.shopping_ads_video_package_id) adArgs.shopping_ads_video_package_id = String(srcAd.shopping_ads_video_package_id);
       const adOut = await callTikTokWriteWithRetry('create_tiktok_ad', adArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar o anúncio — nova tentativa automática'));
       const newAdId = String(deepPluck(adOut, 'ad_id') || '');
       if (!newAdId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id na duplicação', progress);
@@ -1661,11 +2030,19 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
       await report({ ...progress });
     }
 
+    // Os creates já receberam DISABLE/PAUSED. Repetimos pelo endpoint de
+    // status: se um default do TikTok ignorar o estado inicial, a cópia ainda
+    // termina integralmente pausada antes de o job ser concluído.
+    await setCampaignStatus(adv, [progress.campaignId], 'paused');
+    const duplicatedGroupIds = Object.values(progress.adGroups);
+    const duplicatedAdIds = Object.values(progress.ads);
+    if (duplicatedGroupIds.length) await setAdGroupStatus(adv, duplicatedGroupIds, 'paused');
+    if (duplicatedAdIds.length) await setAdStatus(adv, duplicatedAdIds, 'paused');
     cacheBust('tree:');
     return {
       campaignId: progress.campaignId,
-      adGroupIds: Object.values(progress.adGroups),
-      adIds: Object.values(progress.ads),
+      adGroupIds: duplicatedGroupIds,
+      adIds: duplicatedAdIds,
       name: newName,
       warnings,
     };
@@ -1936,7 +2313,7 @@ const CATALOG_CAMPAIGN_SCHEMA_FIELDS = {
   ],
   ad: [
     'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id',
-    'item_group_ids', 'product_set_id', 'music_id', 'ad_text', 'status',
+    'product_specific_type', 'item_group_ids', 'product_set_id', 'music_id', 'ad_text', 'status',
     'identity_id', 'identity_type', 'identity_authorized_bc_id', 'dark_post_status',
   ],
 };
@@ -1952,7 +2329,7 @@ const CATALOG_CAMPAIGN_GUARANTEED_FIELDS = {
   ],
   ad: [
     'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id',
-    'item_group_ids', 'product_set_id', 'music_id', 'ad_text', 'status',
+    'product_specific_type', 'item_group_ids', 'product_set_id', 'music_id', 'ad_text', 'status',
     'identity_id', 'identity_type', 'identity_authorized_bc_id', 'dark_post_status',
   ],
 };
@@ -1975,6 +2352,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
     catalogLinkVerify: false,
     manualCatalogCampaign: false,
     catalogCarouselMusic: false,
+    productSpecificType: false,
     productSets: false,
     specificProducts: false,
     catalogVideoTemplates: false,
@@ -2097,6 +2475,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
     ].every(([field, expected]) => supportsDeclaredValue(fieldSchema('create_tiktok_adgroup', field), expected));
     const adSemantics = [
       ['ad_format', adFormat],
+      ['product_specific_type', 'ALL'],
       ['status', 'PAUSED'],
       ['identity_type', 'BC_AUTH_TT'],
       ['dark_post_status', 'ON'],
@@ -2119,6 +2498,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
       catalogLinkVerify,
       manualCatalogCampaign,
       catalogCarouselMusic,
+      productSpecificType: adInputFields.has('product_specific_type'),
       structuralReadback,
       shoppingAdsType: manualCatalogCampaign ? shoppingType : null,
       adFormat: manualCatalogCampaign ? adFormat : null,
@@ -2359,47 +2739,284 @@ async function updateTikTokCatalogName(bcId, catalogId, name) {
 // recorremos de anúncios reprovados — o ÚNICO appeal com API é o de anúncio
 // Smart+ (appeal_tiktok_smart_plus_ad); conta suspensa não tem API de recurso.
 function mapSmartPlusCampaign(c) {
-  const id = String(c.campaign_id || c.id || '');
+  const row = c || {};
+  const id = String(row.campaign_id || row.id || '');
   return {
     campaignId: id,
-    name: String(c.campaign_name || c.name || id),
-    objective: String(c.objective_type || ''),
-    budget: Number(c.budget || 0),
-    budgetMode: String(c.budget_mode || ''),
-    status: tiktokStatusToNode(c.operation_status, c.secondary_status),
-    rawStatus: String(c.operation_status || ''),
-    secondaryStatus: String(c.secondary_status || ''),
+    name: String(row.campaign_name || row.name || id),
+    objective: String(row.objective_type || ''),
+    budget: Number(row.budget || 0),
+    budgetMode: String(row.budget_mode || ''),
+    budgetOptimizeOn: row.budget_optimize_on === true,
+    smartPlusAdgroupMode: String(row.smart_plus_adgroup_mode || ''),
+    salesDestination: String(row.sales_destination || ''),
+    campaignType: String(row.campaign_type || ''),
+    catalogEnabled: row.catalog_enabled === true,
+    catalogType: String(row.catalog_type || ''),
+    isPromotionalCampaign: row.is_promotional_campaign === true,
+    status: tiktokStatusToNode(row.operation_status, row.secondary_status),
+    rawStatus: String(row.operation_status || ''),
+    secondaryStatus: String(row.secondary_status || ''),
+    createTime: String(row.create_time || ''),
+    modifyTime: String(row.modify_time || ''),
+  };
+}
+
+function mapSmartPlusAdGroup(g) {
+  const row = g || {};
+  const id = String(row.adgroup_id || row.smart_plus_adgroup_id || row.id || '');
+  return {
+    adGroupId: id,
+    name: String(row.adgroup_name || row.name || id),
+    campaignId: String(row.campaign_id || ''),
+    campaignName: String(row.campaign_name || ''),
+    status: tiktokStatusToNode(row.operation_status, row.secondary_status),
+    rawStatus: String(row.operation_status || ''),
+    secondaryStatus: String(row.secondary_status || ''),
+    budget: Number(row.budget || 0),
+    budgetMode: String(row.budget_mode || ''),
+    bidType: String(row.bid_type || ''),
+    bidPrice: Number(row.bid_price || 0),
+    conversionBidPrice: Number(row.conversion_bid_price || 0),
+    minBudget: Number(row.min_budget || 0),
+    roasBid: Number(row.roas_bid || 0),
+    billingEvent: String(row.billing_event || ''),
+    appId: String(row.app_id || ''),
+    catalogId: String(row.catalog_id || ''),
+    catalogAuthorizedBcId: String(row.catalog_authorized_bc_id || ''),
+    customConversionId: String(row.custom_conversion_id || ''),
+    identityAuthorizedBcId: String(row.identity_authorized_bc_id || ''),
+    identityId: String(row.identity_id || ''),
+    identityType: String(row.identity_type || ''),
+    promotionType: String(row.promotion_type || ''),
+    promotionTargetType: String(row.promotion_target_type || ''),
+    promotionWebsiteType: String(row.promotion_website_type || ''),
+    productSource: String(row.product_source || ''),
+    optimizationGoal: String(row.optimization_goal || ''),
+    optimizationEvent: String(row.optimization_event || ''),
+    pixelId: String(row.pixel_id || ''),
+    attributionEventCount: Number(row.attribution_event_count || 0),
+    clickAttributionWindow: Number(row.click_attribution_window || 0),
+    engagedViewAttributionWindow: Number(row.engaged_view_attribution_window || 0),
+    viewAttributionWindow: Number(row.view_attribution_window || 0),
+    deepBidType: String(row.deep_bid_type || ''),
+    deepCpaBid: Number(row.deep_cpabid || 0),
+    deepFunnelEventSource: String(row.deep_funnel_event_source || ''),
+    deepFunnelEventSourceId: String(row.deep_funnel_event_source_id || ''),
+    deepFunnelOptimizationEvent: String(row.deep_funnel_optimization_event || ''),
+    deepFunnelOptimizationStatus: String(row.deep_funnel_optimization_status || ''),
+    pacing: String(row.pacing || ''),
+    placementType: String(row.placement_type || ''),
+    placements: Array.isArray(row.placements) ? row.placements.map(String) : [],
+    targetingSpec: row.targeting_spec && typeof row.targeting_spec === 'object' ? row.targeting_spec : {},
+    scheduleType: String(row.schedule_type || ''),
+    scheduleStartTime: String(row.schedule_start_time || ''),
+    scheduleEndTime: String(row.schedule_end_time || ''),
+    dayparting: String(row.dayparting || ''),
+    commentDisabled: row.comment_disabled === true,
+    shareDisabled: row.share_disabled === true,
+    videoDownloadDisabled: row.video_download_disabled === true,
+    suggestionAudienceEnabled: row.suggestion_audience_enabled === true,
+    targetingOptimizationMode: String(row.targeting_optimization_mode || ''),
+    createTime: String(row.create_time || ''),
+    modifyTime: String(row.modify_time || ''),
   };
 }
 
 function mapSmartPlusAd(a) {
-  const id = String(a.smart_plus_ad_id || a.ad_id || a.id || '');
-  const node = tiktokStatusToNode(a.operation_status, a.secondary_status);
+  const row = a || {};
+  const id = String(row.smart_plus_ad_id || row.ad_id || row.id || '');
+  const node = tiktokStatusToNode(row.operation_status, row.secondary_status);
+  const creativeList = Array.isArray(row.creative_list) ? row.creative_list : [];
+  // Na API real, AUCTION_AD reporta `smart_plus_creative_id`; o
+  // `ad_material_id` é um identificador de biblioteca e não aparece nas
+  // métricas. Preferi-lo junto causaria risco de soma dupla se isso mudar.
+  // Usa material apenas como fallback para conectores antigos.
+  const smartCreativeIds = creativeList.map((item) => String((item && item.smart_plus_creative_id) || '')).filter(Boolean);
+  const materialMetricIds = creativeList.map((item) => String((item && item.ad_material_id) || '')).filter(Boolean);
+  const metricEntityIds = [...new Set(smartCreativeIds.length ? smartCreativeIds : materialMetricIds)];
   return {
     adId: id,
-    name: String(a.ad_name || a.name || id),
-    campaignId: String(a.campaign_id || ''),
+    smartPlusAdId: id,
+    name: String(row.ad_name || row.name || id),
+    campaignId: String(row.campaign_id || ''),
+    campaignName: String(row.campaign_name || ''),
+    adGroupId: String(row.adgroup_id || ''),
+    adGroupName: String(row.adgroup_name || ''),
     status: node,
+    rawStatus: String(row.operation_status || ''),
+    secondaryStatus: String(row.secondary_status || ''),
     rejected: node === 'rejected',
-    rejectionReason: node === 'rejected' ? (String(a.secondary_status || '') || 'Reprovado pelo TikTok') : undefined,
+    rejectionReason: node === 'rejected' ? (String(row.secondary_status || '') || 'Reprovado pelo TikTok') : undefined,
+    creativeList,
+    materialIds: creativeList.map((item) => String((item && item.ad_material_id) || '')).filter(Boolean),
+    metricEntityIds,
+    landingPageUrlList: Array.isArray(row.landing_page_url_list) ? row.landing_page_url_list : [],
+    adTextList: Array.isArray(row.ad_text_list) ? row.ad_text_list : [],
+    callToActionList: Array.isArray(row.call_to_action_list) ? row.call_to_action_list : [],
+    deeplinkList: Array.isArray(row.deeplink_list) ? row.deeplink_list : [],
+    pageList: Array.isArray(row.page_list) ? row.page_list : [],
+    interactiveAddOnList: Array.isArray(row.interactive_add_on_list) ? row.interactive_add_on_list : [],
+    adConfiguration: row.ad_configuration && typeof row.ad_configuration === 'object' ? row.ad_configuration : {},
+    createTime: String(row.create_time || ''),
+    modifyTime: String(row.modify_time || ''),
   };
 }
 
-async function listSmartPlusCampaigns(advertiserId) {
+async function listSmartPlusCampaigns(advertiserId, opts = {}) {
   const adv = String(advertiserId || '').trim();
   if (!adv) throw badRequest('advertiserId é obrigatório');
-  const out = await pipeboard.callTool('get_tiktok_smart_plus_campaigns', { advertiser_id: adv, page: 1, page_size: 50 });
-  return firstArray(out, ['campaigns', 'campaign_list', 'list', 'data']).map(mapSmartPlusCampaign);
+  const filtering = {};
+  if (Array.isArray(opts.campaignIds) && opts.campaignIds.length) filtering.campaign_ids = opts.campaignIds.map(String);
+  const args = { advertiser_id: adv, ...(Object.keys(filtering).length ? { filtering } : {}) };
+  let list = (await listAllPages(
+    'get_tiktok_smart_plus_campaigns', args, ['campaigns', 'campaign_list', 'list', 'data'], { pageSize: 100 },
+  )).map(mapSmartPlusCampaign);
+  if (filtering.campaign_ids) {
+    const wanted = new Set(filtering.campaign_ids);
+    list = list.filter((item) => wanted.has(item.campaignId));
+  }
+  return list;
+}
+
+async function listSmartPlusAdGroups(advertiserId, opts = {}) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const filtering = {};
+  if (Array.isArray(opts.campaignIds) && opts.campaignIds.length) filtering.campaign_ids = opts.campaignIds.map(String);
+  if (Array.isArray(opts.adGroupIds) && opts.adGroupIds.length) filtering.adgroup_ids = opts.adGroupIds.map(String);
+  const args = { advertiser_id: adv, ...(Object.keys(filtering).length ? { filtering } : {}) };
+  let list = (await listAllPages(
+    'get_tiktok_smart_plus_adgroups', args, ['adgroups', 'ad_groups', 'adgroup_list', 'list', 'data'], { pageSize: 100 },
+  )).map(mapSmartPlusAdGroup);
+  if (filtering.campaign_ids) {
+    const wanted = new Set(filtering.campaign_ids);
+    list = list.filter((item) => wanted.has(item.campaignId));
+  }
+  if (filtering.adgroup_ids) {
+    const wanted = new Set(filtering.adgroup_ids);
+    list = list.filter((item) => wanted.has(item.adGroupId));
+  }
+  return list;
 }
 
 async function listSmartPlusAds(advertiserId, opts = {}) {
   const adv = String(advertiserId || '').trim();
   if (!adv) throw badRequest('advertiserId é obrigatório');
-  const out = await pipeboard.callTool('get_tiktok_smart_plus_ads', { advertiser_id: adv, page: 1, page_size: 100 });
-  let list = firstArray(out, ['ads', 'ad_list', 'list', 'data']).map(mapSmartPlusAd);
+  const filtering = {};
+  if (opts.campaignId) filtering.campaign_ids = [String(opts.campaignId)];
+  if (Array.isArray(opts.campaignIds) && opts.campaignIds.length) filtering.campaign_ids = opts.campaignIds.map(String);
+  if (Array.isArray(opts.adGroupIds) && opts.adGroupIds.length) filtering.adgroup_ids = opts.adGroupIds.map(String);
+  if (Array.isArray(opts.adIds) && opts.adIds.length) filtering.smart_plus_ad_ids = opts.adIds.map(String);
+  const args = { advertiser_id: adv, ...(Object.keys(filtering).length ? { filtering } : {}) };
+  let list = (await listAllPages(
+    'get_tiktok_smart_plus_ads', args, ['ads', 'ad_list', 'list', 'data'], { pageSize: 100 },
+  )).map(mapSmartPlusAd);
   const cid = String(opts.campaignId || '').trim();
   if (cid) list = list.filter((a) => !a.campaignId || a.campaignId === cid);
   return list;
+}
+
+// Árvore Smart+ completa. A API padrão também devolve linhas de criativo
+// Smart+, mas com semântica de AUCTION_AD; por isso o sync substitui os IDs
+// coincidentes por estes nós, que preservam campanha → grupo → asset group.
+async function getSmartPlusDashboardTree(advertiserId, currency) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  let resolvedCurrency = String(currency || '').trim();
+  if (!resolvedCurrency) {
+    const info = await getAdvertiserInfo(adv).catch(() => null);
+    resolvedCurrency = String((info && info.currency) || 'USD');
+  }
+  const [campaigns, adGroups, ads] = await Promise.all([
+    listSmartPlusCampaigns(adv),
+    listSmartPlusAdGroups(adv),
+    listSmartPlusAds(adv),
+  ]);
+  const adsByGroup = new Map();
+  for (const ad of ads) {
+    const firstText = ad.adTextList[0] || {};
+    const firstUrl = ad.landingPageUrlList[0] || {};
+    const firstCreative = ad.creativeList[0] || {};
+    const creativeInfo = firstCreative.creative_info && typeof firstCreative.creative_info === 'object' ? firstCreative.creative_info : {};
+    const node = {
+      platformAdId: ad.adId,
+      smartPlusAdId: ad.adId,
+      campaignKind: 'smart_plus',
+      campaignId: ad.campaignId,
+      adGroupId: ad.adGroupId,
+      name: ad.name,
+      status: ad.status,
+      platformStatus: ad.rawStatus,
+      secondaryStatus: ad.secondaryStatus,
+      budget: null,
+      metrics: Object.assign({}, EMPTY_METRICS),
+      metricEntityIds: ad.metricEntityIds,
+      materialIds: ad.materialIds,
+      creative: {
+        body: String(firstText.ad_text || firstText.text || ''),
+        linkUrl: String(firstUrl.landing_page_url || firstUrl.url || ''),
+        videoUrl: String(creativeInfo.video_id || creativeInfo.videoId || ''),
+        imageUrl: String(creativeInfo.image_id || creativeInfo.imageId || ''),
+      },
+      rejectionReason: ad.rejectionReason,
+      createdAt: ad.createTime || undefined,
+    };
+    if (!adsByGroup.has(ad.adGroupId)) adsByGroup.set(ad.adGroupId, []);
+    adsByGroup.get(ad.adGroupId).push(node);
+  }
+  const groupsByCampaign = new Map();
+  for (const group of adGroups) {
+    const node = {
+      platformAdSetId: group.adGroupId,
+      adSetName: group.name,
+      name: group.name,
+      campaignKind: 'smart_plus',
+      campaignId: group.campaignId,
+      status: group.status,
+      platformStatus: group.rawStatus,
+      secondaryStatus: group.secondaryStatus,
+      budget: budgetObj(group.budget, group.budgetMode),
+      pixelId: group.pixelId || undefined,
+      optimizationEvent: group.optimizationEvent || undefined,
+      optimizationGoal: group.optimizationGoal || undefined,
+      metrics: Object.assign({}, EMPTY_METRICS),
+      ads: adsByGroup.get(group.adGroupId) || [],
+    };
+    if (!groupsByCampaign.has(group.campaignId)) groupsByCampaign.set(group.campaignId, []);
+    groupsByCampaign.get(group.campaignId).push(node);
+  }
+  return campaigns.map((campaign) => {
+    const sets = groupsByCampaign.get(campaign.campaignId) || [];
+    const adStatuses = sets.flatMap((set) => (set.ads || []).map((ad) => ad.status));
+    const review = deriveReviewStatus(adStatuses);
+    const ownStatus = campaign.status;
+    let status = ownStatus;
+    let childStatus;
+    if (ownStatus === 'active' && review === 'in_review') { status = 'pending_review'; childStatus = ownStatus; }
+    else if (ownStatus === 'active' && review === 'rejected') { status = 'rejected'; childStatus = ownStatus; }
+    const budgetOwner = campaign.budgetOptimizeOn || Number(campaign.budget) > 0 ? 'campaign' : 'adgroup';
+    return {
+      platformCampaignId: campaign.campaignId,
+      campaignName: campaign.name,
+      status,
+      childStatus,
+      campaignKind: 'smart_plus',
+      budgetOwner,
+      budgetOptimizeOn: campaign.budgetOptimizeOn,
+      smartPlusAdgroupMode: campaign.smartPlusAdgroupMode,
+      platformCampaignStatus: campaign.rawStatus,
+      reviewStatus: review,
+      objective: campaign.objective,
+      adCount: adStatuses.length,
+      adSetCount: sets.length,
+      budget: budgetObj(campaign.budget, campaign.budgetMode),
+      currency: resolvedCurrency,
+      metrics: Object.assign({}, EMPTY_METRICS),
+      platformAdAccountId: adv,
+      adSets: sets,
+    };
+  });
 }
 
 async function setSmartPlusCampaignStatus(advertiserId, ids, status) {
@@ -2414,13 +3031,96 @@ async function setSmartPlusCampaignStatus(advertiserId, ids, status) {
   return r;
 }
 
-async function appealSmartPlusAd(advertiserId, adId, reason) {
+async function setSmartPlusAdGroupStatus(advertiserId, ids, status) {
+  const adv = String(advertiserId || '').trim();
+  const arr = normIds(ids);
+  const op = toOperationStatus(status);
+  if (!adv || !arr.length) throw badRequest('Advertiser e grupo(s) Smart+ são obrigatórios');
+  if (!op) throw badRequest('status deve ser active, paused ou deleted');
+  const out = await pipeboard.callTool('update_tiktok_smart_plus_adgroup_status', { advertiser_id: adv, adgroup_ids: arr, operation_status: op });
+  cacheBust('tree:');
+  return out;
+}
+
+async function setSmartPlusAdStatus(advertiserId, ids, status) {
+  const adv = String(advertiserId || '').trim();
+  const arr = normIds(ids);
+  const op = toOperationStatus(status);
+  if (!adv || !arr.length) throw badRequest('Advertiser e anúncio(s) Smart+ são obrigatórios');
+  if (!op) throw badRequest('status deve ser active, paused ou deleted');
+  const out = await pipeboard.callTool('update_tiktok_smart_plus_ad_status', { advertiser_id: adv, smart_plus_ad_ids: arr, operation_status: op });
+  cacheBust('tree:');
+  return out;
+}
+
+async function updateSmartPlusCampaign(advertiserId, campaignId, patch) {
+  const adv = String(advertiserId || '').trim();
+  const cid = String(campaignId || '').trim();
+  if (!adv || !cid) throw badRequest('Advertiser e campanha Smart+ são obrigatórios');
+  const value = patch || {};
+  const args = { advertiser_id: adv, campaign_id: cid };
+  if (value.name && String(value.name).trim()) args.campaign_name = String(value.name).trim().slice(0, 512);
+  if (value.budget && Number(value.budget.amount) > 0) args.budget = Number(value.budget.amount);
+  if (args.campaign_name === undefined && args.budget === undefined) throw badRequest('Nada para atualizar na campanha Smart+');
+  return pipeboard.callTool('update_tiktok_smart_plus_campaign', args);
+}
+
+async function updateSmartPlusAdGroup(advertiserId, adGroupId, patch) {
+  const adv = String(advertiserId || '').trim();
+  const gid = String(adGroupId || '').trim();
+  if (!adv || !gid) throw badRequest('Advertiser e grupo Smart+ são obrigatórios');
+  const value = patch || {};
+  const args = { advertiser_id: adv, adgroup_id: gid };
+  if (value.name && String(value.name).trim()) args.adgroup_name = String(value.name).trim().slice(0, 512);
+  if (value.budget && Number(value.budget.amount) > 0) args.budget = Number(value.budget.amount);
+  for (const key of ['bid_price', 'conversion_bid_price', 'min_budget', 'roas_bid']) {
+    if (Number(value[key]) > 0) args[key] = Number(value[key]);
+  }
+  if (args.adgroup_name === undefined && args.budget === undefined
+    && args.bid_price === undefined && args.conversion_bid_price === undefined
+    && args.min_budget === undefined && args.roas_bid === undefined) {
+    throw badRequest('Nada para atualizar no grupo Smart+');
+  }
+  return pipeboard.callTool('update_tiktok_smart_plus_adgroup', args);
+}
+
+async function updateSmartPlusAd(advertiserId, adId, patch) {
+  const adv = String(advertiserId || '').trim();
+  const aid = String(adId || '').trim();
+  if (!adv || !aid) throw badRequest('Advertiser e anúncio Smart+ são obrigatórios');
+  const value = patch || {};
+  const args = { advertiser_id: adv, smart_plus_ad_id: aid };
+  if (value.name && String(value.name).trim()) args.ad_name = String(value.name).trim().slice(0, 512);
+  if (Array.isArray(value.creativeList)) args.creative_list = value.creativeList;
+  if (Array.isArray(value.landingPageUrlList)) args.landing_page_url_list = value.landingPageUrlList;
+  if (Array.isArray(value.adTextList)) args.ad_text_list = value.adTextList;
+  if (Array.isArray(value.callToActionList)) args.call_to_action_list = value.callToActionList;
+  if (value.adConfiguration && typeof value.adConfiguration === 'object') args.ad_configuration = value.adConfiguration;
+  if (Object.keys(args).length === 2) throw badRequest('Nada para atualizar no anúncio Smart+');
+  return pipeboard.callTool('update_tiktok_smart_plus_ad', args);
+}
+
+async function setSmartPlusAdMaterialStatus(advertiserId, adId, materialIds, status) {
+  const adv = String(advertiserId || '').trim();
+  const aid = String(adId || '').trim();
+  const ids = normIds(materialIds);
+  const op = toOperationStatus(status);
+  if (!adv || !aid || !ids.length) throw badRequest('Advertiser, anúncio e materiais Smart+ são obrigatórios');
+  if (!['ENABLE', 'DISABLE'].includes(op)) throw badRequest('status do material deve ser active ou paused');
+  return pipeboard.callTool('update_tiktok_smart_plus_ad_material_status', {
+    advertiser_id: adv, smart_plus_ad_id: aid, ad_material_ids: ids, operation_status: op,
+  });
+}
+
+async function appealSmartPlusAd(advertiserId, adId, reason, attachments) {
   const adv = String(advertiserId || '').trim();
   const id = String(adId || '').trim();
   if (!adv || !id) throw badRequest('advertiserId e o ID do anúncio Smart+ são obrigatórios');
   const args = { advertiser_id: adv, smart_plus_ad_id: id };
   const r = String(reason || '').trim();
-  if (r) args.appeal_reason = r.slice(0, 500);
+  if (r) args.appeal_reason = r.slice(0, 2000);
+  const list = (Array.isArray(attachments) ? attachments : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20);
+  if (list.length) args.attachment_list = list;
   return pipeboard.callTool('appeal_tiktok_smart_plus_ad', args);
 }
 
@@ -2617,8 +3317,11 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   const AD_FORMAT = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_CAROUSEL').trim();
   const itemGroupIds = (Array.isArray(s.itemGroupIds) ? s.itemGroupIds : Array.isArray(s.productIds) ? s.productIds : [])
     .map((value) => String(value || '').trim()).filter(Boolean).slice(0, 100);
-  if (productScope !== 'product_set' && !itemGroupIds.length) {
+  if (productScope === 'specific' && !itemGroupIds.length) {
     throw badRequest('O catálogo não possui item_group_id para montar os cards. Sincronize os produtos novamente antes de criar a campanha.', 422);
+  }
+  if (productScope === 'product_set' && !String(s.productSetId || '').trim()) {
+    throw badRequest('Selecione um Product Set antes de criar a campanha.', 422);
   }
   let explicitIdentity = null;
   if (s.identityId || s.identityType || s.identityBcId) {
@@ -2720,11 +3423,12 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
       ad_name: String(s.name).slice(0, 500),
       ad_format: AD_FORMAT,
       catalog_id: catalogId,
+      product_specific_type: productScope === 'all' ? 'ALL' : 'PRODUCT_SET',
       ad_text: String(s.text || 'Confira os produtos disponíveis').slice(0, 100),
       music_id: catalogMusic.musicId,
       status: 'PAUSED',
     };
-    if (productScope !== 'product_set') adArgs.item_group_ids = itemGroupIds;
+    if (productScope === 'specific') adArgs.item_group_ids = itemGroupIds;
     if (productScope === 'product_set' && s.productSetId) adArgs.product_set_id = String(s.productSetId);
     if (s.callToAction && capabilities.callToAction) adArgs.call_to_action = String(s.callToAction).toUpperCase();
     else if (s.callToAction) warnings.push('CTA opcional será definido pelo TikTok porque o conector Product Link atual não o declara.');
@@ -2766,6 +3470,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
             catalogId, bcId, shoppingAdsType: SHOPPING_TYPE,
             pixelId, pixelEvent,
             adFormat: AD_FORMAT,
+            productSpecificType: adArgs.product_specific_type,
             itemGroupIds: adArgs.item_group_ids || [],
             productSetId: adArgs.product_set_id || '',
             musicId: adArgs.music_id,
@@ -2861,8 +3566,16 @@ module.exports = {
   listTikTokPixels,
   // Smart+ (gestão + appeal de anúncio + criação composta)
   listSmartPlusCampaigns,
+  listSmartPlusAdGroups,
   listSmartPlusAds,
+  getSmartPlusDashboardTree,
   setSmartPlusCampaignStatus,
+  setSmartPlusAdGroupStatus,
+  setSmartPlusAdStatus,
+  setSmartPlusAdMaterialStatus,
+  updateSmartPlusCampaign,
+  updateSmartPlusAdGroup,
+  updateSmartPlusAd,
   appealSmartPlusAd,
   createSmartPlusCampaign,
   // cache
@@ -2870,5 +3583,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, pickCatalogCarouselMusic, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, pickCatalogCarouselMusic, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
 };

@@ -99,7 +99,7 @@ const tk = require('../tiktok-events');
   assert.strictEqual(fetchCalls.length, 1, 'esperava exatamente 1 chamada ao TikTok');
   const sent = JSON.parse(fetchCalls[0].body);
   assert.strictEqual(sent.event_source_id, PIXEL.pixelCode, 'pixelCode correto no payload');
-  assert.strictEqual(sent.data[0].event, 'CompletePayment', 'evento correto');
+  assert.strictEqual(sent.data[0].event, 'Purchase', 'compra usa o Standard Event atual do TikTok');
   assert.strictEqual(fetchCalls[0].headers['Access-Token'], PIXEL.accessToken, 'access token enviado');
 
   // 2) após sucesso, a fila fica vazia e é persistida vazia

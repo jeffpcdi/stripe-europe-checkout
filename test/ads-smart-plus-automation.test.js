@@ -3,10 +3,10 @@
  * C1 + C3 — o motor de automação passa a agir sobre Smart+:
  *  - C1: campanhas Smart+ entram no espelho (ads-sync) e as ações de STATUS
  *    (pausa por regra + dayparting) roteiam para setSmartPlusCampaignStatus.
- *    Orçamento/escala NÃO se aplica a Smart+ (o Pipeboard não expõe a tool) —
- *    a regra é pulada com motivo, nunca inventando um ajuste.
+ *    Orçamento/escala usa os endpoints dedicados que o Pipeboard passou a
+ *    expor, respeitando o dono do orçamento (campanha CBO ou grupo ABO).
  *  - C3: com autoAppealSmartPlus ligado, o robô recorre SOZINHO 1× de cada
- *    anúncio Smart+ reprovado, com cooldown de 7 dias e respeitando os
+ *    incidente/grupo Smart+ reprovado, com cooldown de 7 dias e respeitando os
  *    guardrails (kill switch e Modo teste/dry-run).
  */
 const assert = require('assert');
@@ -20,7 +20,7 @@ let n = 0;
 function ok(cond, label) { assert.ok(cond, label); n++; console.log('  ✓ ' + label); }
 function eq(a, b, label) { assert.strictEqual(a, b, label + ' → esperado ' + b + ', veio ' + a); n++; console.log('  ✓ ' + label); }
 
-const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus, APPEAL_COOLDOWN_MS } = automation._internals;
+const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus, APPEAL_COOLDOWN_MS, APPEAL_RETRY_MS } = automation._internals;
 
 (async () => {
   // ── C1: roteamento de status por origem da campanha ───────────────────────
@@ -67,10 +67,11 @@ const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus,
   console.log('C1 — ads-sync mescla Smart+ no snapshot');
   {
     const src = fs.readFileSync(path.join(__dirname, '..', 'ads-sync.js'), 'utf8');
-    ok(/listSmartPlusCampaigns/.test(src), 'ads-sync lê as campanhas Smart+');
-    ok(/campaignKind: 'smart_plus'/.test(src), 'nós Smart+ são marcados campaignKind');
-    ok(/catch[\s\S]{0,40}return \[\]/.test(src), 'leitura Smart+ é best-effort (falha vira [])');
-    ok(/tree\.campaigns = \(tree\.campaigns \|\| \[\]\)\.concat/.test(src), 'nós Smart+ entram no mesmo snapshot');
+    ok(/getSmartPlusDashboardTree/.test(src), 'ads-sync lê a hierarquia completa Smart+');
+    ok(/smartById/.test(src), 'nó Smart+ substitui a leitura genérica de mesmo ID');
+    ok(/SMART_PLUS_CLASSIFICATION_UNAVAILABLE/.test(src), 'sem classificação Smart+ o sync falha fechado e preserva o snapshot anterior');
+    ok(!/catch[\s\S]{0,40}return \[\]/.test(src), 'falha dedicada não degrada Smart+ para campanha comum');
+    ok(/tree\.campaigns = merged/.test(src), 'hierarquia Smart+ entra no mesmo snapshot sem duplicar ID');
   }
 
   console.log('C1 — provider marca campaignKind:auction nos nós de leilão');
@@ -79,11 +80,19 @@ const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus,
     ok(/campaignKind: 'auction'/.test(src), "nó de campanha regular nasce campaignKind:'auction'");
   }
 
-  console.log('C1 — runRulesSweep pula orçamento/escala em Smart+');
+  console.log('C1 — orçamento Smart+ usa o endpoint dedicado');
   {
+    const calls = [];
+    provider.updateSmartPlusCampaign = async (adv, id, patch) => { calls.push({ adv, id, patch }); };
+    const changed = await executeRuleAction({
+      advertiserId: 'adv', action: 'budget_up', dryRun: false,
+      campaign: { campaignKind: 'smart_plus', platformCampaignId: 'sp-budget', budgetOwner: 'campaign' },
+      plan: { pct: 20, cap: 0, capped: 0, changes: [{ targetType: 'campaign', targetId: 'sp-budget', cur: 100, amount: 120, type: 'daily' }] },
+    });
+    eq(changed.ok, true, 'ajuste Smart+ é executado');
+    eq(calls.length, 1, 'usa updateSmartPlusCampaign');
+    eq(calls[0].patch.budget.amount, 120, 'novo orçamento é repassado');
     const src = fs.readFileSync(path.join(__dirname, '..', 'ads-automation.js'), 'utf8');
-    ok(/campaignKind === 'smart_plus' && r\.action !== 'pause'/.test(src), 'regra não-pausa em Smart+ é pulada');
-    ok(/Smart\+ não permite ajuste de orçamento via API/.test(src), 'motivo do skip é explícito');
     // dayparting usa o roteador por tipo (não o setCampaignStatus direto)
     ok(/setCampaignStatusByKind\(c, advertiserId, cid, 'paused'\)/.test(src), 'dayparting pausa via roteador por tipo');
     ok(/setCampaignStatusByKind\(c, advertiserId, cid, 'active'\)/.test(src), 'dayparting reativa via roteador por tipo');
@@ -94,9 +103,10 @@ const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus,
   {
     eq(automation.ALERT_DEFAULTS.autoAppealSmartPlus, false, 'autoAppealSmartPlus nasce desligado (opt-in)');
     ok(APPEAL_COOLDOWN_MS === 7 * 24 * 3600e3, 'cooldown de auto-recurso é 7 dias');
+    ok(APPEAL_RETRY_MS === 60 * 60e3, 'falha transitória espera 1h antes de tentar novamente');
     const src = fs.readFileSync(path.join(__dirname, '..', 'ads-automation.js'), 'utf8');
     ok(/autoAppealSmartPlus: b\.autoAppealSmartPlus === true/.test(src), 'contrato versionado de alertas aceita autoAppealSmartPlus (opt-in explícito)');
-    ok(/cfg\.autoAppealSmartPlus && rejectedSp\.length/.test(src), 'sweep só auto-recorre com a opção ligada e havendo reprovação');
+    ok(/cfg\.autoAppealSmartPlus && smart\.length/.test(src), 'sweep só auto-recorre com a opção ligada e havendo reprovação');
   }
 
   console.log('C3 — autoAppealRejectedSmartPlus: recorre 1×, respeita cooldown/guardrails');
@@ -126,6 +136,15 @@ const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus,
     policy = { killSwitch: false, dryRun: true };
     await autoAppealRejectedSmartPlus('acc_dry_' + Date.now(), 'adv', [{ adId: 'adD', name: 'Y' }]);
     eq(appeals.length, 0, 'Modo teste (dry-run) não envia recurso real');
+
+    // falha transitória: não martela o TikTok em toda varredura
+    policy = { killSwitch: false, dryRun: false };
+    let failedCalls = 0;
+    provider.appealSmartPlusAd = async () => { failedCalls += 1; throw new Error('temporário'); };
+    const failedAcc = 'acc_failure_' + Date.now();
+    await autoAppealRejectedSmartPlus(failedAcc, 'adv', [{ adId: 'adF', name: 'Falha' }]);
+    await autoAppealRejectedSmartPlus(failedAcc, 'adv', [{ adId: 'adF', name: 'Falha' }]);
+    eq(failedCalls, 1, 'backoff de falha impede repetição imediata do recurso');
   }
 
   console.log('\nads-smart-plus-automation: ' + n + ' asserts OK');

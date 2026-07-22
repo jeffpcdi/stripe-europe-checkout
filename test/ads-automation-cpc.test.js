@@ -51,14 +51,16 @@ console.log('Alerta de criativo reprovado');
   ok(/rejectedAds: b\.rejectedAds === true/.test(src), 'contrato versionado de alertas aceita rejectedAds (opt-in explícito)');
 }
 
-console.log('Automação cobrindo Smart+ (vigilância de reprovação)');
+console.log('Automação cobrindo Smart+ (incidente centralizado)');
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'ads-automation.js'), 'utf8');
-  ok(/provider\.listSmartPlusAds/.test(src), 'sweep lê anúncios Smart+ (ao vivo)');
+  const syncSrc = fs.readFileSync(path.join(__dirname, '..', 'ads-sync.js'), 'utf8');
+  ok(/adsOps\.syncAdRejections/.test(syncSrc), 'sync completo alimenta o espelho unificado de reprovações');
+  ok(!/adsOps\.syncAdRejections/.test(src), 'sweep não resolve incidentes a partir de uma lista parcial por status');
+  ok(/adsOps\.listAdRejections/.test(src), 'sweep lê incidentes duráveis já deduplicados por grupo');
   ok(/smart_plus_rejected/.test(src), 'gera finding smart_plus_rejected');
-  // best-effort: a leitura Smart+ é protegida por try/catch para nunca quebrar o sweep
-  ok(/listSmartPlusAds\(advertiserId\)[\s\S]{0,900}catch/.test(src), 'leitura Smart+ é best-effort (try/catch)');
-  ok(/cfg\.rejectedAds[\s\S]{0,1600}listSmartPlusAds/.test(src), 'Smart+ só é vigiado com o alerta de reprovação ligado');
+  ok(/cfg\.rejectedAds[\s\S]{0,2200}listAdRejections/.test(src), 'incidentes só são processados com o alerta ligado');
+  ok(/campaignKind === 'smart_plus'/.test(src), 'apelação automática é restrita ao contrato Smart+ suportado');
 }
 
 console.log('\nads-automation-cpc: ' + n + ' asserts OK');

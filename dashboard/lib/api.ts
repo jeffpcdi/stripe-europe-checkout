@@ -50,6 +50,7 @@ import type {
   AdsTikTokPixel,
   AdsSmartPlusResponse,
   AdsSmartPlusAdsResponse,
+  AdsRejectionsResponse,
   AdsMcpStatusResponse,
   AdsKpisResponse,
   AdsBriefingResponse,
@@ -686,6 +687,15 @@ export function useAdsSmartPlus(active: boolean, adAccountId: string) {
 export function useAdsSmartPlusAds(active: boolean, adAccountId: string) {
   const key = active && adAccountId ? `/api/ads/smart-plus/ads?adAccountId=${encodeURIComponent(adAccountId)}` : null
   return useSWR<AdsSmartPlusAdsResponse>(key, fetcher, { revalidateOnFocus: true, keepPreviousData: false })
+}
+
+export function useAdsRejections(active: boolean, adAccountId: string, status: 'open' | 'resolved' = 'open') {
+  const params = new URLSearchParams({ adAccountId, status })
+  return useSWR<AdsRejectionsResponse>(
+    active && adAccountId ? `/api/ads/rejections?${params.toString()}` : null,
+    fetcher,
+    { refreshInterval: status === 'open' ? 15_000 : 0, revalidateOnFocus: true },
+  )
 }
 
 // ── Catálogos de produtos (TikTok Shopping/Catalog) ──

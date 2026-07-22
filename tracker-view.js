@@ -245,10 +245,10 @@ module.exports = `(function(){
 
   // ── 3. presença ao vivo (heartbeat 20s + saída) ──
   window.RoiNadosPixel=window.RoiNadosPixel||{};
-  window.RoiNadosPixel.identify=function(data){data=data&&typeof data==='object'?data:{};send('/api/track',{vid:vid,px:PIXEL_TOKEN||undefined,email:data.email,phone:data.phone},false,false);return true;};
-  window.RoiNadosPixel.getVisitorId=function(){return vid;};
+  if(typeof window.RoiNadosPixel.identify!=='function')window.RoiNadosPixel.identify=function(data){data=data&&typeof data==='object'?data:{};send('/api/track',{vid:vid,px:PIXEL_TOKEN||undefined,email:data.email,phone:data.phone},false,false);return true;};
+  if(typeof window.RoiNadosPixel.getVisitorId!=='function')window.RoiNadosPixel.getVisitorId=function(){return vid;};
   window.RoiNadosPixel.decorate=function(url){return linkedUrl(url,null)||url;};
-  window.RoiNadosPixel.consent=function(value){
+  if(typeof window.RoiNadosPixel.consent!=='function')window.RoiNadosPixel.consent=function(value){
     var granted=value===true||value==='grant'||value==='granted';lsSet('roinados_consent',granted?'granted':'revoked');
     try{window.dispatchEvent(new CustomEvent('roinados:consent',{detail:{granted:granted}}));}catch(_){}return granted;
   };

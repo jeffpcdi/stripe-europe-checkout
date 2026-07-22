@@ -6,13 +6,14 @@ const pixelStore = require('./pixel-store');
 const db  = require('./db');
 const rdb = require('./redis');
 const { traduzErroTikTok } = require('./tiktok-errors');
+const { canonicalTikTokEvent } = require('./tiktok-event-contract');
 
 const TIKTOK_API_URL = 'https://business-api.tiktok.com/open_api/v1.3/event/track/';
 
 // Eventos MONETÁRIOS: só disparam com confirmação do gateway (p._trusted).
 // Client-side fica restrito a ViewContent / InitiateCheckout / AddToCart.
 // Refund/Dispute entram aqui para o dia em que os providers os enviarem.
-const MONEY_EVENTS = new Set(['CompletePayment', 'AddPaymentInfo', 'Refund', 'Dispute']);
+const MONEY_EVENTS = new Set(['CompletePayment', 'Purchase', 'AddPaymentInfo', 'Refund', 'Dispute']);
 
 // SHA-256 exigido pelo TikTok para todos os dados de identidade (PII)
 function hash(value) {
@@ -354,6 +355,11 @@ function headerSafeToken(v) {
 }
 
 async function sendToPixel(pixel, p) {
+  // `CompletePayment` continua sendo o contrato interno do funil/configuração,
+  // mas o evento oficial enviado ao TikTok é `Purchase`. A conversão acontece
+  // somente nesta fronteira, mantendo compatibilidade sem continuar emitindo o
+  // nome legado na Events API.
+  const outboundEvent = canonicalTikTokEvent(p && p.event);
   if (!pixel || !pixel.pixelCode || !pixel.accessToken) {
     // Antes o skip era SILENCIOSO: uma credencial faltando virava no-op invisível
     // e o usuário jamais via por que o evento "não foi". Agora registra no log do
@@ -363,7 +369,7 @@ async function sendToPixel(pixel, p) {
     pushLog({
       acc: (pixel && pixel.acc) || null,
       pixel: (pixel && (pixel.slug || pixel.pixelCode)) || 'desconhecido',
-      event: p && p.event,
+      event: outboundEvent,
       eventId: p && p.eventId,
       leadId: p && p.leadId,
       status: 'ignorado',
@@ -381,7 +387,7 @@ async function sendToPixel(pixel, p) {
   const pixelId = pixel.slug || pixel.pixelCode;
   const pixelName = pixel.name || pixel.slug || pixel.pixelCode;
   // event_id é obrigatório para dedup — gera fallback se faltar
-  const eventId = p.eventId || (p.event + '.' + crypto.randomBytes(8).toString('hex'));
+  const eventId = p.eventId || (outboundEvent + '.' + crypto.randomBytes(8).toString('hex'));
 
   // Access-Token como header HTTP: o fetch do Node exige Latin-1. Um token com
   // caractere corrompido (ex.: 0xFFFD, o "�" de um cadastro com encoding errado)
@@ -393,7 +399,7 @@ async function sendToPixel(pixel, p) {
     // Token só tinha lixo → NUNCA autentica: falha determinística. Loga claro e
     // NÃO re-enfileira (senão a fila cresce eternamente batendo no mesmo erro).
     pushLog({
-      acc: pixel.acc || null, pixel: pixelId, event: p.event, eventId, leadId: p.leadId,
+      acc: pixel.acc || null, pixel: pixelId, event: outboundEvent, eventId, leadId: p.leadId,
       status: 'erro',
       response: { message: 'Access Token inválido (caractere corrompido) — reinsira o token do pixel em Conversões › Pixels' },
     });
@@ -407,7 +413,7 @@ async function sendToPixel(pixel, p) {
     event_source: 'web',
     event_source_id: pixel.pixelCode,
     data: [{
-      event: p.event,
+      event: outboundEvent,
       event_time: validEventTime(p.eventTime),
       event_id: eventId,
       user,
@@ -434,7 +440,7 @@ async function sendToPixel(pixel, p) {
       pushLog({
         acc: pixel.acc || null,
         pixel: pixel.slug || pixel.pixelCode,
-        event: p.event,
+        event: outboundEvent,
         eventId,
         leadId: p.leadId,
         status: ok ? 'ok' : 'erro',
@@ -450,7 +456,7 @@ async function sendToPixel(pixel, p) {
   pushLog({
     acc: pixel.acc || null,
     pixel: pixel.slug || pixel.pixelCode,
-    event: p.event,
+    event: outboundEvent,
     eventId,
     leadId: p.leadId,
     status: 'erro',
@@ -692,13 +698,14 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
  * Envio de teste (painel): valida token/pixel na hora e retorna a resposta crua.
  */
 // Eventos que o painel pode disparar em teste (nomes oficiais da Events API)
-const TEST_EVENTS = ['ViewContent', 'AddToCart', 'InitiateCheckout', 'AddPaymentInfo', 'CompletePayment'];
+const TEST_EVENTS = ['ViewContent', 'AddToCart', 'InitiateCheckout', 'AddPaymentInfo', 'CompletePayment', 'Purchase'];
 
 async function testPixel(pixel, ctx) {
   ctx = ctx || {};
   const eventId = 'test.' + crypto.randomBytes(6).toString('hex');
   // Evento escolhível pelo painel (default ViewContent); valida contra a lista
   const eventName = TEST_EVENTS.includes(ctx.event) ? ctx.event : 'ViewContent';
+  const outboundEvent = canonicalTikTokEvent(eventName);
   // Moeda da conta (fallback BRL) — antes era EUR fixo
   const cur = String(ctx.currency || '').toUpperCase();
   // A Events API exige AO MENOS UM identificador de usuário (ip+ua, email,
@@ -706,7 +713,7 @@ async function testPixel(pixel, ctx) {
   // de parâmetro, mesmo com código/token corretos. Usa o ip/ua reais de quem
   // clicou em "Testar" + um external_id sintético como sinal extra.
   const json = await sendToPixel(pixel, {
-    event: eventName,
+    event: outboundEvent,
     eventId,
     url: 'https://example.com/teste-pixel',
     ip: ctx.ip,
@@ -720,7 +727,7 @@ async function testPixel(pixel, ctx) {
   const rawMsg = (json && (json.message || json.msg || json.error)) || undefined;
   return {
     ok,
-    event: eventName,
+    event: outboundEvent,
     eventId,
     code: json ? json.code : undefined,
     message: rawMsg,

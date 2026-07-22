@@ -28,6 +28,7 @@ const provider = require(providerPath);
 
 function baseHandlers() {
   return {
+    get_tiktok_smart_plus_campaigns: async () => ({ campaigns: [], page_info: { page: 1, total_page: 1 } }),
     get_tiktok_advertisers: async () => ({ advertisers: [{ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR', status: 'STATUS_ENABLE' }] }),
     get_tiktok_advertiser_info: async () => ({ advertiser_id: 'adv1', timezone: 'Europe/Lisbon' }),
     get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1' }] }),
@@ -38,6 +39,8 @@ function baseHandlers() {
     create_tiktok_adgroup: async () => ({ adgroup_id: 'var-ag' }),
     create_tiktok_ad: async () => ({ ad_id: 'var-ad' }),
     update_tiktok_campaign_status: async () => ({ ok: true }),
+    update_tiktok_adgroup_status: async () => ({ ok: true }),
+    update_tiktok_ad_status: async () => ({ ok: true }),
   };
 }
 function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name === name); }
@@ -68,7 +71,7 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
   assert.strictEqual(lastCall('create_tiktok_ad').args.ad_text, 'Texto original');
   console.log('ok 2 - sem overrides herda orçamento e texto da origem');
 
-  // ── 3. Origem CBO/INFINITE no grupo + override → vira BUDGET_MODE_DAY ─────
+  // ── 3. Origem CBO/INFINITE + override → orçamento continua na campanha ────
   stubCalls.length = 0;
   provider.cacheBust('');
   stubHandlers = baseHandlers();
@@ -76,9 +79,10 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
   const cap3 = await provider.captureCampaign('adv1', 'tpl');
   await provider.recreateCampaign('adv1', cap3, 'Var 3', { overrides: { budgetAmount: 7 } });
   const ag3 = lastCall('create_tiktok_adgroup').args;
-  assert.strictEqual(ag3.budget_mode, 'BUDGET_MODE_DAY', 'INFINITE + override vira DAY');
-  assert.strictEqual(ag3.budget, 50);
-  console.log('ok 3 - origem sem orçamento no grupo + override vira orçamento diário fixo no piso do TikTok');
+  const campaign3 = lastCall('create_tiktok_campaign').args;
+  assert.strictEqual(ag3.budget_mode, 'BUDGET_MODE_INFINITE', 'grupo CBO continua sem orçamento próprio');
+  assert.strictEqual(campaign3.budget, 50, 'override abaixo do piso é aplicado à campanha CBO');
+  console.log('ok 3 - CBO preserva o proprietário do orçamento e aplica o override na campanha');
 
   // ── 4. Contrato da rota: teto de 50, overrides no task, worker repassa ────
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');

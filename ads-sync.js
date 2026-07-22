@@ -15,6 +15,7 @@
 const provider = require('./ads-provider');
 const cache = require('./ads-cache-store');
 const pipeboard = require('./pipeboard-mcp');
+const adsOps = require('./ads-ops-store');
 
 const WIDE_DAYS = Number(process.env.ADS_SYNC_WINDOW_DAYS) || 90;
 const CHUNK_DAYS = 30; // TikTok limita stat_time_day a janelas de 30 dias (erro 40002)
@@ -80,27 +81,20 @@ async function collectDaily(advertiserId, levelName, startDate, endDate) {
   return out;
 }
 
-// Busca as campanhas Smart+ e devolve nós no shape de campanha do espelho
-// (campaignKind:'smart_plus', sem adSets — o Pipeboard só permite pausar Smart+,
-// não ajustar orçamento). Best-effort: qualquer falha (sem permissão, API fora)
-// vira [] e o sync segue com as campanhas de leilão.
+// Busca a hierarquia Smart+ completa. O endpoint padrão também devolve essas
+// campanhas como AUCTION_*; manter esse resultado faria o painel enviar update
+// ao tool errado. A leitura dedicada preserva campanha → grupo → asset group e
+// permite orçamento/status no nível correto. Falha fechada: se esta leitura
+// falhar, o snapshot anterior é preservado. Gravar a leitura genérica marcaria
+// Smart+ como leilão e enviaria mutações futuras ao endpoint errado.
 async function smartPlusNodes(advertiserId) {
-  if (typeof provider.listSmartPlusCampaigns !== 'function') return [];
-  try {
-    const camps = await provider.listSmartPlusCampaigns(advertiserId);
-    return (camps || []).map((c) => ({
-      platformCampaignId: String(c.campaignId || ''),
-      campaignName: c.name || String(c.campaignId || ''),
-      status: c.status || 'paused',
-      platformCampaignStatus: c.rawStatus || '',
-      campaignKind: 'smart_plus',
-      budget: { amount: Number(c.budget) || 0, type: /TOTAL|LIFETIME/i.test(String(c.budgetMode || '')) ? 'lifetime' : 'daily' },
-      adSets: [],
-      reviewStatus: null,
-    })).filter((n) => n.platformCampaignId);
-  } catch (_) {
-    return []; // Smart+ indisponível/sem permissão — segue sem essas campanhas
+  if (typeof provider.getSmartPlusDashboardTree !== 'function') {
+    const error = new Error('O conector não expõe a leitura dedicada da hierarquia Smart+');
+    error.code = 'SMART_PLUS_CLASSIFICATION_UNAVAILABLE';
+    throw error;
   }
+  return (await provider.getSmartPlusDashboardTree(advertiserId))
+    .filter((node) => node.platformCampaignId);
 }
 
 // Sincroniza UM advertiser: estrutura (getDashboardTree, janela larga) +
@@ -146,21 +140,17 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
     // Estrutura + status derivados (fresh: ignora o micro-cache de 15s do provider).
     const tree = await provider.getDashboardTree(accountId, { advertiserId, fromDate: structFrom, toDate: to, fresh: true });
 
-    // Campanhas Smart+ entram no MESMO espelho como nós de campanha (marcados
-    // campaignKind:'smart_plus'), para o motor de automação poder PAUSAR as que
-    // estouram CPA/gasto/ROAS. Best-effort: conta sem permissão Smart+ devolve []
-    // e nunca derruba o sync. Métricas: quando o TikTok reporta o Smart+ no nível
-    // AUCTION_CAMPAIGN, o collectDaily abaixo já as coleta pelo mesmo campaign_id
-    // (nenhuma chamada extra); o readTree sobrepõe no nó automaticamente.
+    // Smart+ entra no MESMO espelho, mas SUBSTITUI o nó genérico de mesmo ID.
+    // Isso é obrigatório porque get_tiktok_campaigns/get_tiktok_ads também
+    // devolvem Smart+ e os classificavam como leilão comum. As métricas seguem
+    // vindo de AUCTION_* e são sobrepostas pelo readTree usando os IDs reais.
     const spNodes = await smartPlusNodes(advertiserId);
     if (spNodes.length) {
-      // Só adiciona Smart+ cujo campaign_id ainda NÃO está na árvore — se o mesmo
-      // ID aparecer nas duas listas, a campanha normal (mais rica, com adSets)
-      // vence; nunca duplica o campaign_id (senão o upsert do espelho quebra com
-      // "ON CONFLICT ... cannot affect row a second time").
-      const seen = new Set((tree.campaigns || []).map((c) => String(c.platformCampaignId)));
-      const novos = spNodes.filter((n) => !seen.has(String(n.platformCampaignId)));
-      if (novos.length) tree.campaigns = (tree.campaigns || []).concat(novos);
+      const smartById = new Map(spNodes.map((node) => [String(node.platformCampaignId), node]));
+      const merged = (tree.campaigns || []).map((node) => smartById.get(String(node.platformCampaignId)) || node);
+      const present = new Set(merged.map((node) => String(node.platformCampaignId)));
+      for (const node of spNodes) if (!present.has(String(node.platformCampaignId))) merged.push(node);
+      tree.campaigns = merged;
     }
 
     // Métricas diárias dos 3 níveis (falha isolada não derruba o sync inteiro).
@@ -173,6 +163,11 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
 
     // Incremental NÃO poda métricas (preserva o backfill histórico).
     await cache.writeAdvertiserSnapshot(accountId, advertiserId, { campaigns: tree.campaigns || [], dailyMetrics }, { pruneMetrics: full });
+    // A mesma árvore já coletada alimenta a caixa durável de reprovações. Não
+    // há chamada extra ao TikTok e um incidente some da caixa automaticamente
+    // quando deixa de estar rejeitado no próximo sync.
+    await adsOps.syncAdRejections(accountId, advertiserId, tree.campaigns || [])
+      .catch((error) => console.warn('[ads-sync] central de reprovações não atualizada:', error.message));
 
     const callsUsed = (pipeboard.getCallStats ? pipeboard.getCallStats().total : 0) - callsBefore;
     const now = new Date().toISOString();

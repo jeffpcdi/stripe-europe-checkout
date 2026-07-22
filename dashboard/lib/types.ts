@@ -917,6 +917,40 @@ export interface AdsSmartPlusAdsResponse {
   ads: SmartPlusAd[]
 }
 
+export interface AdsAdRejection {
+  id: string
+  advertiserId: string
+  campaignKind: 'auction' | 'smart_plus'
+  campaignId: string
+  campaignName: string
+  adGroupId: string
+  adGroupName: string
+  adId: string
+  adName: string
+  adIds: string[]
+  adNames: string[]
+  materialIds: string[]
+  rawStatus: string
+  reason: string
+  status: 'open' | 'resolved'
+  appealStatus: 'none' | 'submitting' | 'submitted' | 'in_review' | 'failed'
+  appealText: string
+  appealAuto: boolean
+  appealAttempts: number
+  appealError: string
+  appealSubmittedAt: string | null
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+  resolvedAt: string | null
+}
+
+export interface AdsRejectionsResponse {
+  advertiserId: string
+  items: AdsAdRejection[]
+  open: number
+  capabilities: { smartPlusAppeal: boolean; regularAppeal: boolean }
+}
+
 export interface AdsBudget {
   amount?: number
   type?: 'daily' | 'lifetime' | string
@@ -962,9 +996,10 @@ export interface AdsTreeCampaign {
   // diverge do status real da campanha na plataforma (ex.: campanha ativa
   // com todos os anúncios pausados). Presente só quando divergem.
   childStatus?: AdsNodeStatus
-  // Origem da campanha: 'auction' (leilão padrão) ou 'smart_plus' (mesclada pelo
-  // espelho). O motor de automação pausa Smart+ mas não ajusta seu orçamento.
+  // Origem da campanha: 'auction' (leilão padrão) ou 'smart_plus'.
   campaignKind?: 'auction' | 'smart_plus'
+  budgetOwner?: 'campaign' | 'adgroup'
+  budgetOptimizeOn?: boolean
   platformCampaignStatus?: string | null
   reviewStatus?: 'in_review' | 'approved' | 'rejected' | 'with_issues' | null
   adCount?: number

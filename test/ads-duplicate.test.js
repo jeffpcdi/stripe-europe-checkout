@@ -12,6 +12,11 @@ const assert = require('assert');
 // ── Stub do pipeboard-mcp ANTES de carregar o provider ─────────────────────
 const stubCalls = [];
 let stubHandlers = {};
+const productScopeTool = {
+  name: 'create_tiktok_ad',
+  inputSchema: { type: 'object', properties: { product_specific_type: { enum: ['ALL', 'PRODUCT_SET', 'CUSTOMIZED_PRODUCTS'] } } },
+};
+let stubTools = [productScopeTool];
 const pipeboardPath = require.resolve(path.join(__dirname, '..', 'pipeboard-mcp.js'));
 require.cache[pipeboardPath] = {
   id: pipeboardPath, filename: pipeboardPath, loaded: true,
@@ -22,7 +27,7 @@ require.cache[pipeboardPath] = {
       if (!stubHandlers[name]) throw new Error('stub sem handler p/ ' + name);
       return stubHandlers[name](args);
     },
-    listTools: async () => ({ tools: [] }),
+    listTools: async () => ({ tools: stubTools }),
   },
 };
 const providerPath = require.resolve(path.join(__dirname, '..', 'ads-provider.js'));
@@ -35,6 +40,7 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
 // Handlers base: uma origem com 1 campanha, 2 adgroups, 2 ads (1 vídeo Spark).
 function baseHandlers(overrides) {
   const h = {
+    get_tiktok_smart_plus_campaigns: async () => ({ campaigns: [], page_info: { page: 1, total_page: 1 } }),
     get_tiktok_advertisers: async () => ({ advertisers: [{ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR', status: 'STATUS_ENABLE' }] }),
     get_tiktok_advertiser_info: async () => ({ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR' }),
     get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1', display_name: 'Marca' }] }),
@@ -64,6 +70,8 @@ function baseHandlers(overrides) {
     create_tiktok_adgroup: (() => { let n = 0; return async () => ({ adgroup_id: 'new-ag' + (++n) }); })(),
     create_tiktok_ad: (() => { let n = 0; return async () => ({ ad_id: 'new-ad' + (++n) }); })(),
     update_tiktok_campaign_status: async () => ({ ok: true }),
+    update_tiktok_adgroup_status: async () => ({ ok: true }),
+    update_tiktok_ad_status: async () => ({ ok: true }),
   };
   return Object.assign(h, overrides || {});
 }
@@ -286,6 +294,79 @@ function baseHandlers(overrides) {
   assert.strictEqual(ipAttempts, 2, 'retry automático ocorre sem duplicar o passo');
   assert.ok(ipResult.warnings.some((warning) => /nova tentativa automática/.test(warning)), 'retry aparece nos avisos');
   console.log('ok 9 - erro transitório de IP é repetido automaticamente');
+
+  // ── 10. Falha na classificação Smart+ não pode virar cópia de leilão ─────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers({
+    get_tiktok_smart_plus_campaigns: async () => { throw new Error('leitura Smart+ indisponível'); },
+  });
+  await assert.rejects(
+    () => provider.captureCampaign('adv1', 'src-camp'),
+    (error) => error.code === 'SMART_PLUS_CLASSIFICATION_UNAVAILABLE' && error.step === 'capture',
+    'classificação incerta falha antes de criar a campanha no formato errado',
+  );
+  assert.strictEqual(countCalls('create_tiktok_campaign'), 0, 'nenhuma escrita ocorre após classificação incerta');
+  console.log('ok 10 - falha fechada impede converter Smart+ em campanha comum');
+
+  // ── 11. Product Sales: escopo de produto é obrigatório no anúncio ────────
+  // O get_tiktok_ads do conector pode omitir product_specific_type. Sem
+  // reconstruí-lo, o TikTok aceita campanha/grupo e falha só no último nível,
+  // deixando uma estrutura parcial (erro 40002).
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers({
+    get_tiktok_campaigns: async () => ({ campaigns: [{
+      campaign_id: 'src-product-sales', campaign_name: 'Produtos', objective_type: 'PRODUCT_SALES',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 50,
+    }] }),
+    get_tiktok_adgroups: async () => ({ adgroups: [{
+      adgroup_id: 'ps-ag', adgroup_name: 'Grupo catálogo', optimization_goal: 'CONVERT',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 50, catalog_id: 'cat-1',
+      product_source: 'CATALOG', shopping_ads_type: 'VIDEO',
+      schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] },
+    }] }),
+    get_tiktok_ads: async () => ({ ads: [{
+      ad_id: 'ps-ad', adgroup_id: 'ps-ag', ad_name: 'Vídeo catálogo', ad_format: 'SINGLE_VIDEO',
+      ad_text: 'Texto', video_id: 'vid-ps', catalog_id: 'cat-1',
+      identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1',
+    }] }),
+  });
+  const productSales = await provider.recreateCampaign(
+    'adv1', await provider.captureCampaign('adv1', 'src-product-sales'), 'Produtos (cópia)', {},
+  );
+  const productAd = lastCall('create_tiktok_ad').args;
+  assert.strictEqual(productAd.product_specific_type, 'ALL', 'catálogo sem recorte promove todos os produtos');
+  assert.ok(productSales.warnings.some((warning) => /escopo de produtos/i.test(warning)), 'inferência segura fica transparente');
+  console.log('ok 11 - Product Sales preserva product_specific_type e não falha no anúncio');
+
+  // ── 12. Conector antigo: Product Sales para antes da primeira escrita ─────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubTools = [];
+  await provider.getCatalogCapabilities({ force: true });
+  stubHandlers = baseHandlers({
+    get_tiktok_campaigns: async () => ({ campaigns: [{
+      campaign_id: 'src-product-sales', campaign_name: 'Produtos', objective_type: 'PRODUCT_SALES',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 50,
+    }] }),
+    get_tiktok_adgroups: async () => ({ adgroups: [{
+      adgroup_id: 'ps-ag', adgroup_name: 'Grupo catálogo', optimization_goal: 'CONVERT',
+      budget_mode: 'BUDGET_MODE_DAY', budget: 50, catalog_id: 'cat-1',
+      schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] },
+    }] }),
+    get_tiktok_ads: async () => ({ ads: [] }),
+  });
+  const unsupportedCapture = await provider.captureCampaign('adv1', 'src-product-sales');
+  await assert.rejects(
+    () => provider.recreateCampaign('adv1', unsupportedCapture, 'Não criar', {}),
+    (error) => error.code === 'PRODUCT_SALES_DUPLICATION_CONNECTOR_UNSUPPORTED'
+      && error.step === 'preflight' && !error.createdIds,
+  );
+  assert.strictEqual(countCalls('create_tiktok_campaign'), 0, 'schema incompleto não deixa campanha parcial');
+  stubTools = [productScopeTool];
+  await provider.getCatalogCapabilities({ force: true });
+  console.log('ok 12 - conector sem product_specific_type falha antes de escrever');
 
   console.log('\nF3: todos os testes passaram');
 })().catch((e) => { console.error('FALHOU:', e); process.exit(1); });

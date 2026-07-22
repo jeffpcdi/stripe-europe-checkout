@@ -1094,17 +1094,15 @@ function PixelInstallModal({
 }) {
   const [mode, setMode] = useState<'html' | 'gtm' | 'next' | 'domains'>('html')
   const pixelUrl = pixel.scriptUrl ?? ''
-  const origin = pixelUrl.includes('/px/') ? pixelUrl.split('/px/')[0] : ''
-  const trackerUrl = `${origin}/t.js?px=${pixel.token}`
   const htmlCode = cleanInstallCode(pixel.scriptTag)
-  const gtmCode = `<script src="${trackerUrl}" defer></script>\n<script src="${pixelUrl}" defer></script>`
-  const nextCode = `import Script from 'next/script'\n\n<Script src="${trackerUrl}" strategy="afterInteractive" />\n<Script src="${pixelUrl}" strategy="afterInteractive" />`
-  const domainsCode = `<script src="${trackerUrl}"\n  data-link-domains="checkout.seudominio.com,upsell.seudominio.com"\n  defer></script>\n<script src="${pixelUrl}" defer></script>`
+  const gtmCode = `<script src="${pixelUrl}" defer></script>`
+  const nextCode = `import Script from 'next/script'\n\n<Script src="${pixelUrl}" strategy="afterInteractive" />`
+  const domainsCode = `<script src="${pixelUrl}"\n  data-link-domains="checkout.seudominio.com,upsell.seudominio.com"\n  defer></script>`
   const modes = {
     html: {
       label: 'HTML',
       title: 'Bloco completo',
-      hint: 'Cole logo após <body> em cada arquivo HTML do produto.',
+      hint: 'Cole uma vez no layout de cada arquivo ou página do produto.',
       code: htmlCode,
     },
     gtm: {
@@ -1221,7 +1219,7 @@ function PixelInstallModal({
                 <CircleCheck className="size-3.5 text-success" aria-hidden="true" /> Cobertura automática
               </p>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
-                Visita única por navegação, SPA, conteúdo/preço da página, UTMs, ttclid, _ttp, jornada, cliques e Advanced Matching. Uma fila local reenvia eventos de navegação após oscilações de rede.
+                Uma tag instala o Pixel, registra jornada/SPA, preserva UTMs, ttclid e _ttp, faz Advanced Matching e reenvia eventos após oscilações de rede.
               </p>
             </div>
             <div className="rounded-xl border border-border p-3">
@@ -1229,7 +1227,7 @@ function PixelInstallModal({
                 <ShieldCheck className="size-3.5 text-brand-cyan" aria-hidden="true" /> Regra para dois pixels
               </p>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
-                Carrinho e Checkout podem sair do navegador; Pagamento e Compra só saem do webhook do gateway. Use sempre o mesmo Pixel Code, token e moeda em toda a jornada.
+                Compra sai como <code>Purchase</code>. O navegador pode espelhar a confirmação; somente o webhook contabiliza receita e envia a cópia confiável pela Events API.
               </p>
             </div>
           </div>
@@ -1251,6 +1249,22 @@ function PixelInstallModal({
           </details>
 
           <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
+            <summary className="cursor-pointer text-xs font-semibold text-foreground">Enviar Purchase na página de confirmação</summary>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              Adicione este marcador quando o pagamento estiver confirmado. Use o mesmo ID de pedido do webhook; navegador e Events API serão deduplicados pelo TikTok.
+            </p>
+            <pre className="mt-2 overflow-auto rounded-lg bg-input px-3 py-2 font-mono text-[11px] text-brand-cyan">{`<span data-roinados-purchase
+  data-pixel-token="${pixel.token}"
+  data-order-id="PEDIDO-123"
+  data-value="97.00"
+  data-currency="BRL"
+  hidden></span>`}</pre>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Em código: <code>RoiNadosPixel.purchase(&apos;{pixel.token}&apos;, {'{'} order_id: &apos;PEDIDO-123&apos;, value: 97, currency: &apos;BRL&apos; {'}'})</code>.
+            </p>
+          </details>
+
+          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
             <summary className="cursor-pointer text-xs font-semibold text-foreground">Conectar arquivos e hospedagens diferentes</summary>
             <div className="mt-2 space-y-2 text-[11px] leading-relaxed text-muted-foreground">
               <p>
@@ -1266,7 +1280,7 @@ function PixelInstallModal({
             <summary className="cursor-pointer text-xs font-semibold text-foreground">Consentimento e identificação do lead</summary>
             <div className="mt-2 space-y-2 text-[11px] leading-relaxed text-muted-foreground">
               <p>
-                Para aguardar sua CMP, adicione <code>data-consent=&quot;required&quot;</code> nas duas tags e, após o aceite, chame <code>RoiNadosPixel.consent(&apos;grant&apos;)</code>. Para revogar, use <code>&apos;revoke&apos;</code>.
+                Para aguardar sua CMP, adicione <code>data-consent=&quot;required&quot;</code> na tag e, após o aceite, chame <code>RoiNadosPixel.consent(&apos;grant&apos;)</code>. Para revogar, use <code>&apos;revoke&apos;</code>.
               </p>
               <p>
                 E-mail e telefone de campos reconhecidos alimentam o Advanced Matching. Use <code>data-roinados-ignore</code> no campo ou formulário que não deve ser lido, ou <code>data-advanced-matching=&quot;off&quot;</code> no tracker. Em integração própria: <code>RoiNadosPixel.identify({'{'} email, phone {'}'})</code>.

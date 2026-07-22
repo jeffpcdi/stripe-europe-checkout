@@ -41,6 +41,7 @@ import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { Switch } from '@/components/switch'
 import { PilotsPanel } from './pilots-panel'
+import { RejectionInbox } from './rejection-inbox'
 import { RulesLogList } from './rules-log-list'
 import { cn } from '@/lib/utils'
 import { applyPilot, PILOTS, type Intensity, type PilotId } from '@/lib/pilots'
@@ -666,6 +667,18 @@ export function AutomationPanel({
         </div>
       )}
 
+      <RejectionInbox
+        active={active}
+        adAccountId={adAccountId}
+        autoAppeal={alertsCfg?.autoAppealSmartPlus === true}
+        canAutoAppeal={data?.autonomy === 'auto'}
+        saving={saving || !alertsCfg}
+        onAutoAppealChange={(enabled) => {
+          if (!alertsCfg) return
+          saveAlerts({ ...alertsCfg, enabled: true, rejectedAds: true, autoAppealSmartPlus: enabled })
+        }}
+      />
+
       {/* ── Alterna o editor técnico de regras (escondido por padrão) ── */}
       <button
         type="button"
@@ -876,29 +889,6 @@ export function AutomationPanel({
                 hint={alertsDraft.lookbackDays < 3 ? '⚠ Janela curta' : '1–30'}
               />
             </div>
-            <label className="flex w-fit cursor-pointer items-center gap-2 text-xs text-foreground">
-              <input
-                type="checkbox"
-                className="size-3.5 accent-[color:var(--primary)]"
-                checked={alertsDraft.rejectedAds === true}
-                onChange={(e) => setAlertsDraft({ ...alertsDraft, rejectedAds: e.target.checked })}
-              />
-              Avisar quando um criativo for <strong>reprovado</strong> na revisão do TikTok (inclui Smart+)
-            </label>
-            {alertsDraft.rejectedAds === true && (
-              <label className={cn('ml-6 flex w-fit items-center gap-2 text-xs text-muted-foreground', data?.autonomy === 'auto' ? 'cursor-pointer' : 'cursor-not-allowed opacity-70')}>
-                <input
-                  type="checkbox"
-                  className="size-3.5 accent-[color:var(--primary)]"
-                  checked={alertsDraft.autoAppealSmartPlus === true}
-                  disabled={data?.autonomy !== 'auto'}
-                  onChange={(e) => setAlertsDraft({ ...alertsDraft, autoAppealSmartPlus: e.target.checked })}
-                />
-                {data?.autonomy === 'auto'
-                  ? <>Recorrer <strong>sozinho</strong> 1× de anúncios Smart+ reprovados (cooldown de 7 dias)</>
-                  : <>Recurso automático só fica disponível em <strong>Agir sozinho</strong></>}
-              </label>
-            )}
             <div className="flex items-center justify-end gap-1.5">
               <button
                 type="button"

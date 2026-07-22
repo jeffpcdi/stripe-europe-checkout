@@ -68,6 +68,42 @@ function fail(res, err) {
   res.status(status).json(out);
 }
 
+async function setEntityStatus(entity, status) {
+  const smart = entity.campaignKind === 'smart_plus';
+  if (entity.type === 'campaign') {
+    return smart
+      ? pipeboard.setSmartPlusCampaignStatus(entity.advertiserId, [entity.campaignId], status)
+      : pipeboard.setCampaignStatus(entity.advertiserId, [entity.campaignId], status);
+  }
+  if (entity.type === 'adgroup') {
+    return smart
+      ? pipeboard.setSmartPlusAdGroupStatus(entity.advertiserId, [entity.adGroupId], status)
+      : pipeboard.setAdGroupStatus(entity.advertiserId, [entity.adGroupId], status);
+  }
+  return smart
+    ? pipeboard.setSmartPlusAdStatus(entity.advertiserId, [entity.adId], status)
+    : pipeboard.setAdStatus(entity.advertiserId, [entity.adId], status);
+}
+
+function budgetTargetForEntity(entity) {
+  if (entity.type === 'campaign' || entity.budgetOwner === 'campaign') {
+    return { kind: 'campaign', id: entity.campaignId };
+  }
+  return { kind: 'adgroup', id: entity.adGroupId };
+}
+
+async function updateEntityBudget(entity, target, budget) {
+  const smart = entity.campaignKind === 'smart_plus';
+  if (target.kind === 'campaign') {
+    return smart
+      ? pipeboard.updateSmartPlusCampaign(entity.advertiserId, target.id, { budget })
+      : pipeboard.updateCampaign(entity.advertiserId, target.id, { budget });
+  }
+  return smart
+    ? pipeboard.updateSmartPlusAdGroup(entity.advertiserId, target.id, { budget })
+    : pipeboard.updateAdGroup(entity.advertiserId, target.id, { budget });
+}
+
 // A unicidade durável dos runs legados é account_id + idempotency_key. Cada
 // rota já valida o advertiser, mas a mesma chave enviada em dois advertisers
 // da mesma conta ainda poderia reutilizar o run errado. Derivamos uma chave
@@ -257,12 +293,22 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       if (before.kind === 'status') {
         // restaura o status anterior da campanha (pause/activate feito pelo motor)
-        await pipeboard.setCampaignStatus(advertiserId, [before.id], before.value === 'paused' ? 'paused' : 'active');
+        const entity = await adsCache.classifyEntity(req.account.id, advertiserId, before.id);
+        if (!entity) return res.status(409).json({ error: 'A campanha não está mais no espelho; atualize e tente novamente.', code: 'ROLLBACK_ENTITY_MISSING' });
+        await setEntityStatus(entity, before.value === 'paused' ? 'paused' : 'active');
       } else if (before.kind === 'budget') {
-        // restaura o orçamento anterior de cada ad group tocado
-        for (const g of (before.adGroups || [])) {
-          if (!g || !g.id || !(Number(g.amount) > 0)) continue;
-          await pipeboard.updateAdGroup(advertiserId, g.id, { budget: { amount: Number(g.amount), type: g.type === 'lifetime' ? 'lifetime' : 'daily' } });
+        // Compatibilidade com eventos antigos (`adGroups`) e contrato atual
+        // (`targets`, que pode apontar para campanha CBO ou grupo ABO/Smart+).
+        const targets = Array.isArray(before.targets)
+          ? before.targets
+          : (before.adGroups || []).map((item) => ({ ...item, level: 'adgroup' }));
+        for (const target of targets) {
+          if (!target || !target.id || !(Number(target.amount) > 0)) continue;
+          const entity = await adsCache.classifyEntity(req.account.id, advertiserId, target.id);
+          if (!entity) throw Object.assign(new Error('Um nível de orçamento não está mais no espelho: ' + target.id), { status: 409, code: 'ROLLBACK_ENTITY_MISSING' });
+          await updateEntityBudget(entity, { kind: target.level === 'campaign' ? 'campaign' : 'adgroup', id: target.id }, {
+            amount: Number(target.amount), type: target.type === 'lifetime' ? 'lifetime' : 'daily',
+          });
         }
       } else {
         return res.status(422).json({ error: 'Tipo de estado anterior não suportado para rollback.', code: 'UNSUPPORTED_STATE' });
@@ -1153,16 +1199,28 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
         return res.json({ dryRun: true, simulated: ids.length, totals: { updated: 0, skipped: ids.length, failed: 0 } });
       }
-      await pipeboard.setCampaignStatus(advertiserId, ids, status);
+      const classifiedMap = await adsCache.classifyEntities(req.account.id, advertiserId, ids);
+      const auctionIds = [];
+      const smartIds = [];
+      const skippedIds = [];
+      for (let index = 0; index < ids.length; index += 1) {
+        const entity = classifiedMap.get(ids[index]);
+        if (!entity || entity.type !== 'campaign') { skippedIds.push(ids[index]); continue; }
+        if (entity.campaignKind === 'smart_plus') smartIds.push(ids[index]);
+        else auctionIds.push(ids[index]);
+      }
+      if (auctionIds.length) await pipeboard.setCampaignStatus(advertiserId, auctionIds, status);
+      if (smartIds.length) await pipeboard.setSmartPlusCampaignStatus(advertiserId, smartIds, status);
       adsSync.syncAfterWrite(req.account.id, advertiserId); // reflete no espelho
-      stats.logEvent('info', { acc: req.account.id, title: 'Campanhas TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + ids.length });
-      res.json({ ok: true, totals: { updated: ids.length, skipped: 0, failed: 0 } });
+      const updated = auctionIds.length + smartIds.length;
+      stats.logEvent('info', { acc: req.account.id, title: 'Campanhas TikTok ' + (status === 'paused' ? 'pausadas' : 'ativadas') + ': ' + updated });
+      res.json({ ok: true, totals: { updated, skipped: skippedIds.length, failed: 0 }, skippedIds });
     } catch (err) { fail(res, err); }
   });
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus', 'pixels']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus', 'rejections', 'pixels']);
 
   // ── Atualizar uma entidade (status/budget) ────────────────────────────────
   // O :adId pode ser campanha, ad group ou anúncio. Classificamos no espelho
@@ -1211,7 +1269,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (wantCreative && ent.type !== 'ad') {
         return res.status(422).json({ error: 'Texto, CTA e link só podem ser editados no nível do ANÚNCIO.' });
       }
-      if (wantCreative && wantCreative.linkUrl && ent.type === 'ad') {
+      if (wantCreative && ent.campaignKind === 'smart_plus'
+        && (wantCreative.text !== undefined || wantCreative.linkUrl !== undefined || wantCreative.callToAction !== undefined)) {
+        return res.status(422).json({
+          error: 'O TikTok exige substituir as listas completas de texto, CTA e destino no Smart+. Para evitar apagar variações existentes, esta edição rápida permite somente renomear o anúncio.',
+          code: 'SMART_PLUS_CREATIVE_REPLACEMENT_REQUIRED',
+        });
+      }
+      if (wantCreative && wantCreative.linkUrl && ent.type === 'ad' && ent.campaignKind !== 'smart_plus') {
         // A árvore pode estar alguns segundos atrás do TikTok após uma criação.
         // Antes de qualquer PATCH de URL, lê o anúncio remoto do próprio grupo:
         // se a semântica Product Link estiver presente no cache OU no TikTok,
@@ -1239,9 +1304,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }
 
       // orçamento em anúncio → aplica no ad group dono
-      const budgetTarget = wantBudget
-        ? (ent.type === 'campaign' ? { kind: 'campaign', id: ent.campaignId } : { kind: 'adgroup', id: ent.type === 'ad' ? ent.adGroupId : ent.adGroupId || entityId })
-        : null;
+      const budgetTarget = wantBudget ? budgetTargetForEntity(ent) : null;
       if (wantBudget && (!budgetTarget || !budgetTarget.id)) {
         return res.status(422).json({ error: 'Não foi possível resolver o ad group/campanha para aplicar o orçamento.' });
       }
@@ -1261,16 +1324,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       }
 
       if (wantStatus) {
-        if (ent.type === 'campaign') await pipeboard.setCampaignStatus(advertiserId, [entityId], wantStatus);
-        else if (ent.type === 'adgroup') await pipeboard.setAdGroupStatus(advertiserId, [entityId], wantStatus);
-        else await pipeboard.setAdStatus(advertiserId, [entityId], wantStatus);
+        await setEntityStatus(ent, wantStatus);
       }
       if (wantBudget) {
-        if (budgetTarget.kind === 'campaign') await pipeboard.updateCampaign(advertiserId, budgetTarget.id, { budget: wantBudget });
-        else await pipeboard.updateAdGroup(advertiserId, budgetTarget.id, { budget: wantBudget });
+        await updateEntityBudget(ent, budgetTarget, wantBudget);
       }
       if (wantCreative) {
-        await pipeboard.updateAd(advertiserId, entityId, wantCreative);
+        if (ent.campaignKind === 'smart_plus') await pipeboard.updateSmartPlusAd(advertiserId, entityId, { name: wantCreative.name });
+        else await pipeboard.updateAd(advertiserId, entityId, wantCreative);
       }
       adsSync.syncAfterWrite(req.account.id, advertiserId);
       stats.logEvent('info', { acc: req.account.id, title: 'Entidade TikTok atualizada (' + ent.type + ')', ref: entityId });
@@ -1298,9 +1359,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         });
         return res.json({ dryRun: true, simulated: true, id: adId });
       }
-      if (ent.type === 'campaign') await pipeboard.setCampaignStatus(advertiserId, [adId], 'deleted');
-      else if (ent.type === 'adgroup') await pipeboard.setAdGroupStatus(advertiserId, [adId], 'deleted');
-      else await pipeboard.setAdStatus(advertiserId, [adId], 'deleted');
+      await setEntityStatus(ent, 'deleted');
       adsSync.syncAfterWrite(req.account.id, advertiserId);
       stats.logEvent('warn', { acc: req.account.id, title: ent.type + ' TikTok excluído', ref: adId });
       res.json({ ok: true, id: adId });
@@ -2362,7 +2421,65 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Smart+ (campanhas automatizadas do TikTok) ────────────���───────────────
+  // ── Central de reprovações e recursos ────────────────────────────────────
+  app.get('/api/ads/rejections', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const advertiserId = await resolveAdv(req, String(req.query.adAccountId || '').trim());
+      const items = await adsOps.listAdRejections(req.account.id, {
+        advertiserId,
+        status: req.query.status === 'resolved' ? 'resolved' : 'open',
+        limit: req.query.limit,
+      });
+      res.json({ advertiserId, items, open: items.filter((item) => item.status === 'open').length,
+        capabilities: { smartPlusAppeal: typeof pipeboard.appealSmartPlusAd === 'function', regularAppeal: false } });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/rejections/:rejectionId/appeal', dashboardAuth, async (req, res) => {
+    let reserved = null;
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
+      const rejection = await adsOps.getAdRejection(req.account.id, String(req.params.rejectionId || ''));
+      if (!rejection) return res.status(404).json({ error: 'Reprovação não encontrada nesta conta' });
+      const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || rejection.advertiserId).trim());
+      if (advertiserId !== rejection.advertiserId) return res.status(403).json({ error: 'A reprovação pertence a outra conta de anúncios' });
+      if (rejection.campaignKind !== 'smart_plus') {
+        return res.status(422).json({
+          error: 'O conector atual só aceita recurso programático de anúncios Smart+. Esta reprovação continua visível para correção manual no TikTok Ads Manager.',
+          code: 'REGULAR_APPEAL_UNSUPPORTED',
+        });
+      }
+      const body = req.body || {};
+      const reason = String(body.reason || '').trim();
+      if (reason && reason.length < 20) return res.status(400).json({ error: 'Explique o pedido de revisão em pelo menos 20 caracteres' });
+      const attachments = (Array.isArray(body.attachments) ? body.attachments : []).map(String).filter(Boolean).slice(0, 20);
+      if (await isDryRun(req.account.id)) {
+        await auditSimulated(req.account.id, {
+          action: 'smart_plus_appeal', targetType: 'adgroup', targetId: rejection.adGroupId, advertiserId,
+          metadata: { rejectionId: rejection.id, auto: false }, title: 'Recurso do grupo Smart+ ' + rejection.adGroupName,
+        });
+        return res.json({ dryRun: true, simulated: true, rejection });
+      }
+      reserved = await adsOps.reserveAdAppeal(req.account.id, rejection.id, { text: reason, attachments, auto: false });
+      if (!reserved) return res.status(409).json({ error: 'Este incidente já tem um recurso enviado ou em processamento.', code: 'APPEAL_ALREADY_EXISTS' });
+      await pipeboard.appealSmartPlusAd(advertiserId, reserved.adId, reserved.appealText, reserved.appealAttachments);
+      const updated = await adsOps.finishAdAppeal(req.account.id, rejection.id, { ok: true });
+      await adsOps.appendAuditEvent(req.account.id, {
+        actorType: 'user', actorId: req.account.id, action: 'smart_plus_appeal', targetType: 'adgroup',
+        targetId: rejection.adGroupId, advertiserId, reason: 'Recurso enviado ao TikTok',
+        metadata: { rejectionId: rejection.id, adId: rejection.adId, auto: false },
+      }).catch(() => {});
+      stats.logEvent('info', { acc: req.account.id, title: 'Recurso Smart+ enviado: ' + rejection.adGroupName, ref: rejection.adId });
+      res.json({ ok: true, rejection: updated });
+    } catch (err) {
+      if (reserved && reserved.id) await adsOps.finishAdAppeal(req.account.id, reserved.id, { ok: false, error: err && err.message }).catch(() => {});
+      fail(res, err);
+    }
+  });
+
+  // ── Smart+ (campanhas automatizadas do TikTok) ────────────────────────────
   // Gestão (listar/pausar/escalar) + recurso de anúncio reprovado. O appeal de
   // anúncio SÓ existe na API para anúncios Smart+ (appeal_tiktok_smart_plus_ad).
   async function resolveAdvForSmartPlus(req, hint) {
@@ -2477,6 +2594,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   });
 
   app.post('/api/ads/smart-plus/ads/:adId/appeal', dashboardAuth, async (req, res) => {
+    let reserved = null;
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
@@ -2484,21 +2602,37 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
       const adId = String(req.params.adId || '');
       const reason = String(b.reason || '').trim();
+      const open = await adsOps.listAdRejections(req.account.id, { advertiserId, status: 'open', limit: 200 });
+      const rejection = open.find((item) => item.campaignKind === 'smart_plus'
+        && (item.adId === adId || (item.adIds || []).includes(adId)));
+      if (!rejection) {
+        return res.status(409).json({
+          error: 'Atualize a conta para registrar esta reprovação na central antes de recorrer.',
+          code: 'REJECTION_INCIDENT_REQUIRED',
+        });
+      }
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
-          action: 'smart_plus_appeal', targetType: 'ad', targetId: adId, advertiserId,
-          metadata: { reason: reason.slice(0, 120) }, title: 'Recorrer do anúncio Smart+ ' + adId,
+          action: 'smart_plus_appeal', targetType: 'adgroup', targetId: rejection.adGroupId, advertiserId,
+          metadata: { reason: reason.slice(0, 120), adId }, title: 'Recorrer do grupo Smart+ ' + rejection.adGroupName,
         });
         return res.json({ dryRun: true, simulated: true, id: adId });
       }
-      await pipeboard.appealSmartPlusAd(advertiserId, adId, reason);
+      reserved = await adsOps.reserveAdAppeal(req.account.id, rejection.id, { text: reason, attachments: b.attachments, auto: false });
+      if (!reserved) return res.status(409).json({ error: 'Este incidente já tem um recurso enviado ou em processamento.', code: 'APPEAL_ALREADY_EXISTS' });
+      await pipeboard.appealSmartPlusAd(advertiserId, reserved.adId, reserved.appealText, reserved.appealAttachments);
+      await adsOps.finishAdAppeal(req.account.id, rejection.id, { ok: true });
       await adsOps.appendAuditEvent(req.account.id, {
         actorType: 'user', actorId: req.account.id, action: 'smart_plus_appeal',
-        targetType: 'ad', targetId: adId, advertiserId, reason: 'Recurso enviado ao TikTok' + (reason ? ': ' + reason.slice(0, 120) : ''),
+        targetType: 'adgroup', targetId: rejection.adGroupId, advertiserId,
+        reason: 'Recurso enviado ao TikTok', metadata: { rejectionId: rejection.id, adId, legacyRoute: true },
       }).catch(() => {});
-      stats.logEvent('info', { acc: req.account.id, title: 'Recurso de anúncio Smart+ enviado ao TikTok', ref: adId });
+      stats.logEvent('info', { acc: req.account.id, title: 'Recurso do grupo Smart+ enviado ao TikTok', ref: rejection.adGroupId });
       res.json({ ok: true, id: adId });
-    } catch (err) { fail(res, err); }
+    } catch (err) {
+      if (reserved && reserved.id) await adsOps.finishAdAppeal(req.account.id, reserved.id, { ok: false, error: err && err.message }).catch(() => {});
+      fail(res, err);
+    }
   });
 
   // ── Catálogos de produtos (TikTok Shopping / Catalog) ─────────────────────

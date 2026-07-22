@@ -249,6 +249,28 @@ async function aggregateMetrics(accountId, advertiserId, level, fromDate, toDate
 
 const EMPTY_METRICS = { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpm: 0, cpc: 0, conversions: 0, reach: 0 };
 
+function metricsForNode(map, primaryId, extraIds) {
+  const ids = [...new Set([String(primaryId || ''), ...(Array.isArray(extraIds) ? extraIds.map(String) : [])].filter(Boolean))];
+  let found = false;
+  const total = { impressions: 0, clicks: 0, spend: 0, conversions: 0, reach: 0 };
+  for (const entityId of ids) {
+    const value = map.get(entityId);
+    if (!value) continue;
+    found = true;
+    total.impressions += num(value.impressions);
+    total.clicks += num(value.clicks);
+    total.spend += num(value.spend);
+    total.conversions += num(value.conversions);
+    total.reach += num(value.reach);
+  }
+  if (!found) return Object.assign({}, EMPTY_METRICS);
+  total.ctr = total.impressions ? total.clicks / total.impressions : 0;
+  total.cpc = total.clicks ? total.spend / total.clicks : 0;
+  total.cpm = total.impressions ? (total.spend / total.impressions) * 1000 : 0;
+  total.cpa = total.conversions ? total.spend / total.conversions : 0;
+  return total;
+}
+
 // Reconstrói o AdsTreeResponse a partir do espelho: estrutura (JSONB) +
 // métricas agregadas da janela sobrepostas em cada nível. Aplica filtro de
 // status e ordenação (mesmo contrato do getDashboardTree do provider).
@@ -276,13 +298,13 @@ async function readTree(accountId, advertiserId, opts = {}) {
   let campaigns = campRows.map((row) => {
     const c = row.data || {};
     const node = Object.assign({}, c);
-    node.metrics = cMet.get(String(c.platformCampaignId)) || Object.assign({}, EMPTY_METRICS);
+    node.metrics = metricsForNode(cMet, c.platformCampaignId, c.metricEntityIds);
     node.adSets = (c.adSets || []).map((s) => {
       const set = Object.assign({}, s);
-      set.metrics = gMet.get(String(s.platformAdSetId)) || Object.assign({}, EMPTY_METRICS);
+      set.metrics = metricsForNode(gMet, s.platformAdSetId, s.metricEntityIds);
       set.ads = (s.ads || []).map((ad) => {
         const adNode = Object.assign({}, ad);
-        adNode.metrics = aMet.get(String(ad.platformAdId)) || Object.assign({}, EMPTY_METRICS);
+        adNode.metrics = metricsForNode(aMet, ad.platformAdId, ad.metricEntityIds);
         return adNode;
       });
       return set;
@@ -475,37 +497,57 @@ async function listSyncStates(accountId) {
 // isso para nunca aceitar uma landing_page_url manual nesse formato.
 // advertiserId é opcional: se omitido, procura em TODOS os advertisers da conta
 // (o front não passa o advertiser no PUT/DELETE de entidade) e devolve o dono.
-async function classifyEntity(accountId, advertiserId, entityId) {
+function classifyRows(rows, entityIds) {
+  const wanted = new Set((entityIds || []).map(String).filter(Boolean));
+  const found = new Map();
+  if (!wanted.size) return found;
+  function add(entityId, value) {
+    const id = String(entityId || '');
+    if (wanted.has(id)) found.set(id, value);
+  }
+  for (const r of rows) {
+    const adv = String(r.advertiser_id || '');
+    const c = r.data || {};
+    const campaignId = String(c.platformCampaignId || '');
+    const campaignKind = c.campaignKind === 'smart_plus' ? 'smart_plus' : 'auction';
+    const budgetOwner = c.budgetOwner === 'campaign' ? 'campaign' : 'adgroup';
+    add(campaignId, { type: 'campaign', advertiserId: adv, campaignId, campaignKind, budgetOwner });
+    for (const g of (c.adSets || [])) {
+      const adGroupId = String(g.platformAdSetId || '');
+      add(adGroupId, { type: 'adgroup', advertiserId: adv, campaignId, adGroupId, campaignKind, budgetOwner });
+      for (const a of (g.ads || [])) {
+        const adId = String(a.platformAdId || '');
+        add(adId, {
+          type: 'ad', advertiserId: adv, campaignId, adGroupId, adId,
+          campaignKind, budgetOwner,
+          catalogId: String(a.catalogId || ''), websiteType: String(a.websiteType || ''), adFormat: String(a.adFormat || ''),
+        });
+      }
+    }
+    if (found.size === wanted.size) break;
+  }
+  return found;
+}
+
+// Classificação em lote: uma única leitura do JSONB atende pausa/ativação de
+// até 50 campanhas. Antes, o endpoint bulk repetia a mesma consulta N vezes.
+async function classifyEntities(accountId, advertiserId, entityIds) {
   accountId = cleanAccountId(accountId);
   advertiserId = String(advertiserId || '').trim();
-  entityId = String(entityId || '').trim();
-  if (!enabled || !entityId) return null;
+  const ids = [...new Set((Array.isArray(entityIds) ? entityIds : [entityIds]).map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!enabled || !ids.length) return new Map();
   await ensureSchema();
   const rows = advertiserId
     ? await sql`SELECT advertiser_id, data FROM ads_campaigns_cache WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}`
     : await sql`SELECT advertiser_id, data FROM ads_campaigns_cache WHERE account_id = ${accountId}`;
-  for (const r of rows) {
-    const adv = String(r.advertiser_id || '');
-    const c = r.data || {};
-    if (String(c.platformCampaignId || '') === entityId) {
-      return { type: 'campaign', advertiserId: adv, campaignId: entityId };
-    }
-    for (const g of (c.adSets || [])) {
-      if (String(g.platformAdSetId || '') === entityId) {
-        return { type: 'adgroup', advertiserId: adv, campaignId: String(c.platformCampaignId || ''), adGroupId: entityId };
-      }
-      for (const a of (g.ads || [])) {
-        if (String(a.platformAdId || '') === entityId) {
-          return {
-            type: 'ad', advertiserId: adv, campaignId: String(c.platformCampaignId || ''),
-            adGroupId: String(g.platformAdSetId || ''), adId: entityId,
-            catalogId: String(a.catalogId || ''), websiteType: String(a.websiteType || ''), adFormat: String(a.adFormat || ''),
-          };
-        }
-      }
-    }
-  }
-  return null;
+  return classifyRows(rows, ids);
+}
+
+async function classifyEntity(accountId, advertiserId, entityId) {
+  const id = String(entityId || '').trim();
+  if (!id) return null;
+  const found = await classifyEntities(accountId, advertiserId, [id]);
+  return found.get(id) || null;
 }
 
 // ── Estado das automações (cooldowns/dayparting persistidos) ───────────────
@@ -647,10 +689,11 @@ module.exports = {
   listActiveAdvertisers,
   listSyncStates,
   classifyEntity,
+  classifyEntities,
   listAutomationState,
   upsertAutomationState,
   deleteAutomationState,
   upsertBriefing,
   listBriefings,
-  _internals: { dedupeByKey },
+  _internals: { dedupeByKey, classifyRows },
 };

@@ -16,6 +16,7 @@ import {
   useAdsSafetyPolicy,
   useAdsHealth,
   useAdsSyncStatus,
+  useAdsRejections,
   apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -146,9 +147,12 @@ export function TikTokAdsView() {
   const dryRunActive = Boolean(safety?.policy?.dryRun)
   const killSwitchActive = Boolean(safety?.policy?.killSwitch)
 
+  const concreteAdvertiser = effectiveAdvertiser
+
   // Saúde das contas — o GET roda a varredura no backend (detecção de
   // banimento + criação automática de tickets); aqui alimenta o badge.
   const { data: adsHealth } = useAdsHealth(connected)
+  const { data: rejections } = useAdsRejections(treeActive, concreteAdvertiser)
   const bannedAccounts = (adsHealth?.health ?? []).filter((h) => h.status === 'banned')
   const openTickets = (adsHealth?.tickets ?? []).filter((t) => t.status === 'open' || t.status === 'submitted')
   const hasAccountAlert = dryRunActive || killSwitchActive || bannedAccounts.length > 0
@@ -157,7 +161,6 @@ export function TikTokAdsView() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
 
-  const concreteAdvertiser = effectiveAdvertiser
   const { data: syncStatus, mutate: mutateSyncStatus } = useAdsSyncStatus(treeActive, concreteAdvertiser)
   const selectedSyncState = syncStatus?.advertisers?.find((state) => state.advertiserId === concreteAdvertiser)
 
@@ -331,7 +334,9 @@ export function TikTokAdsView() {
             <Tabs.Root value={tab} onValueChange={(value) => changeTab(value as TabKey)} className="min-w-0">
               <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1 rounded-xl border border-border bg-card p-1 sm:w-max">
                 {SUBTABS.map((item) => {
-                  const attentionCount = item.value === 'automation' ? bannedAccounts.length + openTickets.length : item.value === 'campaigns' && tree?.syncError ? 1 : 0
+                  const attentionCount = item.value === 'automation'
+                    ? bannedAccounts.length + openTickets.length + (rejections?.open ?? 0)
+                    : item.value === 'campaigns' && tree?.syncError ? 1 : 0
                   return (
                     <Tabs.Trigger
                       key={item.value}

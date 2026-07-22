@@ -5,11 +5,70 @@ const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.
 const sql = URL ? neon(URL) : null;
 const enabled = !!sql;
 const pixelBindingMemory = new Map();
+const rejectionMemory = new Map();
 
 const JOB_STATUSES = new Set(['queued', 'running', 'retrying', 'completed', 'partial', 'failed', 'cancelled']);
 
 function id(prefix) {
   return prefix + crypto.randomUUID().replace(/-/g, '');
+}
+
+function rejectionScope(accountId, advertiserId) {
+  return cleanAccountId(accountId) + ':' + String(advertiserId || '').trim().slice(0, 120);
+}
+
+function rejectedStatus(value) {
+  const status = String(value || '').toUpperCase();
+  return status === 'REJECTED' || status.includes('REJECT') || status.includes('DENY') || status.includes('AUDIT_DENY');
+}
+
+// Uma apelação do TikTok reabre o GRUPO inteiro. Por isso a central agrupa os
+// anúncios rejeitados pelo ad group, em vez de oferecer um botão enganoso para
+// cada criativo. IDs/materiais continuam anexados como evidência do incidente.
+function normalizeRejectionIncidents(campaigns) {
+  const grouped = new Map();
+  for (const campaign of Array.isArray(campaigns) ? campaigns : []) {
+    const campaignId = String(campaign.platformCampaignId || '');
+    const campaignKind = campaign.campaignKind === 'smart_plus' ? 'smart_plus' : 'auction';
+    for (const group of (campaign.adSets || [])) {
+      const adGroupId = String(group.platformAdSetId || '');
+      for (const ad of (group.ads || [])) {
+        if (!rejectedStatus(ad.status) && !rejectedStatus(ad.secondaryStatus) && !rejectedStatus(ad.rejectionReason)) continue;
+        const adId = String(ad.platformAdId || '');
+        if (!adId) continue;
+        const key = campaignKind + ':' + (adGroupId || adId);
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            fingerprint: crypto.createHash('sha256').update([
+              campaignKind, adGroupId || adId, String(ad.secondaryStatus || ad.rejectionReason || ad.status || ''),
+            ].join('\u0000')).digest('hex'),
+            campaignKind,
+            campaignId,
+            campaignName: String(campaign.campaignName || campaignId),
+            adGroupId,
+            adGroupName: String(group.adSetName || group.name || adGroupId),
+            adId,
+            adName: String(ad.name || adId),
+            adIds: [],
+            adNames: [],
+            materialIds: [],
+            rawStatus: String(ad.secondaryStatus || ad.rejectionReason || ad.status || ''),
+            reason: String(ad.rejectionReason || ad.secondaryStatus || 'Reprovado pelo TikTok'),
+          });
+        }
+        const incident = grouped.get(key);
+        incident.adIds.push(adId);
+        incident.adNames.push(String(ad.name || adId));
+        incident.materialIds.push(...(Array.isArray(ad.materialIds) ? ad.materialIds.map(String) : []));
+      }
+    }
+  }
+  return [...grouped.values()].map((incident) => ({
+    ...incident,
+    adIds: [...new Set(incident.adIds)],
+    adNames: [...new Set(incident.adNames)],
+    materialIds: [...new Set(incident.materialIds.filter(Boolean))],
+  }));
 }
 
 function cleanAccountId(value) {
@@ -194,6 +253,44 @@ async function ensureSchema() {
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_unban_tickets_open ON ads_unban_tickets (account_id, advertiser_id) WHERE status IN ('open', 'submitted')`;
     await sql`CREATE INDEX IF NOT EXISTS idx_ads_unban_tickets_account ON ads_unban_tickets (account_id, status, created_at DESC)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_ads_account_health_account ON ads_account_health (account_id, status)`;
+    // Caixa de entrada de reprovações. Um incidente fica aberto enquanto o
+    // grupo continua rejeitado; quando some do espelho ele é resolvido. O
+    // índice parcial garante uma única apelação ativa por grupo/episódio.
+    await sql`CREATE TABLE IF NOT EXISTS ads_ad_rejections (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      advertiser_id text NOT NULL,
+      fingerprint text NOT NULL,
+      campaign_kind text NOT NULL DEFAULT 'auction',
+      campaign_id text,
+      campaign_name text,
+      adgroup_id text,
+      adgroup_name text,
+      ad_id text NOT NULL,
+      ad_name text,
+      ad_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+      ad_names jsonb NOT NULL DEFAULT '[]'::jsonb,
+      material_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+      raw_status text,
+      reason text,
+      status text NOT NULL DEFAULT 'open',
+      appeal_status text NOT NULL DEFAULT 'none',
+      appeal_text text,
+      appeal_auto boolean NOT NULL DEFAULT false,
+      appeal_attempts integer NOT NULL DEFAULT 0,
+      appeal_error text,
+      appeal_attachments jsonb NOT NULL DEFAULT '[]'::jsonb,
+      appeal_submitted_at timestamptz,
+      first_seen_at timestamptz NOT NULL DEFAULT now(),
+      last_seen_at timestamptz NOT NULL DEFAULT now(),
+      resolved_at timestamptz,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ads_ad_rejections_open_group
+      ON ads_ad_rejections (account_id, advertiser_id, campaign_kind, adgroup_id)
+      WHERE status = 'open'`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_ads_ad_rejections_inbox
+      ON ads_ad_rejections (account_id, advertiser_id, status, last_seen_at DESC)`;
     // F3 — MODO PROPOSTA: regra em mode:'proposal' grava a intenção aqui em
     // vez de chamar o provider. `plan` carrega before/after JÁ computados no
     // momento do hit (a aprovação re-valida contra o estado atual antes de
@@ -902,4 +999,187 @@ async function deletePixelBinding(accountId, advertiserId) {
   return true;
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, PROPOSAL_TTL_MS };
+function mapAdRejection(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id || ''),
+    advertiserId: String(row.advertiser_id || row.advertiserId || ''),
+    fingerprint: String(row.fingerprint || ''),
+    campaignKind: String(row.campaign_kind || row.campaignKind || 'auction'),
+    campaignId: String(row.campaign_id || row.campaignId || ''),
+    campaignName: String(row.campaign_name || row.campaignName || ''),
+    adGroupId: String(row.adgroup_id || row.adGroupId || ''),
+    adGroupName: String(row.adgroup_name || row.adGroupName || ''),
+    adId: String(row.ad_id || row.adId || ''),
+    adName: String(row.ad_name || row.adName || ''),
+    adIds: Array.isArray(row.ad_ids || row.adIds) ? (row.ad_ids || row.adIds).map(String) : [],
+    adNames: Array.isArray(row.ad_names || row.adNames) ? (row.ad_names || row.adNames).map(String) : [],
+    materialIds: Array.isArray(row.material_ids || row.materialIds) ? (row.material_ids || row.materialIds).map(String) : [],
+    rawStatus: String(row.raw_status || row.rawStatus || ''),
+    reason: String(row.reason || 'Reprovado pelo TikTok'),
+    status: String(row.status || 'open'),
+    appealStatus: String(row.appeal_status || row.appealStatus || 'none'),
+    appealText: String(row.appeal_text || row.appealText || ''),
+    appealAuto: row.appeal_auto === true || row.appealAuto === true,
+    appealAttempts: Number(row.appeal_attempts || row.appealAttempts || 0),
+    appealError: String(row.appeal_error || row.appealError || ''),
+    appealAttachments: Array.isArray(row.appeal_attachments || row.appealAttachments) ? (row.appeal_attachments || row.appealAttachments).map(String) : [],
+    appealSubmittedAt: row.appeal_submitted_at || row.appealSubmittedAt || null,
+    firstSeenAt: row.first_seen_at || row.firstSeenAt || null,
+    lastSeenAt: row.last_seen_at || row.lastSeenAt || null,
+    resolvedAt: row.resolved_at || row.resolvedAt || null,
+  };
+}
+
+async function syncAdRejections(accountId, advertiserId, campaigns) {
+  const acc = cleanAccountId(accountId);
+  const adv = cleanAdvertiserId(advertiserId);
+  const incidents = normalizeRejectionIncidents(campaigns).map((item) => ({
+    ...item,
+    adGroupId: item.adGroupId || item.adId,
+    adGroupName: item.adGroupName || item.adName,
+  }));
+  const now = new Date().toISOString();
+  if (!enabled) {
+    const scope = rejectionScope(acc, adv);
+    const rows = rejectionMemory.get(scope) || [];
+    const open = new Map(rows.filter((row) => row.status === 'open').map((row) => [row.campaignKind + ':' + row.adGroupId, row]));
+    const seen = new Set();
+    for (const incident of incidents) {
+      const key = incident.campaignKind + ':' + incident.adGroupId;
+      seen.add(key);
+      const current = open.get(key);
+      if (current) Object.assign(current, incident, { lastSeenAt: now });
+      else rows.unshift(mapAdRejection({ id: id('rej_'), advertiserId: adv, ...incident, status: 'open', appealStatus: 'none', firstSeenAt: now, lastSeenAt: now }));
+    }
+    for (const row of rows) {
+      const key = row.campaignKind + ':' + row.adGroupId;
+      if (row.status === 'open' && !seen.has(key)) Object.assign(row, { status: 'resolved', resolvedAt: now });
+    }
+    rejectionMemory.set(scope, rows.slice(0, 500));
+    return rows.filter((row) => row.status === 'open');
+  }
+
+  await ensureSchema();
+  const existing = await sql`SELECT * FROM ads_ad_rejections
+    WHERE account_id = ${acc} AND advertiser_id = ${adv} AND status = 'open'`;
+  const byGroup = new Map(existing.map((row) => [String(row.campaign_kind) + ':' + String(row.adgroup_id), row]));
+  const seenIds = new Set();
+  for (const incident of incidents) {
+    const current = byGroup.get(incident.campaignKind + ':' + incident.adGroupId);
+    if (current) {
+      seenIds.add(String(current.id));
+      await sql`UPDATE ads_ad_rejections SET fingerprint = ${incident.fingerprint}, campaign_id = ${incident.campaignId || null},
+        campaign_name = ${incident.campaignName || null}, adgroup_name = ${incident.adGroupName || null},
+        ad_id = ${incident.adId}, ad_name = ${incident.adName || null}, ad_ids = ${JSON.stringify(incident.adIds)},
+        ad_names = ${JSON.stringify(incident.adNames)}, material_ids = ${JSON.stringify(incident.materialIds)},
+        raw_status = ${incident.rawStatus || null}, reason = ${incident.reason || null}, last_seen_at = now(), updated_at = now()
+        WHERE account_id = ${acc} AND id = ${current.id}`;
+      continue;
+    }
+    const newId = id('rej_');
+    const inserted = await sql`INSERT INTO ads_ad_rejections
+      (id, account_id, advertiser_id, fingerprint, campaign_kind, campaign_id, campaign_name,
+       adgroup_id, adgroup_name, ad_id, ad_name, ad_ids, ad_names, material_ids, raw_status, reason)
+      VALUES (${newId}, ${acc}, ${adv}, ${incident.fingerprint}, ${incident.campaignKind}, ${incident.campaignId || null},
+       ${incident.campaignName || null}, ${incident.adGroupId}, ${incident.adGroupName || null}, ${incident.adId},
+       ${incident.adName || null}, ${JSON.stringify(incident.adIds)}, ${JSON.stringify(incident.adNames)},
+       ${JSON.stringify(incident.materialIds)}, ${incident.rawStatus || null}, ${incident.reason || null})
+      ON CONFLICT DO NOTHING RETURNING id`;
+    if (inserted[0]) seenIds.add(String(inserted[0].id));
+    else {
+      const collision = await sql`SELECT id FROM ads_ad_rejections WHERE account_id = ${acc} AND advertiser_id = ${adv}
+        AND campaign_kind = ${incident.campaignKind} AND adgroup_id = ${incident.adGroupId} AND status = 'open' LIMIT 1`;
+      if (collision[0]) seenIds.add(String(collision[0].id));
+    }
+  }
+  for (const row of existing) {
+    if (seenIds.has(String(row.id))) continue;
+    await sql`UPDATE ads_ad_rejections SET status = 'resolved', resolved_at = now(), updated_at = now()
+      WHERE account_id = ${acc} AND id = ${row.id} AND status = 'open'`;
+  }
+  return listAdRejections(acc, { advertiserId: adv, status: 'open' });
+}
+
+async function listAdRejections(accountId, opts = {}) {
+  const acc = cleanAccountId(accountId);
+  const adv = opts.advertiserId ? cleanAdvertiserId(opts.advertiserId) : '';
+  const status = ['open', 'resolved'].includes(opts.status) ? opts.status : '';
+  const limit = Math.min(200, Math.max(1, Number(opts.limit) || 100));
+  if (!enabled) {
+    const scopes = adv ? [rejectionScope(acc, adv)] : [...rejectionMemory.keys()].filter((key) => key.startsWith(acc + ':'));
+    return scopes.flatMap((key) => rejectionMemory.get(key) || [])
+      .filter((row) => !status || row.status === status)
+      .sort((a, b) => String(b.lastSeenAt || '').localeCompare(String(a.lastSeenAt || ''))).slice(0, limit);
+  }
+  await ensureSchema();
+  let rows;
+  if (adv && status) rows = await sql`SELECT * FROM ads_ad_rejections WHERE account_id = ${acc} AND advertiser_id = ${adv} AND status = ${status} ORDER BY last_seen_at DESC LIMIT ${limit}`;
+  else if (adv) rows = await sql`SELECT * FROM ads_ad_rejections WHERE account_id = ${acc} AND advertiser_id = ${adv} ORDER BY last_seen_at DESC LIMIT ${limit}`;
+  else if (status) rows = await sql`SELECT * FROM ads_ad_rejections WHERE account_id = ${acc} AND status = ${status} ORDER BY last_seen_at DESC LIMIT ${limit}`;
+  else rows = await sql`SELECT * FROM ads_ad_rejections WHERE account_id = ${acc} ORDER BY last_seen_at DESC LIMIT ${limit}`;
+  return rows.map(mapAdRejection);
+}
+
+async function getAdRejection(accountId, rejectionId) {
+  const acc = cleanAccountId(accountId);
+  const rid = String(rejectionId || '').slice(0, 160);
+  if (!enabled) {
+    for (const [scope, rows] of rejectionMemory) {
+      if (!scope.startsWith(acc + ':')) continue;
+      const found = rows.find((row) => row.id === rid);
+      if (found) return found;
+    }
+    return null;
+  }
+  await ensureSchema();
+  const rows = await sql`SELECT * FROM ads_ad_rejections WHERE account_id = ${acc} AND id = ${rid} LIMIT 1`;
+  return mapAdRejection(rows[0]);
+}
+
+function buildAdAppealText(rejection, customText) {
+  const custom = String(customText || '').trim();
+  if (custom) return custom.slice(0, 2000);
+  const item = rejection || {};
+  return ('Solicito uma nova revisão manual do grupo de anúncios "' + String(item.adGroupName || item.adName || item.adGroupId || item.adId || 'sem nome')
+    + '". A integração registrou o status "' + String(item.rawStatus || 'reprovado')
+    + '", mas a resposta disponível não trouxe a política específica nem o trecho exato que motivou a reprovação. '
+    + 'Peço a reavaliação do criativo e do destino no contexto completo da oferta. Se ainda houver não conformidade, por favor indiquem a política e o elemento preciso que precisa ser corrigido.').slice(0, 2000);
+}
+
+async function reserveAdAppeal(accountId, rejectionId, input = {}) {
+  const acc = cleanAccountId(accountId);
+  const current = await getAdRejection(acc, rejectionId);
+  if (!current || current.status !== 'open') return null;
+  if (['submitting', 'submitted', 'in_review'].includes(current.appealStatus)) return null;
+  const text = buildAdAppealText(current, input.text);
+  const attachments = (Array.isArray(input.attachments) ? input.attachments : []).map(String).filter(Boolean).slice(0, 20);
+  if (!enabled) {
+    Object.assign(current, { appealStatus: 'submitting', appealText: text, appealAuto: input.auto === true,
+      appealAttempts: current.appealAttempts + 1, appealAttachments: attachments, appealError: '' });
+    return current;
+  }
+  const rows = await sql`UPDATE ads_ad_rejections SET appeal_status = 'submitting', appeal_text = ${text},
+    appeal_auto = ${input.auto === true}, appeal_attempts = appeal_attempts + 1, appeal_error = null,
+    appeal_attachments = ${JSON.stringify(attachments)}, updated_at = now()
+    WHERE account_id = ${acc} AND id = ${String(rejectionId)} AND status = 'open'
+      AND appeal_status NOT IN ('submitting','submitted','in_review') RETURNING *`;
+  return mapAdRejection(rows[0]);
+}
+
+async function finishAdAppeal(accountId, rejectionId, result = {}) {
+  const acc = cleanAccountId(accountId);
+  const status = result.ok ? 'submitted' : 'failed';
+  const error = result.ok ? '' : String(result.error || 'Falha ao enviar recurso').slice(0, 500);
+  if (!enabled) {
+    const current = await getAdRejection(acc, rejectionId);
+    if (current) Object.assign(current, { appealStatus: status, appealError: error, appealSubmittedAt: result.ok ? new Date().toISOString() : null });
+    return current;
+  }
+  const rows = await sql`UPDATE ads_ad_rejections SET appeal_status = ${status}, appeal_error = ${error || null},
+    appeal_submitted_at = ${result.ok ? new Date().toISOString() : null}, updated_at = now()
+    WHERE account_id = ${acc} AND id = ${String(rejectionId)} RETURNING *`;
+  return mapAdRejection(rows[0]);
+}
+
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, normalizeRejectionIncidents, syncAdRejections, listAdRejections, getAdRejection, buildAdAppealText, reserveAdAppeal, finishAdAppeal, PROPOSAL_TTL_MS };

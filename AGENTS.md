@@ -99,6 +99,9 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 - **tiktok-events.js** — CAPI do TikTok v1.3. Hash SHA-256 de PII, telefone normalizado E.164,
   `external_id` = hash de `lead:<v_id>`. Multi-pixel via `dispatchToAll`/`sendToPixel`. Calcula **EMQ**
   (proxy do Event Match Quality, 0–10) por `matchScore()`. Retry imediato + fila durável no Redis.
+  O funil mantém `CompletePayment` internamente por retrocompatibilidade, mas a fronteira CAPI converte
+  para o Standard Event atual `Purchase`; `Purchase.<order_id normalizado>` é compartilhado com o
+  navegador para deduplicação. `tiktok-event-contract.js` concentra esse contrato.
 - **pixel-store.js** — CRUD de pixels do TikTok (cada um com `pixel_code` + `access_token` próprios).
 - **link-store.js** — links de checkout (`/go/:slug`). Cada link: `variantes[]` (A/B com pesos;
   `pickVariant()` faz split determinístico por visitante), `pixelSlug`, `urlWhitePage`,
@@ -129,6 +132,24 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   alfanumérico salvo em Conversões com o `pixel_id` numérico lido do TikTok e
   `PUT /api/ads/pixels/default` resolve apenas contas ambíguas. Campanhas comuns, Smart+, Spark,
   wizard e lote de catálogos recebem esse Pixel no servidor e sempre usam Compra.
+  Listagens percorrem **todas as páginas** do conector, inclusive contas com mais de 1.000 anúncios.
+  A árvore Smart+ usa as APIs Smart+ nos três níveis e a classificação falha fechada: uma falha de
+  leitura nunca rebaixa silenciosamente Smart+ para campanha comum. Orçamento CBO pertence somente à
+  campanha; ABO pertence ao conjunto — leitura, automação e edição seguem o mesmo dono para não somar
+  nem alterar orçamento duas vezes. Duplicação comum e Smart+ recria campanha, conjuntos e anúncios
+  sempre pausados, preservando Pixel/evento, targeting, catálogo, identidade, tracking e criativos.
+  Em Product Sales, o preflight exige que o schema Pipeboard declare `product_specific_type`; se não
+  declarar, falha antes da primeira escrita (`PRODUCT_SALES_DUPLICATION_CONNECTOR_UNSUPPORTED`) em vez
+  de criar uma hierarquia parcial. O escopo reconstruído é `ALL`, `PRODUCT_SET` ou
+  `CUSTOMIZED_PRODUCTS` conforme os IDs salvos.
+- **ads-ops-store.js + ads-automation.js** — `ads_ad_rejections` é a caixa durável de reprovações,
+  agrupada por conjunto/campanha Smart+ para não repetir um alerta por anúncio. Cada sincronização abre,
+  atualiza ou resolve incidentes sem apagar histórico. `GET /api/ads/rejections` lista o inbox e
+  `POST /api/ads/rejections/:rejectionId/appeal` reserva atomicamente uma tentativa, gera justificativa
+  factual com os dados disponíveis e registra resposta/erro. Recurso automático só envia para Smart+
+  quando a conta está em autonomia global, a chave de apelação está ligada e o kill switch/dry-run
+  permitem; há cooldown de 7 dias após sucesso e backoff de 1 hora após falha. Campanha comum fica com
+  instrução manual explícita enquanto o conector não expõe API programática de recurso para esse tipo.
 - **bot-filter.js** — cloaking multicamadas (score 0–100). Modelo de score em §8. Lookup de ASN (Cymru
   via DNS) com teto de latência (`deadlineMs`, padrão 120ms via `Promise.race`) e cache 2 camadas
   (memória + Redis `asn:<ip>`) para redirect quase instant��neo.
@@ -174,8 +195,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Header compacto (~64px): logo 46px + nav inline + status. KPIs em grelha fixa 4→2→1.
 - **Regra de ouro do front:** como o HTML é uma string JS, **nunca** use crase nem `${}` dentro dele;
   para interpolar valores do servidor, concatene com `+` e escape aspas/apóstrofos.
-- **Snippets servidos para páginas externas:** `/t.js` (tracker-view.js) e `/px.js` `/px/:token.js`
-  (pixel do navegador que casa com a CAPI via `event_id` idêntico), além de `/px.gif` (fallback beacon).
+- **Snippets servidos para páginas externas:** `/px/:token.js` é a instalação recomendada e
+  autossuficiente: carrega o Pixel nativo e inicializa `/t.js` (tracker-view.js) para jornada, SPA e
+  identidade. `/px.js` permanece legado e `/px.gif` é o fallback sem JS. Compra confirmada pode ser
+  espelhada no Pixel do navegador por `data-roinados-purchase` ou
+  `RoiNadosPixel.purchase(token,{order_id,value,currency})`; o navegador nunca cria receita nem CAPI.
 
 ## 5. Rotas (todas as do server.js)
 ### 5.1 Páginas e assets (GET)
@@ -440,6 +464,10 @@ Todas as tabelas de dados têm `account_id text`. Tabelas keyed-by-name usam PK 
   mesmo advertiser. **ads_catalog_sync_runs** também persiste `advertiser_id`; publicações e jobs
   de campanha só são listados/retomados depois da validação do catálogo/run no mesmo advertiser.
   `batch_key` é única por conta+advertiser quando presente, para uma repetição idempotente do lote.
+- **ads_ad_rejections** — incidentes duráveis de reprovação por
+  `account_id + advertiser_id + campaign_kind + adgroup_id`, com IDs/nomes de anúncios e materiais,
+  status bruto, motivo, estado/tentativas/texto/anexos do recurso e timestamps. Índice parcial garante
+  apenas um incidente `open` por grupo; quando a reprovação some do espelho, o incidente é resolvido.
 - **pixel_events** — `id, account_id, pixel, event, event_id, lead_id, status, response jsonb, at` (log CAPI).
 - **custom_domains** — `host (pk — unicidade global entre contas), account_id, uso
   ('checkout'|'cloaker'|'ambos'), verificado, verificado_em, provider_id, provider_note, dns jsonb,
@@ -522,15 +550,17 @@ Motivos: `bot-ua`, `rate-limit`, `pais`, `idioma`, `score`. Contadores em `cloak
 - **external_id:** `hash('lead:' + v_id)` — amarra todo o funil à mesma pessoa no gerenciador do TikTok.
 - **EMQ:** `matchScore(user)` devolve 0–10 (proxy do Event Match Quality) + `emqFields` (sinais enviados:
   email, phone, ttclid, external_id…). Guardado no log de disparos para o painel.
-- **Dedup:** `event_id` determinístico `Evento.<vid>.<yyyymmddhh>`. **Alterar o formato quebra a dedup**
-  navegador↔servidor (duplica ou perde eventos). Retry imediato + fila durável (`capiRetryQueue`).
+- **Dedup:** navegação usa IDs únicos compartilhados entre `/t.js` e `/px/:token.js`; compra usa
+  `Purchase.<order_id normalizado>` no Browser Pixel e na Events API. **Alterar qualquer formato quebra
+  a dedup** navegador↔servidor (duplica ou perde eventos). Retry imediato + fila durável (`capiRetryQueue`).
 - **Multi-pixel:** `dispatchToAll` dispara em todos os pixels ativos; `sendToPixel` mira um específico
   (usado pelo `/go` quando o link tem `pixelSlug`).
-- **Trava gateway-only (eventos de dinheiro):** `MONEY_EVENTS` = `CompletePayment`, `AddPaymentInfo`,
+- **Trava gateway-only (eventos de dinheiro):** `MONEY_EVENTS` = `CompletePayment`/`Purchase`, `AddPaymentInfo`,
   `Refund`, `Dispute`. `dispatchToAll` BLOQUEIA esses eventos se o payload não tiver `p._trusted = true`.
   Só o webhook do gateway (`/hook/:token`) e `/api/conversion` marcam `_trusted`. Isso impede venda
   "fantasma" disparada por beacon client-side. Bloqueio é logado com `status:'bloqueado'` e retorna
-  `{ blocked:'gateway-only' }`. Client-side fica restrito a `ViewContent`/`InitiateCheckout`/`AddToCart`.
+  `{ blocked:'gateway-only' }`. Client-side envia `ViewContent`/`InitiateCheckout`/`AddToCart` pelos dois
+  canais; `Purchase` client-side vai apenas ao Pixel nativo e depende do webhook para a cópia CAPI confiável.
 
 ## 11. Comandos essenciais
 ```bash
@@ -628,15 +658,15 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
   global → `/_safe`). O filtro depende só de `cloak.enabled`; bot detectado nunca vai à offer.
   Threshold muito agressivo manda usuário real → página segura = venda perdida (ajuste com cuidado
   olhando a taxa de bloqueio em `/api/cloak/stats`).
-- **Eventos de dinheiro são gateway-only:** nunca dispare `CompletePayment`/`AddPaymentInfo` (nem
+- **Eventos de dinheiro são gateway-only:** nunca dispare `CompletePayment`/`Purchase`/`AddPaymentInfo` (nem
   `Refund`/`Dispute`) sem `p._trusted=true`. Só webhook do gateway e `/api/conversion` são confiáveis;
   o motor bloqueia o resto (ver §10). Adicionar um novo caminho de venda exige marcar `_trusted`.
 - **`deadlineMs` e sinal ASN:** lookup de ASN tem teto de latência; no estouro o `judge` segue SEM
   esse sinal (marca `asn:deadline`) e popula o cache em background. Baixar demais reduz a precisão.
 - **Pixel do link vence:** se `link.pixelSlug` aponta um pixel ativo, o `InitiateCheckout` dispara SÓ
   nele. Ocorre após os gates (só gente real gera evento).
-- **Dedup determinístico:** `event_id` é `Evento.<vid>.<yyyymmddhh>`. Alterar o formato quebra a
-  dedup navegador↔servidor no TikTok.
+- **Dedup determinístico:** navegação e compra têm contratos diferentes (§10/§17); alterar o formato
+  só em um lado quebra a dedup navegador↔servidor no TikTok.
 - **CIDRs do bot-filter:** só adicionar ranges 100% confirmados; CIDR errado manda gente real pra white page.
 - **`data/` não é fonte de verdade:** cache local ignorado no git; o Neon é a fonte durável.
 - **Middleware de lead:** conta 1 lead por visitante (cookie `v_id`, 90 dias) e ignora bots via `ua.js`.
@@ -653,7 +683,7 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 ├── config.js              # config editável na dash (multi-bloco)
 ├── stats.js               # cache quente de métricas + write-through
 ├── bot-filter.js / ua.js  # cloaking (score) e parse de User-Agent
-├── tiktok-events.js       # CAPI do TikTok (server-side)
+├── tiktok-events.js / tiktok-event-contract.js # CAPI e contrato Purchase/event_id
 ├── pixel-store.js / link-store.js / gateway-store.js  # CRUD dos recursos
 ├── conversion-normalize.js # normalização de payloads de gateway (puro, testável)
 ├── domain-provider.js     # Custom Domains na hospedagem via API (Railway; token só aqui)
@@ -680,7 +710,7 @@ A única subárvore de código é `dashboard/` (app Next independente, com `pack
 ## 16. Ciclo de vida do lead
 Um lead avança por **stages** (etapa no funil) e carrega um **status** (resultado do disparo CAPI):
 - **stage:** `visit` (pageview registrada) → `checkout` (chegou/entrou no checkout, `InitiateCheckout`)
-  → `purchased` (compra confirmada via webhook, `CompletePayment`).
+  → `purchased` (compra confirmada via webhook; interna `CompletePayment`, externa `Purchase`).
 - **status (do disparo/conversão):** `pending` (em processamento) · `converted` (evento aceito pelo
   TikTok) · `dedup` (ignorado por dedup — `event_id` repetido) · `erro` (falha no envio à CAPI).
 - Identidade: cookie `v_id` (visitante, 90 dias). O middleware conta 1 lead por visitante e ignora bots (`ua.js`).
@@ -688,14 +718,17 @@ Um lead avança por **stages** (etapa no funil) e carrega um **status** (resulta
 
 ## 17. Formato dos eventos de tracking
 - **Tipos de evento CAPI usados:** `ViewContent` (pageview/visita), `InitiateCheckout` (entrada no
-  checkout, disparado no `/go/:slug` após os gates) e `CompletePayment` (compra, via webhook de gateway).
+  checkout, disparado no `/go/:slug` após os gates) e `Purchase` (compra, via webhook de gateway;
+  `CompletePayment` existe apenas como nome interno/legado).
 - **Ingestão navegador → servidor:** `/t.js` (tracker) chama `POST /api/track`; o pixel do navegador
   (`/px.js`) chama `POST /api/px/event`. Ambos casam com o disparo server-side pelo mesmo `event_id`.
-- **event_id determinístico:** `Evento.<v_id>.<yyyymmddhh>` — garante dedup navegador↔servidor no TikTok.
-  **Nunca** alterar esse formato sem migrar a lógica de dedup em ambos os lados.
+- **event_id:** navegação recebe ID único compartilhado pelos dois scripts; compra usa
+  `Purchase.<order_id normalizado>`. **Nunca** alterar esses formatos sem migrar navegador e servidor juntos.
 - **Conversão (compra):** chega por `POST /hook/:token` (por gateway) ou `POST /api/conversion`
   (webhook universal, validado por `CONVERSION_WEBHOOK_SECRET`), marca o lead como `purchased` e
-  dispara `CompletePayment` na CAPI com o valor/moeda recebidos.
+  normaliza internamente como `CompletePayment` e dispara `Purchase` na CAPI com valor/moeda. Webhooks
+  de saque/payout com formato financeiro confirmado respondem 200 como `ignorado` e não poluem a
+  quarentena nem o status do gateway.
 
 ## 18. Ciclo de vida do domínio personalizado (ponta a ponta)
 Amarra §4.1 (`domain-provider.js`), §5.2 (rotas), §5.2.1 (guard) e §5.2.2 (operação). Termos:
@@ -789,7 +822,10 @@ launcher “Nova campanha” (Conversão ABO/CBO, Smart+, vídeos em massa e Spa
 Today/Smart+ e cards de copiloto/proposta/insights/MCP foram removidos por duplicarem controles.
 Pixel e evento não aparecem nos formulários: o banner `PixelBindingCard` só é exibido enquanto o
 vínculo central do advertiser estiver pendente. Em Catálogo, conexão verificada, feed e históricos
-técnicos ficam recolhidos; a lista prioriza nome, quantidade e estado acionável.
+técnicos ficam recolhidos; a lista prioriza nome, quantidade e estado acionável. Em Automações,
+`RejectionInbox` mostra no máximo cinco grupos reprovados antes de “Ver mais”, permite recurso manual
+Smart+ com `ConfirmDialog` e liga/desliga o recurso automático no mesmo controle de autonomia; o badge
+da aba soma incidentes abertos sem multiplicar notificações por anúncio.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):

@@ -44,6 +44,7 @@ const botFilter = require('./bot-filter');
 const cloakTestProfiles = require('./cloak-test-profiles'); // item 165/208: simulador de perfis
 const TRACKER_JS = require('./tracker-view');
 const { TTQ_STUB, buildPixelClient } = require('./pixel-client');
+const { purchaseEventId } = require('./tiktok-event-contract');
 const auth = require('./auth');
  const gatewayStore = require('./gateway-store');
  const { normalizeConversion } = require('./conversion-normalize');
@@ -4026,6 +4027,11 @@ async function processConversion(n) {
     // 4. dispara a CAPI com o MÁXIMO de sinal: identidade do lead do backend.
     // _trusted: origem = gateway (webhook/api de conversão) → libera a trava
     // gateway-only para eventos monetários (CompletePayment/AddPaymentInfo…).
+    const capiEventId = n.event === 'CompletePayment'
+      ? (purchaseEventId(n.orderId) || evId)
+      : evId;
+    receipt.capiEvent = n.event === 'CompletePayment' ? 'Purchase' : n.event;
+    receipt.capiEventId = capiEventId;
     const r = await ttEvents.dispatchToAll(n.event, {
       _trusted: true,
       // Vínculo pixel↔gateway: identifica DE QUAL gateway o evento veio para o
@@ -4034,7 +4040,7 @@ async function processConversion(n) {
       // A tag/link específico fica persistido no lead. Essa evidência vence o
       // fallback genérico e mantém Compra/Pagamento no mesmo pixel da jornada.
       pixelSlug: (lead && lead.pixelSlug) || undefined,
-      eventId: evId,
+      eventId: capiEventId,
       email: n.email || (lead && lead.email) || undefined,
       phone: n.phone || (lead && lead.phone) || undefined,
       leadId: lead ? lead.id : undefined,            // external_id = hash do v_id
@@ -4193,6 +4199,14 @@ app.post('/api/conversion', (req, res) => {
     return res.status(401).json({ ok: false, error: 'segredo inválido' });
   }
   const n = normalizeConversion(req.body, req.query);
+  if (n.ignored) {
+    rdb.pushConversionLog({
+      at: new Date().toISOString(), acc: _defaultAccountId || null,
+      gateway: String(req.query.gateway || 'desconhecido').toLowerCase().slice(0, 30),
+      event: 'operacional', status: 'ignorado', error: n.reason
+    }).catch(() => {});
+    return res.json({ ok: true, ignored: true, reason: n.reason });
+  }
   if (n.error) {
     // registra a falha no log de conversões — sem isso o gateway recebe 400
     // em silêncio e a dashboard parece "não puxar" os valores
@@ -4255,6 +4269,14 @@ app.post('/hook/:token', async (req, res) => {
   // 2. adapta payload específico do provider → normalizador genérico
   const adapted = gatewayStore.adaptPayload(gw.provider, req.body);
   const n = normalizeConversion(adapted, { gateway: gw.provider, amountInCents: !!(gw.config && gw.config.amountInCents) });
+  if (n.ignored) {
+    gatewayStore.touch(gw.id, 'ignorado: saque/transferência');
+    rdb.pushConversionLog({
+      at: new Date().toISOString(), acc: gw.accountId,
+      gateway: gw.provider, event: 'operacional', status: 'ignorado', error: n.reason
+    }).catch(() => {});
+    return res.json({ ok: true, ignored: true, reason: n.reason });
+  }
   if (n.error) {
     gatewayStore.touch(gw.id, 'formato inválido');
     rdb.pushConversionLog({
@@ -4679,11 +4701,11 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
     scriptTagEnrich: p.token
       ? '<!-- 3) ROI-NADOS (enriquecimento + CAPI) — pode ir antes do </body> -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>'
       : null,
-    // Instalação recomendada: duas tags curtas, ambas escopadas pelo token do
-    // pixel. A primeira registra jornada/identidade; a segunda carrega o Pixel
-    // TikTok e espelha os eventos via CAPI. O fallback sem JS mantém a visita.
+    // Instalação recomendada: uma tag escopada pelo token. Ela carrega o Pixel
+    // TikTok, espelha os eventos via CAPI e inicializa o rastreador completo da
+    // jornada. Instalações antigas com /t.js separado continuam compatíveis.
     scriptTag: p.token && p.pixelCode
-      ? '<!-- ' + p.name.replace(/--/g, '') + ': não reutilize este bloco em outro produto/pixel -->\n<script src="' + proto + '://' + host + '/t.js?px=' + p.token + '" defer></script>\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>\n<noscript><img src="' + proto + '://' + host + '/px.gif?px=' + p.token + '" width="1" height="1" alt="" style="display:none"></noscript>'
+      ? '<!-- ' + p.name.replace(/--/g, '') + ': não reutilize este bloco em outro produto/pixel -->\n<script src="' + proto + '://' + host + '/px/' + p.token + '.js" defer></script>\n<noscript><img src="' + proto + '://' + host + '/px.gif?px=' + p.token + '" width="1" height="1" alt="" style="display:none"></noscript>'
       : null
   }));
   // O loader genérico fica apenas como URL legada; novas instalações sempre
@@ -4698,7 +4720,7 @@ app.get('/api/pixels', dashboardAuth, (req, res) => {
       strictIsolation: true,
       trackerUrl: proto + '://' + host + '/t.js',
       trackerTag: null,
-      paymentNote: 'Este script cobre Visita, Carrinho e Checkout. O evento de Compra (CompletePayment) só dispara quando um gateway confirma o pagamento via webhook — conecte um gateway na aba Gateways.'
+      paymentNote: 'O script cobre Visita, Carrinho e Checkout. Compra é enviada ao TikTok como Purchase; use o marcador de confirmação para o Pixel do navegador e mantenha o webhook do gateway para a Events API e a receita da dashboard.'
     }
   });
 });
@@ -4983,8 +5005,8 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
     // E o pixel code do TikTok (instalação nativa ttq) aparece?
     const found = pixels.map((p) => {
       const scriptOk = !!(p.token && html.indexOf('/px/' + p.token + '.js') !== -1);
-      const nativeOk = !!(p.pixelCode && html.indexOf(p.pixelCode) !== -1);
-      const trackerScoped = !!(p.token && (html.indexOf('/t.js?px=' + p.token) !== -1
+      const nativeOk = scriptOk || !!(p.pixelCode && html.indexOf(p.pixelCode) !== -1);
+      const trackerScoped = scriptOk || !!(p.token && (html.indexOf('/t.js?px=' + p.token) !== -1
         || html.indexOf('/t.js?px%3D' + p.token) !== -1));
       const runtime = runtimeFor(p.slug);
       return {
@@ -5002,7 +5024,7 @@ app.post('/api/pixels/verify-url', dashboardAuth, async (req, res) => {
     // O /t.js é quem registra a visita NA DASHBOARD. Pixel instalado sem ele =
     // eventos chegam ao TikTok mas o operador não vê os próprios visitantes —
     // exatamente a confusão mais comum. Checamos e avisamos explicitamente.
-    const trackerStaticOk = html.indexOf('/t.js') !== -1;
+    const trackerStaticOk = html.indexOf('/t.js') !== -1 || found.some((f) => f.scriptOk);
     const runtimeSeen = found.some((f) => f.runtimeSeen);
     const trackerOk = trackerStaticOk || runtimeSeen;
     const legacyTracker = trackerStaticOk && !found.some((f) => f.trackerScoped);

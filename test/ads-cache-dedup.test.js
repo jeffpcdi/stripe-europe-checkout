@@ -16,7 +16,7 @@ let n = 0;
 function ok(cond, label) { assert.ok(cond, label); n++; console.log('  ✓ ' + label); }
 function eq(a, b, label) { assert.strictEqual(a, b, label + ' → esperado ' + b + ', veio ' + a); n++; console.log('  ✓ ' + label); }
 
-const { dedupeByKey } = cache._internals;
+const { dedupeByKey, classifyRows } = cache._internals;
 
 console.log('dedupeByKey — mantém a última ocorrência por chave');
 {
@@ -45,10 +45,24 @@ console.log('bulkUpsert — dedup aplicado antes do INSERT multi-linha');
   ok(/rows = dedupeByKey\(rows, \(r\) => r\.level \+ '\|' \+ r\.entityId \+ '\|' \+ r\.day\)/.test(src), 'bulkUpsertMetrics deduplica por (level,entity,day)');
 }
 
+console.log('classifyRows — lote classificado com uma única leitura');
+{
+  const found = classifyRows([
+    { advertiser_id: 'adv', data: { platformCampaignId: 'c1', campaignKind: 'auction', budgetOwner: 'adgroup', adSets: [] } },
+    { advertiser_id: 'adv', data: { platformCampaignId: 'sp1', campaignKind: 'smart_plus', budgetOwner: 'campaign', adSets: [{ platformAdSetId: 'sg1', ads: [{ platformAdId: 'sa1' }] }] } },
+  ], ['c1', 'sp1', 'sg1', 'sa1', 'missing']);
+  eq(found.size, 4, 'quatro IDs existentes classificados sem inventar o ausente');
+  eq(found.get('sp1').campaignKind, 'smart_plus', 'campanha Smart+ preserva o tipo');
+  eq(found.get('sg1').budgetOwner, 'campaign', 'filho preserva o dono CBO do orçamento');
+  eq(found.get('sa1').type, 'ad', 'asset group é classificado como anúncio');
+}
+
 console.log('ads-sync — merge de Smart+ não duplica campaign_id');
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'ads-sync.js'), 'utf8');
-  ok(/const seen = new Set\(\(tree\.campaigns \|\| \[\]\)\.map/.test(src), 'merge só adiciona Smart+ com ID novo (campanha normal vence)');
+  ok(/const smartById = new Map/.test(src), 'merge indexa a leitura Smart+ dedicada por campaign_id');
+  ok(/smartById\.get\(String\(node\.platformCampaignId\)\) \|\| node/.test(src), 'Smart+ substitui o nó genérico duplicado do mesmo ID');
+  ok(/if \(!present\.has\(String\(node\.platformCampaignId\)\)\) merged\.push\(node\)/.test(src), 'campanha Smart+ ausente na leitura genérica também é adicionada uma vez');
   ok(/const postWriteSync = new Map\(\)/.test(src), 'sync pós-escrita mantém estado por advertiser');
   ok(/while \(state\.dirty\)/.test(src), 'escritas concorrentes provocam nova passagem depois do sync em voo');
   ok(/dedupSync\(accountId, advertiserId, \{ force: true \}\)/.test(src), 'sync pós-escrita força leitura fresca da plataforma');

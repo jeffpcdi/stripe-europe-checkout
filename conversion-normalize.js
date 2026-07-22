@@ -235,8 +235,26 @@ function pickPhone(body, flat) {
   return null;
 }
 
+// Alguns provedores enviam no mesmo webhook notificações da CONTA do lojista
+// (saque, payout, transferência de saldo). Elas não são uma compra do cliente
+// e palavras como "TRANSFER_COMPLETED" não podem cair no regex genérico de
+// "completed". Só ignoramos quando o tipo e o formato financeiro concordam;
+// webhooks de pagamento com nome parecido continuam indo para a quarentena.
+function operationalWebhook(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const rawType = String(body.event || body.event_type || body.type || body.status || '').trim().toLowerCase();
+  const keys = Object.keys(body).map((key) => String(key).toLowerCase());
+  const payoutShape = keys.some((key) => /^(withdraw|withdrawal|payout|payoutaccount|sents|settlement)$/.test(key));
+  if (payoutShape && /^(transfer|withdraw|withdrawal|payout|settlement)[._:-]/.test(rawType)) {
+    return { ignored: true, reason: 'notificação financeira da conta (saque/transferência), não é compra' };
+  }
+  return null;
+}
+
 // Normaliza QUALQUER payload de gateway para o formato interno.
 function normalizeConversion(body, query) {
+  const operational = operationalWebhook(body);
+  if (operational) return operational;
   const b = flattenGatewayPayload(body);
   // Risco 3: extrai o ttclid ecoado pelo gateway (chave de match determinística
   // e last-click pago). Busca RECURSIVA e case-insensitive (mesmo padrão do
@@ -284,6 +302,7 @@ module.exports = {
   flattenGatewayPayload,
   parseAmount,
   pickAmountCents,
+  operationalWebhook,
   normalizeConversion,
   str
 };

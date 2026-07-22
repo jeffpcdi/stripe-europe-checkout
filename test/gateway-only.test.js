@@ -72,6 +72,7 @@ const tk = require('../tiktok-events');
   }, '*', ACC);
   assert.strictEqual(fetchCalls.length, 1, 'venda do gateway deve ir ao TikTok');
   assert.ok(!r2.blocked, 'venda confiável não pode ser bloqueada');
+  assert.strictEqual(JSON.parse(fetchCalls[0].body).data[0].event, 'Purchase', 'gateway envia Purchase ao TikTok');
 
   // 3) evento NÃO monetário sem _trusted → livre (client-side pode disparar)
   fetchCalls = [];

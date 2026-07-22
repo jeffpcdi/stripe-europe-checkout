@@ -11,6 +11,7 @@ function buildPixelClient(pixel, token) {
     ViewContent: events.ViewContent !== false,
     AddToCart: events.AddToCart !== false,
     InitiateCheckout: events.InitiateCheckout !== false,
+    Purchase: events.CompletePayment !== false && events.Purchase !== false,
   };
 
   // O script calcula vid/event_id no navegador, não no request do JS. Isso é
@@ -55,6 +56,10 @@ function buildPixelClient(pixel, token) {
     return name==='ViewContent'
       ? pageEventId()
       : name+'.'+vid+'.'+Date.now().toString(36)+'.'+Math.random().toString(36).slice(2,8)
+  }
+  function purchaseEventId(orderId){
+    var safe=String(orderId==null?'':orderId).trim().replace(/[^A-Za-z0-9._:-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,90);
+    return safe?'Purchase.'+safe:null
   }
   function cleanProps(p){
     p=p&&typeof p==='object'?p:{};var out={};
@@ -119,14 +124,34 @@ function buildPixelClient(pixel, token) {
     transient(body)
   }
   function track(name,properties,customId){
-    if(!consentGranted||!ENABLED[name]||!/^(ViewContent|AddToCart|InitiateCheckout)$/.test(name))return false;
-    var props=cleanProps(properties),id=customId||eventId(name);
+    name=name==='CompletePayment'?'Purchase':String(name||'');
+    if(!consentGranted||!ENABLED[name]||!/^(ViewContent|AddToCart|InitiateCheckout|Purchase)$/.test(name))return false;
+    var raw=properties&&typeof properties==='object'?properties:{};
+    var props=cleanProps(raw),id=customId||raw.event_id||raw.eventId;
+    if(name==='Purchase'){
+      id=id||purchaseEventId(raw.order_id||raw.orderId||raw.transaction_id||raw.transactionId);
+      var value=Number(props.value),currency=String(props.currency||'').toUpperCase();
+      if(!id||!/^[A-Za-z0-9._:-]{8,120}$/.test(String(id))||!isFinite(value)||value<0||!/^[A-Z]{3}$/.test(currency))return false;
+      props.value=value;props.currency=currency;
+      var purchaseKey='roinados_purchase_'+TOKEN.slice(-16),seen=[];
+      try{seen=JSON.parse(lsGet(purchaseKey)||'[]');if(!Array.isArray(seen))seen=[]}catch(_){seen=[]}
+      if(seen.indexOf(String(id))!==-1)return true;
+      seen.push(String(id));lsSet(purchaseKey,JSON.stringify(seen.slice(-50)));
+      hashExternal(function(externalId){
+        try{if(externalId&&typeof instance.identify==='function')instance.identify({external_id:externalId});instance.track('Purchase',props,{event_id:String(id)})}catch(_){}
+      });
+      signals({email:raw.email,phone:raw.phone});
+      try{window.dispatchEvent(new CustomEvent('roinados:purchase',{detail:{px:TOKEN,eventId:String(id)}}))}catch(_){}
+      return true
+    }
+    id=id||eventId(name);
     hashExternal(function(externalId){
       try{if(externalId&&typeof instance.identify==='function')instance.identify({external_id:externalId});instance.track(name,props,{event_id:id})}catch(_){}
     });
     beacon(name,id,props);return true;
   }
   window.__roiNadosPixels[TOKEN].track=track;
+  window.__roiNadosPixels[TOKEN].identify=signals;
   if(consentGranted){flush();try{instance.page()}catch(_){}track('ViewContent',pageProps())}
 
   // API pública explícita: o token torna impossível enviar sem querer ao pixel
@@ -137,7 +162,18 @@ function buildPixelClient(pixel, token) {
     if(!row||typeof row.track!=='function')return false;
     return row.track(String(name||''),props,id)
   };
-  window.RoiNadosPixel.identify=function(data){data=data&&typeof data==='object'?data:{};signals({email:data.email,phone:data.phone});return true};
+  window.RoiNadosPixel.purchase=function(target,data,id){
+    var row=window.__roiNadosPixels&&window.__roiNadosPixels[target];
+    if(!row||typeof row.track!=='function')return false;
+    return row.track('Purchase',data,id)
+  };
+  window.RoiNadosPixel.identify=function(target,data){
+    var tokens=Object.keys(window.__roiNadosPixels||{});
+    if(target&&typeof target==='object'){data=target;target=tokens.length===1?tokens[0]:null}
+    var row=target&&window.__roiNadosPixels&&window.__roiNadosPixels[target];
+    if(!row||typeof row.identify!=='function')return false;
+    data=data&&typeof data==='object'?data:{};row.identify({email:data.email,phone:data.phone});return true
+  };
   window.RoiNadosPixel.getVisitorId=function(){return vid};
   window.RoiNadosPixel.consent=function(value){
     var granted=value===true||value==='grant'||value==='granted';lsSet('roinados_consent',granted?'granted':'revoked');
@@ -158,6 +194,30 @@ function buildPixelClient(pixel, token) {
     }catch(_){}
   },true);
 
+  // Página de confirmação sem código adicional: um marcador com pedido, valor
+  // e moeda dispara Purchase apenas no Pixel nativo. A venda/receita e a CAPI
+  // continuam vindo exclusivamente do webhook confiável do gateway.
+  function scanPurchases(root){
+    try{var rows=[];
+      if(root&&root.matches&&root.matches('[data-roinados-purchase]'))rows.push(root);
+      if(root&&root.querySelectorAll)rows=rows.concat(Array.prototype.slice.call(root.querySelectorAll('[data-roinados-purchase]')));
+      rows.forEach(function(el){
+        var target=el.getAttribute('data-pixel-token');
+        if(target&&target!==TOKEN)return;
+        var loaderCount=0;try{loaderCount=document.querySelectorAll('script[src*="/px/"]').length}catch(_){}
+        if(!target&&(loaderCount>1||Object.keys(window.__roiNadosPixels||{}).length>1))return;
+        track('Purchase',{
+          order_id:el.getAttribute('data-order-id'),event_id:el.getAttribute('data-event-id'),
+          value:el.getAttribute('data-value'),currency:el.getAttribute('data-currency'),
+          content_id:el.getAttribute('data-content-id'),content_name:el.getAttribute('data-content-name'),
+          email:el.getAttribute('data-email'),phone:el.getAttribute('data-phone')
+        })
+      })
+    }catch(_){}
+  }
+  scanPurchases(document);
+  try{new MutationObserver(function(rows){rows.forEach(function(row){Array.prototype.forEach.call(row.addedNodes||[],scanPurchases)})}).observe(document.documentElement,{childList:true,subtree:true})}catch(_){}
+
   // O tracker universal emite este evento em trocas de rota de SPA. Cada
   // loader responde apenas pelo próprio TOKEN/instance.
   window.addEventListener('roinados:navigation',function(e){
@@ -166,12 +226,22 @@ function buildPixelClient(pixel, token) {
   });
   window.addEventListener('roinados:consent',function(e){
     consentGranted=!!(e&&e.detail&&e.detail.granted);window.__roiNadosPixels[TOKEN].consentGranted=consentGranted;
-    try{if(consentGranted){instance.grantConsent();flush();instance.page();track('ViewContent',pageProps())}else{instance.revokeConsent();writeOutbox([])}}catch(_){}
+    try{if(consentGranted){instance.grantConsent();flush();instance.page();track('ViewContent',pageProps());scanPurchases(document)}else{instance.revokeConsent();writeOutbox([])}}catch(_){}
   });
   window.addEventListener('online',flush);
   window.addEventListener('pagehide',function(){readOutbox().forEach(function(row){deliver(row,true)})});
   setTimeout(function(){signals({});flush()},1500);
   setTimeout(function(){signals({});flush()},5000);
+
+  // A tag individual é autossuficiente: carrega também o rastreador completo
+  // da jornada. Instalações antigas que já possuem /t.js não baixam duplicado.
+  if(!window.__roinadosLoaded&&!window.__roinadosTrackerRequested){
+    window.__roinadosTrackerRequested=1;
+    try{var tracker=document.createElement('script');tracker.src=API+'/t.js?px='+encodeURIComponent(TOKEN);tracker.defer=true;
+      ['data-consent','data-advanced-matching','data-link-domains'].forEach(function(k){var v=script.getAttribute&&script.getAttribute(k);if(v!=null)tracker.setAttribute(k,v)});
+      (document.head||document.documentElement).appendChild(tracker)
+    }catch(_){}
+  }
 })();`;
 }
 
