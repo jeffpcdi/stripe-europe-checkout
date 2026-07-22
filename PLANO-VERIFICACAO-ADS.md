@@ -20,7 +20,7 @@
 > cada ação na auditoria (Operações) antes de repetir de verdade com Modo teste OFF.
 
 Pré-requisitos: deploy do `main`; `PIPEBOARD_API_KEY`, `DATABASE_URL`,
-`BLOB_READ_WRITE_TOKEN` no Railway; ≥1 advertiser conectado (`GET /api/ads/diag`).
+Volume persistente no Railway + `PRIMARY_HOST`; ≥1 advertiser conectado (`GET /api/ads/diag`).
 
 - [ ] **1. Conexão/UI** — `/dashboard/ads/tiktok` abre na aba **Hoje**; pontinho
       de conexão verde na barra; as 4 abas trocam e o `?tab=` muda na URL; voltar/
@@ -124,7 +124,7 @@ faturamento só no TikTok.
 ## B. Checklist de verificação em PRODUÇÃO (Railway + Pipeboard + Neon reais)
 
 Pré-requisito: deploy do branch, `PIPEBOARD_API_KEY` válida, `DATABASE_URL`,
-`BLOB_READ_WRITE_TOKEN`. Fazer NA ORDEM — cada passo cobre o seguinte.
+Volume persistente e `PRIMARY_HOST`. Fazer NA ORDEM — cada passo cobre o seguinte.
 **Dica:** ligar *modo simulação* (Operações → dry-run) antes dos testes de
 escrita; a 1ª rodada inteira pode ser validada sem tocar o TikTok.
 

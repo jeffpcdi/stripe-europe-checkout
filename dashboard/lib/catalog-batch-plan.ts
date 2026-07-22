@@ -14,18 +14,6 @@ export type CatalogBatchPlan = {
   message: string
 }
 
-export type CatalogBatchPlanOptions = {
-  requireCampaignPixel?: boolean
-  // Pixel aplicado automaticamente a toda campanha sem a coluna pixel_id.
-  // Vem da lista autenticada de Pixels da conta de anúncio (auto-seleção).
-  defaultPixelId?: string
-  // Evento aplicado quando a coluna "evento" está vazia (padrão ON_WEB_ORDER).
-  defaultPixelEvent?: string
-  // Converte códigos do Events Manager (ex.: D9F2J3JC77U5KEVKQB80) colados na
-  // coluna pixel_id para o ID numérico exigido pela API. Chaves em MAIÚSCULAS.
-  pixelCodeMap?: Record<string, string>
-}
-
 const HEADERS: Record<string, string[]> = {
   catalog: ['catalogo', 'catálogo', 'catalog', 'catalog_name', 'nome_catalogo'],
   sku: ['sku', 'sku_id', 'id', 'id_produto'],
@@ -37,10 +25,9 @@ const HEADERS: Record<string, string[]> = {
   image: ['imagem', 'image', 'image_link', 'link_imagem', 'url_imagem'],
   campaign: ['campanha', 'campaign', 'campaign_name', 'nome_campanha'],
   budget: ['orcamento', 'orçamento', 'budget', 'daily_budget', 'orcamento_diario'],
-  pixelId: ['pixel_id', 'pixel', 'id_pixel', 'pixel_tiktok', 'tiktok_pixel_id'],
-  pixelEvent: ['evento', 'evento_pixel', 'pixel_event', 'optimization_event', 'evento_otimizacao'],
-  video: ['video', 'video_id', 'criativo', 'video_tiktok', 'id_video'],
-  cover: ['capa', 'cover', 'cover_id', 'image_id', 'thumb', 'capa_id'],
+  budgetType: ['tipo_orcamento', 'tipo_de_orcamento', 'budget_type', 'budget_mode'],
+  country: ['pais', 'país', 'country', 'country_code'],
+  period: ['periodo', 'período', 'data_fim', 'end_date', 'schedule_end_date'],
 }
 
 function normalizeHeader(value: string) {
@@ -115,19 +102,32 @@ function campaignBudget(value: string) {
   return Number(normalized) || undefined
 }
 
-export function buildCatalogBatchPlan(raw: string, currency: string, options: CatalogBatchPlanOptions = {}): CatalogBatchPlan {
-  const pixelCodeMap = options.pixelCodeMap || {}
-  // Aceita ID numérico direto ou código do Events Manager resolvível pela conta.
-  const resolvePixel = (value: string) => {
-    const trimmed = String(value || '').trim()
-    if (!trimmed) return ''
-    if (/^\d{6,30}$/.test(trimmed)) return trimmed
-    return pixelCodeMap[trimmed.toUpperCase()] || trimmed
-  }
-  const defaultPixelId = /^\d{6,30}$/.test(resolvePixel(String(options.defaultPixelId || '')))
-    ? resolvePixel(String(options.defaultPixelId || ''))
-    : ''
-  const defaultPixelEvent = String(options.defaultPixelEvent || '').trim().toUpperCase() || 'ON_WEB_ORDER'
+function campaignBudgetType(value: string): 'daily' | 'lifetime' {
+  const normalized = normalizeHeader(value)
+  return ['lifetime', 'total', 'orcamento_total', 'orçamento_total'].includes(normalized) ? 'lifetime' : 'daily'
+}
+
+type CampaignConfig = {
+  budgetAmount: number | undefined
+  budgetType: 'daily' | 'lifetime'
+  country: string
+  endDate: string
+}
+
+const CAMPAIGN_CONFIG_LABELS: Record<keyof CampaignConfig, string> = {
+  budgetAmount: 'orçamento',
+  budgetType: 'tipo de orçamento',
+  country: 'país',
+  endDate: 'período',
+}
+
+function conflictingCampaignFields(first: CampaignConfig, next: CampaignConfig) {
+  return (Object.keys(CAMPAIGN_CONFIG_LABELS) as (keyof CampaignConfig)[])
+    .filter((field) => first[field] !== next[field])
+    .map((field) => CAMPAIGN_CONFIG_LABELS[field])
+}
+
+export function buildCatalogBatchPlan(raw: string, currency: string): CatalogBatchPlan {
   const rows = parseDelimited(raw)
   if (rows.length < 2) {
     return { catalogs: [], rows: 0, message: 'Cole o cabeçalho e pelo menos uma linha de produto.' }
@@ -138,7 +138,8 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
   const idx = {
     catalog: indexFor('catalog'), sku: indexFor('sku'), title: indexFor('title'), description: indexFor('description'),
     price: indexFor('price'), brand: indexFor('brand'), link: indexFor('link'), image: indexFor('image'), campaign: indexFor('campaign'), budget: indexFor('budget'),
-    pixelId: indexFor('pixelId'), pixelEvent: indexFor('pixelEvent'), video: indexFor('video'), cover: indexFor('cover'),
+    budgetType: indexFor('budgetType'),
+    country: indexFor('country'), period: indexFor('period'),
   }
   if (idx.brand < 0) {
     return {
@@ -152,10 +153,9 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
   const catalogOrigins = new Map<string, { identity: string; name: string; line: number }>()
   const collisionSignatures = new Set<string>()
   const catalogCollisions: { key: string; first: { name: string; line: number }; next: { name: string; line: number } }[] = []
-  const campaignKeys = new Set<string>()
+  const campaignOrigins = new Map<string, { line: number; name: string; catalogName: string; config: CampaignConfig }>()
+  const campaignConflicts: { first: { line: number }; next: { line: number }; name: string; catalogName: string; fields: string[] }[] = []
   const missingBrandRows: number[] = []
-  const missingCampaignPixelRows: number[] = []
-  const invalidCampaignPixelRows: number[] = []
 
   rows.slice(1).forEach((row, position) => {
     const line = position + 2
@@ -203,24 +203,32 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
 
     const campaignName = valueAt(row, idx.campaign)
     const campaignKey = `${key}:${campaignName}`
-    if (campaignName && !campaignKeys.has(campaignKey)) {
-      campaignKeys.add(campaignKey)
-      // Pixel automático: linha sem pixel_id herda o Pixel padrão da conta,
-      // eliminando a digitação manual em cada linha do lote. Códigos do
-      // Events Manager são convertidos para o ID numérico via pixelCodeMap.
-      const pixelId = resolvePixel(valueAt(row, idx.pixelId)) || defaultPixelId
-      if (!pixelId) missingCampaignPixelRows.push(line)
-      else if (!/^\d{6,30}$/.test(pixelId)) invalidCampaignPixelRows.push(line)
+    if (campaignName) {
+      const campaignConfig: CampaignConfig = {
+        budgetAmount: campaignBudget(valueAt(row, idx.budget)),
+        budgetType: campaignBudgetType(valueAt(row, idx.budgetType)),
+        country: valueAt(row, idx.country).toUpperCase() || catalog.country,
+        endDate: valueAt(row, idx.period),
+      }
+      const firstCampaign = campaignOrigins.get(campaignKey)
+      if (firstCampaign) {
+        const fields = conflictingCampaignFields(firstCampaign.config, campaignConfig)
+        if (fields.length) {
+          campaignConflicts.push({
+            first: { line: firstCampaign.line }, next: { line }, name: campaignName,
+            catalogName, fields,
+          })
+        }
+        return
+      }
+      campaignOrigins.set(campaignKey, { line, name: campaignName, catalogName, config: campaignConfig })
       catalog.campaigns.push({
         name: campaignName,
-        budgetAmount: campaignBudget(valueAt(row, idx.budget)),
-        budgetType: 'daily',
+        budgetAmount: campaignConfig.budgetAmount,
+        budgetType: campaignConfig.budgetType,
         productScope: 'all',
-        pixelId,
-        pixelEvent: valueAt(row, idx.pixelEvent).toUpperCase() || defaultPixelEvent,
-        // Criativo de VÍDEO por campanha (o gestor escolheu 1 vídeo por campanha).
-        videoId: valueAt(row, idx.video),
-        coverImageId: valueAt(row, idx.cover),
+        country: campaignConfig.country,
+        ...(campaignConfig.endDate ? { endDate: campaignConfig.endDate } : {}),
       })
     }
   })
@@ -235,24 +243,12 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
     )
     messages.push(`Nomes de catálogo diferentes não podem ser agrupados: ${examples.join('; ')}${catalogCollisions.length > 4 ? '; …' : ''}. Renomeie um deles.`)
   }
-  if (options.requireCampaignPixel && missingCampaignPixelRows.length) {
-    messages.push(`Informe o Pixel ID do TikTok nas campanhas das linhas ${missingCampaignPixelRows.slice(0, 6).join(', ')}${missingCampaignPixelRows.length > 6 ? '…' : ''}. Selecione um Pixel padrão acima ou preencha a coluna “pixel_id” com 6 a 30 dígitos.`)
+  if (campaignConflicts.length) {
+    const examples = campaignConflicts.slice(0, 4).map((conflict) =>
+      `“${conflict.name}” do catálogo “${conflict.catalogName}” nas linhas ${conflict.first.line} e ${conflict.next.line} (${conflict.fields.join(', ')})`,
+    )
+    messages.push(`A mesma campanha não pode ter configurações diferentes: ${examples.join('; ')}${campaignConflicts.length > 4 ? '; …' : ''}. Mantenha a mesma configuração em todas as linhas ou use outro nome de campanha.`)
   }
-  if (options.requireCampaignPixel && invalidCampaignPixelRows.length) {
-    messages.push(`Corrija o Pixel nas linhas ${invalidCampaignPixelRows.slice(0, 6).join(', ')}${invalidCampaignPixelRows.length > 6 ? '…' : ''}: use o ID numérico (6 a 30 dígitos) ou um código do Events Manager que pertença a esta conta de anúncio.`)
-  }
-
-  // Product Link: a URL base de cada campanha vem do LINK do 1º produto válido do
-  // catálogo. Não é URL global digitada — é o próprio Link do catálogo; e no
-  // anúncio product_info_enabled=CATALOG faz CADA produto usar o SEU link.
-  for (const catalog of byKey.values()) {
-    const firstLink = (catalog.products.find((product) => (product.data.link || '').trim())?.data.link || '').trim()
-    if (!firstLink) continue
-    for (const campaign of catalog.campaigns) {
-      ;(campaign as Record<string, unknown>).productLink = firstLink
-    }
-  }
-
   return {
     catalogs: [...byKey.values()],
     rows: Math.max(0, rows.length - 1),

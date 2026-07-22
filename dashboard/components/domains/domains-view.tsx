@@ -214,9 +214,8 @@ export function DomainsView() {
           Digite o domínio (ou subdomínio) que você quer usar nos links. Depois de adicionar, mostramos o passo a passo
           exato do que configurar no DNS.
         </p>
-        {/* Provisionamento automático desligado no servidor: sem isso, cada
-            domínio precisa ser adicionado manualmente no painel da hospedagem.
-            Aviso para o administrador configurar o token uma única vez. */}
+        {/* A interface explica apenas o impacto. Credenciais e nomes de
+            variáveis pertencem ao diagnóstico do servidor, não ao fluxo do usuário. */}
         {data && data.autoProvision === false && (
           <div
             className="mb-3 flex items-start gap-2 rounded-lg border border-[color:var(--warning)]/40 bg-[color:var(--warning)]/10 px-3 py-2"
@@ -224,11 +223,8 @@ export function DomainsView() {
           >
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
             <p className="text-xs text-pretty text-foreground">
-              O registro automático de domínios está <strong>desligado</strong> — novos domínios exigem adição manual no
-              painel da hospedagem. Para dispensar isso de vez, configure as variáveis{' '}
-              <code className="font-mono">RAILWAY_API_TOKEN</code>, <code className="font-mono">RAILWAY_PROJECT_ID</code>,{' '}
-              <code className="font-mono">RAILWAY_ENVIRONMENT_ID</code> e <code className="font-mono">RAILWAY_SERVICE_ID</code>{' '}
-              no ambiente do servidor (uma única vez).
+              A conexão automática está indisponível. Você ainda pode adicionar o domínio; mostraremos as instruções
+              manuais de DNS e hospedagem.
             </p>
           </div>
         )}

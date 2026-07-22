@@ -55,9 +55,10 @@ import type {
   AdsBriefingResponse,
   AdsCreativeInsights,
   AdsBudgetProposal,
+  AdsCatalogCapabilitiesResponse,
   CopilotEvent,
 } from './types'
-import { catalogSyncRunsRefreshInterval } from './catalog-run-polling'
+import { catalogCampaignRunsRefreshInterval, catalogSyncRunsRefreshInterval } from './catalog-run-polling'
 
 // Item 181: contrato unificado de erro da API — { ok:false, error, code, hint }.
 // `hint` traz a orientação pt-BR do que fazer; `code` é estável para lógica.
@@ -737,7 +738,7 @@ export function useAdsCatalogReadiness(catalogId: string | null, adAccountId: st
 }
 
 export function useAdsCatalogCapabilities(active: boolean, adAccountId: string) {
-  return useSWR<{ capabilities: Record<string, boolean | string> }>(
+  return useSWR<AdsCatalogCapabilitiesResponse>(
     active && adAccountId ? adsCatalogApiUrl('/api/ads/catalogs/capabilities', adAccountId) : null,
     fetcher,
     {
@@ -754,7 +755,12 @@ export function useAdsCatalogCapabilities(active: boolean, adAccountId: string) 
 }
 
 export function useAdsTikTokPixels(active: boolean, adAccountId: string) {
-  return useSWR<{ pixels: AdsTikTokPixel[] }>(
+  return useSWR<{
+    pixels: AdsTikTokPixel[]
+    binding: import('./types').AdsPixelBinding | null
+    ready: boolean
+    needsChoice: boolean
+  }>(
     active && adAccountId ? adsCatalogApiUrl('/api/ads/pixels', adAccountId) : null,
     fetcher,
     { revalidateOnFocus: true, revalidateOnReconnect: true, keepPreviousData: false },
@@ -777,7 +783,7 @@ export function useAdsCatalogCampaignRuns(catalogId: string | null, adAccountId:
     catalogId && adAccountId ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-runs`, adAccountId) : null,
     fetcher,
     {
-      refreshInterval: (latest) => latest?.runs.some((run) => ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)) ? 4000 : 0,
+      refreshInterval: (latest) => catalogCampaignRunsRefreshInterval(latest?.runs),
       revalidateOnFocus: true, keepPreviousData: false,
     },
   )
@@ -896,7 +902,7 @@ export async function adsCatalogImportCsv(catalogId: string, adAccountId: string
   return data as { summary: import('./types').AdsCatalogImportSummary }
 }
 
-// Upload de criativo (vídeo/imagem) → Vercel Blob. Binário puro no corpo,
+// Upload de criativo (vídeo/imagem) → volume do Railway. Binário puro no corpo,
 // metadados na querystring (o Express usa express.raw nesta rota).
 export async function adsUpload(file: File, kind: 'video' | 'image'): Promise<{ ok: boolean; url: string }> {
   const qs = new URLSearchParams({ kind, filename: file.name }).toString()

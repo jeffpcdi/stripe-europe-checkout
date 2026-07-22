@@ -5,8 +5,9 @@ const CAMPAIGN_STAGES = Object.freeze([
   'verifying_entities', 'ready_paused', 'partial', 'failed', 'cancelled',
 ]);
 const TIKTOK_MIN_DAILY_BUDGET = 50;
-// Catalog Ads (manual e Smart+) só ficam elegíveis quando o TikTok confirma
-// pelo menos quatro produtos aprovados, ativos e em estoque.
+// O overview disponível confirma apenas a contagem agregada de aprovados.
+// Quatro é o piso para preparar Catalog Ads; disponibilidade/estoque por SKU
+// ainda precisam ser validados pelo TikTok quando o conector expuser detalhe.
 const TIKTOK_MIN_APPROVED_PRODUCTS = 4;
 const TIKTOK_PIXEL_EVENTS = Object.freeze([
   'ON_WEB_ORDER', 'INITIATE_ORDER', 'ON_WEB_CART', 'ON_WEB_DETAIL',
@@ -92,14 +93,14 @@ function computeReadiness(catalog, products, context) {
       hasUnpublishedChanges
         ? 'Há alterações locais ainda não sincronizadas'
         : hasMinimumApproved
-          ? `${approved} aprovado(s), ativos e em estoque`
+          ? `${approved} aprovado(s) no resumo do TikTok`
           : approved > 0
-            ? `${approved} aprovado(s); faltam ${approvedMissing} para o mínimo de ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados, ativos e em estoque`
+            ? `${approved} aprovado(s); faltam ${approvedMissing} para o mínimo de ${TIKTOK_MIN_APPROVED_PRODUCTS}`
             : pending > 0
-              ? `${pending} em análise; são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados, ativos e em estoque`
+              ? `${pending} em análise; são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados`
               : rejected > 0
-                ? `${rejected} rejeitado(s); são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados, ativos e em estoque`
-                : `Aguardando no mínimo ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados, ativos e em estoque`),
+                ? `${rejected} rejeitado(s); são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados`
+                : `Aguardando no mínimo ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados`),
     step('advertiser', 'Conta de anúncio', advertiserReady ? 'done' : 'waiting',
       advertiserReady ? `Advertiser ${ctx.advertiserId}` : 'Selecione a conta que criará a campanha'),
   ];
@@ -148,13 +149,13 @@ function normalizeCampaignSpec(input, catalog) {
     throw catalogError('CATALOG_CAMPAIGN_END_DATE_REQUIRED', 'Orçamento total exige data de término.');
   }
   const productScope = ['all', 'product_set', 'specific'].includes(value.productScope) ? value.productScope : 'all';
-  const productIds = Array.isArray(value.productIds)
-    ? value.productIds.map((v) => String(v || '').trim()).filter(Boolean).slice(0, 20) : [];
-  if (productScope === 'specific' && !productIds.length) {
+  const itemGroupIds = Array.isArray(value.itemGroupIds || value.productIds)
+    ? (value.itemGroupIds || value.productIds).map((v) => String(v || '').trim()).filter(Boolean).slice(0, 100) : [];
+  if (productScope === 'specific' && !itemGroupIds.length) {
     throw catalogError('CATALOG_PRODUCTS_REQUIRED', 'Selecione ao menos um produto para o anúncio.');
   }
-  if (productScope === 'specific' && productIds.some((productId) => !/^\d{6,30}$/.test(productId))) {
-    throw catalogError('CATALOG_PRODUCT_ID_INVALID', 'Os Product IDs devem ser os IDs numéricos exibidos no TikTok Catalog Manager.');
+  if (productScope === 'specific' && itemGroupIds.some((itemGroupId) => itemGroupId.length > 100 || /[\r\n,]/.test(itemGroupId))) {
+    throw catalogError('CATALOG_ITEM_GROUP_ID_INVALID', 'Os IDs dos produtos devem corresponder ao item_group_id do feed.');
   }
   const productSetId = String(value.productSetId || '').trim();
   if (productScope === 'product_set' && !productSetId) {
@@ -168,7 +169,7 @@ function normalizeCampaignSpec(input, catalog) {
   // em uma variação Catalog Video, mas não pode ser pré-requisito do lote
   // Product Link (nem do VSA Carousel), pois esses formatos não compartilham
   // o mesmo criativo.
-  const catalogVideoTemplateId = String(value.catalogVideoTemplateId || '').trim();
+  const musicId = String(value.musicId || '').trim();
   const identityType = String(value.identityType || '').trim().toUpperCase();
   const identityId = String(value.identityId || '').trim();
   if ((identityId && !identityType) || (!identityId && identityType)) {
@@ -201,22 +202,15 @@ function normalizeCampaignSpec(input, catalog) {
     bidStrategy: value.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost',
     bidAmount: Number(value.bidAmount) || undefined,
     country: String(value.country || cat.country || 'BR').trim().toUpperCase(),
-    productScope, productIds, productSetId: productSetId || undefined,
-    catalogVideoTemplateId: catalogVideoTemplateId || undefined,
+    productScope, itemGroupIds, productIds: itemGroupIds, productSetId: productSetId || undefined,
+    musicId: musicId || undefined,
     identityId: identityId || undefined, identityType: identityType || undefined,
     identityBcId: String(value.identityBcId || '').trim() || undefined,
     pixelId,
     pixelEvent,
     text: String(value.text || '').trim().slice(0, 100) || undefined,
-    callToAction: String(value.callToAction || 'LEARN_MORE').trim().toUpperCase(),
-    // Criativo de VÍDEO por campanha + Product Link derivado do Link do produto.
-    // landingPageUrl NÃO é URL manual: é o `link` do próprio produto do catálogo
-    // (o batch proíbe URL manual; product_info_enabled=CATALOG usa o link de cada
-    // produto). O TikTok exige uma URL base — usamos o Link do produto.
-    videoId: String(value.videoId || '').trim() || undefined,
-    coverImageId: String(value.coverImageId || value.coverId || '').trim() || undefined,
-    landingPageUrl: String(value.productLink || '').trim() || undefined,
-    strategy: 'vsa_product_link', destination: 'PRODUCT_LINK', creativeMode: 'VSA_PRODUCT_LINK', status: 'paused',
+    callToAction: String(value.callToAction || 'SHOP_NOW').trim().toUpperCase(),
+    strategy: 'catalog_carousel_product_link', destination: 'PRODUCT_LINK', creativeMode: 'CATALOG_CAROUSEL', status: 'paused',
   };
 }
 
@@ -236,8 +230,12 @@ function buildCampaignBatchNames(prefix, count) {
   const base = String(prefix || '').trim();
   if (!base) throw catalogError('CATALOG_CAMPAIGN_NAME_REQUIRED', 'Informe o prefixo do nome das campanhas.');
   const pad = Math.max(2, String(total).length);
-  return Array.from({ length: total }, (_, index) =>
-    `${base} ${String(index + 1).padStart(pad, '0')}`.slice(0, 120));
+  return Array.from({ length: total }, (_, index) => {
+    const suffix = ` ${String(index + 1).padStart(pad, '0')}`;
+    // Reserva o final para a numeração. Cortar a string pronta removia o
+    // sufixo de prefixos longos e fazia o lote inteiro colidir no mesmo nome.
+    return `${base.slice(0, Math.max(1, 120 - suffix.length)).trimEnd()}${suffix}`;
+  });
 }
 
 module.exports = {

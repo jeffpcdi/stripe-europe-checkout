@@ -39,14 +39,17 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 - **Banco:** Neon Postgres via `@neondatabase/serverless` `^1.1.0` (SQL puro por template tag, sem ORM).
 - **Cache/dedup:** Upstash Redis `@upstash/redis` `^1.38.0` via HTTP REST (opcional; fallback em memória).
 - **Geo:** `geoip-lite` `^2.0.3` (fallback; a fonte primária são headers de edge Vercel/Cloudflare).
-- **Serviços externos:** TikTok Events API (`business-api.tiktok.com/open_api/v1.3`), Pushcut (push).
-- **Dependência órfã:** `ws` `^8.21.0` está no `package.json` mas **não é usada** por nenhum módulo
-  (presença ao vivo usa polling HTTP `/api/pulse`, não WebSocket). Pode ser removida.
+- **IA:** `@anthropic-ai/sdk` direto; não há Vercel AI Gateway, `ai`, `@ai-sdk/*` nem `@vercel/oidc`.
+- **URLs baixadas pelo TikTok:** `ads-storage.publicOrigin()` aceita apenas hostname/IP público.
+  `localhost`, redes privadas e `*.internal` retornam vazio; a publicação falha antes de qualquer
+  upload com `PUBLIC_ORIGIN_REQUIRED`. Em produção, configure `PRIMARY_HOST`.
+- **Serviços externos:** TikTok Events API (`business-api.tiktok.com/open_api/v1.3`), Pipeboard, Anthropic e Pushcut.
+- **Presença ao vivo:** usa polling HTTP `/api/pulse`; não há dependência de WebSocket no runtime.
 
 ## 3. Deploy e ambientes
 - **Produção real:** roda no **Railway**, com credenciais **próprias do usuário** (Neon + Upstash
   nas *Variables* do Railway). Independente do v0. Start: `node server.js`.
-- **Preview do v0:** usa env gerenciada (`.env.development.local` com `DATABASE_URL` do Neon gerenciado).
+- **Desenvolvimento local:** `.env.development.local` recebe as variáveis do Railway/gerenciador seguro. O repositório não está conectado à Vercel.
 - **Diagnóstico rápido:** `GET /api/status` (público, sem auth) → `{ok, db, redis, hint}`. Primeira
   parada para depurar "banco não configurado" em produção, sem expor segredos. Não confundir com
   `GET /api/health`, que é **autenticado** e traz status detalhado — incluindo `migrations` e, desde
@@ -119,6 +122,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `CUSTOMIZED_USER`/`TT_USER`/`AUTH_CODE` automaticamente. Duplicação pré-valida esse fallback antes
   de criar a campanha. A árvore e o editor carregam `catalogId`/`websiteType`; se for `PRODUCT_LINK`,
   não exibem nem aceitam `landing_page_url` (inclusive por API), pois o destino é o `Link` de cada produto.
+  O produto é exclusivamente de **conversão**: criação comum, Smart+ e Spark usam TikTok placement,
+  evento `ON_WEB_ORDER` e campanhas pausadas; objetivos de tráfego/alcance/leads/engajamento são
+  rejeitados também no backend. O Pixel não é informado em cada formulário: `ads_pixel_bindings`
+  mantém um vínculo por `account_id + advertiser_id`; `GET /api/ads/pixels` cruza o `pixel_code`
+  alfanumérico salvo em Conversões com o `pixel_id` numérico lido do TikTok e
+  `PUT /api/ads/pixels/default` resolve apenas contas ambíguas. Campanhas comuns, Smart+, Spark,
+  wizard e lote de catálogos recebem esse Pixel no servidor e sempre usam Compra.
 - **bot-filter.js** — cloaking multicamadas (score 0–100). Modelo de score em §8. Lookup de ASN (Cymru
   via DNS) com teto de latência (`deadlineMs`, padrão 120ms via `Promise.race`) e cache 2 camadas
   (memória + Redis `asn:<ip>`) para redirect quase instant��neo.
@@ -239,39 +249,66 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `account_id + advertiser_id`; nunca autorize uma operação só porque o `catalogId` ou `runId` existe.
   A sincronização é durável (`catalog/catalog-sync-worker.js`) e verifica o catálogo remoto em
   todo envio: se o ID salvo não existir mais no BC atual, recria apenas o vínculo remoto e preserva
-  catálogo/produtos/feed locais. Produtos são revalidados contra a spec atual em toda leitura crítica e
+  catálogo/produtos/feed locais. Cada run usa um snapshot CSV imutável (`ads_catalog_feed_snapshots`)
+  identificado por hash na URL `?v=`; a limpeza nunca remove revisões referenciadas por runs duráveis.
+  Sucesso exige o `feed_log_id` do upload atual em `SUCCESS` com
+  `error_count=0` **e** overview com exatamente a quantidade enviada; produtos antigos no catálogo nunca
+  confirmam o run atual. `synced_at` só muda depois dessas duas provas, enquanto uma leitura isolada do
+  overview atualiza apenas `audit`. Produtos são revalidados contra a spec atual em toda leitura crítica e
   no feed público: `brand` é o 9º campo obrigatório (nunca inferido) e o enum correto é
   `available for order` (não `available`). Assim, registros antigos com `valid=true` não furam a regra.
-  A campanha VSA Product Link exige orçamento mínimo 50, Pixel ID numérico + evento canônico
-  (`ON_WEB_ORDER` por padrão) e pelo menos **4 produtos aprovados, ativos e em estoque**, mas **não exige
-  Catalog Video Template ID nem URL no anúncio**: o destino é o `link` individual de cada produto.
+  A campanha Catalog Ads Product Link exige orçamento mínimo 50, Pixel ID numérico + evento canônico
+  (`ON_WEB_ORDER` por padrão) e pelo menos **4 produtos aprovados no overview agregado**. Esse overview
+  não comprova sozinho estoque/disponibilidade por SKU, portanto a UI não deve alegar essa verificação.
+  Product Link **não exige URL no anúncio nem Catalog Video Template ID**: o destino é o `link`
+  individual de cada produto. O formato confirmado é `CATALOG_CAROUSEL`; cada card recebe um
+  `item_group_id` do feed (preenchido automaticamente com `sku_id` em produtos simples) e exige uma
+  música própria `USER`. O preflight busca a música antes da primeira escrita e bloqueia sem criar
+  estrutura parcial quando a conta ainda não possui uma faixa elegível.
   O lote aceita TSV ou CSV (vírgula/ponto e vírgula), normaliza orçamento pt-BR como `1.000,00` e recebe
   exclusivamente o `link` HTTPS de cada produto; URL manual no anúncio é bloqueada em duas barreiras
   (preview + executor). O parser de `/api/ads/catalogs/batch` é montado antes do JSON global e aceita
   até 25 MB (o restante da API continua em 200 KB). A confirmação Product Link só vale quando o JSON Schema do Pipeboard
   declara explicitamente todos os valores enviados nos três níveis (incluindo `PRODUCT_SALES`,
-  `VIDEO_SHOPPING_ADS`, `CATALOG`, `CONVERT`, pausa, `website_type=PRODUCT_LINK` e
-  `destination_page_type=WEBSITE`); campos presentes com enums incompatíveis não liberam anúncio.
+  `product_source=CATALOG`, `shopping_ads_type=CATALOG_LISTING_ADS`, `promotion_type=WEBSITE`,
+  `shopping_ads_retargeting_type=OFF`, `catalog_authorized_bc_id`, `CONVERT`, pausa,
+  `ad_format=CATALOG_CAROUSEL`, `item_group_ids`/`product_set_id`, `music_id`, identidade
+  `BC_AUTH_TT`, `identity_authorized_bc_id` e dark post);
+  `store_authorized_bc_id` é de TikTok Shop e não deve ser usado para o catálogo. O preflight também
+  exige as três tools de readback, respeita `inputSchema.required` e valida o evento escolhido antes da
+  primeira escrita. A leitura final confirma formato, escopo de produtos, Pixel/evento, identidade/BC,
+  música/texto/CTA enviados, Product Link, ausência de URL manual e pausa nos três níveis.
   Quando o conector ainda não confirma catálogo ou Product Link, sync/campanhas ficam
   em `waiting_connector_confirmation` e são retomados automaticamente; depois a campanha segue para
   `waiting_catalog_review` e só é promovida após auditoria aprovar o catálogo. Assim o lote pode ser
   preparado agora, mas nenhum fallback com URL global é criado nem anúncio é enviado antes da confirmação
   explícita do schema Pipeboard.
+  **Estado atual do Pipeboard (2026-07-22):** as tools expõem criação, upload com `feed_log_id`,
+  status por produto, auditoria, `PRODUCT_SALES`, ad group de catálogo e anúncio
+  `CATALOG_CAROUSEL`, além do readback dos três níveis. `manualCatalogCampaign=true` quando esse
+  contrato completo permanece no schema. Isso confirma Catalog Carousel, não o modo Dynamic Formats
+  multiformato; nunca degradar para vídeo comum ou URL global.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
   **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação
   fica bloqueado quando campanhas foram pedidas sem sincronização ou quando a sincronização ainda
   não tem BC/origem/permissões. O resumo terminal informa também campanhas preparadas, aguardando
-  Product Link/análise, ignoradas e com falha. Enquanto `manualCatalogCampaign=false`, o hook de
+  Product Link/análise, ignoradas e com falha. Quando `manualCatalogCampaign=false`, o hook de
   capabilities reconsulta em baixa frequência (60s) para remover o banner sem exigir reload; os
-  cards de run exibem nome, escopo, orçamento e a verificação final (hierarquia, Product Link, sem
-  URL manual e tudo pausado). Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
+  cards de run exibem nome, escopo, orçamento, avisos e a verificação final completa. Polling de campanha
+  usa 4s em execução, 15s aguardando análise, 60s aguardando o conector e para em estado terminal.
+  Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
   O parser do lote exige a coluna `marca`/`brand` e envia `brand` por produto; valor ausente bloqueia
   a prévia com as linhas exatas, pois a marca real é obrigatória no TikTok e nunca deve ser inferida.
-  Ao preparar campanhas, o lote também lê `pixel_id` (6–30 dígitos) e `evento` (padrão canônico
-  `ON_WEB_ORDER`) por campanha; o wizard manual expõe os mesmos campos obrigatórios para `CONVERT`.
-  Quando `GET /api/ads/pixels?adAccountId=...` retorna Pixels, o wizard usa uma lista autenticada
-  com nome e compras dos últimos 30 dias; sem dados/na falha, preserva input numérico manual.
+  Ao preparar campanhas, a rota injeta o Pixel central vinculado à conta de anúncio e o evento
+  `ON_WEB_ORDER`; planilha, wizard e lote rápido não pedem Pixel/evento repetidamente.
+  No wizard dedicado, a tela principal pede somente nome e orçamento; todos os produtos aprovados,
+  Pixel, Compra, identidade e música são resolvidos automaticamente. Texto e CTA ficam em detalhes
+  avançados. Avisos do run ficam visíveis e falhas não retomáveis oferecem apenas a limpeza da
+  estrutura parcial. Sem `manualCatalogCampaign`, nada é enviado ao TikTok.
+  O lote rápido (`POST /api/ads/catalogs/:catalogId/campaign-batch`, máximo 50) vive no cartão
+  “Campanhas deste catálogo”, pede apenas quantidade e orçamento, gera nomes ordenados e cria runs
+  duráveis idempotentes. Ele só abre com `manualCatalogCampaign=true`; não polui a lista de catálogos.
   Nomes diferentes que geram a mesma key normalizada bloqueiam a prévia com nomes e linhas, em vez
   de fundir produtos silenciosamente. A idempotency key do wizard é preservada entre timeout/retry e
   só muda após sucesso ou alteração material do formulário. Runs
@@ -728,9 +765,11 @@ só no Railway (§5.2.2).
   `legacy=1` e serve o `DASHBOARD_HTML` antigo). Não apagar `dashboard-view.js`.
 
 ### 19.2 Stack e dados
-- Next.js 16 (App Router, `experimental.viewTransition`), React 19, TypeScript, Tailwind v4
+- Next.js 16.2.11 (App Router, `experimental.viewTransition`), React 19, TypeScript, Tailwind v4
   (`@import 'tailwindcss'` + tokens em `@theme`/`:root` no `globals.css`), lucide-react (ícones),
   Recharts (gráficos), `globe.gl` (globo 3D), SWR (dados).
+  O override `sharp=0.35.3` corrige a versão opcional vulnerável herdada do Next; validar com
+  `npm --prefix dashboard audit --omit=dev` e `npm run build` ao atualizar o framework.
 - **Todos os dados vêm dos endpoints `/api/*` do Express** (§5.2) via hooks SWR em `lib/api.ts`
   (`useStats`, `useLive`, `useLinks`, `usePixels`, `useGateways`, `useCloakConfig`, etc.), com
   `credentials:'include'` e polling. **Não criar API routes no Next** — API nova nasce no Express.
@@ -745,6 +784,12 @@ só no Railway (§5.2.2).
 (log de conversões/pixels/cloaker) · `/links` Links de Checkout · `/cloak` Filtro de Bots ·
 `/domains` Domínios · `/pixels` Pixel TikTok (saúde + EMQ) · `/gateways` Gateways · `/config`
 Configurações. Cada página é um `page.tsx` fino que renderiza a view de `components/<área>/`.
+`/ads/tiktok` tem somente três áreas de trabalho: **Campanhas, Catálogo e Automações**. Há um único
+launcher “Nova campanha” (Conversão ABO/CBO, Smart+, vídeos em massa e Spark); os antigos painéis
+Today/Smart+ e cards de copiloto/proposta/insights/MCP foram removidos por duplicarem controles.
+Pixel e evento não aparecem nos formulários: o banner `PixelBindingCard` só é exibido enquanto o
+vínculo central do advertiser estiver pendente. Em Catálogo, conexão verificada, feed e históricos
+técnicos ficam recolhidos; a lista prioriza nome, quantidade e estado acionável.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):
@@ -809,8 +854,8 @@ unificado (`gap-5` na raiz das 5 abas). Próxima fila: Leva 4 (141–200) — re
 Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
 o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
 `node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
-`vercel env pull /tmp/env-preview --environment=preview` + `node --env-file=/tmp/env-preview server.js`
-para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
+recupere `.env.development.local` no Railway/gerenciador seguro e use
+`node --env-file-if-exists=.env.development.local server.js`; o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
 dashboard com `next build` + `next start -p 3001`.
 
 ### 19.4.1 Primitivos de UX compartilhados (itens 182/183/184/185/187/189 — REUTILIZE, não reinvente)

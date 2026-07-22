@@ -116,7 +116,11 @@ function collectFields(root, wanted) {
   while (level.length && depth < 8) {
     const next = [];
     for (const obj of level) {
-      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
+      if (Array.isArray(obj)) {
+        for (const item of obj) if (item && typeof item === 'object') next.push(item);
+        continue;
+      }
+      if (!obj || typeof obj !== 'object') continue;
       for (const k of Object.keys(obj)) {
         const kl = String(k).toLowerCase();
         const v = obj[k];
@@ -180,21 +184,53 @@ const PHONE_ALIASES = ['phone', 'customer_phone', 'buyer_phone', 'phone_number',
   'checkout_phone', 'telefone', 'celular', 'whatsapp', 'phone_local_code', 'contact_phone',
   'cliente_telefone', 'sender_phone', 'mobile_phone', 'msisdn', 'tel'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function pickContactByDepth(root, aliases, valid) {
+  const wanted = new Set(aliases);
+  let level = [root];
+  let depth = 0;
+  while (level.length && depth < 8) {
+    const next = [];
+    const atDepth = {};
+    for (const obj of level) {
+      if (Array.isArray(obj)) {
+        for (const item of obj) if (item && typeof item === 'object') next.push(item);
+        continue;
+      }
+      if (!obj || typeof obj !== 'object') continue;
+      for (const key of Object.keys(obj)) {
+        const normalized = String(key).toLowerCase();
+        const value = obj[key];
+        if (wanted.has(normalized) && !(normalized in atDepth)) atDepth[normalized] = value;
+        if (value && typeof value === 'object') next.push(value);
+      }
+    }
+    for (const alias of aliases) {
+      const value = str(atDepth[alias]);
+      if (value && valid(value.trim())) return value.trim();
+    }
+    level = next;
+    depth++;
+  }
+  return null;
+}
 function pickEmail(body, flat) {
-  const found = collectFields(body || {}, new Set(EMAIL_ALIASES));
-  for (const a of EMAIL_ALIASES) {
-    const v = str(found[a] != null ? found[a] : flat[a]);
-    if (v && EMAIL_RE.test(v.trim())) return v.trim();
+  const nested = pickContactByDepth(body || {}, EMAIL_ALIASES, (value) => EMAIL_RE.test(value));
+  if (nested) return nested;
+  for (const alias of EMAIL_ALIASES) {
+    const value = str(flat[alias]);
+    if (value && EMAIL_RE.test(value.trim())) return value.trim();
   }
   return null;
 }
 function pickPhone(body, flat) {
-  const found = collectFields(body || {}, new Set(PHONE_ALIASES));
-  for (const a of PHONE_ALIASES) {
-    const v = str(found[a] != null ? found[a] : flat[a]);
+  const valid = (value) => String(value).replace(/\D/g, '').length >= 7;
+  const nested = pickContactByDepth(body || {}, PHONE_ALIASES, valid);
+  if (nested) return nested;
+  for (const alias of PHONE_ALIASES) {
+    const value = str(flat[alias]);
     // precisa ter dígitos suficientes para ser telefone (o hash E.164 acontece
     // depois, em tiktok-events.js); descarta "0"/lixo curto que zeraria o EMQ.
-    if (v && (String(v).replace(/\D/g, '').length >= 7)) return v.trim();
+    if (value && valid(value)) return value.trim();
   }
   return null;
 }

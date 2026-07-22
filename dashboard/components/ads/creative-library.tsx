@@ -1,6 +1,6 @@
 'use client'
 
-// Biblioteca de criativos — vídeos já enviados ao Vercel Blob desta conta.
+// Biblioteca de criativos — vídeos já enviados ao volume desta conta.
 // Usada dentro do editor de campanha e do Spark Ads para reaproveitar um
 // vídeo sem precisar subir de novo. Popover inline (não é rota própria).
 

@@ -1,6 +1,6 @@
 'use client'
 
-// Subida em massa de anúncios TikTok — até 20 vídeos de uma vez.
+// Criação em massa com vídeos TikTok — até 20 vídeos de uma vez.
 // Fluxo: solta N vídeos → cada um vira um item (upload → URL) → configurações
 // comuns (objetivo, orçamento, países…) → POST /api/ads/bulk enfileira tudo
 // no backend (fila durável, 1 criação por vez respeitando rate limit) → a UI
@@ -216,12 +216,12 @@ export function BulkUploadDialog({
         if (e.target === e.currentTarget && !submitting) onClose()
       }}
     >
-      <div ref={ref} role="dialog" aria-modal="true" aria-label="Subir anúncios em massa" tabIndex={-1} className="w-full max-w-2xl outline-none">
+      <div ref={ref} role="dialog" aria-modal="true" aria-label="Criar anúncios com vídeos em massa" tabIndex={-1} className="w-full max-w-2xl outline-none">
         <div className="anim-pop-in flex max-h-[85vh] flex-col gap-4 overflow-y-auto rounded-2xl border border-border bg-card p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Layers className="size-4 text-primary" aria-hidden="true" />
-              Subir anúncios em massa
+              Vídeos em massa
             </h2>
             <button type="button" className="btn-ghost px-2 py-1" onClick={onClose} disabled={submitting} aria-label="Fechar">
               <X className="size-4" aria-hidden="true" />

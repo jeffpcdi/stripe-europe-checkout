@@ -57,20 +57,89 @@ function normalizeUploadReceipt(response, receivedAt) {
   const taskId = deepField(raw, ['task_id', 'taskId'], 0);
   const uploadId = deepField(raw, ['upload_id', 'uploadId', 'product_file_id'], 0);
   const requestId = deepField(raw, ['request_id', 'requestId', 'log_id'], 0);
-  // feed_log_id: chave para consultar a INGESTÃO por produto (SUCCESS/FAIL +
-  // erro por SKU) via getTikTokCatalogUploadStatus — o "por que ficou zero".
   const feedLogId = deepField(raw, ['feed_log_id', 'feedLogId'], 0);
   return {
     receivedAt,
-    provable: Boolean(jobId || taskId || uploadId || requestId || feedLogId),
+    // Para upload de catálogo, apenas feed_log_id permite consultar o
+    // processamento exato. Os outros IDs ficam como diagnóstico legado.
+    provable: Boolean(feedLogId),
+    feedLogId: feedLogId == null ? null : String(feedLogId),
     jobId: jobId == null ? null : String(jobId),
     taskId: taskId == null ? null : String(taskId),
     uploadId: uploadId == null ? null : String(uploadId),
     requestId: requestId == null ? null : String(requestId),
-    feedLogId: feedLogId == null ? null : String(feedLogId),
     fileFormat: String(deepField(raw, ['file_format', 'fileFormat'], 0) || 'CSV'),
     response: raw,
   };
+}
+
+function uploadFailureError(status) {
+  const value = status || {};
+  const sample = Array.isArray(value.errors) ? value.errors.slice(0, 5) : [];
+  const errorCount = Number(value.errorCount) || 0;
+  const processStatus = String(value.processStatus || value.status || 'FAILED').toUpperCase();
+  const hasReason = sample.some((item) => item && (item.field || item.issue || item.suggestion
+    || (Array.isArray(item.products) && item.products.length)));
+  return {
+    code: 'CATALOG_UPLOAD_REJECTED',
+    stage: 'processing_tiktok',
+    message: errorCount > 0
+      ? 'O TikTok concluiu o upload com ' + errorCount + ' erro(s).'
+      : 'O TikTok encerrou o upload com status ' + processStatus + ' sem informar a causa.',
+    userMessage: hasReason
+      ? 'O TikTok recusou parte ou todo o arquivo do catálogo. O lote não foi marcado como sincronizado.'
+      : 'O TikTok não conseguiu processar o arquivo e não informou o motivo. O lote não foi marcado como sincronizado.',
+    retryable: true,
+    suggestedAction: hasReason
+      ? 'Corrija os produtos indicados pelo TikTok e retome a sincronização.'
+      : 'Confirme se a URL do feed é pública e tente novamente. Se persistir, envie o feed_log_id ao suporte do Pipeboard.',
+    details: sample,
+  };
+}
+
+function uploadReceiptError() {
+  return {
+    code: 'CATALOG_UPLOAD_RECEIPT_MISSING',
+    stage: 'uploading_products',
+    message: 'O conector não devolveu feed_log_id para acompanhar a ingestão.',
+    userMessage: 'O envio foi recebido, mas não veio com um identificador verificável. Nada foi marcado como sincronizado.',
+    retryable: true,
+    suggestedAction: 'Tente sincronizar novamente. Se persistir, atualize a conexão do Pipeboard.',
+  };
+}
+
+function uploadReceiptMismatchError(error) {
+  const message = String(error && error.message || error || '');
+  if (!/invalid value for ['"]feed_id|not matched with (?:the )?catalog/i.test(message)) return null;
+  return {
+    code: 'CATALOG_UPLOAD_RECEIPT_MISMATCH',
+    stage: 'processing_tiktok',
+    message: message.slice(0, 500),
+    userMessage: 'O recibo do upload não pertence ao catálogo remoto atual. A sincronização não foi confirmada.',
+    retryable: true,
+    suggestedAction: 'Retome a sincronização para gerar um novo upload no catálogo atualmente vinculado.',
+  };
+}
+
+function auditMatchesUpload(audit, published) {
+  return Number(audit && audit.total) === Math.max(1, Number(published) || 0);
+}
+
+// Uma tool isolada não torna a sincronização executável. O worker precisa
+// conseguir enviar o snapshot, acompanhar exatamente o feed_log, confirmar o
+// catálogo no BC e ler o overview final. Catálogo ainda sem vínculo também
+// precisa da criação remota. Esta mesma regra governa a promoção da fila e a
+// execução, evitando um job sair de "aguardando conector" cedo demais.
+function syncCapabilitiesReady(capabilities, options) {
+  const value = capabilities || {};
+  const requireCreate = !options || options.requireCreate !== false;
+  return Boolean(
+    value.catalogUpload
+    && value.catalogUploadStatus
+    && value.catalogAudit
+    && value.catalogLinkVerify
+    && (!requireCreate || value.catalogCreate)
+  );
 }
 
 function auditDelayMs(attempts) {
@@ -86,8 +155,8 @@ function auditTimeoutError(attempts, lastError) {
   return {
     code: 'CATALOG_UPLOAD_NOT_VISIBLE',
     stage: 'auditing_products',
-    message: String(lastError || 'O overview do TikTok continuou sem produtos após o upload.').slice(0, 500),
-    userMessage: 'O TikTok não confirmou nenhum produto depois de ' + attempts + ' verificações. O envio não foi marcado como concluído.',
+    message: String(lastError || 'O TikTok não confirmou a ingestão completa do arquivo e a quantidade esperada no overview.').slice(0, 500),
+    userMessage: 'O TikTok não confirmou este upload por completo depois de ' + attempts + ' verificações. O envio não foi marcado como concluído.',
     retryable: true,
     suggestedAction: 'Corrija os campos obrigatórios do feed (incluindo marca), confirme a URL pública e retome a sincronização.',
   };
@@ -99,6 +168,18 @@ async function readRemoteFeedsDiagnostic(catalog) {
     return { supported: false, checkedAt };
   }
   try {
+    const capabilities = typeof provider.getCatalogCapabilities === 'function'
+      ? await provider.getCatalogCapabilities() : null;
+    if (!capabilities || !capabilities.catalogUpload || !capabilities.catalogUploadStatus) {
+      throw catalogError(
+        'CATALOG_UPLOAD_CONNECTOR_CONFIRMATION_REQUIRED',
+        'A sincronização foi preparada e aguarda o conector confirmar upload e leitura por feed_log_id.',
+        {
+          status: 409, stage: 'waiting_connector_confirmation', retryable: true,
+          suggestedAction: 'Mantenha o run salvo; ele será retomado automaticamente quando o contrato estiver disponível.',
+        },
+      );
+    }
     const result = await provider.getTikTokCatalogFeeds(catalog.bcId, catalog.tiktokCatalogId);
     const feeds = Array.isArray(result && result.feeds) ? result.feeds : [];
     return {
@@ -129,7 +210,7 @@ async function refreshWaitingConnectorConfirmations() {
   connectorCheckedAt = now;
   try {
     const capabilities = await provider.getCatalogCapabilities();
-    if (!capabilities || !capabilities.catalogCreate) return 0;
+    if (!syncCapabilitiesReady(capabilities, { requireCreate: true })) return 0;
     const promoted = await store.promoteSyncRunsAwaitingConnectorConfirmation(20);
     return Array.isArray(promoted) ? promoted.length : 0;
   } catch (_) {
@@ -139,14 +220,14 @@ async function refreshWaitingConnectorConfirmations() {
   }
 }
 
-// O retorno do upload não significa que os itens apareceram no Catalog Manager.
-// Consultamos com backoff persistido os syncs em `waiting_tiktok_processing`.
-// O run só conclui quando o overview mostra produtos; zero repetido termina em
-// erro retomável, em vez de manter polling infinito ou exibir falso sucesso.
+// O run só conclui quando DUAS provas concordam: o feed_log_id do upload atual
+// terminou sem erros e o overview corresponde exatamente à quantidade enviada.
+// Produtos antigos no catálogo, sozinhos, nunca confirmam uma sincronização.
 async function refreshPendingTikTokAudits() {
   if (!store.enabled || !provider.enabled
     || typeof store.listCatalogsAwaitingTikTokAudit !== 'function'
-    || typeof provider.getTikTokCatalogOverview !== 'function') return 0;
+    || typeof provider.getTikTokCatalogOverview !== 'function'
+    || typeof provider.getTikTokCatalogUploadStatus !== 'function') return 0;
   const catalogs = await store.listCatalogsAwaitingTikTokAudit(5);
   const now = Date.now();
   let refreshed = 0;
@@ -175,24 +256,92 @@ async function refreshPendingTikTokAudits() {
       refreshed += 1;
       continue;
     }
+    const feedLogId = String(progress.uploadReceipt && progress.uploadReceipt.feedLogId || '');
+    if (!feedLogId) {
+      const structured = uploadReceiptError();
+      if (typeof store.markSyncUnconfirmed === 'function') {
+        await store.markSyncUnconfirmed(catalog.accountId, catalog.advertiserId, catalog.id);
+      }
+      if (catalog.syncRunId) {
+        await store.updateSyncRun(catalog.accountId, catalog.syncRunId, 'failed', {
+          stage: structured.stage, error: structured,
+          progress: { ...progress, receiptRejectedAt: new Date().toISOString() },
+        });
+      }
+      await store.appendPublication(catalog.accountId, catalog.advertiserId, catalog.id, {
+        kind: 'tiktok', status: 'error', feedUrl: progress.feedUrl,
+        tiktokCatalogId: catalog.tiktokCatalogId, error: structured.userMessage,
+      }).catch(() => {});
+      refreshed += 1;
+      continue;
+    }
+    let uploadStatus = null;
+    let lastUploadStatusError = null;
+    try {
+      uploadStatus = await provider.getTikTokCatalogUploadStatus(catalog.bcId, catalog.tiktokCatalogId, feedLogId);
+    } catch (err) {
+      lastUploadStatusError = String(err && err.message || err).slice(0, 500);
+      const mismatch = uploadReceiptMismatchError(err);
+      if (mismatch) {
+        if (typeof store.markSyncUnconfirmed === 'function') {
+          await store.markSyncUnconfirmed(catalog.accountId, catalog.advertiserId, catalog.id);
+        }
+        if (catalog.syncRunId) {
+          await store.updateSyncRun(catalog.accountId, catalog.syncRunId, 'failed', {
+            stage: mismatch.stage, error: mismatch,
+            progress: { ...progress, lastUploadStatusError, uploadFailedAt: new Date().toISOString() },
+          });
+        }
+        await store.appendPublication(catalog.accountId, catalog.advertiserId, catalog.id, {
+          kind: 'tiktok', status: 'error', feedUrl: progress.feedUrl,
+          tiktokCatalogId: catalog.tiktokCatalogId, error: mismatch.userMessage,
+        }).catch(() => {});
+        refreshed += 1;
+        continue;
+      }
+    }
+    if (uploadStatus && uploadStatus.failed) {
+      const structured = uploadFailureError(uploadStatus);
+      if (typeof store.markSyncUnconfirmed === 'function') {
+        await store.markSyncUnconfirmed(catalog.accountId, catalog.advertiserId, catalog.id);
+      }
+      if (catalog.syncRunId) {
+        await store.updateSyncRun(catalog.accountId, catalog.syncRunId, 'failed', {
+          stage: structured.stage, error: structured,
+          progress: { ...progress, uploadStatus, uploadFailedAt: new Date().toISOString() },
+        });
+      }
+      await store.appendPublication(catalog.accountId, catalog.advertiserId, catalog.id, {
+        kind: 'tiktok', status: 'error', feedUrl: progress.feedUrl,
+        tiktokCatalogId: catalog.tiktokCatalogId, error: structured.userMessage,
+      }).catch(() => {});
+      refreshed += 1;
+      continue;
+    }
     let audit = null;
     let lastAuditError = null;
-    try {
-      audit = await provider.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
-    } catch (err) {
-      lastAuditError = String(err && err.message || err).slice(0, 500);
+    if (uploadStatus && uploadStatus.succeeded) {
+      try {
+        audit = await provider.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
+      } catch (err) {
+        lastAuditError = String(err && err.message || err).slice(0, 500);
+      }
     }
     const auditAttempts = previousAttempts + 1;
     const checkedAt = new Date().toISOString();
     const updatedProgress = {
       ...progress,
+      uploadStatus: uploadStatus || progress.uploadStatus || null,
+      lastUploadStatusError,
       audit: audit || progress.audit || null,
       auditAttempts,
       lastAuditAt: checkedAt,
       lastAuditError,
     };
-    const total = Number(audit && audit.total) || 0;
-    if (total > 0) {
+    const confirmed = Boolean(uploadStatus && uploadStatus.succeeded
+      && auditMatchesUpload(audit, progress.published));
+    if (confirmed) {
+      await store.markSynced(catalog.accountId, catalog.advertiserId, catalog.id);
       await store.setAudit(catalog.accountId, catalog.advertiserId, catalog.id, audit);
       if (catalog.syncRunId) {
         await store.updateSyncRun(catalog.accountId, catalog.syncRunId, 'completed', {
@@ -204,7 +353,7 @@ async function refreshPendingTikTokAudits() {
         feedUrl: progress.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId, audit,
       }).catch(() => {});
     } else if (auditAttempts >= AUDIT_MAX_ATTEMPTS) {
-      const structured = auditTimeoutError(auditAttempts, lastAuditError);
+      const structured = auditTimeoutError(auditAttempts, lastUploadStatusError || lastAuditError);
       if (typeof store.markSyncUnconfirmed === 'function') {
         await store.markSyncUnconfirmed(catalog.accountId, catalog.advertiserId, catalog.id);
       }
@@ -245,11 +394,12 @@ async function processRun(row) {
     // `valid` é reavaliado pelo store contra a spec atual. Isso impede que um
     // run antigo continue enviando registros persistidos antes de `brand` se
     // tornar obrigatório e garante que o CSV público não seja só cabeçalho.
-    const products = typeof store.listProducts === 'function'
+    const immutableSnapshot = Boolean(payload.feedRevision && /[?&]v=[a-f0-9]{16,64}(?:&|$)/i.test(String(payload.feedUrl || '')));
+    const products = !immutableSnapshot && typeof store.listProducts === 'function'
       ? await store.listProducts(accountId, advertiserId, catalog.id)
       : [];
     const validProducts = products.filter((product) => product && product.valid);
-    if (typeof store.listProducts === 'function' && !validProducts.length) {
+    if (!immutableSnapshot && typeof store.listProducts === 'function' && !validProducts.length) {
       throw catalogError(
         'CATALOG_NO_VALID_PRODUCTS',
         'Nenhum produto válido pode ser enviado ao TikTok.',
@@ -259,10 +409,24 @@ async function processRun(row) {
         },
       );
     }
-    const publishedCount = typeof store.listProducts === 'function'
-      ? validProducts.length : Number(payload.published) || 0;
-    const skippedCount = typeof store.listProducts === 'function'
-      ? Math.max(0, products.length - validProducts.length) : Number(payload.skipped) || 0;
+    const capabilities = typeof provider.getCatalogCapabilities === 'function'
+      ? await provider.getCatalogCapabilities() : null;
+    if (!syncCapabilitiesReady(capabilities, { requireCreate: !catalog.tiktokCatalogId })) {
+      throw catalogError(
+        'CATALOG_UPLOAD_CONNECTOR_CONFIRMATION_REQUIRED',
+        'A sincronização foi preparada e aguarda o conector confirmar upload, status, vínculo e auditoria do catálogo.',
+        {
+          status: 409, stage: 'waiting_connector_confirmation', retryable: true,
+          suggestedAction: 'Mantenha o run salvo; ele será retomado automaticamente quando o contrato completo estiver disponível.',
+        },
+      );
+    }
+    const publishedCount = immutableSnapshot
+      ? Number(payload.published) || 0
+      : typeof store.listProducts === 'function' ? validProducts.length : Number(payload.published) || 0;
+    const skippedCount = immutableSnapshot
+      ? Number(payload.skipped) || 0
+      : typeof store.listProducts === 'function' ? Math.max(0, products.length - validProducts.length) : Number(payload.skipped) || 0;
     await store.updateSyncRun(accountId, runId, 'running', { stage: 'connecting_catalog', workerId });
     const createAndLinkCatalog = async () => {
       const created = await provider.createTikTokCatalog(payload.bcId, {
@@ -301,7 +465,8 @@ async function processRun(row) {
       stage: 'uploading_products', workerId,
       progress: {
         published: publishedCount, skipped: skippedCount,
-        feedUrl: payload.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId,
+        feedUrl: payload.feedUrl, feedRevision: payload.feedRevision || null,
+        tiktokCatalogId: catalog.tiktokCatalogId,
       },
     });
     const uploadedAt = new Date().toISOString();
@@ -310,28 +475,57 @@ async function processRun(row) {
     );
     const uploadReceipt = normalizeUploadReceipt(uploadResponse, uploadedAt);
     const remoteFeeds = await readRemoteFeedsDiagnostic(catalog);
-    catalog = await store.markSynced(accountId, advertiserId, catalog.id);
+    if (!uploadReceipt.provable) {
+      const missing = uploadReceiptError();
+      const err = catalogError(missing.code, missing.userMessage, {
+        status: 502, stage: missing.stage, retryable: true, suggestedAction: missing.suggestedAction,
+        message: missing.message,
+      });
+      err.progress = { published: publishedCount, skipped: skippedCount, feedUrl: payload.feedUrl, feedRevision: payload.feedRevision || null, uploadReceipt, remoteFeeds };
+      throw err;
+    }
+
+    await store.updateSyncRun(accountId, runId, 'running', { stage: 'processing_tiktok', workerId });
+    let uploadStatus = null;
+    let lastUploadStatusError = null;
+    try {
+      uploadStatus = await provider.getTikTokCatalogUploadStatus(
+        catalog.bcId, catalog.tiktokCatalogId, uploadReceipt.feedLogId,
+      );
+    } catch (err) {
+      lastUploadStatusError = String(err && err.message || err).slice(0, 500);
+      const mismatch = uploadReceiptMismatchError(err);
+      if (mismatch) {
+        const failure = catalogError(mismatch.code, mismatch.userMessage, {
+          status: 422, stage: mismatch.stage, retryable: true,
+          suggestedAction: mismatch.suggestedAction, message: mismatch.message,
+        });
+        failure.progress = {
+          published: publishedCount, skipped: skippedCount, feedUrl: payload.feedUrl,
+          feedRevision: payload.feedRevision || null, uploadReceipt, remoteFeeds,
+          lastUploadStatusError,
+        };
+        throw failure;
+      }
+    }
+    if (uploadStatus && uploadStatus.failed) {
+      const failed = uploadFailureError(uploadStatus);
+      const err = catalogError(failed.code, failed.userMessage, {
+        status: 422, stage: failed.stage, retryable: true,
+        suggestedAction: failed.suggestedAction, message: failed.message,
+      });
+      err.progress = { published: publishedCount, skipped: skippedCount, feedUrl: payload.feedUrl, feedRevision: payload.feedRevision || null, uploadReceipt, uploadStatus, remoteFeeds };
+      throw err;
+    }
 
     await store.updateSyncRun(accountId, runId, 'running', { stage: 'auditing_products', workerId });
     let audit = null;
     let lastAuditError = null;
-    try {
-      audit = await provider.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
-    } catch (err) {
-      lastAuditError = String(err && err.message || err).slice(0, 500);
-    }
-    // Ingestão por produto (best-effort): quando o Pipeboard suporta e temos o
-    // feed_log_id, buscamos SE o arquivo entrou e o erro por SKU. É o que
-    // explica um lote que "ficou zero" no overview. Nunca quebra o sync.
-    let uploadStatus = null;
-    if (uploadReceipt && uploadReceipt.feedLogId
-      && typeof provider.getTikTokCatalogUploadStatus === 'function') {
+    if (uploadStatus && uploadStatus.succeeded) {
       try {
-        uploadStatus = await provider.getTikTokCatalogUploadStatus(
-          catalog.bcId, catalog.tiktokCatalogId, uploadReceipt.feedLogId,
-        );
+        audit = await provider.getTikTokCatalogOverview(catalog.bcId, catalog.tiktokCatalogId);
       } catch (err) {
-        uploadStatus = { status: 'unknown', error: String(err && err.message || err).slice(0, 300) };
+        lastAuditError = String(err && err.message || err).slice(0, 500);
       }
     }
     const checkedAt = new Date().toISOString();
@@ -339,9 +533,11 @@ async function processRun(row) {
       published: publishedCount,
       skipped: skippedCount,
       feedUrl: payload.feedUrl,
+      feedRevision: payload.feedRevision || null,
       tiktokCatalogId: catalog.tiktokCatalogId,
       uploadReceipt,
       uploadStatus,
+      lastUploadStatusError,
       remoteFeeds,
       audit,
       auditAttempts: 1,
@@ -349,7 +545,8 @@ async function processRun(row) {
       lastAuditAt: checkedAt,
       lastAuditError,
     };
-    if (Number(audit && audit.total) > 0) {
+    if (uploadStatus && uploadStatus.succeeded && auditMatchesUpload(audit, publishedCount)) {
+      catalog = await store.markSynced(accountId, advertiserId, catalog.id);
       catalog = await store.setAudit(accountId, advertiserId, catalog.id, audit);
       await store.appendPublication(accountId, advertiserId, catalog.id, {
         kind: 'tiktok', status: 'success', published: publishedCount, skipped: skippedCount,
@@ -361,8 +558,8 @@ async function processRun(row) {
       await adsOps.appendAuditEvent(accountId, {
         actorType: 'user', actorId: accountId, action: 'catalog_sync.completed',
         targetType: 'catalog', targetId: catalog.id, jobId: runId,
-        afterState: { tiktokCatalogId: catalog.tiktokCatalogId, audit, uploadReceipt },
-        reason: 'Produtos confirmados pelo overview do TikTok após o upload',
+        afterState: { tiktokCatalogId: catalog.tiktokCatalogId, audit, uploadReceipt, uploadStatus },
+        reason: 'Feed log concluído sem erros e quantidade confirmada pelo overview do TikTok',
       }).catch(() => {});
       return completed;
     }
@@ -372,7 +569,7 @@ async function processRun(row) {
     await store.appendPublication(accountId, advertiserId, catalog.id, {
       kind: 'tiktok', status: 'processing', published: publishedCount, skipped: skippedCount,
       feedUrl: payload.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId, audit,
-      error: lastAuditError || (!uploadReceipt.provable ? 'Upload sem recibo identificável; aguardando produtos no overview.' : null),
+      error: lastUploadStatusError || lastAuditError || 'O upload ainda está em processamento ou o overview não alcançou a quantidade enviada.',
     });
     const waiting = await store.updateSyncRun(accountId, runId, 'waiting_tiktok_processing', {
       stage: 'processing_tiktok', release: true,
@@ -382,25 +579,28 @@ async function processRun(row) {
       actorType: 'user', actorId: accountId, action: 'catalog_sync.waiting_tiktok',
       targetType: 'catalog', targetId: catalog.id, jobId: runId,
       afterState: { tiktokCatalogId: catalog.tiktokCatalogId, audit, uploadReceipt, remoteFeeds },
-      reason: 'Upload enviado; aguardando o overview confirmar produtos',
+      reason: 'Upload enviado; aguardando feed_log sem erros e overview da mesma revisão',
     }).catch(() => {});
     return waiting;
   } catch (err) {
     const structured = serializeCatalogError(err, 'sync_tiktok');
-    if (err && err.code === 'CATALOG_CREATE_CONNECTOR_CONFIRMATION_REQUIRED') {
+    if (err && ['CATALOG_CREATE_CONNECTOR_CONFIRMATION_REQUIRED', 'CATALOG_UPLOAD_CONNECTOR_CONFIRMATION_REQUIRED'].includes(err.code)) {
       await store.updateSyncRun(accountId, runId, 'waiting_connector_confirmation', {
         stage: 'waiting_connector_confirmation', error: structured, release: true,
       });
       return null;
     }
-    if (err && err.code === 'CATALOG_NO_VALID_PRODUCTS'
+    if (err && ['CATALOG_NO_VALID_PRODUCTS', 'CATALOG_UPLOAD_RECEIPT_MISSING', 'CATALOG_UPLOAD_REJECTED', 'CATALOG_UPLOAD_RECEIPT_MISMATCH'].includes(err.code)
       && typeof store.markSyncUnconfirmed === 'function') {
       await store.markSyncUnconfirmed(accountId, advertiserId, row.catalog_id).catch(() => {});
     }
     if (advertiserId) await store.appendPublication(accountId, advertiserId, row.catalog_id, {
       kind: 'tiktok', status: 'error', feedUrl: payload.feedUrl, error: structured.userMessage,
     }).catch(() => {});
-    await store.updateSyncRun(accountId, runId, 'failed', { stage: structured.stage, error: structured });
+    await store.updateSyncRun(accountId, runId, 'failed', {
+      stage: structured.stage, error: structured,
+      progress: err && err.progress ? err.progress : undefined,
+    });
     return null;
   }
 }
@@ -440,6 +640,8 @@ module.exports = {
     refreshWaitingConnectorConfirmations,
     refreshPendingTikTokAudits,
     normalizeUploadReceipt,
+    uploadReceiptMismatchError,
+    syncCapabilitiesReady,
     auditDelayMs,
     nextAuditAt,
     auditTimeoutError,

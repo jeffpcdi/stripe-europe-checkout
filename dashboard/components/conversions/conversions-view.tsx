@@ -9,6 +9,7 @@ import { CreditCard, Target, ArrowRight, ListChecks, Radio } from 'lucide-react'
 import { GatewaysView } from '@/components/gateways/gateways-view'
 import { PixelsView } from '@/components/pixels/pixels-view'
 import { useGateways, useOps, usePixelHealth } from '@/lib/api'
+import { gatewayEventSucceeded } from '@/lib/gateway-status'
 import { GlassCard } from '@/components/glass-card'
 
 type Seg = 'gateways' | 'pixels'
@@ -80,7 +81,7 @@ function FlowStrip({ onGo }: { onGo: (s: Seg) => void }) {
   const { data: health } = usePixelHealth()
 
   const gwErrors = useMemo(
-    () => (gwData?.gateways ?? []).filter((g) => g.lastEventAt && g.lastEventStatus !== 'ok').length,
+    () => (gwData?.gateways ?? []).filter((g) => g.lastEventAt && !gatewayEventSucceeded(g.lastEventStatus)).length,
     [gwData],
   )
   const queue = (ops?.convQueue?.queue ?? 0) + (ops?.convQueue?.processing ?? 0) + (ops?.capiRetry?.count ?? 0)

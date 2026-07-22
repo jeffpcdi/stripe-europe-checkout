@@ -32,8 +32,12 @@ console.log('Domínio — nomes numerados do lote (buildCampaignBatchNames)');
   eq(domain.buildCampaignBatchNames('Único', 1), ['Único 01'], 'lote de 1 também é numerado (consistência)');
   eq(domain.CATALOG_CAMPAIGN_BATCH_MAX, 50, 'limite máximo do lote é 50');
   const longPrefix = 'x'.repeat(130);
-  ok(domain.buildCampaignBatchNames(longPrefix, 2).every((name) => name.length <= 120),
+  const longNames = domain.buildCampaignBatchNames(longPrefix, 2);
+  ok(longNames.every((name) => name.length <= 120),
     'nomes respeitam o limite de 120 caracteres do TikTok');
+  eq(new Set(longNames).size, 2, 'prefixo longo preserva sufixos únicos');
+  ok(longNames[0].endsWith(' 01') && longNames[1].endsWith(' 02'),
+    'prefixo longo não corta a numeração');
   throwsWith(() => domain.buildCampaignBatchNames('Loja', 0), 'CATALOG_CAMPAIGN_BATCH_COUNT_INVALID', 'count 0 é rejeitado');
   throwsWith(() => domain.buildCampaignBatchNames('Loja', 51), 'CATALOG_CAMPAIGN_BATCH_COUNT_INVALID', 'count 51 é rejeitado');
   throwsWith(() => domain.buildCampaignBatchNames('Loja', 2.5), 'CATALOG_CAMPAIGN_BATCH_COUNT_INVALID', 'count fracionário é rejeitado');
@@ -56,22 +60,26 @@ console.log('Rota — guardrails do campaign-batch');
     'cada campanha tem chave de idempotência derivada por índice (retry não duplica)');
   ok(/createCampaignRun/.test(body), 'enfileira runs duráveis processados pelo worker existente');
   ok(/Idempotency-Key/.test(body), 'aceita Idempotency-Key do cliente');
+  ok(/prepared\.spec\.pixelId, namePrefix/.test(body), 'fallback idempotente muda quando o nome do lote muda');
   ok(!/setCampaignStatus|createCatalogCampaign\(/.test(body), 'rota não toca o TikTok direto — só enfileira (worker cria pausado)');
 }
 
-console.log('Dialog — Modo Turbo sem CSV e com Pixel automático');
+console.log('Dialog — lote rápido sem CSV nem configuração repetida');
 {
   const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-quick-campaigns-dialog.tsx'), 'utf8');
   ok(/adsCreateCatalogCampaignBatch/.test(dialog), 'dialog chama o endpoint de lote');
-  ok(/pickDefaultCatalogPixel/.test(dialog), 'Pixel é auto-selecionado (ativo + mais compras 30d)');
   ok(/COUNT_PRESETS = \[5, 10, 25, 50\]/.test(dialog), 'atalhos de quantidade 5/10/25/50');
-  ok(/nascem\s+<strong[^>]*>pausadas<\/strong>/.test(dialog), 'resumo deixa claro que tudo nasce pausado');
+  ok(/tudo nasce pausado/.test(dialog), 'resumo deixa claro que tudo nasce pausado');
   ok(!/<textarea/.test(dialog) && !/buildCatalogBatchPlan/.test(dialog), 'nenhum CSV/colagem é exigido no Modo Turbo');
   ok(/productScope: 'all'/.test(dialog), 'escopo automático: todos os produtos do catálogo');
+  ok(/Pixel e evento Compra serão aplicados automaticamente/.test(dialog), 'Pixel e evento são explicados sem virar campos repetidos');
+  ok(!/useAdsTikTokPixels|pixelId|pixelEvent|TIKTOK_PIXEL_EVENTS/.test(dialog), 'dialog não pede Pixel nem evento manualmente');
   ok(/idempotencyKey/.test(dialog), 'envia chave de idempotência (retry seguro)');
-  const manager = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-manager.tsx'), 'utf8');
-  ok(/CatalogQuickCampaignsDialog/.test(manager), 'lista de catálogos abre o Modo Turbo');
-  ok(/linkStatus === 'verified'/.test(manager), 'botão aparece apenas em catálogos conectados/verificados');
+  const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
+  ok(/CatalogQuickCampaignsDialog/.test(wizard), 'lote vive junto das campanhas do catálogo, sem poluir a lista');
+  ok(/open=\{supported && batchOpen\}/.test(wizard), 'dialog só abre quando o conector confirma Product Link');
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
+  ok(/pixelId: pixel\.pixelId[\s\S]*pixelEvent: 'ON_WEB_ORDER'/.test(routes), 'backend injeta o Pixel central e Compra antes de normalizar a campanha');
 }
 
 console.log('\nads-catalog-campaign-batch: ' + n + ' asserts OK');

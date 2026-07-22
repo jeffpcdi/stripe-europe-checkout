@@ -933,6 +933,7 @@ export interface AdsTreeAd {
   // ofereça uma edição de URL que quebraria esse contrato.
   catalogId?: string
   websiteType?: string
+  adFormat?: string
   adType?: 'boost' | 'standalone' | string
   goal?: string
   isExternal?: boolean
@@ -1013,7 +1014,7 @@ export interface AdsBulkStatusResponse {
   results?: { platformCampaignId: string; updated?: number; skipped?: number; error?: string }[]
 }
 
-// ── POST /api/ads/upload — criativo → Vercel Blob ──
+// ── POST /api/ads/upload — criativo → volume do Railway ──
 export interface AdsUploadResponse {
   ok: boolean
   url: string
@@ -1264,7 +1265,7 @@ export interface AdsMcpStatusResponse {
     alertsEnabled: boolean
     lastAction: { at: string; result?: string; campaignName?: string; ok: boolean } | null
   }
-  // telemetria da camada de IA (Vercel AI Gateway ≠ chamadas Pipeboard)
+  // telemetria da camada de IA direta (não conta chamadas Pipeboard)
   ai?: { calls: number; errors: number; lastAt: string | null; lastError: string | null }
 }
 
@@ -1609,6 +1610,32 @@ export interface AdsCatalogBusinessCenter {
   fromEnv: boolean
 }
 
+export interface AdsCatalogCapabilities {
+  catalogCreate: boolean
+  catalogUpload: boolean
+  catalogUploadStatus: boolean
+  catalogAudit: boolean
+  catalogFeedRead: boolean
+  catalogLinkVerify: boolean
+  manualCatalogCampaign: boolean
+  catalogCarouselMusic: boolean
+  productSets: boolean
+  specificProducts: boolean
+  catalogVideoTemplates: boolean
+  adText: boolean
+  callToAction: boolean
+  optimizationEvents: string[]
+  callToActions: string[]
+  structuralReadback: boolean
+  shoppingAdsType: string | null
+  adFormat: string | null
+  note: string
+}
+
+export interface AdsCatalogCapabilitiesResponse {
+  capabilities: AdsCatalogCapabilities
+}
+
 export interface AdsCatalogSyncResponse {
   ok?: boolean
   dryRun?: boolean
@@ -1619,6 +1646,7 @@ export interface AdsCatalogSyncResponse {
   run?: AdsCatalogSyncRun
   catalog: AdsCatalog
   feedUrl: string
+  feedRevision?: string
   published: number
   skipped?: number
   audit?: AdsCatalogAudit | null
@@ -1677,6 +1705,19 @@ export interface AdsTikTokPixel {
   name: string
   status: string
   purchaseCount: number
+  localSlug?: string | null
+  localName?: string | null
+  isDefault?: boolean
+}
+
+export interface AdsPixelBinding {
+  advertiserId: string
+  pixelSlug: string
+  pixelCode: string
+  pixelId: string
+  pixelName: string
+  remoteStatus: string
+  lastVerifiedAt: string | null
 }
 
 export interface AdsCatalogSyncRun {
@@ -1718,6 +1759,7 @@ export interface AdsCatalogImportSummary {
 export interface AdsCatalogPublishResponse {
   catalog: AdsCatalog
   feedUrl: string
+  feedRevision: string
   published: number
   skipped: number
 }

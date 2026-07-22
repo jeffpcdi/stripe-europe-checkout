@@ -113,13 +113,23 @@ async function capabilities(provider) {
     // Fallback conservador para providers antigos: leitura/upload podem ser
     // inferidos pelo método, mas criar catálogo/campanha exige schema remoto.
     catalogCreate: false,
-    catalogUpload: typeof provider.uploadTikTokCatalogProducts === 'function',
+    catalogUpload: typeof provider.uploadTikTokCatalogProducts === 'function'
+      && typeof provider.getTikTokCatalogUploadStatus === 'function',
+    catalogUploadStatus: typeof provider.getTikTokCatalogUploadStatus === 'function',
     catalogAudit: typeof provider.getTikTokCatalogOverview === 'function',
     catalogFeedRead: typeof provider.getTikTokCatalogFeeds === 'function',
     catalogLinkVerify: typeof provider.listTikTokCatalogs === 'function',
     manualCatalogCampaign: false,
     productSets: false,
+    specificProducts: false,
     catalogVideoTemplates: false,
+    adText: false,
+    callToAction: false,
+    optimizationEvents: [],
+    callToActions: [],
+    structuralReadback: false,
+    shoppingAdsType: null,
+    adFormat: null,
     note: 'A criação só é liberada depois de confirmar os campos nos schemas atuais do Pipeboard.',
   };
 }

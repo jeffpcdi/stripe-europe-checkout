@@ -42,10 +42,6 @@ import { Skeleton } from '@/components/skeleton'
 import { Switch } from '@/components/switch'
 import { PilotsPanel } from './pilots-panel'
 import { RulesLogList } from './rules-log-list'
-import { CopilotPanel } from './copilot-panel'
-import { CreativeInsightsCard } from './creative-insights-card'
-import { BudgetProposalCard } from './budget-proposal-card'
-import { McpStatusCard } from './mcp-status-card'
 import { cn } from '@/lib/utils'
 import { applyPilot, PILOTS, type Intensity, type PilotId } from '@/lib/pilots'
 
@@ -436,19 +432,14 @@ export function AutomationPanel({
   active,
   currency = '€',
   adAccountId = '',
-  aiEnabled = false,
-  onMutateTree,
   onOpenLimits,
 }: {
   active: boolean
   currency?: string
   adAccountId?: string
-  aiEnabled?: boolean
-  onMutateTree?: () => void
   onOpenLimits?: () => void
 }) {
   const { data, mutate, isLoading } = useAdsRules(active, adAccountId)
-  const [copilotOpen, setCopilotOpen] = usePersistedState('ads:automation:copilot', false)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -509,17 +500,6 @@ export function AutomationPanel({
     const next = applyPilot(rules, pilot, { ...opts, mode })
     const title = PILOTS.find((item) => item.id === pilot)?.title ?? pilot
     await saveRules(next, opts.enabled ? `${title} ligado (${opts.intensity})` : `${title} desligado`)
-  }
-
-  // "Modo protetor": 1 clique liga o piloto DEFENSIVO já em modo EXECUTAR
-  // (pausa gasto sem retorno / CPA alto / reduz CPC caro sozinho), sem mexer na
-  // autonomia global nem ligar o escalador. É a resposta ao "automações não
-  // fazem diferença": o padrão de fábrica nasce desligado e em modo propor.
-  // Os pisos de volume + guardrails do motor (maxActionsPerHour, breaker)
-  // continuam valendo — proteger não é agir no escuro.
-  async function protectNow() {
-    const next = applyPilot(rules, 'protector', { enabled: true, intensity: 'normal', mode: 'execute' })
-    await saveRules(next, 'Modo protetor ativado — o robô pausa gasto sem retorno sozinho')
   }
 
   async function setAutonomy(autonomy: AdsAutomationAutonomy) {
@@ -657,7 +637,6 @@ export function AutomationPanel({
         saving={saving}
         onSetPilot={setPilot}
         onSetAutonomy={setAutonomy}
-        onProtectNow={protectNow}
       />
 
       {/* Transparência operacional: deixa explícitos escopo, versão e pulso
@@ -840,12 +819,6 @@ export function AutomationPanel({
         </button>
       )}
 
-      {/* Realocação de orçamento por IA + diagnóstico técnico — só no avançado */}
-      {advanced && adAccountId && (
-        <BudgetProposalCard adAccountId={adAccountId} currency={currency} onApplied={() => onMutateTree?.()} />
-      )}
-      {advanced && <McpStatusCard active={active} adAccountId={adAccountId} />}
-
       {/* ── Alertas: mesma linguagem — switch + expansão inline ── */}
       <GlassCard className="p-4">
         <div className="flex items-start justify-between gap-3">
@@ -966,36 +939,6 @@ export function AutomationPanel({
         />
       </GlassCard>
 
-      {/* ── Copiloto (IA): pergunte em linguagem natural o que fazer com a conta.
-          Colapsado por padrão — o custo de IA só é pago ao abrir. ── */}
-      {adAccountId && (
-        <GlassCard className="p-4">
-          <button
-            type="button"
-            aria-expanded={copilotOpen}
-            onClick={() => setCopilotOpen(!copilotOpen)}
-            className="flex w-full items-center justify-between gap-2 text-left"
-          >
-            <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Sparkles className="size-4 text-primary" aria-hidden="true" />
-              Copiloto (IA)
-            </span>
-            <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', copilotOpen && 'rotate-180')} aria-hidden="true" />
-          </button>
-          {copilotOpen && (
-            <div className="mt-3 flex flex-col gap-3">
-              <CopilotPanel
-                active={active}
-                adAccountId={adAccountId}
-                currency={currency}
-                aiEnabled={aiEnabled}
-                onMutateTree={() => onMutateTree?.()}
-              />
-              <CreativeInsightsCard adAccountId={adAccountId} currency={currency} />
-            </div>
-          )}
-        </GlassCard>
-      )}
     </div>
   )
 }

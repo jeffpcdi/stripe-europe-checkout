@@ -11,17 +11,9 @@ import useSWR from 'swr'
 import { X, Zap, Loader2, RefreshCw } from 'lucide-react'
 import { apiSend, fetcher } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsGoal } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage, tomorrowLocalIsoDate } from './tiktok-contracts'
-
-const GOALS: { value: AdsGoal; label: string }[] = [
-  { value: 'engagement', label: 'Engajamento' },
-  { value: 'traffic', label: 'Tráfego' },
-  { value: 'video_views', label: 'Views de vídeo' },
-  { value: 'awareness', label: 'Alcance' },
-]
 
 type SparkIdentity = {
   identityId: string
@@ -59,7 +51,6 @@ export function SparkAdDialog({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [name, setName] = useState('')
-  const [goal, setGoal] = useState<AdsGoal>('engagement')
   const [identityKey, setIdentityKey] = useState('') // identityId:identityType
   const [itemId, setItemId] = useState('')
   const [budget, setBudget] = useState('')
@@ -74,7 +65,6 @@ export function SparkAdDialog({
   useEffect(() => {
     if (open) {
       setName('')
-      setGoal('engagement')
       setIdentityKey('')
       setItemId('')
       setBudget('')
@@ -112,6 +102,7 @@ export function SparkAdDialog({
     if (!name.trim()) return 'Dê um nome à campanha'
     if (!identity) return 'Selecione a identidade (conta ou criador autorizado)'
     if (!itemId) return 'Selecione o post a impulsionar'
+    if (!/^https:\/\/\S+/.test(linkUrl.trim())) return 'Informe a página HTTPS de destino'
     if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return tiktokMinimumBudgetMessage(currency)
     if (budgetType === 'lifetime') {
       if (!endDate) return 'Informe a data de término'
@@ -120,7 +111,7 @@ export function SparkAdDialog({
       }
     }
     return null
-  }, [name, identity, itemId, budget, budgetType, endDate])
+  }, [name, identity, itemId, linkUrl, budget, budgetType, endDate])
 
   async function handleSubmit() {
     if (!identity) return
@@ -133,7 +124,7 @@ export function SparkAdDialog({
       const payload: Record<string, unknown> = {
         adAccountId: advertiserId,
         name: name.trim(),
-        goal,
+        goal: 'conversions',
         budget: { amount: Number(budget), type: budgetType },
         identityId: identity.identityId,
         identityType: identity.identityType,
@@ -142,7 +133,7 @@ export function SparkAdDialog({
       if (identity.bcId) payload.bcId = identity.bcId
       if (budgetType === 'lifetime') payload.endDate = endDate
       if (countryList.length) payload.countries = countryList
-      if (/^https?:\/\//.test(linkUrl.trim())) payload.linkUrl = linkUrl.trim()
+      payload.linkUrl = linkUrl.trim()
 
       await apiSend('/api/ads/boost', 'POST', payload)
       toast.success('Spark Ad criado (pausado)', { hint: 'Revise na dashboard e ative — o TikTok ainda revisa antes de veicular.' })
@@ -276,20 +267,9 @@ export function SparkAdDialog({
           </label>
 
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-foreground">Objetivo</span>
-              <select
-                className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={goal}
-                onChange={(e) => setGoal(e.target.value as AdsGoal)}
-              >
-                {GOALS.map((g) => (
-                  <option key={g.value} value={g.value}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+              Conversão · compra · Pixel automático
+            </div>
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-foreground">Países (ISO-2)</span>
               <input
@@ -341,17 +321,15 @@ export function SparkAdDialog({
             </label>
           )}
 
-          {goal === 'traffic' && (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-foreground">Página de destino (opcional)</span>
-              <input
-                className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                value={linkUrl}
-                onChange={(e) => setLinkUrl(e.target.value)}
-                placeholder="https://sualoja.com/oferta"
-              />
-            </label>
-          )}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-foreground">Página de destino</span>
+            <input
+              className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="https://sualoja.com/oferta"
+            />
+          </label>
 
           {error && (
             <p className="text-[11px] font-medium text-error" role="alert">

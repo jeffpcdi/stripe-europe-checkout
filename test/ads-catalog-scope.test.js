@@ -169,6 +169,7 @@ function row(id, accountId, advertiserId, name) {
 async function sql(strings, ...values) {
   const query = strings.join('?').replace(/\s+/g, ' ').trim();
   if (/^(CREATE|ALTER) /.test(query)) return [];
+  if (query.startsWith('WITH changed AS ( UPDATE ads_catalog_products')) return [];
   if (query.startsWith('UPDATE ads_catalogs SET catalog_type =')) return [];
   if (query.startsWith('UPDATE ads_catalog_sync_runs AS run SET advertiser_id =')) return [];
   if (query.startsWith('UPDATE ads_catalogs SET advertiser_id = ?')) {

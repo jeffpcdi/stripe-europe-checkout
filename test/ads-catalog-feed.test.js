@@ -112,6 +112,8 @@ console.log('buildCatalogCsv — ordem canônica + escaping');
   ok(lines[1].startsWith('s1,'), 'sku na primeira coluna');
   ok(csv.includes('"Camisa, azul"'), 'vírgula no valor é aspeada');
   ok(csv.includes('"linha1\nlinha2"'), 'quebra de linha é aspeada');
+  const cells = feed.parseCsvRows(csv)[1];
+  eq(cells[feed.COLUMNS.indexOf('item_group_id')], 's1', 'item_group_id ausente usa o SKU automaticamente para Catalog Carousel');
 }
 
 console.log('revalidação legada — valid=true antigo não fura a spec nova');

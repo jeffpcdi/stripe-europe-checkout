@@ -73,6 +73,22 @@ async function ensureSchema() {
     // app (/feed/<token>.csv) — substitui a URL do Vercel Blob.
     await sql`ALTER TABLE ads_catalogs ADD COLUMN IF NOT EXISTS feed_token text`;
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS ads_catalogs_feed_token_idx ON ads_catalogs (feed_token) WHERE feed_token IS NOT NULL`;
+    // Cada sincronização aponta para um CSV imutável identificado pelo
+    // hash do conteúdo. Assim, editar o catálogo enquanto o TikTok ainda
+    // baixa o arquivo não altera silenciosamente o lote em processamento.
+    await sql`CREATE TABLE IF NOT EXISTS ads_catalog_feed_snapshots (
+      feed_token text NOT NULL,
+      revision text NOT NULL,
+      catalog_id text NOT NULL,
+      account_id text NOT NULL,
+      advertiser_id text NOT NULL,
+      content text NOT NULL,
+      product_count integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (feed_token, revision)
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_catalog_feed_snapshots_catalog_idx
+      ON ads_catalog_feed_snapshots (account_id, advertiser_id, catalog_id, created_at DESC)`;
     // A coluna nasce anulável para bancos que já possuem catálogos. Esses
     // registros legados são reivindicados atomicamente pelo primeiro
     // advertiser selecionado da conta (claimLegacyCatalogs), sem apagar nem
@@ -98,6 +114,18 @@ async function ensureSchema() {
       UNIQUE (catalog_id, sku_id)
     )`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_products_catalog_idx ON ads_catalog_products (catalog_id, created_at DESC)`;
+    // Catalog Carousel precisa de item_group_id. Para catálogos existentes de
+    // produto simples, usa o SKU como SPU e marca o catálogo como alterado para
+    // que a UI solicite uma nova sincronização antes de criar campanha.
+    await sql`WITH changed AS (
+      UPDATE ads_catalog_products
+      SET data = data || jsonb_build_object('item_group_id', sku_id), updated_at = now()
+      WHERE coalesce(btrim(data ->> 'item_group_id'), '') = ''
+        AND coalesce(btrim(sku_id), '') <> ''
+      RETURNING catalog_id
+    )
+    UPDATE ads_catalogs SET updated_at = now()
+    WHERE id IN (SELECT DISTINCT catalog_id FROM changed)`;
     await sql`CREATE TABLE IF NOT EXISTS ads_catalog_publications (
       id text PRIMARY KEY,
       catalog_id text NOT NULL,
@@ -332,6 +360,8 @@ async function deleteCatalog(accountId, advertiserId, catalogId) {
   await sql`DELETE FROM ads_catalog_sync_runs
     WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`;
   await sql`DELETE FROM ads_catalog_publications WHERE account_id = ${accountId} AND catalog_id = ${value}`;
+  await sql`DELETE FROM ads_catalog_feed_snapshots
+    WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${value}`;
   await sql`DELETE FROM ads_catalog_products WHERE account_id = ${accountId} AND catalog_id = ${value}`;
   const rows = await sql`DELETE FROM ads_catalogs
     WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${value}
@@ -351,6 +381,7 @@ function revalidateProductRows(_accountId, catalog, rows, validate) {
     : require('./ads-catalog-feed').validateProduct;
   const products = rows.map(mapProduct);
   for (const product of products) {
+    product.data = require('./ads-catalog-feed').withCatalogCarouselId(product.data || {});
     const next = validator(product.data || {}, catalog || {});
     product.valid = next.valid === true;
     product.errors = next.errors || [];
@@ -394,6 +425,7 @@ async function upsertProduct(accountId, advertiserId, catalogId, product, valida
   const skuId = String(data.sku_id || (product && product.skuId) || '').trim().slice(0, 100);
   if (!skuId) throw new Error('sku_id obrigatório');
   data.sku_id = skuId;
+  if (!String(data.item_group_id || '').trim()) data.item_group_id = skuId;
   const result = typeof validate === 'function' ? validate(data, catalog) : { valid: true, errors: [] };
   const rows = await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors)
     VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)})
@@ -421,6 +453,7 @@ async function bulkUpsertProducts(accountId, advertiserId, catalogId, products, 
     const skuId = String(data.sku_id || '').trim().slice(0, 100);
     if (!skuId) { skipped.push({ reason: 'sku_id ausente' }); continue; }
     data.sku_id = skuId;
+    if (!String(data.item_group_id || '').trim()) data.item_group_id = skuId;
     const result = typeof validate === 'function' ? validate(data, catalog) : { valid: true, errors: [] };
     await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors)
       VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)})
@@ -476,6 +509,62 @@ async function ensureFeedToken(accountId, advertiserId, catalogId) {
   const again = await sql`SELECT feed_token FROM ads_catalogs
     WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)} LIMIT 1`;
   return (again[0] && again[0].feed_token) || token;
+}
+
+async function saveFeedSnapshot(accountId, advertiserId, catalogId, token, revision, content, productCount) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  const catalog = String(catalogId || '').trim();
+  const feedToken = String(token || '').trim();
+  const rev = String(revision || '').trim().toLowerCase();
+  if (!catalog || !/^[a-f0-9]{16,64}$/.test(feedToken) || !/^[a-f0-9]{16,64}$/.test(rev)) {
+    throw new Error('Snapshot de feed inválido');
+  }
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  await sql`INSERT INTO ads_catalog_feed_snapshots
+    (feed_token, revision, catalog_id, account_id, advertiser_id, content, product_count)
+    VALUES (${feedToken}, ${rev}, ${catalog}, ${accountId}, ${advertiserId}, ${String(content || '')}, ${Math.max(0, Number(productCount) || 0)})
+    ON CONFLICT (feed_token, revision) DO NOTHING`;
+  // Mantém as dez revisões recentes e NUNCA remove uma revisão referenciada
+  // por um run durável. O intervalo de 24h também fecha a janela entre salvar
+  // o snapshot e persistir o run que o referencia em requests concorrentes.
+  await sql`DELETE FROM ads_catalog_feed_snapshots AS snapshot
+    WHERE snapshot.account_id = ${accountId}
+      AND snapshot.advertiser_id = ${advertiserId}
+      AND snapshot.catalog_id = ${catalog}
+      AND snapshot.created_at < now() - interval '24 hours'
+      AND NOT EXISTS (
+        SELECT 1 FROM ads_catalog_sync_runs AS run
+        WHERE run.account_id = snapshot.account_id
+          AND run.advertiser_id = snapshot.advertiser_id
+          AND run.catalog_id = snapshot.catalog_id
+          AND run.payload ->> 'feedRevision' = snapshot.revision
+      )
+      AND (snapshot.feed_token, snapshot.revision) NOT IN (
+        SELECT feed_token, revision FROM ads_catalog_feed_snapshots
+        WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND catalog_id = ${catalog}
+        ORDER BY created_at DESC LIMIT 10
+      )`;
+  return { token: feedToken, revision: rev, productCount: Math.max(0, Number(productCount) || 0) };
+}
+
+async function getFeedSnapshot(token, revision) {
+  if (!enabled) return null;
+  const feedToken = String(token || '').trim();
+  const rev = String(revision || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{16,64}$/.test(feedToken) || !/^[a-f0-9]{16,64}$/.test(rev)) return null;
+  await ensureSchema();
+  const rows = await sql`SELECT content, product_count, created_at
+    FROM ads_catalog_feed_snapshots
+    WHERE feed_token = ${feedToken} AND revision = ${rev}
+    LIMIT 1`;
+  if (!rows[0]) return null;
+  return {
+    content: String(rows[0].content || ''),
+    productCount: Number(rows[0].product_count) || 0,
+    createdAt: rows[0].created_at,
+  };
 }
 
 // Resolve um catálogo SÓ pelo feed_token (rota pública /feed/:token.csv — não há
@@ -565,7 +654,10 @@ async function setAudit(accountId, advertiserId, catalogId, audit) {
   const snapshot = audit && typeof audit === 'object'
     ? { approved: Number(audit.approved) || 0, pending: Number(audit.pending) || 0, rejected: Number(audit.rejected) || 0, total: Number(audit.total) || 0, at: new Date().toISOString() }
     : null;
-  const rows = await sql`UPDATE ads_catalogs SET audit = ${snapshot ? JSON.stringify(snapshot) : null}, synced_at = now(), updated_at = now()
+  // Atualizar o overview não prova que o upload local mais recente terminou.
+  // `synced_at` é alterado exclusivamente por markSynced(), depois da
+  // confirmação do feed_log_id correspondente.
+  const rows = await sql`UPDATE ads_catalogs SET audit = ${snapshot ? JSON.stringify(snapshot) : null}
     WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} AND id = ${String(catalogId)}
     RETURNING *`;
   return mapCatalog(rows[0]);
@@ -990,6 +1082,8 @@ module.exports = {
   deleteProduct,
   setFeedUrl,
   ensureFeedToken,
+  saveFeedSnapshot,
+  getFeedSnapshot,
   getCatalogByFeedToken,
   listProductsByFeedToken,
   linkTikTokCatalog,

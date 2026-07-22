@@ -40,6 +40,10 @@ console.log('ads-storage — publicOrigin');
   eq(storage.publicOrigin({ headers: {} }), 'https://app.up.railway.app', 'cai para RAILWAY_PUBLIC_DOMAIN');
   setEnv({});
   eq(storage.publicOrigin({ headers: { host: 'meu-host.com:3000' } }), 'https://meu-host.com', 'fallback do header host (porta removida)');
+  eq(storage.publicOrigin({ headers: { host: 'localhost:3000' } }), '', 'localhost nunca vira URL pública do TikTok');
+  eq(storage.publicOrigin({ headers: { 'x-forwarded-host': '192.168.1.20:3000' } }), '', 'IP privado nunca vira URL pública do TikTok');
+  eq(storage.publicOrigin({ headers: { 'x-forwarded-host': 'app.railway.internal' } }), '', 'hostname interno do Railway é bloqueado');
+  eq(storage.publicOrigin({ headers: { 'x-forwarded-host': '8.8.8.8:443' } }), 'https://8.8.8.8', 'IP público continua aceito');
   eq(storage.publicOrigin({ headers: {} }), '', 'sem host = origem vazia (rota avisa)');
   setEnv({ PRIMARY_HOST: 'https://roi-nados.top/' });
   eq(storage.publicOrigin({ headers: {} }), 'https://roi-nados.top', 'normaliza proto/barra extra no env');
@@ -66,8 +70,12 @@ console.log('ads-catalog-store — feed token exportado');
   const store = require('../ads-catalog-store');
   ok(typeof store.getCatalogByFeedToken === 'function', 'getCatalogByFeedToken exportada');
   ok(typeof store.ensureFeedToken === 'function', 'ensureFeedToken exportada');
+  ok(typeof store.saveFeedSnapshot === 'function', 'saveFeedSnapshot exportada');
+  ok(typeof store.getFeedSnapshot === 'function', 'getFeedSnapshot exportada');
   const src = fs.readFileSync(path.join(__dirname, '..', 'ads-catalog-store.js'), 'utf8');
   ok(/ADD COLUMN IF NOT EXISTS feed_token/.test(src), 'migração cria a coluna feed_token');
+  ok(/CREATE TABLE IF NOT EXISTS ads_catalog_feed_snapshots/.test(src), 'migração cria snapshots imutáveis do feed');
+  ok(/NOT EXISTS[\s\S]*ads_catalog_sync_runs[\s\S]*feedRevision/.test(src), 'limpeza preserva snapshots referenciados por runs duráveis');
 }
 
 console.log('Sem Vercel Blob + rotas públicas novas');
@@ -76,11 +84,14 @@ console.log('Sem Vercel Blob + rotas públicas novas');
   ok(!/require\('@vercel\/blob'\)/.test(routes), "ads-routes não faz mais require('@vercel/blob')");
   ok(!/BLOB_READ_WRITE_TOKEN/.test(routes), 'ads-routes não checa mais BLOB_READ_WRITE_TOKEN');
   ok(/adsStorage\.publicOrigin\(req\)/.test(routes), 'upload/feed usam publicOrigin');
+  ok(/PUBLIC_ORIGIN_REQUIRED/.test(routes), 'sincronização bloqueia origem não pública antes do upload');
   ok(/ensureFeedToken/.test(routes), 'publishCatalogFeed usa o feed_token do app');
+  ok(/saveFeedSnapshot/.test(routes) && /feedRevision/.test(routes), 'publica URL versionada ligada ao snapshot CSV');
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   ok(!pkg.dependencies['@vercel/blob'], '@vercel/blob removido das dependências');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   ok(/app\.get\('\/feed\/:token\.csv'/.test(server), 'rota pública GET /feed/:token.csv registrada');
+  ok(/getFeedSnapshot/.test(server) && /Cache-Control', 'no-store'/.test(server), 'feed versionado não serve estado mutável nem cache antigo');
   ok(/express\.static\(require\('\.\/ads-storage'\)\.UPLOAD_DIR/.test(server), '/uploads servido estaticamente do UPLOAD_DIR');
   ok(/'\/uploads\/', '\/feed\/'/.test(server) || /\/uploads\/[\s\S]{0,20}\/feed\//.test(server), '/uploads/ e /feed/ no allowlist do guard');
 }

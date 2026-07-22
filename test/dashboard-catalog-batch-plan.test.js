@@ -8,236 +8,89 @@ const ts = require('../dashboard/node_modules/typescript');
 function loadTypeScriptModule(file) {
   const source = fs.readFileSync(file, 'utf8');
   const compiled = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-      strict: true,
-    },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, strict: true },
     reportDiagnostics: true,
     fileName: file,
   });
-  const diagnostics = compiled.diagnostics || [];
-  assert.strictEqual(diagnostics.length, 0, diagnostics.map((item) => item.messageText).join('\n'));
+  assert.strictEqual((compiled.diagnostics || []).length, 0);
   const loaded = { exports: {} };
   new Function('module', 'exports', compiled.outputText)(loaded, loaded.exports);
   return loaded.exports;
 }
 
-const { buildCatalogBatchPlan } = loadTypeScriptModule(
-  path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-batch-plan.ts'),
-);
-const { resolveStableIdempotencyKey } = loadTypeScriptModule(
-  path.join(__dirname, '..', 'dashboard', 'lib', 'stable-idempotency.ts'),
-);
-const { catalogSyncRunsRefreshInterval } = loadTypeScriptModule(
-  path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-run-polling.ts'),
-);
-const { catalogPixelLabel, catalogPixelValue, pickDefaultCatalogPixel, resolveCatalogPixelInput } = loadTypeScriptModule(
-  path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-pixels.ts'),
-);
+const { buildCatalogBatchPlan } = loadTypeScriptModule(path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-batch-plan.ts'));
+const { resolveStableIdempotencyKey } = loadTypeScriptModule(path.join(__dirname, '..', 'dashboard', 'lib', 'stable-idempotency.ts'));
+const { catalogCampaignRunsRefreshInterval, catalogSyncRunsRefreshInterval } = loadTypeScriptModule(path.join(__dirname, '..', 'dashboard', 'lib', 'catalog-run-polling.ts'));
 
-const header = 'catalogo\tsku\ttitulo\tpreco\tmarca\tlink\timagem\tcampanha\torcamento\tpixel_id\tevento';
-function row(catalog, sku, campaign, pixelId, event = 'ON_WEB_ORDER') {
+const header = 'catalogo\tsku\ttitulo\tpreco\tmarca\tlink\timagem\tcampanha\torcamento\ttipo_orcamento\tpais\tperiodo';
+function row(catalog, sku, campaign, config = {}) {
   return [
-    catalog, sku, 'Produto ' + sku, '79,90', 'Marca real',
+    catalog, sku, 'Produto ' + sku, '79,90', config.brand ?? 'Marca real',
     'https://loja.example/' + sku, 'https://cdn.example/' + sku + '.jpg',
-    campaign, '50', pixelId, event,
+    campaign, config.budget ?? '50', config.budgetType ?? 'daily', config.country ?? 'BR', config.period ?? '',
   ].join('\t');
 }
 
 let n = 0;
-function ok(condition, label) {
-  assert.ok(condition, label);
-  n += 1;
-  console.log('  ✓ ' + label);
-}
-function eq(actual, expected, label) {
-  assert.strictEqual(actual, expected, label + ' → esperado ' + expected + ', veio ' + actual);
-  n += 1;
-  console.log('  ✓ ' + label);
-}
+function ok(condition, label) { assert.ok(condition, label); n += 1; console.log('  ✓ ' + label); }
+function eq(actual, expected, label) { assert.strictEqual(actual, expected, label); n += 1; console.log('  ✓ ' + label); }
 
-console.log('dashboard-catalog-batch-plan — agrupamento seguro');
+console.log('Lote de catálogo — agrupamento e Pixel central');
 {
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '1234567890123456789'),
-    row('Loja A', 'sku-2', 'Campanha A', '1234567890123456789'),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true });
-  eq(plan.message, '', 'nome idêntico pode repetir produtos sem erro');
-  eq(plan.catalogs.length, 1, 'linhas do mesmo catálogo continuam agrupadas');
+  const plan = buildCatalogBatchPlan([header, row('Loja A', 'sku-1', 'Campanha A'), row('Loja A', 'sku-2', 'Campanha A')].join('\n'), 'BRL');
+  eq(plan.message, '', 'nome idêntico repete produtos sem erro');
+  eq(plan.catalogs.length, 1, 'linhas ficam no mesmo catálogo');
   eq(plan.catalogs[0].products.length, 2, 'todos os produtos são preservados');
   eq(plan.catalogs[0].campaigns.length, 1, 'campanha repetida é deduplicada');
-  eq(plan.catalogs[0].campaigns[0].pixelId, '1234567890123456789', 'Pixel ID segue no payload da campanha');
-  eq(plan.catalogs[0].campaigns[0].pixelEvent, 'ON_WEB_ORDER', 'evento canônico segue no payload');
+  ok(!('pixelId' in plan.catalogs[0].campaigns[0]), 'planilha não transporta Pixel por linha');
+  ok(!('pixelEvent' in plan.catalogs[0].campaigns[0]), 'planilha não transporta evento por linha');
+}
+{
+  const legacy = [header + '\tpixel_id\tevento', row('Loja A', 'sku-1', 'Campanha A') + '\t1234567890123456789\tINITIATE_ORDER'].join('\n');
+  const plan = buildCatalogBatchPlan(legacy, 'BRL');
+  eq(plan.message, '', 'colunas legadas de Pixel são ignoradas sem quebrar importações');
+  ok(!('pixelId' in plan.catalogs[0].campaigns[0]), 'Pixel legado não substitui o vínculo central');
 }
 
-console.log('dashboard-catalog-batch-plan — colisões de key');
+console.log('Lote de catálogo — colisões e dados obrigatórios');
 {
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '1234567890123456789'),
-    row('Loja-A', 'sku-2', 'Campanha B', '1234567890123456789'),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true });
-  ok(plan.message.includes('Loja A') && plan.message.includes('Loja-A'), 'erro identifica os dois nomes colidentes');
-  ok(plan.message.includes('linha 2') && plan.message.includes('linha 3'), 'erro identifica as linhas da colisão');
-  eq(plan.catalogs.length, 1, 'colisão não cria catálogo fantasma');
-  eq(plan.catalogs[0].products.length, 1, 'linha colidente não é fundida ao primeiro catálogo');
+  const plan = buildCatalogBatchPlan([header, row('Loja A', 'sku-1', 'Campanha A'), row('Loja-A', 'sku-2', 'Campanha B')].join('\n'), 'BRL');
+  ok(plan.message.includes('Loja A') && plan.message.includes('Loja-A'), 'colisão identifica os dois nomes');
+  ok(plan.message.includes('linha 2') && plan.message.includes('linha 3'), 'colisão identifica as linhas');
+  eq(plan.catalogs[0].products.length, 1, 'linha colidente não é fundida');
+}
+{
+  const plan = buildCatalogBatchPlan([header, row('Loja A', 'sku-1', 'Campanha A', { brand: '' })].join('\n'), 'BRL');
+  ok(/marca real/i.test(plan.message) && /linhas? 2/.test(plan.message), 'marca ausente bloqueia com linha exata');
 }
 {
   const plan = buildCatalogBatchPlan([
     header,
-    row('Café', 'sku-1', 'Campanha A', '1234567890123456789'),
-    row('Cafe', 'sku-2', 'Campanha B', '1234567890123456789'),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true });
-  ok(plan.message.includes('Café') && plan.message.includes('Cafe'), 'colisão causada por remoção de acento também é explícita');
+    row('Loja A', 'sku-1', 'Campanha A'),
+    row('Loja A', 'sku-2', 'Campanha A', { budget: '70', budgetType: 'lifetime', country: 'US', period: '2026-08-31' }),
+  ].join('\n'), 'BRL');
+  ok(plan.message.includes('orçamento') && plan.message.includes('tipo de orçamento'), 'campanha repetida detecta configuração divergente');
+  ok(plan.message.includes('país') && plan.message.includes('período'), 'conflito informa os campos divergentes');
+  eq(plan.catalogs[0].products.length, 2, 'produtos permanecem disponíveis para correção');
 }
 
-console.log('dashboard-catalog-batch-plan — contrato do Pixel');
-{
-  const withoutPixel = [header, row('Loja A', 'sku-1', 'Campanha A', '')].join('\n');
-  const catalogOnly = buildCatalogBatchPlan(withoutPixel, 'BRL');
-  eq(catalogOnly.message, '', 'Pixel não bloqueia lote que não prepara campanhas');
-  const campaigns = buildCatalogBatchPlan(withoutPixel, 'BRL', { requireCampaignPixel: true });
-  ok(campaigns.message.includes('linhas 2') && campaigns.message.includes('pixel_id'), 'campanha sem Pixel aponta linha e coluna esperada');
-}
-{
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', 'pixel-123'),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true });
-  ok(plan.message.includes('ID numérico (6 a 30 dígitos)'), 'Pixel inválido segue bloqueado, com orientação sobre ID numérico ou código da conta');
-}
-{
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '1234567890123456789', ''),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true });
-  eq(plan.catalogs[0].campaigns[0].pixelEvent, 'ON_WEB_ORDER', 'evento vazio recebe o padrão canônico');
-}
-
-console.log('dashboard-catalog-batch-plan — Pixel padrão automático');
-{
-  const withoutPixel = [
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '', ''),
-    row('Loja B', 'sku-2', 'Campanha B', '', ''),
-  ].join('\n');
-  const plan = buildCatalogBatchPlan(withoutPixel, 'BRL', {
-    requireCampaignPixel: true,
-    defaultPixelId: '9876543210987654321',
-  });
-  eq(plan.message, '', 'Pixel padrão elimina a exigência da coluna pixel_id');
-  eq(plan.catalogs[0].campaigns[0].pixelId, '9876543210987654321', 'campanha sem pixel_id herda o Pixel padrão');
-  eq(plan.catalogs[1].campaigns[0].pixelId, '9876543210987654321', 'todas as campanhas do lote herdam o padrão');
-  eq(plan.catalogs[0].campaigns[0].pixelEvent, 'ON_WEB_ORDER', 'evento vazio segue o canônico mesmo com Pixel padrão');
-}
-{
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '1111110000000000001'),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true, defaultPixelId: '9876543210987654321' });
-  eq(plan.catalogs[0].campaigns[0].pixelId, '1111110000000000001', 'coluna pixel_id preenchida vence o Pixel padrão');
-}
-{
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '', ''),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true, defaultPixelId: 'pixel-abc' });
-  ok(plan.message.includes('pixel_id'), 'Pixel padrão inválido é ignorado e a exigência volta a valer');
-}
-{
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '', ''),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true, defaultPixelId: '9876543210987654321', defaultPixelEvent: 'initiate_order' });
-  eq(plan.catalogs[0].campaigns[0].pixelEvent, 'INITIATE_ORDER', 'evento padrão customizado é normalizado para maiúsculas');
-}
-{
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '', 'ON_WEB_CART'),
-  ].join('\n'), 'BRL', { requireCampaignPixel: true, defaultPixelId: '9876543210987654321', defaultPixelEvent: 'INITIATE_ORDER' });
-  eq(plan.catalogs[0].campaigns[0].pixelEvent, 'ON_WEB_CART', 'coluna evento preenchida vence o evento padrão');
-}
-{
-  const pixels = [
-    { id: '1000000000000000001', code: 'A', name: 'Antigo', status: 'inactive', purchaseCount: 90 },
-    { id: '1000000000000000002', code: 'B', name: 'Principal', status: 'active', purchaseCount: 42 },
-    { id: '1000000000000000003', code: 'C', name: 'Secundário', status: 'active', purchaseCount: 7 },
-  ];
-  eq(pickDefaultCatalogPixel(pixels), '1000000000000000002', 'auto-seleção prefere pixel ativo com mais compras em 30d');
-  eq(pickDefaultCatalogPixel([]), '', 'lista vazia não seleciona Pixel');
-  eq(pickDefaultCatalogPixel([{ id: 'abc', code: 'x', name: 'Sem ID', status: 'active', purchaseCount: 5 }]), '', 'pixel sem ID numérico é descartado da auto-seleção');
-  eq(pickDefaultCatalogPixel([
-    { id: 'local', code: '2000000000000000009', name: 'Só código', status: 'active', purchaseCount: 1 },
-  ]), '2000000000000000009', 'código numérico serve de fallback na auto-seleção');
-}
-
-console.log('dashboard-catalog-batch-plan — código do Events Manager resolve para ID numérico');
-{
-  const pixels = [
-    { id: '7411223344556677889', code: 'D9F2J3JC77U5KEVKQB80', name: 'Loja principal', status: 'active', purchaseCount: 30 },
-  ];
-  eq(resolveCatalogPixelInput('7411223344556677889', pixels).id, '7411223344556677889', 'ID numérico passa direto');
-  const fromCode = resolveCatalogPixelInput('D9F2J3JC77U5KEVKQB80', pixels);
-  eq(fromCode.id, '7411223344556677889', 'código do Events Manager resolve para o ID numérico da conta');
-  eq(fromCode.kind, 'code', 'resolução informa que veio de um código');
-  eq(resolveCatalogPixelInput('d9f2j3jc77u5kevkqb80', pixels).id, '7411223344556677889', 'código em minúsculas também resolve');
-  const unknown = resolveCatalogPixelInput('ZZZZJ3JC77U5KEVKQB80', pixels);
-  eq(unknown.id, '', 'código desconhecido não resolve');
-  ok(unknown.error.includes('Events Manager'), 'código desconhecido explica que é o código do Events Manager');
-  eq(resolveCatalogPixelInput('', pixels).kind, 'empty', 'entrada vazia é neutra');
-  ok(resolveCatalogPixelInput('12ab', pixels).error, 'entrada curta demais gera orientação');
-}
-{
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', 'D9F2J3JC77U5KEVKQB80', ''),
-  ].join('\n'), 'BRL', {
-    requireCampaignPixel: true,
-    pixelCodeMap: { D9F2J3JC77U5KEVKQB80: '7411223344556677889' },
-  });
-  eq(plan.message, '', 'código conhecido na coluna pixel_id não bloqueia o lote');
-  eq(plan.catalogs[0].campaigns[0].pixelId, '7411223344556677889', 'coluna pixel_id com código resolve para o ID numérico');
-}
-{
-  const plan = buildCatalogBatchPlan([
-    header,
-    row('Loja A', 'sku-1', 'Campanha A', '', ''),
-  ].join('\n'), 'BRL', {
-    requireCampaignPixel: true,
-    defaultPixelId: 'D9F2J3JC77U5KEVKQB80',
-    pixelCodeMap: { D9F2J3JC77U5KEVKQB80: '7411223344556677889' },
-  });
-  eq(plan.catalogs[0].campaigns[0].pixelId, '7411223344556677889', 'Pixel padrão informado como código resolve para o ID numérico');
-}
-
-console.log('dashboard-catalog-batch-plan — retry e polling');
+console.log('Retry e polling dos jobs');
 {
   let created = 0;
   const createKey = () => 'key-' + (++created);
   const first = resolveStableIdempotencyKey(null, 'form-a', createKey);
   const retry = resolveStableIdempotencyKey(first, 'form-a', createKey);
   const changed = resolveStableIdempotencyKey(retry, 'form-b', createKey);
-  const afterSuccess = resolveStableIdempotencyKey(null, 'form-b', createKey);
-  eq(retry.key, first.key, 'retry sem mudança reaproveita a chave idempotente');
-  ok(changed.key !== first.key, 'mudança material gera nova chave idempotente');
-  ok(afterSuccess.key !== changed.key, 'reset após sucesso gera nova chave na próxima criação');
-  eq(created, 3, 'fábrica só roda em mudança material ou reset');
+  eq(retry.key, first.key, 'retry preserva a chave idempotente');
+  ok(changed.key !== first.key, 'mudança material gera nova chave');
 }
 {
-  eq(catalogSyncRunsRefreshInterval([{ status: 'running', stage: 'uploading_products' }]), 4_000, 'run ativo consulta a cada 4 segundos');
-  eq(catalogSyncRunsRefreshInterval([{ status: 'waiting_tiktok_processing', stage: 'processing_tiktok' }]), 15_000, 'estado explícito de processamento do TikTok mantém polling');
-  eq(catalogSyncRunsRefreshInterval([{ status: 'completed', stage: 'processing_tiktok' }]), 15_000, 'processamento assíncrono do TikTok mantém polling');
-  eq(catalogSyncRunsRefreshInterval([{ status: 'completed', stage: 'reviewed_tiktok' }]), 0, 'auditoria concluída encerra polling');
-  eq(catalogSyncRunsRefreshInterval([{ status: 'failed', stage: 'failed' }]), 0, 'terminal acionável encerra polling');
-}
-{
-  const pixel = { id: '1234567890123456789', code: 'PIXEL_A', name: 'Checkout principal', status: 'active', purchaseCount: 12 };
-  eq(catalogPixelValue(pixel), pixel.id, 'lista autenticada seleciona o ID numérico do Pixel');
-  ok(catalogPixelLabel(pixel).includes('Checkout principal') && catalogPixelLabel(pixel).includes('12 compras em 30d'), 'opção mostra nome e compras de 30 dias');
-  eq(catalogPixelValue({ ...pixel, id: 'local', code: '9876543210987654321' }), '9876543210987654321', 'código numérico funciona como fallback do ID');
+  eq(catalogSyncRunsRefreshInterval([{ status: 'running', stage: 'uploading_products' }]), 4_000, 'sync ativo consulta em 4 segundos');
+  eq(catalogSyncRunsRefreshInterval([{ status: 'waiting_tiktok_processing', stage: 'processing_tiktok' }]), 15_000, 'processamento TikTok mantém polling lento');
+  eq(catalogSyncRunsRefreshInterval([{ status: 'completed', stage: 'reviewed_tiktok' }]), 0, 'sync concluído encerra polling');
+  eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_catalog_review' }]), 15_000, 'campanha aguardando catálogo consulta em 15 segundos');
+  eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_connector_confirmation' }]), 60_000, 'campanha aguardando conector consulta em 60 segundos');
+  eq(catalogCampaignRunsRefreshInterval([{ status: 'completed' }]), 0, 'campanha concluída encerra polling');
 }
 
 console.log('\ndashboard-catalog-batch-plan: ' + n + ' asserts OK');

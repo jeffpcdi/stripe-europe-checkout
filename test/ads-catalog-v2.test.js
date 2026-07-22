@@ -39,7 +39,9 @@ function throwsCode(fn, code, label) {
   );
   ok(!belowMinimum.readyForCampaign, 'três aprovados ainda não liberam Catalog Ads');
   eq(belowMinimum.counts.approvedMissing, 1, 'prontidão informa quantos aprovados faltam');
-  ok(/mínimo de 4 produtos aprovados, ativos e em estoque/.test(belowMinimum.steps.find((item) => item.id === 'review').detail), 'mensagem pt-BR explica o requisito oficial');
+  const reviewDetail = belowMinimum.steps.find((item) => item.id === 'review').detail;
+  ok(/mínimo de 4/.test(reviewDetail), 'mensagem pt-BR explica o piso de aprovação');
+  ok(!/ativos e em estoque/.test(reviewDetail), 'overview agregado não promete disponibilidade por SKU sem prova');
   readiness = domain.computeReadiness(base, products.map((product, index) => (
     index === 0 ? { ...product, updatedAt: '2026-07-20T12:00:00.000Z' } : product
   )), { advertiserId: '1870000000001' });
@@ -49,21 +51,21 @@ function throwsCode(fn, code, label) {
   console.log('Domínio — contrato explícito da campanha');
   const input = {
     name: 'Catálogo manual', budgetAmount: 50, productScope: 'specific',
-    productIds: ['7664730406680594184'], pixelId: '7550683248272228369',
+    productIds: ['SKU-local'], pixelId: '7550683248272228369',
   };
   const spec = domain.normalizeCampaignSpec(input, { name: 'Loja', country: 'BR' });
   eq(spec.destination, 'PRODUCT_LINK', 'destino vem do produto, sem URL manual');
-  eq(spec.creativeMode, 'VSA_PRODUCT_LINK', 'spec não confunde Product Link com Catalog Video');
-  eq(spec.strategy, 'vsa_product_link', 'estratégia fica explícita para o adaptador VSA');
+  eq(spec.creativeMode, 'CATALOG_CAROUSEL', 'spec usa o formato de catálogo confirmado pelo Pipeboard');
+  eq(spec.strategy, 'catalog_carousel_product_link', 'estratégia fica explícita para Catalog Carousel');
   eq(spec.budgetOptimization, 'adgroup', 'ABO é o padrão');
   eq(spec.pixelEvent, 'ON_WEB_ORDER', 'evento de compra canônico é o padrão');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, budgetAmount: 49.99 }, {}), 'CATALOG_CAMPAIGN_BUDGET_BELOW_MINIMUM', 'bloqueia orçamento abaixo do piso do TikTok');
-  throwsCode(() => domain.normalizeCampaignSpec({ ...input, productIds: ['SKU-local'] }, {}), 'CATALOG_PRODUCT_ID_INVALID', 'não confunde SKU local com Product ID do TikTok');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, productIds: ['SKU,quebrado'] }, {}), 'CATALOG_ITEM_GROUP_ID_INVALID', 'item_group_id inválido não chega ao provider');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelId: '' }, {}), 'CATALOG_PIXEL_REQUIRED', 'pixel é obrigatório para CONVERT');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelId: 'pixel-local' }, {}), 'CATALOG_PIXEL_ID_INVALID', 'Pixel ID precisa ser numérico');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelEvent: 'EVENTO_INVENTADO' }, {}), 'CATALOG_PIXEL_EVENT_INVALID', 'evento desconhecido não chega ao provider');
   eq(domain.normalizeCampaignSpec({ ...input, pixelEvent: 'PURCHASE' }, {}).pixelEvent, 'ON_WEB_ORDER', 'alias legado PURCHASE é normalizado sem adivinhação');
-  eq(domain.normalizeCampaignSpec({ ...input, catalogVideoTemplateId: '' }, {}).catalogVideoTemplateId, undefined, 'template de vídeo é opcional no Product Link');
+  eq(domain.normalizeCampaignSpec({ ...input, musicId: '' }, {}).musicId, undefined, 'música pode ser resolvida automaticamente no preflight');
 
   console.log('Gateway — vínculo verificado contra o Business Center');
   const remote = await gateway.verifyCatalogLink({
@@ -129,10 +131,12 @@ function throwsCode(fn, code, label) {
   ok(/resumeSyncRun/.test(store) && /resumeCampaignRun/.test(store), 'falhas podem ser retomadas');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   ok(/campaign-preflight/.test(routes), 'preflight existe antes da escrita');
+  ok(/pipeboard\.resolveCatalogCarouselMusic/.test(routes) && !/provider\.resolveCatalogCarouselMusic/.test(routes), 'preflight usa a fronteira Pipeboard realmente importada');
   ok(/PRODUCT_LINK_CONNECTOR_CONFIRMATION_REQUIRED/.test(routes), 'preflight bloqueia antes de criar hierarquia parcial');
   ok(/catalog-sync-runs\/:runId\/resume/.test(routes), 'sincronização falha tem endpoint de retomada');
   ok(/CATALOG_CAMPAIGN_NOT_CLEANABLE/.test(routes), 'cleanup não remove campanha concluída');
   const manager = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-manager.tsx'), 'utf8');
+  ok(/refreshToken=\{syncStatusVersion\}/.test(manager), 'novo run força leitura imediata do progresso na UI');
   ok(/CatalogReadinessCard/.test(manager), 'UI usa checklist de prontidão');
   ok(/CatalogConnectionCard/.test(manager), 'UI separa conexão remota');
   ok(/CatalogCampaignWizard/.test(manager), 'UI usa assistente da campanha completa');

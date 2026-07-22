@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { AlertCircle, Check, Clock, Loader2, RotateCcw, UploadCloud } from 'lucide-react'
 import { adsCatalogApiUrl, apiSend, useAdsCatalogSyncRuns } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -18,8 +19,35 @@ const LABELS: Record<string, string> = {
   failed: 'Sincronização interrompida',
 }
 
-export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: string; advertiserId: string }) {
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function affectedMessage(item: Record<string, unknown>, kind: 'erro' | 'aviso') {
+  const field = String(item.field || '').trim()
+  const issue = String(item.issue || '').trim()
+  const suggestion = String(item.suggestion || '').trim()
+  const count = Math.max(0, Number(item.affectedProductCount) || 0)
+  const detail = [issue, suggestion].filter(Boolean).join(' — ')
+  if (field && detail) return `${field} — ${detail}`
+  if (field) return `Campo ${field}: ${kind} em ${count || 'um ou mais'} produto(s), sem detalhe do TikTok.`
+  if (detail) return detail
+  return `${count || 'Um ou mais'} produto(s) afetado(s); o TikTok não informou o campo nem o motivo.`
+}
+
+export function CatalogSyncStatus({
+  catalogId,
+  advertiserId,
+  refreshToken = 0,
+}: {
+  catalogId: string
+  advertiserId: string
+  refreshToken?: number
+}) {
   const { data, mutate } = useAdsCatalogSyncRuns(catalogId, advertiserId)
+  useEffect(() => {
+    if (refreshToken > 0) void mutate()
+  }, [mutate, refreshToken])
   const run = data?.runs?.[0]
   if (!run) return null
 
@@ -31,17 +59,20 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
   const active = ['queued', 'waiting_connector_confirmation', 'waiting_tiktok_processing', 'running', 'retrying'].includes(run.status)
   const waitingConnector = run.status === 'waiting_connector_confirmation'
   const failed = ['failed', 'partial'].includes(run.status)
-  const auditProgress = run.progress && typeof run.progress.audit === 'object' && run.progress.audit !== null
-    ? run.progress.audit as Record<string, unknown> : null
+  const auditProgress = objectValue(run.progress?.audit)
+  const uploadStatus = objectValue(run.progress?.uploadStatus)
   const auditAttempts = Math.max(0, Number(run.progress?.auditAttempts) || 0)
-  const remoteStillEmpty = awaitingTikTok && auditAttempts >= 3 && Number(auditProgress?.total) === 0
-  // Ingestão por produto (get_tiktok_catalog_upload_status): quando o TikTok
-  // devolve 0, este bloco diz POR QUÊ — arquivo rejeitado + erro por SKU.
-  const uploadStatus = run.progress && typeof run.progress.uploadStatus === 'object' && run.progress.uploadStatus !== null
-    ? run.progress.uploadStatus as { status?: string; errorCount?: number; sampleErrors?: { sku?: string; message?: string }[] }
-    : null
-  const uploadErrors = uploadStatus?.sampleErrors?.filter((e) => e.sku || e.message) ?? []
-  const uploadFailed = uploadStatus?.status === 'failed' || uploadErrors.length > 0
+  const expectedProducts = Math.max(0, Number(run.progress?.published) || 0)
+  const remoteProducts = Math.max(0, Number(auditProgress?.total) || 0)
+  const remoteMismatch = awaitingTikTok && auditAttempts >= 3 && remoteProducts !== expectedProducts
+  const uploadErrors = Math.max(0, Number(uploadStatus?.errorCount) || 0)
+  const uploadWarnings = Math.max(0, Number(uploadStatus?.warningCount) || 0)
+  const affectedErrors = Array.isArray(uploadStatus?.errors)
+    ? uploadStatus.errors.map(objectValue).filter((item): item is Record<string, unknown> => Boolean(item)).slice(0, 3)
+    : []
+  const affectedWarnings = Array.isArray(uploadStatus?.warnings)
+    ? uploadStatus.warnings.map(objectValue).filter((item): item is Record<string, unknown> => Boolean(item)).slice(0, 3)
+    : []
   async function resume() {
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalog-sync-runs/${encodeURIComponent(runId)}/resume`, advertiserId), 'POST', {})
@@ -68,7 +99,7 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
           ) : (
             <p className="mt-0.5 text-[10px] text-muted-foreground">
               {awaitingTikTok
-                ? 'O envio terminou; falta o TikTok confirmar os produtos na auditoria.'
+                ? 'A dashboard acompanha o arquivo pelo recibo do TikTok e só conclui depois de confirmar que ele terminou sem erros e que a quantidade esperada apareceu no catálogo.'
                 : active
                   ? run.status === 'waiting_connector_confirmation'
                   ? 'O lote está salvo e será retomado automaticamente quando o conector confirmar a criação do catálogo.'
@@ -76,28 +107,33 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
                   : `Atualizado em ${new Date(run.updatedAt).toLocaleString('pt-BR')}`}
             </p>
           )}
-          {remoteStillEmpty && (
-            <p className="mt-2 rounded-md bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
-              O TikTok ainda retornou 0 produtos após {auditAttempts} verificações automáticas. O lote continua preservado, mas nenhum anúncio será criado até a auditoria mostrar produtos.
+          {uploadStatus && (
+            <p className="mt-2 rounded-md bg-background/60 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+              Arquivo: <strong className="text-foreground">{String(uploadStatus.processStatus || 'processando')}</strong>
+              {' · '}adicionados {Number(uploadStatus.addCount) || 0}
+              {' · '}atualizados {Number(uploadStatus.updateCount) || 0}
+              {uploadWarnings > 0 ? ` · ${uploadWarnings} aviso(s)` : ''}
+              {uploadErrors > 0 ? ` · ${uploadErrors} erro(s)` : ''}
             </p>
           )}
-          {/* POR QUÊ ficou zero: erro de ingestão por produto (marca ausente,
-              preço inválido…), lido do get_tiktok_catalog_upload_status. */}
-          {uploadFailed && (
-            <div className="mt-2 rounded-md bg-error/10 px-2 py-1.5 text-[10px] leading-relaxed text-error">
-              <p className="font-semibold">
-                O TikTok recusou {uploadStatus?.errorCount ? `${uploadStatus.errorCount} ` : ''}produto{uploadStatus?.errorCount === 1 ? '' : 's'} do arquivo — corrija e reenvie o lote:
-              </p>
-              {uploadErrors.length > 0 && (
-                <ul className="mt-1 space-y-0.5">
-                  {uploadErrors.slice(0, 5).map((e, i) => (
-                    <li key={i} className="truncate">
-                      • {e.sku ? <span className="font-mono">{e.sku}</span> : null}{e.sku && e.message ? ': ' : ''}{e.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+          {affectedErrors.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 rounded-md bg-error/5 px-5 py-2 text-[10px] leading-relaxed text-error">
+              {affectedErrors.map((error, index) => (
+                <li key={index}>{affectedMessage(error, 'erro')}</li>
+              ))}
+            </ul>
+          )}
+          {affectedWarnings.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 rounded-md bg-warning/5 px-5 py-2 text-[10px] leading-relaxed text-warning">
+              {affectedWarnings.map((warning, index) => (
+                <li key={index}>{affectedMessage(warning, 'aviso')}</li>
+              ))}
+            </ul>
+          )}
+          {remoteMismatch && (
+            <p className="mt-2 rounded-md bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
+              O TikTok mostrou {remoteProducts} produto(s), mas esta revisão contém {expectedProducts}. O lote continua preservado e nenhuma campanha com “todos os produtos” será criada enquanto as quantidades divergirem.
+            </p>
           )}
         </div>
       </div>

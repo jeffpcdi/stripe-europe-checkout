@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  X, Loader2, Plus, Trash2, UploadCloud, Download, Rocket,
+  X, Loader2, Plus, Trash2, UploadCloud, Download,
   Copy, Check, AlertCircle, ChevronLeft, PackageOpen,
   Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
   Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw,
@@ -18,7 +18,7 @@ import {
   adsCatalogApiUrl, apiSend, ApiError,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsCatalog, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
+import type { AdsCatalog, AdsCatalogCapabilities, AdsCatalogProduct, AdsCatalogSpecResponse, AdsCatalogSyncResponse } from '@/lib/types'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ErrorState } from '@/components/error-state'
@@ -26,7 +26,6 @@ import { CatalogReadinessCard } from './catalog-readiness-card'
 import { CatalogConnectionCard } from './catalog-connection-card'
 import { CatalogCampaignWizard } from './catalog-campaign-wizard'
 import { CatalogBatchDialog } from './catalog-batch-dialog'
-import { CatalogQuickCampaignsDialog } from './catalog-quick-campaigns-dialog'
 import { CatalogSyncStatus } from './catalog-sync-status'
 
 const CURRENCIES = ['USD', 'BRL', 'EUR', 'GBP', 'MXN', 'CAD', 'AUD', 'JPY']
@@ -132,7 +131,9 @@ export function CatalogManager({
 
   return (
     <div className="flex flex-col gap-3">
-      <BusinessCenterBar advertiserId={advertiserId} bcId={bc?.bcId ?? ''} fromEnv={Boolean(bc?.fromEnv)} onChanged={mutateBc} />
+      {(!bc?.bcId || !selectedId) && (
+        <BusinessCenterBar advertiserId={advertiserId} bcId={bc?.bcId ?? ''} fromEnv={Boolean(bc?.fromEnv)} onChanged={mutateBc} />
+      )}
       {selectedId ? (
         <CatalogDetail
           catalogId={selectedId}
@@ -141,7 +142,7 @@ export function CatalogManager({
           advertiserLabel={advertiserLabel}
           bcId={bc?.bcId ?? ''}
           bcConfigured={Boolean(bc?.bcId)}
-          campaignCreateSupported={capabilitiesData?.capabilities.manualCatalogCampaign === true}
+          catalogCapabilities={capabilitiesData?.capabilities ?? null}
           onBusinessCenterChanged={mutateBc}
           onBack={() => {
             setSelectedId(null)
@@ -200,32 +201,37 @@ function BusinessCenterBar({
   }
 
   if (!editing) {
+    if (configured) {
+      return (
+        <details className="group rounded-xl border border-border bg-background px-3 py-2">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2"><Check className="size-3.5 text-success" aria-hidden="true" /> Conexão TikTok pronta</span>
+            <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
+            <code className="truncate text-[11px] text-muted-foreground">Business Center {bcId}{fromEnv ? ' · servidor' : ''}</code>
+            <button type="button" className="btn-ghost text-xs" onClick={() => { setValue(bcId); setEditing(true) }}>
+              <Pencil className="size-3.5" aria-hidden="true" /> Alterar
+            </button>
+          </div>
+        </details>
+      )
+    }
     return (
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3">
         <div className="flex min-w-0 items-center gap-2 text-xs">
           <Building2 className={`size-4 ${configured ? 'text-primary' : 'text-muted-foreground'}`} aria-hidden="true" />
-          {configured ? (
-            <span className="flex min-w-0 flex-wrap items-center gap-1 text-foreground">
-              <span>Business Center</span>
-              <code className="max-w-full truncate rounded bg-secondary px-1.5 py-0.5 text-[11px]">{bcId}</code>
-              {fromEnv && <span className="ml-1 text-[11px] text-muted-foreground">(do servidor)</span>}
-            </span>
-          ) : (
-            <span className="text-pretty text-muted-foreground">
-              Opcional agora: configure o Business Center quando for publicar direto no TikTok.
-            </span>
-          )}
+          <span className="text-pretty text-muted-foreground">Configure uma vez para publicar catálogos no TikTok.</span>
         </div>
         <button
           type="button"
-          className={configured ? 'btn-ghost text-xs' : 'btn-primary text-xs'}
+          className="btn-primary text-xs"
           onClick={() => {
             setValue(bcId)
             setEditing(true)
           }}
         >
-          {configured ? <Pencil className="size-3.5" aria-hidden="true" /> : <Building2 className="size-3.5" aria-hidden="true" />}
-          {configured ? 'Alterar' : 'Configurar'}
+          <Building2 className="size-3.5" aria-hidden="true" /> Configurar
         </button>
       </div>
     )
@@ -284,13 +290,9 @@ function CatalogList({
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState('BRL')
-  const [catalogType, setCatalogType] = useState('ECOM')
+  const catalogType = 'ECOM'
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
-  // Modo Turbo: catálogo escolhido para criar campanhas em massa em 1 clique.
-  const [turboCatalog, setTurboCatalog] = useState<AdsCatalog | null>(null)
-
-  const catalogTypes = spec?.catalogTypes ?? [{ value: 'ECOM', label: 'Produtos' }]
   const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
 
   async function handleCreate() {
@@ -348,36 +350,23 @@ function CatalogList({
               }}
             />
           </label>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Tipo</span>
-              <select className="input-base" value={catalogType} onChange={(e) => setCatalogType(e.target.value)}>
-                {catalogTypes.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">País principal</span>
-              <select className="input-base" value={country} onChange={(e) => setCountry(e.target.value)}>
-                {countries.map((c) => (
-                  <option key={c.code} value={c.code}>{c.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Moeda</span>
-              <select className="input-base" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            A moeda precisa bater com a moeda padrão do catálogo no TikTok — todos os preços usarão ela. Tipo,
-            país e moeda são definidos na criação do catálogo na plataforma.
-          </p>
+          <details className="rounded-lg border border-border p-3">
+            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">País e moeda · Brasil · BRL</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="font-medium text-foreground">País principal</span>
+                <select className="input-base" value={country} onChange={(e) => setCountry(e.target.value)}>
+                  {countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="font-medium text-foreground">Moeda</span>
+                <select className="input-base" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+            </div>
+          </details>
           <div className="flex items-center justify-end gap-2">
             <button type="button" className="btn-ghost text-xs" onClick={() => setCreating(false)} disabled={busy}>
               Cancelar
@@ -406,12 +395,11 @@ function CatalogList({
         <ul className="flex flex-col gap-2">
           {catalogs.map((c) => {
             const status = catalogStatusMeta(c)
-            const turboReady = c.linkStatus === 'verified'
-            return <li key={c.id} className="flex items-stretch gap-2">
+            return <li key={c.id}>
               <button
                 type="button"
                 onClick={() => onOpen(c.id)}
-                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3 text-left transition-colors hover:border-primary/50"
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3 text-left transition-colors hover:border-primary/50"
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
@@ -424,30 +412,9 @@ function CatalogList({
                   {status.label}
                 </span>
               </button>
-              {turboReady && (
-                <button
-                  type="button"
-                  className="btn-primary shrink-0 self-center text-xs"
-                  onClick={() => setTurboCatalog(c)}
-                  title={`Criar campanhas em massa do catálogo ${c.name}`}
-                >
-                  <Rocket className="size-3.5" aria-hidden="true" />
-                  <span className="hidden sm:inline">Criar campanhas</span>
-                </button>
-              )}
             </li>
           })}
         </ul>
-      )}
-
-      {turboCatalog && (
-        <CatalogQuickCampaignsDialog
-          catalog={turboCatalog}
-          advertiserId={advertiserId}
-          open
-          onClose={() => setTurboCatalog(null)}
-          onCreated={onChanged}
-        />
       )}
     </div>
   )
@@ -461,7 +428,7 @@ function CatalogDetail({
   spec,
   bcId,
   bcConfigured,
-  campaignCreateSupported,
+  catalogCapabilities,
   onBusinessCenterChanged,
   onBack,
   onDeleted,
@@ -472,11 +439,12 @@ function CatalogDetail({
   advertiserLabel: string
   bcId: string
   bcConfigured: boolean
-  campaignCreateSupported: boolean
+  catalogCapabilities: AdsCatalogCapabilities | null
   onBusinessCenterChanged: () => void | Promise<unknown>
   onBack: () => void
   onDeleted: () => void
 }) {
+  const campaignCreateSupported = catalogCapabilities?.manualCatalogCampaign === true
   const { data, mutate, isLoading, error: detailError } = useAdsCatalogDetail(catalogId, advertiserId)
   const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId, advertiserId)
   const { data: readinessData, mutate: mutateReadiness, isLoading: readinessLoading } = useAdsCatalogReadiness(catalogId, advertiserId)
@@ -487,6 +455,7 @@ function CatalogDetail({
   const [showUrlImport, setShowUrlImport] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [syncStatusVersion, setSyncStatusVersion] = useState(0)
   const [auditing, setAuditing] = useState(false)
   const [autoChecking, setAutoChecking] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -498,6 +467,7 @@ function CatalogDetail({
   // Quando o publish automático falha (502/BC/permissão), destacamos o caminho
   // garantido: baixar o CSV e subir manualmente no Catalog Manager.
   const [publishFailed, setPublishFailed] = useState(false)
+  const [publishFailureHint, setPublishFailureHint] = useState('')
   // A cadeia do TikTok roda em 2º plano; enquanto true, acompanhamos o log de
   // publicações para trazer o resultado real (sucesso ou motivo do erro).
   const [bgPublishing, setBgPublishing] = useState(false)
@@ -611,10 +581,15 @@ function CatalogDetail({
     syncLockRef.current = true
     setSyncing(true)
     setPublishFailed(false)
+    setPublishFailureHint('')
     try {
       const res = await apiSend<AdsCatalogSyncResponse>(
         adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-tiktok`, advertiserId), 'POST', {},
       )
+      // O hook de status pode ter carregado uma lista vazia antes deste run.
+      // Força uma leitura imediata para o painel realmente acompanhar a tarefa
+      // que o toast acabou de anunciar, sem polling ocioso quando nada existe.
+      setSyncStatusVersion((value) => value + 1)
       if (res.dryRun) {
         toast.info('Modo simulação: feed publicado, mas nada foi enviado ao TikTok', {
           hint: 'Desative o modo simulação em Operações para publicar de verdade.',
@@ -640,6 +615,7 @@ function CatalogDetail({
     } catch (e) {
       setPublishFailed(true)
       const hint = e instanceof ApiError ? e.display : e instanceof Error ? e.message : undefined
+      setPublishFailureHint(hint || 'Verifique a conexão e tente novamente.')
       toast.error('Não foi possível iniciar a sincronização automática', { hint })
     } finally {
       syncLockRef.current = false
@@ -811,7 +787,7 @@ function CatalogDetail({
                 Sincronização automática não iniciada
               </p>
               <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                Os produtos e o feed permanecem salvos. Tente novamente para recolocar a automação na fila.
+                {publishFailureHint || 'Os produtos permanecem salvos. Corrija o requisito indicado e tente novamente.'}
               </p>
               <button type="button" className="btn-primary w-fit text-xs" onClick={handleSyncTiktok} disabled={syncing}>
                 {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RotateCcw className="size-3.5" aria-hidden="true" />} Tentar sincronização automática
@@ -827,7 +803,7 @@ function CatalogDetail({
               : handleReadinessAction}
           />
 
-          <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} />
+          <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} />
 
           {catalog && (
             <CatalogConnectionCard
@@ -910,6 +886,7 @@ function CatalogDetail({
               catalog={catalog}
               auditing={auditing}
               autoChecking={autoChecking}
+              catalogCampaignSupported={catalogCapabilities?.manualCatalogCampaign === true}
               onRefresh={handleRefreshAudit}
             />
           )}
@@ -919,7 +896,7 @@ function CatalogDetail({
               catalog={catalog}
               advertiserId={advertiserId}
               ready={Boolean(readinessData?.readiness.readyForCampaign)}
-              supported={campaignCreateSupported}
+              capabilities={catalogCapabilities}
             />
           )}
 
@@ -1085,11 +1062,13 @@ function TiktokStatusPanel({
   catalog,
   auditing,
   autoChecking,
+  catalogCampaignSupported,
   onRefresh,
 }: {
   catalog: AdsCatalog
   auditing: boolean
   autoChecking: boolean
+  catalogCampaignSupported: boolean
   onRefresh: () => void
 }) {
   const [copied, setCopied] = useState(false)
@@ -1170,7 +1149,9 @@ function TiktokStatusPanel({
 
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
         {catalogSynced
-          ? 'O vínculo e os produtos foram confirmados. Assim que o conector validar Product Link, a campanha poderá ser criada aqui sem URL no anúncio.'
+          ? catalogCampaignSupported
+            ? 'Vínculo, produtos e Catalog Carousel confirmados. A campanha pode ser preparada aqui sem URL manual no anúncio.'
+            : 'Vínculo e produtos confirmados. A criação continuará bloqueada até o conector confirmar Catalog Carousel sem URL manual.'
           : rejected > 0
             ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
             : productsNotConfirmed

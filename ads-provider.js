@@ -218,6 +218,7 @@ function mapCampaign(c) {
     secondaryStatus: textField(row.secondary_status),
     objective: textField(row.objective_type, row.objective),
     catalogId: textField(row.catalog_id, row.catalogId, row.product_catalog_id),
+    productSource: textField(row.product_source, row.productSource),
     shoppingAdsType: textField(row.shopping_ads_type, row.shoppingAdsType),
     budget: Number(row.budget || 0),
     budgetMode: textField(row.budget_mode, row.budgetMode),
@@ -237,10 +238,17 @@ function mapAdGroup(g) {
     catalogId: textField(row.catalog_id, row.catalogId, row.product_catalog_id),
     productSource: textField(row.product_source, row.productSource),
     shoppingAdsType: textField(row.shopping_ads_type, row.shoppingAdsType),
-    storeAuthorizedBcId: textField(row.store_authorized_bc_id, row.storeAuthorizedBcId, row.identity_authorized_bc_id),
+    promotionType: textField(row.promotion_type, row.promotionType),
+    shoppingAdsRetargetingType: textField(row.shopping_ads_retargeting_type, row.shoppingAdsRetargetingType),
+    // Catálogo usa catalog_authorized_bc_id. store_authorized_bc_id é o
+    // contrato de TikTok Shop e não comprova autorização do catálogo.
+    catalogAuthorizedBcId: textField(row.catalog_authorized_bc_id, row.catalogAuthorizedBcId),
+    storeAuthorizedBcId: textField(row.store_authorized_bc_id, row.storeAuthorizedBcId),
     budget: Number(row.budget || 0),
     budgetMode: textField(row.budget_mode, row.budgetMode),
     optimizationGoal: textField(row.optimization_goal, row.optimizationGoal),
+    pixelId: textField(row.pixel_id, row.pixelId),
+    optimizationEvent: textField(row.optimization_event, row.optimizationEvent),
     createTime: textField(row.create_time, row.createTime),
     modifyTime: textField(row.modify_time, row.modifyTime),
   };
@@ -258,7 +266,18 @@ function mapAd(a) {
     websiteType: textField(row.website_type, row.websiteType),
     destinationPageType: textField(row.destination_page_type, row.destinationPageType),
     adFormat: textField(row.ad_format, row.adFormat),
+    productsType: textField(row.products_type, row.productsType),
+    productIds: (Array.isArray(row.product_ids) ? row.product_ids : Array.isArray(row.productIds) ? row.productIds : []).map(String),
+    productSetId: textField(row.product_set_id, row.productSetId),
+    itemGroupIds: (Array.isArray(row.item_group_ids) ? row.item_group_ids : Array.isArray(row.itemGroupIds) ? row.itemGroupIds : []).map(String),
+    musicId: textField(row.music_id, row.musicId),
+    catalogVideoTemplateId: textField(row.catalog_video_template_id, row.catalogVideoTemplateId),
     adText: textField(row.ad_text, row.adText),
+    callToAction: textField(row.call_to_action, row.callToAction),
+    identityId: textField(row.identity_id, row.identityId),
+    identityType: textField(row.identity_type, row.identityType),
+    identityBcId: textField(row.identity_authorized_bc_id, row.identity_bc_id, row.identityBcId),
+    darkPostStatus: textField(row.dark_post_status, row.darkPostStatus),
     videoId: textField(row.video_id, row.videoId),
     imageIds: Array.isArray(row.image_ids) ? row.image_ids.map(String) : Array.isArray(row.imageIds) ? row.imageIds.map(String) : [],
     landingPageUrl: textField(row.landing_page_url, row.landingPageUrl, row.landing_url, row.landingUrl),
@@ -300,6 +319,8 @@ function verifyCatalogProductLinkHierarchy(input) {
   const catalogId = textField(expected.catalogId);
   const shoppingAdsType = textField(expected.shoppingAdsType);
   const bcId = textField(expected.bcId);
+  const itemGroupIds = (Array.isArray(expected.itemGroupIds) ? expected.itemGroupIds : []).map(String).sort();
+  const readItemGroupIds = (Array.isArray(ad.itemGroupIds) ? ad.itemGroupIds : []).map(String).sort();
   const hierarchy = Boolean(
     ids.campaign && ids.adGroup && ids.ad
     && campaign.id === ids.campaign
@@ -309,27 +330,49 @@ function verifyCatalogProductLinkHierarchy(input) {
   const productLink = Boolean(
     equalsEnum(campaign.objective, 'PRODUCT_SALES')
     && campaign.catalogId === catalogId
+    && equalsEnum(campaign.productSource, 'CATALOG')
     && equalsEnum(campaign.shoppingAdsType, shoppingAdsType)
     && adGroup.catalogId === catalogId
     && equalsEnum(adGroup.productSource, 'CATALOG')
     && equalsEnum(adGroup.shoppingAdsType, shoppingAdsType)
-    && adGroup.storeAuthorizedBcId === bcId
-    && ad.catalogId === catalogId
-    && equalsEnum(ad.websiteType, 'PRODUCT_LINK')
-    && equalsEnum(ad.destinationPageType, 'WEBSITE'),
+    && equalsEnum(adGroup.promotionType, 'WEBSITE')
+    && equalsEnum(adGroup.shoppingAdsRetargetingType, 'OFF')
+    && adGroup.catalogAuthorizedBcId === bcId
+    && ad.catalogId === catalogId,
+  );
+  const targeting = Boolean(
+    adGroup.pixelId === textField(expected.pixelId)
+    && equalsEnum(adGroup.optimizationEvent, expected.pixelEvent)
+  );
+  const identity = Boolean(
+    ad.identityId === textField(expected.identityId)
+    && equalsEnum(ad.identityType, expected.identityType || 'BC_AUTH_TT')
+    && ad.identityBcId === textField(expected.identityBcId || bcId)
+    && equalsEnum(ad.darkPostStatus, expected.darkPostStatus || 'ON')
+  );
+  const creative = Boolean(
+    equalsEnum(ad.adFormat, expected.adFormat)
+    && (!expected.productSetId || ad.productSetId === textField(expected.productSetId))
+    && (!itemGroupIds.length || JSON.stringify(readItemGroupIds) === JSON.stringify(itemGroupIds))
+    && (!expected.musicId || ad.musicId === textField(expected.musicId))
+    && (!expected.adText || ad.adText === textField(expected.adText))
+    && (!expected.callToAction || equalsEnum(ad.callToAction, expected.callToAction))
   );
   const noManualUrl = !textField(ad.landingPageUrl);
   const paused = pausedReadback(campaign) && pausedReadback(adGroup) && pausedReadback(ad);
   return {
-    complete: hierarchy && productLink && noManualUrl && paused,
+    complete: hierarchy && productLink && targeting && identity && creative && noManualUrl && paused,
     hierarchy,
     productLink,
+    targeting,
+    identity,
+    creative,
     noManualUrl,
     paused,
     checks: {
-      campaign: { id: campaign.id || null, status: campaign.status || null, catalogId: campaign.catalogId || null },
-      adGroup: { id: adGroup.id || null, campaignId: adGroup.campaignId || null, status: adGroup.status || null, catalogId: adGroup.catalogId || null },
-      ad: { id: ad.id || null, adgroupId: ad.adgroupId || null, status: ad.status || null, catalogId: ad.catalogId || null, websiteType: ad.websiteType || null, landingPageUrl: ad.landingPageUrl || null },
+      campaign: { id: campaign.id || null, status: campaign.status || null, catalogId: campaign.catalogId || null, productSource: campaign.productSource || null, shoppingAdsType: campaign.shoppingAdsType || null },
+      adGroup: { id: adGroup.id || null, campaignId: adGroup.campaignId || null, status: adGroup.status || null, catalogId: adGroup.catalogId || null, catalogAuthorizedBcId: adGroup.catalogAuthorizedBcId || null, promotionType: adGroup.promotionType || null, shoppingAdsRetargetingType: adGroup.shoppingAdsRetargetingType || null, pixelId: adGroup.pixelId || null, optimizationEvent: adGroup.optimizationEvent || null },
+      ad: { id: ad.id || null, adgroupId: ad.adgroupId || null, status: ad.status || null, catalogId: ad.catalogId || null, landingPageUrl: ad.landingPageUrl || null, adFormat: ad.adFormat || null, itemGroupIds: ad.itemGroupIds || [], productSetId: ad.productSetId || null, musicId: ad.musicId || null, identityType: ad.identityType || null, identityBcId: ad.identityBcId || null },
     },
   };
 }
@@ -566,6 +609,7 @@ async function getDashboardTree(accountId, opts = {}) {
         status: tiktokStatusToNode(ad.status, ad.secondaryStatus),
         catalogId: ad.catalogId || undefined,
         websiteType: ad.websiteType || undefined,
+        adFormat: ad.adFormat || undefined,
         budget: null,
         metrics: aMet.get(ad.id) || Object.assign({}, EMPTY_METRICS),
         creative: {
@@ -779,14 +823,7 @@ async function updateAd(advertiserId, adId, patch) {
 // goal do frontend → objetivo TikTok + optimization_goal do adgroup.
 // Enum de objetivos confirmado ao vivo no dump do tools/list (2026-05-07).
 const GOAL_MAP = {
-  traffic: { objective: 'TRAFFIC', optimizationGoal: 'CLICK' },
-  awareness: { objective: 'REACH', optimizationGoal: 'REACH' },
-  video_views: { objective: 'VIDEO_VIEWS', optimizationGoal: 'VIDEO_VIEW' },
-  engagement: { objective: 'ENGAGEMENT', optimizationGoal: 'ENGAGED_VIEW' },
-  lead_generation: { objective: 'LEAD_GENERATION', optimizationGoal: 'LEAD_GENERATION' },
   conversions: { objective: 'WEB_CONVERSIONS', optimizationGoal: 'CONVERT' },
-  // app_promotion exige app_id (via /app/list/) que a UI não coleta ainda —
-  // rejeitado com mensagem clara em vez de chutar.
 };
 
 // Busca profunda de um campo em respostas do MCP (create retorna campaign_id
@@ -913,6 +950,29 @@ async function listInterestCategories(advertiserId) {
   return out;
 }
 
+// Pixels reais do advertiser. O TikTok usa dois identificadores diferentes:
+// pixel_code (alfanumérico, salvo na aba Conversões) e pixel_id (numérico,
+// exigido na criação do ad group). Esta leitura é a ponte segura entre ambos.
+async function listTikTokPixels(advertiserId) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const ck = 'pixels:' + adv;
+  let out = cacheGet(ck);
+  if (!out) {
+    const raw = await pipeboard.callTool('list_tiktok_pixels', { advertiser_id: adv });
+    const list = firstArray(raw, ['pixels', 'pixel_list', 'list', 'data']);
+    out = list.map((pixel) => ({
+      id: String(pixel.pixel_id || pixel.id || '').trim(),
+      code: String(pixel.pixel_code || pixel.code || '').trim(),
+      name: String(pixel.pixel_name || pixel.name || pixel.pixel_code || 'Pixel TikTok').trim(),
+      status: String(pixel.status || pixel.pixel_status || 'UNKNOWN').trim(),
+      purchaseCount: Math.max(0, Number(pixel.purchase_count || pixel.complete_payment_count || pixel.purchases_30d) || 0),
+    })).filter((pixel) => /^\d{5,30}$/.test(pixel.id));
+    cacheSet(ck, out, 5 * 60 * 1000);
+  }
+  return out;
+}
+
 // Identidade do anúncio — a doc do create_tiktok_ad PROÍBE chutar: tem de vir
 // de get_tiktok_identities. Para criação automática regular/Smart+/catálogo,
 // só BC_AUTH_TT é elegível: o schema atual do conector marca CUSTOMIZED_USER
@@ -949,12 +1009,68 @@ function bcIdentityPayload(row) {
   };
 }
 
-async function pickAdIdentity(advertiserId) {
+async function pickAdIdentity(advertiserId, requiredBcId) {
   const out = await pipeboard.callTool('get_tiktok_identities', { advertiser_id: advertiserId });
   const list = firstArray(out, ['identities', 'identity_list', 'list', 'data']);
-  const bc = list.find(usableBcIdentity);
+  const wantedBcId = String(requiredBcId || '').trim();
+  const bc = list.find((row) => usableBcIdentity(row)
+    && (!wantedBcId || identityBcIdOf(row) === wantedBcId));
   if (bc) return bcIdentityPayload(bc);
-  throw stepError('identity', 'Nenhuma identidade BC_AUTH_TT elegível foi encontrada para criar anúncio. Conecte uma identidade autorizada ao Business Center com dark post habilitado; CUSTOMIZED_USER, TT_USER e AUTH_CODE não são escolhidos automaticamente.', null, 409);
+  throw stepError(
+    'identity',
+    wantedBcId
+      ? 'Nenhuma identidade BC_AUTH_TT elegível pertence ao mesmo Business Center ' + wantedBcId + ' do catálogo. Autorize a identidade nesse BC com dark post habilitado.'
+      : 'Nenhuma identidade BC_AUTH_TT elegível foi encontrada para criar anúncio. Conecte uma identidade autorizada ao Business Center com dark post habilitado; CUSTOMIZED_USER, TT_USER e AUTH_CODE não são escolhidos automaticamente.',
+    null,
+    409,
+  );
+}
+
+function catalogMusicRows(out) {
+  return firstArray(out, ['music', 'tracks', 'music_list', 'list', 'data']);
+}
+
+function isUserMusic(row) {
+  const values = [];
+  if (row && row.source) values.push(row.source);
+  if (row && Array.isArray(row.sources)) values.push(...row.sources);
+  return values.map((value) => String(value || '').toUpperCase()).includes('USER');
+}
+
+// CATALOG_CAROUSEL exige uma faixa enviada pelo próprio anunciante. A busca é
+// feita antes da primeira escrita para nunca deixar campanha/conjunto órfãos.
+// Quando há uma única opção, a dashboard a escolhe automaticamente.
+async function pickCatalogCarouselMusic(advertiserId, requestedMusicId) {
+  const adv = String(advertiserId || '').trim();
+  const requested = String(requestedMusicId || '').trim();
+  const args = requested
+    ? { advertiser_id: adv, search_type: 'SEARCH_BY_MUSIC_ID', filtering: { music_ids: [requested] }, page: 1, page_size: 100 }
+    : { advertiser_id: adv, music_scene: 'CATALOG_CAROUSEL', search_type: 'SEARCH_BY_SOURCE', filtering: { sources: ['USER'] }, page: 1, page_size: 100 };
+  const out = await pipeboard.callTool('list_tiktok_commercial_music', args);
+  const rows = catalogMusicRows(out);
+  const eligible = rows.filter((row) => String(row && (row.music_id || row.id) || '').trim() && isUserMusic(row));
+  const selected = requested
+    ? eligible.find((row) => String(row.music_id || row.id) === requested)
+    : eligible[0];
+  if (!selected) {
+    const err = stepError(
+      'creative',
+      requested
+        ? 'A música selecionada não está disponível como faixa própria para Catalog Carousel.'
+        : 'Esta conta ainda não tem uma música própria elegível para Catalog Carousel.',
+      null,
+      422,
+    );
+    err.code = 'CATALOG_CAROUSEL_MUSIC_REQUIRED';
+    err.userMessage = err.message;
+    err.retryable = false;
+    err.suggestedAction = 'No TikTok Ads Manager, envie uma faixa própria em Video Editor → Áudio → Uploads. Depois volte: a dashboard selecionará a música automaticamente.';
+    throw err;
+  }
+  return {
+    musicId: String(selected.music_id || selected.id),
+    name: String(selected.name || selected.music_name || 'Música própria'),
+  };
 }
 
 // Upload por URL + polling canônico: get_tiktok_video_info a cada ~5s até
@@ -1624,6 +1740,11 @@ async function createSparkAd(advertiserId, spec) {
   if (!String(s.name || '').trim()) throw badRequest('Nome da campanha é obrigatório');
   if (!SPARK_GOALS.has(s.goal)) throw badRequest('Objetivo "' + s.goal + '" não suportado para Spark Ads');
   const goal = GOAL_MAP[s.goal];
+  const pixelId = String(s.pixelId || '').trim();
+  if (!/^\d{5,30}$/.test(pixelId)) throw badRequest('Spark de conversão exige um Pixel TikTok vinculado');
+  const pixelEvent = String(s.customEventType || 'ON_WEB_ORDER').trim().toUpperCase();
+  if (pixelEvent !== 'ON_WEB_ORDER') throw badRequest('Spark de conversão usa Compra concluída (ON_WEB_ORDER)');
+  if (!/^https:\/\/[^\s]+/.test(String(s.linkUrl || ''))) throw badRequest('Spark de conversão exige a URL HTTPS de destino');
   const budgetAmount = Number(s.budgetAmount);
   if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET);
   let endDate;
@@ -1669,6 +1790,8 @@ async function createSparkAd(advertiserId, spec) {
       schedule_start_time: advertiserLocalTime(info && info.timezone),
       targeting: { location_ids: regions.locationIds },
       bid_type: 'BID_TYPE_NO_BID',
+      pixel_id: pixelId,
+      optimization_event: pixelEvent,
     };
     if (endDate) adgroupArgs.schedule_end_time = endDate + ' 23:59:59';
     const agOut = await pipeboard.callTool('create_tiktok_adgroup', adgroupArgs);
@@ -1791,60 +1914,46 @@ function normalizeCatalogFeeds(out) {
   };
 }
 
-// Normaliza o status de INGESTÃO de um upload de arquivo (get_tiktok_catalog_upload_status).
-// O overview só diz "quantos aprovados"; este endpoint diz SE o arquivo entrou
-// (SUCCESS/FAIL), quantos produtos foram adicionados/atualizados e o ERRO por
-// produto (marca ausente, preço inválido…). É a resposta ao "subi e ficou zero,
-// por quê?" — antes o gestor só via 0 sem motivo. Sem PII: são erros de formato.
-function normalizeCatalogUploadStatus(out) {
-  const pick = (...c) => { for (const k of c) { const v = deepPluck(out, k); if (v !== undefined && v !== null && v !== '') return v; } return undefined; };
-  const num = (...c) => { const v = pick(...c); return v == null ? 0 : (Number(v) || 0); };
-  const statusRaw = String(pick('process_status', 'processStatus', 'status') || '').toUpperCase();
-  const status = /SUCC|DONE|COMPLET/.test(statusRaw) ? 'success'
-    : /FAIL|ERROR|REJECT/.test(statusRaw) ? 'failed'
-      : statusRaw ? 'processing' : 'unknown';
-  const errors = firstArray(out, ['feed_log_data', 'errors', 'error_list', 'details', 'data']);
-  return {
-    status, statusRaw,
-    added: num('added', 'add_count', 'added_count', 'product_add_count'),
-    updated: num('updated', 'update_count', 'updated_count'),
-    deleted: num('deleted', 'delete_count', 'deleted_count'),
-    errorCount: num('error_count', 'errors_count', 'fail_count'),
-    warnCount: num('warn_count', 'warning_count', 'warnings'),
-    // amostra de erros por produto (teto de 10, só sku + motivo, sem dados pessoais)
-    sampleErrors: errors.slice(0, 10).map((e) => {
-      if (!e || typeof e !== 'object') return { message: String(e).slice(0, 200) };
-      return {
-        sku: String(deepPluck(e, 'sku_id') || deepPluck(e, 'item_id') || deepPluck(e, 'id') || '').slice(0, 80) || undefined,
-        message: String(deepPluck(e, 'message') || deepPluck(e, 'error') || deepPluck(e, 'reason') || deepPluck(e, 'errmsg') || '').slice(0, 200) || undefined,
-      };
-    }).filter((e) => e.sku || e.message),
-    raw: out,
-  };
-}
-
 let catalogCapabilitiesCache = null;
 
 // A automação de catálogo usa um contrato central diferente da criação comum.
 // Só a liberamos quando o schema MCP confirma os campos que tornam Product Link
-// inequívoco nos três níveis. Valores extras (template, produto específico,
-// texto) continuam opcionais e a leitura posterior é a autoridade final; assim
+// inequívoco nos três níveis. Valores extras (produto específico, Product Set,
+// texto e CTA) continuam opcionais e a leitura posterior é a autoridade final; assim
 // uma atualização parcial do Pipeboard não cria uma campanha comum com URL.
 const CATALOG_CAMPAIGN_SCHEMA_FIELDS = {
   campaign: [
-    'advertiser_id', 'campaign_name', 'objective_type', 'shopping_ads_type',
-    'catalog_id', 'operation_status', 'budget_mode', 'budget', 'budget_optimize_on',
+    'advertiser_id', 'campaign_name', 'objective_type', 'product_source',
+    'shopping_ads_type', 'catalog_id', 'operation_status', 'budget_mode', 'budget',
   ],
   adgroup: [
-    'advertiser_id', 'campaign_id', 'adgroup_name', 'shopping_ads_type',
-    'product_source', 'catalog_id', 'store_authorized_bc_id', 'optimization_goal',
+    'advertiser_id', 'campaign_id', 'adgroup_name', 'promotion_type',
+    'shopping_ads_type', 'shopping_ads_retargeting_type', 'product_source',
+    'catalog_id', 'catalog_authorized_bc_id', 'optimization_goal',
     'billing_event', 'schedule_start_time', 'schedule_end_time', 'targeting',
     'operation_status', 'pixel_id', 'optimization_event', 'budget_mode', 'budget',
     'bid_type', 'bid_price',
   ],
   ad: [
     'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id',
-    'website_type', 'destination_page_type', 'status', 'products_type',
+    'item_group_ids', 'product_set_id', 'music_id', 'ad_text', 'status',
+    'identity_id', 'identity_type', 'identity_authorized_bc_id', 'dark_post_status',
+  ],
+};
+
+const CATALOG_CAMPAIGN_GUARANTEED_FIELDS = {
+  campaign: ['advertiser_id', 'campaign_name', 'objective_type', 'product_source', 'shopping_ads_type', 'catalog_id', 'operation_status'],
+  adgroup: [
+    'advertiser_id', 'campaign_id', 'adgroup_name', 'promotion_type', 'shopping_ads_type',
+    'shopping_ads_retargeting_type', 'product_source',
+    'catalog_id', 'catalog_authorized_bc_id', 'optimization_goal', 'billing_event',
+    'schedule_start_time', 'targeting', 'operation_status', 'pixel_id',
+    'optimization_event', 'budget_mode', 'budget',
+  ],
+  ad: [
+    'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id',
+    'item_group_ids', 'product_set_id', 'music_id', 'ad_text', 'status',
+    'identity_id', 'identity_type', 'identity_authorized_bc_id', 'dark_post_status',
   ],
 };
 
@@ -1860,15 +1969,22 @@ async function getCatalogCapabilities({ force = false } = {}) {
   const unavailable = {
     catalogCreate: false,
     catalogUpload: false,
+    catalogUploadStatus: false,
     catalogAudit: false,
     catalogFeedRead: false,
     catalogLinkVerify: false,
     manualCatalogCampaign: false,
+    catalogCarouselMusic: false,
     productSets: false,
     specificProducts: false,
     catalogVideoTemplates: false,
     adText: false,
     callToAction: false,
+    optimizationEvents: [],
+    callToActions: [],
+    structuralReadback: false,
+    shoppingAdsType: null,
+    adFormat: null,
     note: 'Não foi possível confirmar as capacidades atuais do Pipeboard.',
   };
   if (!pipeboard.enabled || typeof pipeboard.listTools !== 'function') return unavailable;
@@ -1888,10 +2004,14 @@ async function getCatalogCapabilities({ force = false } = {}) {
         ? schema.properties : {};
       return properties[field] || null;
     };
-    // A simples presença de `website_type` não prova que a tool aceita
-    // `PRODUCT_LINK`: um schema amplo poderia aceitar apenas WEBSITE/APP ou
-    // rejeitar o valor já depois de criar campanha e ad group. Exigimos que o
-    // JSON Schema declare o valor exato por enum/const (inclusive em oneOf).
+    const toolSchema = (name) => {
+      const tool = byName.get(name) || {};
+      return tool.inputSchema || tool.input_schema || {};
+    };
+    // A simples presença de um campo não prova que a tool aceita o valor
+    // necessário: um schema amplo poderia rejeitá-lo depois de criar campanha
+    // e ad group. Exigimos declaração explícita por enum/const ou, nos campos
+    // pass-through documentados pelo Pipeboard, pela descrição da própria tool.
     const supportsSchemaValue = (schema, expected, depth = 0) => {
       if (!schema || typeof schema !== 'object' || depth > 8) return false;
       const wanted = String(expected).trim().toUpperCase();
@@ -1900,77 +2020,118 @@ async function getCatalogCapabilities({ force = false } = {}) {
       return ['anyOf', 'oneOf', 'allOf'].some((key) => Array.isArray(schema[key])
         && schema[key].some((child) => supportsSchemaValue(child, wanted, depth + 1)));
     };
+    const schemaValues = (schema, depth = 0, out = new Set()) => {
+      if (!schema || typeof schema !== 'object' || depth > 8) return out;
+      if (schema.const != null) out.add(String(schema.const).trim().toUpperCase());
+      if (Array.isArray(schema.enum)) schema.enum.forEach((value) => out.add(String(value).trim().toUpperCase()));
+      ['anyOf', 'oneOf', 'allOf'].forEach((key) => {
+        if (Array.isArray(schema[key])) schema[key].forEach((child) => schemaValues(child, depth + 1, out));
+      });
+      return out;
+    };
+    // Alguns campos do Pipeboard são pass-through: o schema documenta o valor
+    // aceito na descrição, pois é o TikTok que valida o enum. Exigimos a token
+    // exata na documentação da própria tool; texto genérico não libera nada.
+    const supportsDeclaredValue = (schema, expected) => {
+      if (supportsSchemaValue(schema, expected)) return true;
+      const token = String(expected || '').trim().toUpperCase();
+      const description = String(schema && schema.description || '').toUpperCase();
+      return Boolean(token && description.split(/[^A-Z0-9_]+/).includes(token));
+    };
     const hasFields = (name, required) => {
       const present = fields(name);
       return required.every((field) => present.has(field));
     };
+    const requiredFieldsAreGuaranteed = (name, guaranteed) => {
+      const required = new Set();
+      const visit = (schema, depth = 0) => {
+        if (!schema || typeof schema !== 'object' || depth > 8) return;
+        if (Array.isArray(schema.required)) schema.required.forEach((field) => required.add(String(field)));
+        ['anyOf', 'oneOf', 'allOf'].forEach((key) => {
+          if (Array.isArray(schema[key])) schema[key].forEach((child) => visit(child, depth + 1));
+        });
+      };
+      visit(toolSchema(name));
+      const sent = new Set(guaranteed);
+      return Array.from(required).every((field) => sent.has(field));
+    };
     const catalogCreate = hasFields('create_tiktok_catalog', ['bc_id', 'name', 'catalog_type', 'catalog_conf']);
-    const catalogUpload = byName.has('upload_tiktok_catalog_products');
-    const catalogAudit = byName.has('get_tiktok_catalog_overview');
-    const catalogUploadStatus = byName.has('get_tiktok_catalog_upload_status');
-    const catalogFeedRead = byName.has('get_tiktok_catalog_feeds');
-    const catalogLinkVerify = byName.has('get_tiktok_catalogs');
+    const catalogUploadSubmit = hasFields('upload_tiktok_catalog_products', ['bc_id', 'catalog_id', 'file_url', 'file_format']);
+    const catalogUploadStatus = hasFields('get_tiktok_catalog_upload_status', ['bc_id', 'catalog_id', 'feed_log_id']);
+    // O recibo de envio sozinho não confirma ingestão. Só anunciamos
+    // sincronização quando o conector também expõe o status do feed_log.
+    const catalogUpload = catalogUploadSubmit && catalogUploadStatus;
+    const catalogAudit = hasFields('get_tiktok_catalog_overview', ['bc_id', 'catalog_id']);
+    const catalogFeedRead = hasFields('get_tiktok_catalog_feeds', ['bc_id', 'catalog_id']);
+    const catalogLinkVerify = hasFields('get_tiktok_catalogs', ['bc_id']);
     const campaignFields = hasFields('create_tiktok_campaign', CATALOG_CAMPAIGN_SCHEMA_FIELDS.campaign);
     const adgroupFields = hasFields('create_tiktok_adgroup', CATALOG_CAMPAIGN_SCHEMA_FIELDS.adgroup);
     const adFields = hasFields('create_tiktok_ad', CATALOG_CAMPAIGN_SCHEMA_FIELDS.ad);
     const adInputFields = fields('create_tiktok_ad');
-    const shoppingType = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'VIDEO_SHOPPING_ADS').trim();
-    const adFormat = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_VIDEO').trim();
+    const structuralReadback = ['get_tiktok_campaigns', 'get_tiktok_adgroups', 'get_tiktok_ads']
+      .every((name) => byName.has(name));
+    const requiredFieldsCompatible = requiredFieldsAreGuaranteed('create_tiktok_campaign', CATALOG_CAMPAIGN_GUARANTEED_FIELDS.campaign)
+      && requiredFieldsAreGuaranteed('create_tiktok_adgroup', CATALOG_CAMPAIGN_GUARANTEED_FIELDS.adgroup)
+      && requiredFieldsAreGuaranteed('create_tiktok_ad', CATALOG_CAMPAIGN_GUARANTEED_FIELDS.ad);
+    const shoppingType = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'CATALOG_LISTING_ADS').trim();
+    const adFormat = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_CAROUSEL').trim();
+    const catalogCarouselMusic = hasFields('list_tiktok_commercial_music', ['advertiser_id', 'music_scene', 'search_type', 'filtering']);
     // Não basta o campo existir: o schema precisa aceitar os valores que esta
     // implementação realmente envia. Sem isso, um enum incompatível poderia
     // liberar a campanha, criar o primeiro nível e falhar no seguinte.
     const campaignSemantics = [
       ['objective_type', 'PRODUCT_SALES'],
+      ['product_source', 'CATALOG'],
       ['shopping_ads_type', shoppingType],
       ['operation_status', 'DISABLE'],
-    ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_campaign', field), expected));
+    ].every(([field, expected]) => supportsDeclaredValue(fieldSchema('create_tiktok_campaign', field), expected));
     const adgroupSemantics = [
+      ['promotion_type', 'WEBSITE'],
       ['shopping_ads_type', shoppingType],
+      ['shopping_ads_retargeting_type', 'OFF'],
       ['product_source', 'CATALOG'],
       ['optimization_goal', 'CONVERT'],
       ['billing_event', 'OCPM'],
       ['operation_status', 'DISABLE'],
       ['optimization_event', 'ON_WEB_ORDER'],
-    ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_adgroup', field), expected));
+    ].every(([field, expected]) => supportsDeclaredValue(fieldSchema('create_tiktok_adgroup', field), expected));
     const adSemantics = [
       ['ad_format', adFormat],
-      ['website_type', 'PRODUCT_LINK'],
-      ['destination_page_type', 'WEBSITE'],
       ['status', 'PAUSED'],
-      ['products_type', 'ALL_PRODUCTS'],
+      ['identity_type', 'BC_AUTH_TT'],
+      ['dark_post_status', 'ON'],
     ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_ad', field), expected));
-    const regularCatalogCampaign = campaignFields && adgroupFields && adFields
-      && campaignSemantics && adgroupSemantics && adSemantics;
-    // Caminho REAL (validado ao vivo): as tools regulares NUNCA expõem catálogo,
-    // mas as Smart+ SIM — create_tiktok_smart_plus_adgroup declara catalog_id +
-    // catalog_authorized_bc_id + product_source, e o anúncio de vídeo com
-    // product_info_enabled=CATALOG usa o Link de CADA produto. É esse contrato
-    // que libera a criação de Video Shopping Ads Product Link pela dashboard.
-    const smartPlusAdgroupFields = fields('create_tiktok_smart_plus_adgroup');
-    const smartPlusCatalog = hasFields('create_tiktok_smart_plus_campaign', ['advertiser_id', 'campaign_name', 'objective_type'])
-      && supportsSchemaValue(fieldSchema('create_tiktok_smart_plus_campaign', 'objective_type'), 'WEB_CONVERSIONS')
-      && smartPlusAdgroupFields.has('catalog_id')
-      && smartPlusAdgroupFields.has('catalog_authorized_bc_id')
-      && smartPlusAdgroupFields.has('product_source')
-      && byName.has('create_tiktok_smart_plus_ad');
-    const manualCatalogCampaign = smartPlusCatalog || regularCatalogCampaign;
+    const manualCatalogCampaign = campaignFields && adgroupFields && adFields
+      && campaignSemantics && adgroupSemantics && adSemantics
+      && requiredFieldsCompatible && structuralReadback && catalogCarouselMusic;
+    const optimizationEventSchema = fieldSchema('create_tiktok_adgroup', 'optimization_event');
+    const optimizationEvents = Array.from(new Set([
+      ...Array.from(schemaValues(optimizationEventSchema)),
+      ...TIKTOK_PIXEL_EVENTS.filter((eventName) => supportsDeclaredValue(optimizationEventSchema, eventName)),
+    ]));
+    const callToActions = Array.from(schemaValues(fieldSchema('create_tiktok_ad', 'call_to_action')));
     const value = {
       catalogCreate,
       catalogUpload,
-      catalogAudit,
       catalogUploadStatus,
+      catalogAudit,
       catalogFeedRead,
       catalogLinkVerify,
       manualCatalogCampaign,
-      smartPlusCatalog,
+      catalogCarouselMusic,
+      structuralReadback,
+      shoppingAdsType: manualCatalogCampaign ? shoppingType : null,
+      adFormat: manualCatalogCampaign ? adFormat : null,
       productSets: adInputFields.has('product_set_id'),
-      specificProducts: adInputFields.has('product_ids'),
-      catalogVideoTemplates: adInputFields.has('catalog_video_template_id'),
+      specificProducts: adInputFields.has('item_group_ids'),
+      catalogVideoTemplates: false,
       adText: adInputFields.has('ad_text'),
       callToAction: adInputFields.has('call_to_action'),
+      optimizationEvents,
+      callToActions,
       note: manualCatalogCampaign
-        ? 'Campanhas de catálogo estão disponíveis com Product Link confirmado pelo schema atual do Pipeboard.'
-        : 'O conector ainda não confirmou o contrato semântico de Product Link. A automação preserva o link individual do produto e não o troca por URL global.',
+        ? 'Catalog Carousel está disponível com o Link individual de cada produto, criação pausada e leitura dos três níveis.'
+        : 'O conector ainda não confirmou todo o contrato de Catalog Carousel. Nenhuma URL global será usada como fallback.',
     };
     catalogCapabilitiesCache = { value, expiresAt: now + 5 * 60 * 1000 };
     return value;
@@ -2063,6 +2224,82 @@ async function uploadTikTokCatalogProducts(bcId, catalogId, fileUrl, fileFormat)
   });
 }
 
+function normalizeCatalogUploadStatus(out) {
+  const raw = out || {};
+  const processStatus = String(deepPluck(raw, 'process_status') || deepPluck(raw, 'status') || '').trim().toUpperCase();
+  const number = (field) => Math.max(0, Number(deepPluck(raw, field)) || 0);
+  const numberFrom = (...fields) => {
+    for (const field of fields) {
+      const value = deepPluck(raw, field);
+      if (value !== undefined && value !== null && value !== '') return Math.max(0, Number(value) || 0);
+    }
+    return 0;
+  };
+  const affected = (field) => {
+    const value = deepPluck(raw, field);
+    return Array.isArray(value) ? value.slice(0, 50).map((entry) => {
+      const item = entry && typeof entry === 'object' ? entry : {};
+      const products = Array.isArray(item.affected_product_item_list)
+        ? item.affected_product_item_list.slice(0, 5).map((product) => ({
+          index: Number(product && product.index) || null,
+          skuId: textField(product && product.sku_id, product && product.skuId),
+          title: textField(product && product.title).slice(0, 120),
+        })) : [];
+      return {
+        field: textField(item.field).slice(0, 120),
+        issue: textField(item.issue).slice(0, 300),
+        suggestion: textField(item.suggestion).slice(0, 300),
+        affectedProductCount: Math.max(0, Number(item.affected_product_count) || products.length),
+        products,
+      };
+    }) : [];
+  };
+  const errorCount = number('error_count');
+  const failed = ['FAIL', 'FAILED'].includes(processStatus) || errorCount > 0;
+  const succeeded = processStatus === 'SUCCESS' && !failed;
+  const rawErrors = firstArray(raw, ['feed_log_data', 'errors', 'error_list', 'details', 'data']);
+  const sampleErrors = rawErrors.slice(0, 10).map((entry) => {
+    const item = entry && typeof entry === 'object' ? entry : {};
+    return {
+      sku: textField(item.sku_id, item.item_id, item.id).slice(0, 80) || undefined,
+      message: textField(item.message, item.error, item.reason, item.errmsg).slice(0, 200) || undefined,
+    };
+  }).filter((entry) => entry.sku || entry.message);
+  return {
+    feedLogId: String(deepPluck(raw, 'feed_log_id') || ''),
+    feedId: String(deepPluck(raw, 'feed_id') || ''),
+    processStatus,
+    processing: !['SUCCESS', 'FAIL', 'FAILED'].includes(processStatus),
+    succeeded,
+    failed,
+    status: succeeded ? 'success' : failed ? 'failed' : processStatus ? 'processing' : 'unknown',
+    addCount: numberFrom('add_count', 'added_count', 'added'),
+    updateCount: numberFrom('update_count', 'updated_count', 'updated'),
+    deleteCount: numberFrom('delete_count', 'deleted_count', 'deleted'),
+    added: numberFrom('added', 'add_count', 'added_count'),
+    updated: numberFrom('updated', 'update_count', 'updated_count'),
+    deleted: numberFrom('deleted', 'delete_count', 'deleted_count'),
+    errorCount,
+    warningCount: number('warn_count'),
+    errors: affected('error_affected_products'),
+    warnings: affected('warn_affected_products'),
+    sampleErrors,
+  };
+}
+
+// O upload é assíncrono. feed_log_id identifica exatamente o arquivo
+// enviado e evita confundir produtos antigos do overview com o lote atual.
+async function getTikTokCatalogUploadStatus(bcId, catalogId, feedLogId) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  const logId = String(feedLogId || '').trim();
+  if (!bc || !cid || !logId) throw badRequest('bc_id, catalog_id e feed_log_id são obrigatórios');
+  const out = await pipeboard.callTool('get_tiktok_catalog_upload_status', {
+    bc_id: bc, catalog_id: cid, feed_log_id: logId,
+  });
+  return normalizeCatalogUploadStatus(out);
+}
+
 // Overview de auditoria dos produtos (aprovados/pendentes/reprovados).
 async function getTikTokCatalogOverview(bcId, catalogId) {
   const bc = String(bcId || '').trim();
@@ -2070,20 +2307,6 @@ async function getTikTokCatalogOverview(bcId, catalogId) {
   if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
   const out = await pipeboard.callTool('get_tiktok_catalog_overview', { bc_id: bc, catalog_id: cid });
   return normalizeCatalogOverview(out);
-}
-
-// Confirma a INGESTÃO de um upload de arquivo pelo feed_log_id (SUCCESS/FAIL +
-// erro por produto). Um upload de arquivo único não aparece em getTikTokCatalogFeeds,
-// então esta é a forma confiável de saber por que um lote "ficou zero".
-async function getTikTokCatalogUploadStatus(bcId, catalogId, feedLogId) {
-  const bc = String(bcId || '').trim();
-  const cid = String(catalogId || '').trim();
-  const fid = String(feedLogId || '').trim();
-  if (!bc || !cid || !fid) throw badRequest('bc_id, catalog_id e feed_log_id são obrigatórios');
-  const out = await pipeboard.callTool('get_tiktok_catalog_upload_status', {
-    bc_id: bc, catalog_id: cid, feed_log_id: fid,
-  });
-  return normalizeCatalogUploadStatus(out);
 }
 
 // Lista feeds remotos apenas para diagnóstico. Zero feeds é compatível com o
@@ -2205,7 +2428,6 @@ async function appealSmartPlusAd(advertiserId, adId, reason) {
 // Foco no funil de site do gestor de tráfego: conversões (pixel) e tráfego.
 const SMART_PLUS_GOALS = {
   conversions: { objective: 'WEB_CONVERSIONS', promotion: 'WEBSITE', optimization: 'CONVERT', billing: 'OCPM', salesDestination: 'WEBSITE' },
-  traffic: { objective: 'TRAFFIC', promotion: 'WEBSITE', optimization: 'CLICK', billing: 'CPC' },
 };
 
 // Cria uma campanha Smart+ completa (campanha → ad group → vídeo → asset group).
@@ -2218,16 +2440,16 @@ async function createSmartPlusCampaign(advertiserId, spec) {
   if (!adv) throw badRequest('advertiserId é obrigatório');
   const s = spec || {};
   const g = SMART_PLUS_GOALS[s.goal];
-  if (!g) throw badRequest('Objetivo Smart+ não suportado: "' + s.goal + '" (use conversions ou traffic)');
+  if (!g) throw badRequest('Smart+ no ROI-NADOS aceita somente conversão');
   if (!/^https:\/\/[^\s]+/.test(String(s.videoUrl || ''))) throw badRequest('Vídeo (URL https) é obrigatório');
   if (!/^https:\/\/[^\s]+/.test(String(s.coverUrl || ''))) throw badRequest('Capa do vídeo (URL https) é obrigatória para Smart+');
   if (!/^https:\/\/[^\s]+/.test(String(s.linkUrl || ''))) throw badRequest('Link de destino (URL https) é obrigatório para Smart+');
   const budget = Number(s.budgetAmount);
   if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' no total');
-  if (s.goal === 'conversions' && !/^\d{5,30}$/.test(String(s.pixelId || ''))) {
+  if (!/^\d{5,30}$/.test(String(s.pixelId || ''))) {
     throw badRequest('Conversões exigem o Pixel ID NUMÉRICO do TikTok');
   }
-  if (s.goal === 'conversions' && !/^[A-Z_]{3,40}$/.test(String(s.customEventType || ''))) {
+  if (String(s.customEventType || '').toUpperCase() !== 'ON_WEB_ORDER') {
     throw badRequest('Conversões exigem o evento de otimização do Pixel');
   }
   const endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : null;
@@ -2277,10 +2499,8 @@ async function createSmartPlusCampaign(advertiserId, spec) {
       targeting_optimization_mode: 'AUTOMATIC',
       operation_status: 'DISABLE',
     };
-    if (s.goal === 'conversions') {
-      agArgs.pixel_id = String(s.pixelId);
-      if (s.customEventType) agArgs.optimization_event = String(s.customEventType).toUpperCase();
-    }
+    agArgs.pixel_id = String(s.pixelId);
+    agArgs.optimization_event = 'ON_WEB_ORDER';
     if (identity.identityId) {
       agArgs.identity_id = identity.identityId;
       agArgs.identity_type = identity.identityType;
@@ -2352,174 +2572,231 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   const s = spec || {};
   const options = opts || {};
   const catalogId = String(s.catalogId || '').trim();
-  if (!/^\d{6,30}$/.test(catalogId)) throw badRequest('catalogId (do TikTok) é obrigatório — sincronize o catálogo primeiro');
-  const catalogBcId = String(s.catalogBcId || s.catalogAuthorizedBcId || s.bcId || '').trim();
-  if (!/^\d{6,30}$/.test(catalogBcId)) throw badRequest('Business Center do catálogo é obrigatório para campanha de catálogo');
+  if (!catalogId) throw badRequest('catalogId (do TikTok) é obrigatório — sincronize o catálogo primeiro');
+  const bcId = String(s.bcId || '').trim();
+  if (!bcId) throw badRequest('bcId (Business Center) é obrigatório para campanha de catálogo');
   if (!String(s.name || '').trim()) throw badRequest('Nome da campanha é obrigatório');
   const budget = Number(s.budgetAmount);
-  if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET);
+  if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' por dia');
+  if (s.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || ''))) {
+    throw badRequest('Orçamento total exige data de término (endDate)');
+  }
   const pixelId = String(s.pixelId || '').trim();
-  if (!/^\d{6,30}$/.test(pixelId)) throw badRequest('Pixel ID numérico do TikTok é obrigatório para optimization_goal=CONVERT');
-  // Criativo por campanha (coluna da planilha): vídeo + capa. TikTok exige capa
-  // para SINGLE_VIDEO; sem vídeo não há anúncio de VÍDEO (regra do gestor).
-  const videoId = String(s.videoId || '').trim();
-  if (!videoId) throw badRequest('Vídeo do anúncio (videoId) é obrigatório — informe o criativo de cada campanha');
-  const coverImageId = String(s.coverImageId || s.coverId || '').trim();
-  if (!coverImageId) throw badRequest('Capa do vídeo (coverImageId) é obrigatória para o anúncio de vídeo');
-  // Product Link: a URL base vem do LINK do próprio produto do catálogo (o
-  // caller deriva do catálogo). Nunca uma URL global digitada. Cada produto do
-  // anúncio ainda usa o seu próprio link via product_info_enabled=CATALOG.
-  const landing = String(s.landingPageUrl || s.productLink || '').trim();
-  if (!/^https:\/\/[^\s]+/.test(landing)) throw badRequest('Product Link (URL https do produto) é obrigatório — a dashboard deriva do Link do catálogo, não de URL global');
-
+  if (!/^\d{6,30}$/.test(pixelId)) {
+    throw badRequest('Pixel ID numérico do TikTok é obrigatório para optimization_goal=CONVERT');
+  }
+  const rawPixelEvent = String(s.pixelEvent || 'ON_WEB_ORDER').trim().toUpperCase();
+  const pixelEvent = rawPixelEvent === 'PURCHASE' ? 'ON_WEB_ORDER' : rawPixelEvent;
+  if (!TIKTOK_PIXEL_EVENTS.includes(pixelEvent)) {
+    throw badRequest('Evento de otimização do Pixel TikTok inválido');
+  }
   const capabilities = await getCatalogCapabilities();
   if (!capabilities.manualCatalogCampaign) {
-    throw catalogCreationAwaitingConnectorError('O conector ainda não expõe as tools Smart+ de catálogo. Nenhuma estrutura foi criada.');
+    throw catalogCreationAwaitingConnectorError('O conector ainda não confirmou a criação VSA Product Link sem URL no anúncio. Nenhuma estrutura foi criada.');
+  }
+  if (Array.isArray(capabilities.optimizationEvents)
+    && !capabilities.optimizationEvents.includes(pixelEvent)) {
+    throw badRequest('O schema atual do conector não aceita o evento ' + pixelEvent + ' nesta campanha de catálogo.', 409);
+  }
+  const productScope = ['all', 'product_set', 'specific'].includes(s.productScope) ? s.productScope : 'all';
+  if (productScope === 'specific' && !capabilities.specificProducts) {
+    throw badRequest('O conector Product Link ainda não confirmou seleção de produtos específicos.', 409);
+  }
+  if (productScope === 'product_set' && !capabilities.productSets) {
+    throw badRequest('O conector Product Link ainda não confirmou Product Set.', 409);
+  }
+  const requestedCta = String(s.callToAction || '').trim().toUpperCase();
+  if (requestedCta && (!capabilities.callToAction
+    || (Array.isArray(capabilities.callToActions) && capabilities.callToActions.length
+      && !capabilities.callToActions.includes(requestedCta)))) {
+    throw badRequest('O schema atual do conector não aceita o CTA ' + requestedCta + ' nesta campanha de catálogo.', 409);
   }
 
-  // Identidade: catálogo só cria com BC_AUTH_TT autorizada no BC (schema atual).
-  const identRow = {
-    identity_id: String(s.identityId || ''),
-    identity_type: String(s.identityType || 'BC_AUTH_TT').toUpperCase(),
-    identity_bc_id: String(s.identityBcId || catalogBcId),
-  };
-  if (!usableBcIdentity(identRow)) {
-    throw badRequest('Campanha de catálogo exige identidade BC_AUTH_TT com Business Center autorizado. CUSTOMIZED_USER não é elegível.');
-  }
-  const identity = bcIdentityPayload(identRow);
-  const optimizationEvent = String(s.optimizationEvent || 'SHOPPING').toUpperCase();
   const countries = (Array.isArray(s.countries) && s.countries.length ? s.countries : (s.country ? [s.country] : ['BR']));
-
+  const SHOPPING_TYPE = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'CATALOG_LISTING_ADS').trim();
+  const AD_FORMAT = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_CAROUSEL').trim();
+  const itemGroupIds = (Array.isArray(s.itemGroupIds) ? s.itemGroupIds : Array.isArray(s.productIds) ? s.productIds : [])
+    .map((value) => String(value || '').trim()).filter(Boolean).slice(0, 100);
+  if (productScope !== 'product_set' && !itemGroupIds.length) {
+    throw badRequest('O catálogo não possui item_group_id para montar os cards. Sincronize os produtos novamente antes de criar a campanha.', 422);
+  }
+  let explicitIdentity = null;
+  if (s.identityId || s.identityType || s.identityBcId) {
+    const row = {
+      identity_id: String(s.identityId || ''),
+      identity_type: String(s.identityType || '').toUpperCase(),
+      identity_bc_id: String(s.identityBcId || ''),
+    };
+    if (!usableBcIdentity(row)) {
+      throw badRequest('Campanha de catálogo só aceita uma identidade BC_AUTH_TT com Business Center autorizado. CUSTOMIZED_USER não é elegível para criação automática.');
+    }
+    explicitIdentity = bcIdentityPayload(row);
+    if (explicitIdentity.identityBcId !== bcId) {
+      throw badRequest('A identidade selecionada pertence a outro Business Center. Use uma identidade BC_AUTH_TT autorizada no mesmo BC do catálogo.');
+    }
+  }
   const warnings = [];
-  const [info, regions] = await Promise.all([
+  // Todos os pré-requisitos remotos são somente leitura e terminam antes da
+  // primeira criação. Falta de identidade, região ou música não gera órfãos.
+  const [info, identity, regions, catalogMusic] = await Promise.all([
     getAdvertiserInfo(adv),
-    resolveLocationIds(adv, countries, 'WEB_CONVERSIONS'),
+    explicitIdentity || pickAdIdentity(adv, bcId),
+    resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
+    pickCatalogCarouselMusic(adv, s.musicId),
   ]);
   if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
-  if (!regions.locationIds.length) throw badRequest('Nenhuma região válida para os países informados');
-
-  // Janela (orçamento TOTAL/CBO exige término): início ~30min à frente, fim +1 ano.
-  const startAt = advertiserLocalTime(info && info.timezone);
-  const endDate = s.budgetType === 'lifetime' && /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || ''))
-    ? String(s.endDate).slice(0, 10)
-    : new Date(Date.parse(startAt.slice(0, 10) + 'T00:00:00Z') + 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const endAt = endDate + ' 23:59:59';
-
+  const plan = resolveBudgetPlan(s);
   const createdIds = { ...((options && options.resume) || {}) };
   const report = async (stage) => {
     if (typeof options.onProgress === 'function') await options.onProgress({ stage, createdIds: { ...createdIds } });
   };
 
-  // CTA dinâmico (portfólio) — reusa o informado ou cria um.
-  let ctaId = String(s.callToActionId || createdIds.ctaId || '').trim();
-  if (!ctaId) {
-    const ctas = Array.isArray(s.ctas) && s.ctas.length
-      ? s.ctas.map((c) => String(c).toUpperCase())
-      : (s.callToAction ? [String(s.callToAction).toUpperCase(), 'LEARN_MORE'] : ['SHOP_NOW', 'LEARN_MORE']);
-    const ctaOut = await pipeboard.callTool('create_tiktok_cta_portfolio', { advertiser_id: adv, call_to_actions: ctas });
-    ctaId = String(deepPluck(ctaOut, 'call_to_action_id') || deepPluck(ctaOut, 'creative_portfolio_id') || '');
-    if (!ctaId) throw stepError('cta', 'Não foi possível criar o portfólio de CTA');
-    createdIds.ctaId = ctaId;
+  // 1) Campanha PRODUCT_SALES (catálogo)
+  const campArgs = {
+    advertiser_id: adv,
+    campaign_name: String(s.name).slice(0, 512),
+    objective_type: 'PRODUCT_SALES',
+    product_source: 'CATALOG',
+    shopping_ads_type: SHOPPING_TYPE,
+    catalog_id: catalogId,
+    operation_status: 'DISABLE',
+  };
+  if (plan.cbo) {
+    campArgs.budget_mode = plan.campaign.budget_mode;
+    campArgs.budget = plan.campaign.budget;
+    campArgs.budget_optimize_on = true;
   }
-
-  // 1) Campanha Smart+ de catálogo (CBO/TOTAL) — PAUSED.
   let campaignId = String(createdIds.campaignId || '');
   try {
     await report('creating_campaign');
     if (!campaignId) {
-      const campOut = await callTikTokWriteWithRetry('create_tiktok_smart_plus_campaign', {
-        advertiser_id: adv,
-        campaign_name: String(s.name).slice(0, 512),
-        objective_type: 'WEB_CONVERSIONS',
-        sales_destination: 'WEBSITE',
-        catalog_enabled: true,
-        catalog_type: 'ECOMMERCE',
-        budget_mode: 'BUDGET_MODE_TOTAL',
-        budget,
-        operation_status: 'DISABLE',
-      }, () => warnings.push('Instabilidade do TikTok ao criar a campanha — nova tentativa'));
+      const campOut = await callTikTokWriteWithRetry('create_tiktok_campaign', campArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'));
       campaignId = String(deepPluck(campOut, 'campaign_id') || '');
-      if (!campaignId) throw stepError('campaign', 'create_tiktok_smart_plus_campaign não retornou campaign_id');
+      if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
       createdIds.campaignId = campaignId;
-    }
-
-    // 2) Ad group de catálogo (WEBSITE + catálogo + NO_BID + INFINITE).
-    let adGroupId = String(createdIds.adGroupId || '');
-    if (!adGroupId) {
       await report('creating_adgroup');
-      const agOut = await callTikTokWriteWithRetry('create_tiktok_smart_plus_adgroup', {
-        advertiser_id: adv,
-        campaign_id: campaignId,
-        adgroup_name: String(s.name).slice(0, 500) + ' — grupo',
-        promotion_type: 'WEBSITE',
-        catalog_id: catalogId,
-        catalog_authorized_bc_id: catalogBcId,
-        product_source: 'CATALOG',
-        optimization_goal: 'CONVERT',
-        billing_event: 'OCPM',
-        bid_type: 'BID_TYPE_NO_BID',
-        budget_mode: 'BUDGET_MODE_INFINITE',
-        pixel_id: pixelId,
-        optimization_event: optimizationEvent,
-        placement_type: 'PLACEMENT_TYPE_NORMAL',
-        placements: ['PLACEMENT_TIKTOK'],
-        targeting_spec: { location_ids: regions.locationIds },
-        schedule_type: 'SCHEDULE_START_END',
-        schedule_start_time: startAt,
-        schedule_end_time: endAt,
-        identity_id: identity.identityId,
-        identity_type: identity.identityType,
-        identity_authorized_bc_id: identity.identityBcId || catalogBcId,
-        operation_status: 'DISABLE',
-      }, () => warnings.push('Instabilidade do TikTok ao criar o grupo — nova tentativa'));
-      adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
-      if (!adGroupId) throw stepError('adgroup', 'create_tiktok_smart_plus_adgroup não retornou adgroup_id (verifique catálogo/BC/pixel)', createdIds);
-      createdIds.adGroupId = adGroupId;
     }
 
-    // 3) Anúncio de VÍDEO de catálogo — vídeo do gestor (com áudio) + capa +
-    // Product Link (product_info_enabled=CATALOG usa o link de cada produto).
-    if (!createdIds.adId) {
+    // 2) Ad group — fonte = catálogo. `CONVERT` exige pixel e evento; a camada
+    // de domínio e esta defesa final impedem criar campanha órfã antes da
+    // rejeição inevitável do ad group.
+    const agArgs = {
+      advertiser_id: adv,
+      campaign_id: campaignId,
+      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+      promotion_type: 'WEBSITE',
+      shopping_ads_type: SHOPPING_TYPE,
+      shopping_ads_retargeting_type: 'OFF',
+      product_source: 'CATALOG',
+      catalog_id: catalogId,
+      catalog_authorized_bc_id: bcId,
+      optimization_goal: 'CONVERT',
+      billing_event: 'OCPM',
+      schedule_start_time: advertiserLocalTime(info && info.timezone),
+      targeting: { location_ids: regions.locationIds },
+      operation_status: 'DISABLE',
+    };
+    agArgs.pixel_id = pixelId;
+    agArgs.optimization_event = pixelEvent;
+    if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
+    if (plan.adgroup.budget != null) agArgs.budget = plan.adgroup.budget;
+    Object.assign(agArgs, plan.bid);
+    if (s.budgetType === 'lifetime' && s.endDate) agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
+    await report('creating_adgroup');
+    if (!createdIds.adGroupId) {
+      const agOut = await callTikTokWriteWithRetry('create_tiktok_adgroup', agArgs, () => warnings.push('TikTok não conseguiu alocar a criação do grupo — nova tentativa automática'));
+      const adGroupId = String(deepPluck(agOut, 'adgroup_id') || '');
+      if (!adGroupId) throw stepError('adgroup', 'create_tiktok_adgroup não retornou adgroup_id (verifique catálogo, BC, pixel e tipo de Shopping Ads)', createdIds);
+      createdIds.adGroupId = adGroupId;
       await report('creating_ad');
-      const creativeInfo = {
-        ad_format: 'SINGLE_VIDEO',
-        video_info: { video_id: videoId },
-        image_info: [{ web_uri: coverImageId }],
-        identity_id: identity.identityId,
-        identity_type: identity.identityType,
-        identity_authorized_bc_id: identity.identityBcId || catalogBcId,
-      };
-      if (identity.identityType === 'BC_AUTH_TT') creativeInfo.dark_post_status = 'ON';
-      const adOut = await callTikTokWriteWithRetry('create_tiktok_smart_plus_ad', {
-        advertiser_id: adv,
-        adgroup_id: adGroupId,
-        ad_name: String(s.name).slice(0, 500),
-        creative_list: [{ creative_info: creativeInfo }],
-        ad_configuration: {
-          catalog_creative_toggle: true,
-          catalog_creative_info: { catalog_media_settings: ['VIDEO'] },
-          call_to_action_id: ctaId,
-          product_info_enabled: 'CATALOG',
-          product_specific_type: 'ALL',
-          product_set_id: '0',
-        },
-        ad_text_list: [{ ad_text: String(s.text || s.adText || s.name).slice(0, 100) }],
-        landing_page_url_list: [{ landing_page_url: landing }],
-        operation_status: 'DISABLE',
-      }, () => warnings.push('Instabilidade do TikTok ao criar o anúncio — nova tentativa'));
-      const adId = String(deepPluck(adOut, 'smart_plus_ad_id') || deepPluck(adOut, 'ad_id') || '');
-      if (!adId) throw stepError('ad', 'create_tiktok_smart_plus_ad não retornou o ID do anúncio', createdIds);
+    }
+    const adGroupId = createdIds.adGroupId;
+
+    // 3) Catalog Carousel. Cada card usa o item_group_id do feed e o Link do
+    // próprio produto. Não existe landing_page_url no anúncio.
+    const adArgs = {
+      advertiser_id: adv,
+      adgroup_id: adGroupId,
+      ad_name: String(s.name).slice(0, 500),
+      ad_format: AD_FORMAT,
+      catalog_id: catalogId,
+      ad_text: String(s.text || 'Confira os produtos disponíveis').slice(0, 100),
+      music_id: catalogMusic.musicId,
+      status: 'PAUSED',
+    };
+    if (productScope !== 'product_set') adArgs.item_group_ids = itemGroupIds;
+    if (productScope === 'product_set' && s.productSetId) adArgs.product_set_id = String(s.productSetId);
+    if (s.callToAction && capabilities.callToAction) adArgs.call_to_action = String(s.callToAction).toUpperCase();
+    else if (s.callToAction) warnings.push('CTA opcional será definido pelo TikTok porque o conector Product Link atual não o declara.');
+    if (identity && identity.identityId) {
+      adArgs.identity_id = identity.identityId;
+      adArgs.identity_type = identity.identityType;
+      if (identity.identityBcId) adArgs.identity_authorized_bc_id = identity.identityBcId;
+      if (identity.identityType === 'BC_AUTH_TT') adArgs.dark_post_status = 'ON';
+    }
+    await report('creating_ad');
+    if (!createdIds.adId) {
+      const adOut = await callTikTokWriteWithRetry('create_tiktok_ad', adArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar o anúncio — nova tentativa automática'));
+      const adId = String(deepPluck(adOut, 'ad_id') || '');
+      if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id para o anúncio de catálogo', createdIds);
       createdIds.adId = adId;
     }
 
-    warnings.push('Video Shopping Ads (Product Link) criado em PAUSA — ative em Campanhas quando estiver pronta');
+    // Não declaramos sucesso com apenas três IDs. A leitura imediata precisa
+    // confirmar campanha → conjunto → anúncio, Product Link, ausência de URL
+    // manual e estado pausado. Se algum campo não vier do conector, é falha de
+    // verificação, não uma licença para assumir que a campanha está correta.
+    await report('verifying_entities');
+    let verified = false;
+    let verification = null;
+    for (let attempt = 0; attempt < 3 && !verified; attempt += 1) {
+      try {
+        const [campaigns, adGroups, ads] = await Promise.all([
+          getCampaigns(adv, { pageSize: 100, campaignIds: [campaignId] }),
+          getAdGroups(adv, [campaignId], { pageSize: 100 }),
+          getAds(adv, { campaignIds: [campaignId], adgroupIds: [adGroupId], pageSize: 100 }),
+        ]);
+        const campaign = campaigns.find((item) => String(item.id) === String(campaignId));
+        const adGroup = adGroups.find((item) => String(item.id) === String(adGroupId));
+        const ad = ads.find((item) => String(item.id) === String(createdIds.adId));
+        verification = verifyCatalogProductLinkHierarchy({
+          campaign, adGroup, ad,
+          expected: {
+            campaignId, adGroupId, adId: createdIds.adId,
+            catalogId, bcId, shoppingAdsType: SHOPPING_TYPE,
+            pixelId, pixelEvent,
+            adFormat: AD_FORMAT,
+            itemGroupIds: adArgs.item_group_ids || [],
+            productSetId: adArgs.product_set_id || '',
+            musicId: adArgs.music_id,
+            adText: adArgs.ad_text || '',
+            callToAction: adArgs.call_to_action || '',
+            identityId: identity.identityId,
+            identityType: identity.identityType,
+            identityBcId: identity.identityBcId,
+            darkPostStatus: 'ON',
+          },
+        });
+        verified = verification.complete;
+      } catch (_) { /* consistência eventual / leitura best-effort */ }
+      if (!verified && attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+    if (!verified) {
+      const err = stepError('verify', 'Os IDs foram criados, mas o TikTok ainda não confirmou a hierarquia Product Link completa, pausada e sem URL manual', createdIds, 502);
+      err.retryable = true;
+      err.verification = verification;
+      err.suggestedAction = 'Aguarde a propagação e confira se o conector devolve catálogo, Product Link e status dos três níveis antes de retomar.';
+      throw err;
+    }
+
+    warnings.push('Catalog Carousel criado e confirmado em PAUSA — cada card usa o Link individual do produto');
     cacheBust('tree:');
     await report('ready_paused');
-    return { ...createdIds, name: s.name, ctaId, warnings };
+    return { ...createdIds, name: s.name, warnings, verification };
   } catch (err) {
-    // Órfã não pode ficar entregável: pausa best-effort a campanha Smart+.
+    // Órfã não pode ficar entregável: pausa best-effort e devolve o passo.
     if (campaignId) {
-      try { await setSmartPlusCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
+      try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
     }
     if (!err.step) err.step = campaignId ? 'adgroup' : 'campaign';
     err.createdIds = createdIds;
@@ -2570,16 +2847,18 @@ module.exports = {
   setBusinessCenterId,
   createTikTokCatalog,
   uploadTikTokCatalogProducts,
-  getTikTokCatalogOverview,
   getTikTokCatalogUploadStatus,
+  getTikTokCatalogOverview,
   getTikTokCatalogFeeds,
   listTikTokCatalogs,
   updateTikTokCatalogName,
   getCatalogCapabilities,
+  resolveCatalogCarouselMusic: pickCatalogCarouselMusic,
   createCatalogCampaign,
   CATALOG_TYPES,
   // direcionamento (leitura p/ a criação)
   listInterestCategories,
+  listTikTokPixels,
   // Smart+ (gestão + appeal de anúncio + criação composta)
   listSmartPlusCampaigns,
   listSmartPlusAds,
@@ -2591,5 +2870,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, pickCatalogCarouselMusic, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
 };

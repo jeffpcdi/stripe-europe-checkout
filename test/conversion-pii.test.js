@@ -36,6 +36,11 @@ r = normalizeConversion({ status: 'aprovado', transaction_id: '3', value: '97,00
 eq(r.email, 'br@pagseguro.com', 'alias payer_email aninhado');
 eq(r.phone, '(11) 97777-6666', 'alias celular aninhado');
 
+console.log('normalizeConversion — PII dentro de array (charges[].billing_details)');
+r = normalizeConversion({ event: 'paid', order_id: 'array-1', amount: 10, charges: [{ billing_details: { email: 'array@buyer.com', phone: '+351912345678' } }] });
+eq(r.email, 'array@buyer.com', 'email dentro de array');
+eq(r.phone, '+351912345678', 'telefone dentro de array');
+
 console.log('normalizeConversion — descarta lixo (email inválido, telefone curto)');
 r = normalizeConversion({ event: 'paid', order_id: '4', amount: 10, email: 'nao-eh-email', phone: '0' });
 eq(r.email, null, 'string sem @ não é e-mail');
@@ -44,5 +49,7 @@ eq(r.phone, null, 'telefone com <7 dígitos é descartado');
 console.log('normalizeConversion — raiz vence sobre ocorrência mais funda (afiliado/comissão)');
 r = normalizeConversion({ event: 'paid', order_id: '5', amount: 10, email: 'comprador@top.com', commissions: { affiliate: { email: 'afiliado@fundo.com' } } });
 eq(r.email, 'comprador@top.com', 'e-mail da raiz vence o do afiliado aninhado');
+r = normalizeConversion({ event: 'paid', order_id: '6', amount: 10, customer_email: 'raiz@buyer.com', commissions: { affiliate: { email: 'afiliado@fundo.com' } } });
+eq(r.email, 'raiz@buyer.com', 'alias da raiz vence alias genérico mais fundo');
 
 console.log('\n✅ conversion-pii: ' + n + ' asserts OK');
