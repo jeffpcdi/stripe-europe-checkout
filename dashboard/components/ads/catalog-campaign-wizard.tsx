@@ -27,8 +27,6 @@ const RUN_STATUS: Record<AdsCatalogCampaignRun['status'], string> = {
   completed: 'Concluída', partial: 'Parcial', failed: 'Falhou', cancelled: 'Cancelada',
 }
 
-const TIKTOK_ID_PATTERN = /^\d{6,30}$/
-
 function RunCard({
   run,
   advertiserId,
@@ -63,7 +61,7 @@ function RunCard({
     verification.productLink === true && 'Product Link',
     verification.targeting === true && 'Pixel e evento',
     verification.identity === true && 'identidade do Business Center',
-    verification.creative === true && 'criativo dinâmico',
+    verification.creative === true && 'Catalog Carousel',
     verification.noManualUrl === true && 'sem URL manual',
     verification.paused === true && 'tudo pausado',
   ].filter(Boolean) as string[] : []
@@ -153,13 +151,10 @@ export function CatalogCampaignWizard({
   capabilities: AdsCatalogCapabilities | null
 }) {
   const supported = capabilities?.manualCatalogCampaign === true
-  const supportsProductSets = supported && capabilities?.productSets === true
-  const supportsSpecificProducts = supported && capabilities?.specificProducts === true
-  const supportsVideoTemplates = supported && capabilities?.catalogVideoTemplates === true
   const supportsAdText = supported && capabilities?.adText === true
   const supportsCallToAction = supported && capabilities?.callToAction === true
-  const creativeFormat = capabilities?.adFormat === 'CATALOG_VIDEO'
-    ? 'Catalog Video'
+  const creativeFormat = capabilities?.adFormat === 'CATALOG_CAROUSEL'
+    ? 'Catalog Carousel'
     : capabilities?.adFormat || 'formato ainda não confirmado'
   const { data: runsData, mutate: mutateRuns } = useAdsCatalogCampaignRuns(catalog.id, advertiserId)
   const runs = runsData?.runs ?? []
@@ -168,12 +163,8 @@ export function CatalogCampaignWizard({
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState(catalog.name)
   const [budget, setBudget] = useState('')
-  const [productScope, setProductScope] = useState<'all' | 'product_set' | 'specific'>('all')
-  const [productIds, setProductIds] = useState('')
-  const [productSetId, setProductSetId] = useState('')
-  const [templateId, setTemplateId] = useState('')
   const [text, setText] = useState('')
-  const [cta, setCta] = useState('LEARN_MORE')
+  const [cta, setCta] = useState('SHOP_NOW')
   const idempotencyRef = useRef<StableIdempotencyState | null>(null)
 
   const activeRun = useMemo(() => runs.find((run) => ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)), [runs])
@@ -183,21 +174,11 @@ export function CatalogCampaignWizard({
     const matching = TIKTOK_CTA_OPTIONS.filter((option) => declared.has(option.value))
     return matching.length > 0 ? matching : TIKTOK_CTA_OPTIONS
   }, [capabilities?.callToActions, supportsCallToAction])
-  const parsedProductIds = useMemo(() => productIds.split(',').map((id) => id.trim()).filter(Boolean), [productIds])
-  const effectiveProductScope = productScope === 'specific' && supportsSpecificProducts
-    ? 'specific'
-    : productScope === 'product_set' && supportsProductSets
-      ? 'product_set'
-      : 'all'
-
   useEffect(() => {
     if (!supported) setOpen(false)
-    if (productScope === 'specific' && !supportsSpecificProducts) setProductScope('all')
-    if (productScope === 'product_set' && !supportsProductSets) setProductScope('all')
-    if (!supportsVideoTemplates && templateId) setTemplateId('')
     if (!supportsAdText && text) setText('')
-    if (!supportsCallToAction && cta !== 'LEARN_MORE') setCta('LEARN_MORE')
-  }, [cta, productScope, supported, supportsAdText, supportsCallToAction, supportsProductSets, supportsSpecificProducts, supportsVideoTemplates, templateId, text])
+    if (!supportsCallToAction && cta !== 'SHOP_NOW') setCta('SHOP_NOW')
+  }, [cta, supported, supportsAdText, supportsCallToAction, text])
 
   useEffect(() => {
     if (supportsCallToAction && availableCtas.length > 0 && !availableCtas.some((option) => option.value === cta)) {
@@ -210,13 +191,10 @@ export function CatalogCampaignWizard({
     advertiserId,
     name: name.trim() || catalog.name,
     budget: Number(budget),
-    productScope: effectiveProductScope,
-    productIds: effectiveProductScope === 'specific' ? parsedProductIds : [],
-    productSetId: effectiveProductScope === 'product_set' ? productSetId.trim() : '',
-    templateId: supportsVideoTemplates ? templateId.trim() : '',
+    productScope: 'all',
     text: supportsAdText ? text.trim() : '',
     cta: supportsCallToAction ? cta : '',
-  }), [advertiserId, budget, catalog.id, catalog.name, cta, effectiveProductScope, name, parsedProductIds, productSetId, supportsAdText, supportsCallToAction, supportsVideoTemplates, templateId, text])
+  }), [advertiserId, budget, catalog.id, catalog.name, cta, name, supportsAdText, supportsCallToAction, text])
 
   function idempotencyKey() {
     idempotencyRef.current = resolveStableIdempotencyKey(
@@ -234,12 +212,9 @@ export function CatalogCampaignWizard({
       adAccountId: advertiserId,
       name: name.trim() || catalog.name,
       budgetAmount: Number(budget), budgetType: 'daily', budgetOptimization: 'adgroup',
-      country: catalog.country || 'BR', productScope: effectiveProductScope,
+      country: catalog.country || 'BR', productScope: 'all',
       idempotencyKey: idempotencyKey(),
     }
-    if (effectiveProductScope === 'specific') body.productIds = parsedProductIds
-    if (effectiveProductScope === 'product_set') body.productSetId = productSetId.trim()
-    if (supportsVideoTemplates && templateId.trim()) body.catalogVideoTemplateId = templateId.trim()
     if (supportsAdText && text.trim()) body.text = text.trim()
     if (supportsCallToAction) body.callToAction = cta
     return body
@@ -248,16 +223,6 @@ export function CatalogCampaignWizard({
   async function create() {
     if (!supported) return toast.error('A criação ainda não foi confirmada pelo conector TikTok')
     if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return toast.error(tiktokMinimumBudgetMessage(catalog.currency, ' por dia'))
-    if (effectiveProductScope === 'specific' && parsedProductIds.length === 0) return toast.error('Informe ao menos um Product ID do TikTok')
-    if (effectiveProductScope === 'specific' && parsedProductIds.some((id) => !TIKTOK_ID_PATTERN.test(id))) {
-      return toast.error('Revise os Product IDs do TikTok', { hint: 'Cada ID deve ter somente 6 a 30 dígitos, separado por vírgula.' })
-    }
-    if (effectiveProductScope === 'product_set' && !TIKTOK_ID_PATTERN.test(productSetId.trim())) {
-      return toast.error('Informe um Product Set ID válido', { hint: 'Use somente os 6 a 30 dígitos exibidos no TikTok Catalog Manager.' })
-    }
-    if (supportsVideoTemplates && templateId.trim() && !TIKTOK_ID_PATTERN.test(templateId.trim())) {
-      return toast.error('Informe um Catalog Video Template ID válido', { hint: 'Use somente os 6 a 30 dígitos exibidos no TikTok Catalog Manager.' })
-    }
     setBusy(true)
     try {
       const body = payload()
@@ -280,7 +245,7 @@ export function CatalogCampaignWizard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-xs font-semibold text-foreground">Campanhas deste catálogo</h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Catalog Ads · Product Link individual de cada produto.</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Catalog Carousel · cada produto abre o próprio Link.</p>
         </div>
         {supported ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -291,22 +256,22 @@ export function CatalogCampaignWizard({
               <Rocket className="size-3.5" /> {activeRun ? 'Criação em andamento' : 'Nova campanha'} <ChevronDown className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
             </button>
           </div>
-        ) : <span className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[10px] font-medium text-warning">Product Link em validação</span>}
+        ) : <span className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[10px] font-medium text-warning">Conector em validação</span>}
       </div>
       {!supported && (
         <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
-          <p className="font-semibold text-warning">A criação está bloqueada até o conector confirmar Product Link.</p>
+          <p className="font-semibold text-warning">A criação está bloqueada até o conector confirmar Catalog Carousel.</p>
           <p className="mt-1">O catálogo continua salvo e nenhuma campanha incompleta foi enviada.</p>
           <details className="mt-2 border-t border-warning/20 pt-2">
             <summary className="cursor-pointer font-medium text-muted-foreground">Detalhes técnicos</summary>
-            <p className="mt-1">A dashboard preserva o Link individual de cada produto e não cria um anúncio comum com URL global. Vídeos/templates também só serão oferecidos quando o conector declarar esse contrato.</p>
+            <p className="mt-1">A dashboard preserva o Link individual de cada produto e nunca usa uma URL global como substituição.</p>
           </details>
         </div>
       )}
       {supported && (
         <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
           <p className="font-semibold text-foreground">Criativo efetivo: {creativeFormat}</p>
-          <p className="mt-1">O anúncio usa os dados do catálogo e leva cada clique ao Link do respectivo produto. Este contrato confirma um formato por vez; <strong className="text-foreground">não presume que o modo Dynamic Formats multiformato esteja ativo</strong>. Somente os controles declarados pelo conector aparecem abaixo.</p>
+          <p className="mt-1">Produtos, Pixel, Compra, identidade e música elegível são resolvidos antes da criação. Se faltar algo, nenhuma estrutura é enviada.</p>
         </div>
       )}
       {supported && !ready && <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[10px] text-warning">Conclua o checklist de prontidão antes de criar uma campanha.</p>}
@@ -317,29 +282,17 @@ export function CatalogCampaignWizard({
             <label className="text-[11px] text-muted-foreground">Nome<input className="input-base mt-1 w-full" value={name} onChange={(e) => setName(e.target.value)} /></label>
             <label className="text-[11px] text-muted-foreground">Orçamento diário ({catalog.currency})<input className="input-base mt-1 w-full" type="number" min={TIKTOK_MIN_BUDGET} step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="50,00" /></label>
           </div>
-          <fieldset>
-            <legend className="text-[11px] font-medium text-foreground">Produtos</legend>
-            <div className="mt-1 grid gap-2 sm:grid-cols-3">
-              {supportsSpecificProducts && <label className={`cursor-pointer rounded-lg border p-2 text-xs ${productScope === 'specific' ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground'}`}><input type="radio" className="mr-2 accent-primary" checked={productScope === 'specific'} onChange={() => setProductScope('specific')} />Produtos específicos</label>}
-              {supportsProductSets && <label className={`cursor-pointer rounded-lg border p-2 text-xs ${productScope === 'product_set' ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground'}`}><input type="radio" className="mr-2 accent-primary" checked={productScope === 'product_set'} onChange={() => setProductScope('product_set')} />Product set</label>}
-              <label className={`cursor-pointer rounded-lg border p-2 text-xs ${productScope === 'all' ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground'}`}><input type="radio" className="mr-2 accent-primary" checked={productScope === 'all'} onChange={() => setProductScope('all')} />Todos os produtos</label>
-            </div>
-            {!supportsSpecificProducts && !supportsProductSets && <p className="mt-1.5 text-[10px] text-muted-foreground">O conector atual confirmou apenas o criativo dinâmico com todos os produtos.</p>}
-          </fieldset>
-          {productScope === 'specific' && supportsSpecificProducts && <label className="block text-[11px] text-muted-foreground">Product IDs do TikTok, separados por vírgula<input className="input-base mt-1 w-full" inputMode="numeric" value={productIds} onChange={(e) => setProductIds(e.target.value.replace(/[^\d,\s]/g, '').slice(0, 5000))} placeholder="7664730406680594184" /></label>}
-          {productScope === 'product_set' && supportsProductSets && <label className="block text-[11px] text-muted-foreground">Product Set ID<input className="input-base mt-1 w-full" inputMode="numeric" pattern="[0-9]{6,30}" minLength={6} maxLength={30} value={productSetId} onChange={(e) => setProductSetId(e.target.value.replace(/\D/g, '').slice(0, 30))} placeholder="Somente os dígitos do Product Set" /></label>}
-          <p className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-[10px] leading-relaxed text-muted-foreground">O Pixel vinculado em Conversões e o evento Compra são aplicados automaticamente para esta conta de anúncio.</p>
-          {(supportsVideoTemplates || supportsAdText || supportsCallToAction) && (
+          <p className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-[10px] leading-relaxed text-muted-foreground">Todos os produtos aprovados entram automaticamente. Pixel, evento Compra e música própria são validados sem campos manuais.</p>
+          {(supportsAdText || supportsCallToAction) && (
             <details className="rounded-lg border border-border p-3">
               <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Criativo avançado</summary>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {supportsVideoTemplates && <label className="text-[11px] text-muted-foreground">Catalog Video Template ID (opcional)<input className="input-base mt-1 w-full" inputMode="numeric" pattern="[0-9]{6,30}" minLength={6} maxLength={30} value={templateId} onChange={(e) => setTemplateId(e.target.value.replace(/\D/g, '').slice(0, 30))} placeholder="Somente os dígitos do template" /></label>}
                 {supportsAdText && <label className="text-[11px] text-muted-foreground">Texto<input className="input-base mt-1 w-full" maxLength={100} value={text} onChange={(e) => setText(e.target.value)} /></label>}
                 {supportsCallToAction && <label className="text-[11px] text-muted-foreground">CTA<select className="input-base mt-1 w-full" value={cta} onChange={(e) => setCta(e.target.value)}>{availableCtas.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>}
               </div>
             </details>
           )}
-          <p className="rounded-lg bg-secondary/60 p-2.5 text-[10px] leading-relaxed text-muted-foreground">ABO · menor custo · TikTok placement · Product link. Não é necessário informar URL: cada clique usa o link do produto no catálogo. Tudo nasce pausado.</p>
+          <p className="rounded-lg bg-secondary/60 p-2.5 text-[10px] leading-relaxed text-muted-foreground">ABO · Compra · Product Link · tudo nasce pausado. Não existe URL manual no anúncio.</p>
           <div className="flex justify-end gap-2"><button type="button" className="btn-ghost text-xs" onClick={() => setOpen(false)}>Cancelar</button><button type="button" className="btn-primary text-xs" onClick={create} disabled={busy}>{busy ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />} Pré-validar e criar</button></div>
         </div>
       )}

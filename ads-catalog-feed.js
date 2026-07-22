@@ -157,6 +157,19 @@ function validateProduct(data, catalog) {
   return { valid: errors.length === 0, errors };
 }
 
+// Catalog Carousel usa `item_group_id` como o identificador do card que leva
+// ao Link individual do produto. Para itens simples (um SKU por produto), o
+// próprio sku_id é um identificador estável e evita pedir mais um campo ao
+// usuário. Variantes continuam podendo informar um item_group_id compartilhado.
+function withCatalogCarouselId(data) {
+  const source = data || {};
+  const out = Object.assign({}, source);
+  if (!String(out.item_group_id || '').trim() && String(out.sku_id || '').trim()) {
+    out.item_group_id = String(out.sku_id).trim();
+  }
+  return out;
+}
+
 // ── Gerador de CSV pronto pro TikTok ────────────────────────────────────────
 function escapeCsvValue(value) {
   const s = value == null ? '' : String(value);
@@ -169,7 +182,7 @@ function escapeCsvValue(value) {
 function buildCatalogCsv(products) {
   const lines = [COLUMNS.join(',')];
   for (const product of products || []) {
-    const d = (product && product.data) || product || {};
+    const d = withCatalogCarouselId((product && product.data) || product || {});
     const row = COLUMNS.map((col) => escapeCsvValue(d[col]));
     lines.push(row.join(','));
   }
@@ -185,5 +198,6 @@ module.exports = {
   parseCatalogCsv,
   validateProduct,
   validatePriceField,
+  withCatalogCarouselId,
   buildCatalogCsv
 };

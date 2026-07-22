@@ -13,10 +13,9 @@
     "check:domains": "node --env-file-if-exists=.env.development.local scripts/check-domains.mjs"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.15",
+    "@anthropic-ai/sdk": "^0.112.5",
     "@neondatabase/serverless": "^1.1.0",
     "@upstash/redis": "^1.38.0",
-    "ai": "^7.0.27",
     "compression": "^1.8.1",
     "express": "^4.21.0",
     "geoip-lite": "^2.0.3",

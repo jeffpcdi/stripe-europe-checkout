@@ -89,7 +89,10 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function isProductLinkAd(ad: AdsTreeAd): boolean {
-  return String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK' && Boolean(ad.catalogId)
+  return Boolean(ad.catalogId) && (
+    String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK'
+    || String(ad.adFormat || '').toUpperCase() === 'CATALOG_CAROUSEL'
+  )
 }
 
 // Métricas que saíram da linha compacta e vivem agora no expand.

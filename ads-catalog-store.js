@@ -114,6 +114,18 @@ async function ensureSchema() {
       UNIQUE (catalog_id, sku_id)
     )`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_products_catalog_idx ON ads_catalog_products (catalog_id, created_at DESC)`;
+    // Catalog Carousel precisa de item_group_id. Para catálogos existentes de
+    // produto simples, usa o SKU como SPU e marca o catálogo como alterado para
+    // que a UI solicite uma nova sincronização antes de criar campanha.
+    await sql`WITH changed AS (
+      UPDATE ads_catalog_products
+      SET data = data || jsonb_build_object('item_group_id', sku_id), updated_at = now()
+      WHERE coalesce(btrim(data ->> 'item_group_id'), '') = ''
+        AND coalesce(btrim(sku_id), '') <> ''
+      RETURNING catalog_id
+    )
+    UPDATE ads_catalogs SET updated_at = now()
+    WHERE id IN (SELECT DISTINCT catalog_id FROM changed)`;
     await sql`CREATE TABLE IF NOT EXISTS ads_catalog_publications (
       id text PRIMARY KEY,
       catalog_id text NOT NULL,
@@ -369,6 +381,7 @@ function revalidateProductRows(_accountId, catalog, rows, validate) {
     : require('./ads-catalog-feed').validateProduct;
   const products = rows.map(mapProduct);
   for (const product of products) {
+    product.data = require('./ads-catalog-feed').withCatalogCarouselId(product.data || {});
     const next = validator(product.data || {}, catalog || {});
     product.valid = next.valid === true;
     product.errors = next.errors || [];
@@ -412,6 +425,7 @@ async function upsertProduct(accountId, advertiserId, catalogId, product, valida
   const skuId = String(data.sku_id || (product && product.skuId) || '').trim().slice(0, 100);
   if (!skuId) throw new Error('sku_id obrigatório');
   data.sku_id = skuId;
+  if (!String(data.item_group_id || '').trim()) data.item_group_id = skuId;
   const result = typeof validate === 'function' ? validate(data, catalog) : { valid: true, errors: [] };
   const rows = await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors)
     VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)})
@@ -439,6 +453,7 @@ async function bulkUpsertProducts(accountId, advertiserId, catalogId, products, 
     const skuId = String(data.sku_id || '').trim().slice(0, 100);
     if (!skuId) { skipped.push({ reason: 'sku_id ausente' }); continue; }
     data.sku_id = skuId;
+    if (!String(data.item_group_id || '').trim()) data.item_group_id = skuId;
     const result = typeof validate === 'function' ? validate(data, catalog) : { valid: true, errors: [] };
     await sql`INSERT INTO ads_catalog_products (id, catalog_id, account_id, sku_id, data, valid, errors)
       VALUES (${id('prod_')}, ${catalogId}, ${accountId}, ${skuId}, ${JSON.stringify(data)}, ${result.valid}, ${JSON.stringify(result.errors)})

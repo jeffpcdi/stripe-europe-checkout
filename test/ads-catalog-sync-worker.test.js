@@ -259,6 +259,25 @@ const worker = require(workerPath);
   assert.strictEqual(updates.at(-1).patch.error.code, 'CATALOG_UPLOAD_REJECTED');
   assert.strictEqual(updates.at(-1).patch.progress.uploadStatus.errorCount, 2);
 
+  // O TikTok pode devolver FAILED sem error_count nem motivo (por exemplo,
+  // quando não conseguiu baixar o arquivo). A mensagem não deve inventar
+  // "0 erros de produto" nem mandar o usuário editar campos ao acaso.
+  updates.length = 0;
+  publications.length = 0;
+  uploadResponse = { feed_log_id: 'feed_log_failed_without_reason', file_format: 'CSV' };
+  uploadStatus = {
+    feedLogId: 'feed_log_failed_without_reason', processStatus: 'FAILED', processing: false,
+    succeeded: false, failed: true, errorCount: 0, warningCount: 0,
+    errors: [{ field: '', issue: '', suggestion: '', affectedProductCount: 1, products: [] }],
+  };
+  await worker.processRun({
+    id: 'run_failed_without_reason', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_local',
+    payload: { bcId: localCatalog.bcId, feedUrl: 'https://example.com/feed.csv', published: 4, skipped: 0 },
+  });
+  assert.strictEqual(updates.at(-1).status, 'failed');
+  assert.match(updates.at(-1).patch.error.message, /status FAILED sem informar a causa/);
+  assert.match(updates.at(-1).patch.error.suggestedAction, /URL do feed é pública/);
+
   // Sem campanha dependente e sem tela aberta, o worker também atualiza a
   // auditoria do catálogo. Quando o TikTok finalmente expõe os produtos, o run
   // sai de "processando" para um snapshot explícito de análise.

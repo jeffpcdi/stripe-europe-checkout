@@ -76,13 +76,23 @@ function normalizeUploadReceipt(response, receivedAt) {
 function uploadFailureError(status) {
   const value = status || {};
   const sample = Array.isArray(value.errors) ? value.errors.slice(0, 5) : [];
+  const errorCount = Number(value.errorCount) || 0;
+  const processStatus = String(value.processStatus || value.status || 'FAILED').toUpperCase();
+  const hasReason = sample.some((item) => item && (item.field || item.issue || item.suggestion
+    || (Array.isArray(item.products) && item.products.length)));
   return {
     code: 'CATALOG_UPLOAD_REJECTED',
     stage: 'processing_tiktok',
-    message: 'O TikTok concluiu o upload com ' + (Number(value.errorCount) || 0) + ' erro(s).',
-    userMessage: 'O TikTok recusou parte ou todo o arquivo do catálogo. O lote não foi marcado como sincronizado.',
+    message: errorCount > 0
+      ? 'O TikTok concluiu o upload com ' + errorCount + ' erro(s).'
+      : 'O TikTok encerrou o upload com status ' + processStatus + ' sem informar a causa.',
+    userMessage: hasReason
+      ? 'O TikTok recusou parte ou todo o arquivo do catálogo. O lote não foi marcado como sincronizado.'
+      : 'O TikTok não conseguiu processar o arquivo e não informou o motivo. O lote não foi marcado como sincronizado.',
     retryable: true,
-    suggestedAction: 'Corrija os produtos indicados pelo TikTok e retome a sincronização.',
+    suggestedAction: hasReason
+      ? 'Corrija os produtos indicados pelo TikTok e retome a sincronização.'
+      : 'Confirme se a URL do feed é pública e tente novamente. Se persistir, envie o feed_log_id ao suporte do Pipeboard.',
     details: sample,
   };
 }

@@ -21,6 +21,8 @@ const eq = (a, b, msg) => { assert.strictEqual(a, b, msg); asserts += 1; };
   ok(!/require\(\s*['"]\.\/ads-provider['"]\s*\)/.test(src), 'ads-ai não pode importar ads-provider');
   ok(!/require\(\s*['"]\.\/zernio['"]\s*\)/.test(src), 'ads-ai não pode importar zernio');
   ok(!/callTool|listTools/.test(src), 'ads-ai não pode chamar tools MCP diretamente');
+  ok(!/AI_GATEWAY_API_KEY|@ai-sdk|Vercel AI Gateway/.test(src), 'ads-ai usa Anthropic direto, sem gateway Vercel');
+  ok(/require\(['"]@anthropic-ai\/sdk['"]\)/.test(src), 'SDK direto da Anthropic está explícito');
   ok(/const scopeKey = String\(accId\) \+ '\|' \+ String\(advertiserId\)/.test(src), 'briefing diário é idempotente por conta + advertiser');
   ok(/listBriefings\(accId, advertiserId, 'daily'/.test(src), 'briefing diário consulta apenas o advertiser atual');
   ok(/listBriefings\(accId, advertiserId, 'creatives'/.test(src), 'insights criativos consultam apenas o advertiser atual');
@@ -111,10 +113,9 @@ function day(d, spend, impressions, clicks, conversions) {
   console.log('C. validateProposedAction (schema, espelho, clamps) OK —', asserts, 'asserts');
 }
 
-// ── D. budgetProposal — guardas determinísticas (sem IA: AI_GATEWAY_API_KEY off) ──
+// ── D. budgetProposal — guardas determinísticas (sem chave Anthropic) ──
 {
   // garante caminho sem IA (rationale vazio): remove todas as credenciais que habilitam IA
-  delete process.env.AI_GATEWAY_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
 
   const camp = (id, name, budget, spend, status = 'active') => ({

@@ -39,13 +39,17 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 - **Banco:** Neon Postgres via `@neondatabase/serverless` `^1.1.0` (SQL puro por template tag, sem ORM).
 - **Cache/dedup:** Upstash Redis `@upstash/redis` `^1.38.0` via HTTP REST (opcional; fallback em memória).
 - **Geo:** `geoip-lite` `^2.0.3` (fallback; a fonte primária são headers de edge Vercel/Cloudflare).
-- **Serviços externos:** TikTok Events API (`business-api.tiktok.com/open_api/v1.3`), Pushcut (push).
+- **IA:** `@anthropic-ai/sdk` direto; não há Vercel AI Gateway, `ai`, `@ai-sdk/*` nem `@vercel/oidc`.
+- **URLs baixadas pelo TikTok:** `ads-storage.publicOrigin()` aceita apenas hostname/IP público.
+  `localhost`, redes privadas e `*.internal` retornam vazio; a publicação falha antes de qualquer
+  upload com `PUBLIC_ORIGIN_REQUIRED`. Em produção, configure `PRIMARY_HOST`.
+- **Serviços externos:** TikTok Events API (`business-api.tiktok.com/open_api/v1.3`), Pipeboard, Anthropic e Pushcut.
 - **Presença ao vivo:** usa polling HTTP `/api/pulse`; não há dependência de WebSocket no runtime.
 
 ## 3. Deploy e ambientes
 - **Produção real:** roda no **Railway**, com credenciais **próprias do usuário** (Neon + Upstash
   nas *Variables* do Railway). Independente do v0. Start: `node server.js`.
-- **Preview do v0:** usa env gerenciada (`.env.development.local` com `DATABASE_URL` do Neon gerenciado).
+- **Desenvolvimento local:** `.env.development.local` recebe as variáveis do Railway/gerenciador seguro. O repositório não está conectado à Vercel.
 - **Diagnóstico rápido:** `GET /api/status` (público, sem auth) → `{ok, db, redis, hint}`. Primeira
   parada para depurar "banco não configurado" em produção, sem expor segredos. Não confundir com
   `GET /api/health`, que é **autenticado** e traz status detalhado — incluindo `migrations` e, desde
@@ -256,38 +260,40 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   A campanha Catalog Ads Product Link exige orçamento mínimo 50, Pixel ID numérico + evento canônico
   (`ON_WEB_ORDER` por padrão) e pelo menos **4 produtos aprovados no overview agregado**. Esse overview
   não comprova sozinho estoque/disponibilidade por SKU, portanto a UI não deve alegar essa verificação.
-  Product Link **não exige URL no anúncio nem, por si só, um Catalog Video Template ID**: o destino é
-  o `link` individual de cada produto. Isso não dispensa a fonte criativa exigida pelo formato escolhido;
-  a dashboard só deve anunciar Catalog Video/Dynamic Formats quando o schema do conector comprovar esse
-  formato e seus campos.
+  Product Link **não exige URL no anúncio nem Catalog Video Template ID**: o destino é o `link`
+  individual de cada produto. O formato confirmado é `CATALOG_CAROUSEL`; cada card recebe um
+  `item_group_id` do feed (preenchido automaticamente com `sku_id` em produtos simples) e exige uma
+  música própria `USER`. O preflight busca a música antes da primeira escrita e bloqueia sem criar
+  estrutura parcial quando a conta ainda não possui uma faixa elegível.
   O lote aceita TSV ou CSV (vírgula/ponto e vírgula), normaliza orçamento pt-BR como `1.000,00` e recebe
   exclusivamente o `link` HTTPS de cada produto; URL manual no anúncio é bloqueada em duas barreiras
   (preview + executor). O parser de `/api/ads/catalogs/batch` é montado antes do JSON global e aceita
   até 25 MB (o restante da API continua em 200 KB). A confirmação Product Link só vale quando o JSON Schema do Pipeboard
   declara explicitamente todos os valores enviados nos três níveis (incluindo `PRODUCT_SALES`,
-  `shopping_ads_type=VIDEO`, `CATALOG`, `catalog_authorized_bc_id`, `CONVERT`, pausa,
-  `website_type=PRODUCT_LINK`, `destination_page_type=WEBSITE`, identidade `BC_AUTH_TT` e dark post);
+  `product_source=CATALOG`, `shopping_ads_type=CATALOG_LISTING_ADS`, `promotion_type=WEBSITE`,
+  `shopping_ads_retargeting_type=OFF`, `catalog_authorized_bc_id`, `CONVERT`, pausa,
+  `ad_format=CATALOG_CAROUSEL`, `item_group_ids`/`product_set_id`, `music_id`, identidade
+  `BC_AUTH_TT`, `identity_authorized_bc_id` e dark post);
   `store_authorized_bc_id` é de TikTok Shop e não deve ser usado para o catálogo. O preflight também
   exige as três tools de readback, respeita `inputSchema.required` e valida o evento escolhido antes da
   primeira escrita. A leitura final confirma formato, escopo de produtos, Pixel/evento, identidade/BC,
-  template/texto/CTA enviados, Product Link, ausência de URL manual e pausa nos três níveis.
+  música/texto/CTA enviados, Product Link, ausência de URL manual e pausa nos três níveis.
   Quando o conector ainda não confirma catálogo ou Product Link, sync/campanhas ficam
   em `waiting_connector_confirmation` e são retomados automaticamente; depois a campanha segue para
   `waiting_catalog_review` e só é promovida após auditoria aprovar o catálogo. Assim o lote pode ser
   preparado agora, mas nenhum fallback com URL global é criado nem anúncio é enviado antes da confirmação
   explícita do schema Pipeboard.
-  **Estado atual do Pipeboard (2026-07-21):** o conector expõe criação/upload/auditoria de catálogo e
-  status por `feed_log_id`, mas as tools genéricas ainda não declaram o contrato de Catalog Ads/Product
-  Link nem Video Template; por isso `manualCatalogCampaign=false` e nenhuma campanha/conjunto/anúncio
-  de catálogo é enviado. O contrato pretendido atual é `CATALOG_VIDEO`; ele não deve ser apresentado como
-  prova de que o modo **Dynamic Formats** multiformato foi ativado. O comportamento correto é manter o run preparado em espera, nunca degradar para
-  vídeo comum ou URL global.
+  **Estado atual do Pipeboard (2026-07-22):** as tools expõem criação, upload com `feed_log_id`,
+  status por produto, auditoria, `PRODUCT_SALES`, ad group de catálogo e anúncio
+  `CATALOG_CAROUSEL`, além do readback dos três níveis. `manualCatalogCampaign=true` quando esse
+  contrato completo permanece no schema. Isso confirma Catalog Carousel, não o modo Dynamic Formats
+  multiformato; nunca degradar para vídeo comum ou URL global.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
   **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação
   fica bloqueado quando campanhas foram pedidas sem sincronização ou quando a sincronização ainda
   não tem BC/origem/permissões. O resumo terminal informa também campanhas preparadas, aguardando
-  Product Link/análise, ignoradas e com falha. Enquanto `manualCatalogCampaign=false`, o hook de
+  Product Link/análise, ignoradas e com falha. Quando `manualCatalogCampaign=false`, o hook de
   capabilities reconsulta em baixa frequência (60s) para remover o banner sem exigir reload; os
   cards de run exibem nome, escopo, orçamento, avisos e a verificação final completa. Polling de campanha
   usa 4s em execução, 15s aguardando análise, 60s aguardando o conector e para em estado terminal.
@@ -296,9 +302,10 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   a prévia com as linhas exatas, pois a marca real é obrigatória no TikTok e nunca deve ser inferida.
   Ao preparar campanhas, a rota injeta o Pixel central vinculado à conta de anúncio e o evento
   `ON_WEB_ORDER`; planilha, wizard e lote rápido não pedem Pixel/evento repetidamente.
-  No wizard dedicado, escopo específico, Product Set, template, texto e CTA só aparecem quando o
-  schema atual os confirma; IDs são numéricos, avisos do run ficam visíveis e falhas não retomáveis
-  oferecem apenas a limpeza da estrutura parcial. Sem `manualCatalogCampaign`, nada é enviado ao TikTok.
+  No wizard dedicado, a tela principal pede somente nome e orçamento; todos os produtos aprovados,
+  Pixel, Compra, identidade e música são resolvidos automaticamente. Texto e CTA ficam em detalhes
+  avançados. Avisos do run ficam visíveis e falhas não retomáveis oferecem apenas a limpeza da
+  estrutura parcial. Sem `manualCatalogCampaign`, nada é enviado ao TikTok.
   O lote rápido (`POST /api/ads/catalogs/:catalogId/campaign-batch`, máximo 50) vive no cartão
   “Campanhas deste catálogo”, pede apenas quantidade e orçamento, gera nomes ordenados e cria runs
   duráveis idempotentes. Ele só abre com `manualCatalogCampaign=true`; não polui a lista de catálogos.
@@ -847,8 +854,8 @@ unificado (`gap-5` na raiz das 5 abas). Próxima fila: Leva 4 (141–200) — re
 Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
 o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
 `node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
-`vercel env pull /tmp/env-preview --environment=preview` + `node --env-file=/tmp/env-preview server.js`
-para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
+recupere `.env.development.local` no Railway/gerenciador seguro e use
+`node --env-file-if-exists=.env.development.local server.js`; o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
 dashboard com `next build` + `next start -p 3001`.
 
 ### 19.4.1 Primitivos de UX compartilhados (itens 182/183/184/185/187/189 — REUTILIZE, não reinvente)

@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { AlertCircle, Check, Clock, Loader2, RotateCcw, UploadCloud } from 'lucide-react'
 import { adsCatalogApiUrl, apiSend, useAdsCatalogSyncRuns } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -22,8 +23,31 @@ function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
-export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: string; advertiserId: string }) {
+function affectedMessage(item: Record<string, unknown>, kind: 'erro' | 'aviso') {
+  const field = String(item.field || '').trim()
+  const issue = String(item.issue || '').trim()
+  const suggestion = String(item.suggestion || '').trim()
+  const count = Math.max(0, Number(item.affectedProductCount) || 0)
+  const detail = [issue, suggestion].filter(Boolean).join(' — ')
+  if (field && detail) return `${field} — ${detail}`
+  if (field) return `Campo ${field}: ${kind} em ${count || 'um ou mais'} produto(s), sem detalhe do TikTok.`
+  if (detail) return detail
+  return `${count || 'Um ou mais'} produto(s) afetado(s); o TikTok não informou o campo nem o motivo.`
+}
+
+export function CatalogSyncStatus({
+  catalogId,
+  advertiserId,
+  refreshToken = 0,
+}: {
+  catalogId: string
+  advertiserId: string
+  refreshToken?: number
+}) {
   const { data, mutate } = useAdsCatalogSyncRuns(catalogId, advertiserId)
+  useEffect(() => {
+    if (refreshToken > 0) void mutate()
+  }, [mutate, refreshToken])
   const run = data?.runs?.[0]
   if (!run) return null
 
@@ -95,14 +119,14 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
           {affectedErrors.length > 0 && (
             <ul className="mt-2 list-disc space-y-1 rounded-md bg-error/5 px-5 py-2 text-[10px] leading-relaxed text-error">
               {affectedErrors.map((error, index) => (
-                <li key={index}>{[error.field, error.issue, error.suggestion].filter(Boolean).map(String).join(' — ') || 'Produto recusado pelo TikTok'}</li>
+                <li key={index}>{affectedMessage(error, 'erro')}</li>
               ))}
             </ul>
           )}
           {affectedWarnings.length > 0 && (
             <ul className="mt-2 list-disc space-y-1 rounded-md bg-warning/5 px-5 py-2 text-[10px] leading-relaxed text-warning">
               {affectedWarnings.map((warning, index) => (
-                <li key={index}>{[warning.field, warning.issue, warning.suggestion].filter(Boolean).map(String).join(' — ') || 'Aviso do TikTok para o produto'}</li>
+                <li key={index}>{affectedMessage(warning, 'aviso')}</li>
               ))}
             </ul>
           )}

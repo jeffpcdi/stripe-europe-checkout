@@ -149,13 +149,13 @@ function normalizeCampaignSpec(input, catalog) {
     throw catalogError('CATALOG_CAMPAIGN_END_DATE_REQUIRED', 'Orçamento total exige data de término.');
   }
   const productScope = ['all', 'product_set', 'specific'].includes(value.productScope) ? value.productScope : 'all';
-  const productIds = Array.isArray(value.productIds)
-    ? value.productIds.map((v) => String(v || '').trim()).filter(Boolean).slice(0, 20) : [];
-  if (productScope === 'specific' && !productIds.length) {
+  const itemGroupIds = Array.isArray(value.itemGroupIds || value.productIds)
+    ? (value.itemGroupIds || value.productIds).map((v) => String(v || '').trim()).filter(Boolean).slice(0, 100) : [];
+  if (productScope === 'specific' && !itemGroupIds.length) {
     throw catalogError('CATALOG_PRODUCTS_REQUIRED', 'Selecione ao menos um produto para o anúncio.');
   }
-  if (productScope === 'specific' && productIds.some((productId) => !/^\d{6,30}$/.test(productId))) {
-    throw catalogError('CATALOG_PRODUCT_ID_INVALID', 'Os Product IDs devem ser os IDs numéricos exibidos no TikTok Catalog Manager.');
+  if (productScope === 'specific' && itemGroupIds.some((itemGroupId) => itemGroupId.length > 100 || /[\r\n,]/.test(itemGroupId))) {
+    throw catalogError('CATALOG_ITEM_GROUP_ID_INVALID', 'Os IDs dos produtos devem corresponder ao item_group_id do feed.');
   }
   const productSetId = String(value.productSetId || '').trim();
   if (productScope === 'product_set' && !productSetId) {
@@ -169,7 +169,7 @@ function normalizeCampaignSpec(input, catalog) {
   // em uma variação Catalog Video, mas não pode ser pré-requisito do lote
   // Product Link (nem do VSA Carousel), pois esses formatos não compartilham
   // o mesmo criativo.
-  const catalogVideoTemplateId = String(value.catalogVideoTemplateId || '').trim();
+  const musicId = String(value.musicId || '').trim();
   const identityType = String(value.identityType || '').trim().toUpperCase();
   const identityId = String(value.identityId || '').trim();
   if ((identityId && !identityType) || (!identityId && identityType)) {
@@ -202,15 +202,15 @@ function normalizeCampaignSpec(input, catalog) {
     bidStrategy: value.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost',
     bidAmount: Number(value.bidAmount) || undefined,
     country: String(value.country || cat.country || 'BR').trim().toUpperCase(),
-    productScope, productIds, productSetId: productSetId || undefined,
-    catalogVideoTemplateId: catalogVideoTemplateId || undefined,
+    productScope, itemGroupIds, productIds: itemGroupIds, productSetId: productSetId || undefined,
+    musicId: musicId || undefined,
     identityId: identityId || undefined, identityType: identityType || undefined,
     identityBcId: String(value.identityBcId || '').trim() || undefined,
     pixelId,
     pixelEvent,
     text: String(value.text || '').trim().slice(0, 100) || undefined,
-    callToAction: String(value.callToAction || 'LEARN_MORE').trim().toUpperCase(),
-    strategy: 'vsa_product_link', destination: 'PRODUCT_LINK', creativeMode: 'VSA_PRODUCT_LINK', status: 'paused',
+    callToAction: String(value.callToAction || 'SHOP_NOW').trim().toUpperCase(),
+    strategy: 'catalog_carousel_product_link', destination: 'PRODUCT_LINK', creativeMode: 'CATALOG_CAROUSEL', status: 'paused',
   };
 }
 

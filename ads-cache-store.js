@@ -499,7 +499,7 @@ async function classifyEntity(accountId, advertiserId, entityId) {
           return {
             type: 'ad', advertiserId: adv, campaignId: String(c.platformCampaignId || ''),
             adGroupId: String(g.platformAdSetId || ''), adId: entityId,
-            catalogId: String(a.catalogId || ''), websiteType: String(a.websiteType || ''),
+            catalogId: String(a.catalogId || ''), websiteType: String(a.websiteType || ''), adFormat: String(a.adFormat || ''),
           };
         }
       }

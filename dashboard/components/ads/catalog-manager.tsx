@@ -455,6 +455,7 @@ function CatalogDetail({
   const [showUrlImport, setShowUrlImport] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [syncStatusVersion, setSyncStatusVersion] = useState(0)
   const [auditing, setAuditing] = useState(false)
   const [autoChecking, setAutoChecking] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -466,6 +467,7 @@ function CatalogDetail({
   // Quando o publish automático falha (502/BC/permissão), destacamos o caminho
   // garantido: baixar o CSV e subir manualmente no Catalog Manager.
   const [publishFailed, setPublishFailed] = useState(false)
+  const [publishFailureHint, setPublishFailureHint] = useState('')
   // A cadeia do TikTok roda em 2º plano; enquanto true, acompanhamos o log de
   // publicações para trazer o resultado real (sucesso ou motivo do erro).
   const [bgPublishing, setBgPublishing] = useState(false)
@@ -579,10 +581,15 @@ function CatalogDetail({
     syncLockRef.current = true
     setSyncing(true)
     setPublishFailed(false)
+    setPublishFailureHint('')
     try {
       const res = await apiSend<AdsCatalogSyncResponse>(
         adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/sync-tiktok`, advertiserId), 'POST', {},
       )
+      // O hook de status pode ter carregado uma lista vazia antes deste run.
+      // Força uma leitura imediata para o painel realmente acompanhar a tarefa
+      // que o toast acabou de anunciar, sem polling ocioso quando nada existe.
+      setSyncStatusVersion((value) => value + 1)
       if (res.dryRun) {
         toast.info('Modo simulação: feed publicado, mas nada foi enviado ao TikTok', {
           hint: 'Desative o modo simulação em Operações para publicar de verdade.',
@@ -608,6 +615,7 @@ function CatalogDetail({
     } catch (e) {
       setPublishFailed(true)
       const hint = e instanceof ApiError ? e.display : e instanceof Error ? e.message : undefined
+      setPublishFailureHint(hint || 'Verifique a conexão e tente novamente.')
       toast.error('Não foi possível iniciar a sincronização automática', { hint })
     } finally {
       syncLockRef.current = false
@@ -779,7 +787,7 @@ function CatalogDetail({
                 Sincronização automática não iniciada
               </p>
               <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                Os produtos e o feed permanecem salvos. Tente novamente para recolocar a automação na fila.
+                {publishFailureHint || 'Os produtos permanecem salvos. Corrija o requisito indicado e tente novamente.'}
               </p>
               <button type="button" className="btn-primary w-fit text-xs" onClick={handleSyncTiktok} disabled={syncing}>
                 {syncing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <RotateCcw className="size-3.5" aria-hidden="true" />} Tentar sincronização automática
@@ -795,7 +803,7 @@ function CatalogDetail({
               : handleReadinessAction}
           />
 
-          <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} />
+          <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} />
 
           {catalog && (
             <CatalogConnectionCard
@@ -878,6 +886,7 @@ function CatalogDetail({
               catalog={catalog}
               auditing={auditing}
               autoChecking={autoChecking}
+              catalogCampaignSupported={catalogCapabilities?.manualCatalogCampaign === true}
               onRefresh={handleRefreshAudit}
             />
           )}
@@ -1053,11 +1062,13 @@ function TiktokStatusPanel({
   catalog,
   auditing,
   autoChecking,
+  catalogCampaignSupported,
   onRefresh,
 }: {
   catalog: AdsCatalog
   auditing: boolean
   autoChecking: boolean
+  catalogCampaignSupported: boolean
   onRefresh: () => void
 }) {
   const [copied, setCopied] = useState(false)
@@ -1138,7 +1149,9 @@ function TiktokStatusPanel({
 
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
         {catalogSynced
-          ? 'O vínculo e os produtos foram confirmados. Assim que o conector validar Product Link, a campanha poderá ser criada aqui sem URL no anúncio.'
+          ? catalogCampaignSupported
+            ? 'Vínculo, produtos e Catalog Carousel confirmados. A campanha pode ser preparada aqui sem URL manual no anúncio.'
+            : 'Vínculo e produtos confirmados. A criação continuará bloqueada até o conector confirmar Catalog Carousel sem URL manual.'
           : rejected > 0
             ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
             : productsNotConfirmed

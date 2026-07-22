@@ -902,7 +902,7 @@ export async function adsCatalogImportCsv(catalogId: string, adAccountId: string
   return data as { summary: import('./types').AdsCatalogImportSummary }
 }
 
-// Upload de criativo (vídeo/imagem) → Vercel Blob. Binário puro no corpo,
+// Upload de criativo (vídeo/imagem) → volume do Railway. Binário puro no corpo,
 // metadados na querystring (o Express usa express.raw nesta rota).
 export async function adsUpload(file: File, kind: 'video' | 'image'): Promise<{ ok: boolean; url: string }> {
   const qs = new URLSearchParams({ kind, filename: file.name }).toString()

@@ -770,8 +770,8 @@ unificado (`gap-5` na raiz das 5 abas). Próxima fila: Leva 4 (141–200) — re
 Fila e histórico no `PROGRESSO-PLANO.md`. **Dica operacional:** se `/__dev/login` responder 503,
 o Express na 3000 subiu antes do env ser espelhado — mate o processo e suba com
 `node --env-file-if-exists=.env.development.local server.js`. No sandbox, use
-`vercel env pull /tmp/env-preview --environment=preview` + `node --env-file=/tmp/env-preview server.js`
-para env real; e o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
+recupere `.env.development.local` no Railway/gerenciador seguro e use
+`node --env-file-if-exists=.env.development.local server.js`; o **dev server do Next (Turbopack) pode não hidratar no sandbox** — valide a
 dashboard com `next build` + `next start -p 3001`.
 
 ### 19.4.1 Primitivos de UX compartilhados (itens 182/183/184/185/187/189 — REUTILIZE, não reinvente)

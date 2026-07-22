@@ -33,7 +33,10 @@ export function AdEditDialog({
 
   if (!ad) return null
   const adId = ad.platformAdId || ad._id || ''
-  const productLink = String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK' && Boolean(ad.catalogId)
+  const productLink = Boolean(ad.catalogId) && (
+    String(ad.websiteType || '').toUpperCase() === 'PRODUCT_LINK'
+    || String(ad.adFormat || '').toUpperCase() === 'CATALOG_CAROUSEL'
+  )
 
   const linkInvalid = !productLink && linkUrl.trim() !== '' && !/^https?:\/\/\S+/.test(linkUrl.trim())
 

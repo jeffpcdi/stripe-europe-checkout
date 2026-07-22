@@ -933,6 +933,7 @@ export interface AdsTreeAd {
   // ofereça uma edição de URL que quebraria esse contrato.
   catalogId?: string
   websiteType?: string
+  adFormat?: string
   adType?: 'boost' | 'standalone' | string
   goal?: string
   isExternal?: boolean
@@ -1013,7 +1014,7 @@ export interface AdsBulkStatusResponse {
   results?: { platformCampaignId: string; updated?: number; skipped?: number; error?: string }[]
 }
 
-// ── POST /api/ads/upload — criativo → Vercel Blob ──
+// ── POST /api/ads/upload — criativo → volume do Railway ──
 export interface AdsUploadResponse {
   ok: boolean
   url: string
@@ -1264,7 +1265,7 @@ export interface AdsMcpStatusResponse {
     alertsEnabled: boolean
     lastAction: { at: string; result?: string; campaignName?: string; ok: boolean } | null
   }
-  // telemetria da camada de IA (Vercel AI Gateway ≠ chamadas Pipeboard)
+  // telemetria da camada de IA direta (não conta chamadas Pipeboard)
   ai?: { calls: number; errors: number; lastAt: string | null; lastError: string | null }
 }
 
@@ -1617,6 +1618,7 @@ export interface AdsCatalogCapabilities {
   catalogFeedRead: boolean
   catalogLinkVerify: boolean
   manualCatalogCampaign: boolean
+  catalogCarouselMusic: boolean
   productSets: boolean
   specificProducts: boolean
   catalogVideoTemplates: boolean

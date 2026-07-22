@@ -61,7 +61,7 @@ dashboard Next.js (pasta `dashboard/`, roda na porta 3001). Express serve a port
 - O server lê `.env.development.local` **no boot**. Se variáveis novas forem adicionadas depois, é preciso **reiniciar o processo** (matar pids do `dev.js`/`server.js` e subir de novo), senão dá erro "DATABASE_URL não configurada".
 - ⚠️ **server.js/ads-*.js/pipeboard-mcp.js NÃO têm hot-reload** — ao editar backend, SEMPRE matar por PID e reiniciar antes de testar via HTTP. Testes via `node -e require(...)` usam código fresco e podem mascarar que o server HTTP está stale.
 - ⚠️ reset do sandbox apaga `node_modules` → `npm install`. `pkill -f` mata o próprio shell; matar por PID (`kill -9 <pid>`).
-- Se `.env.development.local` sumir: `vercel link --yes --project prj_g1m16frG8I0Ooc7ZkgIdIwdriTvp --scope team_09PRbkxSENZbqohEm5oPiWjv` + `vercel env pull .env.development.local --environment=development --yes`.
+- Se `.env.development.local` sumir: recupere as variáveis no Railway/gerenciador seguro de segredos. O repositório não depende mais da Vercel.
 
 ## 3. Login para testar a dashboard (usar SEMPRE em testes)
 1. Garantir server de pé: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/login` deve dar 200.

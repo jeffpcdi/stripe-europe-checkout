@@ -19,7 +19,7 @@ Olá. Este projeto é um **rastreador de conversões + dashboard de TikTok Ads**
 1. **Neon (Postgres):** conecte a integração Neon. Isso repõe `DATABASE_URL` / `NEON_DATABASE_URL` / `POSTGRES_URL`.
    - No boot, `db.js` roda `CREATE TABLE IF NOT EXISTS` para todas as tabelas — então **um banco Neon vazio se auto-inicializa** ao subir o servidor. As tabelas esperadas são: `accounts`, `account_sessions`, `gateways`, `leads`, `events`, `events_archive`, `account_audit`, `variants`, `sessions`, `config`, `pixels`, `links`, `pixel_events`, `custom_domains`.
    - **Atenção:** os dados históricos (leads/eventos/contas) do banco antigo **não** vêm junto. Se houver um dump/export do Neon anterior, importe-o; senão, o app começa vazio (funcional, sem histórico).
-2. **Blob (Vercel Blob):** conecte a integração Blob (usada para upload de criativo de vídeo do TikTok). Repõe `BLOB_READ_WRITE_TOKEN`.
+2. **Uploads:** anexe um Volume persistente no Railway. Criativos e feeds são servidos pelo próprio app; não há Vercel Blob nem `BLOB_READ_WRITE_TOKEN`.
 3. **Redis (Upstash):** se o tempo-real for necessário, conecte Upstash for Redis. Repõe `KV_REST_API_URL/TOKEN`, `UPSTASH_REDIS_REST_URL/TOKEN`, `REDIS_URL`. Sem ele, a presença "ao vivo" degrada, mas o app sobe.
 
 ### Passo 2 — Repor variáveis de ambiente restantes

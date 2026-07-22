@@ -1226,8 +1226,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         if (!remoteAd) {
           return res.status(409).json({ error: 'Não foi possível localizar o anúncio remoto para confirmar o destino. A URL não foi alterada.' });
         }
-        const productLink = (String(ent.websiteType || '').toUpperCase() === 'PRODUCT_LINK' && ent.catalogId)
-          || (String(remoteAd.websiteType || '').toUpperCase() === 'PRODUCT_LINK' && remoteAd.catalogId);
+        const productLink = (ent.catalogId && (
+          String(ent.websiteType || '').toUpperCase() === 'PRODUCT_LINK'
+          || String(ent.adFormat || '').toUpperCase() === 'CATALOG_CAROUSEL'
+        )) || (remoteAd.catalogId && (
+          String(remoteAd.websiteType || '').toUpperCase() === 'PRODUCT_LINK'
+          || String(remoteAd.adFormat || '').toUpperCase() === 'CATALOG_CAROUSEL'
+        ));
         if (productLink) {
           return res.status(422).json({ error: 'Anúncio Product Link usa o Link de cada produto do catálogo. Remova a URL manual para preservar esse destino.' });
         }
@@ -1305,7 +1310,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // ── Upload de criativo → disco (Volume do Railway), servido em /uploads ────
   // O corpo é o binário puro (express.raw), com metadados via querystring. O
   // TikTok baixa o arquivo pela URL pública (publicOrigin + /uploads/...). Sem
-  // Vercel Blob: grava no UPLOAD_DIR (volume em produção, data/uploads local).
+  // Grava no UPLOAD_DIR (volume em produção, data/uploads local).
   app.post('/api/ads/upload', dashboardAuth, require('express').raw({ type: '*/*', limit: '500mb' }), async (req, res) => {
     try {
       const kind = req.query.kind === 'image' ? 'image' : 'video';
@@ -1540,7 +1545,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     sendPushcut: require('./pushcut').sendPushcut,
   });
 
-  const AI_OFF = { error: 'IA não configurada no servidor (AI_GATEWAY_API_KEY ausente)', code: 'AI_NOT_CONFIGURED' };
+  const AI_OFF = { error: 'IA não configurada no servidor (ANTHROPIC_API_KEY ausente)', code: 'AI_NOT_CONFIGURED' };
 
   // Resolve o advertiser (query/body opcional) sem duplicar lógica.
   async function resolveAdv(req, hint) {
@@ -2775,7 +2780,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // parte da URL; editar produtos depois de enfileirar não muda o arquivo que
   // aquele run mandará ao TikTok.
   async function publishCatalogFeed(accountId, advertiserId, catalogId, origin) {
-    if (!origin) { const e = new Error('Host público não configurado (defina PRIMARY_HOST) — o TikTok não conseguiria baixar o feed'); e.status = 503; throw e; }
+    if (!origin) {
+      const e = new Error('Defina PRIMARY_HOST com o domínio HTTPS público do app antes de publicar. Localhost e hosts privados não podem ser baixados pelo TikTok.');
+      e.status = 503;
+      e.code = 'PUBLIC_ORIGIN_REQUIRED';
+      e.userMessage = 'A publicação foi bloqueada antes do envio porque a URL pública do feed não está configurada.';
+      e.suggestedAction = 'Defina PRIMARY_HOST com o domínio público do Railway (por exemplo, roi-nados.top) e tente novamente.';
+      throw e;
+    }
     const catalog = await catalogStore.getCatalog(accountId, advertiserId, catalogId);
     if (!catalog) { const e = new Error('Catálogo não encontrado'); e.status = 404; throw e; }
     const products = await catalogStore.listProducts(accountId, advertiserId, catalogId);
@@ -3186,6 +3198,24 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       pixelId: pixel.pixelId,
       pixelEvent: 'ON_WEB_ORDER',
     }), catalog);
+    const allItemGroupIds = products
+      .filter((product) => product && product.valid)
+      .map((product) => String(product.data && (product.data.item_group_id || product.data.sku_id) || '').trim())
+      .filter(Boolean);
+    if (normalized.productScope !== 'product_set') {
+      normalized.itemGroupIds = normalized.productScope === 'specific'
+        ? normalized.itemGroupIds
+        : allItemGroupIds;
+      normalized.productIds = normalized.itemGroupIds;
+    }
+    if (normalized.productScope !== 'product_set' && !normalized.itemGroupIds.length) {
+      throw catalogDomain.catalogError('CATALOG_ITEM_GROUP_IDS_REQUIRED', 'Os produtos ainda não possuem identificadores para o Catalog Carousel.', {
+        status: 422, retryable: false,
+        suggestedAction: 'Sincronize o catálogo novamente. A dashboard preencherá item_group_id com o SKU automaticamente.',
+      });
+    }
+    const music = await pipeboard.resolveCatalogCarouselMusic(advertiserId, normalized.musicId);
+    normalized.musicId = music.musicId;
     return {
       accId, catalog, advertiserId, readiness, capabilities,
       spec: { ...normalized, catalogId: catalog.tiktokCatalogId, bcId: catalog.bcId },
