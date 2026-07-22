@@ -11,6 +11,7 @@ import { resolveStableIdempotencyKey, type StableIdempotencyState } from '@/lib/
 import type { AdsCatalog, AdsCatalogCampaignRun, AdsCatalogCapabilities } from '@/lib/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TIKTOK_CTA_OPTIONS, TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
+import { CatalogQuickCampaignsDialog } from './catalog-quick-campaigns-dialog'
 
 const STAGES: Record<string, string> = {
   queued: 'Na fila', validating: 'Validando pré-requisitos', creating_campaign: 'Criando campanha',
@@ -163,6 +164,7 @@ export function CatalogCampaignWizard({
   const { data: runsData, mutate: mutateRuns } = useAdsCatalogCampaignRuns(catalog.id, advertiserId)
   const runs = runsData?.runs ?? []
   const [open, setOpen] = useState(false)
+  const [batchOpen, setBatchOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState(catalog.name)
   const [budget, setBudget] = useState('')
@@ -281,9 +283,14 @@ export function CatalogCampaignWizard({
           <p className="mt-0.5 text-[11px] text-muted-foreground">Catalog Ads · Product Link individual de cada produto.</p>
         </div>
         {supported ? (
-          <button type="button" className="btn-primary text-xs" onClick={() => setOpen((value) => !value)} disabled={!ready || Boolean(activeRun)}>
-            <Rocket className="size-3.5" /> {activeRun ? 'Criação em andamento' : 'Nova campanha'} <ChevronDown className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-ghost text-xs" onClick={() => setBatchOpen(true)} disabled={!ready || Boolean(activeRun)}>
+              Criar lote
+            </button>
+            <button type="button" className="btn-primary text-xs" onClick={() => setOpen((value) => !value)} disabled={!ready || Boolean(activeRun)}>
+              <Rocket className="size-3.5" /> {activeRun ? 'Criação em andamento' : 'Nova campanha'} <ChevronDown className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
         ) : <span className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[10px] font-medium text-warning">Product Link em validação</span>}
       </div>
       {!supported && (
@@ -345,6 +352,13 @@ export function CatalogCampaignWizard({
           ))}
         </div>
       )}
+      <CatalogQuickCampaignsDialog
+        catalog={catalog}
+        advertiserId={advertiserId}
+        open={supported && batchOpen}
+        onClose={() => setBatchOpen(false)}
+        onCreated={() => { void mutateRuns() }}
+      />
     </section>
   )
 }

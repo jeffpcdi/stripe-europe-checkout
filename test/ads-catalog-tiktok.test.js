@@ -62,6 +62,28 @@ console.log('createTikTokCatalog — validação antes da rede');
   console.log('getTikTokCatalogOverview — exige bc_id e catalog_id');
   await throws(() => provider.getTikTokCatalogOverview('', ''), 400, 'sem ids → 400');
 
+  console.log('getTikTokCatalogUploadStatus — exige bc_id, catalog_id e feed_log_id');
+  await throws(() => provider.getTikTokCatalogUploadStatus('7012345678901234567', 'cat1', ''), 400, 'sem feed_log_id → 400');
+  {
+    const nz = provider._internals.normalizeCatalogUploadStatus;
+    const okUp = nz({ process_status: 'SUCCESS', added: '10', updated: '0', error_count: '0', feed_log_data: [] });
+    eq(okUp.status, 'success', 'SUCCESS → status success');
+    eq(okUp.added, 10, 'added parseado como número');
+    const failUp = nz({ process_status: 'FAIL', add_count: 3, error_count: 2, feed_log_data: [
+      { sku_id: 'SKU1', message: 'brand ausente' },
+      { item_id: 'SKU2', error: 'preço inválido' },
+    ] });
+    eq(failUp.status, 'failed', 'FAIL → status failed');
+    eq(failUp.errorCount, 2, 'errorCount lido');
+    eq(failUp.sampleErrors.length, 2, 'erros por produto capturados');
+    eq(failUp.sampleErrors[0].sku, 'SKU1', 'sku do 1º erro');
+    eq(failUp.sampleErrors[0].message, 'brand ausente', 'motivo do 1º erro');
+    const proc = nz({ process_status: 'processing' });
+    eq(proc.status, 'processing', 'processing preservado');
+    const unk = nz({});
+    eq(unk.status, 'unknown', 'sem status → unknown');
+  }
+
   console.log('getTikTokCatalogFeeds — leitura diagnóstica não confunde zero com falha');
   await throws(() => provider.getTikTokCatalogFeeds('', ''), 400, 'feeds sem ids → 400');
   const emptyFeeds = provider._internals.normalizeCatalogFeeds({ total_feeds: 0, feeds: [] });

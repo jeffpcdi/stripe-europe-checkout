@@ -327,29 +327,77 @@ export function TikTokAdsView() {
         <>
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
-          <Tabs.Root value={tab} onValueChange={(value) => changeTab(value as TabKey)}>
-            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1 rounded-xl border border-border bg-card p-1 sm:w-max sm:self-center">
-              {SUBTABS.map((item) => {
-                const attentionCount = item.value === 'automation' ? bannedAccounts.length + openTickets.length : item.value === 'campaigns' && tree?.syncError ? 1 : 0
-                return (
-                  <Tabs.Trigger
-                    key={item.value}
-                    value={item.value}
-                    className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg px-1 text-[11px] font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-[inset_0_0_0_1px_rgba(37,244,238,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm"
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Tabs.Root value={tab} onValueChange={(value) => changeTab(value as TabKey)} className="min-w-0">
+              <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1 rounded-xl border border-border bg-card p-1 sm:w-max">
+                {SUBTABS.map((item) => {
+                  const attentionCount = item.value === 'automation' ? bannedAccounts.length + openTickets.length : item.value === 'campaigns' && tree?.syncError ? 1 : 0
+                  return (
+                    <Tabs.Trigger
+                      key={item.value}
+                      value={item.value}
+                      className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg px-1 text-[11px] font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-[inset_0_0_0_1px_rgba(37,244,238,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm"
+                    >
+                      <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
+                      <span className="truncate sm:hidden">{item.compactLabel}</span>
+                      <span className="hidden sm:inline">{item.label}</span>
+                      {attentionCount > 0 && (
+                        <span className="flex min-w-5 items-center justify-center rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
+                          {attentionCount}
+                        </span>
+                      )}
+                    </Tabs.Trigger>
+                  )
+                })}
+              </Tabs.List>
+            </Tabs.Root>
+
+            {tab === 'campaigns' && (
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button type="button" className="btn-primary shrink-0 justify-center text-xs" aria-label="Nova campanha">
+                    <Plus className="size-3.5" aria-hidden="true" /> Nova campanha
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    align="end"
+                    sideOffset={8}
+                    className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-[12px] p-1.5"
                   >
-                    <item.icon className="hidden size-4 sm:block" aria-hidden="true" />
-                    <span className="truncate sm:hidden">{item.compactLabel}</span>
-                    <span className="hidden sm:inline">{item.label}</span>
-                    {attentionCount > 0 && (
-                      <span className="flex min-w-5 items-center justify-center rounded-full bg-error/15 px-1.5 text-[10px] font-bold text-error" aria-label={`${attentionCount} item(ns) que exigem atenção`}>
-                        {attentionCount}
-                      </span>
-                    )}
-                  </Tabs.Trigger>
-                )
-              })}
-            </Tabs.List>
-          </Tabs.Root>
+                    <DropdownMenu.Item
+                      className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                      onSelect={() => openWriteFlow(setCreateOpen)}
+                    >
+                      <Megaphone className="size-3.5" aria-hidden="true" />
+                      Conversão ABO/CBO
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                      onSelect={() => openWriteFlow(setSmartPlusOpen)}
+                    >
+                      <Sparkles className="size-3.5" aria-hidden="true" />
+                      Smart+
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                      onSelect={() => openWriteFlow(setBulkOpen)}
+                    >
+                      <Layers className="size-3.5" aria-hidden="true" />
+                      Vídeos em massa
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                      onSelect={() => openWriteFlow(setSparkOpen)}
+                    >
+                      <Zap className="size-3.5" aria-hidden="true" />
+                      Spark Ads
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            )}
+          </div>
 
           {/* Aviso de sincronização bloqueada: sem isto a tela mostraria "0
               campanhas / tudo zerado" como se a conta estivesse vazia, quando na
@@ -406,51 +454,6 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <>
-              <div className="flex justify-end">
-                <DropdownMenu.Root>
-                  <DropdownMenu.Trigger asChild>
-                    <button type="button" className="btn-primary justify-center text-xs" aria-label="Nova campanha">
-                      <Plus className="size-3.5" aria-hidden="true" /> Nova campanha
-                    </button>
-                  </DropdownMenu.Trigger>
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      align="start"
-                      sideOffset={8}
-                      className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-[12px] p-1.5"
-                    >
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                        onSelect={() => openWriteFlow(setCreateOpen)}
-                      >
-                        <Megaphone className="size-3.5" aria-hidden="true" />
-                        Conversão ABO/CBO
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                        onSelect={() => openWriteFlow(setSmartPlusOpen)}
-                      >
-                        <Sparkles className="size-3.5" aria-hidden="true" />
-                        Smart+
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                        onSelect={() => openWriteFlow(setBulkOpen)}
-                      >
-                        <Layers className="size-3.5" aria-hidden="true" />
-                        Vídeos em massa
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
-                        onSelect={() => openWriteFlow(setSparkOpen)}
-                      >
-                        <Zap className="size-3.5" aria-hidden="true" />
-                        Spark Ads
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu.Root>
-              </div>
               <CampaignTree
               tree={tree}
               loading={treeLoading && !tree}

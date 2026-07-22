@@ -2158,6 +2158,13 @@ function normalizeCatalogUploadStatus(out) {
   const raw = out || {};
   const processStatus = String(deepPluck(raw, 'process_status') || deepPluck(raw, 'status') || '').trim().toUpperCase();
   const number = (field) => Math.max(0, Number(deepPluck(raw, field)) || 0);
+  const numberFrom = (...fields) => {
+    for (const field of fields) {
+      const value = deepPluck(raw, field);
+      if (value !== undefined && value !== null && value !== '') return Math.max(0, Number(value) || 0);
+    }
+    return 0;
+  };
   const affected = (field) => {
     const value = deepPluck(raw, field);
     return Array.isArray(value) ? value.slice(0, 50).map((entry) => {
@@ -2178,20 +2185,35 @@ function normalizeCatalogUploadStatus(out) {
     }) : [];
   };
   const errorCount = number('error_count');
+  const failed = ['FAIL', 'FAILED'].includes(processStatus) || errorCount > 0;
+  const succeeded = processStatus === 'SUCCESS' && !failed;
+  const rawErrors = firstArray(raw, ['feed_log_data', 'errors', 'error_list', 'details', 'data']);
+  const sampleErrors = rawErrors.slice(0, 10).map((entry) => {
+    const item = entry && typeof entry === 'object' ? entry : {};
+    return {
+      sku: textField(item.sku_id, item.item_id, item.id).slice(0, 80) || undefined,
+      message: textField(item.message, item.error, item.reason, item.errmsg).slice(0, 200) || undefined,
+    };
+  }).filter((entry) => entry.sku || entry.message);
   return {
     feedLogId: String(deepPluck(raw, 'feed_log_id') || ''),
     feedId: String(deepPluck(raw, 'feed_id') || ''),
     processStatus,
     processing: !['SUCCESS', 'FAIL', 'FAILED'].includes(processStatus),
-    succeeded: processStatus === 'SUCCESS' && errorCount === 0,
-    failed: ['FAIL', 'FAILED'].includes(processStatus) || errorCount > 0,
-    addCount: number('add_count'),
-    updateCount: number('update_count'),
-    deleteCount: number('delete_count'),
+    succeeded,
+    failed,
+    status: succeeded ? 'success' : failed ? 'failed' : processStatus ? 'processing' : 'unknown',
+    addCount: numberFrom('add_count', 'added_count', 'added'),
+    updateCount: numberFrom('update_count', 'updated_count', 'updated'),
+    deleteCount: numberFrom('delete_count', 'deleted_count', 'deleted'),
+    added: numberFrom('added', 'add_count', 'added_count'),
+    updated: numberFrom('updated', 'update_count', 'updated_count'),
+    deleted: numberFrom('deleted', 'delete_count', 'deleted_count'),
     errorCount,
     warningCount: number('warn_count'),
     errors: affected('error_affected_products'),
     warnings: affected('warn_affected_products'),
+    sampleErrors,
   };
 }
 

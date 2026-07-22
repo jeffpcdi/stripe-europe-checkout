@@ -3226,6 +3226,53 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalogs/:catalogId/campaign', dashboardAuth, enqueueCatalogCampaign);
   app.post('/api/ads/catalogs/:catalogId/campaign-runs', dashboardAuth, enqueueCatalogCampaign);
 
+  // Modo Turbo: cria N campanhas idênticas do catálogo em uma única chamada.
+  // Todas as validações de prontidão são feitas UMA vez (prepareCatalogCampaign)
+  // e cada campanha vira um run durável idempotente ({chave}:{índice}), então
+  // repetir a chamada com a mesma Idempotency-Key não duplica campanhas.
+  app.post('/api/ads/catalogs/:catalogId/campaign-batch', dashboardAuth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const count = Number(body.count);
+      const requestedPrefix = String(body.namePrefix || '').trim().slice(0, 100);
+
+      // Valida a spec base uma única vez com o MESMO caminho da criação
+      // individual (prontidão, capabilities, pixel, orçamento mínimo).
+      req.body = { ...body, name: requestedPrefix || undefined };
+      const prepared = await prepareCatalogCampaign(req);
+      const namePrefix = requestedPrefix || `${prepared.catalog.name || 'Catálogo'} — VSA`;
+      const names = catalogDomain.buildCampaignBatchNames(namePrefix, count);
+      const specAt = (index) => ({ ...prepared.spec, name: names[index] });
+
+      if (await killSwitchActive(prepared.accId)) return res.status(423).json(KILL_SWITCH_BODY);
+      if (await isDryRun(prepared.accId)) {
+        await auditSimulated(prepared.accId, {
+          action: 'catalog_campaign', targetType: 'catalog', targetId: prepared.catalog.id, advertiserId: prepared.advertiserId,
+          metadata: { ...prepared.spec, batchCount: count },
+          title: `Criar ${count} campanhas de catálogo: ${namePrefix}`,
+        });
+        return res.json({ dryRun: true, simulated: true, count, names });
+      }
+
+      const requestedKey = String(req.get('Idempotency-Key') || body.idempotencyKey || '').trim();
+      const batchKey = requestedKey || [
+        'catalog-campaign-batch', prepared.accId, prepared.catalog.id, count,
+        prepared.spec.budgetAmount, prepared.spec.pixelId, namePrefix,
+      ].join(':');
+      const runs = [];
+      for (let i = 0; i < names.length; i += 1) {
+        const key = scopedCatalogRunIdempotencyKey(prepared.advertiserId, `${batchKey}:${i + 1}`);
+        // Sequencial de propósito: mantém a ordem dos nomes e evita rajada no Neon.
+        // eslint-disable-next-line no-await-in-loop
+        const run = await catalogStore.createCampaignRun(prepared.accId, prepared.advertiserId, prepared.catalog.id, {
+          idempotencyKey: key, spec: specAt(i),
+        });
+        runs.push(run);
+      }
+      res.status(202).json({ ok: true, pending: true, count: runs.length, runs });
+    } catch (err) { fail(res, err); }
+  });
+
   app.get('/api/ads/catalogs/:catalogId/campaign-runs', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {

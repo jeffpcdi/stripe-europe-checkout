@@ -309,7 +309,7 @@ async function catalogCapabilitiesForSchemas(tools) {
     ok(/app\.get\('\/api\/ads\/targeting\/interests'/.test(routes), 'GET /targeting/interests registrado');
     ok(/listInterestCategories/.test(routes), 'rota de interesses chama o provider');
     const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
-    ok(/Product Link em validação/.test(wizard) && /não troca por URL global/.test(wizard), 'UI não troca Product Link por URL manual');
+    ok(/Product Link em validação/.test(wizard) && /não cria um anúncio comum com URL global/.test(wizard), 'UI não troca Product Link por URL manual');
     const genericWizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'create-ad-panel.tsx'), 'utf8');
     ok(!/Informe o Catalog Video Template ID/.test(genericWizard) && !/catalogVideoTemplateId/.test(genericWizard), 'wizard geral também não exige template para Product Link');
     const tree = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'campaign-tree.tsx'), 'utf8');

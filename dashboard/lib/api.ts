@@ -832,6 +832,20 @@ export async function adsCreateCatalogCampaign(
   )
 }
 
+// Modo Turbo: cria N campanhas idênticas do catálogo em uma chamada só.
+// O backend valida tudo uma vez e enfileira N runs duráveis idempotentes.
+export async function adsCreateCatalogCampaignBatch(
+  catalogId: string,
+  adAccountId: string,
+  body: Record<string, unknown>,
+): Promise<import('./types').AdsCatalogCampaignBatchResponse> {
+  return apiSend<import('./types').AdsCatalogCampaignBatchResponse>(
+    adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/campaign-batch`, adAccountId),
+    'POST',
+    body,
+  )
+}
+
 export async function adsPreflightCatalogCampaign(
   catalogId: string,
   adAccountId: string,

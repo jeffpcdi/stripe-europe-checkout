@@ -214,8 +214,33 @@ function normalizeCampaignSpec(input, catalog) {
   };
 }
 
+// Modo Turbo: nomes numerados do lote de campanhas ("Prefixo — VSA 01" … "NN").
+// Zero-padding acompanha o tamanho do lote (01…50, 001…100) para ordenar bem
+// no Ads Manager. Função pura para o teste cobrir sem tocar rede/banco.
+const CATALOG_CAMPAIGN_BATCH_MAX = 50;
+function buildCampaignBatchNames(prefix, count) {
+  const total = Number(count);
+  if (!Number.isInteger(total) || total < 1 || total > CATALOG_CAMPAIGN_BATCH_MAX) {
+    throw catalogError(
+      'CATALOG_CAMPAIGN_BATCH_COUNT_INVALID',
+      `Informe quantas campanhas criar (1 a ${CATALOG_CAMPAIGN_BATCH_MAX}).`,
+      { status: 400, retryable: false },
+    );
+  }
+  const base = String(prefix || '').trim();
+  if (!base) throw catalogError('CATALOG_CAMPAIGN_NAME_REQUIRED', 'Informe o prefixo do nome das campanhas.');
+  const pad = Math.max(2, String(total).length);
+  return Array.from({ length: total }, (_, index) => {
+    const suffix = ` ${String(index + 1).padStart(pad, '0')}`;
+    // Reserva o final para a numeração. Cortar a string pronta removia o
+    // sufixo de prefixos longos e fazia o lote inteiro colidir no mesmo nome.
+    return `${base.slice(0, Math.max(1, 120 - suffix.length)).trimEnd()}${suffix}`;
+  });
+}
+
 module.exports = {
   CAMPAIGN_STAGES,
+  CATALOG_CAMPAIGN_BATCH_MAX,
   TIKTOK_MIN_DAILY_BUDGET,
   TIKTOK_MIN_APPROVED_PRODUCTS,
   TIKTOK_PIXEL_EVENTS,
@@ -223,4 +248,5 @@ module.exports = {
   serializeCatalogError,
   computeReadiness,
   normalizeCampaignSpec,
+  buildCampaignBatchNames,
 };

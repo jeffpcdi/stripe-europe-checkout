@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  X, Loader2, Plus, Trash2, UploadCloud, Download, Rocket,
+  X, Loader2, Plus, Trash2, UploadCloud, Download,
   Copy, Check, AlertCircle, ChevronLeft, PackageOpen,
   Building2, Clock, ShieldCheck, RefreshCw, Pencil, ImageIcon,
   Link2, ChevronDown, History, CopyPlus, SearchCheck, RotateCcw,
@@ -293,7 +293,6 @@ function CatalogList({
   const catalogType = 'ECOM'
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
-
   const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
 
   async function handleCreate() {

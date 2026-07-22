@@ -1664,6 +1664,17 @@ export interface AdsCatalogCampaignResponse {
   warnings?: string[]
 }
 
+// POST /api/ads/catalogs/:id/campaign-batch — Modo Turbo (N campanhas em 1 clique)
+export interface AdsCatalogCampaignBatchResponse {
+  ok?: boolean
+  dryRun?: boolean
+  simulated?: boolean
+  pending?: boolean
+  count?: number
+  names?: string[]
+  runs?: AdsCatalogCampaignRun[]
+}
+
 export type AdsCatalogStepState = 'done' | 'active' | 'waiting' | 'blocked'
 
 export interface AdsCatalogReadiness {

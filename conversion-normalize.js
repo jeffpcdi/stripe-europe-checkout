@@ -116,7 +116,11 @@ function collectFields(root, wanted) {
   while (level.length && depth < 8) {
     const next = [];
     for (const obj of level) {
-      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
+      if (Array.isArray(obj)) {
+        for (const item of obj) if (item && typeof item === 'object') next.push(item);
+        continue;
+      }
+      if (!obj || typeof obj !== 'object') continue;
       for (const k of Object.keys(obj)) {
         const kl = String(k).toLowerCase();
         const v = obj[k];
@@ -166,6 +170,71 @@ function str(v) {
   return (typeof v === 'string' || typeof v === 'number') ? String(v).slice(0, 320) : null;
 }
 
+// Advanced Matching (EMQ): e-mail e telefone do comprador são o sinal de match
+// mais forte no evento de dinheiro. Alguns gateways aninham o cliente em
+// containers que o flatten não conhece (ex.: Stripe `customer_details.email`,
+// PagSeguro `sender.email`, payloads `charges[].billing_details.email`), então
+// a busca é RECURSIVA (mesmo mecanismo do valor/ttclid), não só na raiz. A
+// ocorrência mais rasa vence — a raiz continua com prioridade sobre um e-mail
+// de afiliado/comissão lá no fundo.
+const EMAIL_ALIASES = ['email', 'customer_email', 'buyer_email', 'payer_email', 'contact_email',
+  'email_address', 'e_mail', 'client_email', 'cliente_email', 'user_email', 'checkout_email',
+  'receipt_email', 'sender_email'];
+const PHONE_ALIASES = ['phone', 'customer_phone', 'buyer_phone', 'phone_number', 'mobile',
+  'checkout_phone', 'telefone', 'celular', 'whatsapp', 'phone_local_code', 'contact_phone',
+  'cliente_telefone', 'sender_phone', 'mobile_phone', 'msisdn', 'tel'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function pickContactByDepth(root, aliases, valid) {
+  const wanted = new Set(aliases);
+  let level = [root];
+  let depth = 0;
+  while (level.length && depth < 8) {
+    const next = [];
+    const atDepth = {};
+    for (const obj of level) {
+      if (Array.isArray(obj)) {
+        for (const item of obj) if (item && typeof item === 'object') next.push(item);
+        continue;
+      }
+      if (!obj || typeof obj !== 'object') continue;
+      for (const key of Object.keys(obj)) {
+        const normalized = String(key).toLowerCase();
+        const value = obj[key];
+        if (wanted.has(normalized) && !(normalized in atDepth)) atDepth[normalized] = value;
+        if (value && typeof value === 'object') next.push(value);
+      }
+    }
+    for (const alias of aliases) {
+      const value = str(atDepth[alias]);
+      if (value && valid(value.trim())) return value.trim();
+    }
+    level = next;
+    depth++;
+  }
+  return null;
+}
+function pickEmail(body, flat) {
+  const nested = pickContactByDepth(body || {}, EMAIL_ALIASES, (value) => EMAIL_RE.test(value));
+  if (nested) return nested;
+  for (const alias of EMAIL_ALIASES) {
+    const value = str(flat[alias]);
+    if (value && EMAIL_RE.test(value.trim())) return value.trim();
+  }
+  return null;
+}
+function pickPhone(body, flat) {
+  const valid = (value) => String(value).replace(/\D/g, '').length >= 7;
+  const nested = pickContactByDepth(body || {}, PHONE_ALIASES, valid);
+  if (nested) return nested;
+  for (const alias of PHONE_ALIASES) {
+    const value = str(flat[alias]);
+    // precisa ter dígitos suficientes para ser telefone (o hash E.164 acontece
+    // depois, em tiktok-events.js); descarta "0"/lixo curto que zeraria o EMQ.
+    if (value && valid(value)) return value.trim();
+  }
+  return null;
+}
+
 // Normaliza QUALQUER payload de gateway para o formato interno.
 function normalizeConversion(body, query) {
   const b = flattenGatewayPayload(body);
@@ -200,8 +269,10 @@ function normalizeConversion(body, query) {
     // vid ecoado: raiz OU containers de rastreio (src/sck/s1) já achatados acima
     leadId: str(b.leadId || b.lead_id || b.client_reference_id || b.reference || b.external_id || b.s1 || b.sck || b.src),
     ttclid: ttclidRaw, // Risco 3: 1ª tentativa de match (antes do leadId)
-    email: str(b.email || b.customer_email || b.buyer_email),
-    phone: str(b.phone || b.customer_phone || b.buyer_phone || b.phone_number || b.mobile || b.checkout_phone),
+    // Advanced Matching: busca recursiva (raiz vence) — e-mail/telefone do
+    // comprador sobem o EMQ do CompletePayment mesmo aninhados fundo.
+    email: pickEmail(body, b),
+    phone: pickPhone(body, b),
     customer: str(b.customer || b.name || b.full_name || b.buyer_name || b.customer_name),
     product: str(b.product_name || b.content_name || b.product),
     registerSale: true

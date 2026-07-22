@@ -40,8 +40,7 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 - **Cache/dedup:** Upstash Redis `@upstash/redis` `^1.38.0` via HTTP REST (opcional; fallback em memória).
 - **Geo:** `geoip-lite` `^2.0.3` (fallback; a fonte primária são headers de edge Vercel/Cloudflare).
 - **Serviços externos:** TikTok Events API (`business-api.tiktok.com/open_api/v1.3`), Pushcut (push).
-- **Dependência órfã:** `ws` `^8.21.0` está no `package.json` mas **não é usada** por nenhum módulo
-  (presença ao vivo usa polling HTTP `/api/pulse`, não WebSocket). Pode ser removida.
+- **Presença ao vivo:** usa polling HTTP `/api/pulse`; não há dependência de WebSocket no runtime.
 
 ## 3. Deploy e ambientes
 - **Produção real:** roda no **Railway**, com credenciais **próprias do usuário** (Neon + Upstash
@@ -410,7 +409,11 @@ Motivos: `bot-ua`, `rate-limit`, `pais`, `idioma`, `score`. Contadores em `cloak
   antes do hash; fora de 7–15 dígitos é descartado (não envia lixo).
 - **external_id:** `hash('lead:' + v_id)` — amarra todo o funil à mesma pessoa no gerenciador do TikTok.
 - **EMQ:** `matchScore(user)` devolve 0–10 (proxy do Event Match Quality) + `emqFields` (sinais enviados:
-  email, phone, ttclid, external_id…). Guardado no log de disparos para o painel.
+  email, phone, ttclid, external_id…). Guardado no log de disparos para o painel. **Advanced Matching do
+  evento de dinheiro:** `conversion-normalize.js` extrai e-mail/telefone do comprador de forma RECURSIVA
+  (`pickEmail`/`pickPhone` via `collectFields`, raiz vence) com alias amplo (inclui aninhados tipo Stripe
+  `customer_details.email`, PagSeguro `sender.email`, aliases pt-BR `payer_email`/`celular`) — antes só
+  olhava a raiz e perdia PII aninhada, zerando o EMQ do CompletePayment. Cobertura: `test/conversion-pii.test.js`.
 - **Dedup:** `event_id` determinístico `Evento.<vid>.<yyyymmddhh>`. **Alterar o formato quebra a dedup**
   navegador↔servidor (duplica ou perde eventos). Retry imediato + fila durável (`capiRetryQueue`).
 - **Multi-pixel:** `dispatchToAll` dispara em todos os pixels ativos; `sendToPixel` mira um específico
@@ -661,9 +664,10 @@ só no Railway (§5.2.2).
   `legacy=1` e serve o `DASHBOARD_HTML` antigo). Não apagar `dashboard-view.js`.
 
 ### 19.2 Stack e dados
-- Next.js 16 (App Router, `experimental.viewTransition`), React 19, TypeScript, Tailwind v4
+- Next.js 16.2.11 (App Router, `experimental.viewTransition`), React 19, TypeScript, Tailwind v4
   (`@import 'tailwindcss'` + tokens em `@theme`/`:root` no `globals.css`), lucide-react (ícones),
   Recharts (gráficos), `globe.gl` (globo 3D), SWR (dados).
+  O override `sharp=0.35.3` substitui a versão opcional vulnerável herdada do Next.
 - **Todos os dados vêm dos endpoints `/api/*` do Express** (§5.2) via hooks SWR em `lib/api.ts`
   (`useStats`, `useLive`, `useLinks`, `usePixels`, `useGateways`, `useCloakConfig`, etc.), com
   `credentials:'include'` e polling. **Não criar API routes no Next** — API nova nasce no Express.
@@ -680,9 +684,8 @@ só no Railway (§5.2.2).
 venda→webhook→CAPI; 2 segmentos `?tab=gateways|pixels` + strip do fluxo; `/gateways` e `/pixels` viram
 redirects) · `/config`
 Configurações · `/ads/tiktok` **TikTok Ads** (via Pipeboard MCP; rotas `/api/ads/*` em
-`ads-routes.js`) com **4 sub-abas** — **Hoje** (centro de comando: inbox "Precisa de você" com
-propostas 1-toque + KPIs/ROAS/briefing + feed "O que o robô fez" + atalhos), **Campanhas** (segmento
-Manuais/Smart+; ABO/CBO + estratégia de lance na criação; **direcionamento na criação** — país/idioma/
+`ads-routes.js`) com **3 sub-abas** — **Campanhas** (segmento Manuais/Smart+; ABO/CBO + estratégia
+de lance na criação; **direcionamento na criação** — país/idioma/
 idade + gênero/interesses/posicionamento, com interesses lidos de `get_tiktok_interest_categories` via
 `GET /api/ads/targeting/interests`; filtro "Validadas" por reviewStatus),
 **Automações** (Pilotos em linguagem de gestor — Protetor/Escalador/Horário com intensidade + 1
@@ -694,7 +697,10 @@ manual garantido**: `GET /api/ads/catalogs/:id/export.csv` (só produtos válido
 importar no Catalog Manager → campanha Product Sales/conversão. +
 **lançar campanha de catálogo/DPA** direto da dashboard via `provider.createCatalogCampaign` →
 `POST /api/ads/catalogs/:id/campaign`: campanha `PRODUCT_SALES` com fonte = catálogo, todos os
-produtos, nasce PAUSADA, respeita kill switch/Modo teste; cobertura em `test/ads-catalog-campaign.test.js`).
+produtos, nasce PAUSADA, respeita kill switch/Modo teste; o lote rápido no mesmo cartão cria até 50
+runs idempotentes pedindo só quantidade e orçamento. Pixel central + Compra são injetados no backend;
+nenhum formulário de catálogo pede Pixel/evento por linha. Cobertura em
+`test/ads-catalog-campaign.test.js` e `test/ads-catalog-campaign-batch.test.js`).
 O motor cobre também campanhas **Smart+**: o `ads-sync` mescla as campanhas Smart+ no espelho como
 nós `campaignKind:'smart_plus'`, e o motor **pausa** (regras de pausa + dayparting) via
 `setSmartPlusCampaignStatus` — orçamento/escala é pulado (o Pipeboard não expõe tool de orçamento de

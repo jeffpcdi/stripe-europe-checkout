@@ -40,8 +40,7 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 - **Cache/dedup:** Upstash Redis `@upstash/redis` `^1.38.0` via HTTP REST (opcional; fallback em memória).
 - **Geo:** `geoip-lite` `^2.0.3` (fallback; a fonte primária são headers de edge Vercel/Cloudflare).
 - **Serviços externos:** TikTok Events API (`business-api.tiktok.com/open_api/v1.3`), Pushcut (push).
-- **Dependência órfã:** `ws` `^8.21.0` está no `package.json` mas **não é usada** por nenhum módulo
-  (presença ao vivo usa polling HTTP `/api/pulse`, não WebSocket). Pode ser removida.
+- **Presença ao vivo:** usa polling HTTP `/api/pulse`; não há dependência de WebSocket no runtime.
 
 ## 3. Deploy e ambientes
 - **Produção real:** roda no **Railway**, com credenciais **próprias do usuário** (Neon + Upstash
@@ -295,13 +294,14 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
   O parser do lote exige a coluna `marca`/`brand` e envia `brand` por produto; valor ausente bloqueia
   a prévia com as linhas exatas, pois a marca real é obrigatória no TikTok e nunca deve ser inferida.
-  Ao preparar campanhas, o lote também lê `pixel_id` (6–30 dígitos) e `evento` (padrão canônico
-  `ON_WEB_ORDER`) por campanha; o wizard manual expõe os mesmos campos obrigatórios para `CONVERT`.
+  Ao preparar campanhas, a rota injeta o Pixel central vinculado à conta de anúncio e o evento
+  `ON_WEB_ORDER`; planilha, wizard e lote rápido não pedem Pixel/evento repetidamente.
   No wizard dedicado, escopo específico, Product Set, template, texto e CTA só aparecem quando o
   schema atual os confirma; IDs são numéricos, avisos do run ficam visíveis e falhas não retomáveis
   oferecem apenas a limpeza da estrutura parcial. Sem `manualCatalogCampaign`, nada é enviado ao TikTok.
-  Quando `GET /api/ads/pixels?adAccountId=...` retorna Pixels, o wizard usa uma lista autenticada
-  com nome e compras dos últimos 30 dias; sem dados/na falha, preserva input numérico manual.
+  O lote rápido (`POST /api/ads/catalogs/:catalogId/campaign-batch`, máximo 50) vive no cartão
+  “Campanhas deste catálogo”, pede apenas quantidade e orçamento, gera nomes ordenados e cria runs
+  duráveis idempotentes. Ele só abre com `manualCatalogCampaign=true`; não polui a lista de catálogos.
   Nomes diferentes que geram a mesma key normalizada bloqueiam a prévia com nomes e linhas, em vez
   de fundir produtos silenciosamente. A idempotency key do wizard é preservada entre timeout/retry e
   só muda após sucesso ou alteração material do formulário. Runs
@@ -758,9 +758,11 @@ só no Railway (§5.2.2).
   `legacy=1` e serve o `DASHBOARD_HTML` antigo). Não apagar `dashboard-view.js`.
 
 ### 19.2 Stack e dados
-- Next.js 16 (App Router, `experimental.viewTransition`), React 19, TypeScript, Tailwind v4
+- Next.js 16.2.11 (App Router, `experimental.viewTransition`), React 19, TypeScript, Tailwind v4
   (`@import 'tailwindcss'` + tokens em `@theme`/`:root` no `globals.css`), lucide-react (ícones),
   Recharts (gráficos), `globe.gl` (globo 3D), SWR (dados).
+  O override `sharp=0.35.3` corrige a versão opcional vulnerável herdada do Next; validar com
+  `npm --prefix dashboard audit --omit=dev` e `npm run build` ao atualizar o framework.
 - **Todos os dados vêm dos endpoints `/api/*` do Express** (§5.2) via hooks SWR em `lib/api.ts`
   (`useStats`, `useLive`, `useLinks`, `usePixels`, `useGateways`, `useCloakConfig`, etc.), com
   `credentials:'include'` e polling. **Não criar API routes no Next** — API nova nasce no Express.
