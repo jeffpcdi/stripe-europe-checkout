@@ -45,12 +45,29 @@ const catalogBatchDomain = require('./catalog/catalog-batch-domain');
 const catalogBatchExecutor = require('./catalog/catalog-batch-executor');
 const { CAMPAIGN_GOALS, SPARK_GOALS, PIXEL_EVENTS, CALL_TO_ACTIONS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 
-const ADS_DAY_FORMAT = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
-});
-function adsDay(value) {
+const DEFAULT_ADS_TIME_ZONE = 'America/Sao_Paulo';
+const ADS_DAY_FORMATS = new Map();
+function safeAdsTimeZone(value) {
+  const timeZone = String(value || '').trim() || DEFAULT_ADS_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat('pt-BR', { timeZone }).format(new Date());
+    return timeZone;
+  } catch (_) {
+    return DEFAULT_ADS_TIME_ZONE;
+  }
+}
+function adsDay(value, timeZone) {
   const date = value instanceof Date ? value : new Date(value);
-  return Number.isFinite(date.getTime()) ? ADS_DAY_FORMAT.format(date) : '';
+  if (!Number.isFinite(date.getTime())) return '';
+  const zone = safeAdsTimeZone(timeZone);
+  let formatter = ADS_DAY_FORMATS.get(zone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    ADS_DAY_FORMATS.set(zone, formatter);
+  }
+  return formatter.format(date);
 }
 
 // Repassa erros do provider com o payload estruturado (o front mostra a mensagem)
@@ -472,6 +489,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         account: { id: s.advertiserId, username: advName, displayName: advName },
         businessCenterId: '', // Pipeboard não tem Business Center
         advertiserId: s.advertiserId || '',
+        currency: (s.advertiser && s.advertiser.currency) || 'USD',
+        timeZone: safeAdsTimeZone(s.advertiser && s.advertiser.timezone),
         identity: null,
         // F6 — capability flags: fonte ÚNICA de verdade do que o backend
         // suporta via Pipeboard. A UI esconde (não desabilita com promessa
@@ -1411,10 +1430,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       const iso = (d) => d.toISOString().slice(0, 10);
       const today = new Date();
-      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
+      const [advertiserInfo, syncState] = await Promise.all([
+        pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
+        adsCache.getSyncState(req.account.id, advertiserId).catch(() => null),
+        adsSync.ensureFresh(req.account.id, advertiserId).catch(() => null),
+      ]);
+      const timeZone = safeAdsTimeZone(advertiserInfo && advertiserInfo.timezone);
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : adsDay(today, timeZone);
       const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || ''))
         ? q.fromDate
-        : iso(new Date(today.getTime() - 6 * 864e5));
+        : toDate;
       // período anterior: mesma duração, terminando 1 dia antes do início atual
       const spanMs = new Date(toDate + 'T00:00:00Z').getTime() - new Date(fromDate + 'T00:00:00Z').getTime();
       const prevTo = iso(new Date(new Date(fromDate + 'T00:00:00Z').getTime() - 864e5));
@@ -1440,7 +1465,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         ctr: pct(cur.ctr, prev.ctr),
         cpm: pct(cur.cpm, prev.cpm),
       } : null;
-      res.json({ fromDate, toDate, prevFrom, prevTo, current: cur, previous: prev, deltas });
+      res.json({
+        fromDate, toDate, prevFrom, prevTo,
+        currency: (advertiserInfo && advertiserInfo.currency) || (cur && cur.currency) || 'USD',
+        timeZone,
+        scope: 'advertiser_all_campaigns',
+        lastSyncedAt: syncState && syncState.last_synced_at || null,
+        current: cur, previous: prev, deltas,
+      });
     } catch (err) { fail(res, err); }
   });
 
@@ -1460,11 +1492,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         advertiserId = await pipeboard.resolveAdvertiserId(req.account.id);
         if (!advertiserId) return res.status(409).json({ error: 'Nenhuma conta de anúncio autorizada no token' });
       }
+      const [advertiserInfo, syncState] = await Promise.all([
+        pipeboard.getAdvertiserInfo(advertiserId).catch(() => null),
+        adsCache.enabled ? adsCache.getSyncState(req.account.id, advertiserId).catch(() => null) : Promise.resolve(null),
+      ]);
+      const advertiserTimeZone = safeAdsTimeZone(advertiserInfo && advertiserInfo.timezone);
       const today = new Date();
       const defFrom = today; // padrão diário: sem ?fromDate, a janela é HOJE
       const iso = (d) => d.toISOString().slice(0, 10);
-      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : adsDay(defFrom);
-      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : adsDay(today);
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : adsDay(defFrom, advertiserTimeZone);
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : adsDay(today, advertiserTimeZone);
 
       // 1) Gasto do TikTok por DIA — do espelho no Neon (instantâneo). A receita
       // vem do stats interno, então a leitura local do gasto é agregada aqui.
@@ -1477,8 +1514,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         spend = d.spend; conversions = d.conversions; currency = d.currency;
       } else {
         // Fallback ao vivo (Neon indisponível).
-        const advInfo = await pipeboard.getAdvertiserInfo(advertiserId).catch(() => null);
-        currency = (advInfo && advInfo.currency) || null;
+        currency = (advertiserInfo && advertiserInfo.currency) || null;
         const ins = await pipeboard.getInsights(advertiserId, {
           level: 'AUCTION_ADVERTISER', startDate: fromDate, endDate: toDate, dimensions: ['stat_time_day'],
         });
@@ -1502,7 +1538,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         const snap = stats.getStats(req.account.id) || {};
         (snap.leads || []).forEach((l) => {
           if (l.stage !== 'purchased' || !l.convertedAt) return;
-          const day = adsDay(l.convertedAt);
+          const day = adsDay(l.convertedAt, advertiserTimeZone);
           if (day < fromDate || day > toDate) return;
           const cents = Number(l.reportedAmount) || 0;
           revenueCents += cents; sales += 1;
@@ -1532,6 +1568,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const currencyMismatch = !!(revenueCurrency && revenueCents > 0 && spend > 0 && revenueCurrency !== spendCurrency);
       const out = {
         fromDate, toDate, currency: currency || 'EUR',
+        timeZone: advertiserTimeZone,
+        scope: 'advertiser_all_campaigns',
+        lastSyncedAt: syncState && syncState.last_synced_at || null,
         revenueCurrency, currencyMismatch,
         spend: +spend.toFixed(2), conversions,
         revenueCents, sales,
@@ -2346,6 +2385,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   // fila durável do bulk, com retomada idempotente por item. MESMA conta
   // apenas: entre contas o video_id não é transferível (escopado ao
   // advertiser) — responder 422 honesto é melhor que cópia sem criativo.
+  app.post('/api/ads/duplicate/preflight', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const b = req.body || {};
+      const sourceId = String(b.sourceId || '').trim().slice(0, 60);
+      const sourceAdAccountId = String(b.sourceAdAccountId || '').trim().slice(0, 60);
+      if (!sourceId) return res.status(400).json({ error: 'sourceId (campanha de origem) obrigatório' });
+      const selected = await requireAdvertiser(req.account.id, null, sourceAdAccountId, null);
+      res.json(await pipeboard.preflightCampaignDuplication(selected.advertiserId, sourceId));
+    } catch (err) { fail(res, err); }
+  });
+
   app.post('/api/ads/duplicate', dashboardAuth, async (req, res) => {
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });

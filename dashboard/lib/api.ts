@@ -599,7 +599,7 @@ export function useAdsKpis(
   return useSWR<AdsKpisResponse>(
     active && adAccountId ? `/api/ads/kpis?${params.toString()}` : null,
     fetcher,
-    { revalidateOnFocus: false, keepPreviousData: false },
+    { refreshInterval: 60_000, revalidateOnFocus: true, keepPreviousData: false },
   )
 }
 

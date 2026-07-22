@@ -838,7 +838,7 @@ export function CampaignTree({
             </span>
           )}
           <span className="ml-auto font-medium text-foreground">
-            Gasto: {fmtMoney(summary.spend, currency)}
+            Gasto neste filtro: {fmtMoney(summary.spend, currency)}
           </span>
         </div>
       )}

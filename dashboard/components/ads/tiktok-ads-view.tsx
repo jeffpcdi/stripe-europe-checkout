@@ -38,8 +38,9 @@ import { AutomationPanel } from './automation-panel'
 import { SmartPlusCreateDialog } from './smart-plus-create-dialog'
 import { CatalogManager } from './catalog-manager'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { toLocalIsoDate } from './tiktok-contracts'
 import { PixelBindingCard } from './pixel-binding-card'
+import { KpiRow } from './kpi-row'
+import { adsDateRange } from '@/lib/ads-time'
 
 export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
@@ -55,15 +56,15 @@ export function TikTokAdsView() {
   const [statusFilter, setStatusFilter] = useState('active')
   const [sort, setSort] = useState('newest')
   const [page, setPage] = useState(1)
-  // Período global de métricas e campanhas. Datas são calculadas no fuso do
-  // navegador; toISOString() deslocava "Hoje" perto da meia-noite no Brasil.
+  // Período global de métricas e campanhas. O dia pertence ao fuso da conta
+  // TikTok, não ao navegador do operador nem ao UTC.
   const [rangeDays, setRangeDays] = useState(1) // padrão diário — pedido do produto
-  const { fromDate, toDate } = useMemo(() => {
-    const now = new Date()
-    const from = new Date(now)
-    from.setDate(from.getDate() - Math.max(0, rangeDays - 1))
-    return { fromDate: toLocalIsoDate(from), toDate: toLocalIsoDate(now) }
-  }, [rangeDays])
+  const selectedAdvertiserInfo = accounts?.accounts.find((a) => a.id === effectiveAdvertiser)
+  const advertiserTimeZone = selectedAdvertiserInfo?.timezone || status?.timeZone
+  const { fromDate, toDate } = useMemo(
+    () => adsDateRange(rangeDays, advertiserTimeZone),
+    [rangeDays, advertiserTimeZone],
+  )
 
   const treeActive = connected && Boolean(effectiveAdvertiser)
   const {
@@ -176,6 +177,31 @@ export function TikTokAdsView() {
     const adv = accounts?.accounts.find((a) => a.id === concreteAdvertiser)
     return adv?.currency || tree?.campaigns?.[0]?.currency || 'USD'
   }, [accounts, concreteAdvertiser, tree])
+
+  // Fallback visual enquanto o total do advertiser carrega. O valor oficial
+  // dos cards vem de /api/ads/kpis e inclui todos os status, como a Visão geral.
+  const treeKpi = useMemo(() => {
+    const campaigns = tree?.campaigns ?? []
+    let spend = 0
+    let impressions = 0
+    let clicks = 0
+    let activeCount = 0
+    for (const campaign of campaigns) {
+      spend += Number(campaign.metrics?.spend) || 0
+      impressions += Number(campaign.metrics?.impressions) || 0
+      clicks += Number(campaign.metrics?.clicks) || 0
+      if (campaign.status === 'active') activeCount++
+    }
+    return {
+      spend,
+      impressions,
+      clicks,
+      ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+      activeCount,
+      spendSeries: campaigns.map((campaign) => Number(campaign.metrics?.spend) || 0),
+    }
+  }, [tree])
 
   async function handleDisconnect() {
     setDisconnecting(true)
@@ -459,6 +485,15 @@ export function TikTokAdsView() {
           {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <>
+              <KpiRow
+                kpi={treeKpi}
+                currency={currency}
+                active={treeActive}
+                adAccountId={concreteAdvertiser}
+                fromDate={fromDate}
+                toDate={toDate}
+                timeZone={advertiserTimeZone}
+              />
               <CampaignTree
               tree={tree}
               loading={treeLoading && !tree}

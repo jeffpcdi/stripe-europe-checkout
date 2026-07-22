@@ -136,12 +136,26 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   A árvore Smart+ usa as APIs Smart+ nos três níveis e a classificação falha fechada: uma falha de
   leitura nunca rebaixa silenciosamente Smart+ para campanha comum. Orçamento CBO pertence somente à
   campanha; ABO pertence ao conjunto — leitura, automação e edição seguem o mesmo dono para não somar
-  nem alterar orçamento duas vezes. Duplicação comum e Smart+ recria campanha, conjuntos e anúncios
-  sempre pausados, preservando Pixel/evento, targeting, catálogo, identidade, tracking e criativos.
+  nem alterar orçamento duas vezes. O total de investimento da conta vem de `/api/ads/kpis`, inclui
+  todos os status e usa a data civil/fuso da conta de anúncios; a árvore mostra separadamente o subtotal
+  do filtro atual. Assim Visão geral e Campanhas usam o mesmo escopo, moeda e janela de calendário.
+  `POST /api/ads/duplicate/preflight` lê e valida toda a hierarquia antes da primeira escrita, e a
+  idempotency key do front permanece estável em timeout/retry. Duplicação comum recria campanha,
+  conjuntos e anúncios sempre pausados, preservando Pixel, targeting, identidade, tracking e criativos;
+  aceita apenas conversão/Product Sales, normaliza o evento legado para `ON_WEB_ORDER` e nunca degrada
+  objetivo/evento para Traffic/Click. ABO mantém orçamento no conjunto e CBO somente na campanha.
+  Na versão atual do conector, Smart+ só pode ser duplicada fielmente quando a origem é CBO com
+  `BUDGET_MODE_TOTAL`: Smart+ ABO e `BUDGET_MODE_DYNAMIC_DAILY` falham no preflight antes de qualquer
+  criação (`SMART_PLUS_ABO_DUPLICATION_UNSUPPORTED`/`SMART_PLUS_BUDGET_MODE_UNSUPPORTED`), pois tentar
+  convertê-las silenciosamente mudaria a estrutura ou o período do orçamento.
   Em Product Sales, o preflight exige que o schema Pipeboard declare `product_specific_type`; se não
   declarar, falha antes da primeira escrita (`PRODUCT_SALES_DUPLICATION_CONNECTOR_UNSUPPORTED`) em vez
   de criar uma hierarquia parcial. O escopo reconstruído é `ALL`, `PRODUCT_SET` ou
   `CUSTOMIZED_PRODUCTS` conforme os IDs salvos.
+- **ads-bulk.js** — fila durável de mutações em massa/duplicações. Produção preserva a chave histórica
+  `adsBulkQ`; desenvolvimento e teste usam namespace próprio (ou `ADS_BULK_QUEUE_NAMESPACE`) para um
+  worker local nunca consumir jobs de produção. A leitura de job reconcilia sempre o snapshot em memória
+  com o Neon, evitando polling eternamente em `queued` quando outro processo concluiu/falhou o trabalho.
 - **ads-ops-store.js + ads-automation.js** — `ads_ad_rejections` é a caixa durável de reprovações,
   agrupada por conjunto/campanha Smart+ para não repetir um alerta por anúncio. Cada sincronização abre,
   atualiza ou resolve incidentes sem apagar histórico. `GET /api/ads/rejections` lista o inbox e
@@ -235,6 +249,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   por conta e retornam 429 `{ok:false,error,code:'rate_limited'}`.
 - **Auth/conta:** `POST /login`, `POST /register`, `POST /logout`, `GET /api/me`.
 - **Métricas:** `GET /api/stats`, `GET /api/live`, `POST /api/reset-stats`, `GET /api/health`.
+  `GET /api/ads/kpis` e `GET /api/ads/roas` retornam `scope='advertiser_all_campaigns'`, moeda,
+  `timeZone` e `lastSyncedAt`; ambos agregam todos os status no mesmo intervalo civil da conta de
+  anúncios. Filtros da árvore (`active`/`review`/`paused`) são mutuamente exclusivos e nunca alteram
+  o total oficial exibido. `POST /api/ads/duplicate/preflight` é somente leitura e devolve avisos/erros
+  estruturais antes de enfileirar a duplicação real.
 - **Observabilidade das filas (Leva 5, bloco I):** `GET /api/ops` — profundidade da fila de
   conversões (`convQueue`), último resgate de órfãos (`reclaim`), latência webhook→disparo
   p50/p95/max (`convLatency`, janela de 200 em memória), heartbeat do drain worker (`worker`,
@@ -307,11 +326,12 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `waiting_catalog_review` e só é promovida após auditoria aprovar o catálogo. Assim o lote pode ser
   preparado agora, mas nenhum fallback com URL global é criado nem anúncio é enviado antes da confirmação
   explícita do schema Pipeboard.
-  **Estado atual do Pipeboard (2026-07-22):** as tools expõem criação, upload com `feed_log_id`,
-  status por produto, auditoria, `PRODUCT_SALES`, ad group de catálogo e anúncio
-  `CATALOG_CAROUSEL`, além do readback dos três níveis. `manualCatalogCampaign=true` quando esse
-  contrato completo permanece no schema. Isso confirma Catalog Carousel, não o modo Dynamic Formats
-  multiformato; nunca degradar para vídeo comum ou URL global.
+  **Estado observado do Pipeboard neste token (verificação forçada em 2026-07-22):** as tools expõem
+  criação/upload/status/auditoria de catálogo e readback estrutural, mas o schema retornou
+  `manualCatalogCampaign=false`, `productSpecificType=false` e não declarou `shoppingAdsType` nem
+  `adFormat`. Portanto campanhas/duplicações Product Sales ficam aguardando ou falham no preflight antes
+  de escrever. Revalidar as capabilities periodicamente; só considerar Catalog Carousel confirmado
+  quando o contrato completo reaparecer explicitamente. Nunca degradar para vídeo comum ou URL global.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
   **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação

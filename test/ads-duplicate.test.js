@@ -45,16 +45,16 @@ function baseHandlers(overrides) {
     get_tiktok_advertiser_info: async () => ({ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR' }),
     get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1', display_name: 'Marca' }] }),
     get_tiktok_campaigns: async () => ({ campaigns: [{
-      campaign_id: 'src-camp', campaign_name: 'Origem', objective_type: 'TRAFFIC',
-      budget_mode: 'BUDGET_MODE_DAY', budget: 50, create_time: '2026-01-01 10:00:00',
+      campaign_id: 'src-camp', campaign_name: 'Origem', objective_type: 'WEB_CONVERSIONS',
+      budget_mode: 'BUDGET_MODE_INFINITE', budget: 0, budget_optimize_on: false, create_time: '2026-01-01 10:00:00',
       modify_time: '2026-02-01 10:00:00', secondary_status: 'CAMPAIGN_STATUS_ENABLE',
     }] }),
     get_tiktok_adgroups: async () => ({ adgroups: [
-      { adgroup_id: 'src-ag1', adgroup_name: 'Grupo A', optimization_goal: 'CLICK',
+      { adgroup_id: 'src-ag1', adgroup_name: 'Grupo A', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER',
         budget_mode: 'BUDGET_MODE_DAY', budget: 25, bid_type: 'BID_TYPE_NO_BID',
         schedule_start_time: '2025-01-01 00:00:00', // PASSADO — deve recalcular
         targeting: { location_ids: ['123'], age_groups: ['AGE_25_34'] } },
-      { adgroup_id: 'src-ag2', adgroup_name: 'Grupo B', optimization_goal: 'CLICK',
+      { adgroup_id: 'src-ag2', adgroup_name: 'Grupo B', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER',
         budget_mode: 'BUDGET_MODE_DAY', budget: 25, bid_type: 'BID_TYPE_CUSTOM', bid_price: 0.5,
         schedule_start_time: '2099-01-01 00:00:00', // FUTURO — deve preservar
         targeting: { location_ids: ['123'] } },
@@ -97,7 +97,7 @@ function baseHandlers(overrides) {
   // Allowlist: nada de IDs/timestamps/métricas nos args de criação
   const campArgs = lastCall('create_tiktok_campaign').args;
   assert.strictEqual(campArgs.campaign_name, 'Origem (cópia)');
-  assert.strictEqual(campArgs.objective_type, 'TRAFFIC');
+  assert.strictEqual(campArgs.objective_type, 'WEB_CONVERSIONS');
   assert.ok(!('campaign_id' in campArgs) && !('create_time' in campArgs) && !('secondary_status' in campArgs), 'IDs/timestamps não podem vazar p/ o create');
 
   // Schedule: ag1 (passado) recalculado; ag2 (futuro) preservado
@@ -127,15 +127,18 @@ function baseHandlers(overrides) {
   provider.cacheBust('');
   stubHandlers = baseHandlers({
     get_tiktok_adgroups: async () => ({ adgroups: [
-      { adgroup_id: 'flat-ag1', adgroup_name: 'Grupo achatado', optimization_goal: 'CLICK',
+      { adgroup_id: 'flat-ag1', adgroup_name: 'Grupo achatado', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER',
         budget_mode: 'BUDGET_MODE_DAY', budget: 25,
         // SEM chave `targeting` — campos no topo, como a API real:
         location_ids: ['123', '456'], age_groups: ['AGE_25_34'], gender: 'GENDER_FEMALE' },
       // 2º grupo SEM região nenhuma → deve herdar as do 1º via fallback
-      { adgroup_id: 'flat-ag2', adgroup_name: 'Grupo sem região', optimization_goal: 'CLICK',
+      { adgroup_id: 'flat-ag2', adgroup_name: 'Grupo sem região', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER',
         budget_mode: 'BUDGET_MODE_DAY', budget: 25 },
     ] }),
-    get_tiktok_ads: async () => ({ ads: [] }),
+    get_tiktok_ads: async () => ({ ads: [
+      { ad_id: 'flat-ad1', adgroup_id: 'flat-ag1', ad_name: 'Ad achatado', ad_format: 'SINGLE_VIDEO', ad_text: 'Texto', video_id: 'vid-flat', identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1' },
+      { ad_id: 'flat-ad2', adgroup_id: 'flat-ag2', ad_name: 'Ad herdado', ad_format: 'SINGLE_VIDEO', ad_text: 'Texto', video_id: 'vid-flat-2', identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1' },
+    ] }),
   });
   const capFlat = await provider.captureCampaign('adv1', 'src-camp');
   const rFlat = await provider.recreateCampaign('adv1', capFlat, 'Cópia achatada', {});
@@ -147,7 +150,7 @@ function baseHandlers(overrides) {
   assert.ok(rFlat.warnings.some((w) => /herdou as regiões/i.test(w)), 'warning do fallback de região');
   console.log('ok 1b - targeting achatado reconstruído + fallback de location_ids entre grupos');
 
-  // ── 2. Preflight 40002: DYNAMIC_DAILY + objetivo incompatível → DAY ───────
+  // ── 2. Objetivo incompatível: falha fechada antes da primeira escrita ─────
   stubCalls.length = 0;
   provider.cacheBust('');
   stubHandlers = baseHandlers({
@@ -157,10 +160,12 @@ function baseHandlers(overrides) {
     }] }),
   });
   const cap2 = await provider.captureCampaign('adv1', 'src-camp');
-  const r2 = await provider.recreateCampaign('adv1', cap2, 'Cópia 2', {});
-  assert.strictEqual(lastCall('create_tiktok_campaign').args.budget_mode, 'BUDGET_MODE_DAY');
-  assert.ok(r2.warnings.some((w) => /preflight 40002/.test(w)), 'warning do preflight');
-  console.log('ok 2 - preflight 40002 converte DYNAMIC_DAILY → DAY em objetivo incompatível');
+  await assert.rejects(
+    () => provider.recreateCampaign('adv1', cap2, 'Cópia 2', {}),
+    (error) => error.code === 'DUPLICATION_OBJECTIVE_UNSUPPORTED' && error.step === 'preflight',
+  );
+  assert.strictEqual(countCalls('create_tiktok_campaign'), 0, 'objetivo de tráfego não cria campanha');
+  console.log('ok 2 - objetivo fora de conversão falha antes da primeira escrita');
 
   // ── 3. Fallback 40002: TikTok recusa o modo dinâmico → retry único com DAY ─
   stubCalls.length = 0;
@@ -239,11 +244,15 @@ function baseHandlers(overrides) {
       budget_mode: 'BUDGET_MODE_DAY', budget: 100, budget_optimize_on: true,
     }] }),
     get_tiktok_adgroups: async () => ({ adgroups: [
-      { adgroup_id: 'cbo-ag1', adgroup_name: 'Grupo CBO', optimization_goal: 'CONVERT',
+      { adgroup_id: 'cbo-ag1', adgroup_name: 'Grupo CBO', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER',
         budget_mode: 'BUDGET_MODE_INFINITE', bid_type: 'BID_TYPE_NO_BID',
         schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] } },
     ] }),
-    get_tiktok_ads: async () => ({ ads: [] }),
+    get_tiktok_ads: async () => ({ ads: [{
+      ad_id: 'cbo-ad1', adgroup_id: 'cbo-ag1', ad_name: 'Ad CBO', ad_format: 'SINGLE_VIDEO',
+      ad_text: 'Texto', video_id: 'vid-cbo', identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1',
+      catalog_id: 'cat-cbo', product_specific_type: 'ALL',
+    }] }),
   });
   const cboCap = await provider.captureCampaign('adv1', 'src-cbo');
   await provider.recreateCampaign('adv1', cboCap, 'CBO (cópia)', {});
@@ -257,18 +266,18 @@ function baseHandlers(overrides) {
   provider.cacheBust('');
   stubHandlers = baseHandlers({
     get_tiktok_campaigns: async () => ({ campaigns: [{
-      campaign_id: 'src-low', campaign_name: 'Orçamento antigo', objective_type: 'TRAFFIC',
-      budget_mode: 'BUDGET_MODE_DAY', budget: 10,
+      campaign_id: 'src-low', campaign_name: 'Orçamento antigo', objective_type: 'WEB_CONVERSIONS',
+      budget_mode: 'BUDGET_MODE_INFINITE', budget: 0,
     }] }),
     get_tiktok_adgroups: async () => ({ adgroups: [{
-      adgroup_id: 'low-ag', adgroup_name: 'Grupo antigo', optimization_goal: 'CLICK',
+      adgroup_id: 'low-ag', adgroup_name: 'Grupo antigo', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER',
       budget_mode: 'BUDGET_MODE_DAY', budget: 10,
       schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] },
     }] }),
-    get_tiktok_ads: async () => ({ ads: [] }),
+    get_tiktok_ads: async () => ({ ads: [{ ad_id: 'low-ad', adgroup_id: 'low-ag', ad_name: 'Ad antigo', ad_format: 'SINGLE_VIDEO', ad_text: 'Texto', video_id: 'vid-low', identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1' }] }),
   });
   const lowResult = await provider.recreateCampaign('adv1', await provider.captureCampaign('adv1', 'src-low'), 'Orçamento antigo (cópia)', {});
-  assert.strictEqual(lastCall('create_tiktok_campaign').args.budget, 50, 'campanha respeita o piso atual');
+  assert.ok(!('budget' in lastCall('create_tiktok_campaign').args), 'ABO não envia orçamento na campanha');
   assert.strictEqual(lastCall('create_tiktok_adgroup').args.budget, 50, 'grupo respeita o piso atual');
   assert.ok(lowResult.warnings.some((warning) => /mínimo aceito/.test(warning)), 'ajuste aparece nos avisos');
   console.log('ok 8 - orçamento legado abaixo de 50 é ajustado antes da duplicação');
@@ -279,11 +288,11 @@ function baseHandlers(overrides) {
   let ipAttempts = 0;
   stubHandlers = baseHandlers({
     get_tiktok_adgroups: async () => ({ adgroups: [{
-      adgroup_id: 'ip-ag', adgroup_name: 'Grupo instável', optimization_goal: 'CLICK',
+      adgroup_id: 'ip-ag', adgroup_name: 'Grupo instável', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER',
       budget_mode: 'BUDGET_MODE_DAY', budget: 50,
       schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] },
     }] }),
-    get_tiktok_ads: async () => ({ ads: [] }),
+    get_tiktok_ads: async () => ({ ads: [{ ad_id: 'ip-ad', adgroup_id: 'ip-ag', ad_name: 'Ad instável', ad_format: 'SINGLE_VIDEO', ad_text: 'Texto', video_id: 'vid-ip', identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1' }] }),
     create_tiktok_adgroup: async () => {
       ipAttempts += 1;
       if (ipAttempts === 1) throw new Error('TikTok API error 40002: Could not acquire IP. Please try again later');
@@ -321,7 +330,7 @@ function baseHandlers(overrides) {
       budget_mode: 'BUDGET_MODE_DAY', budget: 50,
     }] }),
     get_tiktok_adgroups: async () => ({ adgroups: [{
-      adgroup_id: 'ps-ag', adgroup_name: 'Grupo catálogo', optimization_goal: 'CONVERT',
+      adgroup_id: 'ps-ag', adgroup_name: 'Grupo catálogo', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'INITIATE_ORDER',
       budget_mode: 'BUDGET_MODE_DAY', budget: 50, catalog_id: 'cat-1',
       product_source: 'CATALOG', shopping_ads_type: 'VIDEO',
       schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] },
@@ -336,9 +345,42 @@ function baseHandlers(overrides) {
     'adv1', await provider.captureCampaign('adv1', 'src-product-sales'), 'Produtos (cópia)', {},
   );
   const productAd = lastCall('create_tiktok_ad').args;
+  assert.strictEqual(lastCall('create_tiktok_adgroup').args.optimization_event, 'ON_WEB_ORDER', 'evento legado é normalizado para Compra');
   assert.strictEqual(productAd.product_specific_type, 'ALL', 'catálogo sem recorte promove todos os produtos');
+  assert.ok(productSales.warnings.some((warning) => /INITIATE_ORDER/.test(warning)), 'troca do evento legado fica transparente');
   assert.ok(productSales.warnings.some((warning) => /escopo de produtos/i.test(warning)), 'inferência segura fica transparente');
   console.log('ok 11 - Product Sales preserva product_specific_type e não falha no anúncio');
+
+  // ── 11b. Product Sales: ALL, PRODUCT_SET e CUSTOMIZED_PRODUCTS ───────────
+  for (const scenario of [
+    { label: 'PRODUCT_SET', fields: { item_group_ids: ['grupo-1'] } },
+    { label: 'CUSTOMIZED_PRODUCTS', fields: { sku_ids: ['sku-1', 'sku-2'] } },
+  ]) {
+    stubCalls.length = 0;
+    provider.cacheBust('');
+    stubHandlers = baseHandlers({
+      get_tiktok_campaigns: async () => ({ campaigns: [{
+        campaign_id: 'src-product-sales', campaign_name: 'Produtos', objective_type: 'PRODUCT_SALES',
+        budget_mode: 'BUDGET_MODE_INFINITE', budget: 0,
+      }] }),
+      get_tiktok_adgroups: async () => ({ adgroups: [{
+        adgroup_id: 'ps-ag', adgroup_name: 'Grupo catálogo', optimization_goal: 'CONVERT',
+        pixel_id: '123456', optimization_event: 'ON_WEB_ORDER', budget_mode: 'BUDGET_MODE_DAY', budget: 50,
+        catalog_id: 'cat-1', product_source: 'CATALOG', schedule_start_time: '2099-01-01 00:00:00',
+        targeting: { location_ids: ['123'] },
+      }] }),
+      get_tiktok_ads: async () => ({ ads: [{
+        ad_id: 'ps-ad', adgroup_id: 'ps-ag', ad_name: scenario.label, ad_format: 'CATALOG_CAROUSEL',
+        ad_text: 'Texto', catalog_id: 'cat-1', identity_id: 'id-bc', identity_type: 'BC_AUTH_TT',
+        identity_authorized_bc_id: 'bc-1', ...scenario.fields,
+      }] }),
+    });
+    await provider.recreateCampaign(
+      'adv1', await provider.captureCampaign('adv1', 'src-product-sales'), scenario.label + ' (cópia)', {},
+    );
+    assert.strictEqual(lastCall('create_tiktok_ad').args.product_specific_type, scenario.label);
+  }
+  console.log('ok 11b - Product Sales cobre ALL, PRODUCT_SET e CUSTOMIZED_PRODUCTS');
 
   // ── 12. Conector antigo: Product Sales para antes da primeira escrita ─────
   stubCalls.length = 0;
@@ -351,11 +393,15 @@ function baseHandlers(overrides) {
       budget_mode: 'BUDGET_MODE_DAY', budget: 50,
     }] }),
     get_tiktok_adgroups: async () => ({ adgroups: [{
-      adgroup_id: 'ps-ag', adgroup_name: 'Grupo catálogo', optimization_goal: 'CONVERT',
+      adgroup_id: 'ps-ag', adgroup_name: 'Grupo catálogo', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER',
       budget_mode: 'BUDGET_MODE_DAY', budget: 50, catalog_id: 'cat-1',
       schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] },
     }] }),
-    get_tiktok_ads: async () => ({ ads: [] }),
+    get_tiktok_ads: async () => ({ ads: [{
+      ad_id: 'ps-ad', adgroup_id: 'ps-ag', ad_name: 'Catálogo', ad_format: 'CATALOG_CAROUSEL',
+      ad_text: 'Texto', catalog_id: 'cat-1', product_specific_type: 'ALL',
+      identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1',
+    }] }),
   });
   const unsupportedCapture = await provider.captureCampaign('adv1', 'src-product-sales');
   await assert.rejects(
@@ -367,6 +413,34 @@ function baseHandlers(overrides) {
   stubTools = [productScopeTool];
   await provider.getCatalogCapabilities({ force: true });
   console.log('ok 12 - conector sem product_specific_type falha antes de escrever');
+
+  // ── 13. Objetivo ausente nunca cai silenciosamente em TRAFFIC ────────────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers({
+    get_tiktok_campaigns: async () => ({ campaigns: [{ campaign_id: 'src-camp', campaign_name: 'Sem objetivo' }] }),
+  });
+  const missingObjectiveCapture = await provider.captureCampaign('adv1', 'src-camp');
+  await assert.rejects(
+    () => provider.recreateCampaign('adv1', missingObjectiveCapture, 'Não criar', {}),
+    (error) => error.code === 'DUPLICATION_OBJECTIVE_UNAVAILABLE' && error.step === 'preflight',
+  );
+  assert.strictEqual(countCalls('create_tiktok_campaign'), 0, 'objetivo ausente não usa fallback de tráfego');
+  console.log('ok 13 - objetivo ausente falha fechado, sem escrita');
+
+  // ── 14. Preflight público é somente leitura ──────────────────────────────
+  stubCalls.length = 0;
+  provider.cacheBust('');
+  stubHandlers = baseHandlers();
+  const preview = await provider.preflightCampaignDuplication('adv1', 'src-camp');
+  assert.strictEqual(preview.ok, true);
+  assert.strictEqual(preview.objectiveType, 'WEB_CONVERSIONS');
+  assert.strictEqual(preview.budgetOwner, 'adgroup');
+  assert.strictEqual(preview.normalizedEvent, 'ON_WEB_ORDER');
+  assert.strictEqual(countCalls('create_tiktok_campaign'), 0, 'preflight não cria campanha');
+  assert.strictEqual(countCalls('create_tiktok_adgroup'), 0, 'preflight não cria conjunto');
+  assert.strictEqual(countCalls('create_tiktok_ad'), 0, 'preflight não cria anúncio');
+  console.log('ok 14 - preflight real valida sem qualquer escrita');
 
   console.log('\nF3: todos os testes passaram');
 })().catch((e) => { console.error('FALHOU:', e); process.exit(1); });

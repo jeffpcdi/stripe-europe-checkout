@@ -759,7 +759,9 @@ async function getDashboardTree(accountId, opts = {}) {
   // (Validadas) filtra por reviewStatus — dimensão de revisão, não de entrega.
   let campaigns = base.campaigns;
   if (opts.status === 'approved') campaigns = campaigns.filter((c) => c.reviewStatus === 'approved');
-  else if (statusFilter) campaigns = campaigns.filter((c) => c.status === statusFilter || c.childStatus === statusFilter);
+  // Filtros são mutuamente exclusivos pelo status apresentado na UI. O
+  // childStatus é diagnóstico da plataforma e não uma segunda categoria.
+  else if (statusFilter) campaigns = campaigns.filter((c) => c.status === statusFilter);
   // ordenação
   const sort = ['newest', 'oldest', 'spend_desc', 'spend_asc'].includes(opts.sort) ? opts.sort : 'newest';
   campaigns = campaigns.slice().sort((a, b) => {
@@ -1566,7 +1568,7 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, ove
     advertiser_id: adv,
     campaign_id: newCampaignId,
     adgroup_name: String(srcAg.adgroup_name || srcAg.name || 'grupo').slice(0, 500),
-    optimization_goal: String(srcAg.optimization_goal || 'CLICK'),
+    optimization_goal: String(srcAg.optimization_goal || srcAg.optimizationGoal),
     targeting,
   };
   // schedule no passado NÃO é copiável: recalcula p/ agora (+10min)
@@ -1583,7 +1585,11 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, ove
   }
   const mode = String(srcAg.budget_mode || '');
   const budgetOverride = Number((overrides || {}).budgetAmount) > 0 ? Number(overrides.budgetAmount) : 0;
-  if (mode && mode !== 'BUDGET_MODE_INFINITE') {
+  if ((overrides || {}).campaignBudgetOwner) {
+    // CBO: a campanha é a única dona do orçamento. Um budget legado ainda
+    // presente no readback do grupo não pode ser reenviado e cobrado duas vezes.
+    args.budget_mode = 'BUDGET_MODE_INFINITE';
+  } else if (mode && mode !== 'BUDGET_MODE_INFINITE') {
     // adgroup NÃO aceita DYNAMIC_DAILY (enum do create só tem DAY/TOTAL/INFINITE)
     args.budget_mode = mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET' ? 'BUDGET_MODE_DAY' : mode;
     if (mode === 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET') warnings.push('Orçamento dinâmico do grupo convertido para diário fixo (não suportado na recriação)');
@@ -1610,8 +1616,8 @@ function buildAdGroupCopyArgs(adv, newCampaignId, srcAg, timezone, warnings, ove
     }
   }
   if (srcAg.billing_event) args.billing_event = String(srcAg.billing_event);
-  if (srcAg.optimization_event) args.optimization_event = String(srcAg.optimization_event);
-  if (srcAg.pixel_id) args.pixel_id = String(srcAg.pixel_id);
+  args.pixel_id = String(srcAg.pixel_id || srcAg.pixelId);
+  args.optimization_event = 'ON_WEB_ORDER';
   if (srcAg.promotion_type) args.promotion_type = String(srcAg.promotion_type);
   if (srcAg.promotion_target_type) args.promotion_target_type = String(srcAg.promotion_target_type);
   if (srcAg.placement_type) args.placement_type = String(srcAg.placement_type);
@@ -1645,6 +1651,192 @@ function productSpecificTypeForCopy(srcAd) {
   return { value: '', inferred: false };
 }
 
+// A dashboard é exclusivamente de vendas/conversão. Duplicação não pode
+// inventar TRAFFIC/CLICK quando o readback do conector vem incompleto: isso
+// produziria uma campanha válida na API, porém com semântica errada. Toda a
+// hierarquia é validada antes da primeira escrita remota.
+function duplicationPreflightError(code, message) {
+  const err = stepError('preflight', message, null, 422);
+  err.code = code;
+  err.retryable = false;
+  return err;
+}
+
+function normalizeDuplicableObjective(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) {
+    throw duplicationPreflightError(
+      'DUPLICATION_OBJECTIVE_UNAVAILABLE',
+      'O TikTok não devolveu o objetivo da campanha. Nada foi criado para evitar transformar a origem em outro tipo de campanha.',
+    );
+  }
+  if (raw === 'CONVERSIONS') return 'WEB_CONVERSIONS';
+  if (raw === 'CATALOG_SALES') return 'PRODUCT_SALES';
+  if (raw === 'WEB_CONVERSIONS' || raw === 'PRODUCT_SALES') return raw;
+  throw duplicationPreflightError(
+    'DUPLICATION_OBJECTIVE_UNSUPPORTED',
+    'A ROI-NADOS duplica somente campanhas de Conversão e Product Sales. O objetivo da origem é ' + raw + '.',
+  );
+}
+
+function validateConversionGroup(group, label, warnings) {
+  const optimizationGoal = String(group.optimization_goal || group.optimizationGoal || '').trim().toUpperCase();
+  if (!['CONVERT', 'VALUE'].includes(optimizationGoal)) {
+    throw duplicationPreflightError(
+      'DUPLICATION_OPTIMIZATION_UNSUPPORTED',
+      label + ' não expôs uma otimização de conversão válida (CONVERT/VALUE).',
+    );
+  }
+  const pixelId = String(group.pixel_id || group.pixelId || '').trim();
+  if (!/^\d{5,30}$/.test(pixelId)) {
+    throw duplicationPreflightError(
+      'DUPLICATION_PIXEL_UNAVAILABLE',
+      label + ' não devolveu o Pixel ID numérico usado na origem.',
+    );
+  }
+  const event = String(group.optimization_event || group.optimizationEvent || '').trim().toUpperCase();
+  if (event !== 'ON_WEB_ORDER' && Array.isArray(warnings)) {
+    warnings.push(
+      label + (event ? ' usava o evento ' + event : ' não devolveu o evento de otimização')
+      + ' — a cópia será normalizada para Compra (ON_WEB_ORDER)',
+    );
+  }
+}
+
+function validateRegularDuplicationCapture(capture, objectiveType, warnings) {
+  const groups = Array.isArray(capture && capture.adGroups) ? capture.adGroups : [];
+  const ads = Array.isArray(capture && capture.ads) ? capture.ads : [];
+  if (!groups.length) throw duplicationPreflightError('DUPLICATION_EMPTY_ADGROUPS', 'A origem não possui conjuntos legíveis para duplicar.');
+  if (!ads.length) throw duplicationPreflightError('DUPLICATION_EMPTY_ADS', 'A origem não possui anúncios legíveis para duplicar.');
+  const groupIds = new Set(groups.map((group) => String(group.adgroup_id || group.id || '')).filter(Boolean));
+  let fallbackLocationIds = [];
+  for (const group of groups) {
+    const label = 'O conjunto "' + String(group.adgroup_name || group.name || group.adgroup_id || '') + '"';
+    validateConversionGroup(group, label, warnings);
+    const targeting = extractTargeting(group);
+    if (!fallbackLocationIds.length && Array.isArray(targeting.location_ids) && targeting.location_ids.length) {
+      fallbackLocationIds = targeting.location_ids;
+    }
+  }
+  if (!fallbackLocationIds.length) {
+    throw duplicationPreflightError('DUPLICATION_TARGETING_UNAVAILABLE', 'Nenhum conjunto da origem devolveu as regiões de segmentação (location_ids).');
+  }
+  for (const ad of ads) {
+    const adId = String(ad.ad_id || ad.id || '');
+    if (!groupIds.has(String(ad.adgroup_id || ''))) {
+      throw duplicationPreflightError('DUPLICATION_HIERARCHY_INVALID', 'O anúncio ' + adId + ' não pertence a um conjunto legível da origem.');
+    }
+    const catalogId = String(ad.catalog_id || ad.catalogId || '');
+    const videoId = String(ad.video_id || deepPluck(ad, 'video_id') || '');
+    const imageIds = ad.image_ids || deepPluck(ad, 'image_ids');
+    if (!catalogId && !videoId && !(Array.isArray(imageIds) && imageIds.length)) {
+      throw duplicationPreflightError('DUPLICATION_CREATIVE_UNAVAILABLE', 'O anúncio ' + adId + ' não devolveu vídeo, imagem ou catálogo reutilizável.');
+    }
+    if (catalogId && !productSpecificTypeForCopy(ad).value) {
+      throw duplicationPreflightError('DUPLICATION_PRODUCT_SCOPE_UNAVAILABLE', 'O anúncio de catálogo ' + adId + ' não devolveu o escopo de produtos.');
+    }
+  }
+  if (objectiveType === 'PRODUCT_SALES' && !ads.some((ad) => String(ad.catalog_id || ad.catalogId || '').trim())) {
+    throw duplicationPreflightError('DUPLICATION_CATALOG_UNAVAILABLE', 'A campanha Product Sales não devolveu o catálogo usado nos anúncios.');
+  }
+  return fallbackLocationIds;
+}
+
+function validateSmartDuplicationCapture(capture, warnings) {
+  const groups = Array.isArray(capture && capture.adGroups) ? capture.adGroups : [];
+  const ads = Array.isArray(capture && capture.ads) ? capture.ads : [];
+  if (!groups.length) throw duplicationPreflightError('DUPLICATION_EMPTY_ADGROUPS', 'A origem Smart+ não possui conjuntos legíveis para duplicar.');
+  if (!ads.length) throw duplicationPreflightError('DUPLICATION_EMPTY_ADS', 'A origem Smart+ não possui asset groups legíveis para duplicar.');
+  const groupIds = new Set(groups.map((group) => String(group.adGroupId || '')).filter(Boolean));
+  for (const group of groups) {
+    validateConversionGroup(group, 'O conjunto Smart+ "' + String(group.name || group.adGroupId || '') + '"', warnings);
+    const targeting = group.targetingSpec && typeof group.targetingSpec === 'object' ? group.targetingSpec : {};
+    if (!Array.isArray(targeting.location_ids) || !targeting.location_ids.length) {
+      throw duplicationPreflightError('DUPLICATION_TARGETING_UNAVAILABLE', 'O conjunto Smart+ "' + String(group.name || group.adGroupId || '') + '" não devolveu location_ids.');
+    }
+  }
+  for (const ad of ads) {
+    if (!groupIds.has(String(ad.adGroupId || ''))) {
+      throw duplicationPreflightError('DUPLICATION_HIERARCHY_INVALID', 'O asset group Smart+ ' + String(ad.adId || '') + ' não pertence a um conjunto legível.');
+    }
+    const creativeList = Array.isArray(ad.creativeList) ? ad.creativeList : [];
+    if (!creativeList.some((item) => item && item.creative_info)) {
+      throw duplicationPreflightError('DUPLICATION_CREATIVE_UNAVAILABLE', 'O asset group Smart+ "' + String(ad.name || ad.adId || '') + '" não devolveu criativos reutilizáveis.');
+    }
+  }
+}
+
+// Auditoria real e somente leitura usada pela UI antes de criar o job. Ela
+// consulta a hierarquia atual do TikTok, verifica objetivo, Pixel, Compra,
+// targeting, criativos, identidade e contrato de catálogo. Nenhum create/update
+// é chamado aqui.
+async function preflightCampaignDuplication(advertiserId, campaignId) {
+  const adv = String(advertiserId || '').trim();
+  const cid = String(campaignId || '').trim();
+  if (!adv || !cid) throw badRequest('advertiserId e campaignId são obrigatórios');
+  const capture = await captureCampaign(adv, cid);
+  const warnings = [];
+  const source = capture.campaign || {};
+  const objectiveType = normalizeDuplicableObjective(source.objective || source.objective_type);
+  const smart = capture.campaignKind === 'smart_plus';
+  if (smart) {
+    validateSmartDuplicationCapture(capture, warnings);
+    if (!(source.budgetOptimizeOn || Number(source.budget) > 0)) {
+      const err = duplicationPreflightError(
+        'SMART_PLUS_ABO_DUPLICATION_UNSUPPORTED',
+        'O conector atual exige orçamento no nível campanha ao criar Smart+. A origem é ABO; nada foi criado para evitar convertê-la silenciosamente em CBO.',
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (String(source.budgetMode || '') !== 'BUDGET_MODE_TOTAL') {
+      const err = duplicationPreflightError(
+        'SMART_PLUS_BUDGET_MODE_UNSUPPORTED',
+        'A origem Smart+ usa ' + String(source.budgetMode || 'um modo não informado') + '. O conector atual só confirma recriação fiel com orçamento TOTAL; nada foi criado.',
+      );
+      err.status = 409;
+      throw err;
+    }
+  } else {
+    validateRegularDuplicationCapture(capture, objectiveType, warnings);
+    const catalogAds = (capture.ads || []).filter((ad) => String(ad.catalog_id || ad.catalogId || '').trim());
+    if (objectiveType === 'PRODUCT_SALES' || catalogAds.length) {
+      const capabilities = await getCatalogCapabilities();
+      if (!capabilities.productSpecificType) {
+        const err = stepError(
+          'preflight',
+          'O conector ainda não encaminha product_specific_type. Nada foi criado.',
+          null,
+          409,
+        );
+        err.code = 'PRODUCT_SALES_DUPLICATION_CONNECTOR_UNSUPPORTED';
+        err.retryable = true;
+        throw err;
+      }
+    }
+    if ((capture.ads || []).some((ad) => !usableBcIdentity(ad))) await pickAdIdentity(adv);
+  }
+  const budgetOwner = smart
+    ? (source.budgetOptimizeOn || Number(source.budget) > 0 ? 'campaign' : 'adgroup')
+    : (source.budget_optimize_on === true || Number(source.budget) > 0 ? 'campaign' : 'adgroup');
+  const productScopes = smart ? [] : [...new Set((capture.ads || [])
+    .map((ad) => productSpecificTypeForCopy(ad).value)
+    .filter(Boolean))];
+  return {
+    ok: true,
+    advertiserId: adv,
+    campaignId: cid,
+    campaignKind: smart ? 'smart_plus' : 'auction',
+    objectiveType,
+    budgetOwner,
+    adGroups: (capture.adGroups || []).length,
+    ads: (capture.ads || []).length,
+    productScopes,
+    normalizedEvent: 'ON_WEB_ORDER',
+    warnings,
+  };
+}
+
 function smartScheduleValue(value, timezone, fallbackDate) {
   const raw = String(value || '');
   const parsed = Date.parse(raw.replace(' ', 'T'));
@@ -1663,6 +1855,8 @@ async function recreateSmartPlusCampaign(advertiserId, capture, newName, opts) {
   const report = typeof value.onProgress === 'function' ? value.onProgress : async () => {};
   const source = capture.campaign || {};
   const warnings = [];
+  const objectiveType = normalizeDuplicableObjective(source.objective || source.objective_type);
+  validateSmartDuplicationCapture(capture, warnings);
   const progress = {
     campaignId: String(resume.campaignId || '') || null,
     adGroups: { ...(resume.adGroups || {}) },
@@ -1670,6 +1864,22 @@ async function recreateSmartPlusCampaign(advertiserId, capture, newName, opts) {
   };
   const info = await getAdvertiserInfo(adv).catch(() => null);
   const campaignBudgetOwner = source.budgetOptimizeOn || Number(source.budget) > 0;
+  if (!campaignBudgetOwner) {
+    const err = duplicationPreflightError(
+      'SMART_PLUS_ABO_DUPLICATION_UNSUPPORTED',
+      'O conector atual exige orçamento no nível campanha ao criar Smart+. A origem é ABO; nada foi criado para evitar convertê-la silenciosamente em CBO.',
+    );
+    err.status = 409;
+    throw err;
+  }
+  if (String(source.budgetMode || '') !== 'BUDGET_MODE_TOTAL') {
+    const err = duplicationPreflightError(
+      'SMART_PLUS_BUDGET_MODE_UNSUPPORTED',
+      'A origem Smart+ usa ' + String(source.budgetMode || 'um modo não informado') + '. O conector atual só confirma recriação fiel com orçamento TOTAL; nada foi criado.',
+    );
+    err.status = 409;
+    throw err;
+  }
 
   if (!progress.campaignId && value.dedupeByName) {
     const existing = (await listSmartPlusCampaigns(adv)).find((item) => item.name === String(newName).slice(0, 512));
@@ -1682,14 +1892,19 @@ async function recreateSmartPlusCampaign(advertiserId, capture, newName, opts) {
     const args = {
       advertiser_id: adv,
       campaign_name: String(newName).slice(0, 512),
-      objective_type: String(source.objective || 'WEB_CONVERSIONS'),
+      objective_type: objectiveType,
       operation_status: 'DISABLE',
     };
-    if (source.budgetMode) args.budget_mode = source.budgetMode;
     const campaignBudget = Number(overrides.budgetAmount) > 0 && campaignBudgetOwner
       ? Number(overrides.budgetAmount) : Number(source.budget || 0);
-    if (campaignBudget > 0 && source.budgetMode !== 'BUDGET_MODE_INFINITE') args.budget = clampTikTokBudget(campaignBudget, warnings, 'Orçamento Smart+');
-    if (source.budgetOptimizeOn) args.budget_optimize_on = true;
+    if (campaignBudgetOwner) {
+      // Smart+ ABO aparece no readback com BUDGET_MODE_INFINITE na campanha,
+      // mas reenviar esse modo no create gera TikTok 40002. Em ABO, campanha
+      // não recebe budget_mode/budget; o orçamento pertence ao conjunto.
+      args.budget_mode = 'BUDGET_MODE_TOTAL';
+      args.budget = clampTikTokBudget(campaignBudget, warnings, 'Orçamento Smart+');
+      args.budget_optimize_on = true;
+    }
     if (source.salesDestination) args.sales_destination = source.salesDestination;
     if (source.campaignType) args.campaign_type = source.campaignType;
     if (source.catalogEnabled) args.catalog_enabled = true;
@@ -1722,7 +1937,7 @@ async function recreateSmartPlusCampaign(advertiserId, capture, newName, opts) {
         schedule_type: 'SCHEDULE_START_END',
         schedule_start_time: start,
         schedule_end_time: end,
-        optimization_goal: group.optimizationGoal || 'CONVERT',
+        optimization_goal: group.optimizationGoal,
         billing_event: group.billingEvent || 'OCPM',
         operation_status: 'DISABLE',
       };
@@ -1737,7 +1952,9 @@ async function recreateSmartPlusCampaign(advertiserId, capture, newName, opts) {
       if (group.minBudget > 0) args.min_budget = group.minBudget;
       if (group.roasBid > 0) args.roas_bid = group.roasBid;
       if (group.pixelId) args.pixel_id = group.pixelId;
-      if (group.optimizationEvent) args.optimization_event = group.optimizationEvent;
+      // A cópia sempre otimiza para Compra, inclusive quando a origem legada
+      // devolve SHOPPING/INITIATE_ORDER ou omite o evento no readback.
+      args.optimization_event = 'ON_WEB_ORDER';
       if (group.placementType) args.placement_type = group.placementType;
       if (group.placements.length) args.placements = group.placements;
       if (group.dayparting) args.dayparting = group.dayparting;
@@ -1852,8 +2069,10 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
   const resume = (o.resume && typeof o.resume === 'object') ? o.resume : {};
   const report = typeof o.onProgress === 'function' ? o.onProgress : async () => {};
   const src = capture.campaign;
-  const campaignBudgetOwner = src.budget_optimize_on === true || Number(src.budget) > 0;
   const warnings = [];
+  const objectiveType = normalizeDuplicableObjective(src && (src.objective_type || src.objective));
+  const fallbackLocationIds = validateRegularDuplicationCapture(capture, objectiveType, warnings);
+  const campaignBudgetOwner = src.budget_optimize_on === true || Number(src.budget) > 0;
   const progress = {
     campaignId: String(resume.campaignId || '') || null,
     adGroups: { ...(resume.adGroups || {}) },
@@ -1864,7 +2083,7 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
   // precisa declarar o campo porque versões que não o declaram também o
   // descartam silenciosamente antes de chamar o TikTok (40002 no último
   // nível). Falhamos antes da campanha para não deixar estrutura parcial.
-  if (String(src.objective_type || src.objective || '').toUpperCase() === 'PRODUCT_SALES') {
+  if (objectiveType === 'PRODUCT_SALES') {
     const capabilities = await getCatalogCapabilities();
     if (!capabilities.productSpecificType) {
       const err = stepError(
@@ -1899,7 +2118,7 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
     const campArgs = {
       advertiser_id: adv,
       campaign_name: String(newName).slice(0, 512),
-      objective_type: String(src.objective_type || src.objective || 'TRAFFIC'),
+      objective_type: objectiveType,
       operation_status: 'DISABLE',
     };
     const srcMode = String(src.budget_mode || '');
@@ -1916,7 +2135,7 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
       else if (Number(src.budget) > 0) campArgs.budget = clampTikTokBudget(src.budget, warnings, 'Orçamento da campanha');
     }
     if (src.budget_optimize_on === true) campArgs.budget_optimize_on = true;
-    if (src.pixel_id) { campArgs.pixel_id = String(src.pixel_id); if (src.optimization_event) campArgs.optimization_event = String(src.optimization_event); }
+    if (src.pixel_id) { campArgs.pixel_id = String(src.pixel_id); campArgs.optimization_event = 'ON_WEB_ORDER'; }
     for (const key of ['campaign_type', 'catalog_id', 'product_source', 'shopping_ads_type']) {
       if (src[key] !== undefined && src[key] !== null && String(src[key]).trim()) campArgs[key] = src[key];
     }
@@ -1940,12 +2159,6 @@ async function recreateCampaign(advertiserId, capture, newName, opts) {
     // Regiões de fallback: primeiro grupo da campanha que trouxe location_ids.
     // Se um grupo específico vier sem região (dados parciais do GET), herda
     // estas em vez de falhar a cópia inteira.
-    let fallbackLocationIds = [];
-    for (const srcAg of capture.adGroups) {
-      const t = extractTargeting(srcAg);
-      if (Array.isArray(t.location_ids) && t.location_ids.length) { fallbackLocationIds = t.location_ids; break; }
-    }
-
     // 2) Ad groups (todos) — cada um gravado no progresso ao nascer.
     for (const srcAg of capture.adGroups) {
       const srcAgId = String(srcAg.adgroup_id || srcAg.id || '');
@@ -3541,6 +3754,7 @@ module.exports = {
   createFullAd,
   // duplicação composta (F3)
   captureCampaign,
+  preflightCampaignDuplication,
   recreateCampaign,
   // Spark Ads (F5)
   listSparkIdentities,

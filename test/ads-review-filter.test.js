@@ -20,6 +20,8 @@ console.log('Backend — filtro approved por reviewStatus nos dois caminhos');
 {
   ok(/opts\.status === 'approved'[\s\S]{0,120}reviewStatus === 'approved'/.test(cache), 'espelho Neon filtra approved por reviewStatus');
   ok(/opts\.status === 'approved'[\s\S]{0,120}reviewStatus === 'approved'/.test(provider), 'caminho live filtra approved por reviewStatus');
+  ok(!/c\.status === statusFilter \|\| c\.childStatus === statusFilter/.test(cache), 'espelho mantém filtros de entrega mutuamente exclusivos');
+  ok(!/c\.status === statusFilter \|\| c\.childStatus === statusFilter/.test(provider), 'caminho live mantém filtros de entrega mutuamente exclusivos');
 }
 
 console.log('Frontend — chip Validadas + selo na campanha');

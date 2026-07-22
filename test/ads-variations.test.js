@@ -32,8 +32,8 @@ function baseHandlers() {
     get_tiktok_advertisers: async () => ({ advertisers: [{ advertiser_id: 'adv1', name: 'Conta', timezone: 'Europe/Lisbon', currency: 'EUR', status: 'STATUS_ENABLE' }] }),
     get_tiktok_advertiser_info: async () => ({ advertiser_id: 'adv1', timezone: 'Europe/Lisbon' }),
     get_tiktok_identities: async () => ({ identities: [{ identity_id: 'id-bc', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc-1' }] }),
-    get_tiktok_campaigns: async () => ({ campaigns: [{ campaign_id: 'tpl', campaign_name: 'Template', objective_type: 'TRAFFIC', budget_mode: 'BUDGET_MODE_DAY', budget: 100 }] }),
-    get_tiktok_adgroups: async () => ({ adgroups: [{ adgroup_id: 'tpl-ag', adgroup_name: 'Grupo', optimization_goal: 'CLICK', budget_mode: 'BUDGET_MODE_DAY', budget: 40, schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] } }] }),
+    get_tiktok_campaigns: async () => ({ campaigns: [{ campaign_id: 'tpl', campaign_name: 'Template', objective_type: 'WEB_CONVERSIONS', budget_mode: 'BUDGET_MODE_INFINITE', budget: 0, budget_optimize_on: false }] }),
+    get_tiktok_adgroups: async () => ({ adgroups: [{ adgroup_id: 'tpl-ag', adgroup_name: 'Grupo', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER', budget_mode: 'BUDGET_MODE_DAY', budget: 40, schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] } }] }),
     get_tiktok_ads: async () => ({ ads: [{ ad_id: 'tpl-ad', adgroup_id: 'tpl-ag', ad_name: 'Ad tpl', ad_format: 'SINGLE_VIDEO', ad_text: 'Texto original', video_id: 'vid-1', identity_id: 'id-1', identity_type: 'CUSTOMIZED_USER' }] }),
     create_tiktok_campaign: async () => ({ campaign_id: 'var-camp' }),
     create_tiktok_adgroup: async () => ({ adgroup_id: 'var-ag' }),
@@ -75,7 +75,8 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
   stubCalls.length = 0;
   provider.cacheBust('');
   stubHandlers = baseHandlers();
-  stubHandlers.get_tiktok_adgroups = async () => ({ adgroups: [{ adgroup_id: 'tpl-ag', adgroup_name: 'Grupo', optimization_goal: 'CLICK', budget_mode: 'BUDGET_MODE_INFINITE', schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] } }] });
+  stubHandlers.get_tiktok_campaigns = async () => ({ campaigns: [{ campaign_id: 'tpl', campaign_name: 'Template CBO', objective_type: 'WEB_CONVERSIONS', budget_mode: 'BUDGET_MODE_DAY', budget: 100, budget_optimize_on: true }] });
+  stubHandlers.get_tiktok_adgroups = async () => ({ adgroups: [{ adgroup_id: 'tpl-ag', adgroup_name: 'Grupo', optimization_goal: 'CONVERT', pixel_id: '123456', optimization_event: 'ON_WEB_ORDER', budget_mode: 'BUDGET_MODE_INFINITE', schedule_start_time: '2099-01-01 00:00:00', targeting: { location_ids: ['123'] } }] });
   const cap3 = await provider.captureCampaign('adv1', 'tpl');
   await provider.recreateCampaign('adv1', cap3, 'Var 3', { overrides: { budgetAmount: 7 } });
   const ag3 = lastCall('create_tiktok_adgroup').args;
@@ -94,10 +95,13 @@ function lastCall(name) { return [...stubCalls].reverse().find((c) => c.name ===
   assert.match(routes, /app\.post\('\/api\/ads\/duplicate'[\s\S]*?variations vazio/, 'variations vazio rejeitado');
   assert.match(routes, /task\.overrides = overrides/, 'overrides embarcam no task');
   assert.match(routes, /duplicate_pb[\s\S]*?overrides: task\.overrides/, 'worker repassa overrides ao recreateCampaign');
+  assert.match(routes, /\/api\/ads\/duplicate\/preflight/, 'rota executa preflight real antes da fila');
   // A UI expõe o modo variações e o teto:
   const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'duplicate-panel.tsx'), 'utf8');
   assert.match(dialog, /variations' \? 50 : 10/, 'UI: teto 50 só no modo variações');
   assert.match(dialog, /body\.variations = Array\.from/, 'UI monta o array de variações');
+  assert.match(dialog, /idempotencyKeyRef/, 'UI preserva a chave idempotente em timeout e retry');
+  assert.match(dialog, /\/api\/ads\/duplicate\/preflight/, 'UI valida a hierarquia antes de enfileirar');
   console.log('ok 4 - contrato da rota (teto 50, overrides) e da UI');
 
   console.log('\nF4: todos os testes passaram');

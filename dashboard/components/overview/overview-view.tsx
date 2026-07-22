@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { useOncePerSession } from '@/lib/motion'
 import { useStats, useEmqTrend, useAdsStatus, useAdsRoas } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
-import { aggregate, appDateKey, money, periodStart } from '@/lib/metrics'
+import { aggregate, money, periodStart } from '@/lib/metrics'
+import { adsDateRange } from '@/lib/ads-time'
 import { countryFlag } from '@/lib/format'
 import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
@@ -43,13 +44,9 @@ function fmtAdsMoney(v: number, currency: string): string {
 // endpoint /api/ads/roas aceita fromDate/toDate (YYYY-MM-DD). Em "tudo", Ads
 // usa os 90 dias que o sincronizador mantém e deixa esse limite explícito; omitir
 // o range faria o backend cair no default diário e misturar períodos.
-function periodToAdsRange(period: Period): { fromDate?: string; toDate?: string } {
-  const to = new Date()
-  const from =
-    period === 'all'
-      ? new Date((periodStart('today', to) ?? to).getTime() - 89 * 86_400_000)
-      : periodStart(period) ?? to
-  return { fromDate: appDateKey(from), toDate: appDateKey(to) }
+function periodToAdsRange(period: Period, timeZone?: string): { fromDate: string; toDate: string } {
+  const days = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90
+  return adsDateRange(days, timeZone)
 }
 
 const PERIODS: Period[] = ['today', '7d', '30d', 'all']
@@ -135,7 +132,7 @@ export function OverviewView() {
   const { data: adsStatus } = useAdsStatus(afterFirstPaint)
   const adAccountId = adsStatus?.advertiserId || ''
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
-  const adsRange = useMemo(() => periodToAdsRange(period), [period])
+  const adsRange = useMemo(() => periodToAdsRange(period, adsStatus?.timeZone), [period, adsStatus?.timeZone])
   const { data: roas } = useAdsRoas(adsConnected, adAccountId, adsRange)
 
   // Rodapé "EMQ" — mesma chave SWR do popover de saúde (dedup, zero request).

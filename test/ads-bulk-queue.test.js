@@ -18,6 +18,8 @@ delete process.env.KV_REST_API_URL;
 delete process.env.KV_REST_API_TOKEN;
 
 const bulk = require('../ads-bulk');
+assert.strictEqual(bulk._internals.namespace, 'development', 'fila local tem namespace próprio');
+assert.strictEqual(bulk._internals.queue, 'adsBulkQ:development', 'dev não disputa jobs com produção');
 
 const ACC = 'acc-teste';
 

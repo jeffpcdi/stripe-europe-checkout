@@ -13,6 +13,7 @@ const view = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ad
 const create = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/create-ad-panel.tsx'), 'utf8');
 const spark = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/spark-ad-dialog.tsx'), 'utf8');
 const smart = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/smart-plus-create-dialog.tsx'), 'utf8');
+const adsTime = fs.readFileSync(path.join(__dirname, '..', 'dashboard/lib/ads-time.ts'), 'utf8');
 
 console.log('Criação TikTok Ads — produto focado em conversão');
 {
@@ -42,9 +43,10 @@ console.log('Interface — uma entrada, três áreas e configuração automátic
 
 console.log('Período global');
 {
-  ok(/Math\.max\(0, rangeDays - 1\)/.test(view), 'período diário não inclui o dia anterior');
+  ok(/adsDateRange\(rangeDays, advertiserTimeZone\)/.test(view), 'Campanhas calcula o período no fuso do advertiser');
   ok(/useAdsAttribution\(treeActive, effectiveAdvertiser, \{ fromDate, toDate \}\)/.test(view), 'atribuição acompanha o período global');
-  ok(/toLocalIsoDate/.test(view), 'datas usam o fuso local do operador');
+  ok(/count - 1/.test(adsTime), 'período diário não inclui o dia anterior');
+  ok(/formatToParts/.test(adsTime) && /safeAdsTimeZone/.test(adsTime), 'datas usam um fuso IANA validado, sem UTC implícito');
 }
 
 console.log('\nads-targeting: ' + n + ' asserts OK');

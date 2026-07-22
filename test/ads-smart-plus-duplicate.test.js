@@ -42,6 +42,7 @@ const provider = require(providerPath);
   const campaign = calls.find((call) => call.name === 'create_tiktok_smart_plus_campaign').args;
   assert.strictEqual(campaign.operation_status, 'DISABLE');
   assert.strictEqual(campaign.budget, 150, 'variação CBO altera orçamento na campanha');
+  assert.strictEqual(campaign.budget_mode, 'BUDGET_MODE_TOTAL');
   assert.strictEqual(campaign.catalog_enabled, true);
   assert.strictEqual(campaign.catalog_type, 'ECOM');
   const group = calls.find((call) => call.name === 'create_tiktok_smart_plus_adgroup').args;
@@ -62,5 +63,49 @@ const provider = require(providerPath);
   assert.ok(calls.some((call) => call.name === 'update_tiktok_smart_plus_adgroup_status'));
   assert.ok(calls.some((call) => call.name === 'update_tiktok_smart_plus_ad_status'));
 
-  console.log('ads-smart-plus-duplicate.test.js: captura e duplicação Smart+ completa/pausada OK');
+  // Smart+ ABO: o conector exige orçamento na campanha e converteria a origem
+  // silenciosamente em CBO. O preflight precisa falhar sem escrita.
+  calls.length = 0;
+  const aboCapture = JSON.parse(JSON.stringify(capture));
+  aboCapture.campaign.budget = 0;
+  aboCapture.campaign.budgetMode = 'BUDGET_MODE_INFINITE';
+  aboCapture.campaign.budgetOptimizeOn = false;
+  aboCapture.adGroups[0].budget = 75;
+  aboCapture.adGroups[0].budgetMode = 'BUDGET_MODE_DAY';
+  aboCapture.adGroups[0].optimizationEvent = 'SHOPPING';
+  await assert.rejects(
+    () => provider.recreateCampaign('adv1', aboCapture, 'Smart ABO', { overrides: { budgetAmount: 80 } }),
+    (error) => error.code === 'SMART_PLUS_ABO_DUPLICATION_UNSUPPORTED' && error.step === 'preflight',
+  );
+  assert.ok(!calls.some((call) => call.name.startsWith('create_')), 'Smart+ ABO não é convertido silenciosamente em CBO');
+
+  calls.length = 0;
+  const dynamicCapture = JSON.parse(JSON.stringify(capture));
+  dynamicCapture.campaign.budgetMode = 'BUDGET_MODE_DYNAMIC_DAILY_BUDGET';
+  await assert.rejects(
+    () => provider.recreateCampaign('adv1', dynamicCapture, 'Smart dinâmica', {}),
+    (error) => error.code === 'SMART_PLUS_BUDGET_MODE_UNSUPPORTED' && error.step === 'preflight',
+  );
+  assert.ok(!calls.some((call) => call.name.startsWith('create_')), 'Smart+ dinâmica não é convertida silenciosamente em TOTAL');
+
+  // Objetivos fora de vendas e readback sem Pixel falham antes de escrever.
+  calls.length = 0;
+  const trafficCapture = JSON.parse(JSON.stringify(capture));
+  trafficCapture.campaign.objective = 'TRAFFIC';
+  await assert.rejects(
+    () => provider.recreateCampaign('adv1', trafficCapture, 'Não criar', {}),
+    (error) => error.code === 'DUPLICATION_OBJECTIVE_UNSUPPORTED' && error.step === 'preflight',
+  );
+  assert.ok(!calls.some((call) => call.name.startsWith('create_')), 'Smart+ Traffic não escreve');
+
+  calls.length = 0;
+  const noPixelCapture = JSON.parse(JSON.stringify(capture));
+  noPixelCapture.adGroups[0].pixelId = '';
+  await assert.rejects(
+    () => provider.recreateCampaign('adv1', noPixelCapture, 'Não criar', {}),
+    (error) => error.code === 'DUPLICATION_PIXEL_UNAVAILABLE' && error.step === 'preflight',
+  );
+  assert.ok(!calls.some((call) => call.name.startsWith('create_')), 'Smart+ sem Pixel não escreve');
+
+  console.log('ads-smart-plus-duplicate.test.js: Smart+ ABO/CBO, pausas e preflights OK');
 })().catch((error) => { console.error(error); process.exit(1); });

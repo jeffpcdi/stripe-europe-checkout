@@ -785,6 +785,8 @@ export interface AdsStatusResponse {
   account?: { id: string; username: string; displayName: string }
   businessCenterId?: string
   advertiserId?: string
+  currency?: string
+  timeZone?: string
   identity?: AdsIdentity | null
   capabilities?: AdsCapabilities
 }
@@ -802,6 +804,7 @@ export interface AdsAdvertiser {
   id: string // advertiser_id do TikTok
   name: string
   currency?: string
+  timezone?: string
   status?: string
   rawStatus?: string // código cru do TikTok (ex.: STATUS_DISABLE)
   healthStatus?: AdsHealthStatus // normalizado pelo backend
@@ -1101,6 +1104,9 @@ export interface AdsRoasResponse {
   fromDate: string
   toDate: string
   currency: string
+  timeZone?: string
+  scope?: 'advertiser_all_campaigns'
+  lastSyncedAt?: string | null
   /** F2: moeda dominante da RECEITA (dos gateways) — pode divergir da conta */
   revenueCurrency?: string | null
   /** F2: true quando receita e gasto estão em moedas diferentes → roas=null */
@@ -1319,6 +1325,10 @@ export interface AdsKpisResponse {
   toDate?: string
   prevFrom?: string
   prevTo?: string
+  currency?: string
+  timeZone?: string
+  scope?: 'advertiser_all_campaigns'
+  lastSyncedAt?: string | null
   current: AdsKpiTotals | null
   previous: AdsKpiTotals | null
   // % vs. período anterior; null quando a base é 0 (a UI oculta a seta)

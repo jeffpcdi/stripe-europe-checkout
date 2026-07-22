@@ -1,15 +1,15 @@
 'use client'
 
-// Linha de KPIs da aba TikTok Ads — extraída do tiktok-ads-view.tsx.
-// Os VALORES continuam vindo da página atual da árvore (client-side, como
-// antes); o que vem do backend é o DELTA vs. período anterior (/api/ads/kpis,
-// espelho Neon). Sem base de comparação → a seta simplesmente não aparece.
+// Linha de KPIs da aba TikTok Ads. Os valores oficiais e os deltas vêm de
+// /api/ads/kpis (advertiser inteiro, todos os status); a página atual da árvore
+// só serve de fallback explícito enquanto o total não está disponível.
 
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react'
 import { useAdsKpis } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { CountUp } from '@/components/count-up'
 import { SparkLine } from '@/components/sparkline'
+import { Skeleton } from '@/components/skeleton'
 import { fmtCompact, fmtPercent, fmtSpend } from '@/lib/format'
 
 // Seta + % de variação. `goodWhenUp=false` inverte a cor (CPM subir é ruim).
@@ -50,6 +50,7 @@ export function KpiRow({
   adAccountId,
   fromDate,
   toDate,
+  timeZone,
 }: {
   kpi: KpiRowData
   currency: string
@@ -57,10 +58,10 @@ export function KpiRow({
   adAccountId: string
   fromDate: string
   toDate: string
+  timeZone?: string
 }) {
-  // Deltas vs. período anterior — falha silenciosa: sem Neon/sem dado, os
-  // cards ficam idênticos ao comportamento antigo (sem seta).
-  const { data: kpis } = useAdsKpis(active, adAccountId, { fromDate, toDate })
+  // Deltas vs. período anterior — sem base, a seta simplesmente não aparece.
+  const { data: kpis, isLoading } = useAdsKpis(active, adAccountId, { fromDate, toDate })
   const deltas = kpis?.deltas
 
   // Valores: preferem os totais do backend (advertiser INTEIRO no período,
@@ -73,13 +74,35 @@ export function KpiRow({
   const ctr = cur?.ctr ?? kpi.ctr
   const cpm = cur?.cpm ?? kpi.cpm
 
+  const periodLabel = fromDate === toDate ? 'Hoje' : `${fromDate} a ${toDate}`
+  const zoneLabel = timeZone ? timeZone.replace(/_/g, ' ') : 'fuso da conta'
+
+  if (isLoading && !kpis) {
+    return (
+      <section className="space-y-2" aria-label="Carregando totais da conta de anúncios">
+        <Skeleton className="h-3 w-64" />
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((item) => <Skeleton key={item} className="h-24 rounded-2xl" />)}
+        </div>
+      </section>
+    )
+  }
+
+  const isAdvertiserTotal = Boolean(cur && kpis?.scope === 'advertiser_all_campaigns')
+
   return (
-    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+    <section className="space-y-2" aria-label={isAdvertiserTotal ? 'Totais da conta de anúncios' : 'Subtotal carregado da lista'}>
+      <p className="text-[11px] text-muted-foreground">
+        {isAdvertiserTotal ? 'Total da conta' : 'Subtotal carregado'} · {periodLabel} · {zoneLabel}
+      </p>
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
       <GlassCard className="p-3 sm:p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Investimento</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {isAdvertiserTotal ? 'Investimento total' : 'Investimento carregado'}
+              </p>
               <Delta value={deltas?.spend} />
             </div>
             <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
@@ -127,9 +150,10 @@ export function KpiRow({
           <CountUp value={cpm} format={(v) => fmtSpend(v, currency)} />
         </p>
         <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {kpi.activeCount} campanha{kpi.activeCount === 1 ? '' : 's'} ativa{kpi.activeCount === 1 ? '' : 's'}
+          Todas as campanhas e status
         </p>
       </GlassCard>
-    </div>
+      </div>
+    </section>
   )
 }

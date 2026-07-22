@@ -21,8 +21,15 @@
 const redisMod = require('./redis');
 const adsOps = require('./ads-ops-store');
 
-const QUEUE = 'adsBulkQ';
-const PROC = 'adsBulkQ:proc';
+// Desenvolvimento local e produção frequentemente compartilham o mesmo
+// Upstash neste projeto. Sem namespace, um worker de produção podia consumir
+// o job criado localmente (ou vice-versa). Produção mantém a chave legada para
+// não abandonar jobs já enfileirados; outros ambientes ficam isolados. Staging
+// pode definir ADS_BULK_QUEUE_NAMESPACE explicitamente.
+const queueNamespace = String(process.env.ADS_BULK_QUEUE_NAMESPACE || (process.env.NODE_ENV === 'production' ? '' : 'development'))
+  .replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+const QUEUE = 'adsBulkQ' + (queueNamespace ? ':' + queueNamespace : '');
+const PROC = QUEUE + ':proc';
 const QUEUE_CAP = 2000;
 const JOB_TTL_S = 24 * 3600; // 24h — o job é efêmero por natureza
 
@@ -216,7 +223,9 @@ async function createBulkJob(accountId, { kind, adAccountId, items, meta }) {
 
 async function getBulkJob(accountId, jobId) {
   const hit = memJobs.get(accountId + ':' + jobId);
-  if (hit) return hit;
+  // Em múltiplas instâncias, outro worker pode ter atualizado o Neon. Um job
+  // não terminal em memória nunca é fonte definitiva para o polling.
+  if (hit && hit.status === 'done') return hit;
   if (adsOps.enabled) {
     try {
       const job = await adsOps.getBulkSnapshot(accountId, jobId);
@@ -228,6 +237,7 @@ async function getBulkJob(accountId, jobId) {
       console.error('[ads-bulk] getBulkJob Neon:', err.message);
     }
   }
+  if (hit) return hit;
   if (redisOn()) {
     try {
       const raw = await redis.get(jobKey(accountId, jobId));
@@ -309,5 +319,6 @@ function stopBulkWorker() {
 module.exports = {
   enqueueBulkItem, reserveBulkItems, ackBulkItem, reclaimBulkItems, bulkQueueDepth,
   createBulkJob, getBulkJob, updateBulkItem,
-  startBulkWorker, stopBulkWorker
+  startBulkWorker, stopBulkWorker,
+  _internals: { queue: QUEUE, processing: PROC, namespace: queueNamespace },
 };

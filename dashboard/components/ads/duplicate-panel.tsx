@@ -43,6 +43,10 @@ export function DuplicatePanel({
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const notifiedRef = useRef(false)
+  // Permanece estável em timeout/retry. Date.now() em cada clique criava um
+  // job novo e podia duplicar a mesma estrutura duas vezes após uma resposta
+  // perdida, apesar da fila durável ser idempotente.
+  const idempotencyKeyRef = useRef('')
 
   const { data: job } = useAdsBulkJob(jobId)
   const jobDone = job?.status === 'done'
@@ -57,8 +61,14 @@ export function DuplicatePanel({
     setVarBudget('')
     setVarText('')
     setJobId(null)
+    idempotencyKeyRef.current = ''
     notifiedRef.current = false
   }, [campaignId, currentAdvertiserId])
+
+  const materialKey = [campaignId, target, mode, count, suffix, varBudget, varText].join('\u001f')
+  useEffect(() => {
+    idempotencyKeyRef.current = ''
+  }, [materialKey])
 
   useEffect(() => {
     onBusyChange?.(submitting)
@@ -95,10 +105,24 @@ export function DuplicatePanel({
     setSubmitting(true)
     try {
       const n = parseInt(count, 10)
-      const idempotencyKey = `duplicate:${campaign.platformCampaignId}:${target}:${mode}:${count}:${Date.now()}`
+      // Preflight real antes da fila: falhas de objetivo, Pixel, targeting,
+      // criativo, identidade ou catálogo aparecem agora e não como item órfão.
+      const preview = await apiSend<{ warnings?: string[] }>('/api/ads/duplicate/preflight', 'POST', {
+        sourceId: campaign.platformCampaignId,
+        sourceAdAccountId: currentAdvertiserId,
+      })
+      if (preview.warnings?.length) {
+        toast.info('Ajustes aplicados à cópia', { hint: preview.warnings.join(' · ') })
+      }
+      if (!idempotencyKeyRef.current) {
+        const nonce = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        idempotencyKeyRef.current = `duplicate:${campaign.platformCampaignId}:${target}:${mode}:${nonce}`
+      }
       const body: Record<string, unknown> = {
         sourceType: 'campaign',
-        idempotencyKey,
+        idempotencyKey: idempotencyKeyRef.current,
         sourceId: campaign.platformCampaignId,
         sourceAdAccountId: currentAdvertiserId,
         targetAdAccountId: target,
@@ -171,7 +195,7 @@ export function DuplicatePanel({
                 {jobDone ? 'Fechar' : 'Continuar em segundo plano'}
               </button>
             ) : jobDone ? (
-              <button type="button" className="btn-primary text-xs" onClick={() => setJobId(null)}>
+              <button type="button" className="btn-primary text-xs" onClick={() => { idempotencyKeyRef.current = ''; setJobId(null) }}>
                 Nova duplicação
               </button>
             ) : null}
