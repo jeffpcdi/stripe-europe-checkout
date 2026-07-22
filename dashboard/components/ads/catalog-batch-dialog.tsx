@@ -14,11 +14,11 @@ function randomKey() {
 }
 
 const CATALOG_BATCH_TEMPLATE = [
-  ['catalogo', 'sku', 'titulo', 'descricao', 'preco', 'marca', 'link', 'imagem', 'campanha', 'orcamento', 'tipo_orcamento', 'pixel_id', 'evento', 'pais', 'periodo'],
-  ['Loja Verão', 'SKU-001', 'Camiseta azul', 'Camiseta de algodão azul', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-azul', 'https://cdn.exemplo.com/camiseta-azul.jpg', 'Verão — todos', '50', 'daily', '1234567890123456789', 'ON_WEB_ORDER', 'BR', ''],
-  ['Loja Verão', 'SKU-002', 'Camiseta preta', 'Camiseta de algodão preta', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-preta', 'https://cdn.exemplo.com/camiseta-preta.jpg', 'Verão — todos', '50', 'daily', '1234567890123456789', 'ON_WEB_ORDER', 'BR', ''],
-  ['Loja Verão', 'SKU-003', 'Camiseta branca', 'Camiseta de algodão branca', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-branca', 'https://cdn.exemplo.com/camiseta-branca.jpg', 'Verão — todos', '50', 'daily', '1234567890123456789', 'ON_WEB_ORDER', 'BR', ''],
-  ['Loja Verão', 'SKU-004', 'Camiseta verde', 'Camiseta de algodão verde', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-verde', 'https://cdn.exemplo.com/camiseta-verde.jpg', 'Verão — todos', '50', 'daily', '1234567890123456789', 'ON_WEB_ORDER', 'BR', ''],
+  ['catalogo', 'sku', 'titulo', 'descricao', 'preco', 'marca', 'link', 'imagem', 'campanha', 'orcamento', 'tipo_orcamento', 'pais', 'periodo'],
+  ['Loja Verão', 'SKU-001', 'Camiseta azul', 'Camiseta de algodão azul', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-azul', 'https://cdn.exemplo.com/camiseta-azul.jpg', 'Verão — todos', '50', 'daily', 'BR', ''],
+  ['Loja Verão', 'SKU-002', 'Camiseta preta', 'Camiseta de algodão preta', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-preta', 'https://cdn.exemplo.com/camiseta-preta.jpg', 'Verão — todos', '50', 'daily', 'BR', ''],
+  ['Loja Verão', 'SKU-003', 'Camiseta branca', 'Camiseta de algodão branca', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-branca', 'https://cdn.exemplo.com/camiseta-branca.jpg', 'Verão — todos', '50', 'daily', 'BR', ''],
+  ['Loja Verão', 'SKU-004', 'Camiseta verde', 'Camiseta de algodão verde', '79,90', 'Minha Marca', 'https://loja.exemplo.com/camiseta-verde', 'https://cdn.exemplo.com/camiseta-verde.jpg', 'Verão — todos', '50', 'daily', 'BR', ''],
 ].map((row) => row.join('\t')).join('\n')
 
 function campaignSummary(campaign: Record<string, unknown>, currency: string) {
@@ -29,8 +29,6 @@ function campaignSummary(campaign: Record<string, unknown>, currency: string) {
   return {
     name: String(campaign.name || 'Campanha sem nome'),
     budget: `${budget} ${campaign.budgetType === 'lifetime' ? 'total' : 'por dia'}`,
-    pixel: String(campaign.pixelId || 'Pixel não informado'),
-    event: String(campaign.pixelEvent || 'ON_WEB_ORDER'),
   }
 }
 
@@ -52,8 +50,8 @@ export function CatalogBatchDialog({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const plan = useMemo(
-    () => buildCatalogBatchPlan(source, currency, { requireCampaignPixel: scheduleCampaigns }),
-    [source, currency, scheduleCampaigns],
+    () => buildCatalogBatchPlan(source, currency),
+    [source, currency],
   )
   const campaignCount = plan.catalogs.reduce((total, catalog) => total + catalog.campaigns.length, 0)
   const canSubmit = plan.catalogs.length > 0 && !plan.message && !busy
@@ -225,7 +223,7 @@ export function CatalogBatchDialog({
                 className="input-base mt-1 min-h-44 w-full resize-y font-mono text-[11px]"
                 value={source}
                 onChange={(event) => dirty(event.target.value)}
-                placeholder={'catalogo\tsku\ttitulo\tpreco\tmarca\tlink\timagem\tcampanha\torcamento\tpixel_id\tevento\nLoja Verão\tSKU-001\tCamiseta\t79,90\tMinha Marca\thttps://loja.com/camiseta\thttps://cdn.com/camiseta.jpg\tVerão — todos\t50\t1234567890123456789\tON_WEB_ORDER'}
+                placeholder={'catalogo\tsku\ttitulo\tpreco\tmarca\tlink\timagem\tcampanha\torcamento\nLoja Verão\tSKU-001\tCamiseta\t79,90\tMinha Marca\thttps://loja.com/camiseta\thttps://cdn.com/camiseta.jpg\tVerão — todos\t50'}
               />
               {source.trim() && plan.message && (
                 <span className="mt-1 flex items-start gap-1.5 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning" role="alert">
@@ -255,7 +253,7 @@ export function CatalogBatchDialog({
               <input className="mt-0.5 accent-primary" type="checkbox" checked={scheduleCampaigns} onChange={(event) => { setScheduleCampaigns(event.target.checked); invalidatePlan() }} />
               <span><strong className="text-foreground">Preparar campanhas Product Link pausadas</strong><br />{preview?.automation.productLinkNote || 'Valide o lote para consultar o conector Product Link.'}</span>
             </label>
-            {scheduleCampaigns && <p className="rounded-md bg-background/70 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">Cada campanha precisa da coluna <strong className="text-foreground">pixel_id</strong> (6 a 30 dígitos); <strong className="text-foreground">evento</strong> usa ON_WEB_ORDER por padrão. O criativo de catálogo só será enviado quando o conector confirmar <strong className="text-foreground">Product Link e o formato do anúncio</strong>, e o catálogo estiver aprovado. Até lá, os runs ficam apenas preparados.</p>}
+            {scheduleCampaigns && <p className="rounded-md bg-background/70 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">O Pixel de compra é selecionado automaticamente pela conta de anúncio. O criativo só será enviado quando o conector confirmar Product Link e o catálogo estiver aprovado.</p>}
             {campaignRequiresSync && (
               <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
                 Para preparar campanhas, mantenha “Sincronizar automaticamente com o TikTok” ligado.
@@ -308,7 +306,7 @@ export function CatalogBatchDialog({
                                 <li key={`${summary.name}-${index}`} className="grid gap-0.5 border-t border-border/50 pt-1.5 first:border-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-3">
                                   <span className="truncate font-medium text-foreground">{summary.name}</span>
                                   <span className="text-muted-foreground sm:text-right">{summary.budget}</span>
-                                  <span className="truncate text-[10px] text-muted-foreground sm:col-span-2">Pixel {summary.pixel} · {summary.event}</span>
+                                  <span className="truncate text-[10px] text-muted-foreground sm:col-span-2">Pixel de compra aplicado automaticamente</span>
                                 </li>
                               )
                             })}

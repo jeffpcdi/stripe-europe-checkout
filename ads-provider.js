@@ -817,14 +817,7 @@ async function updateAd(advertiserId, adId, patch) {
 // goal do frontend → objetivo TikTok + optimization_goal do adgroup.
 // Enum de objetivos confirmado ao vivo no dump do tools/list (2026-05-07).
 const GOAL_MAP = {
-  traffic: { objective: 'TRAFFIC', optimizationGoal: 'CLICK' },
-  awareness: { objective: 'REACH', optimizationGoal: 'REACH' },
-  video_views: { objective: 'VIDEO_VIEWS', optimizationGoal: 'VIDEO_VIEW' },
-  engagement: { objective: 'ENGAGEMENT', optimizationGoal: 'ENGAGED_VIEW' },
-  lead_generation: { objective: 'LEAD_GENERATION', optimizationGoal: 'LEAD_GENERATION' },
   conversions: { objective: 'WEB_CONVERSIONS', optimizationGoal: 'CONVERT' },
-  // app_promotion exige app_id (via /app/list/) que a UI não coleta ainda —
-  // rejeitado com mensagem clara em vez de chutar.
 };
 
 // Busca profunda de um campo em respostas do MCP (create retorna campaign_id
@@ -947,6 +940,29 @@ async function listInterestCategories(advertiserId) {
       name: String(c.name || c.interest_category_name || c.label || ''),
     })).filter((c) => c.id && c.name);
     cacheSet(ck, out, 24 * 60 * 60 * 1000);
+  }
+  return out;
+}
+
+// Pixels reais do advertiser. O TikTok usa dois identificadores diferentes:
+// pixel_code (alfanumérico, salvo na aba Conversões) e pixel_id (numérico,
+// exigido na criação do ad group). Esta leitura é a ponte segura entre ambos.
+async function listTikTokPixels(advertiserId) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const ck = 'pixels:' + adv;
+  let out = cacheGet(ck);
+  if (!out) {
+    const raw = await pipeboard.callTool('list_tiktok_pixels', { advertiser_id: adv });
+    const list = firstArray(raw, ['pixels', 'pixel_list', 'list', 'data']);
+    out = list.map((pixel) => ({
+      id: String(pixel.pixel_id || pixel.id || '').trim(),
+      code: String(pixel.pixel_code || pixel.code || '').trim(),
+      name: String(pixel.pixel_name || pixel.name || pixel.pixel_code || 'Pixel TikTok').trim(),
+      status: String(pixel.status || pixel.pixel_status || 'UNKNOWN').trim(),
+      purchaseCount: Math.max(0, Number(pixel.purchase_count || pixel.complete_payment_count || pixel.purchases_30d) || 0),
+    })).filter((pixel) => /^\d{5,30}$/.test(pixel.id));
+    cacheSet(ck, out, 5 * 60 * 1000);
   }
   return out;
 }
@@ -1671,6 +1687,11 @@ async function createSparkAd(advertiserId, spec) {
   if (!String(s.name || '').trim()) throw badRequest('Nome da campanha é obrigatório');
   if (!SPARK_GOALS.has(s.goal)) throw badRequest('Objetivo "' + s.goal + '" não suportado para Spark Ads');
   const goal = GOAL_MAP[s.goal];
+  const pixelId = String(s.pixelId || '').trim();
+  if (!/^\d{5,30}$/.test(pixelId)) throw badRequest('Spark de conversão exige um Pixel TikTok vinculado');
+  const pixelEvent = String(s.customEventType || 'ON_WEB_ORDER').trim().toUpperCase();
+  if (pixelEvent !== 'ON_WEB_ORDER') throw badRequest('Spark de conversão usa Compra concluída (ON_WEB_ORDER)');
+  if (!/^https:\/\/[^\s]+/.test(String(s.linkUrl || ''))) throw badRequest('Spark de conversão exige a URL HTTPS de destino');
   const budgetAmount = Number(s.budgetAmount);
   if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET);
   let endDate;
@@ -1716,6 +1737,8 @@ async function createSparkAd(advertiserId, spec) {
       schedule_start_time: advertiserLocalTime(info && info.timezone),
       targeting: { location_ids: regions.locationIds },
       bid_type: 'BID_TYPE_NO_BID',
+      pixel_id: pixelId,
+      optimization_event: pixelEvent,
     };
     if (endDate) adgroupArgs.schedule_end_time = endDate + ' 23:59:59';
     const agOut = await pipeboard.callTool('create_tiktok_adgroup', adgroupArgs);
@@ -2313,7 +2336,6 @@ async function appealSmartPlusAd(advertiserId, adId, reason) {
 // Foco no funil de site do gestor de tráfego: conversões (pixel) e tráfego.
 const SMART_PLUS_GOALS = {
   conversions: { objective: 'WEB_CONVERSIONS', promotion: 'WEBSITE', optimization: 'CONVERT', billing: 'OCPM', salesDestination: 'WEBSITE' },
-  traffic: { objective: 'TRAFFIC', promotion: 'WEBSITE', optimization: 'CLICK', billing: 'CPC' },
 };
 
 // Cria uma campanha Smart+ completa (campanha → ad group → vídeo → asset group).
@@ -2326,16 +2348,16 @@ async function createSmartPlusCampaign(advertiserId, spec) {
   if (!adv) throw badRequest('advertiserId é obrigatório');
   const s = spec || {};
   const g = SMART_PLUS_GOALS[s.goal];
-  if (!g) throw badRequest('Objetivo Smart+ não suportado: "' + s.goal + '" (use conversions ou traffic)');
+  if (!g) throw badRequest('Smart+ no ROI-NADOS aceita somente conversão');
   if (!/^https:\/\/[^\s]+/.test(String(s.videoUrl || ''))) throw badRequest('Vídeo (URL https) é obrigatório');
   if (!/^https:\/\/[^\s]+/.test(String(s.coverUrl || ''))) throw badRequest('Capa do vídeo (URL https) é obrigatória para Smart+');
   if (!/^https:\/\/[^\s]+/.test(String(s.linkUrl || ''))) throw badRequest('Link de destino (URL https) é obrigatório para Smart+');
   const budget = Number(s.budgetAmount);
   if (!(budget >= TIKTOK_MIN_BUDGET)) throw badRequest('O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET + ' no total');
-  if (s.goal === 'conversions' && !/^\d{5,30}$/.test(String(s.pixelId || ''))) {
+  if (!/^\d{5,30}$/.test(String(s.pixelId || ''))) {
     throw badRequest('Conversões exigem o Pixel ID NUMÉRICO do TikTok');
   }
-  if (s.goal === 'conversions' && !/^[A-Z_]{3,40}$/.test(String(s.customEventType || ''))) {
+  if (String(s.customEventType || '').toUpperCase() !== 'ON_WEB_ORDER') {
     throw badRequest('Conversões exigem o evento de otimização do Pixel');
   }
   const endDate = /^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || '')) ? String(s.endDate).slice(0, 10) : null;
@@ -2385,10 +2407,8 @@ async function createSmartPlusCampaign(advertiserId, spec) {
       targeting_optimization_mode: 'AUTOMATIC',
       operation_status: 'DISABLE',
     };
-    if (s.goal === 'conversions') {
-      agArgs.pixel_id = String(s.pixelId);
-      if (s.customEventType) agArgs.optimization_event = String(s.customEventType).toUpperCase();
-    }
+    agArgs.pixel_id = String(s.pixelId);
+    agArgs.optimization_event = 'ON_WEB_ORDER';
     if (identity.identityId) {
       agArgs.identity_id = identity.identityId;
       agArgs.identity_type = identity.identityType;
@@ -2745,6 +2765,7 @@ module.exports = {
   CATALOG_TYPES,
   // direcionamento (leitura p/ a criação)
   listInterestCategories,
+  listTikTokPixels,
   // Smart+ (gestão + appeal de anúncio + criação composta)
   listSmartPlusCampaigns,
   listSmartPlusAds,

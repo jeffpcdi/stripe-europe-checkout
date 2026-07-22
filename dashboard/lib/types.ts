@@ -1692,6 +1692,19 @@ export interface AdsTikTokPixel {
   name: string
   status: string
   purchaseCount: number
+  localSlug?: string | null
+  localName?: string | null
+  isDefault?: boolean
+}
+
+export interface AdsPixelBinding {
+  advertiserId: string
+  pixelSlug: string
+  pixelCode: string
+  pixelId: string
+  pixelName: string
+  remoteStatus: string
+  lastVerifiedAt: string | null
 }
 
 export interface AdsCatalogSyncRun {

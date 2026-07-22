@@ -119,6 +119,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `CUSTOMIZED_USER`/`TT_USER`/`AUTH_CODE` automaticamente. Duplicação pré-valida esse fallback antes
   de criar a campanha. A árvore e o editor carregam `catalogId`/`websiteType`; se for `PRODUCT_LINK`,
   não exibem nem aceitam `landing_page_url` (inclusive por API), pois o destino é o `Link` de cada produto.
+  O produto é exclusivamente de **conversão**: criação comum, Smart+ e Spark usam TikTok placement,
+  evento `ON_WEB_ORDER` e campanhas pausadas; objetivos de tráfego/alcance/leads/engajamento são
+  rejeitados também no backend. O Pixel não é informado em cada formulário: `ads_pixel_bindings`
+  mantém um vínculo por `account_id + advertiser_id`; `GET /api/ads/pixels` cruza o `pixel_code`
+  alfanumérico salvo em Conversões com o `pixel_id` numérico lido do TikTok e
+  `PUT /api/ads/pixels/default` resolve apenas contas ambíguas. Campanhas comuns, Smart+, Spark,
+  wizard e lote de catálogos recebem esse Pixel no servidor e sempre usam Compra.
 - **bot-filter.js** — cloaking multicamadas (score 0–100). Modelo de score em §8. Lookup de ASN (Cymru
   via DNS) com teto de latência (`deadlineMs`, padrão 120ms via `Promise.race`) e cache 2 camadas
   (memória + Redis `asn:<ip>`) para redirect quase instant��neo.
@@ -768,6 +775,12 @@ só no Railway (§5.2.2).
 (log de conversões/pixels/cloaker) · `/links` Links de Checkout · `/cloak` Filtro de Bots ·
 `/domains` Domínios · `/pixels` Pixel TikTok (saúde + EMQ) · `/gateways` Gateways · `/config`
 Configurações. Cada página é um `page.tsx` fino que renderiza a view de `components/<área>/`.
+`/ads/tiktok` tem somente três áreas de trabalho: **Campanhas, Catálogo e Automações**. Há um único
+launcher “Nova campanha” (Conversão ABO/CBO, Smart+, vídeos em massa e Spark); os antigos painéis
+Today/Smart+ e cards de copiloto/proposta/insights/MCP foram removidos por duplicarem controles.
+Pixel e evento não aparecem nos formulários: o banner `PixelBindingCard` só é exibido enquanto o
+vínculo central do advertiser estiver pendente. Em Catálogo, conexão verificada, feed e históricos
+técnicos ficam recolhidos; a lista prioriza nome, quantidade e estado acionável.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):

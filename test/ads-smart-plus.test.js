@@ -21,8 +21,9 @@ console.log('Provider — validação antes da rede');
 (async () => {
   const futureDate = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
   const baseCreate = {
-    name: 'x', goal: 'traffic', videoUrl: 'https://a/v.mp4', coverUrl: 'https://a/c.jpg',
+    name: 'x', goal: 'conversions', videoUrl: 'https://a/v.mp4', coverUrl: 'https://a/c.jpg',
     linkUrl: 'https://a.example/offer', budgetAmount: 50, endDate: futureDate,
+    pixelId: '12345678', customEventType: 'ON_WEB_ORDER',
   };
   await throws(() => provider.listSmartPlusCampaigns(''), 400, 'listar exige advertiser');
   await throws(() => provider.setSmartPlusCampaignStatus('123', [], 'paused'), 400, 'status exige ao menos 1 campanha');
@@ -37,7 +38,7 @@ console.log('Provider — validação antes da rede');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, budgetAmount: 49.99 }), 400, 'Smart+ exige orçamento mínimo de 50');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, endDate: '' }), 400, 'Smart+ exige data de término (orçamento total)');
   await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, endDate: '2020-01-01' }), 400, 'Smart+ rejeita término no passado');
-  await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, goal: 'conversions' }), 400, 'conversões exigem pixel numérico');
+  await throws(() => provider.createSmartPlusCampaign('123', { ...baseCreate, pixelId: '' }), 400, 'conversões exigem pixel numérico');
 
   console.log('Rotas — guardrails e allowlist');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
@@ -46,7 +47,7 @@ console.log('Provider — validação antes da rede');
   ok(/killSwitchActive/.test(createBody), 'criação respeita kill switch');
   ok(/isDryRun/.test(createBody), 'criação respeita dry-run');
   ok(/createSmartPlusCampaign/.test(createBody), 'criação chama o composto do provider');
-  ok(/PIXEL_EVENTS\.has\(evt\)/.test(createBody), 'evento Smart+ usa a mesma allowlist da criação manual');
+  ok(/requireCampaignPixel/.test(createBody) && /customEventType = 'ON_WEB_ORDER'/.test(createBody), 'rota usa o Pixel central e o evento Compra');
   const providerSource = fs.readFileSync(path.join(__dirname, '..', 'ads-provider.js'), 'utf8');
   const providerCreate = (providerSource.match(/async function createSmartPlusCampaign[\s\S]*?\n}\n/) || [''])[0];
   ok(/uploadImage\(adv, String\(s\.coverUrl\)/.test(providerCreate), 'capa é enviada ao TikTok');

@@ -4,21 +4,15 @@
 // TikTok Ads. O provider continua sendo a última barreira, mas a API rejeita
 // enums inválidos antes de criar qualquer recurso remoto.
 
-const CAMPAIGN_GOALS = new Set([
-  'engagement',
-  'traffic',
-  'awareness',
-  'video_views',
-  'lead_generation',
-  'conversions',
-]);
+// ROI-NADOS é um operador de escala para vendas. Objetivos de awareness,
+// tráfego, views, engajamento e leads aumentavam a superfície sem atender o
+// fluxo do produto. A allowlist estreita também impede clientes antigos de
+// reativarem esses objetivos chamando a API diretamente.
+const CAMPAIGN_GOALS = new Set(['conversions']);
 
-const SPARK_GOALS = new Set([
-  'engagement',
-  'traffic',
-  'awareness',
-  'video_views',
-]);
+// Spark é uma fonte de criativo orgânico dentro da mesma campanha de vendas,
+// não um objetivo paralelo.
+const SPARK_GOALS = new Set(['conversions']);
 
 const PIXEL_EVENTS = new Set([
   'ON_WEB_ORDER',

@@ -119,8 +119,6 @@ export function PixelsView() {
   // A6.4: etapa atual do teste de disparo — 'send' (enviando) → 'wait' (TikTok processando)
   const [testStage, setTestStage] = useState<'send' | 'wait'>('send')
   const [testResult, setTestResult] = useState<{ slug: string; ok: boolean; msg: string } | null>(null)
-  // Evento escolhido para o teste, por pixel (default ViewContent)
-  const [testEvent, setTestEvent] = useState<Record<string, keyof PixelEvents>>({})
   const [checkUrl, setCheckUrl] = useState('')
   const [checking, setChecking] = useState(false)
   const [urlCheck, setUrlCheck] = useState<UrlCheck | null>(null)
@@ -198,7 +196,7 @@ export function PixelsView() {
   }
 
   async function handleTest(p: Pixel) {
-    const event = testEvent[p.slug] || 'ViewContent'
+    const event: keyof PixelEvents = 'ViewContent'
     setTesting(p.slug)
     setTestStage('send')
     setTestResult(null)
@@ -426,68 +424,15 @@ export function PixelsView() {
                     </div>
                   </div>
 
-                  {/* Eventos ligados */}
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {EVENT_LABELS.map(({ key, label }) => (
-                      <span
-                        key={key}
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                          p.events?.[key]
-                            ? 'bg-brand-cyan/12 text-brand-cyan'
-                            : 'bg-secondary text-muted-foreground line-through opacity-60'
-                        }`}
-                      >
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* Vínculo pixel↔gateway: mostra de quais gateways este pixel
-                      aceita eventos de venda (vazio = todos). */}
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    {EVENT_LABELS.filter(({ key }) => p.events?.[key]).length} eventos ligados
+                    {pixelRows[0] ? ` · último disparo ${timeAgo(pixelRows[0].at)}` : ' · nenhum disparo ainda'}
+                    {pixelRate != null ? ` · ${pixelRate.toFixed(0)}% aceitos` : ''}
+                  </p>
                   {(p.gatewayIds?.length ?? 0) > 0 && (
-                    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <Zap className="size-3 shrink-0 text-brand-cyan" aria-hidden="true" />
-                      <span className="text-pretty">
-                        Vendas somente do gateway:{' '}
-                        <span className="font-medium text-foreground">
-                          {(p.gatewayIds ?? [])
-                            .map((id) => gatewayNameById.get(id) ?? id)
-                            .join(', ')}
-                        </span>
-                      </span>
+                    <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                      Gateway: {(p.gatewayIds ?? []).map((id) => gatewayNameById.get(id) ?? id).join(', ')}
                     </p>
-                  )}
-
-                  {/* A6.2: timeline dos últimos 5 disparos como dots coloridos
-                      com tooltip (evento + hora) — leitura rápida sem abrir o log */}
-                  {pixelRows.length > 0 && (
-                    <div className="mt-2.5 flex items-center gap-2">
-                      <span className="text-[10px] uppercase tracking-wider text-faint">Últimos disparos</span>
-                      <div className="flex items-center gap-1.5">
-                        {pixelRows.slice(0, 5).map((r) => (
-                          <span
-                            key={r.id}
-                            className={`size-2 rounded-full ${
-                              r.status === 'ok'
-                                ? 'bg-[color:var(--success)]'
-                                : isPixelErrorStatus(r.status)
-                                  ? 'bg-[color:var(--error)]'
-                                  : 'bg-[color:var(--warning)]'
-                            }`}
-                            title={`${r.event} · ${timeAgo(r.at)} · ${
-                            r.status === 'ok' ? 'aceito' : isPixelErrorStatus(r.status) ? 'erro' : 'descartado'
-                            }`}
-                            role="img"
-                            aria-label={`${r.event}, ${r.status === 'ok' ? 'aceito' : isPixelErrorStatus(r.status) ? 'erro' : 'descartado'}, ${timeAgo(r.at)}`}
-                          />
-                        ))}
-                      </div>
-                      {pixelRate != null && (
-                        <span className="font-mono text-[10px] tabular-nums text-faint">
-                          {pixelRate.toFixed(0)}% ok
-                        </span>
-                      )}
-                    </div>
                   )}
 
                   {/* Item 85: pixel ativo mas sem nenhum evento ligado = config
@@ -534,42 +479,6 @@ export function PixelsView() {
                       </p>
                     )}
 
-                  {/* Instalação fica em um fluxo dedicado. Manter blocos longos
-                      abertos em cada card poluía a lista e induzia a misturar tags. */}
-                  {p.scriptTag && (
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-input px-3 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-cyan/10 text-brand-cyan">
-                          <Code2 className="size-4" aria-hidden="true" />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-foreground">Tag exclusiva deste pixel</p>
-                          <p className="truncate text-[11px] text-muted-foreground">Página + CAPI + jornada, sem cruzar com outro pixel</p>
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(`${p.slug}:tag`, cleanInstallCode(p.scriptTag), 'Código de instalação')}
-                          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        >
-                          <span className="copy-morph" data-copied={copied === `${p.slug}:tag`}>
-                            <Copy className="size-3.5" aria-hidden="true" />
-                            <Check className="size-3.5" aria-hidden="true" />
-                          </span>
-                          {copied === `${p.slug}:tag` ? 'Copiado' : 'Copiar código'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setInstalling(p)}
-                          className="rounded-md bg-brand-cyan px-2.5 py-1.5 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98]"
-                        >
-                          Como instalar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
                   {/* A6.4: progresso do teste em etapas — Enviando → TikTok
                       respondendo, com check por etapa concluída */}
                   {testing === p.slug && (
@@ -612,28 +521,12 @@ export function PixelsView() {
                     </p>
                   )}
 
-                  <div className="mt-3 flex items-center justify-end gap-1 border-t border-border pt-3">
-                    {/* Seletor de evento de teste: permite validar qualquer
-                        etapa do funil, não só a Visita (item 33) */}
-                    <select
-                      value={testEvent[p.slug] || 'ViewContent'}
-                      onChange={(e) =>
-                        setTestEvent((prev) => ({ ...prev, [p.slug]: e.target.value as keyof PixelEvents }))
-                      }
-                      disabled={!p.hasToken}
-                      aria-label={`Evento de teste para ${p.name}`}
-                      className="mr-auto rounded-md border border-border bg-input px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
-                    >
-                      {EVENT_LABELS.map(({ key, label }) => (
-                        <option
-                          key={key}
-                          value={key}
-                          disabled={(key === 'AddPaymentInfo' || key === 'CompletePayment') && !p.testEventCode}
-                        >
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-border pt-3">
+                    {p.scriptTag && (
+                      <button type="button" onClick={() => setInstalling(p)} className="mr-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-brand-cyan hover:bg-brand-cyan/10">
+                        <Code2 className="size-3.5" aria-hidden="true" /> Instalar
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleTest(p)}
@@ -791,6 +684,12 @@ export function PixelsView() {
             )}
           </GlassCard>
 
+          <details className="group rounded-xl border border-border bg-card">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-semibold text-foreground">
+              Diagnóstico avançado
+              <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <div className="flex flex-col gap-5 border-t border-border p-3">
           <GlassCard className="p-5" data-tour="pixels-health">
             <div className="mb-4">
               <SectionTitle>Saúde dos disparos</SectionTitle>
@@ -1142,6 +1041,8 @@ export function PixelsView() {
               })()
             )}
           </GlassCard>
+            </div>
+          </details>
         </div>
       </div>
 

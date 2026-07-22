@@ -44,9 +44,10 @@ function callsTo(name) { return toolCalls.filter((c) => c.name === name); }
 function resetCalls() { toolCalls.length = 0; failOn = null; }
 
 const baseSpec = {
-  name: 'Campanha F1', goal: 'traffic', videoUrl: 'https://blob.example/video.mp4',
+  name: 'Campanha F1', goal: 'conversions', videoUrl: 'https://blob.example/video.mp4',
   budgetAmount: 50, budgetType: 'daily', body: 'Texto do anúncio',
   linkUrl: 'https://example.com/lp', countries: ['PT'], ageMin: 18, ageMax: 34,
+  promotedObject: { pixelId: '12345678', customEventType: 'ON_WEB_ORDER' },
 };
 
 (async () => {
@@ -60,13 +61,13 @@ const baseSpec = {
     assert.strictEqual(out.adId, '333');
 
     const camp = callsTo('create_tiktok_campaign')[0].args;
-    assert.strictEqual(camp.objective_type, 'TRAFFIC', 'goal traffic → TRAFFIC');
-    assert.strictEqual(camp.pixel_id, undefined, 'sem pixel fora de conversões');
+    assert.strictEqual(camp.objective_type, 'WEB_CONVERSIONS', 'produto cria somente conversão no site');
+    assert.strictEqual(camp.pixel_id, '12345678', 'Pixel central segue na campanha');
 
     const ag = callsTo('create_tiktok_adgroup')[0].args;
     assert.deepStrictEqual(ag.targeting.location_ids, ['620'], 'PT → location_id 620 (nunca o código do país)');
     assert.deepStrictEqual(ag.targeting.age_groups, ['AGE_18_24', 'AGE_25_34'], '18–34 → dois buckets');
-    assert.strictEqual(ag.optimization_goal, 'CLICK');
+    assert.strictEqual(ag.optimization_goal, 'CONVERT');
     assert.strictEqual(ag.budget_mode, 'BUDGET_MODE_DAY');
     assert.strictEqual(ag.budget, 50);
     assert.match(ag.schedule_start_time, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, 'schedule no formato do advertiser');
@@ -117,8 +118,8 @@ const baseSpec = {
   {
     resetCalls();
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, budgetAmount: 49.99 }), /orçamento mínimo/i, 'orçamento abaixo de 50 é rejeitado cedo');
-    await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'app_promotion' }), /app_id/, 'app_promotion rejeitado com explicação (exige app_id)');
-    await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'conversions', promotedObject: { pixelId: '12345678' } }), /customEventType|optimization_event/, 'CONVERT sem evento é rejeitado cedo');
+    await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, goal: 'app_promotion' }), /não suportado/, 'objetivo fora de conversão é rejeitado');
+    await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, promotedObject: { pixelId: '12345678' } }), /customEventType|optimization_event/, 'CONVERT sem evento é rejeitado cedo');
     await assert.rejects(() => provider.createFullAd('adv1', { ...baseSpec, budgetType: 'lifetime', endDate: '2020-01-01' }), /data de término futura/, 'orçamento total com data passada é rejeitado cedo');
     assert.strictEqual(toolCalls.length, 0, 'validação falha SEM tocar a plataforma');
   }
@@ -156,19 +157,19 @@ const baseSpec = {
   // ── conversões: pixel + optimization_event na campanha e no adgroup ────────
   {
     resetCalls();
-    await provider.createFullAd('adv1', { ...baseSpec, goal: 'conversions', promotedObject: { pixelId: '12345678', customEventType: 'COMPLETE_PAYMENT' } });
+    await provider.createFullAd('adv1', { ...baseSpec });
     const camp = callsTo('create_tiktok_campaign')[0].args;
     assert.strictEqual(camp.pixel_id, '12345678');
-    assert.strictEqual(camp.optimization_event, 'COMPLETE_PAYMENT');
+    assert.strictEqual(camp.optimization_event, 'ON_WEB_ORDER');
     const ag = callsTo('create_tiktok_adgroup')[0].args;
     assert.strictEqual(ag.optimization_goal, 'CONVERT');
-    assert.strictEqual(ag.optimization_event, 'COMPLETE_PAYMENT');
+    assert.strictEqual(ag.optimization_event, 'ON_WEB_ORDER');
   }
 
   // ── helpers puros ──────────────────────────────────────────────────────────
   assert.deepStrictEqual(ageGroupsFor(25, 44), ['AGE_25_34', 'AGE_35_44']);
   assert.strictEqual(ageGroupsFor(13, 100), undefined, 'faixa completa = sem segmentação por idade');
-  assert.ok(GOAL_MAP.traffic && GOAL_MAP.conversions && !GOAL_MAP.app_promotion, 'mapa de objetivos coerente');
+  assert.deepStrictEqual(Object.keys(GOAL_MAP), ['conversions'], 'mapa expõe somente conversão');
 
   // ── contrato da rota: /create usa o provider, não a Zernio ─────────────────
   {

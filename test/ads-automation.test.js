@@ -277,7 +277,9 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.ok(calls.upserts.some((u) => u.key === 'adv:adv1:sched:s1:c1'), 'autoria da pausa persistida por advertiser');
 
     // agora janela SEMPRE ativa: só reativa c1 (que ELE pausou); c2 fica quieta
-    configureRules(acc, [{ id: 's1', enabled: true, metric: 'schedule', days: [0, 1, 2, 3, 4, 5, 6], startTime: '00:00', endTime: '23:59', timezone: 'UTC', mode: 'execute' }]);
+    // start=end é o contrato de janela de 24h. Usar 00:00–23:59 deixava o
+    // teste falhar justamente no último minuto do dia UTC.
+    configureRules(acc, [{ id: 's1', enabled: true, metric: 'schedule', days: [0, 1, 2, 3, 4, 5, 6], startTime: '00:00', endTime: '00:00', timezone: 'UTC', mode: 'execute' }]);
     resetCalls();
     treeCampaigns = [
       campaign({ platformCampaignId: 'c1', status: 'paused' }),

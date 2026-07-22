@@ -57,5 +57,27 @@ assert.strictEqual(workspace.governance.dualApprovalEnabled, false, 'aprovação
 assert.strictEqual(workspace.governance.requiredApprovals, 1);
 assert.strictEqual(workspace.governance.maxTargetsPerAction, 100, 'limite de alvos é clampado');
 
-if (previous) process.env.DATABASE_URL = previous;
-console.log('ads-ops-store.test.js OK — escopo, dry-run, idempotência, kill switch e limites validados');
+async function testPixelBindings() {
+  const first = await ops.savePixelBinding('acc_1', 'adv_1', {
+    pixelSlug: 'pixel-a', pixelCode: 'CODE_A', pixelId: '12345678', pixelName: 'Pixel A', remoteStatus: 'ACTIVE',
+  });
+  assert.strictEqual(first.pixelId, '12345678');
+  assert.strictEqual((await ops.getPixelBinding('acc_1', 'adv_1')).pixelSlug, 'pixel-a');
+  assert.strictEqual(await ops.getPixelBinding('acc_2', 'adv_1'), null, 'vínculo não vaza entre contas');
+  assert.strictEqual(await ops.getPixelBinding('acc_1', 'adv_2'), null, 'vínculo não vaza entre advertisers');
+  await assert.rejects(
+    () => ops.savePixelBinding('acc_1', 'adv_1', { pixelSlug: 'pixel-a', pixelCode: 'CODE_A', pixelId: 'código-alfanumérico' }),
+    /Vínculo de Pixel inválido/,
+  );
+  await ops.deletePixelBinding('acc_1', 'adv_1');
+  assert.strictEqual(await ops.getPixelBinding('acc_1', 'adv_1'), null, 'remoção limpa o vínculo');
+}
+
+testPixelBindings().then(() => {
+  if (previous) process.env.DATABASE_URL = previous;
+  console.log('ads-ops-store.test.js OK — escopo, dry-run, idempotência, kill switch, limites e Pixel central validados');
+}).catch((error) => {
+  if (previous) process.env.DATABASE_URL = previous;
+  console.error(error);
+  process.exitCode = 1;
+});

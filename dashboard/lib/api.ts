@@ -755,7 +755,12 @@ export function useAdsCatalogCapabilities(active: boolean, adAccountId: string) 
 }
 
 export function useAdsTikTokPixels(active: boolean, adAccountId: string) {
-  return useSWR<{ pixels: AdsTikTokPixel[] }>(
+  return useSWR<{
+    pixels: AdsTikTokPixel[]
+    binding: import('./types').AdsPixelBinding | null
+    ready: boolean
+    needsChoice: boolean
+  }>(
     active && adAccountId ? adsCatalogApiUrl('/api/ads/pixels', adAccountId) : null,
     fetcher,
     { revalidateOnFocus: true, revalidateOnReconnect: true, keepPreviousData: false },

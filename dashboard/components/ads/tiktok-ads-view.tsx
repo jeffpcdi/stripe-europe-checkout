@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Megaphone, Plus, Zap, Layers, MoreHorizontal, FlaskConical, OctagonAlert, Ban, Gauge, Bot, ShoppingBag } from 'lucide-react'
+import { Megaphone, Plus, Zap, Layers, FlaskConical, OctagonAlert, Ban, Bot, ShoppingBag, Sparkles } from 'lucide-react'
 import {
   useAdsStatus,
   useAdsAccounts,
@@ -15,12 +15,11 @@ import {
   useAdsAttribution,
   useAdsSafetyPolicy,
   useAdsHealth,
-  useAdsBriefing,
   useAdsSyncStatus,
   apiSend,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
-import type { AdsMetrics, AdsTreeCampaign } from '@/lib/types'
+import type { AdsTreeCampaign } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
 import { ErrorState } from '@/components/error-state'
@@ -35,12 +34,11 @@ import { DuplicateDialog } from './duplicate-dialog'
 import { OpsDialog } from './ops-dialog'
 import { HealthDialog } from './health-dialog'
 import { AutomationPanel } from './automation-panel'
-import { SmartPlusPanel } from './smart-plus-panel'
+import { SmartPlusCreateDialog } from './smart-plus-create-dialog'
 import { CatalogManager } from './catalog-manager'
-import { TodayPanel } from './today-panel'
-import { usePersistedState } from '@/lib/use-persisted-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toLocalIsoDate } from './tiktok-contracts'
+import { PixelBindingCard } from './pixel-binding-card'
 
 export function TikTokAdsView() {
   const { data: status, mutate: mutateStatus, isLoading: statusLoading, error: statusError } = useAdsStatus()
@@ -92,19 +90,15 @@ export function TikTokAdsView() {
   // honrado UMA vez pós-mount (deep-link "ver automações" da home). useEffect
   // em vez de initializer para não divergir da renderização do servidor;
   // window.location em vez de useSearchParams para não exigir Suspense.
-  // 4 abas por tarefa: Hoje (centro de comando) · Campanhas (absorve Smart+) ·
-  // Automações (absorve IA) · Catálogo. Smart+ e IA deixaram de ser abas — o
-  // gestor não deve caçar em 6 portas o que é um fluxo só.
-  type TabKey = 'today' | 'campaigns' | 'automation' | 'catalog'
-  const SUBTABS: { value: TabKey; label: string; compactLabel: string; icon: typeof Gauge }[] = [
-    { value: 'today', label: 'Hoje', compactLabel: 'Hoje', icon: Gauge },
+  // Três áreas operacionais: criar/acompanhar, catálogo e automações. Smart+
+  // e Spark são tipos de criação dentro de Campanhas, não destinos separados.
+  type TabKey = 'campaigns' | 'automation' | 'catalog'
+  const SUBTABS: { value: TabKey; label: string; compactLabel: string; icon: typeof Megaphone }[] = [
     { value: 'campaigns', label: 'Campanhas', compactLabel: 'Campanhas', icon: Megaphone },
-    { value: 'automation', label: 'Automações', compactLabel: 'Robô', icon: Bot },
     { value: 'catalog', label: 'Catálogo', compactLabel: 'Catálogo', icon: ShoppingBag },
+    { value: 'automation', label: 'Automações', compactLabel: 'Robô', icon: Bot },
   ]
-  const [tab, setTab] = useState<TabKey>('today')
-  // Dentro de Campanhas: "Manuais" (árvore + criação) ou "Smart+".
-  const [campaignsView, setCampaignsView] = usePersistedState<'manual' | 'smartplus'>('ads:campaigns:view', 'manual')
+  const [tab, setTab] = useState<TabKey>('campaigns')
   const validTabs = useMemo(() => new Set<TabKey>(SUBTABS.map((item) => item.value)), [])
   useEffect(() => {
     // Lê ?tab= no mount e a cada navegação (voltar/avançar). Mapa de
@@ -116,21 +110,20 @@ export function TikTokAdsView() {
       // notificação já entregue ainda abra a decisão certa.
       const t = query.get('tab') || query.get('view')
       if (t && validTabs.has(t as TabKey)) setTab(t as TabKey)
-      else if (t === 'overview') setTab('today')
+      else if (t === 'overview' || t === 'today' || t === 'smartplus') setTab('campaigns')
       else if (t === 'ai') setTab('automation')
-      else if (t === 'smartplus') { setTab('campaigns'); setCampaignsView('smartplus') }
-      else setTab('today')
+      else setTab('campaigns')
     }
     readTab()
     window.addEventListener('popstate', readTab)
     return () => window.removeEventListener('popstate', readTab)
-  }, [validTabs, setCampaignsView])
+  }, [validTabs])
 
-  // Troca de aba sincronizada com a URL (?tab=) — 'today' é o default (sem query).
+  // Troca de aba sincronizada com a URL (?tab=) — Campanhas é o padrão.
   function changeTab(value: TabKey) {
     setTab(value)
     const url = new URL(window.location.href)
-    if (value === 'today') url.searchParams.delete('tab')
+    if (value === 'campaigns') url.searchParams.delete('tab')
     else url.searchParams.set('tab', value)
     window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`)
   }
@@ -138,6 +131,7 @@ export function TikTokAdsView() {
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [sparkOpen, setSparkOpen] = useState(false)
+  const [smartPlusOpen, setSmartPlusOpen] = useState(false)
   const [opsOpen, setOpsOpen] = useState(false)
   const [opsInitialTab, setOpsInitialTab] = useState<'jobs' | 'safety'>('jobs')
   const [healthOpen, setHealthOpen] = useState(false)
@@ -179,45 +173,6 @@ export function TikTokAdsView() {
     const adv = accounts?.accounts.find((a) => a.id === concreteAdvertiser)
     return adv?.currency || tree?.campaigns?.[0]?.currency || 'USD'
   }, [accounts, concreteAdvertiser, tree])
-
-  // IA configurada no servidor? (resposta do briefing carrega a flag `ai`;
-  // SWR dedupa com o fetch do BriefingCard — custo zero extra)
-  const { data: briefingData } = useAdsBriefing(treeActive, concreteAdvertiser)
-  const aiEnabled = briefingData?.ai ?? false
-
-  // KPIs agregados sobre a página atual da árvore + série p/ sparkline
-  const kpi = useMemo(() => {
-    const zero = { spend: 0, impressions: 0, clicks: 0, conversions: 0 }
-    if (!tree?.campaigns?.length) return { ...zero, ctr: 0, cpm: 0, activeCount: 0, spendSeries: [] as number[] }
-    let spend = 0
-    let impressions = 0
-    let clicks = 0
-    let conversions = 0
-    let activeCount = 0
-    const byDay = new Map<number, number>()
-    tree.campaigns.forEach((c) => {
-      const m = c.metrics ?? {}
-      spend += m.spend ?? 0
-      impressions += m.impressions ?? 0
-      clicks += m.clicks ?? 0
-      conversions += m.conversions ?? 0
-      if (c.status === 'active') activeCount++
-      c.daily?.forEach((d: AdsMetrics & { date?: string }, i: number) => {
-        byDay.set(i, (byDay.get(i) ?? 0) + (d.spend ?? 0))
-      })
-    })
-    const spendSeries = [...byDay.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v)
-    return {
-      spend,
-      impressions,
-      clicks,
-      conversions,
-      ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
-      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
-      activeCount,
-      spendSeries: spendSeries.slice(-30),
-    }
-  }, [tree])
 
   async function handleDisconnect() {
     setDisconnecting(true)
@@ -358,6 +313,8 @@ export function TikTokAdsView() {
         onDisconnect={status?.capabilities?.oauthConnect === false ? null : () => setConfirmDisconnect(true)}
       />
 
+      <PixelBindingCard active={treeActive} advertiserId={concreteAdvertiser} />
+
       {!effectiveAdvertiser ? (
         <GlassCard className="flex flex-col items-center gap-2 p-6 text-center">
           <span className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary">
@@ -371,7 +328,7 @@ export function TikTokAdsView() {
           {/* Sub-abas por tarefa: cada tela tem UM propósito. O padrão visual
               (pill tablist) é o mesmo da aba Atividade. */}
           <Tabs.Root value={tab} onValueChange={(value) => changeTab(value as TabKey)}>
-            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-4 items-center gap-1 rounded-xl border border-border bg-card p-1 sm:w-max sm:self-center">
+            <Tabs.List data-tour="ads-tabs" aria-label="Áreas do TikTok Ads" className="grid w-full grid-cols-3 items-center gap-1 rounded-xl border border-border bg-card p-1 sm:w-max sm:self-center">
               {SUBTABS.map((item) => {
                 const attentionCount = item.value === 'automation' ? bannedAccounts.length + openTickets.length : item.value === 'campaigns' && tree?.syncError ? 1 : 0
                 return (
@@ -446,62 +403,14 @@ export function TikTokAdsView() {
             </GlassCard>
           )}
 
-          {/* ── Aba: Hoje — centro de comando (decisões → resultado → robô) ── */}
-          {tab === 'today' && (
-            <>
-            <TodayPanel
-              active={treeActive}
-              adAccountId={concreteAdvertiser}
-              currency={currency}
-              kpi={kpi}
-              fromDate={fromDate}
-              toDate={toDate}
-              onOpenOps={() => openOps('jobs')}
-              onOpenHealth={() => setHealthOpen(true)}
-              onGoAutomations={() => changeTab('automation')}
-              onCreate={() => openWriteFlow(setCreateOpen)}
-              onNewSmartPlus={() => { changeTab('campaigns'); setCampaignsView('smartplus') }}
-            />
-            </>
-          )}
-
-          {/* ── Aba: Campanhas — Manuais (árvore + criação) ou Smart+ ── */}
+          {/* ── Aba: Campanhas — uma lista e uma única entrada de criação. ── */}
           {tab === 'campaigns' && (
             <>
-              {/* Segmento: campanhas manuais × Smart+ (o antigo tab absorvido) */}
-              <div className="grid w-full grid-cols-2 items-center gap-1 self-start rounded-xl border border-border bg-card p-1 text-xs sm:w-auto" role="tablist" aria-label="Tipo de campanha">
-                {([['manual', 'Manuais'], ['smartplus', 'Smart+']] as const).map(([v, label]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    role="tab"
-                    aria-selected={campaignsView === v}
-                    onClick={() => setCampaignsView(v)}
-                    className={`rounded-lg px-3 py-1.5 font-semibold transition-colors ${
-                      campaignsView === v ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {campaignsView === 'smartplus' ? (
-                <SmartPlusPanel active={treeActive} adAccountId={concreteAdvertiser} currency={currency} />
-              ) : (
-              <>
-              {/* Barra de criação: tudo que PUBLICA vive junto da lista que
-                  mostra o resultado. Primário = Nova campanha; o resto apoia. */}
-              <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
-                <button type="button" className="btn-primary justify-center text-xs" onClick={() => openWriteFlow(setCreateOpen)}>
-                  <Plus className="size-3.5" aria-hidden="true" />
-                  Nova campanha
-                </button>
+              <div className="flex justify-end">
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
-                    <button type="button" className="btn-ghost w-full justify-center border-border/80 bg-card text-xs sm:w-auto" aria-label="Mais ações de criação">
-                      <MoreHorizontal className="size-3.5" aria-hidden="true" />
-                      Mais ações
+                    <button type="button" className="btn-primary justify-center text-xs" aria-label="Nova campanha">
+                      <Plus className="size-3.5" aria-hidden="true" /> Nova campanha
                     </button>
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
@@ -510,6 +419,20 @@ export function TikTokAdsView() {
                       sideOffset={8}
                       className="glass glass-thick anim-pop-in z-50 min-w-56 rounded-[12px] p-1.5"
                     >
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                        onSelect={() => openWriteFlow(setCreateOpen)}
+                      >
+                        <Megaphone className="size-3.5" aria-hidden="true" />
+                        Conversão ABO/CBO
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
+                        onSelect={() => openWriteFlow(setSmartPlusOpen)}
+                      >
+                        <Sparkles className="size-3.5" aria-hidden="true" />
+                        Smart+
+                      </DropdownMenu.Item>
                       <DropdownMenu.Item
                         className="flex cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-2 text-xs text-sub outline-none transition-colors data-[highlighted]:bg-[var(--hover)] data-[highlighted]:text-foreground"
                         onSelect={() => openWriteFlow(setBulkOpen)}
@@ -551,8 +474,6 @@ export function TikTokAdsView() {
               onDuplicate={setDuplicateCampaign}
               attribution={attribution?.byCampaign}
               />
-              </>
-              )}
             </>
           )}
 
@@ -574,8 +495,6 @@ export function TikTokAdsView() {
               active={treeActive}
               currency={currency}
               adAccountId={concreteAdvertiser}
-              aiEnabled={aiEnabled}
-              onMutateTree={() => mutateTree()}
               onOpenLimits={() => openOps('safety')}
             />
           )}
@@ -607,6 +526,16 @@ export function TikTokAdsView() {
         currency={currency}
         onCreated={() => {
           setSparkOpen(false)
+          mutateTree()
+        }}
+      />
+      <SmartPlusCreateDialog
+        open={smartPlusOpen}
+        onClose={() => setSmartPlusOpen(false)}
+        advertiserId={concreteAdvertiser}
+        currency={currency}
+        onCreated={() => {
+          setSmartPlusOpen(false)
           mutateTree()
         }}
       />

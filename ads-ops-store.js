@@ -4,6 +4,7 @@ const { neon } = require('@neondatabase/serverless');
 const URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL || null;
 const sql = URL ? neon(URL) : null;
 const enabled = !!sql;
+const pixelBindingMemory = new Map();
 
 const JOB_STATUSES = new Set(['queued', 'running', 'retrying', 'completed', 'partial', 'failed', 'cancelled']);
 
@@ -74,6 +75,21 @@ async function ensureSchema() {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`;
+    await sql`CREATE TABLE IF NOT EXISTS ads_pixel_bindings (
+      account_id text NOT NULL,
+      advertiser_id text NOT NULL,
+      pixel_slug text NOT NULL,
+      pixel_code text NOT NULL,
+      pixel_id text NOT NULL,
+      pixel_name text,
+      remote_status text,
+      last_verified_at timestamptz NOT NULL DEFAULT now(),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (account_id, advertiser_id)
+    )`;
+    await sql`CREATE INDEX IF NOT EXISTS ads_pixel_bindings_pixel_idx
+      ON ads_pixel_bindings (account_id, pixel_slug)`;
     // Migração para bancos que já têm a tabela antiga (CREATE IF NOT EXISTS não
     // adiciona colunas novas). Idempotente.
     await sql`ALTER TABLE ads_safety_policies ADD COLUMN IF NOT EXISTS max_actions_per_hour integer NOT NULL DEFAULT 10`;
@@ -825,4 +841,65 @@ async function listInternalReports(accountId, advertiserId, limit) {
   return sql`SELECT id, advertiser_id, kind, title, content, created_at FROM ads_internal_reports WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId} ORDER BY created_at DESC LIMIT ${size}`;
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, PROPOSAL_TTL_MS };
+function pixelBindingKey(accountId, advertiserId) {
+  return cleanAccountId(accountId) + ':' + cleanAdvertiserId(advertiserId);
+}
+
+function mapPixelBinding(row) {
+  if (!row) return null;
+  return {
+    advertiserId: String(row.advertiser_id || row.advertiserId || ''),
+    pixelSlug: String(row.pixel_slug || row.pixelSlug || ''),
+    pixelCode: String(row.pixel_code || row.pixelCode || ''),
+    pixelId: String(row.pixel_id || row.pixelId || ''),
+    pixelName: String(row.pixel_name || row.pixelName || ''),
+    remoteStatus: String(row.remote_status || row.remoteStatus || ''),
+    lastVerifiedAt: row.last_verified_at || row.lastVerifiedAt || null,
+  };
+}
+
+async function getPixelBinding(accountId, advertiserId) {
+  const key = pixelBindingKey(accountId, advertiserId);
+  if (!enabled) return mapPixelBinding(pixelBindingMemory.get(key));
+  await ensureSchema();
+  const rows = await sql`SELECT advertiser_id, pixel_slug, pixel_code, pixel_id,
+    pixel_name, remote_status, last_verified_at FROM ads_pixel_bindings
+    WHERE account_id = ${cleanAccountId(accountId)} AND advertiser_id = ${cleanAdvertiserId(advertiserId)} LIMIT 1`;
+  return mapPixelBinding(rows[0]);
+}
+
+async function savePixelBinding(accountId, advertiserId, input) {
+  const acc = cleanAccountId(accountId);
+  const adv = cleanAdvertiserId(advertiserId);
+  const value = mapPixelBinding({ advertiserId: adv, ...(input || {}) });
+  if (!value.pixelSlug || !value.pixelCode || !/^\d{5,30}$/.test(value.pixelId)) {
+    throw new Error('Vínculo de Pixel inválido');
+  }
+  const key = pixelBindingKey(acc, adv);
+  const stored = { ...value, lastVerifiedAt: new Date().toISOString() };
+  pixelBindingMemory.set(key, stored);
+  if (!enabled) return stored;
+  await ensureSchema();
+  const rows = await sql`INSERT INTO ads_pixel_bindings
+    (account_id, advertiser_id, pixel_slug, pixel_code, pixel_id, pixel_name, remote_status, last_verified_at)
+    VALUES (${acc}, ${adv}, ${value.pixelSlug}, ${value.pixelCode}, ${value.pixelId},
+      ${value.pixelName || null}, ${value.remoteStatus || null}, now())
+    ON CONFLICT (account_id, advertiser_id) DO UPDATE SET
+      pixel_slug = EXCLUDED.pixel_slug, pixel_code = EXCLUDED.pixel_code,
+      pixel_id = EXCLUDED.pixel_id, pixel_name = EXCLUDED.pixel_name,
+      remote_status = EXCLUDED.remote_status, last_verified_at = now(), updated_at = now()
+    RETURNING advertiser_id, pixel_slug, pixel_code, pixel_id, pixel_name, remote_status, last_verified_at`;
+  return mapPixelBinding(rows[0]);
+}
+
+async function deletePixelBinding(accountId, advertiserId) {
+  const acc = cleanAccountId(accountId);
+  const adv = cleanAdvertiserId(advertiserId);
+  pixelBindingMemory.delete(pixelBindingKey(acc, adv));
+  if (!enabled) return true;
+  await ensureSchema();
+  await sql`DELETE FROM ads_pixel_bindings WHERE account_id = ${acc} AND advertiser_id = ${adv}`;
+  return true;
+}
+
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, PROPOSAL_TTL_MS };

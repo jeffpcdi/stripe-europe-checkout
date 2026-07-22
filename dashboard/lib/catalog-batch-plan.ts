@@ -14,10 +14,6 @@ export type CatalogBatchPlan = {
   message: string
 }
 
-export type CatalogBatchPlanOptions = {
-  requireCampaignPixel?: boolean
-}
-
 const HEADERS: Record<string, string[]> = {
   catalog: ['catalogo', 'catálogo', 'catalog', 'catalog_name', 'nome_catalogo'],
   sku: ['sku', 'sku_id', 'id', 'id_produto'],
@@ -30,8 +26,6 @@ const HEADERS: Record<string, string[]> = {
   campaign: ['campanha', 'campaign', 'campaign_name', 'nome_campanha'],
   budget: ['orcamento', 'orçamento', 'budget', 'daily_budget', 'orcamento_diario'],
   budgetType: ['tipo_orcamento', 'tipo_de_orcamento', 'budget_type', 'budget_mode'],
-  pixelId: ['pixel_id', 'pixel', 'id_pixel', 'pixel_tiktok', 'tiktok_pixel_id'],
-  pixelEvent: ['evento', 'evento_pixel', 'pixel_event', 'optimization_event', 'evento_otimizacao'],
   country: ['pais', 'país', 'country', 'country_code'],
   period: ['periodo', 'período', 'data_fim', 'end_date', 'schedule_end_date'],
 }
@@ -116,8 +110,6 @@ function campaignBudgetType(value: string): 'daily' | 'lifetime' {
 type CampaignConfig = {
   budgetAmount: number | undefined
   budgetType: 'daily' | 'lifetime'
-  pixelId: string
-  pixelEvent: string
   country: string
   endDate: string
 }
@@ -125,8 +117,6 @@ type CampaignConfig = {
 const CAMPAIGN_CONFIG_LABELS: Record<keyof CampaignConfig, string> = {
   budgetAmount: 'orçamento',
   budgetType: 'tipo de orçamento',
-  pixelId: 'Pixel ID',
-  pixelEvent: 'evento',
   country: 'país',
   endDate: 'período',
 }
@@ -137,7 +127,7 @@ function conflictingCampaignFields(first: CampaignConfig, next: CampaignConfig) 
     .map((field) => CAMPAIGN_CONFIG_LABELS[field])
 }
 
-export function buildCatalogBatchPlan(raw: string, currency: string, options: CatalogBatchPlanOptions = {}): CatalogBatchPlan {
+export function buildCatalogBatchPlan(raw: string, currency: string): CatalogBatchPlan {
   const rows = parseDelimited(raw)
   if (rows.length < 2) {
     return { catalogs: [], rows: 0, message: 'Cole o cabeçalho e pelo menos uma linha de produto.' }
@@ -148,7 +138,7 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
   const idx = {
     catalog: indexFor('catalog'), sku: indexFor('sku'), title: indexFor('title'), description: indexFor('description'),
     price: indexFor('price'), brand: indexFor('brand'), link: indexFor('link'), image: indexFor('image'), campaign: indexFor('campaign'), budget: indexFor('budget'),
-    pixelId: indexFor('pixelId'), pixelEvent: indexFor('pixelEvent'), budgetType: indexFor('budgetType'),
+    budgetType: indexFor('budgetType'),
     country: indexFor('country'), period: indexFor('period'),
   }
   if (idx.brand < 0) {
@@ -166,8 +156,6 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
   const campaignOrigins = new Map<string, { line: number; name: string; catalogName: string; config: CampaignConfig }>()
   const campaignConflicts: { first: { line: number }; next: { line: number }; name: string; catalogName: string; fields: string[] }[] = []
   const missingBrandRows: number[] = []
-  const missingCampaignPixelRows: number[] = []
-  const invalidCampaignPixelRows: number[] = []
 
   rows.slice(1).forEach((row, position) => {
     const line = position + 2
@@ -216,14 +204,9 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
     const campaignName = valueAt(row, idx.campaign)
     const campaignKey = `${key}:${campaignName}`
     if (campaignName) {
-      const pixelId = valueAt(row, idx.pixelId)
-      if (!pixelId) missingCampaignPixelRows.push(line)
-      else if (!/^\d{6,30}$/.test(pixelId)) invalidCampaignPixelRows.push(line)
       const campaignConfig: CampaignConfig = {
         budgetAmount: campaignBudget(valueAt(row, idx.budget)),
         budgetType: campaignBudgetType(valueAt(row, idx.budgetType)),
-        pixelId,
-        pixelEvent: valueAt(row, idx.pixelEvent).toUpperCase() || 'ON_WEB_ORDER',
         country: valueAt(row, idx.country).toUpperCase() || catalog.country,
         endDate: valueAt(row, idx.period),
       }
@@ -244,8 +227,6 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
         budgetAmount: campaignConfig.budgetAmount,
         budgetType: campaignConfig.budgetType,
         productScope: 'all',
-        pixelId: campaignConfig.pixelId,
-        pixelEvent: campaignConfig.pixelEvent,
         country: campaignConfig.country,
         ...(campaignConfig.endDate ? { endDate: campaignConfig.endDate } : {}),
       })
@@ -268,13 +249,6 @@ export function buildCatalogBatchPlan(raw: string, currency: string, options: Ca
     )
     messages.push(`A mesma campanha não pode ter configurações diferentes: ${examples.join('; ')}${campaignConflicts.length > 4 ? '; …' : ''}. Mantenha a mesma configuração em todas as linhas ou use outro nome de campanha.`)
   }
-  if (options.requireCampaignPixel && missingCampaignPixelRows.length) {
-    messages.push(`Informe o Pixel ID do TikTok nas campanhas das linhas ${missingCampaignPixelRows.slice(0, 6).join(', ')}${missingCampaignPixelRows.length > 6 ? '…' : ''}. Use a coluna “pixel_id” com 6 a 30 dígitos.`)
-  }
-  if (options.requireCampaignPixel && invalidCampaignPixelRows.length) {
-    messages.push(`Corrija o Pixel ID nas linhas ${invalidCampaignPixelRows.slice(0, 6).join(', ')}${invalidCampaignPixelRows.length > 6 ? '…' : ''}: ele deve conter somente 6 a 30 dígitos.`)
-  }
-
   return {
     catalogs: [...byKey.values()],
     rows: Math.max(0, rows.length - 1),

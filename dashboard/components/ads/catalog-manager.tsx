@@ -131,7 +131,9 @@ export function CatalogManager({
 
   return (
     <div className="flex flex-col gap-3">
-      <BusinessCenterBar advertiserId={advertiserId} bcId={bc?.bcId ?? ''} fromEnv={Boolean(bc?.fromEnv)} onChanged={mutateBc} />
+      {(!bc?.bcId || !selectedId) && (
+        <BusinessCenterBar advertiserId={advertiserId} bcId={bc?.bcId ?? ''} fromEnv={Boolean(bc?.fromEnv)} onChanged={mutateBc} />
+      )}
       {selectedId ? (
         <CatalogDetail
           catalogId={selectedId}
@@ -199,32 +201,37 @@ function BusinessCenterBar({
   }
 
   if (!editing) {
+    if (configured) {
+      return (
+        <details className="group rounded-xl border border-border bg-background px-3 py-2">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2"><Check className="size-3.5 text-success" aria-hidden="true" /> Conexão TikTok pronta</span>
+            <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
+            <code className="truncate text-[11px] text-muted-foreground">Business Center {bcId}{fromEnv ? ' · servidor' : ''}</code>
+            <button type="button" className="btn-ghost text-xs" onClick={() => { setValue(bcId); setEditing(true) }}>
+              <Pencil className="size-3.5" aria-hidden="true" /> Alterar
+            </button>
+          </div>
+        </details>
+      )
+    }
     return (
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3">
         <div className="flex min-w-0 items-center gap-2 text-xs">
           <Building2 className={`size-4 ${configured ? 'text-primary' : 'text-muted-foreground'}`} aria-hidden="true" />
-          {configured ? (
-            <span className="flex min-w-0 flex-wrap items-center gap-1 text-foreground">
-              <span>Business Center</span>
-              <code className="max-w-full truncate rounded bg-secondary px-1.5 py-0.5 text-[11px]">{bcId}</code>
-              {fromEnv && <span className="ml-1 text-[11px] text-muted-foreground">(do servidor)</span>}
-            </span>
-          ) : (
-            <span className="text-pretty text-muted-foreground">
-              Opcional agora: configure o Business Center quando for publicar direto no TikTok.
-            </span>
-          )}
+          <span className="text-pretty text-muted-foreground">Configure uma vez para publicar catálogos no TikTok.</span>
         </div>
         <button
           type="button"
-          className={configured ? 'btn-ghost text-xs' : 'btn-primary text-xs'}
+          className="btn-primary text-xs"
           onClick={() => {
             setValue(bcId)
             setEditing(true)
           }}
         >
-          {configured ? <Pencil className="size-3.5" aria-hidden="true" /> : <Building2 className="size-3.5" aria-hidden="true" />}
-          {configured ? 'Alterar' : 'Configurar'}
+          <Building2 className="size-3.5" aria-hidden="true" /> Configurar
         </button>
       </div>
     )
@@ -283,11 +290,10 @@ function CatalogList({
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState('BRL')
-  const [catalogType, setCatalogType] = useState('ECOM')
+  const catalogType = 'ECOM'
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
 
-  const catalogTypes = spec?.catalogTypes ?? [{ value: 'ECOM', label: 'Produtos' }]
   const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
 
   async function handleCreate() {
@@ -345,36 +351,23 @@ function CatalogList({
               }}
             />
           </label>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Tipo</span>
-              <select className="input-base" value={catalogType} onChange={(e) => setCatalogType(e.target.value)}>
-                {catalogTypes.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">País principal</span>
-              <select className="input-base" value={country} onChange={(e) => setCountry(e.target.value)}>
-                {countries.map((c) => (
-                  <option key={c.code} value={c.code}>{c.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium text-foreground">Moeda</span>
-              <select className="input-base" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            A moeda precisa bater com a moeda padrão do catálogo no TikTok — todos os preços usarão ela. Tipo,
-            país e moeda são definidos na criação do catálogo na plataforma.
-          </p>
+          <details className="rounded-lg border border-border p-3">
+            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">País e moeda · Brasil · BRL</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="font-medium text-foreground">País principal</span>
+                <select className="input-base" value={country} onChange={(e) => setCountry(e.target.value)}>
+                  {countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="font-medium text-foreground">Moeda</span>
+                <select className="input-base" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+            </div>
+          </details>
           <div className="flex items-center justify-end gap-2">
             <button type="button" className="btn-ghost text-xs" onClick={() => setCreating(false)} disabled={busy}>
               Cancelar

@@ -35,6 +35,7 @@ const automation = require('./ads-automation'); // regras/alertas/dayparting 24/
 const adsAi = require('./ads-ai');             // copiloto/briefing/criativos/realocação (IA, leituras 100% Neon)
 const adsOps = require('./ads-ops-store');
 const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — sem Vercel Blob
+const pixelStore = require('./pixel-store');
   const catalogStore = require('./ads-catalog-store');
   const catalogFeed = require('./ads-catalog-feed');
   const catalogInspect = require('./ads-catalog-inspect');
@@ -567,6 +568,88 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return { advertiserId, businessCenterId: '', advertiser: { id: advertiserId } };
   }
 
+  async function pixelContext(accountId, advertiserId) {
+    const localPixels = pixelStore.list(accountId)
+      .filter((pixel) => pixel.active && pixel.pixelCode)
+      .map((pixel) => ({ slug: pixel.slug, name: pixel.name, code: String(pixel.pixelCode).trim() }));
+    const remotePixels = await pipeboard.listTikTokPixels(advertiserId);
+    const matchFor = (local) => remotePixels.find((remote) => remote.code.toUpperCase() === local.code.toUpperCase());
+    const matches = localPixels.map((local) => ({ local, remote: matchFor(local) })).filter((item) => item.remote);
+    let binding = await adsOps.getPixelBinding(accountId, advertiserId);
+    if (binding) {
+      const local = localPixels.find((pixel) => pixel.slug === binding.pixelSlug);
+      const remote = remotePixels.find((pixel) => pixel.id === binding.pixelId && pixel.code.toUpperCase() === binding.pixelCode.toUpperCase());
+      if (!local || !remote || local.code.toUpperCase() !== remote.code.toUpperCase()) {
+        await adsOps.deletePixelBinding(accountId, advertiserId);
+        binding = null;
+      } else {
+        binding = await adsOps.savePixelBinding(accountId, advertiserId, {
+          pixelSlug: local.slug, pixelCode: remote.code, pixelId: remote.id,
+          pixelName: remote.name || local.name, remoteStatus: remote.status,
+        });
+      }
+    }
+    // Única correspondência comprovada = configuração óbvia e idempotente.
+    if (!binding && matches.length === 1) {
+      const match = matches[0];
+      binding = await adsOps.savePixelBinding(accountId, advertiserId, {
+        pixelSlug: match.local.slug, pixelCode: match.remote.code, pixelId: match.remote.id,
+        pixelName: match.remote.name || match.local.name, remoteStatus: match.remote.status,
+      });
+    }
+    return { localPixels, remotePixels, matches, binding };
+  }
+
+  async function requireCampaignPixel(accountId, advertiserId) {
+    const context = await pixelContext(accountId, advertiserId);
+    if (context.binding) return context.binding;
+    const err = new Error(context.matches.length > 1
+      ? 'Há mais de um Pixel compatível. Escolha o Pixel padrão uma única vez em Conversões.'
+      : 'Nenhum Pixel de Conversões corresponde aos Pixels desta conta de anúncio. Faça o vínculo em Conversões.');
+    err.status = 409;
+    err.code = 'PIXEL_BINDING_REQUIRED';
+    err.userMessage = err.message;
+    throw err;
+  }
+
+  app.get('/api/ads/pixels', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const selected = await requireAdvertiser(req.account.id, null, req.query.adAccountId || req.query.advertiserId, null);
+      const context = await pixelContext(req.account.id, selected.advertiserId);
+      res.json({
+        pixels: context.remotePixels.map((pixel) => {
+          const match = context.matches.find((item) => item.remote.id === pixel.id);
+          return { ...pixel, localSlug: match ? match.local.slug : null, localName: match ? match.local.name : null,
+            isDefault: Boolean(context.binding && context.binding.pixelId === pixel.id) };
+        }),
+        binding: context.binding,
+        ready: Boolean(context.binding),
+        needsChoice: !context.binding && context.matches.length > 1,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.put('/api/ads/pixels/default', dashboardAuth, async (req, res) => {
+    try {
+      const selected = await requireAdvertiser(req.account.id, null, (req.body || {}).adAccountId, null);
+      const context = await pixelContext(req.account.id, selected.advertiserId);
+      const slug = String((req.body || {}).pixelSlug || '').trim();
+      const match = context.matches.find((item) => item.local.slug === slug);
+      if (!match) {
+        const err = new Error('Escolha um Pixel de Conversões que pertença a esta conta TikTok Ads');
+        err.status = 400;
+        err.code = 'PIXEL_NOT_IN_ADVERTISER';
+        throw err;
+      }
+      const binding = await adsOps.savePixelBinding(req.account.id, selected.advertiserId, {
+        pixelSlug: match.local.slug, pixelCode: match.remote.code, pixelId: match.remote.id,
+        pixelName: match.remote.name || match.local.name, remoteStatus: match.remote.status,
+      });
+      res.json({ ok: true, binding });
+    } catch (err) { fail(res, err); }
+  });
+
   // ── Deep-link: criar conta de anúncio (NÃO há API — só a UI do TikTok) ────
   app.get('/api/ads/deeplink/create-account', dashboardAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -749,8 +832,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     if (!adAccountId || adAccountId === '__all__') return { error: 'Selecione um advertiser específico (adAccountId)' };
     const name = String(b.name || '').trim().slice(0, 120);
     if (!name) return { error: 'Nome da campanha é obrigatório' };
-    const goal = CAMPAIGN_GOALS.has(b.goal) ? b.goal : '';
-    if (!goal) return { error: 'Objetivo (goal) inválido' };
+    if (b.goal && b.goal !== 'conversions') return { error: 'ROI-NADOS cria somente campanhas de conversão' };
+    const goal = 'conversions';
     const videoUrl = String(b.videoUrl || '').trim();
     if (!/^https:\/\/[^\s]+/.test(videoUrl)) return { error: 'URL do vídeo é obrigatória (MP4 9:16, 5–60s, até 500 MB)' };
     const budgetAmount = Number(b.budgetAmount);
@@ -801,12 +884,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const ids = b.interestIds.map((x) => String(x || '').trim()).filter((x) => /^\d{1,20}$/.test(x)).slice(0, 20);
       if (ids.length) payload.interestIds = ids;
     }
-    // Posicionamento: 'automatic' (default) ou lista específica whitelisted.
-    if (Array.isArray(b.placements)) {
-      const ALLOWED = ['PLACEMENT_TIKTOK', 'PLACEMENT_PANGLE', 'PLACEMENT_GLOBAL_APP_BUNDLE'];
-      const ps = b.placements.map((x) => String(x || '').trim().toUpperCase()).filter((x) => ALLOWED.includes(x)).slice(0, 3);
-      if (ps.length) payload.placements = ps;
-    }
+    payload.placements = ['PLACEMENT_TIKTOK'];
     if (budgetType === 'lifetime') {
       if (!/^\d{4}-\d{2}-\d{2}/.test(String(b.endDate || ''))) return { error: 'Orçamento lifetime exige data de término (endDate)' };
       const endDate = String(b.endDate).slice(0, 10);
@@ -814,18 +892,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (!Number.isFinite(endAt) || endAt <= Date.now() + 60 * 60 * 1000) return { error: 'Orçamento total exige uma data de término futura' };
       payload.endDate = endDate;
     }
-    // Conversões e Leads são otimizados no site via Pixel. O Pipeboard atual
-    // não expõe Instant Forms nativos; ambos exigem pixel + evento e Leads
-    // também exige a página de destino.
-    if (goal === 'conversions' || goal === 'lead_generation') {
+    // Pixel/evento vêm do vínculo central em Conversões, nunca do formulário.
+    {
       const pixelId = String((b.promotedObject || {}).pixelId || b.pixelId || '').trim();
       if (!/^\d{5,30}$/.test(pixelId)) {
-        return { error: (goal === 'lead_generation' ? 'Objetivo Leads' : 'Objetivo Conversões') + ' exige o Pixel ID NUMÉRICO do TikTok (não o código alfanumérico do Events Manager)' };
+        return { error: 'Conversão exige um Pixel TikTok vinculado em Conversões' };
       }
-      const evt = String((b.promotedObject || {}).customEventType || b.customEventType || '').trim().toUpperCase();
-      if (!PIXEL_EVENTS.has(evt)) return { error: 'Selecione um evento de otimização válido do Pixel TikTok' };
-      if (goal === 'lead_generation' && !payload.linkUrl) return { error: 'Objetivo Leads exige a URL HTTPS da página de captura' };
-      payload.promotedObject = { pixelId, customEventType: evt };
+      payload.promotedObject = { pixelId, customEventType: 'ON_WEB_ORDER' };
     }
     return { payload };
   }
@@ -834,7 +907,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const b = body || {};
     const requestedAdvertiserId = String(b.adAccountId || '').trim();
     const selected = await requireAdvertiser(req.account.id, null, requestedAdvertiserId || undefined, b.businessCenterId);
-    const built = buildCreatePayload({ accountId: req.account.id, advertiserId: selected.advertiserId }, b);
+    const pixel = await requireCampaignPixel(req.account.id, selected.advertiserId);
+    const preparedBody = Object.assign({}, b, {
+      goal: 'conversions', pixelId: pixel.pixelId, customEventType: 'ON_WEB_ORDER',
+      promotedObject: { pixelId: pixel.pixelId, customEventType: 'ON_WEB_ORDER' },
+    });
+    const built = buildCreatePayload({ accountId: req.account.id, advertiserId: selected.advertiserId }, preparedBody);
     if (built.error) {
       const err = new Error(built.error);
       err.status = 400;
@@ -971,8 +1049,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const adAccountId = selected.advertiserId;
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
-      const goal = SPARK_GOALS.has(b.goal) ? b.goal : '';
-      if (!goal) return res.status(400).json({ error: 'Objetivo (goal) inválido' });
+      if (b.goal && b.goal !== 'conversions') return res.status(400).json({ error: 'Spark no ROI-NADOS aceita somente conversão' });
+      const goal = 'conversions';
+      const pixel = await requireCampaignPixel(req.account.id, adAccountId);
       const budgetAmount = Number((b.budget || {}).amount || b.budgetAmount);
       if (!(budgetAmount >= TIKTOK_MIN_BUDGET)) return res.status(400).json({ error: 'O orçamento mínimo aceito pelo TikTok é ' + TIKTOK_MIN_BUDGET });
       const budgetType = ((b.budget || {}).type || b.budgetType) === 'lifetime' ? 'lifetime' : 'daily';
@@ -1010,8 +1089,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         budgetAmount, budgetType, endDate,
         identityId, identityType, itemId,
         bcId: String(b.bcId || '').trim() || undefined,
+        pixelId: pixel.pixelId,
+        customEventType: 'ON_WEB_ORDER',
       };
-      if (/^https?:\/\//.test(String(b.linkUrl || ''))) spec.linkUrl = withAdsTracking(String(b.linkUrl).trim().slice(0, 500));
+      if (!/^https:\/\/[^\s]+/.test(String(b.linkUrl || ''))) return res.status(400).json({ error: 'Spark de conversão exige a URL HTTPS de destino' });
+      spec.linkUrl = withAdsTracking(String(b.linkUrl).trim().slice(0, 500));
       if (/^[A-Z_]{3,30}$/.test(String(b.callToAction || ''))) spec.callToAction = b.callToAction;
       if (String(b.body || '').trim()) spec.body = String(b.body).trim().slice(0, 100);
       const countries = Array.isArray(b.countries)
@@ -1080,7 +1162,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // Palavras reservadas de /api/ads/* que as rotas genéricas :adId NÃO podem
   // capturar (Express casa na ordem de registro; alerts/library vêm depois).
-  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus']);
+  const RESERVED_AD_IDS = new Set(['alerts', 'library', 'roas', 'identity', 'upload', 'status', 'accounts', 'tree', 'campaigns', 'create', 'boost', 'connect', 'connected', 'disconnect', 'attribution', 'rules', 'templates', 'business-centers', 'deeplink', 'bulk', 'duplicate', 'health', 'tickets', 'ops', 'catalogs', 'smart-plus', 'pixels']);
 
   // ── Atualizar uma entidade (status/budget) ────────────────────────────────
   // O :adId pode ser campanha, ad group ou anúncio. Classificamos no espelho
@@ -2311,8 +2393,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       if (await killSwitchActive(req.account.id)) return res.status(423).json(KILL_SWITCH_BODY);
       const b = req.body || {};
       const advertiserId = await resolveAdvForSmartPlus(req, String(b.adAccountId || '').trim() || null);
-      const goal = ['conversions', 'traffic'].includes(b.goal) ? b.goal : '';
-      if (!goal) return res.status(400).json({ error: 'Objetivo Smart+ deve ser conversions ou traffic' });
+      if (b.goal && b.goal !== 'conversions') return res.status(400).json({ error: 'Smart+ no ROI-NADOS aceita somente conversão' });
+      const goal = 'conversions';
+      const pixel = await requireCampaignPixel(req.account.id, advertiserId);
       const name = String(b.name || '').trim().slice(0, 120);
       if (!name) return res.status(400).json({ error: 'Nome da campanha é obrigatório' });
       if (!/^https:\/\/[^\s]+/.test(String(b.videoUrl || ''))) return res.status(400).json({ error: 'URL do vídeo é obrigatória (MP4)' });
@@ -2333,14 +2416,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         callToAction: CALL_TO_ACTIONS.has(String(b.callToAction || '')) ? b.callToAction : 'LEARN_MORE',
         countries: Array.isArray(b.countries) ? b.countries.map((c) => String(c || '').trim().toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)).slice(0, 30) : undefined,
       };
-      if (goal === 'conversions') {
-        const pixelId = String(b.pixelId || '').trim();
-        if (!/^\d{5,30}$/.test(pixelId)) return res.status(400).json({ error: 'Conversões exigem o Pixel ID NUMÉRICO do TikTok' });
-        spec.pixelId = pixelId;
-        const evt = String(b.customEventType || '').trim().toUpperCase();
-        if (!PIXEL_EVENTS.has(evt)) return res.status(400).json({ error: 'Conversões exigem um evento de otimização válido do Pixel' });
-        spec.customEventType = evt;
-      }
+      spec.pixelId = pixel.pixelId;
+      spec.customEventType = 'ON_WEB_ORDER';
       if (await isDryRun(req.account.id)) {
         await auditSimulated(req.account.id, {
           action: 'smart_plus_create', targetType: 'campaign', advertiserId, metadata: { name, goal },
@@ -2767,17 +2844,39 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   }
 
   function batchCampaignSpecErrors(plan) {
-    // Confere mínimo de produtos, orçamento, pixel e escopo antes de criar
+    // Confere mínimo de produtos, orçamento, Pixel central e escopo antes de criar
     // qualquer catálogo. O executor repete as defesas de URL Product Link.
     return catalogBatchCampaignSpecErrors(plan);
+  }
+
+  function batchPlanWithCampaignPixel(plan, pixelId) {
+    const source = plan && typeof plan === 'object' && !Array.isArray(plan) ? plan : {};
+    const inject = (campaign) => Object.assign({}, campaign || {}, {
+      pixelId: String(pixelId),
+      pixelEvent: 'ON_WEB_ORDER',
+    });
+    return Object.assign({}, source, {
+      catalogs: Array.isArray(source.catalogs) ? source.catalogs.map((catalog) => Object.assign({}, catalog, {
+        products: Array.isArray(catalog && catalog.products) ? catalog.products : [],
+        campaigns: Array.isArray(catalog && catalog.campaigns) ? catalog.campaigns.map(inject) : [],
+      })) : [],
+      campaigns: Array.isArray(source.campaigns) ? source.campaigns.map(inject) : source.campaigns,
+    });
   }
 
   async function previewCatalogBatch(req) {
     const advertiserId = await catalogAdvertiserId(req);
     const input = batchInput(req);
-    const preview = catalogBatchDomain.previewBatchPlan(input.plan);
+    const scheduleCampaigns = input.body.scheduleCampaigns === true;
+    const campaignPixel = scheduleCampaigns
+      ? await requireCampaignPixel(req.account.id, advertiserId)
+      : null;
+    const plan = campaignPixel
+      ? batchPlanWithCampaignPixel(input.plan, campaignPixel.pixelId)
+      : input.plan;
+    const preview = catalogBatchDomain.previewBatchPlan(plan);
     const capabilities = await catalogGateway.capabilities(pipeboard);
-    const campaignSpecErrors = input.body.scheduleCampaigns === true
+    const campaignSpecErrors = scheduleCampaigns
       ? batchCampaignSpecErrors(preview.plan) : [];
     return {
       advertiserId,
@@ -3082,7 +3181,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         status: 422, retryable: false, suggestedAction: 'Conclua a etapa indicada no checklist de prontidão.',
       });
     }
-    const normalized = catalogDomain.normalizeCampaignSpec(req.body || {}, catalog);
+    const pixel = await requireCampaignPixel(accId, advertiserId);
+    const normalized = catalogDomain.normalizeCampaignSpec(Object.assign({}, req.body || {}, {
+      pixelId: pixel.pixelId,
+      pixelEvent: 'ON_WEB_ORDER',
+    }), catalog);
     return {
       accId, catalog, advertiserId, readiness, capabilities,
       spec: { ...normalized, catalogId: catalog.tiktokCatalogId, bcId: catalog.bcId },

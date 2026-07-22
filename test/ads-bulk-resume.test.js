@@ -37,8 +37,9 @@ function callsTo(name) { return toolCalls.filter((c) => c.name === name); }
 function resetCalls() { toolCalls.length = 0; failOn = null; }
 
 const spec = {
-  name: 'Bulk item 0', goal: 'traffic', videoUrl: 'https://blob.example/v.mp4',
+  name: 'Bulk item 0', goal: 'conversions', videoUrl: 'https://blob.example/v.mp4',
   budgetAmount: 50, budgetType: 'daily', countries: ['PT'],
+  promotedObject: { pixelId: '12345678', customEventType: 'ON_WEB_ORDER' },
 };
 
 // "Neon" em memória: o mesmo papel do ads_bulk_progress (merge por item)

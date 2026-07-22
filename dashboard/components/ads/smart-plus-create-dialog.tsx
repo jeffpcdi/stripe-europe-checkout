@@ -13,7 +13,6 @@ import { useModalA11y } from '@/lib/use-modal-a11y'
 import {
   TIKTOK_CTA_OPTIONS,
   TIKTOK_MIN_BUDGET,
-  TIKTOK_PIXEL_EVENTS,
   tiktokMinimumBudgetMessage,
   tomorrowLocalIsoDate,
 } from './tiktok-contracts'
@@ -33,7 +32,6 @@ export function SmartPlusCreateDialog({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [name, setName] = useState('')
-  const [goal, setGoal] = useState<'conversions' | 'traffic'>('conversions')
   const [budget, setBudget] = useState('')
   const [endDate, setEndDate] = useState('')
   const [countries, setCountries] = useState('BR')
@@ -42,8 +40,6 @@ export function SmartPlusCreateDialog({
   const [linkUrl, setLinkUrl] = useState('')
   const [body, setBody] = useState('')
   const [cta, setCta] = useState('SHOP_NOW')
-  const [pixelId, setPixelId] = useState('')
-  const [customEventType, setCustomEventType] = useState('ON_WEB_ORDER')
   const [uploading, setUploading] = useState(false)
   const [coverUploading, setCoverUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -61,9 +57,7 @@ export function SmartPlusCreateDialog({
           : !/^https:\/\/\S+/.test(videoUrl.trim()) ? 'Adicione o vídeo (URL https ou upload)'
             : !/^https:\/\/\S+/.test(coverUrl.trim()) ? 'Adicione a capa do vídeo (JPG, PNG ou WebP)'
               : !/^https:\/\/\S+/.test(linkUrl.trim()) ? 'Informe o link de destino'
-                : goal === 'conversions' && !/^\d{5,30}$/.test(pixelId.trim()) ? 'Conversões exigem o Pixel ID numérico'
-                  : goal === 'conversions' && !TIKTOK_PIXEL_EVENTS.some((event) => event.value === customEventType) ? 'Selecione o evento de conversão'
-                    : null
+                : null
 
   async function handleUpload(file: File) {
     if (!file.type.startsWith('video/')) { toast.error('Envie um arquivo de vídeo (MP4)'); return }
@@ -103,7 +97,7 @@ export function SmartPlusCreateDialog({
       const res = await apiSend<{ dryRun?: boolean; warnings?: string[] }>('/api/ads/smart-plus', 'POST', {
         adAccountId: advertiserId,
         name: name.trim(),
-        goal,
+        goal: 'conversions',
         budgetAmount: Number(budget),
         endDate,
         countries: parsedCountries,
@@ -112,13 +106,11 @@ export function SmartPlusCreateDialog({
         linkUrl: linkUrl.trim() || undefined,
         body: body.trim() || undefined,
         callToAction: cta,
-        pixelId: goal === 'conversions' ? pixelId.trim() : undefined,
-        customEventType: goal === 'conversions' ? customEventType : undefined,
       })
       if (res.dryRun) toast.info('Modo simulação: nada foi criado no TikTok')
       else toast.success('Campanha Smart+ criada (pausada)', { hint: 'Revise e ative na aba Smart+.' })
       onCreated()
-      setName(''); setGoal('conversions'); setBudget(''); setEndDate(''); setCountries('BR'); setVideoUrl(''); setCoverUrl(''); setLinkUrl(''); setBody(''); setCta('SHOP_NOW'); setPixelId(''); setCustomEventType('ON_WEB_ORDER')
+      setName(''); setBudget(''); setEndDate(''); setCountries('BR'); setVideoUrl(''); setCoverUrl(''); setLinkUrl(''); setBody(''); setCta('SHOP_NOW')
       onClose()
     } catch (e) {
       toast.error('Falha ao criar Smart+', { hint: e instanceof Error ? e.message : undefined })
@@ -152,23 +144,9 @@ export function SmartPlusCreateDialog({
               <input autoFocus className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Smart+ Verão — Conversões" maxLength={120} />
             </label>
 
-            <fieldset className="flex flex-col gap-1 text-xs">
-              <legend className="font-medium text-foreground">Objetivo</legend>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { value: 'conversions', label: 'Conversões', hint: 'Otimiza por eventos do Pixel' },
-                  { value: 'traffic', label: 'Tráfego', hint: 'Leva cliques ao site' },
-                ].map((o) => (
-                  <label key={o.value} className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 ${goal === o.value ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'}`}>
-                    <span className="flex items-center gap-2">
-                      <input type="radio" name="sp-goal" className="accent-primary" checked={goal === o.value} onChange={() => setGoal(o.value as 'conversions' | 'traffic')} />
-                      <span className="font-semibold text-foreground">{o.label}</span>
-                    </span>
-                    <span className="pl-6 text-[11px] text-muted-foreground">{o.hint}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+            <p className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-xs text-muted-foreground">
+              Conversão · compra · Pixel selecionado automaticamente · criada pausada.
+            </p>
 
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-xs">
@@ -181,23 +159,6 @@ export function SmartPlusCreateDialog({
                 <input type="date" min={tomorrow} className={field} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </label>
             </div>
-
-            {goal === 'conversions' && (
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1 text-xs">
-                  <span className="font-medium text-foreground">Pixel ID (numérico)</span>
-                  <input className={field} value={pixelId} onChange={(e) => setPixelId(e.target.value.replace(/\D/g, ''))} placeholder="Ex.: 7012345678901234567" inputMode="numeric" />
-                </label>
-                <label className="flex flex-col gap-1 text-xs">
-                  <span className="font-medium text-foreground">Evento</span>
-                  <select className={field} value={customEventType} onChange={(e) => setCustomEventType(e.target.value)}>
-                    {TIKTOK_PIXEL_EVENTS.map((event) => (
-                      <option key={event.value} value={event.value}>{event.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
 
             <label className="flex flex-col gap-1 text-xs">
               <span className="font-medium text-foreground">Países</span>
