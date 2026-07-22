@@ -314,15 +314,25 @@ export function CampaignTree({
     let review = 0
     let problem = 0
     let spend = 0
+    // "Gasto sem retorno": soma do gasto de campanhas que gastaram mas não
+    // tiveram conversão do pixel nem venda atribuída — o total que está queimando.
+    let wastedSpend = 0
+    let wastedCount = 0
     for (const c of visible) {
       if (c.status === 'active') active++
       else if (c.status === 'paused') paused++
       else if (c.status === 'pending_review') review++
       else if (c.status === 'rejected' || c.status === 'error') problem++
-      spend += Number(c.metrics?.spend) || 0
+      const cSpend = Number(c.metrics?.spend) || 0
+      spend += cSpend
+      const cAttr = attribution?.[c.platformCampaignId]
+      if (cSpend > 0 && (Number(c.metrics?.conversions) || 0) === 0 && !(cAttr && cAttr.sales > 0)) {
+        wastedSpend += cSpend
+        wastedCount++
+      }
     }
-    return { active, paused, review, problem, spend }
-  }, [visible])
+    return { active, paused, review, problem, spend, wastedSpend, wastedCount }
+  }, [visible, attribution])
 
   // Organização: sem filtro de status, agrupa em seções com ativas primeiro —
   // era fácil perder uma campanha ativa no meio de dezenas de pausadas.
@@ -403,6 +413,11 @@ export function CampaignTree({
     const attr = attribution?.[id]
     const spend = Number(c.metrics?.spend) || 0
     const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
+    // "Ver gasto por resultado": gastou de verdade mas NÃO teve nem conversão do
+    // pixel nem venda atribuída = dinheiro sem retorno — o olho precisa achar
+    // isso na hora. (0 conversão com 0 gasto é só campanha nova, não alarma.)
+    const convCount = Number(c.metrics?.conversions) || 0
+    const spentNoResult = spend > 0 && convCount === 0 && !(attr && attr.sales > 0)
     const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected'
     const errorMsg =
       c.reviewStatus === 'rejected'
@@ -481,7 +496,12 @@ export function CampaignTree({
           <span className={`${colRoas} text-[13px] font-medium ${roas !== null ? 'text-success' : 'text-muted-foreground'}`}>
             {roas !== null ? roas.toFixed(2) : '—'}
           </span>
-          <span className={`${colConv} text-[13px] text-foreground`}>{fmtCompact(c.metrics?.conversions)}</span>
+          <span
+            className={`${colConv} text-[13px] ${spentNoResult ? 'font-semibold text-warning' : 'text-foreground'}`}
+            title={spentNoResult ? 'Gastou sem conversão nem venda atribuída' : undefined}
+          >
+            {fmtCompact(c.metrics?.conversions)}
+          </span>
 
           <div className={colActions}>
             {busy ? (
@@ -832,6 +852,15 @@ export function CampaignTree({
             <span className="inline-flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-muted-foreground" aria-hidden="true" />
               {summary.paused} pausada{summary.paused === 1 ? '' : 's'}
+            </span>
+          )}
+          {summary.wastedCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1.5 text-warning"
+              title="Campanhas que gastaram sem nenhuma conversão do pixel nem venda atribuída"
+            >
+              <span className="size-1.5 rounded-full bg-[color:var(--warning)]" aria-hidden="true" />
+              {fmtMoney(summary.wastedSpend, currency)} sem retorno
             </span>
           )}
           <span className="ml-auto font-medium text-foreground">

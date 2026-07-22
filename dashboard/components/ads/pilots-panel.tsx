@@ -8,7 +8,7 @@
 // guardrails e as propostas continuam exatamente como são.
 
 import { useState } from 'react'
-import { Bell, MessagesSquare, Rocket, ShieldCheck, TrendingUp, Clock3, Loader2 } from 'lucide-react'
+import { Bell, MessagesSquare, Rocket, ShieldCheck, TrendingUp, Clock3, Loader2, Zap } from 'lucide-react'
 import type { AdsAutomationAutonomy, AdsRule } from '@/lib/types'
 import {
   PILOTS, INTENSITIES, detectPilots,
@@ -53,6 +53,7 @@ export function PilotsPanel({
   saving,
   onSetPilot,
   onSetAutonomy,
+  onProtectNow,
 }: {
   currency: string
   rules: AdsRule[]
@@ -60,9 +61,15 @@ export function PilotsPanel({
   saving: boolean
   onSetPilot: (pilot: PilotId, opts: { enabled: boolean; intensity: Intensity }) => Promise<void>
   onSetAutonomy: (autonomy: AdsAutomationAutonomy) => Promise<void>
+  onProtectNow?: () => Promise<void>
 }) {
   const [confirmAuto, setConfirmAuto] = useState(false)
+  const [confirmProtect, setConfirmProtect] = useState(false)
   const pilots = detectPilots(rules)
+  // O Protetor JÁ está agindo sozinho? (regras do piloto ligadas e em executar).
+  // Se sim, some o CTA de 1 clique — não faz sentido oferecer o que já está no ar.
+  const protectorActing =
+    (rules || []).some((r) => r.pilot === 'protector' && r.enabled && r.mode === 'execute')
 
   async function setAutonomy(next: AdsAutomationAutonomy) {
     if (next === autonomy) return
@@ -72,6 +79,35 @@ export function PilotsPanel({
 
   return (
     <GlassCard className="flex flex-col gap-4 p-4" data-tour="ads-pilots">
+      {/* ── Modo protetor: 1 clique liga a defesa AGINDO SOZINHA ──
+          Responde ao "automações não fazem diferença": de fábrica as regras
+          nascem desligadas e em modo propor, então nada acontece. Este atalho
+          liga o Protetor já em executar, sem o gestor precisar achar o switch +
+          a autonomia em dois cantos. Some quando já está no ar. */}
+      {onProtectNow && !protectorActing && (
+        <div className="flex flex-col gap-2.5 rounded-xl border border-brand-cyan/30 bg-brand-cyan/8 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-cyan/15 text-brand-cyan">
+              <ShieldCheck className="size-4" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">Ligar a proteção agora</p>
+              <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
+                O robô passa a <strong className="text-foreground">pausar sozinho</strong> campanhas que gastam sem retorno e a segurar CPC caro — dentro dos limites de segurança.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => setConfirmProtect(true)}
+            className="btn-shine flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-brand-cyan px-3 py-2 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+          >
+            <Zap className="size-3.5" aria-hidden="true" /> Ativar proteção
+          </button>
+        </div>
+      )}
+
       {/* ── Seletor único de autonomia ── */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
@@ -182,6 +218,26 @@ export function PilotsPanel({
           setConfirmAuto(false)
         }}
         onClose={() => setConfirmAuto(false)}
+      />
+
+      {/* Confirmação do Modo protetor — liga o piloto defensivo agindo sozinho */}
+      <ConfirmDialog
+        open={confirmProtect}
+        title="Ativar a proteção automática?"
+        description={
+          <>
+            O <strong>Protetor de orçamento</strong> passa a agir sozinho: pausa campanhas que
+            gastam sem venda ou com CPA alto e reduz o orçamento de CPC caro — só com volume mínimo
+            e dentro dos limites de segurança. Ele nunca aumenta gasto. Você pode desligar quando quiser.
+          </>
+        }
+        confirmLabel="Ativar proteção"
+        busy={saving}
+        onConfirm={async () => {
+          await onProtectNow?.()
+          setConfirmProtect(false)
+        }}
+        onClose={() => setConfirmProtect(false)}
       />
     </GlassCard>
   )

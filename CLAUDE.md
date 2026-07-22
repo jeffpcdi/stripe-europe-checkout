@@ -410,7 +410,11 @@ Motivos: `bot-ua`, `rate-limit`, `pais`, `idioma`, `score`. Contadores em `cloak
   antes do hash; fora de 7–15 dígitos é descartado (não envia lixo).
 - **external_id:** `hash('lead:' + v_id)` — amarra todo o funil à mesma pessoa no gerenciador do TikTok.
 - **EMQ:** `matchScore(user)` devolve 0–10 (proxy do Event Match Quality) + `emqFields` (sinais enviados:
-  email, phone, ttclid, external_id…). Guardado no log de disparos para o painel.
+  email, phone, ttclid, external_id…). Guardado no log de disparos para o painel. **Advanced Matching do
+  evento de dinheiro:** `conversion-normalize.js` extrai e-mail/telefone do comprador de forma RECURSIVA
+  (`pickEmail`/`pickPhone` via `collectFields`, raiz vence) com alias amplo (inclui aninhados tipo Stripe
+  `customer_details.email`, PagSeguro `sender.email`, aliases pt-BR `payer_email`/`celular`) — antes só
+  olhava a raiz e perdia PII aninhada, zerando o EMQ do CompletePayment. Cobertura: `test/conversion-pii.test.js`.
 - **Dedup:** `event_id` determinístico `Evento.<vid>.<yyyymmddhh>`. **Alterar o formato quebra a dedup**
   navegador↔servidor (duplica ou perde eventos). Retry imediato + fila durável (`capiRetryQueue`).
 - **Multi-pixel:** `dispatchToAll` dispara em todos os pixels ativos; `sendToPixel` mira um específico

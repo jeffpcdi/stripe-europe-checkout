@@ -511,6 +511,17 @@ export function AutomationPanel({
     await saveRules(next, opts.enabled ? `${title} ligado (${opts.intensity})` : `${title} desligado`)
   }
 
+  // "Modo protetor": 1 clique liga o piloto DEFENSIVO já em modo EXECUTAR
+  // (pausa gasto sem retorno / CPA alto / reduz CPC caro sozinho), sem mexer na
+  // autonomia global nem ligar o escalador. É a resposta ao "automações não
+  // fazem diferença": o padrão de fábrica nasce desligado e em modo propor.
+  // Os pisos de volume + guardrails do motor (maxActionsPerHour, breaker)
+  // continuam valendo — proteger não é agir no escuro.
+  async function protectNow() {
+    const next = applyPilot(rules, 'protector', { enabled: true, intensity: 'normal', mode: 'execute' })
+    await saveRules(next, 'Modo protetor ativado — o robô pausa gasto sem retorno sozinho')
+  }
+
   async function setAutonomy(autonomy: AdsAutomationAutonomy) {
     if (!data || saving || autonomy === data.autonomy) return
     setSaving(true)
@@ -646,6 +657,7 @@ export function AutomationPanel({
         saving={saving}
         onSetPilot={setPilot}
         onSetAutonomy={setAutonomy}
+        onProtectNow={protectNow}
       />
 
       {/* Transparência operacional: deixa explícitos escopo, versão e pulso

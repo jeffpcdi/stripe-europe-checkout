@@ -1304,6 +1304,16 @@ function PixelInstallModal({
             <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all px-3 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">{selected.code}</pre>
           </div>
 
+          {/* "Opções avançadas": tudo que não é o caminho feliz (copiar → colar →
+              confirmar) fica recolhido aqui. O tutorial padrão passa a ser curto;
+              quem precisa de GTM/Next, multi-domínio, consentimento ou
+              diagnóstico abre esta seção. Antes eram 2 cards + 4 blocos sempre à
+              mostra — a parede de texto que deixava a instalação "longa". */}
+          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
+            <summary className="cursor-pointer text-xs font-semibold text-foreground">
+              Opções avançadas e problemas comuns
+            </summary>
+            <div className="mt-3 flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-border p-3">
               <p className="flex items-center gap-2 text-xs font-semibold text-foreground">
@@ -1373,6 +1383,8 @@ function PixelInstallModal({
               <li>• teste sem bloqueador de anúncios e com consentimento aceito;</li>
               <li>• para Compra, confirme gateway, moeda, valor e vínculo do pixel.</li>
             </ul>
+          </details>
+            </div>
           </details>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
