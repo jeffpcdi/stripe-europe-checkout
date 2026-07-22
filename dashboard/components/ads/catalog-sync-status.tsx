@@ -35,6 +35,13 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
     ? run.progress.audit as Record<string, unknown> : null
   const auditAttempts = Math.max(0, Number(run.progress?.auditAttempts) || 0)
   const remoteStillEmpty = awaitingTikTok && auditAttempts >= 3 && Number(auditProgress?.total) === 0
+  // Ingestão por produto (get_tiktok_catalog_upload_status): quando o TikTok
+  // devolve 0, este bloco diz POR QUÊ — arquivo rejeitado + erro por SKU.
+  const uploadStatus = run.progress && typeof run.progress.uploadStatus === 'object' && run.progress.uploadStatus !== null
+    ? run.progress.uploadStatus as { status?: string; errorCount?: number; sampleErrors?: { sku?: string; message?: string }[] }
+    : null
+  const uploadErrors = uploadStatus?.sampleErrors?.filter((e) => e.sku || e.message) ?? []
+  const uploadFailed = uploadStatus?.status === 'failed' || uploadErrors.length > 0
   async function resume() {
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalog-sync-runs/${encodeURIComponent(runId)}/resume`, advertiserId), 'POST', {})
@@ -73,6 +80,24 @@ export function CatalogSyncStatus({ catalogId, advertiserId }: { catalogId: stri
             <p className="mt-2 rounded-md bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
               O TikTok ainda retornou 0 produtos após {auditAttempts} verificações automáticas. O lote continua preservado, mas nenhum anúncio será criado até a auditoria mostrar produtos.
             </p>
+          )}
+          {/* POR QUÊ ficou zero: erro de ingestão por produto (marca ausente,
+              preço inválido…), lido do get_tiktok_catalog_upload_status. */}
+          {uploadFailed && (
+            <div className="mt-2 rounded-md bg-error/10 px-2 py-1.5 text-[10px] leading-relaxed text-error">
+              <p className="font-semibold">
+                O TikTok recusou {uploadStatus?.errorCount ? `${uploadStatus.errorCount} ` : ''}produto{uploadStatus?.errorCount === 1 ? '' : 's'} do arquivo — corrija e reenvie o lote:
+              </p>
+              {uploadErrors.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {uploadErrors.slice(0, 5).map((e, i) => (
+                    <li key={i} className="truncate">
+                      • {e.sku ? <span className="font-mono">{e.sku}</span> : null}{e.sku && e.message ? ': ' : ''}{e.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       </div>

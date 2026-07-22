@@ -57,13 +57,17 @@ function normalizeUploadReceipt(response, receivedAt) {
   const taskId = deepField(raw, ['task_id', 'taskId'], 0);
   const uploadId = deepField(raw, ['upload_id', 'uploadId', 'product_file_id'], 0);
   const requestId = deepField(raw, ['request_id', 'requestId', 'log_id'], 0);
+  // feed_log_id: chave para consultar a INGESTÃO por produto (SUCCESS/FAIL +
+  // erro por SKU) via getTikTokCatalogUploadStatus — o "por que ficou zero".
+  const feedLogId = deepField(raw, ['feed_log_id', 'feedLogId'], 0);
   return {
     receivedAt,
-    provable: Boolean(jobId || taskId || uploadId || requestId),
+    provable: Boolean(jobId || taskId || uploadId || requestId || feedLogId),
     jobId: jobId == null ? null : String(jobId),
     taskId: taskId == null ? null : String(taskId),
     uploadId: uploadId == null ? null : String(uploadId),
     requestId: requestId == null ? null : String(requestId),
+    feedLogId: feedLogId == null ? null : String(feedLogId),
     fileFormat: String(deepField(raw, ['file_format', 'fileFormat'], 0) || 'CSV'),
     response: raw,
   };
@@ -316,6 +320,20 @@ async function processRun(row) {
     } catch (err) {
       lastAuditError = String(err && err.message || err).slice(0, 500);
     }
+    // Ingestão por produto (best-effort): quando o Pipeboard suporta e temos o
+    // feed_log_id, buscamos SE o arquivo entrou e o erro por SKU. É o que
+    // explica um lote que "ficou zero" no overview. Nunca quebra o sync.
+    let uploadStatus = null;
+    if (uploadReceipt && uploadReceipt.feedLogId
+      && typeof provider.getTikTokCatalogUploadStatus === 'function') {
+      try {
+        uploadStatus = await provider.getTikTokCatalogUploadStatus(
+          catalog.bcId, catalog.tiktokCatalogId, uploadReceipt.feedLogId,
+        );
+      } catch (err) {
+        uploadStatus = { status: 'unknown', error: String(err && err.message || err).slice(0, 300) };
+      }
+    }
     const checkedAt = new Date().toISOString();
     const progress = {
       published: publishedCount,
@@ -323,6 +341,7 @@ async function processRun(row) {
       feedUrl: payload.feedUrl,
       tiktokCatalogId: catalog.tiktokCatalogId,
       uploadReceipt,
+      uploadStatus,
       remoteFeeds,
       audit,
       auditAttempts: 1,

@@ -1791,6 +1791,38 @@ function normalizeCatalogFeeds(out) {
   };
 }
 
+// Normaliza o status de INGESTÃO de um upload de arquivo (get_tiktok_catalog_upload_status).
+// O overview só diz "quantos aprovados"; este endpoint diz SE o arquivo entrou
+// (SUCCESS/FAIL), quantos produtos foram adicionados/atualizados e o ERRO por
+// produto (marca ausente, preço inválido…). É a resposta ao "subi e ficou zero,
+// por quê?" — antes o gestor só via 0 sem motivo. Sem PII: são erros de formato.
+function normalizeCatalogUploadStatus(out) {
+  const pick = (...c) => { for (const k of c) { const v = deepPluck(out, k); if (v !== undefined && v !== null && v !== '') return v; } return undefined; };
+  const num = (...c) => { const v = pick(...c); return v == null ? 0 : (Number(v) || 0); };
+  const statusRaw = String(pick('process_status', 'processStatus', 'status') || '').toUpperCase();
+  const status = /SUCC|DONE|COMPLET/.test(statusRaw) ? 'success'
+    : /FAIL|ERROR|REJECT/.test(statusRaw) ? 'failed'
+      : statusRaw ? 'processing' : 'unknown';
+  const errors = firstArray(out, ['feed_log_data', 'errors', 'error_list', 'details', 'data']);
+  return {
+    status, statusRaw,
+    added: num('added', 'add_count', 'added_count', 'product_add_count'),
+    updated: num('updated', 'update_count', 'updated_count'),
+    deleted: num('deleted', 'delete_count', 'deleted_count'),
+    errorCount: num('error_count', 'errors_count', 'fail_count'),
+    warnCount: num('warn_count', 'warning_count', 'warnings'),
+    // amostra de erros por produto (teto de 10, só sku + motivo, sem dados pessoais)
+    sampleErrors: errors.slice(0, 10).map((e) => {
+      if (!e || typeof e !== 'object') return { message: String(e).slice(0, 200) };
+      return {
+        sku: String(deepPluck(e, 'sku_id') || deepPluck(e, 'item_id') || deepPluck(e, 'id') || '').slice(0, 80) || undefined,
+        message: String(deepPluck(e, 'message') || deepPluck(e, 'error') || deepPluck(e, 'reason') || deepPluck(e, 'errmsg') || '').slice(0, 200) || undefined,
+      };
+    }).filter((e) => e.sku || e.message),
+    raw: out,
+  };
+}
+
 let catalogCapabilitiesCache = null;
 
 // A automação de catálogo usa um contrato central diferente da criação comum.
@@ -1875,6 +1907,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
     const catalogCreate = hasFields('create_tiktok_catalog', ['bc_id', 'name', 'catalog_type', 'catalog_conf']);
     const catalogUpload = byName.has('upload_tiktok_catalog_products');
     const catalogAudit = byName.has('get_tiktok_catalog_overview');
+    const catalogUploadStatus = byName.has('get_tiktok_catalog_upload_status');
     const catalogFeedRead = byName.has('get_tiktok_catalog_feeds');
     const catalogLinkVerify = byName.has('get_tiktok_catalogs');
     const campaignFields = hasFields('create_tiktok_campaign', CATALOG_CAMPAIGN_SCHEMA_FIELDS.campaign);
@@ -1925,6 +1958,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
       catalogCreate,
       catalogUpload,
       catalogAudit,
+      catalogUploadStatus,
       catalogFeedRead,
       catalogLinkVerify,
       manualCatalogCampaign,
@@ -2036,6 +2070,20 @@ async function getTikTokCatalogOverview(bcId, catalogId) {
   if (!bc || !cid) throw badRequest('bc_id e catalog_id são obrigatórios');
   const out = await pipeboard.callTool('get_tiktok_catalog_overview', { bc_id: bc, catalog_id: cid });
   return normalizeCatalogOverview(out);
+}
+
+// Confirma a INGESTÃO de um upload de arquivo pelo feed_log_id (SUCCESS/FAIL +
+// erro por produto). Um upload de arquivo único não aparece em getTikTokCatalogFeeds,
+// então esta é a forma confiável de saber por que um lote "ficou zero".
+async function getTikTokCatalogUploadStatus(bcId, catalogId, feedLogId) {
+  const bc = String(bcId || '').trim();
+  const cid = String(catalogId || '').trim();
+  const fid = String(feedLogId || '').trim();
+  if (!bc || !cid || !fid) throw badRequest('bc_id, catalog_id e feed_log_id são obrigatórios');
+  const out = await pipeboard.callTool('get_tiktok_catalog_upload_status', {
+    bc_id: bc, catalog_id: cid, feed_log_id: fid,
+  });
+  return normalizeCatalogUploadStatus(out);
 }
 
 // Lista feeds remotos apenas para diagnóstico. Zero feeds é compatível com o
@@ -2523,6 +2571,7 @@ module.exports = {
   createTikTokCatalog,
   uploadTikTokCatalogProducts,
   getTikTokCatalogOverview,
+  getTikTokCatalogUploadStatus,
   getTikTokCatalogFeeds,
   listTikTokCatalogs,
   updateTikTokCatalogName,
@@ -2542,5 +2591,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
 };
