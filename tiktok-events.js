@@ -706,6 +706,14 @@ async function testPixel(pixel, ctx) {
   // Evento escolhível pelo painel (default ViewContent); valida contra a lista
   const eventName = TEST_EVENTS.includes(ctx.event) ? ctx.event : 'ViewContent';
   const outboundEvent = canonicalTikTokEvent(eventName);
+  if (MONEY_EVENTS.has(eventName) && !pixel.testEventCode) {
+    return {
+      ok: false,
+      event: outboundEvent,
+      code: 'TEST_EVENT_CODE_REQUIRED',
+      message: 'Configure o Test Event Code antes de testar um evento monetário.'
+    };
+  }
   // Moeda da conta (fallback BRL) — antes era EUR fixo
   const cur = String(ctx.currency || '').toUpperCase();
   // A Events API exige AO MENOS UM identificador de usuário (ip+ua, email,

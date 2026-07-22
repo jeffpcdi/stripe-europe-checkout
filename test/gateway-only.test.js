@@ -2,7 +2,7 @@
 /*
  * Teste de regressão da trava gateway-only (Fase 4).
  *
- * Regra: eventos MONETÁRIOS (CompletePayment, AddPaymentInfo, Refund, Dispute)
+ * Regra: eventos MONETÁRIOS (CompletePayment/Purchase, AddPaymentInfo, Refund, Dispute)
  * só podem ser disparados por origem confiável (webhook do gateway ou
  * /api/conversion), que marcam p._trusted = true. Qualquer disparo sem essa
  * marca — típico de beacon client-side — é BLOQUEADO antes de ir ao TikTok.
@@ -81,6 +81,12 @@ const tk = require('../tiktok-events');
   }, '*', ACC);
   assert.strictEqual(fetchCalls.length, 1, 'ViewContent client-side deve passar');
 
-  console.log('[OK] gateway-only: venda client-side bloqueada; venda do gateway e ViewContent liberados.');
+  // 4) teste manual de Purchase sem Test Event Code → nunca contamina dados reais
+  fetchCalls = [];
+  const r4 = await tk.testPixel(PIXEL, { event: 'Purchase', currency: 'BRL' });
+  assert.strictEqual(fetchCalls.length, 0, 'teste de Purchase sem Test Event Code NÃO pode chamar o TikTok');
+  assert.strictEqual(r4 && r4.code, 'TEST_EVENT_CODE_REQUIRED', 'deve exigir Test Event Code');
+
+  console.log('[OK] gateway-only: venda client-side bloqueada; gateway liberado; teste monetário protegido.');
   process.exit(0);
 })().catch((e) => { console.error('[FALHOU]', e.message); process.exit(1); });

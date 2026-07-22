@@ -4875,7 +4875,7 @@ app.post('/api/pixels/test', dashboardAuth, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Configure o Access Token da Events API para testar este pixel.' });
     }
     const requestedEvent = String(req.body.event || 'ViewContent');
-    if ((requestedEvent === 'CompletePayment' || requestedEvent === 'AddPaymentInfo') && !pixel.testEventCode) {
+    if ((requestedEvent === 'CompletePayment' || requestedEvent === 'Purchase' || requestedEvent === 'AddPaymentInfo') && !pixel.testEventCode) {
       return res.status(400).json({
         ok: false,
         error: 'Para testar Compra/Pagamento sem contaminar dados reais, configure primeiro o Test Event Code do TikTok.'
