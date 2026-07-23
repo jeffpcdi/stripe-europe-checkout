@@ -604,8 +604,33 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
       // o operador configurou de propósito.
       const bound = Array.isArray(requested.gatewayIds) ? requested.gatewayIds : [];
       const allowed = !bound.length || (!!p.gatewayId && bound.indexOf(p.gatewayId) >= 0);
-      targets.forEach((px) => { if (px !== requested || !allowed) skipped.push(px); });
-      targets = allowed ? [requested] : [];
+      if (allowed) {
+        targets.forEach((px) => { if (px !== requested) skipped.push(px); });
+        targets = [requested];
+      } else {
+        // Conflito: o lead pertence ao pixel A, mas a venda veio do gateway
+        // vinculado ao pixel B. Em vez de ZERAR (perder a venda), cai para o
+        // vínculo do gateway — para eventos de dinheiro, o gateway é o sinal
+        // mais confiável de qual pixel deve receber a conversão.
+        const gatewayFallback = targets.filter((px) => {
+          const b = Array.isArray(px.gatewayIds) ? px.gatewayIds : [];
+          return b.length > 0 && !!p.gatewayId && b.indexOf(p.gatewayId) >= 0;
+        });
+        if (gatewayFallback.length) {
+          targets.forEach((px) => { if (!gatewayFallback.includes(px)) skipped.push(px); });
+          targets = gatewayFallback;
+        } else {
+          // Nenhum pixel vinculado ao gateway → tenta pixel livre único
+          const unbound = targets.filter((px) => !Array.isArray(px.gatewayIds) || px.gatewayIds.length === 0);
+          if (unbound.length === 1) {
+            targets.forEach((px) => { if (px !== unbound[0]) skipped.push(px); });
+            targets = unbound;
+          } else {
+            skipped.push(...targets);
+            targets = [];
+          }
+        }
+      }
     } else {
       const boundMatches = targets.filter((px) => {
         const bound = Array.isArray(px.gatewayIds) ? px.gatewayIds : [];
