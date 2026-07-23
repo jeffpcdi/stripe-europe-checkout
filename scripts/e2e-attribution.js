@@ -49,7 +49,9 @@ function fields(call) {
   return Object.keys(u).filter((k) => u[k] != null && u[k] !== '');
 }
 function emqFor(pixelSlug) {
-  const row = ttEvents.recentLog(20, ACC).find((r) => r.pixel === pixelSlug && r.event === 'CompletePayment');
+  // O log registra o nome OUTBOUND ('Purchase'); 'CompletePayment' fica como
+  // compat para logs antigos.
+  const row = ttEvents.recentLog(20, ACC).find((r) => r.pixel === pixelSlug && (r.event === 'Purchase' || r.event === 'CompletePayment'));
   return row ? { score: row.emq, sinais: row.emqFields } : null;
 }
 function externalIdOf(call) {

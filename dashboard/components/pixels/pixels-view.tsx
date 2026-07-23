@@ -1686,8 +1686,10 @@ function PixelEditor({
               >
                 Eventos de teste
               </a>{' '}
-              do TikTok Events Manager, sem contaminar os dados reais. Pegue o código lá e remova
-              quando for ao ar.
+              do TikTok Events Manager, sem contaminar os dados reais. Ele é usado{' '}
+              <strong className="text-foreground">apenas nos testes do painel</strong> — os eventos
+              reais (Purchase da venda, ViewContent etc.) nunca saem marcados como teste, mesmo com
+              o código preenchido.
             </span>
           </label>
 
