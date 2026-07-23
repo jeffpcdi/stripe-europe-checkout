@@ -747,7 +747,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Árvore campanha → ad group → ad com métricas ──────────────────────────
+  // ── Árvore campanha → ad group → ad com métricas ──────────────��───────────
   // Delegada ao provider (getDashboardTree): resolve o advertiser, busca
   // campaigns/adgroups/ads + insights por nível, reconcilia status (incluindo
   // reviewStatus dos anúncios) e devolve o shape AdsTreeResponse. Paginação,
@@ -1847,7 +1847,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   } catch (err) { fail(res, err); }
   });
 
-  // ── Regras automáticas — motor em ads-automation.js ────────��───────────────
+  // ── Regras automáticas — motor em ads-automation.js ────────��─────��─────────
   // Métricas: cpa_max | spend_no_conv | roas_min | ctr_min | cpm_max |
   // roas_scale (escala vencedoras com teto) | schedule (dayparting).
   // As rotas abaixo só delegam; a varredura 24/7 roda no tick do ads-sync.
@@ -1863,7 +1863,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const name = ticket.advertiserName || ticket.advertiserId;
     const date = new Date().toLocaleDateString('pt-BR');
     return 'Prezada equipe do TikTok for Business,\n\n'
-      + 'Solicito a revisão da suspensão da conta de an��ncios "' + name + '" (ID: ' + ticket.advertiserId + '), detectada em ' + date + '.\n\n'
+      + 'Solicito a revisão da suspensão da conta de anúncios "' + name + '" (ID: ' + ticket.advertiserId + '), detectada em ' + date + '.\n\n'
       + 'Acredito que a suspensão tenha sido aplicada por engano. Nossa conta segue as Políticas de Publicidade do TikTok: os criativos divulgam produtos/serviços legítimos, as páginas de destino correspondem ao conteúdo anunciado e não utilizamos práticas enganosas.\n\n'
       + 'Estamos à disposição para fornecer qualquer documentação adicional que comprove a conformidade da conta (informações do negócio, notas fiscais, comprovantes de entrega).\n\n'
       + 'Solicito, por gentileza, a reativação da conta ou um detalhamento específico da violação identificada para que possamos corrigi-la imediatamente.\n\n'
@@ -1898,7 +1898,25 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         stats.logEvent('info', { acc: accId, title: '[tiktok-ads] Conta "' + (t.advertiserName || t.advertiserId) + '" foi reativada' + (resolved.length ? ' — ' + resolved.length + ' ticket(s) resolvido(s)' : '') });
       }
     }
-    return { health: await adsOps.listAccountHealth(accId), transitions };
+    // Cobre conta JÁ banida no primeiro contato (sem transição): garante que
+    // toda conta banida tenha ticket ativo — createUnbanTicketIfAbsent é
+    // idempotente (índice único parcial), então re-varreduras não duplicam.
+    const health = await adsOps.listAccountHealth(accId);
+    for (const h of health) {
+      if (h.status !== 'banned') continue;
+      const alreadyHandled = transitions.some((t) => t.advertiserId === h.advertiser_id);
+      if (alreadyHandled) continue;
+      const ticket = await adsOps.createUnbanTicketIfAbsent(accId, {
+        advertiserId: h.advertiser_id, advertiserName: h.advertiser_name,
+        appealText: buildAppealText({ advertiserId: h.advertiser_id, advertiserName: h.advertiser_name }),
+        appealUrl: APPEAL_URL
+      });
+      if (ticket) {
+        await adsOps.appendAuditEvent(accId, { actorType: 'system', action: 'account_health.banned', targetType: 'advertiser', targetId: h.advertiser_id, advertiserId: h.advertiser_id, reason: 'Conta já banida detectada na varredura (sem transição)', metadata: { ticketId: ticket.id } });
+        stats.logEvent('error', { acc: accId, title: '[tiktok-ads] Conta "' + (h.advertiser_name || h.advertiser_id) + '" está banida — ticket de desbanimento criado' });
+      }
+    }
+    return { health, transitions };
   }
 
   // pega carona na mesma varredura oportunista (throttle 30min por conta)
@@ -1938,6 +1956,27 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       res.json({ enabled: adsOps.enabled, tickets: await adsOps.listUnbanTickets(req.account.id, req.query.limit) });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Abertura MANUAL de ticket de recurso — cobre conta suspensa/limitada sem
+  // esperar a varredura (ou quando o usuário quer recorrer imediatamente).
+  // Idempotente: se já houver ticket ativo para o advertiser, retorna 409.
+  app.post('/api/ads/tickets', dashboardAuth, async (req, res) => {
+    try {
+      if (!adsOps.enabled) return res.status(409).json({ error: 'Persistência Neon indisponível — tickets exigem o banco configurado' });
+      const b = req.body || {};
+      const advertiserId = String(b.advertiserId || '').trim().slice(0, 120);
+      if (!advertiserId) return res.status(400).json({ error: 'advertiserId é obrigatório' });
+      const advertiserName = String(b.advertiserName || '').trim().slice(0, 200);
+      const ticket = await adsOps.createUnbanTicketIfAbsent(req.account.id, {
+        advertiserId, advertiserName,
+        appealText: buildAppealText({ advertiserId, advertiserName }),
+        appealUrl: APPEAL_URL
+      });
+      if (!ticket) return res.status(409).json({ error: 'Já existe um ticket ativo para esta conta' });
+      await adsOps.appendAuditEvent(req.account.id, { actorType: 'user', actorId: req.account.id, action: 'unban_ticket.created', targetType: 'unban_ticket', targetId: ticket.id, advertiserId, reason: 'Ticket de recurso aberto manualmente pelo painel' });
+      res.status(201).json({ ticket });
     } catch (err) { fail(res, err); }
   });
 
@@ -2137,7 +2176,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // ── Templates de campanha ──────────────────���─��─────���───────────────────────
+  // ── Templates de campanha ──────────��───────���─��─────���───────────────────────
   // Guarda a CONFIGURAÇÃO (objetivo, orçamento, público, CTA, link, pixel…) —
   // nunca o vídeo. Criar do template = wizard pré-preenchido, só troca o vídeo.
   app.get('/api/ads/templates', dashboardAuth, async (req, res) => {

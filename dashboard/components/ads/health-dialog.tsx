@@ -199,6 +199,7 @@ function TicketCard({
 export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const { data, mutate, isLoading } = useAdsHealth(open)
+  const [creatingFor, setCreatingFor] = useState<string | null>(null)
   useModalA11y(open, ref, onClose)
 
   if (!open) return null
@@ -207,6 +208,24 @@ export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => 
   const tickets: AdsUnbanTicket[] = data?.tickets ?? []
   const activeTickets = tickets.filter((t) => t.status === 'open' || t.status === 'submitted')
   const closedTickets = tickets.filter((t) => t.status === 'resolved' || t.status === 'dismissed')
+  const advertisersWithActiveTicket = new Set(activeTickets.map((t) => t.advertiser_id))
+
+  // Abre o recurso manualmente — sem esperar a próxima varredura automática.
+  async function openAppeal(h: AdsAccountHealth) {
+    setCreatingFor(h.advertiser_id)
+    try {
+      await apiSend('/api/ads/tickets', 'POST', {
+        advertiserId: h.advertiser_id,
+        advertiserName: h.advertiser_name ?? '',
+      })
+      toast.success('Ticket de recurso criado', { hint: 'Revise o texto abaixo, copie e envie no formulário do TikTok.' })
+      mutate()
+    } catch (e) {
+      toast.error('Falha ao abrir o recurso', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setCreatingFor(null)
+    }
+  }
 
   return (
     <div
@@ -293,6 +312,22 @@ export function HealthDialog({ open, onClose }: { open: boolean; onClose: () => 
                           >
                             {meta.label}
                           </span>
+                          {(h.status === 'banned' || h.status === 'limited') &&
+                            !advertisersWithActiveTicket.has(h.advertiser_id) && (
+                              <button
+                                type="button"
+                                className="btn-primary shrink-0 text-[11px]"
+                                disabled={creatingFor !== null}
+                                onClick={() => openAppeal(h)}
+                              >
+                                {creatingFor === h.advertiser_id ? (
+                                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                                ) : (
+                                  <Send className="size-3.5" aria-hidden="true" />
+                                )}
+                                Abrir recurso
+                              </button>
+                            )}
                         </li>
                       )
                     })}
