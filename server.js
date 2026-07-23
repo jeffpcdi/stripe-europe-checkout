@@ -3652,11 +3652,20 @@ app.post('/api/ops/reprocess-conversion', dashboardAuth, async (req, res) => {
     if (entry.teste) return apiError(res, 400, 'Recibos de teste (dry-run) não podem ser reprocessados.', 'is_test');
     // Reconstrói o envelope a partir do recibo. registerSale=false: a venda já
     // foi contabilizada no primeiro processamento — aqui só re-dispara a CAPI.
+    // Resolve o gatewayId: direto do recibo (recibos novos) ou por nome do
+    // provider na conta (recibos antigos que não tinham gatewayId persistido).
+    let reGatewayId = entry.gatewayId || undefined;
+    if (!reGatewayId && entry.gateway) {
+      const gws = gatewayStore.list(entry.acc || req.account.id);
+      const match = gws.find((g) => g.provider === entry.gateway);
+      if (match) reGatewayId = match.id;
+    }
     const n = {
       acc: entry.acc || req.account.id,
       gateway: entry.gateway, event: entry.event, orderId: entry.orderId,
       amountCents: entry.amount, currency: entry.currency,
       leadId: entry.leadId || undefined,
+      gatewayId: reGatewayId,
       registerSale: false,
       _forceRedispatch: true,
       _recvAt: Date.now()
@@ -3828,7 +3837,8 @@ async function processConversion(n) {
     at: new Date().toISOString(),
     acc: n.acc || null,
     gateway: n.gateway, event: n.event, orderId: n.orderId,
-    amount: n.amountCents, currency: n.currency
+    amount: n.amountCents, currency: n.currency,
+    gatewayId: n.gatewayId || undefined
   };
   if (n._forceRedispatch) receipt.reprocessado = true;
   // Princípio (auditoria): nenhum evento de dinheiro pode sumir sem rastro.
