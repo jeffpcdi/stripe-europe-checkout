@@ -345,7 +345,7 @@ function retryQueueInfo(acc) {
  * (erro de rede/timeout/5xx) — o evento mais valioso (CompletePayment)
  * não pode se perder por um soluço de rede.
  * @param {object} pixel  Objeto do pixel-store (pixelCode, accessToken, testEventCode)
- * @param {object} p      Payload do evento (event, eventId, identidade, valor…)
+ * @param {object} p      Payload do evento (event, eventId, identidade, valor��)
  */
 // TikTok Access Tokens são ASCII imprimível. Remove qualquer caractere fora de
 // 0x20–0x7E (controle, não-ASCII, o "�"/0xFFFD de um token corrompido) para que
@@ -421,7 +421,13 @@ async function sendToPixel(pixel, p) {
       page: pageUrl ? { url: pageUrl } : undefined
     }]
   };
-  if (pixel.testEventCode) payload.test_event_code = pixel.testEventCode;
+  // CORREÇÃO CRÍTICA: test_event_code SÓ entra em testes explícitos do painel
+  // (p._test). Antes, bastava o pixel ter um Test Event Code salvo (a dashboard
+  // EXIGE um para testar Compra) para TODOS os eventos reais de produção irem
+  // marcados como teste — o TikTok respondia code 0 ("ok" no log), mas exibia
+  // tudo apenas na aba "Testar eventos" e NUNCA contabilizava o Purchase real
+  // no gerenciador de anúncios. Venda saía, atribuição não.
+  if (pixel.testEventCode && p._test) payload.test_event_code = pixel.testEventCode;
   const body = JSON.stringify(payload); // serializa UMA vez (reusado no retry)
 
   let lastErr = null;
@@ -594,9 +600,11 @@ async function dispatchToAll(eventName, p, routeHint, accountId) {
   // nunca recebem a venda um do outro. A ordem de decisão é: pixel persistido
   // no lead/link → vínculo explícito do gateway → único pixel livre. Dois ou
   // mais pixels livres são ambíguos e não recebem fan-out.
+  // Declarado FORA do bloco monetário: o diagnóstico de "sem alvo" (abaixo)
+  // também o consulta — antes era um ReferenceError silencioso no try/catch.
+  const requestedSlug = cleanStr(p.pixelSlug, 40);
   if (MONEY_EVENTS.has(eventName)) {
     const skipped = [];
-    const requestedSlug = cleanStr(p.pixelSlug, 40);
     const requested = requestedSlug ? targets.find((px) => px.slug === requestedSlug) : null;
     if (requested) {
       // A origem do lead/link é a evidência mais específica. Um vínculo de
@@ -746,6 +754,7 @@ async function testPixel(pixel, ctx) {
   // de parâmetro, mesmo com código/token corretos. Usa o ip/ua reais de quem
   // clicou em "Testar" + um external_id sintético como sinal extra.
   const json = await sendToPixel(pixel, {
+    _test: true, // teste do painel: único caminho que envia o test_event_code
     event: outboundEvent,
     eventId,
     url: 'https://example.com/teste-pixel',
