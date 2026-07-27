@@ -448,7 +448,17 @@ cd dashboard && npm run dev -- -p 3001   # HMR; acesse via http://localhost:3000
   julgamento do cloaker, no store de decisões ou nos contadores de fila, rode-os.
 - **Migração de banco:** automática e idempotente — `db.init()` roda `CREATE TABLE/ALTER … IF NOT EXISTS` no boot.
 
-### 11.1 Acesso rápido à dashboard em desenvolvimento (para IAs/testes)
+#### 11.0.1 Recuperação de acesso (esqueci a senha / travou o 2FA)
+Não há fluxo de "esqueci a senha" na UI (auth é e-mail+senha scrypt, sem e-mail de
+reset). Se o dono ficar travado (senha perdida, bloqueio por tentativas, 2FA sem o
+autenticador), use o script `scripts/reset-password.js` (roda contra o Neon via
+`DATABASE_URL` — só quem tem o banco consegue, não é bypass): `npm run reset-password
+-- --list` lista as contas (confirma o e-mail exato); `npm run reset-password --
+voce@dominio.com "novaSenha"` redefine a senha e **limpa o 2FA** por padrão
+(`--keep-2fa` mantém). O hash é o mesmo formato do `auth.js` (`salt:hash`, scrypt 64).
+No Railway, rodar no shell do serviço (o `DATABASE_URL` já está no ambiente).
+
+## 11.1 Acesso rápido à dashboard em desenvolvimento (para IAs/testes)
 Para testar a dashboard **sem cair na tela de login** (registrar conta + injetar cookie a cada vez),
 basta abrir uma única rota:
 ```
