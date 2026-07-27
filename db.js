@@ -299,20 +299,26 @@ async function init() {
     // O item 147 (moeda por conta) guardava só na config; a coluna garante a
     // persistência mesmo se a config for recriada. Default BRL não quebra
     // contas EUR existentes: o valor efetivo vem da config e é espelhado aqui.
-    await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency text DEFAULT 'BRL'`;
-    migrations.accountCurrency = true;
-
+    // ── Migrações ADITIVAS de colunas — cada uma isolada ──────────────────
+    // Regra dura: uma coluna aditiva que falhe NÃO pode abortar o resto do
+    // boot. Antes, tudo rodava no mesmo try do init(): se qualquer statement
+    // anterior lançasse, o ADD COLUMN de `totp_secret` nunca rodava e, como o
+    // SELECT de conta cita essa coluna, o LOGIN INTEIRO caía ("senha
+    // incorreta" com a senha certa). Cada ALTER abaixo é independente e
+    // idempotente (ADD COLUMN IF NOT EXISTS) — falha de uma é logada, não
+    // propaga.
+    const safeAlter = async (label, run) => {
+      try { await run(); } catch (e) { console.error('[db] migração ' + label + ' falhou (segue):', e && e.message); }
+    };
+    await safeAlter('accounts.currency', async () => {
+      await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency text DEFAULT 'BRL'`;
+      migrations.accountCurrency = true;
+    });
     // ── Item 414: metadados de dispositivo nas sessões de login ───────────
-    // ua + IP mascarado gravados no login permitem listar "sessões ativas"
-    // na aba Config com contexto suficiente para reconhecer cada dispositivo
-    // (sem guardar o IP completo — mesma máscara da auditoria do item 417).
-    await sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ua text`;
-    await sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ip_masked text`;
-
-    // ── Item 420: 2FA TOTP opcional ───────────────────────────────────────
-    // Secret base32 do autenticador (Google Authenticator etc.). NULL = 2FA
-    // desligado. O secret nunca sai do servidor depois de confirmado.
-    await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_secret text`;
+    await safeAlter('account_sessions.ua', () => sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ua text`);
+    await safeAlter('account_sessions.ip_masked', () => sql`ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS ip_masked text`);
+    // ── Item 420: 2FA TOTP opcional — coluna CRÍTICA p/ o SELECT de conta ──
+    await safeAlter('accounts.totp_secret', () => sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS totp_secret text`);
 
     ready = true;
     console.log('[db] Neon pronto (tabelas multi-tenant verificadas).');
@@ -349,13 +355,34 @@ async function createAccount(acc) {
   } catch (err) { console.error('[db] createAccount:', err.message); return null; }
 }
 
+// Uma coluna aditiva ainda não migrada (ex.: totp_secret do 2FA) NÃO pode
+// derrubar o login: se `init()` abortar antes do ALTER, o SELECT que cita a
+// coluna lança e o login inteiro passa a responder "senha incorreta" mesmo com
+// a senha certa (e o cadastro bate no ON CONFLICT). `missingColumnError` detecta
+// esse caso para refazer a leitura sem a coluna (2FA tratado como desligado).
+function missingColumnError(err) {
+  const m = String((err && err.message) || err);
+  // Postgres 42703 = undefined_column; a mensagem cita o nome da coluna.
+  return /totp_secret/i.test(m) || /column .* does not exist/i.test(m) || /42703/.test(m);
+}
+
 async function getAccountByEmail(email) {
   if (!enabled || !email) return null;
+  const e = email.toLowerCase();
   try {
     const rows = await sql`SELECT id, email, password_hash, name, role, created_at, totp_secret
-      FROM accounts WHERE email = ${email.toLowerCase()} LIMIT 1`;
+      FROM accounts WHERE email = ${e} LIMIT 1`;
     return rows.length ? rows[0] : null;
-  } catch (err) { console.error('[db] getAccountByEmail:', err.message); return null; }
+  } catch (err) {
+    if (missingColumnError(err)) {
+      try {
+        const rows = await sql`SELECT id, email, password_hash, name, role, created_at
+          FROM accounts WHERE email = ${e} LIMIT 1`;
+        return rows.length ? Object.assign({ totp_secret: null }, rows[0]) : null;
+      } catch (err2) { console.error('[db] getAccountByEmail fallback:', err2.message); return null; }
+    }
+    console.error('[db] getAccountByEmail:', err.message); return null;
+  }
 }
 
 async function getAccountById(id) {
@@ -368,7 +395,16 @@ async function getAccountById(id) {
     const rows = await sql`SELECT id, email, password_hash, name, role, created_at, totp_secret
       FROM accounts WHERE id = ${id} LIMIT 1`;
     return rows.length ? rows[0] : null;
-  } catch (err) { console.error('[db] getAccountById:', err.message); return null; }
+  } catch (err) {
+    if (missingColumnError(err)) {
+      try {
+        const rows = await sql`SELECT id, email, password_hash, name, role, created_at
+          FROM accounts WHERE id = ${id} LIMIT 1`;
+        return rows.length ? Object.assign({ totp_secret: null }, rows[0]) : null;
+      } catch (err2) { console.error('[db] getAccountById fallback:', err2.message); return null; }
+    }
+    console.error('[db] getAccountById:', err.message); return null;
+  }
 }
 
 async function countAccounts() {
