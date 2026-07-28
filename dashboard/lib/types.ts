@@ -1215,7 +1215,7 @@ export interface AdsRule {
   days?: number[] // 0=domingo … 6=sábado
   startTime?: string // 'HH:MM'
   endTime?: string // 'HH:MM' (pode cruzar meia-noite)
-  timezone?: string // IANA, default Europe/Lisbon
+  timezone?: string // legado; o motor usa o fuso da conta TikTok
   // Camada de PILOTOS (apresentação): regra pertence a uma estratégia de
   // gestor. Preservados pelo backend (whitelist em validateRules).
   pilot?: 'protector' | 'scaler' | 'schedule'

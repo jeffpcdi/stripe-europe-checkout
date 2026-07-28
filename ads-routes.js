@@ -1839,7 +1839,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         'alerts',
         req.account.id,
         advertiserId,
-        () => automation.runAlertSweep(req.account.id, { force: true, advertiserId }),
+        ({ assertOwned }) => automation.runAlertSweep(req.account.id, {
+          force: true,
+          advertiserId,
+          leaseGuard: assertOwned,
+        }),
       );
       res.json(result);
     } catch (err) { fail(res, err); }
@@ -1858,15 +1862,21 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   try {
   if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
   const q = req.query || {};
-  // valida a conta selecionada (a receita vem do stats interno; a validação
-  // só garante que o advertiser é autorizado). Sem adAccountId, resolve o padrão.
-  if (q.adAccountId) await requireAdvertiser(req.account.id, null, q.adAccountId, null);
-  const iso = (d) => d.toISOString().slice(0, 10);
+  // A receita vem do stats interno, mas o calendário civil vem da conta de
+  // anúncios validada. Assim a API e o motor cortam o dia no mesmo fuso.
+  const advertiserId = q.adAccountId
+    ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
+    : await resolveAdv(req, '');
+  const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
   const today = new Date();
-  const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || '')) ? q.fromDate : iso(new Date(today.getTime() - 6 * 864e5));
-  const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || '')) ? q.toDate : iso(today);
-  const data = computeAttribution(req.account.id, fromDate, toDate);
-  res.json({ fromDate, toDate, byCampaign: data.byCampaign, unattributed: data.unattributed });
+  const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || ''))
+    ? q.fromDate
+    : adsDay(new Date(today.getTime() - 6 * 864e5), timeZone);
+  const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || ''))
+    ? q.toDate
+    : adsDay(today, timeZone);
+  const data = computeAttribution(req.account.id, fromDate, toDate, timeZone);
+  res.json({ fromDate, toDate, timeZone, byCampaign: data.byCampaign, unattributed: data.unattributed });
   } catch (err) { fail(res, err); }
   });
 
@@ -2050,20 +2060,27 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/rules/run', dashboardAuth, async (req, res) => {
     try {
       const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
-      const [rules, schedule] = await Promise.all([
-        automation.runTrackedSweep(
-          'rules',
-          req.account.id,
-          advertiserId,
-          () => automation.runRulesSweep(req.account.id, { force: true, advertiserId }),
-        ),
-        automation.runTrackedSweep(
-          'schedule',
-          req.account.id,
-          advertiserId,
-          () => automation.runScheduleSweep(req.account.id, { force: true, advertiserId }),
-        ),
+      const sequence = await automation.runTrackedSequence(req.account.id, advertiserId, [
+        {
+          component: 'rules',
+          runner: ({ assertOwned }) => automation.runRulesSweep(req.account.id, {
+            force: true,
+            advertiserId,
+            leaseGuard: assertOwned,
+          }),
+        },
+        {
+          component: 'schedule',
+          runner: ({ assertOwned }) => automation.runScheduleSweep(req.account.id, {
+            force: true,
+            advertiserId,
+            leaseGuard: assertOwned,
+          }),
+        },
       ]);
+      if (sequence.skipped) return res.status(sequence.reason === 'lock_unavailable' ? 503 : 409).json(sequence);
+      const rules = sequence.results.rules || { executed: [] };
+      const schedule = sequence.results.schedule || { executed: [] };
       res.json({
         executed: [...(rules.executed || []), ...(schedule.executed || [])],
         checkedAt: rules.checkedAt || schedule.checkedAt || new Date().toISOString(),

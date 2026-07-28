@@ -89,6 +89,8 @@ function install(id, exports) {
 
 let recentReads = 0;
 let treeReads = 0;
+const treeRanges = [];
+const syncStatePatches = [];
 let sweeps = 0;
 let briefings = 0;
 let includeRecentDuplicate = false;
@@ -101,8 +103,10 @@ const oldSyncState = {
 
 install(paths.provider, {
   enabled: true,
-  getDashboardTree: async () => {
+  getAdvertiserInfo: async () => ({ timezone: 'Asia/Tokyo' }),
+  getDashboardTree: async (_accountId, options) => {
     treeReads += 1;
+    treeRanges.push(options);
     return { campaigns: [] };
   },
   getSmartPlusDashboardTree: async () => [],
@@ -120,7 +124,10 @@ install(paths.cache, {
       : [];
   },
   getSyncState: async () => oldSyncState,
-  upsertSyncState: async () => ({}),
+  upsertSyncState: async (_accountId, _advertiserId, patch) => {
+    syncStatePatches.push(patch);
+    return {};
+  },
   writeAdvertiserSnapshot: async () => {},
 });
 install(paths.pipeboard, { getCallStats: () => ({ total: 0 }) });
@@ -179,6 +186,11 @@ install(paths.ai, {
   assert.strictEqual(treeReads, 3, 'advertiser recente e automatizado sincroniza uma única vez');
   assert.strictEqual(sweeps, 3, 'advertiser recente e automatizado é varrido uma única vez');
   assert.strictEqual(briefings, 1, 'briefing continua restrito ao caminho de atividade recente');
+  const completed = syncStatePatches.filter((patch) => patch.status === 'ok');
+  assert.strictEqual(completed.length, 3, 'cada sync conclui com estado durável');
+  assert.ok(completed.every((patch) => patch.advertiserTimezone === 'Asia/Tokyo'), 'fuso do TikTok é persistido em todo sync');
+  assert.ok(treeRanges.every((range) => /^\d{4}-\d{2}-\d{2}$/.test(range.fromDate) && /^\d{4}-\d{2}-\d{2}$/.test(range.toDate)), 'ranges usam datas civis');
+  assert.ok(treeRanges.every((range) => range.fromDate <= range.toDate), 'range civil nunca inverte');
 
   console.log('ads-sync-automation.test.js: OK');
 })().catch((error) => {

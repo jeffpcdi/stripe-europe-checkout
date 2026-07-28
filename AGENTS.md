@@ -161,7 +161,7 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `adsBulkQ`; desenvolvimento e teste usam namespace próprio (ou `ADS_BULK_QUEUE_NAMESPACE`) para um
   worker local nunca consumir jobs de produção. A leitura de job reconcilia sempre o snapshot em memória
   com o Neon, evitando polling eternamente em `queued` quando outro processo concluiu/falhou o trabalho.
-- **ads-ops-store.js + ads-automation.js** — `ads_ad_rejections` é a caixa durável de reprovações,
+- **ads-ops-store.js + ads-automation.js + ads-automation-window.js** — `ads_ad_rejections` é a caixa durável de reprovações,
   agrupada por conjunto/campanha Smart+ para não repetir um alerta por anúncio. Cada sincronização abre,
   atualiza ou resolve incidentes sem apagar histórico. `GET /api/ads/rejections` lista o inbox e
   `POST /api/ads/rejections/:rejectionId/appeal` reserva atomicamente uma tentativa, gera justificativa
@@ -175,8 +175,16 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   contas vistas recentemente e não são ativados por essa inscrição operacional. O status operacional
   não é inferido da configuração: `ads-sync.getRuntimeStatus()` expõe o heartbeat do processo atual,
   cada promise de regra/alerta/agendamento registra dispatch, conclusão e resultado em
-  `runTrackedSweep()`; o mesmo helper impede duas execuções simultâneas do mesmo componente para não
-  duplicar ações ou notificações. `deriveEngineStatus()` cruza isso com o sync do advertiser selecionado, frescor
+  `runTrackedSweep()`. Regras, alertas e agenda compartilham um lease Redis com token de proprietário por
+  `account_id + advertiser_id`; renovação e liberação comparam o token atomicamente, falham fechadas
+  quando um Redis configurado fica indisponível e impedem instâncias/componentes diferentes de enviar
+  mutações concorrentes. O ciclo roda em ordem determinística (alertas → regras → agenda) e confirma a
+  posse antes de cada escrita externa. Cada regra de performance consulta sua própria janela inclusiva
+  (`1d` = somente hoje; `7d` = hoje + seis dias), com métricas e atribuição cortadas no fuso retornado
+  pelo advertiser TikTok e persistido em `ads_sync_state.advertiser_timezone`; backtest e execução real
+  usam o mesmo planejador. Se várias regras baterem na mesma campanha, só uma decisão segue, pela
+  precedência conservadora `pause > budget_down > budget_up > activate`, e as suprimidas ficam explícitas.
+  `deriveEngineStatus()` cruza isso com o sync do advertiser selecionado, frescor
   de 15 min, Neon/Pipeboard, kill switch, dry-run e circuit breaker. `/api/ads/rules` e
   `/api/ads/mcp/status` usam o mesmo builder. Após restart, fica `starting` até o novo processo concluir
   o primeiro ciclo — nunca restaura um heartbeat antigo como se o worker estivesse vivo.
@@ -643,6 +651,8 @@ Carregadas pelo `server.js` a partir de `.env.development.local`, `.env.local`, 
 (Node puro não lê `.env` sozinho). No Railway, definidas no painel *Variables*.
 - `DATABASE_URL` (ou `POSTGRES_URL`) — Neon. **Obrigatória**; sem ela, persistência e auth desativadas.
 - `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (ou aliases `KV_REST_API_URL/TOKEN`) — Redis. Opcional.
+- `ADS_AUTOMATION_LEASE_TTL_SEC` — TTL do lease distribuído das automações (padrão 900s; limite 60–3600).
+  Normalmente não precisa ser alterado; o worker renova durante execuções longas.
 - `CONVERSION_WEBHOOK_SECRET` — valida `/api/conversion`; base do segredo HMAC do cloak.
 - `TIKTOK_ACCESS_TOKEN` — token da CAPI (e `TIKTOK_PIXEL_CODE` legado em pixel-store).
 - `PUSHCUT_WEBHOOK_URL` — URL de notificações Pushcut (pode ser definida na dash).

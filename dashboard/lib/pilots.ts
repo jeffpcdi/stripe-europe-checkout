@@ -88,9 +88,6 @@ const SCHEDULE: Record<Intensity, { days: number[]; startTime: string; endTime: 
   agressivo: { days: [0, 1, 2, 3, 4, 5, 6], startTime: '08:00', endTime: '00:00' },
 }
 
-// Fuso do projeto (Brasília) — NÃO herdar o Europe/Lisbon do preset legado.
-const PILOT_TIMEZONE = 'America/Sao_Paulo'
-
 // Constrói as regras de um piloto na intensidade pedida. `mode` default é
 // 'proposal' (autonomia "Propor e eu aprovo" — decisão de produto).
 export function buildPilotRules(
@@ -144,7 +141,7 @@ export function buildPilotRules(
       id: 'pilot_schedule',
       name: `Horário: ${h.startTime}–${h.endTime}`,
       metric: 'schedule', threshold: 1, action: 'pause', pct: 20,
-      days: h.days, startTime: h.startTime, endTime: h.endTime, timezone: PILOT_TIMEZONE,
+      days: h.days, startTime: h.startTime, endTime: h.endTime,
     },
   ]
 }
@@ -171,7 +168,7 @@ export function detectPilots(rules: AdsRule[]): Record<PilotId, PilotState> {
       const fields: (keyof AdsRule)[] = [
         'metric', 'threshold', 'action', 'pct', 'lookbackDays', 'minClicks',
         'minImpressions', 'minSpend', 'minSales', 'budgetCap', 'days',
-        'startTime', 'endTime', 'timezone',
+        'startTime', 'endTime',
       ]
       const same = expected.length === mine.length && expected.every((wanted) => {
         const actual = mine.find((rule) => rule.id === wanted.id)

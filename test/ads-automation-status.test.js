@@ -6,6 +6,7 @@ const path = require('path');
 
 const provider = require('../ads-provider');
 const automation = require('../ads-automation');
+const redis = require('../redis');
 
 const derive = automation._internals.deriveEngineStatus;
 const NOW = Date.parse('2026-07-28T15:00:00.000Z');
@@ -182,7 +183,7 @@ function status(overrides = {}) {
     const pending = automation.runTrackedSweep('rules', accountId, advertiserId, () => new Promise((resolve) => {
       release = resolve;
     }));
-    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
     let info = automation.getSweepInfo(accountId, advertiserId);
     assert.ok(info.lastDispatchAt, 'dispatch é visível enquanto a promise está em voo');
     assert.strictEqual(info.lastCompletedAt, null, 'não inventa conclusão antes do resolve');
@@ -199,6 +200,13 @@ function status(overrides = {}) {
     info = automation.getSweepInfo(accountId, advertiserId);
     assert.strictEqual(info.running, true, 'execução original permanece identificada como ativa');
     assert.strictEqual(info.lastCompletedAt, null, 'skip concorrente não inventa conclusão');
+
+    const crossComponent = await automation.runTrackedSweep('schedule', accountId, advertiserId, async () => {
+      overlappingRunnerCalls += 1;
+      return { executed: [] };
+    });
+    assert.strictEqual(crossComponent.reason, 'already_running', 'agenda e regras compartilham o mesmo lock por advertiser');
+    assert.strictEqual(overlappingRunnerCalls, 0, 'componente diferente também não inicia enquanto o motor está ocupado');
 
     release({ executed: [], checkedAt: new Date().toISOString() });
     await pending;
@@ -217,6 +225,39 @@ function status(overrides = {}) {
     info = automation.getSweepInfo(accountId, advertiserId);
     assert.strictEqual(info.lastResult, 'error');
     assert.match(info.lastError, /falha rastreada/);
+
+    const originalAcquireLease = redis.acquireLease;
+    const originalRenewLease = redis.renewLease;
+    const originalReleaseLease = redis.releaseLease;
+    try {
+      let distributedRunnerCalls = 0;
+      redis.acquireLease = async () => ({ acquired: false, reason: 'busy' });
+      const distributedBusy = await automation.runTrackedSweep('rules', accountId, advertiserId, async () => {
+        distributedRunnerCalls += 1;
+        return { executed: [] };
+      });
+      assert.strictEqual(distributedBusy.reason, 'locked_by_other_worker', 'lease de outra instância impede a execução local');
+      assert.strictEqual(distributedRunnerCalls, 0, 'runner não inicia quando outro worker possui o lease');
+
+      redis.acquireLease = async () => ({
+        acquired: true,
+        name: 'teste',
+        key: 'lease:teste',
+        token: 'owner',
+        ttlSec: 60,
+      });
+      redis.renewLease = async () => false;
+      redis.releaseLease = async () => true;
+      await assert.rejects(
+        automation.runTrackedSweep('rules', accountId, advertiserId, ({ assertOwned }) => assertOwned()),
+        (error) => error && error.code === 'AUTOMATION_LEASE_LOST',
+        'perda de propriedade falha fechada antes de uma nova mutação',
+      );
+    } finally {
+      redis.acquireLease = originalAcquireLease;
+      redis.renewLease = originalRenewLease;
+      redis.releaseLease = originalReleaseLease;
+    }
   } finally {
     provider.getState = originalGetState;
     provider.setState = originalSetState;

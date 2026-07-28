@@ -18,6 +18,7 @@ const provider = require('./ads-provider');
 const cache = require('./ads-cache-store');
 const pipeboard = require('./pipeboard-mcp');
 const adsOps = require('./ads-ops-store');
+const automationWindow = require('./ads-automation-window');
 
 const WIDE_DAYS = Number(process.env.ADS_SYNC_WINDOW_DAYS) || 90;
 const CHUNK_DAYS = 30; // TikTok limita stat_time_day a janelas de 30 dias (erro 40002)
@@ -133,11 +134,24 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
   await cache.upsertSyncState(accountId, advertiserId, { status: 'syncing' }).catch(() => {});
   try {
     const today = new Date();
+    const previousState = await cache.getSyncState(accountId, advertiserId).catch(() => null);
+    // getDashboardTree também consulta advertiser_info; esta leitura aquece o
+    // mesmo cache e nos dá o calendário civil correto antes de montar o range.
+    const advertiserInfo = typeof provider.getAdvertiserInfo === 'function'
+      ? await provider.getAdvertiserInfo(advertiserId).catch(() => null)
+      : null;
+    const advertiserTimeZone = automationWindow.normalizeTimeZone(
+      advertiserInfo && advertiserInfo.timezone
+        ? advertiserInfo.timezone
+        : previousState && previousState.advertiser_timezone,
+    );
+    const to = automationWindow.civilDay(today, advertiserTimeZone);
     // Estrutura: sempre janela larga (a árvore precisa refletir tudo).
-    const structFrom = iso(new Date(today.getTime() - WIDE_DAYS * 864e5));
-    const to = iso(today);
+    const structFrom = automationWindow.shiftCivilDay(to, -WIDE_DAYS);
     // Métricas: janela larga no full, curta no incremental (dias imutáveis).
-    const metricsFrom = full ? structFrom : iso(new Date(today.getTime() - (INCREMENTAL_DAYS - 1) * 864e5));
+    const metricsFrom = full
+      ? structFrom
+      : automationWindow.shiftCivilDay(to, -(INCREMENTAL_DAYS - 1));
 
     // Estrutura + status derivados (fresh: ignora o micro-cache de 15s do provider).
     const tree = await provider.getDashboardTree(accountId, { advertiserId, fromDate: structFrom, toDate: to, fresh: true });
@@ -175,7 +189,8 @@ async function syncAdvertiser(accountId, advertiserId, opts = {}) {
     const now = new Date().toISOString();
     await cache.upsertSyncState(accountId, advertiserId, {
       status: 'ok', lastSyncedAt: now, lastFullSyncedAt: full ? now : null,
-      windowFrom: structFrom, windowTo: to, lastDurationMs: Date.now() - start, callsUsed,
+      windowFrom: structFrom, windowTo: to, advertiserTimezone: advertiserTimeZone,
+      lastDurationMs: Date.now() - start, callsUsed,
     });
     console.log('[ads-sync] ' + accountId + '/' + advertiserId + ' ok (' + (full ? 'full' : 'incremental') + ') — ' + (tree.campaigns || []).length + ' campanhas, ' + dailyMetrics.length + ' linhas de métrica, ' + callsUsed + ' chamadas, ' + (Date.now() - start) + 'ms');
     return { ok: true, full, campaigns: (tree.campaigns || []).length, metrics: dailyMetrics.length, callsUsed };
@@ -310,7 +325,7 @@ async function tick() {
     // Throttle vive dentro do módulo (compartilhado com o hook das rotas).
     for (const scope of targets) {
       const accId = scope.accountId;
-      try { automation.maybeSweep(accId, scope.advertiserId); } catch (_) { /* sweep nunca derruba o sync */ }
+      try { await automation.maybeSweep(accId, scope.advertiserId); } catch (_) { /* sweep nunca derruba o sync */ }
     }
 
     // O briefing não faz parte da automação operacional. Mantém o comportamento
@@ -355,41 +370,45 @@ function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
 // Após uma ESCRITA (pausar/ativar/orçamento), o espelho fica defasado. Isto
 // força um sync imediato da conta (sem throttle) p/ a dashboard refletir a
-// mudança. Best-effort e não-bloqueante: a rota já respondeu ao usuário.
+// mudança. Devolve a Promise compartilhada: rotas podem ignorá-la, enquanto o
+// motor de automação a aguarda sob o lease antes de avaliar a próxima etapa.
 const postWriteSync = new Map();
 function syncAfterWrite(accountId, advertiserId) {
   advertiserId = String(advertiserId || '').trim();
-  if (!cache.enabled || !provider.enabled || !advertiserId) return;
+  if (!cache.enabled || !provider.enabled || !advertiserId) return Promise.resolve(null);
   const key = syncKey(accountId, advertiserId);
   let state = postWriteSync.get(key);
   if (!state) {
-    state = { dirty: false, running: false };
+    state = { dirty: false, running: false, promise: null };
     postWriteSync.set(key, state);
   }
   // Toda escrita marca o espelho como sujo. Se outra escrita chegar enquanto
   // um sync está em voo, o loop executa uma segunda passagem depois dele, em
   // vez de considerar a promessa compartilhada suficiente e perder a mudança.
   state.dirty = true;
-  if (state.running) return;
+  if (state.running) return state.promise;
   state.running = true;
-  (async () => {
+  state.promise = (async () => {
     while (state.dirty) {
       state.dirty = false;
       const result = await dedupSync(accountId, advertiserId, { force: true });
       if (!result || !result.ok) throw new Error((result && result.error) || 'sync pós-escrita não concluído');
     }
+    return { ok: true };
   })().catch((e) => {
     console.warn('[ads-sync] sync pós-escrita falhou:', e.message);
+    return { ok: false, error: e.message };
   }).finally(() => {
     state.running = false;
     // Uma escrita pode marcar dirty entre o fim do while e o finally.
     if (state.dirty) {
       postWriteSync.delete(key);
-      syncAfterWrite(accountId, advertiserId);
+      return syncAfterWrite(accountId, advertiserId);
     } else {
       postWriteSync.delete(key);
     }
   });
+  return state.promise;
 }
 
 module.exports = {

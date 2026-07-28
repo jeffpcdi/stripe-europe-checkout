@@ -4,20 +4,23 @@
 // Se as variáveis não estiverem definidas, o módulo degrada silenciosamente
 // para no-op e os dados ficam apenas em memória (comportamento anterior).
 
+const { randomBytes } = require('crypto');
+
 let redis = null;
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL
+  || process.env.KV_REST_API_URL
+  || process.env.UPSTASH_FOR_REDIS_KV_REST_API_URL;
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN
+  || process.env.KV_REST_API_TOKEN
+  || process.env.UPSTASH_FOR_REDIS_KV_REST_API_TOKEN;
+const redisConfigured = Boolean(redisUrl && redisToken);
 
 try {
   const { Redis } = require('@upstash/redis');
   // Aceita os nomes padrão da Upstash, os aliases KV_* (Vercel KV / Railway)
   // e os nomes prefixados que o Marketplace da Vercel injeta (UPSTASH_FOR_REDIS_*)
-  const url   = process.env.UPSTASH_REDIS_REST_URL
-    || process.env.KV_REST_API_URL
-    || process.env.UPSTASH_FOR_REDIS_KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN
-    || process.env.KV_REST_API_TOKEN
-    || process.env.UPSTASH_FOR_REDIS_KV_REST_API_TOKEN;
-  if (url && token) {
-    redis = new Redis({ url, token });
+  if (redisConfigured) {
+    redis = new Redis({ url: redisUrl, token: redisToken });
     console.log('[redis] Upstash conectado.');
   } else {
     console.log('[redis] Variáveis não encontradas — modo memória ativado');
@@ -770,6 +773,155 @@ async function releaseLock(name) {
   try { await redis.del('lock:' + name); } catch (_) {}
 }
 
+// ── Lease distribuído com proprietário ────────────────────────────────────
+// API nova para seções críticas que podem durar mais que o TTL inicial.
+// Diferente do lock legado acima, um lease:
+//   - guarda um token aleatório exclusivo do proprietário;
+//   - renova e libera apenas se o token ainda for o mesmo;
+//   - falha fechado se o Redis foi configurado, mas ficou indisponível.
+// Sem Redis configurado, há fallback local para desenvolvimento de instância
+// única. Esse fallback nunca é usado para esconder uma falha do Redis real.
+const LEASE_PREFIX = 'lease:';
+const LEASE_DEFAULT_TTL_SEC = 55;
+const LEASE_MAX_TTL_SEC = 24 * 3600;
+const LEASE_RENEW_SCRIPT = [
+  "if redis.call('get', KEYS[1]) == ARGV[1] then",
+  "  return redis.call('expire', KEYS[1], tonumber(ARGV[2]))",
+  'end',
+  'return 0',
+].join('\n');
+const LEASE_RELEASE_SCRIPT = [
+  "if redis.call('get', KEYS[1]) == ARGV[1] then",
+  "  return redis.call('del', KEYS[1])",
+  'end',
+  'return 0',
+].join('\n');
+
+function normalizeLeaseName(name) {
+  const value = String(name == null ? '' : name).trim();
+  return value ? value.slice(0, 240) : '';
+}
+
+function normalizeLeaseTtl(ttlSec) {
+  const value = Math.floor(Number(ttlSec));
+  if (!Number.isFinite(value) || value < 1) return LEASE_DEFAULT_TTL_SEC;
+  return Math.min(value, LEASE_MAX_TTL_SEC);
+}
+
+function newLeaseToken() {
+  return randomBytes(24).toString('base64url');
+}
+
+function createLeaseManager(client, configured) {
+  const memory = new Map();
+  const usesRedis = Boolean(configured);
+
+  function failed(name, ttlSec, reason) {
+    const safeName = normalizeLeaseName(name);
+    return {
+      acquired: false,
+      name: safeName,
+      key: safeName ? LEASE_PREFIX + safeName : null,
+      ttlSec: normalizeLeaseTtl(ttlSec),
+      reason,
+    };
+  }
+
+  function leaseParts(lease) {
+    if (!lease || lease.acquired !== true) return null;
+    const name = normalizeLeaseName(lease.name);
+    const token = String(lease.token || '');
+    if (!name || !token) return null;
+    return { name, key: LEASE_PREFIX + name, token };
+  }
+
+  async function acquire(name, ttlSec) {
+    const safeName = normalizeLeaseName(name);
+    const ttl = normalizeLeaseTtl(ttlSec);
+    if (!safeName) return failed(name, ttl, 'invalid_name');
+
+    const key = LEASE_PREFIX + safeName;
+    const token = newLeaseToken();
+    const expiresAt = Date.now() + ttl * 1000;
+
+    if (!usesRedis) {
+      const current = memory.get(key);
+      if (current && current.expiresAt > Date.now()) return failed(safeName, ttl, 'busy');
+      memory.set(key, { token, expiresAt });
+      return { acquired: true, name: safeName, key, token, ttlSec: ttl, expiresAt, backend: 'memory' };
+    }
+
+    // Redis configurado sem cliente funcional é indisponibilidade, não licença
+    // para executar sem exclusão distribuída.
+    if (!client) return failed(safeName, ttl, 'redis_unavailable');
+    try {
+      const result = await client.set(key, token, { nx: true, ex: ttl });
+      if (result === null || result === undefined || result === false) {
+        return failed(safeName, ttl, 'busy');
+      }
+      return { acquired: true, name: safeName, key, token, ttlSec: ttl, expiresAt, backend: 'redis' };
+    } catch (err) {
+      console.error('[redis] acquireLease:', err.message);
+      return failed(safeName, ttl, 'redis_error');
+    }
+  }
+
+  async function renew(lease, ttlSec) {
+    const parts = leaseParts(lease);
+    if (!parts) return false;
+    const ttl = normalizeLeaseTtl(ttlSec == null ? lease.ttlSec : ttlSec);
+
+    if (!usesRedis) {
+      const current = memory.get(parts.key);
+      if (!current || current.expiresAt <= Date.now() || current.token !== parts.token) return false;
+      current.expiresAt = Date.now() + ttl * 1000;
+      lease.ttlSec = ttl;
+      lease.expiresAt = current.expiresAt;
+      return true;
+    }
+
+    if (!client) return false;
+    try {
+      const result = await client.eval(LEASE_RENEW_SCRIPT, [parts.key], [parts.token, String(ttl)]);
+      if (Number(result) !== 1) return false;
+      lease.ttlSec = ttl;
+      lease.expiresAt = Date.now() + ttl * 1000;
+      return true;
+    } catch (err) {
+      console.error('[redis] renewLease:', err.message);
+      return false;
+    }
+  }
+
+  async function release(lease) {
+    const parts = leaseParts(lease);
+    if (!parts) return false;
+
+    if (!usesRedis) {
+      const current = memory.get(parts.key);
+      if (!current || current.expiresAt <= Date.now() || current.token !== parts.token) return false;
+      memory.delete(parts.key);
+      return true;
+    }
+
+    if (!client) return false;
+    try {
+      const result = await client.eval(LEASE_RELEASE_SCRIPT, [parts.key], [parts.token]);
+      return Number(result) === 1;
+    } catch (err) {
+      console.error('[redis] releaseLease:', err.message);
+      return false;
+    }
+  }
+
+  return { acquire, renew, release };
+}
+
+const leaseManager = createLeaseManager(redis, redisConfigured);
+async function acquireLease(name, ttlSec) { return leaseManager.acquire(name, ttlSec); }
+async function renewLease(lease, ttlSec) { return leaseManager.renew(lease, ttlSec); }
+async function releaseLease(lease) { return leaseManager.release(lease); }
+
 // ── Rollup de EMQ (Event Match Quality) por pixel e por dia ───────────────
 // Cada disparo da CAPI carrega um score 0–10 de identidade. Guardamos soma +
 // contagem por pixel/dia num hash — permite o painel plotar a TENDÊNCIA e
@@ -1181,11 +1333,13 @@ module.exports = {
   bumpTtclidReplay, getTtclidReplayCount,     // Item 203
   checkTtclidContext, bumpVelocity, clearVelocity, // Item 256
   acquireLock, releaseLock,
+  acquireLease, renewLease, releaseLease,
   bumpEmq, getEmqTrend, clearEmq, // Item 200
   saveBreakerSamples, loadBreakerSamples, // circuit breaker das automações (durável)
   savePixelSnapshot, deletePixelSnapshot, loadPixelSnapshot,
   saveGatewaySnapshot, deleteGatewaySnapshot, loadGatewaySnapshot,
   saveDomainSnapshot, deleteDomainSnapshot, loadDomainSnapshot,
   pushNotifLog, loadNotifLog, // central de notificações do painel
-  ping, TTL
+  ping, TTL,
+  _leaseInternals: { createLeaseManager }
 };

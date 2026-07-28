@@ -90,12 +90,14 @@ async function ensureSchema() {
       calls_used integer NOT NULL DEFAULT 0,
       window_from date,
       window_to date,
+      advertiser_timezone text,
       requested_at timestamptz,
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (account_id, advertiser_id)
     )`;
     // Tabelas pré-existentes (antes do sync incremental) ganham a coluna aqui.
     await sql`ALTER TABLE ads_sync_state ADD COLUMN IF NOT EXISTS last_full_synced_at timestamptz`;
+    await sql`ALTER TABLE ads_sync_state ADD COLUMN IF NOT EXISTS advertiser_timezone text`;
     await sql`CREATE INDEX IF NOT EXISTS ads_sync_state_activity_idx ON ads_sync_state (requested_at DESC)`;
 
     // Estado durável das automações (cooldowns de regras/alertas + marcações
@@ -439,8 +441,8 @@ async function upsertSyncState(accountId, advertiserId, patch) {
   await ensureSchema();
   const p = patch || {};
   const rows = await sql`
-    INSERT INTO ads_sync_state (account_id, advertiser_id, status, last_synced_at, last_full_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, updated_at)
-    VALUES (${accountId}, ${advertiserId}, ${p.status || 'syncing'}, ${p.lastSyncedAt || null}, ${p.lastFullSyncedAt || null}, ${p.lastError || null}, ${p.lastDurationMs || null}, ${p.callsUsed || 0}, ${p.windowFrom || null}, ${p.windowTo || null}, now())
+    INSERT INTO ads_sync_state (account_id, advertiser_id, status, last_synced_at, last_full_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, advertiser_timezone, updated_at)
+    VALUES (${accountId}, ${advertiserId}, ${p.status || 'syncing'}, ${p.lastSyncedAt || null}, ${p.lastFullSyncedAt || null}, ${p.lastError || null}, ${p.lastDurationMs || null}, ${p.callsUsed || 0}, ${p.windowFrom || null}, ${p.windowTo || null}, ${p.advertiserTimezone || null}, now())
     ON CONFLICT (account_id, advertiser_id) DO UPDATE SET
       status = EXCLUDED.status,
       last_synced_at = COALESCE(EXCLUDED.last_synced_at, ads_sync_state.last_synced_at),
@@ -450,6 +452,7 @@ async function upsertSyncState(accountId, advertiserId, patch) {
       calls_used = EXCLUDED.calls_used,
       window_from = COALESCE(EXCLUDED.window_from, ads_sync_state.window_from),
       window_to = COALESCE(EXCLUDED.window_to, ads_sync_state.window_to),
+      advertiser_timezone = COALESCE(EXCLUDED.advertiser_timezone, ads_sync_state.advertiser_timezone),
       updated_at = now()
     RETURNING *`;
   return rows[0] || null;
@@ -486,7 +489,7 @@ async function listSyncStates(accountId) {
   accountId = cleanAccountId(accountId);
   if (!enabled) return [];
   await ensureSchema();
-  return sql`SELECT advertiser_id, status, last_synced_at, last_full_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, requested_at FROM ads_sync_state WHERE account_id = ${accountId} ORDER BY last_synced_at DESC NULLS LAST`;
+  return sql`SELECT advertiser_id, status, last_synced_at, last_full_synced_at, last_error, last_duration_ms, calls_used, window_from, window_to, advertiser_timezone, requested_at FROM ads_sync_state WHERE account_id = ${accountId} ORDER BY last_synced_at DESC NULLS LAST`;
 }
 
 // Classifica um ID (campanha | ad group | anúncio) consultando o espelho da
