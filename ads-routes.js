@@ -521,14 +521,29 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const mcp = require('./pipeboard-mcp');
       const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
+      let syncReadError = null;
       const [diag, syncStates, safetyPolicy, deadLetterPending] = await Promise.all([
         mcp.getDiagnostics({ force: req.query.force === '1' }),
-        adsCache.enabled ? adsCache.listSyncStates(req.account.id).catch(() => []) : Promise.resolve([]),
+        adsCache.enabled
+          ? adsCache.listSyncStates(req.account.id).catch((error) => {
+            syncReadError = String(error && error.message ? error.message : error);
+            return [];
+          })
+          : Promise.resolve([]),
         adsOps.getSafetyPolicy(req.account.id).catch(() => null),
         adsOps.countPendingActionDeadLetter(req.account.id).catch(() => 0),
       ]);
       // Restaura a janela do breaker do Redis antes de reportá-la (idempotente).
       await automation.ensureBreakerHydrated(req.account.id, advertiserId);
+      const breaker = automation.getBreakerState(req.account.id, safetyPolicy, advertiserId);
+      const selectedSyncState = syncStates.find((state) => String(state.advertiser_id) === String(advertiserId)) || null;
+      const engine = await automation.getEngineStatus(req.account.id, advertiserId, {
+        worker: adsSync.getRuntimeStatus(),
+        syncState: selectedSyncState,
+        syncReadError,
+        policy: safetyPolicy,
+        breaker,
+      });
       const blocked = syncStates
         .filter((s) => s.status === 'blocked')
         .map((s) => {
@@ -552,11 +567,13 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
           blocked,
           lastSyncAt: lastSync ? new Date(lastSync).toISOString() : null,
         },
-        automation: automation.getSweepInfo(req.account.id, advertiserId),
+        // Mesmo diagnóstico operacional devolvido por /api/ads/rules. O sync
+        // global acima nunca mascara o advertiser selecionado.
+        automation: engine,
         // Circuit breaker das automações: estado observável por conta (aberto/
         // fechado, taxa de falha da janela, threshold configurado). O painel usa
         // p/ mostrar quando o motor se auto-pausou por tempestade de falhas.
-        breaker: automation.getBreakerState(req.account.id, safetyPolicy, advertiserId),
+        breaker,
         // Dead-letter: nº de ações reais que falharam e aguardam reprocessamento.
         deadLetterPending,
         // IA: configuração + telemetria (chamadas 1h, tokens, briefing de hoje)
@@ -1736,7 +1753,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
       if (action.type === 'create_rule') {
         // validateRules aplica clamps/drop de regra inválida — mesma via do PUT.
-        const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+        const snapshot = automation.getAutomationProfile(req.account.id, advertiserId);
         const current = snapshot.rules;
         const merged = automation.validateRules(current.concat([Object.assign({ enabled: true }, v.params.rule)]));
         if (merged.length === current.length) return res.status(400).json({ error: 'Regra proposta é inválida (rejeitada pela validação do motor)' });
@@ -1798,7 +1815,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
-      const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+      const snapshot = await automation.getAutomationSnapshot(req.account.id, advertiserId, {
+        worker: adsSync.getRuntimeStatus(),
+      });
       res.json({ ...snapshot.alerts, advertiserId, revision: snapshot.revision, autonomy: snapshot.autonomy, updatedAt: snapshot.updatedAt });
     } catch (err) { fail(res, err); }
   });
@@ -1816,8 +1835,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/alerts/check', dashboardAuth, async (req, res) => {
     try {
       const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
-      automation.markSweepNow(req.account.id, advertiserId);
-      const result = await automation.runAlertSweep(req.account.id, { force: true, advertiserId });
+      const result = await automation.runTrackedSweep(
+        'alerts',
+        req.account.id,
+        advertiserId,
+        () => automation.runAlertSweep(req.account.id, { force: true, advertiserId }),
+      );
       res.json(result);
     } catch (err) { fail(res, err); }
   });
@@ -1972,7 +1995,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       const advertiserId = await resolveAdv(req, String((req.query || {}).adAccountId || '').trim());
-      const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+      const snapshot = await automation.getAutomationSnapshot(req.account.id, advertiserId, {
+        worker: adsSync.getRuntimeStatus(),
+      });
       res.json({
         advertiserId, revision: snapshot.revision, autonomy: snapshot.autonomy,
         updatedAt: snapshot.updatedAt, rules: snapshot.rules, log: snapshot.log,
@@ -1993,7 +2018,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const b = req.body || {};
       const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
       automation.saveRules(req.account.id, advertiserId, b.rules, b.revision);
-      const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+      const snapshot = await automation.getAutomationSnapshot(req.account.id, advertiserId, {
+        worker: adsSync.getRuntimeStatus(),
+      });
       res.json({
         advertiserId, revision: snapshot.revision, autonomy: snapshot.autonomy,
         updatedAt: snapshot.updatedAt, rules: snapshot.rules, log: snapshot.log,
@@ -2009,7 +2036,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const b = req.body || {};
       const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
       automation.setGlobalAutonomy(req.account.id, advertiserId, String(b.autonomy || ''), b.revision);
-      const snapshot = automation.getAutomationSnapshot(req.account.id, advertiserId);
+      const snapshot = await automation.getAutomationSnapshot(req.account.id, advertiserId, {
+        worker: adsSync.getRuntimeStatus(),
+      });
       res.json({
         advertiserId, revision: snapshot.revision, autonomy: snapshot.autonomy,
         updatedAt: snapshot.updatedAt, rules: snapshot.rules, log: snapshot.log,
@@ -2021,10 +2050,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/rules/run', dashboardAuth, async (req, res) => {
     try {
       const advertiserId = await resolveAdv(req, String((req.body || {}).adAccountId || '').trim());
-      automation.markSweepNow(req.account.id, advertiserId);
       const [rules, schedule] = await Promise.all([
-        automation.runRulesSweep(req.account.id, { force: true, advertiserId }),
-        automation.runScheduleSweep(req.account.id, { force: true, advertiserId }),
+        automation.runTrackedSweep(
+          'rules',
+          req.account.id,
+          advertiserId,
+          () => automation.runRulesSweep(req.account.id, { force: true, advertiserId }),
+        ),
+        automation.runTrackedSweep(
+          'schedule',
+          req.account.id,
+          advertiserId,
+          () => automation.runScheduleSweep(req.account.id, { force: true, advertiserId }),
+        ),
       ]);
       res.json({
         executed: [...(rules.executed || []), ...(schedule.executed || [])],
@@ -2310,6 +2348,23 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const policy = await adsOps.getSafetyPolicy(req.account.id);
       const guard = adsOps.assertMutationAllowed(policy, { advertiserId: selected.advertiserId, idempotencyKey });
       const common = (b.common && typeof b.common === 'object') ? b.common : {};
+      if (common.goal && common.goal !== 'conversions') {
+        return res.status(400).json({ error: 'Vídeos em massa aceita somente campanhas de conversão' });
+      }
+      const countries = Array.isArray(common.countries)
+        ? common.countries.map((value) => String(value || '').trim().toUpperCase()).filter((value) => /^[A-Z]{2}$/.test(value)).slice(0, 30)
+        : [];
+      if (!countries.length) return res.status(400).json({ error: 'Informe pelo menos um país válido para o lote' });
+      const pixel = await requireCampaignPixel(req.account.id, selected.advertiserId);
+      // O navegador nunca escolhe Pixel/evento neste fluxo. O vínculo central
+      // por conta+advertiser é a única fonte e Compra é fixa no produto.
+      const normalizedCommon = Object.assign({}, common, {
+        goal: 'conversions',
+        countries,
+        pixelId: pixel.pixelId,
+        customEventType: 'ON_WEB_ORDER',
+        promotedObject: { pixelId: pixel.pixelId, customEventType: 'ON_WEB_ORDER' },
+      });
       const rawItems = Array.isArray(b.items) ? b.items.slice(0, 20) : [];
       if (!rawItems.length) return res.status(400).json({ error: 'Adicione pelo menos 1 item (vídeo + nome)' });
 
@@ -2317,12 +2372,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const tasks = [];
       for (let i = 0; i < rawItems.length; i++) {
         const it = rawItems[i] || {};
-        const built = buildCreatePayload(st, Object.assign({}, common, {
-          adAccountId,
+        const itemLinkUrl = it.linkUrl !== undefined ? it.linkUrl : normalizedCommon.linkUrl;
+        if (!/^https:\/\/[^\s]+/.test(String(itemLinkUrl || '').trim())) {
+          return res.status(400).json({ error: 'Item ' + (i + 1) + ': informe uma página HTTPS de destino' });
+        }
+        const built = buildCreatePayload(st, Object.assign({}, normalizedCommon, {
+          adAccountId: selected.advertiserId,
           name: it.name,
           videoUrl: it.videoUrl,
-          body: it.body !== undefined ? it.body : common.body,
-          linkUrl: it.linkUrl !== undefined ? it.linkUrl : common.linkUrl
+          body: it.body !== undefined ? it.body : normalizedCommon.body,
+          linkUrl: itemLinkUrl
         }));
         if (built.error) return res.status(400).json({ error: 'Item ' + (i + 1) + ': ' + built.error });
         tasks.push({ ref: String(it.name || 'item ' + (i + 1)).slice(0, 120), task: { kind: 'create', payload: built.payload } });
@@ -2331,7 +2390,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const job = await bulk.createBulkJob(req.account.id, {
         kind: 'bulk_create', adAccountId: selected.advertiserId,
         items: tasks.map((t) => ({ ref: t.ref })),
-        meta: { goal: common.goal || '', idempotencyKey, dryRun: guard.dryRun }
+        meta: { goal: 'conversions', idempotencyKey, dryRun: guard.dryRun }
       });
       if (job.meta && job.meta.idempotencyKey === idempotencyKey && job.items.some((item) => item.task || item.status !== 'queued')) {
         return res.status(200).json({ jobId: job.id, total: job.total, dryRun: Boolean(job.meta.dryRun), reused: true });

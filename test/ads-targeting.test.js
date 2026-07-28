@@ -13,6 +13,7 @@ const view = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ad
 const create = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/create-ad-panel.tsx'), 'utf8');
 const spark = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/spark-ad-dialog.tsx'), 'utf8');
 const smart = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/smart-plus-create-dialog.tsx'), 'utf8');
+const bulkUpload = fs.readFileSync(path.join(__dirname, '..', 'dashboard/components/ads/bulk-upload-dialog.tsx'), 'utf8');
 const adsTime = fs.readFileSync(path.join(__dirname, '..', 'dashboard/lib/ads-time.ts'), 'utf8');
 
 console.log('Criação TikTok Ads — produto focado em conversão');
@@ -39,6 +40,27 @@ console.log('Interface — uma entrada, três áreas e configuração automátic
   ok(/goal: 'conversions'/.test(spark), 'Spark envia conversão');
   ok(!/setGoal|Pixel ID \(numérico\)|TIKTOK_PIXEL_EVENTS/.test(smart), 'Smart+ não oferece tráfego nem Pixel manual');
   ok(/goal: 'conversions'/.test(smart), 'Smart+ envia conversão');
+}
+
+console.log('Vídeos em massa — conversão automática e segura');
+{
+  const bulkRouteStart = routes.indexOf("app.post('/api/ads/bulk'");
+  const bulkRouteEnd = routes.indexOf('// Progresso do job', bulkRouteStart);
+  const bulkRoute = routes.slice(bulkRouteStart, bulkRouteEnd);
+  const bulkExecutor = routes.slice(routes.indexOf('async function processBulkItem'), routes.indexOf('bulk.startBulkWorker'));
+
+  ok(!/AdsGoal|GOALS|setGoal|TIKTOK_PIXEL_EVENTS|customEventType|setPixelId/.test(bulkUpload), 'lote não expõe objetivos incompatíveis nem Pixel/evento manual');
+  ok(/goal: 'conversions'/.test(bulkUpload), 'lote envia somente conversão');
+  ok(/useAdsTikTokPixels/.test(bulkUpload) && /pixelReady/.test(bulkUpload), 'lote verifica o vínculo central antes do upload');
+  ok(/crypto\.randomUUID\(\)/.test(bulkUpload) && /idempotencyRef/.test(bulkUpload), 'retry de timeout preserva uma chave idempotente estável');
+  ok(/Página de destino/.test(bulkUpload) && /https:\\\/\\\/\\S\+/.test(bulkUpload), 'lote exige página HTTPS de destino');
+
+  ok(/common\.goal && common\.goal !== 'conversions'/.test(bulkRoute), 'backend recusa objetivo diferente de conversão');
+  ok(/requireCampaignPixel\(req\.account\.id, selected\.advertiserId\)/.test(bulkRoute), 'backend resolve o Pixel central pelo advertiser');
+  ok(/promotedObject: \{ pixelId: pixel\.pixelId, customEventType: 'ON_WEB_ORDER' \}/.test(bulkRoute), 'backend injeta Pixel central e evento Compra');
+  ok(/adAccountId: selected\.advertiserId/.test(bulkRoute), 'tarefas usam o advertiser validado, não o valor cru do navegador');
+  ok(/meta: \{ goal: 'conversions'/.test(bulkRoute), 'job durável registra o objetivo real de conversão');
+  ok(/status: 'paused'/.test(bulkExecutor), 'executor mantém cada criação pausada');
 }
 
 console.log('Período global');

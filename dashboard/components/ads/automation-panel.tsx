@@ -34,11 +34,13 @@ import type {
   AdsRulesResponse,
   AdsRulesRunResponse,
   AdsAutomationAutonomy,
+  AdsAutomationEngine,
 } from '@/lib/types'
 import { timeAgo, cleanCampaignName } from '@/lib/format'
 import { usePersistedState } from '@/lib/use-persisted-state'
 import { GlassCard } from '@/components/glass-card'
 import { Skeleton } from '@/components/skeleton'
+import { ErrorState } from '@/components/error-state'
 import { Switch } from '@/components/switch'
 import { PilotsPanel } from './pilots-panel'
 import { RejectionInbox } from './rejection-inbox'
@@ -160,6 +162,106 @@ function timeUntil(iso: string | null): string {
   if (seconds < 60) return 'menos de 1 min'
   if (seconds < 3600) return `${Math.ceil(seconds / 60)} min`
   return `${Math.ceil(seconds / 3600)} h`
+}
+
+type EngineTone = 'primary' | 'warning' | 'error' | 'muted'
+
+function engineStatusView(engine: AdsAutomationEngine, loadFailed = false): {
+  title: string
+  detail: string
+  tone: EngineTone
+} {
+  if (loadFailed) {
+    return {
+      title: 'Estado indisponível',
+      detail: 'Não foi possível atualizar a situação da automação. A última leitura pode estar desatualizada.',
+      tone: 'error',
+    }
+  }
+
+  if (engine.state === 'idle') {
+    return {
+      title: 'Automação desligada',
+      detail: 'Nenhum piloto, regra, agendamento ou alerta está ativo.',
+      tone: 'muted',
+    }
+  }
+
+  if (engine.state === 'blocked') {
+    const blockedCopy: Record<string, [string, string]> = {
+      provider_unavailable: ['Conexão indisponível', 'O motor aguarda a conexão com o TikTok voltar.'],
+      cache_unavailable: ['Persistência indisponível', 'O motor não roda sem o espelho durável de dados.'],
+      worker_stopped: ['Motor parado', 'O processo automático não está em execução no servidor.'],
+      worker_stale: ['Motor sem resposta', 'O processo automático deixou de confirmar atividade.'],
+      policy_unavailable: ['Proteção indisponível', 'O motor não age sem conseguir ler os limites de segurança.'],
+    }
+    const copy = blockedCopy[engine.reasonCode || ''] || ['Automação indisponível', 'O motor não pode operar neste momento.']
+    return { title: copy[0], detail: copy[1], tone: 'error' }
+  }
+
+  if (engine.state === 'paused') {
+    if (engine.reasonCode === 'kill_switch') {
+      return {
+        title: 'Novas ações bloqueadas',
+        detail: 'O bloqueio de segurança impede novas alterações; campanhas atuais continuam como estão.',
+        tone: 'error',
+      }
+    }
+    return {
+      title: 'Pausada por segurança',
+      detail: 'Muitas ações falharam recentemente. O motor interrompeu novas tentativas.',
+      tone: 'warning',
+    }
+  }
+
+  if (engine.state === 'degraded') {
+    const degradedCopy: Record<string, [string, string]> = {
+      account_unauthorized: ['Conta sem acesso', 'A conexão não tem permissão para atualizar esta conta de anúncios.'],
+      account_blocked: ['Conta temporariamente bloqueada', 'A automação aguarda o acesso aos dados voltar.'],
+      sync_stale: ['Dados desatualizados', 'O motor não age com dados antigos e aguarda uma nova sincronização.'],
+      sync_error: ['Falha na sincronização', 'Os dados não puderam ser atualizados; nenhuma ação usa esse snapshot.'],
+      worker_error: ['Falha no último ciclo', 'O processo automático encontrou um erro e tentará novamente.'],
+      last_run_error: ['Última avaliação com falha', engine.lastError || 'Uma ação da avaliação não foi concluída.'],
+    }
+    const copy = degradedCopy[engine.reasonCode || ''] || ['Automação com atenção', 'O motor aguarda uma condição segura para continuar.']
+    return { title: copy[0], detail: copy[1], tone: 'warning' }
+  }
+
+  if (engine.state === 'starting') {
+    return {
+      title: 'Preparando automação',
+      detail: engine.reasonCode === 'sync_never'
+        ? 'Aguardando a primeira sincronização desta conta.'
+        : 'Dados prontos; aguardando a primeira avaliação do motor.',
+      tone: 'primary',
+    }
+  }
+
+  if (engine.running || engine.reasonCode === 'evaluation_running') {
+    return { title: 'Avaliando agora', detail: 'O motor está analisando esta conta.', tone: 'primary' }
+  }
+
+  const timing = engine.lastCompletedAt
+    ? `Última avaliação ${timeAgo(engine.lastCompletedAt)}${engine.nextSweepAt ? ` · próxima em ${timeUntil(engine.nextSweepAt)}` : ''}.`
+    : 'Aguardando a primeira avaliação.'
+  if (engine.executionMode === 'simulation') {
+    return { title: 'Modo teste ativo', detail: `Avalia e registra sem alterar o TikTok. ${timing}`, tone: 'warning' }
+  }
+  if (engine.executionMode === 'notify') {
+    return { title: 'Monitorando', detail: `Apenas avisa quando algo precisa de atenção. ${timing}`, tone: 'primary' }
+  }
+  if (engine.executionMode === 'proposal') {
+    return { title: 'Monitorando e propondo', detail: `Toda mudança aguarda sua aprovação. ${timing}`, tone: 'primary' }
+  }
+  return { title: 'Automação ativa', detail: timing, tone: 'primary' }
+}
+
+const ENGINE_MODE_LABEL: Record<AdsAutomationEngine['executionMode'], string> = {
+  notify: 'Só avisa',
+  proposal: 'Aguarda aprovação',
+  simulation: 'Modo teste',
+  automatic: 'Modo real',
+  custom: 'Personalizado',
 }
 
 // Clamps do motor espelhados no cliente (validateRules): salvar nunca
@@ -440,7 +542,7 @@ export function AutomationPanel({
   adAccountId?: string
   onOpenLimits?: () => void
 }) {
-  const { data, mutate, isLoading } = useAdsRules(active, adAccountId)
+  const { data, mutate, isLoading, isValidating, error } = useAdsRules(active, adAccountId)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -451,6 +553,14 @@ export function AutomationPanel({
   // Modo avançado: esconde o editor técnico de regras por padrão — pilotos
   // resolvem o dia a dia; o gestor abre isto só quando quer o controle fino.
   const [advanced, setAdvanced] = usePersistedState('ads:automation:advanced', false)
+  const [, setRelativeClock] = useState(0)
+
+  // timeAgo/timeUntil também precisam continuar verdadeiros com a tela aberta.
+  useEffect(() => {
+    if (!active) return
+    const timer = window.setInterval(() => setRelativeClock((value) => value + 1), 60_000)
+    return () => window.clearInterval(timer)
+  }, [active])
 
   const rules = data?.rules ?? []
   const log = data?.log ?? []
@@ -600,15 +710,11 @@ export function AutomationPanel({
           revision: saved.revision ?? data.revision,
           autonomy: saved.autonomy ?? data.autonomy,
           updatedAt: saved.updatedAt ?? data.updatedAt,
-          engine: {
-            ...data.engine,
-            revision: saved.revision ?? data.revision,
-            autonomy: saved.autonomy ?? data.autonomy,
-            alertsEnabled: saved.enabled,
-            status: saved.enabled || data.engine.rulesEnabled > 0 || data.engine.schedulesEnabled > 0 ? 'active' : 'idle',
-          },
         }, { revalidate: false })
       }
+      // O estado operacional depende de worker, sync e política; nunca o
+      // deduzimos otimisticamente só pelo switch salvo.
+      mutate().catch(() => {})
       toast.success(cfg.enabled ? 'Alertas ativados' : 'Alertas desligados')
       setAlertsExpanded(false)
       setAlertsDraft(null)
@@ -628,6 +734,20 @@ export function AutomationPanel({
     )
   }
 
+  if (error && !data) {
+    return (
+      <ErrorState
+        title="Não foi possível consultar a automação"
+        description="O estado do motor não será presumido. Tente carregar novamente."
+        onRetry={() => mutate()}
+        retrying={isValidating}
+      />
+    )
+  }
+
+  const engineView = data ? engineStatusView(data.engine, !!error) : null
+  const engineTone = engineView?.tone
+
   return (
     <div className="flex flex-col gap-3">
       {/* ── Pilotos: a cara padrão da automação (linguagem de gestor) ── */}
@@ -640,29 +760,51 @@ export function AutomationPanel({
         onSetAutonomy={setAutonomy}
       />
 
-      {/* Transparência operacional: deixa explícitos escopo, versão e pulso
-          do motor sem transformar a tela num console técnico. */}
-      {data && (
-        <div className="flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-2.5 sm:flex-row sm:items-center" aria-label={`Estado da automação da conta ${data.advertiserId}`}>
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className={cn('size-2 shrink-0 rounded-full', data.engine.status === 'active' ? 'bg-success' : 'bg-muted-foreground')} aria-hidden="true" />
+      {/* Um único estado operacional. Revisão/IDs ficam fora do fluxo normal. */}
+      {data && engineView && (
+        <div
+          className={cn(
+            'flex flex-col gap-2 rounded-xl border bg-card px-3 py-2.5 sm:flex-row sm:items-center',
+            engineTone === 'primary' && 'border-primary/30',
+            engineTone === 'warning' && 'border-warning/40',
+            engineTone === 'error' && 'border-error/40',
+            engineTone === 'muted' && 'border-border',
+          )}
+          aria-label={`Estado da automação da conta ${data.advertiserId}: ${engineView.title}`}
+          title={`Configuração salva ${timeAgo(data.updatedAt)} · revisão ${data.revision}`}
+        >
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            <span
+              className={cn(
+                'mt-1 size-2 shrink-0 rounded-full',
+                engineTone === 'primary' && 'bg-primary',
+                engineTone === 'warning' && 'bg-warning',
+                engineTone === 'error' && 'bg-error',
+                engineTone === 'muted' && 'bg-muted-foreground',
+                data.engine.running && 'animate-pulse',
+              )}
+              aria-hidden="true"
+            />
             <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Motor {data.engine.status === 'active' ? 'ativo' : 'ocioso'}</p>
-              <p className="truncate text-[11px] text-foreground" title={data.engine.nextSweepAt ? `Próxima avaliação em ${timeUntil(data.engine.nextSweepAt)}` : undefined}>
-                {data.engine.lastSweepAt
-                  ? `avaliou ${timeAgo(data.engine.lastSweepAt)} · próxima em ${timeUntil(data.engine.nextSweepAt)}`
-                  : 'aguardando a primeira avaliação'}
-              </p>
+              <p className="text-xs font-semibold text-foreground">{engineView.title}</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">{engineView.detail}</p>
             </div>
           </div>
-          <div className="flex min-w-0 items-center gap-2 sm:border-l sm:border-border sm:pl-3">
-            <Clock3 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Última configuração</p>
-              <p className="truncate text-[11px] text-foreground" title={new Date(data.updatedAt).toLocaleString('pt-BR')}>
-                salva {timeAgo(data.updatedAt)} · revisão {data.revision}
-              </p>
-            </div>
+          <div className="flex shrink-0 items-center gap-1.5 sm:pl-3">
+            <Clock3 className="size-3.5 text-muted-foreground" aria-hidden="true" />
+            <span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-medium text-muted-foreground">
+              {ENGINE_MODE_LABEL[data.engine.executionMode]}
+            </span>
+            {error && (
+              <button
+                type="button"
+                onClick={() => mutate()}
+                disabled={isValidating}
+                className="rounded-full px-2 py-1 text-[10px] font-medium text-error transition-colors hover:bg-error/10 disabled:opacity-60"
+              >
+                {isValidating ? 'Atualizando…' : 'Tentar novamente'}
+              </button>
+            )}
           </div>
         </div>
       )}
