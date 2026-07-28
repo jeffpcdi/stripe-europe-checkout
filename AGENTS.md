@@ -132,6 +132,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   alfanumérico salvo em Conversões com o `pixel_id` numérico lido do TikTok e
   `PUT /api/ads/pixels/default` resolve apenas contas ambíguas. Campanhas comuns, Smart+, Spark,
   wizard e lote de catálogos recebem esse Pixel no servidor e sempre usam Compra.
+  “Vídeos em massa” também é exclusivamente conversão: o formulário não oferece objetivo, Pixel
+  nem evento; bloqueia uploads enquanto o vínculo central não estiver pronto, exige destino HTTPS
+  e usa orçamento mínimo real. `POST /api/ads/bulk` rejeita objetivos incompatíveis, resolve novamente
+  o Pixel por `account_id + advertiser_id`, força `ON_WEB_ORDER`, usa o advertiser autorizado e mantém
+  a chave idempotente estável em timeout/retry; a fila cria cada estrutura pausada.
   Listagens percorrem **todas as páginas** do conector, inclusive contas com mais de 1.000 anúncios.
   A árvore Smart+ usa as APIs Smart+ nos três níveis e a classificação falha fechada: uma falha de
   leitura nunca rebaixa silenciosamente Smart+ para campanha comum. Orçamento CBO pertence somente à
@@ -164,6 +169,16 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   quando a conta está em autonomia global, a chave de apelação está ligada e o kill switch/dry-run
   permitem; há cooldown de 7 dias após sucesso e backoff de 1 hora após falha. Campanha comum fica com
   instrução manual explícita enquanto o conector não expõe API programática de recurso para esse tipo.
+  O loop de `ads-sync.js` une contas abertas recentemente aos perfis duráveis com regra, alerta ou
+  agendamento ativo em `config.pipeboardAds.automationProfiles`; por isso automações continuam inscritas
+  24/7 depois de 6 horas sem abrir a dashboard e após reinício. Briefings de IA continuam limitados às
+  contas vistas recentemente e não são ativados por essa inscrição operacional. O status operacional
+  não é inferido da configuração: `ads-sync.getRuntimeStatus()` expõe o heartbeat do processo atual,
+  cada promise de regra/alerta/agendamento registra dispatch, conclusão e resultado em
+  `runTrackedSweep()`, e `deriveEngineStatus()` cruza isso com o sync do advertiser selecionado, frescor
+  de 15 min, Neon/Pipeboard, kill switch, dry-run e circuit breaker. `/api/ads/rules` e
+  `/api/ads/mcp/status` usam o mesmo builder. Após restart, fica `starting` até o novo processo concluir
+  o primeiro ciclo — nunca restaura um heartbeat antigo como se o worker estivesse vivo.
 - **bot-filter.js** — cloaking multicamadas (score 0–100). Modelo de score em §8. Lookup de ASN (Cymru
   via DNS) com teto de latência (`deadlineMs`, padrão 120ms via `Promise.race`) e cache 2 camadas
   (memória + Redis `asn:<ip>`) para redirect quase instant��neo.
@@ -845,7 +860,10 @@ vínculo central do advertiser estiver pendente. Em Catálogo, conexão verifica
 técnicos ficam recolhidos; a lista prioriza nome, quantidade e estado acionável. Em Automações,
 `RejectionInbox` mostra no máximo cinco grupos reprovados antes de “Ver mais”, permite recurso manual
 Smart+ com `ConfirmDialog` e liga/desliga o recurso automático no mesmo controle de autonomia; o badge
-da aba soma incidentes abertos sem multiplicar notificações por anúncio.
+da aba soma incidentes abertos sem multiplicar notificações por anúncio. A faixa compacta da aba usa o
+estado real do motor (`idle|starting|running|paused|degraded|blocked`) e explica somente a condição
+acionável — motor parado, sync atrasado, conta sem acesso, modo teste ou pausa de segurança. Ela não
+mostra revisão/ID no fluxo normal, atualiza a cada 60s e nunca transforma falha de fetch em estado vazio.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):
