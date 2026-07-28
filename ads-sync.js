@@ -1,14 +1,16 @@
 // ── Motor de sync Pipeboard → Neon ──────────────────────────────────────────
 // PORQUÊ: a dashboard não deve mais esperar a API do Pipeboard a cada tela.
 // Este motor busca, em segundo plano, a estrutura + as métricas diárias de cada
-// advertiser ATIVO (visualizado recentemente na dashboard) e grava no espelho
-// durável (ads-cache-store). As rotas de leitura passam a ler só do Neon.
+// advertiser ATIVO e grava no espelho durável (ads-cache-store). "Ativo" é a
+// união de: visualizado recentemente na dashboard OU com automação persistente
+// ligada. As rotas de leitura passam a ler só do Neon.
 //
 // Estratégia:
 //   - Janela larga (365d) de métricas DIÁRIAS por entidade → qualquer
 //     date-range pedido pela dashboard é servido por agregação, sem re-chamar.
-//   - Só sincroniza advertisers ativos (touchActivity marca quando a dashboard
-//     abre uma conta) — corta o custo de varrer os 155 do token.
+//   - Advertisers sem automação usam a janela de atividade da dashboard; quem
+//     tem regra/alerta/agendamento ligado permanece inscrito 24/7, inclusive
+//     após fechar a tela ou reiniciar o processo.
 //   - Stale-while-revalidate: se já há cache, serve na hora e revalida em
 //     segundo plano; só bloqueia no PRIMEIRO carregamento (cache frio).
 //   - Como o plano é ilimitado, o intervalo é agressivo (3 min por padrão).
@@ -247,17 +249,49 @@ async function refreshNow(accountId, advertiserId) {
 // ── Loop recorrente ─────────────────────────────────────────────────────────
 let running = false;
 let timer = null;
+const runtime = {
+  lastTickStartedAt: null,
+  lastTickCompletedAt: null,
+  lastTickError: null,
+};
+
+// Estado do PROCESSO atual. Não é persistido de propósito: depois de um
+// restart, o painel só volta a dizer que o motor está rodando após observar o
+// novo timer/tick — nunca reutiliza um heartbeat antigo como se estivesse vivo.
+function getRuntimeStatus() {
+  return {
+    started: !!timer,
+    running,
+    lastTickStartedAt: runtime.lastTickStartedAt,
+    lastTickCompletedAt: runtime.lastTickCompletedAt,
+    lastTickError: runtime.lastTickError,
+    intervalMs: SYNC_INTERVAL_MS,
+  };
+}
+
 async function tick() {
   if (running) return;
   running = true;
   const tickStart = Date.now();
+  runtime.lastTickStartedAt = new Date(tickStart).toISOString();
+  let tickError = null;
   try {
     // automation é carregado preguiçosamente AQUI (não no topo) para evitar
     // qualquer risco de ciclo de require no boot — em runtime o cache de
     // módulos do Node resolve na primeira chamada e reusa depois.
     const automation = require('./ads-automation');
-    const actives = await cache.listActiveAdvertisers(ACTIVE_WINDOW_MIN);
-    for (const a of actives) {
+    const recent = await cache.listActiveAdvertisers(ACTIVE_WINDOW_MIN);
+    const persistent = automation.listPersistentAutomationScopes();
+    const targetsByScope = new Map();
+    for (const scope of recent.concat(persistent)) {
+      const key = scope.accountId + ':' + scope.advertiserId;
+      // A entrada "recent" pode carregar metadados usados pelo briefing; não
+      // deixa a versão mínima da inscrição persistente sobrescrevê-los.
+      if (!targetsByScope.has(key)) targetsByScope.set(key, scope);
+    }
+    const targets = [...targetsByScope.values()];
+
+    for (const a of targets) {
       const st = await cache.getSyncState(a.accountId, a.advertiserId).catch(() => null);
       const last = st && st.last_synced_at ? new Date(st.last_synced_at).getTime() : 0;
       const wasBlocked = st && st.status === 'blocked';
@@ -274,10 +308,17 @@ async function tick() {
     // Varreduras de automação 24/7: rodam DEPOIS do sync (espelho fresco),
     // uma vez por advertiser, lendo SÓ do Neon — zero chamadas extras à Pipeboard.
     // Throttle vive dentro do módulo (compartilhado com o hook das rotas).
-    const scopes = [...new Map(actives.map((a) => [a.accountId + ':' + a.advertiserId, a])).values()];
-    for (const scope of scopes) {
+    for (const scope of targets) {
       const accId = scope.accountId;
       try { automation.maybeSweep(accId, scope.advertiserId); } catch (_) { /* sweep nunca derruba o sync */ }
+    }
+
+    // O briefing não faz parte da automação operacional. Mantém o comportamento
+    // anterior: só roda para contas abertas recentemente, evitando geração de
+    // IA em background apenas porque uma regra ficou ligada.
+    const briefingScopes = [...new Map(recent.map((a) => [a.accountId + ':' + a.advertiserId, a])).values()];
+    for (const scope of briefingScopes) {
+      const accId = scope.accountId;
       // Briefing diário com IA: 1×/dia por conta + advertiser, idempotente via Neon,
       // fire-and-forget (nunca atrasa nem derruba o tick). Lazy require pelo
       // mesmo motivo do automation acima (sem risco de ciclo no boot).
@@ -286,10 +327,13 @@ async function tick() {
       } catch (_) { /* briefing nunca derruba o sync */ }
     }
   } catch (err) {
+    tickError = String(err && err.message ? err.message : err).slice(0, 500);
     console.error('[ads-sync] tick falhou:', err.message);
   } finally {
     const dur = Date.now() - tickStart;
     if (dur > 60 * 1000) console.warn('[ads-sync] tick demorou ' + Math.round(dur / 1000) + 's (esperado < 60s)');
+    runtime.lastTickCompletedAt = new Date().toISOString();
+    runtime.lastTickError = tickError;
     running = false;
   }
 }
@@ -300,7 +344,7 @@ function start() {
     console.warn('[ads-sync] desativado (Neon ou Pipeboard indisponível).');
     return;
   }
-  console.log('[ads-sync] motor ligado — intervalo ' + Math.round(SYNC_INTERVAL_MS / 1000) + 's, janela ' + WIDE_DAYS + 'd, ativos < ' + ACTIVE_WINDOW_MIN + 'min.');
+  console.log('[ads-sync] motor ligado — intervalo ' + Math.round(SYNC_INTERVAL_MS / 1000) + 's, janela ' + WIDE_DAYS + 'd, recentes < ' + ACTIVE_WINDOW_MIN + 'min + automações persistentes 24/7.');
   timer = setInterval(() => { tick().catch(() => {}); }, SYNC_INTERVAL_MS);
   if (timer.unref) timer.unref();
   // primeiro tick logo após o boot (dá tempo do schema/rotas subirem)
@@ -353,6 +397,7 @@ module.exports = {
   ensureFresh,
   refreshNow,
   syncAfterWrite,
+  getRuntimeStatus,
   start,
   stop,
   tick,

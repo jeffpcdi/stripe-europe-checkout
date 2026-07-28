@@ -479,7 +479,8 @@ export function useAdsAttribution(
 export function useAdsRules(active: boolean, adAccountId = '') {
   const key = active && adAccountId ? `/api/ads/rules?adAccountId=${encodeURIComponent(adAccountId)}` : null
   return useSWR<AdsRulesResponse>(key, fetcher, {
-    revalidateOnFocus: false,
+    refreshInterval: 60_000,
+    revalidateOnFocus: true,
   })
 }
 

@@ -1251,18 +1251,67 @@ export interface AdsRulesResponse {
 
 export type AdsAutomationAutonomy = 'notify' | 'propose' | 'auto'
 
+export type AdsAutomationEngineState = 'idle' | 'starting' | 'running' | 'paused' | 'degraded' | 'blocked'
+export type AdsAutomationExecutionMode = 'notify' | 'proposal' | 'simulation' | 'automatic' | 'custom'
+
 export interface AdsAutomationEngine {
   advertiserId: string
   revision: number
   autonomy: AdsAutomationAutonomy | 'custom'
   updatedAt: string
-  status: 'active' | 'idle'
+  state: AdsAutomationEngineState
+  reasonCode:
+    | 'healthy'
+    | 'evaluation_running'
+    | 'first_evaluation_pending'
+    | 'sync_never'
+    | 'sync_stale'
+    | 'sync_error'
+    | 'account_blocked'
+    | 'account_unauthorized'
+    | 'kill_switch'
+    | 'breaker_open'
+    | 'provider_unavailable'
+    | 'cache_unavailable'
+    | 'worker_stopped'
+    | 'worker_stale'
+    | 'worker_error'
+    | 'policy_unavailable'
+    | 'last_run_error'
+    | null
+  executionMode: AdsAutomationExecutionMode
+  subscribed24x7: boolean
+  dataFresh: boolean
+  monitoringActive: boolean
+  actionsPaused: boolean
+  running: boolean
+  lastDispatchAt: string | null
+  lastCompletedAt: string | null
+  lastResult: 'ok' | 'skipped' | 'stale' | 'kill_switch' | 'partial_error' | 'error' | null
+  lastError: string | null
   lastSweepAt: string | null
   lastScheduleSweepAt: string | null
   nextSweepAt: string | null
   rulesEnabled: number
   schedulesEnabled: number
   alertsEnabled: boolean
+  worker: {
+    started: boolean
+    running: boolean
+    lastTickStartedAt: string | null
+    lastTickCompletedAt: string | null
+    lastTickError: string | null
+    intervalMs: number
+  }
+  sync: {
+    status: string | null
+    lastSyncedAt: string | null
+    ageMs: number | null
+    lastError: string | null
+  }
+  breakerOpen: boolean
+  lastLogEntry: { at: string; result?: string; campaignName?: string; ok: boolean } | null
+  // Alias temporário para consumidores antigos; a UI usa lastLogEntry.
   lastAction: { at: string; result?: string; campaignName?: string; ok: boolean } | null
 }
 
@@ -1292,20 +1341,7 @@ export interface AdsMcpStatusResponse {
     blocked: { advertiserId: string; blockedUntil: string | null }[]
     lastSyncAt: string | null
   }
-  automation: {
-    advertiserId?: string
-    revision?: number
-    autonomy?: AdsAutomationAutonomy | 'custom'
-    updatedAt?: string
-    status?: 'active' | 'idle'
-    lastSweepAt: string | null
-    lastScheduleSweepAt: string | null
-    nextSweepAt?: string | null
-    rulesEnabled: number
-    schedulesEnabled: number
-    alertsEnabled: boolean
-    lastAction: { at: string; result?: string; campaignName?: string; ok: boolean } | null
-  }
+  automation: AdsAutomationEngine
   // telemetria da camada de IA direta (não conta chamadas Pipeboard)
   ai?: { calls: number; errors: number; lastAt: string | null; lastError: string | null }
 }

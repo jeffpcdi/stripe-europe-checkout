@@ -24,6 +24,7 @@
 const provider = require('./ads-provider');
 const cache = require('./ads-cache-store');
 const adsOps = require('./ads-ops-store');
+const config = require('./config');
 const redis = require('./redis');
 const { sendPushcut } = require('./pushcut');
 
@@ -255,6 +256,60 @@ function persistProfile(accId, advertiserId, profile) {
   const normalized = normalizedProfile(profile, id);
   provider.setState(accId, { automationProfiles: { ...profiles, [id]: normalized } });
   return normalized;
+}
+
+// Inscrições duráveis do worker 24/7. A fonte de verdade já é o bloco
+// config.pipeboardAds.automationProfiles, persistido no Neon e hidratado antes
+// de ads-sync.start(). Não dependemos de requested_at/touchActivity: fechar a
+// dashboard ou reiniciar o processo não retira um advertiser desta lista.
+//
+// Importante: a leitura é pura — nunca chama getAutomationProfile(), porque
+// esse helper cria/persiste o perfil padrão quando ele ainda não existe.
+function profileHasEnabledAutomation(raw) {
+  if (!raw || typeof raw !== 'object') return false;
+  const hasAlerts = raw.alerts && typeof raw.alerts === 'object'
+    && raw.alerts.enabled === true;
+  const hasRules = Array.isArray(raw.rules)
+    && raw.rules.some((rule) => rule && typeof rule === 'object' && rule.enabled === true);
+  return hasAlerts || hasRules;
+}
+
+function listPersistentAutomationScopes() {
+  const scopes = new Map();
+  for (const accountId of config.accountIds()) {
+    const state = provider.getState(accountId);
+    const profiles = state.automationProfiles && typeof state.automationProfiles === 'object'
+      ? state.automationProfiles
+      : {};
+
+    for (const [rawAdvertiserId, rawProfile] of Object.entries(profiles)) {
+      const advertiserId = cleanAdvertiserId(rawAdvertiserId);
+      if (!advertiserId || advertiserId === '__default__') continue;
+      if (!profileHasEnabledAutomation(rawProfile)) continue;
+      scopes.set(accountId + ':' + advertiserId, { accountId, advertiserId });
+    }
+
+    // Compatibilidade com configurações anteriores aos perfis por advertiser.
+    // O legado só é elegível quando há um advertiser concreto salvo; ao abrir
+    // a dashboard, getAutomationProfile() continua responsável pela migração.
+    const legacyAdvertiserId = cleanAdvertiserId(state.advertiserId);
+    const hasLegacy = Array.isArray(state.rules)
+      || (state.alerts && typeof state.alerts === 'object');
+    if (legacyAdvertiserId && hasLegacy && !profiles[legacyAdvertiserId]) {
+      const rawLegacy = {
+        rules: Array.isArray(state.rules) ? state.rules : [],
+        alerts: state.alerts && typeof state.alerts === 'object' ? state.alerts : {},
+        autonomy: state.autonomy,
+      };
+      if (profileHasEnabledAutomation(rawLegacy)) {
+        scopes.set(accountId + ':' + legacyAdvertiserId, {
+          accountId,
+          advertiserId: legacyAdvertiserId,
+        });
+      }
+    }
+  }
+  return [...scopes.values()];
 }
 
 function revisionConflict(current) {
@@ -1542,8 +1597,79 @@ async function runScheduleSweep(accId, { force, advertiserId: advertiserHint } =
 // então não importa quantos gatilhos disparem: uma varredura por janela.
 const sweepLast = new Map();    // account+advertiser → ts (regras+alertas)
 const scheduleLast = new Map(); // account+advertiser → ts (dayparting)
+const engineRuns = new Map();   // account+advertiser → último resultado real por componente
 
 function sweepKey(accId, advertiserId) { return String(accId) + ':' + cleanAdvertiserId(advertiserId); }
+
+function engineRunState(accId, advertiserId) {
+  const key = sweepKey(accId, advertiserId);
+  if (!engineRuns.has(key)) engineRuns.set(key, {});
+  return engineRuns.get(key);
+}
+
+function sweepResultCode(result) {
+  if (result && result.killSwitch) return 'kill_switch';
+  if (result && result.stale) return 'stale';
+  if (result && result.skipped) return 'skipped';
+  const entries = [].concat((result && result.executed) || [], (result && result.findings) || []);
+  if (entries.some((entry) => entry && entry.ok === false && /^falhou:/i.test(String(entry.result || '')))) {
+    return 'partial_error';
+  }
+  return 'ok';
+}
+
+function sweepResultError(result, code) {
+  if (code !== 'partial_error') return null;
+  const entries = [].concat((result && result.executed) || [], (result && result.findings) || []);
+  const failed = entries.find((entry) => entry && entry.ok === false && /^falhou:/i.test(String(entry.result || '')));
+  return failed ? String(failed.result).slice(0, 240) : 'Uma ação da avaliação falhou';
+}
+
+// Registra início e término de verdade. O timestamp antigo (sweepLast) continua
+// sendo o throttle/dispatch; ele nunca mais é apresentado como conclusão.
+function runTrackedSweep(component, accId, advertiserId, runner) {
+  const id = cleanAdvertiserId(advertiserId);
+  const key = sweepKey(accId, id);
+  const scope = engineRunState(accId, id);
+  const current = scope[component] || { inFlight: 0 };
+
+  // Uma avaliação lenta nunca pode se sobrepor à próxima do mesmo componente:
+  // isso duplicaria ações, auditorias e notificações. Componentes diferentes
+  // continuam independentes (alertas, regras e agenda podem rodar juntos).
+  if ((current.inFlight || 0) > 0) {
+    return Promise.resolve({
+      skipped: true,
+      reason: 'already_running',
+      running: true,
+      component,
+    });
+  }
+
+  const startedAt = new Date().toISOString();
+  current.inFlight = (current.inFlight || 0) + 1;
+  current.lastDispatchAt = startedAt;
+  scope[component] = current;
+  if (component === 'schedule') scheduleLast.set(key, Date.now());
+  else sweepLast.set(key, Date.now());
+
+  return Promise.resolve()
+    .then(() => runner())
+    .then((result) => {
+      const code = sweepResultCode(result);
+      current.lastCompletedAt = new Date().toISOString();
+      current.lastResult = code;
+      current.lastError = sweepResultError(result, code);
+      return result;
+    }, (error) => {
+      current.lastCompletedAt = new Date().toISOString();
+      current.lastResult = 'error';
+      current.lastError = String(error && error.message ? error.message : error).slice(0, 240);
+      throw error;
+    })
+    .finally(() => {
+      current.inFlight = Math.max(0, (current.inFlight || 1) - 1);
+    });
+}
 
 function maybeSweep(accId, advertiserHint) {
   try {
@@ -1556,15 +1682,20 @@ function maybeSweep(accId, advertiserHint) {
       const hasAlerts = getAlertCfg(accId, advertiserId).enabled;
       const hasRules = getRules(accId, advertiserId).some((r) => r.enabled && r.metric !== 'schedule');
       if (hasAlerts || hasRules) {
-        sweepLast.set(key, now);
-        if (hasAlerts) runAlertSweep(accId, { advertiserId }).catch(() => {});
-        if (hasRules) runRulesSweep(accId, { advertiserId }).catch(() => {});
+        if (hasAlerts) {
+          runTrackedSweep('alerts', accId, advertiserId, () => runAlertSweep(accId, { advertiserId }))
+            .catch((error) => console.warn('[ads-automation] varredura de alertas falhou:', error.message));
+        }
+        if (hasRules) {
+          runTrackedSweep('rules', accId, advertiserId, () => runRulesSweep(accId, { advertiserId }))
+            .catch((error) => console.warn('[ads-automation] varredura de regras falhou:', error.message));
+        }
       }
     }
     if (now - (scheduleLast.get(key) || 0) > SCHEDULE_THROTTLE_MS) {
       if (getRules(accId, advertiserId).some((r) => r.enabled && r.metric === 'schedule')) {
-        scheduleLast.set(key, now);
-        runScheduleSweep(accId, { advertiserId }).catch(() => {});
+        runTrackedSweep('schedule', accId, advertiserId, () => runScheduleSweep(accId, { advertiserId }))
+          .catch((error) => console.warn('[ads-automation] varredura de agendamento falhou:', error.message));
       }
     }
   } catch (_) { /* nunca derruba o chamador */ }
@@ -1573,8 +1704,14 @@ function maybeSweep(accId, advertiserHint) {
 // Marca "varredura feita agora" (rotas manuais /rules/run e /alerts/check).
 function markSweepNow(accId, advertiserId) { sweepLast.set(sweepKey(accId, advertiserId), Date.now()); }
 
-// Resumo p/ o painel de diagnóstico MCP: última varredura, regras ativas e
-// último disparo do log — a UI mostra que o motor 24/7 está de fato girando.
+function latestRun(componentStates, field) {
+  return componentStates
+    .filter((state) => state && state[field])
+    .sort((a, b) => new Date(b[field] || 0).getTime() - new Date(a[field] || 0).getTime())[0] || null;
+}
+
+// Resumo factual das execuções do processo atual. Não tenta decidir saúde:
+// provider, Neon, sync, worker e guardas entram em deriveEngineStatus abaixo.
 function getSweepInfo(accId, advertiserId) {
   const id = profileId(accId, advertiserId);
   const key = sweepKey(accId, id);
@@ -1584,26 +1721,191 @@ function getSweepInfo(accId, advertiserId) {
   const enabled = rules.filter((r) => r.enabled).length;
   const lastSweepMs = sweepLast.get(key) || 0;
   const lastScheduleMs = scheduleLast.get(key) || 0;
+  const runScope = engineRuns.get(key) || {};
+  const relevant = [];
+  if (rules.some((r) => r.enabled && r.metric !== 'schedule')) relevant.push(runScope.rules);
+  if (rules.some((r) => r.enabled && r.metric === 'schedule')) relevant.push(runScope.schedule);
+  if (profile.alerts.enabled) relevant.push(runScope.alerts);
+  const lastDispatched = latestRun(relevant, 'lastDispatchAt');
+  const lastCompleted = latestRun(relevant, 'lastCompletedAt');
+  const lastFailed = latestRun(relevant.filter((run) => run && ['error', 'partial_error'].includes(run.lastResult)), 'lastCompletedAt');
   const nextRulesMs = lastSweepMs ? lastSweepMs + SWEEP_THROTTLE_MS : 0;
   const nextScheduleMs = lastScheduleMs ? lastScheduleMs + SCHEDULE_THROTTLE_MS : 0;
   const nextMs = [nextRulesMs, nextScheduleMs].filter(Boolean).sort((a, b) => a - b)[0] || 0;
+  const lastLogEntry = log.length ? { at: log[0].at, result: log[0].result || log[0].detail, campaignName: log[0].campaignName, ok: !!log[0].ok } : null;
   return {
     advertiserId: id,
     revision: profile.revision,
     autonomy: profile.autonomy,
     updatedAt: profile.updatedAt,
-    status: enabled || profile.alerts.enabled ? 'active' : 'idle',
-    lastSweepAt: lastSweepMs ? new Date(lastSweepMs).toISOString() : null,
-    lastScheduleSweepAt: lastScheduleMs ? new Date(lastScheduleMs).toISOString() : null,
+    subscribed24x7: !!(enabled || profile.alerts.enabled),
+    running: relevant.some((run) => run && run.inFlight > 0),
+    lastDispatchAt: (lastDispatched && lastDispatched.lastDispatchAt) || null,
+    lastCompletedAt: (lastCompleted && lastCompleted.lastCompletedAt) || null,
+    lastResult: (lastCompleted && lastCompleted.lastResult) || null,
+    lastError: (lastFailed && lastFailed.lastError) || null,
+    // aliases antigos mantidos para consumidores externos, agora com semântica
+    // correta: término real (não o momento em que a promise foi disparada).
+    lastSweepAt: latestRun([runScope.rules, runScope.alerts], 'lastCompletedAt')?.lastCompletedAt || null,
+    lastScheduleSweepAt: runScope.schedule?.lastCompletedAt || null,
     nextSweepAt: nextMs ? new Date(nextMs).toISOString() : null,
     rulesEnabled: rules.filter((r) => r.enabled && r.metric !== 'schedule').length,
     schedulesEnabled: rules.filter((r) => r.enabled && r.metric === 'schedule').length,
     alertsEnabled: !!profile.alerts.enabled,
-    lastAction: log.length ? { at: log[0].at, result: log[0].result || log[0].detail, campaignName: log[0].campaignName, ok: !!log[0].ok } : null,
+    lastLogEntry,
+    lastAction: lastLogEntry,
   };
 }
 
-function getAutomationSnapshot(accId, advertiserId) {
+function executionMode(autonomy, policy) {
+  if (policy && policy.dryRun) return 'simulation';
+  if (autonomy === 'notify') return 'notify';
+  if (autonomy === 'propose') return 'proposal';
+  if (autonomy === 'auto') return 'automatic';
+  return 'custom';
+}
+
+function validIso(value) {
+  const ms = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+}
+
+// Função pura: uma única precedência para /rules, /mcp/status e testes.
+function deriveEngineStatus({
+  sweep,
+  providerEnabled,
+  cacheEnabled,
+  worker,
+  syncState,
+  syncReadError,
+  policy,
+  policyAvailable = true,
+  breaker,
+  now = Date.now(),
+}) {
+  const hasWork = !!(sweep.rulesEnabled || sweep.schedulesEnabled || sweep.alertsEnabled);
+  const mode = executionMode(sweep.autonomy, policy);
+  const workerState = {
+    started: !!(worker && worker.started),
+    running: !!(worker && worker.running),
+    lastTickStartedAt: (worker && worker.lastTickStartedAt) || null,
+    lastTickCompletedAt: (worker && worker.lastTickCompletedAt) || null,
+    lastTickError: (worker && worker.lastTickError) || null,
+    intervalMs: Number(worker && worker.intervalMs) || 0,
+  };
+  const syncStatus = syncState ? String(syncState.status || '') || null : null;
+  const lastSyncedAt = validIso(syncState && syncState.last_synced_at);
+  const lastSyncedMs = lastSyncedAt ? new Date(lastSyncedAt).getTime() : 0;
+  const syncAgeMs = lastSyncedMs ? Math.max(0, now - lastSyncedMs) : null;
+  const dataFresh = !!(lastSyncedMs && syncAgeMs <= FRESHNESS_MS && !['never', 'blocked', 'unauthorized', 'error'].includes(syncStatus));
+  const heartbeatAt = workerState.lastTickCompletedAt || workerState.lastTickStartedAt;
+  const heartbeatMs = heartbeatAt ? new Date(heartbeatAt).getTime() : 0;
+  const heartbeatLimit = Math.max((workerState.intervalMs || 3 * 60e3) * 3, 10 * 60e3);
+  const workerStale = !!(workerState.started && !workerState.running && heartbeatMs && now - heartbeatMs > heartbeatLimit);
+  const breakerOpenNow = !!(breaker && breaker.open);
+
+  let state = 'running';
+  let reasonCode = 'healthy';
+  if (!hasWork) {
+    state = 'idle'; reasonCode = null;
+  } else if (!providerEnabled) {
+    state = 'blocked'; reasonCode = 'provider_unavailable';
+  } else if (!cacheEnabled) {
+    state = 'blocked'; reasonCode = 'cache_unavailable';
+  } else if (!workerState.started) {
+    state = 'blocked'; reasonCode = 'worker_stopped';
+  } else if (workerStale) {
+    state = 'blocked'; reasonCode = 'worker_stale';
+  } else if (!policyAvailable) {
+    state = 'blocked'; reasonCode = 'policy_unavailable';
+  } else if (policy && policy.killSwitch) {
+    state = 'paused'; reasonCode = 'kill_switch';
+  } else if (breakerOpenNow && !(policy && policy.dryRun)) {
+    state = 'paused'; reasonCode = 'breaker_open';
+  } else if (syncReadError) {
+    state = 'degraded'; reasonCode = 'sync_error';
+  } else if (syncStatus === 'unauthorized') {
+    state = 'degraded'; reasonCode = 'account_unauthorized';
+  } else if (syncStatus === 'blocked') {
+    state = 'degraded'; reasonCode = 'account_blocked';
+  } else if (!lastSyncedMs || syncStatus === 'never') {
+    state = 'starting'; reasonCode = 'sync_never';
+  } else if (syncStatus === 'error') {
+    state = 'degraded'; reasonCode = 'sync_error';
+  } else if (!dataFresh) {
+    state = 'degraded'; reasonCode = 'sync_stale';
+  } else if (workerState.lastTickError) {
+    state = 'degraded'; reasonCode = 'worker_error';
+  } else if (sweep.running) {
+    state = 'running'; reasonCode = 'evaluation_running';
+  } else if (!sweep.lastCompletedAt) {
+    state = 'starting'; reasonCode = 'first_evaluation_pending';
+  } else if (sweep.lastError || ['error', 'partial_error'].includes(sweep.lastResult)) {
+    state = 'degraded'; reasonCode = 'last_run_error';
+  } else if (sweep.lastResult === 'stale') {
+    state = 'degraded'; reasonCode = 'sync_stale';
+  } else if (sweep.lastResult === 'kill_switch') {
+    state = 'paused'; reasonCode = 'kill_switch';
+  }
+
+  const monitoringActive = state === 'running'
+    || (state === 'paused' && sweep.alertsEnabled && dataFresh);
+  const actionsPaused = ['paused', 'blocked', 'degraded'].includes(state)
+    || ['simulation', 'notify', 'proposal'].includes(mode);
+  return {
+    ...sweep,
+    state,
+    reasonCode,
+    executionMode: mode,
+    subscribed24x7: hasWork,
+    dataFresh,
+    monitoringActive,
+    actionsPaused,
+    worker: workerState,
+    sync: {
+      status: syncStatus,
+      lastSyncedAt,
+      ageMs: syncAgeMs,
+      lastError: syncReadError || (syncState && syncState.last_error) || null,
+    },
+    breakerOpen: breakerOpenNow,
+  };
+}
+
+async function getEngineStatus(accId, advertiserId, options = {}) {
+  const hasSync = Object.prototype.hasOwnProperty.call(options, 'syncState');
+  const hasPolicy = Object.prototype.hasOwnProperty.call(options, 'policy');
+  let syncState = hasSync ? options.syncState : null;
+  let syncReadError = options.syncReadError || null;
+  let policy = hasPolicy ? options.policy : null;
+  let policyAvailable = hasPolicy ? !!options.policy : true;
+  if (!hasSync && cache.enabled) {
+    try { syncState = await cache.getSyncState(accId, advertiserId); }
+    catch (error) { syncReadError = String(error && error.message ? error.message : error); }
+  }
+  if (!hasPolicy) {
+    try {
+      policy = await adsOps.getSafetyPolicy(accId);
+      policyAvailable = !!policy;
+    }
+    catch (_) { policyAvailable = false; }
+  }
+  if (policy) await ensureBreakerHydrated(accId, advertiserId);
+  const breaker = options.breaker || getBreakerState(accId, policy, advertiserId);
+  return deriveEngineStatus({
+    sweep: getSweepInfo(accId, advertiserId),
+    providerEnabled: provider.enabled,
+    cacheEnabled: cache.enabled,
+    worker: options.worker || {},
+    syncState,
+    syncReadError,
+    policy,
+    policyAvailable,
+    breaker,
+  });
+}
+
+async function getAutomationSnapshot(accId, advertiserId, options = {}) {
   const profile = getAutomationProfile(accId, advertiserId);
   return {
     advertiserId: profile.advertiserId,
@@ -1613,7 +1915,7 @@ function getAutomationSnapshot(accId, advertiserId) {
     rules: [...profile.rules],
     log: [...profile.rulesLog],
     alerts: { ...profile.alerts },
-    engine: getSweepInfo(accId, profile.advertiserId),
+    engine: await getEngineStatus(accId, profile.advertiserId, options),
   };
 }
 
@@ -1639,6 +1941,8 @@ module.exports = {
   buildRulePresets,
   getAutomationProfile,
   getAutomationSnapshot,
+  getEngineStatus,
+  listPersistentAutomationScopes,
   getAlertCfg,
   getRules,
   getRulesLog,
@@ -1657,10 +1961,11 @@ module.exports = {
   discardDeadLetter,
   maybeSweep,
   markSweepNow,
+  runTrackedSweep,
   getSweepInfo,
   getBreakerState,
   ensureBreakerHydrated,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, APPEAL_COOLDOWN_MS, APPEAL_RETRY_MS },
+  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, profileHasEnabledAutomation, deriveEngineStatus, sweepResultCode, engineRuns, APPEAL_COOLDOWN_MS, APPEAL_RETRY_MS, FRESHNESS_MS },
 };
