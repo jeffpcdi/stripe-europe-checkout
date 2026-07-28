@@ -32,6 +32,7 @@ const pipeboardMcp = require('./pipeboard-mcp'); // Gate 1: cliente MCP cru (só
 const adsCache = require('./ads-cache-store'); // espelho durável no Neon (leitura)
 const adsSync = require('./ads-sync');         // motor Pipeboard→Neon (sync em background)
 const automation = require('./ads-automation'); // regras/alertas/dayparting 24/7
+const automationWindow = require('./ads-automation-window');
 const adsAi = require('./ads-ai');             // copiloto/briefing/criativos/realocação (IA, leituras 100% Neon)
 const adsOps = require('./ads-ops-store');
 const adsStorage = require('./ads-storage'); // uploads em disco (Railway) — sem Vercel Blob
@@ -1643,8 +1644,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   // ── Alertas + regras + dayparting — motor extraído para ads-automation.js ──
   // O motor roda 24/7 no tick do ads-sync (dashboard fechada = automações vivas)
-  // E pega carona no polling das rotas (latência percebida menor). O throttle é
-  // ÚNICO, dentro do módulo — dois gatilhos nunca causam varredura dupla.
+  // E pega carona no polling das rotas (latência percebida menor). Lease e
+  // marcadores Redis impedem duplicação entre gatilhos e instâncias.
   automation.init({ stats, syncAfterWrite: adsSync.syncAfterWrite });
   adsSweepHook.fn = automation.maybeSweep;
 
@@ -1657,6 +1658,7 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     computeAttribution: automation.computeAttribution,
     getRules: automation.getRules,
     getRulesLog: automation.getRulesLog,
+    resolveAdvertiserTimeZone: automation.resolveAdvertiserTimeZone,
     sendPushcut: require('./pushcut').sendPushcut,
   });
 
@@ -1858,29 +1860,35 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   const computeAttribution = automation.computeAttribution;
 
   app.get('/api/ads/attribution', dashboardAuth, async (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  try {
-  if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
-  const q = req.query || {};
-  // A receita vem do stats interno, mas o calendário civil vem da conta de
-  // anúncios validada. Assim a API e o motor cortam o dia no mesmo fuso.
-  const advertiserId = q.adAccountId
-    ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
-    : await resolveAdv(req, '');
-  const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
-  const today = new Date();
-  const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || ''))
-    ? q.fromDate
-    : adsDay(new Date(today.getTime() - 6 * 864e5), timeZone);
-  const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || ''))
-    ? q.toDate
-    : adsDay(today, timeZone);
-  const data = computeAttribution(req.account.id, fromDate, toDate, timeZone);
-  res.json({ fromDate, toDate, timeZone, byCampaign: data.byCampaign, unattributed: data.unattributed });
-  } catch (err) { fail(res, err); }
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const q = req.query || {};
+      // A receita vem do stats interno, mas o calendário civil vem da conta de
+      // anúncios validada. Assim a API e o motor cortam o dia no mesmo fuso.
+      const advertiserId = q.adAccountId
+        ? (await requireAdvertiser(req.account.id, null, q.adAccountId, null)).advertiserId
+        : await resolveAdv(req, '');
+      const timeZone = await automation.resolveAdvertiserTimeZone(req.account.id, advertiserId);
+      const defaultWindow = automationWindow.inclusiveWindow(new Date(), 7, timeZone);
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.fromDate || ''))
+        ? q.fromDate
+        : defaultWindow.fromDate;
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(q.toDate || ''))
+        ? q.toDate
+        : defaultWindow.toDate;
+      const data = computeAttribution(req.account.id, fromDate, toDate, timeZone);
+      res.json({
+        fromDate,
+        toDate,
+        timeZone,
+        byCampaign: data.byCampaign,
+        unattributed: data.unattributed,
+      });
+    } catch (err) { fail(res, err); }
   });
 
-  // ── Regras automáticas — motor em ads-automation.js ────────��───────────────
+  // ── Regras automáticas — motor em ads-automation.js ────────────────────────
   // Métricas: cpa_max | spend_no_conv | roas_min | ctr_min | cpm_max |
   // roas_scale (escala vencedoras com teto) | schedule (dayparting).
   // As rotas abaixo só delegam; a varredura 24/7 roda no tick do ads-sync.

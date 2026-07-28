@@ -94,8 +94,14 @@ const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus,
     eq(calls[0].patch.budget.amount, 120, 'novo orçamento é repassado');
     const src = fs.readFileSync(path.join(__dirname, '..', 'ads-automation.js'), 'utf8');
     // dayparting usa o roteador por tipo (não o setCampaignStatus direto)
-    ok(/setCampaignStatusByKind\(c, advertiserId, cid, 'paused'\)/.test(src), 'dayparting pausa via roteador por tipo');
-    ok(/setCampaignStatusByKind\(c, advertiserId, cid, 'active'\)/.test(src), 'dayparting reativa via roteador por tipo');
+    ok(
+      /setCampaignStatusByKind\(c, advertiserId, cid, afterState\.value\)/.test(src),
+      'dayparting pausa/reativa via roteador por tipo',
+    );
+    ok(
+      /value: action === 'pause' \? 'paused' : 'active'/.test(src),
+      'dayparting mapeia pausa e reativação antes de chamar o roteador',
+    );
   }
 
   // ── C3: auto-appeal de anúncio Smart+ reprovado ───────────────────────────
@@ -145,6 +151,42 @@ const { setCampaignStatusByKind, executeRuleAction, autoAppealRejectedSmartPlus,
     await autoAppealRejectedSmartPlus(failedAcc, 'adv', [{ adId: 'adF', name: 'Falha' }]);
     await autoAppealRejectedSmartPlus(failedAcc, 'adv', [{ adId: 'adF', name: 'Falha' }]);
     eq(failedCalls, 1, 'backoff de falha impede repetição imediata do recurso');
+
+    // lease perdido antes do provider: devolve a reserva e não registra falha
+    const originalReserve = adsOps.reserveAdAppeal;
+    const originalRelease = adsOps.releaseAdAppealReservation;
+    const originalFinish = adsOps.finishAdAppeal;
+    let released = 0;
+    let finished = 0;
+    let callsAfterLeaseLoss = 0;
+    adsOps.reserveAdAppeal = async () => ({
+      appealText: 'Revisar',
+      appealAttachments: [],
+    });
+    adsOps.releaseAdAppealReservation = async () => { released += 1; };
+    adsOps.finishAdAppeal = async () => { finished += 1; };
+    provider.appealSmartPlusAd = async () => { callsAfterLeaseLoss += 1; };
+    let leaseChecks = 0;
+    const lost = new Error('lease perdido');
+    lost.code = 'AUTOMATION_LEASE_LOST';
+    await assert.rejects(
+      autoAppealRejectedSmartPlus(
+        'acc_appeal_lease_' + Date.now(),
+        'adv',
+        [{ id: 'rej-lease', adId: 'ad-lease', campaignKind: 'smart_plus', name: 'Lease' }],
+        async () => {
+          leaseChecks += 1;
+          if (leaseChecks > 1) throw lost;
+        },
+      ),
+      (error) => error && error.code === 'AUTOMATION_LEASE_LOST',
+    );
+    eq(callsAfterLeaseLoss, 0, 'lease perdido não envia recurso ao TikTok');
+    eq(released, 1, 'reserva do recurso volta ao estado tentável');
+    eq(finished, 0, 'perda do lease não vira falha de recurso');
+    adsOps.reserveAdAppeal = originalReserve;
+    adsOps.releaseAdAppealReservation = originalRelease;
+    adsOps.finishAdAppeal = originalFinish;
   }
 
   console.log('\nads-smart-plus-automation: ' + n + ' asserts OK');

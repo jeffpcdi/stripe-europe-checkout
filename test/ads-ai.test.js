@@ -32,15 +32,24 @@ const eq = (a, b, msg) => { assert.strictEqual(a, b, msg); asserts += 1; };
 // ── Stubs para B/C/D ─────────────────────────────────────────────────────────
 let treeCampaigns = [];
 let leadsByCampaign = {};
+let lastReadRange = null;
+let lastAttributionArgs = null;
 adsAi.init({
   cache: {
-    readTree: async () => ({ campaigns: treeCampaigns }),
+    readTree: async (_accId, _advertiserId, range) => {
+      lastReadRange = range;
+      return { campaigns: treeCampaigns };
+    },
     readAdvertiserTotals: async () => ({ spend: 0, impressions: 0, clicks: 0, conversions: 0 }),
     readDailySeries: async () => [],
     listBriefings: async () => [],
     upsertBriefing: async () => true,
   },
-  computeAttribution: () => ({ byCampaign: leadsByCampaign, unattributed: { revenueCents: 0, sales: 0 } }),
+  computeAttribution: (...args) => {
+    lastAttributionArgs = args;
+    return { byCampaign: leadsByCampaign, unattributed: { revenueCents: 0, sales: 0 } };
+  },
+  resolveAdvertiserTimeZone: async () => 'America/New_York',
   getRules: () => [],
   getRulesLog: () => [],
   sendPushcut: async () => {},
@@ -125,10 +134,25 @@ function day(d, spend, impressions, clicks, conversions) {
   });
 
   (async () => {
+    const dstRange = adsAi._internal.lastNDays(
+      7,
+      'America/New_York',
+      new Date('2026-03-09T04:30:00.000Z'),
+    );
+    eq(dstRange.toDate, '2026-03-09', 'janela da IA fecha no dia civil do advertiser');
+    eq(dstRange.fromDate, '2026-03-03', 'janela civil de 7d não depende de subtração de milissegundos no DST');
+    eq(
+      adsAi._internal.lastNDays(90, 'UTC', new Date('2026-04-01T12:00:00.000Z')).fromDate,
+      '2026-01-02',
+      'consultas de 90d do copiloto não são truncadas no limite de 30d das regras',
+    );
+
     // Cenário: A com ROAS alto (4 vendas), B sem vendas → verba migra A←B dentro dos limites
     treeCampaigns = [camp('1111111111', 'Vencedora', 100, 200), camp('2222222222', 'Perdedora', 100, 200)];
     leadsByCampaign = { 1111111111: { revenueCents: 80000, sales: 4 } }; // ROAS 4.0
     const p = await adsAi.budgetProposal('acc1', 'adv1', 'USD');
+    eq(lastReadRange.timeZone, 'America/New_York', 'métricas da IA usam o fuso resolvido da conta');
+    eq(lastAttributionArgs[3], 'America/New_York', 'atribuição e métricas da IA compartilham o mesmo fuso');
     ok(Array.isArray(p.changes) && p.changes.length >= 1, 'proposta gerada com mudanças');
     const total = p.changes.reduce((a, c) => a + c.proposed, 0) +
       (p.unchanged || []).reduce((a, u) => {

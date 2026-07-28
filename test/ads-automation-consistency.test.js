@@ -195,6 +195,12 @@ function configureRules(accountId) {
     manualRun.indexOf("'rules'") < manualRun.indexOf("'schedule'"),
     'execução manual aplica regras antes de reconciliar a agenda',
   );
+  const opsSource = fs.readFileSync(path.join(__dirname, '..', 'ads-ops-store.js'), 'utf8');
+  assert.match(
+    opsSource,
+    /'rule_action\.partial'.*'rule_proposal\.partial'/s,
+    'mutações parciais reais entram no cap durável de ações por hora',
+  );
 
   console.log('ads-automation-consistency.test.js: OK');
 })().catch((error) => {

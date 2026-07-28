@@ -7,8 +7,8 @@
 // regra agia. Agora o mesmo motor é consumido por DOIS gatilhos:
 //   1. o tick de 3 min do ads-sync.js (24/7, sem depender de tela aberta);
 //   2. o hook oportunista das rotas (mantido — melhora a latência percebida).
-// O throttle é ÚNICO (por conta, dentro deste módulo), então dois gatilhos
-// nunca causam varredura/ação dupla.
+// O throttle usa marcador Redis por conta+advertiser e o ciclo inteiro mantém
+// um lease distribuído; gatilhos ou instâncias diferentes não repetem ações.
 //
 // Fonte de dados: o ESPELHO Neon (ads-cache-store) — zero chamadas extras à
 // Pipeboard por varredura. Só as AÇÕES (pause/budget) tocam a API. Sweep só
@@ -61,6 +61,18 @@ function init(deps = {}) {
   if (typeof deps.syncAfterWrite === 'function') syncAfterWrite = deps.syncAfterWrite;
 }
 
+async function awaitPostWriteSync(accId, advertiserId) {
+  const result = await Promise.resolve(syncAfterWrite(accId, advertiserId));
+  if (result && result.ok === false) {
+    const error = new Error('A ação foi enviada, mas o espelho não conseguiu confirmar o novo estado: '
+      + String(result.error || 'sync pós-escrita falhou').slice(0, 180));
+    error.code = 'ADS_POST_WRITE_SYNC_FAILED';
+    error.status = 503;
+    throw error;
+  }
+  return result;
+}
+
 // ── Estado persistido (cooldowns + marcações do dayparting) ─────────────────
 // Cache quente em memória + write-through no Neon. Carga preguiçosa por conta.
 const memState = new Map();     // accId → Map(key → { at:ms, meta })
@@ -83,10 +95,16 @@ async function ensureLoaded(accId) {
         if (!cur || cur.at < at) m.set(r.key, { at, meta: r.meta || {} });
       }
     } catch (e) {
-      console.warn('[ads-automation] carga de estado falhou (segue em memória):', e.message);
+      if (cache.enabled) {
+        throw automationStateStoreError('carregar', null, e);
+      }
+      console.warn('[ads-automation] carga de estado falhou (cache durável desativado; segue em memória):', e.message);
     }
   })();
   loadedAccounts.set(accId, p);
+  p.catch(() => {
+    if (loadedAccounts.get(accId) === p) loadedAccounts.delete(accId);
+  });
   return p;
 }
 
@@ -95,30 +113,76 @@ async function refreshAutomationState(accId) {
   try {
     const rows = await cache.listAutomationState(accId);
     const current = memState.get(accId);
+    if (cache.enabled) {
+      // Sob lease, o Neon é a fonte compartilhada entre instâncias. Substituir
+      // o snapshot também propaga deleções (ex.: marca de agendamento limpa por
+      // outro worker); fazer só merge manteria uma autoria fantasma em memória.
+      current.clear();
+    }
     for (const row of rows) {
       const at = row.lastFiredAt ? new Date(row.lastFiredAt).getTime() : 0;
       const saved = current.get(row.key);
       if (!saved || saved.at < at) current.set(row.key, { at, meta: row.meta || {} });
     }
-  } catch (_) {
-    // Best-effort: o lease/throttle distribuído continua protegendo o ciclo.
+  } catch (error) {
+    if (cache.enabled) {
+      throw automationStateStoreError('atualizar', null, error);
+    }
+    // Sem Neon por configuração, a instância é explicitamente local.
   }
 }
 
 function getMem(accId, key) { return (memState.get(accId) || new Map()).get(key) || null; }
 
+function automationStateStoreError(operation, key, cause) {
+  const error = new Error(
+    'Não foi possível ' + operation + ' o estado durável da automação'
+      + (key ? ' (' + String(key).slice(0, 120) + ')' : '')
+      + ': ' + String(cause && cause.message ? cause.message : cause || 'erro desconhecido').slice(0, 180),
+  );
+  error.code = 'ADS_AUTOMATION_STATE_PERSIST_FAILED';
+  error.status = 503;
+  error.cause = cause;
+  return error;
+}
+
 async function markFired(accId, key, kind, meta) {
   await ensureLoaded(accId);
-  memState.get(accId).set(key, { at: Date.now(), meta: meta || {} });
+  const state = memState.get(accId);
+  const previous = state.get(key);
+  state.set(key, { at: Date.now(), meta: meta || {} });
   // Espera o write-through antes de liberar o lease. Outra instância que
   // adquirir em seguida precisa enxergar o cooldown já persistido.
-  await cache.upsertAutomationState(accId, key, kind, meta).catch(() => {});
+  try {
+    await cache.upsertAutomationState(accId, key, kind, meta);
+  } catch (error) {
+    if (previous) state.set(key, previous);
+    else state.delete(key);
+    throw automationStateStoreError('registrar', key, error);
+  }
 }
 
 async function clearFired(accId, key) {
   await ensureLoaded(accId);
-  memState.get(accId).delete(key);
-  await cache.deleteAutomationState(accId, key).catch(() => {});
+  const state = memState.get(accId);
+  const previous = state.get(key);
+  state.delete(key);
+  try {
+    await cache.deleteAutomationState(accId, key);
+  } catch (error) {
+    if (previous) state.set(key, previous);
+    throw automationStateStoreError('limpar', key, error);
+  }
+}
+
+async function clearScheduleOwnershipForCampaign(accId, advertiserId, campaignId) {
+  const schedules = getRules(accId, advertiserId).filter((rule) => rule.metric === 'schedule');
+  for (const schedule of schedules) {
+    await clearFired(
+      accId,
+      scopedStateKey(advertiserId, 'sched:' + schedule.id + ':' + campaignId),
+    );
+  }
 }
 
 async function underCooldown(accId, key, ms) {
@@ -786,6 +850,7 @@ async function autoAppealRejectedSmartPlus(accId, advertiserId, rejectedAds, ass
           metadata: { auto: true, adId }, title: 'Auto-recurso do grupo Smart+ "' + itemName + '"',
         });
       } else {
+        if (typeof assertLeaseOwnership === 'function') await assertLeaseOwnership();
         await provider.appealSmartPlusAd(advertiserId, adId, reason, reserved && reserved.appealAttachments);
         if (a.id) await adsOps.finishAdAppeal(accId, a.id, { ok: true });
         await auditReal(accId, {
@@ -798,10 +863,23 @@ async function autoAppealRejectedSmartPlus(accId, advertiserId, rejectedAds, ass
       await markFired(accId, key, 'appeal', { auto: true });
       stats.logEvent('info', { acc: accId, title: '[tiktok-ads] ' + (dryRun ? '[simulado] ' : '') + 'Auto-recurso enviado para o grupo Smart+ "' + itemName + '"' });
     } catch (e) {
+      if (e && e.code === 'AUTOMATION_LEASE_LOST') {
+        if (a.id && reserved) {
+          await adsOps.releaseAdAppealReservation(
+            accId,
+            a.id,
+            'Execução adiada porque o lease distribuído foi perdido antes do envio',
+          ).catch(() => {});
+        }
+        throw e;
+      }
       if (a.id) await adsOps.finishAdAppeal(accId, a.id, { ok: false, error: e && e.message });
       // Evita martelar o endpoint de recurso em toda varredura; o usuário ainda
       // pode tentar manualmente na central durante esta janela.
-      await markFired(accId, failureKey, 'appeal_failure', { auto: true, error: String(e && e.message || '').slice(0, 160) }).catch(() => {});
+      await markFired(accId, failureKey, 'appeal_failure', {
+        auto: true,
+        error: String(e && e.message || '').slice(0, 160),
+      });
       stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Auto-recurso do Smart+ "' + itemName + '" FALHOU: ' + String(e && e.message ? e.message : 'erro').slice(0, 120) });
       if (!dryRun) {
         sendPushcut('Aprovada', {
@@ -951,6 +1029,44 @@ async function setCampaignStatusByKind(campaign, advertiserId, cid, status) {
   return provider.setCampaignStatus(advertiserId, [cid], status);
 }
 
+function budgetStateForChanges(changes, field) {
+  return {
+    kind: 'budget',
+    targets: (changes || []).map((change) => ({
+      level: change.targetType || 'adgroup',
+      id: change.targetId || change.campaignId || change.adGroupId,
+      amount: change[field],
+      type: change.type,
+    })),
+  };
+}
+
+function attachPartialMutation(error, action, plan, appliedChanges, remainingChanges) {
+  const err = error instanceof Error ? error : new Error(String(error || 'erro'));
+  if (!appliedChanges.length) return err;
+  const remaining = remainingChanges.map((change) => ({ ...change }));
+  const applied = appliedChanges.map((change) => ({ ...change }));
+  err.partialMutation = true;
+  err.appliedChanges = applied;
+  err.remainingChanges = remaining;
+  err.partialBeforeState = budgetStateForChanges(applied, 'cur');
+  err.partialAfterState = budgetStateForChanges(applied, 'amount');
+  err.remainingPlan = {
+    ...(plan || {}),
+    changes: remaining,
+    delta: remaining.reduce((sum, change) => (
+      change.type === 'lifetime' ? sum : sum + ((Number(change.amount) || 0) - (Number(change.cur) || 0))
+    ), 0),
+    beforeState: budgetStateForChanges(remaining, 'cur'),
+    afterState: budgetStateForChanges(remaining, 'amount'),
+  };
+  err.partialResult = 'orçamento alterado em ' + applied.length + ' de '
+    + (applied.length + remaining.length) + ' nível(is); '
+    + remaining.length + ' alteração(ões) ficaram pendentes';
+  err.action = action;
+  return err;
+}
+
 async function executeRuleAction({ advertiserId, action, campaign, plan, dryRun, leaseGuard }) {
   const { beforeState, afterState } = computeActionStates(action, campaign, plan);
   const prefix = dryRun ? '[simulado] ' : '';
@@ -970,21 +1086,28 @@ async function executeRuleAction({ advertiserId, action, campaign, plan, dryRun,
   }
   const { pct, cap, capped, changes } = plan;
   let changed = 0;
-  for (const ch of changes) {
-    if (!dryRun) {
-      if (typeof leaseGuard === 'function') await leaseGuard();
-      const targetType = ch.targetType || (ch.campaignId ? 'campaign' : 'adgroup');
-      const targetId = ch.targetId || ch.campaignId || ch.adGroupId;
-      if (targetType === 'campaign') {
-        if (isSmartPlus) await provider.updateSmartPlusCampaign(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
-        else await provider.updateCampaign(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
-      } else if (isSmartPlus) {
-        await provider.updateSmartPlusAdGroup(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
-      } else {
-        await provider.updateAdGroup(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+  const appliedChanges = [];
+  for (let index = 0; index < changes.length; index += 1) {
+    const ch = changes[index];
+    try {
+      if (!dryRun) {
+        if (typeof leaseGuard === 'function') await leaseGuard();
+        const targetType = ch.targetType || (ch.campaignId ? 'campaign' : 'adgroup');
+        const targetId = ch.targetId || ch.campaignId || ch.adGroupId;
+        if (targetType === 'campaign') {
+          if (isSmartPlus) await provider.updateSmartPlusCampaign(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+          else await provider.updateCampaign(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+        } else if (isSmartPlus) {
+          await provider.updateSmartPlusAdGroup(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+        } else {
+          await provider.updateAdGroup(advertiserId, targetId, { budget: { amount: ch.amount, type: ch.type } });
+        }
       }
+      appliedChanges.push(ch);
+      changed += 1;
+    } catch (error) {
+      throw attachPartialMutation(error, action, plan, appliedChanges, changes.slice(index));
     }
-    changed += 1;
   }
   let result = prefix + 'orçamento ' + (action === 'budget_up' ? '+' : '-') + pct + '% em ' + changed + ' nível(is)'
     + (capped ? ' (teto ' + cap + ' aplicado em ' + capped + ')' : '');
@@ -1212,7 +1335,11 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
         const created = await adsOps.createRuleProposal(accId, {
           ruleId: r.id, metric: r.metric, action: r.action, advertiserId,
           campaignId: c.platformCampaignId, campaignName: name, detail,
-          plan: { ...(plan || {}), ...states },
+          plan: {
+            ...(plan || {}),
+            campaignKind: c.campaignKind || 'auction',
+            ...states,
+          },
         });
         const pEntry = {
           at: new Date().toISOString(), ruleId: r.id, metric: r.metric,
@@ -1241,6 +1368,13 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
       };
       let beforeState = null; let afterState = null;
       try {
+        // Pausa por desempenho não pertence ao dayparting. A autoria antiga
+        // precisa desaparecer ANTES da chamada externa; se o Neon falhar,
+        // abortamos sem tocar o TikTok e sem deixar a agenda reativar depois.
+        if (!dryRun && r.action === 'pause') {
+          if (typeof leaseGuard === 'function') await leaseGuard();
+          await clearScheduleOwnershipForCampaign(accId, advertiserId, c.platformCampaignId);
+        }
         const done = await executeRuleAction({
           advertiserId,
           action: r.action,
@@ -1273,23 +1407,80 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
           }
         }
       } catch (e) {
-        entry.result = 'falhou: ' + (e && e.message ? e.message.slice(0, 120) : 'erro');
-        if (e && e.code === 'AUTOMATION_LEASE_LOST') stop = true;
+        if (e && e.code === 'AUTOMATION_LEASE_LOST' && !e.partialMutation) {
+          // O cooldown foi reservado antes da escrita. Como a posse se perdeu
+          // comprovadamente antes de qualquer mutação, libera a reserva e
+          // deixa o próximo proprietário reavaliar. Não cria dead-letter nem
+          // alimenta o breaker com uma falha de coordenação.
+          await clearFired(accId, key);
+          throw e;
+        }
+        entry.result = e && e.partialMutation
+          ? 'falhou parcialmente: ' + e.partialResult
+          : 'falhou: ' + (e && e.message ? e.message.slice(0, 120) : 'erro');
+        if (e && e.partialMutation) {
+          entry.partialMutation = true;
+          stop = true; // o espelho ficou divergente; não decide mais nesta foto.
+        }
         // DEAD-LETTER: ação real que falhou não pode sumir no log. Persiste a
-        // intenção (plan + estados) para inspeção e reprocessamento. Best-effort:
-        // nunca re-lança. Dry-run e proposta não entram (nada foi executado).
+        // intenção ainda NÃO aplicada para inspeção e reprocessamento. Quando
+        // parte do orçamento já mudou, nunca repete os targets confirmados.
         if (!dryRun) {
-          const states = computeActionStates(r.action, c, plan);
-          adsOps.addActionDeadLetter(accId, {
+          const retryPlan = e && e.partialMutation ? e.remainingPlan : plan;
+          const states = retryPlan && retryPlan.beforeState && retryPlan.afterState
+            ? { beforeState: retryPlan.beforeState, afterState: retryPlan.afterState }
+            : computeActionStates(r.action, c, retryPlan);
+          await adsOps.addActionDeadLetter(accId, {
             ruleId: r.id, metric: r.metric, action: r.action, advertiserId,
             campaignId: c.platformCampaignId, campaignName: name, detail,
-            plan: { ...(plan || {}), ...states },
+            plan: {
+              ...(retryPlan || {}),
+              campaignKind: c.campaignKind || 'auction',
+              ...states,
+            },
             error: e && e.message ? e.message.slice(0, 300) : 'erro',
-          }).catch(() => {});
+          });
+          if (e && e.partialMutation) {
+            const ev = await auditReal(accId, {
+              action: 'rule_action.partial',
+              targetType: 'campaign',
+              targetId: c.platformCampaignId,
+              advertiserId,
+              beforeState: e.partialBeforeState,
+              afterState: e.partialAfterState,
+              reason: entry.result,
+              metadata: {
+                ruleId: r.id,
+                metric: r.metric,
+                action: r.action,
+                appliedTargetIds: e.appliedChanges.map((change) => (
+                  change.targetId || change.campaignId || change.adGroupId
+                )),
+                remainingTargetIds: e.remainingChanges.map((change) => (
+                  change.targetId || change.campaignId || change.adGroupId
+                )),
+              },
+            });
+            if (ev && ev.id) entry.auditId = ev.id;
+          }
+        }
+        if (e && e.code === 'AUTOMATION_LEASE_LOST' && e.partialMutation) {
+          recordOutcome(accId, false, advertiserId);
+          executed.push(entry);
+          appendRulesLog(accId, executed, advertiserId);
+          stats.logEvent('warn', {
+            acc: accId,
+            title: '[tiktok-ads] Ação parcial interrompida por perda de lease: '
+              + entry.result + ' — "' + name + '"',
+          });
+          await awaitPostWriteSync(accId, advertiserId).catch(() => {});
+          throw e;
         }
       }
       if (!dryRun) recordOutcome(accId, entry.ok, advertiserId); // alimenta o circuit breaker
-      if (entry.ok && !dryRun) actionsThisHour += 1;      // conta p/ o cap/hora
+      if (entry.ok && !dryRun) {
+        actionsThisHour += 1;      // conta p/ o cap/hora
+      }
       executed.push(entry);
       stats.logEvent(entry.ok ? 'info' : 'warn', { acc: accId, title: '[tiktok-ads] Regra ' + (entry.ok ? 'executada' : 'FALHOU') + ': ' + entry.result + ' — "' + name + '" (' + detail + ')' });
       if (!dryRun && !entry.ok) {
@@ -1298,8 +1489,10 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
     }
   }
   // Propostas não mudaram nada na plataforma — não disparam sync pós-escrita.
-  if (executed.some((e) => e.ok && !e.simulated && !e.proposed)) syncAfterWrite(accId, advertiserId);
   appendRulesLog(accId, executed, advertiserId);
+  if (executed.some((e) => (e.ok || e.partialMutation) && !e.simulated && !e.proposed)) {
+    await awaitPostWriteSync(accId, advertiserId);
+  }
   return {
     executed,
     conflicts,
@@ -1469,6 +1662,7 @@ async function approveProposal(accId, proposalId, leaseGuard) {
 
   // Transição ATÔMICA pending→approved (carrega o TTL de 6h no WHERE): dois
   // cliques concorrentes → só um executa; proposta velha → recusada aqui.
+  await leaseGuard();
   const approved = await adsOps.decideRuleProposal(accId, proposalId, 'approved');
   if (!approved) { const e = new Error('Proposta expirada ou já decidida'); e.status = 409; throw e; }
 
@@ -1494,9 +1688,17 @@ async function approveProposal(accId, proposalId, leaseGuard) {
     // se alguém mexeu no meio-tempo, aplicar o plano antigo sobrescreveria.
     const groups = new Map((c.adSets || []).map((s) => [String(s.platformAdSetId || s._id), Number((s.budget || {}).amount) || 0]));
     for (const ch of (plan.changes || [])) {
-      const cur = groups.get(String(ch.adGroupId));
+      const targetType = ch.targetType || (ch.campaignId ? 'campaign' : 'adgroup');
+      const targetId = ch.targetId || ch.campaignId || ch.adGroupId;
+      const cur = targetType === 'campaign'
+        ? Number((c.budget || {}).amount) || 0
+        : groups.get(String(targetId));
       if (cur == null || Math.abs(cur - ch.cur) > Math.max(0.01, ch.cur * 0.01)) {
-        await failReval('Orçamento mudou desde a proposta (grupo ' + ch.adGroupId + ': era ' + ch.cur + ', hoje ' + (cur == null ? 'inexistente' : cur) + ') — regra vai reavaliar no próximo ciclo');
+        await failReval('Orçamento mudou desde a proposta ('
+          + (targetType === 'campaign' ? 'campanha ' : 'grupo ')
+          + targetId + ': era ' + ch.cur + ', hoje '
+          + (cur == null ? 'inexistente' : cur)
+          + ') — regra vai reavaliar no próximo ciclo');
       }
     }
   }
@@ -1508,6 +1710,13 @@ async function approveProposal(accId, proposalId, leaseGuard) {
     detail: approved.detail, ok: false, approvedProposal: true,
   };
   try {
+    // Uma proposta de pausa por desempenho não pode herdar a autoria de um
+    // dayparting antigo. Limpa antes da mutação; propostas do próprio
+    // agendamento carregam scheduleMarkKey e preservam a transição.
+    if (approved.action === 'pause' && !plan.scheduleMarkKey) {
+      await leaseGuard();
+      await clearScheduleOwnershipForCampaign(accId, advertiserId, approved.campaign_id);
+    }
     const done = await executeRuleAction({
       advertiserId,
       action: approved.action,
@@ -1531,20 +1740,90 @@ async function approveProposal(accId, proposalId, leaseGuard) {
       if (plan.scheduleTransition === 'pause') {
         await markFired(accId, String(plan.scheduleMarkKey), 'sched', { ruleId: approved.rule_id, pausedAt: new Date().toISOString() });
       } else if (plan.scheduleTransition === 'activate') {
-        await clearFired(accId, String(plan.scheduleMarkKey));
+        const markKeys = Array.isArray(plan.scheduleMarkKeys) && plan.scheduleMarkKeys.length
+          ? plan.scheduleMarkKeys
+          : [plan.scheduleMarkKey];
+        for (const markKey of markKeys) await clearFired(accId, String(markKey));
       }
     }
-    if (done.ok) syncAfterWrite(accId, advertiserId);
+    let syncWarning = null;
+    if (done.ok) {
+      try {
+        await awaitPostWriteSync(accId, advertiserId);
+      } catch (syncError) {
+        if (!syncError || syncError.code !== 'ADS_POST_WRITE_SYNC_FAILED') throw syncError;
+        syncWarning = syncError.message;
+      }
+    }
     appendRulesLog(accId, [entry], advertiserId);
     stats.logEvent(done.ok ? 'info' : 'warn', { acc: accId, title: '[tiktok-ads] Proposta ' + (done.ok ? 'executada' : 'FALHOU') + ': ' + entry.result + ' — "' + entry.campaignName + '"' });
-    return { ok: done.ok, result: entry.result, proposalId: approved.id, auditId: entry.auditId || null };
+    return {
+      ok: done.ok,
+      result: entry.result,
+      proposalId: approved.id,
+      auditId: entry.auditId || null,
+      ...(syncWarning ? { warning: syncWarning } : {}),
+    };
   } catch (err) {
-    const msg = 'falhou: ' + String(err && err.message ? err.message : 'erro').slice(0, 200);
+    if (err && err.code === 'AUTOMATION_LEASE_LOST' && !err.partialMutation) {
+      await adsOps.releaseProposalApproval(
+        accId,
+        approved.id,
+        'Execução adiada porque o lease distribuído foi perdido antes da ação',
+      ).catch(() => {});
+      throw err;
+    }
+    const msg = err && err.partialMutation
+      ? 'falhou parcialmente: ' + err.partialResult
+      : 'falhou: ' + String(err && err.message ? err.message : 'erro').slice(0, 200);
     recordOutcome(accId, false, advertiserId);
+    if (err && err.partialMutation) {
+      const retryPlan = err.remainingPlan || {};
+      await adsOps.addActionDeadLetter(accId, {
+        ruleId: approved.rule_id,
+        metric: approved.metric,
+        action: approved.action,
+        advertiserId,
+        campaignId: approved.campaign_id,
+        campaignName: approved.campaign_name,
+        detail: approved.detail,
+        plan: {
+          ...retryPlan,
+          campaignKind: c.campaignKind || plan.campaignKind || 'auction',
+        },
+        error: String(err.message || msg).slice(0, 300),
+      });
+      const ev = await auditReal(accId, {
+        action: 'rule_proposal.partial',
+        targetType: 'campaign',
+        targetId: approved.campaign_id,
+        advertiserId,
+        beforeState: err.partialBeforeState,
+        afterState: err.partialAfterState,
+        reason: msg,
+        metadata: {
+          proposalId: approved.id,
+          ruleId: approved.rule_id,
+          metric: approved.metric,
+          action: approved.action,
+          appliedTargetIds: err.appliedChanges.map((change) => (
+            change.targetId || change.campaignId || change.adGroupId
+          )),
+          remainingTargetIds: err.remainingChanges.map((change) => (
+            change.targetId || change.campaignId || change.adGroupId
+          )),
+        },
+      });
+      if (ev && ev.id) entry.auditId = ev.id;
+      await awaitPostWriteSync(accId, advertiserId).catch(() => {});
+    }
     await adsOps.markProposalExecution(accId, approved.id, false, msg);
     entry.result = msg;
     appendRulesLog(accId, [entry], advertiserId);
-    const e = new Error(msg); e.status = 502; throw e;
+    const e = new Error(msg);
+    e.status = 502;
+    e.code = err && err.partialMutation ? 'ADS_PARTIAL_MUTATION' : (err && err.code);
+    throw e;
   }
 }
 
@@ -1574,11 +1853,106 @@ async function reprocessDeadLetter(accId, dlId, leaseGuard) {
     if (n >= policy.maxActionsPerHour) { const e = new Error('Cap de ' + policy.maxActionsPerHour + ' ações/hora atingido — tente mais tarde'); e.status = 429; throw e; }
   }
 
-  const plan = dl.plan || {};
+  let plan = dl.plan || {};
   const advertiserId = dl.advertiser_id || deadLetterAdvertiserId;
-  // Reconstrói o "campaign" mínimo que executeRuleAction consome (id + status).
-  const campaign = { platformCampaignId: dl.campaign_id, campaignName: dl.campaign_name, status: 'active' };
+  await leaseGuard();
+
+  // Revalida no espelho atual antes do retry. Além de impedir que um plano
+  // antigo sobrescreva edição manual, preserva o roteamento Smart+ — nunca
+  // reconstrói uma campanha desconhecida como leilão comum por default.
+  const timeZone = await resolveAdvertiserTimeZone(accId, advertiserId);
+  const range = automationWindow.inclusiveWindow(new Date(), 2, timeZone);
+  let tree = await treeForSweep(accId, advertiserId, range);
+  if (tree.stale) tree = await treeForSweep(accId, advertiserId, { ...range, force: true });
+  const campaign = (tree.campaigns || []).find((item) => (
+    String(item.platformCampaignId) === String(dl.campaign_id)
+  ));
+  if (!campaign) {
+    const e = new Error('Campanha não encontrada no estado atual; dead-letter não foi executado');
+    e.status = 409;
+    throw e;
+  }
+  const savedKind = plan.campaignKind ? String(plan.campaignKind) : '';
+  const liveKind = campaign.campaignKind ? String(campaign.campaignKind) : '';
+  if (savedKind && liveKind && savedKind !== liveKind) {
+    const e = new Error('Tipo da campanha mudou desde a falha (era '
+      + savedKind + ', agora ' + liveKind + '); revise antes de reprocessar');
+    e.status = 409;
+    throw e;
+  }
+  campaign.campaignKind = liveKind || savedKind;
+  if (!['auction', 'smart_plus'].includes(campaign.campaignKind)) {
+    const e = new Error('Não foi possível confirmar se a campanha é comum ou Smart+; retry bloqueado');
+    e.status = 409;
+    throw e;
+  }
+
+  const desiredStatus = dl.action === 'pause' ? 'paused'
+    : dl.action === 'activate' ? 'active'
+      : null;
+  if (desiredStatus && campaign.status === desiredStatus) {
+    await adsOps.markActionDeadLetter(accId, dl.id, 'resolved', { incrementAttempt: true });
+    return {
+      ok: true,
+      result: 'estado já estava aplicado; dead-letter reconciliado sem nova chamada',
+      deadLetterId: dl.id,
+      status: 'resolved',
+      alreadyApplied: true,
+    };
+  }
+
+  if (!desiredStatus) {
+    const groups = new Map((campaign.adSets || []).map((set) => [
+      String(set.platformAdSetId || set._id),
+      Number((set.budget || {}).amount) || 0,
+    ]));
+    const pendingChanges = [];
+    for (const change of (plan.changes || [])) {
+      const targetType = change.targetType || (change.campaignId ? 'campaign' : 'adgroup');
+      const targetId = change.targetId || change.campaignId || change.adGroupId;
+      const current = targetType === 'campaign'
+        ? Number((campaign.budget || {}).amount) || 0
+        : groups.get(String(targetId));
+      const tolerance = Math.max(0.01, Math.abs(Number(change.cur) || 0) * 0.01);
+      if (current != null && Math.abs(current - (Number(change.amount) || 0)) <= tolerance) {
+        continue; // já aplicado numa tentativa de resultado ambíguo
+      }
+      if (current == null || Math.abs(current - (Number(change.cur) || 0)) > tolerance) {
+        const e = new Error('Orçamento mudou desde a falha ('
+          + (targetType === 'campaign' ? 'campanha ' : 'grupo ')
+          + targetId + '); dead-letter não foi executado');
+        e.status = 409;
+        throw e;
+      }
+      pendingChanges.push(change);
+    }
+    if (!pendingChanges.length) {
+      await adsOps.markActionDeadLetter(accId, dl.id, 'resolved', { incrementAttempt: true });
+      return {
+        ok: true,
+        result: 'todos os orçamentos já estavam aplicados; dead-letter reconciliado sem nova chamada',
+        deadLetterId: dl.id,
+        status: 'resolved',
+        alreadyApplied: true,
+      };
+    }
+    if (pendingChanges.length !== (plan.changes || []).length) {
+      plan = {
+        ...plan,
+        changes: pendingChanges,
+        beforeState: budgetStateForChanges(pendingChanges, 'cur'),
+        afterState: budgetStateForChanges(pendingChanges, 'amount'),
+      };
+      await adsOps.updateActionDeadLetterPlan(accId, dl.id, plan, {
+        error: 'Retry reconciliado com o estado atual; somente targets pendentes serão enviados',
+      });
+    }
+  }
   try {
+    if (dl.action === 'pause' && !plan.scheduleMarkKey) {
+      await leaseGuard();
+      await clearScheduleOwnershipForCampaign(accId, advertiserId, dl.campaign_id);
+    }
     const done = await executeRuleAction({
       advertiserId,
       action: dl.action,
@@ -1596,18 +1970,68 @@ async function reprocessDeadLetter(accId, dlId, leaseGuard) {
         metadata: { deadLetterId: dl.id, ruleId: dl.rule_id, metric: dl.metric, action: dl.action, reprocessed: true },
       });
       await adsOps.markActionDeadLetter(accId, dl.id, 'resolved', { incrementAttempt: true });
-      syncAfterWrite(accId, advertiserId);
+      let syncWarning = null;
+      try {
+        await awaitPostWriteSync(accId, advertiserId);
+      } catch (syncError) {
+        if (!syncError || syncError.code !== 'ADS_POST_WRITE_SYNC_FAILED') throw syncError;
+        syncWarning = syncError.message;
+      }
       stats.logEvent('info', { acc: accId, title: '[tiktok-ads] Dead-letter reprocessado com sucesso: ' + done.result + ' — "' + (dl.campaign_name || dl.campaign_id) + '"' });
-      return { ok: true, result: done.result, deadLetterId: dl.id, status: 'resolved' };
+      return {
+        ok: true,
+        result: done.result,
+        deadLetterId: dl.id,
+        status: 'resolved',
+        ...(syncWarning ? { warning: syncWarning } : {}),
+      };
     }
     // provider respondeu mas nada mudou (ex.: já no teto) — trata como falha lógica
     await adsOps.markActionDeadLetter(accId, dl.id, 'pending', { error: done.result, incrementAttempt: true });
     return { ok: false, result: done.result, deadLetterId: dl.id, status: 'pending' };
   } catch (err) {
-    const msg = 'falhou: ' + String(err && err.message ? err.message : 'erro').slice(0, 200);
+    if (err && err.code === 'AUTOMATION_LEASE_LOST' && !err.partialMutation) throw err;
+    const msg = err && err.partialMutation
+      ? 'falhou parcialmente: ' + err.partialResult
+      : 'falhou: ' + String(err && err.message ? err.message : 'erro').slice(0, 200);
     recordOutcome(accId, false, advertiserId);
-    await adsOps.markActionDeadLetter(accId, dl.id, 'pending', { error: msg, incrementAttempt: true });
-    const e = new Error(msg); e.status = 502; throw e;
+    if (err && err.partialMutation) {
+      await adsOps.updateActionDeadLetterPlan(
+        accId,
+        dl.id,
+        err.remainingPlan,
+        { error: msg, incrementAttempt: true },
+      );
+      await auditReal(accId, {
+        action: 'rule_action.partial',
+        targetType: 'campaign',
+        targetId: dl.campaign_id,
+        advertiserId,
+        beforeState: err.partialBeforeState,
+        afterState: err.partialAfterState,
+        reason: 'Dead-letter parcialmente reprocessado: ' + msg,
+        metadata: {
+          deadLetterId: dl.id,
+          ruleId: dl.rule_id,
+          metric: dl.metric,
+          action: dl.action,
+          reprocessed: true,
+          appliedTargetIds: err.appliedChanges.map((change) => (
+            change.targetId || change.campaignId || change.adGroupId
+          )),
+          remainingTargetIds: err.remainingChanges.map((change) => (
+            change.targetId || change.campaignId || change.adGroupId
+          )),
+        },
+      });
+      await awaitPostWriteSync(accId, advertiserId).catch(() => {});
+    } else {
+      await adsOps.markActionDeadLetter(accId, dl.id, 'pending', { error: msg, incrementAttempt: true });
+    }
+    const e = new Error(msg);
+    e.status = 502;
+    e.code = err && err.partialMutation ? 'ADS_PARTIAL_MUTATION' : (err && err.code);
+    throw e;
   }
 }
 
@@ -1692,150 +2116,173 @@ async function runScheduleSweep(accId, { force, advertiserId: advertiserHint, le
   let actionsThisHour = policy.maxActionsPerHour > 0 ? await adsOps.countRecentEngineActions(accId, 3600e3, advertiserId) : 0;
 
   const executed = [];
+  const conflicts = [];
   let stop = false;
-  for (const r of schedules) {
+  const scheduleStates = schedules.map((rule, index) => ({
+    rule,
+    index,
+    // O calendário operacional é sempre o do advertiser. O timezone legado
+    // permanece apenas para compatibilidade de leitura da configuração.
+    shouldRun: scheduleActiveNow({ ...rule, timezone: timeZone }),
+  }));
+
+  for (const c of campaigns) {
     if (stop) break;
-    // O calendário operacional é o mesmo configurado no TikTok. O campo
-    // `timezone` legado da regra é preservado na configuração, mas não pode
-    // deslocar a conta para outro dia civil.
-    const shouldRun = scheduleActiveNow({ ...r, timezone: timeZone });
-    for (const c of campaigns) {
-      if (stop) break;
-      const cid = String(c.platformCampaignId || '');
-      const name = c.campaignName || cid;
-      const markKey = scopedStateKey(advertiserId, 'sched:' + r.id + ':' + cid);
-      const pausedByUs = !!getMem(accId, markKey);
+    const cid = String(c.platformCampaignId || '');
+    const name = c.campaignName || cid;
+    const decisions = scheduleStates.map((state) => {
+      const markKey = scopedStateKey(advertiserId, 'sched:' + state.rule.id + ':' + cid);
+      return {
+        ...state,
+        markKey,
+        pausedByUs: !!getMem(accId, markKey),
+        desiredAction: state.shouldRun ? 'activate' : 'pause',
+      };
+    });
+    const pauses = decisions.filter((decision) => decision.desiredAction === 'pause');
+    const activations = decisions.filter((decision) => (
+      decision.desiredAction === 'activate' && decision.pausedByUs
+    ));
 
-      const wantsAction = (!shouldRun && c.status === 'active') || (shouldRun && c.status === 'paused' && pausedByUs);
-      const proposedAction = !shouldRun ? 'pause' : 'activate';
-      const detail = (shouldRun ? 'dentro' : 'fora') + ' da janela '
-        + r.startTime + '–' + r.endTime + ' (' + timeZone + ')';
-
-      // Agendamento também honra o modo global. Antes, mode=proposal era
-      // ignorado aqui e o dayparting executava mesmo quando a interface dizia
-      // “eu aprovo”. A proposta leva a marca de autoria; ela só é gravada ou
-      // limpa DEPOIS da aprovação executar com sucesso.
-      if (wantsAction && !dryRun && r.mode !== 'execute') {
-        const states = computeActionStates(proposedAction, c, null);
-        const created = await adsOps.createRuleProposal(accId, {
-          ruleId: r.id, metric: 'schedule', action: proposedAction, advertiserId,
-          campaignId: cid, campaignName: name, detail,
-          plan: { ...states, scheduleMarkKey: markKey, scheduleTransition: proposedAction },
-        });
-        executed.push({
-          at: new Date().toISOString(), ruleId: r.id, metric: 'schedule', action: proposedAction,
-          campaignId: cid, campaignName: name, detail, ok: true, proposed: true,
-          result: created ? 'proposta criada — aguardando aprovação' : 'proposta já pendente para esta campanha',
-          ...(created ? { proposalId: created.id } : {}),
-        });
-        if (created) {
-          sendPushcut('Aprovada', {
-            title: 'Agendamento aguardando você',
-            text: 'Sugestão: ' + (proposedAction === 'pause' ? 'pausar' : 'ativar') + ' "' + name + '". Revise no painel.',
-            sound: 'system',
-          }, accId, {
-            event: 'ads_proposal', priority: 'normal', dedupeKey: 'ads:proposal:' + created.id,
-          }).catch(() => {});
-          await auditReal(accId, {
-            action: 'rule_proposal.created', targetType: 'campaign', targetId: cid, advertiserId,
-            reason: 'Agendamento: ' + detail,
-            metadata: { proposalId: created.id, ruleId: r.id, metric: 'schedule', action: proposedAction },
-          });
-        }
-        continue;
-      }
-      if (wantsAction && !dryRun) {
-        if (breakerOpen(accId, policy, advertiserId)) {
-          stop = true;
-          stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Circuit breaker ABERTO: agendamento interrompido nesta varredura' });
-          sendPushcut('Aprovada', { title: 'Agendamento pausado por segurança', text: 'Muitas ações falharam em sequência. O motor parou para proteger a conta.', sound: 'system' }, accId, { event: 'ads_breaker', priority: 'critical', dedupeKey: 'ads:breaker:' + advertiserId }).catch(() => {});
-          break;
-        }
-        if (policy.maxActionsPerHour > 0 && actionsThisHour >= policy.maxActionsPerHour) {
-          stop = true;
-          stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Cap de ' + policy.maxActionsPerHour + ' ações/hora atingido: agendamento parado (anti-loop)' });
-          sendPushcut('Aprovada', { title: 'Limite da automação atingido', text: 'O agendamento parou após ' + policy.maxActionsPerHour + ' ações nesta hora.', sound: 'system' }, accId, { event: 'ads_cap', priority: 'critical', dedupeKey: 'ads:cap:' + advertiserId }).catch(() => {});
-          break;
-        }
-      }
-
-      if (!shouldRun && c.status === 'active') {
-        // fora da janela: pausa e marca a autoria
-        const entry = {
-          at: new Date().toISOString(), ruleId: r.id, metric: 'schedule', action: 'pause',
-          campaignId: cid, campaignName: name, detail, ok: false, simulated: dryRun,
-        };
-        const beforeState = { kind: 'status', level: 'campaign', id: cid, value: 'active' };
-        const afterState = { kind: 'status', level: 'campaign', id: cid, value: 'paused' };
-        try {
-          if (!dryRun) {
-            if (typeof leaseGuard === 'function') await leaseGuard();
-            await setCampaignStatusByKind(c, advertiserId, cid, 'paused');
-            await markFired(accId, markKey, 'sched', { ruleId: r.id, pausedAt: new Date().toISOString() });
-          }
-          entry.ok = true;
-          entry.result = (dryRun ? '[simulado] ' : '') + 'pausada pelo agendamento';
-        } catch (e) { entry.result = 'falhou: ' + String(e.message || 'erro').slice(0, 120); }
-        if (!dryRun) recordOutcome(accId, entry.ok, advertiserId);
-        if (entry.ok && !dryRun) {
-          actionsThisHour += 1;
-          const ev = await auditReal(accId, {
-            action: 'schedule_action', targetType: 'campaign', targetId: cid, advertiserId,
-            beforeState, afterState, reason: 'Agendamento: ' + entry.detail,
-            metadata: { ruleId: r.id, action: 'pause' },
-          });
-          if (ev && ev.id) entry.auditId = ev.id;
-        } else if (entry.ok && dryRun) {
-          await auditSimulated(accId, {
-            action: 'schedule_action', targetType: 'campaign', targetId: cid, advertiserId,
-            metadata: { ruleId: r.id, action: 'pause', beforeState, afterState }, title: 'Agendamento: ' + entry.result,
-          });
-        }
-        executed.push(entry);
-      } else if (shouldRun && c.status === 'paused' && pausedByUs) {
-        // dentro da janela: SÓ reativa o que o agendamento pausou
-        const entry = {
-          at: new Date().toISOString(), ruleId: r.id, metric: 'schedule', action: 'activate',
-          campaignId: cid, campaignName: name, detail, ok: false, simulated: dryRun,
-        };
-        const beforeState = { kind: 'status', level: 'campaign', id: cid, value: 'paused' };
-        const afterState = { kind: 'status', level: 'campaign', id: cid, value: 'active' };
-        try {
-          if (!dryRun) {
-            if (typeof leaseGuard === 'function') await leaseGuard();
-            await setCampaignStatusByKind(c, advertiserId, cid, 'active');
-            await clearFired(accId, markKey);
-          }
-          entry.ok = true;
-          entry.result = (dryRun ? '[simulado] ' : '') + 'reativada pelo agendamento';
-        } catch (e) { entry.result = 'falhou: ' + String(e.message || 'erro').slice(0, 120); }
-        if (!dryRun) recordOutcome(accId, entry.ok, advertiserId);
-        if (entry.ok && !dryRun) {
-          actionsThisHour += 1;
-          const ev = await auditReal(accId, {
-            action: 'schedule_action', targetType: 'campaign', targetId: cid, advertiserId,
-            beforeState, afterState, reason: 'Agendamento: ' + entry.detail,
-            metadata: { ruleId: r.id, action: 'activate' },
-          });
-          if (ev && ev.id) entry.auditId = ev.id;
-        } else if (entry.ok && dryRun) {
-          await auditSimulated(accId, {
-            action: 'schedule_action', targetType: 'campaign', targetId: cid, advertiserId,
-            metadata: { ruleId: r.id, action: 'activate', beforeState, afterState }, title: 'Agendamento: ' + entry.result,
-          });
-        }
-        executed.push(entry);
-      }
+    // Uma única decisão por campanha: qualquer janela fechada mantém/coloca a
+    // campanha pausada. Só reativa quando TODAS estão abertas e ao menos uma
+    // delas prova que o próprio agendamento fez a pausa.
+    const winner = (pauses[0] || activations[0] || null);
+    if (pauses.length && activations.length) {
+      conflicts.push({
+        campaignId: cid,
+        campaignName: name,
+        selectedRuleId: pauses[0].rule.id,
+        selectedAction: 'pause',
+        suppressed: activations.map((decision) => ({
+          ruleId: decision.rule.id,
+          action: 'activate',
+        })),
+      });
     }
+    if (!winner) continue;
+
+    const action = pauses.length ? 'pause' : 'activate';
+    const wantsAction = (action === 'pause' && c.status === 'active')
+      || (action === 'activate' && c.status === 'paused');
+    // "Pausa" vencendo uma campanha já pausada é uma decisão de retenção, não
+    // uma nova mutação. Ela existe apenas para bloquear uma reativação rival.
+    if (!wantsAction) continue;
+
+    const r = winner.rule;
+    const detail = (action === 'pause' ? 'fora' : 'dentro') + ' da janela '
+      + r.startTime + '–' + r.endTime + ' (' + timeZone + ')';
+    const activationMarkKeys = activations.map((decision) => decision.markKey);
+
+    // Agendamento honra o modo global e preserva a autoria para a aprovação.
+    if (!dryRun && r.mode !== 'execute') {
+      const states = computeActionStates(action, c, null);
+      const created = await adsOps.createRuleProposal(accId, {
+        ruleId: r.id, metric: 'schedule', action, advertiserId,
+        campaignId: cid, campaignName: name, detail,
+        plan: {
+          ...states,
+          campaignKind: c.campaignKind || 'auction',
+          scheduleMarkKey: winner.markKey,
+          scheduleMarkKeys: action === 'activate' ? activationMarkKeys : [winner.markKey],
+          scheduleTransition: action,
+        },
+      });
+      executed.push({
+        at: new Date().toISOString(), ruleId: r.id, metric: 'schedule', action,
+        campaignId: cid, campaignName: name, detail, ok: true, proposed: true,
+        result: created ? 'proposta criada — aguardando aprovação' : 'proposta já pendente para esta campanha',
+        ...(created ? { proposalId: created.id } : {}),
+      });
+      if (created) {
+        sendPushcut('Aprovada', {
+          title: 'Agendamento aguardando você',
+          text: 'Sugestão: ' + (action === 'pause' ? 'pausar' : 'ativar') + ' "' + name + '". Revise no painel.',
+          sound: 'system',
+        }, accId, {
+          event: 'ads_proposal', priority: 'normal', dedupeKey: 'ads:proposal:' + created.id,
+        }).catch(() => {});
+        await auditReal(accId, {
+          action: 'rule_proposal.created', targetType: 'campaign', targetId: cid, advertiserId,
+          reason: 'Agendamento: ' + detail,
+          metadata: { proposalId: created.id, ruleId: r.id, metric: 'schedule', action },
+        });
+      }
+      continue;
+    }
+
+    if (!dryRun && breakerOpen(accId, policy, advertiserId)) {
+      stop = true;
+      stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Circuit breaker ABERTO: agendamento interrompido nesta varredura' });
+      sendPushcut('Aprovada', { title: 'Agendamento pausado por segurança', text: 'Muitas ações falharam em sequência. O motor parou para proteger a conta.', sound: 'system' }, accId, { event: 'ads_breaker', priority: 'critical', dedupeKey: 'ads:breaker:' + advertiserId }).catch(() => {});
+      break;
+    }
+    if (!dryRun && policy.maxActionsPerHour > 0 && actionsThisHour >= policy.maxActionsPerHour) {
+      stop = true;
+      stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Cap de ' + policy.maxActionsPerHour + ' ações/hora atingido: agendamento parado (anti-loop)' });
+      sendPushcut('Aprovada', { title: 'Limite da automação atingido', text: 'O agendamento parou após ' + policy.maxActionsPerHour + ' ações nesta hora.', sound: 'system' }, accId, { event: 'ads_cap', priority: 'critical', dedupeKey: 'ads:cap:' + advertiserId }).catch(() => {});
+      break;
+    }
+
+    const entry = {
+      at: new Date().toISOString(), ruleId: r.id, metric: 'schedule', action,
+      campaignId: cid, campaignName: name, detail, ok: false, simulated: dryRun,
+    };
+    const beforeState = { kind: 'status', level: 'campaign', id: cid, value: c.status };
+    const afterState = {
+      kind: 'status',
+      level: 'campaign',
+      id: cid,
+      value: action === 'pause' ? 'paused' : 'active',
+    };
+    try {
+      if (!dryRun) {
+        if (typeof leaseGuard === 'function') await leaseGuard();
+        await setCampaignStatusByKind(c, advertiserId, cid, afterState.value);
+        if (action === 'pause') {
+          await markFired(accId, winner.markKey, 'sched', {
+            ruleId: r.id,
+            pausedAt: new Date().toISOString(),
+          });
+        } else {
+          for (const markKey of activationMarkKeys) await clearFired(accId, markKey);
+        }
+      }
+      entry.ok = true;
+      entry.result = (dryRun ? '[simulado] ' : '')
+        + (action === 'pause' ? 'pausada' : 'reativada') + ' pelo agendamento';
+    } catch (error) {
+      if (error && error.code === 'AUTOMATION_LEASE_LOST') throw error;
+      entry.result = 'falhou: ' + String(error && error.message || 'erro').slice(0, 120);
+    }
+    if (!dryRun) recordOutcome(accId, entry.ok, advertiserId);
+    if (entry.ok && !dryRun) {
+      actionsThisHour += 1;
+      const ev = await auditReal(accId, {
+        action: 'schedule_action', targetType: 'campaign', targetId: cid, advertiserId,
+        beforeState, afterState, reason: 'Agendamento: ' + entry.detail,
+        metadata: { ruleId: r.id, action },
+      });
+      if (ev && ev.id) entry.auditId = ev.id;
+    } else if (entry.ok && dryRun) {
+      await auditSimulated(accId, {
+        action: 'schedule_action', targetType: 'campaign', targetId: cid, advertiserId,
+        metadata: { ruleId: r.id, action, beforeState, afterState },
+        title: 'Agendamento: ' + entry.result,
+      });
+    }
+    executed.push(entry);
   }
-  if (executed.some((e) => e.ok && !e.simulated && !e.proposed)) syncAfterWrite(accId, advertiserId);
   if (executed.length) {
     appendRulesLog(accId, executed, advertiserId);
     for (const e of executed.filter((x) => x.ok)) {
       stats.logEvent('info', { acc: accId, title: '[tiktok-ads] Agendamento: ' + e.result + ' — "' + e.campaignName + '"' });
     }
   }
-  return { executed, checkedAt: new Date().toISOString(), timeZone, window };
+  if (executed.some((e) => e.ok && !e.simulated && !e.proposed)) {
+    await awaitPostWriteSync(accId, advertiserId);
+  }
+  return { executed, conflicts, checkedAt: new Date().toISOString(), timeZone, window };
 }
 
 // ── Orquestração com throttle único ─────────────────────────────────────────
@@ -1953,7 +2400,12 @@ async function beginAutomationExecution(accId, advertiserId) {
 
   // O processo pode ter hidratado cooldowns antes de outra instância agir.
   // Atualiza o Map enquanto possui o lease e antes de avaliar qualquer regra.
-  await refreshAutomationState(accId);
+  try {
+    await refreshAutomationState(accId);
+  } catch (error) {
+    await close().catch(() => {});
+    throw error;
+  }
   return { acquired: true, accId, advertiserId: id, key, scope, lease, assertOwned, close };
 }
 
@@ -1972,12 +2424,15 @@ async function claimDistributedSweepWindow(accId, advertiserId, component, ttlSe
 }
 
 function trackedLockFailure(current, component, execution) {
-  const completedAt = new Date().toISOString();
-  current.lastCompletedAt = completedAt;
-  current.lastResult = execution.reason === 'locked_by_other_worker' ? 'skipped' : 'error';
-  current.lastError = execution.reason === 'locked_by_other_worker'
-    ? null
-    : 'Lease distribuído indisponível (' + (execution.lockReason || execution.reason || 'erro desconhecido') + ')';
+  const skipReasons = new Set(['already_running', 'locked_by_other_worker', 'distributed_throttle']);
+  // Um skip de coordenação não é uma nova avaliação concluída e não deve
+  // esconder o último resultado real do componente.
+  if (!skipReasons.has(execution.reason)) {
+    current.lastCompletedAt = new Date().toISOString();
+    current.lastResult = 'error';
+    current.lastError = 'Lease distribuído indisponível ('
+      + (execution.lockReason || execution.reason || 'erro desconhecido') + ')';
+  }
   return {
     skipped: true,
     reason: execution.reason,
@@ -1996,7 +2451,6 @@ async function runTrackedSweep(component, accId, advertiserId, runner, options =
   const scope = engineRunState(accId, id);
   const current = scope[component] || { inFlight: 0 };
   const startedAt = new Date().toISOString();
-  current.lastDispatchAt = startedAt;
   scope[component] = current;
 
   const ownsExecution = !options.execution;
@@ -2026,6 +2480,7 @@ async function runTrackedSweep(component, accId, advertiserId, runner, options =
     }
   }
 
+  current.lastDispatchAt = startedAt;
   current.inFlight = (current.inFlight || 0) + 1;
   if (component === 'schedule') scheduleLast.set(key, Date.now());
   else sweepLast.set(key, Date.now());
@@ -2054,12 +2509,19 @@ async function runTrackedSequence(accId, advertiserId, steps) {
   const id = cleanAdvertiserId(advertiserId);
   const execution = await beginAutomationExecution(accId, id);
   if (!execution.acquired) {
+    const scope = engineRunState(accId, id);
+    const results = {};
+    for (const step of Array.isArray(steps) ? steps : []) {
+      const current = scope[step.component] || { inFlight: 0 };
+      scope[step.component] = current;
+      results[step.component] = trackedLockFailure(current, step.component, execution);
+    }
     return {
       skipped: true,
       reason: execution.reason,
       lockReason: execution.lockReason,
       running: !!execution.running,
-      results: {},
+      results,
     };
   }
   const results = {};
@@ -2208,7 +2670,9 @@ function getSweepInfo(accId, advertiserId) {
     autonomy: profile.autonomy,
     updatedAt: profile.updatedAt,
     subscribed24x7: !!(enabled || profile.alerts.enabled),
-    running: !!runScope.lockPending || relevant.some((run) => run && run.inFlight > 0),
+    running: !!runScope.lockPending
+      || (runScope.inFlightTotal || 0) > 0
+      || relevant.some((run) => run && run.inFlight > 0),
     lastDispatchAt: (lastDispatched && lastDispatched.lastDispatchAt) || null,
     lastCompletedAt: (lastCompleted && lastCompleted.lastCompletedAt) || null,
     lastResult: (lastCompleted && lastCompleted.lastResult) || null,
@@ -2432,6 +2896,7 @@ module.exports = {
   maybeSweep,
   markSweepNow,
   runTrackedSweep,
+  runTrackedSequence,
   getSweepInfo,
   getBreakerState,
   ensureBreakerHydrated,

@@ -14,11 +14,12 @@ const adsOps = require('../ads-ops-store');
 const automation = require('../ads-automation');
 
 // ── Stubs ────────────────────────────────────────────────────────────────────
-const calls = { status: [], budget: [] };
+const calls = { status: [], budget: [], campaignBudget: [] };
 provider.enabled = true;
 provider.resolveAdvertiserId = async () => 'adv1';
 provider.setCampaignStatus = async (adv, ids, status) => { calls.status.push({ adv, ids, status }); };
 provider.updateAdGroup = async (adv, id, patch) => { calls.budget.push({ adv, id, patch }); };
+provider.updateCampaign = async (adv, id, patch) => { calls.campaignBudget.push({ adv, id, patch }); };
 const stateByAcc = {};
 provider.getState = (accId) => stateByAcc[accId] || {};
 provider.setState = (accId, patch) => { stateByAcc[accId] = Object.assign({}, stateByAcc[accId], patch); };
@@ -60,6 +61,15 @@ adsOps.markProposalExecution = async (acc, id, ok, error) => {
   if (p && p.status === 'approved') { p.status = ok ? 'executed' : 'failed'; p.error = error || null; p.executed_at = new Date().toISOString(); }
   return p;
 };
+adsOps.releaseProposalApproval = async (acc, id, error) => {
+  const p = proposals.find((x) => x.id === id && x.account_id === acc);
+  if (p && p.status === 'approved') {
+    p.status = 'pending';
+    p.decided_at = null;
+    p.error = error || null;
+  }
+  return p;
+};
 
 let treeCampaigns = [];
 provider.getDashboardTree = async () => ({ campaigns: treeCampaigns });
@@ -74,7 +84,7 @@ function campaign(over = {}) {
   }, over);
 }
 function resetAll(accId) {
-  calls.status.length = 0; calls.budget.length = 0; audits.length = 0;
+  calls.status.length = 0; calls.budget.length = 0; calls.campaignBudget.length = 0; audits.length = 0;
   proposals.length = 0;
   automation._internals.memState.delete(accId);
   automation._internals.actionOutcomes.delete(accId);
@@ -159,6 +169,78 @@ function setRules(accId, rules) { stateByAcc[accId] = { rulesSeeded: true, alert
     assert.ok(audits.some((a) => a.action === 'rule_action'), 'execução direta audita como rule_action');
   }
 
+  // ── lease perdido antes do provider: proposta volta a pending ─────────────
+  {
+    const acc = 'acc_p_lease';
+    resetAll(acc);
+    proposals.push({
+      id: 'prop_lease', account_id: acc, rule_id: 'r-lease', metric: 'spend_no_conv', action: 'pause',
+      advertiser_id: 'adv1', campaign_id: 'c1', campaign_name: 'Camp 1', detail: 'teste lease',
+      plan: {}, status: 'pending', created_at: new Date().toISOString(),
+    });
+    treeCampaigns = [campaign()];
+    let guards = 0;
+    const lost = new Error('lease perdido');
+    lost.code = 'AUTOMATION_LEASE_LOST';
+    await assert.rejects(
+      automation.approveProposal(acc, 'prop_lease', async () => {
+        guards += 1;
+        if (guards > 1) throw lost;
+      }),
+      (error) => error && error.code === 'AUTOMATION_LEASE_LOST',
+    );
+    assert.strictEqual(calls.status.length, 0, 'lease perdido antes da chamada não toca o provider');
+    assert.strictEqual(proposals[0].status, 'pending', 'reserva da proposta é devolvida para nova tentativa');
+  }
+
+  // ── pausa por desempenho aprovada remove autoria antiga do agendamento ───
+  {
+    const acc = 'acc_p_schedule_owner';
+    resetAll(acc);
+    setRules(acc, automation.validateRules([{
+      id: 'sched-old',
+      enabled: true,
+      metric: 'schedule',
+      days: [0, 1, 2, 3, 4, 5, 6],
+      startTime: '09:00',
+      endTime: '18:00',
+      mode: 'execute',
+    }]));
+    const scheduleKey = 'adv:adv1:sched:sched-old:c1';
+    await automation._internals.markFired(acc, scheduleKey, 'sched', {
+      ruleId: 'sched-old',
+      pausedAt: new Date().toISOString(),
+    });
+    proposals.push({
+      id: 'prop_perf_pause',
+      account_id: acc,
+      rule_id: 'perf-pause',
+      metric: 'spend_no_conv',
+      action: 'pause',
+      advertiser_id: 'adv1',
+      campaign_id: 'c1',
+      campaign_name: 'Camp 1',
+      detail: 'pausa por desempenho',
+      plan: {},
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    });
+    treeCampaigns = [campaign()];
+
+    const out = await automation.approveProposal(acc, 'prop_perf_pause');
+    assert.strictEqual(out.ok, true, 'pausa por desempenho aprovada foi executada');
+    assert.strictEqual(
+      automation._internals.memState.get(acc).has(scheduleKey),
+      false,
+      'aprovação remove a autoria antiga antes de pausar',
+    );
+    assert.strictEqual(
+      proposals[0].status,
+      'executed',
+      'proposta conclui sem deixar a agenda apta a reativar a campanha',
+    );
+  }
+
   // ── 6: re-validação — orçamento mudou desde a proposta → failed ────────────
   {
     const acc = 'acc_p4';
@@ -174,6 +256,34 @@ function setRules(accId, rules) { stateByAcc[accId] = { rulesSeeded: true, alert
     assert.ok(threw && /Orçamento mudou/.test(threw.message), 'aprovação recusada: orçamento divergiu do before');
     assert.strictEqual(proposals[0].status, 'failed', 'proposta marcada failed com o motivo');
     assert.strictEqual(calls.budget.length, 0, 'provider não tocado quando a re-validação falha');
+  }
+
+  // ── orçamento CBO: revalidação usa budget da campanha, não adGroupId ─────
+  {
+    const acc = 'acc_p_cbo';
+    resetAll(acc);
+    setRules(acc, automation.validateRules([{
+      id: 'r-cbo',
+      enabled: true,
+      metric: 'cpm_max',
+      threshold: 5,
+      minSpend: 1,
+      action: 'budget_down',
+      pct: 20,
+      mode: 'proposal',
+    }]));
+    treeCampaigns = [campaign({
+      budgetOwner: 'campaign',
+      budget: { amount: 100, type: 'daily' },
+      metrics: { spend: 50, conversions: 0, impressions: 2000, clicks: 40 },
+    })];
+    await automation.runRulesSweep(acc, { force: true });
+    assert.strictEqual(proposals.length, 1, 'proposta CBO criada');
+    assert.strictEqual(proposals[0].plan.changes[0].targetType, 'campaign', 'plano preserva ownership CBO');
+    const out = await automation.approveProposal(acc, proposals[0].id);
+    assert.strictEqual(out.ok, true, 'aprovação CBO passa pela revalidação correta');
+    assert.strictEqual(calls.campaignBudget.length, 1, 'orçamento é alterado no nível campanha');
+    assert.strictEqual(calls.budget.length, 0, 'não usa endpoint de ad group para CBO');
   }
 
   // ── guards: kill switch bloqueia aprovação (proposta segue pendente) ───────

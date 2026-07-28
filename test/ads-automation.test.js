@@ -15,6 +15,7 @@ const automation = require('../ads-automation');
 const calls = { status: [], budget: [], upserts: [], deletes: [] };
 provider.enabled = true;
 provider.resolveAdvertiserId = async () => 'adv1';
+provider.getAdvertiserInfo = async () => ({ id: 'adv1', timezone: 'UTC' });
 provider.setCampaignStatus = async (adv, ids, status) => { calls.status.push({ adv, ids, status }); };
 provider.updateAdGroup = async (adv, id, patch) => { calls.budget.push({ adv, id, patch }); };
 const stateByAcc = {};
@@ -227,6 +228,69 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     leads = [];
   }
 
+  // ── estado durável: falha de persistência aborta e restaura memória ──────
+  {
+    const acc = 'acc_state_persist';
+    const key = 'adv:adv1:rule:c1:persist';
+    clearCooldowns(acc);
+    const originalUpsert = cache.upsertAutomationState;
+    cache.upsertAutomationState = async () => { throw new Error('Neon indisponível'); };
+    await assert.rejects(
+      automation._internals.markFired(acc, key, 'rule', { action: 'pause' }),
+      (error) => error && error.code === 'ADS_AUTOMATION_STATE_PERSIST_FAILED',
+      'falha ao persistir cooldown é visível e bloqueia a ação',
+    );
+    assert.strictEqual(
+      automation._internals.memState.get(acc).has(key),
+      false,
+      'write-through falho não deixa cooldown fantasma só em memória',
+    );
+    cache.upsertAutomationState = originalUpsert;
+
+    await automation._internals.markFired(acc, key, 'rule', { action: 'pause' });
+    const originalDelete = cache.deleteAutomationState;
+    cache.deleteAutomationState = async () => { throw new Error('Neon indisponível'); };
+    await assert.rejects(
+      automation._internals.clearFired(acc, key),
+      (error) => error && error.code === 'ADS_AUTOMATION_STATE_PERSIST_FAILED',
+      'falha ao remover estado durável também é visível',
+    );
+    assert.strictEqual(
+      automation._internals.memState.get(acc).has(key),
+      true,
+      'delete falho restaura a marca local conservadora',
+    );
+    cache.deleteAutomationState = originalDelete;
+  }
+
+  // ── estado durável: falha de LEITURA não permite sobrescrever cooldown ───
+  {
+    const acc = 'acc_state_read';
+    const key = 'adv:adv1:rule:c1:read';
+    clearCooldowns(acc);
+    const originalEnabled = cache.enabled;
+    const originalList = cache.listAutomationState;
+    const originalUpsert = cache.upsertAutomationState;
+    let upsertCalls = 0;
+    cache.enabled = true;
+    cache.listAutomationState = async () => { throw new Error('leitura Neon indisponível'); };
+    cache.upsertAutomationState = async () => { upsertCalls += 1; };
+    await assert.rejects(
+      automation._internals.markFired(acc, key, 'rule', { action: 'pause' }),
+      (error) => error && error.code === 'ADS_AUTOMATION_STATE_PERSIST_FAILED',
+      'instância nova falha fechada quando não consegue hidratar cooldowns',
+    );
+    assert.strictEqual(upsertCalls, 0, 'não sobrescreve o timestamp antigo sem antes conseguir lê-lo');
+    assert.strictEqual(
+      automation._internals.memState.get(acc).has(key),
+      false,
+      'falha de leitura não cria marca local permissiva',
+    );
+    cache.enabled = originalEnabled;
+    cache.listAutomationState = originalList;
+    cache.upsertAutomationState = originalUpsert;
+  }
+
   // ── roas_min: sem vendas atribuíveis não age ──────────────────────────────
   {
     const acc = 'acc_roas';
@@ -311,6 +375,99 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     assert.strictEqual(out.executed.length, 1, 'agendamento registra a intenção');
     assert.strictEqual(out.executed[0].proposed, true, 'intenção marcada como proposta');
     assert.ok(!calls.upserts.some((u) => u.key.includes('sched:s1:c-proposal')), 'autoria da pausa só nasce após aprovação real');
+  }
+
+  // ── agendas conflitantes: pausa sempre vence reativação ──────────────────
+  {
+    const acc = 'acc_sched_conflict';
+    const today = new Date().getUTCDay();
+    const otherDay = (today + 1) % 7;
+    configureRules(acc, [
+      {
+        id: 'outside',
+        enabled: true,
+        metric: 'schedule',
+        days: [otherDay],
+        startTime: '00:00',
+        endTime: '00:00',
+        mode: 'execute',
+      },
+      {
+        id: 'inside',
+        enabled: true,
+        metric: 'schedule',
+        days: [today],
+        startTime: '00:00',
+        endTime: '00:00',
+        mode: 'execute',
+      },
+    ]);
+    resetCalls();
+    clearCooldowns(acc);
+    await automation._internals.markFired(
+      acc,
+      'adv:adv1:sched:inside:c-conflict',
+      'sched',
+      { ruleId: 'inside' },
+    );
+    resetCalls();
+    treeCampaigns = [campaign({ platformCampaignId: 'c-conflict', status: 'paused' })];
+    const out = await automation.runScheduleSweep(acc, {
+      force: true,
+      advertiserId: 'adv1',
+    });
+    assert.strictEqual(calls.status.length, 0, 'janela fechada mantém a campanha pausada e bloqueia reativação rival');
+    assert.strictEqual(out.executed.length, 0, 'retenção de pausa não é registrada como nova mutação');
+    assert.strictEqual(out.conflicts.length, 1, 'conflito entre agendas fica explícito');
+    assert.strictEqual(out.conflicts[0].selectedAction, 'pause', 'decisão conservadora vence');
+  }
+
+  // ── perda do lease: zero cooldown, dead-letter ou breaker falso ───────────
+  {
+    const acc = 'acc_lost_lease';
+    configureRules(acc, [{
+      id: 'lost',
+      enabled: true,
+      metric: 'spend_no_conv',
+      threshold: 5,
+      lookbackDays: 1,
+      action: 'pause',
+      mode: 'execute',
+    }]);
+    resetCalls();
+    clearCooldowns(acc);
+    treeCampaigns = [campaign({
+      platformCampaignId: 'c-lost',
+      status: 'active',
+      metrics: { spend: 20, conversions: 0, impressions: 2000, clicks: 40 },
+    })];
+    const originalDeadLetter = adsOps.addActionDeadLetter;
+    let deadLetters = 0;
+    adsOps.addActionDeadLetter = async () => { deadLetters += 1; };
+    const before = automation.getBreakerState(acc, adsOps.normalizePolicy({}), 'adv1').samples;
+    const lost = new Error('lease perdido');
+    lost.code = 'AUTOMATION_LEASE_LOST';
+    await assert.rejects(
+      automation.runRulesSweep(acc, {
+        force: true,
+        advertiserId: 'adv1',
+        leaseGuard: async () => { throw lost; },
+      }),
+      (error) => error && error.code === 'AUTOMATION_LEASE_LOST',
+    );
+    adsOps.addActionDeadLetter = originalDeadLetter;
+    assert.strictEqual(calls.status.length, 0, 'lease perdido antes da mutação não chama o TikTok');
+    assert.strictEqual(deadLetters, 0, 'falha de coordenação não cria dead-letter de provider');
+    assert.strictEqual(
+      automation.getBreakerState(acc, adsOps.normalizePolicy({}), 'adv1').samples,
+      before,
+      'falha de coordenação não alimenta o circuit breaker',
+    );
+    const cooldownState = automation._internals.memState.get(acc);
+    assert.ok(
+      !cooldownState || !cooldownState.has('adv:adv1:rule:c-lost:lost'),
+      'reserva de cooldown é liberada quando nenhuma ação foi enviada',
+    );
   }
 
   // ── dry-run: avalia e loga, mas NÃO toca a plataforma ─────────────────────

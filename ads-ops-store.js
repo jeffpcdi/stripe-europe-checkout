@@ -549,12 +549,13 @@ async function countRecentEngineActions(accountId, sinceMs, advertiserId) {
   const windowMs = Math.max(60e3, Number(sinceMs) || 3600e3);
   const seconds = Math.ceil(windowMs / 1000);
   // 'rule_proposal.approved' entra: aprovar executa uma ação REAL na
-  // plataforma — o cap/hora vale para ela como para qualquer outra. Propostas
-  // criadas ('rule_proposal.created') NÃO entram: nada foi executado.
+  // plataforma — o cap/hora vale para ela como para qualquer outra. Ações
+  // parciais também alteraram verba real e contam. Propostas criadas
+  // ('rule_proposal.created') NÃO entram: nada foi executado.
   const adv = advertiserId ? String(advertiserId).slice(0, 120) : null;
   const rows = adv
-    ? await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND advertiser_id = ${adv} AND actor_type = 'system' AND action IN ('rule_action', 'schedule_action', 'rule_proposal.approved') AND created_at > now() - make_interval(secs => ${seconds})`
-    : await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'schedule_action', 'rule_proposal.approved') AND created_at > now() - make_interval(secs => ${seconds})`;
+    ? await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND advertiser_id = ${adv} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial') AND created_at > now() - make_interval(secs => ${seconds})`
+    : await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial') AND created_at > now() - make_interval(secs => ${seconds})`;
   return rows.length ? Number(rows[0].n) || 0 : 0;
 }
 
@@ -629,6 +630,23 @@ async function markProposalExecution(accountId, proposalId, ok, error) {
   return rows[0] || null;
 }
 
+// Se o lease distribuído for perdido ENTRE a reserva e a chamada externa,
+// nenhuma mutação foi enviada (executeRuleAction valida o lease primeiro).
+// Nesse caso a proposta volta a pending em vez de ficar aprovada/fracassada.
+async function releaseProposalApproval(accountId, proposalId, error) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_rule_proposals
+    SET status = 'pending', decided_at = null, error = ${error ? String(error).slice(0, 300) : null}
+    WHERE account_id = ${accountId}
+      AND id = ${String(proposalId || '').slice(0, 160)}
+      AND status = 'approved'
+      AND created_at > now() - make_interval(secs => ${PROPOSAL_TTL_MS / 1000})
+    RETURNING *`;
+  return rows[0] || null;
+}
+
 // ── Dead-letter de ações de regra ───────────────────────────────────────────
 // Grava a ação real que FALHOU. Best-effort: nunca derruba o sweep. Devolve a
 // row criada (ou null se persistência off).
@@ -674,6 +692,25 @@ async function markActionDeadLetter(accountId, dlId, status, { error, incrementA
   const rows = await sql`UPDATE ads_action_deadletter
     SET status = ${status}, error = ${error ? String(error).slice(0, 500) : null}, attempts = attempts + ${incrementAttempt ? 1 : 0}, updated_at = now(), resolved_at = CASE WHEN ${status} IN ('resolved','discarded') THEN now() ELSE resolved_at END
     WHERE account_id = ${accountId} AND id = ${String(dlId || '').slice(0, 160)} AND status = 'pending' RETURNING *`;
+  return rows[0] || null;
+}
+
+// Quando um lote de orçamento falha depois de alguns targets confirmados, a
+// entrada pendente passa a conter SOMENTE o restante. Isso impede repetir uma
+// alteração já aplicada ao reprocessar após perda de lease/falha parcial.
+async function updateActionDeadLetterPlan(accountId, dlId, plan, { error, incrementAttempt } = {}) {
+  accountId = cleanAccountId(accountId);
+  if (!enabled) return null;
+  await ensureSchema();
+  const rows = await sql`UPDATE ads_action_deadletter
+    SET plan = ${JSON.stringify(plan || {})},
+        error = ${error ? String(error).slice(0, 500) : null},
+        attempts = attempts + ${incrementAttempt ? 1 : 0},
+        updated_at = now()
+    WHERE account_id = ${accountId}
+      AND id = ${String(dlId || '').slice(0, 160)}
+      AND status = 'pending'
+    RETURNING *`;
   return rows[0] || null;
 }
 
@@ -1182,4 +1219,29 @@ async function finishAdAppeal(accountId, rejectionId, result = {}) {
   return mapAdRejection(rows[0]);
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, normalizeRejectionIncidents, syncAdRejections, listAdRejections, getAdRejection, buildAdAppealText, reserveAdAppeal, finishAdAppeal, PROPOSAL_TTL_MS };
+async function releaseAdAppealReservation(accountId, rejectionId, error) {
+  const acc = cleanAccountId(accountId);
+  if (!enabled) {
+    const current = await getAdRejection(acc, rejectionId);
+    if (current && current.appealStatus === 'submitting') {
+      Object.assign(current, {
+        appealStatus: 'not_requested',
+        appealAttempts: Math.max(0, Number(current.appealAttempts || 0) - 1),
+        appealError: String(error || '').slice(0, 500),
+      });
+    }
+    return current;
+  }
+  const rows = await sql`UPDATE ads_ad_rejections
+    SET appeal_status = 'not_requested',
+        appeal_attempts = GREATEST(0, appeal_attempts - 1),
+        appeal_error = ${error ? String(error).slice(0, 500) : null},
+        updated_at = now()
+    WHERE account_id = ${acc}
+      AND id = ${String(rejectionId)}
+      AND appeal_status = 'submitting'
+    RETURNING *`;
+  return mapAdRejection(rows[0]);
+}
+
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, releaseProposalApproval, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, updateActionDeadLetterPlan, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, normalizeRejectionIncidents, syncAdRejections, listAdRejections, getAdRejection, buildAdAppealText, reserveAdAppeal, finishAdAppeal, releaseAdAppealReservation, PROPOSAL_TTL_MS };

@@ -239,6 +239,67 @@ function status(overrides = {}) {
       assert.strictEqual(distributedBusy.reason, 'locked_by_other_worker', 'lease de outra instância impede a execução local');
       assert.strictEqual(distributedRunnerCalls, 0, 'runner não inicia quando outro worker possui o lease');
 
+      const leaseNames = [];
+      const claimedWindows = new Set();
+      let releases = 0;
+      redis.acquireLease = async (name) => {
+        leaseNames.push(name);
+        if (name.startsWith('ads-automation-window:')) {
+          if (claimedWindows.has(name)) return { acquired: false, reason: 'busy' };
+          claimedWindows.add(name);
+        }
+        return {
+          acquired: true,
+          name,
+          key: 'lease:' + name,
+          token: 'owner-' + leaseNames.length,
+          ttlSec: 60,
+        };
+      };
+      redis.renewLease = async () => true;
+      redis.releaseLease = async () => { releases += 1; return true; };
+      let sequenceRunnerCalls = 0;
+      const sequenceSteps = [
+        {
+          component: 'rules',
+          distributedThrottleSec: 30,
+          runner: async () => {
+            sequenceRunnerCalls += 1;
+            return { executed: [] };
+          },
+        },
+        {
+          component: 'schedule',
+          distributedThrottleSec: 10,
+          runner: async () => {
+            sequenceRunnerCalls += 1;
+            return { executed: [] };
+          },
+        },
+      ];
+      const firstSequence = await automation.runTrackedSequence(
+        'acc_sequence',
+        'adv_sequence',
+        sequenceSteps,
+      );
+      assert.strictEqual(firstSequence.skipped, false);
+      assert.strictEqual(sequenceRunnerCalls, 2, 'regras e agenda executam na ordem dentro do mesmo ciclo');
+      assert.strictEqual(
+        leaseNames.filter((name) => name.startsWith('ads-automation:')).length,
+        1,
+        'o ciclo inteiro adquire um único lease global',
+      );
+      assert.strictEqual(releases, 1, 'o ciclo inteiro libera o lease global uma única vez');
+
+      const secondSequence = await automation.runTrackedSequence(
+        'acc_sequence',
+        'adv_sequence',
+        [sequenceSteps[0]],
+      );
+      assert.strictEqual(sequenceRunnerCalls, 2, 'marcador distribuído impede repetição sequencial em outro runtime');
+      assert.strictEqual(secondSequence.results.rules.reason, 'distributed_throttle');
+      assert.strictEqual(releases, 2, 'marcador de janela fica até o TTL; somente o lease global é liberado');
+
       redis.acquireLease = async () => ({
         acquired: true,
         name: 'teste',

@@ -192,6 +192,14 @@ install(paths.ai, {
   assert.ok(treeRanges.every((range) => /^\d{4}-\d{2}-\d{2}$/.test(range.fromDate) && /^\d{4}-\d{2}-\d{2}$/.test(range.toDate)), 'ranges usam datas civis');
   assert.ok(treeRanges.every((range) => range.fromDate <= range.toDate), 'range civil nunca inverte');
 
+  const beforePostWrite = treeReads;
+  const firstPostWrite = processWithDuplicate.syncAfterWrite('acc_post_write', 'adv_post_write');
+  const secondPostWrite = processWithDuplicate.syncAfterWrite('acc_post_write', 'adv_post_write');
+  assert.strictEqual(firstPostWrite, secondPostWrite, 'escritas concorrentes compartilham a Promise do sync pós-escrita');
+  const postWriteResult = await firstPostWrite;
+  assert.strictEqual(postWriteResult.ok, true, 'a Promise só conclui quando o espelho foi atualizado');
+  assert.strictEqual(treeReads, beforePostWrite + 2, 'dirty durante o sync força uma segunda passagem antes de resolver');
+
   console.log('ads-sync-automation.test.js: OK');
 })().catch((error) => {
   console.error(error);

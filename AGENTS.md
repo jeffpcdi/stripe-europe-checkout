@@ -175,15 +175,25 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   contas vistas recentemente e não são ativados por essa inscrição operacional. O status operacional
   não é inferido da configuração: `ads-sync.getRuntimeStatus()` expõe o heartbeat do processo atual,
   cada promise de regra/alerta/agendamento registra dispatch, conclusão e resultado em
-  `runTrackedSweep()`. Regras, alertas e agenda compartilham um lease Redis com token de proprietário por
-  `account_id + advertiser_id`; renovação e liberação comparam o token atomicamente, falham fechadas
-  quando um Redis configurado fica indisponível e impedem instâncias/componentes diferentes de enviar
-  mutações concorrentes. O ciclo roda em ordem determinística (alertas → regras → agenda) e confirma a
-  posse antes de cada escrita externa. Cada regra de performance consulta sua própria janela inclusiva
+  `runTrackedSweep()`. Regras, alertas e agenda compartilham **um único lease durante o ciclo inteiro**
+  por `account_id + advertiser_id`; renovação/liberação comparam o token atomicamente, falham fechadas
+  quando um Redis configurado fica indisponível e marcadores Redis com TTL impedem também a repetição
+  sequencial do mesmo ciclo em outra instância. A ordem é determinística (alertas → regras → agenda),
+  a posse é confirmada antes de cada escrita externa. Perda de lease antes de qualquer mutação libera o
+  cooldown sem criar falha; se um lote de orçamento já mudou parcialmente, preserva o cooldown, audita o
+  aplicado e grava em dead-letter **somente** os targets restantes. Falha ao persistir cooldown/autoria
+  no Neon aborta antes da mutação em vez de seguir apenas com memória. Depois de uma escrita, o motor
+  aguarda o sync forçado do espelho antes da etapa seguinte. Cada regra de performance consulta sua própria janela inclusiva
   (`1d` = somente hoje; `7d` = hoje + seis dias), com métricas e atribuição cortadas no fuso retornado
   pelo advertiser TikTok e persistido em `ads_sync_state.advertiser_timezone`; backtest e execução real
   usam o mesmo planejador. Se várias regras baterem na mesma campanha, só uma decisão segue, pela
   precedência conservadora `pause > budget_down > budget_up > activate`, e as suprimidas ficam explícitas.
+  Agendamentos também são consolidados por campanha: qualquer janela fechada bloqueia reativação, e uma
+  pausa de performance limpa a autoria antiga do dayparting. A atribuição, o copiloto e os briefings usam
+  o mesmo dia civil do advertiser, inclusive em viradas de horário de verão. Aprovações CBO revalidam o
+  orçamento no nível campanha; o retry de dead-letter relê a campanha atual, preserva `campaignKind`
+  (Smart+ nunca cai no endpoint comum), descarta targets já aplicados e bloqueia orçamento divergente.
+  Ações parciais entram no cap durável de ações/hora.
   `deriveEngineStatus()` cruza isso com o sync do advertiser selecionado, frescor
   de 15 min, Neon/Pipeboard, kill switch, dry-run e circuit breaker. `/api/ads/rules` e
   `/api/ads/mcp/status` usam o mesmo builder. Após restart, fica `starting` até o novo processo concluir

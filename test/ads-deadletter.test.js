@@ -18,13 +18,16 @@ const redis = require('../redis');
 const automation = require('../ads-automation');
 
 // ── Stubs de provider ────────────────────────────────────────────────────────
-const calls = { status: [], budget: [] };
+const calls = { status: [], smartStatus: [], budget: [] };
 let failStatus = false;
 provider.enabled = true;
 provider.resolveAdvertiserId = async () => 'adv1';
 provider.setCampaignStatus = async (adv, ids, status) => {
   if (failStatus) throw new Error('provider recusou (429)');
   calls.status.push({ adv, ids, status });
+};
+provider.setSmartPlusCampaignStatus = async (adv, ids, status) => {
+  calls.smartStatus.push({ adv, ids, status });
 };
 provider.updateAdGroup = async (adv, id, patch) => { calls.budget.push({ adv, id, patch }); };
 const stateByAcc = {};
@@ -57,6 +60,14 @@ adsOps.markActionDeadLetter = async (acc, id, status, opts = {}) => {
   if (opts.incrementAttempt) row.attempts += 1;
   return row;
 };
+adsOps.updateActionDeadLetterPlan = async (acc, id, plan, opts = {}) => {
+  const row = dl.find((x) => x.id === id && x.account_id === acc);
+  if (!row || row.status !== 'pending') return null;
+  row.plan = plan || {};
+  if (opts.error !== undefined) row.error = opts.error;
+  if (opts.incrementAttempt) row.attempts += 1;
+  return row;
+};
 adsOps.countPendingActionDeadLetter = async (acc) => dl.filter((x) => x.account_id === acc && x.status === 'pending').length;
 
 // ── Stub de Redis para o breaker (KV em memória) ─────────────────────────────
@@ -71,14 +82,16 @@ automation.init({ stats: { logEvent() {}, getStats: () => ({ leads: [] }) }, syn
 
 function campaign(over = {}) {
   return Object.assign({
-    platformCampaignId: 'c1', campaignName: 'Camp 1', status: 'active', currency: 'EUR',
+    platformCampaignId: 'c1', campaignName: 'Camp 1', campaignKind: 'auction',
+    status: 'active', currency: 'EUR',
     metrics: { spend: 50, conversions: 0, impressions: 2000, clicks: 40 },
     adSets: [{ platformAdSetId: 'g1', budget: { amount: 50, type: 'daily' } }],
   }, over);
 }
 function setRules(accId, rules) { stateByAcc[accId] = { rulesSeeded: true, alertsSeeded: true, rules }; }
 function reset(accId) {
-  calls.status.length = 0; calls.budget.length = 0; dl.length = 0;
+  calls.status.length = 0; calls.smartStatus.length = 0; calls.budget.length = 0; dl.length = 0;
+  treeCampaigns = [campaign()];
   automation._internals.memState.delete(accId);
   automation._internals.actionOutcomes.delete(accId);
   automation._internals.breakerHydrated.delete(accId);
@@ -116,6 +129,59 @@ function reset(accId) {
     failStatus = false;
   }
 
+  // ── perda de lease após 1º target: não repete a parte já aplicada ─────────
+  {
+    const acc = 'dl_partial_lease';
+    reset(acc);
+    setRules(acc, automation.validateRules([{
+      id: 'r-partial',
+      enabled: true,
+      metric: 'cpm_max',
+      threshold: 10,
+      minSpend: 1,
+      action: 'budget_down',
+      pct: 20,
+      mode: 'execute',
+    }]));
+    treeCampaigns = [campaign({
+      adSets: [
+        { platformAdSetId: 'g1', budget: { amount: 50, type: 'daily' } },
+        { platformAdSetId: 'g2', budget: { amount: 80, type: 'daily' } },
+      ],
+    })];
+    let guardCalls = 0;
+    const lost = new Error('lease perdido entre targets');
+    lost.code = 'AUTOMATION_LEASE_LOST';
+    await assert.rejects(
+      automation.runRulesSweep(acc, {
+        force: true,
+        advertiserId: 'adv1',
+        leaseGuard: async () => {
+          guardCalls += 1;
+          if (guardCalls >= 3) throw lost;
+        },
+      }),
+      (error) => error && error.code === 'AUTOMATION_LEASE_LOST',
+      'o ciclo para assim que perde o lease depois de uma mutação',
+    );
+    assert.deepStrictEqual(
+      calls.budget.map((call) => call.id),
+      ['g1'],
+      'somente o primeiro target foi enviado antes da perda do lease',
+    );
+    assert.strictEqual(dl.length, 1, 'a parte pendente virou uma única dead-letter');
+    assert.deepStrictEqual(
+      dl[0].plan.changes.map((change) => change.targetId),
+      ['g2'],
+      'dead-letter contém somente o target ainda não aplicado',
+    );
+    assert.strictEqual(
+      automation._internals.memState.get(acc).has('adv:adv1:rule:c1:r-partial'),
+      true,
+      'cooldown é preservado após mutação parcial para impedir replay do lote original',
+    );
+  }
+
   // ── 3: reprocessar com sucesso → resolved + provider chamado ───────────────
   {
     const acc = 'dl_3';
@@ -133,6 +199,78 @@ function reset(accId) {
     assert.strictEqual(row.attempts, 1, 'attempts incrementado');
     // breaker alimentado com sucesso
     assert.deepStrictEqual(automation._internals.actionOutcomes.get(acc + ':adv1'), [true], 'sucesso alimenta o breaker do advertiser');
+  }
+
+  // ── 3b: retry parcial reduz a própria dead-letter ao restante ─────────────
+  {
+    const acc = 'dl_retry_partial';
+    reset(acc);
+    const row = await adsOps.addActionDeadLetter(acc, {
+      ruleId: 'r-budget',
+      metric: 'cpm_max',
+      action: 'budget_down',
+      advertiserId: 'adv1',
+      campaignId: 'c1',
+      campaignName: 'Camp 1',
+      detail: 'reduzir orçamento',
+      plan: {
+        pct: 20,
+        cap: 0,
+        capped: 0,
+        changes: [
+          { targetType: 'adgroup', targetId: 'g1', adGroupId: 'g1', cur: 50, amount: 40, type: 'daily' },
+          { targetType: 'adgroup', targetId: 'g2', adGroupId: 'g2', cur: 80, amount: 64, type: 'daily' },
+        ],
+      },
+      error: 'falha antiga',
+    });
+    treeCampaigns = [campaign({
+      adSets: [
+        { platformAdSetId: 'g1', budget: { amount: 50, type: 'daily' } },
+        { platformAdSetId: 'g2', budget: { amount: 80, type: 'daily' } },
+      ],
+    })];
+    let guardCalls = 0;
+    const lost = new Error('lease perdido no retry');
+    lost.code = 'AUTOMATION_LEASE_LOST';
+    await assert.rejects(
+      automation.reprocessDeadLetter(acc, row.id, async () => {
+        guardCalls += 1;
+        if (guardCalls >= 3) throw lost;
+      }),
+      (error) => error && error.code === 'ADS_PARTIAL_MUTATION',
+      'retry parcial devolve erro acionável sem repetir o target confirmado',
+    );
+    assert.deepStrictEqual(calls.budget.map((call) => call.id), ['g1'], 'retry aplicou somente o primeiro target');
+    assert.deepStrictEqual(row.plan.changes.map((change) => change.targetId), ['g2'], 'entrada foi reduzida ao target restante');
+    assert.strictEqual(row.status, 'pending', 'entrada parcial continua pendente');
+    assert.strictEqual(row.attempts, 1, 'tentativa parcial é contabilizada');
+  }
+
+  // ── 3c: dead-letter Smart+ preserva o endpoint dedicado ──────────────────
+  {
+    const acc = 'dl_smart_plus';
+    reset(acc);
+    const row = await adsOps.addActionDeadLetter(acc, {
+      ruleId: 'r-smart',
+      metric: 'spend_no_conv',
+      action: 'pause',
+      advertiserId: 'adv1',
+      campaignId: 'sp1',
+      campaignName: 'Smart 1',
+      detail: 'pausa Smart+',
+      plan: { campaignKind: 'smart_plus' },
+      error: 'falha antiga',
+    });
+    treeCampaigns = [campaign({
+      platformCampaignId: 'sp1',
+      campaignName: 'Smart 1',
+      campaignKind: 'smart_plus',
+    })];
+    const out = await automation.reprocessDeadLetter(acc, row.id);
+    assert.strictEqual(out.ok, true, 'retry Smart+ concluiu');
+    assert.strictEqual(calls.smartStatus.length, 1, 'usa setSmartPlusCampaignStatus');
+    assert.strictEqual(calls.status.length, 0, 'não degrada Smart+ para endpoint de leilão');
   }
 
   // ── 4: reprocessar com falha → volta a pending + attempts++ ────────────────
