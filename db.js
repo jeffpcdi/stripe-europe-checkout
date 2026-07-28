@@ -366,6 +366,16 @@ function missingColumnError(err) {
   return /totp_secret/i.test(m) || /column .* does not exist/i.test(m) || /42703/.test(m);
 }
 
+// Sonda leve de disponibilidade do banco. `SELECT 1` transfere ~nada, então
+// serve para distinguir "conta não existe / senha errada" de "banco fora"
+// (ex.: Neon HTTP 402 cota de transferência estourada, queda de rede). Sem
+// isso, um erro de infra vira "senha incorreta" e manda o dono caçar a senha.
+async function ping() {
+  if (!enabled) return false;
+  try { await sql`SELECT 1`; return true; }
+  catch (err) { console.error('[db] ping falhou:', err && err.message); return false; }
+}
+
 async function getAccountByEmail(email) {
   if (!enabled || !email) return null;
   const e = email.toLowerCase();
@@ -1419,7 +1429,7 @@ module.exports = {
   isReady: () => ready,
   init, initWithRetry,
   // contas / auth / migração
-  createAccount, getAccountByEmail, getAccountById, countAccounts, getFirstAccountId, claimLegacyData,
+  createAccount, getAccountByEmail, getAccountById, countAccounts, getFirstAccountId, claimLegacyData, ping,
   createAuthSession, getAuthSession, deleteAuthSession, pruneAuthSessions,
   listAuthSessions, deleteAuthSessionBySid, updateAccountName, setAccountTotp,
   anonymizeOldLeads, accountDataCounts, deleteAccountCascade,

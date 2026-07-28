@@ -99,7 +99,19 @@ async function login({ email, password, meta }) {
   }
 
   const row = await db.getAccountByEmail(email || '');
-  if (!row || !verifyPassword(password, row.password_hash)) {
+  if (!row) {
+    // Distingue "conta não existe / senha errada" de "banco indisponível".
+    // getAccountByEmail devolve null nos DOIS casos; uma sonda leve separa os
+    // dois para não acusar "senha incorreta" quando o Neon está fora (ex.: 402
+    // cota estourada) — isso mandava o dono trocar senha à toa. Não conta como
+    // tentativa de login falha (não é culpa da credencial).
+    if (typeof db.ping === 'function' && !(await db.ping())) {
+      return { error: 'Banco de dados temporariamente indisponível. Tente novamente em instantes.', dbDown: true };
+    }
+    registerLoginFail(email);
+    return { error: 'E-mail ou senha incorretos.' };
+  }
+  if (!verifyPassword(password, row.password_hash)) {
     registerLoginFail(email);
     return { error: 'E-mail ou senha incorretos.' };
   }
