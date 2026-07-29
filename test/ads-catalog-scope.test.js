@@ -87,13 +87,13 @@ assert.strictEqual(registerAdsRoutes.catalogBatchMinimumErrors({ catalogs: [{
 const batchCampaignBase = {
   key: 'pixel', name: 'Catálogo Pixel', currency: 'BRL', country: 'BR',
   products: Array.from({ length: 4 }, () => ({ data: { availability: 'in stock' } })),
-  campaigns: [{ name: 'Campanha', budgetAmount: 50 }],
+  campaigns: [{ name: 'Campanha', budgetAmount: 50, videoUrl: 'https://cdn.test/catalogo.mp4' }],
 };
 const missingPixel = registerAdsRoutes.catalogBatchCampaignSpecErrors({ catalogs: [batchCampaignBase] });
 assert.ok(missingPixel.some((error) => error.code === 'CATALOG_PIXEL_REQUIRED'), 'preview em massa exige pixel antes de criar qualquer catálogo');
 const withPixel = registerAdsRoutes.catalogBatchCampaignSpecErrors({ catalogs: [{
   ...batchCampaignBase,
-  campaigns: [{ name: 'Campanha', budgetAmount: 50, pixelId: '7550683248272228369' }],
+  campaigns: [{ name: 'Campanha', budgetAmount: 50, pixelId: '7550683248272228369', videoUrl: 'https://cdn.test/catalogo.mp4' }],
 }] });
 assert.strictEqual(withPixel.length, 0, 'lote com quatro produtos e pixel válido passa pelo contrato de campanha');
 assert.match(catalogSection, /idempotencyKey: scopedCatalogRunIdempotencyKey\([\s\S]*?catalog-batch-sync/);

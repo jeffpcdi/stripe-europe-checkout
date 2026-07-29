@@ -74,11 +74,12 @@ function throwsCode(fn, code, label) {
   const input = {
     name: 'Catálogo manual', budgetAmount: 50, productScope: 'specific',
     productIds: ['SKU-local'], pixelId: '7550683248272228369',
+    videoUrl: 'https://cdn.test/catalogo.mp4',
   };
   const spec = domain.normalizeCampaignSpec(input, { name: 'Loja', country: 'BR' });
   eq(spec.destination, 'PRODUCT_LINK', 'destino vem do produto, sem URL manual');
-  eq(spec.creativeMode, 'CATALOG_CAROUSEL', 'spec usa o formato de catálogo confirmado pelo Pipeboard');
-  eq(spec.strategy, 'catalog_carousel_product_link', 'estratégia fica explícita para Catalog Carousel');
+  eq(spec.creativeMode, 'SINGLE_VIDEO', 'spec usa vídeo de catálogo com áudio embutido');
+  eq(spec.strategy, 'catalog_video_product_link', 'estratégia Product Link fica explícita');
   eq(spec.budgetOptimization, 'adgroup', 'ABO é o padrão');
   eq(spec.pixelEvent, 'ON_WEB_ORDER', 'evento de compra canônico é o padrão');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, budgetAmount: 49.99 }, {}), 'CATALOG_CAMPAIGN_BUDGET_BELOW_MINIMUM', 'bloqueia orçamento abaixo do piso do TikTok');
@@ -87,7 +88,8 @@ function throwsCode(fn, code, label) {
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelId: 'pixel-local' }, {}), 'CATALOG_PIXEL_ID_INVALID', 'Pixel ID precisa ser numérico');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelEvent: 'EVENTO_INVENTADO' }, {}), 'CATALOG_PIXEL_EVENT_INVALID', 'evento desconhecido não chega ao provider');
   eq(domain.normalizeCampaignSpec({ ...input, pixelEvent: 'PURCHASE' }, {}).pixelEvent, 'ON_WEB_ORDER', 'alias legado PURCHASE é normalizado sem adivinhação');
-  eq(domain.normalizeCampaignSpec({ ...input, musicId: '' }, {}).musicId, undefined, 'música pode ser resolvida automaticamente no preflight');
+  eq(domain.normalizeCampaignSpec({ ...input, pixelEvent: 'SHOPPING' }, {}).pixelEvent, 'SHOPPING', 'aceita o enum de Compra realmente exposto pelo Pixel');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, videoUrl: '' }, {}), 'CATALOG_VIDEO_REQUIRED', 'vídeo é obrigatório e não depende do Ads Manager');
 
   console.log('Gateway — vínculo verificado contra o Business Center');
   const remote = await gateway.verifyCatalogLink({
@@ -153,8 +155,8 @@ function throwsCode(fn, code, label) {
   ok(/resumeSyncRun/.test(store) && /resumeCampaignRun/.test(store), 'falhas podem ser retomadas');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   ok(/campaign-preflight/.test(routes), 'preflight existe antes da escrita');
-  ok(/pipeboard\.resolveCatalogCarouselMusic/.test(routes) && !/provider\.resolveCatalogCarouselMusic/.test(routes), 'preflight usa a fronteira Pipeboard realmente importada');
-  ok(/PRODUCT_LINK_CONNECTOR_CONFIRMATION_REQUIRED/.test(routes), 'preflight bloqueia antes de criar hierarquia parcial');
+  ok(/pipeboard\.resolveCatalogPurchaseEvent/.test(routes) && !/provider\.resolveCatalogPurchaseEvent/.test(routes), 'preflight usa a fronteira Pipeboard para descobrir o evento de Compra real');
+  ok(/connectorReady: capabilities\.catalogSingleVideoCampaign === true/.test(routes), 'preflight salva a configuração e deixa o worker aguardar o conector sem criar parcial');
   ok(/catalog-sync-runs\/:runId\/resume/.test(routes), 'sincronização falha tem endpoint de retomada');
   ok(/CATALOG_CAMPAIGN_NOT_CLEANABLE/.test(routes), 'cleanup não remove campanha concluída');
   const manager = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-manager.tsx'), 'utf8');

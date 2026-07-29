@@ -1,8 +1,8 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, Download, FileUp, Loader2, PackageOpen, Rocket, UploadCloud } from 'lucide-react'
-import { adsCreateCatalogBatch, adsPreviewCatalogBatch } from '@/lib/api'
+import { AlertCircle, Check, Download, FileUp, Loader2, PackageOpen, Rocket, Upload, UploadCloud, Video } from 'lucide-react'
+import { adsCreateCatalogBatch, adsPreviewCatalogBatch, adsUpload } from '@/lib/api'
 import { buildCatalogBatchPlan } from '@/lib/catalog-batch-plan'
 import type { AdsCatalogBatchPreviewResponse } from '@/lib/types'
 import { toast } from '@/lib/toast'
@@ -34,9 +34,11 @@ function campaignSummary(campaign: Record<string, unknown>, currency: string) {
 
 export function CatalogBatchDialog({
   advertiserId,
+  advertiserCurrency,
   onCreated,
 }: {
   advertiserId: string
+  advertiserCurrency: string
   onCreated: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -44,6 +46,9 @@ export function CatalogBatchDialog({
   const [currency, setCurrency] = useState('BRL')
   const [syncToTikTok, setSyncToTikTok] = useState(true)
   const [scheduleCampaigns, setScheduleCampaigns] = useState(false)
+  const [videoUrl, setVideoUrl] = useState('')
+  const [videoName, setVideoName] = useState('')
+  const [uploadingVideo, setUploadingVideo] = useState(false)
   const [preview, setPreview] = useState<AdsCatalogBatchPreviewResponse | null>(null)
   const [busy, setBusy] = useState<'preview' | 'create' | null>(null)
   const idempotencyKeyRef = useRef<string | null>(null)
@@ -53,8 +58,17 @@ export function CatalogBatchDialog({
     () => buildCatalogBatchPlan(source, currency),
     [source, currency],
   )
+  const executionPlan = useMemo(() => ({
+    catalogs: plan.catalogs.map((catalog) => ({
+      ...catalog,
+      campaigns: catalog.campaigns.map((campaign) => ({
+        ...campaign,
+        ...(videoUrl ? { videoUrl } : {}),
+      })),
+    })),
+  }), [plan.catalogs, videoUrl])
   const campaignCount = plan.catalogs.reduce((total, catalog) => total + catalog.campaigns.length, 0)
-  const canSubmit = plan.catalogs.length > 0 && !plan.message && !busy
+  const canSubmit = plan.catalogs.length > 0 && !plan.message && (!scheduleCampaigns || Boolean(videoUrl)) && !busy
   const campaignRequiresSync = scheduleCampaigns && !syncToTikTok
   const syncNotReady = Boolean(preview?.ok && syncToTikTok && !preview.automation.catalogSync)
   const creationBlocked = campaignRequiresSync || syncNotReady
@@ -89,6 +103,22 @@ export function CatalogBatchDialog({
     }
   }
 
+  async function uploadCampaignVideo(file: File) {
+    if (!/\.(mp4|mov)$/i.test(file.name)) return toast.error('Envie um vídeo MP4 ou MOV')
+    setUploadingVideo(true)
+    try {
+      const result = await adsUpload(file, 'video')
+      setVideoUrl(result.url)
+      setVideoName(file.name)
+      invalidatePlan()
+      toast.success('Vídeo pronto para as campanhas')
+    } catch (error) {
+      toast.error('Não foi possível enviar o vídeo', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setUploadingVideo(false)
+    }
+  }
+
   function downloadTemplate() {
     const blob = new Blob([CATALOG_BATCH_TEMPLATE], { type: 'text/tab-separated-values;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -101,10 +131,11 @@ export function CatalogBatchDialog({
 
   async function validate() {
     if (!plan.catalogs.length) return toast.error(plan.message || 'Cole as linhas do lote primeiro')
+    if (scheduleCampaigns && !videoUrl) return toast.error('Envie o vídeo que será usado nas campanhas')
     setBusy('preview')
     try {
       const response = await adsPreviewCatalogBatch(advertiserId, {
-        plan: { catalogs: plan.catalogs }, syncToTikTok, scheduleCampaigns,
+        plan: executionPlan, syncToTikTok, scheduleCampaigns,
       })
       setPreview(response)
       const hasExecutionPrerequisite = campaignRequiresSync || (syncToTikTok && !response.automation.catalogSync)
@@ -138,7 +169,7 @@ export function CatalogBatchDialog({
     setBusy('create')
     try {
       const result = await adsCreateCatalogBatch(advertiserId, {
-        plan: { catalogs: plan.catalogs }, syncToTikTok, scheduleCampaigns,
+        plan: executionPlan, syncToTikTok, scheduleCampaigns,
         idempotencyKey: idempotencyKeyRef.current || (idempotencyKeyRef.current = randomKey()),
       })
       if (result.dryRun) {
@@ -253,7 +284,30 @@ export function CatalogBatchDialog({
               <input className="mt-0.5 accent-primary" type="checkbox" checked={scheduleCampaigns} onChange={(event) => { setScheduleCampaigns(event.target.checked); invalidatePlan() }} />
               <span><strong className="text-foreground">Preparar campanhas Product Link pausadas</strong><br />{preview?.automation.productLinkNote || 'Valide o lote para consultar o conector Product Link.'}</span>
             </label>
-            {scheduleCampaigns && <p className="rounded-md bg-background/70 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">O Pixel de compra é selecionado automaticamente pela conta de anúncio. O criativo só será enviado quando o conector confirmar Product Link e o catálogo estiver aprovado.</p>}
+            {scheduleCampaigns && (
+              <label className="rounded-lg border border-border bg-background/70 p-3">
+                <span className="flex items-center gap-2 font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeo das campanhas</span>
+                <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">Um MP4/MOV com áudio para todas as campanhas do arquivo. Pixel, Compra e capa são automáticos.</span>
+                <span className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="btn-ghost cursor-pointer px-2 py-1 text-[10px]">
+                    {uploadingVideo ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
+                    {videoUrl ? 'Trocar vídeo' : 'Enviar vídeo'}
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="video/mp4,video/quicktime,.mp4,.mov"
+                      disabled={uploadingVideo}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        if (file) void uploadCampaignVideo(file)
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                  </span>
+                  {videoName && <span className="max-w-full truncate text-[10px] text-success"><Check className="mr-1 inline size-3" />{videoName}</span>}
+                </span>
+              </label>
+            )}
             {campaignRequiresSync && (
               <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
                 Para preparar campanhas, mantenha “Sincronizar automaticamente com o TikTok” ligado.
@@ -301,7 +355,7 @@ export function CatalogBatchDialog({
                         {catalog.campaigns.length > 0 ? (
                           <ul className="mt-1.5 space-y-1">
                             {catalog.campaigns.map((campaign, index) => {
-                              const summary = campaignSummary(campaign, catalog.currency)
+                              const summary = campaignSummary(campaign, advertiserCurrency)
                               return (
                                 <li key={`${summary.name}-${index}`} className="grid gap-0.5 border-t border-border/50 pt-1.5 first:border-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-3">
                                   <span className="truncate font-medium text-foreground">{summary.name}</span>

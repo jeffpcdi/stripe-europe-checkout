@@ -277,6 +277,7 @@ function mapAd(a) {
     websiteType: textField(row.website_type, row.websiteType),
     destinationPageType: textField(row.destination_page_type, row.destinationPageType),
     adFormat: textField(row.ad_format, row.adFormat),
+    verticalVideoStrategy: textField(row.vertical_video_strategy, row.verticalVideoStrategy),
     productsType: textField(row.products_type, row.productsType),
     productSpecificType: textField(row.product_specific_type, row.productSpecificType),
     productIds: (Array.isArray(row.product_ids) ? row.product_ids : Array.isArray(row.productIds) ? row.productIds : []).map(String),
@@ -320,9 +321,11 @@ function pausedReadback(entity) {
 
 // Uma resposta de criação com três IDs não prova que o TikTok montou a
 // campanha pedida. Esta checagem exige, na leitura posterior, a cadeia inteira
-// e o contrato Product Link: catálogo correto, cada nível pausado e nenhuma
-// URL manual no anúncio. Se o conector não devolver algum campo, o resultado é
-// deliberadamente inconclusivo — nunca assumimos que um anúncio comum é VSA.
+// e o contrato Product Link: catálogo correto no conjunto/anúncio, vídeo
+// vertical, cada nível pausado e nenhuma URL manual. A leitura de campanhas do
+// TikTok não devolve os campos de catálogo; por isso objetivo+status são a
+// prova possível nesse nível, enquanto os dois níveis inferiores fecham a
+// semântica de catálogo sem inferir dados ausentes.
 function verifyCatalogProductLinkHierarchy(input) {
   const value = input || {};
   const expected = value.expected || {};
@@ -337,6 +340,8 @@ function verifyCatalogProductLinkHierarchy(input) {
   const bcId = textField(expected.bcId);
   const itemGroupIds = (Array.isArray(expected.itemGroupIds) ? expected.itemGroupIds : []).map(String).sort();
   const readItemGroupIds = (Array.isArray(ad.itemGroupIds) ? ad.itemGroupIds : []).map(String).sort();
+  const skuIds = (Array.isArray(expected.skuIds) ? expected.skuIds : []).map(String).sort();
+  const readSkuIds = (Array.isArray(ad.skuIds) ? ad.skuIds : []).map(String).sort();
   const hierarchy = Boolean(
     ids.campaign && ids.adGroup && ids.ad
     && campaign.id === ids.campaign
@@ -345,9 +350,6 @@ function verifyCatalogProductLinkHierarchy(input) {
   );
   const productLink = Boolean(
     equalsEnum(campaign.objective, 'PRODUCT_SALES')
-    && campaign.catalogId === catalogId
-    && equalsEnum(campaign.productSource, 'CATALOG')
-    && equalsEnum(campaign.shoppingAdsType, shoppingAdsType)
     && adGroup.catalogId === catalogId
     && equalsEnum(adGroup.productSource, 'CATALOG')
     && equalsEnum(adGroup.shoppingAdsType, shoppingAdsType)
@@ -368,10 +370,13 @@ function verifyCatalogProductLinkHierarchy(input) {
   );
   const creative = Boolean(
     equalsEnum(ad.adFormat, expected.adFormat)
+    && equalsEnum(ad.verticalVideoStrategy, expected.verticalVideoStrategy)
     && equalsEnum(ad.productSpecificType, expected.productSpecificType)
     && (!expected.productSetId || ad.productSetId === textField(expected.productSetId))
     && (!itemGroupIds.length || JSON.stringify(readItemGroupIds) === JSON.stringify(itemGroupIds))
-    && (!expected.musicId || ad.musicId === textField(expected.musicId))
+    && (!skuIds.length || JSON.stringify(readSkuIds) === JSON.stringify(skuIds))
+    && (!expected.videoId || ad.videoId === textField(expected.videoId))
+    && (!expected.imageId || ad.imageIds.includes(textField(expected.imageId)))
     && (!expected.adText || ad.adText === textField(expected.adText))
     && (!expected.callToAction || equalsEnum(ad.callToAction, expected.callToAction))
   );
@@ -389,7 +394,7 @@ function verifyCatalogProductLinkHierarchy(input) {
     checks: {
       campaign: { id: campaign.id || null, status: campaign.status || null, catalogId: campaign.catalogId || null, productSource: campaign.productSource || null, shoppingAdsType: campaign.shoppingAdsType || null },
       adGroup: { id: adGroup.id || null, campaignId: adGroup.campaignId || null, status: adGroup.status || null, catalogId: adGroup.catalogId || null, catalogAuthorizedBcId: adGroup.catalogAuthorizedBcId || null, promotionType: adGroup.promotionType || null, shoppingAdsRetargetingType: adGroup.shoppingAdsRetargetingType || null, pixelId: adGroup.pixelId || null, optimizationEvent: adGroup.optimizationEvent || null },
-      ad: { id: ad.id || null, adgroupId: ad.adgroupId || null, status: ad.status || null, catalogId: ad.catalogId || null, landingPageUrl: ad.landingPageUrl || null, adFormat: ad.adFormat || null, productSpecificType: ad.productSpecificType || null, itemGroupIds: ad.itemGroupIds || [], productSetId: ad.productSetId || null, musicId: ad.musicId || null, identityType: ad.identityType || null, identityBcId: ad.identityBcId || null },
+      ad: { id: ad.id || null, adgroupId: ad.adgroupId || null, status: ad.status || null, catalogId: ad.catalogId || null, landingPageUrl: ad.landingPageUrl || null, adFormat: ad.adFormat || null, verticalVideoStrategy: ad.verticalVideoStrategy || null, productSpecificType: ad.productSpecificType || null, itemGroupIds: ad.itemGroupIds || [], skuIds: ad.skuIds || [], productSetId: ad.productSetId || null, videoId: ad.videoId || null, imageIds: ad.imageIds || [], identityType: ad.identityType || null, identityBcId: ad.identityBcId || null },
     },
   };
 }
@@ -1181,6 +1186,73 @@ async function uploadImage(advertiserId, imageUrl, createdIds) {
   const imageId = String(deepPluck(out, 'image_id') || deepPluck(out, 'web_uri') || '');
   if (!imageId) throw stepError('cover', 'Upload da capa não retornou image_id', createdIds);
   return imageId;
+}
+
+async function getUploadedVideoAsset(advertiserId, videoId, createdIds) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const out = await pipeboard.callTool('get_tiktok_video_info', {
+      advertiser_id: advertiserId,
+      video_ids: [String(videoId)],
+      page: 1,
+      page_size: 10,
+    });
+    const rows = firstArray(out, ['videos', 'video_list', 'list', 'data']);
+    const row = rows.find((item) => String(item && (item.video_id || item.id) || '') === String(videoId)) || rows[0];
+    const coverUrl = String(row && (row.video_cover_url || row.cover_url || row.thumbnail_url) || '').trim();
+    if (row && coverUrl) {
+      return {
+        videoId: String(row.video_id || row.id || videoId),
+        coverUrl,
+        displayable: row.displayable === true || /READY|SUCCEED/i.test(String(row.status || row.video_status || '')),
+      };
+    }
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  throw stepError('cover', 'O TikTok processou o vídeo, mas ainda não devolveu a capa automática. Tente novamente em instantes.', createdIds, 502);
+}
+
+function pixelEventRows(out, pixelId) {
+  const pixels = firstArray(out, ['list', 'pixels', 'pixel_list', 'data']);
+  const row = pixels.find((item) => String(item && (item.pixel_id || item.id) || '') === String(pixelId)) || pixels[0];
+  return Array.isArray(row && row.statistics) ? row.statistics : [];
+}
+
+// A Events API recebe `Purchase`, mas o enum de otimização exposto pelo Ads
+// Manager varia por conta. Na conta real auditada ele aparece como SHOPPING.
+// Só usamos um evento que o próprio Pixel informou ter recebido nos últimos
+// sete dias; assim a criação nunca falha depois de abrir a campanha.
+async function resolveCatalogPurchaseEvent(advertiserId, pixelId, requestedEvent) {
+  const adv = String(advertiserId || '').trim();
+  const pixel = String(pixelId || '').trim();
+  const requestedRaw = String(requestedEvent || '').trim().toUpperCase();
+  const requested = requestedRaw === 'PURCHASE' ? '' : requestedRaw;
+  const end = new Date();
+  const start = new Date(end.getTime() - (6 * 24 * 60 * 60 * 1000));
+  const out = await pipeboard.callTool('get_tiktok_pixel_event_stats', {
+    advertiser_id: adv,
+    pixel_ids: [pixel],
+    start_date: start.toISOString().slice(0, 10),
+    end_date: end.toISOString().slice(0, 10),
+  });
+  const received = new Set(
+    pixelEventRows(out, pixel)
+      .filter((row) => Number(row && (row.total_count || row.server_event_total_count || row.browser_event_total_count) || 0) > 0)
+      .map((row) => String(row.pixel_event_type || row.event_type || row.event || '').trim().toUpperCase())
+      .filter(Boolean),
+  );
+  const selected = [requested, 'SHOPPING', 'ON_WEB_ORDER'].find((eventName) => eventName && received.has(eventName));
+  if (selected) return selected;
+  const err = stepError(
+    'pixel',
+    'O Pixel selecionado ainda não recebeu um evento de Compra que o TikTok permita usar na otimização.',
+    null,
+    422,
+  );
+  err.code = 'CATALOG_PURCHASE_EVENT_NOT_READY';
+  err.userMessage = err.message;
+  err.retryable = true;
+  err.suggestedAction = 'Mantenha o Pixel instalado pelo script da dashboard. Assim que uma compra real chegar, a criação será retomada com o evento correto automaticamente.';
+  throw err;
 }
 
 // "YYYY-MM-DD HH:MM:SS" no fuso do ADVERTISER (exigência do schedule_start_time).
@@ -2508,9 +2580,9 @@ let catalogCapabilitiesCache = null;
 
 // A automação de catálogo usa um contrato central diferente da criação comum.
 // Só a liberamos quando o schema MCP confirma os campos que tornam Product Link
-// inequívoco nos três níveis. Valores extras (produto específico, Product Set,
-// texto e CTA) continuam opcionais e a leitura posterior é a autoridade final; assim
-// uma atualização parcial do Pipeboard não cria uma campanha comum com URL.
+// inequívoco nos três níveis. O formato principal é SINGLE_VIDEO com áudio
+// embutido; vídeo e capa são enviados pela dashboard e o campo obrigatório
+// `vertical_video_strategy` precisa existir no conector antes da 1ª escrita.
 const CATALOG_CAMPAIGN_SCHEMA_FIELDS = {
   campaign: [
     'advertiser_id', 'campaign_name', 'objective_type', 'product_source',
@@ -2526,7 +2598,8 @@ const CATALOG_CAMPAIGN_SCHEMA_FIELDS = {
   ],
   ad: [
     'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id',
-    'product_specific_type', 'item_group_ids', 'product_set_id', 'music_id', 'ad_text', 'status',
+    'product_specific_type', 'item_group_ids', 'product_set_id', 'ad_text', 'status',
+    'vertical_video_strategy', 'video_id', 'image_ids', 'call_to_action',
     'identity_id', 'identity_type', 'identity_authorized_bc_id', 'dark_post_status',
   ],
 };
@@ -2542,7 +2615,8 @@ const CATALOG_CAMPAIGN_GUARANTEED_FIELDS = {
   ],
   ad: [
     'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id',
-    'product_specific_type', 'item_group_ids', 'product_set_id', 'music_id', 'ad_text', 'status',
+    'product_specific_type', 'ad_text', 'status', 'vertical_video_strategy',
+    'video_id', 'image_ids', 'call_to_action',
     'identity_id', 'identity_type', 'identity_authorized_bc_id', 'dark_post_status',
   ],
 };
@@ -2564,7 +2638,10 @@ async function getCatalogCapabilities({ force = false } = {}) {
     catalogFeedRead: false,
     catalogLinkVerify: false,
     manualCatalogCampaign: false,
+    catalogSingleVideoCampaign: false,
     catalogCarouselMusic: false,
+    automaticVideoCover: false,
+    automaticPurchaseEvent: false,
     productSpecificType: false,
     productSets: false,
     specificProducts: false,
@@ -2664,9 +2741,18 @@ async function getCatalogCapabilities({ force = false } = {}) {
     const requiredFieldsCompatible = requiredFieldsAreGuaranteed('create_tiktok_campaign', CATALOG_CAMPAIGN_GUARANTEED_FIELDS.campaign)
       && requiredFieldsAreGuaranteed('create_tiktok_adgroup', CATALOG_CAMPAIGN_GUARANTEED_FIELDS.adgroup)
       && requiredFieldsAreGuaranteed('create_tiktok_ad', CATALOG_CAMPAIGN_GUARANTEED_FIELDS.ad);
-    const shoppingType = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'CATALOG_LISTING_ADS').trim();
-    const adFormat = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_CAROUSEL').trim();
-    const catalogCarouselMusic = hasFields('list_tiktok_commercial_music', ['advertiser_id', 'music_scene', 'search_type', 'filtering']);
+    const shoppingType = 'VIDEO';
+    const adFormat = 'SINGLE_VIDEO';
+    const automaticVideoCover = hasFields('upload_tiktok_video', ['advertiser_id', 'video_url'])
+      && hasFields('get_tiktok_video_info', ['advertiser_id', 'video_ids'])
+      && hasFields('upload_tiktok_image', ['advertiser_id', 'image_url']);
+    const automaticPurchaseEvent = hasFields('get_tiktok_pixel_event_stats', ['advertiser_id', 'pixel_ids', 'start_date', 'end_date']);
+    const catalogCarouselMusic = false;
+    const supportsPassThroughValue = (schema, expected) => {
+      if (supportsDeclaredValue(schema, expected)) return true;
+      const description = String(schema && schema.description || '').toUpperCase();
+      return Boolean(expected && /FORWARDED AS-IS|REPASSAD[OA] COMO|TIKTOK VALIDATES/.test(description));
+    };
     // Não basta o campo existir: o schema precisa aceitar os valores que esta
     // implementação realmente envia. Sem isso, um enum incompatível poderia
     // liberar a campanha, criar o primeiro nível e falhar no seguinte.
@@ -2675,7 +2761,9 @@ async function getCatalogCapabilities({ force = false } = {}) {
       ['product_source', 'CATALOG'],
       ['shopping_ads_type', shoppingType],
       ['operation_status', 'DISABLE'],
-    ].every(([field, expected]) => supportsDeclaredValue(fieldSchema('create_tiktok_campaign', field), expected));
+    ].every(([field, expected]) => field === 'shopping_ads_type'
+      ? supportsPassThroughValue(fieldSchema('create_tiktok_campaign', field), expected)
+      : supportsDeclaredValue(fieldSchema('create_tiktok_campaign', field), expected));
     const adgroupSemantics = [
       ['promotion_type', 'WEBSITE'],
       ['shopping_ads_type', shoppingType],
@@ -2684,22 +2772,31 @@ async function getCatalogCapabilities({ force = false } = {}) {
       ['optimization_goal', 'CONVERT'],
       ['billing_event', 'OCPM'],
       ['operation_status', 'DISABLE'],
-      ['optimization_event', 'ON_WEB_ORDER'],
-    ].every(([field, expected]) => supportsDeclaredValue(fieldSchema('create_tiktok_adgroup', field), expected));
+    ].every(([field, expected]) => field === 'shopping_ads_type'
+      ? supportsPassThroughValue(fieldSchema('create_tiktok_adgroup', field), expected)
+      : supportsDeclaredValue(fieldSchema('create_tiktok_adgroup', field), expected));
     const adSemantics = [
       ['ad_format', adFormat],
+      ['vertical_video_strategy', 'SINGLE_VIDEO'],
       ['product_specific_type', 'ALL'],
       ['status', 'PAUSED'],
       ['identity_type', 'BC_AUTH_TT'],
       ['dark_post_status', 'ON'],
     ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_ad', field), expected));
-    const manualCatalogCampaign = campaignFields && adgroupFields && adFields
+    const catalogSingleVideoCampaign = campaignFields && adgroupFields && adFields
       && campaignSemantics && adgroupSemantics && adSemantics
-      && requiredFieldsCompatible && structuralReadback && catalogCarouselMusic;
+      && requiredFieldsCompatible && structuralReadback
+      && automaticVideoCover && automaticPurchaseEvent;
+    // Alias mantido para clientes antigos; agora significa exatamente o fluxo
+    // SINGLE_VIDEO/Product Link validado, não o carousel antigo.
+    const manualCatalogCampaign = catalogSingleVideoCampaign;
     const optimizationEventSchema = fieldSchema('create_tiktok_adgroup', 'optimization_event');
     const optimizationEvents = Array.from(new Set([
       ...Array.from(schemaValues(optimizationEventSchema)),
-      ...TIKTOK_PIXEL_EVENTS.filter((eventName) => supportsDeclaredValue(optimizationEventSchema, eventName)),
+      // O campo é pass-through e o TikTok valida o enum. A autorização real
+      // vem de get_tiktok_pixel_event_stats, não de uma lista desatualizada na
+      // descrição do schema.
+      ...(adgroupFields ? TIKTOK_PIXEL_EVENTS : []),
     ]));
     const callToActions = Array.from(schemaValues(fieldSchema('create_tiktok_ad', 'call_to_action')));
     const value = {
@@ -2710,7 +2807,10 @@ async function getCatalogCapabilities({ force = false } = {}) {
       catalogFeedRead,
       catalogLinkVerify,
       manualCatalogCampaign,
+      catalogSingleVideoCampaign,
       catalogCarouselMusic,
+      automaticVideoCover,
+      automaticPurchaseEvent,
       productSpecificType: adInputFields.has('product_specific_type'),
       structuralReadback,
       shoppingAdsType: manualCatalogCampaign ? shoppingType : null,
@@ -2723,8 +2823,8 @@ async function getCatalogCapabilities({ force = false } = {}) {
       optimizationEvents,
       callToActions,
       note: manualCatalogCampaign
-        ? 'Catalog Carousel está disponível com o Link individual de cada produto, criação pausada e leitura dos três níveis.'
-        : 'O conector ainda não confirmou todo o contrato de Catalog Carousel. Nenhuma URL global será usada como fallback.',
+        ? 'Vídeo de catálogo com áudio próprio, capa automática, Compra e Link individual de cada produto está disponível.'
+        : 'O conector ainda não aceita o campo vertical_video_strategy do vídeo de catálogo. Nenhuma estrutura parcial ou URL global será criada.',
     };
     catalogCapabilitiesCache = { value, expiresAt: now + 5 * 60 * 1000 };
     return value;
@@ -3498,15 +3598,20 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   if (!/^\d{6,30}$/.test(pixelId)) {
     throw badRequest('Pixel ID numérico do TikTok é obrigatório para optimization_goal=CONVERT');
   }
-  const rawPixelEvent = String(s.pixelEvent || 'ON_WEB_ORDER').trim().toUpperCase();
-  const pixelEvent = rawPixelEvent === 'PURCHASE' ? 'ON_WEB_ORDER' : rawPixelEvent;
-  if (!TIKTOK_PIXEL_EVENTS.includes(pixelEvent)) {
+  const rawPixelEvent = String(s.pixelEvent || '').trim().toUpperCase();
+  const requestedPixelEvent = rawPixelEvent === 'PURCHASE' ? '' : rawPixelEvent;
+  if (requestedPixelEvent && !TIKTOK_PIXEL_EVENTS.includes(requestedPixelEvent)) {
     throw badRequest('Evento de otimização do Pixel TikTok inválido');
   }
-  const capabilities = await getCatalogCapabilities();
-  if (!capabilities.manualCatalogCampaign) {
-    throw catalogCreationAwaitingConnectorError('O conector ainda não confirmou a criação VSA Product Link sem URL no anúncio. Nenhuma estrutura foi criada.');
+  const videoUrl = String(s.videoUrl || '').trim();
+  if (!/^https:\/\/[^\s]+$/i.test(videoUrl)) {
+    throw badRequest('Envie um vídeo MP4 ou MOV antes de criar a campanha de catálogo');
   }
+  const capabilities = await getCatalogCapabilities();
+  if (!capabilities.catalogSingleVideoCampaign) {
+    throw catalogCreationAwaitingConnectorError('O conector ainda não aceita o vídeo Product Link completo (vertical_video_strategy). Nenhuma estrutura foi criada.');
+  }
+  const pixelEvent = await resolveCatalogPurchaseEvent(adv, pixelId, requestedPixelEvent);
   if (Array.isArray(capabilities.optimizationEvents)
     && !capabilities.optimizationEvents.includes(pixelEvent)) {
     throw badRequest('O schema atual do conector não aceita o evento ' + pixelEvent + ' nesta campanha de catálogo.', 409);
@@ -3526,8 +3631,8 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   }
 
   const countries = (Array.isArray(s.countries) && s.countries.length ? s.countries : (s.country ? [s.country] : ['BR']));
-  const SHOPPING_TYPE = String(process.env.TIKTOK_CATALOG_SHOPPING_TYPE || 'CATALOG_LISTING_ADS').trim();
-  const AD_FORMAT = String(process.env.TIKTOK_CATALOG_AD_FORMAT || 'CATALOG_CAROUSEL').trim();
+  const SHOPPING_TYPE = 'VIDEO';
+  const AD_FORMAT = 'SINGLE_VIDEO';
   const itemGroupIds = (Array.isArray(s.itemGroupIds) ? s.itemGroupIds : Array.isArray(s.productIds) ? s.productIds : [])
     .map((value) => String(value || '').trim()).filter(Boolean).slice(0, 100);
   if (productScope === 'specific' && !itemGroupIds.length) {
@@ -3552,13 +3657,12 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     }
   }
   const warnings = [];
-  // Todos os pré-requisitos remotos são somente leitura e terminam antes da
-  // primeira criação. Falta de identidade, região ou música não gera órfãos.
-  const [info, identity, regions, catalogMusic] = await Promise.all([
+  // Todos os pré-requisitos de campanha terminam antes da primeira criação.
+  // Falta de identidade, região, vídeo, capa ou evento não gera campanha órfã.
+  const [info, identity, regions] = await Promise.all([
     getAdvertiserInfo(adv),
     explicitIdentity || pickAdIdentity(adv, bcId),
     resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
-    pickCatalogCarouselMusic(adv, s.musicId),
   ]);
   if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
   const plan = resolveBudgetPlan(s);
@@ -3566,24 +3670,33 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   const report = async (stage) => {
     if (typeof options.onProgress === 'function') await options.onProgress({ stage, createdIds: { ...createdIds } });
   };
-
-  // 1) Campanha PRODUCT_SALES (catálogo)
-  const campArgs = {
-    advertiser_id: adv,
-    campaign_name: String(s.name).slice(0, 512),
-    objective_type: 'PRODUCT_SALES',
-    product_source: 'CATALOG',
-    shopping_ads_type: SHOPPING_TYPE,
-    catalog_id: catalogId,
-    operation_status: 'DISABLE',
-  };
-  if (plan.cbo) {
-    campArgs.budget_mode = plan.campaign.budget_mode;
-    campArgs.budget = plan.campaign.budget;
-    campArgs.budget_optimize_on = true;
-  }
   let campaignId = String(createdIds.campaignId || '');
   try {
+    if (!createdIds.videoId) {
+      createdIds.videoId = await uploadVideoAndWait(adv, videoUrl, createdIds);
+      await report('validating');
+    }
+    if (!createdIds.coverImageId) {
+      const videoAsset = await getUploadedVideoAsset(adv, createdIds.videoId, createdIds);
+      createdIds.coverImageId = await uploadImage(adv, videoAsset.coverUrl, createdIds);
+      await report('validating');
+    }
+
+    // 1) Campanha PRODUCT_SALES (catálogo)
+    const campArgs = {
+      advertiser_id: adv,
+      campaign_name: String(s.name).slice(0, 512),
+      objective_type: 'PRODUCT_SALES',
+      product_source: 'CATALOG',
+      shopping_ads_type: SHOPPING_TYPE,
+      catalog_id: catalogId,
+      operation_status: 'DISABLE',
+    };
+    if (plan.cbo) {
+      campArgs.budget_mode = plan.campaign.budget_mode;
+      campArgs.budget = plan.campaign.budget;
+      campArgs.budget_optimize_on = true;
+    }
     await report('creating_campaign');
     if (!campaignId) {
       const campOut = await callTikTokWriteWithRetry('create_tiktok_campaign', campArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'));
@@ -3628,23 +3741,27 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     }
     const adGroupId = createdIds.adGroupId;
 
-    // 3) Catalog Carousel. Cada card usa o item_group_id do feed e o Link do
-    // próprio produto. Não existe landing_page_url no anúncio.
+    // 3) Vídeo de catálogo. O áudio vem no arquivo enviado, a capa é extraída
+    // automaticamente e cada produto continua usando seu próprio Link. Não
+    // existe landing_page_url no anúncio.
     const adArgs = {
       advertiser_id: adv,
       adgroup_id: adGroupId,
       ad_name: String(s.name).slice(0, 500),
       ad_format: AD_FORMAT,
+      vertical_video_strategy: 'SINGLE_VIDEO',
+      video_id: createdIds.videoId,
+      image_ids: [createdIds.coverImageId],
       catalog_id: catalogId,
-      product_specific_type: productScope === 'all' ? 'ALL' : 'PRODUCT_SET',
+      product_specific_type: productScope === 'all'
+        ? 'ALL'
+        : productScope === 'specific' ? 'CUSTOMIZED_PRODUCTS' : 'PRODUCT_SET',
       ad_text: String(s.text || 'Confira os produtos disponíveis').slice(0, 100),
-      music_id: catalogMusic.musicId,
+      call_to_action: requestedCta || 'SHOP_NOW',
       status: 'PAUSED',
     };
-    if (productScope === 'specific') adArgs.item_group_ids = itemGroupIds;
+    if (productScope === 'specific') adArgs.sku_ids = itemGroupIds;
     if (productScope === 'product_set' && s.productSetId) adArgs.product_set_id = String(s.productSetId);
-    if (s.callToAction && capabilities.callToAction) adArgs.call_to_action = String(s.callToAction).toUpperCase();
-    else if (s.callToAction) warnings.push('CTA opcional será definido pelo TikTok porque o conector Product Link atual não o declara.');
     if (identity && identity.identityId) {
       adArgs.identity_id = identity.identityId;
       adArgs.identity_type = identity.identityType;
@@ -3683,10 +3800,13 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
             catalogId, bcId, shoppingAdsType: SHOPPING_TYPE,
             pixelId, pixelEvent,
             adFormat: AD_FORMAT,
+            verticalVideoStrategy: 'SINGLE_VIDEO',
             productSpecificType: adArgs.product_specific_type,
             itemGroupIds: adArgs.item_group_ids || [],
+            skuIds: adArgs.sku_ids || [],
             productSetId: adArgs.product_set_id || '',
-            musicId: adArgs.music_id,
+            videoId: adArgs.video_id,
+            imageId: adArgs.image_ids[0],
             adText: adArgs.ad_text || '',
             callToAction: adArgs.call_to_action || '',
             identityId: identity.identityId,
@@ -3707,7 +3827,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
       throw err;
     }
 
-    warnings.push('Catalog Carousel criado e confirmado em PAUSA — cada card usa o Link individual do produto');
+    warnings.push('Vídeo de catálogo criado e confirmado em PAUSA — o áudio vem do criativo e cada produto usa seu Link');
     cacheBust('tree:');
     await report('ready_paused');
     return { ...createdIds, name: s.name, warnings, verification };
@@ -3772,6 +3892,7 @@ module.exports = {
   listTikTokCatalogs,
   updateTikTokCatalogName,
   getCatalogCapabilities,
+  resolveCatalogPurchaseEvent,
   resolveCatalogCarouselMusic: pickCatalogCarouselMusic,
   createCatalogCampaign,
   CATALOG_TYPES,
@@ -3797,5 +3918,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, pickCatalogCarouselMusic, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, pickCatalogCarouselMusic, getUploadedVideoAsset, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
 };

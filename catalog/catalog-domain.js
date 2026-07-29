@@ -10,7 +10,10 @@ const TIKTOK_MIN_DAILY_BUDGET = 50;
 // ainda precisam ser validados pelo TikTok quando o conector expuser detalhe.
 const TIKTOK_MIN_APPROVED_PRODUCTS = 4;
 const TIKTOK_PIXEL_EVENTS = Object.freeze([
-  'ON_WEB_ORDER', 'INITIATE_ORDER', 'ON_WEB_CART', 'ON_WEB_DETAIL',
+  // A Events API chama a conversão de `Purchase`, mas algumas contas
+  // expõem esse mesmo evento no Ads Manager como `SHOPPING`. O preflight
+  // consulta o Pixel real e escolhe somente um enum que já foi recebido.
+  'SHOPPING', 'ON_WEB_ORDER', 'INITIATE_ORDER', 'ON_WEB_CART', 'ON_WEB_DETAIL',
   'ON_WEB_REGISTER', 'LANDING_PAGE_VIEW',
 ]);
 
@@ -184,11 +187,17 @@ function normalizeCampaignSpec(input, catalog) {
     throw catalogError('CATALOG_PRODUCT_SET_INVALID', 'Informe um Product Set ID numérico válido do TikTok.');
   }
   // Product Link não é uma URL do anúncio: é o destino individual guardado no
-  // campo `link` de cada item do catálogo. Um template de vídeo pode ser útil
-  // em uma variação Catalog Video, mas não pode ser pré-requisito do lote
-  // Product Link (nem do VSA Carousel), pois esses formatos não compartilham
-  // o mesmo criativo.
-  const musicId = String(value.musicId || '').trim();
+  // campo `link` de cada item do catálogo. O criativo é um vídeo vertical com
+  // o próprio áudio embutido; não existe música, capa ou URL de anúncio para o
+  // usuário preencher manualmente.
+  const videoUrl = String(value.videoUrl || '').trim();
+  if (!/^https:\/\/[^\s]+$/i.test(videoUrl)) {
+    throw catalogError(
+      'CATALOG_VIDEO_REQUIRED',
+      'Envie um vídeo MP4 ou MOV para criar a campanha de catálogo.',
+      { status: 400, retryable: false },
+    );
+  }
   const identityType = String(value.identityType || '').trim().toUpperCase();
   const identityId = String(value.identityId || '').trim();
   if ((identityId && !identityType) || (!identityId && identityType)) {
@@ -222,14 +231,14 @@ function normalizeCampaignSpec(input, catalog) {
     bidAmount: Number(value.bidAmount) || undefined,
     country: String(value.country || cat.country || 'BR').trim().toUpperCase(),
     productScope, itemGroupIds, productIds: itemGroupIds, productSetId: productSetId || undefined,
-    musicId: musicId || undefined,
+    videoUrl,
     identityId: identityId || undefined, identityType: identityType || undefined,
     identityBcId: String(value.identityBcId || '').trim() || undefined,
     pixelId,
     pixelEvent,
     text: String(value.text || '').trim().slice(0, 100) || undefined,
     callToAction: String(value.callToAction || 'SHOP_NOW').trim().toUpperCase(),
-    strategy: 'catalog_carousel_product_link', destination: 'PRODUCT_LINK', creativeMode: 'CATALOG_CAROUSEL', status: 'paused',
+    strategy: 'catalog_video_product_link', destination: 'PRODUCT_LINK', creativeMode: 'SINGLE_VIDEO', status: 'paused',
   };
 }
 

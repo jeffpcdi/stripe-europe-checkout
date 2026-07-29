@@ -101,9 +101,11 @@ function catalogStatusMeta(catalog: AdsCatalog) {
 export function CatalogManager({
   advertiserId,
   advertiserLabel,
+  advertiserCurrency,
 }: {
   advertiserId: string
   advertiserLabel: string
+  advertiserCurrency: string
 }) {
   const { data: list, mutate: mutateList, isLoading: listLoading, error: listError } = useAdsCatalogs(true, advertiserId)
   const { data: spec } = useAdsCatalogSpec(true, advertiserId)
@@ -151,6 +153,7 @@ export function CatalogManager({
           spec={spec ?? null}
           advertiserId={advertiserId}
           advertiserLabel={advertiserLabel}
+          advertiserCurrency={advertiserCurrency}
           bcId={bc?.bcId ?? ''}
           bcConfigured={Boolean(bc?.bcId)}
           catalogCapabilities={capabilitiesData?.capabilities ?? null}
@@ -168,6 +171,7 @@ export function CatalogManager({
         <CatalogList
           catalogs={list?.catalogs ?? []}
           advertiserId={advertiserId}
+          advertiserCurrency={advertiserCurrency}
           spec={spec ?? null}
           loading={listLoading && !list}
           onOpen={setSelectedId}
@@ -286,6 +290,7 @@ function BusinessCenterBar({
 function CatalogList({
   catalogs,
   advertiserId,
+  advertiserCurrency,
   spec,
   loading,
   onOpen,
@@ -293,6 +298,7 @@ function CatalogList({
 }: {
   catalogs: AdsCatalog[]
   advertiserId: string
+  advertiserCurrency: string
   spec: CatalogSpec | null
   loading: boolean
   onOpen: (id: string) => void
@@ -336,7 +342,7 @@ function CatalogList({
         </p>
         {!creating && (
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            <CatalogBatchDialog advertiserId={advertiserId} onCreated={onChanged} />
+            <CatalogBatchDialog advertiserId={advertiserId} advertiserCurrency={advertiserCurrency} onCreated={onChanged} />
             <button type="button" className="btn-primary shrink-0 text-xs" onClick={() => setCreating(true)}>
               <Plus className="size-3.5" aria-hidden="true" />
               Novo catálogo
@@ -438,6 +444,7 @@ function CatalogDetail({
   catalogId,
   advertiserId,
   advertiserLabel,
+  advertiserCurrency,
   spec,
   bcId,
   bcConfigured,
@@ -450,6 +457,7 @@ function CatalogDetail({
   spec: CatalogSpec | null
   advertiserId: string
   advertiserLabel: string
+  advertiserCurrency: string
   bcId: string
   bcConfigured: boolean
   catalogCapabilities: AdsCatalogCapabilities | null
@@ -457,7 +465,7 @@ function CatalogDetail({
   onBack: () => void
   onDeleted: () => void
 }) {
-  const campaignCreateSupported = catalogCapabilities?.manualCatalogCampaign === true
+  const campaignCreateSupported = catalogCapabilities?.catalogSingleVideoCampaign === true
   const { data, mutate, isLoading, error: detailError } = useAdsCatalogDetail(catalogId, advertiserId)
   const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId, advertiserId)
   const { data: readinessData, mutate: mutateReadiness, isLoading: readinessLoading } = useAdsCatalogReadiness(catalogId, advertiserId)
@@ -915,7 +923,7 @@ function CatalogDetail({
               localProductCount={validCount}
               auditing={auditing}
               autoChecking={autoChecking}
-              catalogCampaignSupported={catalogCapabilities?.manualCatalogCampaign === true}
+              catalogCampaignSupported={catalogCapabilities?.catalogSingleVideoCampaign === true}
               onRefresh={handleRefreshAudit}
             />
           )}
@@ -924,6 +932,7 @@ function CatalogDetail({
             <CatalogCampaignWizard
               catalog={catalog}
               advertiserId={advertiserId}
+              advertiserCurrency={advertiserCurrency}
               ready={Boolean(readinessData?.readiness.readyForCampaign)}
               capabilities={catalogCapabilities}
             />
@@ -962,8 +971,13 @@ function CatalogDetail({
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-border">
-              <table className="w-full text-left text-xs">
+            <details className="rounded-xl border border-border bg-background">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-xs font-semibold text-foreground">
+                <span>Gerenciar produtos salvos</span>
+                <span className="text-[10px] font-normal text-muted-foreground">{products.length} na dashboard · {remoteProductCount} no TikTok</span>
+              </summary>
+              <div className="overflow-x-auto border-t border-border">
+                <table className="w-full text-left text-xs">
                 <thead className="bg-secondary/50 text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 font-medium">Status</th>
@@ -1011,8 +1025,9 @@ function CatalogDetail({
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+            </details>
           )}
 
           {publications.length > 0 && (
@@ -1183,7 +1198,7 @@ function TiktokStatusPanel({
         {catalogSynced
           ? catalogCampaignSupported
             ? `Campanhas usarão somente estes ${total} produtos confirmados, com o Link individual de cada item.`
-            : 'Vínculo e produtos confirmados. A criação continuará bloqueada até o conector confirmar Catalog Carousel sem URL manual.'
+            : 'Vínculo e produtos confirmados. Você já pode preparar a campanha; o envio continuará sozinho quando o conector aceitar o vídeo Product Link completo, sem URL manual.'
           : rejected > 0
             ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
             : productsNotConfirmed

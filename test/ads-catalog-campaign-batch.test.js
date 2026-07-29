@@ -72,14 +72,15 @@ console.log('Dialog — lote rápido sem CSV nem configuração repetida');
   ok(/tudo nasce pausado/.test(dialog), 'resumo deixa claro que tudo nasce pausado');
   ok(!/<textarea/.test(dialog) && !/buildCatalogBatchPlan/.test(dialog), 'nenhum CSV/colagem é exigido no Modo Turbo');
   ok(/productScope: 'all'/.test(dialog), 'escopo automático: todos os produtos do catálogo');
-  ok(/Pixel e evento Compra serão aplicados automaticamente/.test(dialog), 'Pixel e evento são explicados sem virar campos repetidos');
+  ok(/Pixel, Compra e capa serão aplicados automaticamente/.test(dialog), 'Pixel, evento e capa são explicados sem virar campos repetidos');
+  ok(/adsUpload\(file, 'video'\)/.test(dialog) && /videoUrl/.test(dialog), 'lote recebe um vídeo sem etapa manual no Ads Manager');
   ok(!/useAdsTikTokPixels|pixelId|pixelEvent|TIKTOK_PIXEL_EVENTS/.test(dialog), 'dialog não pede Pixel nem evento manualmente');
   ok(/idempotencyKey/.test(dialog), 'envia chave de idempotência (retry seguro)');
   const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
   ok(/CatalogQuickCampaignsDialog/.test(wizard), 'lote vive junto das campanhas do catálogo, sem poluir a lista');
   ok(/open=\{supported && batchOpen\}/.test(wizard), 'dialog só abre quando o conector confirma Product Link');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
-  ok(/pixelId: pixel\.pixelId[\s\S]*pixelEvent: 'ON_WEB_ORDER'/.test(routes), 'backend injeta o Pixel central e Compra antes de normalizar a campanha');
+  ok(/resolveCatalogPurchaseEvent\(advertiserId, pixel\.pixelId\)[\s\S]*pixelId: pixel\.pixelId[\s\S]*pixelEvent/.test(routes), 'backend injeta o Pixel central e o evento de Compra real antes de normalizar');
 }
 
 console.log('\nads-catalog-campaign-batch: ' + n + ' asserts OK');

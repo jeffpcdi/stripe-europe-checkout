@@ -40,7 +40,7 @@ async function refreshWaitingConnectorConfirmations() {
   connectorCheckedAt = now;
   try {
     const capabilities = await provider.getCatalogCapabilities();
-    if (!capabilities || !capabilities.manualCatalogCampaign) return 0;
+    if (!capabilities || !capabilities.catalogSingleVideoCampaign) return 0;
     const promoted = await store.promoteCampaignRunsAwaitingConnectorConfirmation(20);
     return Array.isArray(promoted) ? promoted.length : 0;
   } catch (_) {
@@ -101,7 +101,7 @@ async function processRun(row) {
     const ready = await waitForCatalogReview(accountId, row);
     if (!ready) return null;
     const capabilities = await provider.getCatalogCapabilities();
-    if (!capabilities.manualCatalogCampaign) {
+    if (!capabilities.catalogSingleVideoCampaign) {
       await store.updateCampaignRun(accountId, runId, 'waiting_connector_confirmation', {
         stage: 'waiting_connector_confirmation', release: true,
       });

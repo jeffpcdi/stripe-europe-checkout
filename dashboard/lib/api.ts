@@ -757,7 +757,7 @@ export function useAdsCatalogCapabilities(active: boolean, adAccountId: string) 
       // recarregada. Enquanto a capacidade ainda estiver bloqueada, reconsulta
       // em baixa frequência; assim o banner e o botão acompanham a mesma
       // liberação que os workers duráveis usam no backend.
-      refreshInterval: (latest) => latest?.capabilities.manualCatalogCampaign === true ? 0 : 60_000,
+      refreshInterval: (latest) => latest?.capabilities.catalogSingleVideoCampaign === true ? 0 : 60_000,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
       keepPreviousData: false,

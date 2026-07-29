@@ -1699,7 +1699,10 @@ export interface AdsCatalogCapabilities {
   catalogFeedRead: boolean
   catalogLinkVerify: boolean
   manualCatalogCampaign: boolean
+  catalogSingleVideoCampaign: boolean
   catalogCarouselMusic: boolean
+  automaticVideoCover: boolean
+  automaticPurchaseEvent: boolean
   productSets: boolean
   specificProducts: boolean
   catalogVideoTemplates: boolean

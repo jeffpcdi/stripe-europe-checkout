@@ -1,11 +1,11 @@
 'use client'
 
-// Lote rápido: quantidade e orçamento são as únicas escolhas obrigatórias.
-// Pixel, evento de Compra, catálogo, público e Product Link vêm do backend.
+// Lote rápido: um vídeo, quantidade e orçamento. Pixel, evento de Compra,
+// catálogo, público, capa e Product Link vêm do backend.
 
-import { useMemo, useRef, useState } from 'react'
-import { AlertCircle, Loader2, Rocket, Zap } from 'lucide-react'
-import { adsCreateCatalogCampaignBatch } from '@/lib/api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, Check, Loader2, Rocket, Upload, Video, Zap } from 'lucide-react'
+import { adsCreateCatalogCampaignBatch, adsUpload } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog } from '@/lib/types'
 import { toast } from '@/lib/toast'
@@ -23,23 +23,36 @@ function randomKey() {
 export function CatalogQuickCampaignsDialog({
   catalog,
   advertiserId,
+  advertiserCurrency,
   open,
+  initialVideoUrl,
   onClose,
   onCreated,
 }: {
   catalog: AdsCatalog
   advertiserId: string
+  advertiserCurrency: string
   open: boolean
+  initialVideoUrl?: string
   onClose: () => void
   onCreated: () => void
 }) {
   const [count, setCount] = useState(10)
   const [budget, setBudget] = useState('50')
   const [namePrefix, setNamePrefix] = useState('')
+  const [videoUrl, setVideoUrl] = useState(initialVideoUrl || '')
+  const [videoName, setVideoName] = useState(initialVideoUrl ? 'Vídeo já enviado' : '')
+  const [uploading, setUploading] = useState(false)
   const [busy, setBusy] = useState(false)
   const idempotencyKeyRef = useRef<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   useModalA11y(open, dialogRef, onClose)
+  useEffect(() => {
+    if (initialVideoUrl && !videoUrl) {
+      setVideoUrl(initialVideoUrl)
+      setVideoName('Vídeo já enviado')
+    }
+  }, [initialVideoUrl, videoUrl])
 
   function update<T>(setter: (value: T) => void, value: T) {
     setter(value)
@@ -53,12 +66,13 @@ export function CatalogQuickCampaignsDialog({
   const pad = Math.max(2, String(count).length)
   const sampleName = (index: number) => `${effectivePrefix} ${String(index).padStart(pad, '0')}`
   const money = useMemo(() => new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: catalog.currency || 'BRL', maximumFractionDigits: 2,
-  }), [catalog.currency])
+    style: 'currency', currency: advertiserCurrency || 'USD', maximumFractionDigits: 2,
+  }), [advertiserCurrency])
 
   async function create() {
     if (!countValid) return toast.error(`Escolha de 1 a ${MAX_COUNT} campanhas`)
-    if (!budgetValid) return toast.error(tiktokMinimumBudgetMessage(catalog.currency, ' por dia'))
+    if (!budgetValid) return toast.error(tiktokMinimumBudgetMessage(advertiserCurrency, ' por dia'))
+    if (!videoUrl) return toast.error('Envie o vídeo que será usado no lote')
     setBusy(true)
     try {
       const result = await adsCreateCatalogCampaignBatch(catalog.id, advertiserId, {
@@ -67,6 +81,7 @@ export function CatalogQuickCampaignsDialog({
         budgetType: 'daily',
         budgetOptimization: 'adgroup',
         productScope: 'all',
+        videoUrl,
         namePrefix: effectivePrefix,
         idempotencyKey: idempotencyKeyRef.current || (idempotencyKeyRef.current = randomKey()),
       })
@@ -82,6 +97,21 @@ export function CatalogQuickCampaignsDialog({
       toast.error('Não foi possível criar o lote', { hint: error instanceof Error ? error.message : undefined })
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function uploadVideo(file: File) {
+    if (!/\.(mp4|mov)$/i.test(file.name)) return toast.error('Envie um vídeo MP4 ou MOV')
+    setUploading(true)
+    try {
+      const result = await adsUpload(file, 'video')
+      update(setVideoUrl, result.url)
+      setVideoName(file.name)
+      toast.success('Vídeo pronto para o lote')
+    } catch (error) {
+      toast.error('Não foi possível enviar o vídeo', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -134,7 +164,7 @@ export function CatalogQuickCampaignsDialog({
         </div>
 
         <label className="flex flex-col gap-1.5 text-xs">
-          <span className="font-medium text-foreground">Orçamento diário por campanha ({catalog.currency})</span>
+          <span className="font-medium text-foreground">Orçamento diário por campanha ({advertiserCurrency})</span>
           <input
             className="input-base"
             type="number"
@@ -146,16 +176,39 @@ export function CatalogQuickCampaignsDialog({
           />
           {!budgetValid && budget.trim() !== '' && (
             <span className="flex items-center gap-1 text-[10px] text-warning" role="alert">
-              <AlertCircle className="size-3" aria-hidden="true" /> Mínimo: {catalog.currency} {TIKTOK_MIN_BUDGET}/dia.
+              <AlertCircle className="size-3" aria-hidden="true" /> Mínimo: {advertiserCurrency} {TIKTOK_MIN_BUDGET}/dia.
             </span>
           )}
+        </label>
+
+        <label className="rounded-lg border border-border bg-card p-3">
+          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeo do lote</span>
+          <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">O mesmo vídeo com áudio será usado nas campanhas; a capa é automática.</span>
+          <span className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="btn-ghost cursor-pointer text-xs">
+              {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+              {videoUrl ? 'Trocar vídeo' : 'Enviar vídeo'}
+              <input
+                className="sr-only"
+                type="file"
+                accept="video/mp4,video/quicktime,.mp4,.mov"
+                disabled={uploading}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void uploadVideo(file)
+                  event.currentTarget.value = ''
+                }}
+              />
+            </span>
+            {videoName && <span className="max-w-full truncate text-[10px] text-success"><Check className="mr-1 inline size-3" />{videoName}</span>}
+          </span>
         </label>
 
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-[11px] leading-relaxed text-muted-foreground">
           <strong className="block text-foreground">
             {count} campanha{count === 1 ? '' : 's'} · {budgetValid ? money.format(budgetNumber * count) : '—'}/dia no total
           </strong>
-          Pixel e evento Compra serão aplicados automaticamente. Cada produto usa o próprio Link e tudo nasce pausado.
+          Pixel, Compra e capa serão aplicados automaticamente. Cada produto usa o próprio Link e tudo nasce pausado.
         </div>
 
         <details className="rounded-lg border border-border px-3 py-2">
@@ -175,7 +228,7 @@ export function CatalogQuickCampaignsDialog({
 
         <footer className="flex items-center justify-end gap-2">
           <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={busy}>Cancelar</button>
-          <button type="button" className="btn-primary text-xs" onClick={create} disabled={!countValid || !budgetValid || busy}>
+          <button type="button" className="btn-primary text-xs" onClick={create} disabled={!countValid || !budgetValid || !videoUrl || uploading || busy}>
             {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
             Criar lote
           </button>

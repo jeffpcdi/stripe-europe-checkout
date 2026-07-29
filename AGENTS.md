@@ -350,62 +350,69 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   o catálogo remoto. Uma leitura isolada do overview atualiza apenas `audit`. Produtos são revalidados contra a spec atual em toda leitura crítica e
   no feed público: `brand` é o 9º campo obrigatório (nunca inferido) e o enum correto é
   `available for order` (não `available`). Assim, registros antigos com `valid=true` não furam a regra.
-  A campanha Catalog Ads Product Link exige orçamento mínimo 50, Pixel ID numérico + evento canônico
-  (`ON_WEB_ORDER` por padrão) e pelo menos **4 produtos aprovados no overview agregado**. Esse overview
+  A campanha Catalog Ads Product Link exige orçamento mínimo 50, Pixel ID numérico + evento de Compra
+  que o Pixel realmente recebeu (`SHOPPING` nesta conta; `ON_WEB_ORDER` somente quando aparecer nas
+  estatísticas) e pelo menos **4 produtos aprovados no overview agregado**. Esse overview
   não comprova sozinho estoque/disponibilidade por SKU, portanto a UI não deve alegar essa verificação.
   Product Link **não exige URL no anúncio nem Catalog Video Template ID**: o destino é o `link`
-  individual de cada produto. O formato confirmado é `CATALOG_CAROUSEL`; cada card recebe um
-  `item_group_id` do feed (preenchido automaticamente com `sku_id` em produtos simples) e exige uma
-  música própria `USER`. O preflight busca a música antes da primeira escrita e bloqueia sem criar
-  estrutura parcial quando a conta ainda não possui uma faixa elegível.
+  individual de cada produto. O fluxo principal é `SINGLE_VIDEO` com
+  `vertical_video_strategy=SINGLE_VIDEO`: o usuário envia um MP4/MOV, o áudio vem do próprio arquivo,
+  e a dashboard extrai a capa retornada pelo TikTok e a envia automaticamente. Não existe campo de
+  música, capa, Pixel, evento ou URL manual no wizard.
   O lote aceita TSV ou CSV (vírgula/ponto e vírgula), normaliza orçamento pt-BR como `1.000,00` e recebe
   exclusivamente o `link` HTTPS de cada produto; URL manual no anúncio é bloqueada em duas barreiras
   (preview + executor). O parser de `/api/ads/catalogs/batch` é montado antes do JSON global e aceita
   até 25 MB (o restante da API continua em 200 KB). A confirmação Product Link só vale quando o JSON Schema do Pipeboard
   declara explicitamente todos os valores enviados nos três níveis (incluindo `PRODUCT_SALES`,
-  `product_source=CATALOG`, `shopping_ads_type=CATALOG_LISTING_ADS`, `promotion_type=WEBSITE`,
+  `product_source=CATALOG`, `shopping_ads_type=VIDEO`, `promotion_type=WEBSITE`,
   `shopping_ads_retargeting_type=OFF`, `catalog_authorized_bc_id`, `CONVERT`, pausa,
-  `ad_format=CATALOG_CAROUSEL`, `item_group_ids`/`product_set_id`, `music_id`, identidade
+  `ad_format=SINGLE_VIDEO`, `vertical_video_strategy=SINGLE_VIDEO`, `video_id`, `image_ids`,
+  `product_specific_type`, CTA, identidade
   `BC_AUTH_TT`, `identity_authorized_bc_id` e dark post);
   `store_authorized_bc_id` é de TikTok Shop e não deve ser usado para o catálogo. O preflight também
   exige as três tools de readback, respeita `inputSchema.required` e valida o evento escolhido antes da
-  primeira escrita. A leitura final confirma formato, escopo de produtos, Pixel/evento, identidade/BC,
-  música/texto/CTA enviados, Product Link, ausência de URL manual e pausa nos três níveis.
+  primeira escrita. A leitura final confirma formato/estratégia/vídeo/capa, escopo de produtos,
+  Pixel/evento, identidade/BC, texto/CTA, Product Link, ausência de URL manual e pausa nos três níveis.
   Quando o conector ainda não confirma catálogo ou Product Link, sync/campanhas ficam
   em `waiting_connector_confirmation` e são retomados automaticamente; depois a campanha segue para
   `waiting_catalog_review` e só é promovida após auditoria aprovar o catálogo. Assim o lote pode ser
   preparado agora, mas nenhum fallback com URL global é criado nem anúncio é enviado antes da confirmação
   explícita do schema Pipeboard.
-  **Estado observado do Pipeboard neste token (verificação forçada em 2026-07-22):** as tools expõem
-  criação/upload/status/auditoria de catálogo e readback estrutural, mas o schema retornou
-  `manualCatalogCampaign=false`, `productSpecificType=false` e não declarou `shoppingAdsType` nem
-  `adFormat`. Portanto campanhas/duplicações Product Sales ficam aguardando ou falham no preflight antes
-  de escrever. Revalidar as capabilities periodicamente; só considerar Catalog Carousel confirmado
-  quando o contrato completo reaparecer explicitamente. Nunca degradar para vídeo comum ou URL global.
+  **Estado observado do Pipeboard neste token (verificação real em 2026-07-29):** campanha
+  `PRODUCT_SALES`, conjunto `shopping_ads_type=VIDEO`, catálogo, Pixel, evento `SHOPPING`, região e
+  pausa funcionaram. O vídeo vertical foi enviado e a capa criada, mas `create_tiktok_ad` ainda não
+  declara/repassa `vertical_video_strategy`; sem ele o TikTok rejeita o anúncio. Portanto
+  `catalogSingleVideoCampaign=false` e os jobs ficam aguardando antes da primeira campanha. Feedback
+  Pipeboard `c0fbf9e8-9641-4bec-8998-70b48e8d28ac` pediu criação e readback desse campo. Revalidar as
+  capabilities a cada 60s; nunca degradar para Smart+, carousel, vídeo comum com URL global ou etapa manual.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
   **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação
   fica bloqueado quando campanhas foram pedidas sem sincronização ou quando a sincronização ainda
   não tem BC/origem/permissões. O resumo terminal informa também campanhas preparadas, aguardando
-  Product Link/análise, ignoradas e com falha. Quando `manualCatalogCampaign=false`, o hook de
+  Product Link/análise, ignoradas e com falha. Quando `catalogSingleVideoCampaign=false`, o hook de
   capabilities reconsulta em baixa frequência (60s) para remover o banner sem exigir reload; os
   cards de run exibem nome, escopo, orçamento, avisos e a verificação final completa. Polling de campanha
   usa 4s em execução, 15s aguardando análise, 60s aguardando o conector e para em estado terminal.
   Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
   O parser do lote exige a coluna `marca`/`brand` e envia `brand` por produto; valor ausente bloqueia
   a prévia com as linhas exatas, pois a marca real é obrigatória no TikTok e nunca deve ser inferida.
-  Ao preparar campanhas, a rota injeta o Pixel central vinculado à conta de anúncio e o evento
-  `ON_WEB_ORDER`; planilha, wizard e lote rápido não pedem Pixel/evento repetidamente.
-  No wizard dedicado, a tela principal pede somente nome e orçamento; todos os produtos aprovados,
-  Pixel, Compra, identidade e música são resolvidos automaticamente. Texto e CTA ficam em detalhes
-  avançados. Avisos do run ficam visíveis e falhas não retomáveis oferecem apenas a limpeza da
+  Ao preparar campanhas, a rota injeta o Pixel central vinculado à conta de anúncio e consulta
+  `get_tiktok_pixel_event_stats` por sete dias para escolher Compra; planilha, wizard e lote rápido
+  não pedem Pixel/evento repetidamente.
+  No wizard dedicado, a tela principal pede vídeo, nome e orçamento; todos os produtos aprovados,
+  Pixel, Compra, identidade e capa são resolvidos automaticamente. Texto e CTA ficam em detalhes
+  avançados. O orçamento é sempre exibido na moeda da conta de anúncio (não na moeda do feed);
+  comparações de IDs normalizam string/número para não cair na moeda de uma campanha antiga.
+  A tabela técnica de produtos locais fica recolhida por padrão e explicita separadamente o total
+  salvo na dashboard e o total confirmado no TikTok. Avisos do run ficam visíveis e falhas não retomáveis oferecem apenas a limpeza da
   estrutura parcial. A contagem principal e a prontidão vêm do overview remoto; itens salvos só na
   dashboard aparecem como uma diferença não destrutiva e nunca entram em uma campanha `ALL`.
   Duplicar um produto gera novo `sku_id` **e** novo `item_group_id`, evitando que a cópia herde o
-  agrupador do original. Sem `manualCatalogCampaign`, nada é enviado ao TikTok.
+  agrupador do original. Sem `catalogSingleVideoCampaign`, nada é enviado ao TikTok.
   O lote rápido (`POST /api/ads/catalogs/:catalogId/campaign-batch`, máximo 50) vive no cartão
-  “Campanhas deste catálogo”, pede apenas quantidade e orçamento, gera nomes ordenados e cria runs
-  duráveis idempotentes. Ele só abre com `manualCatalogCampaign=true`; não polui a lista de catálogos.
+  “Campanhas deste catálogo”, pede vídeo, quantidade e orçamento, gera nomes ordenados e cria runs
+  duráveis idempotentes. Ele só abre com `catalogSingleVideoCampaign=true`; não polui a lista de catálogos.
   Nomes diferentes que geram a mesma key normalizada bloqueiam a prévia com nomes e linhas, em vez
   de fundir produtos silenciosamente. A idempotency key do wizard é preservada entre timeout/retry e
   só muda após sucesso ou alteração material do formulário. Runs

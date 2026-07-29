@@ -91,7 +91,7 @@ async function main() {
       },
       provider: {
         enabled: true,
-        async getCatalogCapabilities() { return { manualCatalogCampaign: false }; },
+        async getCatalogCapabilities() { return { catalogSingleVideoCampaign: false }; },
         async createCatalogCampaign() { creates += 1; return {}; },
       },
     });
@@ -114,7 +114,7 @@ async function main() {
       },
       provider: {
         enabled: true,
-        async getCatalogCapabilities() { calls.capabilities += 1; return { manualCatalogCampaign: true }; },
+        async getCatalogCapabilities() { calls.capabilities += 1; return { catalogSingleVideoCampaign: true }; },
       },
     });
     try {
@@ -137,7 +137,7 @@ async function main() {
       },
       provider: {
         enabled: true,
-        async getCatalogCapabilities() { return { manualCatalogCampaign: true }; },
+        async getCatalogCapabilities() { return { catalogSingleVideoCampaign: true }; },
         async createCatalogCampaign(advertiserId, spec, options) {
           created.push({ advertiserId, spec });
           await options.onProgress({ stage: 'creating_campaign', createdIds: { campaignId: 'camp_1' } });
@@ -174,7 +174,7 @@ async function main() {
       },
       provider: {
         enabled: true,
-        async getCatalogCapabilities() { return { manualCatalogCampaign: true }; },
+        async getCatalogCapabilities() { return { catalogSingleVideoCampaign: true }; },
         async createCatalogCampaign() {
           return { campaignId: 'camp_unsafe', adGroupId: 'group_unsafe', adId: 'ad_unsafe', verification: { complete: false, hierarchy: true } };
         },

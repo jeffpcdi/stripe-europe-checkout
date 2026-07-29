@@ -59,7 +59,7 @@ export function TikTokAdsView() {
   // Período global de métricas e campanhas. O dia pertence ao fuso da conta
   // TikTok, não ao navegador do operador nem ao UTC.
   const [rangeDays, setRangeDays] = useState(1) // padrão diário — pedido do produto
-  const selectedAdvertiserInfo = accounts?.accounts.find((a) => a.id === effectiveAdvertiser)
+  const selectedAdvertiserInfo = accounts?.accounts.find((a) => String(a.id) === String(effectiveAdvertiser))
   const advertiserTimeZone = selectedAdvertiserInfo?.timezone || status?.timeZone
   const { fromDate, toDate } = useMemo(
     () => adsDateRange(rangeDays, advertiserTimeZone),
@@ -174,7 +174,7 @@ export function TikTokAdsView() {
   }
 
   const currency = useMemo(() => {
-    const adv = accounts?.accounts.find((a) => a.id === concreteAdvertiser)
+    const adv = accounts?.accounts.find((a) => String(a.id) === String(concreteAdvertiser))
     return adv?.currency || tree?.campaigns?.[0]?.currency || 'USD'
   }, [accounts, concreteAdvertiser, tree])
 
@@ -527,6 +527,7 @@ export function TikTokAdsView() {
               <CatalogManager
                 advertiserId={concreteAdvertiser}
                 advertiserLabel={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.name || ''}
+                advertiserCurrency={advertisers.find((a) => String(a.id) === String(concreteAdvertiser))?.currency || currency}
               />
             </section>
           )}

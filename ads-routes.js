@@ -3120,10 +3120,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       pipeboard.enabled && capabilities.catalogUpload && capabilities.catalogUploadStatus
       && capabilities.catalogAudit && capabilities.catalogLinkVerify && bcId && origin
     );
-    // `manualCatalogCampaign` só fica true quando o schema remoto confirma o
-    // contrato integral de Product Link. Não inferimos isso de Smart+ nem da
-    // simples ausência de landing_page_url_list.
-    const productLinkCampaign = capabilities.manualCatalogCampaign === true;
+    // O fluxo só fica pronto quando o schema remoto confirma o contrato
+    // SINGLE_VIDEO completo, inclusive vertical_video_strategy.
+    const productLinkCampaign = capabilities.catalogSingleVideoCampaign === true;
     return {
       catalogSync,
       catalogCreationStatus: catalogCreate ? 'ready' : 'awaiting_connector_confirmation',
@@ -3145,11 +3144,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     return catalogBatchCampaignSpecErrors(plan);
   }
 
-  function batchPlanWithCampaignPixel(plan, pixelId) {
+  function batchPlanWithCampaignPixel(plan, pixelId, pixelEvent) {
     const source = plan && typeof plan === 'object' && !Array.isArray(plan) ? plan : {};
     const inject = (campaign) => Object.assign({}, campaign || {}, {
       pixelId: String(pixelId),
-      pixelEvent: 'ON_WEB_ORDER',
+      pixelEvent: String(pixelEvent),
     });
     return Object.assign({}, source, {
       catalogs: Array.isArray(source.catalogs) ? source.catalogs.map((catalog) => Object.assign({}, catalog, {
@@ -3167,8 +3166,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     const campaignPixel = scheduleCampaigns
       ? await requireCampaignPixel(req.account.id, advertiserId)
       : null;
+    const campaignPixelEvent = campaignPixel
+      ? await pipeboard.resolveCatalogPurchaseEvent(advertiserId, campaignPixel.pixelId)
+      : null;
     const plan = campaignPixel
-      ? batchPlanWithCampaignPixel(input.plan, campaignPixel.pixelId)
+      ? batchPlanWithCampaignPixel(input.plan, campaignPixel.pixelId, campaignPixelEvent)
       : input.plan;
     const preview = catalogBatchDomain.previewBatchPlan(plan);
     const capabilities = await catalogGateway.capabilities(pipeboard);
@@ -3455,12 +3457,6 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   async function prepareCatalogCampaign(req) {
     if (!pipeboard.enabled) throw catalogDomain.catalogError('PIPEBOARD_DISABLED', 'Pipeboard não configurado no servidor.', { status: 409 });
     const capabilities = await catalogGateway.capabilities(pipeboard);
-    if (!capabilities.manualCatalogCampaign) {
-      throw catalogDomain.catalogError('PRODUCT_LINK_CONNECTOR_CONFIRMATION_REQUIRED', 'O conector ainda não confirmou o destino Product Link para esta criação.', {
-        status: 501, retryable: false,
-        suggestedAction: 'O catálogo continua pronto com o Link de cada produto. A dashboard não criará uma campanha com URL global; aguarde a confirmação explícita de Product Link pelo conector.',
-      });
-    }
     const accId = req.account.id;
     const advertiserId = await catalogAdvertiserId(req);
     const catalog = await catalogStore.getCatalog(accId, advertiserId, req.params.catalogId);
@@ -3478,9 +3474,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       });
     }
     const pixel = await requireCampaignPixel(accId, advertiserId);
+    const pixelEvent = await pipeboard.resolveCatalogPurchaseEvent(advertiserId, pixel.pixelId);
     const normalized = catalogDomain.normalizeCampaignSpec(Object.assign({}, req.body || {}, {
       pixelId: pixel.pixelId,
-      pixelEvent: 'ON_WEB_ORDER',
+      pixelEvent,
     }), catalog);
     // Escopo ALL pertence ao catálogo remoto: o TikTok usa somente os itens
     // aprovados que ele confirma no overview. Não reconstrua esse conjunto a
@@ -3491,16 +3488,19 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       normalized.productIds = [];
     }
     if (normalized.productScope === 'specific' && !normalized.itemGroupIds.length) {
-      throw catalogDomain.catalogError('CATALOG_ITEM_GROUP_IDS_REQUIRED', 'Os produtos ainda não possuem identificadores para o Catalog Carousel.', {
+      throw catalogDomain.catalogError('CATALOG_ITEM_GROUP_IDS_REQUIRED', 'Os produtos ainda não possuem identificadores para a seleção específica.', {
         status: 422, retryable: false,
         suggestedAction: 'Sincronize o catálogo novamente. A dashboard preencherá item_group_id com o SKU automaticamente.',
       });
     }
-    const music = await pipeboard.resolveCatalogCarouselMusic(advertiserId, normalized.musicId);
-    normalized.musicId = music.musicId;
     return {
       accId, catalog, advertiserId, readiness, capabilities,
-      spec: { ...normalized, catalogId: catalog.tiktokCatalogId, bcId: catalog.bcId },
+      spec: {
+        ...normalized,
+        catalogId: catalog.tiktokCatalogId,
+        bcId: catalog.bcId,
+        connectorReady: capabilities.catalogSingleVideoCampaign === true,
+      },
     };
   }
 

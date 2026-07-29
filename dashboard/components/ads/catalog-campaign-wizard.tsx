@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, ChevronDown, Loader2, Rocket, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, Loader2, Rocket, RotateCcw, Trash2, Upload, Video } from 'lucide-react'
 import {
-  adsCatalogApiUrl, adsCreateCatalogCampaign, adsPreflightCatalogCampaign, apiSend,
+  adsCatalogApiUrl, adsCreateCatalogCampaign, adsPreflightCatalogCampaign, adsUpload, apiSend,
   useAdsCatalogCampaignRuns,
 } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -61,7 +61,7 @@ function RunCard({
     verification.productLink === true && 'Product Link',
     verification.targeting === true && 'Pixel e evento',
     verification.identity === true && 'identidade do Business Center',
-    verification.creative === true && 'Catalog Carousel',
+    verification.creative === true && 'vídeo vertical',
     verification.noManualUrl === true && 'sem URL manual',
     verification.paused === true && 'tudo pausado',
   ].filter(Boolean) as string[] : []
@@ -142,19 +142,22 @@ function RunCard({
 export function CatalogCampaignWizard({
   catalog,
   advertiserId,
+  advertiserCurrency,
   ready,
   capabilities,
 }: {
   catalog: AdsCatalog
   advertiserId: string
+  advertiserCurrency: string
   ready: boolean
   capabilities: AdsCatalogCapabilities | null
 }) {
-  const supported = capabilities?.manualCatalogCampaign === true
-  const supportsAdText = supported && capabilities?.adText === true
-  const supportsCallToAction = supported && capabilities?.callToAction === true
-  const creativeFormat = capabilities?.adFormat === 'CATALOG_CAROUSEL'
-    ? 'Catalog Carousel'
+  const connectorReady = capabilities?.catalogSingleVideoCampaign === true
+  const supported = capabilities !== null
+  const supportsAdText = capabilities?.adText === true
+  const supportsCallToAction = capabilities?.callToAction === true
+  const creativeFormat = capabilities?.adFormat === 'SINGLE_VIDEO'
+    ? 'Vídeo com áudio próprio'
     : capabilities?.adFormat || 'formato ainda não confirmado'
   const { data: runsData, mutate: mutateRuns } = useAdsCatalogCampaignRuns(catalog.id, advertiserId)
   const runs = runsData?.runs ?? []
@@ -165,6 +168,9 @@ export function CatalogCampaignWizard({
   const [budget, setBudget] = useState('')
   const [text, setText] = useState('')
   const [cta, setCta] = useState('SHOP_NOW')
+  const [videoUrl, setVideoUrl] = useState('')
+  const [videoName, setVideoName] = useState('')
+  const [uploading, setUploading] = useState(false)
   const idempotencyRef = useRef<StableIdempotencyState | null>(null)
 
   const activeRun = useMemo(() => runs.find((run) => ['queued', 'waiting_connector_confirmation', 'waiting_catalog_review', 'running', 'retrying'].includes(run.status)), [runs])
@@ -194,7 +200,8 @@ export function CatalogCampaignWizard({
     productScope: 'all',
     text: supportsAdText ? text.trim() : '',
     cta: supportsCallToAction ? cta : '',
-  }), [advertiserId, budget, catalog.id, catalog.name, cta, name, supportsAdText, supportsCallToAction, text])
+    videoUrl,
+  }), [advertiserId, budget, catalog.id, catalog.name, cta, name, supportsAdText, supportsCallToAction, text, videoUrl])
 
   function idempotencyKey() {
     idempotencyRef.current = resolveStableIdempotencyKey(
@@ -213,6 +220,7 @@ export function CatalogCampaignWizard({
       name: name.trim() || catalog.name,
       budgetAmount: Number(budget), budgetType: 'daily', budgetOptimization: 'adgroup',
       country: catalog.country || 'BR', productScope: 'all',
+      videoUrl,
       idempotencyKey: idempotencyKey(),
     }
     if (supportsAdText && text.trim()) body.text = text.trim()
@@ -222,7 +230,8 @@ export function CatalogCampaignWizard({
 
   async function create() {
     if (!supported) return toast.error('A criação ainda não foi confirmada pelo conector TikTok')
-    if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return toast.error(tiktokMinimumBudgetMessage(catalog.currency, ' por dia'))
+    if (!(Number(budget) >= TIKTOK_MIN_BUDGET)) return toast.error(tiktokMinimumBudgetMessage(advertiserCurrency, ' por dia'))
+    if (!videoUrl) return toast.error('Envie o vídeo da campanha')
     setBusy(true)
     try {
       const body = payload()
@@ -230,7 +239,11 @@ export function CatalogCampaignWizard({
       const result = await adsCreateCatalogCampaign(catalog.id, advertiserId, body)
       idempotencyRef.current = null
       if (result.dryRun) toast.info('Modo teste: criação validada sem publicar no TikTok')
-      else toast.success('Criação iniciada', { hint: 'A campanha, o conjunto e o anúncio serão verificados antes da conclusão.' })
+      else toast.success(connectorReady ? 'Criação iniciada' : 'Campanha preparada', {
+        hint: connectorReady
+          ? 'A campanha, o conjunto e o anúncio serão verificados antes da conclusão.'
+          : 'A dashboard continuará automaticamente quando o conector aceitar o vídeo completo.',
+      })
       setOpen(false)
       await mutateRuns()
     } catch (error) {
@@ -240,12 +253,28 @@ export function CatalogCampaignWizard({
     }
   }
 
+  async function uploadVideo(file: File) {
+    if (!/\.(mp4|mov)$/i.test(file.name)) return toast.error('Envie um vídeo MP4 ou MOV')
+    setUploading(true)
+    try {
+      const result = await adsUpload(file, 'video')
+      setVideoUrl(result.url)
+      setVideoName(file.name)
+      idempotencyRef.current = null
+      toast.success('Vídeo pronto')
+    } catch (error) {
+      toast.error('Não foi possível enviar o vídeo', { hint: error instanceof Error ? error.message : undefined })
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
     <section id="catalog-campaign-wizard" className="scroll-mt-4 rounded-xl border border-border bg-background p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-xs font-semibold text-foreground">Campanhas deste catálogo</h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Catalog Carousel · cada produto abre o próprio Link.</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Vídeo de catálogo · cada produto abre o próprio Link.</p>
         </div>
         {supported ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -256,22 +285,22 @@ export function CatalogCampaignWizard({
               <Rocket className="size-3.5" /> {activeRun ? 'Criação em andamento' : 'Nova campanha'} <ChevronDown className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
             </button>
           </div>
-        ) : <span className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[10px] font-medium text-warning">Conector em validação</span>}
+        ) : <span className="rounded-md border border-border bg-secondary/50 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">Carregando</span>}
       </div>
-      {!supported && (
+      {supported && !connectorReady && (
         <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
-          <p className="font-semibold text-warning">A criação está bloqueada até o conector confirmar Catalog Carousel.</p>
-          <p className="mt-1">O catálogo continua salvo e nenhuma campanha incompleta foi enviada.</p>
+          <p className="font-semibold text-warning">Você já pode preparar a campanha.</p>
+          <p className="mt-1">A configuração ficará salva e continuará sozinha quando o conector aceitar o vídeo completo. Nenhuma estrutura incompleta será enviada.</p>
           <details className="mt-2 border-t border-warning/20 pt-2">
             <summary className="cursor-pointer font-medium text-muted-foreground">Detalhes técnicos</summary>
-            <p className="mt-1">A dashboard preserva o Link individual de cada produto e nunca usa uma URL global como substituição.</p>
+            <p className="mt-1">Falta o campo vertical_video_strategy no Pipeboard. A dashboard preserva o Link de cada produto e nunca usa uma URL global.</p>
           </details>
         </div>
       )}
-      {supported && (
+      {connectorReady && (
         <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-[10px] leading-relaxed text-muted-foreground">
           <p className="font-semibold text-foreground">Criativo efetivo: {creativeFormat}</p>
-          <p className="mt-1">Produtos, Pixel, Compra, identidade e música elegível são resolvidos antes da criação. Se faltar algo, nenhuma estrutura é enviada.</p>
+          <p className="mt-1">Pixel, Compra, identidade e capa são resolvidos automaticamente. O áudio é o próprio áudio do vídeo.</p>
         </div>
       )}
       {supported && !ready && <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[10px] text-warning">Conclua o checklist de prontidão antes de criar uma campanha.</p>}
@@ -280,9 +309,31 @@ export function CatalogCampaignWizard({
         <div className="mt-4 space-y-3 border-t border-border pt-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-[11px] text-muted-foreground">Nome<input className="input-base mt-1 w-full" value={name} onChange={(e) => setName(e.target.value)} /></label>
-            <label className="text-[11px] text-muted-foreground">Orçamento diário ({catalog.currency})<input className="input-base mt-1 w-full" type="number" min={TIKTOK_MIN_BUDGET} step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="50,00" /></label>
+            <label className="text-[11px] text-muted-foreground">Orçamento diário ({advertiserCurrency})<input className="input-base mt-1 w-full" type="number" min={TIKTOK_MIN_BUDGET} step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="50,00" /></label>
           </div>
-          <p className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-[10px] leading-relaxed text-muted-foreground">Todos os produtos aprovados entram automaticamente. Pixel, evento Compra e música própria são validados sem campos manuais.</p>
+          <label className="block rounded-lg border border-border bg-card p-3">
+            <span className="flex items-center gap-2 text-[11px] font-semibold text-foreground"><Video className="size-4 text-primary" /> Vídeo da campanha</span>
+            <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">MP4 ou MOV vertical. O áudio do arquivo será usado no anúncio; a capa é criada automaticamente.</span>
+            <span className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="btn-ghost cursor-pointer text-xs">
+                {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                {videoUrl ? 'Trocar vídeo' : 'Enviar vídeo'}
+                <input
+                  className="sr-only"
+                  type="file"
+                  accept="video/mp4,video/quicktime,.mp4,.mov"
+                  disabled={uploading}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    if (file) void uploadVideo(file)
+                    event.currentTarget.value = ''
+                  }}
+                />
+              </span>
+              {videoName && <span className="max-w-full truncate text-[10px] text-success"><Check className="mr-1 inline size-3" />{videoName}</span>}
+            </span>
+          </label>
+          <p className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-[10px] leading-relaxed text-muted-foreground">Todos os produtos aprovados entram automaticamente. Pixel, evento Compra, Product Link, identidade e capa não exigem configuração manual.</p>
           {(supportsAdText || supportsCallToAction) && (
             <details className="rounded-lg border border-border p-3">
               <summary className="cursor-pointer text-[11px] font-semibold text-foreground">Criativo avançado</summary>
@@ -293,7 +344,7 @@ export function CatalogCampaignWizard({
             </details>
           )}
           <p className="rounded-lg bg-secondary/60 p-2.5 text-[10px] leading-relaxed text-muted-foreground">ABO · Compra · Product Link · tudo nasce pausado. Não existe URL manual no anúncio.</p>
-          <div className="flex justify-end gap-2"><button type="button" className="btn-ghost text-xs" onClick={() => setOpen(false)}>Cancelar</button><button type="button" className="btn-primary text-xs" onClick={create} disabled={busy}>{busy ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />} Pré-validar e criar</button></div>
+          <div className="flex justify-end gap-2"><button type="button" className="btn-ghost text-xs" onClick={() => setOpen(false)}>Cancelar</button><button type="button" className="btn-primary text-xs" onClick={create} disabled={busy || uploading || !videoUrl}>{busy ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />} Pré-validar e criar</button></div>
         </div>
       )}
 
@@ -301,14 +352,16 @@ export function CatalogCampaignWizard({
         <div className="mt-4 space-y-2 border-t border-border pt-4">
           <p className="text-[10px] font-medium text-muted-foreground">Histórico recente · {runs.length} campanha(s)</p>
           {runs.slice(0, 20).map((run) => (
-            <RunCard key={run.id} run={run} advertiserId={advertiserId} currency={catalog.currency} mutate={() => { void mutateRuns() }} />
+            <RunCard key={run.id} run={run} advertiserId={advertiserId} currency={advertiserCurrency} mutate={() => { void mutateRuns() }} />
           ))}
         </div>
       )}
       <CatalogQuickCampaignsDialog
         catalog={catalog}
         advertiserId={advertiserId}
+        advertiserCurrency={advertiserCurrency}
         open={supported && batchOpen}
+        initialVideoUrl={videoUrl}
         onClose={() => setBatchOpen(false)}
         onCreated={() => { void mutateRuns() }}
       />
