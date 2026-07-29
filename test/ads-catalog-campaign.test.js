@@ -187,8 +187,8 @@ function completeSchemas() {
   {
     const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
     ok(/resolveCatalogCarouselMusic/.test(routes), 'preflight valida música antes de enfileirar');
-    ok(/item_group_id \|\| product\.data\.sku_id/.test(routes), 'rota usa item_group_id com fallback automático do SKU');
-    ok(/CATALOG_ITEM_GROUP_IDS_REQUIRED/.test(routes), 'sem identificadores bloqueia antes da escrita');
+    ok(/normalized\.productScope === 'all'/.test(routes) && /normalized\.itemGroupIds = \[\]/.test(routes), 'escopo ALL usa a lista remota aprovada sem reconstruir IDs locais');
+    ok(/normalized\.productScope === 'specific'.+!normalized\.itemGroupIds\.length/.test(routes), 'somente seleção específica exige identificadores locais');
     ok(/killSwitchActive/.test(routes) && /isDryRun/.test(routes), 'mantém kill switch e modo teste');
     const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
     ok(/Todos os produtos aprovados entram automaticamente/.test(wizard), 'wizard remove seleção manual de IDs da tela principal');

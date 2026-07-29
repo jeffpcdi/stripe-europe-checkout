@@ -15,6 +15,7 @@ const CONNECTOR_REFRESH_MS = 60 * 1000;
 const auditCheckedAt = new Map();
 const AUDIT_REFRESH_MS = 60 * 1000;
 const AUDIT_MAX_ATTEMPTS = 8;
+const REMOTE_READY_MIN_PRODUCTS = 4;
 const AUDIT_BACKOFF_MS = Object.freeze([
   60 * 1000,
   2 * 60 * 1000,
@@ -123,6 +124,29 @@ function uploadReceiptMismatchError(error) {
 
 function auditMatchesUpload(audit, published) {
   return Number(audit && audit.total) === Math.max(1, Number(published) || 0);
+}
+
+// O overview do TikTok é a fonte de verdade para campanhas com escopo ALL.
+// Quando o feed_log atual terminou sem erros e o remoto estabilizou com ao
+// menos quatro produtos, todos aprovados, uma diferença de contagem local não
+// deve manter o usuário preso em polling. A revisão termina com a divergência
+// registrada, mas SEM avançar synced_at: o item local excedente continua
+// explícito e não entra na campanha.
+function remoteCatalogReadyWithDifference(uploadStatus, audit, published) {
+  const value = audit || {};
+  const total = Math.max(0, Number(value.total) || 0);
+  const approved = Math.max(0, Number(value.approved) || 0);
+  const pending = Math.max(0, Number(value.pending) || 0);
+  const rejected = Math.max(0, Number(value.rejected) || 0);
+  return Boolean(
+    uploadStatus && uploadStatus.succeeded && !uploadStatus.failed
+    && (Number(uploadStatus.errorCount) || 0) === 0
+    && total !== Math.max(1, Number(published) || 0)
+    && total >= REMOTE_READY_MIN_PRODUCTS
+    && approved === total
+    && pending === 0
+    && rejected === 0
+  );
 }
 
 // Uma tool isolada não torna a sincronização executável. O worker precisa
@@ -340,6 +364,11 @@ async function refreshPendingTikTokAudits() {
     };
     const confirmed = Boolean(uploadStatus && uploadStatus.succeeded
       && auditMatchesUpload(audit, progress.published));
+    const remoteReadyWithDifference = remoteCatalogReadyWithDifference(
+      uploadStatus,
+      audit,
+      progress.published,
+    );
     if (confirmed) {
       await store.markSynced(catalog.accountId, catalog.advertiserId, catalog.id);
       await store.setAudit(catalog.accountId, catalog.advertiserId, catalog.id, audit);
@@ -350,6 +379,27 @@ async function refreshPendingTikTokAudits() {
       }
       await store.appendPublication(catalog.accountId, catalog.advertiserId, catalog.id, {
         kind: 'tiktok', status: 'success', published: progress.published, skipped: progress.skipped,
+        feedUrl: progress.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId, audit,
+      }).catch(() => {});
+    } else if (remoteReadyWithDifference) {
+      await store.setAudit(catalog.accountId, catalog.advertiserId, catalog.id, audit);
+      const remoteTotal = Number(audit && audit.total) || 0;
+      const localTotal = Math.max(0, Number(progress.published) || 0);
+      const reconciledProgress = {
+        ...updatedProgress,
+        remoteReadyWithDifference: true,
+        localProductCount: localTotal,
+        remoteProductCount: remoteTotal,
+        localOnlyCount: Math.max(0, localTotal - remoteTotal),
+        confirmedAt: checkedAt,
+      };
+      if (catalog.syncRunId) {
+        await store.updateSyncRun(catalog.accountId, catalog.syncRunId, 'completed', {
+          stage: 'reviewed_tiktok', progress: reconciledProgress,
+        });
+      }
+      await store.appendPublication(catalog.accountId, catalog.advertiserId, catalog.id, {
+        kind: 'tiktok', status: 'success', published: remoteTotal, skipped: progress.skipped,
         feedUrl: progress.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId, audit,
       }).catch(() => {});
     } else if (auditAttempts >= AUDIT_MAX_ATTEMPTS) {
@@ -563,6 +613,32 @@ async function processRun(row) {
       }).catch(() => {});
       return completed;
     }
+    if (remoteCatalogReadyWithDifference(uploadStatus, audit, publishedCount)) {
+      catalog = await store.setAudit(accountId, advertiserId, catalog.id, audit);
+      const remoteTotal = Number(audit && audit.total) || 0;
+      const reconciledProgress = {
+        ...progress,
+        remoteReadyWithDifference: true,
+        localProductCount: publishedCount,
+        remoteProductCount: remoteTotal,
+        localOnlyCount: Math.max(0, publishedCount - remoteTotal),
+        confirmedAt: checkedAt,
+      };
+      await store.appendPublication(accountId, advertiserId, catalog.id, {
+        kind: 'tiktok', status: 'success', published: remoteTotal, skipped: skippedCount,
+        feedUrl: payload.feedUrl, tiktokCatalogId: catalog.tiktokCatalogId, audit,
+      });
+      const completed = await store.updateSyncRun(accountId, runId, 'completed', {
+        stage: 'reviewed_tiktok', progress: reconciledProgress,
+      });
+      await adsOps.appendAuditEvent(accountId, {
+        actorType: 'user', actorId: accountId, action: 'catalog_sync.remote_ready',
+        targetType: 'catalog', targetId: catalog.id, jobId: runId,
+        afterState: { tiktokCatalogId: catalog.tiktokCatalogId, audit, uploadReceipt, uploadStatus },
+        reason: 'TikTok confirmou um catálogo utilizável; a diferença local foi preservada para revisão',
+      }).catch(() => {});
+      return completed;
+    }
 
     // `job_id:null` e overview zerado são o caso observado em produção. O
     // retorno é preservado para diagnóstico, mas não vira sucesso definitivo.
@@ -642,6 +718,7 @@ module.exports = {
     normalizeUploadReceipt,
     uploadReceiptMismatchError,
     syncCapabilitiesReady,
+    remoteCatalogReadyWithDifference,
     auditDelayMs,
     nextAuditAt,
     auditTimeoutError,

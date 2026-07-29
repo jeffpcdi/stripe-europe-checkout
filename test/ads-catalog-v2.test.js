@@ -45,8 +45,30 @@ function throwsCode(fn, code, label) {
   readiness = domain.computeReadiness(base, products.map((product, index) => (
     index === 0 ? { ...product, updatedAt: '2026-07-20T12:00:00.000Z' } : product
   )), { advertiserId: '1870000000001' });
-  eq(readiness.nextAction, 'sync', 'edição posterior à publicação exige nova sincronização');
-  ok(!readiness.readyForCampaign, 'alteração local bloqueia campanha até sincronizar');
+  eq(readiness.nextAction, 'create_campaign', 'catálogo remoto aprovado continua disponível apesar de edição local');
+  ok(readiness.readyForCampaign, 'alteração local não bloqueia campanha ALL com produtos remotos aprovados');
+  ok(readiness.hasUnpublishedChanges, 'diferença local continua explícita para uma sincronização futura');
+
+  const elevenLocalProducts = Array.from({ length: 11 }, (_, index) => ({
+    valid: true, data: { sku_id: 'local_' + index, brand: 'Marca real' },
+    updatedAt: '2026-07-20T12:00:00.000Z',
+  }));
+  readiness = domain.computeReadiness(
+    { ...base, audit: { approved: 10, pending: 0, rejected: 0, total: 10 } },
+    elevenLocalProducts,
+    { advertiserId: '1870000000001' },
+  );
+  ok(readiness.readyForCampaign, 'dez produtos confirmados no TikTok liberam a campanha');
+  eq(readiness.counts.remoteTotal, 10, 'contagem principal preserva a verdade do TikTok');
+  eq(readiness.counts.localOnly, 1, 'diferença local é informada sem fingir que existe no TikTok');
+  ok(/10 produtos no TikTok/.test(readiness.steps.find((item) => item.id === 'products').detail), 'checklist mostra a contagem remota');
+
+  readiness = domain.computeReadiness(
+    { ...base, audit: { approved: 10, pending: 0, rejected: 0, total: 10 } },
+    [],
+    { advertiserId: '1870000000001' },
+  );
+  ok(readiness.readyForCampaign, 'catálogo remoto vinculado não depende de cópias locais para escopo ALL');
 
   console.log('Domínio — contrato explícito da campanha');
   const input = {
@@ -147,7 +169,8 @@ function throwsCode(fn, code, label) {
   ok(/Revisão concluída com reprovações/.test(manager) && /pending > 0/.test(manager), 'UI não chama produtos reprovados de produtos em análise');
   ok(/label: 'Sem produtos'/.test(manager) && /label: 'Vinculado'/.test(manager), 'lista separa vínculo remoto de catálogo pronto');
   ok(/catalog\.audit\?\.total/.test(connectionCard) && /último status/.test(connectionCard), 'contagem remota usa a auditoria atual em vez do snapshot antigo do vínculo');
-  ok(/const statusLabel = failed/.test(syncStatus) && /LABELS\[run\.status\]/.test(syncStatus), 'run falho mostra sincronização interrompida em vez da etapa antiga');
+  ok(/remoteReadyWithDifference/.test(syncStatus) && /LABELS\[run\.status\]/.test(syncStatus), 'status distingue catálogo remoto pronto de processamento ou falha');
+  ok(/item_group_id: skuId/.test(manager), 'duplicar produto cria agrupador próprio em vez de reutilizar o SKU original');
   ok(/ConfirmDialog/.test(manager) && !/\bconfirm\(/.test(manager), 'exclusões usam confirmação acessível e não confirm nativo');
   ok(/envio aceito/.test(manager), 'histórico distingue envio aceito de aprovação do TikTok');
   ok(/DELETE FROM ads_catalog_campaign_runs/.test(store) && /DELETE FROM ads_catalog_publications/.test(store), 'exclusão remove jobs e publicações órfãos');

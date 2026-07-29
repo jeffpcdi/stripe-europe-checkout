@@ -3482,17 +3482,15 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       pixelId: pixel.pixelId,
       pixelEvent: 'ON_WEB_ORDER',
     }), catalog);
-    const allItemGroupIds = products
-      .filter((product) => product && product.valid)
-      .map((product) => String(product.data && (product.data.item_group_id || product.data.sku_id) || '').trim())
-      .filter(Boolean);
-    if (normalized.productScope !== 'product_set') {
-      normalized.itemGroupIds = normalized.productScope === 'specific'
-        ? normalized.itemGroupIds
-        : allItemGroupIds;
-      normalized.productIds = normalized.itemGroupIds;
+    // Escopo ALL pertence ao catálogo remoto: o TikTok usa somente os itens
+    // aprovados que ele confirma no overview. Não reconstrua esse conjunto a
+    // partir das linhas locais, pois uma cópia ainda não sincronizada não pode
+    // bloquear nem ampliar silenciosamente a campanha.
+    if (normalized.productScope === 'all') {
+      normalized.itemGroupIds = [];
+      normalized.productIds = [];
     }
-    if (normalized.productScope !== 'product_set' && !normalized.itemGroupIds.length) {
+    if (normalized.productScope === 'specific' && !normalized.itemGroupIds.length) {
       throw catalogDomain.catalogError('CATALOG_ITEM_GROUP_IDS_REQUIRED', 'Os produtos ainda não possuem identificadores para o Catalog Carousel.', {
         status: 422, retryable: false,
         suggestedAction: 'Sincronize o catálogo novamente. A dashboard preencherá item_group_id com o SKU automaticamente.',

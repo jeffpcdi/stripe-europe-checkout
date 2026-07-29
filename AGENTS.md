@@ -120,7 +120,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   é diagnóstico apenas, pois upload direto por arquivo pode não criar feed recorrente. No limite, o run
   falha como `CATALOG_UPLOAD_NOT_VISIBLE`, limpa a falsa marca `synced_at` e pode ser retomado;
   a campanha pausada só é liberada após auditoria dos produtos
-  e confirmação semântica de Product Link pelo conector. Sucesso exige leitura dos três níveis
+  e confirmação semântica de Product Link pelo conector. A igualdade exata entre snapshot local e
+  overview continua sendo a única condição que avança `synced_at`. Se o `feed_log_id` atual terminar
+  em `SUCCESS` sem erros, mas o overview estabilizar com outra quantidade inteiramente aprovada
+  (mínimo 4), o worker encerra o polling como `remoteReadyWithDifference`, preserva o item local
+  excedente sem marcá-lo como sincronizado e usa a contagem remota como verdade operacional.
+  Campanhas com escopo `ALL` podem então usar somente os produtos que o próprio TikTok confirmou;
+  não reconstroem a seleção com IDs locais. Sucesso da campanha exige leitura dos três níveis
   (campanha → conjunto → anúncio), todos pausados, com o catálogo correto, `PRODUCT_LINK` e sem URL manual.
 - **ads-provider.js + ads-routes.js** — toda criação automática regular, Smart+ e de catálogo só usa
   identidade `BC_AUTH_TT` com `identity_bc_id` e dark post habilitado; nunca escolhe
@@ -335,10 +341,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   todo envio: se o ID salvo não existir mais no BC atual, recria apenas o vínculo remoto e preserva
   catálogo/produtos/feed locais. Cada run usa um snapshot CSV imutável (`ads_catalog_feed_snapshots`)
   identificado por hash na URL `?v=`; a limpeza nunca remove revisões referenciadas por runs duráveis.
-  Sucesso exige o `feed_log_id` do upload atual em `SUCCESS` com
+  `synced_at` exige o `feed_log_id` do upload atual em `SUCCESS` com
   `error_count=0` **e** overview com exatamente a quantidade enviada; produtos antigos no catálogo nunca
-  confirmam o run atual. `synced_at` só muda depois dessas duas provas, enquanto uma leitura isolada do
-  overview atualiza apenas `audit`. Produtos são revalidados contra a spec atual em toda leitura crítica e
+  confirmam o snapshot local como sincronizado. Quando o mesmo recibo termina sem erros e o overview
+  retorna uma quantidade diferente, mas inteiramente aprovada e suficiente para Catalog Ads, o run
+  termina com a divergência registrada sem avançar `synced_at`: a UI mostra primeiro a contagem real
+  do TikTok, informa quantos itens existem apenas localmente e libera somente campanhas `ALL`, que usam
+  o catálogo remoto. Uma leitura isolada do overview atualiza apenas `audit`. Produtos são revalidados contra a spec atual em toda leitura crítica e
   no feed público: `brand` é o 9º campo obrigatório (nunca inferido) e o enum correto é
   `available for order` (não `available`). Assim, registros antigos com `valid=true` não furam a regra.
   A campanha Catalog Ads Product Link exige orçamento mínimo 50, Pixel ID numérico + evento canônico
@@ -390,7 +399,10 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   No wizard dedicado, a tela principal pede somente nome e orçamento; todos os produtos aprovados,
   Pixel, Compra, identidade e música são resolvidos automaticamente. Texto e CTA ficam em detalhes
   avançados. Avisos do run ficam visíveis e falhas não retomáveis oferecem apenas a limpeza da
-  estrutura parcial. Sem `manualCatalogCampaign`, nada é enviado ao TikTok.
+  estrutura parcial. A contagem principal e a prontidão vêm do overview remoto; itens salvos só na
+  dashboard aparecem como uma diferença não destrutiva e nunca entram em uma campanha `ALL`.
+  Duplicar um produto gera novo `sku_id` **e** novo `item_group_id`, evitando que a cópia herde o
+  agrupador do original. Sem `manualCatalogCampaign`, nada é enviado ao TikTok.
   O lote rápido (`POST /api/ads/catalogs/:catalogId/campaign-batch`, máximo 50) vive no cartão
   “Campanhas deste catálogo”, pede apenas quantidade e orçamento, gera nomes ordenados e cria runs
   duráveis idempotentes. Ele só abre com `manualCatalogCampaign=true`; não polui a lista de catálogos.

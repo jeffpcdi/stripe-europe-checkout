@@ -56,12 +56,9 @@ export function CatalogSyncStatus({
     run.status === 'waiting_tiktok_processing'
     || run.status === 'completed' // compatibilidade com runs legados
   ) && run.stage === 'processing_tiktok'
-  const active = ['queued', 'waiting_connector_confirmation', 'waiting_tiktok_processing', 'running', 'retrying'].includes(run.status)
+  const rawActive = ['queued', 'waiting_connector_confirmation', 'waiting_tiktok_processing', 'running', 'retrying'].includes(run.status)
   const waitingConnector = run.status === 'waiting_connector_confirmation'
   const failed = ['failed', 'partial'].includes(run.status)
-  const statusLabel = failed
-    ? LABELS[run.status] || 'Sincronização interrompida'
-    : LABELS[run.stage] || run.stage
   const auditProgress = objectValue(run.progress?.audit)
   const uploadStatus = objectValue(run.progress?.uploadStatus)
   const auditAttempts = Math.max(0, Number(run.progress?.auditAttempts) || 0)
@@ -69,13 +66,35 @@ export function CatalogSyncStatus({
   const remoteProducts = Math.max(0, Number(auditProgress?.total) || 0)
   const remoteMismatch = awaitingTikTok && auditAttempts >= 3 && remoteProducts !== expectedProducts
   const uploadErrors = Math.max(0, Number(uploadStatus?.errorCount) || 0)
-  const uploadWarnings = Math.max(0, Number(uploadStatus?.warningCount) || 0)
   const affectedErrors = Array.isArray(uploadStatus?.errors)
     ? uploadStatus.errors.map(objectValue).filter((item): item is Record<string, unknown> => Boolean(item)).slice(0, 3)
     : []
   const affectedWarnings = Array.isArray(uploadStatus?.warnings)
-    ? uploadStatus.warnings.map(objectValue).filter((item): item is Record<string, unknown> => Boolean(item)).slice(0, 3)
+    ? uploadStatus.warnings
+      .map(objectValue)
+      .filter((item): item is Record<string, unknown> => Boolean(item && (String(item.issue || '').trim() || String(item.suggestion || '').trim())))
+      .slice(0, 3)
     : []
+  const remoteApproved = Math.max(0, Number(auditProgress?.approved) || 0)
+  const remotePending = Math.max(0, Number(auditProgress?.pending) || 0)
+  const remoteRejected = Math.max(0, Number(auditProgress?.rejected) || 0)
+  const remoteReadyWithDifference = run.progress?.remoteReadyWithDifference === true || Boolean(
+    remoteMismatch
+    && uploadStatus?.succeeded === true
+    && uploadErrors === 0
+    && remoteProducts >= 4
+    && remoteApproved === remoteProducts
+    && remotePending === 0
+    && remoteRejected === 0
+  )
+  const localOnlyCount = Math.max(0, expectedProducts - remoteProducts)
+  const active = rawActive && !remoteReadyWithDifference
+  const statusLabel = remoteReadyWithDifference
+    ? `${remoteProducts} produto${remoteProducts === 1 ? '' : 's'} pronto${remoteProducts === 1 ? '' : 's'} no TikTok`
+    : failed
+      ? LABELS[run.status] || 'Sincronização interrompida'
+      : LABELS[run.stage] || run.stage
+  const uploadWarnings = affectedWarnings.length
   async function resume() {
     try {
       await apiSend(adsCatalogApiUrl(`/api/ads/catalog-sync-runs/${encodeURIComponent(runId)}/resume`, advertiserId), 'POST', {})
@@ -85,10 +104,11 @@ export function CatalogSyncStatus({
       toast.error('Não foi possível retomar', { hint: error instanceof Error ? error.message : undefined })
     }
   }
+  if (remoteReadyWithDifference && uploadErrors === 0 && affectedWarnings.length === 0) return null
   return (
-    <section className={`rounded-xl border p-3 ${failed ? 'border-error/30 bg-error/5' : awaitingTikTok ? 'border-warning/30 bg-warning/5' : run.status === 'completed' ? 'border-success/25 bg-success/5' : 'border-primary/25 bg-primary/5'}`} aria-live="polite">
+    <section className={`rounded-xl border p-3 ${failed ? 'border-error/30 bg-error/5' : remoteReadyWithDifference ? 'border-success/25 bg-success/5' : awaitingTikTok ? 'border-warning/30 bg-warning/5' : run.status === 'completed' ? 'border-success/25 bg-success/5' : 'border-primary/25 bg-primary/5'}`} aria-live="polite">
       <div className="flex items-start gap-2">
-        {awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+        {remoteReadyWithDifference ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-foreground">{statusLabel}</p>
           {run.error ? (
@@ -101,7 +121,9 @@ export function CatalogSyncStatus({
             </>
           ) : (
             <p className="mt-0.5 text-[10px] text-muted-foreground">
-              {awaitingTikTok
+              {remoteReadyWithDifference
+                ? `O TikTok confirmou ${remoteProducts} produtos. Campanhas usam somente essa lista remota; ${localOnlyCount} ${localOnlyCount === 1 ? 'item local permanece salvo' : 'itens locais permanecem salvos'} para revisão.`
+                : awaitingTikTok
                 ? 'A dashboard acompanha o arquivo pelo recibo do TikTok e só conclui depois de confirmar que ele terminou sem erros e que a quantidade esperada apareceu no catálogo.'
                 : active
                   ? run.status === 'waiting_connector_confirmation'
@@ -133,9 +155,9 @@ export function CatalogSyncStatus({
               ))}
             </ul>
           )}
-          {remoteMismatch && (
+          {remoteMismatch && !remoteReadyWithDifference && (
             <p className="mt-2 rounded-md bg-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-warning">
-              O TikTok mostrou {remoteProducts} produto(s), mas esta revisão contém {expectedProducts}. O lote continua preservado e nenhuma campanha com “todos os produtos” será criada enquanto as quantidades divergirem.
+              O TikTok mostrou {remoteProducts} produto(s), mas esta revisão contém {expectedProducts}. A dashboard continuará verificando antes de concluir a sincronização.
             </p>
           )}
         </div>

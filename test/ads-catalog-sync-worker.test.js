@@ -18,6 +18,7 @@ const syncPromotions = [];
 const pendingAuditCatalogs = [];
 const auditRefreshes = [];
 const unconfirmed = [];
+const synced = [];
 let created = 0;
 let overviewCalls = 0;
 let overview = { approved: 0, pending: 4, rejected: 0, total: 4 };
@@ -66,6 +67,7 @@ require.cache[storePath] = {
     },
     async markSynced(_accountId, advertiserId, _catalogId) {
       assert.strictEqual(advertiserId, 'adv_1');
+      synced.push({ advertiserId, catalogId: _catalogId });
       return { ...localCatalog, tiktokCatalogId: '7999000000000000001', bcId: localCatalog.bcId, linkStatus: 'verified' };
     },
     async setAudit(_accountId, advertiserId, _catalogId, audit) {
@@ -168,6 +170,46 @@ const worker = require(workerPath);
   assert.strictEqual(updates.at(-1).patch.progress.uploadReceipt.jobId, 'job_1', 'recibo do upload fica persistido');
   assert.strictEqual(updates.at(-1).patch.progress.uploadReceipt.feedLogId, 'feed_log_1', 'feed_log_id identifica o upload confirmado');
   assert.ok(updates.some((entry) => entry.patch.stage === 'connecting_catalog'));
+
+  // A dashboard pode ter um registro local excedente enquanto o TikTok
+  // confirma uma lista menor. Com feed_log SUCCESS, zero erros e todos os
+  // remotos aprovados, a verdade operacional é o catálogo remoto: encerra o
+  // polling, preserva a diferença local e não mente em synced_at.
+  updates.length = 0;
+  publications.length = 0;
+  auditRefreshes.length = 0;
+  localCatalog.tiktokCatalogId = '7999000000000000001';
+  localCatalog.linkStatus = 'verified';
+  productRows = Array.from({ length: 11 }, (_, index) => ({
+    id: 'prod_remote_truth_' + index, valid: true,
+    data: { sku_id: 'sku_remote_truth_' + index, brand: 'Marca real' },
+  }));
+  uploadResponse = { feed_log_id: 'feed_log_remote_truth', file_format: 'CSV' };
+  uploadStatus = {
+    feedLogId: 'feed_log_remote_truth', processStatus: 'SUCCESS', processing: false,
+    succeeded: true, failed: false, errorCount: 0, warningCount: 0,
+  };
+  overview = { approved: 10, pending: 0, rejected: 0, total: 10 };
+  const syncedBeforeDifference = synced.length;
+  await worker.processRun({
+    id: 'run_remote_truth', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_local',
+    payload: { bcId: localCatalog.bcId, feedUrl: 'https://example.com/feed.csv', published: 11, skipped: 0 },
+  });
+  assert.strictEqual(updates.at(-1).status, 'completed', 'diferença estável não vira polling eterno');
+  assert.strictEqual(updates.at(-1).patch.progress.remoteReadyWithDifference, true);
+  assert.strictEqual(updates.at(-1).patch.progress.remoteProductCount, 10);
+  assert.strictEqual(updates.at(-1).patch.progress.localOnlyCount, 1);
+  assert.strictEqual(publications.at(-1).published, 10, 'histórico mostra apenas os produtos realmente confirmados');
+  assert.strictEqual(synced.length, syncedBeforeDifference, 'synced_at não avança sobre o item local excedente');
+  assert.deepStrictEqual(auditRefreshes.at(-1), overview, 'overview remoto utilizável fica persistido');
+  assert.strictEqual(
+    worker._internals.remoteCatalogReadyWithDifference(uploadStatus, overview, 11),
+    true,
+    'helper reconhece o catálogo remoto pronto com diferença local',
+  );
+  productRows = Array.from({ length: 4 }, (_, index) => ({
+    id: 'prod_' + index, valid: true, data: { sku_id: 'sku_' + index, brand: 'Marca real' },
+  }));
 
   // Se a criação remota ainda não estiver confirmada, o lote não falha nem
   // pede ação manual: permanece aguardando e o worker o promove depois.

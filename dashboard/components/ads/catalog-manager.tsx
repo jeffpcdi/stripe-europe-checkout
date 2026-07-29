@@ -406,6 +406,8 @@ function CatalogList({
         <ul className="flex flex-col gap-2">
           {catalogs.map((c) => {
             const status = catalogStatusMeta(c)
+            const remoteCount = Math.max(0, Number(c.audit?.total) || 0)
+            const displayCount = remoteCount > 0 ? remoteCount : c.productCount
             return <li key={c.id}>
               <button
                 type="button"
@@ -415,7 +417,7 @@ function CatalogList({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {c.productCount} produto{c.productCount === 1 ? '' : 's'} · {c.currency}
+                    {displayCount} produto{displayCount === 1 ? '' : 's'}{remoteCount > 0 ? ' no TikTok' : ''} · {c.currency}
                     {c.country ? ` · ${c.country}` : ''}
                   </p>
                 </div>
@@ -492,6 +494,8 @@ function CatalogDetail({
   const products = data?.products ?? []
   const publications = publicationData?.publications ?? []
   const validCount = products.filter((p) => p.valid).length
+  const remoteProductCount = Math.max(0, Number(catalog?.audit?.total) || 0)
+  const localOnlyCount = remoteProductCount > 0 ? Math.max(0, validCount - remoteProductCount) : 0
   const hasUnpublishedChanges = Boolean(catalog?.syncedAt && products.some((p) => new Date(p.updatedAt).getTime() > new Date(catalog.syncedAt as string).getTime()))
 
   if (detailError) {
@@ -541,7 +545,16 @@ function CatalogDetail({
   }
 
   function handleDuplicate(product: AdsCatalogProduct) {
-    const data = { ...product.data, sku_id: generateSku(), title: `${product.data.title || 'Produto'} — cópia` }
+    const skuId = generateSku()
+    // "Duplicar" cria outro produto independente. Preservar item_group_id
+    // fazia cópias novas continuarem agrupadas ao SKU original e deixava a
+    // contagem local diferente do catálogo mostrado pelo TikTok.
+    const data = {
+      ...product.data,
+      sku_id: skuId,
+      item_group_id: skuId,
+      title: `${product.data.title || 'Produto'} — cópia`,
+    }
     setEditing({ ...product, id: 'duplicate', skuId: data.sku_id, data, createdAt: '', updatedAt: '' })
   }
 
@@ -783,8 +796,12 @@ function CatalogDetail({
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-foreground">{catalog?.name}</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {products.length} produto{products.length === 1 ? '' : 's'} · {validCount} válido{validCount === 1 ? '' : 's'} · {catalog?.currency}
-                {hasUnpublishedChanges && <span className="font-semibold text-warning"> · alterações não publicadas</span>}
+                {remoteProductCount > 0
+                  ? `${remoteProductCount} produto${remoteProductCount === 1 ? '' : 's'} no TikTok`
+                  : `${validCount} produto${validCount === 1 ? '' : 's'} pronto${validCount === 1 ? '' : 's'} para enviar`}
+                {' · '}{catalog?.currency}
+                {localOnlyCount > 0 && <span className="font-semibold text-warning"> · {localOnlyCount} salvo{localOnlyCount === 1 ? '' : 's'} apenas na dashboard</span>}
+                {remoteProductCount === 0 && hasUnpublishedChanges && <span className="font-semibold text-warning"> · aguardando sincronização</span>}
               </p>
             </div>
           </div>
@@ -895,6 +912,7 @@ function CatalogDetail({
           {catalog?.tiktokCatalogId && catalog.linkStatus === 'verified' && (
             <TiktokStatusPanel
               catalog={catalog}
+              localProductCount={validCount}
               auditing={auditing}
               autoChecking={autoChecking}
               catalogCampaignSupported={catalogCapabilities?.manualCatalogCampaign === true}
@@ -1071,12 +1089,14 @@ function CatalogDetail({
 // Mostra somente o que o provider confirma: ID real e contagens agregadas.
 function TiktokStatusPanel({
   catalog,
+  localProductCount,
   auditing,
   autoChecking,
   catalogCampaignSupported,
   onRefresh,
 }: {
   catalog: AdsCatalog
+  localProductCount: number
   auditing: boolean
   autoChecking: boolean
   catalogCampaignSupported: boolean
@@ -1090,6 +1110,7 @@ function TiktokStatusPanel({
   const total = audit?.total ?? approved + pending + rejected
   const catalogSynced = total > 0 && approved > 0 && pending === 0 && rejected === 0
   const productsNotConfirmed = Boolean(audit && total === 0)
+  const localOnlyCount = total > 0 ? Math.max(0, localProductCount - total) : 0
   const syncedAt = catalog.syncedAt ? new Date(catalog.syncedAt) : null
 
   function copyId() {
@@ -1111,7 +1132,7 @@ function TiktokStatusPanel({
               <Clock className="size-4 text-warning" aria-hidden="true" />
             )}
             {catalogSynced
-              ? 'Produtos confirmados no TikTok'
+              ? `${total} produto${total === 1 ? '' : 's'} pronto${total === 1 ? '' : 's'} no TikTok`
               : productsNotConfirmed
                 ? 'Catálogo vinculado — produtos ainda não confirmados'
                 : pending > 0
@@ -1133,26 +1154,22 @@ function TiktokStatusPanel({
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-        <span className="text-muted-foreground">ID do catálogo:</span>
-        <code className="rounded bg-background px-2 py-1 text-foreground">{catalog.tiktokCatalogId}</code>
-        <button type="button" className="btn-ghost px-1.5 py-1" onClick={copyId} aria-label="Copiar ID do catálogo">
-          {copied ? <Check className="size-3 text-success" aria-hidden="true" /> : <Copy className="size-3" aria-hidden="true" />}
-        </button>
-      </div>
-
       {/* Auditoria dos produtos */}
       {audit && total > 0 ? (
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-semibold text-success">
             {approved} aprovado{approved === 1 ? '' : 's'}
           </span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-1 text-[11px] font-semibold text-warning">
-            {pending} em análise
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-error/15 px-2.5 py-1 text-[11px] font-semibold text-error">
-            {rejected} reprovado{rejected === 1 ? '' : 's'}
-          </span>
+          {pending > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-1 text-[11px] font-semibold text-warning">
+              {pending} em análise
+            </span>
+          )}
+          {rejected > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-error/15 px-2.5 py-1 text-[11px] font-semibold text-error">
+              {rejected} reprovado{rejected === 1 ? '' : 's'}
+            </span>
+          )}
         </div>
       ) : (
         <p className="text-[11px] text-muted-foreground">
@@ -1165,7 +1182,7 @@ function TiktokStatusPanel({
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
         {catalogSynced
           ? catalogCampaignSupported
-            ? 'Vínculo, produtos e Catalog Carousel confirmados. A campanha pode ser preparada aqui sem URL manual no anúncio.'
+            ? `Campanhas usarão somente estes ${total} produtos confirmados, com o Link individual de cada item.`
             : 'Vínculo e produtos confirmados. A criação continuará bloqueada até o conector confirmar Catalog Carousel sem URL manual.'
           : rejected > 0
             ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
@@ -1174,12 +1191,31 @@ function TiktokStatusPanel({
               : 'O TikTok ainda está processando os produtos. Esta tela atualiza as contagens automaticamente enquanto houver itens pendentes.'}
       </p>
 
-      {syncedAt && (
-        <p className="text-[10px] text-muted-foreground">
-          Última publicação: {syncedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
-          {audit?.at ? ` · Status consultado: ${new Date(audit.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}
+      {localOnlyCount > 0 && (
+        <p className="rounded-lg border border-warning/25 bg-warning/5 px-3 py-2 text-pretty text-[10px] leading-relaxed text-muted-foreground">
+          <strong className="text-warning">{localOnlyCount} {localOnlyCount === 1 ? 'item existe' : 'itens existem'} apenas na dashboard.</strong>
+          {' '}Como o TikTok não informa qual SKU ficou de fora, nada será apagado automaticamente. {localOnlyCount === 1 ? 'Esse item não entra' : 'Esses itens não entram'} nas campanhas enquanto não aparecer{localOnlyCount === 1 ? '' : 'em'} no TikTok.
         </p>
       )}
+
+      <details className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
+        <summary className="cursor-pointer text-[10px] font-semibold text-muted-foreground">Detalhes técnicos</summary>
+        <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2 text-[10px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>ID do catálogo</span>
+            <code className="rounded bg-background px-2 py-1 text-foreground">{catalog.tiktokCatalogId}</code>
+            <button type="button" className="btn-ghost px-1.5 py-1" onClick={copyId} aria-label="Copiar ID do catálogo">
+              {copied ? <Check className="size-3 text-success" aria-hidden="true" /> : <Copy className="size-3" aria-hidden="true" />}
+            </button>
+          </div>
+          {syncedAt && (
+            <p>
+              Última publicação: {syncedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+              {audit?.at ? ` · Status consultado: ${new Date(audit.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}
+            </p>
+          )}
+        </div>
+      </details>
     </div>
   )
 }

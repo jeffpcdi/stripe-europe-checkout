@@ -72,6 +72,7 @@ function computeReadiness(catalog, products, context) {
   const approved = Number(audit && audit.approved) || 0;
   const pending = Number(audit && audit.pending) || 0;
   const rejected = Number(audit && audit.rejected) || 0;
+  const remoteTotal = Number(audit && audit.total) || (approved + pending + rejected);
   const approvedMissing = Math.max(0, TIKTOK_MIN_APPROVED_PRODUCTS - approved);
   const hasMinimumApproved = approved >= TIKTOK_MIN_APPROVED_PRODUCTS;
   const linked = Boolean(cat.tiktokCatalogId && cat.bcId);
@@ -83,31 +84,48 @@ function computeReadiness(catalog, products, context) {
     const updatedAt = product && product.updatedAt ? new Date(product.updatedAt).getTime() : 0;
     return !syncedAt || updatedAt > syncedAt;
   }));
+  const localOnly = Math.max(0, validCount - remoteTotal);
+  const remoteOnly = Math.max(0, remoteTotal - validCount);
+  // Para campanhas com escopo ALL, o catálogo remoto é a fonte operacional:
+  // o TikTok usará apenas os produtos que ele próprio confirmou. Alterações
+  // locais continuam visíveis para revisão/sincronização, mas não bloqueiam
+  // uma campanha pausada quando já existem produtos remotos suficientes.
+  const remoteCatalogReady = verified && hasMinimumApproved;
+  const productsReady = validCount > 0 || remoteTotal > 0;
+  const productDetail = remoteTotal > 0
+    ? `${remoteTotal} ${remoteTotal === 1 ? 'produto' : 'produtos'} no TikTok${localOnly > 0 ? ` · ${localOnly} ${localOnly === 1 ? 'item salvo' : 'itens salvos'} apenas na dashboard` : ''}`
+    : validCount > 0
+      ? `${validCount} ${validCount === 1 ? 'produto válido' : 'produtos válidos'} para enviar`
+      : rows.length
+        ? `${invalidCount} produto(s) precisam de correção`
+        : 'Importe o primeiro produto';
+  const approvedLabel = `${approved} ${approved === 1 ? 'aprovado' : 'aprovados'}`;
+  const reviewDetail = hasMinimumApproved
+    ? `${approvedLabel} no TikTok${localOnly > 0 ? ` · campanhas usarão somente os ${remoteTotal} confirmados` : ''}`
+    : approved > 0
+      ? `${approvedLabel}; faltam ${approvedMissing} para o mínimo de ${TIKTOK_MIN_APPROVED_PRODUCTS}`
+      : pending > 0
+        ? `${pending} em análise; são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados`
+        : rejected > 0
+          ? `${rejected} rejeitado(s); são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados`
+          : `Aguardando no mínimo ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados`;
 
   const steps = [
-    step('products', 'Produtos', validCount > 0 ? 'done' : rows.length ? 'blocked' : 'waiting',
-      validCount > 0 ? `${validCount} produto(s) válido(s)` : rows.length ? `${invalidCount} produto(s) precisam de correção` : 'Importe o primeiro produto'),
+    step('products', 'Produtos', productsReady ? 'done' : rows.length ? 'blocked' : 'waiting', productDetail),
     step('link', 'Catálogo TikTok', verified ? 'done' : cat.linkStatus === 'error' ? 'blocked' : linked ? 'active' : 'waiting',
       verified ? `ID ${cat.tiktokCatalogId} verificado` : cat.linkError || (linked ? 'Vínculo ainda não verificado' : 'Conecte um catálogo existente')),
-    step('review', 'Análise do TikTok', hasUnpublishedChanges ? 'active' : hasMinimumApproved ? 'done' : pending > 0 ? 'active' : approved > 0 || rejected > 0 ? 'blocked' : 'waiting',
-      hasUnpublishedChanges
-        ? 'Há alterações locais ainda não sincronizadas'
-        : hasMinimumApproved
-          ? `${approved} aprovado(s) no resumo do TikTok`
-          : approved > 0
-            ? `${approved} aprovado(s); faltam ${approvedMissing} para o mínimo de ${TIKTOK_MIN_APPROVED_PRODUCTS}`
-            : pending > 0
-              ? `${pending} em análise; são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados`
-              : rejected > 0
-                ? `${rejected} rejeitado(s); são necessários ${TIKTOK_MIN_APPROVED_PRODUCTS} aprovados`
-                : `Aguardando no mínimo ${TIKTOK_MIN_APPROVED_PRODUCTS} produtos aprovados`),
+    step('review', 'Análise do TikTok', hasMinimumApproved ? 'done' : pending > 0 ? 'active' : approved > 0 || rejected > 0 ? 'blocked' : 'waiting',
+      reviewDetail),
     step('advertiser', 'Conta de anúncio', advertiserReady ? 'done' : 'waiting',
       advertiserReady ? `Advertiser ${ctx.advertiserId}` : 'Selecione a conta que criará a campanha'),
   ];
 
   let state = 'draft';
   let nextAction = 'add_products';
-  if (!rows.length) { state = 'draft'; nextAction = 'add_products'; }
+  if (remoteCatalogReady && !advertiserReady) { state = 'ready_tiktok'; nextAction = 'select_advertiser'; }
+  else if (remoteCatalogReady) { state = 'ready_for_campaign'; nextAction = 'create_campaign'; }
+  else if (!rows.length && !remoteTotal) { state = 'draft'; nextAction = 'add_products'; }
+  else if (!rows.length) { state = 'blocked'; nextAction = 'refresh_audit'; }
   else if (!validCount) { state = 'needs_review'; nextAction = 'fix_products'; }
   else if (validCount && !linked) { state = 'ready_local'; nextAction = 'connect_tiktok'; }
   else if (linked && !verified) { state = cat.linkStatus === 'error' ? 'blocked' : 'verifying_link'; nextAction = 'verify_link'; }
@@ -124,7 +142,8 @@ function computeReadiness(catalog, products, context) {
     nextAction,
     counts: {
       total: rows.length, valid: validCount, invalid: invalidCount,
-      approved, pending, rejected, minimumApproved: TIKTOK_MIN_APPROVED_PRODUCTS, approvedMissing,
+      approved, pending, rejected, remoteTotal, localOnly, remoteOnly,
+      minimumApproved: TIKTOK_MIN_APPROVED_PRODUCTS, approvedMissing,
     },
     hasUnpublishedChanges,
     steps,

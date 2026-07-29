@@ -1765,7 +1765,19 @@ export interface AdsCatalogReadiness {
   readyForCampaign: boolean
   hasUnpublishedChanges: boolean
   nextAction: 'add_products' | 'fix_products' | 'connect_tiktok' | 'verify_link' | 'sync' | 'refresh_audit' | 'select_advertiser' | 'create_campaign'
-  counts: { total: number; valid: number; invalid: number; approved: number; pending: number; rejected: number }
+  counts: {
+    total: number
+    valid: number
+    invalid: number
+    approved: number
+    pending: number
+    rejected: number
+    remoteTotal: number
+    localOnly: number
+    remoteOnly: number
+    minimumApproved: number
+    approvedMissing: number
+  }
   steps: { id: string; label: string; state: AdsCatalogStepState; detail: string }[]
 }
 
