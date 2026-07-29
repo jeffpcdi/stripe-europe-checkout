@@ -73,8 +73,19 @@ async function testPixelBindings() {
     () => ops.savePixelBinding('acc_1', 'adv_1', { pixelSlug: 'pixel-a', pixelCode: 'CODE_A', pixelId: 'código-alfanumérico' }),
     /Vínculo de Pixel inválido/,
   );
-  await ops.deletePixelBinding('acc_1', 'adv_1');
-  assert.strictEqual(await ops.getPixelBinding('acc_1', 'adv_1'), null, 'remoção limpa o vínculo');
+  await ops.savePixelBinding('acc_1', 'adv_2', {
+    pixelSlug: 'pixel-a', pixelCode: 'CODE_A', pixelId: '87654321', pixelName: 'Pixel A', remoteStatus: 'ACTIVE',
+  });
+  await ops.savePixelBinding('acc_2', 'adv_1', {
+    pixelSlug: 'pixel-a', pixelCode: 'CODE_A', pixelId: '11223344', pixelName: 'Pixel A', remoteStatus: 'ACTIVE',
+  });
+  assert.strictEqual(await ops.deletePixelBindingsBySlug('acc_1', 'pixel-a'), 2,
+    'remoção por slug limpa todos os advertisers da conta');
+  assert.strictEqual(await ops.getPixelBinding('acc_1', 'adv_1'), null, 'primeiro vínculo foi limpo');
+  assert.strictEqual(await ops.getPixelBinding('acc_1', 'adv_2'), null, 'segundo vínculo foi limpo');
+  assert.strictEqual((await ops.getPixelBinding('acc_2', 'adv_1')).pixelSlug, 'pixel-a',
+    'remoção por slug não vaza para outra conta');
+  await ops.deletePixelBinding('acc_2', 'adv_1');
 }
 
 testPixelBindings().then(() => {

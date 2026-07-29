@@ -38,6 +38,7 @@ import {
   useEmqTrend,
   useGateways,
   apiSend,
+  ApiError,
 } from '@/lib/api'
 import type { Pixel, PixelEvents, PixelTestResult, PixelEmqTrend } from '@/lib/types'
 import { GlassCard } from '@/components/glass-card'
@@ -147,11 +148,23 @@ export function PixelsView() {
       confirmLabel: 'Remover pixel',
       run: async () => {
         try {
-          await apiSend(`/api/pixels/${encodeURIComponent(p.slug)}`, 'DELETE')
-          mutate()
-          toast.success(`Pixel "${p.name}" removido`)
-        } catch {
-          toast.error('Não foi possível remover o pixel', { hint: 'Tente novamente em instantes.' })
+          const result = await apiSend<{ ok: boolean; warning?: string | null }>(
+            `/api/pixels/${encodeURIComponent(p.slug)}`,
+            'DELETE',
+          )
+          await mutate(
+            (current) => current
+              ? { ...current, pixels: current.pixels.filter((pixel) => pixel.slug !== p.slug) }
+              : current,
+          )
+          if (result.warning) toast.info(`Pixel "${p.name}" removido`, { hint: result.warning })
+          else toast.success(`Pixel "${p.name}" removido`)
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : 'Não foi possível remover o pixel',
+            { hint: error instanceof ApiError ? error.hint : 'Tente novamente em instantes.' },
+          )
+          return false
         }
       },
     })
@@ -546,7 +559,7 @@ export function PixelsView() {
                       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
                         Mais <ChevronDown className="size-3 transition-transform group-open:rotate-180" aria-hidden="true" />
                       </summary>
-                      <div className="absolute right-0 z-20 mt-1 flex w-40 flex-col rounded-lg border border-border bg-popover p-1 shadow-xl">
+                      <div className="absolute bottom-full right-0 z-20 mb-1 flex w-40 flex-col rounded-lg border border-border bg-popover p-1 shadow-xl">
                         <button
                           type="button"
                           onClick={() => handleDuplicate(p)}

@@ -4808,11 +4808,49 @@ app.post('/api/pixels', dashboardAuth, async (req, res) => {
 
 app.delete('/api/pixels/:slug', dashboardAuth, async (req, res) => {
   try {
-    await pixelStore.remove(req.account.id, req.params.slug);
-    stats.logEvent('info', { acc: req.account.id, title: 'Pixel TikTok removido', ref: req.params.slug });
-    res.json({ ok: true });
+    const slug = pixelStore.slugify(req.params.slug);
+    const pixel = pixelStore.get(req.account.id, slug);
+    if (!pixel) {
+      return apiError(res, 404, 'Pixel não encontrado.', 'pixel_not_found',
+        'Atualize a lista: ele pode já ter sido removido em outra aba.');
+    }
+
+    // Nunca transforma um link em roteamento ambíguo silenciosamente. O
+    // operador precisa escolher outro Pixel (ou retirar o vínculo) antes.
+    const linked = linkStore.list(req.account.id).filter((link) => link.pixelSlug === slug);
+    if (linked.length) {
+      const names = linked.slice(0, 3).map((link) => '"' + link.nome + '"').join(', ');
+      return apiError(res, 409,
+        'Este pixel ainda está vinculado a ' + linked.length + ' link(s): ' + names + '.',
+        'pixel_in_use_by_links',
+        'Abra Links, escolha outro pixel nesses links e tente remover novamente.');
+    }
+
+    await pixelStore.remove(req.account.id, slug);
+    // O Pixel já saiu das fontes autoritativas. Limpa os vínculos internos do
+    // TikTok Ads; se essa manutenção secundária falhar, a leitura de Ads também
+    // invalida o vínculo órfão, portanto não revertemos nem fingimos que o Pixel
+    // ainda existe.
+    let adsBindingsRemoved = 0;
+    let warning = null;
+    try {
+      adsBindingsRemoved = await require('./ads-ops-store')
+        .deletePixelBindingsBySlug(req.account.id, slug);
+    } catch (bindingError) {
+      warning = 'Pixel removido, mas a limpeza do vínculo com TikTok Ads será refeita na próxima sincronização.';
+      stats.logEvent('error', {
+        acc: req.account.id,
+        title: 'Vínculo TikTok Ads pendente após remover Pixel',
+        ref: slug,
+        error: bindingError && bindingError.message
+      });
+    }
+    stats.logEvent('info', { acc: req.account.id, title: 'Pixel TikTok removido', ref: slug });
+    res.json({ ok: true, removed: slug, adsBindingsRemoved, warning });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    apiError(res, err.status || 500, err.message || 'Falha ao remover o pixel',
+      err.code || 'pixel_delete_failed',
+      err.hint || 'O pixel foi preservado. Tente novamente em instantes.');
   }
 });
 

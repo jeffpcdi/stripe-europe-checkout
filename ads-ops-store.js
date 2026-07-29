@@ -1038,6 +1038,29 @@ async function deletePixelBinding(accountId, advertiserId) {
   return true;
 }
 
+// Exclusão de um Pixel local invalida todos os vínculos centrais que apontam
+// para ele. A limpeza é escopada por conta para nenhuma campanha futura
+// reutilizar silenciosamente uma referência órfã.
+async function deletePixelBindingsBySlug(accountId, pixelSlug) {
+  const acc = cleanAccountId(accountId);
+  const slug = String(pixelSlug || '').trim();
+  if (!slug) throw new Error('pixelSlug obrigatório');
+
+  let removedFromMemory = 0;
+  for (const [key, binding] of pixelBindingMemory.entries()) {
+    if (!key.startsWith(acc + ':') || !binding || binding.pixelSlug !== slug) continue;
+    pixelBindingMemory.delete(key);
+    removedFromMemory++;
+  }
+  if (!enabled) return removedFromMemory;
+
+  await ensureSchema();
+  const rows = await sql`DELETE FROM ads_pixel_bindings
+    WHERE account_id = ${acc} AND pixel_slug = ${slug}
+    RETURNING advertiser_id`;
+  return rows.length;
+}
+
 function mapAdRejection(row) {
   if (!row) return null;
   return {
@@ -1246,4 +1269,4 @@ async function releaseAdAppealReservation(accountId, rejectionId, error) {
   return mapAdRejection(rows[0]);
 }
 
-module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, releaseProposalApproval, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, updateActionDeadLetterPlan, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, normalizeRejectionIncidents, syncAdRejections, listAdRejections, getAdRejection, buildAdAppealText, reserveAdAppeal, finishAdAppeal, releaseAdAppealReservation, PROPOSAL_TTL_MS };
+module.exports = { enabled, ensureSchema, cleanAccountId, normalizePolicy, assertMutationAllowed, retryDelayMs, circuitBreakerOpen, getSafetyPolicy, saveSafetyPolicy, createJob, findJobByIdempotencyKey, listJobs, persistBulkSnapshot, getBulkSnapshot, appendAuditEvent, getAuditEvent, listAuditEvents, countRecentEngineActions, getBulkProgress, saveBulkProgress, claimNextJob, retryJob, reconcileOrphanJobs, setJobStatus, normalizeAccountStatus, upsertAccountHealth, listAccountHealth, createUnbanTicketIfAbsent, listUnbanTickets, updateUnbanTicket, resolveTicketsForAdvertiser, createRuleProposal, listRuleProposals, getRuleProposal, decideRuleProposal, markProposalExecution, releaseProposalApproval, addActionDeadLetter, listActionDeadLetter, getActionDeadLetter, markActionDeadLetter, updateActionDeadLetterPlan, countPendingActionDeadLetter, saveBacktestRun, listBacktestRuns, getBacktestRun, getWorkspace, saveWorkspace, createInternalReport, listInternalReports, normalizeWorkspace, getPixelBinding, savePixelBinding, deletePixelBinding, deletePixelBindingsBySlug, normalizeRejectionIncidents, syncAdRejections, listAdRejections, getAdRejection, buildAdAppealText, reserveAdAppeal, finishAdAppeal, releaseAdAppealReservation, PROPOSAL_TTL_MS };

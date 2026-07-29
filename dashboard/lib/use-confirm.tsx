@@ -15,7 +15,8 @@ export interface ConfirmRequest {
   /** Se definido, exige digitar exatamente este texto (nome do item com tráfego). */
   confirmText?: string
   tone?: 'danger' | 'default'
-  run: () => void | Promise<void>
+  /** Retorne `false` para manter o diálogo aberto após uma falha tratada. */
+  run: () => void | boolean | Promise<void | boolean>
 }
 
 export function useConfirm() {
@@ -35,8 +36,8 @@ export function useConfirm() {
     if (!request) return
     setBusy(true)
     try {
-      await request.run()
-      setRequest(null)
+      const completed = await request.run()
+      if (completed !== false) setRequest(null)
     } finally {
       setBusy(false)
     }

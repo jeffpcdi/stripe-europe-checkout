@@ -103,6 +103,8 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   para o Standard Event atual `Purchase`; `Purchase.<order_id normalizado>` é compartilhado com o
   navegador para deduplicação. `tiktok-event-contract.js` concentra esse contrato.
 - **pixel-store.js** — CRUD de pixels do TikTok (cada um com `pixel_code` + `access_token` próprios).
+  A remoção só altera o cache depois de Neon e Redis configurados confirmarem o delete; uma leitura Neon
+  vazia é autoritativa e nunca reidrata snapshot Redis obsoleto.
 - **link-store.js** — links de checkout (`/go/:slug`). Cada link: `variantes[]` (A/B com pesos;
   `pickVariant()` faz split determinístico por visitante), `pixelSlug`, `urlWhitePage`,
   `paises[]` (ISO-3166-1 alpha-2) e `idiomas[]` (ISO-639-1). Listas vazias = "todos permitidos".
@@ -300,6 +302,8 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   A UI vive no painel "Saúde da fila de conversões" da aba Gateways (`queue-health-panel.tsx`).
 - **Pixels:** `GET/POST /api/pixels`, `GET/PUT/DELETE /api/pixels/:slug`, `GET /api/pixels/health`,
   `GET /api/pixels/log`, `POST /api/pixels/test`.
+  `DELETE` retorna 404 para slug ausente, 409 enquanto um Link ainda usa o Pixel, remove os
+  `ads_pixel_bindings` da mesma conta e só responde sucesso após confirmação durável.
 - **Links de checkout:** `GET/POST /api/links`, `GET/PUT/DELETE /api/links/:slug`,
   `POST /api/links/validate-domain`.
 - **Cloak/filtro de bots:** `GET/POST /api/cloak-config` (inclui `defaultWhitePage`, a white global
@@ -989,7 +993,7 @@ improvise `window.confirm`, `savedAt`/`copied` locais, trap de foco caseiro ou b
   saúde geral); banco fora + Redis no ar → âmbar "Persistência degradada"; banco e Redis fora →
   vermelho "Config volátil". É o lugar canônico do estado de durabilidade — NÃO recrie esse alerta
   em views individuais.
-Pendente (próxima fatia): migrar links/pixels/domínios/cloak entries para `ConfirmDialog`+`toast`.
+Pendente (próxima fatia): migrar links/domínios/cloak entries para `ConfirmDialog`+`toast`.
 
 ### 19.5 Armadilhas específicas da dashboard nova
 - Acesse SEMPRE via `http://localhost:3000/dashboard` (proxy do Express), não `:3001` direto —

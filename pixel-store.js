@@ -99,10 +99,15 @@ function writeFile(acc, slug, cfg) {
 
 // ── Boot: hidrata TODAS as contas do Neon (fonte de verdade) ──────────────
 async function init() {
+  // Só o Neon pode afirmar de forma autoritativa que a conta não tem pixels.
+  // Antes, uma leitura bem-sucedida com `data: []` caía no snapshot Redis e
+  // ressuscitava o último pixel removido quando aquele espelho estava obsoleto.
+  let primaryLoaded = false;
   if (db.enabled) {
     try {
       const res = await db.loadPixels(null); // todas as contas
       if (res && res.ok) {
+        primaryLoaded = true;
         cache = (res.data || []).map((r) => {
           // r.slug vem limpo do db.js; account vem embutido no data ou no prefixo
           const px = normalize(r.slug, r);
@@ -121,11 +126,13 @@ async function init() {
     } catch (e) { console.error('[pixels] rehydrate:', e.message); }
   }
 
-  // Fallback DURÁVEL: se o banco não trouxe nada (off, vazio ou erro de leitura),
-  // hidrata do snapshot no Redis. Isso evita perder toda a config de pixel num
-  // restart quando o Neon está indisponível — antes o cache ficava vazio e
-  // NENHUM evento era disparado ao TikTok.
-  if (!cache.length) {
+  // Fallback DURÁVEL: se o banco estiver desligado ou a leitura falhar, hidrata
+  // do snapshot no Redis. Isso evita perder toda a config de pixel num restart
+  // quando o Neon está indisponível — antes o cache ficava vazio e NENHUM
+  // evento era disparado ao TikTok.
+  // Uma lista vazia CONFIRMADA pelo Neon não é falha: é o estado autoritativo
+  // depois da exclusão do último pixel e nunca deve cair num snapshot antigo.
+  if (!primaryLoaded && !cache.length) {
     try {
       const snap = await redis.loadPixelSnapshot();
       if (snap && snap.length) {
@@ -244,8 +251,29 @@ function health() {
 
 async function remove(accountId, slug) {
   slug = slugify(slug);
-  if (db.enabled) await db.deletePixel(accountId, slug);        // durável primeiro
-  if (redis.enabled) await redis.deletePixelSnapshot(accountId, slug); // espelho
+  const existing = get(accountId, slug);
+
+  // Confirma TODAS as camadas duráveis configuradas antes de alterar o cache.
+  // Ignorar um `false` aqui fazia a API responder sucesso, mas o registro que
+  // ficou no Neon/Redis reaparecia no próximo boot. O espelho Redis é apagado
+  // primeiro; se o Neon falhar em seguida, restauramos o snapshot a partir do
+  // cache para manter a operação repetível e sem estado parcialmente removido.
+  if (redis.enabled && !(await redis.deletePixelSnapshot(accountId, slug))) {
+    const err = new Error('Não foi possível confirmar a remoção no armazenamento durável: Redis.');
+    err.code = 'pixel_delete_not_durable';
+    err.status = 503;
+    err.hint = 'O pixel foi preservado. Tente novamente quando o armazenamento estiver disponível.';
+    throw err;
+  }
+  if (db.enabled && !(await db.deletePixel(accountId, slug))) {
+    if (redis.enabled && existing) await redis.savePixelSnapshot(accountId, slug, existing);
+    const err = new Error('Não foi possível confirmar a remoção no armazenamento durável: Neon.');
+    err.code = 'pixel_delete_not_durable';
+    err.status = 503;
+    err.hint = 'O pixel foi preservado. Tente novamente quando o armazenamento estiver disponível.';
+    throw err;
+  }
+
   cache = cache.filter((p) => !(p.slug === slug && p.acc === accountId));
   byRoute = null;
   try { if (fs.existsSync(fileFor(accountId, slug))) fs.unlinkSync(fileFor(accountId, slug)); }
