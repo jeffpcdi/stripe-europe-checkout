@@ -53,6 +53,8 @@ export function PilotsPanel({
   saving,
   onSetPilot,
   onSetAutonomy,
+  automaticBlockedReason,
+  onOpenLimits,
 }: {
   currency: string
   rules: AdsRule[]
@@ -60,13 +62,24 @@ export function PilotsPanel({
   saving: boolean
   onSetPilot: (pilot: PilotId, opts: { enabled: boolean; intensity: Intensity }) => Promise<void>
   onSetAutonomy: (autonomy: AdsAutomationAutonomy) => Promise<void>
+  automaticBlockedReason?: string | null
+  onOpenLimits?: () => void
 }) {
   const [confirmAuto, setConfirmAuto] = useState(false)
+  const [showSafetyWarning, setShowSafetyWarning] = useState(false)
   const pilots = detectPilots(rules)
 
   async function setAutonomy(next: AdsAutomationAutonomy) {
     if (next === autonomy) return
-    if (next === 'auto') { setConfirmAuto(true); return }
+    if (next === 'auto') {
+      if (automaticBlockedReason) {
+        setShowSafetyWarning(true)
+        return
+      }
+      setConfirmAuto(true)
+      return
+    }
+    setShowSafetyWarning(false)
     await onSetAutonomy(next)
   }
 
@@ -107,6 +120,23 @@ export function PilotsPanel({
             )
           })}
         </div>
+        {showSafetyWarning && automaticBlockedReason && (
+          <div className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between" role="alert">
+            <span className="text-pretty">{automaticBlockedReason}</span>
+            {onOpenLimits && (
+              <button
+                type="button"
+                className="btn-ghost shrink-0 text-xs text-warning"
+                onClick={() => {
+                  setShowSafetyWarning(false)
+                  onOpenLimits()
+                }}
+              >
+                Ajustar limites
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Os 3 pilotos ── */}

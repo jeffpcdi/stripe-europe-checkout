@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 const previous = process.env.DATABASE_URL;
 delete process.env.DATABASE_URL;
@@ -16,7 +18,7 @@ assert.strictEqual(defaults.maxBudgetChangePct, 20);
 assert.strictEqual(defaults.cooldownMinutes, 60);
 // Cap de ações/hora: default 10, aceita 0 (desliga), clampa em 1000, ignora lixo
 assert.strictEqual(defaults.maxActionsPerHour, 10, 'default do cap de ações/hora é 10');
-assert.strictEqual(ops.normalizePolicy({ maxActionsPerHour: 0 }).maxActionsPerHour, 0, '0 = sem limite (respeitado, não vira default)');
+assert.strictEqual(ops.normalizePolicy({ maxActionsPerHour: 0 }).maxActionsPerHour, 0, '0 legado permanece legível para a autonomia bloqueá-lo explicitamente');
 assert.strictEqual(ops.normalizePolicy({ maxActionsPerHour: 5000 }).maxActionsPerHour, 1000, 'cap clampado em 1000');
 assert.strictEqual(ops.normalizePolicy({ maxActionsPerHour: '' }).maxActionsPerHour, 10, 'vazio cai no default 10');
 assert.strictEqual(ops.normalizePolicy({ maxActionsPerHour: 3.9 }).maxActionsPerHour, 3, 'fracionário é truncado');
@@ -24,6 +26,8 @@ assert.strictEqual(ops.normalizePolicy({ maxActionsPerHour: 3.9 }).maxActionsPer
 assert.strictEqual(ops.normalizePolicy({}).dailySpendCap, null, 'sem teto de gasto por padrão');
 assert.strictEqual(ops.normalizePolicy({ dailySpendCap: '' }).dailySpendCap, null, "'' = sem teto");
 assert.strictEqual(ops.normalizePolicy({ dailySpendCap: 0 }).dailySpendCap, 0, '0 explícito é um teto de gasto real');
+const storeSource = fs.readFileSync(path.join(__dirname, '..', 'ads-ops-store.js'), 'utf8');
+assert.match(storeSource, /'smart_plus_appeal'/, 'auto-recurso Smart+ entra no cap durável de ações por hora');
 // kill switch também é barrado por assertMutationAllowed via política normalizada
 assert.throws(() => ops.assertMutationAllowed(ops.normalizePolicy({ killSwitch: true }), { advertiserId: 'a', idempotencyKey: 'k' }), /Kill switch/, 'política normalizada com kill switch bloqueia mutação');
 

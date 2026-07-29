@@ -220,6 +220,16 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
 
   app.put('/api/ads/ops/safety-policy', dashboardAuth, async (req, res) => {
     try {
+      const normalized = adsOps.normalizePolicy(req.body || {});
+      // O teto é obrigatório para liberar mutações automáticas, mas nunca deve
+      // impedir o usuário de acionar o kill switch ou desativar a política em
+      // uma emergência. Ao tentar reabrir as ações, o cap volta a ser exigido.
+      if (normalized.enabled && !normalized.killSwitch && !(normalized.maxActionsPerHour > 0)) {
+        const error = new Error('Defina entre 1 e 1.000 ações por hora. O anti-loop não pode ficar desativado.');
+        error.status = 400;
+        error.code = 'ADS_AUTOMATION_ACTION_CAP_REQUIRED';
+        throw error;
+      }
       const before = await adsOps.getSafetyPolicy(req.account.id);
       const policy = await adsOps.saveSafetyPolicy(req.account.id, req.body || {});
       await adsOps.appendAuditEvent(req.account.id, {
@@ -2053,7 +2063,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     try {
       const b = req.body || {};
       const advertiserId = await resolveAdv(req, String(b.adAccountId || '').trim());
-      automation.setGlobalAutonomy(req.account.id, advertiserId, String(b.autonomy || ''), b.revision);
+      const autonomy = String(b.autonomy || '');
+      if (autonomy === 'auto') {
+        automation.assertAutomaticPolicy(await adsOps.getSafetyPolicy(req.account.id), advertiserId);
+      }
+      automation.setGlobalAutonomy(req.account.id, advertiserId, autonomy, b.revision);
       const snapshot = await automation.getAutomationSnapshot(req.account.id, advertiserId, {
         worker: adsSync.getRuntimeStatus(),
       });

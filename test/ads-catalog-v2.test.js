@@ -136,12 +136,18 @@ function throwsCode(fn, code, label) {
   ok(/catalog-sync-runs\/:runId\/resume/.test(routes), 'sincronização falha tem endpoint de retomada');
   ok(/CATALOG_CAMPAIGN_NOT_CLEANABLE/.test(routes), 'cleanup não remove campanha concluída');
   const manager = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-manager.tsx'), 'utf8');
+  const connectionCard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-connection-card.tsx'), 'utf8');
+  const syncStatus = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-sync-status.tsx'), 'utf8');
   ok(/refreshToken=\{syncStatusVersion\}/.test(manager), 'novo run força leitura imediata do progresso na UI');
   ok(/CatalogReadinessCard/.test(manager), 'UI usa checklist de prontidão');
   ok(/CatalogConnectionCard/.test(manager), 'UI separa conexão remota');
   ok(/CatalogCampaignWizard/.test(manager), 'UI usa assistente da campanha completa');
   ok(/campaignCreateSupported/.test(manager), 'UI condiciona criação ao schema atual do Pipeboard');
   ok(/catalog\.linkStatus === 'verified'/.test(manager) && /Vínculo com erro/.test(manager), 'UI não anuncia vínculo quebrado como catálogo publicado');
+  ok(/Revisão concluída com reprovações/.test(manager) && /pending > 0/.test(manager), 'UI não chama produtos reprovados de produtos em análise');
+  ok(/label: 'Sem produtos'/.test(manager) && /label: 'Vinculado'/.test(manager), 'lista separa vínculo remoto de catálogo pronto');
+  ok(/catalog\.audit\?\.total/.test(connectionCard) && /último status/.test(connectionCard), 'contagem remota usa a auditoria atual em vez do snapshot antigo do vínculo');
+  ok(/const statusLabel = failed/.test(syncStatus) && /LABELS\[run\.status\]/.test(syncStatus), 'run falho mostra sincronização interrompida em vez da etapa antiga');
   ok(/ConfirmDialog/.test(manager) && !/\bconfirm\(/.test(manager), 'exclusões usam confirmação acessível e não confirm nativo');
   ok(/envio aceito/.test(manager), 'histórico distingue envio aceito de aprovação do TikTok');
   ok(/DELETE FROM ads_catalog_campaign_runs/.test(store) && /DELETE FROM ads_catalog_publications/.test(store), 'exclusão remove jobs e publicações órfãos');

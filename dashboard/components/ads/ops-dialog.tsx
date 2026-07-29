@@ -99,9 +99,18 @@ export function OpsDialog({
 
   const jobs = jobsData?.jobs ?? []
   const durable = jobsData?.enabled !== false
+  const currentAdvertiserBlocked = !!draft?.blockedAdvertiserIds
+    .map(String)
+    .includes(String(advertiserId))
 
   async function handleSavePolicy() {
     if (!draft) return
+    if (draft.enabled && !draft.killSwitch && !(draft.maxActionsPerHour > 0)) {
+      toast.error('O anti-loop precisa estar ativo', {
+        hint: 'Defina entre 1 e 1.000 ações por hora antes de salvar.',
+      })
+      return
+    }
     setSaving(true)
     try {
       const r = await apiSend<{ policy: AdsSafetyPolicy }>('/api/ads/ops/safety-policy', 'PUT', draft)
@@ -123,6 +132,15 @@ export function OpsDialog({
 
   function patch(p: Partial<AdsSafetyPolicy>) {
     setDraft((prev) => (prev ? { ...prev, ...p } : prev))
+  }
+
+  function setCurrentAdvertiserBlocked(blocked: boolean) {
+    if (!draft || !advertiserId) return
+    const current = draft.blockedAdvertiserIds.map(String)
+    const next = blocked
+      ? [...new Set([...current, String(advertiserId)])]
+      : current.filter((id) => id !== String(advertiserId))
+    patch({ blockedAdvertiserIds: next })
   }
 
   return (
@@ -237,6 +255,41 @@ export function OpsDialog({
             </div>
           ) : (
             <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/30 p-3">
+                  <input
+                    type="checkbox"
+                    checked={draft.enabled}
+                    onChange={(e) => patch({ enabled: e.target.checked })}
+                    className="mt-0.5 size-4 accent-[color:var(--primary)]"
+                    aria-label="Ativar política de segurança"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-xs font-semibold text-foreground">Proteção ativa</span>
+                    <span className="text-[11px] leading-relaxed text-muted-foreground">
+                      Obrigatória para o robô agir.
+                    </span>
+                  </span>
+                </label>
+                {advertiserId && (
+                  <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/30 p-3">
+                    <input
+                      type="checkbox"
+                      checked={currentAdvertiserBlocked}
+                      onChange={(e) => setCurrentAdvertiserBlocked(e.target.checked)}
+                      className="mt-0.5 size-4 accent-[color:var(--warning)]"
+                      aria-label="Bloquear ações nesta conta"
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-xs font-semibold text-foreground">Bloquear esta conta</span>
+                      <span className="text-[11px] leading-relaxed text-muted-foreground">
+                        Impede ações só neste advertiser.
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </div>
+
               {/* Kill switch — destaque máximo */}
               <label
                 className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${draft.killSwitch ? 'border-error/40 bg-error/10' : 'border-border bg-secondary/30'}`}
@@ -312,15 +365,15 @@ export function OpsDialog({
                   <span className="text-xs font-medium text-foreground">Máx. de ações/hora</span>
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     max={1000}
                     step={1}
                     className="input-neon w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={draft.maxActionsPerHour ?? 10}
-                    onChange={(e) => patch({ maxActionsPerHour: e.target.value === '' ? 0 : Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+                    onChange={(e) => patch({ maxActionsPerHour: e.target.value === '' ? 10 : Math.max(1, Math.floor(Number(e.target.value) || 10)) })}
                     aria-label="Máximo de ações automáticas por hora"
                   />
-                  <span className="text-[11px] text-muted-foreground">Anti-loop do robô. 0 = sem limite</span>
+                  <span className="text-[11px] text-muted-foreground">Anti-loop obrigatório · padrão 10</span>
                 </label>
               </div>
 

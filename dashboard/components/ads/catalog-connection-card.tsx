@@ -26,6 +26,9 @@ export function CatalogConnectionCard({
   const [busy, setBusy] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const verified = catalog.linkStatus === 'verified'
+  const currentRemoteCount = (catalog.audit?.total ?? 0) > 0
+    ? Number(catalog.audit?.total) || 0
+    : catalog.remoteSnapshot?.productCount ?? 0
 
   useEffect(() => {
     setCatalogId(catalog.tiktokCatalogId ?? '')
@@ -92,9 +95,9 @@ export function CatalogConnectionCard({
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
               <Check className="size-4 shrink-0 text-success" />
-              TikTok conectado
+              TikTok vinculado
               <span className="truncate text-[10px] font-normal text-muted-foreground">
-                {catalog.remoteSnapshot?.productCount ?? 0} produto(s) remoto(s)
+                {currentRemoteCount} produto(s) no último status
               </span>
             </span>
             <span className="text-[10px] font-medium text-muted-foreground">Detalhes</span>

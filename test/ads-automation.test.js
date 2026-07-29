@@ -61,6 +61,30 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
 }
 
 (async () => {
+  // ── Autonomia total nunca roda sem os guardrails mínimos ─────────────────
+  {
+    assert.throws(
+      () => automation.assertAutomaticPolicy(adsOps.normalizePolicy({ enabled: false }), 'adv1'),
+      (error) => error.code === 'ADS_SAFETY_POLICY_DISABLED' && error.status === 409,
+      'política desativada bloqueia Agir sozinho',
+    );
+    assert.throws(
+      () => automation.assertAutomaticPolicy(adsOps.normalizePolicy({ blockedAdvertiserIds: ['adv1'] }), 'adv1'),
+      (error) => error.code === 'ADS_ADVERTISER_BLOCKED',
+      'advertiser bloqueado não recebe ação automática',
+    );
+    assert.throws(
+      () => automation.assertAutomaticPolicy(adsOps.normalizePolicy({ maxActionsPerHour: 0 }), 'adv1'),
+      (error) => error.code === 'ADS_AUTOMATION_ACTION_CAP_REQUIRED',
+      'anti-loop desligado bloqueia Agir sozinho',
+    );
+    assert.strictEqual(
+      automation.assertAutomaticPolicy(adsOps.normalizePolicy({ maxActionsPerHour: 10 }), 'adv1'),
+      true,
+      'política segura libera a autonomia total',
+    );
+  }
+
   // ── validateRules: defaults seguros + campos novos ────────────────────────
   {
     const rules = automation.validateRules([
@@ -501,6 +525,26 @@ function configureRules(accId, rules, advertiserId = 'adv1') {
     const outS = await automation.runScheduleSweep(acc, { force: true });
     assert.strictEqual(outS.killSwitch, true, 'dayparting também aborta com kill switch');
     assert.strictEqual(calls.status.length, 0, 'kill switch: dayparting não escreve');
+    policyOverride = { dryRun: false };
+  }
+
+  // ── GUARDA: política desligada/bloqueada impede configs antigas de agir ──
+  {
+    const acc = 'acc_policy_blocked';
+    configureRules(acc, [{ id: 'r1', enabled: true, metric: 'spend_no_conv', threshold: 5, mode: 'execute' }]);
+    resetCalls(); clearCooldowns(acc);
+    treeCampaigns = [campaign({ metrics: { spend: 100, conversions: 0, impressions: 5000, clicks: 100 } })];
+
+    policyOverride = { dryRun: false, enabled: false };
+    let out = await automation.runRulesSweep(acc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(out.policyBlocked, true, 'regra automática antiga não age com política desligada');
+    assert.strictEqual(calls.status.length, 0, 'política desligada impede escrita no TikTok');
+
+    policyOverride = { dryRun: false, blockedAdvertiserIds: ['adv1'] };
+    out = await automation.runRulesSweep(acc, { force: true, advertiserId: 'adv1' });
+    assert.strictEqual(out.reasonCode, 'ADS_ADVERTISER_BLOCKED', 'bloqueio do advertiser chega ao sweep');
+    assert.strictEqual(calls.status.length, 0, 'advertiser bloqueado não recebe escrita');
+
     policyOverride = { dryRun: false };
   }
 

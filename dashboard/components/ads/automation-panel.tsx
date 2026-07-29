@@ -24,7 +24,7 @@ import {
   Activity,
   Clock3,
 } from 'lucide-react'
-import { ApiError, useAdsRules, apiSend } from '@/lib/api'
+import { ApiError, useAdsRules, useAdsSafetyPolicy, apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type {
   AdsAlertsConfig,
@@ -57,13 +57,13 @@ const METRIC_META: Record<
     name: 'CPA acima do limite',
     thresholdLabel: 'CPA máximo',
     unit: '€',
-    verb: (r, c) => `age se CPA > ${r.threshold}${c}`,
+    verb: (r, c) => `age se CPA > ${r.threshold} ${c}`,
   },
   spend_no_conv: {
     name: 'Gasto sem conversão',
     thresholdLabel: 'Gasto sem venda',
     unit: '€',
-    verb: (r, c) => `age se gastar ${r.threshold}${c} sem venda`,
+    verb: (r, c) => `age se gastar ${r.threshold} ${c} sem venda`,
   },
   roas_min: {
     name: 'ROAS abaixo do mínimo',
@@ -81,13 +81,13 @@ const METRIC_META: Record<
     name: 'CPM acima do limite',
     thresholdLabel: 'CPM máximo',
     unit: '€',
-    verb: (r, c) => `age se CPM > ${r.threshold}${c}`,
+    verb: (r, c) => `age se CPM > ${r.threshold} ${c}`,
   },
   cpc_max: {
     name: 'CPC acima do limite',
     thresholdLabel: 'CPC máximo',
     unit: '€',
-    verb: (r, c) => `age se CPC > ${r.threshold}${c}`,
+    verb: (r, c) => `age se CPC > ${r.threshold} ${c}`,
   },
   roas_scale: {
     name: 'ROAS bom → escalar',
@@ -140,9 +140,9 @@ function summarize(r: AdsRule, currency: string): string {
   ]
   if (r.minClicks) parts.push(`min. ${r.minClicks} cliques`)
   if (r.minImpressions) parts.push(`min. ${r.minImpressions} impr.`)
-  if (r.minSpend) parts.push(`min. ${r.minSpend}${currency} gastos`)
+  if (r.minSpend) parts.push(`min. ${r.minSpend} ${currency} gastos`)
   if (r.minSales) parts.push(`min. ${r.minSales} vendas`)
-  if (r.budgetCap) parts.push(`teto ${r.budgetCap}${currency}/dia`)
+  if (r.budgetCap) parts.push(`teto ${r.budgetCap} ${currency}/dia`)
   return parts.join(' · ')
 }
 
@@ -194,6 +194,9 @@ function engineStatusView(engine: AdsAutomationEngine, loadFailed = false): {
       worker_stopped: ['Motor parado', 'O processo automático não está em execução no servidor.'],
       worker_stale: ['Motor sem resposta', 'O processo automático deixou de confirmar atividade.'],
       policy_unavailable: ['Proteção indisponível', 'O motor não age sem conseguir ler os limites de segurança.'],
+      policy_disabled: ['Proteção desligada', 'Ative a política de segurança antes de liberar ações automáticas.'],
+      advertiser_blocked: ['Conta bloqueada pela proteção', 'Remova esta conta da lista de bloqueio para liberar ações automáticas.'],
+      action_cap_disabled: ['Anti-loop desativado', 'Defina pelo menos 1 ação por hora nos limites de segurança.'],
     }
     const copy = blockedCopy[engine.reasonCode || ''] || ['Automação indisponível', 'O motor não pode operar neste momento.']
     return { title: copy[0], detail: copy[1], tone: 'error' }
@@ -543,6 +546,7 @@ export function AutomationPanel({
   onOpenLimits?: () => void
 }) {
   const { data, mutate, isLoading, isValidating, error } = useAdsRules(active, adAccountId)
+  const { data: safetyData } = useAdsSafetyPolicy(active)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -566,6 +570,18 @@ export function AutomationPanel({
   const log = data?.log ?? []
   const alertsCfg = data?.alerts
   const enabledCount = rules.filter((r) => r.enabled).length
+  const automaticBlockedReason = (() => {
+    const policy = safetyData?.policy
+    if (!policy) return null
+    if (!policy.enabled) return 'Ative a política de segurança antes de liberar ações automáticas.'
+    if (policy.blockedAdvertiserIds.map(String).includes(String(adAccountId))) {
+      return 'Esta conta de anúncio está bloqueada pela política de segurança.'
+    }
+    if (!(policy.maxActionsPerHour > 0)) {
+      return 'Defina pelo menos 1 ação por hora para manter o anti-loop ativo.'
+    }
+    return null
+  })()
 
   async function handleSaveError(error: unknown, fallback: string) {
     if (error instanceof ApiError && error.code === 'AUTOMATION_REVISION_CONFLICT') {
@@ -758,6 +774,8 @@ export function AutomationPanel({
         saving={saving}
         onSetPilot={setPilot}
         onSetAutonomy={setAutonomy}
+        automaticBlockedReason={automaticBlockedReason}
+        onOpenLimits={onOpenLimits}
       />
 
       {/* Um único estado operacional. Revisão/IDs ficam fora do fluxo normal. */}

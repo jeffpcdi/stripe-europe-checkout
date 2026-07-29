@@ -573,6 +573,42 @@ function validateRules(raw) {
   }).filter((r) => r.metric === 'schedule' ? r.days && r.days.length : r.threshold > 0);
 }
 
+// Uma configuração automática antiga pode ter sido salva antes dos guardrails
+// obrigatórios. Centralizamos a validação para que rota, regras, agendamento e
+// auto-recurso falhem fechados do mesmo jeito, sem depender só da UI.
+function automaticPolicyIssue(policy, advertiserId) {
+  const p = adsOps.normalizePolicy(policy || {});
+  const advertiser = String(advertiserId || '').trim();
+  if (!p.enabled) {
+    return {
+      code: 'ADS_SAFETY_POLICY_DISABLED',
+      message: 'Ative a política de segurança antes de usar “Agir sozinho”.',
+    };
+  }
+  if (p.blockedAdvertiserIds.includes(advertiser)) {
+    return {
+      code: 'ADS_ADVERTISER_BLOCKED',
+      message: 'Esta conta de anúncio está bloqueada pela política de segurança.',
+    };
+  }
+  if (!(p.maxActionsPerHour > 0)) {
+    return {
+      code: 'ADS_AUTOMATION_ACTION_CAP_REQUIRED',
+      message: 'Defina pelo menos 1 ação por hora antes de usar “Agir sozinho”.',
+    };
+  }
+  return null;
+}
+
+function assertAutomaticPolicy(policy, advertiserId) {
+  const issue = automaticPolicyIssue(policy, advertiserId);
+  if (!issue) return true;
+  const error = new Error(issue.message);
+  error.status = 409;
+  error.code = issue.code;
+  throw error;
+}
+
 async function auditSimulated(accId, { action, targetType, targetId, advertiserId, metadata, title }) {
   try {
     await adsOps.appendAuditEvent(accId, {
@@ -817,12 +853,20 @@ function evaluateCampaignCandidates(campaign, rules, groupByRule) {
 // deduplicação por INCIDENTE/grupo p/ nunca recorrer duas vezes da mesma
 // reprovação. O estado é gravado na central durável antes da chamada externa.
 async function autoAppealRejectedSmartPlus(accId, advertiserId, rejectedAds, assertLeaseOwnership) {
-  const policy = await adsOps.getSafetyPolicy(accId);
+  const policy = adsOps.normalizePolicy(await adsOps.getSafetyPolicy(accId));
   if (policy.killSwitch) {
     stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Kill switch ATIVO: auto-recurso de Smart+ abortado' });
     return;
   }
+  const policyIssue = automaticPolicyIssue(policy, advertiserId);
+  if (policyIssue) {
+    stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Auto-recurso de Smart+ bloqueado: ' + policyIssue.message });
+    return;
+  }
   const dryRun = !!policy.dryRun;
+  let actionsThisHour = policy.maxActionsPerHour > 0
+    ? await adsOps.countRecentEngineActions(accId, 3600e3, advertiserId)
+    : 0;
   for (const a of rejectedAds) {
     const adId = String(a.adId || '');
     const itemName = String(a.adGroupName || a.adName || a.name || a.adGroupId || adId);
@@ -832,6 +876,10 @@ async function autoAppealRejectedSmartPlus(accId, advertiserId, rejectedAds, ass
     const failureKey = scopedStateKey(advertiserId, 'appeal-failure:' + incidentId);
     if (await underCooldown(accId, key, APPEAL_COOLDOWN_MS)) continue;
     if (await underCooldown(accId, failureKey, APPEAL_RETRY_MS)) continue;
+    if (!dryRun && actionsThisHour >= policy.maxActionsPerHour) {
+      stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Auto-recurso interrompido pelo limite de ' + policy.maxActionsPerHour + ' ações/hora' });
+      break;
+    }
     if (!dryRun && typeof assertLeaseOwnership === 'function') {
       await assertLeaseOwnership();
     }
@@ -857,6 +905,7 @@ async function autoAppealRejectedSmartPlus(accId, advertiserId, rejectedAds, ass
           action: 'smart_plus_appeal', targetType: 'adgroup', targetId: a.adGroupId || adId, advertiserId,
           reason: 'Auto-recurso: ' + reason, metadata: { auto: true, adId, adName: a.adName || a.name || '' },
         });
+        actionsThisHour += 1;
       }
       // Só marca o cooldown após sucesso (dry-run também marca: a simulação não
       // deve re-simular o mesmo anúncio a cada varredura).
@@ -1213,10 +1262,15 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
 
   // GUARDA 1 — a PRIMEIRA de todas, antes até do dry-run: kill switch.
   // Com ele ativo o motor não avalia nem age em NADA.
-  const policy = await adsOps.getSafetyPolicy(accId);
+  const policy = adsOps.normalizePolicy(await adsOps.getSafetyPolicy(accId));
   if (policy.killSwitch) {
     stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Kill switch ATIVO: varredura de regras abortada (zero ações)' });
     return { executed: [], killSwitch: true };
+  }
+  const policyIssue = automaticPolicyIssue(policy, advertiserId);
+  if (policyIssue && rules.some((rule) => rule.mode === 'execute')) {
+    stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Varredura automática bloqueada: ' + policyIssue.message });
+    return { executed: [], policyBlocked: true, reasonCode: policyIssue.code };
   }
   // Restaura a janela do breaker do Redis antes de avaliar — assim uma sequência
   // de falhas de antes do restart continua contando para abrir o breaker.
@@ -1237,7 +1291,8 @@ async function runRulesSweep(accId, { force, advertiserId: advertiserHint, lease
 
   // GUARDA — cap global de ações reais/hora (durável, anti-loop). Começa com o
   // que já foi feito na última hora (do ads_audit_events) e cresce a cada ação
-  // real deste sweep. maxActionsPerHour=0 desliga.
+  // real deste sweep. Configurações legadas com cap zero são bloqueadas antes
+  // desta etapa e precisam ser corrigidas na tela de Segurança.
   let actionsThisHour = policy.maxActionsPerHour > 0 ? await adsOps.countRecentEngineActions(accId, 3600e3, advertiserId) : 0;
   // Orçamento diário corrente da conta (base do teto de gasto). Cresce conforme
   // aplicamos budget_up de verdade, para o teto valer dentro do próprio sweep.
@@ -1527,7 +1582,7 @@ async function backtestRules(accId, { rules, lookbackDays, advertiserId: adverti
     ruleList = ruleList.map((rule) => ({ ...rule, lookbackDays: overrideDays }));
   }
 
-  const policy = await adsOps.getSafetyPolicy(accId);
+  const policy = adsOps.normalizePolicy(await adsOps.getSafetyPolicy(accId));
   // O backtest usa exatamente o mesmo planejador de janelas do ciclo real.
   // Como é sob demanda, um espelho velho dispara uma leitura fresca de cada
   // janela distinta, sem misturar a regra diária com a semanal.
@@ -2094,10 +2149,15 @@ async function runScheduleSweep(accId, { force, advertiserId: advertiserHint, le
 
   // GUARDA 1 — kill switch primeiro, antes até do dry-run: dayparting também
   // é ação do motor e deve parar por completo com o kill switch ativo.
-  const policy = await adsOps.getSafetyPolicy(accId);
+  const policy = adsOps.normalizePolicy(await adsOps.getSafetyPolicy(accId));
   if (policy.killSwitch) {
     stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Kill switch ATIVO: agendamento (dayparting) abortado (zero ações)' });
     return { executed: [], killSwitch: true };
+  }
+  const policyIssue = automaticPolicyIssue(policy, advertiserId);
+  if (policyIssue && schedules.some((rule) => rule.mode === 'execute')) {
+    stats.logEvent('warn', { acc: accId, title: '[tiktok-ads] Agendamento automático bloqueado: ' + policyIssue.message });
+    return { executed: [], policyBlocked: true, reasonCode: policyIssue.code };
   }
   const dryRun = !!policy.dryRun;
   const timeZone = await resolveAdvertiserTimeZone(accId, advertiserId);
@@ -2751,6 +2811,13 @@ function deriveEngineStatus({
     state = 'blocked'; reasonCode = 'worker_stale';
   } else if (!policyAvailable) {
     state = 'blocked'; reasonCode = 'policy_unavailable';
+  } else if (policy && policy.enabled === false) {
+    state = 'blocked'; reasonCode = 'policy_disabled';
+  } else if (policy && Array.isArray(policy.blockedAdvertiserIds)
+    && policy.blockedAdvertiserIds.map(String).includes(String(sweep.advertiserId || ''))) {
+    state = 'blocked'; reasonCode = 'advertiser_blocked';
+  } else if (mode === 'automatic' && policy && !(Number(policy.maxActionsPerHour) > 0)) {
+    state = 'blocked'; reasonCode = 'action_cap_disabled';
   } else if (policy && policy.killSwitch) {
     state = 'paused'; reasonCode = 'kill_switch';
   } else if (breakerOpenNow && !(policy && policy.dryRun)) {
@@ -2883,6 +2950,7 @@ module.exports = {
   saveRules,
   saveAlerts,
   setGlobalAutonomy,
+  assertAutomaticPolicy,
   validateRules,
   computeAttribution,
   resolveAdvertiserTimeZone,
@@ -2902,5 +2970,5 @@ module.exports = {
   ensureBreakerHydrated,
   noteRecovery,
   // expostos p/ testes
-  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, profileHasEnabledAutomation, deriveEngineStatus, sweepResultCode, engineRuns, APPEAL_COOLDOWN_MS, APPEAL_RETRY_MS, FRESHNESS_MS },
+  _internals: { scheduleActiveNow, localNow, minutesOf, underCooldown, markFired, clearFired, memState, treeForSweep, sumAccountDailyBudget, recordOutcome, breakerOpen, getBreakerState, ensureBreakerHydrated, actionOutcomes, breakerLastAt, breakerHydrated, evaluateRule, metricsContext, computeBudgetPlan, executeRuleAction, computeActionStates, setCampaignStatusByKind, autoAppealRejectedSmartPlus, automaticPolicyIssue, profileHasEnabledAutomation, deriveEngineStatus, sweepResultCode, engineRuns, APPEAL_COOLDOWN_MS, APPEAL_RETRY_MS, FRESHNESS_MS },
 };

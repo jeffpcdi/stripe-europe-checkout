@@ -59,6 +59,9 @@ export function CatalogSyncStatus({
   const active = ['queued', 'waiting_connector_confirmation', 'waiting_tiktok_processing', 'running', 'retrying'].includes(run.status)
   const waitingConnector = run.status === 'waiting_connector_confirmation'
   const failed = ['failed', 'partial'].includes(run.status)
+  const statusLabel = failed
+    ? LABELS[run.status] || 'Sincronização interrompida'
+    : LABELS[run.stage] || run.stage
   const auditProgress = objectValue(run.progress?.audit)
   const uploadStatus = objectValue(run.progress?.uploadStatus)
   const auditAttempts = Math.max(0, Number(run.progress?.auditAttempts) || 0)
@@ -87,7 +90,7 @@ export function CatalogSyncStatus({
       <div className="flex items-start gap-2">
         {awaitingTikTok ? <Clock className="mt-0.5 size-4 shrink-0 text-warning" /> : active ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" /> : failed ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" /> : run.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-success" /> : <UploadCloud className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-foreground">{LABELS[run.stage] || run.stage}</p>
+          <p className="text-[11px] font-semibold text-foreground">{statusLabel}</p>
           {run.error ? (
             <>
               <p className="mt-1 text-pretty text-[10px] leading-relaxed text-muted-foreground">

@@ -167,7 +167,10 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `POST /api/ads/rejections/:rejectionId/appeal` reserva atomicamente uma tentativa, gera justificativa
   factual com os dados disponíveis e registra resposta/erro. Recurso automático só envia para Smart+
   quando a conta está em autonomia global, a chave de apelação está ligada e o kill switch/dry-run
-  permitem; há cooldown de 7 dias após sucesso e backoff de 1 hora após falha. Campanha comum fica com
+  permitem. A autonomia falha fechada quando a política está desativada, o advertiser está bloqueado
+  ou o teto anti-loop é menor que uma ação/hora; recursos reais também entram nesse teto durável.
+  A tela de Segurança permite corrigir os três bloqueios sem editar configuração bruta. Há cooldown
+  de 7 dias após sucesso e backoff de 1 hora após falha. Campanha comum fica com
   instrução manual explícita enquanto o conector não expõe API programática de recurso para esse tipo.
   O loop de `ads-sync.js` une contas abertas recentemente aos perfis duráveis com regra, alerta ou
   agendamento ativo em `config.pipeboardAds.automationProfiles`; por isso automações continuam inscritas
@@ -885,6 +888,8 @@ da aba soma incidentes abertos sem multiplicar notificações por anúncio. A fa
 estado real do motor (`idle|starting|running|paused|degraded|blocked`) e explica somente a condição
 acionável — motor parado, sync atrasado, conta sem acesso, modo teste ou pausa de segurança. Ela não
 mostra revisão/ID no fluxo normal, atualiza a cada 60s e nunca transforma falha de fetch em estado vazio.
+“Agir sozinho” só pode ser ativado com a proteção ligada, o advertiser desbloqueado e ao menos uma
+ação/hora no anti-loop; o aviso abre diretamente os controles necessários.
 
 ### 19.4 Identidade visual ("Glitch TikTok", capturada 1:1 do legado)
 - **Tokens no `dashboard/app/globals.css`** (fonte de verdade do tema — nunca cor hardcoded):

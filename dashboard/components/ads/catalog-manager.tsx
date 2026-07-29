@@ -73,7 +73,18 @@ type CatalogSpec = AdsCatalogSpecResponse
 
 function catalogStatusMeta(catalog: AdsCatalog) {
   if (catalog.linkStatus === 'verified') {
-    return { label: 'Conectado', summary: 'TikTok verificado', className: 'bg-success/15 text-success' }
+    const rejected = Number(catalog.audit?.rejected) || 0
+    const pending = Number(catalog.audit?.pending) || 0
+    if (rejected > 0) {
+      return { label: 'Requer atenção', summary: `${rejected} produto(s) reprovado(s)`, className: 'bg-error/15 text-error' }
+    }
+    if (pending > 0) {
+      return { label: 'Em análise', summary: `${pending} produto(s) em análise`, className: 'bg-warning/15 text-warning' }
+    }
+    if (catalog.productCount === 0) {
+      return { label: 'Sem produtos', summary: 'adicione o primeiro produto', className: 'bg-warning/15 text-warning' }
+    }
+    return { label: 'Vinculado', summary: 'vínculo TikTok verificado', className: 'bg-success/15 text-success' }
   }
   if (catalog.linkStatus === 'error') {
     return { label: 'Vínculo com erro', summary: 'vínculo requer correção', className: 'bg-error/15 text-error' }
@@ -1102,8 +1113,12 @@ function TiktokStatusPanel({
             {catalogSynced
               ? 'Produtos confirmados no TikTok'
               : productsNotConfirmed
-                ? 'Catálogo conectado — produtos ainda não confirmados'
-                : 'TikTok analisando os produtos'}
+                ? 'Catálogo vinculado — produtos ainda não confirmados'
+                : pending > 0
+                  ? 'TikTok analisando os produtos'
+                  : rejected > 0
+                    ? 'Revisão concluída com reprovações'
+                    : 'Status dos produtos requer atenção'}
           </p>
           {autoChecking && (
             <p className="flex items-center gap-1 text-[10px] text-muted-foreground" role="status">

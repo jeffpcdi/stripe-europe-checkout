@@ -88,7 +88,8 @@ function normalizePolicy(input) {
     dailySpendCap: value.dailySpendCap != null && value.dailySpendCap !== '' && Number.isFinite(Number(value.dailySpendCap)) && Number(value.dailySpendCap) >= 0 ? Number(value.dailySpendCap) : null,
     maxBudgetChangePct: Math.min(100, Math.max(0, Number(value.maxBudgetChangePct) || 20)),
     // Cap de ações reais do motor por hora/advertiser. Trava o loop
-    // "regra pausa → outra reativa → repete". Default 10; 0 = desligado.
+    // "regra pausa → outra reativa → repete". Default 10. Zero permanece
+    // legível para dados legados, mas novas gravações e autonomia o rejeitam.
     maxActionsPerHour: value.maxActionsPerHour != null && value.maxActionsPerHour !== '' && Number.isFinite(Number(value.maxActionsPerHour)) && Number(value.maxActionsPerHour) >= 0 ? Math.min(1000, Math.floor(Number(value.maxActionsPerHour))) : 10,
     cooldownMinutes: Math.min(10080, Math.max(0, Math.floor(Number(value.cooldownMinutes) || 60))),
     allowedHours: value.allowedHours && typeof value.allowedHours === 'object' ? value.allowedHours : {},
@@ -548,14 +549,15 @@ async function countRecentEngineActions(accountId, sinceMs, advertiserId) {
   await ensureSchema();
   const windowMs = Math.max(60e3, Number(sinceMs) || 3600e3);
   const seconds = Math.ceil(windowMs / 1000);
-  // 'rule_proposal.approved' entra: aprovar executa uma ação REAL na
+  // 'rule_proposal.approved' e 'smart_plus_appeal' entram: ambos executam
+  // ações REAIS na
   // plataforma — o cap/hora vale para ela como para qualquer outra. Ações
   // parciais também alteraram verba real e contam. Propostas criadas
   // ('rule_proposal.created') NÃO entram: nada foi executado.
   const adv = advertiserId ? String(advertiserId).slice(0, 120) : null;
   const rows = adv
-    ? await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND advertiser_id = ${adv} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial') AND created_at > now() - make_interval(secs => ${seconds})`
-    : await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial') AND created_at > now() - make_interval(secs => ${seconds})`;
+    ? await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND advertiser_id = ${adv} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial', 'smart_plus_appeal') AND created_at > now() - make_interval(secs => ${seconds})`
+    : await sql`SELECT count(*)::int AS n FROM ads_audit_events WHERE account_id = ${accountId} AND actor_type = 'system' AND action IN ('rule_action', 'rule_action.partial', 'schedule_action', 'rule_proposal.approved', 'rule_proposal.partial', 'smart_plus_appeal') AND created_at > now() - make_interval(secs => ${seconds})`;
   return rows.length ? Number(rows[0].n) || 0 : 0;
 }
 

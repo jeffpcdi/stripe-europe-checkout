@@ -45,7 +45,13 @@ const baseSync = {
   last_synced_at: isoAgo(60_000),
   last_error: null,
 };
-const basePolicy = { dryRun: false, killSwitch: false };
+const basePolicy = {
+  enabled: true,
+  dryRun: false,
+  killSwitch: false,
+  maxActionsPerHour: 10,
+  blockedAdvertiserIds: [],
+};
 
 function status(overrides = {}) {
   return derive({
@@ -147,6 +153,18 @@ function status(overrides = {}) {
     assert.strictEqual(status({ providerEnabled: false }).reasonCode, 'provider_unavailable');
     assert.strictEqual(status({ cacheEnabled: false }).reasonCode, 'cache_unavailable');
     assert.strictEqual(status({ policyAvailable: false }).reasonCode, 'policy_unavailable');
+  }
+
+  {
+    assert.strictEqual(status({ policy: { enabled: false } }).reasonCode, 'policy_disabled');
+    assert.strictEqual(
+      status({ policy: { blockedAdvertiserIds: ['adv_status'] } }).reasonCode,
+      'advertiser_blocked',
+    );
+    assert.strictEqual(
+      status({ policy: { maxActionsPerHour: 0 } }).reasonCode,
+      'action_cap_disabled',
+    );
   }
 
   {
