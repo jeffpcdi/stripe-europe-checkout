@@ -133,7 +133,10 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   (campanha → conjunto → anúncio), todos pausados, com o catálogo correto, `PRODUCT_LINK` e sem URL manual.
   Como o readback do TikTok pode atrasar depois da escrita, os três IDs entram em
   `waiting_tiktok_confirmation`: `verify_attempts`/`next_retry_at` aplicam backoff durável sem recriar
-  campanha, conjunto, anúncio ou vídeo. Só depois de seis confirmações inconclusivas o run vira parcial.
+  campanha, conjunto, anúncio ou vídeo. Vídeo/capa usam `asset_attempts` separado: o `videoId` é
+  persistido assim que o upload responde, falhas de transporte mantêm a etapa correta e o mesmo asset
+  é retomado com backoff antes de qualquer campanha existir. Só depois de seis tentativas do respectivo
+  estágio o run vira parcial e pede `Retomar`; tentativas de asset nunca consomem as de readback.
 - **ads-provider.js + ads-routes.js** — toda criação automática regular, Smart+ e de catálogo só usa
   identidade `BC_AUTH_TT` com `identity_bc_id` e dark post habilitado; nunca escolhe
   `CUSTOMIZED_USER`/`TT_USER`/`AUTH_CODE` automaticamente. Duplicação pré-valida esse fallback antes
@@ -368,7 +371,12 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   individual de cada produto. O fluxo principal é `SINGLE_VIDEO` com
   `vertical_video_strategy=SINGLE_VIDEO`: o usuário envia um MP4/MOV, o áudio vem do próprio arquivo,
   e a dashboard extrai a capa retornada pelo TikTok e a envia automaticamente. Não existe campo de
-  música, capa, Pixel, evento ou URL manual no wizard.
+  música, capa, Pixel, evento ou URL manual no wizard. `get_tiktok_video_info` só libera o asset com
+  o `videoId` exato e `displayable=true`; uma capa de outro vídeo ou status textual não antecipa a
+  criação. O TikTok pode devolver a capa observada como `http://*.tiktokcdn.com`: somente nesse host
+  comprovado o provider eleva para HTTPS preservando a query assinada. A capa automática rejeita
+  qualquer outro domínio, IP literal, credencial, porta, hostname ambíguo ou host sintético; a capa
+  HTTPS manual do Smart+ mantém validação e mensagem próprias.
   O lote aceita TSV ou CSV (vírgula/ponto e vírgula), normaliza orçamento pt-BR como `1.000,00` e recebe
   exclusivamente o `link` HTTPS de cada produto; URL manual no anúncio é bloqueada em duas barreiras
   (preview + executor). O parser de `/api/ads/catalogs/batch` é montado antes do JSON global e aceita
@@ -395,6 +403,12 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   pass-through falha fechado) e revalida a cada 60s. Catálogo temporário ECOM/BR/BRL foi criado e
   removido pela mesma API para confirmar o contrato; nunca degradar para Smart+, carousel, vídeo comum
   com URL global ou etapa manual.
+  **QA real da retomada em 2026-08-03:** o run `catcamp_ba1a82377663404fa4ab4ddf39368ce0`
+  reutilizou o vídeo `v10033g50000d9odsb7og65r705oicd0` e concluiu a hierarquia pausada
+  `1872529264778369 → 1872529069625394 → 1872529066711297`. O readback confirmou
+  `PRODUCT_SALES`, catálogo `7668025884561000213`, `CATALOG+VIDEO`, Pixel/evento
+  `7565659074893791250/SHOPPING`, `SINGLE_VIDEO`, escopo `ALL`, `landing_page_url=null`
+  e `DISABLE` nos três níveis.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
   **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação

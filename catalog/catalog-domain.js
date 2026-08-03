@@ -1,7 +1,7 @@
 'use strict';
 
 const CAMPAIGN_STAGES = Object.freeze([
-  'queued', 'validating', 'creating_campaign', 'creating_adgroup', 'creating_ad',
+  'queued', 'validating', 'upload', 'cover', 'creating_campaign', 'creating_adgroup', 'creating_ad',
   'verifying_entities', 'ready_paused', 'partial', 'failed', 'cancelled',
 ]);
 const TIKTOK_MIN_DAILY_BUDGET = 50;
@@ -47,6 +47,8 @@ function serializeCatalogError(err, fallbackStage) {
 }
 
 function humanizeStage(stage) {
+  if (stage === 'upload') return 'O vídeo ainda está sendo processado pelo TikTok.';
+  if (stage === 'cover') return 'O vídeo foi enviado, mas a capa automática ainda não ficou pronta.';
   if (stage === 'campaign') return 'A campanha não pôde ser criada no TikTok.';
   if (stage === 'adgroup') return 'A campanha foi criada, mas o TikTok recusou o conjunto de anúncios.';
   if (stage === 'ad') return 'A campanha e o conjunto foram criados, mas o TikTok recusou o anúncio.';
@@ -55,6 +57,7 @@ function humanizeStage(stage) {
 }
 
 function suggestedAction(stage) {
+  if (stage === 'upload' || stage === 'cover') return 'A dashboard tentará novamente usando o mesmo vídeo. Não envie outro arquivo.';
   if (stage === 'adgroup') return 'Revise catálogo, Business Center, pixel, evento e o tipo de Catalog Ads antes de retomar.';
   if (stage === 'ad') return 'Revise produto, identidade, texto e CTA antes de retomar. Product Link não usa URL manual.';
   if (stage === 'verify') return 'Atualize a conexão e tente verificar novamente.';

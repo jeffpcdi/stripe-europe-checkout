@@ -19,8 +19,10 @@
 
 const pipeboard = require('./pipeboard-mcp');
 const config = require('./config');
+const net = require('net');
 const { SPARK_GOALS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 const { TIKTOK_PIXEL_EVENTS } = require('./catalog/catalog-domain');
+const { isPublicDownloadHostname } = require('./ads-storage');
 
 // ── Estado por conta (multi-tenant) ──────────────────────────────────────────
 // Guardado em config.get(accountId).pipeboardAds = { advertiserId }.
@@ -1190,55 +1192,160 @@ async function pickCatalogCarouselMusic(advertiserId, requestedMusicId) {
 // displayable. O TikTok deduplica por md5 — re-upload do mesmo arquivo devolve
 // o mesmo video_id (idempotência de graça no retry).
 async function uploadVideoAndWait(advertiserId, videoUrl, createdIds) {
-  const up = await pipeboard.callTool('upload_tiktok_video', {
-    advertiser_id: advertiserId, video_url: videoUrl, wait_for_processing_seconds: 60,
-  });
+  let up;
+  try {
+    up = await pipeboard.callTool('upload_tiktok_video', {
+      advertiser_id: advertiserId, video_url: videoUrl, wait_for_processing_seconds: 60,
+    });
+  } catch (err) {
+    throw assetStepError(err, 'upload', createdIds);
+  }
   const videoId = String(deepPluck(up, 'video_id') || '');
   if (!videoId) throw stepError('upload', 'Upload do vídeo não retornou video_id', createdIds);
+  // Preserve o ID assim que o TikTok o devolver. Se o processamento ou a capa
+  // atrasarem, o worker retoma este mesmo vídeo em vez de enviá-lo novamente.
+  if (createdIds && typeof createdIds === 'object') createdIds.videoId = videoId;
   if (deepPluck(up, 'displayable') === true) return videoId;
   for (let i = 0; i < 8; i++) {
     await new Promise((r) => setTimeout(r, 5000));
-    const info = await pipeboard.callTool('get_tiktok_video_info', { advertiser_id: advertiserId, video_ids: [videoId] });
+    let info;
+    try {
+      info = await pipeboard.callTool('get_tiktok_video_info', { advertiser_id: advertiserId, video_ids: [videoId] });
+    } catch (err) {
+      throw assetStepError(err, 'upload', createdIds);
+    }
     const vids = firstArray(info, ['videos', 'video_list', 'list', 'data']);
-    const v = vids.find((x) => String(x.video_id || x.id || '') === videoId) || vids[0];
-    if (v && (v.displayable === true || /READY|SUCCEED/i.test(String(v.status || v.video_status || '')))) return videoId;
+    const asset = inspectUploadedVideoAsset(vids, videoId);
+    if (asset.displayable) return videoId;
   }
   throw stepError('upload', 'Vídeo enviado (video_id ' + videoId + ') mas não ficou processado/displayable a tempo — tente de novo em instantes (o re-upload reaproveita o mesmo vídeo)', createdIds);
 }
 
-async function uploadImage(advertiserId, imageUrl, createdIds) {
-  const url = String(imageUrl || '').trim();
-  if (!/^https:\/\/[^\s]+/.test(url)) throw stepError('cover', 'A capa do vídeo precisa ser uma URL https pública', createdIds, 400);
-  const out = await pipeboard.callTool('upload_tiktok_image', {
-    advertiser_id: advertiserId,
-    image_url: url,
-  });
+function assetStepError(value, step, createdIds) {
+  const err = value instanceof Error ? value : new Error(String(value || 'Falha no asset do TikTok'));
+  if (!err.step) err.step = step;
+  if (createdIds && typeof createdIds === 'object') err.createdIds = createdIds;
+  return err;
+}
+
+function safeImageUrl(value, options) {
+  const opts = options || {};
+  let raw = String(value || '').trim();
+  if (!raw || /[\u0000-\u0020\u007f]/.test(raw)) return '';
+  if (raw.startsWith('//')) raw = 'http:' + raw;
+  try {
+    const parsed = new URL(raw);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    const hostname = parsed.hostname.toLowerCase();
+    const ipHost = hostname.replace(/^\[|\]$/g, '');
+    if (hostname.endsWith('.') || parsed.username || parsed.password || parsed.port || net.isIP(ipHost)
+      || !isPublicDownloadHostname(hostname)) return '';
+    const trustedTikTokCdn = hostname === 'tiktokcdn.com' || hostname.endsWith('.tiktokcdn.com');
+    if (opts.tikTokGenerated && !trustedTikTokCdn) return '';
+    if (parsed.protocol === 'http:' && !(opts.tikTokGenerated && trustedTikTokCdn)) return '';
+    if (parsed.protocol === 'http:') parsed.protocol = 'https:';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch (_) {
+    return '';
+  }
+}
+
+// O endpoint real do TikTok devolve algumas capas automáticas como
+// http://*.tiktokcdn.com, embora o mesmo recurso aceite TLS. O upload de imagem
+// exige HTTPS. Como esta URL vem da plataforma, aceitamos somente o domínio
+// observado do TikTok — inclusive quando o host aparente resolve para IP
+// privado por serviços como nip.io.
+function normalizeTikTokCoverUrl(value) {
+  return safeImageUrl(value, { tikTokGenerated: true });
+}
+
+function normalizePublicImageUrl(value) {
+  return safeImageUrl(value);
+}
+
+function inspectUploadedVideoAsset(rows, videoId) {
+  const list = Array.isArray(rows) ? rows : [];
+  const wanted = String(videoId || '');
+  const matching = list.find((item) => (
+    String(item && (item.video_id || item.id) || '') === wanted
+  ));
+  // Alguns envelopes do conector removem o ID quando há uma única resposta.
+  // Nunca use uma linha identificada de outro vídeo como fallback.
+  const onlyIdless = list.length === 1
+    && !String(list[0] && (list[0].video_id || list[0].id) || '')
+    ? list[0]
+    : null;
+  const row = matching || onlyIdless;
+  if (!row) return { row: null, displayable: false, coverUrl: '' };
+  return {
+    row,
+    // O contrato de get_tiktok_video_info define displayable=true como o
+    // sinal canônico. Status textual nunca pode sobrepor false.
+    displayable: row.displayable === true,
+    coverUrl: normalizeTikTokCoverUrl(
+      String(row.video_cover_url || row.cover_url || row.thumbnail_url || '').trim(),
+    ),
+  };
+}
+
+async function uploadImage(advertiserId, imageUrl, createdIds, options) {
+  const automatic = Boolean(options && options.tikTokGenerated);
+  const url = automatic ? normalizeTikTokCoverUrl(imageUrl) : normalizePublicImageUrl(imageUrl);
+  if (!url) {
+    throw stepError(
+      'cover',
+      automatic
+        ? 'O TikTok não devolveu uma URL pública válida no próprio CDN para a capa automática'
+        : 'A capa do vídeo precisa ser uma URL HTTPS pública',
+      createdIds,
+      automatic ? 502 : 400,
+    );
+  }
+  let out;
+  try {
+    out = await pipeboard.callTool('upload_tiktok_image', {
+      advertiser_id: advertiserId,
+      image_url: url,
+    });
+  } catch (err) {
+    throw assetStepError(err, 'cover', createdIds);
+  }
   const imageId = String(deepPluck(out, 'image_id') || deepPluck(out, 'web_uri') || '');
   if (!imageId) throw stepError('cover', 'Upload da capa não retornou image_id', createdIds);
   return imageId;
 }
 
 async function getUploadedVideoAsset(advertiserId, videoId, createdIds) {
+  let videoReady = false;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const out = await pipeboard.callTool('get_tiktok_video_info', {
-      advertiser_id: advertiserId,
-      video_ids: [String(videoId)],
-      page: 1,
-      page_size: 10,
-    });
+    let out;
+    try {
+      out = await pipeboard.callTool('get_tiktok_video_info', {
+        advertiser_id: advertiserId,
+        video_ids: [String(videoId)],
+        page: 1,
+        page_size: 10,
+      });
+    } catch (err) {
+      throw assetStepError(err, 'cover', createdIds);
+    }
     const rows = firstArray(out, ['videos', 'video_list', 'list', 'data']);
-    const row = rows.find((item) => String(item && (item.video_id || item.id) || '') === String(videoId)) || rows[0];
-    const coverUrl = String(row && (row.video_cover_url || row.cover_url || row.thumbnail_url) || '').trim();
-    if (row && coverUrl) {
+    const asset = inspectUploadedVideoAsset(rows, videoId);
+    videoReady = videoReady || asset.displayable;
+    if (asset.row && asset.displayable && asset.coverUrl) {
       return {
-        videoId: String(row.video_id || row.id || videoId),
-        coverUrl,
-        displayable: row.displayable === true || /READY|SUCCEED/i.test(String(row.status || row.video_status || '')),
+        videoId: String(asset.row.video_id || asset.row.id || videoId),
+        coverUrl: asset.coverUrl,
+        displayable: true,
       };
     }
     if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1200));
   }
-  throw stepError('cover', 'O TikTok processou o vídeo, mas ainda não devolveu a capa automática. Tente novamente em instantes.', createdIds, 502);
+  if (!videoReady) {
+    throw stepError('upload', 'O vídeo já foi enviado, mas o TikTok ainda está processando o arquivo. A dashboard tentará novamente com o mesmo vídeo.', createdIds, 502);
+  }
+  throw stepError('cover', 'O TikTok processou o vídeo, mas ainda não devolveu uma capa automática pública. A dashboard tentará novamente com o mesmo vídeo.', createdIds, 502);
 }
 
 function pixelEventRows(out, pixelId) {
@@ -3765,13 +3872,13 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   let campaignId = String(createdIds.campaignId || '');
   try {
     if (!createdIds.videoId) {
+      await report('upload');
       createdIds.videoId = await uploadVideoAndWait(adv, videoUrl, createdIds);
-      await report('validating');
     }
     if (!createdIds.coverImageId) {
+      await report('cover');
       const videoAsset = await getUploadedVideoAsset(adv, createdIds.videoId, createdIds);
-      createdIds.coverImageId = await uploadImage(adv, videoAsset.coverUrl, createdIds);
-      await report('validating');
+      createdIds.coverImageId = await uploadImage(adv, videoAsset.coverUrl, createdIds, { tikTokGenerated: true });
     }
 
     // 1) Campanha PRODUCT_SALES (catálogo)
@@ -4034,5 +4141,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, pickCatalogCarouselMusic, getUploadedVideoAsset, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
 };

@@ -9,7 +9,9 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CatalogQuickCampaignsDialog } from './catalog-quick-campaigns-dialog'
 
 const STAGES: Record<string, string> = {
-  queued: 'Na fila', validating: 'Validando pré-requisitos', creating_campaign: 'Criando campanha',
+  queued: 'Na fila', validating: 'Validando pré-requisitos',
+  upload: 'Processando vídeo', cover: 'Preparando capa do vídeo',
+  creating_campaign: 'Criando campanha',
   creating_adgroup: 'Criando conjunto', creating_ad: 'Criando anúncio',
   verifying_entities: 'Verificando a hierarquia', ready_paused: 'Pronta e pausada',
   waiting_tiktok_confirmation: 'Confirmando no TikTok',
@@ -72,6 +74,10 @@ function RunCard({
     : []
   const failed = run.status === 'partial' || run.status === 'failed'
   const canResume = failed && run.error?.retryable !== false
+  const onlyVideoPrepared = Boolean(run.createdIds.videoId && !run.createdIds.campaignId)
+  const runStatusLabel = run.status === 'partial' && onlyVideoPrepared
+    ? 'Vídeo preparado'
+    : RUN_STATUS[run.status]
 
   async function action(kind: 'resume' | 'cleanup') {
     setActionBusy(true)
@@ -99,7 +105,7 @@ function RunCard({
             </p>
             <p className="mt-1 text-[10px] text-muted-foreground">{scopeLabel}{budgetLabel ? ` · ${budgetLabel}` : ''}</p>
           </div>
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{RUN_STATUS[run.status]}</span>
+          <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{runStatusLabel}</span>
         </div>
         {verificationLabels.length > 0 && (
           <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-success/20 bg-success/5 p-2 text-[10px] leading-relaxed text-success">
@@ -118,11 +124,20 @@ function RunCard({
             {run.createdIds.campaignId && <button type="button" className="btn-ghost !py-1.5 text-xs text-error" onClick={() => setConfirmCleanup(true)} disabled={actionBusy}><Trash2 className="size-3.5" /> Excluir parcial</button>}
           </div>
         )}
-        {(run.createdIds.campaignId || verificationLabels.length > 0 || warnings.length > 0) && (
+        {(run.error || run.createdIds.videoId || run.createdIds.coverImageId || run.createdIds.campaignId || verificationLabels.length > 0 || warnings.length > 0) && (
           <details className="mt-2 rounded-lg border border-border/70 px-2.5 py-2 text-[10px] text-muted-foreground">
             <summary className="cursor-pointer font-medium">Detalhes técnicos</summary>
+            {run.error && (
+              <p className="mt-2 break-words">
+                Erro {run.error.code} · {run.error.message}
+                {run.error.providerRequestId ? ` · Solicitação ${run.error.providerRequestId}` : ''}
+              </p>
+            )}
+            {(run.createdIds.videoId || run.createdIds.coverImageId) && (
+              <p className="mt-1 break-all">Vídeo {run.createdIds.videoId || '—'} · Capa {run.createdIds.coverImageId || 'aguardando'}</p>
+            )}
             {(run.createdIds.campaignId || run.createdIds.adGroupId || run.createdIds.adId) && (
-              <p className="mt-2 break-all">Campanha {run.createdIds.campaignId || '—'} · Conjunto {run.createdIds.adGroupId || '—'} · Anúncio {run.createdIds.adId || '—'}</p>
+              <p className="mt-1 break-all">Campanha {run.createdIds.campaignId || '—'} · Conjunto {run.createdIds.adGroupId || '—'} · Anúncio {run.createdIds.adId || '—'}</p>
             )}
             {verificationLabels.length > 0 && <p className="mt-1">Verificado: {verificationLabels.join(' · ')}</p>}
             {warnings.length > 0 && <ul className="mt-1 list-disc space-y-0.5 pl-4">{warnings.map((warning, index) => <li key={`${warning}:${index}`}>{warning}</li>)}</ul>}

@@ -134,6 +134,51 @@ async function main() {
     } finally { harness.restore(); }
   }
 
+  console.log('catalog-campaign-worker — capa é retomada automaticamente sem reenviar vídeo');
+  {
+    const updates = [];
+    const harness = withWorker({
+      store: {
+        enabled: true,
+        async getCatalog() { return catalog({ approved: 4, pending: 0 }); },
+        async listProducts() { return [{ valid: true, updatedAt: '2026-07-21T10:00:00.000Z' }]; },
+        async updateCampaignRun(_acc, _run, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
+      },
+      provider: {
+        enabled: true,
+        async getCatalogCapabilities() { return { catalogSingleVideoCampaign: true }; },
+        async createCatalogCampaign() {
+          const error = new Error('capa ainda não propagou');
+          error.step = 'cover';
+          error.retryable = true;
+          error.createdIds = { videoId: 'video_preservado' };
+          throw error;
+        },
+      },
+    });
+    try {
+      await harness.worker.processRun({
+        id: 'run_cover', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1',
+        asset_attempts: 0, verify_attempts: 5,
+        created_ids: { videoId: 'video_preservado' }, spec: {},
+      });
+      eq(updates.at(-1).status, 'retrying', 'capa transitória volta para a fila em vez de virar parcial');
+      eq(updates.at(-1).patch.stage, 'cover', 'etapa de capa permanece explícita');
+      eq(updates.at(-1).patch.createdIds.videoId, 'video_preservado', 'videoId é reutilizado');
+      eq(updates.at(-1).patch.assetAttempts, 1, 'tentativa de asset fica persistida separadamente');
+      ok(!Object.prototype.hasOwnProperty.call(updates.at(-1).patch, 'verifyAttempts'), 'retry da capa não consome tentativas de readback');
+      ok(Boolean(updates.at(-1).patch.nextRetryAt), 'retry recebe backoff durável');
+
+      await harness.worker.processRun({
+        id: 'run_cover_exhausted', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1',
+        asset_attempts: 6, verify_attempts: 0,
+        created_ids: { videoId: 'video_preservado' }, spec: {},
+      });
+      eq(updates.at(-1).status, 'partial', 'somente o limite de assets esgotado exige ação manual');
+      ok(/Clique em Retomar/.test(updates.at(-1).patch.error.suggestedAction), 'limite esgotado não promete outro retry automático');
+    } finally { harness.restore(); }
+  }
+
   console.log('catalog-campaign-worker — hidrata catálogo remoto antes de criar');
   {
     const updates = [];

@@ -117,6 +117,82 @@ function completeSchemas() {
   await throws(() => provider.createCatalogCampaign('123', { ...base, pixelId: '7550683248272228369', pixelEvent: 'INVALID' }), 400, 'rejeita evento inventado');
   await throws(() => provider.createCatalogCampaign('123', { ...base, pixelId: '7550683248272228369', videoUrl: '' }), 400, 'exige vídeo');
 
+  console.log('Provider — capa automática segura');
+  {
+    const { normalizePublicImageUrl, normalizeTikTokCoverUrl } = provider._internals;
+    const signed = 'http://p16-common-sign.tiktokcdn.com/capa.image?x-signature=a%2Fb';
+    const secure = normalizeTikTokCoverUrl(signed);
+    ok(secure.startsWith('https://p16-common-sign.tiktokcdn.com/capa.image?'), 'URL HTTP do CDN TikTok é elevada para HTTPS');
+    ok(new URL(secure).search === new URL(signed).search, 'assinatura da capa é preservada byte a byte');
+    ok(normalizeTikTokCoverUrl('//p16-common-sign.tiktokcdn.com/capa.jpg') === 'https://p16-common-sign.tiktokcdn.com/capa.jpg', 'URL protocol-relative do TikTok ganha HTTPS');
+    ok(normalizeTikTokCoverUrl('https://cdn.test/capa.jpg') === '', 'capa automática fora do CDN TikTok é rejeitada');
+    ok(normalizePublicImageUrl('https://cdn.test/capa.jpg') === 'https://cdn.test/capa.jpg', 'capa manual HTTPS do Smart+ permanece compatível');
+    ok(normalizeTikTokCoverUrl('http://cdn.test/capa.jpg') === '', 'HTTP arbitrário não é elevado');
+    ok(normalizeTikTokCoverUrl('https://127.0.0.1.nip.io/capa.jpg') === '', 'host público sintético para loopback é rejeitado na capa automática');
+    ok(normalizeTikTokCoverUrl('https://169.254.169.254.nip.io/meta') === '', 'host público sintético para metadata é rejeitado na capa automática');
+    ok(normalizeTikTokCoverUrl('http://tiktokcdn.com.evil.test/capa.jpg') === '', 'sufixo falso de TikTok é rejeitado');
+    ok(normalizeTikTokCoverUrl('http://p16-common-sign.tiktokcdn.com./capa.jpg') === '', 'hostname ambíguo com ponto final é rejeitado');
+    ok(normalizeTikTokCoverUrl('http://127.0.0.1/capa.jpg') === '', 'loopback nunca vira capa pública');
+    ok(normalizeTikTokCoverUrl('http://169.254.169.254/meta') === '', 'rede privada nunca chega ao uploader');
+    ok(normalizeTikTokCoverUrl('https://[::ffff:127.0.0.1]/capa.jpg') === '', 'IPv6 mapeado para loopback é rejeitado');
+    ok(normalizeTikTokCoverUrl('https://[::ffff:169.254.169.254]/meta') === '', 'IPv6 mapeado para link-local é rejeitado');
+    ok(normalizeTikTokCoverUrl('https://[2001:db8::1]/capa.jpg') === '', 'todo IP literal IPv6 é rejeitado');
+    ok(normalizeTikTokCoverUrl('data:image/png;base64,abc') === '', 'protocolo não HTTP é rejeitado');
+    ok(normalizeTikTokCoverUrl('https://user:pass@cdn.test/capa.jpg') === '', 'credenciais embutidas são rejeitadas');
+    ok(normalizeTikTokCoverUrl('https://cdn.test:8443/capa.jpg') === '', 'porta não padrão é rejeitada');
+    ok(normalizeTikTokCoverUrl('http://p16-common-sign.tiktokcdn.com/capa.jpg\nignorado') === '', 'controles e espaços não entram na URL assinada');
+
+    const { inspectUploadedVideoAsset } = provider._internals;
+    const processing = inspectUploadedVideoAsset([{
+      video_id: 'video_1', displayable: false, status: 'NOT_READY',
+      video_cover_url: signed,
+    }], 'video_1');
+    ok(!processing.displayable && Boolean(processing.coverUrl), 'capa não antecipa vídeo ainda em processamento');
+    const divergent = inspectUploadedVideoAsset([{
+      video_id: 'outro_video', displayable: true,
+      video_cover_url: signed,
+    }], 'video_1');
+    ok(!divergent.row, 'resposta de outro vídeo nunca é usada como fallback');
+    const ready = inspectUploadedVideoAsset([{
+      video_id: 'video_1', displayable: true,
+      video_cover_url: signed,
+    }], 'video_1');
+    ok(ready.displayable && ready.coverUrl.startsWith('https://'), 'vídeo correto só avança quando estiver pronto e com capa segura');
+  }
+
+  console.log('Provider — falha de transporte mantém a etapa retomável');
+  {
+    const pipeboard = require('../pipeboard-mcp');
+    const original = pipeboard.callTool;
+    try {
+      pipeboard.callTool = async () => {
+        const error = new Error('gateway temporariamente indisponível');
+        error.status = 502;
+        throw error;
+      };
+      for (const [label, call, expectedStep] of [
+        ['upload do vídeo', () => provider._internals.uploadVideoAndWait('adv_1', 'https://cdn.test/video.mp4', {}), 'upload'],
+        ['consulta da capa', () => provider._internals.getUploadedVideoAsset('adv_1', 'video_1', { videoId: 'video_1' }), 'cover'],
+        ['upload da imagem', () => provider._internals.uploadImage('adv_1', 'https://cdn.test/capa.jpg', { videoId: 'video_1' }), 'cover'],
+      ]) {
+        try {
+          await call();
+          ok(false, label + ' deveria falhar');
+        } catch (error) {
+          ok(error.step === expectedStep, label + ' preserva a etapa ' + expectedStep);
+          ok(error.createdIds && (expectedStep !== 'cover' || error.createdIds.videoId === 'video_1'), label + ' preserva IDs para retry');
+        }
+      }
+      await throws(
+        () => provider._internals.uploadImage('adv_1', 'http://cdn.test/capa.jpg', {}),
+        400,
+        'capa manual do Smart+ continua erro de validação, não erro transitório',
+      );
+    } finally {
+      pipeboard.callTool = original;
+    }
+  }
+
   console.log('Provider — composição vídeo de catálogo');
   {
     const src = fs.readFileSync(path.join(__dirname, '..', 'ads-provider.js'), 'utf8');
@@ -128,6 +204,7 @@ function completeSchemas() {
     ok(/placement_type: 'PLACEMENT_TYPE_NORMAL'/.test(body) && /placements: \['PLACEMENT_TIKTOK'\]/.test(body), 'envia placement explícito exigido pelo TikTok');
     ok(/const AD_FORMAT = 'SINGLE_VIDEO'/.test(body), 'usa SINGLE_VIDEO');
     ok(/vertical_video_strategy: 'SINGLE_VIDEO'/.test(body), 'envia a estratégia vertical obrigatória');
+    ok(/await report\('upload'\)/.test(body) && /await report\('cover'\)/.test(body), 'progresso mostra upload e capa durante a primeira tentativa');
     ok(/video_id: createdIds\.videoId/.test(body), 'envia o vídeo processado');
     ok(/image_ids: \[createdIds\.coverImageId\]/.test(body), 'envia a capa automática');
     ok(/product_specific_type/.test(body), 'envia o escopo de produtos exigido pelo TikTok');

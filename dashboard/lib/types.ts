@@ -1841,9 +1841,17 @@ export interface AdsCatalogCampaignRun {
   status: 'queued' | 'waiting_connector_confirmation' | 'waiting_catalog_review' | 'waiting_tiktok_confirmation' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
   stage: string
   spec: Record<string, unknown>
-  createdIds: { campaignId?: string; adGroupId?: string; adId?: string }
+  createdIds: {
+    videoId?: string
+    coverImageId?: string
+    campaignId?: string
+    adGroupId?: string
+    adId?: string
+    identityId?: string
+  }
   result: Record<string, unknown> | null
   error: AdsCatalogStructuredError | null
+  assetAttempts: number
   verifyAttempts: number
   nextRetryAt: string | null
   createdAt: string

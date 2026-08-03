@@ -71,6 +71,11 @@ function throwsCode(fn, code, label) {
   ok(readiness.readyForCampaign, 'catálogo remoto vinculado não depende de cópias locais para escopo ALL');
 
   console.log('Domínio — contrato explícito da campanha');
+  const coverError = new Error('URL técnica inválida');
+  coverError.step = 'cover';
+  const serializedCover = domain.serializeCatalogError(coverError);
+  eq(serializedCover.userMessage, 'O vídeo foi enviado, mas a capa automática ainda não ficou pronta.', 'erro de capa explica o estado real sem mensagem genérica');
+  ok(/mesmo vídeo/.test(serializedCover.suggestedAction), 'erro de capa orienta a não reenviar o arquivo');
   const input = {
     name: 'Catálogo manual', budgetAmount: 50, productScope: 'specific',
     productIds: ['SKU-local'], pixelId: '7550683248272228369',
@@ -150,7 +155,9 @@ function throwsCode(fn, code, label) {
   const store = fs.readFileSync(path.join(__dirname, '..', 'ads-catalog-store.js'), 'utf8');
   ok(/CREATE TABLE IF NOT EXISTS ads_catalog_sync_runs/.test(store), 'schema contém jobs de sincronização');
   ok(/CREATE TABLE IF NOT EXISTS ads_catalog_campaign_runs/.test(store), 'schema contém jobs da hierarquia de campanha');
+  ok(/asset_attempts integer NOT NULL DEFAULT 0/.test(store), 'retry de vídeo/capa tem contador durável próprio');
   ok(/FOR UPDATE SKIP LOCKED/.test(store), 'workers reivindicam jobs sem corrida');
+  ok(/status = 'retrying'[\s\S]+next_retry_at <= now\(\)/.test(store), 'backoff de asset é respeitado antes de reivindicar o job');
   ok(/END >= \$\{TIKTOK_MIN_APPROVED_PRODUCTS\}/.test(store), 'promoção da fila só ocorre com quatro produtos aprovados');
   ok(/resumeSyncRun/.test(store) && /resumeCampaignRun/.test(store), 'falhas podem ser retomadas');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
@@ -168,6 +175,9 @@ function throwsCode(fn, code, label) {
   ok(/CatalogCampaignWizard/.test(manager), 'UI usa assistente da campanha completa');
   const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
   ok(/catalogSingleVideoCampaign === true/.test(manager) && /const connectorReady = capabilities\?\.catalogSingleVideoCampaign === true/.test(wizard), 'UI condiciona criação ao schema atual do Pipeboard');
+  ok(/cover: 'Preparando capa do vídeo'/.test(wizard), 'UI mostra a etapa automática da capa');
+  ok(/Vídeo preparado/.test(wizard) && /run\.createdIds\.videoId/.test(wizard), 'UI distingue vídeo preservado de campanha parcial');
+  ok(/run\.error\.code/.test(wizard) && /run\.error\.message/.test(wizard) && /providerRequestId/.test(wizard), 'detalhes técnicos preservam a causa real para diagnóstico');
   ok(/catalog\.linkStatus === 'verified'/.test(manager) && /Vínculo com erro/.test(manager), 'UI não anuncia vínculo quebrado como catálogo publicado');
   ok(/Revisão concluída com reprovações/.test(manager) && /pending > 0/.test(manager), 'UI não chama produtos reprovados de produtos em análise');
   ok(/label: 'Sem produtos'/.test(manager) && /label: 'Vinculado'/.test(manager), 'lista separa vínculo remoto de catálogo pronto');

@@ -14,7 +14,7 @@ const reviewCheckedAt = new Map();
 const REVIEW_REFRESH_MS = 60 * 1000;
 let connectorCheckedAt = 0;
 const CONNECTOR_REFRESH_MS = 60 * 1000;
-const VERIFY_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
+const RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
 
 function hasVerifiedProductLinkHierarchy(result) {
   const value = result || {};
@@ -135,7 +135,7 @@ async function processRun(row) {
     }
     const completed = await store.updateCampaignRun(accountId, runId, 'completed', {
       stage: 'ready_paused', createdIds: result, result,
-      verifyAttempts: 0, nextRetryAt: null,
+      assetAttempts: 0, verifyAttempts: 0, nextRetryAt: null,
     });
     await adsOps.appendAuditEvent(accountId, {
       actorType: 'user', actorId: accountId, action: 'catalog_campaign.completed',
@@ -148,18 +148,39 @@ async function processRun(row) {
   } catch (err) {
     const createdIds = (err && err.createdIds) || row.created_ids || {};
     const structured = serializeCatalogError(err, err && err.step);
+    const failedStage = String(structured.stage || err && err.step || '').toLowerCase();
+    // Vídeo e capa são assets idempotentes. Falhas transitórias nessa fase
+    // nunca devem exigir outro upload nem intervenção do usuário: o videoId é
+    // preservado e o mesmo run volta com backoff antes de criar a campanha.
+    const assetPending = !createdIds.campaignId
+      && structured.retryable !== false
+      && ['upload', 'cover'].includes(failedStage);
+    if (assetPending) {
+      const assetAttempt = Math.max(0, Number(row.asset_attempts) || 0) + 1;
+      const assetDelay = RETRY_DELAYS_MS[assetAttempt - 1];
+      if (assetDelay != null) {
+        await store.updateCampaignRun(accountId, runId, 'retrying', {
+          stage: failedStage, createdIds, error: structured,
+          assetAttempts: assetAttempt,
+          nextRetryAt: new Date(Date.now() + assetDelay).toISOString(),
+          release: true,
+        });
+        return null;
+      }
+      structured.suggestedAction = 'As tentativas automáticas terminaram. Clique em Retomar para reutilizar o mesmo vídeo e tentar novamente.';
+    }
     const hierarchyCreated = Boolean(createdIds.campaignId && createdIds.adGroupId && createdIds.adId);
     const verificationPending = hierarchyCreated
       && structured.retryable !== false
-      && String(structured.stage || err && err.step || '').toLowerCase() === 'verify';
+      && failedStage === 'verify';
     if (verificationPending) {
-      const attempt = Math.max(0, Number(row.verify_attempts) || 0) + 1;
-      const delay = VERIFY_RETRY_DELAYS_MS[attempt - 1];
-      if (delay != null) {
+      const verifyAttempt = Math.max(0, Number(row.verify_attempts) || 0) + 1;
+      const verifyDelay = RETRY_DELAYS_MS[verifyAttempt - 1];
+      if (verifyDelay != null) {
         await store.updateCampaignRun(accountId, runId, 'waiting_tiktok_confirmation', {
           stage: 'verifying_entities', createdIds, error: structured,
-          verifyAttempts: attempt,
-          nextRetryAt: new Date(Date.now() + delay).toISOString(),
+          verifyAttempts: verifyAttempt,
+          nextRetryAt: new Date(Date.now() + verifyDelay).toISOString(),
           release: true,
         });
         return null;
