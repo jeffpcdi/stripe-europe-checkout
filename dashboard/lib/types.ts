@@ -1794,6 +1794,7 @@ export interface AdsCatalogStructuredError {
   message: string
   userMessage: string
   retryable: boolean
+  safeAutomaticRetry?: boolean
   suggestedAction: string | null
   providerRequestId: string | null
   createdIds: Record<string, string> | null
@@ -1848,10 +1849,12 @@ export interface AdsCatalogCampaignRun {
     adGroupId?: string
     adId?: string
     identityId?: string
+    campaignName?: string
   }
   result: Record<string, unknown> | null
   error: AdsCatalogStructuredError | null
   assetAttempts: number
+  creationAttempts: number
   verifyAttempts: number
   nextRetryAt: string | null
   createdAt: string

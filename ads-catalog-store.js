@@ -188,6 +188,7 @@ async function ensureSchema() {
       UNIQUE (account_id, idempotency_key)
     )`;
     await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS asset_attempts integer NOT NULL DEFAULT 0`;
+    await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS creation_attempts integer NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS verify_attempts integer NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS next_retry_at timestamptz`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_campaign_runs_idx ON ads_catalog_campaign_runs (account_id, catalog_id, created_at DESC)`;
@@ -743,6 +744,7 @@ function mapCampaignRun(row) {
     status: row.status, stage: row.stage, spec: row.spec || {}, createdIds: row.created_ids || {},
     result: row.result || null, error: row.error || null,
     assetAttempts: Number(row.asset_attempts) || 0,
+    creationAttempts: Number(row.creation_attempts) || 0,
     verifyAttempts: Number(row.verify_attempts) || 0, nextRetryAt: row.next_retry_at || null,
     createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || null,
   };
@@ -1037,6 +1039,7 @@ async function updateCampaignRun(accountId, runId, status, patch) {
   const value = patch || {};
   const terminal = ['completed', 'partial', 'failed', 'cancelled'].includes(status);
   const hasAssetAttempts = Object.prototype.hasOwnProperty.call(value, 'assetAttempts');
+  const hasCreationAttempts = Object.prototype.hasOwnProperty.call(value, 'creationAttempts');
   const hasVerifyAttempts = Object.prototype.hasOwnProperty.call(value, 'verifyAttempts');
   const hasNextRetryAt = Object.prototype.hasOwnProperty.call(value, 'nextRetryAt');
   const rows = await sql`UPDATE ads_catalog_campaign_runs SET
@@ -1045,6 +1048,7 @@ async function updateCampaignRun(accountId, runId, status, patch) {
     result = COALESCE(${value.result ? JSON.stringify(value.result) : null}::jsonb, result),
     error = ${value.error ? JSON.stringify(value.error) : null},
     asset_attempts = CASE WHEN ${hasAssetAttempts} THEN ${Math.max(0, Number(value.assetAttempts) || 0)} ELSE asset_attempts END,
+    creation_attempts = CASE WHEN ${hasCreationAttempts} THEN ${Math.max(0, Number(value.creationAttempts) || 0)} ELSE creation_attempts END,
     verify_attempts = CASE WHEN ${hasVerifyAttempts} THEN ${Math.max(0, Number(value.verifyAttempts) || 0)} ELSE verify_attempts END,
     next_retry_at = CASE WHEN ${hasNextRetryAt} THEN ${value.nextRetryAt || null} ELSE next_retry_at END,
     locked_at = ${terminal || value.release ? null : new Date().toISOString()},
@@ -1061,7 +1065,7 @@ async function resumeCampaignRun(accountId, advertiserId, runId) {
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalog_campaign_runs SET status = 'queued',
     stage = CASE WHEN created_ids ? 'adGroupId' THEN 'creating_ad' WHEN created_ids ? 'campaignId' THEN 'creating_adgroup' ELSE 'validating' END,
-    error = null, asset_attempts = 0, verify_attempts = 0, next_retry_at = null,
+    error = null, asset_attempts = 0, creation_attempts = 0, verify_attempts = 0, next_retry_at = null,
     locked_at = null, locked_by = null, completed_at = null, updated_at = now()
     WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
       AND id = ${String(runId)} AND status IN ('partial','failed') RETURNING *`;

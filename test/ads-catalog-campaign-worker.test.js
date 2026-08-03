@@ -179,6 +179,51 @@ async function main() {
     } finally { harness.restore(); }
   }
 
+  console.log('catalog-campaign-worker — só repete escritas inequivocamente seguras');
+  {
+    const updates = [];
+    let mode = 'rate_limit';
+    const harness = withWorker({
+      store: {
+        enabled: true,
+        async getCatalog() { return catalog({ approved: 4, pending: 0 }); },
+        async listProducts() { return [{ valid: true, updatedAt: '2026-07-21T10:00:00.000Z' }]; },
+        async updateCampaignRun(_acc, _run, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
+      },
+      provider: {
+        enabled: true,
+        async getCatalogCapabilities() { return { catalogSingleVideoCampaign: true }; },
+        async createCatalogCampaign() {
+          const error = new Error(mode === 'rate_limit'
+            ? 'TikTok rate limit: too many requests'
+            : 'Pipeboard MCP: tempo limite excedido');
+          error.step = 'campaign';
+          error.retryable = true;
+          error.safeAutomaticRetry = mode === 'rate_limit';
+          error.createdIds = { videoId: 'video_1', coverImageId: 'cover_1', campaignName: 'Campanha 01' };
+          throw error;
+        },
+      },
+    });
+    try {
+      await harness.worker.processRun({
+        id: 'run_rate_limit', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1',
+        creation_attempts: 0, created_ids: { videoId: 'video_1', coverImageId: 'cover_1' }, spec: {},
+      });
+      eq(updates.at(-1).status, 'retrying', 'rate limit anterior à escrita recebe retry automático');
+      eq(updates.at(-1).patch.creationAttempts, 1, 'tentativa de criação tem contador próprio');
+      ok(Boolean(updates.at(-1).patch.nextRetryAt), 'retry seguro recebe backoff durável');
+
+      mode = 'timeout';
+      await harness.worker.processRun({
+        id: 'run_timeout', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1',
+        creation_attempts: 0, created_ids: { videoId: 'video_1', coverImageId: 'cover_1' }, spec: {},
+      });
+      eq(updates.at(-1).status, 'partial', 'timeout ambíguo não repete create cegamente');
+      ok(!Object.prototype.hasOwnProperty.call(updates.at(-1).patch, 'creationAttempts'), 'timeout não consome nem agenda tentativa insegura');
+    } finally { harness.restore(); }
+  }
+
   console.log('catalog-campaign-worker — hidrata catálogo remoto antes de criar');
   {
     const updates = [];

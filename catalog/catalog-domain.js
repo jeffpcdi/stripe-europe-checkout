@@ -1,5 +1,7 @@
 'use strict';
 
+const { classifyCatalogCreationError } = require('./catalog-campaign-safety');
+
 const CAMPAIGN_STAGES = Object.freeze([
   'queued', 'validating', 'upload', 'cover', 'creating_campaign', 'creating_adgroup', 'creating_ad',
   'verifying_entities', 'ready_paused', 'partial', 'failed', 'cancelled',
@@ -34,14 +36,16 @@ function catalogError(code, userMessage, options) {
 function serializeCatalogError(err, fallbackStage) {
   const value = err || {};
   const stage = value.step || fallbackStage || 'failed';
+  const classified = classifyCatalogCreationError(value);
   return {
-    code: String(value.code || ('CATALOG_' + String(stage).toUpperCase() + '_FAILED')).slice(0, 120),
+    code: String(value.code || classified.code || ('CATALOG_' + String(stage).toUpperCase() + '_FAILED')).slice(0, 120),
     stage,
     message: String(value.message || 'erro inesperado').slice(0, 500),
-    userMessage: String(value.userMessage || humanizeStage(stage)).slice(0, 500),
-    retryable: value.retryable !== false,
-    suggestedAction: value.suggestedAction || suggestedAction(stage),
-    providerRequestId: value.providerRequestId || null,
+    userMessage: String(value.userMessage || classified.userMessage || humanizeStage(stage)).slice(0, 500),
+    retryable: value.retryable !== undefined ? value.retryable !== false : classified.retryable !== false,
+    safeAutomaticRetry: value.safeAutomaticRetry === true || classified.safeAutomaticRetry === true,
+    suggestedAction: value.suggestedAction || classified.suggestedAction || suggestedAction(stage),
+    providerRequestId: value.providerRequestId || classified.providerRequestId || null,
     createdIds: value.createdIds || null,
   };
 }

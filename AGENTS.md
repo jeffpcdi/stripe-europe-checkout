@@ -409,6 +409,16 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `PRODUCT_SALES`, catálogo `7668025884561000213`, `CATALOG+VIDEO`, Pixel/evento
   `7565659074893791250/SHOPPING`, `SINGLE_VIDEO`, escopo `ALL`, `landing_page_url=null`
   e `DISABLE` nos três níveis.
+  A criação também consulta todos os nomes do advertiser antes de escrever:
+  `catalog/catalog-campaign-safety.js` incrementa o sufixo numérico
+  (`ecom — VSA 01` → primeiro número livre) e, se outra instância ocupar o nome
+  entre preflight e create, repete somente a campanha com o próximo nome. O nome
+  efetivo entra em `created_ids.campaignName` antes da escrita e aparece no cartão
+  do run. O mesmo módulo classifica a causa semântica dos erros de criação — nunca
+  decide só pelo código genérico 40002 — e preserva o request_id. Rate limit,
+  agenda inválida e indisponibilidade explicitamente anterior à escrita usam
+  `creation_attempts` com backoff durável; timeout/rede ambíguos nunca repetem um
+  create cegamente. Matriz de manutenção: `docs/TIKTOK-CATALOG-CAMPAIGN-ERRORS.md`.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
   **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação

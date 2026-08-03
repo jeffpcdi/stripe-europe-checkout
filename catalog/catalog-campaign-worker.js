@@ -135,7 +135,7 @@ async function processRun(row) {
     }
     const completed = await store.updateCampaignRun(accountId, runId, 'completed', {
       stage: 'ready_paused', createdIds: result, result,
-      assetAttempts: 0, verifyAttempts: 0, nextRetryAt: null,
+      assetAttempts: 0, creationAttempts: 0, verifyAttempts: 0, nextRetryAt: null,
     });
     await adsOps.appendAuditEvent(accountId, {
       actorType: 'user', actorId: accountId, action: 'catalog_campaign.completed',
@@ -168,6 +168,28 @@ async function processRun(row) {
         return null;
       }
       structured.suggestedAction = 'As tentativas automáticas terminaram. Clique em Retomar para reutilizar o mesmo vídeo e tentar novamente.';
+    }
+    // Somente recusas inequivocamente anteriores à escrita (rate limit,
+    // agenda inválida e indisponibilidade declarada pelo TikTok) podem repetir
+    // um create automaticamente. Timeout/rede são ambíguos e ficam fora para
+    // nunca duplicar uma entidade que talvez tenha sido criada sem resposta.
+    const expectedIdMissing = (failedStage === 'campaign' && !createdIds.campaignId)
+      || (failedStage === 'adgroup' && createdIds.campaignId && !createdIds.adGroupId)
+      || (failedStage === 'ad' && createdIds.campaignId && createdIds.adGroupId && !createdIds.adId);
+    const creationPending = structured.safeAutomaticRetry === true && expectedIdMissing;
+    if (creationPending) {
+      const creationAttempt = Math.max(0, Number(row.creation_attempts) || 0) + 1;
+      const creationDelay = RETRY_DELAYS_MS[creationAttempt - 1];
+      if (creationDelay != null) {
+        await store.updateCampaignRun(accountId, runId, 'retrying', {
+          stage: failedStage, createdIds, error: structured,
+          creationAttempts: creationAttempt,
+          nextRetryAt: new Date(Date.now() + creationDelay).toISOString(),
+          release: true,
+        });
+        return null;
+      }
+      structured.suggestedAction = 'As tentativas automáticas seguras terminaram. Retome para revalidar os dados antes de uma nova criação.';
     }
     const hierarchyCreated = Boolean(createdIds.campaignId && createdIds.adGroupId && createdIds.adId);
     const verificationPending = hierarchyCreated

@@ -45,7 +45,9 @@ function RunCard({
   const active = ACTIVE_STATUSES.includes(run.status)
   const [confirmCleanup, setConfirmCleanup] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
-  const campaignName = String(run.spec.name || 'Campanha sem nome')
+  const requestedCampaignName = String(run.spec.name || 'Campanha sem nome')
+  const campaignName = String(run.result?.name || run.createdIds.campaignName || requestedCampaignName)
+  const campaignWasRenamed = campaignName !== requestedCampaignName
   const scope = String(run.spec.productScope || 'all')
   const ids = Array.isArray(run.spec.productIds) ? run.spec.productIds : []
   const scopeLabel = scope === 'specific'
@@ -99,6 +101,9 @@ function RunCard({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold text-foreground" title={campaignName}>{campaignName}</p>
+            {campaignWasRenamed && (
+              <p className="mt-0.5 text-[10px] text-primary">Nome ajustado automaticamente para não duplicar</p>
+            )}
             <p className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
               {active ? <Loader2 className="size-3.5 animate-spin text-primary" /> : run.status === 'completed' ? <Check className="size-3.5 text-success" /> : <AlertCircle className="size-3.5 text-error" />}
               {STAGES[run.stage] || run.stage}

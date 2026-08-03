@@ -22,6 +22,12 @@ const config = require('./config');
 const net = require('net');
 const { SPARK_GOALS, TIKTOK_MIN_BUDGET } = require('./ads-contracts');
 const { TIKTOK_PIXEL_EVENTS } = require('./catalog/catalog-domain');
+const {
+  MAX_CAMPAIGN_NAME_LENGTH,
+  MAX_NAME_ATTEMPTS,
+  nextAvailableCampaignName,
+  isCampaignNameConflict,
+} = require('./catalog/catalog-campaign-safety');
 const { isPublicDownloadHostname } = require('./ads-storage');
 
 // ── Estado por conta (multi-tenant) ──────────────────────────────────────────
@@ -985,7 +991,9 @@ function clampTikTokBudget(value, warnings, label) {
 
 function isTransientTikTokWriteError(err) {
   const message = String(err && err.message || '');
-  return /could not acquire ip/i.test(message) || (/40002/.test(message) && /try again later|temporar/i.test(message));
+  return Number(err && err.status) === 429
+    || /could not acquire ip/i.test(message)
+    || (/40002/.test(message) && /try again later|temporar/i.test(message));
 }
 
 async function callTikTokWriteWithRetry(toolName, args, onRetry) {
@@ -1002,6 +1010,88 @@ async function callTikTokWriteWithRetry(toolName, args, onRetry) {
     }
   }
   throw lastError;
+}
+
+async function catalogCampaignNames(advertiserId) {
+  try {
+    const campaigns = await getCampaigns(advertiserId, { pageSize: 1000 });
+    return campaigns.map((campaign) => String(campaign && campaign.name || '').trim()).filter(Boolean);
+  } catch (_) {
+    // A listagem é uma proteção antecipada. Se ela estiver indisponível, a
+    // escrita continua protegida pelo tratamento específico de nome duplicado
+    // devolvido pelo próprio TikTok.
+    return [];
+  }
+}
+
+async function createUniqueCatalogCampaignEntity(advertiserId, requestedName, baseArgs, options) {
+  const opts = options || {};
+  const warnings = Array.isArray(opts.warnings) ? opts.warnings : [];
+  const requested = String(requestedName || '').trim().slice(0, MAX_CAMPAIGN_NAME_LENGTH);
+  const existing = Array.isArray(opts.existingNames)
+    ? opts.existingNames.slice()
+    : await catalogCampaignNames(advertiserId);
+  const initial = String(opts.initialName || '').trim().slice(0, MAX_CAMPAIGN_NAME_LENGTH);
+  let effective = initial && !existing.some((name) => normalizedCampaignName(name) === normalizedCampaignName(initial))
+    ? initial
+    : nextAvailableCampaignName(requested, existing, MAX_CAMPAIGN_NAME_LENGTH);
+  if (effective !== requested && opts.announceInitialRename !== false) {
+    warnings.push('Nome "' + requested + '" já existia — campanha renomeada automaticamente para "' + effective + '"');
+  }
+  if (typeof opts.onName === 'function') await opts.onName(effective);
+
+  let lastError;
+  for (let attempt = 0; attempt < MAX_NAME_ATTEMPTS; attempt += 1) {
+    try {
+      const output = await callTikTokWriteWithRetry(
+        'create_tiktok_campaign',
+        { ...baseArgs, campaign_name: effective },
+        opts.onTransientRetry,
+      );
+      return { output, name: effective };
+    } catch (err) {
+      lastError = err;
+      if (!isCampaignNameConflict(err)) throw err;
+      existing.push(effective);
+      const next = nextAvailableCampaignName(requested, existing, MAX_CAMPAIGN_NAME_LENGTH);
+      warnings.push('O nome "' + effective + '" foi ocupado durante a criação — nova tentativa automática como "' + next + '"');
+      effective = next;
+      if (typeof opts.onName === 'function') await opts.onName(effective);
+    }
+  }
+  if (lastError) {
+    lastError.code = 'CATALOG_CAMPAIGN_NAME_EXHAUSTED';
+    lastError.userMessage = 'Não foi possível reservar um nome de campanha disponível.';
+    lastError.suggestedAction = 'Tente novamente; a dashboard consultará os nomes atuais antes de criar.';
+    lastError.retryable = true;
+  }
+  throw lastError || stepError('campaign', 'Não foi possível reservar um nome de campanha disponível');
+}
+
+function normalizedCampaignName(value) {
+  return String(value || '').trim().normalize('NFKC').toLocaleLowerCase('pt-BR');
+}
+
+function assertAdvertiserCanCreateCatalogCampaign(info) {
+  const status = String(info && info.healthStatus || 'unknown');
+  if (!['banned', 'limited', 'in_review'].includes(status)) return;
+  const err = stepError(
+    'campaign',
+    status === 'banned'
+      ? 'A conta de anúncio está suspensa no TikTok.'
+      : status === 'in_review'
+        ? 'A conta de anúncio ainda está em análise no TikTok.'
+        : 'A conta de anúncio está limitada no TikTok.',
+    null,
+    409,
+  );
+  err.code = status === 'banned'
+    ? 'CATALOG_ACCOUNT_SUSPENDED'
+    : status === 'in_review' ? 'CATALOG_ACCOUNT_IN_REVIEW' : 'CATALOG_ACCOUNT_LIMITED';
+  err.userMessage = err.message;
+  err.retryable = false;
+  err.suggestedAction = 'Escolha uma conta aprovada ou resolva o estado da conta antes de criar. Nenhum recurso foi enviado.';
+  throw err;
 }
 
 // ISO country codes → location_ids do TikTok. O TikTok NÃO aceita "PT"/"BR"
@@ -3855,6 +3945,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     explicitIdentity ? Promise.resolve([explicitIdentity]) : listAdIdentityCandidates(adv, bcId),
     resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
   ]);
+  assertAdvertiserCanCreateCatalogCampaign(info);
   if (!identityCandidates.length) {
     await pickAdIdentity(adv, bcId); // lança o erro orientativo padronizado
   }
@@ -3871,6 +3962,23 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   };
   let campaignId = String(createdIds.campaignId || '');
   try {
+    let effectiveCampaignName = String(createdIds.campaignName || '').trim();
+    let campaignNamesBeforeCreate = null;
+    if (!campaignId) {
+      const existingNames = await catalogCampaignNames(adv);
+      campaignNamesBeforeCreate = existingNames;
+      const requestedName = String(s.name).trim().slice(0, MAX_CAMPAIGN_NAME_LENGTH);
+      effectiveCampaignName = nextAvailableCampaignName(
+        effectiveCampaignName || requestedName,
+        existingNames,
+        MAX_CAMPAIGN_NAME_LENGTH,
+      );
+      if (effectiveCampaignName !== requestedName) {
+        warnings.push('Nome "' + requestedName + '" já existia — reservado automaticamente como "' + effectiveCampaignName + '"');
+      }
+      createdIds.campaignName = effectiveCampaignName;
+      await report('validating');
+    }
     if (!createdIds.videoId) {
       await report('upload');
       createdIds.videoId = await uploadVideoAndWait(adv, videoUrl, createdIds);
@@ -3884,7 +3992,6 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     // 1) Campanha PRODUCT_SALES (catálogo)
     const campArgs = {
       advertiser_id: adv,
-      campaign_name: String(s.name).slice(0, 512),
       objective_type: 'PRODUCT_SALES',
       product_source: 'CATALOG',
       shopping_ads_type: SHOPPING_TYPE,
@@ -3898,7 +4005,26 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     }
     await report('creating_campaign');
     if (!campaignId) {
-      const campOut = await callTikTokWriteWithRetry('create_tiktok_campaign', campArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'));
+      const created = await createUniqueCatalogCampaignEntity(
+        adv,
+        String(s.name),
+        campArgs,
+        {
+          warnings,
+          existingNames: campaignNamesBeforeCreate,
+          initialName: effectiveCampaignName,
+          announceInitialRename: false,
+          onName: async (name) => {
+            effectiveCampaignName = name;
+            createdIds.campaignName = name;
+            await report('creating_campaign');
+          },
+          onTransientRetry: () => warnings.push('Instabilidade temporária do TikTok ao criar a campanha — nova tentativa automática'),
+        },
+      );
+      const campOut = created.output;
+      effectiveCampaignName = created.name;
+      createdIds.campaignName = effectiveCampaignName;
       campaignId = String(deepPluck(campOut, 'campaign_id') || '');
       if (!campaignId) throw stepError('campaign', 'create_tiktok_campaign não retornou campaign_id');
       createdIds.campaignId = campaignId;
@@ -3911,7 +4037,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     const agArgs = {
       advertiser_id: adv,
       campaign_id: campaignId,
-      adgroup_name: String(s.name).slice(0, 500) + ' — grupo 1',
+      adgroup_name: String(effectiveCampaignName || s.name).slice(0, 500) + ' — grupo 1',
       promotion_type: 'WEBSITE',
       shopping_ads_type: SHOPPING_TYPE,
       shopping_ads_retargeting_type: 'OFF',
@@ -3948,7 +4074,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     const adArgs = {
       advertiser_id: adv,
       adgroup_id: adGroupId,
-      ad_name: String(s.name).slice(0, 500),
+      ad_name: String(effectiveCampaignName || s.name).slice(0, 500),
       ad_format: AD_FORMAT,
       vertical_video_strategy: 'SINGLE_VIDEO',
       video_id: createdIds.videoId,
@@ -4052,7 +4178,13 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     warnings.push('Vídeo de catálogo criado e confirmado em PAUSA — o áudio vem do criativo e cada produto usa seu Link');
     cacheBust('tree:');
     await report('ready_paused');
-    return { ...createdIds, name: s.name, warnings, verification };
+    return {
+      ...createdIds,
+      name: effectiveCampaignName || s.name,
+      requestedName: String(s.name),
+      warnings,
+      verification,
+    };
   } catch (err) {
     // Órfã não pode ficar entregável: pausa best-effort e devolve o passo.
     if (campaignId) {
@@ -4141,5 +4273,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
 };
