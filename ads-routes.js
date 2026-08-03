@@ -2848,17 +2848,35 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
-  // Business Center usado para os catálogos desta conta. O TikTok prende
-  // catálogos ao BC (não ao advertiser) e não há tool para listar BCs — então o
-  // usuário informa o ID uma vez (persistido) ou vem do env TIKTOK_BC_ID.
+  // Business Center usado para os catálogos desta conta. Quando ainda não há
+  // seleção, descobrimos os BCs pelas identidades BC_AUTH_TT autorizadas. Uma
+  // única opção é vinculada automaticamente; múltiplas opções ficam na UI.
   app.get('/api/ads/catalogs/business-center', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
       const advertiserId = await catalogAdvertiserId(req);
+      let bcId = pipeboard.getBusinessCenterId(req.account.id, advertiserId) || '';
+      let candidates = [];
+      let autoDetected = false;
+      let discoveryError = false;
+      if (!bcId && pipeboard.enabled) {
+        try {
+          candidates = await pipeboard.listCatalogBusinessCenters(advertiserId);
+          if (candidates.length === 1) {
+            bcId = pipeboard.setBusinessCenterId(req.account.id, advertiserId, candidates[0].id);
+            autoDetected = true;
+          }
+        } catch (_) {
+          discoveryError = true;
+        }
+      }
       res.json({
         enabled: pipeboard.enabled,
-        bcId: pipeboard.getBusinessCenterId(req.account.id, advertiserId) || '',
+        bcId,
         fromEnv: pipeboard.businessCenterFromEnv(req.account.id, advertiserId),
+        autoDetected,
+        discoveryError,
+        candidates,
       });
     } catch (err) { fail(res, err); }
   });

@@ -145,7 +145,16 @@ export function CatalogManager({
   return (
     <div className="flex flex-col gap-3">
       {(!bc?.bcId || !selectedId) && (
-        <BusinessCenterBar advertiserId={advertiserId} bcId={bc?.bcId ?? ''} fromEnv={Boolean(bc?.fromEnv)} onChanged={mutateBc} />
+        <BusinessCenterBar
+          advertiserId={advertiserId}
+          bcId={bc?.bcId ?? ''}
+          fromEnv={Boolean(bc?.fromEnv)}
+          autoDetected={Boolean(bc?.autoDetected)}
+          discoveryError={Boolean(bc?.discoveryError)}
+          candidates={bc?.candidates ?? []}
+          loading={bc === undefined}
+          onChanged={mutateBc}
+        />
       )}
       {selectedId ? (
         <CatalogDetail
@@ -183,17 +192,25 @@ export function CatalogManager({
 }
 
 // ── Business Center (obrigatório para publicar no TikTok) ──────────────────
-// O TikTok prende catálogos ao Business Center, não ao advertiser, e não há
-// API para listar BCs — então o usuário informa o ID uma vez (persistido).
+// A dashboard descobre o BC pelas identidades BC_AUTH_TT. Digitar o ID fica
+// restrito à recuperação avançada quando o TikTok não devolve nenhuma opção.
 function BusinessCenterBar({
   advertiserId,
   bcId,
   fromEnv,
+  autoDetected,
+  discoveryError,
+  candidates,
+  loading,
   onChanged,
 }: {
   advertiserId: string
   bcId: string
   fromEnv: boolean
+  autoDetected: boolean
+  discoveryError: boolean
+  candidates: { id: string; identityCount: number; label?: string }[]
+  loading: boolean
   onChanged: () => void
 }) {
   const [editing, setEditing] = useState(false)
@@ -201,11 +218,11 @@ function BusinessCenterBar({
   const [busy, setBusy] = useState(false)
   const configured = Boolean(bcId)
 
-  async function save() {
+  async function save(selectedId = value.trim()) {
     setBusy(true)
     try {
-      await apiSend(adsCatalogApiUrl('/api/ads/catalogs/business-center', advertiserId), 'POST', { bcId: value.trim() })
-      toast.success('Business Center salvo')
+      await apiSend(adsCatalogApiUrl('/api/ads/catalogs/business-center', advertiserId), 'POST', { bcId: selectedId })
+      toast.success('Conexão TikTok pronta')
       setEditing(false)
       onChanged()
     } catch (e) {
@@ -224,7 +241,7 @@ function BusinessCenterBar({
             <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
           </summary>
           <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
-            <code className="truncate text-[11px] text-muted-foreground">Business Center {bcId}{fromEnv ? ' · servidor' : ''}</code>
+            <code className="truncate text-[11px] text-muted-foreground">Business Center {bcId}{fromEnv ? ' · servidor' : autoDetected ? ' · detectado automaticamente' : ''}</code>
             <button type="button" className="btn-ghost text-xs" onClick={() => { setValue(bcId); setEditing(true) }}>
               <Pencil className="size-3.5" aria-hidden="true" /> Alterar
             </button>
@@ -232,22 +249,45 @@ function BusinessCenterBar({
         </details>
       )
     }
-    return (
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3">
-        <div className="flex min-w-0 items-center gap-2 text-xs">
-          <Building2 className={`size-4 ${configured ? 'text-primary' : 'text-muted-foreground'}`} aria-hidden="true" />
-          <span className="text-pretty text-muted-foreground">Configure uma vez para publicar catálogos no TikTok.</span>
+    if (loading) {
+      return (
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-background p-3 text-xs text-muted-foreground">
+          <Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" /> Detectando a conexão TikTok
         </div>
-        <button
-          type="button"
-          className="btn-primary text-xs"
-          onClick={() => {
-            setValue(bcId)
-            setEditing(true)
-          }}
-        >
-          <Building2 className="size-3.5" aria-hidden="true" /> Configurar
-        </button>
+      )
+    }
+    if (candidates.length > 1) {
+      return (
+        <div className="rounded-xl border border-border bg-background p-3">
+          <p className="text-xs font-medium text-foreground">Escolha a organização deste catálogo</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">O TikTok devolveu mais de um Business Center autorizado para esta conta.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {candidates.map((candidate) => (
+              <button key={candidate.id} type="button" className="btn-ghost text-xs" onClick={() => save(candidate.id)} disabled={busy}>
+                <Building2 className="size-3.5" aria-hidden="true" /> {candidate.label || candidate.id}
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div className="rounded-xl border border-warning/30 bg-warning/5 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2 text-xs">
+            <Building2 className="size-4 text-warning" aria-hidden="true" />
+            <span className="text-pretty text-muted-foreground">{discoveryError ? 'Não foi possível detectar a organização agora.' : 'Nenhuma organização autorizada foi encontrada nesta conta.'}</span>
+          </div>
+          <button type="button" className="btn-ghost text-xs" onClick={onChanged}>
+            <RefreshCw className="size-3.5" aria-hidden="true" /> Tentar novamente
+          </button>
+        </div>
+        <details className="mt-2 border-t border-warning/20 pt-2">
+          <summary className="cursor-pointer text-[10px] font-medium text-muted-foreground">Recuperação avançada</summary>
+          <button type="button" className="btn-ghost mt-2 text-xs" onClick={() => { setValue(''); setEditing(true) }}>
+            Informar ID do Business Center
+          </button>
+        </details>
       </div>
     )
   }
@@ -269,15 +309,14 @@ function BusinessCenterBar({
         />
       </label>
       <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-        Encontre em <strong className="text-foreground">TikTok Business Center → Configurações</strong>: o ID
-        numérico aparece na URL (<code className="rounded bg-secondary px-1 py-0.5">bc_id=…</code>) e nos detalhes
-        da conta. É o mesmo BC que contém sua conta de anúncio.
+        Use somente se a detecção automática não encontrar a organização correta. O ID deve pertencer ao mesmo
+        Business Center que autorizou a identidade e o catálogo desta conta de anúncios.
       </p>
       <div className="flex items-center justify-end gap-2">
         <button type="button" className="btn-ghost text-xs" onClick={() => setEditing(false)} disabled={busy}>
           Cancelar
         </button>
-        <button type="button" className="btn-primary text-xs" onClick={save} disabled={busy}>
+        <button type="button" className="btn-primary text-xs" onClick={() => save()} disabled={busy}>
           {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
           Salvar
         </button>
@@ -465,7 +504,6 @@ function CatalogDetail({
   onBack: () => void
   onDeleted: () => void
 }) {
-  const campaignCreateSupported = catalogCapabilities?.catalogSingleVideoCampaign === true
   const { data, mutate, isLoading, error: detailError } = useAdsCatalogDetail(catalogId, advertiserId)
   const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId, advertiserId)
   const { data: readinessData, mutate: mutateReadiness, isLoading: readinessLoading } = useAdsCatalogReadiness(catalogId, advertiserId)
@@ -485,8 +523,8 @@ function CatalogDetail({
     { kind: 'catalog'; name: string } | { kind: 'product'; id: string; name: string } | null
   >(null)
   const [deleting, setDeleting] = useState(false)
-  // Quando o publish automático falha (502/BC/permissão), destacamos o caminho
-  // garantido: baixar o CSV e subir manualmente no Catalog Manager.
+  // Quando a sincronização falha, preservamos o estado e oferecemos retomada
+  // automática sem obrigar o usuário a reconstruir o catálogo no TikTok.
   const [publishFailed, setPublishFailed] = useState(false)
   const [publishFailureHint, setPublishFailureHint] = useState('')
   // A cadeia do TikTok roda em 2º plano; enquanto true, acompanhamos o log de
@@ -605,8 +643,8 @@ function CatalogDetail({
   async function handleSyncTiktok() {
     if (syncLockRef.current) return
     if (!bcConfigured) {
-      toast.info('Produto salvo, mas ainda não publicado', {
-        hint: 'Configure o Business Center no topo da aba para publicar no TikTok.',
+      toast.info('A conexão TikTok ainda está sendo resolvida', {
+        hint: 'Tente a detecção novamente no topo da aba. Seus produtos continuam salvos.',
       })
       return
     }
@@ -693,7 +731,7 @@ function CatalogDetail({
         if (!res.ok) throw new Error(`Erro ${res.status}`)
         if (!cancelled) await Promise.all([mutate(), mutateReadiness()])
       } catch {
-        // Falha silenciosa no polling: o botão manual continua disponível e
+        // Falha silenciosa no polling: a atualização sob demanda continua disponível e
         // evita uma sequência de toasts por instabilidade temporária da API.
         if (!cancelled) setAutoChecking(false)
       }
@@ -834,7 +872,7 @@ function CatalogDetail({
           <CatalogReadinessCard
             readiness={readinessData?.readiness}
             loading={readinessLoading}
-            onAction={readinessData?.readiness.nextAction === 'create_campaign' && !campaignCreateSupported
+            onAction={readinessData?.readiness.nextAction === 'create_campaign'
               ? undefined
               : handleReadinessAction}
           />
@@ -905,13 +943,12 @@ function CatalogDetail({
             </div>
           </details>
 
-          {/* Aviso: BC não configurado bloqueia a publicação no TikTok */}
+          {/* A ausência de BC bloqueia a publicação, mas nunca perde produtos. */}
           {!bcConfigured && (
             <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-[11px] text-muted-foreground">
               <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
               <span className="text-pretty">
-                Configure o <strong className="text-foreground">Business Center</strong> para enviar direto ao TikTok.
-                Sem ele, o <strong className="text-foreground">feed manual</strong> continua disponível.
+                A conexão com a organização TikTok ainda não foi detectada. Tente novamente no topo; seus produtos permanecem salvos.
               </span>
             </div>
           )}
@@ -1198,7 +1235,7 @@ function TiktokStatusPanel({
         {catalogSynced
           ? catalogCampaignSupported
             ? `Campanhas usarão somente estes ${total} produtos confirmados, com o Link individual de cada item.`
-            : 'Vínculo e produtos confirmados. Você já pode preparar a campanha; o envio continuará sozinho quando o conector aceitar o vídeo Product Link completo, sem URL manual.'
+            : 'Vínculo e produtos confirmados. A criação ficará disponível assim que o conector confirmar todos os campos exigidos; nenhuma estrutura incompleta será enviada.'
           : rejected > 0
             ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
             : productsNotConfirmed

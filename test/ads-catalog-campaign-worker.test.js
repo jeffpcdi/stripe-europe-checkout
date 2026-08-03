@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 const workerPath = require.resolve('../catalog/catalog-campaign-worker');
 const storePath = require.resolve('../ads-catalog-store');
@@ -55,6 +57,14 @@ function withWorker(stubs) {
 }
 
 async function main() {
+  console.log('catalog-campaign-worker — transporte não pode congelar a confirmação');
+  {
+    const transport = fs.readFileSync(path.join(__dirname, '..', 'pipeboard-mcp.js'), 'utf8');
+    ok(/async function responseText\(res\)/.test(transport), 'corpo MCP possui leitura protegida');
+    ok(/clearTimeout\(res && res\.__pipeboardTimer\)/.test(transport), 'timeout só é limpo depois do corpo');
+    ok(!/clearTimeout\(timer\);\s*return res;/.test(transport), 'headers não desarmam o timeout prematuramente');
+  }
+
   console.log('catalog-campaign-worker — espera a revisão sem criar anúncio');
   {
     const updates = [];
@@ -143,7 +153,7 @@ async function main() {
           await options.onProgress({ stage: 'creating_campaign', createdIds: { campaignId: 'camp_1' } });
           return {
             campaignId: 'camp_1', adGroupId: 'group_1', adId: 'ad_1',
-            verification: { complete: true, hierarchy: true, productLink: true, noManualUrl: true, paused: true },
+            verification: { complete: true, hierarchy: true, productLink: true, targeting: true, identity: true, creative: true, noManualUrl: true, paused: true },
           };
         },
       },
@@ -162,7 +172,7 @@ async function main() {
     } finally { harness.restore(); }
   }
 
-  console.log('catalog-campaign-worker — IDs sem confirmação Product Link ficam parciais');
+  console.log('catalog-campaign-worker — confirmação tardia é retomada sem duplicação');
   {
     const updates = [];
     const harness = withWorker({
@@ -181,11 +191,17 @@ async function main() {
       },
     });
     try {
-      await harness.worker.processRun({ id: 'run_inconclusive', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1', spec: {} });
-      eq(updates.at(-1).status, 'partial', 'resultado inconclusivo não é marcado como concluído');
-      eq(updates.at(-1).patch.stage, 'verify', 'falha é atribuída à verificação');
+      await harness.worker.processRun({ id: 'run_inconclusive', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1', verify_attempts: 0, spec: {} });
+      eq(updates.at(-1).status, 'waiting_tiktok_confirmation', 'resultado inconclusivo aguarda o readback sem recriar');
+      eq(updates.at(-1).patch.stage, 'verifying_entities', 'etapa continua na verificação');
       eq(updates.at(-1).patch.error.code, 'CATALOG_PRODUCT_LINK_NOT_VERIFIED', 'erro preserva o motivo semântico');
       eq(updates.at(-1).patch.createdIds.adId, 'ad_unsafe', 'IDs existentes são preservados para pausa/retomada segura');
+      eq(updates.at(-1).patch.verifyAttempts, 1, 'tentativa de confirmação fica persistida');
+      ok(Boolean(updates.at(-1).patch.nextRetryAt), 'próxima leitura recebe backoff durável');
+
+      await harness.worker.processRun({ id: 'run_exhausted', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1', verify_attempts: 6, spec: {} });
+      eq(updates.at(-1).status, 'partial', 'só esgota em parcial depois do limite de confirmações');
+      eq(updates.at(-1).patch.stage, 'verify', 'falha final continua atribuída à verificação');
     } finally { harness.restore(); }
   }
 

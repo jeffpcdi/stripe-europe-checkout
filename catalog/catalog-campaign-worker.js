@@ -14,6 +14,7 @@ const reviewCheckedAt = new Map();
 const REVIEW_REFRESH_MS = 60 * 1000;
 let connectorCheckedAt = 0;
 const CONNECTOR_REFRESH_MS = 60 * 1000;
+const VERIFY_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
 
 function hasVerifiedProductLinkHierarchy(result) {
   const value = result || {};
@@ -23,6 +24,9 @@ function hasVerifiedProductLinkHierarchy(result) {
     && verification.complete === true
     && verification.hierarchy === true
     && verification.productLink === true
+    && verification.targeting === true
+    && verification.identity === true
+    && verification.creative === true
     && verification.noManualUrl === true
     && verification.paused === true,
   );
@@ -131,6 +135,7 @@ async function processRun(row) {
     }
     const completed = await store.updateCampaignRun(accountId, runId, 'completed', {
       stage: 'ready_paused', createdIds: result, result,
+      verifyAttempts: 0, nextRetryAt: null,
     });
     await adsOps.appendAuditEvent(accountId, {
       actorType: 'user', actorId: accountId, action: 'catalog_campaign.completed',
@@ -143,9 +148,27 @@ async function processRun(row) {
   } catch (err) {
     const createdIds = (err && err.createdIds) || row.created_ids || {};
     const structured = serializeCatalogError(err, err && err.step);
+    const hierarchyCreated = Boolean(createdIds.campaignId && createdIds.adGroupId && createdIds.adId);
+    const verificationPending = hierarchyCreated
+      && structured.retryable !== false
+      && String(structured.stage || err && err.step || '').toLowerCase() === 'verify';
+    if (verificationPending) {
+      const attempt = Math.max(0, Number(row.verify_attempts) || 0) + 1;
+      const delay = VERIFY_RETRY_DELAYS_MS[attempt - 1];
+      if (delay != null) {
+        await store.updateCampaignRun(accountId, runId, 'waiting_tiktok_confirmation', {
+          stage: 'verifying_entities', createdIds, error: structured,
+          verifyAttempts: attempt,
+          nextRetryAt: new Date(Date.now() + delay).toISOString(),
+          release: true,
+        });
+        return null;
+      }
+    }
     const status = Object.keys(createdIds).length ? 'partial' : 'failed';
     await store.updateCampaignRun(accountId, runId, status, {
       stage: structured.stage || status, createdIds, error: structured,
+      nextRetryAt: null,
     });
     await adsOps.appendAuditEvent(accountId, {
       actorType: 'system', actorId: workerId, action: 'catalog_campaign.failed',

@@ -100,7 +100,7 @@ function parseApiError(status: number, data: unknown): ApiError {
   if (!msg) {
     if (status === 502 || status === 503 || status === 504) {
       msg = 'O servidor ou o TikTok demorou a responder'
-      hint = hint || 'Tente de novo em instantes. Se persistir, use "Baixar CSV" e suba o catálogo manualmente.'
+      hint = hint || 'Tente novamente em instantes. A dashboard preservou os dados e não criará estruturas incompletas.'
     } else if (status >= 500) {
       msg = 'Erro no servidor'
       hint = hint || 'Tente de novo; se continuar, reporte o horário para investigarmos.'

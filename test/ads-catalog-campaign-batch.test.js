@@ -68,7 +68,7 @@ console.log('Dialog — lote rápido sem CSV nem configuração repetida');
 {
   const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-quick-campaigns-dialog.tsx'), 'utf8');
   ok(/adsCreateCatalogCampaignBatch/.test(dialog), 'dialog chama o endpoint de lote');
-  ok(/COUNT_PRESETS = \[5, 10, 25, 50\]/.test(dialog), 'atalhos de quantidade 5/10/25/50');
+  ok(/COUNT_PRESETS = \[1, 5, 10, 25, 50\]/.test(dialog), 'começa simples e mantém atalhos de escala 1/5/10/25/50');
   ok(/tudo nasce pausado/.test(dialog), 'resumo deixa claro que tudo nasce pausado');
   ok(!/<textarea/.test(dialog) && !/buildCatalogBatchPlan/.test(dialog), 'nenhum CSV/colagem é exigido no Modo Turbo');
   ok(/productScope: 'all'/.test(dialog), 'escopo automático: todos os produtos do catálogo');
@@ -78,7 +78,7 @@ console.log('Dialog — lote rápido sem CSV nem configuração repetida');
   ok(/idempotencyKey/.test(dialog), 'envia chave de idempotência (retry seguro)');
   const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
   ok(/CatalogQuickCampaignsDialog/.test(wizard), 'lote vive junto das campanhas do catálogo, sem poluir a lista');
-  ok(/open=\{supported && batchOpen\}/.test(wizard), 'dialog só abre quando o conector confirma Product Link');
+  ok(/open=\{connectorReady && dialogOpen\}/.test(wizard), 'modal único só abre quando o conector confirma Product Link');
   const routes = fs.readFileSync(path.join(__dirname, '..', 'ads-routes.js'), 'utf8');
   ok(/resolveCatalogPurchaseEvent\(advertiserId, pixel\.pixelId\)[\s\S]*pixelId: pixel\.pixelId[\s\S]*pixelEvent/.test(routes), 'backend injeta o Pixel central e o evento de Compra real antes de normalizar');
 }

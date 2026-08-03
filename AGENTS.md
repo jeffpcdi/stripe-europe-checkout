@@ -44,6 +44,8 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
   `localhost`, redes privadas e `*.internal` retornam vazio; a publicação falha antes de qualquer
   upload com `PUBLIC_ORIGIN_REQUIRED`. Em produção, configure `PRIMARY_HOST`.
 - **Serviços externos:** TikTok Events API (`business-api.tiktok.com/open_api/v1.3`), Pipeboard, Anthropic e Pushcut.
+- **Transporte Pipeboard:** o timeout de 60s cobre headers **e o corpo/SSE inteiro**; nunca limpe o
+  `AbortController` antes de `res.text()`, ou um stream incompleto congela o worker durável.
 - **Presença ao vivo:** usa polling HTTP `/api/pulse`; não há dependência de WebSocket no runtime.
 
 ## 3. Deploy e ambientes
@@ -128,10 +130,17 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Campanhas com escopo `ALL` podem então usar somente os produtos que o próprio TikTok confirmou;
   não reconstroem a seleção com IDs locais. Sucesso da campanha exige leitura dos três níveis
   (campanha → conjunto → anúncio), todos pausados, com o catálogo correto, `PRODUCT_LINK` e sem URL manual.
+  Como o readback do TikTok pode atrasar depois da escrita, os três IDs entram em
+  `waiting_tiktok_confirmation`: `verify_attempts`/`next_retry_at` aplicam backoff durável sem recriar
+  campanha, conjunto, anúncio ou vídeo. Só depois de seis confirmações inconclusivas o run vira parcial.
 - **ads-provider.js + ads-routes.js** — toda criação automática regular, Smart+ e de catálogo só usa
   identidade `BC_AUTH_TT` com `identity_bc_id` e dark post habilitado; nunca escolhe
   `CUSTOMIZED_USER`/`TT_USER`/`AUTH_CODE` automaticamente. Duplicação pré-valida esse fallback antes
-  de criar a campanha. A árvore e o editor carregam `catalogId`/`websiteType`; se for `PRODUCT_LINK`,
+  de criar a campanha. Catálogo tenta primeiro identidades BC com perfil nomeado e, se o TikTok disser
+  que o acesso foi revogado, percorre automaticamente as demais identidades autorizadas do mesmo BC.
+  O conjunto envia e confirma `PLACEMENT_TYPE_NORMAL`, `PLACEMENT_TIKTOK` e as localizações; o mapper
+  aceita `location_ids` na raiz do readback real. `dark_post_status` pode não voltar na leitura, mas,
+  quando voltar, precisa ser `ON`. A árvore e o editor carregam `catalogId`/`websiteType`; se for `PRODUCT_LINK`,
   não exibem nem aceitam `landing_page_url` (inclusive por API), pois o destino é o `Link` de cada produto.
   O produto é exclusivamente de **conversão**: criação comum, Smart+ e Spark usam TikTok placement,
   evento `ON_WEB_ORDER` e campanhas pausadas; objetivos de tráfego/alcance/leads/engajamento são
@@ -378,13 +387,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `waiting_catalog_review` e só é promovida após auditoria aprovar o catálogo. Assim o lote pode ser
   preparado agora, mas nenhum fallback com URL global é criado nem anúncio é enviado antes da confirmação
   explícita do schema Pipeboard.
-  **Estado observado do Pipeboard neste token (verificação real em 2026-07-29):** campanha
-  `PRODUCT_SALES`, conjunto `shopping_ads_type=VIDEO`, catálogo, Pixel, evento `SHOPPING`, região e
-  pausa funcionaram. O vídeo vertical foi enviado e a capa criada, mas `create_tiktok_ad` ainda não
-  declara/repassa `vertical_video_strategy`; sem ele o TikTok rejeita o anúncio. Portanto
-  `catalogSingleVideoCampaign=false` e os jobs ficam aguardando antes da primeira campanha. Feedback
-  Pipeboard `c0fbf9e8-9641-4bec-8998-70b48e8d28ac` pediu criação e readback desse campo. Revalidar as
-  capabilities a cada 60s; nunca degradar para Smart+, carousel, vídeo comum com URL global ou etapa manual.
+  **Estado observado do Pipeboard neste token (verificação real em 2026-08-03):** o schema vivo
+  declara `vertical_video_strategy=SINGLE_VIDEO` no contrato textual do campo, aceita a configuração
+  regional obrigatória `catalog_conf={region_code,currency}` para `catalog_type=ECOM` e expõe os
+  readbacks dos três níveis. A capability só aceita o token exato `SINGLE_VIDEO` (texto genérico de
+  pass-through falha fechado) e revalida a cada 60s. Catálogo temporário ECOM/BR/BRL foi criado e
+  removido pela mesma API para confirmar o contrato; nunca degradar para Smart+, carousel, vídeo comum
+  com URL global ou etapa manual.
   Duplicação também normaliza orçamentos legados abaixo de 50 e repete automaticamente o erro
   transitório TikTok 40002 “Could not acquire IP”; outros 40002 continuam falhando sem retry cego.
   **UI Next do lote de catálogos:** a prévia pode validar os dados locais, mas o botão de criação
@@ -393,16 +402,19 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Product Link/análise, ignoradas e com falha. Quando `catalogSingleVideoCampaign=false`, o hook de
   capabilities reconsulta em baixa frequência (60s) para remover o banner sem exigir reload; os
   cards de run exibem nome, escopo, orçamento, avisos e a verificação final completa. Polling de campanha
-  usa 4s em execução, 15s aguardando análise, 60s aguardando o conector e para em estado terminal.
-  Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
+  usa 4s em execução, 15s aguardando análise/readback, 60s aguardando o conector e para em estado terminal.
+  O Business Center é descoberto pelas identidades `BC_AUTH_TT`: uma única opção é persistida
+  automaticamente, múltiplas viram uma escolha na própria tela e o ID manual fica só na recuperação
+  avançada. Salvar/corrigir o BC no cartão de conexão revalida também o estado pai.
   O parser do lote exige a coluna `marca`/`brand` e envia `brand` por produto; valor ausente bloqueia
   a prévia com as linhas exatas, pois a marca real é obrigatória no TikTok e nunca deve ser inferida.
   Ao preparar campanhas, a rota injeta o Pixel central vinculado à conta de anúncio e consulta
   `get_tiktok_pixel_event_stats` por sete dias para escolher Compra; planilha, wizard e lote rápido
   não pedem Pixel/evento repetidamente.
-  No wizard dedicado, a tela principal pede vídeo, nome e orçamento; todos os produtos aprovados,
-  Pixel, Compra, identidade e capa são resolvidos automaticamente. Texto e CTA ficam em detalhes
-  avançados. O orçamento é sempre exibido na moeda da conta de anúncio (não na moeda do feed);
+  No wizard dedicado há uma única ação “Criar campanhas”; o modal pede somente quantidade, orçamento
+  e vídeo, começa em uma campanha e aceita até 50. Todos os produtos aprovados, nomes ordenados, Pixel,
+  Compra, identidade, capa e Product Link são resolvidos automaticamente; o áudio vem do vídeo.
+  O orçamento é sempre exibido na moeda da conta de anúncio (não na moeda do feed);
   comparações de IDs normalizam string/número para não cair na moeda de uma campanha antiga.
   A tabela técnica de produtos locais fica recolhida por padrão e explicita separadamente o total
   salvo na dashboard e o total confirmado no TikTok. Avisos do run ficam visíveis e falhas não retomáveis oferecem apenas a limpeza da
@@ -410,9 +422,9 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   dashboard aparecem como uma diferença não destrutiva e nunca entram em uma campanha `ALL`.
   Duplicar um produto gera novo `sku_id` **e** novo `item_group_id`, evitando que a cópia herde o
   agrupador do original. Sem `catalogSingleVideoCampaign`, nada é enviado ao TikTok.
-  O lote rápido (`POST /api/ads/catalogs/:catalogId/campaign-batch`, máximo 50) vive no cartão
-  “Campanhas deste catálogo”, pede vídeo, quantidade e orçamento, gera nomes ordenados e cria runs
-  duráveis idempotentes. Ele só abre com `catalogSingleVideoCampaign=true`; não polui a lista de catálogos.
+  O endpoint de lote (`POST /api/ads/catalogs/:catalogId/campaign-batch`, máximo 50) atende essa única
+  ação do cartão “Campanhas deste catálogo”, gera nomes ordenados e cria runs duráveis idempotentes.
+  O modal só abre com `catalogSingleVideoCampaign=true`; não existe formulário concorrente na tela.
   Nomes diferentes que geram a mesma key normalizada bloqueiam a prévia com nomes e linhas, em vez
   de fundir produtos silenciosamente. A idempotency key do wizard é preservada entre timeout/retry e
   só muda após sucesso ou alteração material do formulário. Runs

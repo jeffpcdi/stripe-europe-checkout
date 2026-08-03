@@ -256,7 +256,9 @@ function mapAdGroup(g) {
     billingEvent: textField(row.billing_event, row.billingEvent),
     placementType: textField(row.placement_type, row.placementType),
     placements: Array.isArray(row.placements) ? row.placements.map(String) : [],
-    targeting: row.targeting && typeof row.targeting === 'object' ? row.targeting : null,
+    targeting: row.targeting && typeof row.targeting === 'object'
+      ? row.targeting
+      : Array.isArray(row.location_ids) ? { location_ids: row.location_ids.map(String) } : null,
     scheduleType: textField(row.schedule_type, row.scheduleType),
     scheduleStartTime: textField(row.schedule_start_time, row.scheduleStartTime),
     scheduleEndTime: textField(row.schedule_end_time, row.scheduleEndTime),
@@ -342,6 +344,12 @@ function verifyCatalogProductLinkHierarchy(input) {
   const readItemGroupIds = (Array.isArray(ad.itemGroupIds) ? ad.itemGroupIds : []).map(String).sort();
   const skuIds = (Array.isArray(expected.skuIds) ? expected.skuIds : []).map(String).sort();
   const readSkuIds = (Array.isArray(ad.skuIds) ? ad.skuIds : []).map(String).sort();
+  const locationIds = (Array.isArray(expected.locationIds) ? expected.locationIds : []).map(String).sort();
+  const readTargeting = adGroup.targeting && typeof adGroup.targeting === 'object' ? adGroup.targeting : {};
+  const readLocationIds = (Array.isArray(readTargeting.location_ids)
+    ? readTargeting.location_ids
+    : Array.isArray(readTargeting.locationIds) ? readTargeting.locationIds : []).map(String).sort();
+  const readPlacements = (Array.isArray(adGroup.placements) ? adGroup.placements : []).map(String).sort();
   const hierarchy = Boolean(
     ids.campaign && ids.adGroup && ids.ad
     && campaign.id === ids.campaign
@@ -361,12 +369,20 @@ function verifyCatalogProductLinkHierarchy(input) {
   const targeting = Boolean(
     adGroup.pixelId === textField(expected.pixelId)
     && equalsEnum(adGroup.optimizationEvent, expected.pixelEvent)
+    && equalsEnum(adGroup.optimizationGoal, 'CONVERT')
+    && equalsEnum(adGroup.billingEvent, 'OCPM')
+    && equalsEnum(adGroup.placementType, 'PLACEMENT_TYPE_NORMAL')
+    && JSON.stringify(readPlacements) === JSON.stringify(['PLACEMENT_TIKTOK'])
+    && (!locationIds.length || JSON.stringify(readLocationIds) === JSON.stringify(locationIds))
   );
   const identity = Boolean(
     ad.identityId === textField(expected.identityId)
     && equalsEnum(ad.identityType, expected.identityType || 'BC_AUTH_TT')
     && ad.identityBcId === textField(expected.identityBcId || bcId)
-    && equalsEnum(ad.darkPostStatus, expected.darkPostStatus || 'ON')
+    // O readback atual não ecoa dark_post_status. Quando vier, precisa ser ON;
+    // quando omitido, a criação aceita + identidade BC_AUTH_TT comprovam que
+    // o TikTok aceitou o dark post enviado no request.
+    && (!ad.darkPostStatus || equalsEnum(ad.darkPostStatus, expected.darkPostStatus || 'ON'))
   );
   const creative = Boolean(
     equalsEnum(ad.adFormat, expected.adFormat)
@@ -1092,13 +1108,27 @@ function bcIdentityPayload(row) {
   };
 }
 
-async function pickAdIdentity(advertiserId, requiredBcId) {
+async function listAdIdentityCandidates(advertiserId, requiredBcId) {
   const out = await pipeboard.callTool('get_tiktok_identities', { advertiser_id: advertiserId });
   const list = firstArray(out, ['identities', 'identity_list', 'list', 'data']);
   const wantedBcId = String(requiredBcId || '').trim();
-  const bc = list.find((row) => usableBcIdentity(row)
+  const eligible = list.filter((row) => usableBcIdentity(row)
     && (!wantedBcId || identityBcIdOf(row) === wantedBcId));
-  if (bc) return bcIdentityPayload(bc);
+  // Identidades sem nome continuam válidas no contrato, mas o TikTok pode
+  // mantê-las na listagem depois que o acesso à conta foi revogado. Uma
+  // identidade com perfil resolvido é tentada primeiro.
+  eligible.sort((a, b) => {
+    const namedA = Boolean(textField(a.display_name, a.identity_name, a.username));
+    const namedB = Boolean(textField(b.display_name, b.identity_name, b.username));
+    return Number(namedB) - Number(namedA);
+  });
+  return eligible.map(bcIdentityPayload);
+}
+
+async function pickAdIdentity(advertiserId, requiredBcId) {
+  const candidates = await listAdIdentityCandidates(advertiserId, requiredBcId);
+  if (candidates.length) return candidates[0];
+  const wantedBcId = String(requiredBcId || '').trim();
   throw stepError(
     'identity',
     wantedBcId
@@ -2493,10 +2523,9 @@ async function createSparkAd(advertiserId, spec) {
 
 // ── Catálogos de produtos (TikTok Shopping / Dynamic Product Ads) ────────────
 // Fronteira sobre as tools de catálogo do Pipeboard. Todas exigem o Business
-// Center (bc_id): o TikTok prende catálogos ao BC, não ao advertiser. Não há
-// tool para LISTAR os BCs, então o bc_id é resolvido de: seleção persistida na
-// conta+advertiser (config.pipeboardAds.bcByAdvertiser) → valor legado da
-// conta (bcId) → env TIKTOK_BC_ID/PIPEBOARD_BC_ID.
+// Center (bc_id): o TikTok prende catálogos ao BC, não ao advertiser. O ID é
+// resolvido da seleção persistida e, quando ela não existe, das identidades
+// BC_AUTH_TT que o próprio TikTok devolve para a conta de anúncios.
 const ENV_DEFAULT_BC = String(process.env.TIKTOK_BC_ID || process.env.PIPEBOARD_BC_ID || '').trim();
 // Tipos aceitos pelo TikTok em create_tiktok_catalog (API atual). O antigo
 // PRODUCT_CATALOG/HOTEL_CATALOG/... foi descontinuado — mapeamos os legados
@@ -2542,6 +2571,29 @@ function setBusinessCenterId(accountId, advertiserId, bcId) {
   return clean;
 }
 
+async function listCatalogBusinessCenters(advertiserId) {
+  const adv = String(advertiserId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  const out = await pipeboard.callTool('get_tiktok_identities', { advertiser_id: adv });
+  const rows = firstArray(out, ['identities', 'identity_list', 'items', 'list', 'data']);
+  const centers = new Map();
+  for (const row of rows) {
+    if (String(row.identity_type || '').trim().toUpperCase() !== 'BC_AUTH_TT') continue;
+    const id = textField(row.identity_authorized_bc_id, row.identity_bc_id, row.bc_id);
+    if (!/^\d{6,30}$/.test(id)) continue;
+    const current = centers.get(id) || { id, identityCount: 0, labels: [] };
+    current.identityCount += 1;
+    const label = textField(row.display_name, row.identity_name, row.username);
+    if (label && !current.labels.includes(label)) current.labels.push(label);
+    centers.set(id, current);
+  }
+  return Array.from(centers.values()).map((center) => ({
+    id: center.id,
+    identityCount: center.identityCount,
+    label: center.labels.join(', ') || undefined,
+  }));
+}
+
 // Normaliza o overview de auditoria (get_tiktok_catalog_overview). Os nomes de
 // campo variam entre versões da API — plucka defensivamente aprovados/pendentes/
 // reprovados/total de qualquer forma que venham.
@@ -2577,6 +2629,7 @@ function normalizeCatalogFeeds(out) {
 }
 
 let catalogCapabilitiesCache = null;
+const CATALOG_CAPABILITIES_TTL_MS = 60 * 1000;
 
 // A automação de catálogo usa um contrato central diferente da criação comum.
 // Só a liberamos quando o schema MCP confirma os campos que tornam Product Link
@@ -2592,7 +2645,8 @@ const CATALOG_CAMPAIGN_SCHEMA_FIELDS = {
     'advertiser_id', 'campaign_id', 'adgroup_name', 'promotion_type',
     'shopping_ads_type', 'shopping_ads_retargeting_type', 'product_source',
     'catalog_id', 'catalog_authorized_bc_id', 'optimization_goal',
-    'billing_event', 'schedule_start_time', 'schedule_end_time', 'targeting',
+    'billing_event', 'placement_type', 'placements',
+    'schedule_start_time', 'schedule_end_time', 'targeting',
     'operation_status', 'pixel_id', 'optimization_event', 'budget_mode', 'budget',
     'bid_type', 'bid_price',
   ],
@@ -2610,7 +2664,7 @@ const CATALOG_CAMPAIGN_GUARANTEED_FIELDS = {
     'advertiser_id', 'campaign_id', 'adgroup_name', 'promotion_type', 'shopping_ads_type',
     'shopping_ads_retargeting_type', 'product_source',
     'catalog_id', 'catalog_authorized_bc_id', 'optimization_goal', 'billing_event',
-    'schedule_start_time', 'targeting', 'operation_status', 'pixel_id',
+    'placement_type', 'placements', 'schedule_start_time', 'targeting', 'operation_status', 'pixel_id',
     'optimization_event', 'budget_mode', 'budget',
   ],
   ad: [
@@ -2653,6 +2707,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
     structuralReadback: false,
     shoppingAdsType: null,
     adFormat: null,
+    blockers: ['PIPEBOARD_CAPABILITIES_UNAVAILABLE'],
     note: 'Não foi possível confirmar as capacidades atuais do Pipeboard.',
   };
   if (!pipeboard.enabled || typeof pipeboard.listTools !== 'function') return unavailable;
@@ -2710,6 +2765,11 @@ async function getCatalogCapabilities({ force = false } = {}) {
       const present = fields(name);
       return required.every((field) => present.has(field));
     };
+    const hasNestedFields = (name, field, required) => {
+      const schema = fieldSchema(name, field);
+      const present = new Set(Object.keys(schema && schema.properties || {}));
+      return required.every((nested) => present.has(nested));
+    };
     const requiredFieldsAreGuaranteed = (name, guaranteed) => {
       const required = new Set();
       const visit = (schema, depth = 0) => {
@@ -2723,7 +2783,9 @@ async function getCatalogCapabilities({ force = false } = {}) {
       const sent = new Set(guaranteed);
       return Array.from(required).every((field) => sent.has(field));
     };
-    const catalogCreate = hasFields('create_tiktok_catalog', ['bc_id', 'name', 'catalog_type', 'catalog_conf']);
+    const catalogCreate = hasFields('create_tiktok_catalog', ['bc_id', 'name', 'catalog_type', 'catalog_conf'])
+      && hasNestedFields('create_tiktok_catalog', 'catalog_conf', ['region_code', 'currency'])
+      && supportsDeclaredValue(fieldSchema('create_tiktok_catalog', 'catalog_type'), 'ECOM');
     const catalogUploadSubmit = hasFields('upload_tiktok_catalog_products', ['bc_id', 'catalog_id', 'file_url', 'file_format']);
     const catalogUploadStatus = hasFields('get_tiktok_catalog_upload_status', ['bc_id', 'catalog_id', 'feed_log_id']);
     // O recibo de envio sozinho não confirma ingestão. Só anunciamos
@@ -2771,6 +2833,8 @@ async function getCatalogCapabilities({ force = false } = {}) {
       ['product_source', 'CATALOG'],
       ['optimization_goal', 'CONVERT'],
       ['billing_event', 'OCPM'],
+      ['placement_type', 'PLACEMENT_TYPE_NORMAL'],
+      ['placements', 'PLACEMENT_TIKTOK'],
       ['operation_status', 'DISABLE'],
     ].every(([field, expected]) => field === 'shopping_ads_type'
       ? supportsPassThroughValue(fieldSchema('create_tiktok_adgroup', field), expected)
@@ -2782,7 +2846,12 @@ async function getCatalogCapabilities({ force = false } = {}) {
       ['status', 'PAUSED'],
       ['identity_type', 'BC_AUTH_TT'],
       ['dark_post_status', 'ON'],
-    ].every(([field, expected]) => supportsSchemaValue(fieldSchema('create_tiktok_ad', field), expected));
+    ].every(([field, expected]) => field === 'vertical_video_strategy'
+      // O schema vivo enumera os valores aceitos na descrição do campo. Só
+      // aceitamos o token exato SINGLE_VIDEO; texto genérico/pass-through não
+      // libera a primeira escrita da hierarquia.
+      ? supportsDeclaredValue(fieldSchema('create_tiktok_ad', field), expected)
+      : supportsSchemaValue(fieldSchema('create_tiktok_ad', field), expected));
     const catalogSingleVideoCampaign = campaignFields && adgroupFields && adFields
       && campaignSemantics && adgroupSemantics && adSemantics
       && requiredFieldsCompatible && structuralReadback
@@ -2799,6 +2868,15 @@ async function getCatalogCapabilities({ force = false } = {}) {
       ...(adgroupFields ? TIKTOK_PIXEL_EVENTS : []),
     ]));
     const callToActions = Array.from(schemaValues(fieldSchema('create_tiktok_ad', 'call_to_action')));
+    const blockers = [];
+    if (!catalogCreate) blockers.push('CATALOG_CREATE_SCHEMA_INCOMPLETE');
+    if (!campaignFields || !campaignSemantics) blockers.push('CATALOG_CAMPAIGN_SCHEMA_INCOMPLETE');
+    if (!adgroupFields || !adgroupSemantics) blockers.push('CATALOG_ADGROUP_SCHEMA_INCOMPLETE');
+    if (!adFields || !adSemantics) blockers.push('CATALOG_AD_SCHEMA_INCOMPLETE');
+    if (!requiredFieldsCompatible) blockers.push('CATALOG_REQUIRED_FIELDS_UNSUPPORTED');
+    if (!structuralReadback) blockers.push('CATALOG_READBACK_UNAVAILABLE');
+    if (!automaticVideoCover) blockers.push('CATALOG_VIDEO_COVER_UNAVAILABLE');
+    if (!automaticPurchaseEvent) blockers.push('CATALOG_PURCHASE_EVENT_UNAVAILABLE');
     const value = {
       catalogCreate,
       catalogUpload,
@@ -2815,6 +2893,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
       structuralReadback,
       shoppingAdsType: manualCatalogCampaign ? shoppingType : null,
       adFormat: manualCatalogCampaign ? adFormat : null,
+      blockers,
       productSets: adInputFields.has('product_set_id'),
       specificProducts: adInputFields.has('item_group_ids'),
       catalogVideoTemplates: false,
@@ -2824,9 +2903,9 @@ async function getCatalogCapabilities({ force = false } = {}) {
       callToActions,
       note: manualCatalogCampaign
         ? 'Vídeo de catálogo com áudio próprio, capa automática, Compra e Link individual de cada produto está disponível.'
-        : 'O conector ainda não aceita o campo vertical_video_strategy do vídeo de catálogo. Nenhuma estrutura parcial ou URL global será criada.',
+        : 'A criação de vídeo de catálogo está temporariamente indisponível. Nenhuma estrutura parcial ou URL global será criada.',
     };
-    catalogCapabilitiesCache = { value, expiresAt: now + 5 * 60 * 1000 };
+    catalogCapabilitiesCache = { value, expiresAt: now + CATALOG_CAPABILITIES_TTL_MS };
     return value;
   } catch (_) {
     return unavailable;
@@ -2855,23 +2934,28 @@ async function createTikTokCatalog(bcId, { name, catalogType, currency, country 
   if (!capabilities.catalogCreate) {
     throw catalogCreationAwaitingConnectorError();
   }
-  const cur = String(currency || '').trim().toUpperCase().slice(0, 8);
-  const region = String(country || '').trim().toUpperCase().slice(0, 4);
+  const cur = String(currency || '').trim().toUpperCase();
+  const region = String(country || '').trim().toUpperCase();
+  if (cur && !/^[A-Z]{3}$/.test(cur)) {
+    throw badRequest('Moeda do catálogo inválida — use o código ISO de 3 letras (ex.: BRL)');
+  }
+  if (region && !/^[A-Z]{2}$/.test(region)) {
+    throw badRequest('Região do catálogo inválida — use o código ISO de 2 letras (ex.: BR)');
+  }
+  const effectiveRegion = region || (cur === 'BRL' ? 'BR' : 'US');
+  const effectiveCurrency = cur || (effectiveRegion === 'BR' ? 'BRL' : 'USD');
   const args = {
     bc_id: bc,
     name: nm,
     catalog_type: normalizeCatalogType(catalogType),
+    catalog_conf: {
+      region_code: effectiveRegion,
+      currency: effectiveCurrency,
+    },
   };
   // A API atual do TikTok (catalog/create) exige o objeto catalog_conf com
-  // region_code + currency — os campos soltos currency/country foram
-  // descontinuados. Mantemos os soltos também por compat com versões antigas
-  // da tool do Pipeboard (args extras são repassados sem erro).
-  args.catalog_conf = {
-    region_code: region || (cur === 'BRL' ? 'BR' : 'US'),
-    currency: cur || (region === 'BR' ? 'BRL' : 'USD'),
-  };
-  if (cur) args.currency = cur;
-  if (region) args.country = region;
+  // region_code + currency. Ele é a única fonte de verdade regional do
+  // request; não enviamos aliases soltos que poderiam divergir.
   let out;
   try {
     out = await pipeboard.callTool('create_tiktok_catalog', args);
@@ -3659,14 +3743,22 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   const warnings = [];
   // Todos os pré-requisitos de campanha terminam antes da primeira criação.
   // Falta de identidade, região, vídeo, capa ou evento não gera campanha órfã.
-  const [info, identity, regions] = await Promise.all([
+  const [info, identityCandidates, regions] = await Promise.all([
     getAdvertiserInfo(adv),
-    explicitIdentity || pickAdIdentity(adv, bcId),
+    explicitIdentity ? Promise.resolve([explicitIdentity]) : listAdIdentityCandidates(adv, bcId),
     resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
   ]);
+  if (!identityCandidates.length) {
+    await pickAdIdentity(adv, bcId); // lança o erro orientativo padronizado
+  }
+  let identity = identityCandidates[0];
   if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
   const plan = resolveBudgetPlan(s);
   const createdIds = { ...((options && options.resume) || {}) };
+  if (createdIds.identityId) {
+    const resumedIdentity = identityCandidates.find((candidate) => candidate.identityId === String(createdIds.identityId));
+    if (resumedIdentity) identity = resumedIdentity;
+  }
   const report = async (stage) => {
     if (typeof options.onProgress === 'function') await options.onProgress({ stage, createdIds: { ...createdIds } });
   };
@@ -3721,6 +3813,8 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
       catalog_authorized_bc_id: bcId,
       optimization_goal: 'CONVERT',
       billing_event: 'OCPM',
+      placement_type: 'PLACEMENT_TYPE_NORMAL',
+      placements: ['PLACEMENT_TIKTOK'],
       schedule_start_time: advertiserLocalTime(info && info.timezone),
       targeting: { location_ids: regions.locationIds },
       operation_status: 'DISABLE',
@@ -3762,18 +3856,38 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     };
     if (productScope === 'specific') adArgs.sku_ids = itemGroupIds;
     if (productScope === 'product_set' && s.productSetId) adArgs.product_set_id = String(s.productSetId);
-    if (identity && identity.identityId) {
-      adArgs.identity_id = identity.identityId;
-      adArgs.identity_type = identity.identityType;
-      if (identity.identityBcId) adArgs.identity_authorized_bc_id = identity.identityBcId;
-      if (identity.identityType === 'BC_AUTH_TT') adArgs.dark_post_status = 'ON';
-    }
     await report('creating_ad');
     if (!createdIds.adId) {
-      const adOut = await callTikTokWriteWithRetry('create_tiktok_ad', adArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar o anúncio — nova tentativa automática'));
+      let adOut = null;
+      let lastIdentityError = null;
+      const candidates = identityCandidates.slice(0, 8);
+      for (let index = 0; index < candidates.length; index += 1) {
+        identity = candidates[index];
+        adArgs.identity_id = identity.identityId;
+        adArgs.identity_type = identity.identityType;
+        adArgs.identity_authorized_bc_id = identity.identityBcId;
+        adArgs.dark_post_status = 'ON';
+        try {
+          adOut = await callTikTokWriteWithRetry('create_tiktok_ad', adArgs, () => warnings.push('Instabilidade temporária do TikTok ao criar o anúncio — nova tentativa automática'));
+          break;
+        } catch (err) {
+          const identityUnavailable = /NO LONGER HAVE ACCESS|RE-APPLY FOR ACCESS|SELECT A NEW IDENTITY/i.test(String(err && err.message || ''));
+          if (!identityUnavailable || index === candidates.length - 1) {
+            if (!err.step) err.step = 'ad';
+            throw err;
+          }
+          lastIdentityError = err;
+          warnings.push('Uma identidade perdeu acesso; a dashboard tentou outra identidade autorizada do mesmo Business Center');
+        }
+      }
+      if (!adOut && lastIdentityError) {
+        if (!lastIdentityError.step) lastIdentityError.step = 'ad';
+        throw lastIdentityError;
+      }
       const adId = String(deepPluck(adOut, 'ad_id') || '');
       if (!adId) throw stepError('ad', 'create_tiktok_ad não retornou ad_id para o anúncio de catálogo', createdIds);
       createdIds.adId = adId;
+      createdIds.identityId = identity.identityId;
     }
 
     // Não declaramos sucesso com apenas três IDs. A leitura imediata precisa
@@ -3799,6 +3913,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
             campaignId, adGroupId, adId: createdIds.adId,
             catalogId, bcId, shoppingAdsType: SHOPPING_TYPE,
             pixelId, pixelEvent,
+            locationIds: regions.locationIds,
             adFormat: AD_FORMAT,
             verticalVideoStrategy: 'SINGLE_VIDEO',
             productSpecificType: adArgs.product_specific_type,
@@ -3884,6 +3999,7 @@ module.exports = {
   getBusinessCenterId,
   businessCenterFromEnv,
   setBusinessCenterId,
+  listCatalogBusinessCenters,
   createTikTokCatalog,
   uploadTikTokCatalogProducts,
   getTikTokCatalogUploadStatus,
@@ -3918,5 +4034,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, pickCatalogCarouselMusic, getUploadedVideoAsset, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, pickCatalogCarouselMusic, getUploadedVideoAsset, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
 };

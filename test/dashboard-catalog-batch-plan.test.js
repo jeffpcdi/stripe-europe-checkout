@@ -89,6 +89,7 @@ console.log('Retry e polling dos jobs');
   eq(catalogSyncRunsRefreshInterval([{ status: 'waiting_tiktok_processing', stage: 'processing_tiktok' }]), 15_000, 'processamento TikTok mantém polling lento');
   eq(catalogSyncRunsRefreshInterval([{ status: 'completed', stage: 'reviewed_tiktok' }]), 0, 'sync concluído encerra polling');
   eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_catalog_review' }]), 15_000, 'campanha aguardando catálogo consulta em 15 segundos');
+  eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_tiktok_confirmation' }]), 15_000, 'campanha aguardando readback do TikTok consulta em 15 segundos');
   eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_connector_confirmation' }]), 60_000, 'campanha aguardando conector consulta em 60 segundos');
   eq(catalogCampaignRunsRefreshInterval([{ status: 'completed' }]), 0, 'campanha concluída encerra polling');
 }

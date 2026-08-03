@@ -1689,6 +1689,9 @@ export interface AdsCatalogBusinessCenter {
   enabled: boolean
   bcId: string
   fromEnv: boolean
+  autoDetected?: boolean
+  discoveryError?: boolean
+  candidates?: { id: string; identityCount: number; label?: string }[]
 }
 
 export interface AdsCatalogCapabilities {
@@ -1713,6 +1716,7 @@ export interface AdsCatalogCapabilities {
   structuralReadback: boolean
   shoppingAdsType: string | null
   adFormat: string | null
+  blockers: string[]
   note: string
 }
 
@@ -1834,12 +1838,14 @@ export interface AdsCatalogCampaignRun {
   id: string
   catalogId: string
   advertiserId: string
-  status: 'queued' | 'waiting_connector_confirmation' | 'waiting_catalog_review' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  status: 'queued' | 'waiting_connector_confirmation' | 'waiting_catalog_review' | 'waiting_tiktok_confirmation' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
   stage: string
   spec: Record<string, unknown>
   createdIds: { campaignId?: string; adGroupId?: string; adId?: string }
   result: Record<string, unknown> | null
   error: AdsCatalogStructuredError | null
+  verifyAttempts: number
+  nextRetryAt: string | null
   createdAt: string
   updatedAt: string
   completedAt: string | null

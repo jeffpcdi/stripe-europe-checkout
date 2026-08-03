@@ -90,6 +90,23 @@ console.log('createTikTokCatalog — validação antes da rede');
   eq(emptyFeeds.total, 0, 'zero feeds é preservado como diagnóstico');
   eq(emptyFeeds.feeds.length, 0, 'lista vazia não ganha feed sintético');
 
+  console.log('Business Center — descoberta pelas identidades autorizadas');
+  {
+    const pipeboard = require('../pipeboard-mcp');
+    const orig = pipeboard.callTool;
+    pipeboard.callTool = async (name) => name === 'get_tiktok_identities' ? { identities: [
+      { identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: '7550000000000000001', display_name: 'Loja A' },
+      { identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: '7550000000000000001', display_name: 'Loja B' },
+      { identity_type: 'TT_USER', identity_authorized_bc_id: '7999999999999999999', display_name: 'Ignorar' },
+    ] } : {};
+    try {
+      const centers = await provider.listCatalogBusinessCenters('7560000000000000001');
+      eq(centers.length, 1, 'agrupa identidades do mesmo Business Center');
+      eq(centers[0].id, '7550000000000000001', 'usa o BC autorizado devolvido pelo TikTok');
+      eq(centers[0].identityCount, 2, 'conta identidades elegíveis sem duplicar a opção');
+    } finally { pipeboard.callTool = orig; }
+  }
+
   console.log('listTikTokCatalogs — pagina TODAS as páginas (catálogo além da 1ª não some)');
   {
     const pipeboard = require('../pipeboard-mcp');

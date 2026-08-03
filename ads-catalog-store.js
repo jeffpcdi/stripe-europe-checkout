@@ -187,6 +187,8 @@ async function ensureSchema() {
       completed_at timestamptz,
       UNIQUE (account_id, idempotency_key)
     )`;
+    await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS verify_attempts integer NOT NULL DEFAULT 0`;
+    await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS next_retry_at timestamptz`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_campaign_runs_idx ON ads_catalog_campaign_runs (account_id, catalog_id, created_at DESC)`;
     console.log('[ads-catalog] schema verificado/criado');
     return true;
@@ -739,6 +741,7 @@ function mapCampaignRun(row) {
     id: row.id, catalogId: row.catalog_id, advertiserId: row.advertiser_id,
     status: row.status, stage: row.stage, spec: row.spec || {}, createdIds: row.created_ids || {},
     result: row.result || null, error: row.error || null,
+    verifyAttempts: Number(row.verify_attempts) || 0, nextRetryAt: row.next_retry_at || null,
     createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || null,
   };
 }
@@ -935,11 +938,13 @@ async function claimNextCampaignRun(workerId) {
   const rows = await sql`WITH candidate AS (
     SELECT id FROM ads_catalog_campaign_runs
     WHERE (status IN ('queued','retrying') AND (locked_at IS NULL OR locked_at < now() - interval '5 minutes'))
+       OR (status = 'waiting_tiktok_confirmation' AND locked_at IS NULL
+         AND (next_retry_at IS NULL OR next_retry_at <= now()))
        OR (status = 'running' AND locked_at < now() - interval '5 minutes')
     ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1
   ) UPDATE ads_catalog_campaign_runs AS run
     SET status = 'running', stage = CASE WHEN run.stage = 'queued' THEN 'validating' ELSE run.stage END,
-        locked_at = now(), locked_by = ${worker}, updated_at = now()
+        next_retry_at = null, locked_at = now(), locked_by = ${worker}, updated_at = now()
     FROM candidate WHERE run.id = candidate.id RETURNING run.*`;
   return rows[0] || null;
 }
@@ -1027,11 +1032,15 @@ async function updateCampaignRun(accountId, runId, status, patch) {
   await ensureSchema();
   const value = patch || {};
   const terminal = ['completed', 'partial', 'failed', 'cancelled'].includes(status);
+  const hasVerifyAttempts = Object.prototype.hasOwnProperty.call(value, 'verifyAttempts');
+  const hasNextRetryAt = Object.prototype.hasOwnProperty.call(value, 'nextRetryAt');
   const rows = await sql`UPDATE ads_catalog_campaign_runs SET
     status = ${String(status)}, stage = ${String(value.stage || status)},
     created_ids = COALESCE(${value.createdIds ? JSON.stringify(value.createdIds) : null}::jsonb, created_ids),
     result = COALESCE(${value.result ? JSON.stringify(value.result) : null}::jsonb, result),
     error = ${value.error ? JSON.stringify(value.error) : null},
+    verify_attempts = CASE WHEN ${hasVerifyAttempts} THEN ${Math.max(0, Number(value.verifyAttempts) || 0)} ELSE verify_attempts END,
+    next_retry_at = CASE WHEN ${hasNextRetryAt} THEN ${value.nextRetryAt || null} ELSE next_retry_at END,
     locked_at = ${terminal || value.release ? null : new Date().toISOString()},
     locked_by = ${terminal || value.release ? null : String(value.workerId || '').slice(0, 120) || null},
     completed_at = ${terminal ? new Date().toISOString() : null}, updated_at = now()
@@ -1046,7 +1055,8 @@ async function resumeCampaignRun(accountId, advertiserId, runId) {
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalog_campaign_runs SET status = 'queued',
     stage = CASE WHEN created_ids ? 'adGroupId' THEN 'creating_ad' WHEN created_ids ? 'campaignId' THEN 'creating_adgroup' ELSE 'validating' END,
-    error = null, locked_at = null, locked_by = null, completed_at = null, updated_at = now()
+    error = null, verify_attempts = 0, next_retry_at = null,
+    locked_at = null, locked_by = null, completed_at = null, updated_at = now()
     WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
       AND id = ${String(runId)} AND status IN ('partial','failed') RETURNING *`;
   return mapCampaignRun(rows[0]);

@@ -166,7 +166,8 @@ function throwsCode(fn, code, label) {
   ok(/CatalogReadinessCard/.test(manager), 'UI usa checklist de prontidão');
   ok(/CatalogConnectionCard/.test(manager), 'UI separa conexão remota');
   ok(/CatalogCampaignWizard/.test(manager), 'UI usa assistente da campanha completa');
-  ok(/campaignCreateSupported/.test(manager), 'UI condiciona criação ao schema atual do Pipeboard');
+  const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
+  ok(/catalogSingleVideoCampaign === true/.test(manager) && /const connectorReady = capabilities\?\.catalogSingleVideoCampaign === true/.test(wizard), 'UI condiciona criação ao schema atual do Pipeboard');
   ok(/catalog\.linkStatus === 'verified'/.test(manager) && /Vínculo com erro/.test(manager), 'UI não anuncia vínculo quebrado como catálogo publicado');
   ok(/Revisão concluída com reprovações/.test(manager) && /pending > 0/.test(manager), 'UI não chama produtos reprovados de produtos em análise');
   ok(/label: 'Sem produtos'/.test(manager) && /label: 'Vinculado'/.test(manager), 'lista separa vínculo remoto de catálogo pronto');

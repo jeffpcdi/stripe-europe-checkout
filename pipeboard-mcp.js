@@ -158,8 +158,27 @@ async function post(payload, { timeoutMs = 60000, includeSession = true } = {}) 
     err.status = 502;
     throw err;
   }
-  clearTimeout(timer);
+  // O timeout precisa cobrir tambem o consumo do corpo. O transporte MCP pode
+  // responder os headers e manter um stream SSE aberto; limpar o timer aqui
+  // deixava o worker de catalogo preso para sempre em res.text().
+  Object.defineProperty(res, '__pipeboardTimer', { value: timer, configurable: true });
   return res;
+}
+
+async function responseText(res) {
+  try {
+    return await res.text();
+  } catch (e) {
+    const err = new Error(
+      e && e.name === 'AbortError'
+        ? 'Pipeboard MCP: tempo limite excedido'
+        : 'Pipeboard MCP: falha ao ler resposta (' + String(e && e.message || e) + ')'
+    );
+    err.status = 502;
+    throw err;
+  } finally {
+    clearTimeout(res && res.__pipeboardTimer);
+  }
 }
 
 // ── Requisição JSON-RPC (espera resposta com id) ──────────────────────────────
@@ -171,7 +190,7 @@ async function sendRequest(method, params, opts = {}) {
   const sid = res.headers.get('mcp-session-id') || res.headers.get('Mcp-Session-Id');
   if (sid) _sessionId = sid;
 
-  const text = await res.text();
+  const text = await responseText(res);
   if (!res.ok) throwHttpError(res.status, text);
 
   const contentType = res.headers.get('content-type') || '';
@@ -200,12 +219,12 @@ async function sendRequest(method, params, opts = {}) {
 async function sendNotification(method, params) {
   const res = await post({ jsonrpc: '2.0', method, params: params || {} });
   if (!res.ok && res.status !== 202) {
-    const text = await res.text();
+    const text = await responseText(res);
     throwHttpError(res.status, text);
   }
   // corpo irrelevante; drena para liberar o socket
   try {
-    await res.text();
+    await responseText(res);
   } catch (_) {
     /* ok */
   }

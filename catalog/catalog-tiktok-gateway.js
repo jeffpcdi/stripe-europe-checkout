@@ -28,7 +28,7 @@ function normalizeRemoteCatalog(raw) {
     id: String(deepValue(value, ['catalog_id', 'catalogId', 'id'], 0) || ''),
     name: String(deepValue(value, ['catalog_name', 'catalogName', 'name'], 0) || ''),
     currency: String(deepValue(value, ['currency'], 0) || '').toUpperCase(),
-    country: String(deepValue(value, ['country', 'region'], 0) || '').toUpperCase(),
+    country: String(deepValue(value, ['region_code', 'country', 'region'], 0) || '').toUpperCase(),
     catalogType: String(deepValue(value, ['catalog_type', 'catalogType', 'type'], 0) || '').toUpperCase(),
     productCount: Number(deepValue(value, ['product_count', 'total_products', 'total'], 0)) || 0,
   };
@@ -133,6 +133,7 @@ async function capabilities(provider) {
     structuralReadback: false,
     shoppingAdsType: null,
     adFormat: null,
+    blockers: ['PIPEBOARD_CAPABILITIES_UNAVAILABLE'],
     note: 'A criação só é liberada depois de confirmar os campos nos schemas atuais do Pipeboard.',
   };
 }

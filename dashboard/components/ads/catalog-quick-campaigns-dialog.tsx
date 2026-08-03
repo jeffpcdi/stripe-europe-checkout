@@ -1,17 +1,17 @@
 'use client'
 
-// Lote rápido: um vídeo, quantidade e orçamento. Pixel, evento de Compra,
+// Fluxo único: um vídeo, quantidade e orçamento. Pixel, evento de Compra,
 // catálogo, público, capa e Product Link vêm do backend.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, Loader2, Rocket, Upload, Video, Zap } from 'lucide-react'
+import { AlertCircle, Check, Loader2, Rocket, Upload, Video } from 'lucide-react'
 import { adsCreateCatalogCampaignBatch, adsUpload } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog } from '@/lib/types'
 import { toast } from '@/lib/toast'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 
-const COUNT_PRESETS = [5, 10, 25, 50]
+const COUNT_PRESETS = [1, 5, 10, 25, 50]
 const MAX_COUNT = 50
 
 function randomKey() {
@@ -37,7 +37,7 @@ export function CatalogQuickCampaignsDialog({
   onClose: () => void
   onCreated: () => void
 }) {
-  const [count, setCount] = useState(10)
+  const [count, setCount] = useState(1)
   const [budget, setBudget] = useState('50')
   const [namePrefix, setNamePrefix] = useState('')
   const [videoUrl, setVideoUrl] = useState(initialVideoUrl || '')
@@ -48,11 +48,15 @@ export function CatalogQuickCampaignsDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   useModalA11y(open, dialogRef, onClose)
   useEffect(() => {
-    if (initialVideoUrl && !videoUrl) {
-      setVideoUrl(initialVideoUrl)
-      setVideoName('Vídeo já enviado')
-    }
-  }, [initialVideoUrl, videoUrl])
+    setCount(1)
+    setBudget(String(TIKTOK_MIN_BUDGET))
+    setNamePrefix('')
+    setVideoUrl(initialVideoUrl || '')
+    setVideoName(initialVideoUrl ? 'Vídeo já enviado' : '')
+    setUploading(false)
+    setBusy(false)
+    idempotencyKeyRef.current = null
+  }, [advertiserId, catalog.id, initialVideoUrl])
 
   function update<T>(setter: (value: T) => void, value: T) {
     setter(value)
@@ -72,7 +76,7 @@ export function CatalogQuickCampaignsDialog({
   async function create() {
     if (!countValid) return toast.error(`Escolha de 1 a ${MAX_COUNT} campanhas`)
     if (!budgetValid) return toast.error(tiktokMinimumBudgetMessage(advertiserCurrency, ' por dia'))
-    if (!videoUrl) return toast.error('Envie o vídeo que será usado no lote')
+    if (!videoUrl) return toast.error('Envie o vídeo das campanhas')
     setBusy(true)
     try {
       const result = await adsCreateCatalogCampaignBatch(catalog.id, advertiserId, {
@@ -87,14 +91,14 @@ export function CatalogQuickCampaignsDialog({
       })
       idempotencyKeyRef.current = null
       if (result.dryRun) {
-        toast.info('Modo teste: lote validado sem publicar', { hint: `${result.count ?? count} campanha(s) simulada(s).` })
+        toast.info('Modo teste: criação validada sem publicar', { hint: `${result.count ?? count} campanha(s) simulada(s).` })
       } else {
         toast.success(`${result.count ?? count} campanha(s) na fila`, { hint: 'Todas serão verificadas e permanecerão pausadas.' })
       }
       onClose()
       onCreated()
     } catch (error) {
-      toast.error('Não foi possível criar o lote', { hint: error instanceof Error ? error.message : undefined })
+      toast.error('Não foi possível criar as campanhas', { hint: error instanceof Error ? error.message : undefined })
     } finally {
       setBusy(false)
     }
@@ -107,7 +111,7 @@ export function CatalogQuickCampaignsDialog({
       const result = await adsUpload(file, 'video')
       update(setVideoUrl, result.url)
       setVideoName(file.name)
-      toast.success('Vídeo pronto para o lote')
+      toast.success('Vídeo pronto')
     } catch (error) {
       toast.error('Não foi possível enviar o vídeo', { hint: error instanceof Error ? error.message : undefined })
     } finally {
@@ -123,16 +127,17 @@ export function CatalogQuickCampaignsDialog({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`Criar lote de campanhas do catálogo ${catalog.name}`}
+        aria-label={`Criar campanhas do catálogo ${catalog.name}`}
+        aria-busy={busy}
         className="flex max-h-[92dvh] w-full flex-col gap-4 overflow-y-auto rounded-t-2xl border border-border bg-background p-4 shadow-2xl sm:max-w-lg sm:rounded-2xl sm:p-5"
       >
         <header className="flex items-start justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-              <Zap className="size-4 text-primary" aria-hidden="true" /> Criar lote
+              <Rocket className="size-4 text-primary" aria-hidden="true" /> Criar campanhas
             </h3>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Mesmo catálogo, configurações automáticas e campanhas pausadas.
+              Informe somente quantidade, orçamento e vídeo. Tudo será criado pausado.
             </p>
           </div>
           <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={busy}>Fechar</button>
@@ -182,7 +187,7 @@ export function CatalogQuickCampaignsDialog({
         </label>
 
         <label className="rounded-lg border border-border bg-card p-3">
-          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeo do lote</span>
+          <span className="flex items-center gap-2 text-xs font-medium text-foreground"><Video className="size-4 text-primary" /> Vídeo das campanhas</span>
           <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">O mesmo vídeo com áudio será usado nas campanhas; a capa é automática.</span>
           <span className="mt-3 flex flex-wrap items-center gap-2">
             <span className="btn-ghost cursor-pointer text-xs">
@@ -230,7 +235,7 @@ export function CatalogQuickCampaignsDialog({
           <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={busy}>Cancelar</button>
           <button type="button" className="btn-primary text-xs" onClick={create} disabled={!countValid || !budgetValid || !videoUrl || uploading || busy}>
             {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
-            Criar lote
+            Criar {count} campanha{count === 1 ? '' : 's'} pausada{count === 1 ? '' : 's'}
           </button>
         </footer>
       </div>

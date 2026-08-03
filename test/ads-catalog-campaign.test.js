@@ -62,7 +62,8 @@ function completeSchemas() {
   const adgroup = Object.fromEntries([
     'advertiser_id', 'campaign_id', 'adgroup_name', 'promotion_type', 'shopping_ads_type',
     'shopping_ads_retargeting_type', 'product_source', 'catalog_id', 'catalog_authorized_bc_id',
-    'optimization_goal', 'billing_event', 'schedule_start_time', 'schedule_end_time', 'targeting',
+    'optimization_goal', 'billing_event', 'placement_type', 'placements',
+    'schedule_start_time', 'schedule_end_time', 'targeting',
     'operation_status', 'pixel_id', 'optimization_event', 'budget_mode', 'budget', 'bid_type', 'bid_price',
   ].map((field) => [field, {}]));
   adgroup.promotion_type = { enum: ['WEBSITE'] };
@@ -71,6 +72,8 @@ function completeSchemas() {
   adgroup.product_source = { description: 'Use CATALOG.' };
   adgroup.optimization_goal = { enum: ['CONVERT'] };
   adgroup.billing_event = { enum: ['OCPM'] };
+  adgroup.placement_type = { enum: ['PLACEMENT_TYPE_NORMAL'] };
+  adgroup.placements = { type: 'array', description: 'Explicit values include PLACEMENT_TIKTOK.' };
   adgroup.operation_status = { enum: ['DISABLE'] };
   adgroup.optimization_event = { description: 'Event name forwarded to TikTok.' };
 
@@ -86,6 +89,11 @@ function completeSchemas() {
   ad.identity_type = { enum: ['BC_AUTH_TT'] };
   ad.dark_post_status = { enum: ['ON'] };
   return [
+    schemaTool('create_tiktok_catalog', {
+      bc_id: {}, name: {},
+      catalog_type: { description: 'Current TikTok values: ECOM, HOTEL, FLIGHT, AUTO_VEHICLE.' },
+      catalog_conf: { type: 'object', properties: { region_code: {}, currency: {} } },
+    }, ['bc_id', 'name', 'catalog_type']),
     schemaTool('create_tiktok_campaign', campaign, ['advertiser_id', 'campaign_name', 'objective_type']),
     schemaTool('create_tiktok_adgroup', adgroup, ['advertiser_id', 'campaign_id', 'adgroup_name', 'optimization_goal', 'targeting', 'schedule_start_time']),
     schemaTool('create_tiktok_ad', ad, ['advertiser_id', 'adgroup_id', 'ad_name', 'ad_text', 'identity_id', 'identity_type']),
@@ -117,6 +125,7 @@ function completeSchemas() {
     ok(/const SHOPPING_TYPE = 'VIDEO'/.test(body), 'usa shopping_ads_type VIDEO');
     ok(/promotion_type: 'WEBSITE'/.test(body), 'usa promotion_type WEBSITE');
     ok(/shopping_ads_retargeting_type: 'OFF'/.test(body), 'prospecting usa retargeting OFF');
+    ok(/placement_type: 'PLACEMENT_TYPE_NORMAL'/.test(body) && /placements: \['PLACEMENT_TIKTOK'\]/.test(body), 'envia placement explícito exigido pelo TikTok');
     ok(/const AD_FORMAT = 'SINGLE_VIDEO'/.test(body), 'usa SINGLE_VIDEO');
     ok(/vertical_video_strategy: 'SINGLE_VIDEO'/.test(body), 'envia a estratégia vertical obrigatória');
     ok(/video_id: createdIds\.videoId/.test(body), 'envia o vídeo processado');
@@ -138,6 +147,7 @@ function completeSchemas() {
     const expected = {
       campaignId: 'camp_1', adGroupId: 'group_1', adId: 'ad_1', catalogId: 'catalog_1',
       bcId: 'bc_1', shoppingAdsType: 'VIDEO', pixelId: 'pixel_1', pixelEvent: 'SHOPPING',
+      locationIds: ['3469034'],
       adFormat: 'SINGLE_VIDEO', verticalVideoStrategy: 'SINGLE_VIDEO', productSpecificType: 'ALL',
       videoId: 'video_1', imageId: 'image_1',
       identityId: 'identity_1', identityType: 'BC_AUTH_TT', identityBcId: 'bc_1', darkPostStatus: 'ON',
@@ -145,14 +155,16 @@ function completeSchemas() {
     };
     // A leitura de campanha real não ecoa catálogo/shopping type.
     const campaign = mapCampaign({ campaign_id: 'camp_1', objective_type: 'PRODUCT_SALES', operation_status: 'DISABLE' });
-    const adGroup = mapAdGroup({ adgroup_id: 'group_1', campaign_id: 'camp_1', catalog_id: 'catalog_1', product_source: 'CATALOG', shopping_ads_type: 'VIDEO', promotion_type: 'WEBSITE', shopping_ads_retargeting_type: 'OFF', catalog_authorized_bc_id: 'bc_1', pixel_id: 'pixel_1', optimization_event: 'SHOPPING', operation_status: 'DISABLE' });
-    const ad = mapAd({ ad_id: 'ad_1', adgroup_id: 'group_1', campaign_id: 'camp_1', catalog_id: 'catalog_1', ad_format: 'SINGLE_VIDEO', vertical_video_strategy: 'SINGLE_VIDEO', product_specific_type: 'ALL', video_id: 'video_1', image_ids: ['image_1'], ad_text: 'Confira os produtos', call_to_action: 'SHOP_NOW', identity_id: 'identity_1', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1', dark_post_status: 'ON', operation_status: 'DISABLE' });
+    const adGroup = mapAdGroup({ adgroup_id: 'group_1', campaign_id: 'camp_1', catalog_id: 'catalog_1', product_source: 'CATALOG', shopping_ads_type: 'VIDEO', promotion_type: 'WEBSITE', shopping_ads_retargeting_type: 'OFF', catalog_authorized_bc_id: 'bc_1', pixel_id: 'pixel_1', optimization_event: 'SHOPPING', optimization_goal: 'CONVERT', billing_event: 'OCPM', placement_type: 'PLACEMENT_TYPE_NORMAL', placements: ['PLACEMENT_TIKTOK'], location_ids: ['3469034'], operation_status: 'DISABLE' });
+    const ad = mapAd({ ad_id: 'ad_1', adgroup_id: 'group_1', campaign_id: 'camp_1', catalog_id: 'catalog_1', ad_format: 'SINGLE_VIDEO', vertical_video_strategy: 'SINGLE_VIDEO', product_specific_type: 'ALL', video_id: 'video_1', image_ids: ['image_1'], ad_text: 'Confira os produtos', call_to_action: 'SHOP_NOW', identity_id: 'identity_1', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1', operation_status: 'DISABLE' });
     const verified = verifyCatalogProductLinkHierarchy({ campaign, adGroup, ad, expected });
     ok(verified.complete, 'aceita hierarquia correta, pausada e sem URL manual');
     const withUrl = verifyCatalogProductLinkHierarchy({ campaign, adGroup, ad: { ...ad, landingPageUrl: 'https://global.test' }, expected });
     ok(!withUrl.complete && !withUrl.noManualUrl, 'URL global invalida a confirmação');
     const wrongVideo = verifyCatalogProductLinkHierarchy({ campaign, adGroup, ad: { ...ad, videoId: 'outro' }, expected });
     ok(!wrongVideo.complete && !wrongVideo.creative, 'vídeo divergente invalida a confirmação');
+    const wrongDarkPost = verifyCatalogProductLinkHierarchy({ campaign, adGroup, ad: { ...ad, darkPostStatus: 'OFF' }, expected });
+    ok(!wrongDarkPost.complete && !wrongDarkPost.identity, 'dark post divergente invalida a confirmação quando o readback o informa');
     const active = verifyCatalogProductLinkHierarchy({ campaign: { ...campaign, status: 'ENABLE' }, adGroup, ad, expected });
     ok(!active.complete && !active.paused, 'exige os três níveis pausados');
   }
@@ -165,11 +177,12 @@ function completeSchemas() {
       pipeboard.callTool = async (name) => name === 'get_tiktok_identities'
         ? { identities: [
           { identity_id: 'wrong', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_2' },
-          { identity_id: 'right', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1' },
+          { identity_id: 'stale', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1' },
+          { identity_id: 'right', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1', display_name: 'Perfil válido' },
         ] }
         : { list: [{ pixel_id: 'pixel_1', statistics: [{ pixel_event_type: 'SHOPPING', total_count: 1 }] }] };
       const identity = await provider._internals.pickAdIdentity('adv', 'bc_1');
-      ok(identity.identityId === 'right' && identity.identityBcId === 'bc_1', 'identidade respeita o BC do catálogo');
+      ok(identity.identityId === 'right' && identity.identityBcId === 'bc_1', 'identidade respeita o BC e prioriza perfil resolvido');
       const eventName = await provider._internals.resolveCatalogPurchaseEvent('adv', 'pixel_1');
       ok(eventName === 'SHOPPING', 'usa o evento de Compra que o Pixel realmente recebeu');
       pipeboard.callTool = async () => ({ list: [{ pixel_id: 'pixel_1', statistics: [] }] });
@@ -185,6 +198,7 @@ function completeSchemas() {
     ok(!missingVertical.catalogSingleVideoCampaign, 'sem vertical_video_strategy não libera criação');
     const complete = await catalogCapabilitiesForSchemas(completeSchemas());
     ok(complete.catalogSingleVideoCampaign && complete.manualCatalogCampaign, 'schema completo libera vídeo Product Link');
+    ok(complete.catalogCreate, 'ECOM com catalog_conf regional libera criação de catálogo');
     ok(complete.adFormat === 'SINGLE_VIDEO' && complete.shoppingAdsType === 'VIDEO', 'expõe os formatos confirmados');
     ok(complete.automaticVideoCover && complete.automaticPurchaseEvent, 'capa e evento são automáticos');
     ok(complete.optimizationEvents.includes('SHOPPING'), 'evento SHOPPING é reconhecido');
@@ -192,6 +206,23 @@ function completeSchemas() {
     wrong.find((tool) => tool.name === 'create_tiktok_ad').inputSchema.properties.ad_format = { enum: ['CATALOG_CAROUSEL'] };
     const incompatible = await catalogCapabilitiesForSchemas(wrong);
     ok(!incompatible.manualCatalogCampaign, 'enum incompatível não cria estrutura parcial');
+    const missingPlacement = completeSchemas();
+    delete missingPlacement.find((tool) => tool.name === 'create_tiktok_adgroup').inputSchema.properties.placements;
+    const placementBlocked = await catalogCapabilitiesForSchemas(missingPlacement);
+    ok(!placementBlocked.catalogSingleVideoCampaign, 'schema sem placement explícito falha antes da campanha');
+    const described = completeSchemas();
+    described.find((tool) => tool.name === 'create_tiktok_ad').inputSchema.properties.vertical_video_strategy = {
+      type: 'string',
+      description: 'Valores aceitos pelo TikTok: SINGLE_VIDEO, CATALOG_VIDEOS e UNSET.',
+    };
+    const describedComplete = await catalogCapabilitiesForSchemas(described);
+    ok(describedComplete.catalogSingleVideoCampaign, 'token SINGLE_VIDEO explícito na descrição libera o schema vivo');
+    const generic = completeSchemas();
+    generic.find((tool) => tool.name === 'create_tiktok_ad').inputSchema.properties.vertical_video_strategy = {
+      type: 'string', description: 'Forwarded as-is — TikTok validates.',
+    };
+    const genericBlocked = await catalogCapabilitiesForSchemas(generic);
+    ok(!genericBlocked.catalogSingleVideoCampaign, 'descrição genérica não libera vertical_video_strategy');
   }
 
   console.log('Rota e interface — preflight simples');
@@ -202,10 +233,12 @@ function completeSchemas() {
     ok(/normalized\.productScope === 'specific'.+!normalized\.itemGroupIds\.length/.test(routes), 'somente seleção específica exige identificadores locais');
     ok(/killSwitchActive/.test(routes) && /isDryRun/.test(routes), 'mantém kill switch e modo teste');
     const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
-    ok(/Todos os produtos aprovados entram automaticamente/.test(wizard), 'wizard remove seleção manual de IDs da tela principal');
-    ok(/adsUpload\(file, 'video'\)/.test(wizard), 'wizard envia o vídeo sem depender do Ads Manager');
-    ok(/O áudio do arquivo será usado/.test(wizard), 'interface explica que o áudio vem do criativo');
-    ok(/Não existe URL manual no anúncio/.test(wizard), 'interface explica Product Link sem poluição');
+    const dialog = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-quick-campaigns-dialog.tsx'), 'utf8');
+    ok(/Todos os produtos aprovados usam o próprio Link/.test(wizard), 'wizard remove seleção manual de IDs da tela principal');
+    ok(/adsUpload\(file, 'video'\)/.test(dialog), 'modal único envia o vídeo sem depender do Ads Manager');
+    ok(/O mesmo vídeo com áudio será usado/.test(dialog), 'interface explica que o áudio vem do criativo');
+    ok(/Cada produto usa o próprio Link/.test(dialog), 'interface explica Product Link sem poluição');
+    ok(/Criar campanhas/.test(wizard) && !/Criar lote/.test(wizard) && !/Nova campanha/.test(wizard), 'wizard expõe uma única entrada de criação');
     ok(!/Catalog Video Template ID/.test(wizard), 'remove template de vídeo legado');
   }
 
