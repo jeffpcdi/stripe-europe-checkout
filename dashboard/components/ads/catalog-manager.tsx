@@ -879,16 +879,30 @@ function CatalogDetail({
 
           <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} />
 
+          {/* Conexão com o Business Center: técnica e configurada uma vez.
+              Recolhida quando já está OK (menos poluição); abre sozinha quando
+              a conexão falta/quebra, porque aí é acionável. */}
           {catalog && (
-            <CatalogConnectionCard
-              catalog={catalog}
-              advertiserId={advertiserId}
-              bcId={bcId}
-              // O cartão também pode salvar/corrigir o BC. Revalida o estado
-              // pai junto do catálogo para `bcConfigured` não continuar falso
-              // e bloquear a sincronização até um reload.
-              onChanged={() => Promise.all([mutate(), mutateReadiness(), onBusinessCenterChanged()])}
-            />
+            <details open={!bcConfigured} className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-semibold text-foreground">
+                <span className="flex items-center gap-1.5">
+                  {bcConfigured ? <ShieldCheck className="size-3.5 text-success" aria-hidden="true" /> : <AlertCircle className="size-3.5 text-warning" aria-hidden="true" />}
+                  Conexão com o TikTok {bcConfigured ? '· conectado' : '· configurar'}
+                </span>
+                <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="mt-2">
+                <CatalogConnectionCard
+                  catalog={catalog}
+                  advertiserId={advertiserId}
+                  bcId={bcId}
+                  // O cartão também pode salvar/corrigir o BC. Revalida o estado
+                  // pai junto do catálogo para `bcConfigured` não continuar falso
+                  // e bloquear a sincronização até um reload.
+                  onChanged={() => Promise.all([mutate(), mutateReadiness(), onBusinessCenterChanged()])}
+                />
+              </div>
+            </details>
           )}
 
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
@@ -953,17 +967,34 @@ function CatalogDetail({
             </div>
           )}
 
-          {/* Status do catálogo no TikTok (quando já publicado) */}
-          {catalog?.tiktokCatalogId && catalog.linkStatus === 'verified' && (
-            <TiktokStatusPanel
-              catalog={catalog}
-              localProductCount={validCount}
-              auditing={auditing}
-              autoChecking={autoChecking}
-              catalogCampaignSupported={catalogCapabilities?.catalogSingleVideoCampaign === true}
-              onRefresh={handleRefreshAudit}
-            />
-          )}
+          {/* Status detalhado no TikTok (quando já publicado): recolhido quando
+              tudo está aprovado (o cabeçalho já mostra "X produtos no TikTok");
+              abre sozinho quando há pendência/reprovação, que é acionável. */}
+          {catalog?.tiktokCatalogId && catalog.linkStatus === 'verified' && (() => {
+            const a = catalog.audit
+            const healthy = Boolean(a && (a.total ?? 0) > 0 && (a.approved ?? 0) > 0 && (a.pending ?? 0) === 0 && (a.rejected ?? 0) === 0)
+            return (
+              <details open={!healthy} className="group">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-semibold text-foreground">
+                  <span className="flex items-center gap-1.5">
+                    {healthy ? <ShieldCheck className="size-3.5 text-success" aria-hidden="true" /> : <Clock className="size-3.5 text-warning" aria-hidden="true" />}
+                    Status no TikTok {healthy ? `· ${a?.total} aprovado${(a?.total ?? 0) === 1 ? '' : 's'}` : '· requer atenção'}
+                  </span>
+                  <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                </summary>
+                <div className="mt-2">
+                  <TiktokStatusPanel
+                    catalog={catalog}
+                    localProductCount={validCount}
+                    auditing={auditing}
+                    autoChecking={autoChecking}
+                    catalogCampaignSupported={catalogCapabilities?.catalogSingleVideoCampaign === true}
+                    onRefresh={handleRefreshAudit}
+                  />
+                </div>
+              </details>
+            )
+          })()}
 
           {catalog && (
             <CatalogCampaignWizard
