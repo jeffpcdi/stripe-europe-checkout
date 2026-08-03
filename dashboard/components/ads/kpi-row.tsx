@@ -4,11 +4,11 @@
 // /api/ads/kpis (advertiser inteiro, todos os status); a página atual da árvore
 // só serve de fallback explícito enquanto o total não está disponível.
 
+import type { ReactNode } from 'react'
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react'
 import { useAdsKpis } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
 import { CountUp } from '@/components/count-up'
-import { SparkLine } from '@/components/sparkline'
 import { Skeleton } from '@/components/skeleton'
 import { fmtCompact, fmtPercent, fmtSpend } from '@/lib/format'
 
@@ -81,79 +81,51 @@ export function KpiRow({
     return (
       <section className="space-y-2" aria-label="Carregando totais da conta de anúncios">
         <Skeleton className="h-3 w-64" />
-        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((item) => <Skeleton key={item} className="h-24 rounded-2xl" />)}
-        </div>
+        <Skeleton className="h-[76px] rounded-2xl" />
       </section>
     )
   }
 
   const isAdvertiserTotal = Boolean(cur && kpis?.scope === 'advertiser_all_campaigns')
 
+  // Um card único com 4 colunas divididas por hairline — antes eram 4 cards
+  // soltos (4 bordas, 4 sombras) que poluíam o topo. Menos elementos, leitura
+  // em linha. `sub` é a 2ª linha opcional (ex.: cliques do CTR).
+  const cells: { label: string; value: ReactNode; delta?: number | null; goodWhenUp?: boolean; sub?: string }[] = [
+    {
+      label: isAdvertiserTotal ? 'Investimento' : 'Investido (carregado)',
+      value: <CountUp value={spend} format={(v) => fmtSpend(v, currency)} />,
+      delta: deltas?.spend,
+    },
+    { label: 'Impressões', value: <CountUp value={impressions} format={fmtCompact} />, delta: deltas?.impressions },
+    {
+      label: 'CTR',
+      value: <CountUp value={ctr} format={(v) => fmtPercent(v)} />,
+      delta: deltas?.ctr,
+      sub: `${fmtCompact(clicks)} clique${clicks === 1 ? '' : 's'}`,
+    },
+    { label: 'CPM', value: <CountUp value={cpm} format={(v) => fmtSpend(v, currency)} />, delta: deltas?.cpm, goodWhenUp: false },
+  ]
+
   return (
     <section className="space-y-2" aria-label={isAdvertiserTotal ? 'Totais da conta de anúncios' : 'Subtotal carregado da lista'}>
       <p className="text-[11px] text-muted-foreground">
         {isAdvertiserTotal ? 'Total da conta' : 'Subtotal carregado'} · {periodLabel} · {zoneLabel}
       </p>
-      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-      <GlassCard className="p-3 sm:p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {isAdvertiserTotal ? 'Investimento total' : 'Investimento carregado'}
-              </p>
-              <Delta value={deltas?.spend} />
+      <GlassCard className="overflow-hidden p-0">
+        <div className="grid grid-cols-2 divide-x divide-y divide-border/70 sm:grid-cols-4 sm:divide-y-0">
+          {cells.map((cell) => (
+            <div key={cell.label} className="p-3.5">
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{cell.label}</p>
+                <Delta value={cell.delta} goodWhenUp={cell.goodWhenUp} />
+              </div>
+              <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">{cell.value}</p>
+              {cell.sub && <p className="mt-0.5 text-[11px] text-muted-foreground">{cell.sub}</p>}
             </div>
-            <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-              <CountUp value={spend} format={(v) => fmtSpend(v, currency)} />
-            </p>
-          </div>
-          {kpi.spendSeries.length > 1 && (
-            <div className="opacity-70">
-              <SparkLine data={kpi.spendSeries} color="var(--brand-cyan, #25f4ee)" width={72} height={26} />
-            </div>
-          )}
+          ))}
         </div>
       </GlassCard>
-      
-      <GlassCard className="p-3 sm:p-4">
-        <div className="flex items-center gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Impressões</p>
-          <Delta value={deltas?.impressions} />
-        </div>
-        <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-          <CountUp value={impressions} format={fmtCompact} />
-        </p>
-      </GlassCard>
-
-      <GlassCard className="p-3 sm:p-4">
-        <div className="flex items-center gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">CTR</p>
-          <Delta value={deltas?.ctr} />
-        </div>
-        <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-          <CountUp value={ctr} format={(v) => fmtPercent(v)} />
-        </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {fmtCompact(clicks)} clique{clicks === 1 ? '' : 's'}
-        </p>
-      </GlassCard>
-
-      <GlassCard className="p-3 sm:p-4">
-        <div className="flex items-center gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">CPM</p>
-          {/* CPM subir é ruim: cor invertida */}
-          <Delta value={deltas?.cpm} goodWhenUp={false} />
-        </div>
-        <p className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-          <CountUp value={cpm} format={(v) => fmtSpend(v, currency)} />
-        </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          Todas as campanhas e status
-        </p>
-      </GlassCard>
-      </div>
     </section>
   )
 }
