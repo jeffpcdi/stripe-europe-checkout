@@ -14,6 +14,8 @@ function ok(cond, msg) {
 }
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const productionStart = fs.readFileSync(path.join(__dirname, '..', 'start.js'), 'utf8');
+const railway = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'railway.json'), 'utf8'));
 
 // Rotas /api públicas ou com autenticação própria (token/HMAC/tracking).
 // Cada entrada exige uma justificativa consciente — não é para crescer à toa.
@@ -49,6 +51,13 @@ ok(
   offenders.length === 0,
   'toda rota /api é protegida ou allowlistada. Não classificadas:\n    ' + offenders.join('\n    '),
 );
+ok(/const DEV_LOGIN_ENABLED = process\.env\.NODE_ENV !== 'production'/.test(src), 'login rápido continua condicionado ao ambiente');
+ok(
+  productionStart.indexOf("process.env.NODE_ENV = 'production'") < productionStart.indexOf("require('./server.js')"),
+  'start de produção força NODE_ENV antes de carregar o Express',
+);
+ok(productionStart.includes("NODE_ENV: 'production'"), 'Next de produção também recebe NODE_ENV explícito');
+ok(/^NODE_ENV=production\s+node start\.js$/.test(railway.deploy.startCommand), 'Railway reforça NODE_ENV no comando de entrada');
 // Garante que a allowlist não tem entradas mortas (rota removida do server).
 for (const p of PUBLIC_API) {
   ok(src.includes("'" + p + "'"), 'allowlist pública sem rota morta: ' + p);

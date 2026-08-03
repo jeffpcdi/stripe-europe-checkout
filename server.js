@@ -1787,8 +1787,9 @@ app.get('/register', auth.optionalAuth(), (req, res) => {
 // ── Acesso rápido para desenvolvimento (NUNCA em produção) ────────────────
 // Loga automaticamente na conta existente (ou cria uma conta dev) e cai direto
 // na dashboard, sem passar pela tela de login. Usado por v0/testes automáticos.
-// Gate: só funciona quando NODE_ENV !== 'production' → num deploy Vercel
-// (preview ou produção usam NODE_ENV=production) a rota responde 404.
+// Gate: só funciona quando NODE_ENV !== 'production'. O start.js de produção
+// força essa variável antes de carregar o servidor; em produção a rota nem é
+// registrada e responde 404.
 const DEV_LOGIN_ENABLED = process.env.NODE_ENV !== 'production';
 if (DEV_LOGIN_ENABLED) {
   app.get('/__dev/login', async (req, res) => {

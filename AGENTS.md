@@ -50,7 +50,8 @@ externo (qualquer gateway), integrado por webhooks universais de conversão. Nom
 
 ## 3. Deploy e ambientes
 - **Produção real:** roda no **Railway**, com credenciais **próprias do usuário** (Neon + Upstash
-  nas *Variables* do Railway). Independente do v0. Start: `node server.js`.
+  nas *Variables* do Railway). Independente do v0. Start: `NODE_ENV=production node start.js`;
+  `start.js` também força `NODE_ENV` antes de carregar o Express para manter `/__dev/login` ausente.
 - **Desenvolvimento local:** `.env.development.local` recebe as variáveis do Railway/gerenciador seguro. O repositório não está conectado à Vercel.
 - **Diagnóstico rápido:** `GET /api/status` (público, sem auth) → `{ok, db, redis, hint}`. Primeira
   parada para depurar "banco não configurado" em produção, sem expor segredos. Não confundir com
