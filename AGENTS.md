@@ -140,8 +140,13 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
 - **ads-provider.js + ads-routes.js** — toda criação automática regular, Smart+ e de catálogo só usa
   identidade `BC_AUTH_TT` com `identity_bc_id` e dark post habilitado; nunca escolhe
   `CUSTOMIZED_USER`/`TT_USER`/`AUTH_CODE` automaticamente. Duplicação pré-valida esse fallback antes
-  de criar a campanha. Catálogo tenta primeiro identidades BC com perfil nomeado e, se o TikTok disser
-  que o acesso foi revogado, percorre automaticamente as demais identidades autorizadas do mesmo BC.
+  de criar a campanha. Catálogo tenta primeiro identidades BC com perfil nomeado e, no modo automático,
+  percorre as demais identidades autorizadas do mesmo BC quando uma perde acesso. Uma identidade escolhida
+  explicitamente é reconsultada antes do upload e nunca cai silenciosamente em outro perfil; o endpoint
+  `GET /api/ads/catalogs/:catalogId/identities` devolve somente `BC_AUTH_TT` utilizáveis do BC vinculado.
+  Product Sales aceita Máxima entrega ou Cost Cap; `CONVERT + OCPM` usa obrigatoriamente
+  `conversion_bid_price`. Entrega acelerada só é válida em `ABO + Cost Cap`; CBO e Máxima entrega ficam
+  em `STANDARD`. O schema vivo habilita cada opção separadamente e o readback confirma lance e pacing.
   O conjunto envia e confirma `PLACEMENT_TYPE_NORMAL`, `PLACEMENT_TIKTOK` e as localizações; o mapper
   aceita `location_ids` na raiz do readback real. `dark_post_status` pode não voltar na leitura, mas,
   quando voltar, precisa ser `ON`. A árvore e o editor carregam `catalogId`/`websiteType`; se for `PRODUCT_LINK`,
@@ -436,9 +441,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Ao preparar campanhas, a rota injeta o Pixel central vinculado à conta de anúncio e consulta
   `get_tiktok_pixel_event_stats` por sete dias para escolher Compra; planilha, wizard e lote rápido
   não pedem Pixel/evento repetidamente.
-  No wizard dedicado há uma única ação “Criar campanhas”; o modal pede somente quantidade, orçamento
-  e vídeo, começa em uma campanha e aceita até 50. Todos os produtos aprovados, nomes ordenados, Pixel,
-  Compra, identidade, capa e Product Link são resolvidos automaticamente; o áudio vem do vídeo.
+  No wizard dedicado há uma única ação “Criar campanhas”; o fluxo principal pede somente quantidade,
+  orçamento e vídeo, começa em uma campanha e aceita até 50. “Opções avançadas” concentra Máxima
+  entrega/Cost Cap, CPA alvo, entrega acelerada (quando elegível) e o perfil mostrado no anúncio;
+  identidade automática continua sendo o padrão. Todos os produtos aprovados, nomes ordenados, Pixel,
+  Compra, capa e Product Link são resolvidos automaticamente; o áudio vem do vídeo.
   O orçamento é sempre exibido na moeda da conta de anúncio (não na moeda do feed);
   comparações de IDs normalizam string/número para não cair na moeda de uma campanha antiga.
   A tabela técnica de produtos locais fica recolhida por padrão e explicita separadamente o total

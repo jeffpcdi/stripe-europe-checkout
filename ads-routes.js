@@ -3475,6 +3475,27 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // Perfis autorizados que podem representar o anúncio de catálogo. A lista
+  // é escopada pelo catálogo local, advertiser selecionado e Business Center
+  // remoto; nunca devolvemos identidades Spark ou de outro BC para o seletor.
+  app.get('/api/ads/catalogs/:catalogId/identities', dashboardAuth, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor' });
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado', code: 'CATALOG_NOT_FOUND' });
+      if (!catalog.bcId || !catalog.tiktokCatalogId || catalog.linkStatus !== 'verified') {
+        return res.status(422).json({
+          error: 'Conecte e verifique o catálogo TikTok antes de escolher o perfil do anúncio.',
+          code: 'CATALOG_LINK_NOT_VERIFIED',
+        });
+      }
+      const identities = await pipeboard.listCatalogAdIdentities(advertiserId, catalog.bcId);
+      res.json({ identities });
+    } catch (err) { fail(res, err); }
+  });
+
   async function prepareCatalogCampaign(req) {
     if (!pipeboard.enabled) throw catalogDomain.catalogError('PIPEBOARD_DISABLED', 'Pipeboard não configurado no servidor.', { status: 409 });
     const capabilities = await catalogGateway.capabilities(pipeboard);
@@ -3546,7 +3567,11 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const requestedKey = String(req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey) || '').trim();
       const key = scopedCatalogRunIdempotencyKey(
         prepared.advertiserId,
-        requestedKey || ['catalog-campaign', prepared.accId, prepared.catalog.id, prepared.spec.name].join(':'),
+        requestedKey || [
+          'catalog-campaign', prepared.accId, prepared.catalog.id, prepared.spec.name,
+          prepared.spec.budgetAmount, prepared.spec.bidStrategy, prepared.spec.bidAmount || '',
+          prepared.spec.deliveryMode, prepared.spec.identityId || '', prepared.spec.videoUrl,
+        ].join(':'),
       );
       const run = await catalogStore.createCampaignRun(prepared.accId, prepared.advertiserId, prepared.catalog.id, {
         idempotencyKey: key, spec: prepared.spec,
@@ -3590,7 +3615,9 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       const requestedKey = String(req.get('Idempotency-Key') || body.idempotencyKey || '').trim();
       const batchKey = requestedKey || [
         'catalog-campaign-batch', prepared.accId, prepared.catalog.id, count,
-        prepared.spec.budgetAmount, prepared.spec.pixelId, namePrefix,
+        prepared.spec.budgetAmount, prepared.spec.pixelId,
+        prepared.spec.bidStrategy, prepared.spec.bidAmount || '', prepared.spec.deliveryMode,
+        prepared.spec.identityId || '', prepared.spec.videoUrl, namePrefix,
       ].join(':');
       const runs = [];
       for (let i = 0; i < names.length; i += 1) {

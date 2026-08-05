@@ -65,6 +65,7 @@ function completeSchemas() {
     'optimization_goal', 'billing_event', 'placement_type', 'placements',
     'schedule_start_time', 'schedule_end_time', 'targeting',
     'operation_status', 'pixel_id', 'optimization_event', 'budget_mode', 'budget', 'bid_type', 'bid_price',
+    'conversion_bid_price', 'delivery_mode',
   ].map((field) => [field, {}]));
   adgroup.promotion_type = { enum: ['WEBSITE'] };
   adgroup.shopping_ads_type = { description: 'Forwarded as-is — TikTok validates.' };
@@ -76,6 +77,8 @@ function completeSchemas() {
   adgroup.placements = { type: 'array', description: 'Explicit values include PLACEMENT_TIKTOK.' };
   adgroup.operation_status = { enum: ['DISABLE'] };
   adgroup.optimization_event = { description: 'Event name forwarded to TikTok.' };
+  adgroup.bid_type = { enum: ['BID_TYPE_NO_BID', 'BID_TYPE_CUSTOM'] };
+  adgroup.delivery_mode = { enum: ['STANDARD', 'ACCELERATED'] };
 
   const ad = Object.fromEntries([
     'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id', 'product_specific_type', 'item_group_ids',
@@ -211,6 +214,9 @@ function completeSchemas() {
     ok(/sku_ids/.test(body), 'propaga SKUs quando o escopo é específico');
     ok(!/music_id:/.test(body), 'não exige música separada do criativo');
     ok(/identity_authorized_bc_id/.test(body), 'envia o BC autorizado da identidade');
+    ok(/listAdIdentityCandidates\(adv, bcId\)/.test(body) && /CATALOG_IDENTITY_NOT_AVAILABLE/.test(body), 'perfil escolhido é revalidado ao vivo antes da criação');
+    ok(/identityCandidates = \[selectedIdentity\]/.test(body), 'perfil explícito nunca cai silenciosamente em outra identidade');
+    ok(/Object\.assign\(agArgs, plan\.delivery\)/.test(body), 'envia STANDARD ou ACCELERATED no conjunto');
     ok(!/landing_page_url\s*:/.test(body), 'não envia URL manual');
     ok(!/website_type: 'PRODUCT_LINK'/.test(body), 'não envia campo legado website_type');
     ok(/operation_status: 'DISABLE'/.test(body) && /status: 'PAUSED'/.test(body), 'três níveis nascem pausados');
@@ -244,6 +250,29 @@ function completeSchemas() {
     ok(!wrongDarkPost.complete && !wrongDarkPost.identity, 'dark post divergente invalida a confirmação quando o readback o informa');
     const active = verifyCatalogProductLinkHierarchy({ campaign: { ...campaign, status: 'ENABLE' }, adGroup, ad, expected });
     ok(!active.complete && !active.paused, 'exige os três níveis pausados');
+    const costCapExpected = { ...expected, bidStrategy: 'cost_cap', bidAmount: 12.5, deliveryMode: 'accelerated' };
+    const acceleratedGroup = mapAdGroup({
+      ...adGroup,
+      adgroup_id: 'group_1', campaign_id: 'camp_1',
+      bid_type: 'BID_TYPE_CUSTOM', conversion_bid_price: 12.5,
+      delivery_mode: 'ACCELERATED', pacing: 'PACING_MODE_FAST',
+    });
+    const accelerated = verifyCatalogProductLinkHierarchy({ campaign, adGroup: acceleratedGroup, ad, expected: costCapExpected });
+    ok(accelerated.complete && accelerated.bidDelivery, 'confirma Cost Cap por conversão e entrega acelerada no readback');
+    const wrongBidField = verifyCatalogProductLinkHierarchy({
+      campaign,
+      adGroup: { ...acceleratedGroup, conversionBidPrice: 0, bidPrice: 12.5 },
+      ad,
+      expected: costCapExpected,
+    });
+    ok(!wrongBidField.complete && !wrongBidField.bidDelivery, 'rejeita bid_price de clique no lugar de conversion_bid_price');
+    const missingPacing = verifyCatalogProductLinkHierarchy({
+      campaign,
+      adGroup: { ...acceleratedGroup, deliveryMode: '', pacing: '' },
+      ad,
+      expected: { ...expected, bidStrategy: 'lowest_cost', deliveryMode: 'standard' },
+    });
+    ok(!missingPacing.complete && !missingPacing.bidDelivery, 'criação nova não infere entrega padrão sem readback');
   }
 
   console.log('Provider — Compra real e identidade falham antes da escrita');
@@ -255,11 +284,16 @@ function completeSchemas() {
         ? { identities: [
           { identity_id: 'wrong', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_2' },
           { identity_id: 'stale', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1' },
-          { identity_id: 'right', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1', display_name: 'Perfil válido' },
+          { identity_id: 'revoked', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1', display_name: 'Revogado', status: 'REVOKED' },
+          { identity_id: 'no-push', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1', display_name: 'Sem upload', can_push_video: false },
+          { identity_id: 'right', identity_type: 'BC_AUTH_TT', identity_authorized_bc_id: 'bc_1', display_name: 'Perfil válido', username: 'perfil.valido', profile_image: 'https://cdn.test/avatar.jpg', status: 'AVAILABLE', can_push_video: true },
         ] }
         : { list: [{ pixel_id: 'pixel_1', statistics: [{ pixel_event_type: 'SHOPPING', total_count: 1 }] }] };
       const identity = await provider._internals.pickAdIdentity('adv', 'bc_1');
       ok(identity.identityId === 'right' && identity.identityBcId === 'bc_1', 'identidade respeita o BC e prioriza perfil resolvido');
+      const identities = await provider.listCatalogAdIdentities('adv', 'bc_1');
+      ok(identities.length === 1 && identities[0].identityId === 'right', 'seletor omite perfil revogado, sem upload e identidade opaca');
+      ok(identities[0].displayName === 'Perfil válido' && identities[0].username === 'perfil.valido' && Boolean(identities[0].avatarUrl), 'seletor devolve nome, usuário e avatar normalizados');
       const eventName = await provider._internals.resolveCatalogPurchaseEvent('adv', 'pixel_1');
       ok(eventName === 'SHOPPING', 'usa o evento de Compra que o Pixel realmente recebeu');
       pipeboard.callTool = async () => ({ list: [{ pixel_id: 'pixel_1', statistics: [] }] });
@@ -275,6 +309,8 @@ function completeSchemas() {
     ok(!missingVertical.catalogSingleVideoCampaign, 'sem vertical_video_strategy não libera criação');
     const complete = await catalogCapabilitiesForSchemas(completeSchemas());
     ok(complete.catalogSingleVideoCampaign && complete.manualCatalogCampaign, 'schema completo libera vídeo Product Link');
+    ok(complete.catalogCostCap && complete.catalogAcceleratedDelivery, 'schema completo libera Cost Cap e entrega acelerada');
+    ok(complete.bidStrategies.includes('cost_cap') && complete.deliveryModes.includes('accelerated'), 'capabilities anunciam somente combinações confirmadas');
     ok(complete.catalogCreate, 'ECOM com catalog_conf regional libera criação de catálogo');
     ok(complete.adFormat === 'SINGLE_VIDEO' && complete.shoppingAdsType === 'VIDEO', 'expõe os formatos confirmados');
     ok(complete.automaticVideoCover && complete.automaticPurchaseEvent, 'capa e evento são automáticos');
@@ -287,6 +323,14 @@ function completeSchemas() {
     delete missingPlacement.find((tool) => tool.name === 'create_tiktok_adgroup').inputSchema.properties.placements;
     const placementBlocked = await catalogCapabilitiesForSchemas(missingPlacement);
     ok(!placementBlocked.catalogSingleVideoCampaign, 'schema sem placement explícito falha antes da campanha');
+    const missingCostCap = completeSchemas();
+    delete missingCostCap.find((tool) => tool.name === 'create_tiktok_adgroup').inputSchema.properties.conversion_bid_price;
+    const costCapBlocked = await catalogCapabilitiesForSchemas(missingCostCap);
+    ok(costCapBlocked.catalogSingleVideoCampaign && !costCapBlocked.catalogCostCap, 'sem conversion_bid_price mantém máxima entrega e esconde Cost Cap');
+    const missingAccelerated = completeSchemas();
+    missingAccelerated.find((tool) => tool.name === 'create_tiktok_adgroup').inputSchema.properties.delivery_mode = { enum: ['STANDARD'] };
+    const acceleratedBlocked = await catalogCapabilitiesForSchemas(missingAccelerated);
+    ok(acceleratedBlocked.catalogSingleVideoCampaign && acceleratedBlocked.catalogCostCap && !acceleratedBlocked.catalogAcceleratedDelivery, 'sem ACCELERATED mantém Cost Cap padrão e esconde aceleração');
     const described = completeSchemas();
     described.find((tool) => tool.name === 'create_tiktok_ad').inputSchema.properties.vertical_video_strategy = {
       type: 'string',

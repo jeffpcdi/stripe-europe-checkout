@@ -43,6 +43,7 @@ import type {
   AdsHealthResponse,
   AdsCatalogsResponse,
   AdsCatalogDetailResponse,
+  AdsCatalogIdentitiesResponse,
   AdsCatalogSpecResponse,
   AdsCatalogBusinessCenter,
   AdsCatalogBatchPreviewResponse,
@@ -729,6 +730,18 @@ export function useAdsCatalogDetail(catalogId: string | null, adAccountId: strin
       : null,
     fetcher,
     { revalidateOnFocus: true, keepPreviousData: false },
+  )
+}
+
+// Perfis do mesmo Business Center que podem aparecer no anúncio de catálogo.
+// A opção automática continua disponível mesmo se esta consulta falhar.
+export function useAdsCatalogIdentities(active: boolean, catalogId: string, adAccountId: string) {
+  return useSWR<AdsCatalogIdentitiesResponse>(
+    active && catalogId && adAccountId
+      ? adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/identities`, adAccountId)
+      : null,
+    fetcher,
+    { revalidateOnFocus: false, shouldRetryOnError: false },
   )
 }
 

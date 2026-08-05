@@ -269,6 +269,8 @@ function mapAdGroup(g) {
     bidType: textField(row.bid_type, row.bidType),
     bidPrice: Number(row.bid_price || row.bidPrice || 0),
     conversionBidPrice: Number(row.conversion_bid_price || row.conversionBidPrice || 0),
+    deliveryMode: textField(row.delivery_mode, row.deliveryMode),
+    pacing: textField(row.pacing, row.pacing_mode, row.pacingMode),
     billingEvent: textField(row.billing_event, row.billingEvent),
     placementType: textField(row.placement_type, row.placementType),
     placements: Array.isArray(row.placements) ? row.placements.map(String) : [],
@@ -366,6 +368,26 @@ function verifyCatalogProductLinkHierarchy(input) {
     ? readTargeting.location_ids
     : Array.isArray(readTargeting.locationIds) ? readTargeting.locationIds : []).map(String).sort();
   const readPlacements = (Array.isArray(adGroup.placements) ? adGroup.placements : []).map(String).sort();
+  const expectsBidDelivery = Boolean(expected.bidStrategy || expected.deliveryMode);
+  const expectedBidStrategy = textField(expected.bidStrategy) || 'lowest_cost';
+  const expectedBidAmount = Number(expected.bidAmount || 0);
+  const expectedDeliveryMode = textField(expected.deliveryMode) || 'standard';
+  const readDeliveryMode = textField(adGroup.deliveryMode).toUpperCase();
+  const readPacing = textField(adGroup.pacing).toUpperCase();
+  const acceleratedReadback = readDeliveryMode.includes('ACCELERATED') || readPacing.includes('FAST') || readPacing.includes('ACCELERATED');
+  const standardReadback = !acceleratedReadback && (
+    readDeliveryMode.includes('STANDARD') || readPacing.includes('SMOOTH') || readPacing.includes('STANDARD')
+  );
+  const bidDelivery = !expectsBidDelivery || Boolean(
+    (expectedBidStrategy === 'cost_cap'
+      ? equalsEnum(adGroup.bidType, 'BID_TYPE_CUSTOM')
+        && expectedBidAmount > 0
+        && Math.abs(Number(adGroup.conversionBidPrice || 0) - expectedBidAmount) < 0.000001
+      : equalsEnum(adGroup.bidType, 'BID_TYPE_NO_BID')
+        && !(Number(adGroup.bidPrice || 0) > 0)
+        && !(Number(adGroup.conversionBidPrice || 0) > 0))
+    && (expectedDeliveryMode === 'accelerated' ? acceleratedReadback : standardReadback)
+  );
   const hierarchy = Boolean(
     ids.campaign && ids.adGroup && ids.ad
     && campaign.id === ids.campaign
@@ -415,17 +437,18 @@ function verifyCatalogProductLinkHierarchy(input) {
   const noManualUrl = !textField(ad.landingPageUrl);
   const paused = pausedReadback(campaign) && pausedReadback(adGroup) && pausedReadback(ad);
   return {
-    complete: hierarchy && productLink && targeting && identity && creative && noManualUrl && paused,
+    complete: hierarchy && productLink && targeting && bidDelivery && identity && creative && noManualUrl && paused,
     hierarchy,
     productLink,
     targeting,
+    bidDelivery,
     identity,
     creative,
     noManualUrl,
     paused,
     checks: {
       campaign: { id: campaign.id || null, status: campaign.status || null, catalogId: campaign.catalogId || null, productSource: campaign.productSource || null, shoppingAdsType: campaign.shoppingAdsType || null },
-      adGroup: { id: adGroup.id || null, campaignId: adGroup.campaignId || null, status: adGroup.status || null, catalogId: adGroup.catalogId || null, catalogAuthorizedBcId: adGroup.catalogAuthorizedBcId || null, promotionType: adGroup.promotionType || null, shoppingAdsRetargetingType: adGroup.shoppingAdsRetargetingType || null, pixelId: adGroup.pixelId || null, optimizationEvent: adGroup.optimizationEvent || null },
+      adGroup: { id: adGroup.id || null, campaignId: adGroup.campaignId || null, status: adGroup.status || null, catalogId: adGroup.catalogId || null, catalogAuthorizedBcId: adGroup.catalogAuthorizedBcId || null, promotionType: adGroup.promotionType || null, shoppingAdsRetargetingType: adGroup.shoppingAdsRetargetingType || null, pixelId: adGroup.pixelId || null, optimizationEvent: adGroup.optimizationEvent || null, bidType: adGroup.bidType || null, bidPrice: adGroup.bidPrice || 0, conversionBidPrice: adGroup.conversionBidPrice || 0, deliveryMode: adGroup.deliveryMode || null, pacing: adGroup.pacing || null },
       ad: { id: ad.id || null, adgroupId: ad.adgroupId || null, status: ad.status || null, catalogId: ad.catalogId || null, landingPageUrl: ad.landingPageUrl || null, adFormat: ad.adFormat || null, verticalVideoStrategy: ad.verticalVideoStrategy || null, productSpecificType: ad.productSpecificType || null, itemGroupIds: ad.itemGroupIds || [], skuIds: ad.skuIds || [], productSetId: ad.productSetId || null, videoId: ad.videoId || null, imageIds: ad.imageIds || [], identityType: ad.identityType || null, identityBcId: ad.identityBcId || null },
     },
   };
@@ -1192,19 +1215,53 @@ function darkPostDisabled(row) {
   return ['OFF', 'DISABLE', 'DISABLED', 'FALSE', '0'].includes(value);
 }
 
+function falseLike(value) {
+  if (value === false || value === 0) return true;
+  return ['FALSE', '0', 'NO', 'OFF', 'DISABLE', 'DISABLED'].includes(String(value == null ? '' : value).trim().toUpperCase());
+}
+
+function identityUnavailable(row) {
+  const status = textField(
+    row && row.identity_status,
+    row && row.authorization_status,
+    row && row.status,
+  ).toUpperCase();
+  return Boolean(status && /REVOK|UNAVAIL|EXPIRE|DISABLE|INVALID|DENIED|NO_ACCESS|UNAUTHORIZED/.test(status));
+}
+
 function usableBcIdentity(row) {
   return String((row && row.identity_type) || '').toUpperCase() === 'BC_AUTH_TT'
     && Boolean(identityIdOf(row))
     && Boolean(identityBcIdOf(row))
-    && !darkPostDisabled(row);
+    && !darkPostDisabled(row)
+    && !identityUnavailable(row)
+    && !falseLike(row && (row.can_push_video ?? row.canPushVideo));
 }
 
 function bcIdentityPayload(row) {
+  const displayName = textField(row && row.display_name, row && row.identity_name, row && row.nickname);
+  const username = textField(
+    row && row.username,
+    row && row.unique_id,
+    row && row.user_name,
+    row && row.tiktok_username,
+  );
+  const avatarUrl = textField(
+    row && row.profile_image,
+    row && row.avatar_icon_web_uri,
+    row && row.avatar_url,
+    row && row.image_url,
+  );
   return {
     identityId: identityIdOf(row),
     identityType: 'BC_AUTH_TT',
     identityBcId: identityBcIdOf(row),
     darkPost: true,
+    displayName: displayName || undefined,
+    username: username || undefined,
+    avatarUrl: avatarUrl || undefined,
+    available: true,
+    canPushVideo: true,
   };
 }
 
@@ -1223,6 +1280,18 @@ async function listAdIdentityCandidates(advertiserId, requiredBcId) {
     return Number(namedB) - Number(namedA);
   });
   return eligible.map(bcIdentityPayload);
+}
+
+// Lista pública do seletor de catálogo: somente perfis resolvidos do mesmo BC.
+// Identidades sem nome continuam disponíveis como fallback automático, mas não
+// viram opções opacas na interface.
+async function listCatalogAdIdentities(advertiserId, requiredBcId) {
+  const adv = String(advertiserId || '').trim();
+  const bcId = String(requiredBcId || '').trim();
+  if (!adv) throw badRequest('advertiserId é obrigatório');
+  if (!bcId) throw badRequest('Business Center do catálogo é obrigatório');
+  const candidates = await listAdIdentityCandidates(adv, bcId);
+  return candidates.filter((identity) => Boolean(identity.displayName || identity.username));
 }
 
 async function pickAdIdentity(advertiserId, requiredBcId) {
@@ -1554,6 +1623,7 @@ async function findCampaignIdByName(advertiserId, name) {
 //   budgetOptimization: 'campaign' (CBO) | 'adgroup' (ABO, padrão)
 //   bidStrategy:        'lowest_cost' (máx. entrega, padrão) | 'cost_cap' (teto)
 //   bidAmount:          número > 0 quando cost_cap (custo-alvo por resultado)
+//   deliveryMode:       'standard' (padrão) | 'accelerated'
 // CBO ⇒ orçamento vai na CAMPANHA (budget_optimize_on) e o ad group fica
 // INFINITE; ABO ⇒ orçamento no ad group (comportamento histórico).
 function resolveBudgetPlan(spec) {
@@ -1573,14 +1643,38 @@ function resolveBudgetPlan(spec) {
     adgroup.budget_mode = budgetMode;
     adgroup.budget = amount;
   }
+  const bidStrategy = s.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost';
+  const bidAmount = Number(s.bidAmount);
+  if (bidStrategy === 'cost_cap' && !(bidAmount > 0)) {
+    throw badRequest('Custo-alvo exige um valor de lance maior que zero');
+  }
+  const requestedDeliveryMode = String(s.deliveryMode || 'standard').trim().toLowerCase();
+  if (!['standard', 'accelerated'].includes(requestedDeliveryMode)) {
+    throw badRequest('Modo de entrega inválido — use standard ou accelerated');
+  }
+  if (requestedDeliveryMode === 'accelerated' && cbo) {
+    throw badRequest('Entrega acelerada só está disponível com orçamento no conjunto (ABO)');
+  }
+  if (requestedDeliveryMode === 'accelerated' && bidStrategy !== 'cost_cap') {
+    throw badRequest('Entrega acelerada exige estratégia cost_cap com custo-alvo');
+  }
   const bid = { bid_type: 'BID_TYPE_NO_BID' };
-  if (s.bidStrategy === 'cost_cap' && Number(s.bidAmount) > 0) {
+  if (bidStrategy === 'cost_cap') {
     bid.bid_type = 'BID_TYPE_CUSTOM';
     // CONVERT + OCPM usa conversion_bid_price; demais objetivos usam bid_price.
-    if (s.goal === 'conversions' || s.goal === 'lead_generation') bid.conversion_bid_price = Number(s.bidAmount);
-    else bid.bid_price = Number(s.bidAmount);
+    const conversionOcpm = (String(s.optimizationGoal || '').trim().toUpperCase() === 'CONVERT'
+      && String(s.billingEvent || '').trim().toUpperCase() === 'OCPM')
+      || s.goal === 'conversions' || s.goal === 'lead_generation';
+    if (conversionOcpm) bid.conversion_bid_price = bidAmount;
+    else bid.bid_price = bidAmount;
   }
-  return { cbo, campaign, adgroup, bid };
+  return {
+    cbo, campaign, adgroup, bid,
+    bidStrategy,
+    bidAmount: bidStrategy === 'cost_cap' ? bidAmount : undefined,
+    deliveryMode: requestedDeliveryMode,
+    delivery: { delivery_mode: requestedDeliveryMode === 'accelerated' ? 'ACCELERATED' : 'STANDARD' },
+  };
 }
 
 async function createFullAd(advertiserId, spec, opts) {
@@ -2853,7 +2947,7 @@ const CATALOG_CAMPAIGN_SCHEMA_FIELDS = {
     'billing_event', 'placement_type', 'placements',
     'schedule_start_time', 'schedule_end_time', 'targeting',
     'operation_status', 'pixel_id', 'optimization_event', 'budget_mode', 'budget',
-    'bid_type', 'bid_price',
+    'bid_type', 'delivery_mode',
   ],
   ad: [
     'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id',
@@ -2870,7 +2964,7 @@ const CATALOG_CAMPAIGN_GUARANTEED_FIELDS = {
     'shopping_ads_retargeting_type', 'product_source',
     'catalog_id', 'catalog_authorized_bc_id', 'optimization_goal', 'billing_event',
     'placement_type', 'placements', 'schedule_start_time', 'targeting', 'operation_status', 'pixel_id',
-    'optimization_event', 'budget_mode', 'budget',
+    'optimization_event', 'budget_mode', 'budget', 'bid_type', 'delivery_mode',
   ],
   ad: [
     'advertiser_id', 'adgroup_id', 'ad_name', 'ad_format', 'catalog_id',
@@ -2901,6 +2995,10 @@ async function getCatalogCapabilities({ force = false } = {}) {
     catalogCarouselMusic: false,
     automaticVideoCover: false,
     automaticPurchaseEvent: false,
+    catalogCostCap: false,
+    catalogAcceleratedDelivery: false,
+    bidStrategies: ['lowest_cost'],
+    deliveryModes: ['standard'],
     productSpecificType: false,
     productSets: false,
     specificProducts: false,
@@ -3001,6 +3099,7 @@ async function getCatalogCapabilities({ force = false } = {}) {
     const catalogLinkVerify = hasFields('get_tiktok_catalogs', ['bc_id']);
     const campaignFields = hasFields('create_tiktok_campaign', CATALOG_CAMPAIGN_SCHEMA_FIELDS.campaign);
     const adgroupFields = hasFields('create_tiktok_adgroup', CATALOG_CAMPAIGN_SCHEMA_FIELDS.adgroup);
+    const adgroupInputFields = fields('create_tiktok_adgroup');
     const adFields = hasFields('create_tiktok_ad', CATALOG_CAMPAIGN_SCHEMA_FIELDS.ad);
     const adInputFields = fields('create_tiktok_ad');
     const structuralReadback = ['get_tiktok_campaigns', 'get_tiktok_adgroups', 'get_tiktok_ads']
@@ -3041,6 +3140,8 @@ async function getCatalogCapabilities({ force = false } = {}) {
       ['placement_type', 'PLACEMENT_TYPE_NORMAL'],
       ['placements', 'PLACEMENT_TIKTOK'],
       ['operation_status', 'DISABLE'],
+      ['bid_type', 'BID_TYPE_NO_BID'],
+      ['delivery_mode', 'STANDARD'],
     ].every(([field, expected]) => field === 'shopping_ads_type'
       ? supportsPassThroughValue(fieldSchema('create_tiktok_adgroup', field), expected)
       : supportsDeclaredValue(fieldSchema('create_tiktok_adgroup', field), expected));
@@ -3061,6 +3162,11 @@ async function getCatalogCapabilities({ force = false } = {}) {
       && campaignSemantics && adgroupSemantics && adSemantics
       && requiredFieldsCompatible && structuralReadback
       && automaticVideoCover && automaticPurchaseEvent;
+    const catalogCostCap = catalogSingleVideoCampaign
+      && adgroupInputFields.has('conversion_bid_price')
+      && supportsDeclaredValue(fieldSchema('create_tiktok_adgroup', 'bid_type'), 'BID_TYPE_CUSTOM');
+    const catalogAcceleratedDelivery = catalogCostCap
+      && supportsDeclaredValue(fieldSchema('create_tiktok_adgroup', 'delivery_mode'), 'ACCELERATED');
     // Alias mantido para clientes antigos; agora significa exatamente o fluxo
     // SINGLE_VIDEO/Product Link validado, não o carousel antigo.
     const manualCatalogCampaign = catalogSingleVideoCampaign;
@@ -3094,6 +3200,10 @@ async function getCatalogCapabilities({ force = false } = {}) {
       catalogCarouselMusic,
       automaticVideoCover,
       automaticPurchaseEvent,
+      catalogCostCap,
+      catalogAcceleratedDelivery,
+      bidStrategies: catalogCostCap ? ['lowest_cost', 'cost_cap'] : ['lowest_cost'],
+      deliveryModes: catalogAcceleratedDelivery ? ['standard', 'accelerated'] : ['standard'],
       productSpecificType: adInputFields.has('product_specific_type'),
       structuralReadback,
       shoppingAdsType: manualCatalogCampaign ? shoppingType : null,
@@ -3883,6 +3993,12 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   if (s.budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(s.endDate || ''))) {
     throw badRequest('Orçamento total exige data de término (endDate)');
   }
+  // Product Sales otimiza CONVERT com cobrança OCPM. Fixar essa semântica no
+  // plano impede que Cost Cap use bid_price (clique) no lugar do campo
+  // obrigatório conversion_bid_price (compra).
+  const plan = resolveBudgetPlan(Object.assign({}, s, {
+    goal: 'conversions', optimizationGoal: 'CONVERT', billingEvent: 'OCPM',
+  }));
   const pixelId = String(s.pixelId || '').trim();
   if (!/^\d{6,30}$/.test(pixelId)) {
     throw badRequest('Pixel ID numérico do TikTok é obrigatório para optimization_goal=CONVERT');
@@ -3899,6 +4015,16 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   const capabilities = await getCatalogCapabilities();
   if (!capabilities.catalogSingleVideoCampaign) {
     throw catalogCreationAwaitingConnectorError('O conector ainda não aceita o vídeo Product Link completo (vertical_video_strategy). Nenhuma estrutura foi criada.');
+  }
+  if (plan.bidStrategy === 'cost_cap' && capabilities.catalogCostCap !== true) {
+    const err = catalogCreationAwaitingConnectorError('O conector ainda não confirmou Cost Cap com custo por conversão para campanhas de catálogo. Nenhuma estrutura foi criada.');
+    err.code = 'CATALOG_COST_CAP_CONNECTOR_UNSUPPORTED';
+    throw err;
+  }
+  if (plan.deliveryMode === 'accelerated' && capabilities.catalogAcceleratedDelivery !== true) {
+    const err = catalogCreationAwaitingConnectorError('O conector ainda não confirmou entrega acelerada para campanhas de catálogo. Nenhuma estrutura foi criada.');
+    err.code = 'CATALOG_ACCELERATED_DELIVERY_CONNECTOR_UNSUPPORTED';
+    throw err;
   }
   const pixelEvent = await resolveCatalogPurchaseEvent(adv, pixelId, requestedPixelEvent);
   if (Array.isArray(capabilities.optimizationEvents)
@@ -3948,18 +4074,37 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
   const warnings = [];
   // Todos os pré-requisitos de campanha terminam antes da primeira criação.
   // Falta de identidade, região, vídeo, capa ou evento não gera campanha órfã.
-  const [info, identityCandidates, regions] = await Promise.all([
+  const [info, liveIdentityCandidates, regions] = await Promise.all([
     getAdvertiserInfo(adv),
-    explicitIdentity ? Promise.resolve([explicitIdentity]) : listAdIdentityCandidates(adv, bcId),
+    listAdIdentityCandidates(adv, bcId),
     resolveLocationIds(adv, countries, 'PRODUCT_SALES'),
   ]);
   assertAdvertiserCanCreateCatalogCampaign(info);
+  let identityCandidates = liveIdentityCandidates;
+  if (explicitIdentity) {
+    const selectedIdentity = liveIdentityCandidates.find((candidate) => (
+      candidate.identityId === explicitIdentity.identityId
+      && candidate.identityType === explicitIdentity.identityType
+      && candidate.identityBcId === explicitIdentity.identityBcId
+    ));
+    if (!selectedIdentity) {
+      const err = badRequest(
+        'O perfil escolhido não está mais disponível neste Business Center. Atualize a lista e selecione outro perfil antes de criar as campanhas.',
+        409,
+      );
+      err.code = 'CATALOG_IDENTITY_NOT_AVAILABLE';
+      err.userMessage = err.message;
+      err.retryable = false;
+      throw err;
+    }
+    // Uma escolha explícita nunca pode cair silenciosamente em outro perfil.
+    identityCandidates = [selectedIdentity];
+  }
   if (!identityCandidates.length) {
     await pickAdIdentity(adv, bcId); // lança o erro orientativo padronizado
   }
   let identity = identityCandidates[0];
   if (regions.missingCountries.length) warnings.push('Países sem região no TikTok (ignorados): ' + regions.missingCountries.join(', '));
-  const plan = resolveBudgetPlan(s);
   const createdIds = { ...((options && options.resume) || {}) };
   if (createdIds.identityId) {
     const resumedIdentity = identityCandidates.find((candidate) => candidate.identityId === String(createdIds.identityId));
@@ -4065,6 +4210,7 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
     if (plan.adgroup.budget_mode) agArgs.budget_mode = plan.adgroup.budget_mode;
     if (plan.adgroup.budget != null) agArgs.budget = plan.adgroup.budget;
     Object.assign(agArgs, plan.bid);
+    Object.assign(agArgs, plan.delivery);
     if (s.budgetType === 'lifetime' && s.endDate) agArgs.schedule_end_time = String(s.endDate).slice(0, 10) + ' 23:59:59';
     await report('creating_adgroup');
     if (!createdIds.adGroupId) {
@@ -4155,6 +4301,15 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
             catalogId, bcId, shoppingAdsType: SHOPPING_TYPE,
             pixelId, pixelEvent,
             locationIds: regions.locationIds,
+            // Specs persistidos antes destes controles não tinham os campos.
+            // Mantemos a leitura histórica compatível; toda criação nova vem
+            // normalizada pelo domínio e confirma lance + entrega no readback.
+            ...(Object.prototype.hasOwnProperty.call(s, 'bidStrategy')
+              || Object.prototype.hasOwnProperty.call(s, 'deliveryMode') ? {
+                bidStrategy: plan.bidStrategy,
+                bidAmount: plan.bidAmount,
+                deliveryMode: plan.deliveryMode,
+              } : {}),
             adFormat: AD_FORMAT,
             verticalVideoStrategy: 'SINGLE_VIDEO',
             productSpecificType: adArgs.product_specific_type,
@@ -4255,6 +4410,7 @@ module.exports = {
   listTikTokCatalogs,
   updateTikTokCatalogName,
   getCatalogCapabilities,
+  listCatalogAdIdentities,
   resolveCatalogPurchaseEvent,
   resolveCatalogCarouselMusic: pickCatalogCarouselMusic,
   createCatalogCampaign,
@@ -4281,5 +4437,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
 };

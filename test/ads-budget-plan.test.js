@@ -14,6 +14,9 @@ const rb = provider._internals.resolveBudgetPlan;
 let n = 0;
 function ok(cond, label) { assert.ok(cond, label); n++; console.log('  ✓ ' + label); }
 function eq(a, b, label) { assert.deepStrictEqual(a, b, label); n++; console.log('  ✓ ' + label); }
+function throwsWith(fn, pattern, label) {
+  assert.throws(fn, pattern, label); n++; console.log('  ✓ ' + label);
+}
 
 console.log('ABO (padrão) — orçamento no ad group');
 {
@@ -22,6 +25,7 @@ console.log('ABO (padrão) — orçamento no ad group');
   eq(p.campaign, {}, 'campanha não recebe orçamento');
   eq(p.adgroup, { budget_mode: 'BUDGET_MODE_DAY', budget: 50 }, 'ad group leva o orçamento diário');
   eq(p.bid, { bid_type: 'BID_TYPE_NO_BID' }, 'lance padrão = máxima entrega');
+  eq(p.delivery, { delivery_mode: 'STANDARD' }, 'entrega padrão é explícita');
 }
 
 console.log('CBO — orçamento na campanha, ad group INFINITE');
@@ -44,8 +48,17 @@ console.log('Estratégia de lance — custo-alvo');
   eq(conv.bid, { bid_type: 'BID_TYPE_CUSTOM', conversion_bid_price: 8 }, 'conversões usam conversion_bid_price');
   const traffic = rb({ budgetType: 'daily', budgetAmount: 30, bidStrategy: 'cost_cap', bidAmount: 0.5, goal: 'traffic' });
   eq(traffic.bid, { bid_type: 'BID_TYPE_CUSTOM', bid_price: 0.5 }, 'tráfego usa bid_price');
-  const noAmount = rb({ bidStrategy: 'cost_cap', budgetType: 'daily', budgetAmount: 20 });
-  eq(noAmount.bid, { bid_type: 'BID_TYPE_NO_BID' }, 'cost_cap sem valor volta para máxima entrega (fail-safe)');
+  const catalog = rb({ budgetType: 'daily', budgetAmount: 50, bidStrategy: 'cost_cap', bidAmount: 12, optimizationGoal: 'CONVERT', billingEvent: 'OCPM' });
+  eq(catalog.bid, { bid_type: 'BID_TYPE_CUSTOM', conversion_bid_price: 12 }, 'catálogo CONVERT + OCPM usa custo por conversão mesmo sem goal genérico');
+  throwsWith(() => rb({ bidStrategy: 'cost_cap', budgetType: 'daily', budgetAmount: 20 }), /valor de lance maior que zero/i, 'cost_cap sem valor falha fechado');
+}
+
+console.log('Entrega acelerada — somente ABO + Cost Cap');
+{
+  const accelerated = rb({ budgetOptimization: 'adgroup', budgetType: 'daily', budgetAmount: 50, bidStrategy: 'cost_cap', bidAmount: 10, goal: 'conversions', deliveryMode: 'accelerated' });
+  eq(accelerated.delivery, { delivery_mode: 'ACCELERATED' }, 'ABO + Cost Cap envia ACCELERATED');
+  throwsWith(() => rb({ budgetOptimization: 'adgroup', budgetAmount: 50, deliveryMode: 'accelerated' }), /exige estratégia cost_cap/i, 'máxima entrega não aceita aceleração');
+  throwsWith(() => rb({ budgetOptimization: 'campaign', budgetAmount: 100, bidStrategy: 'cost_cap', bidAmount: 10, deliveryMode: 'accelerated' }), /orçamento no conjunto/i, 'CBO não aceita aceleração');
 }
 
 console.log('Rota /api/ads/create — valida e propaga ABO/CBO/bid');

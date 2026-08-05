@@ -60,7 +60,7 @@ console.log('Rota — guardrails do campaign-batch');
     'cada campanha tem chave de idempotência derivada por índice (retry não duplica)');
   ok(/createCampaignRun/.test(body), 'enfileira runs duráveis processados pelo worker existente');
   ok(/Idempotency-Key/.test(body), 'aceita Idempotency-Key do cliente');
-  ok(/prepared\.spec\.pixelId, namePrefix/.test(body), 'fallback idempotente muda quando o nome do lote muda');
+  ok(/prepared\.spec\.pixelId,[\s\S]*prepared\.spec\.bidStrategy[\s\S]*prepared\.spec\.deliveryMode[\s\S]*prepared\.spec\.identityId[\s\S]*prepared\.spec\.videoUrl, namePrefix/.test(body), 'fallback idempotente muda com vídeo, lance, entrega, perfil ou nome');
   ok(!/setCampaignStatus|createCatalogCampaign\(/.test(body), 'rota não toca o TikTok direto — só enfileira (worker cria pausado)');
 }
 
@@ -76,6 +76,10 @@ console.log('Dialog — lote rápido sem CSV nem configuração repetida');
   ok(/adsUpload\(file, 'video'\)/.test(dialog) && /videoUrl/.test(dialog), 'lote recebe um vídeo sem etapa manual no Ads Manager');
   ok(!/useAdsTikTokPixels|pixelId|pixelEvent|TIKTOK_PIXEL_EVENTS/.test(dialog), 'dialog não pede Pixel nem evento manualmente');
   ok(/idempotencyKey/.test(dialog), 'envia chave de idempotência (retry seguro)');
+  ok(/Máxima entrega/.test(dialog) && /Custo-alvo/.test(dialog) && /bidStrategy/.test(dialog), 'opções avançadas expõem estratégia de lance sem poluir o fluxo principal');
+  ok(/Entrega acelerada/.test(dialog) && /deliveryMode/.test(dialog), 'entrega acelerada só é enviada pelo contrato explícito');
+  ok(/Perfil mostrado no anúncio/.test(dialog) && /useAdsCatalogIdentities/.test(dialog), 'perfil autorizado pode ser escolhido sem abrir o Ads Manager');
+  ok(/catalogCostCap/.test(dialog) && /catalogAcceleratedDelivery/.test(dialog), 'interface só mostra recursos confirmados pelo schema vivo');
   const wizard = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'components', 'ads', 'catalog-campaign-wizard.tsx'), 'utf8');
   ok(/CatalogQuickCampaignsDialog/.test(wizard), 'lote vive junto das campanhas do catálogo, sem poluir a lista');
   ok(/open=\{connectorReady && dialogOpen\}/.test(wizard), 'modal único só abre quando o conector confirma Product Link');

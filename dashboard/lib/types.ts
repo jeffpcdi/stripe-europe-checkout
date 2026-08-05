@@ -1669,6 +1669,21 @@ export interface AdsCatalogDetailResponse {
   products: AdsCatalogProduct[]
 }
 
+export interface AdsCatalogIdentity {
+  identityId: string
+  identityType: 'BC_AUTH_TT'
+  identityBcId?: string
+  bcId?: string
+  displayName?: string
+  username?: string
+  avatarUrl?: string
+  imageUrl?: string
+}
+
+export interface AdsCatalogIdentitiesResponse {
+  identities: AdsCatalogIdentity[]
+}
+
 export interface AdsCatalogFieldMeta {
   key: string
   label: string
@@ -1706,6 +1721,10 @@ export interface AdsCatalogCapabilities {
   catalogCarouselMusic: boolean
   automaticVideoCover: boolean
   automaticPurchaseEvent: boolean
+  catalogCostCap: boolean
+  catalogAcceleratedDelivery: boolean
+  bidStrategies: ('lowest_cost' | 'cost_cap')[]
+  deliveryModes: ('standard' | 'accelerated')[]
   productSets: boolean
   specificProducts: boolean
   catalogVideoTemplates: boolean

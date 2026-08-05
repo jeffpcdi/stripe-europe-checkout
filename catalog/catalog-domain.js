@@ -177,6 +177,38 @@ function normalizeCampaignSpec(input, catalog) {
   if (budgetType === 'lifetime' && !/^\d{4}-\d{2}-\d{2}/.test(String(value.endDate || ''))) {
     throw catalogError('CATALOG_CAMPAIGN_END_DATE_REQUIRED', 'Orçamento total exige data de término.');
   }
+  const budgetOptimization = value.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup';
+  const bidStrategy = value.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost';
+  const bidAmount = Number(value.bidAmount);
+  if (bidStrategy === 'cost_cap' && !(bidAmount > 0)) {
+    throw catalogError(
+      'CATALOG_CAMPAIGN_BID_AMOUNT_REQUIRED',
+      'Informe um custo-alvo por compra maior que zero.',
+      { status: 400, retryable: false },
+    );
+  }
+  const requestedDeliveryMode = String(value.deliveryMode || 'standard').trim().toLowerCase();
+  if (!['standard', 'accelerated'].includes(requestedDeliveryMode)) {
+    throw catalogError(
+      'CATALOG_CAMPAIGN_DELIVERY_MODE_INVALID',
+      'Selecione entrega padrão ou acelerada.',
+      { status: 400, retryable: false },
+    );
+  }
+  if (requestedDeliveryMode === 'accelerated' && budgetOptimization !== 'adgroup') {
+    throw catalogError(
+      'CATALOG_CAMPAIGN_ACCELERATED_REQUIRES_ABO',
+      'A entrega acelerada só está disponível com orçamento no conjunto (ABO).',
+      { status: 400, retryable: false },
+    );
+  }
+  if (requestedDeliveryMode === 'accelerated' && bidStrategy !== 'cost_cap') {
+    throw catalogError(
+      'CATALOG_CAMPAIGN_ACCELERATED_REQUIRES_COST_CAP',
+      'A entrega acelerada exige custo-alvo por compra.',
+      { status: 400, retryable: false },
+    );
+  }
   const productScope = ['all', 'product_set', 'specific'].includes(value.productScope) ? value.productScope : 'all';
   const itemGroupIds = Array.isArray(value.itemGroupIds || value.productIds)
     ? (value.itemGroupIds || value.productIds).map((v) => String(v || '').trim()).filter(Boolean).slice(0, 100) : [];
@@ -206,9 +238,17 @@ function normalizeCampaignSpec(input, catalog) {
     );
   }
   const identityType = String(value.identityType || '').trim().toUpperCase();
-  const identityId = String(value.identityId || '').trim();
-  if ((identityId && !identityType) || (!identityId && identityType)) {
-    throw catalogError('CATALOG_IDENTITY_INCOMPLETE', 'Informe a identidade e o tipo de identidade juntos.');
+  const identityId = String(value.identityId || '').trim().slice(0, 120);
+  const identityBcId = String(value.identityBcId || '').trim();
+  const hasIdentityChoice = Boolean(identityId || identityType || identityBcId);
+  if (hasIdentityChoice && !(identityId && identityType && identityBcId)) {
+    throw catalogError('CATALOG_IDENTITY_INCOMPLETE', 'Selecione novamente o perfil autorizado do Business Center.');
+  }
+  if (identityType && identityType !== 'BC_AUTH_TT') {
+    throw catalogError('CATALOG_IDENTITY_TYPE_INVALID', 'Campanhas de catálogo aceitam somente perfis autorizados do Business Center.');
+  }
+  if (identityBcId && !/^\d{6,30}$/.test(identityBcId)) {
+    throw catalogError('CATALOG_IDENTITY_BC_INVALID', 'O Business Center do perfil selecionado é inválido.');
   }
   const pixelId = String(value.pixelId || '').trim();
   if (!/^\d{6,30}$/.test(pixelId)) {
@@ -233,14 +273,15 @@ function normalizeCampaignSpec(input, catalog) {
   }
   return {
     name, budgetAmount, budgetType, endDate: value.endDate || undefined,
-    budgetOptimization: value.budgetOptimization === 'campaign' ? 'campaign' : 'adgroup',
-    bidStrategy: value.bidStrategy === 'cost_cap' ? 'cost_cap' : 'lowest_cost',
-    bidAmount: Number(value.bidAmount) || undefined,
+    budgetOptimization,
+    bidStrategy,
+    bidAmount: bidStrategy === 'cost_cap' ? bidAmount : undefined,
+    deliveryMode: requestedDeliveryMode,
     country: String(value.country || cat.country || 'BR').trim().toUpperCase(),
     productScope, itemGroupIds, productIds: itemGroupIds, productSetId: productSetId || undefined,
     videoUrl,
     identityId: identityId || undefined, identityType: identityType || undefined,
-    identityBcId: String(value.identityBcId || '').trim() || undefined,
+    identityBcId: identityBcId || undefined,
     pixelId,
     pixelEvent,
     text: String(value.text || '').trim().slice(0, 100) || undefined,

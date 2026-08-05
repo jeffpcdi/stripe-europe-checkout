@@ -59,6 +59,10 @@ function RunCard({
   const budgetLabel = Number.isFinite(budgetAmount) && budgetAmount > 0
     ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency, maximumFractionDigits: 2 }).format(budgetAmount) + '/dia'
     : null
+  const bidLabel = run.spec.bidStrategy === 'cost_cap'
+    ? `Custo-alvo ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(run.spec.bidAmount) || 0)}`
+    : 'Máxima entrega'
+  const deliveryLabel = run.spec.deliveryMode === 'accelerated' ? 'entrega acelerada' : 'entrega padrão'
   const verification = run.result && typeof run.result.verification === 'object' && run.result.verification !== null
     ? run.result.verification as Record<string, unknown>
     : null
@@ -66,6 +70,7 @@ function RunCard({
     verification.hierarchy === true && 'hierarquia completa',
     verification.productLink === true && 'Product Link',
     verification.targeting === true && 'Pixel e evento',
+    verification.bidDelivery === true && 'lance e entrega',
     verification.identity === true && 'identidade do Business Center',
     verification.creative === true && 'vídeo vertical',
     verification.noManualUrl === true && 'sem URL manual',
@@ -108,7 +113,7 @@ function RunCard({
               {active ? <Loader2 className="size-3.5 animate-spin text-primary" /> : run.status === 'completed' ? <Check className="size-3.5 text-success" /> : <AlertCircle className="size-3.5 text-error" />}
               {STAGES[run.stage] || run.stage}
             </p>
-            <p className="mt-1 text-[10px] text-muted-foreground">{scopeLabel}{budgetLabel ? ` · ${budgetLabel}` : ''}</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">{scopeLabel}{budgetLabel ? ` · ${budgetLabel}` : ''} · {bidLabel} · {deliveryLabel}</p>
           </div>
           <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{runStatusLabel}</span>
         </div>
@@ -245,6 +250,7 @@ export function CatalogCampaignWizard({
         catalog={catalog}
         advertiserId={advertiserId}
         advertiserCurrency={advertiserCurrency}
+        capabilities={capabilities}
         open={connectorReady && dialogOpen}
         onClose={() => setDialogOpen(false)}
         onCreated={() => { void mutateRuns() }}

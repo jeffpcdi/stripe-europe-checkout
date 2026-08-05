@@ -86,7 +86,25 @@ function throwsCode(fn, code, label) {
   eq(spec.creativeMode, 'SINGLE_VIDEO', 'spec usa vídeo de catálogo com áudio embutido');
   eq(spec.strategy, 'catalog_video_product_link', 'estratégia Product Link fica explícita');
   eq(spec.budgetOptimization, 'adgroup', 'ABO é o padrão');
+  eq(spec.bidStrategy, 'lowest_cost', 'máxima entrega é o padrão');
+  eq(spec.deliveryMode, 'standard', 'entrega padrão é o ritmo inicial');
   eq(spec.pixelEvent, 'ON_WEB_ORDER', 'evento de compra canônico é o padrão');
+  const accelerated = domain.normalizeCampaignSpec({ ...input, bidStrategy: 'cost_cap', bidAmount: 12.5, deliveryMode: 'accelerated' }, {});
+  eq(accelerated.bidAmount, 12.5, 'Cost Cap preserva o CPA alvo');
+  eq(accelerated.deliveryMode, 'accelerated', 'ABO + Cost Cap aceita entrega acelerada');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, bidStrategy: 'cost_cap' }, {}), 'CATALOG_CAMPAIGN_BID_AMOUNT_REQUIRED', 'Cost Cap sem CPA é bloqueado antes da fila');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, deliveryMode: 'accelerated' }, {}), 'CATALOG_CAMPAIGN_ACCELERATED_REQUIRES_COST_CAP', 'máxima entrega não aceita aceleração');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, budgetOptimization: 'campaign', bidStrategy: 'cost_cap', bidAmount: 10, deliveryMode: 'accelerated' }, {}), 'CATALOG_CAMPAIGN_ACCELERATED_REQUIRES_ABO', 'CBO não aceita aceleração');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, deliveryMode: 'turbo' }, {}), 'CATALOG_CAMPAIGN_DELIVERY_MODE_INVALID', 'modo de entrega desconhecido não chega ao provider');
+  const chosenProfile = domain.normalizeCampaignSpec({
+    ...input,
+    identityId: 'e13cdf03-d5e5-56d0-a26a-8149f22efea7',
+    identityType: 'BC_AUTH_TT',
+    identityBcId: '7550683248272228369',
+  }, {});
+  eq(chosenProfile.identityType, 'BC_AUTH_TT', 'perfil autorizado é persistido no run');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, identityId: 'perfil', identityType: 'BC_AUTH_TT' }, {}), 'CATALOG_IDENTITY_INCOMPLETE', 'perfil sem BC não entra na fila');
+  throwsCode(() => domain.normalizeCampaignSpec({ ...input, identityId: 'perfil', identityType: 'TT_USER', identityBcId: '7550683248272228369' }, {}), 'CATALOG_IDENTITY_TYPE_INVALID', 'identidade Spark não entra em catálogo com upload novo');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, budgetAmount: 49.99 }, {}), 'CATALOG_CAMPAIGN_BUDGET_BELOW_MINIMUM', 'bloqueia orçamento abaixo do piso do TikTok');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, productIds: ['SKU,quebrado'] }, {}), 'CATALOG_ITEM_GROUP_ID_INVALID', 'item_group_id inválido não chega ao provider');
   throwsCode(() => domain.normalizeCampaignSpec({ ...input, pixelId: '' }, {}), 'CATALOG_PIXEL_REQUIRED', 'pixel é obrigatório para CONVERT');

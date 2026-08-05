@@ -48,7 +48,7 @@ assert.match(storeSource, /WHERE account_id = \$\{accountId\} AND advertiser_id 
 
 const catalogSection = routes.slice(routes.indexOf("app.get('/api/ads/catalogs/spec'"));
 const handlers = [...catalogSection.matchAll(/app\.(?:get|post|put|delete)\('(\/api\/ads\/catalogs[^']*)'/g)];
-assert.strictEqual(handlers.length, 29, 'todas as 29 rotas do fluxo de catálogo, incluindo lote e campaign-batch, continuam registradas');
+assert.strictEqual(handlers.length, 30, 'todas as 30 rotas do fluxo de catálogo, incluindo perfis, lote e campaign-batch, continuam registradas');
 for (let index = 0; index < handlers.length; index++) {
   const start = handlers[index].index;
   const end = index + 1 < handlers.length ? handlers[index + 1].index : catalogSection.indexOf('\n};', start);
@@ -62,6 +62,8 @@ assert.match(storeSource, /ads_catalog_sync_runs[\s\S]*advertiser_id text/);
 assert.match(storeSource, /listCampaignRuns\(accountId, advertiserId,/);
 assert.match(catalogSection, /app\.post\('\/api\/ads\/catalogs\/batch\/preview'/);
 assert.match(catalogSection, /app\.post\('\/api\/ads\/catalogs\/batch'/);
+assert.match(catalogSection, /app\.get\('\/api\/ads\/catalogs\/:catalogId\/identities'/);
+assert.match(catalogSection, /listCatalogAdIdentities\(advertiserId, catalog\.bcId\)/);
 assert.match(catalogSection, /catalogBatchExecutor\.executeCatalogBatch/);
 assert.match(catalogSection, /waiting_connector_confirmation/);
 assert.match(catalogSection, /batchCampaignSpecErrors/);

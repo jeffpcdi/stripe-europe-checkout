@@ -4,10 +4,10 @@
 // catálogo, público, capa e Product Link vêm do backend.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, Loader2, Rocket, Upload, Video } from 'lucide-react'
-import { adsCreateCatalogCampaignBatch, adsUpload } from '@/lib/api'
+import { AlertCircle, Check, Loader2, RefreshCw, Rocket, Upload, UserRound, Video } from 'lucide-react'
+import { adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
-import type { AdsCatalog } from '@/lib/types'
+import type { AdsCatalog, AdsCatalogCapabilities } from '@/lib/types'
 import { toast } from '@/lib/toast'
 import { useModalA11y } from '@/lib/use-modal-a11y'
 
@@ -24,6 +24,7 @@ export function CatalogQuickCampaignsDialog({
   catalog,
   advertiserId,
   advertiserCurrency,
+  capabilities,
   open,
   initialVideoUrl,
   onClose,
@@ -32,6 +33,7 @@ export function CatalogQuickCampaignsDialog({
   catalog: AdsCatalog
   advertiserId: string
   advertiserCurrency: string
+  capabilities: AdsCatalogCapabilities | null
   open: boolean
   initialVideoUrl?: string
   onClose: () => void
@@ -42,17 +44,44 @@ export function CatalogQuickCampaignsDialog({
   const [namePrefix, setNamePrefix] = useState('')
   const [videoUrl, setVideoUrl] = useState(initialVideoUrl || '')
   const [videoName, setVideoName] = useState(initialVideoUrl ? 'Vídeo já enviado' : '')
+  const [bidStrategy, setBidStrategy] = useState<'lowest_cost' | 'cost_cap'>('lowest_cost')
+  const [bidAmount, setBidAmount] = useState('')
+  const [acceleratedDelivery, setAcceleratedDelivery] = useState(false)
+  const [identityKey, setIdentityKey] = useState('')
   const [uploading, setUploading] = useState(false)
   const [busy, setBusy] = useState(false)
   const idempotencyKeyRef = useRef<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   useModalA11y(open, dialogRef, onClose)
+  const {
+    data: identityData,
+    isLoading: identitiesLoading,
+    error: identitiesError,
+    mutate: reloadIdentities,
+  } = useAdsCatalogIdentities(open, catalog.id, advertiserId)
+  const identities = useMemo(() => identityData?.identities ?? [], [identityData])
+  const costCapAvailable = capabilities?.catalogCostCap === true
+  const acceleratedDeliveryAvailable = capabilities?.catalogAcceleratedDelivery === true
+  const selectedIdentity = useMemo(
+    () => identities.find((identity) => `${identity.identityId}:${identity.identityType}` === identityKey) ?? null,
+    [identities, identityKey],
+  )
+  useEffect(() => {
+    if (costCapAvailable) return
+    setBidStrategy('lowest_cost')
+    setBidAmount('')
+    setAcceleratedDelivery(false)
+  }, [costCapAvailable])
   useEffect(() => {
     setCount(1)
     setBudget(String(TIKTOK_MIN_BUDGET))
     setNamePrefix('')
     setVideoUrl(initialVideoUrl || '')
     setVideoName(initialVideoUrl ? 'Vídeo já enviado' : '')
+    setBidStrategy('lowest_cost')
+    setBidAmount('')
+    setAcceleratedDelivery(false)
+    setIdentityKey('')
     setUploading(false)
     setBusy(false)
     idempotencyKeyRef.current = null
@@ -66,6 +95,8 @@ export function CatalogQuickCampaignsDialog({
   const budgetNumber = Number(String(budget).replace(',', '.'))
   const budgetValid = Number.isFinite(budgetNumber) && budgetNumber >= TIKTOK_MIN_BUDGET
   const countValid = Number.isInteger(count) && count >= 1 && count <= MAX_COUNT
+  const bidAmountNumber = Number(String(bidAmount).replace(',', '.'))
+  const bidValid = bidStrategy === 'lowest_cost' || (Number.isFinite(bidAmountNumber) && bidAmountNumber > 0)
   const effectivePrefix = namePrefix.trim() || `${catalog.name} — VSA`
   const pad = Math.max(2, String(count).length)
   const sampleName = (index: number) => `${effectivePrefix} ${String(index).padStart(pad, '0')}`
@@ -73,9 +104,19 @@ export function CatalogQuickCampaignsDialog({
     style: 'currency', currency: advertiserCurrency || 'USD', maximumFractionDigits: 2,
   }), [advertiserCurrency])
 
+  function identityName(identity: NonNullable<typeof selectedIdentity>) {
+    return identity.displayName || identity.username || identity.identityId
+  }
+
+  function identityHandle(identity: NonNullable<typeof selectedIdentity>) {
+    if (!identity.username) return ''
+    return identity.username.startsWith('@') ? identity.username : `@${identity.username}`
+  }
+
   async function create() {
     if (!countValid) return toast.error(`Escolha de 1 a ${MAX_COUNT} campanhas`)
     if (!budgetValid) return toast.error(tiktokMinimumBudgetMessage(advertiserCurrency, ' por dia'))
+    if (!bidValid) return toast.error('Informe um CPA alvo maior que zero')
     if (!videoUrl) return toast.error('Envie o vídeo das campanhas')
     setBusy(true)
     try {
@@ -84,9 +125,15 @@ export function CatalogQuickCampaignsDialog({
         budgetAmount: budgetNumber,
         budgetType: 'daily',
         budgetOptimization: 'adgroup',
+        bidStrategy,
+        bidAmount: bidStrategy === 'cost_cap' ? bidAmountNumber : undefined,
+        deliveryMode: acceleratedDelivery && bidStrategy === 'cost_cap' ? 'accelerated' : 'standard',
         productScope: 'all',
         videoUrl,
         namePrefix: effectivePrefix,
+        identityId: selectedIdentity?.identityId,
+        identityType: selectedIdentity?.identityType,
+        identityBcId: selectedIdentity?.identityBcId || selectedIdentity?.bcId,
         idempotencyKey: idempotencyKeyRef.current || (idempotencyKeyRef.current = randomKey()),
       })
       idempotencyKeyRef.current = null
@@ -217,23 +264,137 @@ export function CatalogQuickCampaignsDialog({
         </div>
 
         <details className="rounded-lg border border-border px-3 py-2">
-          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">Personalizar nomes</summary>
-          <label className="mt-3 flex flex-col gap-1 text-[11px] text-muted-foreground">
-            Prefixo
-            <input
-              className="input-base text-xs"
-              value={namePrefix}
-              onChange={(event) => update(setNamePrefix, event.target.value)}
-              placeholder={`${catalog.name} — VSA`}
-              maxLength={100}
-            />
-            <span>Ex.: “{sampleName(1)}”{count > 1 ? ` até “${sampleName(count)}”` : ''}</span>
-          </label>
+          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">Opções avançadas</summary>
+          <div className="mt-3 flex flex-col gap-4">
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-[11px] font-medium text-foreground">Estratégia de entrega</legend>
+              <div className={`grid gap-2 ${costCapAvailable ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                <button
+                  type="button"
+                  className={`rounded-lg border p-2 text-left text-[11px] transition-colors ${bidStrategy === 'lowest_cost' ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/40'}`}
+                  onClick={() => {
+                    update(setBidStrategy, 'lowest_cost')
+                    setAcceleratedDelivery(false)
+                  }}
+                  aria-pressed={bidStrategy === 'lowest_cost'}
+                >
+                  <strong className="block font-semibold">Máxima entrega</strong>
+                  Usa o orçamento para gerar mais compras.
+                </button>
+                {costCapAvailable && (
+                  <button
+                    type="button"
+                    className={`rounded-lg border p-2 text-left text-[11px] transition-colors ${bidStrategy === 'cost_cap' ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/40'}`}
+                    onClick={() => update(setBidStrategy, 'cost_cap')}
+                    aria-pressed={bidStrategy === 'cost_cap'}
+                  >
+                    <strong className="block font-semibold">Custo-alvo</strong>
+                    Busca manter o CPA próximo da meta.
+                  </button>
+                )}
+              </div>
+
+              {bidStrategy === 'cost_cap' && (
+                <div className="rounded-lg border border-border bg-secondary/20 p-3">
+                  <label className="flex flex-col gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground">CPA alvo ({advertiserCurrency})</span>
+                    <input
+                      className="input-base"
+                      type="number"
+                      inputMode="decimal"
+                      min="0.01"
+                      step="0.01"
+                      value={bidAmount}
+                      onChange={(event) => update(setBidAmount, event.target.value)}
+                      placeholder="Ex.: 15,00"
+                    />
+                    {!bidValid && bidAmount.trim() !== '' && (
+                      <span className="text-[10px] text-warning" role="alert">Informe um valor maior que zero.</span>
+                    )}
+                  </label>
+                  {acceleratedDeliveryAvailable && (
+                    <label className="mt-3 flex cursor-pointer items-start gap-2 text-[11px]">
+                      <input
+                        className="mt-0.5 accent-primary"
+                        type="checkbox"
+                        checked={acceleratedDelivery}
+                        onChange={(event) => update(setAcceleratedDelivery, event.target.checked)}
+                      />
+                      <span>
+                        <strong className="block font-medium text-foreground">Entrega acelerada</strong>
+                        <span className="text-muted-foreground">Pode gastar mais rápido e oscilar o CPA nos primeiros dias.</span>
+                      </span>
+                    </label>
+                  )}
+                </div>
+              )}
+            </fieldset>
+
+            <label className="flex flex-col gap-1.5 text-[11px]">
+              <span className="flex items-center gap-1.5 font-medium text-foreground">
+                <UserRound className="size-3.5 text-primary" aria-hidden="true" /> Perfil mostrado no anúncio
+              </span>
+              <select
+                className="input-base text-xs"
+                value={identityKey}
+                onChange={(event) => update(setIdentityKey, event.target.value)}
+                disabled={identitiesLoading}
+              >
+                <option value="">Automático (recomendado)</option>
+                {identities.map((identity) => (
+                  <option key={`${identity.identityId}:${identity.identityType}`} value={`${identity.identityId}:${identity.identityType}`}>
+                    {identity.displayName || identity.username || identity.identityId}{identity.username ? ` · ${identity.username.startsWith('@') ? identity.username : `@${identity.username}`}` : ''}
+                  </option>
+                ))}
+              </select>
+              {identitiesLoading ? (
+                <span className="flex items-center gap-1 text-muted-foreground"><Loader2 className="size-3 animate-spin" /> Carregando perfis…</span>
+              ) : identitiesError ? (
+                <button
+                  type="button"
+                  className="flex w-fit items-center gap-1 text-warning hover:text-foreground"
+                  onClick={() => void reloadIdentities()}
+                >
+                  <RefreshCw className="size-3" aria-hidden="true" /> Não foi possível carregar. Tentar novamente
+                </button>
+              ) : selectedIdentity ? (
+                <span className="flex items-center gap-2 rounded-lg bg-secondary/30 p-2">
+                  {(selectedIdentity.avatarUrl || selectedIdentity.imageUrl) ? (
+                    <img
+                      src={selectedIdentity.avatarUrl || selectedIdentity.imageUrl}
+                      alt=""
+                      className="size-7 rounded-full border border-border object-cover"
+                    />
+                  ) : (
+                    <span className="flex size-7 items-center justify-center rounded-full bg-secondary"><UserRound className="size-3.5" /></span>
+                  )}
+                  <span className="min-w-0">
+                    <strong className="block truncate font-medium text-foreground">{identityName(selectedIdentity)}</strong>
+                    <span className="block truncate text-muted-foreground">{identityHandle(selectedIdentity) || 'Perfil autorizado do Business Center'}</span>
+                  </span>
+                </span>
+              ) : (
+                <span className="text-muted-foreground">A dashboard escolhe automaticamente um perfil autorizado.</span>
+              )}
+            </label>
+
+            <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              <span className="font-medium text-foreground">Prefixo dos nomes</span>
+              <input
+                className="input-base text-xs"
+                value={namePrefix}
+                onChange={(event) => update(setNamePrefix, event.target.value)}
+                placeholder={`${catalog.name} — VSA`}
+                maxLength={100}
+              />
+              <span>Ex.: “{sampleName(1)}”{count > 1 ? ` até “${sampleName(count)}”` : ''}</span>
+            </label>
+          </div>
         </details>
 
         <footer className="flex items-center justify-end gap-2">
           <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={busy}>Cancelar</button>
-          <button type="button" className="btn-primary text-xs" onClick={create} disabled={!countValid || !budgetValid || !videoUrl || uploading || busy}>
+          <button type="button" className="btn-primary text-xs" onClick={create} disabled={!countValid || !budgetValid || !bidValid || !videoUrl || uploading || busy}>
             {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
             Criar {count} campanha{count === 1 ? '' : 's'} pausada{count === 1 ? '' : 's'}
           </button>
