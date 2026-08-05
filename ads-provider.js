@@ -94,14 +94,22 @@ function normalizeAdvertiserStatus(raw) {
 }
 
 // ── Advertisers ───────────────────────────────────────────────────────────────
-// Lista crua de IDs (barato: 1 chamada). Cache 5min.
-async function listAdvertiserIds() {
+// Lista crua de IDs (barato: 1 chamada). `fresh` ignora o cache (usado pelo
+// "Verificar novamente" da tela de conexão — o botão precisa refletir um
+// vínculo recém-feito no Pipeboard, não um cache antigo).
+async function listAdvertiserIds(opts = {}) {
   const ck = 'advids';
-  const hit = cacheGet(ck);
-  if (hit) return hit;
+  if (!opts.fresh) {
+    const hit = cacheGet(ck);
+    if (hit) return hit;
+  }
   const out = await pipeboard.callTool('list_tiktok_advertisers', {});
   const ids = (out && Array.isArray(out.advertiser_ids) ? out.advertiser_ids : []).map(String);
-  return cacheSet(ck, ids, 5 * 60 * 1000);
+  // Lista VAZIA quase sempre é transitória (conta recém-vinculada no Pipeboard
+  // ainda propagando, ou resposta parcial da API). Cachear "0 advertisers" por
+  // 5min deixava a tela "Conecte sua conta" travada mesmo depois de vincular —
+  // TTL curto no vazio faz o painel reconhecer a conexão em segundos.
+  return cacheSet(ck, ids, ids.length ? 5 * 60 * 1000 : 15 * 1000);
 }
 
 // Info detalhada de UM advertiser (nome, moeda, status…). Cache 5min por id.
@@ -134,8 +142,8 @@ async function getAdvertiserInfo(advertiserId) {
 //   2) env TIKTOK_ADVERTISER_ID (default global de deploy);
 //   3) o primeiro da lista autorizada.
 // Retorna '' se não houver nenhum advertiser autorizado.
-async function resolveAdvertiserId(accountId) {
-  const ids = await listAdvertiserIds();
+async function resolveAdvertiserId(accountId, opts = {}) {
+  const ids = await listAdvertiserIds(opts);
   if (!ids.length) return '';
   const idSet = new Set(ids);
   const saved = getState(accountId).advertiserId;
@@ -173,11 +181,11 @@ async function listAdvertisers(accountId, { enrich = 0, only = null } = {}) {
 
 // ── Status da integração ──────────────────────────────────────────────────────
 // "conectado" = chave presente + ao menos 1 advertiser autorizado resolvido.
-async function getStatus(accountId) {
+async function getStatus(accountId, opts = {}) {
   if (!pipeboard.enabled) return { enabled: false, connected: false };
   let advertiserId = '';
   try {
-    advertiserId = await resolveAdvertiserId(accountId);
+    advertiserId = await resolveAdvertiserId(accountId, opts);
   } catch (err) {
     // chave inválida / MCP fora do ar → tratamos como "habilitado, sem conexão"
     return { enabled: true, connected: false, error: String((err && err.message) || err).slice(0, 200) };

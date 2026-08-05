@@ -601,7 +601,10 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   async function startConnect(req, res) {
     try {
       if (!pipeboard.enabled) return res.status(409).json({ error: 'Pipeboard não configurado no servidor (PIPEBOARD_API_KEY)' });
-      const s = await pipeboard.getStatus(req.account.id);
+      // fresh: o botão "Verificar novamente" tem que ignorar o cache de
+      // advertisers — senão um vínculo recém-feito no Pipeboard só apareceria
+      // depois do TTL, dando a impressão de que "não conectou".
+      const s = await pipeboard.getStatus(req.account.id, { fresh: true });
       if (s.connected) return res.json({ alreadyConnected: true, authUrl: '' });
       // Chave ok mas nenhum advertiser visível: não existe URL de autorização
       // a devolver — o vínculo de contas é feito no painel do Pipeboard.
