@@ -26,13 +26,24 @@
 
 const MCP_URL =
   process.env.PIPEBOARD_TIKTOK_MCP_URL || 'https://tiktok-ads.mcp.pipeboard.co/';
-const KEY = process.env.PIPEBOARD_API_KEY || '';
+
+// O Pipeboard oferece, para colar, a "MCP URL" completa
+// (https://…mcp.pipeboard.co/?token=pipeboard_XXXX) além da API Key pura.
+// É muito fácil colar a URL inteira em PIPEBOARD_API_KEY por engano — então
+// aceitamos os dois: se vier uma URL com ?token=, extraímos o token.
+function extractPipeboardToken(raw) {
+  const v = String(raw || '').trim();
+  const m = v.match(/[?&]token=([^&\s]+)/);
+  return m ? decodeURIComponent(m[1]) : v;
+}
+const KEY = extractPipeboardToken(process.env.PIPEBOARD_API_KEY || '');
 const PROTOCOL_VERSION = '2025-06-18';
 
-// Chaves Pipeboard têm prefixo pk_. Mantemos a checagem tolerante (comprimento
-// varia por tipo de token), mas exigimos o prefixo para não fazer handshake com
-// lixo.
-const enabled = /^pk_[A-Za-z0-9._-]{8,}$/.test(KEY);
+// Formato do token do Pipeboard: hoje o prefixo é `pipeboard_`; chaves antigas
+// usavam `pk_`. Aceitamos ambos (comprimento varia por tipo) para não recusar a
+// chave nova como "não configurada" — o bug que fazia a aba dizer "Integração
+// não configurada no servidor" mesmo com a chave preenchida.
+const enabled = /^(pipeboard_|pk_)[A-Za-z0-9._-]{8,}$/.test(KEY);
 
 // ── Estado da sessão MCP (modelo Pipeboard é conta única / server-to-server) ──
 let _sessionId = null; // valor do header Mcp-Session-Id devolvido no initialize
