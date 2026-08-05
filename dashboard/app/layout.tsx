@@ -1,19 +1,6 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter, Geist_Mono } from 'next/font/google'
 import { SectionAttr } from '@/components/shell/section-attr'
 import './globals.css'
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-})
-
-const geistMono = Geist_Mono({
-  subsets: ['latin'],
-  variable: '--font-geist-mono',
-  display: 'swap',
-})
 
 export const metadata: Metadata = {
   title: 'ROI-NADOS — Tracking & Conversões',
@@ -49,7 +36,7 @@ export default function RootLayout({
       lang="pt-BR"
       // V2-99: informa o Next que o smooth scroll é intencional (evita warning)
       data-scroll-behavior="smooth"
-      className={`bg-background ${inter.variable} ${geistMono.variable}`}
+      className="bg-background"
     >
       <body className="font-sans antialiased">
         <SectionAttr />

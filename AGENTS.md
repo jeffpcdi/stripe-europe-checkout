@@ -270,6 +270,8 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Escalas fixas: gaps 6/8/12/16px, raios 10px (interno) e 14px (cards), fontes mínimo 11px.
   Popups de confirmação: usar `uiConfirm({title,msg,okLabel,danger},cb)` — nunca `confirm()` nativo.
   Header compacto (~64px): logo 46px + nav inline + status. KPIs em grelha fixa 4→2→1.
+  A dashboard usa as pilhas locais `system-ui` e `ui-monospace`; não importe fontes por
+  `next/font/google`, pois o download no build torna o deploy dependente do CDN externo.
 - **Regra de ouro do front:** como o HTML é uma string JS, **nunca** use crase nem `${}` dentro dele;
   para interpolar valores do servidor, concatene com `+` e escape aspas/apóstrofos.
 - **Snippets servidos para páginas externas:** `/px/:token.js` é a instalação recomendada e
@@ -442,9 +444,11 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   `get_tiktok_pixel_event_stats` por sete dias para escolher Compra; planilha, wizard e lote rápido
   não pedem Pixel/evento repetidamente.
   No wizard dedicado há uma única ação “Criar campanhas”; o fluxo principal pede somente quantidade,
-  orçamento e vídeo, começa em uma campanha e aceita até 50. “Opções avançadas” concentra Máxima
+  orçamento e vídeo, começa em uma campanha e aceita até 50. “Entrega e perfil” concentra Máxima
   entrega/Cost Cap, CPA alvo, entrega acelerada (quando elegível) e o perfil mostrado no anúncio;
-  identidade automática continua sendo o padrão. Todos os produtos aprovados, nomes ordenados, Pixel,
+  o resumo fechado expõe a configuração atual sem poluir o formulário. Reabrir o modal sempre restaura
+  os padrões automáticos, e o rodapé fixo mantém a única ação de criação visível. A identidade automática
+  continua sendo o padrão. Todos os produtos aprovados, nomes ordenados, Pixel,
   Compra, capa e Product Link são resolvidos automaticamente; o áudio vem do vídeo.
   O orçamento é sempre exibido na moeda da conta de anúncio (não na moeda do feed);
   comparações de IDs normalizam string/número para não cair na moeda de uma campanha antiga.

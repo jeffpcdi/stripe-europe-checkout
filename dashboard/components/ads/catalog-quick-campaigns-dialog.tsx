@@ -4,7 +4,7 @@
 // catálogo, público, capa e Product Link vêm do backend.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, Loader2, RefreshCw, Rocket, Upload, UserRound, Video } from 'lucide-react'
+import { AlertCircle, Check, ChevronDown, Loader2, RefreshCw, Rocket, Upload, UserRound, Video, X } from 'lucide-react'
 import { adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog, AdsCatalogCapabilities } from '@/lib/types'
@@ -48,6 +48,7 @@ export function CatalogQuickCampaignsDialog({
   const [bidAmount, setBidAmount] = useState('')
   const [acceleratedDelivery, setAcceleratedDelivery] = useState(false)
   const [identityKey, setIdentityKey] = useState('')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [busy, setBusy] = useState(false)
   const idempotencyKeyRef = useRef<string | null>(null)
@@ -73,6 +74,7 @@ export function CatalogQuickCampaignsDialog({
     setAcceleratedDelivery(false)
   }, [costCapAvailable])
   useEffect(() => {
+    if (!open) return
     setCount(1)
     setBudget(String(TIKTOK_MIN_BUDGET))
     setNamePrefix('')
@@ -82,10 +84,11 @@ export function CatalogQuickCampaignsDialog({
     setBidAmount('')
     setAcceleratedDelivery(false)
     setIdentityKey('')
+    setAdvancedOpen(false)
     setUploading(false)
     setBusy(false)
     idempotencyKeyRef.current = null
-  }, [advertiserId, catalog.id, initialVideoUrl])
+  }, [open, advertiserId, catalog.id, initialVideoUrl])
 
   function update<T>(setter: (value: T) => void, value: T) {
     setter(value)
@@ -112,6 +115,15 @@ export function CatalogQuickCampaignsDialog({
     if (!identity.username) return ''
     return identity.username.startsWith('@') ? identity.username : `@${identity.username}`
   }
+
+  const advancedSummary = `${bidStrategy === 'cost_cap' ? 'Custo-alvo' : 'Máxima entrega'} · ${selectedIdentity ? identityName(selectedIdentity) : 'perfil automático'}`
+  const submitHint = !budgetValid
+    ? `Orçamento mínimo: ${advertiserCurrency} ${TIKTOK_MIN_BUDGET}/dia`
+    : !bidValid
+      ? 'Informe o CPA alvo para continuar'
+      : !videoUrl
+        ? 'Envie o vídeo para liberar a criação'
+        : `${count} campanha${count === 1 ? '' : 's'} pronta${count === 1 ? '' : 's'} para criar`
 
   async function create() {
     if (!countValid) return toast.error(`Escolha de 1 a ${MAX_COUNT} campanhas`)
@@ -176,9 +188,9 @@ export function CatalogQuickCampaignsDialog({
         aria-modal="true"
         aria-label={`Criar campanhas do catálogo ${catalog.name}`}
         aria-busy={busy}
-        className="flex max-h-[92dvh] w-full flex-col gap-4 overflow-y-auto rounded-t-2xl border border-border bg-background p-4 shadow-2xl sm:max-w-lg sm:rounded-2xl sm:p-5"
+        className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-background shadow-2xl sm:max-w-xl sm:rounded-2xl"
       >
-        <header className="flex items-start justify-between gap-3">
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3.5 sm:px-5">
           <div>
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
               <Rocket className="size-4 text-primary" aria-hidden="true" /> Criar campanhas
@@ -187,9 +199,12 @@ export function CatalogQuickCampaignsDialog({
               Informe somente quantidade, orçamento e vídeo. Tudo será criado pausado.
             </p>
           </div>
-          <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={busy}>Fechar</button>
+          <button type="button" className="btn-ghost size-8 shrink-0 justify-center p-0" onClick={onClose} disabled={busy} aria-label="Fechar">
+            <X className="size-4 min-w-4 shrink-0" aria-hidden="true" />
+          </button>
         </header>
 
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-foreground">Quantidade</span>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -263,11 +278,24 @@ export function CatalogQuickCampaignsDialog({
           Pixel, Compra e capa serão aplicados automaticamente. Cada produto usa o próprio Link e tudo nasce pausado.
         </div>
 
-        <details className="rounded-lg border border-border px-3 py-2">
-          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">Opções avançadas</summary>
+        <div className="rounded-lg border border-border px-3 py-2">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 text-left text-[11px] text-muted-foreground"
+            onClick={() => setAdvancedOpen((current) => !current)}
+            aria-expanded={advancedOpen}
+            aria-controls="catalog-campaign-delivery-profile"
+          >
+            <span className="min-w-0">
+              <span className="font-medium text-foreground">Entrega e perfil</span>
+              <span className="ml-2 text-[10px]">{advancedSummary}</span>
+            </span>
+            <ChevronDown className={`size-3.5 min-w-3.5 shrink-0 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+          </button>
+          {advancedOpen && (
           <div className="mt-3 flex flex-col gap-4">
             <fieldset className="flex flex-col gap-2">
-              <legend className="text-[11px] font-medium text-foreground">Estratégia de entrega</legend>
+              <legend className="text-[11px] font-medium text-foreground">Como gastar o orçamento</legend>
               <div className={`grid gap-2 ${costCapAvailable ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 <button
                   type="button"
@@ -390,11 +418,13 @@ export function CatalogQuickCampaignsDialog({
               <span>Ex.: “{sampleName(1)}”{count > 1 ? ` até “${sampleName(count)}”` : ''}</span>
             </label>
           </div>
-        </details>
+          )}
+        </div>
+        </div>
 
-        <footer className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-ghost text-xs" onClick={onClose} disabled={busy}>Cancelar</button>
-          <button type="button" className="btn-primary text-xs" onClick={create} disabled={!countValid || !budgetValid || !bidValid || !videoUrl || uploading || busy}>
+        <footer className="flex shrink-0 flex-col gap-2 border-t border-border bg-background/95 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <p className={`text-[10px] ${videoUrl && budgetValid && bidValid ? 'text-success' : 'text-muted-foreground'}`}>{submitHint}</p>
+          <button type="button" className="btn-primary w-full justify-center text-xs disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto" onClick={create} disabled={!countValid || !budgetValid || !bidValid || !videoUrl || uploading || busy}>
             {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
             Criar {count} campanha{count === 1 ? '' : 's'} pausada{count === 1 ? '' : 's'}
           </button>
