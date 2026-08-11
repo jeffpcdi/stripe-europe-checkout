@@ -4,7 +4,8 @@ const { classifyCatalogCreationError } = require('./catalog-campaign-safety');
 
 const CAMPAIGN_STAGES = Object.freeze([
   'queued', 'validating', 'upload', 'cover', 'creating_campaign', 'creating_adgroup', 'creating_ad',
-  'verifying_entities', 'ready_paused', 'partial', 'failed', 'cancelled',
+  'waiting_pixel_purchase', 'verifying_entities', 'ready_paused', 'activating', 'ready_active',
+  'partial', 'failed', 'cancelled',
 ]);
 const TIKTOK_MIN_DAILY_BUDGET = 50;
 // O overview disponível confirma apenas a contagem agregada de aprovados.
@@ -57,6 +58,7 @@ function humanizeStage(stage) {
   if (stage === 'adgroup') return 'A campanha foi criada, mas o TikTok recusou o conjunto de anúncios.';
   if (stage === 'ad') return 'A campanha e o conjunto foram criados, mas o TikTok recusou o anúncio.';
   if (stage === 'verify') return 'A estrutura foi criada, mas não foi possível confirmá-la no TikTok.';
+  if (stage === 'activate') return 'A estrutura foi criada e mantida pausada, mas a ativação ainda não foi confirmada.';
   return 'Não foi possível concluir a operação de catálogo.';
 }
 
@@ -65,6 +67,7 @@ function suggestedAction(stage) {
   if (stage === 'adgroup') return 'Revise catálogo, Business Center, pixel, evento e o tipo de Catalog Ads antes de retomar.';
   if (stage === 'ad') return 'Revise produto, identidade, texto e CTA antes de retomar. Product Link não usa URL manual.';
   if (stage === 'verify') return 'Atualize a conexão e tente verificar novamente.';
+  if (stage === 'activate') return 'A dashboard repetirá a ativação com a mesma hierarquia; não recrie a campanha.';
   return 'Revise os campos destacados e tente novamente.';
 }
 
@@ -271,6 +274,7 @@ function normalizeCampaignSpec(input, catalog) {
       { status: 400, retryable: false },
     );
   }
+  const autoActivate = value.autoActivate === true;
   return {
     name, budgetAmount, budgetType, endDate: value.endDate || undefined,
     budgetOptimization,
@@ -284,9 +288,11 @@ function normalizeCampaignSpec(input, catalog) {
     identityBcId: identityBcId || undefined,
     pixelId,
     pixelEvent,
+    autoActivate,
     text: String(value.text || '').trim().slice(0, 100) || undefined,
     callToAction: String(value.callToAction || 'SHOP_NOW').trim().toUpperCase(),
-    strategy: 'catalog_video_product_link', destination: 'PRODUCT_LINK', creativeMode: 'SINGLE_VIDEO', status: 'paused',
+    strategy: 'catalog_video_product_link', destination: 'PRODUCT_LINK', creativeMode: 'SINGLE_VIDEO',
+    status: autoActivate ? 'active' : 'paused',
   };
 }
 

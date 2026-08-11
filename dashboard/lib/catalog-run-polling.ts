@@ -28,6 +28,6 @@ export function catalogCampaignRunsRefreshInterval(runs: readonly CatalogCampaig
   const current = runs ?? []
   if (current.some((run) => ['queued', 'running', 'retrying'].includes(run.status))) return 4_000
   if (current.some((run) => ['waiting_catalog_review', 'waiting_tiktok_confirmation'].includes(run.status))) return 15_000
-  if (current.some((run) => run.status === 'waiting_connector_confirmation')) return 60_000
+  if (current.some((run) => ['waiting_connector_confirmation', 'waiting_pixel_purchase'].includes(run.status))) return 60_000
   return 0
 }

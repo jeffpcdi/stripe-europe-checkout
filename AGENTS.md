@@ -131,12 +131,20 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   Campanhas com escopo `ALL` podem então usar somente os produtos que o próprio TikTok confirmou;
   não reconstroem a seleção com IDs locais. Sucesso da campanha exige leitura dos três níveis
   (campanha → conjunto → anúncio), todos pausados, com o catálogo correto, `PRODUCT_LINK` e sem URL manual.
+  No fluxo rápido, essa pausa é uma barreira interna: somente depois desse readback o worker habilita
+  anúncio → conjunto → campanha (pai por último) e exige novo readback `ENABLE` nos três níveis antes de
+  marcar `ready_active`. Falha ou confirmação parcial pausa novamente toda a hierarquia; updates de status
+  são idempotentes e `activation_attempts` aplica backoff durável sem recriar nenhuma entidade.
   Como o readback do TikTok pode atrasar depois da escrita, os três IDs entram em
   `waiting_tiktok_confirmation`: `verify_attempts`/`next_retry_at` aplicam backoff durável sem recriar
   campanha, conjunto, anúncio ou vídeo. Vídeo/capa usam `asset_attempts` separado: o `videoId` é
   persistido assim que o upload responde, falhas de transporte mantêm a etapa correta e o mesmo asset
   é retomado com backoff antes de qualquer campanha existir. Só depois de seis tentativas do respectivo
   estágio o run vira parcial e pede `Retomar`; tentativas de asset nunca consomem as de readback.
+  Antes da primeira escrita, o Pixel precisa ter qualquer atividade real em 7 dias e um enum real de
+  Compra (`SHOPPING`/`ON_WEB_ORDER`) no histórico de até 30 dias. Ausência ou indisponibilidade transitória
+  não falha o formulário: o run fica em `waiting_pixel_purchase`, é reconsultado pelo worker e avança
+  automaticamente. Nunca é enviado evento de Compra sintético para liberar campanha.
 - **ads-provider.js + ads-routes.js** — toda criação automática regular, Smart+ e de catálogo só usa
   identidade `BC_AUTH_TT` com `identity_bc_id` e dark post habilitado; nunca escolhe
   `CUSTOMIZED_USER`/`TT_USER`/`AUTH_CODE` automaticamente. Duplicação pré-valida esse fallback antes
@@ -370,9 +378,10 @@ HTML/CSS/JS servidas pelo Express. Tamanho aproximado (linhas): `dashboard-view.
   o catálogo remoto. Uma leitura isolada do overview atualiza apenas `audit`. Produtos são revalidados contra a spec atual em toda leitura crítica e
   no feed público: `brand` é o 9º campo obrigatório (nunca inferido) e o enum correto é
   `available for order` (não `available`). Assim, registros antigos com `valid=true` não furam a regra.
-  A campanha Catalog Ads Product Link exige orçamento mínimo 50, Pixel ID numérico + evento de Compra
-  que o Pixel realmente recebeu (`SHOPPING` nesta conta; `ON_WEB_ORDER` somente quando aparecer nas
-  estatísticas) e pelo menos **4 produtos aprovados no overview agregado**. Esse overview
+  A campanha Catalog Ads Product Link exige orçamento mínimo 50, Pixel ID numérico, atividade real do
+  Pixel nos últimos 7 dias + evento de Compra real visto em até 30 dias (`SHOPPING` nesta conta;
+  `ON_WEB_ORDER` somente quando aparecer nas estatísticas), e pelo menos **4 produtos aprovados no
+  overview agregado**. Esse overview
   não comprova sozinho estoque/disponibilidade por SKU, portanto a UI não deve alegar essa verificação.
   Product Link **não exige URL no anúncio nem Catalog Video Template ID**: o destino é o `link`
   individual de cada produto. O fluxo principal é `SINGLE_VIDEO` com

@@ -32,6 +32,18 @@ function hasVerifiedProductLinkHierarchy(result) {
   );
 }
 
+function hasVerifiedActiveHierarchy(result) {
+  const activation = result && result.activation || {};
+  const verification = activation.verification || {};
+  return Boolean(
+    activation.complete === true
+    && activation.active === true
+    && verification.complete === true
+    && verification.hierarchy === true
+    && verification.active === true,
+  );
+}
+
 // Um job preparado pelo lote não pode sequer entrar na etapa de auditoria do
 // catálogo enquanto o conector não provar que entende Product Link. A leitura
 // da capacidade é limitada; o provider já possui cache próprio dos schemas.
@@ -112,7 +124,7 @@ async function processRun(row) {
       return null;
     }
     const spec = ready.spec;
-    const result = await provider.createCatalogCampaign(row.advertiser_id, spec, {
+    let result = await provider.createCatalogCampaign(row.advertiser_id, spec, {
       resume: row.created_ids || {},
       onProgress: async ({ stage, createdIds }) => {
         await store.updateCampaignRun(accountId, runId, 'running', { stage, createdIds, workerId });
@@ -133,14 +145,44 @@ async function processRun(row) {
         },
       );
     }
+    if (spec.autoActivate === true) {
+      await store.updateCampaignRun(accountId, runId, 'running', {
+        stage: 'activating', createdIds: result, workerId,
+      });
+      const activation = await provider.activateCatalogCampaignHierarchy(row.advertiser_id, {
+        campaignId: result.campaignId,
+        adGroupId: result.adGroupId,
+        adId: result.adId,
+      });
+      result = { ...result, activation };
+      if (!hasVerifiedActiveHierarchy(result)) {
+        throw catalogError(
+          'CATALOG_ACTIVATION_NOT_VERIFIED',
+          'A hierarquia foi criada, mas o TikTok ainda não confirmou os três níveis como ativos.',
+          {
+            status: 502, stage: 'activate', retryable: true,
+            createdIds: {
+              campaignId: result.campaignId,
+              adGroupId: result.adGroupId,
+              adId: result.adId,
+            },
+            suggestedAction: 'Nenhuma ação manual é necessária; a dashboard repetirá a ativação com a mesma hierarquia.',
+          },
+        );
+      }
+    }
+    const activated = spec.autoActivate === true;
     const completed = await store.updateCampaignRun(accountId, runId, 'completed', {
-      stage: 'ready_paused', createdIds: result, result,
-      assetAttempts: 0, creationAttempts: 0, verifyAttempts: 0, nextRetryAt: null,
+      stage: activated ? 'ready_active' : 'ready_paused', createdIds: result, result,
+      assetAttempts: 0, creationAttempts: 0, verifyAttempts: 0, activationAttempts: 0, nextRetryAt: null,
     });
     await adsOps.appendAuditEvent(accountId, {
       actorType: 'user', actorId: accountId, action: 'catalog_campaign.completed',
       targetType: 'campaign', targetId: result.campaignId, advertiserId: row.advertiser_id,
-      jobId: runId, afterState: result, reason: 'Campanha de catálogo criada e verificada (PAUSADA)',
+      jobId: runId, afterState: result,
+      reason: activated
+        ? 'Campanha de catálogo criada, verificada e ativada'
+        : 'Campanha de catálogo criada e verificada (PAUSADA)',
       metadata: { catalogId: row.catalog_id },
     }).catch(() => {});
     adsSync.syncAfterWrite(accountId, row.advertiser_id);
@@ -149,6 +191,14 @@ async function processRun(row) {
     const createdIds = (err && err.createdIds) || row.created_ids || {};
     const structured = serializeCatalogError(err, err && err.step);
     const failedStage = String(structured.stage || err && err.step || '').toLowerCase();
+    if (['CATALOG_PURCHASE_EVENT_NOT_READY', 'CATALOG_PIXEL_STATUS_UNAVAILABLE'].includes(structured.code)) {
+      await store.updateCampaignRun(accountId, runId, 'waiting_pixel_purchase', {
+        stage: 'waiting_pixel_purchase', createdIds, error: structured,
+        nextRetryAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        release: true,
+      });
+      return null;
+    }
     // Vídeo e capa são assets idempotentes. Falhas transitórias nessa fase
     // nunca devem exigir outro upload nem intervenção do usuário: o videoId é
     // preservado e o mesmo run volta com backoff antes de criar a campanha.
@@ -208,6 +258,23 @@ async function processRun(row) {
         return null;
       }
     }
+    const activationPending = hierarchyCreated
+      && structured.retryable !== false
+      && failedStage === 'activate';
+    if (activationPending) {
+      const activationAttempt = Math.max(0, Number(row.activation_attempts) || 0) + 1;
+      // Updates de status são idempotentes. Depois do backoff inicial, uma
+      // indisponibilidade transitória continua em 5 min sem recriar nenhuma
+      // entidade; erros permanentes já chegam com retryable=false.
+      const activationDelay = RETRY_DELAYS_MS[Math.min(activationAttempt - 1, RETRY_DELAYS_MS.length - 1)];
+      await store.updateCampaignRun(accountId, runId, 'retrying', {
+        stage: 'activating', createdIds, error: structured,
+        activationAttempts: activationAttempt,
+        nextRetryAt: new Date(Date.now() + activationDelay).toISOString(),
+        release: true,
+      });
+      return null;
+    }
     const status = Object.keys(createdIds).length ? 'partial' : 'failed';
     await store.updateCampaignRun(accountId, runId, status, {
       stage: structured.stage || status, createdIds, error: structured,
@@ -258,5 +325,5 @@ function stop() {
 module.exports = {
   start, stop, tick, processRun, refreshWaitingConnectorConfirmations,
   refreshWaitingCatalogReviews, waitForCatalogReview,
-  _internals: { hasVerifiedProductLinkHierarchy },
+  _internals: { hasVerifiedProductLinkHierarchy, hasVerifiedActiveHierarchy },
 };

@@ -91,6 +91,7 @@ console.log('Retry e polling dos jobs');
   eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_catalog_review' }]), 15_000, 'campanha aguardando catálogo consulta em 15 segundos');
   eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_tiktok_confirmation' }]), 15_000, 'campanha aguardando readback do TikTok consulta em 15 segundos');
   eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_connector_confirmation' }]), 60_000, 'campanha aguardando conector consulta em 60 segundos');
+  eq(catalogCampaignRunsRefreshInterval([{ status: 'waiting_pixel_purchase' }]), 60_000, 'campanha aguardando Pixel consulta sem polling agressivo');
   eq(catalogCampaignRunsRefreshInterval([{ status: 'completed' }]), 0, 'campanha concluída encerra polling');
 }
 

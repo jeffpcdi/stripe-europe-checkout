@@ -3516,7 +3516,17 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       });
     }
     const pixel = await requireCampaignPixel(accId, advertiserId);
-    const pixelEvent = await pipeboard.resolveCatalogPurchaseEvent(advertiserId, pixel.pixelId);
+    let pixelEvent = 'ON_WEB_ORDER';
+    let pixelWaiting = null;
+    try {
+      pixelEvent = await pipeboard.resolveCatalogPurchaseEvent(advertiserId, pixel.pixelId);
+    } catch (err) {
+      if (!['CATALOG_PURCHASE_EVENT_NOT_READY', 'CATALOG_PIXEL_STATUS_UNAVAILABLE'].includes(String(err && err.code || ''))) throw err;
+      // Não transforma ausência momentânea de Compra em erro do formulário.
+      // O run é persistido e o worker reconsulta o mesmo Pixel até o TikTok
+      // reconhecer atividade/Compra reais; nenhum evento sintético é enviado.
+      pixelWaiting = catalogDomain.serializeCatalogError(err, 'pixel');
+    }
     const normalized = catalogDomain.normalizeCampaignSpec(Object.assign({}, req.body || {}, {
       pixelId: pixel.pixelId,
       pixelEvent,
@@ -3537,6 +3547,8 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     }
     return {
       accId, catalog, advertiserId, readiness, capabilities,
+      pixelReady: !pixelWaiting,
+      pixelWaiting,
       spec: {
         ...normalized,
         catalogId: catalog.tiktokCatalogId,
@@ -3549,7 +3561,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
   app.post('/api/ads/catalogs/:catalogId/campaign-preflight', dashboardAuth, async (req, res) => {
     try {
       const prepared = await prepareCatalogCampaign(req);
-      res.json({ ok: true, readiness: prepared.readiness, spec: prepared.spec, capabilities: prepared.capabilities });
+      res.json({
+        ok: true,
+        readiness: prepared.readiness,
+        spec: prepared.spec,
+        capabilities: prepared.capabilities,
+        waitingForPixel: !prepared.pixelReady,
+        pixelStatus: prepared.pixelWaiting,
+      });
     } catch (err) { fail(res, err); }
   });
 
@@ -3574,9 +3593,12 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         ].join(':'),
       );
       const run = await catalogStore.createCampaignRun(prepared.accId, prepared.advertiserId, prepared.catalog.id, {
-        idempotencyKey: key, spec: prepared.spec,
+        idempotencyKey: key,
+        spec: prepared.spec,
+        status: prepared.pixelReady ? 'queued' : 'waiting_pixel_purchase',
+        stage: prepared.pixelReady ? 'queued' : 'waiting_pixel_purchase',
       });
-      res.status(202).json({ ok: true, pending: true, run });
+      res.status(202).json({ ok: true, pending: true, waitingForPixel: !prepared.pixelReady, run });
     } catch (err) { fail(res, err); }
   }
 
@@ -3625,11 +3647,14 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
         // Sequencial de propósito: mantém a ordem dos nomes e evita rajada no Neon.
         // eslint-disable-next-line no-await-in-loop
         const run = await catalogStore.createCampaignRun(prepared.accId, prepared.advertiserId, prepared.catalog.id, {
-          idempotencyKey: key, spec: specAt(i),
+          idempotencyKey: key,
+          spec: specAt(i),
+          status: prepared.pixelReady ? 'queued' : 'waiting_pixel_purchase',
+          stage: prepared.pixelReady ? 'queued' : 'waiting_pixel_purchase',
         });
         runs.push(run);
       }
-      res.status(202).json({ ok: true, pending: true, count: runs.length, runs });
+      res.status(202).json({ ok: true, pending: true, waitingForPixel: !prepared.pixelReady, count: runs.length, runs });
     } catch (err) { fail(res, err); }
   });
 

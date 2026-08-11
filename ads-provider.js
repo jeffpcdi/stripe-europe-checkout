@@ -339,6 +339,44 @@ function pausedReadback(entity) {
   return pausedValues.includes(String(entity && entity.secondaryStatus || '').trim().toUpperCase());
 }
 
+function activeReadback(entity) {
+  const activeValues = [
+    'ENABLE', 'ENABLED', 'ACTIVE', 'STATUS_ENABLE', 'STATUS_ACTIVE',
+    'CAMPAIGN_STATUS_ENABLE', 'ADGROUP_STATUS_ENABLE', 'AD_STATUS_ENABLE',
+  ];
+  // Para ativação, somente operation_status (mapeado em `status`) confirma a
+  // intenção operacional. secondary_status pode continuar em análise sem
+  // significar que o nível está pausado pelo usuário.
+  return activeValues.includes(String(entity && entity.status || '').trim().toUpperCase());
+}
+
+function verifyCatalogHierarchyActivation(input) {
+  const value = input || {};
+  const ids = value.ids || {};
+  const campaign = value.campaign || {};
+  const adGroup = value.adGroup || {};
+  const ad = value.ad || {};
+  const hierarchy = Boolean(
+    String(campaign.id || '') === String(ids.campaignId || '')
+    && String(adGroup.id || '') === String(ids.adGroupId || '')
+    && String(adGroup.campaignId || '') === String(ids.campaignId || '')
+    && String(ad.id || '') === String(ids.adId || '')
+    && String(ad.adgroupId || '') === String(ids.adGroupId || '')
+    && String(ad.campaignId || '') === String(ids.campaignId || ''),
+  );
+  const active = activeReadback(campaign) && activeReadback(adGroup) && activeReadback(ad);
+  return {
+    complete: hierarchy && active,
+    hierarchy,
+    active,
+    checks: {
+      campaign: { id: campaign.id || null, status: campaign.status || null, secondaryStatus: campaign.secondaryStatus || null },
+      adGroup: { id: adGroup.id || null, status: adGroup.status || null, secondaryStatus: adGroup.secondaryStatus || null },
+      ad: { id: ad.id || null, status: ad.status || null, secondaryStatus: ad.secondaryStatus || null },
+    },
+  };
+}
+
 // Uma resposta de criação com três IDs não prova que o TikTok montou a
 // campanha pedida. Esta checagem exige, na leitura posterior, a cadeia inteira
 // e o contrato Product Link: catálogo correto no conjunto/anúncio, vídeo
@@ -894,6 +932,94 @@ async function setAdStatus(advertiserId, adIds, status) {
   const ids = normIds(adIds);
   if (!ids.length) throw badRequest('Nenhum anúncio informado');
   return pipeboard.callTool('update_tiktok_ad_status', { advertiser_id: adv, ad_ids: ids, operation_status: op });
+}
+
+async function pauseCatalogHierarchyBestEffort(advertiserId, ids) {
+  const adv = String(advertiserId || '').trim();
+  const value = ids || {};
+  // O pai é pausado primeiro para cortar qualquer possibilidade de entrega;
+  // os filhos são então reconciliados em paralelo.
+  if (value.campaignId) {
+    try { await setCampaignStatus(adv, [value.campaignId], 'paused'); } catch (_) { /* best-effort */ }
+  }
+  await Promise.allSettled([
+    value.adGroupId ? setAdGroupStatus(adv, [value.adGroupId], 'paused') : Promise.resolve(),
+    value.adId ? setAdStatus(adv, [value.adId], 'paused') : Promise.resolve(),
+  ]);
+}
+
+// A criação continua transacional: os três níveis nascem pausados, são lidos
+// e validados, e só então este passo os habilita de baixo para cima. A campanha
+// (pai) é a última a ficar ENABLE. Qualquer falha volta tudo para pausa e pode
+// ser repetida com segurança pelo worker, pois updates de status são idempotentes.
+async function activateCatalogCampaignHierarchy(advertiserId, ids) {
+  const adv = String(advertiserId || '').trim();
+  const value = {
+    campaignId: String(ids && ids.campaignId || '').trim(),
+    adGroupId: String(ids && ids.adGroupId || '').trim(),
+    adId: String(ids && ids.adId || '').trim(),
+  };
+  if (!adv || !value.campaignId || !value.adGroupId || !value.adId) {
+    const err = stepError('activate', 'A hierarquia completa é obrigatória antes da ativação.', value, 400);
+    err.code = 'CATALOG_ACTIVATION_IDS_REQUIRED';
+    err.retryable = false;
+    throw err;
+  }
+  try {
+    await setAdStatus(adv, [value.adId], 'active');
+    await setAdGroupStatus(adv, [value.adGroupId], 'active');
+    await setCampaignStatus(adv, [value.campaignId], 'active');
+    cacheBust('tree:');
+
+    let verification = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const [campaigns, adGroups, ads] = await Promise.all([
+        getCampaigns(adv, { pageSize: 100, campaignIds: [value.campaignId] }),
+        getAdGroups(adv, [value.campaignId], { pageSize: 100 }),
+        getAds(adv, { campaignIds: [value.campaignId], adgroupIds: [value.adGroupId], pageSize: 100 }),
+      ]);
+      verification = verifyCatalogHierarchyActivation({
+        ids: value,
+        campaign: campaigns.find((item) => String(item.id) === value.campaignId),
+        adGroup: adGroups.find((item) => String(item.id) === value.adGroupId),
+        ad: ads.find((item) => String(item.id) === value.adId),
+      });
+      if (verification.complete) {
+        return {
+          complete: true,
+          active: true,
+          requestedAt: new Date().toISOString(),
+          verification,
+        };
+      }
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+    const err = stepError(
+      'activate',
+      'A estrutura foi validada, mas o TikTok ainda não confirmou os três níveis como ativos.',
+      value,
+      502,
+    );
+    err.code = 'CATALOG_ACTIVATION_NOT_CONFIRMED';
+    err.retryable = true;
+    err.safeAutomaticRetry = true;
+    err.activation = verification;
+    throw err;
+  } catch (err) {
+    await pauseCatalogHierarchyBestEffort(adv, value);
+    if (!err.step) err.step = 'activate';
+    if (!err.code) err.code = 'CATALOG_ACTIVATION_FAILED';
+    const permanentStatus = [400, 401, 403, 404, 409, 422].includes(Number(err.status));
+    if (permanentStatus && err.code !== 'CATALOG_ACTIVATION_NOT_CONFIRMED') err.retryable = false;
+    else if (err.retryable !== false) err.retryable = true;
+    // Alterar status é idempotente: timeout pode ser retomado sem duplicar a
+    // campanha, o conjunto ou o anúncio.
+    if (err.retryable !== false) err.safeAutomaticRetry = true;
+    err.createdIds = value;
+    err.userMessage = err.userMessage || 'A campanha foi mantida pausada enquanto a dashboard tenta ativá-la novamente.';
+    err.suggestedAction = err.suggestedAction || 'Nenhuma ação manual é necessária; a dashboard repetirá a ativação com a mesma hierarquia.';
+    throw err;
+  }
 }
 
 // Atualiza campanha (orçamento e/ou nome). budget: {amount,type}.
@@ -1521,41 +1647,113 @@ function pixelEventRows(out, pixelId) {
   return Array.isArray(row && row.statistics) ? row.statistics : [];
 }
 
-// A Events API recebe `Purchase`, mas o enum de otimização exposto pelo Ads
-// Manager varia por conta. Na conta real auditada ele aparece como SHOPPING.
-// Só usamos um evento que o próprio Pixel informou ter recebido nos últimos
-// sete dias; assim a criação nunca falha depois de abrir a campanha.
-async function resolveCatalogPurchaseEvent(advertiserId, pixelId, requestedEvent) {
+function pixelEventCount(row) {
+  const value = row || {};
+  // total_count deveria ser a soma, mas alguns readbacks retornam zero nele e
+  // o valor correto em server/browser. O maior contador evita falso negativo
+  // sem somar o mesmo evento duas vezes.
+  return Math.max(
+    Number(value.total_count) || 0,
+    Number(value.server_event_total_count) || 0,
+    Number(value.browser_event_total_count) || 0,
+  );
+}
+
+function receivedPixelEvents(out, pixelId) {
+  const received = new Set();
+  for (const row of pixelEventRows(out, pixelId)) {
+    if (pixelEventCount(row) <= 0) continue;
+    const eventName = String(row && (row.pixel_event_type || row.event_type || row.event) || '').trim().toUpperCase();
+    if (!eventName) continue;
+    if (['PURCHASE', 'COMPLETE_PAYMENT', 'COMPLETEPAYMENT'].includes(eventName)) {
+      // O endpoint de criação aceita enums do Ads Manager, não o nome CAPI.
+      received.add('SHOPPING');
+      received.add('ON_WEB_ORDER');
+    } else {
+      received.add(eventName);
+    }
+  }
+  return received;
+}
+
+async function inspectCatalogPurchaseEvent(advertiserId, pixelId, requestedEvent) {
   const adv = String(advertiserId || '').trim();
   const pixel = String(pixelId || '').trim();
   const requestedRaw = String(requestedEvent || '').trim().toUpperCase();
-  const requested = requestedRaw === 'PURCHASE' ? '' : requestedRaw;
+  const requested = ['SHOPPING', 'ON_WEB_ORDER'].includes(requestedRaw) ? requestedRaw : '';
   const end = new Date();
-  const start = new Date(end.getTime() - (6 * 24 * 60 * 60 * 1000));
-  const out = await pipeboard.callTool('get_tiktok_pixel_event_stats', {
+  const endDate = end.toISOString().slice(0, 10);
+  const recentStart = new Date(end.getTime() - (6 * 24 * 60 * 60 * 1000)).toISOString().slice(0, 10);
+  const recentOut = await pipeboard.callTool('get_tiktok_pixel_event_stats', {
     advertiser_id: adv,
     pixel_ids: [pixel],
-    start_date: start.toISOString().slice(0, 10),
-    end_date: end.toISOString().slice(0, 10),
+    start_date: recentStart,
+    end_date: endDate,
   });
-  const received = new Set(
-    pixelEventRows(out, pixel)
-      .filter((row) => Number(row && (row.total_count || row.server_event_total_count || row.browser_event_total_count) || 0) > 0)
-      .map((row) => String(row.pixel_event_type || row.event_type || row.event || '').trim().toUpperCase())
-      .filter(Boolean),
-  );
-  const selected = [requested, 'SHOPPING', 'ON_WEB_ORDER'].find((eventName) => eventName && received.has(eventName));
-  if (selected) return selected;
+  const recent = receivedPixelEvents(recentOut, pixel);
+  const recentActivity = recent.size > 0;
+  const recentPurchase = [requested, 'SHOPPING', 'ON_WEB_ORDER'].find((eventName) => eventName && recent.has(eventName));
+  if (recentActivity && recentPurchase) {
+    return { ready: true, event: recentPurchase, recentActivity: true, purchaseWindowDays: 7 };
+  }
+  if (!recentActivity) {
+    return { ready: false, event: null, recentActivity: false, purchaseWindowDays: 0, reason: 'pixel_inactive' };
+  }
+
+  // O TikTok considera o Pixel ativo quando recebe qualquer evento recente.
+  // Para Product Sales ainda precisamos provar que Compra existe no histórico;
+  // ampliamos apenas essa descoberta para 30 dias, sem fabricar conversão.
+  const historyStart = new Date(end.getTime() - (29 * 24 * 60 * 60 * 1000)).toISOString().slice(0, 10);
+  const historyOut = await pipeboard.callTool('get_tiktok_pixel_event_stats', {
+    advertiser_id: adv,
+    pixel_ids: [pixel],
+    start_date: historyStart,
+    end_date: endDate,
+  });
+  const history = receivedPixelEvents(historyOut, pixel);
+  const historicalPurchase = [requested, 'SHOPPING', 'ON_WEB_ORDER'].find((eventName) => eventName && history.has(eventName));
+  if (historicalPurchase) {
+    return { ready: true, event: historicalPurchase, recentActivity: true, purchaseWindowDays: 30 };
+  }
+  return { ready: false, event: null, recentActivity: true, purchaseWindowDays: 30, reason: 'purchase_missing' };
+}
+
+// A Events API recebe `Purchase`, mas o enum de otimização exposto pelo Ads
+// Manager varia por conta. Na conta real auditada ele aparece como SHOPPING.
+// O Pixel precisa ter atividade real nos últimos sete dias. O enum de Compra
+// pode vir do histórico real de 30 dias, porque o TikTok mantém o evento
+// configurado mesmo quando a última venda ficou fora da janela curta.
+async function resolveCatalogPurchaseEvent(advertiserId, pixelId, requestedEvent) {
+  let inspection;
+  try {
+    inspection = await inspectCatalogPurchaseEvent(advertiserId, pixelId, requestedEvent);
+  } catch (err) {
+    const status = Number(err && err.status) || 0;
+    if (status === 429 || status >= 500 || err && err.retryable === true) {
+      err.code = 'CATALOG_PIXEL_STATUS_UNAVAILABLE';
+      err.step = 'pixel';
+      err.retryable = true;
+      err.userMessage = 'O TikTok ainda não respondeu à verificação do Pixel.';
+      err.suggestedAction = 'A solicitação ficará salva e a dashboard consultará o mesmo Pixel novamente em segundo plano.';
+    }
+    throw err;
+  }
+  if (inspection.ready && inspection.event) return inspection.event;
+  const inactive = inspection.reason === 'pixel_inactive';
   const err = stepError(
     'pixel',
-    'O Pixel selecionado ainda não recebeu um evento de Compra que o TikTok permita usar na otimização.',
+    inactive
+      ? 'O Pixel selecionado ainda não recebeu atividade nos últimos 7 dias.'
+      : 'O Pixel está ativo, mas o TikTok ainda não reconheceu uma Compra real para otimização.',
     null,
     422,
   );
   err.code = 'CATALOG_PURCHASE_EVENT_NOT_READY';
   err.userMessage = err.message;
   err.retryable = true;
-  err.suggestedAction = 'Mantenha o Pixel instalado pelo script da dashboard. Assim que uma compra real chegar, a criação será retomada com o evento correto automaticamente.';
+  err.suggestedAction = inactive
+    ? 'Mantenha o script da dashboard instalado. A criação será retomada automaticamente assim que o TikTok registrar atividade real do Pixel.'
+    : 'A criação ficará aguardando e será retomada automaticamente assim que uma Compra real chegar pelo script da dashboard.';
   throw err;
 }
 
@@ -4349,10 +4547,9 @@ async function createCatalogCampaign(advertiserId, spec, opts) {
       verification,
     };
   } catch (err) {
-    // Órfã não pode ficar entregável: pausa best-effort e devolve o passo.
-    if (campaignId) {
-      try { await setCampaignStatus(adv, [campaignId], 'paused'); } catch (_) { /* best-effort */ }
-    }
+    // Órfã não pode ficar entregável: reconcilia os três níveis em pausa
+    // best-effort antes de devolver o passo ao worker.
+    if (campaignId) await pauseCatalogHierarchyBestEffort(adv, { ...createdIds, campaignId });
     if (!err.step) err.step = campaignId ? 'adgroup' : 'campaign';
     err.createdIds = createdIds;
     throw err;
@@ -4384,6 +4581,7 @@ module.exports = {
   setCampaignStatus,
   setAdGroupStatus,
   setAdStatus,
+  activateCatalogCampaignHierarchy,
   updateCampaign,
   updateAdGroup,
   updateAd,
@@ -4437,5 +4635,5 @@ module.exports = {
   cacheGet,
   cacheSet,
   // helpers expostos p/ teste
-  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, pausedReadback },
+  _internals: { normalizeAdvertiserStatus, mapCampaign, mapAdGroup, mapAd, mapSmartPlusCampaign, mapSmartPlusAdGroup, mapSmartPlusAd, paginationInfo, listAllPages, mapInsightRow, toOperationStatus, toBudgetMode, deepPluck, firstArray, ageGroupsFor, advertiserLocalTime, resolveLocationIds, pickAdIdentity, listAdIdentityCandidates, listCatalogAdIdentities, usableBcIdentity, bcIdentityPayload, pickCatalogCarouselMusic, uploadVideoAndWait, uploadImage, getUploadedVideoAsset, inspectUploadedVideoAsset, normalizePublicImageUrl, normalizeTikTokCoverUrl, pixelEventRows, pixelEventCount, receivedPixelEvents, inspectCatalogPurchaseEvent, resolveCatalogPurchaseEvent, resolveBudgetPlan, GOAL_MAP, createCatalogCampaign, createUniqueCatalogCampaignEntity, assertAdvertiserCanCreateCatalogCampaign, listInterestCategories, getCatalogCapabilities, normalizeCatalogOverview, normalizeCatalogFeeds, normalizeCatalogUploadStatus, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation, activeReadback, pausedReadback },
 };

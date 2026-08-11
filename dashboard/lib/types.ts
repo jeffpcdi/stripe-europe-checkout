@@ -1765,6 +1765,7 @@ export interface AdsCatalogCampaignResponse {
   dryRun?: boolean
   simulated?: boolean
   pending?: boolean
+  waitingForPixel?: boolean
   run?: AdsCatalogCampaignRun
   name: string
   campaignId?: string
@@ -1779,6 +1780,7 @@ export interface AdsCatalogCampaignBatchResponse {
   dryRun?: boolean
   simulated?: boolean
   pending?: boolean
+  waitingForPixel?: boolean
   count?: number
   names?: string[]
   runs?: AdsCatalogCampaignRun[]
@@ -1858,7 +1860,7 @@ export interface AdsCatalogCampaignRun {
   id: string
   catalogId: string
   advertiserId: string
-  status: 'queued' | 'waiting_connector_confirmation' | 'waiting_catalog_review' | 'waiting_tiktok_confirmation' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  status: 'queued' | 'waiting_connector_confirmation' | 'waiting_catalog_review' | 'waiting_pixel_purchase' | 'waiting_tiktok_confirmation' | 'running' | 'retrying' | 'completed' | 'partial' | 'failed' | 'cancelled'
   stage: string
   spec: Record<string, unknown>
   createdIds: {
@@ -1875,6 +1877,7 @@ export interface AdsCatalogCampaignRun {
   assetAttempts: number
   creationAttempts: number
   verifyAttempts: number
+  activationAttempts: number
   nextRetryAt: string | null
   createdAt: string
   updatedAt: string

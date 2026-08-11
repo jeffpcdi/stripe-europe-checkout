@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, ChevronDown, Loader2, RefreshCw, Rocket, Upload, UserRound, Video, X } from 'lucide-react'
-import { adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
+import { ApiError, adsCreateCatalogCampaignBatch, adsUpload, useAdsCatalogIdentities } from '@/lib/api'
 import { TIKTOK_MIN_BUDGET, tiktokMinimumBudgetMessage } from './tiktok-contracts'
 import type { AdsCatalog, AdsCatalogCapabilities } from '@/lib/types'
 import { toast } from '@/lib/toast'
@@ -146,18 +146,21 @@ export function CatalogQuickCampaignsDialog({
         identityId: selectedIdentity?.identityId,
         identityType: selectedIdentity?.identityType,
         identityBcId: selectedIdentity?.identityBcId || selectedIdentity?.bcId,
+        autoActivate: true,
         idempotencyKey: idempotencyKeyRef.current || (idempotencyKeyRef.current = randomKey()),
       })
       idempotencyKeyRef.current = null
       if (result.dryRun) {
         toast.info('Modo teste: criação validada sem publicar', { hint: `${result.count ?? count} campanha(s) simulada(s).` })
+      } else if (result.waitingForPixel) {
+        toast.info(`${result.count ?? count} campanha(s) salva(s)`, { hint: 'A dashboard iniciará e ativará tudo automaticamente assim que o TikTok reconhecer o Pixel.' })
       } else {
-        toast.success(`${result.count ?? count} campanha(s) na fila`, { hint: 'Todas serão verificadas e permanecerão pausadas.' })
+        toast.success(`${result.count ?? count} campanha(s) na fila`, { hint: 'A dashboard validará a estrutura e ativará os três níveis automaticamente.' })
       }
       onClose()
       onCreated()
     } catch (error) {
-      toast.error('Não foi possível criar as campanhas', { hint: error instanceof Error ? error.message : undefined })
+      toast.error('Não foi possível criar as campanhas', { hint: error instanceof ApiError ? error.display : error instanceof Error ? error.message : undefined })
     } finally {
       setBusy(false)
     }
@@ -196,7 +199,7 @@ export function CatalogQuickCampaignsDialog({
               <Rocket className="size-4 text-primary" aria-hidden="true" /> Criar campanhas
             </h3>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Informe somente quantidade, orçamento e vídeo. Tudo será criado pausado.
+              Informe quantidade, orçamento e vídeo. A dashboard valida e ativa tudo.
             </p>
           </div>
           <button type="button" className="btn-ghost size-8 shrink-0 justify-center p-0" onClick={onClose} disabled={busy} aria-label="Fechar">
@@ -275,7 +278,7 @@ export function CatalogQuickCampaignsDialog({
           <strong className="block text-foreground">
             {count} campanha{count === 1 ? '' : 's'} · {budgetValid ? money.format(budgetNumber * count) : '—'}/dia no total
           </strong>
-          Pixel, Compra e capa serão aplicados automaticamente. Cada produto usa o próprio Link e tudo nasce pausado.
+          Pixel, Compra e capa são automáticos. Cada produto usa o próprio Link; a estrutura nasce pausada, é conferida e depois ativada.
         </div>
 
         <div className="rounded-lg border border-border px-3 py-2">
@@ -426,7 +429,7 @@ export function CatalogQuickCampaignsDialog({
           <p className={`text-[10px] ${videoUrl && budgetValid && bidValid ? 'text-success' : 'text-muted-foreground'}`}>{submitHint}</p>
           <button type="button" className="btn-primary w-full justify-center text-xs disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto" onClick={create} disabled={!countValid || !budgetValid || !bidValid || !videoUrl || uploading || busy}>
             {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Rocket className="size-3.5" aria-hidden="true" />}
-            Criar {count} campanha{count === 1 ? '' : 's'} pausada{count === 1 ? '' : 's'}
+            Criar e ativar {count} campanha{count === 1 ? '' : 's'}
           </button>
         </footer>
       </div>

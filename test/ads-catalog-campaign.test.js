@@ -220,13 +220,13 @@ function completeSchemas() {
     ok(!/landing_page_url\s*:/.test(body), 'não envia URL manual');
     ok(!/website_type: 'PRODUCT_LINK'/.test(body), 'não envia campo legado website_type');
     ok(/operation_status: 'DISABLE'/.test(body) && /status: 'PAUSED'/.test(body), 'três níveis nascem pausados');
-    ok(/setCampaignStatus\(adv, \[campaignId\], 'paused'\)/.test(body), 'falha parcial pausa a campanha');
+    ok(/pauseCatalogHierarchyBestEffort\(adv, \{ \.\.\.createdIds, campaignId \}\)/.test(body), 'falha parcial reconcilia os três níveis em pausa');
     ok(/verifyCatalogProductLinkHierarchy/.test(body), 'sucesso exige readback completo');
   }
 
   console.log('Provider — leitura dos três níveis');
   {
-    const { mapCampaign, mapAdGroup, mapAd, verifyCatalogProductLinkHierarchy } = provider._internals;
+    const { mapCampaign, mapAdGroup, mapAd, verifyCatalogProductLinkHierarchy, verifyCatalogHierarchyActivation } = provider._internals;
     const expected = {
       campaignId: 'camp_1', adGroupId: 'group_1', adId: 'ad_1', catalogId: 'catalog_1',
       bcId: 'bc_1', shoppingAdsType: 'VIDEO', pixelId: 'pixel_1', pixelEvent: 'SHOPPING',
@@ -250,6 +250,20 @@ function completeSchemas() {
     ok(!wrongDarkPost.complete && !wrongDarkPost.identity, 'dark post divergente invalida a confirmação quando o readback o informa');
     const active = verifyCatalogProductLinkHierarchy({ campaign: { ...campaign, status: 'ENABLE' }, adGroup, ad, expected });
     ok(!active.complete && !active.paused, 'exige os três níveis pausados');
+    const activated = verifyCatalogHierarchyActivation({
+      ids: { campaignId: 'camp_1', adGroupId: 'group_1', adId: 'ad_1' },
+      campaign: { ...campaign, status: 'ENABLE' },
+      adGroup: { ...adGroup, status: 'ENABLE' },
+      ad: { ...ad, status: 'ENABLE' },
+    });
+    ok(activated.complete && activated.active, 'ativação exige readback ENABLE nos três níveis');
+    const partiallyActivated = verifyCatalogHierarchyActivation({
+      ids: { campaignId: 'camp_1', adGroupId: 'group_1', adId: 'ad_1' },
+      campaign: { ...campaign, status: 'ENABLE' },
+      adGroup: { ...adGroup, status: 'DISABLE' },
+      ad: { ...ad, status: 'ENABLE' },
+    });
+    ok(!partiallyActivated.complete && !partiallyActivated.active, 'ativação parcial nunca é declarada concluída');
     const costCapExpected = { ...expected, bidStrategy: 'cost_cap', bidAmount: 12.5, deliveryMode: 'accelerated' };
     const acceleratedGroup = mapAdGroup({
       ...adGroup,
@@ -296,8 +310,23 @@ function completeSchemas() {
       ok(identities[0].displayName === 'Perfil válido' && identities[0].username === 'perfil.valido' && Boolean(identities[0].avatarUrl), 'seletor devolve nome, usuário e avatar normalizados');
       const eventName = await provider._internals.resolveCatalogPurchaseEvent('adv', 'pixel_1');
       ok(eventName === 'SHOPPING', 'usa o evento de Compra que o Pixel realmente recebeu');
+      let statsCalls = 0;
+      pipeboard.callTool = async () => {
+        statsCalls += 1;
+        return statsCalls === 1
+          ? { list: [{ pixel_id: 'pixel_1', statistics: [{ pixel_event_type: 'ON_WEB_DETAIL', total_count: 2 }] }] }
+          : { list: [{ pixel_id: 'pixel_1', statistics: [{ pixel_event_type: 'SHOPPING', server_event_total_count: 1, total_count: 0 }] }] };
+      };
+      const historicalEvent = await provider._internals.resolveCatalogPurchaseEvent('adv', 'pixel_1');
+      ok(historicalEvent === 'SHOPPING' && statsCalls === 2, 'Pixel ativo usa Compra real do histórico de 30 dias');
       pipeboard.callTool = async () => ({ list: [{ pixel_id: 'pixel_1', statistics: [] }] });
-      await throws(() => provider._internals.resolveCatalogPurchaseEvent('adv', 'pixel_1'), 422, 'Pixel sem Compra bloqueia antes da campanha', 'CATALOG_PURCHASE_EVENT_NOT_READY');
+      await throws(() => provider._internals.resolveCatalogPurchaseEvent('adv', 'pixel_1'), 422, 'Pixel sem atividade entra em espera antes da campanha', 'CATALOG_PURCHASE_EVENT_NOT_READY');
+      pipeboard.callTool = async () => {
+        const error = new Error('timeout temporário do conector');
+        error.status = 502;
+        throw error;
+      };
+      await throws(() => provider._internals.resolveCatalogPurchaseEvent('adv', 'pixel_1'), 502, 'falha transitória da leitura também entra em espera', 'CATALOG_PIXEL_STATUS_UNAVAILABLE');
     } finally { pipeboard.callTool = original; }
   }
 

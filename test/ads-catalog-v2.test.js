@@ -174,6 +174,8 @@ function throwsCode(fn, code, label) {
   ok(/CREATE TABLE IF NOT EXISTS ads_catalog_sync_runs/.test(store), 'schema contém jobs de sincronização');
   ok(/CREATE TABLE IF NOT EXISTS ads_catalog_campaign_runs/.test(store), 'schema contém jobs da hierarquia de campanha');
   ok(/asset_attempts integer NOT NULL DEFAULT 0/.test(store), 'retry de vídeo/capa tem contador durável próprio');
+  ok(/activation_attempts integer NOT NULL DEFAULT 0/.test(store), 'ativação segura tem contador durável próprio');
+  ok(/status = 'waiting_pixel_purchase'/.test(store), 'pedido aguarda o Pixel sem desaparecer nem falhar');
   ok(/FOR UPDATE SKIP LOCKED/.test(store), 'workers reivindicam jobs sem corrida');
   ok(/status = 'retrying'[\s\S]+next_retry_at <= now\(\)/.test(store), 'backoff de asset é respeitado antes de reivindicar o job');
   ok(/END >= \$\{TIKTOK_MIN_APPROVED_PRODUCTS\}/.test(store), 'promoção da fila só ocorre com quatro produtos aprovados');

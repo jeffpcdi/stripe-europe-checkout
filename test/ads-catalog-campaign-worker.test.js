@@ -295,6 +295,116 @@ async function main() {
     } finally { harness.restore(); }
   }
 
+  console.log('catalog-campaign-worker — Pixel pendente fica salvo até haver evento real');
+  {
+    const updates = [];
+    const harness = withWorker({
+      store: {
+        enabled: true,
+        async getCatalog() { return catalog({ approved: 4, pending: 0 }); },
+        async listProducts() { return [{ valid: true, updatedAt: '2026-07-21T10:00:00.000Z' }]; },
+        async updateCampaignRun(_acc, _run, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
+      },
+      provider: {
+        enabled: true,
+        async getCatalogCapabilities() { return { catalogSingleVideoCampaign: true }; },
+        async createCatalogCampaign() {
+          const error = new Error('Pixel ativo, mas Compra ainda não reconhecida');
+          error.code = 'CATALOG_PURCHASE_EVENT_NOT_READY';
+          error.step = 'pixel';
+          error.retryable = true;
+          throw error;
+        },
+      },
+    });
+    try {
+      await harness.worker.processRun({ id: 'run_pixel', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1', spec: {} });
+      eq(updates.at(-1).status, 'waiting_pixel_purchase', 'ausência de Compra não vira falha do run');
+      eq(updates.at(-1).patch.stage, 'waiting_pixel_purchase', 'estado de espera fica explícito');
+      ok(Boolean(updates.at(-1).patch.nextRetryAt), 'worker agenda nova consulta automática do Pixel');
+      eq(updates.at(-1).patch.release, true, 'lock é liberado enquanto aguarda o Pixel');
+    } finally { harness.restore(); }
+  }
+
+  console.log('catalog-campaign-worker — ativa somente depois do readback pausado');
+  {
+    const updates = [];
+    let activations = 0;
+    const hierarchy = {
+      campaignId: 'camp_active', adGroupId: 'group_active', adId: 'ad_active',
+      verification: { complete: true, hierarchy: true, productLink: true, targeting: true, identity: true, creative: true, noManualUrl: true, paused: true },
+    };
+    const harness = withWorker({
+      store: {
+        enabled: true,
+        async getCatalog() { return catalog({ approved: 4, pending: 0 }); },
+        async listProducts() { return [{ valid: true, updatedAt: '2026-07-21T10:00:00.000Z' }]; },
+        async updateCampaignRun(_acc, _run, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
+      },
+      provider: {
+        enabled: true,
+        async getCatalogCapabilities() { return { catalogSingleVideoCampaign: true }; },
+        async createCatalogCampaign() { return hierarchy; },
+        async activateCatalogCampaignHierarchy() {
+          activations += 1;
+          return { complete: true, active: true, verification: { complete: true, hierarchy: true, active: true } };
+        },
+      },
+    });
+    try {
+      await harness.worker.processRun({
+        id: 'run_active', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1',
+        spec: { autoActivate: true }, created_ids: {},
+      });
+      eq(activations, 1, 'ativação é chamada uma vez após a validação pausada');
+      ok(updates.some((update) => update.patch.stage === 'activating'), 'etapa de ativação aparece antes da conclusão');
+      eq(updates.at(-1).status, 'completed', 'run conclui somente após confirmação ativa');
+      eq(updates.at(-1).patch.stage, 'ready_active', 'resultado final informa hierarquia ativa');
+      ok(updates.at(-1).patch.result.activation.complete === true, 'readback ativo fica persistido');
+    } finally { harness.restore(); }
+  }
+
+  console.log('catalog-campaign-worker — falha de ativação é retomável sem recriar');
+  {
+    const updates = [];
+    const hierarchy = {
+      campaignId: 'camp_retry', adGroupId: 'group_retry', adId: 'ad_retry',
+      verification: { complete: true, hierarchy: true, productLink: true, targeting: true, identity: true, creative: true, noManualUrl: true, paused: true },
+    };
+    const harness = withWorker({
+      store: {
+        enabled: true,
+        async getCatalog() { return catalog({ approved: 4, pending: 0 }); },
+        async listProducts() { return [{ valid: true, updatedAt: '2026-07-21T10:00:00.000Z' }]; },
+        async updateCampaignRun(_acc, _run, status, patch) { updates.push({ status, patch }); return { status, ...patch }; },
+      },
+      provider: {
+        enabled: true,
+        async getCatalogCapabilities() { return { catalogSingleVideoCampaign: true }; },
+        async createCatalogCampaign() { return hierarchy; },
+        async activateCatalogCampaignHierarchy() {
+          const error = new Error('readback ainda não propagou');
+          error.code = 'CATALOG_ACTIVATION_NOT_CONFIRMED';
+          error.step = 'activate';
+          error.retryable = true;
+          error.safeAutomaticRetry = true;
+          error.createdIds = { campaignId: 'camp_retry', adGroupId: 'group_retry', adId: 'ad_retry' };
+          throw error;
+        },
+      },
+    });
+    try {
+      await harness.worker.processRun({
+        id: 'run_activation_retry', account_id: 'acc_1', advertiser_id: 'adv_1', catalog_id: 'cat_1',
+        activation_attempts: 0, spec: { autoActivate: true }, created_ids: {},
+      });
+      eq(updates.at(-1).status, 'retrying', 'ativação transitória volta para a fila');
+      eq(updates.at(-1).patch.stage, 'activating', 'retry preserva a etapa de ativação');
+      eq(updates.at(-1).patch.activationAttempts, 1, 'ativação possui contador separado');
+      ok(Boolean(updates.at(-1).patch.nextRetryAt), 'ativação recebe backoff durável');
+    } finally { harness.restore(); }
+  }
+
   console.log('catalog-campaign-worker — auditoria em segundo plano é limitada');
   {
     const calls = { audit: 0, set: 0 };

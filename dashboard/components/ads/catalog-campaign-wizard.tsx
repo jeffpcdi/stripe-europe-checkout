@@ -14,6 +14,7 @@ const STAGES: Record<string, string> = {
   creating_campaign: 'Criando campanha',
   creating_adgroup: 'Criando conjunto', creating_ad: 'Criando anúncio',
   verifying_entities: 'Verificando a hierarquia', ready_paused: 'Pronta e pausada',
+  waiting_pixel_purchase: 'Aguardando o Pixel', activating: 'Ativando a hierarquia', ready_active: 'Ativa no TikTok',
   waiting_tiktok_confirmation: 'Confirmando no TikTok',
   waiting_connector_confirmation: 'Aguardando confirmação Product Link',
   waiting_catalog_review: 'Aguardando aprovação do catálogo',
@@ -22,13 +23,14 @@ const STAGES: Record<string, string> = {
 
 const RUN_STATUS: Record<AdsCatalogCampaignRun['status'], string> = {
   queued: 'Na fila', waiting_connector_confirmation: 'Aguardando conector', waiting_catalog_review: 'Aguardando catálogo',
+  waiting_pixel_purchase: 'Aguardando Pixel',
   waiting_tiktok_confirmation: 'Confirmando', running: 'Em andamento', retrying: 'Tentando novamente',
   completed: 'Concluída', partial: 'Parcial', failed: 'Falhou', cancelled: 'Cancelada',
 }
 
 const ACTIVE_STATUSES: AdsCatalogCampaignRun['status'][] = [
   'queued', 'waiting_connector_confirmation', 'waiting_catalog_review',
-  'waiting_tiktok_confirmation', 'running', 'retrying',
+  'waiting_pixel_purchase', 'waiting_tiktok_confirmation', 'running', 'retrying',
 ]
 
 function RunCard({
@@ -76,6 +78,10 @@ function RunCard({
     verification.noManualUrl === true && 'sem URL manual',
     verification.paused === true && 'tudo pausado',
   ].filter(Boolean) as string[] : []
+  const activation = run.result && typeof run.result.activation === 'object' && run.result.activation !== null
+    ? run.result.activation as Record<string, unknown>
+    : null
+  const activeOnTikTok = activation?.complete === true && activation?.active === true
   const warnings = run.result && Array.isArray(run.result.warnings)
     ? run.result.warnings.filter((warning): warning is string => typeof warning === 'string' && Boolean(warning.trim()))
     : []
@@ -119,7 +125,14 @@ function RunCard({
         </div>
         {verificationLabels.length > 0 && (
           <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-success/20 bg-success/5 p-2 text-[10px] leading-relaxed text-success">
-            <Check className="mt-0.5 size-3 shrink-0" /> Pronta e pausada. Produtos, vídeo e destino foram confirmados no TikTok.
+            <Check className="mt-0.5 size-3 shrink-0" /> {activeOnTikTok
+              ? 'Ativa. Campanha, conjunto, anúncio, produtos, vídeo e destino foram confirmados no TikTok.'
+              : 'Pronta e pausada. Produtos, vídeo e destino foram confirmados no TikTok.'}
+          </p>
+        )}
+        {run.status === 'waiting_pixel_purchase' && (
+          <p className="mt-2 rounded-lg border border-warning/25 bg-warning/5 p-2 text-[10px] leading-relaxed text-warning">
+            Pedido salvo. A dashboard consulta o Pixel em segundo plano e iniciará a criação automaticamente quando o TikTok reconhecer a atividade e a Compra reais.
           </p>
         )}
         {run.error && !active && (

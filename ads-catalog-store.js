@@ -190,6 +190,7 @@ async function ensureSchema() {
     await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS asset_attempts integer NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS creation_attempts integer NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS verify_attempts integer NOT NULL DEFAULT 0`;
+    await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS activation_attempts integer NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE ads_catalog_campaign_runs ADD COLUMN IF NOT EXISTS next_retry_at timestamptz`;
     await sql`CREATE INDEX IF NOT EXISTS ads_catalog_campaign_runs_idx ON ads_catalog_campaign_runs (account_id, catalog_id, created_at DESC)`;
     console.log('[ads-catalog] schema verificado/criado');
@@ -745,7 +746,9 @@ function mapCampaignRun(row) {
     result: row.result || null, error: row.error || null,
     assetAttempts: Number(row.asset_attempts) || 0,
     creationAttempts: Number(row.creation_attempts) || 0,
-    verifyAttempts: Number(row.verify_attempts) || 0, nextRetryAt: row.next_retry_at || null,
+    verifyAttempts: Number(row.verify_attempts) || 0,
+    activationAttempts: Number(row.activation_attempts) || 0,
+    nextRetryAt: row.next_retry_at || null,
     createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at || null,
   };
 }
@@ -902,7 +905,7 @@ async function createCampaignRun(accountId, advertiserId, catalogId, input) {
   const value = input || {};
   const key = String(value.idempotencyKey || '').trim().slice(0, 200);
   if (!key) throw new Error('Idempotency key obrigatória');
-  const status = ['queued', 'waiting_catalog_review', 'waiting_connector_confirmation'].includes(String(value.status || ''))
+  const status = ['queued', 'waiting_catalog_review', 'waiting_connector_confirmation', 'waiting_pixel_purchase'].includes(String(value.status || ''))
     ? String(value.status) : 'queued';
   const stage = String(value.stage || status).trim().slice(0, 120) || status;
   const rows = await sql`INSERT INTO ads_catalog_campaign_runs
@@ -945,6 +948,8 @@ async function claimNextCampaignRun(workerId) {
        OR (status = 'retrying' AND locked_at IS NULL
          AND (next_retry_at IS NULL OR next_retry_at <= now()))
        OR (status = 'waiting_tiktok_confirmation' AND locked_at IS NULL
+         AND (next_retry_at IS NULL OR next_retry_at <= now()))
+       OR (status = 'waiting_pixel_purchase' AND locked_at IS NULL
          AND (next_retry_at IS NULL OR next_retry_at <= now()))
        OR (status = 'running' AND locked_at < now() - interval '5 minutes')
     ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1
@@ -1041,6 +1046,7 @@ async function updateCampaignRun(accountId, runId, status, patch) {
   const hasAssetAttempts = Object.prototype.hasOwnProperty.call(value, 'assetAttempts');
   const hasCreationAttempts = Object.prototype.hasOwnProperty.call(value, 'creationAttempts');
   const hasVerifyAttempts = Object.prototype.hasOwnProperty.call(value, 'verifyAttempts');
+  const hasActivationAttempts = Object.prototype.hasOwnProperty.call(value, 'activationAttempts');
   const hasNextRetryAt = Object.prototype.hasOwnProperty.call(value, 'nextRetryAt');
   const rows = await sql`UPDATE ads_catalog_campaign_runs SET
     status = ${String(status)}, stage = ${String(value.stage || status)},
@@ -1050,6 +1056,7 @@ async function updateCampaignRun(accountId, runId, status, patch) {
     asset_attempts = CASE WHEN ${hasAssetAttempts} THEN ${Math.max(0, Number(value.assetAttempts) || 0)} ELSE asset_attempts END,
     creation_attempts = CASE WHEN ${hasCreationAttempts} THEN ${Math.max(0, Number(value.creationAttempts) || 0)} ELSE creation_attempts END,
     verify_attempts = CASE WHEN ${hasVerifyAttempts} THEN ${Math.max(0, Number(value.verifyAttempts) || 0)} ELSE verify_attempts END,
+    activation_attempts = CASE WHEN ${hasActivationAttempts} THEN ${Math.max(0, Number(value.activationAttempts) || 0)} ELSE activation_attempts END,
     next_retry_at = CASE WHEN ${hasNextRetryAt} THEN ${value.nextRetryAt || null} ELSE next_retry_at END,
     locked_at = ${terminal || value.release ? null : new Date().toISOString()},
     locked_by = ${terminal || value.release ? null : String(value.workerId || '').slice(0, 120) || null},
@@ -1065,7 +1072,7 @@ async function resumeCampaignRun(accountId, advertiserId, runId) {
   await ensureSchema();
   const rows = await sql`UPDATE ads_catalog_campaign_runs SET status = 'queued',
     stage = CASE WHEN created_ids ? 'adGroupId' THEN 'creating_ad' WHEN created_ids ? 'campaignId' THEN 'creating_adgroup' ELSE 'validating' END,
-    error = null, asset_attempts = 0, creation_attempts = 0, verify_attempts = 0, next_retry_at = null,
+    error = null, asset_attempts = 0, creation_attempts = 0, verify_attempts = 0, activation_attempts = 0, next_retry_at = null,
     locked_at = null, locked_by = null, completed_at = null, updated_at = now()
     WHERE account_id = ${accountId} AND advertiser_id = ${advertiserId}
       AND id = ${String(runId)} AND status IN ('partial','failed') RETURNING *`;
