@@ -31,59 +31,59 @@ function interp(tpl, data) {
 const POOLS = {
   sale: [
     // Completas (todos os dados)
-    { t: 'KA-CHING! {valor} na conta', b: '{cliente} não resistiu: {produto} via {gateway}. O ROI tá nadando de costas.' },
-    { t: 'Cha-ching: {valor}', b: '{cliente} passou o cartão em {produto}. Bora comemorar (rapidinho).' },
-    { t: 'O pix da felicidade: {valor}', b: '{cliente} comprou {produto}. A esteira segue rodando.' },
+    { t: '🤑 Venda Aprovada! {valor}', b: 'Produto: {produto}\nGateway: {gateway}\nCliente: {cliente}' },
+    { t: '✅ Venda realizada com sucesso!', b: 'Você acaba de vender {produto} no valor de {valor}.' },
+    { t: '🎉 Nova Venda Aprovada!', b: 'Valor: {valor} | Produto: {produto}' },
     // Médias (valor + produto/gateway)
-    { t: 'Mais {valor}. Avisa o contador', b: '{produto} vendido no {gateway}. Segue o baile.' },
-    { t: '{valor} caíram agora', b: 'Venda aprovada de {produto}. Dinheiro não dorme.' },
-    { t: 'Venda aprovada: {valor}', b: 'O {gateway} confirmou. {produto} entregue à causa.' },
-    { t: '{valor} sem esforço', b: 'Mais uma de {produto} enquanto você fazia outra coisa.' },
-    { t: '{valor}. É disso que eu tô falando', b: '{produto} saiu voando da prateleira digital.' },
-    { t: 'Plot twist: {valor} a mais', b: 'Enquanto uns reclamam do algoritmo, {produto} vende.' },
+    { t: '🤑 Comissão Recebida: {valor}', b: 'Produto: {produto} através do {gateway}.' },
+    { t: '💰 Dinheiro na conta! {valor}', b: 'Sua venda de {produto} foi aprovada.' },
+    { t: '✅ Mais uma venda! {valor}', b: '{produto} vendido no {gateway}.' },
+    { t: '💳 Pagamento Aprovado', b: 'Valor: {valor}\nProduto: {produto}' },
+    { t: '🚀 Venda Confirmada!', b: '{produto} foi vendido. Total: {valor}.' },
+    { t: '🤑 {valor} em vendas!', b: 'O produto {produto} acabou de ser vendido.' },
     // Leves (só valor — sempre elegíveis quando há venda)
-    { t: '{valor} entraram nadando', b: 'Venda aprovada. O ROI de peito aberto, estilo borboleta.' },
-    { t: 'Barulhinho bom: {valor}', b: 'Aprovada. Pode conferir no extrato, é real.' },
-    { t: 'A internet te pagou {valor}', b: 'Mais uma aprovada. Quem disse que dormir não dá dinheiro?' },
-    { t: '{valor}? Aceito, obrigado', b: 'Venda confirmada. Segue o jogo, campeão.' }
+    { t: '🤑 Venda Aprovada! {valor}', b: 'O pagamento foi confirmado com sucesso.' },
+    { t: '✅ Nova Venda: {valor}', b: 'Comissão adicionada ao seu saldo.' },
+    { t: '💰 Saldo atualizado: +{valor}', b: 'Venda processada e aprovada no gateway.' },
+    { t: '🎉 Pingou! {valor}', b: 'Mais uma venda aprovada pra conta.' }
   ],
   failed: [
-    { t: 'O cartão disse não: {valor}', b: 'Recusada em {produto} via {gateway}. Respira — recusada não é adeus.' },
-    { t: '{valor} escaparam por pouco', b: 'Pagamento recusado no {gateway}. Acontece nas melhores famílias.' },
-    { t: 'Recusada de {valor}', b: '{cliente} tentou, o banco negou. Quem sabe na segunda tentativa.' },
-    { t: 'Quase, mas não: {valor}', b: 'O {gateway} barrou a compra de {produto}. Fica o aprendizado.' },
-    { t: 'O banco tá de mau humor', b: 'Recusou {valor} em {produto}. Nada pessoal (será?).' },
+    { t: '❌ Venda Recusada: {valor}', b: 'Produto: {produto} | Gateway: {gateway}\nMotivo: Pagamento negado pelo banco.' },
+    { t: '⚠️ Cartão Recusado', b: 'A tentativa de compra de {produto} no valor de {valor} falhou.' },
+    { t: '❌ Compra Não Autorizada', b: 'Valor: {valor} | Produto: {produto}\nRecuperação de carrinho sugerida.' },
+    { t: '⚠️ Pagamento Cancelado: {valor}', b: 'O gateway barrou a transação de {produto}.' },
+    { t: '❌ Venda Perdida', b: 'O banco recusou a compra de {valor} em {produto}.' },
     // Leves
-    { t: 'O cartão passou vergonha: {valor}', b: 'Recusada. O cliente quis, o banco não deixou.' },
-    { t: '{valor} ficaram pelo caminho', b: 'Pagamento recusado. Remarketing neles.' },
-    { t: 'Negaram {valor}', b: 'O banco falou "hoje não". A gente fala "amanhã sim".' }
+    { t: '❌ Transação Recusada: {valor}', b: 'O cartão do cliente não foi autorizado.' },
+    { t: '⚠️ Venda Não Aprovada', b: 'Uma transação de {valor} falhou no gateway.' },
+    { t: '❌ Falha no Pagamento', b: 'Valor da tentativa: {valor}. Tente recuperar o cliente.' }
   ],
   refund: [
-    { t: 'Ihh, {valor} voltaram pro dono', b: 'Reembolso de {produto} via {gateway}. Acontece nas melhores famílias.' },
-    { t: 'Reembolso de {valor}', b: '{cliente} pediu o dinheiro de volta. Deixa ir, o mar tá cheio de peixe.' },
-    { t: '{valor} fizeram a viagem de volta', b: 'Reembolso processado no {gateway}. Bola pra frente.' },
-    { t: 'Devolvemos {valor}', b: '{produto} não era pra ser. O próximo cliente vem aí.' },
+    { t: '💸 Reembolso Solicitado: {valor}', b: 'Produto: {produto} via {gateway}.' },
+    { t: '⚠️ Reembolso Processado', b: 'O cliente pediu o estorno de {produto}. Valor: {valor}' },
+    { t: '📉 Venda Estornada: {valor}', b: 'Reembolso confirmado no {gateway}.' },
+    { t: '💸 Estorno Realizado', b: 'Valor de {valor} devolvido referente a {produto}.' },
     // Leves
-    { t: '{valor} pediram arrego', b: 'Reembolso processado. Faz parte do jogo.' },
-    { t: 'Saiu {valor} pela porta dos fundos', b: 'Reembolso feito. O funil continua cheio.' }
+    { t: '💸 Reembolso Confirmado: {valor}', b: 'O dinheiro foi devolvido ao cliente.' },
+    { t: '⚠️ Estorno Aprovado', b: 'Um reembolso de {valor} foi finalizado.' }
   ],
   dispute: [
-    { t: 'ALERTA: disputa de {valor}', b: 'Hora de vestir a toga e juntar as provas. {gateway} aguarda sua defesa.' },
-    { t: 'Disputa aberta: {valor}', b: '{cliente} abriu contestação em {produto}. Documentos na mesa.' },
-    { t: 'Chargeback à vista: {valor}', b: 'O {gateway} avisou. Quanto antes responder, melhor a taxa de vitória.' },
-    { t: 'Alguém quer briga: {valor}', b: 'Disputa em {produto}. Mantenha a calma e o comprovante de entrega.' },
+    { t: '🚨 Nova Disputa (Chargeback): {valor}', b: 'Produto: {produto} no {gateway}. Responda imediatamente.' },
+    { t: '⚠️ Contestação Aberta: {valor}', b: 'O cliente contestou a compra de {produto}.' },
+    { t: '🚨 Alerta de Chargeback: {valor}', b: 'Disputa iniciada no {gateway}. Reúna as provas de entrega.' },
+    { t: '⚠️ Disputa Recebida', b: 'Transação de {produto} no valor de {valor} foi contestada.' },
     // Leves
-    { t: 'Objection! Disputa de {valor}', b: 'Chargeback aberto. Junte as provas e responda rápido — o relógio corre.' },
-    { t: 'Ringue armado: {valor} em jogo', b: 'Contestação aberta. Comprovante de entrega é seu melhor golpe.' }
+    { t: '🚨 Disputa Aberta: {valor}', b: 'Chargeback iniciado. Envie suas provas ao gateway.' },
+    { t: '⚠️ Notificação de Chargeback', b: 'Uma venda de {valor} sofreu contestação.' }
   ],
   checkout: [
-    { t: 'Tem gente no caixa', b: 'Checkout iniciado no {gateway}. Torce pra não abandonar o carrinho.' },
-    { t: 'Cliente na reta final', b: 'Alguém abriu o checkout de {produto}. Falta pouco.' },
-    { t: 'Carrinho andando', b: 'Checkout no {gateway} em andamento. Sem pressão... mas converte.' },
+    { t: '🛒 Checkout Iniciado', b: 'Alguém está prestes a comprar {produto} no {gateway}.' },
+    { t: '👀 Novo Visitante no Checkout', b: 'Um cliente está no checkout do produto {produto}.' },
+    { t: '🔥 Checkout Quente', b: 'Início de pagamento no {gateway}.' },
     // Leves (sem dados)
-    { t: 'Peixe no anzol', b: 'Alguém chegou ao checkout. Não respira, não pisca.' },
-    { t: 'Cliente namorando o botão de compra', b: 'Checkout aberto. Vai que é sua.' },
-    { t: 'Alerta de quase-venda', b: 'Tem gente decidindo agora. A ansiedade é grátis.' }
+    { t: '🛒 Carrinho Ativo', b: 'Um cliente chegou na tela de pagamento.' },
+    { t: '👀 Checkout Aberto', b: 'Falta pouco para mais uma venda.' },
+    { t: '🔥 Processando Checkout', b: 'Aguardando o cliente finalizar a compra.' }
   ],
   login: [
     { t: 'Entraram no seu painel', b: 'Login novo na dashboard. Se foi você, relaxa. Se não foi... corre.' },

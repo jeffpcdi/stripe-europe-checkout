@@ -12,19 +12,21 @@ import { countryName } from '@/lib/countries'
 import type { Period } from '@/lib/types'
 import { CountUp } from '@/components/count-up'
 import { Skeleton } from '@/components/skeleton'
-import { TopSources } from './top-sources'
-import { DecideStrip } from './decide-strip'
-import { AdsOverviewCard } from './ads-card'
 import { ExportSummaryButton } from './export-summary'
 import { TvModeButton } from './tv-mode'
 import { PeriodPicker } from './period-picker'
 import { HealthDot } from './health-dot'
 import { HeroGlobe } from './hero-globe'
 import { LiveFeed } from './live-feed'
-import { FunnelCompact } from './funnel-compact'
 import { DataConfidence } from './data-confidence'
 import { OnboardingChecklist } from './onboarding-checklist'
 import { ErrorState } from '@/components/error-state'
+
+// Componentes do Feed Copiloto
+import { NeedsYouInbox } from '@/components/ads/needs-you-inbox'
+import { RejectionInbox } from '@/components/ads/rejection-inbox'
+import { BriefingCard } from '@/components/ads/briefing-card'
+import { useAdsRules, useAdsSafetyPolicy } from '@/lib/api'
 
 // Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
 // resto do app — formata direto sem dividir por 100.
@@ -134,6 +136,12 @@ export function OverviewView() {
   const adsConnected = Boolean(adsStatus?.enabled && adsStatus?.connected && adAccountId)
   const adsRange = useMemo(() => periodToAdsRange(period, adsStatus?.timeZone), [period, adsStatus?.timeZone])
   const { data: roas } = useAdsRoas(adsConnected, adAccountId, adsRange)
+
+  // Dados para o Feed Copiloto
+  const { data: safety } = useAdsSafetyPolicy(adsConnected)
+  const { data: rulesData } = useAdsRules(adsConnected, adAccountId)
+  const autoAppealSmartPlus = rulesData?.alerts?.autoAppealSmartPlus === true
+  const canAutoAppeal = rulesData?.autonomy === 'auto'
 
   // Rodapé "EMQ" — mesma chave SWR do popover de saúde (dedup, zero request).
   const { data: emqData } = useEmqTrend(afterFirstPaint)
@@ -415,35 +423,36 @@ export function OverviewView() {
         </div>
       </section>
 
-      {/* ── F4: decisões pendentes + ROAS de Ads — abaixo da dobra, gated por
-          adsConnected (quem não usa Ads não vê nem paga a request). O card
-          reusa o MESMO range/chave SWR do hook do hero → dedup, +0 requests;
-          a faixa é o +1 request declarado no plano. Boundary próprio na faixa:
-          se quebrar, o globo não cai junto. ──────────────────────────── */}
+      {/* ── FEED COPILOTO (O Fim das Abas de Ads) ───────────────────────── */}
       {adsConnected ? (
         <section
-          aria-label="Decisões pendentes e desempenho de anúncios"
-          className="grid items-start gap-4 lg:grid-cols-2"
+          aria-label="Feed Copiloto"
+          className="mx-auto flex w-full max-w-2xl flex-col gap-4 pt-4"
           style={{ ['--i' as string]: 2 }}
         >
-          <DecideStrip active={adsConnected && afterFirstPaint} />
-          <AdsOverviewCard
-            range={adsRange}
-            rangeLabel={period === 'all' ? 'histórico sincronizado (90 dias)' : PERIOD_LABEL[period]}
+          {/* Caixa de Entrada de Decisões Rápidas (Aprovações e Alertas) */}
+          <NeedsYouInbox
+            active={adsConnected && afterFirstPaint}
+            adAccountId={adAccountId}
+            onOpenOps={() => { window.location.href = '/ads/tiktok' }}
+            onOpenHealth={() => { window.location.href = '/ads/tiktok' }}
+            onGoAutomations={() => { window.location.href = '/ads/tiktok?tab=automation' }}
           />
+
+          {/* Reprovações do TikTok aparecem como Cards de erro solucionáveis */}
+          <RejectionInbox
+            active={adsConnected && afterFirstPaint}
+            adAccountId={adAccountId}
+            autoAppeal={autoAppealSmartPlus}
+            canAutoAppeal={canAutoAppeal}
+            saving={false} // A página de ads gerencia saving; aqui mantemos visual
+            onAutoAppealChange={() => {}}
+          />
+
+          {/* Briefing da IA sobre os resultados do dia para auxiliar nas ações rápidas */}
+          <BriefingCard adAccountId={adAccountId} currency={roas?.currency || cur.mainCur} />
         </section>
       ) : null}
-
-      {/* ── Abaixo: FUNIL | TOP CAMPANHAS — 2 colunas, altura igual,
-          governadas pelo MESMO PeriodPicker ─────────────────────────── */}
-      <section
-        aria-label="Funil e origem dos leads"
-        className={`grid items-stretch gap-4 ${hasSources ? 'lg:grid-cols-2' : ''}`}
-        style={{ ['--i' as string]: 3 }}
-      >
-        <FunnelCompact metrics={cur} periodLabel={PERIOD_LABEL[period]} />
-        {hasSources && <TopSources campaigns={cur.topCampaigns} links={cur.topLinks} />}
-      </section>
 
       {/* ── Rodapé — Países ativos · EMQ, em linha, discreto ───────────── */}
       <section

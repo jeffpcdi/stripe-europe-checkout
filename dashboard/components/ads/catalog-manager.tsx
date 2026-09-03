@@ -378,6 +378,29 @@ function CatalogList({
     }
   }
 
+  const [magicUrl, setMagicUrl] = useState('')
+  const [magicBusy, setMagicBusy] = useState(false)
+
+  async function handleMagicImport() {
+    if (!magicUrl.trim() || magicBusy) return
+    setMagicBusy(true)
+    try {
+      const res = await apiSend<{ catalog: AdsCatalog; syncStarted: boolean }>(
+        adsCatalogApiUrl('/api/ads/catalogs/magic-import', advertiserId), 'POST', { url: magicUrl.trim() }
+      )
+      toast.success('Catálogo mágico criado com sucesso', {
+        hint: res.syncStarted ? 'A sincronização com o TikTok já começou.' : 'O produto foi extraído e o catálogo criado.',
+      })
+      setMagicUrl('')
+      onChanged()
+      onOpen(res.catalog.id)
+    } catch (e) {
+      toast.error('Falha na criação expressa', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setMagicBusy(false)
+    }
+  }
+
   async function handleCloneFromList(catalogId: string) {
     if (cloningId) return
     setCloningId(catalogId)
@@ -415,6 +438,30 @@ function CatalogList({
           </div>
         )}
       </div>
+
+      {!creating && (
+        <div className="relative mt-1 mb-2">
+          <input
+            type="url"
+            className="input-base pr-28 w-full shadow-sm text-sm"
+            placeholder="Catálogo Mágico: cole o link do produto aqui..."
+            value={magicUrl}
+            onChange={(e) => setMagicUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleMagicImport()
+            }}
+            disabled={magicBusy}
+          />
+          <button
+            type="button"
+            className="btn-primary absolute right-1.5 top-1.5 bottom-1.5 text-xs py-1 px-3 min-w-[90px]"
+            onClick={handleMagicImport}
+            disabled={magicBusy || !magicUrl.trim()}
+          >
+            {magicBusy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : 'Extrair'}
+          </button>
+        </div>
+      )}
 
       {creating && (
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4">
@@ -566,6 +613,7 @@ function CatalogDetail({
   >(null)
   const [deleting, setDeleting] = useState(false)
   const [cloning, setCloning] = useState(false)
+  const [fixing, setFixing] = useState(false)
   // Quando a sincronização falha, preservamos o estado e oferecemos retomada
   // automática sem obrigar o usuário a reconstruir o catálogo no TikTok.
   const [publishFailed, setPublishFailed] = useState(false)
@@ -751,6 +799,32 @@ function CatalogDetail({
       setAuditing(false)
     }
   }
+
+  async function handleMagicFix() {
+    setFixing(true)
+    try {
+      const res = await fetch(adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/magic-fix`, advertiserId), {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || `Erro ${res.status}`)
+      }
+      const data = await res.json()
+      if (data.fixedCount > 0) {
+        toast.success(`${data.fixedCount} produto(s) corrigido(s) com sucesso!`)
+        await mutate()
+      } else {
+        toast.info('Nenhum erro conhecido pôde ser corrigido automaticamente.')
+      }
+    } catch (e) {
+      toast.error('Falha na Auto-Correção', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setFixing(false)
+    }
+  }
+
 
   // Acompanha a análise agregada do TikTok sem exigir recarregar a página.
   // Intervalo conservador de 20 s, no máximo 12 tentativas (~4 min). Para ao
@@ -950,17 +1024,15 @@ function CatalogDetail({
               : handleReadinessAction}
           />
 
+
           <CatalogSyncStatus catalogId={catalogId} advertiserId={advertiserId} refreshToken={syncStatusVersion} />
 
-          {/* Conexão com o Business Center: técnica e configurada uma vez.
-              Recolhida quando já está OK (menos poluição); abre sozinha quando
-              a conexão falta/quebra, porque aí é acionável. */}
-          {catalog && (
+          {catalog && !bcConfigured && (
             <details open={!bcConfigured} className="group">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-semibold text-foreground">
                 <span className="flex items-center gap-1.5">
-                  {bcConfigured ? <ShieldCheck className="size-3.5 text-success" aria-hidden="true" /> : <AlertCircle className="size-3.5 text-warning" aria-hidden="true" />}
-                  Conexão com o TikTok {bcConfigured ? '· conectado' : '· configurar'}
+                  <AlertCircle className="size-3.5 text-warning" aria-hidden="true" />
+                  Conexão com o TikTok · configurar
                 </span>
                 <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
               </summary>
@@ -969,66 +1041,84 @@ function CatalogDetail({
                   catalog={catalog}
                   advertiserId={advertiserId}
                   bcId={bcId}
-                  // O cartão também pode salvar/corrigir o BC. Revalida o estado
-                  // pai junto do catálogo para `bcConfigured` não continuar falso
-                  // e bloquear a sincronização até um reload.
                   onChanged={() => Promise.all([mutate(), mutateReadiness(), onBusinessCenterChanged()])}
                 />
               </div>
             </details>
           )}
 
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-            <button type="button" className="btn-ghost justify-center text-xs" onClick={() => setShowUrlImport((value) => !value)} aria-expanded={showUrlImport}>
-              <Link2 className="size-3.5" aria-hidden="true" /> Importar pela URL
-            </button>
-            <button type="button" className="btn-ghost justify-center text-xs" onClick={() => setEditing('new')}>
-              <Plus className="size-3.5" aria-hidden="true" /> Adicionar manualmente
-            </button>
-          </div>
-
-          {showUrlImport && (
-            <section className="flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4" aria-labelledby="url-import-title">
-              <div className="flex flex-col gap-1">
-                <h3 id="url-import-title" className="text-xs font-semibold text-foreground">Preencher pela página do produto</h3>
-                <p className="text-pretty text-[11px] text-muted-foreground">Buscamos título, descrição, imagem e preço. Você revisa tudo antes de salvar.</p>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  className="input-base min-w-0 flex-1"
-                  value={urlValue}
-                  onChange={(event) => setUrlValue(event.target.value)}
-                  placeholder="https://sualoja.com/produto"
-                  inputMode="url"
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleUrlPreview()
-                  }}
-                />
-                <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleUrlPreview} disabled={urlImporting || !urlValue.trim()}>
-                  {urlImporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <SearchCheck className="size-3.5" aria-hidden="true" />}
-                  Buscar dados
-                </button>
-              </div>
-            </section>
-          )}
-
-          <details className="rounded-xl border border-border bg-background p-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-foreground">
-              Opções avançadas <ChevronDown className="size-3.5" aria-hidden="true" />
-            </summary>
-            <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
-              <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) handleImport(file) }} />
-              <button type="button" className="btn-ghost text-xs" onClick={() => fileRef.current?.click()} disabled={importing}>
-                {importing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />} Importar CSV
-              </button>
-              <a className="btn-ghost text-xs" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
-                <Download className="size-3.5" aria-hidden="true" /> Baixar CSV
-              </a>
-              <button type="button" className="btn-ghost text-xs" onClick={handlePublish} disabled={publishing || validCount === 0}>
-                <UploadCloud className="size-3.5" aria-hidden="true" /> Atualizar só o feed
+          {/* STEP 1: Origem dos Produtos */}
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4 shadow-sm">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2"><div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] text-primary">1</div> Abastecimento</h3>
+              <p className="text-[11px] text-muted-foreground ml-7">Cole o link de um produto, coleção Shopify ou insira os dados manualmente.</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row ml-7">
+              <input
+                className="input-base min-w-0 flex-1"
+                value={urlValue}
+                onChange={(event) => setUrlValue(event.target.value)}
+                placeholder="https://sualoja.com/collections/verao"
+                inputMode="url"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleUrlPreview()
+                }}
+              />
+              <button type="button" className="btn-primary shrink-0 text-xs" onClick={handleUrlPreview} disabled={urlImporting || !urlValue.trim()}>
+                {urlImporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <SearchCheck className="size-3.5" aria-hidden="true" />}
+                Importar
               </button>
             </div>
-          </details>
+            <div className="flex flex-wrap items-center gap-3 pt-3 mt-1 ml-7 border-t border-border/50">
+              <button type="button" className="btn-ghost text-[11px] hover:bg-secondary/50" onClick={() => setEditing('new')}>
+                <Plus className="size-3.5" aria-hidden="true" /> Criar produto manualmente
+              </button>
+              <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) handleImport(file) }} />
+              <button type="button" className="btn-ghost text-[11px] hover:bg-secondary/50" onClick={() => fileRef.current?.click()} disabled={importing}>
+                {importing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />} Enviar CSV
+              </button>
+              <a className="btn-ghost text-[11px] hover:bg-secondary/50" href={adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/export.csv`, advertiserId)}>
+                <Download className="size-3.5" aria-hidden="true" /> Baixar template
+              </a>
+            </div>
+          </div>
+
+          {/* STEP 2: Saúde do Catálogo */}
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2"><div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] text-primary">2</div> Saúde do Catálogo</h3>
+                <p className="text-[11px] text-muted-foreground ml-7">O TikTok exige produtos aprovados antes de iniciar a campanha.</p>
+              </div>
+              <button type="button" className="btn-secondary text-[11px]" onClick={handlePublish} disabled={publishing || validCount === 0}>
+                {publishing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <UploadCloud className="size-3.5" aria-hidden="true" />} Enviar para o TikTok
+              </button>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-3 mt-2 ml-7">
+              <div className="flex-1 rounded-lg bg-success/5 border border-success/20 p-4 flex flex-col items-center justify-center text-center">
+                <Check className="size-5 text-success mb-1" />
+                <span className="text-xl font-bold text-foreground">{validCount}</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">Prontos</span>
+              </div>
+              <div className={`flex-1 rounded-lg p-4 flex flex-col items-center justify-center text-center border ${
+                products.length - validCount > 0 ? 'bg-error/5 border-error/20' : 'bg-secondary/20 border-border/50'
+              }`}>
+                {products.length - validCount > 0 ? <AlertCircle className="size-5 text-error mb-1" /> : <Check className="size-5 text-muted-foreground mb-1" />}
+                <span className={`text-xl font-bold ${products.length - validCount > 0 ? 'text-error' : 'text-foreground'}`}>{products.length - validCount}</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mt-1">Com Erros</span>
+              </div>
+            </div>
+
+            {products.some(p => !p.valid || (p.errors && p.errors.length > 0)) && (
+              <div className="mt-2 ml-7">
+                <button type="button" className="btn-primary w-full text-xs py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 border-none hover:opacity-90 shadow-sm" onClick={handleMagicFix} disabled={fixing}>
+                  {fixing ? <Loader2 className="size-4 animate-spin mr-2" aria-hidden="true" /> : <RotateCcw className="size-4 mr-2" aria-hidden="true" />}
+                  Resolver erros automaticamente ✨
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* A ausência de BC bloqueia a publicação, mas nunca perde produtos. */}
           {!bcConfigured && (
@@ -1079,78 +1169,50 @@ function CatalogDetail({
             />
           )}
 
-          {/* URL técnica: é consumida pela automação e pode ser copiada apenas
-              para diagnóstico; nunca é URL de anúncio. */}
-          {catalog?.feedUrl && (
-            <details className="rounded-xl border border-border bg-background p-4">
-              <summary className="cursor-pointer text-xs font-semibold text-foreground">
-                URL técnica do feed
-              </summary>
-              <div className="mt-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded-lg bg-secondary px-3 py-2 text-[11px] text-muted-foreground">
-                    {catalog.feedUrl}
-                  </code>
-                  <button type="button" className="btn-ghost shrink-0 px-2 py-2" onClick={copyFeedUrl} aria-label="Copiar URL">
-                    {copied ? <Check className="size-3.5 text-success" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
-                  </button>
-                </div>
-                <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                  Esta URL é usada automaticamente para sincronizar os produtos. Ela não é usada no anúncio e não precisa ser preenchida em nenhuma campanha.
-                </p>
-              </div>
-            </details>
-          )}
-
-          {/* Tabela de produtos */}
-          {products.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-background p-8 text-center">
-              <PackageOpen className="size-6 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-medium text-foreground">Nenhum produto</p>
-              <p className="max-w-md text-pretty text-xs text-muted-foreground">
-                Importe o CSV do template do TikTok ou adicione produtos manualmente.
-              </p>
-            </div>
-          ) : (
-            <details className="rounded-xl border border-border bg-background">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-xs font-semibold text-foreground">
-                <span>Gerenciar produtos salvos</span>
-                <span className="text-[10px] font-normal text-muted-foreground">{products.length} na dashboard · {remoteProductCount} no TikTok</span>
-              </summary>
-              <div className="overflow-x-auto border-t border-border">
-                <table className="w-full text-left text-xs">
-                <thead className="bg-secondary/50 text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    {PRIMARY_COLS.map((col) => (
-                      <th key={col} className="whitespace-nowrap px-3 py-2 font-medium">{col}</th>
-                    ))}
-                    <th className="px-3 py-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((p) => (
-                    <tr key={p.id} className="border-t border-border hover:bg-secondary/30">
-                      <td className="px-3 py-2">
-                        {p.valid ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
-                            <Check className="size-3" aria-hidden="true" /> ok
-                          </span>
-                        ) : (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full bg-error/15 px-2 py-0.5 text-[10px] font-semibold text-error"
-                            title={p.errors.map((e) => `${e.field}: ${e.message}`).join('\n')}
-                          >
-                            <AlertCircle className="size-3" aria-hidden="true" /> {p.errors.length} erro{p.errors.length === 1 ? '' : 's'}
-                          </span>
-                        )}
-                      </td>
-                      {PRIMARY_COLS.map((col) => (
-                        <td key={col} className="max-w-[180px] truncate px-3 py-2 text-foreground" title={p.data[col] || ''}>
-                          {p.data[col] || <span className="text-muted-foreground">—</span>}
-                        </td>
+          {/* Tabela de produtos (Avançado) */}
+          {products.length > 0 && (() => {
+            // Só exibe colunas que tenham valor em pelo menos 1 produto
+            const activeCols = PRIMARY_COLS.filter(col => products.some(p => p.data[col] && p.data[col].trim() !== ''))
+            return (
+              <details className="group mt-1 px-4">
+                <summary className="flex cursor-pointer list-none items-center justify-center gap-2 py-3 text-xs font-semibold text-muted-foreground hover:text-foreground">
+                  <span>Visualizar todos os produtos (Avançado)</span>
+                  <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="overflow-x-auto rounded-xl border border-border bg-background mt-2">
+                  <table className="w-full text-left text-xs">
+                  <thead className="bg-secondary/50 text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      {activeCols.map((col) => (
+                        <th key={col} className="whitespace-nowrap px-3 py-2 font-medium">{col}</th>
                       ))}
-                      <td className="px-3 py-2 text-right">
+                      <th className="px-3 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {products.map((p) => (
+                      <tr key={p.id} className="border-t border-border hover:bg-secondary/30">
+                        <td className="px-3 py-2">
+                          {p.valid ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+                              <Check className="size-3" aria-hidden="true" /> ok
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-error/15 px-2 py-0.5 text-[10px] font-semibold text-error"
+                              title={p.errors.map((e) => `${e.field}: ${e.message}`).join('\n')}
+                            >
+                              <AlertCircle className="size-3" aria-hidden="true" /> {p.errors.length} erro{p.errors.length === 1 ? '' : 's'}
+                            </span>
+                          )}
+                        </td>
+                        {activeCols.map((col) => (
+                          <td key={col} className="max-w-[180px] truncate px-3 py-2 text-foreground" title={p.data[col] || ''}>
+                            {p.data[col] || <span className="text-muted-foreground">—</span>}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button type="button" className="btn-ghost px-2 py-1" onClick={() => setEditing(p)} aria-label="Editar">
                             Editar
@@ -1169,15 +1231,15 @@ function CatalogDetail({
                 </table>
               </div>
             </details>
-          )}
+            )
+          })()}
 
           {publications.length > 0 && (
-            <details className="rounded-xl border border-border bg-background p-4">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-foreground">
-                <span className="flex items-center gap-2"><History className="size-3.5" aria-hidden="true" /> Histórico de publicações</span>
-                <span className="text-[10px] font-normal text-muted-foreground">{publications.length} registro{publications.length === 1 ? '' : 's'}</span>
+            <details className="mt-2 text-center">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground">
+                <History className="size-3" aria-hidden="true" /> Ver histórico de sincronização ({publications.length})
               </summary>
-              <ol className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+              <ol className="mt-4 flex flex-col gap-2 text-left">
                 {publications.slice(0, 10).map((publication) => (
                   <li key={publication.id} className="flex items-start justify-between gap-3 rounded-lg bg-secondary/40 p-3">
                     <div className="min-w-0">
@@ -1311,7 +1373,7 @@ function TiktokStatusPanel({
       </div>
 
       {/* Auditoria dos produtos */}
-      {audit && total > 0 ? (
+      {audit && total > 0 && (
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-semibold text-success">
             {approved} aprovado{approved === 1 ? '' : 's'}
@@ -1327,51 +1389,7 @@ function TiktokStatusPanel({
             </span>
           )}
         </div>
-      ) : (
-        <p className="text-[11px] text-muted-foreground">
-          {productsNotConfirmed
-            ? 'O TikTok ainda não devolveu nenhum produto para este catálogo. Sincronize novamente ou atualize o status; “0” não significa que a publicação foi concluída.'
-            : 'O envio foi aceito, mas a auditoria ainda não retornou contagens. Clique em “Atualizar status”.'}
-        </p>
       )}
-
-      <p className="text-pretty text-[11px] leading-relaxed text-muted-foreground">
-        {catalogSynced
-          ? catalogCampaignSupported
-            ? `Campanhas usarão somente estes ${total} produtos confirmados, com o Link individual de cada item.`
-            : 'Vínculo e produtos confirmados. A criação ficará disponível assim que o conector confirmar todos os campos exigidos; nenhuma estrutura incompleta será enviada.'
-          : rejected > 0
-            ? 'Há produtos reprovados. O provider retorna somente as contagens, sem o motivo individual; revise imagem (≥ 500×500), link HTTPS e moeda, depois republique.'
-            : productsNotConfirmed
-              ? 'Nenhum produto remoto foi confirmado ainda. Seus produtos locais continuam preservados; tente sincronizar novamente antes de criar a campanha.'
-              : 'O TikTok ainda está processando os produtos. Esta tela atualiza as contagens automaticamente enquanto houver itens pendentes.'}
-      </p>
-
-      {localOnlyCount > 0 && (
-        <p className="rounded-lg border border-warning/25 bg-warning/5 px-3 py-2 text-pretty text-[10px] leading-relaxed text-muted-foreground">
-          <strong className="text-warning">{localOnlyCount} {localOnlyCount === 1 ? 'item existe' : 'itens existem'} apenas na dashboard.</strong>
-          {' '}Como o TikTok não informa qual SKU ficou de fora, nada será apagado automaticamente. {localOnlyCount === 1 ? 'Esse item não entra' : 'Esses itens não entram'} nas campanhas enquanto não aparecer{localOnlyCount === 1 ? '' : 'em'} no TikTok.
-        </p>
-      )}
-
-      <details className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
-        <summary className="cursor-pointer text-[10px] font-semibold text-muted-foreground">Detalhes técnicos</summary>
-        <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2 text-[10px] text-muted-foreground">
-          <div className="flex flex-wrap items-center gap-2">
-            <span>ID do catálogo</span>
-            <code className="rounded bg-background px-2 py-1 text-foreground">{catalog.tiktokCatalogId}</code>
-            <button type="button" className="btn-ghost px-1.5 py-1" onClick={copyId} aria-label="Copiar ID do catálogo">
-              {copied ? <Check className="size-3 text-success" aria-hidden="true" /> : <Copy className="size-3" aria-hidden="true" />}
-            </button>
-          </div>
-          {syncedAt && (
-            <p>
-              Última publicação: {syncedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
-              {audit?.at ? ` · Status consultado: ${new Date(audit.at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}
-            </p>
-          )}
-        </div>
-      </details>
     </div>
   )
 }
@@ -1516,7 +1534,7 @@ function ProductEditor({
   function renderField(f: { key: string; required: boolean; enum: string[] | null }) {
     const common = { value: form[f.key] ?? '', onChange: (v: string) => setForm((s) => ({ ...s, [f.key]: v })) }
     if (f.key === 'price' || f.key === 'sale_price') return <PriceField key={f.key} field={f} currency={currency} {...common} />
-    if (f.key === 'image_link' || f.key === 'additional_image_link') return <ImageField key={f.key} field={f} {...common} />
+    if (f.key === 'image_link' || f.key === 'additional_image_link') return <ImageField key={f.key} field={f} videoUrl={form['video_link']} {...common} />
     return <ProductField key={f.key} field={f} {...common} />
   }
 
@@ -1637,14 +1655,17 @@ function PriceField({
 function ImageField({
   field,
   value,
+  videoUrl,
   onChange,
 }: {
   field: { key: string; required: boolean }
   value: string
+  videoUrl?: string
   onChange: (v: string) => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [generatingImage, setGeneratingImage] = useState(false)
   const label = FIELD_LABELS[field.key] || field.key
   const isMissing = field.required && !String(value).trim()
   const showPreview = /^https?:\/\/.+/i.test(String(value).trim())
@@ -1676,6 +1697,44 @@ function ImageField({
     }
   }
 
+  async function handleGenerateThumbnail() {
+    if (!videoUrl) return
+    setGeneratingImage(true)
+    try {
+      const video = document.createElement('video')
+      video.crossOrigin = 'anonymous'
+      video.src = videoUrl
+      video.muted = true
+      video.playsInline = true
+      
+      await new Promise((resolve, reject) => {
+        video.onloadeddata = () => {
+          video.currentTime = Math.min(1, video.duration || 1)
+        }
+        video.onseeked = () => resolve(true)
+        video.onerror = () => reject(new Error('Bloqueado pelo provedor do vídeo (CORS) ou formato não suportado.'))
+        setTimeout(() => reject(new Error('Tempo limite excedido ao ler o vídeo.')), 10000)
+      })
+      
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Falha interna ao desenhar imagem.')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8))
+      if (!blob) throw new Error('Falha ao exportar arquivo da imagem.')
+      
+      const file = new File([blob], `thumb_${Date.now()}.jpg`, { type: 'image/jpeg' })
+      await handleUpload(file)
+    } catch (e) {
+      toast.error('Falha ao gerar thumbnail automaticamente', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setGeneratingImage(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-1 text-xs">
       <span className="flex items-baseline gap-1.5">
@@ -1700,6 +1759,17 @@ function ImageField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={FIELD_PLACEHOLDERS[field.key] || 'https://… (≥ 500×500)'}
         />
+        {videoUrl && !value && (
+          <button
+            type="button"
+            className="btn-ghost shrink-0 text-xs text-primary"
+            onClick={handleGenerateThumbnail}
+            disabled={generatingImage}
+            title="Extrair frame do vídeo para usar como foto"
+          >
+            {generatingImage ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : 'Gerar do Vídeo'}
+          </button>
+        )}
         <input
           ref={fileRef}
           type="file"

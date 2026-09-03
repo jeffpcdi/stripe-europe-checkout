@@ -2913,6 +2913,186 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // Catálogo Mágico (1-Click Link): raspa a URL, cria catálogo, insere produto e
+  // inicia sincronização automática ao TikTok.
+  app.post('/api/ads/catalogs/magic-import', dashboardAuth, async (req, res) => {
+    try {
+      const accId = req.account.id;
+      const advertiserId = await catalogAdvertiserId(req);
+      const url = String((req.body || {}).url || '').trim();
+      if (!url) return res.status(400).json({ error: 'URL do produto é obrigatória', code: 'MISSING_URL' });
+
+      // 1. Extração
+      let productDatas = [];
+      let domain = '';
+      let catalogName = '';
+      let currency = 'BRL';
+
+      try {
+        const urlObj = new URL(url);
+        if (urlObj.pathname.includes('/collections/')) {
+          const fetchUrl = `${urlObj.origin}${urlObj.pathname}/products.json?limit=20`;
+          const fetchMod = require('node-fetch'); // Ensure fetch is available or use native fetch if Node 18
+          const res = await (typeof fetch === 'function' ? fetch(fetchUrl) : fetchMod(fetchUrl));
+          if (res.ok) {
+            const data = await res.json();
+            if (data.products && data.products.length > 0) {
+              domain = urlObj.hostname.replace(/^www\./, '');
+              catalogName = `Coleção ${domain}`.substring(0, 100);
+              
+              for (const p of data.products) {
+                const variant = p.variants?.[0] || {};
+                const img = p.images?.[0]?.src;
+                if (!variant.price) continue;
+                
+                const pd = {
+                  sku_id: `SKU-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`.toUpperCase(),
+                  title: p.title,
+                  description: p.body_html ? p.body_html.replace(/<[^>]+>/g, '').substring(0, 200) : p.title,
+                  price: variant.price,
+                  condition: 'new',
+                  availability: 'in stock',
+                  link: `${urlObj.origin}/products/${p.handle}`,
+                  image_link: img
+                };
+                if (variant.compare_at_price) {
+                  pd.sale_price = variant.price;
+                  pd.price = variant.compare_at_price;
+                }
+                productDatas.push(pd);
+              }
+            }
+          }
+        }
+      } catch (e) {}
+
+      if (productDatas.length === 0) {
+        const out = await catalogInspect.previewProduct(url);
+        const productData = Object.assign({}, out.product);
+        domain = new URL(out.finalUrl || url).hostname.replace(/^www\./, '');
+        catalogName = (productData.title || domain).substring(0, 100);
+        currency = productData.currency || 'BRL';
+        if (productData.price) productData.price = productData.price + ' ' + currency;
+        delete productData.currency;
+        productDatas.push(productData);
+      } else {
+        for (const pd of productDatas) {
+           if (pd.price && !pd.price.includes(' ')) pd.price = pd.price + ' ' + currency;
+           if (pd.sale_price && !pd.sale_price.includes(' ')) pd.sale_price = pd.sale_price + ' ' + currency;
+        }
+      }
+
+      // 2. Cria catálogo
+      const catalog = await catalogStore.createCatalog(accId, advertiserId, {
+        name: catalogName, currency, catalogType: 'ECOM', country: 'BR'
+      });
+
+      // 3. Formata e insere o produto
+      await catalogStore.bulkUpsertProducts(
+        accId, advertiserId, catalog.id,
+        productDatas, catalogFeed.validateProduct
+      );
+      
+      stats.logEvent('info', { acc: accId, title: 'Catálogo mágico criado via Link', ref: catalog.id, meta: { url, count: productDatas.length } });
+
+
+      // 4. Sincronização automática
+      let syncStarted = false;
+      let syncRun = null;
+      const wantSync = (req.body || {}).syncToTikTok !== false;
+      const bcId = wantSync && pipeboard.enabled ? pipeboard.getBusinessCenterId(accId, advertiserId) : null;
+      if (wantSync && bcId && !(await killSwitchActive(accId)) && !(await isDryRun(accId))) {
+        try {
+          const pub = await publishCatalogFeed(accId, advertiserId, catalog.id, adsStorage.publicOrigin(req));
+          const idempotencyKey = scopedCatalogRunIdempotencyKey(
+            advertiserId,
+            ['catalog-magic-sync', accId, catalog.id, pub.feedRevision].join(':'),
+          );
+          const capabilities = await catalogGateway.capabilities(pipeboard);
+          const syncQueueStatus = capabilities.catalogUpload !== true || capabilities.catalogCreate !== true
+            ? 'waiting_connector_confirmation' : 'queued';
+          syncRun = await catalogStore.createSyncRun(accId, advertiserId, catalog.id, {
+            idempotencyKey,
+            status: syncQueueStatus, stage: syncQueueStatus,
+            payload: { bcId, feedUrl: pub.feedUrl, feedRevision: pub.feedRevision, published: pub.published, skipped: pub.skipped },
+            progress: { published: 0, skipped: pub.skipped, feedRevision: pub.feedRevision },
+          });
+          syncStarted = true;
+        } catch (syncErr) {
+          console.warn('[catalog-magic-import] sync automático falhou:', syncErr && syncErr.message);
+        }
+      }
+      
+      const updatedCatalog = await catalogStore.getCatalog(accId, advertiserId, catalog.id);
+      res.status(201).json({ catalog: updatedCatalog || catalog, syncStarted, syncRun });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Bulk Creative Match: recebe uma lista de arquivos enviados e amarra 
+  // automaticamente aos produtos do catálogo pelo nome (ex: SKU-001.mp4 -> produto SKU-001).
+  app.post('/api/ads/catalogs/:catalogId/bulk-creative-match', dashboardAuth, async (req, res) => {
+    try {
+      const accId = req.account.id;
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalogId = req.params.catalogId;
+      const files = req.body.files || []; // [{ filename: "SKU.mp4", url: "..." }]
+      if (!Array.isArray(files) || files.length === 0) return res.json({ matched: 0 });
+
+      const products = await catalogStore.listProducts(accId, advertiserId, catalogId);
+      let matchedCount = 0;
+
+      for (const file of files) {
+        if (!file.filename || !file.url) continue;
+        // Tira extensão e converte pra minúsculo para busca relaxada
+        const baseName = file.filename.replace(/\.[^/.]+$/, "").trim().toLowerCase();
+        
+        // Tenta achar o produto (por ID, SKU ou Título)
+        const match = products.find(p => {
+          if (!p.data) return false;
+          return (p.id && p.id.toLowerCase() === baseName) ||
+                 (p.data.sku && p.data.sku.toLowerCase() === baseName) ||
+                 (p.data.title && p.data.title.toLowerCase() === baseName) ||
+                 // ou se o nome do arquivo for parte do título (ex: "camisa preta" acha "Camisa Preta M")
+                 (p.data.title && p.data.title.toLowerCase().includes(baseName));
+        });
+
+        if (match) {
+          const newData = Object.assign({}, match.data, { video_link: file.url });
+          await catalogStore.upsertProduct(
+            accId, advertiserId, catalogId,
+            { data: newData }, catalogFeed.validateProduct
+          );
+          matchedCount++;
+        }
+      }
+
+      // Se amarrou algum vídeo, tenta iniciar sincronização do catálogo pro TikTok atualizar os anúncios
+      let syncStarted = false;
+      if (matchedCount > 0 && pipeboard.enabled && !(await killSwitchActive(accId)) && !(await isDryRun(accId))) {
+        const bcId = pipeboard.getBusinessCenterId(accId, advertiserId);
+        if (bcId) {
+          try {
+            const pub = await publishCatalogFeed(accId, advertiserId, catalogId, adsStorage.publicOrigin(req));
+            const idempotencyKey = scopedCatalogRunIdempotencyKey(advertiserId, ['catalog-match-sync', accId, catalogId, pub.feedRevision].join(':'));
+            const capabilities = await catalogGateway.capabilities(pipeboard);
+            const syncQueueStatus = capabilities.catalogUpload !== true ? 'waiting_connector_confirmation' : 'queued';
+            await catalogStore.createSyncRun(accId, advertiserId, catalogId, {
+              idempotencyKey, status: syncQueueStatus, stage: syncQueueStatus,
+              payload: { bcId, feedUrl: pub.feedUrl, feedRevision: pub.feedRevision, published: pub.published, skipped: pub.skipped },
+              progress: { published: 0, skipped: pub.skipped, feedRevision: pub.feedRevision },
+            });
+            syncStarted = true;
+          } catch (e) {
+            console.warn('[bulk-creative-match] sync automático falhou:', e.message);
+          }
+        }
+      }
+      
+      stats.logEvent('info', { acc: accId, title: 'Bulk Creative Match', ref: catalogId, meta: { matched: matchedCount } });
+      res.json({ matched: matchedCount, syncStarted });
+    } catch (err) { fail(res, err); }
+  });
+
   // Clone 1-clique: duplica catálogo + produtos e, se possível, já inicia a
   // sincronização automática ao TikTok (cria catálogo remoto novo + sobe
   // produtos). O clone nasce independente — nunca sobrescreve o original.
@@ -3105,6 +3285,79 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
       );
       stats.logEvent('info', { acc: req.account.id, title: 'Produtos importados no catálogo: ' + summary.imported, ref: req.params.catalogId });
       res.json({ summary });
+    } catch (err) { fail(res, err); }
+  });
+
+  app.post('/api/ads/catalogs/:catalogId/magic-fix', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = await catalogAdvertiserId(req);
+      const catalog = await catalogStore.getCatalog(req.account.id, advertiserId, req.params.catalogId);
+      if (!catalog) return res.status(404).json({ error: 'Catálogo não encontrado' });
+      
+      const all = await catalogStore.listProducts(req.account.id, advertiserId, req.params.catalogId);
+      const invalid = all.filter(p => !p.valid || (p.errors && p.errors.length > 0));
+      const currency = catalog.currency || 'BRL';
+      
+      const toUpdate = [];
+      for (const p of invalid) {
+        let fixed = { ...p.data };
+        let changed = false;
+
+        const removeEmojis = (str) => {
+          if (!str) return str;
+          return str.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, '').trim();
+        };
+
+        if (fixed.title) {
+          const t = removeEmojis(fixed.title);
+          if (t !== fixed.title) { fixed.title = t; changed = true; }
+        }
+        if (fixed.description) {
+          const d = removeEmojis(fixed.description);
+          if (d !== fixed.description) { fixed.description = d; changed = true; }
+        }
+
+        const fixPrice = (priceStr) => {
+          if (!priceStr) return priceStr;
+          if (priceStr.match(new RegExp(`^\\d+(\\.\\d{1,2})? ${currency}$`))) return priceStr;
+          const m = priceStr.match(/[\d,.]+/);
+          if (m) {
+            let numStr = m[0].replace(/\./g, '').replace(',', '.');
+            if (numStr.split('.').length > 2) {
+               numStr = numStr.replace(/\./g, '');
+            }
+            const parsed = Number(numStr);
+            if (!isNaN(parsed)) return `${parsed.toFixed(2)} ${currency}`;
+          }
+          return priceStr;
+        };
+        
+        if (fixed.price) {
+          const pr = fixPrice(fixed.price);
+          if (pr !== fixed.price) { fixed.price = pr; changed = true; }
+        }
+        if (fixed.sale_price) {
+          const spr = fixPrice(fixed.sale_price);
+          if (spr !== fixed.sale_price) { fixed.sale_price = spr; changed = true; }
+        }
+
+        if (!fixed.condition) { fixed.condition = 'new'; changed = true; }
+        if (!fixed.availability) { fixed.availability = 'in stock'; changed = true; }
+        
+        if (changed) {
+          toUpdate.push(fixed);
+        }
+      }
+
+      let fixedCount = 0;
+      if (toUpdate.length > 0) {
+        const summary = await catalogStore.bulkUpsertProducts(
+          req.account.id, advertiserId, req.params.catalogId, toUpdate, catalogFeed.validateProduct
+        );
+        fixedCount = summary.imported;
+      }
+      
+      res.json({ fixedCount });
     } catch (err) { fail(res, err); }
   });
 
