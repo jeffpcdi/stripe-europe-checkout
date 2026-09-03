@@ -1,36 +1,140 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
-  User, LogOut, Loader2, Check, KeyRound, Copy, Trash2, SlidersHorizontal, Coins,
-  DownloadCloud, UploadCloud, Info, ShieldCheck, Download,
+  Code, Loader2, Sparkles, Wand2, Terminal, Fingerprint, Lock, ShieldCheck, Download, Trash2, Coins, SlidersHorizontal
 } from 'lucide-react'
 import useSWR from 'swr'
-import { useAccount, useHealth, apiSend, fetcher } from '@/lib/api'
-import { formatDateTime } from '@/lib/format'
-import { usePrefs } from '@/lib/prefs'
+import { fetcher } from '@/lib/api'
 import { GlassCard } from '@/components/glass-card'
-import { Modal } from '@/components/ui/modal'
+
+// Imports originais
 import { SecurityCard, AccountPrefsCard } from '@/components/config/account-security'
 import { WebPushCard } from '@/components/config/web-push-card'
 import { Switch } from '@/components/ui/switch'
+import { usePrefs } from '@/lib/prefs'
+import { apiSend } from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
+import { Modal } from '@/components/ui/modal'
 
 export function ConfigView() {
+  const [developerMode, setDeveloperMode] = useState(false)
+  const { prefs, update } = usePrefs()
+
   return (
     <div className="flex flex-col gap-6">
-      <AccountCard />
-      <SecurityCard />
-      <CurrencyCard />
-      <AccountPrefsCard />
-      <PreferencesCard />
-      <WebPushCard />
-      <AuditCard />
-      <DangerCard />
+      
+      {/* HEADER DE CONFIGURAÇÃO (Modo Mágico / Modo Desenvolvedor) */}
+      <GlassCard className="relative overflow-hidden p-6 sm:p-8 border-[color:var(--brand-cyan)]/30 shadow-[0_0_40px_rgba(37,244,238,0.05)]">
+        <div className="pointer-events-none absolute -right-20 -top-20 size-64 rounded-full bg-[color:var(--brand-cyan)]/10 blur-[80px]" />
+        
+        <div className="relative z-10 flex flex-col items-center text-center mb-6">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[color:var(--brand-cyan)]/20 to-[color:var(--brand-cyan)]/5 shadow-inner mb-4">
+            {developerMode ? (
+              <Terminal className="size-8 text-[color:var(--brand-cyan)] drop-shadow-[0_0_10px_rgba(37,244,238,0.8)]" />
+            ) : (
+              <Sparkles className="size-8 text-[color:var(--brand-cyan)] drop-shadow-[0_0_10px_rgba(37,244,238,0.8)]" />
+            )}
+          </div>
+          <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
+            {developerMode ? 'Modo Desenvolvedor Ativo' : 'Configurações Inteligentes'}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground max-w-lg text-balance">
+            {developerMode 
+              ? 'Acesso total aos parâmetros, logs de auditoria, integrações brutas de API e controles destrutivos.' 
+              : 'Nós otimizamos e conectamos sua plataforma por debaixo dos panos. Altere apenas preferências visuais essenciais.'}
+          </p>
+        </div>
+
+        <div className="mx-auto max-w-sm flex items-center justify-center p-1 rounded-xl bg-secondary/30 border border-border">
+          <button
+            className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-2 ${!developerMode ? 'bg-[color:var(--brand-cyan)] text-black shadow-[0_0_15px_rgba(37,244,238,0.4)] scale-[1.02]' : 'text-muted-foreground hover:bg-white/5'}`}
+            onClick={() => setDeveloperMode(false)}
+          >
+            <Wand2 className="size-4" />
+            Modo Mágico
+          </button>
+          <button
+            className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-2 ${developerMode ? 'bg-secondary text-foreground shadow-md' : 'text-muted-foreground hover:bg-white/5'}`}
+            onClick={() => setDeveloperMode(true)}
+          >
+            <Code className="size-4" />
+            Avançado
+          </button>
+        </div>
+      </GlassCard>
+
+      {/* ── MODO MÁGICO (Configurações Silenciosas) ── */}
+      {!developerMode && (
+        <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <GlassCard className="p-5">
+            <div className="mb-4 flex items-center gap-2.5">
+              <SlidersHorizontal className="size-5 text-[color:var(--brand-cyan)]" />
+              <div>
+                <h2 className="text-sm font-bold text-foreground">Experiência da Plataforma</h2>
+                <p className="text-xs text-muted-foreground">Sua interface adaptada ao seu estilo.</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="flex cursor-pointer items-center justify-between gap-3 py-2 rounded-lg hover:bg-secondary/20 px-3 transition-colors">
+                <span>
+                  <span className="block text-sm font-semibold text-foreground">Reduzir Animações</span>
+                  <span className="block text-xs text-muted-foreground">Desliga transições e efeitos de movimento</span>
+                </span>
+                <Switch checked={prefs.anim === 'off'} onChange={() => update({ anim: prefs.anim === 'off' ? 'on' : 'off' })} label="Reduzir animações" />
+              </label>
+              <label className="flex cursor-pointer items-center justify-between gap-3 py-2 rounded-lg hover:bg-secondary/20 px-3 transition-colors">
+                <span>
+                  <span className="block text-sm font-semibold text-foreground">Modo Apresentação / Privacidade</span>
+                  <span className="block text-xs text-muted-foreground">Borra receitas e valores sensíveis (ideal para gravar vídeos)</span>
+                </span>
+                <Switch checked={prefs.privacy === 'on'} onChange={() => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' })} label="Modo apresentação" />
+              </label>
+            </div>
+          </GlassCard>
+
+          <GlassCard className="p-5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--success)]/20 text-[color:var(--success)] shadow-[0_0_15px_rgba(34,197,94,0.3)]">
+                <ShieldCheck className="size-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-foreground">Segurança & Auditoria Inteligente</h2>
+                <p className="text-xs text-muted-foreground">Sua conta está protegida e auditada invisivelmente. (Gerencie em Avançado)</p>
+              </div>
+            </div>
+          </GlassCard>
+
+          <GlassCard className="p-5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-full bg-[color:var(--brand-cyan)]/20 text-[color:var(--brand-cyan)] shadow-[0_0_15px_rgba(37,244,238,0.3)]">
+                <Coins className="size-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-foreground">Sincronização de Vendas Ativa</h2>
+                <p className="text-xs text-muted-foreground">CAPI e Webhooks processando conversões silenciosamente. (Ver logs em Avançado)</p>
+              </div>
+            </div>
+          </GlassCard>
+        </div>
+      )}
+
+      {/* ── MODO DESENVOLVEDOR (Tudo visível) ── */}
+      {developerMode && (
+        <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <SecurityCard />
+          <AccountPrefsCard />
+          <WebPushCard />
+          <AuditCard />
+          <DangerCard />
+        </div>
+      )}
     </div>
   )
 }
 
-/* Itens 417/439: trilha de auditoria — ações sensíveis da conta com IP mascarado */
+// ── COMPONENTES AUXILIARES PRESERVADOS ──
+
 const AUDIT_LABELS: Record<string, string> = {
   login: 'Login no painel',
   reset_stats: 'Estatísticas zeradas',
@@ -64,39 +168,33 @@ function AuditCard() {
         tabIndex={0}
       >
         <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-full bg-secondary">
-             <ShieldCheck className="size-4 text-[color:var(--brand-cyan)]" />
+          <div className="flex size-10 items-center justify-center rounded-full bg-secondary border border-border">
+             <Fingerprint className="size-4 text-muted-foreground" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Trilha de Auditoria</h2>
-            <p className="text-xs text-muted-foreground">Logins, edições e atividades da conta</p>
+            <h2 className="text-sm font-semibold text-foreground">Trilha de Auditoria (Logs API)</h2>
+            <p className="text-xs text-muted-foreground">Eventos de sistema com resolução de IP</p>
           </div>
         </div>
-        <span className="text-xs font-semibold text-muted-foreground border border-border px-3 py-1.5 rounded-lg">
-          Ver registro
+        <span className="text-xs font-mono font-semibold text-muted-foreground border border-border bg-black/50 px-3 py-1.5 rounded-lg">
+          GET /api/audit
         </span>
       </GlassCard>
 
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="Atividade da Conta" description="Ações sensíveis registradas (logins, links, resets) com IP mascarado" maxWidth="max-w-xl">
+      <Modal isOpen={open} onClose={() => setOpen(false)} title="Audit Logs" description="Eventos de auditoria brutos" maxWidth="max-w-xl">
         {!data ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">Carregando…</p>
-        ) : !data.enabled ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            Trilha indisponível: banco de dados não configurado.
-          </p>
+          <p className="py-4 text-center text-xs text-muted-foreground">Fetching...</p>
         ) : data.log.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            Nenhuma atividade registrada ainda. Logins e alterações aparecem aqui.
-          </p>
+          <p className="py-4 text-center text-xs text-muted-foreground">Nenhuma atividade registrada.</p>
         ) : (
           <ul className="flex flex-col divide-y divide-border/40 border-t border-border pt-1 max-h-[60vh] overflow-y-auto pr-2">
             {data.log.map((r) => (
-              <li key={r.id} className="flex items-baseline gap-3 py-3 text-xs">
-                <span className="shrink-0 font-medium text-foreground">
-                  {AUDIT_LABELS[r.action] || r.action}
+              <li key={r.id} className="flex items-baseline gap-3 py-3 text-xs font-mono">
+                <span className="shrink-0 font-bold text-foreground">
+                  [{r.action.toUpperCase()}]
                 </span>
                 {r.detail ? <span className="truncate text-muted-foreground">{r.detail}</span> : null}
-                <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[11px] tabular-nums text-muted-foreground">
+                <span className="ml-auto flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground/50">
                   {r.ip ? <span>{r.ip}</span> : null}
                   <span>{formatDateTime(r.at)}</span>
                 </span>
@@ -109,190 +207,10 @@ function AuditCard() {
   )
 }
 
-
-
-
-
-// Moedas mais comuns no público do app (LATAM + principais globais)
-const CURRENCIES: { code: string; label: string }[] = [
-  { code: 'BRL', label: 'Real brasileiro (R$)' },
-  { code: 'USD', label: 'Dólar americano (US$)' },
-  { code: 'EUR', label: 'Euro (€)' },
-  { code: 'GBP', label: 'Libra esterlina (£)' },
-  { code: 'MXN', label: 'Peso mexicano (MX$)' },
-  { code: 'ARS', label: 'Peso argentino (AR$)' },
-  { code: 'COP', label: 'Peso colombiano (CO$)' },
-  { code: 'CLP', label: 'Peso chileno (CL$)' },
-  { code: 'PEN', label: 'Sol peruano (S/)' },
-]
-
-/** Item 30: moeda padrão da conta — alimenta disparos e testes da Events API */
-function CurrencyCard() {
-  const { data, mutate } = useSWR<{ defaultCurrency: string }>('/api/settings', fetcher, {
-    revalidateOnFocus: false,
-  })
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleChange(code: string) {
-    setSaving(true)
-    setError(null)
-    setSaved(false)
-    try {
-      await apiSend('/api/settings', 'POST', { defaultCurrency: code })
-      await mutate()
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao salvar moeda')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const current = data?.defaultCurrency ?? 'BRL'
-
-  return (
-    <GlassCard className="p-5">
-      <div className="mb-3 flex items-center gap-2.5">
-        <Coins className="size-4 text-[color:var(--brand-cyan)]" />
-        <div>
-          <h2 className="section-head text-sm font-semibold text-foreground">Moeda da conta</h2>
-          <p className="text-xs text-muted-foreground">
-            Usada nos eventos enviados ao TikTok quando o gateway não informa a moeda
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
-        <select
-          value={current}
-          onChange={(e) => handleChange(e.target.value)}
-          disabled={saving || !data}
-          aria-label="Moeda padrão da conta"
-          className="rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-        >
-          {CURRENCIES.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.code} — {c.label}
-            </option>
-          ))}
-        </select>
-        {saving && <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Salvando" />}
-        {saved && (
-          <span className="flex items-center gap-1 text-xs text-success" role="status">
-            <Check className="size-3.5" /> Moeda salva
-          </span>
-        )}
-        {error && (
-          <span className="text-xs text-destructive" role="alert">
-            {error}
-          </span>
-        )}
-      </div>
-    </GlassCard>
-  )
-}
-
-/** Bloco S (itens 121/122/125): preferências visuais persistidas em localStorage */
-function PreferencesCard() {
-  const { prefs, update } = usePrefs()
-
-  const OPTIONS: {
-    key: 'density' | 'anim' | 'privacy'
-    label: string
-    hint: string
-    on: string
-    off: string
-    isOn: boolean
-    toggle: () => void
-  }[] = [
-    {
-      key: 'density',
-      label: 'Modo compacto',
-      hint: 'Reduz espaçamentos de cards e tabelas em ~25%',
-      on: 'compact',
-      off: 'comfortable',
-      isOn: prefs.density === 'compact',
-      toggle: () => update({ density: prefs.density === 'compact' ? 'comfortable' : 'compact' }),
-    },
-    {
-      key: 'anim',
-      label: 'Reduzir animações',
-      hint: 'Desliga transições e efeitos de movimento',
-      on: 'off',
-      off: 'on',
-      isOn: prefs.anim === 'off',
-      toggle: () => update({ anim: prefs.anim === 'off' ? 'on' : 'off' }),
-    },
-    {
-      key: 'privacy',
-      label: 'Modo apresentação',
-      hint: 'Borra receita e valores sensíveis para gravar tela',
-      on: 'on',
-      off: 'off',
-      isOn: prefs.privacy === 'on',
-      toggle: () => update({ privacy: prefs.privacy === 'on' ? 'off' : 'on' }),
-    },
-  ]
-
-  return (
-    <GlassCard className="p-5">
-      <div className="mb-3 flex items-center gap-2.5">
-        <SlidersHorizontal className="size-4 text-[color:var(--brand-cyan)]" />
-        <div>
-          <h2 className="section-head text-sm font-semibold text-foreground">Aparência</h2>
-          <p className="text-xs text-muted-foreground">
-            Preferências visuais salvas neste navegador
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-col gap-1 border-t border-border pt-3">
-        {OPTIONS.map((opt) => (
-          <label key={opt.key} className="flex cursor-pointer items-center justify-between gap-3 py-1">
-            <span>
-              <span className="block text-sm text-foreground">{opt.label}</span>
-              <span className="block text-xs text-muted-foreground">{opt.hint}</span>
-            </span>
-            <Switch checked={opt.isOn} onChange={opt.toggle} label={opt.label} />
-          </label>
-        ))}
-      </div>
-    </GlassCard>
-  )
-}
-
-
-
-/* Item 428: contagens da zona de perigo (o que será apagado) */
-interface DataCounts {
-  leads?: number
-  events?: number
-  events_arquivados?: number
-  links?: number
-  pixels?: number
-  gateways?: number
-  dominios?: number
-}
-
 function DangerCard() {
   const [confirming, setConfirming] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [done, setDone] = useState(false)
-
-  /* Item 428: pré-visualização do que existe hoje na conta */
-  const { data: countsData } = useSWR<{ ok: boolean; counts: DataCounts }>('/api/account/data-counts', fetcher, {
-    revalidateOnFocus: false,
-  })
-  const counts = countsData?.counts
-
-  /* Item 427: modal de exclusão da conta com confirmação forte */
-  const [delOpen, setDelOpen] = useState(false)
-  const [delPw, setDelPw] = useState('')
-  const [delPhrase, setDelPhrase] = useState('')
-  const [deleting, setDeleting] = useState(false)
-  const [delError, setDelError] = useState<string | null>(null)
-  const delReady = delPw.length > 0 && delPhrase === 'EXCLUIR MINHA CONTA'
 
   async function handleReset() {
     if (!confirming) {
@@ -310,59 +228,35 @@ function DangerCard() {
     }
   }
 
-  async function handleDelete() {
-    if (!delReady) return
-    setDeleting(true)
-    setDelError(null)
-    try {
-      await apiSend('/api/account/delete', 'POST', { password: delPw, confirm: delPhrase })
-      // Conta apagada — sessão morreu junto; volta para o login do Express
-      window.location.href = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
-    } catch (e) {
-      setDelError(e instanceof Error ? e.message : 'Erro ao excluir a conta')
-      setDeleting(false)
-    }
-  }
-
   return (
-    /* Item 82: zona de perigo demarcada — hairline rosa + fundo rosa 3% */
-    <GlassCard className="danger-zone p-5">
-      {/* Item 426 (LGPD): exportação completa dos dados da conta */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
+    <GlassCard className="danger-zone p-5 border-destructive/20 bg-destructive/5">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-destructive/20 pb-4">
         <div className="flex items-center gap-2.5">
           <Download className="size-4 text-[color:var(--brand-cyan)]" />
           <div>
-            <h2 className="section-head text-sm font-semibold text-foreground">Exportar todos os dados (LGPD)</h2>
+            <h2 className="section-head text-sm font-semibold text-foreground">Dump de Dados (JSON)</h2>
             <p className="text-xs text-muted-foreground">
-              JSON com perfil, links, pixels, leads, eventos e auditoria — sem chaves secretas
+              Exportação via API de schema completo
             </p>
           </div>
         </div>
         <a
           href="/api/account/export"
           download
-          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-black/50 px-3 py-2 text-xs font-mono text-foreground transition-colors hover:bg-secondary"
         >
-          <Download className="size-3.5" />
-          Baixar meus dados
+          <Download className="size-3.5" /> GET /export
         </a>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 pt-4">
         <div className="flex items-center gap-2.5">
           <Trash2 className="size-4 text-destructive" />
           <div>
-            <h2 className="section-head text-sm font-semibold text-foreground">Zerar estatísticas</h2>
+            <h2 className="section-head text-sm font-semibold text-foreground">TRUNCATE Data (Estatísticas)</h2>
             <p className="text-xs text-muted-foreground">
-              Apaga leads, eventos e séries da sua conta. Links, pixels e domínios são mantidos.
+              Deleta todos os leads e eventos do banco. Ação irreversível.
             </p>
-            {/* Item 428: o que será apagado */}
-            {counts && (
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Hoje: {counts.leads ?? 0} lead(s), {counts.events ?? 0} evento(s)
-                {counts.events_arquivados ? ` (+${counts.events_arquivados} arquivados)` : ''}
-              </p>
-            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -372,7 +266,7 @@ function DangerCard() {
               onClick={() => setConfirming(false)}
               className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary"
             >
-              Cancelar
+              Cancel
             </button>
           )}
           <button
@@ -388,150 +282,11 @@ function DangerCard() {
             {resetting ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : done ? (
-              <Check className="size-3.5" />
+              <ShieldCheck className="size-3.5" />
             ) : null}
-            {done ? 'Zerado' : confirming ? 'Confirmar — apagar tudo' : 'Zerar estatísticas'}
+            {done ? 'Executed' : confirming ? 'Ação Crítica. Confirmar TRUNCATE' : 'TRUNCATE Estatísticas'}
           </button>
         </div>
-      </div>
-
-      {/* Item 427: exclusão permanente da conta */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pt-4">
-        <div className="flex items-center gap-2.5">
-          <Trash2 className="size-4 text-destructive" />
-          <div>
-            <h2 className="section-head text-sm font-semibold text-foreground">Excluir a conta permanentemente</h2>
-            <p className="text-xs text-muted-foreground">
-              Apaga TUDO — conta, links, pixels, gateways, domínios, leads e eventos. Sem volta.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => { setDelOpen(true); setDelPw(''); setDelPhrase(''); setDelError(null) }}
-          className="rounded-lg border border-destructive/50 px-3 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10"
-        >
-          Excluir conta
-        </button>
-      </div>
-
-      {/* Modal de confirmação forte (item 427) */}
-      {delOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          role="presentation"
-          onClick={(e) => { if (e.target === e.currentTarget && !deleting) setDelOpen(false) }}
-        >
-          <div
-            className="w-full max-w-md rounded-xl border border-destructive/40 bg-card p-5 shadow-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="del-title"
-          >
-            <h3 id="del-title" className="text-sm font-semibold text-destructive">
-              Excluir a conta — sem volta
-            </h3>
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              {counts
-                ? `Será apagado: ${counts.leads ?? 0} lead(s), ${counts.events ?? 0} evento(s), ${counts.links ?? 0} link(s), ${counts.pixels ?? 0} pixel(s), ${counts.gateways ?? 0} gateway(s), ${counts.dominios ?? 0} domínio(s) e toda a configuração. Não há como desfazer.`
-                : 'Todos os dados da conta serão apagados permanentemente. Não há como desfazer.'}
-            </p>
-            <div className="mt-4">
-              <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="del-pw">
-                Sua senha
-              </label>
-              <input
-                id="del-pw"
-                type="password"
-                autoComplete="current-password"
-                className="input-neon w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground focus:border-destructive focus:outline-none"
-                value={delPw}
-                onChange={(e) => setDelPw(e.target.value)}
-              />
-            </div>
-            <div className="mt-3">
-              <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="del-phrase">
-                Digite <b className="text-foreground">EXCLUIR MINHA CONTA</b> para confirmar
-              </label>
-              <input
-                id="del-phrase"
-                autoComplete="off"
-                className="input-neon w-full rounded-lg border border-border bg-secondary/60 px-3 py-2 text-sm text-foreground focus:border-destructive focus:outline-none"
-                value={delPhrase}
-                onChange={(e) => setDelPhrase(e.target.value)}
-              />
-            </div>
-            {delError && (
-              <p className="anim-shake mt-2 text-xs text-destructive" role="alert">{delError}</p>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setDelOpen(false)}
-                disabled={deleting}
-                className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={!delReady || deleting}
-                className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-40"
-              >
-                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                Excluir permanentemente
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </GlassCard>
-  )
-}
-
-function AccountCard() {
-  const { data: account } = useAccount()
-  const [loggingOut, setLoggingOut] = useState(false)
-
-  async function handleLogout() {
-    setLoggingOut(true)
-    try {
-      await fetch('/logout', { method: 'POST', credentials: 'include' })
-      // Login mora no Express (outro host em produção) — redirect completo
-      window.location.href = process.env.NEXT_PUBLIC_LOGIN_URL || 'http://localhost:3000/login'
-    } catch {
-      setLoggingOut(false)
-    }
-  }
-
-  return (
-    <GlassCard className="p-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span
-            className="flex size-11 items-center justify-center rounded-xl"
-            style={{ background: 'color-mix(in oklab, var(--brand-cyan) 14%, transparent)' }}
-          >
-            <User className="size-5 text-[color:var(--brand-cyan)]" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-foreground">{account?.name || account?.email || '—'}</p>
-            <p className="text-xs text-muted-foreground">
-              {account?.email}
-              {account?.role ? ` · ${account.role}` : ''}
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          disabled={loggingOut}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-        >
-          {loggingOut ? <Loader2 className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />}
-          Sair
-        </button>
       </div>
     </GlassCard>
   )

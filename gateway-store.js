@@ -18,11 +18,15 @@ const PROVIDERS = {
   kiwify: {
     label: 'Kiwify',
     secretLabel: 'Token de assinatura (opcional)',
+    autoSync: true,
+    apiKeyLabel: 'Chave de API Kiwify (Client ID + Secret)',
     docs: 'Kiwify → Apps → Webhooks → adicione a URL. Selecione os eventos de venda. O token de assinatura fica na tela do webhook.'
   },
   hotmart: {
     label: 'Hotmart',
     secretLabel: 'Hottok (opcional)',
+    autoSync: true,
+    apiKeyLabel: 'Client ID / Client Secret / Token Oficial',
     docs: 'Hotmart → Ferramentas → Webhook (2.0) → adicione a URL. O hottok aparece na configuração do webhook.'
   },
   perfectpay: {

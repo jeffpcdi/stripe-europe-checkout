@@ -21,6 +21,7 @@ import { LiveFeed } from './live-feed'
 import { DataConfidence } from './data-confidence'
 import { OnboardingChecklist } from './onboarding-checklist'
 import { ErrorState } from '@/components/error-state'
+import { AutopilotCard } from '@/components/ads/autopilot-card'
 
 // Componentes do Feed Copiloto
 import { NeedsYouInbox } from '@/components/ads/needs-you-inbox'

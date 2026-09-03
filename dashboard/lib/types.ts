@@ -469,6 +469,8 @@ export interface GatewayProvider {
   label: string
   secretLabel: string
   docs: string
+  autoSync?: boolean
+  apiKeyLabel?: string
 }
 
 export interface Gateway {

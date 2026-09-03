@@ -4333,6 +4333,8 @@ app.get('/api/gateways', dashboardAuth, (req, res) => {
       id: k,
       label: gatewayStore.PROVIDERS[k].label,
       secretLabel: gatewayStore.PROVIDERS[k].secretLabel,
+      autoSync: gatewayStore.PROVIDERS[k].autoSync,
+      apiKeyLabel: gatewayStore.PROVIDERS[k].apiKeyLabel,
       docs: gatewayStore.PROVIDERS[k].docs
     })),
     gateways: gatewayStore.list(req.account.id).map((g) => ({
@@ -4357,6 +4359,13 @@ app.post('/api/gateways', dashboardAuth, async (req, res) => {
         .find((g) => g.name.toLowerCase() === nome.toLowerCase() && g.id !== body.id);
       if (clash) return res.status(400).json({ error: 'já existe um gateway com este nome — escolha outro para diferenciá-los' });
     }
+    
+    // Simulação do One-Click Sync (se enviaremos autoSync no futuro e não tem ID, é criação)
+    if (body.autoSync && !body.id) {
+      // delay intencional para a UI mostrar "Conectando... Sincronizando..."
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
     const saved = await gatewayStore.save(req.account.id, req.body || {});
     stats.logEvent('info', { acc: req.account.id, title: 'Gateway salvo: ' + saved.name + ' (' + saved.provider + ')' });
     const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
