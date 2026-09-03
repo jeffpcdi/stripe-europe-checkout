@@ -175,6 +175,10 @@ export function CatalogManager({
             setSelectedId(null)
             mutateList()
           }}
+          onCloned={(cloneId) => {
+            mutateList()
+            setSelectedId(cloneId)
+          }}
         />
       ) : (
         <CatalogList
@@ -349,6 +353,7 @@ function CatalogList({
   const catalogType = 'ECOM'
   const [country, setCountry] = useState('BR')
   const [busy, setBusy] = useState(false)
+  const [cloningId, setCloningId] = useState<string | null>(null)
   const countries = spec?.countries ?? [{ code: 'BR', name: 'Brasil' }]
 
   async function handleCreate() {
@@ -370,6 +375,27 @@ function CatalogList({
       toast.error('Falha ao criar catálogo', { hint: e instanceof Error ? e.message : undefined })
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function handleCloneFromList(catalogId: string) {
+    if (cloningId) return
+    setCloningId(catalogId)
+    try {
+      const res = await apiSend<{ catalog: AdsCatalog; productCount: number; syncStarted: boolean }>(
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/clone`, advertiserId), 'POST', {},
+      )
+      if (res.syncStarted) {
+        toast.success(`Catálogo clonado com ${res.productCount} produto(s) — publicação iniciada`)
+      } else {
+        toast.success(`Catálogo clonado com ${res.productCount} produto(s)`)
+      }
+      onChanged()
+      onOpen(res.catalog.id)
+    } catch (e) {
+      toast.error('Falha ao clonar', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setCloningId(null)
     }
   }
 
@@ -453,23 +479,37 @@ function CatalogList({
             const status = catalogStatusMeta(c)
             const remoteCount = Math.max(0, Number(c.audit?.total) || 0)
             const displayCount = remoteCount > 0 ? remoteCount : c.productCount
+            const isCloning = cloningId === c.id
             return <li key={c.id}>
-              <button
-                type="button"
-                onClick={() => onOpen(c.id)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3 text-left transition-colors hover:border-primary/50"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {displayCount} produto{displayCount === 1 ? '' : 's'}{remoteCount > 0 ? ' no TikTok' : ''} · {c.currency}
-                    {c.country ? ` · ${c.country}` : ''}
-                  </p>
-                </div>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.className}`}>
-                  {status.label}
-                </span>
-              </button>
+              <div className="flex w-full items-center gap-2 rounded-xl border border-border bg-background transition-colors hover:border-primary/50">
+                <button
+                  type="button"
+                  onClick={() => onOpen(c.id)}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 text-left"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {displayCount} produto{displayCount === 1 ? '' : 's'}{remoteCount > 0 ? ' no TikTok' : ''} · {c.currency}
+                      {c.country ? ` · ${c.country}` : ''}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.className}`}>
+                    {status.label}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  title="Clonar catálogo"
+                  className="btn-ghost mr-2 shrink-0 px-2 py-1.5 text-[10px]"
+                  disabled={isCloning}
+                  onClick={(e) => { e.stopPropagation(); handleCloneFromList(c.id) }}
+                >
+                  {isCloning
+                    ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                    : <CopyPlus className="size-3.5" aria-hidden="true" />}
+                </button>
+              </div>
             </li>
           })}
         </ul>
@@ -491,6 +531,7 @@ function CatalogDetail({
   onBusinessCenterChanged,
   onBack,
   onDeleted,
+  onCloned,
 }: {
   catalogId: string
   spec: CatalogSpec | null
@@ -503,6 +544,7 @@ function CatalogDetail({
   onBusinessCenterChanged: () => void | Promise<unknown>
   onBack: () => void
   onDeleted: () => void
+  onCloned: (cloneId: string) => void
 }) {
   const { data, mutate, isLoading, error: detailError } = useAdsCatalogDetail(catalogId, advertiserId)
   const { data: publicationData, mutate: mutatePublications } = useAdsCatalogPublications(catalogId, advertiserId)
@@ -523,6 +565,7 @@ function CatalogDetail({
     { kind: 'catalog'; name: string } | { kind: 'product'; id: string; name: string } | null
   >(null)
   const [deleting, setDeleting] = useState(false)
+  const [cloning, setCloning] = useState(false)
   // Quando a sincronização falha, preservamos o estado e oferecemos retomada
   // automática sem obrigar o usuário a reconstruir o catálogo no TikTok.
   const [publishFailed, setPublishFailed] = useState(false)
@@ -819,6 +862,30 @@ function CatalogDetail({
     else if (action === 'create_campaign') document.getElementById('catalog-campaign-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  async function handleClone() {
+    if (cloning) return
+    setCloning(true)
+    try {
+      const res = await apiSend<{ catalog: AdsCatalog; productCount: number; syncStarted: boolean }>(
+        adsCatalogApiUrl(`/api/ads/catalogs/${encodeURIComponent(catalogId)}/clone`, advertiserId), 'POST', {},
+      )
+      if (res.syncStarted) {
+        toast.success(`Catálogo clonado com ${res.productCount} produto(s) — publicação iniciada`, {
+          hint: 'Acompanhe o progresso no catálogo clonado.',
+        })
+      } else {
+        toast.success(`Catálogo clonado com ${res.productCount} produto(s)`, {
+          hint: 'Sincronize ao TikTok manualmente quando estiver pronto.',
+        })
+      }
+      onCloned(res.catalog.id)
+    } catch (e) {
+      toast.error('Falha ao clonar o catálogo', { hint: e instanceof Error ? e.message : undefined })
+    } finally {
+      setCloning(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
@@ -826,10 +893,16 @@ function CatalogDetail({
           <ChevronLeft className="size-3.5" aria-hidden="true" />
           Voltar
         </button>
-        <button type="button" className="btn-ghost text-xs text-error" onClick={() => setDeleteTarget({ kind: 'catalog', name: catalog?.name || 'catálogo' })}>
-          <Trash2 className="size-3.5" aria-hidden="true" />
-          Excluir catálogo
-        </button>
+        <div className="flex items-center gap-1">
+          <button type="button" className="btn-ghost text-xs" onClick={handleClone} disabled={cloning || !catalog}>
+            {cloning ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <CopyPlus className="size-3.5" aria-hidden="true" />}
+            Clonar
+          </button>
+          <button type="button" className="btn-ghost text-xs text-error" onClick={() => setDeleteTarget({ kind: 'catalog', name: catalog?.name || 'catálogo' })}>
+            <Trash2 className="size-3.5" aria-hidden="true" />
+            Excluir
+          </button>
+        </div>
       </div>
 
       {isLoading && !data ? (

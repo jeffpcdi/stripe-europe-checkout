@@ -471,6 +471,33 @@ async function bulkUpsertProducts(accountId, advertiserId, catalogId, products, 
   return { imported, valid: validCount, invalid: imported - validCount, skipped };
 }
 
+// Clone completo: cria um catálogo independente com todos os produtos do
+// original. O clone nasce sem vínculo TikTok (tiktokCatalogId, syncedAt, audit)
+// — a sincronização cria um catálogo NOVO no TikTok para não sobrepor o
+// original. Útil para replicar um catálogo já configurado em 1 clique.
+async function cloneCatalog(accountId, advertiserId, catalogId) {
+  accountId = cleanAccountId(accountId);
+  advertiserId = cleanAdvertiserId(advertiserId);
+  if (!enabled) throw new Error('Persistência Neon indisponível');
+  await ensureSchema();
+  const original = await getCatalog(accountId, advertiserId, catalogId);
+  if (!original) throw new Error('Catálogo não encontrado');
+  const products = await listProducts(accountId, advertiserId, catalogId);
+  const clone = await createCatalog(accountId, advertiserId, {
+    name: original.name + ' \u2014 c\u00f3pia',
+    currency: original.currency,
+    catalogType: original.catalogType,
+    country: original.country
+  });
+  if (products.length > 0) {
+    const productData = products.map((p) => ({ data: { ...p.data } }));
+    await bulkUpsertProducts(accountId, advertiserId, clone.id, productData);
+  }
+  // Relê o clone com a contagem atualizada.
+  const result = await getCatalog(accountId, advertiserId, clone.id);
+  return { catalog: result || clone, productCount: products.length };
+}
+
 async function deleteProduct(accountId, advertiserId, catalogId, productId) {
   accountId = cleanAccountId(accountId);
   advertiserId = cleanAdvertiserId(advertiserId);
@@ -1103,6 +1130,7 @@ module.exports = {
   createCatalog,
   updateCatalog,
   deleteCatalog,
+  cloneCatalog,
   listProducts,
   upsertProduct,
   bulkUpsertProducts,

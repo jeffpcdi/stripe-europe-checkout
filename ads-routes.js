@@ -2913,6 +2913,50 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // Clone 1-clique: duplica catálogo + produtos e, se possível, já inicia a
+  // sincronização automática ao TikTok (cria catálogo remoto novo + sobe
+  // produtos). O clone nasce independente — nunca sobrescreve o original.
+  app.post('/api/ads/catalogs/:catalogId/clone', dashboardAuth, async (req, res) => {
+    try {
+      const accId = req.account.id;
+      const advertiserId = await catalogAdvertiserId(req);
+      const { catalog, productCount } = await catalogStore.cloneCatalog(accId, advertiserId, req.params.catalogId);
+      stats.logEvent('info', { acc: accId, title: 'Catálogo clonado', ref: catalog.id, meta: { from: req.params.catalogId, products: productCount } });
+
+      // Tenta iniciar a sincronização automática (mesma lógica de sync-tiktok).
+      // Condições: Pipeboard habilitado + BC configurado + killSwitch/dryRun off + produtos > 0.
+      let syncStarted = false;
+      let syncRun = null;
+      const wantSync = (req.body || {}).syncToTikTok !== false;
+      const bcId = wantSync && pipeboard.enabled ? pipeboard.getBusinessCenterId(accId, advertiserId) : null;
+      if (wantSync && bcId && productCount > 0 && !(await killSwitchActive(accId)) && !(await isDryRun(accId))) {
+        try {
+          const pub = await publishCatalogFeed(accId, advertiserId, catalog.id, adsStorage.publicOrigin(req));
+          const idempotencyKey = scopedCatalogRunIdempotencyKey(
+            advertiserId,
+            ['catalog-clone-sync', accId, catalog.id, pub.feedRevision].join(':'),
+          );
+          const capabilities = await catalogGateway.capabilities(pipeboard);
+          const syncQueueStatus = capabilities.catalogUpload !== true
+            || capabilities.catalogCreate !== true
+            ? 'waiting_connector_confirmation' : 'queued';
+          syncRun = await catalogStore.createSyncRun(accId, advertiserId, catalog.id, {
+            idempotencyKey,
+            status: syncQueueStatus, stage: syncQueueStatus,
+            payload: { bcId, feedUrl: pub.feedUrl, feedRevision: pub.feedRevision, published: pub.published, skipped: pub.skipped },
+            progress: { published: 0, skipped: pub.skipped, feedRevision: pub.feedRevision },
+          });
+          syncStarted = true;
+        } catch (syncErr) {
+          // O clone já está salvo; a sincronização pode ser feita depois.
+          console.warn('[catalog-clone] sync automático falhou (clone preservado):', syncErr && syncErr.message);
+        }
+      }
+      const updatedCatalog = await catalogStore.getCatalog(accId, advertiserId, catalog.id);
+      res.status(201).json({ catalog: updatedCatalog || catalog, productCount, syncStarted, syncRun });
+    } catch (err) { fail(res, err); }
+  });
+
   app.get('/api/ads/catalogs/:catalogId', dashboardAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
