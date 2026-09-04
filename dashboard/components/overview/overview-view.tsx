@@ -325,11 +325,7 @@ export function OverviewView() {
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
-      <DataConfidence />
-
-      {!hasAnyData ? (
-        <OnboardingChecklist hasVisits={false} hasSales={false} />
-      ) : null}
+      {/* ELEMENTOS SECUNDÁRIOS REMOVIDOS PARA MINIMALISMO */}
 
 
 
@@ -415,44 +411,34 @@ export function OverviewView() {
           </div>
         </div>
 
-        {/* CHEGANDO AGORA — mobile: bloco em fluxo, largura total, abaixo dos
-            KPIs; desktop: overlay glassmorphism absoluto (item 9) */}
-        <div className="hero-overlay-right px-3 pb-3 pt-3 lg:pointer-events-none lg:absolute lg:bottom-12 lg:right-8 lg:z-10 lg:p-0">
-          <div className="hero-glass-panel p-4 lg:pointer-events-auto lg:max-w-[280px] lg:p-5">
-            <LiveFeed leads={data?.leads ?? []} />
-          </div>
-        </div>
+        {/* LIVE FEED REMOVIDO PARA MINIMALISMO */}
       </section>
 
-      {/* ── FEED COPILOTO (O Fim das Abas de Ads) ───────────────────────── */}
+      {/* ── FEED COPILOTO (Escondido em modo Minimalista) ───────────────────────── */}
       {adsConnected ? (
-        <section
-          aria-label="Feed Copiloto"
-          className="mx-auto flex w-full max-w-2xl flex-col gap-4 pt-4"
-          style={{ ['--i' as string]: 2 }}
-        >
-          {/* Caixa de Entrada de Decisões Rápidas (Aprovações e Alertas) */}
-          <NeedsYouInbox
-            active={adsConnected && afterFirstPaint}
-            adAccountId={adAccountId}
-            onOpenOps={() => { window.location.href = '/ads/tiktok' }}
-            onOpenHealth={() => { window.location.href = '/ads/tiktok' }}
-            onGoAutomations={() => { window.location.href = '/ads/tiktok?tab=automation' }}
-          />
-
-          {/* Reprovações do TikTok aparecem como Cards de erro solucionáveis */}
-          <RejectionInbox
-            active={adsConnected && afterFirstPaint}
-            adAccountId={adAccountId}
-            autoAppeal={autoAppealSmartPlus}
-            canAutoAppeal={canAutoAppeal}
-            saving={false} // A página de ads gerencia saving; aqui mantemos visual
-            onAutoAppealChange={() => {}}
-          />
-
-          {/* Briefing da IA sobre os resultados do dia para auxiliar nas ações rápidas */}
-          <BriefingCard adAccountId={adAccountId} currency={roas?.currency || cur.mainCur} />
-        </section>
+        <details className="mx-auto flex w-full max-w-2xl flex-col gap-4 pt-4 group">
+          <summary className="cursor-pointer text-xs font-semibold text-muted-foreground hover:text-foreground text-center list-none flex items-center justify-center gap-2">
+            <span>Ver Feed Copiloto & Alertas</span>
+          </summary>
+          <div className="mt-4 flex flex-col gap-4 animate-in fade-in slide-in-from-top-4">
+            <NeedsYouInbox
+              active={adsConnected && afterFirstPaint}
+              adAccountId={adAccountId}
+              onOpenOps={() => { window.location.href = '/ads/tiktok' }}
+              onOpenHealth={() => { window.location.href = '/ads/tiktok' }}
+              onGoAutomations={() => { window.location.href = '/ads/tiktok?tab=automation' }}
+            />
+            <RejectionInbox
+              active={adsConnected && afterFirstPaint}
+              adAccountId={adAccountId}
+              autoAppeal={autoAppealSmartPlus}
+              canAutoAppeal={canAutoAppeal}
+              saving={false}
+              onAutoAppealChange={() => {}}
+            />
+            <BriefingCard adAccountId={adAccountId} currency={roas?.currency || cur.mainCur} />
+          </div>
+        </details>
       ) : null}
 
       {/* ── Rodapé — Países ativos · EMQ, em linha, discreto ───────────── */}

@@ -73,16 +73,13 @@ export function FunnelView() {
         <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex flex-col">
             <div className="flex items-center gap-3 mb-2">
-              <div className="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[color:var(--brand-cyan)]/20 to-[color:var(--brand-cyan)]/5 shadow-inner">
-                <DollarSign className="size-6 text-[color:var(--brand-cyan)] drop-shadow-[0_0_8px_rgba(37,244,238,0.8)]" />
+              <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[color:var(--brand-cyan)]/20 to-[color:var(--brand-cyan)]/5 shadow-inner">
+                <DollarSign className="size-5 text-[color:var(--brand-cyan)] drop-shadow-[0_0_8px_rgba(37,244,238,0.8)]" />
               </div>
-              <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
-                O Pipeline Financeiro
+              <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
+                Pipeline
               </h2>
             </div>
-            <p className="text-sm text-muted-foreground text-balance max-w-md">
-              Diga adeus às tabelas cruas. Acompanhe a jornada visual de quem clicou no seu anúncio até gerar receita na sua conta.
-            </p>
           </div>
 
           <div className="flex flex-col gap-3 min-w-[200px]">

@@ -205,24 +205,7 @@ export function CatalogList({
               }}
             />
           </label>
-          <details className="rounded-lg border border-border p-3">
-            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">País e moeda · Brasil · BRL</summary>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="font-medium text-foreground">País principal</span>
-                <select className="input-base" value={country} onChange={(e) => setCountry(e.target.value)}>
-                  {countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="font-medium text-foreground">Moeda</span>
-                <select className="input-base" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </label>
-            </div>
-          </details>
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center justify-end gap-2 mt-4">
             <button type="button" className="btn-ghost text-xs" onClick={() => setCreating(false)} disabled={busy}>
               Cancelar
             </button>
@@ -239,12 +222,9 @@ export function CatalogList({
           <Loader2 className="size-5 animate-spin" aria-hidden="true" />
         </div>
       ) : catalogs.length === 0 && !creating ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-background p-8 text-center">
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-background p-8 text-center opacity-50 hover:opacity-100 transition-opacity">
           <PackageOpen className="size-6 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm font-medium text-foreground">Nenhum catálogo ainda</p>
-          <p className="max-w-md text-pretty text-xs text-muted-foreground">
-            Crie um catálogo, adicione ou importe produtos e publique o feed para conectar ao TikTok.
-          </p>
+          <p className="text-sm font-medium text-foreground">Nenhum catálogo.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">

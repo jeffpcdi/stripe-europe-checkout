@@ -1187,27 +1187,13 @@ function PixelInstallModal({
             ))}
           </div>
 
-          <ol className="grid gap-3 sm:grid-cols-3">
-            {[
-              ['1', 'Copie', 'Não altere o token nem misture blocos de pixels diferentes.'],
-              ['2', 'Publique', selected.hint],
-              ['3', 'Confirme', 'Abra a página, verifique a URL e valide um evento de teste.'],
-            ].map(([n, title, body]) => (
-              <li key={n} className="rounded-xl border border-border bg-secondary/35 p-3">
-                <span className="flex size-6 items-center justify-center rounded-full bg-brand-cyan/15 text-xs font-bold text-brand-cyan">{n}</span>
-                <p className="mt-2 text-xs font-semibold text-foreground">{title}</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground text-pretty">{body}</p>
-              </li>
-            ))}
-          </ol>
-
           <div className="overflow-hidden rounded-xl border border-border bg-input">
             <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
               <span className="text-xs font-medium text-foreground">{selected.title}</span>
               <button
                 type="button"
                 onClick={() => onCopy(selected.code)}
-                className="flex items-center gap-1.5 rounded-md bg-brand-cyan px-2.5 py-1.5 text-xs font-semibold text-black"
+                className="flex items-center gap-1.5 rounded-md bg-brand-cyan px-2.5 py-1.5 text-xs font-semibold text-black hover:bg-brand-cyan/80 transition-colors"
               >
                 {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
                 {copied ? 'Copiado' : 'Copiar bloco'}
@@ -1216,104 +1202,6 @@ function PixelInstallModal({
             <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all px-3 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">{selected.code}</pre>
           </div>
 
-          {/* "Opções avançadas": tudo que não é o caminho feliz (copiar → colar →
-              confirmar) fica recolhido aqui. O tutorial padrão passa a ser curto;
-              quem precisa de GTM/Next, multi-domínio, consentimento ou
-              diagnóstico abre esta seção. Antes eram 2 cards + 4 blocos sempre à
-              mostra — a parede de texto que deixava a instalação "longa". */}
-          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
-            <summary className="cursor-pointer text-xs font-semibold text-foreground">
-              Opções avançadas e problemas comuns
-            </summary>
-            <div className="mt-3 flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-border p-3">
-              <p className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                <CircleCheck className="size-3.5 text-success" aria-hidden="true" /> Cobertura automática
-              </p>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
-                Uma tag instala o Pixel, registra jornada/SPA, preserva UTMs, ttclid e _ttp, faz Advanced Matching e reenvia eventos após oscilações de rede.
-              </p>
-            </div>
-            <div className="rounded-xl border border-border p-3">
-              <p className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                <ShieldCheck className="size-3.5 text-brand-cyan" aria-hidden="true" /> Regra para dois pixels
-              </p>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground text-pretty">
-                Compra sai como <code>Purchase</code>. O navegador pode espelhar a confirmação; somente o webhook contabiliza receita e envia a cópia confiável pela Events API.
-              </p>
-            </div>
-          </div>
-
-          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
-            <summary className="cursor-pointer text-xs font-semibold text-foreground">Rastrear Carrinho ou Checkout em um botão</summary>
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              Marque o elemento; o loader usa o token deste pixel e envia os mesmos <code>event_id</code> no navegador e na Events API.
-            </p>
-            <pre className="mt-2 overflow-auto rounded-lg bg-input px-3 py-2 font-mono text-[11px] text-brand-cyan">{`<button data-tiktok-event="AddToCart"
-  data-pixel-token="${pixel.token}"
-  data-content-id="SKU-123"
-  data-content-name="Produto"
-  data-value="97.00"
-  data-currency="BRL">Comprar</button>`}</pre>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Para código próprio: <code>RoiNadosPixel.track(&apos;{pixel.token}&apos;, &apos;AddToCart&apos;, {'{'} content_id: &apos;SKU-123&apos; {'}'})</code>.
-            </p>
-          </details>
-
-          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
-            <summary className="cursor-pointer text-xs font-semibold text-foreground">Enviar Purchase na página de confirmação</summary>
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              Adicione este marcador quando o pagamento estiver confirmado. Use o mesmo ID de pedido do webhook; navegador e Events API serão deduplicados pelo TikTok.
-            </p>
-            <pre className="mt-2 overflow-auto rounded-lg bg-input px-3 py-2 font-mono text-[11px] text-brand-cyan">{`<span data-roinados-purchase
-  data-pixel-token="${pixel.token}"
-  data-order-id="PEDIDO-123"
-  data-value="97.00"
-  data-currency="BRL"
-  hidden></span>`}</pre>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Em código: <code>RoiNadosPixel.purchase(&apos;{pixel.token}&apos;, {'{'} order_id: &apos;PEDIDO-123&apos;, value: 97, currency: &apos;BRL&apos; {'}'})</code>.
-            </p>
-          </details>
-
-          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
-            <summary className="cursor-pointer text-xs font-semibold text-foreground">Conectar arquivos e hospedagens diferentes</summary>
-            <div className="mt-2 space-y-2 text-[11px] leading-relaxed text-muted-foreground">
-              <p>
-                Repita o mesmo bloco em cada HTML ou layout. Para links entre domínios seus, use a opção <strong className="text-foreground">Vários domínios</strong>; o tracker transfere o identificador do visitante, <code>ttclid</code> e UTMs.
-              </p>
-              <p>
-                Se não puder editar a tag, marque apenas o link de saída: <code>{'<a data-roinados-link href="https://checkout...">'}</code>. Links para terceiros não marcados nunca são decorados.
-              </p>
-            </div>
-          </details>
-
-          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
-            <summary className="cursor-pointer text-xs font-semibold text-foreground">Consentimento e identificação do lead</summary>
-            <div className="mt-2 space-y-2 text-[11px] leading-relaxed text-muted-foreground">
-              <p>
-                Para aguardar sua CMP, adicione <code>data-consent=&quot;required&quot;</code> na tag e, após o aceite, chame <code>RoiNadosPixel.consent(&apos;grant&apos;)</code>. Para revogar, use <code>&apos;revoke&apos;</code>.
-              </p>
-              <p>
-                E-mail e telefone de campos reconhecidos alimentam o Advanced Matching. Use <code>data-roinados-ignore</code> no campo ou formulário que não deve ser lido, ou <code>data-advanced-matching=&quot;off&quot;</code> no tracker. Em integração própria: <code>RoiNadosPixel.identify({'{'} email, phone {'}'})</code>.
-              </p>
-            </div>
-          </details>
-
-          <details className="rounded-xl border border-border bg-secondary/25 px-3 py-2.5">
-            <summary className="cursor-pointer text-xs font-semibold text-foreground">Se um evento não aparecer</summary>
-            <ul className="mt-2 grid gap-1.5 text-[11px] leading-relaxed text-muted-foreground sm:grid-cols-2">
-              <li>• confirme a tag em todas as páginas e no layout da SPA;</li>
-              <li>• publique o GTM e limpe cache/CDN da versão antiga;</li>
-              <li>• preserve <code>ttclid</code>, <code>vid</code> e UTMs entre hosts;</li>
-              <li>• libere os domínios do TikTok e da dashboard na CSP;</li>
-              <li>• teste sem bloqueador de anúncios e com consentimento aceito;</li>
-              <li>• para Compra, confirme gateway, moeda, valor e vínculo do pixel.</li>
-            </ul>
-          </details>
-            </div>
-          </details>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
             <a
