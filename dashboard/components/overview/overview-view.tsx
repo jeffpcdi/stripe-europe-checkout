@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useOncePerSession } from '@/lib/motion'
 import { useStats, useEmqTrend, useAdsStatus, useAdsRoas } from '@/lib/api'
 import { useAfterFirstPaint } from '@/lib/use-after-first-paint'
-import { aggregate, money, periodStart } from '@/lib/metrics'
+import { aggregate, money, periodStart, prevWindow } from '@/lib/metrics'
 import { adsDateRange } from '@/lib/ads-time'
 import { countryFlag } from '@/lib/format'
 import { countryName } from '@/lib/countries'
@@ -29,8 +29,7 @@ import { RejectionInbox } from '@/components/ads/rejection-inbox'
 import { BriefingCard } from '@/components/ads/briefing-card'
 import { useAdsRules, useAdsSafetyPolicy } from '@/lib/api'
 
-// Fase 3: gasto de Ads já vem em unidade principal (não centavos), diferente do
-// resto do app — formata direto sem dividir por 100.
+// ── Helpers de formatação ──────────────────────────────────────────────────
 function fmtAdsMoney(v: number, currency: string): string {
   try {
     return new Intl.NumberFormat('pt-BR', {
@@ -43,10 +42,6 @@ function fmtAdsMoney(v: number, currency: string): string {
   }
 }
 
-// Fase 3: o PeriodPicker único também governa a janela do ROAS de Ads. O
-// endpoint /api/ads/roas aceita fromDate/toDate (YYYY-MM-DD). Em "tudo", Ads
-// usa os 90 dias que o sincronizador mantém e deixa esse limite explícito; omitir
-// o range faria o backend cair no default diário e misturar períodos.
 function periodToAdsRange(period: Period, timeZone?: string): { fromDate: string; toDate: string } {
   const days = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90
   return adsDateRange(days, timeZone)
@@ -62,75 +57,289 @@ const PERIOD_LABEL: Record<Period, string> = {
   all: 'tudo',
 }
 
-// Item 3 (Refinamento): período SEMPRE começa em "hoje". A migração antiga
-// (PERIOD_MIGRATION_KEY) foi removida — lógica simplificada.
-// Precedência: query string → localStorage → default 'today'.
 function initialPeriod(): Period {
   if (typeof window === 'undefined') return 'today'
   const fromUrl = new URLSearchParams(window.location.search).get('p') as Period | null
   if (fromUrl && PERIODS.includes(fromUrl)) return fromUrl
-  // Fase 5: NÃO restaura do localStorage no primeiro load — SEMPRE "hoje".
-  // O localStorage só persiste dentro da mesma sessão (setPeriod salva).
   return 'today'
 }
 
-// Redesign: KPI do hero — sem card, sem ícone, sem borda. Só o label minúsculo
-// em caixa alta + valor grande em mono. whitespace-nowrap garante que valores
-// monetários NUNCA truncam (bug do "€ 11.041,0(").
-function HeroKpi({
+// ── Mini Sparkline SVG (inline, sem dependência) ───────────────────────────
+function MiniSparkline({ data, color = 'var(--accent)', height = 32 }: { data: number[]; color?: string; height?: number }) {
+  if (!data.length) return null
+  const width = 80
+  const max = Math.max(...data, 1)
+  const min = Math.min(...data, 0)
+  const range = max - min || 1
+  const points = data.map((v, i) => {
+    const x = (i / Math.max(data.length - 1, 1)) * width
+    const y = height - ((v - min) / range) * (height - 4) - 2
+    return `${x},${y}`
+  }).join(' ')
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="opacity-40" aria-hidden="true">
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// ── Badge de variação (↑12% / ↓5%) ────────────────────────────────────────
+function VariationBadge({ current, previous }: { current: number; previous: number }) {
+  if (previous === 0 && current === 0) return null
+  if (previous === 0) return (
+    <span className="inline-flex items-center gap-0.5 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-bold text-success">
+      novo
+    </span>
+  )
+  const pct = ((current - previous) / previous) * 100
+  const isUp = pct >= 0
+  const display = Math.abs(pct) > 999 ? '999+' : Math.abs(pct).toFixed(0)
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+      isUp ? 'bg-success/15 text-success' : 'bg-error/15 text-error'
+    }`}>
+      {isUp ? '↑' : '↓'} {display}%
+    </span>
+  )
+}
+
+// ── KPI Card glassmorphism ─────────────────────────────────────────────────
+function KpiCard({
+  icon,
   label,
   value,
-  dim,
-  sensitive,
   sub,
-  colorClass,
+  sparkData,
+  sparkColor,
+  variation,
+  sensitive,
+  dim,
 }: {
+  icon: React.ReactNode
   label: string
   value: React.ReactNode
-  /** true = valor sem dado/zero → cinza apagado */
-  dim?: boolean
-  /** true = borrado no modo apresentação */
-  sensitive?: boolean
-  /** Linha secundária discreta (ex.: receita em outras moedas). */
   sub?: React.ReactNode
-  /** Classe de cor personalizada para o valor principal (ex: text-brand-cyan) */
-  colorClass?: string
+  sparkData?: number[]
+  sparkColor?: string
+  variation?: { current: number; previous: number }
+  sensitive?: boolean
+  dim?: boolean
 }) {
   return (
-    <div className="min-w-0">
-      <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
-        <span className="text-gradient-metallic">{label}</span>
-      </p>
+    <div className="glass group relative flex flex-col gap-2 overflow-hidden rounded-2xl border border-white/[0.06] p-4 transition-all duration-300 hover:border-white/[0.12] hover:shadow-lg">
+      {sparkData && sparkData.length > 1 && (
+        <div className="absolute bottom-2 right-3 transition-opacity duration-300 group-hover:opacity-70">
+          <MiniSparkline data={sparkData} color={sparkColor} height={36} />
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <span className="flex size-7 items-center justify-center rounded-lg bg-white/[0.06]" aria-hidden="true">
+          {icon}
+        </span>
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/50">{label}</span>
+        {variation && <VariationBadge current={variation.current} previous={variation.previous} />}
+      </div>
       <p
-        className={`mt-1 whitespace-nowrap font-mono text-xl font-bold leading-none tabular-nums sm:text-2xl lg:text-3xl ${
-          dim ? 'text-muted-foreground' : colorClass || 'text-foreground'
+        className={`relative z-10 whitespace-nowrap font-mono text-2xl font-bold leading-none tabular-nums sm:text-3xl ${
+          dim ? 'text-muted-foreground' : 'text-foreground'
         }`}
         {...(sensitive ? { 'data-sensitive': true } : {})}
       >
         {value}
       </p>
-      {sub ? (
-        <p
-          className="mt-1.5 max-w-full whitespace-normal break-words font-mono text-[11px] font-medium leading-relaxed tabular-nums text-white/45"
-          {...(sensitive ? { 'data-sensitive': true } : {})}
-        >
+      {sub && (
+        <p className="relative z-10 text-[11px] font-medium text-white/40" {...(sensitive ? { 'data-sensitive': true } : {})}>
           {sub}
         </p>
-      ) : null}
+      )}
     </div>
   )
 }
 
+// ── Quick Funnel (mini horizontal) ─────────────────────────────────────────
+function QuickFunnel({ visits, checkout, payment, purchased }: {
+  visits: number; checkout: number; payment: number; purchased: number
+}) {
+  const steps = [
+    { label: 'Visitas', value: visits, color: 'bg-blue' },
+    { label: 'Checkout', value: checkout, color: 'bg-warning' },
+    { label: 'Pagamento', value: payment, color: 'bg-[color:var(--accent)]' },
+    { label: 'Compra', value: purchased, color: 'bg-success' },
+  ]
+  const maxVal = Math.max(visits, 1)
+
+  return (
+    <div className="glass flex flex-col gap-3 rounded-2xl border border-white/[0.06] p-4">
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/50">Funil Rápido</p>
+      <div className="flex flex-col gap-2.5">
+        {steps.map((step, i) => {
+          const pct = (step.value / maxVal) * 100
+          const convRate = i > 0 && steps[i - 1].value > 0
+            ? ((step.value / steps[i - 1].value) * 100).toFixed(1) + '%'
+            : null
+          return (
+            <div key={step.label} className="flex items-center gap-3">
+              <span className="w-16 shrink-0 text-[11px] font-medium text-white/60">{step.label}</span>
+              <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-white/[0.04]">
+                <div
+                  className={`h-full rounded-full ${step.color} transition-all duration-700 ease-out`}
+                  style={{ width: `${Math.max(pct, 2)}%`, opacity: 0.7 }}
+                />
+              </div>
+              <span className="w-10 shrink-0 text-right font-mono text-[11px] font-bold tabular-nums text-foreground">
+                {step.value}
+              </span>
+              {convRate && (
+                <span className="w-10 shrink-0 text-right text-[10px] font-medium tabular-nums text-white/40">
+                  {convRate}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Top Campaigns card ─────────────────────────────────────────────────────
+function TopCampaignsCard({ campaigns }: {
+  campaigns: { name: string; leads: number; purchased: number; conv: number }[]
+}) {
+  const top = campaigns.slice(0, 4)
+  return (
+    <div className="glass flex flex-col gap-3 rounded-2xl border border-white/[0.06] p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/50">Top Campanhas</p>
+        <Link href="/ads/tiktok" className="text-[10px] font-medium text-white/30 transition-colors hover:text-foreground">
+          Ver todas →
+        </Link>
+      </div>
+      {top.length === 0 ? (
+        <p className="py-3 text-center text-xs text-muted-foreground">Nenhuma campanha rastreada.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {top.map((c, i) => (
+            <div key={c.name} className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.04]">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-[10px] font-bold text-white/40">
+                {i + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{c.name}</span>
+              <span className="shrink-0 font-mono text-[11px] font-bold tabular-nums text-success">
+                {c.purchased}
+              </span>
+              <span className="shrink-0 text-[10px] tabular-nums text-white/40">
+                {c.conv.toFixed(1)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Geo Distribution card ──────────────────────────────────────────────────
+function GeoCard({ countries }: {
+  countries: { code: string; name: string; count: number; purchased: number }[]
+}) {
+  const top = countries.slice(0, 5)
+  const total = countries.reduce((s, c) => s + c.count, 0) || 1
+  return (
+    <div className="glass flex flex-col gap-3 rounded-2xl border border-white/[0.06] p-4">
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/50">Distribuição Geográfica</p>
+      {top.length === 0 ? (
+        <p className="py-3 text-center text-xs text-muted-foreground">Aguardando visitantes.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {top.map((c) => {
+            const pct = (c.count / total) * 100
+            return (
+              <div key={c.code} className="flex items-center gap-2.5">
+                <span className="text-base leading-none drop-shadow-md" aria-hidden="true">{countryFlag(c.code)}</span>
+                <span className="w-14 shrink-0 truncate text-[11px] font-medium text-foreground">{c.code}</span>
+                <div className="relative h-3.5 flex-1 overflow-hidden rounded-full bg-white/[0.04]">
+                  <div
+                    className="h-full rounded-full bg-[color:var(--accent)] transition-all duration-500"
+                    style={{ width: `${Math.max(pct, 3)}%`, opacity: 0.6 }}
+                  />
+                </div>
+                <span className="w-8 shrink-0 text-right font-mono text-[10px] font-bold tabular-nums text-foreground">
+                  {c.count}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── EMQ Health card ────────────────────────────────────────────────────────
+function EmqHealthCard({ emqSummary }: {
+  emqSummary: { recent: number; dir: 'up' | 'down' | 'flat'; alerts: number } | null
+}) {
+  const score = emqSummary?.recent ?? 0
+  const max = 10
+  const pct = (score / max) * 100
+  const color = score >= 7 ? 'var(--success)' : score >= 4 ? 'var(--warning)' : 'var(--error)'
+  const label = score >= 7 ? 'Excelente' : score >= 4 ? 'Regular' : 'Baixa'
+
+  return (
+    <Link href="/conversions?tab=pixels" className="glass flex flex-col gap-3 rounded-2xl border border-white/[0.06] p-4 transition-all hover:border-white/[0.12]">
+      <div className="flex items-center justify-between">
+        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/50">Saúde do Pixel (EMQ)</p>
+        {emqSummary && emqSummary.alerts > 0 && (
+          <span className="rounded-full bg-error/15 px-2 py-0.5 text-[10px] font-bold text-error">
+            {emqSummary.alerts} alerta{emqSummary.alerts === 1 ? '' : 's'}
+          </span>
+        )}
+      </div>
+      {!emqSummary ? (
+        <p className="py-3 text-center text-xs text-muted-foreground">Sem dados de EMQ.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <div className="relative h-4 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${pct}%`, backgroundColor: color }}
+              />
+            </div>
+            <span className="font-mono text-lg font-bold tabular-nums" style={{ color }}>
+              {score.toFixed(1)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="font-medium" style={{ color }}>{label}</span>
+            <span className="text-white/40">
+              {emqSummary.dir === 'up' ? '↑ Subindo' : emqSummary.dir === 'down' ? '↓ Caindo' : '→ Estável'}
+            </span>
+          </div>
+        </div>
+      )}
+    </Link>
+  )
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  COMPONENTE PRINCIPAL — CONTROL ROOM
+// ══════════════════════════════════════════════════════════════════════════════
 export function OverviewView() {
   const [period, setPeriodState] = useState<Period>(initialPeriod)
   const { data, error, isLoading, isValidating, mutate } = useStats()
-  // A1.1: entrada orquestrada roda UMA vez por sessão — navegações seguintes
-  // pulam a cascata (os cards aparecem direto, sem re-animar).
   const firstEnter = useOncePerSession('overview-enter')
 
-  // Fase 3: TikTok Ads alimenta os KPIs "Gasto" e "ROAS". Só resolve
-  // pós-first-paint (chave null até lá — NÃO entra no orçamento de requests do
-  // load) e só quando a conta está conectada. Sem Ads, mostram "—".
   const afterFirstPaint = useAfterFirstPaint()
   const { data: adsStatus } = useAdsStatus(afterFirstPaint)
   const adAccountId = adsStatus?.advertiserId || ''
@@ -138,13 +347,13 @@ export function OverviewView() {
   const adsRange = useMemo(() => periodToAdsRange(period, adsStatus?.timeZone), [period, adsStatus?.timeZone])
   const { data: roas } = useAdsRoas(adsConnected, adAccountId, adsRange)
 
-  // Dados para o Feed Copiloto
+  // Feed Copiloto
   const { data: safety } = useAdsSafetyPolicy(adsConnected)
   const { data: rulesData } = useAdsRules(adsConnected, adAccountId)
   const autoAppealSmartPlus = rulesData?.alerts?.autoAppealSmartPlus === true
   const canAutoAppeal = rulesData?.autonomy === 'auto'
 
-  // Rodapé "EMQ" — mesma chave SWR do popover de saúde (dedup, zero request).
+  // EMQ
   const { data: emqData } = useEmqTrend(afterFirstPaint)
   const emqSummary = useMemo(() => {
     const pixels = emqData?.pixels?.filter((p) => p.recentAvg != null) ?? []
@@ -159,7 +368,6 @@ export function OverviewView() {
     return { recent, dir, alerts: emqData?.alerts ?? 0 }
   }, [emqData])
 
-  // Persiste no localStorage e reflete no ?p= sem recarregar (histórico limpo).
   function setPeriod(next: Period) {
     setPeriodState(next)
     if (typeof window === 'undefined') return
@@ -168,18 +376,19 @@ export function OverviewView() {
       const url = new URL(window.location.href)
       url.searchParams.set('p', next)
       window.history.replaceState(null, '', url)
-    } catch {
-      /* localStorage/URL indisponível (modo privado): degrada para memória */
-    }
+    } catch { /* modo privado */ }
   }
 
-  const { cur } = useMemo(() => {
-    if (!data) return { cur: null }
-    // Item 2: receita FILTRADA pelo período — aggregate já faz o corte correto.
-    return { cur: aggregate(data, periodStart(period)) }
+  // Métricas do período ATUAL e ANTERIOR (para badges de variação)
+  const { cur, prev } = useMemo(() => {
+    if (!data) return { cur: null, prev: null }
+    const curMetrics = aggregate(data, periodStart(period))
+    const pw = prevWindow(period)
+    const prevMetrics = pw ? aggregate(data, pw.prevFrom, pw.prevTo) : null
+    return { cur: curMetrics, prev: prevMetrics }
   }, [data, period])
 
-  // Países dos leads de HOJE — colorem o globo (mesma história do mundo real).
+  // Países dos leads de hoje (para o globo)
   const todayCountries = useMemo(() => {
     const t = periodStart('today')?.getTime() ?? 0
     const byCountry = new Map<string, number>()
@@ -196,8 +405,6 @@ export function OverviewView() {
     }))
   }, [data])
 
-  // Lead mais recente (qualquer período) — o globo usa para distinguir
-  // "tracking nunca configurado" (null) de "só está quieto agora".
   const lastLeadAt = useMemo(() => {
     let max = ''
     for (const l of data?.leads ?? []) {
@@ -206,6 +413,7 @@ export function OverviewView() {
     return max || null
   }, [data])
 
+  // ── Error state ────────────────────────────────────────────────────────
   if (error) {
     return (
       <ErrorState
@@ -217,48 +425,46 @@ export function OverviewView() {
     )
   }
 
+  // ── Loading skeleton ───────────────────────────────────────────────────
   if (isLoading || !cur) {
-    // Skeleton mimético — silhueta do novo layout imersivo
     return (
       <div className="flex flex-col gap-4" aria-busy="true" aria-label="Carregando métricas">
         <div className="flex justify-end">
           <Skeleton className="h-8 w-64 rounded-full" />
         </div>
-        {/* hero: globo full-width com overlays */}
-        <div className="relative min-h-[520px] overflow-hidden rounded-2xl border border-white/[0.06] bg-background">
-          <div className="flex items-center justify-center p-16">
-            <Skeleton className="aspect-square w-full max-w-[440px] rounded-full" />
-          </div>
-          {/* overlay esquerdo */}
-          <div className="absolute left-6 top-6 flex flex-col gap-6">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex flex-col gap-2">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="glass flex flex-col gap-3 rounded-2xl border border-white/[0.06] p-4">
+              <div className="flex items-center gap-2">
+                <Skeleton className="size-7 rounded-lg" />
                 <Skeleton className="h-3 w-16" />
-                <Skeleton className="h-9 w-36" />
               </div>
-            ))}
+              <Skeleton className="h-8 w-32" />
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
+          <div className="glass flex items-center justify-center rounded-2xl border border-white/[0.06] p-8">
+            <Skeleton className="aspect-square w-full max-w-[340px] rounded-full" />
           </div>
-          {/* overlay direito */}
-          <div className="absolute right-6 top-6 flex flex-col gap-3">
+          <div className="glass flex flex-col gap-3 rounded-2xl border border-white/[0.06] p-4">
             <Skeleton className="h-3 w-28" />
             {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center justify-between gap-8">
+              <div key={i} className="flex items-center justify-between gap-4">
                 <Skeleton className="h-3.5 w-32" />
                 <Skeleton className="h-3.5 w-12" />
               </div>
             ))}
           </div>
         </div>
-        {/* funil | campanhas */}
-        <div className="grid gap-4 lg:grid-cols-2">
-          {[0, 1].map((i) => (
-            <div key={i} className="glass flex flex-col gap-3 p-5">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="glass flex flex-col gap-3 rounded-2xl border border-white/[0.06] p-4">
               <Skeleton className="h-3 w-24" />
-              {[0, 1, 2, 3].map((j) => (
+              {[0, 1, 2].map((j) => (
                 <div key={j} className="flex items-center gap-3">
                   <Skeleton className="h-3.5 w-20" />
-                  <Skeleton className="h-5 flex-1 rounded" />
-                  <Skeleton className="h-3.5 w-10" />
+                  <Skeleton className="h-4 flex-1 rounded" />
                 </div>
               ))}
             </div>
@@ -268,11 +474,10 @@ export function OverviewView() {
     )
   }
 
+  // ── Dados computados ───────────────────────────────────────────────────
   const revCents = cur.rev[cur.mainCur] || 0
-  // F2 (guarda de moeda): conta de anúncio em EUR e receita em BRL → dividir
-  // um pelo outro dá um "ROAS" sem significado. O servidor já zera o roas e
-  // manda a flag; aqui só decidimos a mensagem. Fallback local para respostas
-  // antigas em cache (sem a flag).
+  const prevRevCents = prev ? (prev.rev[prev.mainCur] || 0) : 0
+
   const currencyMismatch = Boolean(
     roas &&
       (roas.currencyMismatch ??
@@ -281,34 +486,26 @@ export function OverviewView() {
           revCents > 0 &&
           cur.mainCur !== roas.currency.toUpperCase())),
   )
-  // Receita em OUTRAS moedas (além da dominante). Sem isto o card mostrava só a
-  // moeda principal e escondia, por ex., uma venda em BRL — o que fazia a receita
-  // "parecer travada" ao trocar de período quando a diferença era noutra moeda.
-  // Não somamos moedas diferentes (câmbio distinto): listamos cada uma.
+
   const otherRev = Object.entries(cur.rev)
     .filter(([c, v]) => c !== cur.mainCur && v > 0)
     .sort((a, b) => b[1] - a[1])
-  const attempts = cur.sales + cur.failed
-  const hasGeo = cur.countries.length > 0
-  const hasSources = cur.topCampaigns.length > 0 || cur.topLinks.length > 0
 
   const revSeries = cur.series.map((s) => s.revenue)
   const hasAnyData = (data?.leads?.length ?? 0) > 0 || (data?.events?.length ?? 0) > 0
 
+  // ══════════════════════════════════════════════════════════════════════
+  //  RENDER — CONTROL ROOM LAYOUT
+  // ══════════════════════════════════════════════════════════════════════
   return (
-    /* A1.5: fundo com profundidade. A1.1: cascata só na primeira entrada. */
-    <div className={`overview-depth mx-auto max-w-[1600px] flex flex-col gap-4 ${firstEnter ? 'stagger-fade' : ''}`}>
-      {/* Redesign: barra compacta de controles — o shell Header já traz kicker +
-          título + badge AO VIVO. Sem card "Operacional" separado (a saúde vive
-          no rodapé). Item 171: sticky em mobile. */}
+    <div className={`mx-auto max-w-[1600px] flex flex-col gap-4 ${firstEnter ? 'stagger-fade' : ''}`}>
+      {/* ── BARRA DE CONTROLES ──────────────────────────────────────────── */}
       <div
         className="picker-sticky flex flex-wrap items-center justify-end gap-2"
         data-tour="period"
         style={{ ['--i' as string]: 0 }}
       >
-        {/* Item 294: fullscreen para telão — esconde o chrome via data-tv */}
         <TvModeButton />
-        {/* Item 278: baixa o resumo do período como PNG (canvas) */}
         <ExportSummaryButton
           period={period}
           summary={{
@@ -321,168 +518,119 @@ export function OverviewView() {
             series: revSeries,
           }}
         />
-        {/* Item 296 (Fase 3): PeriodPicker ÚNICO governa KPIs + funil + campanhas */}
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
-      {/* ELEMENTOS SECUNDÁRIOS REMOVIDOS PARA MINIMALISMO */}
-
-
-
-      {/* ── BLOCO HERO IMERSIVO — desktop (lg+): globo full-bleed com KPIs e
-          LiveFeed sobrepostos em glassmorphism. Mobile (<lg): coluna real —
-          globo compacto no topo, KPIs e feed empilhados abaixo, SEM
-          sobreposição (fix do bug de overlap no iPhone). Items 4-9. ────── */}
+      {/* ── SEÇÃO 1: KPI CARDS ─────────────────────────────────────────── */}
       <section
-        aria-label="Painel principal"
-        data-tour="chart"
-        className="hero-globe-section relative flex flex-col overflow-hidden rounded-2xl border border-white/[0.06] lg:block"
+        aria-label="KPIs principais"
+        className="grid gap-3 sm:grid-cols-3"
         style={{ ['--i' as string]: 1 }}
       >
+        <KpiCard
+          icon={<svg className="size-4 text-[color:var(--accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>}
+          label="Receita"
+          sensitive
+          dim={revCents === 0}
+          value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
+          sub={otherRev.length ? '+ ' + otherRev.map(([c, v]) => money(v, c)).join(' + ') : undefined}
+          sparkData={revSeries}
+          sparkColor="var(--accent)"
+          variation={{ current: revCents, previous: prevRevCents }}
+        />
 
+        <KpiCard
+          icon={<svg className="size-4 text-[color:var(--pink)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 4v16"/></svg>}
+          label={period === 'all' ? 'Gasto (90 dias)' : 'Gasto'}
+          sensitive
+          dim={!roas}
+          value={roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
+          sparkColor="var(--pink)"
+        />
 
-        {/* Globo — mobile: bloco compacto (~340px) no topo do fluxo;
-            desktop: fundo absoluto ocupando 100% do painel */}
-        <div className="relative z-0 h-[280px] w-full overflow-hidden sm:h-[320px] lg:absolute lg:inset-0 lg:h-auto lg:overflow-visible">
-          <HeroGlobe countries={todayCountries} lastLeadAt={lastLeadAt} />
-        </div>
-
-        {/* KPIs — mobile: painel em fluxo (grid 2 col) abaixo do globo;
-            desktop: overlay glassmorphism absoluto (item 8) */}
-        <div
-          className="hero-overlay-left px-3 pt-3 lg:pointer-events-none lg:absolute lg:left-8 lg:top-8 lg:z-10 lg:p-0"
-          data-tour="kpis"
-        >
-          <div className="hero-glass-panel grid grid-cols-2 gap-4 p-4 lg:pointer-events-auto lg:flex lg:flex-col lg:gap-10 lg:p-5">
-            {/* Mobile: Receita ocupa a linha inteira do grid; desktop:
-                lg:contents remove o wrapper e preserva o flex-col original */}
-            <div className="col-span-2 min-w-0 lg:contents">
-            <HeroKpi
-              label="Receita"
-              dim={revCents === 0}
-              sensitive
-              colorClass="text-brand-cyan"
-              value={<CountUp value={revCents} format={(v) => money(Math.round(v), cur.mainCur)} />}
-              sub={
-                [
-                  otherRev.length
-                    ? '+ ' + otherRev.map(([c, v]) => money(v, c)).join('  +  ')
-                    : null,
-                  // F2: receita com purchased=0 no funil era "divergência" —
-                  // agora declara a base: vendas órfãs (webhook sem lead)
-                  cur.orphanPurchases > 0
-                    ? `inclui ${cur.orphanPurchases} ${cur.orphanPurchases === 1 ? 'venda não rastreada' : 'vendas não rastreadas'}`
-                    : null,
-                  cur.suspectSales > 0
-                    ? `${cur.suspectSales} ${cur.suspectSales === 1 ? 'valor atípico' : 'valores atípicos'} (fora do ticket médio)`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || undefined
-              }
-            />
-            </div>
-            <HeroKpi
-              label={period === 'all' ? 'Gasto (90 dias)' : 'Gasto'}
-              dim={!roas}
-              sensitive
-              value={roas ? fmtAdsMoney(roas.spend, roas.currency) : '—'}
-              sub={period === 'all' ? 'limite do histórico sincronizado do TikTok' : undefined}
-            />
-            {/* F2: moeda do gasto ≠ moeda da receita → ROAS seria número
-                errado (R$ ÷ US$). Mostra o porquê em vez de calcular. */}
-            <HeroKpi
-              label={period === 'all' ? 'ROAS (90 dias)' : 'ROAS'}
-              dim={!roas || roas.roas === null || currencyMismatch}
-              colorClass="text-success"
-              value={
-                currencyMismatch
-                  ? '—'
-                  : roas && roas.roas !== null
-                    ? roas.roas.toFixed(2).replace('.', ',')
-                    : '—'
-              }
-              sub={
-                currencyMismatch
-                  ? `moedas diferentes (gasto ${roas?.currency} × receita ${roas?.revenueCurrency || cur.mainCur})`
-                  : undefined
-              }
-            />
-          </div>
-        </div>
-
-        {/* LIVE FEED REMOVIDO PARA MINIMALISMO */}
+        <KpiCard
+          icon={<svg className="size-4 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>}
+          label={period === 'all' ? 'ROAS (90 dias)' : 'ROAS'}
+          dim={!roas || roas.roas === null || currencyMismatch}
+          value={
+            currencyMismatch
+              ? '—'
+              : roas && roas.roas !== null
+                ? roas.roas.toFixed(2).replace('.', ',')
+                : '—'
+          }
+          sub={
+            currencyMismatch
+              ? `moedas diferentes (${roas?.currency} × ${cur.mainCur})`
+              : undefined
+          }
+          sparkColor="var(--success)"
+        />
       </section>
 
-      {/* ── FEED COPILOTO (Escondido em modo Minimalista) ───────────────────────── */}
-      {adsConnected ? (
-        <details className="mx-auto flex w-full max-w-2xl flex-col gap-4 pt-4 group">
-          <summary className="cursor-pointer text-xs font-semibold text-muted-foreground hover:text-foreground text-center list-none flex items-center justify-center gap-2">
-            <span>Ver Feed Copiloto & Alertas</span>
-          </summary>
-          <div className="mt-4 flex flex-col gap-4 animate-in fade-in slide-in-from-top-4">
-            <NeedsYouInbox
-              active={adsConnected && afterFirstPaint}
-              adAccountId={adAccountId}
-              onOpenOps={() => { window.location.href = '/ads/tiktok' }}
-              onOpenHealth={() => { window.location.href = '/ads/tiktok' }}
-              onGoAutomations={() => { window.location.href = '/ads/tiktok?tab=automation' }}
-            />
-            <RejectionInbox
-              active={adsConnected && afterFirstPaint}
-              adAccountId={adAccountId}
-              autoAppeal={autoAppealSmartPlus}
-              canAutoAppeal={canAutoAppeal}
-              saving={false}
-              onAutoAppealChange={() => {}}
-            />
-            <BriefingCard adAccountId={adAccountId} currency={roas?.currency || cur.mainCur} />
-          </div>
-        </details>
-      ) : null}
-
-      {/* ── Rodapé — Países ativos · EMQ, em linha, discreto ───────────── */}
+      {/* ── SEÇÃO 2: GLOBO + LIVE FEED (lado a lado) ───────────────────── */}
       <section
-        aria-label="Presença e qualidade dos eventos"
-        className="glass animate-in-up delay-4 inline-flex flex-wrap items-center gap-x-5 gap-y-2 rounded-full px-5 py-2.5 font-mono text-[11px] tabular-nums text-muted-foreground self-start"
-        style={{ ['--i' as string]: 4 }}
+        aria-label="Presença global e atividade"
+        className="grid gap-3 lg:grid-cols-[1fr_320px]"
+        style={{ ['--i' as string]: 2 }}
       >
-        <HealthDot />
-        <span>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
-            Países ativos{' '}
-          </span>
-          <span className="text-foreground">{cur.countries.length}</span>
-          {hasGeo ? (
-            <span className="ml-2 text-faint">
-              {cur.countries
-                .slice(0, 4)
-                .map((c) => (
-                  <span key={c.code} className="mr-2">
-                    <span className="drop-shadow-md mr-1">{countryFlag(c.code)}</span>
-                    {c.code}
-                  </span>
-                ))}
+        <div className="glass relative flex items-center justify-center overflow-hidden rounded-2xl border border-white/[0.06]" style={{ minHeight: 340 }}>
+          <HeroGlobe countries={todayCountries} lastLeadAt={lastLeadAt} />
+          <div className="absolute bottom-3 left-3 flex items-center gap-3">
+            <HealthDot />
+            <span className="font-mono text-[11px] tabular-nums text-white/50">
+              {cur.visits} visita{cur.visits === 1 ? '' : 's'} · {cur.sales} venda{cur.sales === 1 ? '' : 's'}
             </span>
-          ) : null}
-        </span>
-        {emqSummary ? (
-          <Link href="/conversions?tab=pixels" className="transition-colors hover:text-foreground">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
-              EMQ{' '}
-            </span>
-            <span className={emqSummary.alerts > 0 ? 'text-error' : 'text-foreground'}>
-              {emqSummary.recent.toFixed(1)}
-              {emqSummary.dir === 'up' ? ' \u2191' : emqSummary.dir === 'down' ? ' \u2193' : ''}
-            </span>
-            {emqSummary.alerts > 0 ? (
-              <span className="ml-1 text-error">
-                · {emqSummary.alerts} alerta{emqSummary.alerts === 1 ? '' : 's'}
-              </span>
-            ) : null}
-          </Link>
-        ) : null}
+          </div>
+        </div>
+
+        <div className="glass flex flex-col rounded-2xl border border-white/[0.06] p-4">
+          <LiveFeed leads={data?.leads ?? []} />
+        </div>
       </section>
+
+      {/* ── SEÇÃO 3: GRADE 2x2 CONTEXTUAL ──────────────────────────────── */}
+      <section
+        aria-label="Métricas secundárias"
+        className="grid gap-3 sm:grid-cols-2"
+        style={{ ['--i' as string]: 3 }}
+      >
+        <QuickFunnel
+          visits={cur.visits}
+          checkout={cur.reachedCheckout}
+          payment={cur.paymentStarted}
+          purchased={cur.purchased}
+        />
+        <TopCampaignsCard campaigns={cur.topCampaigns} />
+        <GeoCard countries={cur.countries} />
+        <EmqHealthCard emqSummary={emqSummary} />
+      </section>
+
+      {/* ── SEÇÃO 4: FEED COPILOTO ─────────────────────────────────────── */}
+      {adsConnected ? (
+        <section
+          aria-label="Feed Copiloto"
+          className="mx-auto flex w-full max-w-3xl flex-col gap-3"
+          style={{ ['--i' as string]: 4 }}
+        >
+          <NeedsYouInbox
+            active={adsConnected && afterFirstPaint}
+            adAccountId={adAccountId}
+            onOpenOps={() => { window.location.href = '/ads/tiktok' }}
+            onOpenHealth={() => { window.location.href = '/ads/tiktok' }}
+            onGoAutomations={() => { window.location.href = '/ads/tiktok?tab=automation' }}
+          />
+          <RejectionInbox
+            active={adsConnected && afterFirstPaint}
+            adAccountId={adAccountId}
+            autoAppeal={autoAppealSmartPlus}
+            canAutoAppeal={canAutoAppeal}
+            saving={false}
+            onAutoAppealChange={() => {}}
+          />
+          <BriefingCard adAccountId={adAccountId} currency={roas?.currency || cur.mainCur} />
+        </section>
+      ) : null}
     </div>
   )
 }
