@@ -36,25 +36,25 @@ export function ActivityView() {
         <div className="pointer-events-none absolute -left-20 -bottom-20 size-[500px] rounded-full bg-[color:var(--success)]/10 blur-[100px]" />
 
         {/* HEADER */}
-        <div className="relative z-10 p-6 sm:p-8 flex items-center justify-between">
+        <div className="relative z-10 p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="flex size-12 items-center justify-center rounded-2xl bg-black/50 border border-[color:var(--brand-cyan)]/30 shadow-inner">
               <Globe2 className="size-6 text-[color:var(--brand-cyan)] drop-shadow-[0_0_10px_rgba(37,244,238,0.8)]" />
             </div>
             <div>
               <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
-                Radar de Escala
+                Central de Operações (Live)
               </h2>
               <p className="text-sm text-[color:var(--brand-cyan)] flex items-center gap-1.5 font-mono">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[color:var(--brand-cyan)] opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-[color:var(--brand-cyan)]"></span>
                 </span>
-                LIVE SIGNAL ACTIVE
+                SINAIS RECEBIDOS EM TEMPO REAL
               </p>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-left sm:text-right">
             <span className="block text-3xl font-black text-foreground drop-shadow-md">
               <CountUp value={activeVisitors} />
             </span>
@@ -62,8 +62,9 @@ export function ActivityView() {
           </div>
         </div>
 
-        {/* RADAR MAP AREA */}
-        <div className="relative flex-1 flex items-center justify-center w-full min-h-[300px]">
+        <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
+          {/* RADAR MAP AREA */}
+          <div className="relative flex-1 flex items-center justify-center min-h-[300px] border-b lg:border-b-0 lg:border-r border-border/20">
           {/* Simulated Radar Grid */}
           <div className="absolute inset-0 flex items-center justify-center opacity-20">
             <div className="size-[200px] sm:size-[400px] rounded-full border border-[color:var(--brand-cyan)]" />
@@ -98,35 +99,65 @@ export function ActivityView() {
           </div>
         </div>
 
-        {/* RECENT ACTIVITY TICKER */}
-        <div className="relative z-10 border-t border-border/50 bg-black/20 backdrop-blur-sm p-4 overflow-hidden">
-          <div className="flex gap-4 items-center whitespace-nowrap animate-[scrollX_30s_linear_infinite]">
-            {events.slice(0, 15).map(e => (
-              <div key={e.id} className="flex items-center gap-2 bg-secondary/50 rounded-full px-4 py-1.5 text-xs">
-                <span className={`size-2 rounded-full ${e.type === 'sale' ? 'bg-success shadow-[0_0_8px_rgba(34,197,94,0.8)]' : e.type === 'visit' ? 'bg-primary' : 'bg-muted-foreground'}`} />
-                <span className="font-mono text-muted-foreground">{timeAgo(e.at)}</span>
-                <span className="font-bold text-foreground">
-                  {e.type === 'sale' ? (e.amount ? formatMoney(e.amount, e.currency) : 'Nova Venda') : e.title || e.type}
-                </span>
-              </div>
-            ))}
-            {/* Duplicado para loop contínuo */}
-            {events.slice(0, 15).map(e => (
-              <div key={e.id + '-dup'} className="flex items-center gap-2 bg-secondary/50 rounded-full px-4 py-1.5 text-xs">
-                <span className={`size-2 rounded-full ${e.type === 'sale' ? 'bg-success shadow-[0_0_8px_rgba(34,197,94,0.8)]' : e.type === 'visit' ? 'bg-primary' : 'bg-muted-foreground'}`} />
-                <span className="font-mono text-muted-foreground">{timeAgo(e.at)}</span>
-                <span className="font-bold text-foreground">
-                  {e.type === 'sale' ? (e.amount ? formatMoney(e.amount, e.currency) : 'Nova Venda') : e.title || e.type}
-                </span>
-              </div>
-            ))}
+        {/* LIVE TIMELINE FEED */}
+        <div className="w-full lg:w-96 bg-black/20 backdrop-blur-sm p-4 overflow-y-auto relative custom-scrollbar flex flex-col gap-4">
+          <div className="sticky top-0 bg-background/50 backdrop-blur-md px-2 py-1.5 rounded-lg border border-border/50 text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 shadow-sm z-10 flex items-center justify-between">
+            <span>Últimos Eventos</span>
+            <Activity className="size-3 text-[color:var(--brand-cyan)]" />
           </div>
-          <style dangerouslySetInnerHTML={{__html: `
-            @keyframes scrollX {
-              0% { transform: translateX(0); }
-              100% { transform: translateX(-50%); }
-            }
-          `}} />
+          
+          <div className="relative pl-4 border-l border-border/30 ml-2 space-y-4 pb-4">
+            {events.slice(0, 30).map((e, index) => {
+              const isSale = e.type === 'sale'
+              const isLead = e.type === 'lead' || e.type === 'checkout'
+              const isFailed = e.type === 'failed' || e.type === 'refund' || e.type === 'dispute'
+              
+              let colorClass = 'bg-muted-foreground/30 text-muted-foreground'
+              let glowClass = ''
+              if (isSale) {
+                colorClass = 'bg-success text-white'
+                glowClass = 'shadow-[0_0_10px_rgba(34,197,94,0.6)]'
+              } else if (isFailed) {
+                colorClass = 'bg-error text-white'
+                glowClass = 'shadow-[0_0_10px_rgba(239,68,68,0.6)]'
+              } else if (isLead) {
+                colorClass = 'bg-[color:var(--brand-cyan)] text-black'
+                glowClass = 'shadow-[0_0_10px_rgba(37,244,238,0.6)]'
+              }
+
+              return (
+                <div key={`${e.id}-${index}`} className="relative flex flex-col gap-1 animate-in slide-in-from-top-2 fade-in duration-500 fill-mode-both" style={{ animationDelay: `${index * 50}ms` }}>
+                  {/* Timeline Dot */}
+                  <div className={`absolute -left-[21px] top-1.5 size-2.5 rounded-full ${colorClass} ${glowClass} border-2 border-background`} />
+                  
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono text-muted-foreground/80">{timeAgo(e.at)}</span>
+                    {isSale && e.amount && (
+                      <span className="text-xs font-black text-success tabular-nums">+{formatMoney(e.amount, e.currency)}</span>
+                    )}
+                  </div>
+                  
+                  <div className={`rounded-xl border p-2.5 shadow-sm transition-colors hover:bg-secondary/40 ${isSale ? 'border-success/30 bg-success/5' : isFailed ? 'border-error/30 bg-error/5' : 'border-border/40 bg-background/40'}`}>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-bold text-foreground">
+                        {isSale ? 'Compra Aprovada' : e.title || e.type}
+                      </span>
+                      {e.title && isSale && (
+                        <span className="text-[10px] text-muted-foreground truncate">{e.title}</span>
+                      )}
+                      {(e.country || e.gateway) && (
+                        <div className="flex items-center gap-2 mt-1 text-[9px] uppercase tracking-wider font-semibold text-muted-foreground/60">
+                          {e.country && <span className="flex items-center gap-1"><Globe2 className="size-2.5" /> {e.country}</span>}
+                          {e.gateway && <span className="flex items-center gap-1"><Zap className="size-2.5" /> {e.gateway}</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
         </div>
       </GlassCard>
     </div>

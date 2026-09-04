@@ -3270,6 +3270,35 @@ module.exports = function registerAdsRoutes(app, dashboardAuth, deps) {
     } catch (err) { fail(res, err); }
   });
 
+  // Clona um produto N vezes em massa para o catálogo
+  app.post('/api/ads/catalogs/:catalogId/products/:productId/bulk-clone', dashboardAuth, async (req, res) => {
+    try {
+      const advertiserId = await catalogAdvertiserId(req);
+      const { catalogId, productId } = req.params;
+      let count = Number((req.body || {}).count) || 1;
+      if (count < 1) count = 1;
+      if (count > 500) count = 500;
+
+      const product = await catalogStore.getCatalogProduct(req.account.id, advertiserId, catalogId, productId);
+      if (!product) return res.status(404).json({ error: 'Produto original não encontrado' });
+
+      const newProducts = [];
+      const crypto = require('crypto');
+      for (let i = 0; i < count; i++) {
+        const newSku = crypto.randomBytes(6).toString('hex').toUpperCase();
+        newProducts.push({
+          ...product.data,
+          sku_id: newSku,
+          item_group_id: newSku,
+          title: `${product.data.title || 'Produto'} — cópia ${i + 1}`
+        });
+      }
+
+      await catalogStore.bulkUpsertProducts(req.account.id, advertiserId, catalogId, newProducts, catalogFeed.validateProduct);
+      res.json({ ok: true, clonedCount: newProducts.length });
+    } catch (err) { fail(res, err); }
+  });
+
   // Importa CSV (texto no corpo). Aceita o template oficial do TikTok — ignora
   // cabeçalho e as linhas de instrução (4 & 5). Upsert por SKU: reimportar
   // atualiza em vez de duplicar.

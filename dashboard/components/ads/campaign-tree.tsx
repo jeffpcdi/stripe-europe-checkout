@@ -25,6 +25,7 @@ import {
   Check,
   X,
   Search,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { apiSend } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -180,6 +181,7 @@ export function CampaignTree({
   // esconde resultados de outras páginas. "Só com gasto" nasce desligado.
   const [query, setQuery] = useState('')
   const [onlyWithSpend, setOnlyWithSpend] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
 
   // Uma seleção de lote não pode sobreviver à troca de página/filtro/período;
   // do contrário, ações poderiam atingir campanhas que já não estão visíveis.
@@ -406,8 +408,9 @@ export function CampaignTree({
     const attr = attribution?.[id]
     const spend = Number(c.metrics?.spend) || 0
     const roas = attr && attr.sales > 0 && spend > 0 ? attr.revenueCents / 100 / spend : null
-    const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected'
-    const errorMsg =
+    const isError = c.status === 'error' || c.status === 'rejected' || c.reviewStatus === 'rejected' || c.childStatus === 'rejected'
+    
+    let baseError =
       c.reviewStatus === 'rejected'
         ? 'Revisão rejeitada pelo TikTok'
         : c.status === 'error'
@@ -416,77 +419,106 @@ export function CampaignTree({
             ? 'Campanha rejeitada'
             : null
 
+    const rejectionReasons = new Set<string>()
+    if (c.adSets) {
+      for (const s of c.adSets) {
+        if (s.ads) {
+          for (const ad of s.ads) {
+            if (ad.rejectionReason) rejectionReasons.add(ad.rejectionReason)
+          }
+        }
+      }
+    }
+
+    let detailedError = baseError
+    if (rejectionReasons.size > 0) {
+      detailedError = Array.from(rejectionReasons).join(' • ')
+    } else if (isError && !detailedError) {
+      detailedError = 'Problema na conta ou orçamento (Verifique o TikTok Ads)'
+    }
+
     return (
-      <div className={`border-b border-border/70 ${isError ? 'bg-error/10' : ''}`}>
-        {/* Linha compacta — ações aparecem no hover/focus (sm+), sempre
-            visíveis no mobile (não há hover no touch) */}
-        <div className="group flex items-center gap-1.5 overflow-hidden px-2 hover:bg-secondary/40 sm:gap-2 sm:px-3">
-          <input
-            type="checkbox"
-            checked={selected.has(id)}
-            onChange={() => toggleSelect(id)}
-            aria-label={`Selecionar campanha ${c.campaignName || id}`}
-            className="size-3.5 shrink-0 accent-[color:var(--primary)]"
-          />
-          <button
-            type="button"
-            onClick={() => toggle(id)}
-            aria-expanded={isOpen}
-            aria-label={`${isOpen ? 'Recolher' : 'Expandir'} campanha ${c.campaignName || id}`}
-            className="flex min-w-0 flex-1 items-center gap-1.5 py-2 text-left sm:gap-2"
-          >
-            <ChevronRight
-              className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-90' : ''}`}
-              aria-hidden="true"
+      <div className="px-2 py-1.5 sm:px-4 sm:py-2">
+        <div className={`group relative overflow-hidden rounded-xl border bg-background shadow-sm transition-all duration-300 hover:shadow-md ${isError ? 'border-error/30 bg-error/5' : 'border-border/50 hover:border-primary/20'}`}>
+          <div className="flex items-center gap-2 p-3 sm:gap-3">
+            <input
+              type="checkbox"
+              checked={selected.has(id)}
+              onChange={() => toggleSelect(id)}
+              aria-label={`Selecionar campanha ${c.campaignName || id}`}
+              className="size-3.5 shrink-0 accent-[color:var(--primary)]"
             />
-            <span
-              className={`size-1.5 shrink-0 rounded-full ${meta.dot}`}
-              aria-hidden="true"
-              title={meta.label}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-1.5">
-                {/* Nome limpo ("Copy N of" removido); original + ID no hover */}
-                <span
-                  className="truncate text-[13px] font-medium text-foreground"
-                  title={`${c.campaignName || 'Sem nome'} · ${id}`}
-                >
-                  {cleanCampaignName(c.campaignName || id)}
-                </span>
-                {c.childStatus && c.childStatus !== c.status && (
-                  <AlertTriangle
-                    className="size-3 shrink-0 text-warning"
-                    aria-hidden="true"
-                  />
-                )}
-                {/* Selo de revisão aprovada — o gestor vê "validada" de relance */}
-                {c.reviewStatus === 'approved' && (
+            <button
+              type="button"
+              onClick={() => toggle(id)}
+              aria-expanded={isOpen}
+              aria-label={`${isOpen ? 'Recolher' : 'Expandir'} campanha ${c.campaignName || id}`}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            >
+              <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-secondary/50 transition-colors group-hover:bg-primary/10">
+                <ChevronRight
+                  className={`size-4 text-muted-foreground transition-transform duration-300 group-hover:text-primary ${isOpen ? 'rotate-90' : ''}`}
+                  aria-hidden="true"
+                />
+              </div>
+              <div className="min-w-0 flex-1 flex flex-col justify-center">
+                <div className="flex items-center gap-2">
                   <span
-                    className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-success"
-                    title="Anúncios validados pelo TikTok"
+                    className={`size-2 shrink-0 rounded-full ${meta.dot} shadow-[0_0_8px_rgba(0,0,0,0.1)] ${meta.dot.replace('bg-', 'shadow-')}`}
+                    aria-hidden="true"
+                    title={meta.label}
+                  />
+                  <span
+                    className="truncate text-sm font-semibold text-foreground tracking-tight"
+                    title={`${c.campaignName || 'Sem nome'} · ${id}`}
                   >
-                    <BadgeCheck className="size-2.5" aria-hidden="true" />
-                    <span className="hidden sm:inline">Validada</span>
+                    {cleanCampaignName(c.campaignName || id)}
                   </span>
+                  {c.childStatus && c.childStatus !== c.status && (
+                    <AlertTriangle
+                      className="size-3.5 shrink-0 text-warning"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {c.reviewStatus === 'approved' && (
+                    <span
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-success"
+                      title="Anúncios validados pelo TikTok"
+                    >
+                      <BadgeCheck className="size-3" aria-hidden="true" />
+                      <span className="hidden sm:inline">Validada</span>
+                    </span>
+                  )}
+                </div>
+                {detailedError && (
+                  <div className="mt-2 w-fit max-w-[280px] sm:max-w-md rounded-md bg-error/10 px-2 py-1.5 border border-error/20">
+                    <span className="line-clamp-2 text-[11px] font-medium leading-snug text-error">
+                      {detailedError}
+                    </span>
+                  </div>
                 )}
-              </span>
-              {errorMsg && <span className="mt-0.5 block truncate text-[11px] text-error">{errorMsg}</span>}
+              </div>
+            </button>
+
+
+          {/* Métricas principais condensadas em badges */}
+          <div className="hidden shrink-0 items-center gap-2 lg:flex">
+            <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-semibold tabular-nums ${spend > 0 ? 'bg-secondary/50 text-foreground' : 'text-muted-foreground'}`}>
+              Gasto: {fmtMoney(c.metrics?.spend, c.currency || currency)}
             </span>
-          </button>
+            {roas !== null && (
+              <span className="inline-flex items-center rounded-md bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success shadow-sm shadow-success/10 tabular-nums">
+                ROAS {roas.toFixed(2)}
+              </span>
+            )}
+            {(c.metrics?.conversions || 0) > 0 ? (
+              <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary tabular-nums">
+                {fmtCompact(c.metrics?.conversions)} conv.
+              </span>
+            ) : null}
+          </div>
 
-          {/* Gasto zero em cinza sem destaque — 100 linhas de "US$ 0,00" em
-              negrito eram só ruído; o olho agora acha quem gastou de verdade */}
-          <span
-            className={`${colGasto} text-[13px] ${spend > 0 ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}
-          >
-            {fmtMoney(c.metrics?.spend, c.currency || currency)}
-          </span>
-          <span className={`${colRoas} text-[13px] font-medium ${roas !== null ? 'text-success' : 'text-muted-foreground'}`}>
-            {roas !== null ? roas.toFixed(2) : '—'}
-          </span>
-          <span className={`${colConv} text-[13px] text-foreground`}>{fmtCompact(c.metrics?.conversions)}</span>
-
-          <div className={colActions}>
+          <div className="ml-auto flex shrink-0 items-center gap-1 opacity-100 sm:opacity-0 sm:transition-all sm:duration-300 sm:focus-within:opacity-100 sm:group-hover:opacity-100 sm:-translate-x-2 sm:group-hover:translate-x-0 bg-background/80 backdrop-blur-sm sm:absolute sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:p-1.5 sm:rounded-lg sm:border sm:border-border/50 sm:shadow-sm">
             {busy ? (
               <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
             ) : (
@@ -534,8 +566,8 @@ export function CampaignTree({
 
         {/* Bloco expandido: métricas secundárias + grupos/anúncios */}
         {isOpen && (
-          <div className="anim-content-in border-t border-border/60 bg-background/40 px-3 py-3 pl-9">
-            <div className="mb-2 flex flex-wrap items-center gap-3">
+          <div className="anim-content-in border-t border-border/50 bg-secondary/10 px-4 py-4 sm:px-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               {onOpenDetail && (
                 <button
                   type="button"
@@ -565,10 +597,10 @@ export function CampaignTree({
               <p className="py-2 text-xs text-muted-foreground">Nenhum grupo de anúncios nesta campanha.</p>
             ) : (
               (c.adSets ?? []).map((s, si) => (
-                <div key={s.platformAdSetId ?? si} className="py-2">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div key={s.platformAdSetId ?? si} className="py-3">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-border/30 pb-2">
                     <Layers className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    <span className="text-xs font-medium text-foreground">
+                    <span className="text-sm font-semibold text-foreground tracking-tight">
                       {s.adSetName || s.name || s.platformAdSetId || `Grupo ${si + 1}`}
                     </span>
                     <StatusPill status={s.status} />
@@ -642,69 +674,89 @@ export function CampaignTree({
                       )
                     })()}
                   </div>
-                  <ul className="mt-1 flex flex-col">
+                  <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {(s.ads ?? []).map((ad, ai) => {
                       const adKey = ad.platformAdId || ad._id || String(ai)
                       return (
                         <li
                           key={adKey}
-                          className="group flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-secondary/40"
+                          className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md hover:bg-background"
                         >
-                          <Clapperboard className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                          <span className="min-w-0 flex-1 truncate text-xs text-foreground">{ad.name || adKey}</span>
-                          {ad.adType === 'boost' && (
-                            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                              Spark
-                            </span>
-                          )}
-                          <StatusPill status={ad.status} />
+                          <div className="flex items-start gap-2">
+                            <Clapperboard className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden="true" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="truncate text-[13px] font-semibold text-foreground" title={ad.name || adKey}>{ad.name || adKey}</span>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                <StatusPill status={ad.status} />
+                                {ad.adType === 'boost' && (
+                                  <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                    Spark
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
                           {ad.rejectionReason && (
-                            <span className="max-w-48 truncate text-[11px] text-error" title={ad.rejectionReason}>
-                              {ad.rejectionReason}
-                            </span>
+                            <div className="rounded-md bg-error/10 p-1.5">
+                              <span className="line-clamp-2 text-[10px] text-error" title={ad.rejectionReason}>
+                                {ad.rejectionReason}
+                              </span>
+                            </div>
                           )}
-                          <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">
-                            {fmtMoney(ad.metrics?.spend, currency)} · {fmtCompact(ad.metrics?.impressions)} impr.
-                          </span>
-                          {isProductLinkAd(ad) ? (
-                            <span className="hidden rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary sm:inline" title="O destino vem do campo Link dos produtos deste catálogo">
-                              Link do catálogo
+
+                          <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-2">
+                            <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                              {fmtMoney(ad.metrics?.spend, currency)} · {fmtCompact(ad.metrics?.impressions)} impr.
                             </span>
-                          ) : ad.creative?.linkUrl && (
+                            
+                            {isProductLinkAd(ad) ? (
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary" title="O destino vem do campo Link dos produtos deste catálogo">
+                                Link Catálogo
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {/* Hover Actions Bar */}
+                          <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-border/50 bg-background/80 p-0.5 opacity-100 backdrop-blur-sm transition-all sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 shadow-sm">
+                            {ad.creative?.linkUrl && !isProductLinkAd(ad) && (
                             <a
                               href={ad.creative.linkUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="btn-ghost px-1.5 py-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
                               aria-label="Abrir página de destino do anúncio"
                               title="Página de destino"
                             >
-                              <ExternalLink className="size-3" aria-hidden="true" />
+                              <ExternalLink className="size-3.5" aria-hidden="true" />
                             </a>
                           )}
                           <button
                             type="button"
-                            className="btn-ghost px-1.5 py-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
                             onClick={() => setEditAd({ ad, adAccountId: c.platformAdAccountId || '' })}
                             aria-label={`Editar anúncio ${ad.name || adKey}`}
                             title={isProductLinkAd(ad) ? 'Editar texto e botão' : 'Editar texto, botão e link'}
                           >
-                            <Pencil className="size-3" aria-hidden="true" />
+                            <Pencil className="size-3.5" aria-hidden="true" />
                           </button>
                           <button
                             type="button"
-                            className="btn-ghost px-1.5 py-1 text-error opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-error/15 hover:text-error"
                             onClick={() => setDeleteAd({ ad, adAccountId: c.platformAdAccountId || '' })}
                             aria-label={`Excluir anúncio ${ad.name || adKey}`}
                             title="Excluir anúncio"
                           >
-                            <Trash2 className="size-3" aria-hidden="true" />
+                            <Trash2 className="size-3.5" aria-hidden="true" />
                           </button>
+                          </div>
                         </li>
                       )
                     })}
                     {(s.ads ?? []).length === 0 && (
-                      <li className="px-2 py-1.5 text-[11px] text-muted-foreground">Sem anúncios neste grupo.</li>
+                      <li className="col-span-full rounded-xl border border-dashed border-border/60 p-4 text-center text-[11px] text-muted-foreground">
+                        Sem anúncios neste grupo.
+                      </li>
                     )}
                   </ul>
                 </div>
@@ -712,6 +764,7 @@ export function CampaignTree({
             )}
           </div>
         )}
+        </div>
       </div>
     )
   }
@@ -724,77 +777,99 @@ export function CampaignTree({
     <GlassCard className="min-w-0 overflow-hidden p-0">
       {/* Toolbar em 2 linhas: busca (com contagem) em cima; status + filtros
           de dados embaixo. Antes tudo disputava uma linha só e nada respirava. */}
-      <div className="flex flex-col gap-2 border-b border-border px-3 py-3 sm:px-4">
-        <div className="flex items-center gap-2">
-          <div className="relative min-w-0 flex-1 sm:max-w-xs">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar campanha…"
-              aria-label="Buscar campanha por nome"
-              className="input-neon w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground"
-            />
-          </div>
-          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-            {visible.length !== campaigns.length
-              ? `${visible.length} de ${campaigns.length}`
-              : `${campaigns.length} campanha${campaigns.length === 1 ? '' : 's'}`}
-          </span>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <label className="sm:hidden">
-            <span className="sr-only">Filtrar campanhas por status</span>
-            <select
-              className="input-neon w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
-              value={statusFilter}
-              onChange={(event) => onStatusFilter(event.target.value)}
-              aria-label="Filtrar campanhas por status"
-            >
-              {STATUS_FILTERS.map((filter) => (
-                <option key={filter.value || 'all'} value={filter.value}>{filter.label}</option>
+      <div className="flex flex-col gap-3 border-b border-border/50 px-3 py-3 sm:px-4">
+        {/* Top bar: Busca, Status e Botão de Filtros */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar campanha…"
+                aria-label="Buscar campanha por nome"
+                className="w-full rounded-full border border-border/50 bg-secondary/20 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-shadow"
+              />
+            </div>
+            
+            <div className="hidden items-center gap-1 sm:flex rounded-full bg-secondary/30 p-0.5" role="group" aria-label="Filtrar por status">
+              {STATUS_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => onStatusFilter(f.value)}
+                  aria-pressed={statusFilter === f.value}
+                  className={`rounded-full px-3 py-1 text-[11px] font-medium transition-all duration-200 ${
+                    statusFilter === f.value
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {f.label}
+                </button>
               ))}
-            </select>
-          </label>
-          <div className="hidden flex-wrap items-center gap-1 sm:flex" role="group" aria-label="Filtrar por status">
-            {STATUS_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => onStatusFilter(f.value)}
-                aria-pressed={statusFilter === f.value}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  statusFilter === f.value
-                    ? 'bg-primary/15 text-primary'
-                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-wrap sm:items-center sm:gap-3">
-            {/* Esconde as dezenas de campanhas zeradas (testes) com 1 clique */}
+          
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="hidden sm:inline-block text-[11px] tabular-nums text-muted-foreground">
+              {visible.length !== campaigns.length
+                ? `${visible.length} de ${campaigns.length}`
+                : `${campaigns.length} total`}
+            </span>
+            <button 
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center justify-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                showFilters || onlyWithSpend || sort !== 'newest'
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-border/50 bg-background text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
+              }`}
+            >
+              <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">Filtros</span>
+            </button>
+          </div>
+        </div>
+        
+        {/* Mobile status select (hidden on desktop) */}
+        <label className="sm:hidden">
+          <span className="sr-only">Filtrar campanhas por status</span>
+          <select
+            className="w-full rounded-lg border border-border/50 bg-secondary/20 px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+            value={statusFilter}
+            onChange={(event) => onStatusFilter(event.target.value)}
+            aria-label="Filtrar campanhas por status"
+          >
+            {STATUS_FILTERS.map((filter) => (
+              <option key={filter.value || 'all'} value={filter.value}>{filter.label}</option>
+            ))}
+          </select>
+        </label>
+
+        {/* Collapsed Filters Menu */}
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-24 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/40 bg-secondary/10 p-2.5 sm:p-3">
             <button
               type="button"
               onClick={() => setOnlyWithSpend((v) => !v)}
               aria-pressed={onlyWithSpend}
               className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                 onlyWithSpend
-                  ? 'border-primary/30 bg-primary/15 text-primary'
-                  : 'border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground'
+                  ? 'border-primary/30 bg-primary/15 text-primary shadow-sm'
+                  : 'border-border/50 bg-background text-muted-foreground hover:border-border hover:text-foreground'
               }`}
             >
-              Só com gasto
+              Exibir apenas com gasto
             </button>
             <label className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
-              <span className="sr-only">Ordenar campanhas</span>
+              <span className="font-medium">Ordenar por:</span>
               <select
-                className="input-neon w-full min-w-0 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] text-foreground"
+                className="w-32 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
                 value={sort}
                 onChange={(e) => onSort(e.target.value)}
                 aria-label="Ordenar campanhas"
